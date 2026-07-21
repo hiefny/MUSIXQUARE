@@ -150,6 +150,9 @@ describe('Developer API public documentation', () => {
       '[0, 0, 0, 0, 0]',
       'on value is <code>60</code>; off is\n              <code>0</code>',
       'on value is <code>120</code>; neutral/off is <code>100</code>',
+      'virtualTreble: { enabled: true }',
+      '<code>X-MXQR-Effects-Version: 2</code>',
+      '<code>enabled</code> is a boolean',
     ]) {
       expect(html).toContain(example);
     }
@@ -158,6 +161,7 @@ describe('Developer API public documentation', () => {
 
     expect(spec).toContain('operationId: getEffects');
     expect(spec).toContain('EffectsState:');
+    expect(spec).toContain('EffectsStateV2:');
     expect(spec).toContain('RoomEffects:');
     expect(spec).toContain('SetEffectsCommand:');
     expect(spec).toContain('EffectsPatch:');
@@ -167,6 +171,14 @@ describe('Developer API public documentation', () => {
       'required: [schemaVersion, view, roomCode, revision, updatedAtMs, effects]',
     );
     expect(spec).toContain('required: [reverb, equalizer, virtualBass, virtualSurround]');
+    expect(spec).toContain(
+      'required: [reverb, equalizer, virtualBass, virtualSurround, virtualTreble]',
+    );
+    expect(spec).toContain('virtualTreble: { $ref:');
+    expect(spec).toContain("enum: ['1', '2']");
+    expect(spec).toContain(
+      "'304':\n          description: Representation is unchanged.\n          headers:\n            Vary: { schema: { const: X-MXQR-Effects-Version } }",
+    );
     expect(spec).toContain(
       'required: [mixPercent, decaySeconds, preDelaySeconds, lowCutPercent, highCutPercent]',
     );

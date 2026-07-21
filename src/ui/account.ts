@@ -17,8 +17,10 @@ import {
   validateAccountNickname,
 } from '../account/nickname.ts';
 import {
+  clearAccountLoginReturn,
   rememberAccountLoginReturn,
   restoreAccountLoginReturnPath,
+  sanitizeAccountLoginReturnPath,
 } from '../account/login-return.ts';
 import { clearIntentionalNav, markIntentionalNav } from '../core/page-lifecycle.ts';
 import { t } from '../i18n/index.ts';
@@ -55,6 +57,7 @@ let _profilePromptActive = false;
 let _accountActionPending = false;
 let _accountLoginPopup: Window | null = null;
 let _accountLoginPopupMonitor: ReturnType<typeof setInterval> | null = null;
+let _accountLoginNavigationGuard: ReturnType<typeof setTimeout> | null = null;
 let _accountResultChannel: BroadcastChannel | null = null;
 let _accountResultLifecycleBound = false;
 let _profilePromptVisibilityBound = false;
@@ -128,6 +131,57 @@ function stopAccountLoginPopupMonitor(): void {
   if (_accountLoginPopupMonitor === null) return;
   globalThis.clearInterval(_accountLoginPopupMonitor);
   _accountLoginPopupMonitor = null;
+}
+
+function stopAccountLoginNavigationGuard(): void {
+  if (_accountLoginNavigationGuard === null) return;
+  globalThis.clearTimeout(_accountLoginNavigationGuard);
+  _accountLoginNavigationGuard = null;
+}
+
+/** Prepare an anchor fallback that will replace this browsing context. */
+function prepareSameTabAccountLogin(anchor: HTMLAnchorElement, activationEvent: MouseEvent): void {
+  const context = getRoomContext();
+  const pathnameRoomCode = window.location.pathname.match(/^\/(0\d{5})$/)?.[1] ?? null;
+  const roomCode =
+    context.kind === 'pro' && context.roomId && /^0\d{5}$/.test(context.roomId)
+      ? context.roomId
+      : pathnameRoomCode;
+  const rawReturnTo = roomCode
+    ? `/${roomCode}${window.location.search}${window.location.hash}`
+    : `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const returnTo = sanitizeAccountLoginReturnPath(rawReturnTo) ?? (roomCode ? `/${roomCode}` : '/');
+  const attemptId = rememberAccountLoginReturn(returnTo, roomCode, {
+    allowSilentTakeover:
+      context.kind === 'pro' && context.roomId === roomCode && context.role !== 'idle',
+  });
+  // The href may have been rendered before room context projection completed.
+  anchor.href = buildGoogleLoginUrl(location, returnTo);
+  markIntentionalNav();
+  stopAccountLoginNavigationGuard();
+  // Some native shells can abandon an anchor activation without exposing
+  // preventDefault(). Bound that otherwise-unobservable case to the same
+  // lifetime as the OAuth return intent. The recovery hint remains available
+  // for its own parser/TTL cleanup; only the unload-prompt exemption expires.
+  _accountLoginNavigationGuard = globalThis.setTimeout(
+    () => {
+      _accountLoginNavigationGuard = null;
+      clearIntentionalNav();
+    },
+    10 * 60 * 1000,
+  );
+  // Inspect cancellation only after every click listener has run. A timeout is
+  // not a safe navigation signal: on a slow mobile network the old document
+  // can remain alive for several seconds before its eventual pagehide. Keep
+  // both the unload exemption and the TTL-bounded recovery hint until the
+  // navigation actually commits, unless another listener explicitly cancels
+  // this exact activation.
+  globalThis.queueMicrotask(() => {
+    if (!activationEvent.defaultPrevented) return;
+    stopAccountLoginNavigationGuard();
+    clearIntentionalNav();
+    if (attemptId) clearAccountLoginReturn(attemptId);
+  });
 }
 
 function monitorAccountLoginPopup(popup: Window): void {
@@ -401,25 +455,7 @@ function bindAccountDialog(): void {
       window.matchMedia?.('(display-mode: standalone)').matches === true ||
       (navigator as Navigator & { standalone?: boolean }).standalone === true;
     if (standalone) {
-      const context = getRoomContext();
-      const pathnameRoomCode = window.location.pathname.match(/^\/(\d{6})$/)?.[1] ?? null;
-      const roomCode =
-        context.kind === 'pro' && context.roomId && /^\d{6}$/.test(context.roomId)
-          ? context.roomId
-          : pathnameRoomCode;
-      const returnTo = roomCode
-        ? `/${roomCode}${window.location.search}${window.location.hash}`
-        : `${window.location.pathname}${window.location.search}${window.location.hash}`;
-      rememberAccountLoginReturn(returnTo, roomCode);
-      // The href was initially rendered before the room context necessarily
-      // existed. Refresh it at the activation gesture so a PWA always returns
-      // to the live room rather than the install start URL.
-      (event.currentTarget as HTMLAnchorElement).href = buildGoogleLoginUrl(location, returnTo);
-      markIntentionalNav();
-      // If a browser/extension cancels the anchor navigation after this
-      // handler, do not leave the active room without its ordinary unload
-      // protection for the rest of the document lifetime.
-      globalThis.setTimeout(clearIntentionalNav, 2_000);
+      prepareSameTabAccountLogin(event.currentTarget as HTMLAnchorElement, event);
       return;
     }
     try {
@@ -440,7 +476,10 @@ function bindAccountDialog(): void {
         `mxqr-google-login-${ACCOUNT_CLIENT_ID}`,
         'popup=yes,width=520,height=720,resizable=yes,scrollbars=yes',
       );
-      if (!popup) return;
+      if (!popup) {
+        prepareSameTabAccountLogin(event.currentTarget as HTMLAnchorElement, event);
+        return;
+      }
       try {
         // The completion page uses BroadcastChannel/storage, so it does not
         // need a live opener reference while visiting the OAuth provider.
@@ -454,6 +493,7 @@ function bindAccountDialog(): void {
         } catch {
           // Best-effort cleanup only; the same-tab anchor remains available.
         }
+        prepareSameTabAccountLogin(event.currentTarget as HTMLAnchorElement, event);
         return;
       }
       event.preventDefault();
@@ -463,6 +503,7 @@ function bindAccountDialog(): void {
     } catch {
       // Popup blocking and constrained installed-app browsers fall back to the
       // anchor's ordinary same-tab OAuth navigation.
+      prepareSameTabAccountLogin(event.currentTarget as HTMLAnchorElement, event);
     }
   });
   overlay.addEventListener('click', (event) => {
@@ -607,6 +648,7 @@ export function __resetAccountUiForTests(): void {
   _accountActionPending = false;
   _accountLoginPopup = null;
   stopAccountLoginPopupMonitor();
+  stopAccountLoginNavigationGuard();
   _handledAccountResultIds.clear();
   if (_accountResultLifecycleBound && typeof window !== 'undefined') {
     window.removeEventListener('message', handleAccountResultMessage);

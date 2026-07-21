@@ -1,19 +1,42 @@
 /**
- * Same-tab OAuth return continuity for installed/mobile app shells.
+ * OAuth return continuity for installed/mobile app shells.
  *
- * A standalone PWA cannot rely on a provider popup returning control to the
- * live room document. Keep one short-lived, same-tab intent in sessionStorage
- * so the callback can restore the exact PRO route and reclaim the presence
- * incarnation that belonged to this tab before OAuth navigation.
+ * The exact route stays in sessionStorage for an ordinary same-context OAuth
+ * round trip. A second, deliberately narrower record survives a fully closed
+ * installed PWA: it contains only the PRO room path and is therefore a route
+ * hint, never evidence of authentication, room authority, or same-tab
+ * ownership.
  */
 
-const STORAGE_KEY = 'mxqr-account-login-return-v1';
-const MAX_AGE_MS = 15 * 60 * 1000;
+const SESSION_STORAGE_KEY = 'mxqr-account-login-return-v1';
+const DURABLE_STORAGE_KEY = 'mxqr-account-login-return-durable-v1';
+const MAX_AGE_MS = 10 * 60 * 1000;
+const MAX_FUTURE_SKEW_MS = 60_000;
+const ATTEMPT_ID_RE = /^[A-Za-z0-9_-]{8,128}$/;
+const PRO_ROOM_CODE_RE = /^0\d{5}$/;
+const SENSITIVE_RETURN_PARAMETER_RE =
+  /^(?:pin|pro[-_]?pin|password|token|claim(?:token)?|pro-claim|pro-recovery)$/i;
 
 interface AccountLoginReturnIntent {
+  attemptId: string | null;
+  allowSilentTakeover: boolean;
   returnTo: string;
   roomCode: string | null;
   createdAt: number;
+}
+
+interface AccountLoginReturnRecovery {
+  /** Only a live same-context marker may reclaim its pre-OAuth incarnation. */
+  allowSilentTakeover: boolean;
+  source: 'same-context' | 'pwa-relaunch';
+}
+
+function hasUnsafeControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || code === 0x7f) return true;
+  }
+  return false;
 }
 
 function isSafeReturnPath(value: unknown): value is string {
@@ -21,28 +44,79 @@ function isSafeReturnPath(value: unknown): value is string {
     typeof value === 'string' &&
     value.startsWith('/') &&
     !value.startsWith('//') &&
+    !value.includes('\\') &&
+    !hasUnsafeControlCharacter(value) &&
     value.length <= 2048
   );
 }
 
-function parseIntent(raw: string | null, now = Date.now()): AccountLoginReturnIntent | null {
+/** Remove credential-shaped URL material before either OAuth or app storage. */
+export function sanitizeAccountLoginReturnPath(returnTo: string): string | null {
+  if (!isSafeReturnPath(returnTo)) return null;
+  try {
+    const target = new URL(returnTo, window.location.origin);
+    if (target.origin !== window.location.origin) return null;
+    for (const key of [...target.searchParams.keys()]) {
+      if (SENSITIVE_RETURN_PARAMETER_RE.test(key)) target.searchParams.delete(key);
+    }
+    const fragment = new URLSearchParams(target.hash.startsWith('#') ? target.hash.slice(1) : '');
+    if ([...fragment.keys()].some((key) => SENSITIVE_RETURN_PARAMETER_RE.test(key))) {
+      // PRO claim consumption deliberately scrubs the complete fragment, not
+      // selected pairs, so unrelated fragment state cannot retain a secret in
+      // a malformed/duplicated encoding.
+      target.hash = '';
+    }
+    return `${target.pathname}${target.search}${target.hash}` || '/';
+  } catch {
+    return null;
+  }
+}
+
+function parseIntent(
+  raw: string | null,
+  now = Date.now(),
+  durable = false,
+): AccountLoginReturnIntent | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<AccountLoginReturnIntent>;
+    const attemptId = parsed.attemptId ?? null;
+    const allowSilentTakeover =
+      parsed.allowSilentTakeover === undefined
+        ? // Version-1 session records were created only for the old
+          // same-context reclaim contract. Keep a bounded rollout bridge.
+          attemptId === null && !durable
+        : parsed.allowSilentTakeover;
     if (
       !isSafeReturnPath(parsed.returnTo) ||
       (parsed.roomCode !== null &&
-        (typeof parsed.roomCode !== 'string' || !/^\d{6}$/.test(parsed.roomCode))) ||
+        (typeof parsed.roomCode !== 'string' || !PRO_ROOM_CODE_RE.test(parsed.roomCode))) ||
+      (attemptId !== null && (typeof attemptId !== 'string' || !ATTEMPT_ID_RE.test(attemptId))) ||
+      typeof allowSilentTakeover !== 'boolean' ||
       typeof parsed.createdAt !== 'number' ||
       !Number.isFinite(parsed.createdAt) ||
-      parsed.createdAt > now + 60_000 ||
+      parsed.createdAt > now + MAX_FUTURE_SKEW_MS ||
       now - parsed.createdAt > MAX_AGE_MS
     ) {
       return null;
     }
+
+    const roomCode = parsed.roomCode ?? null;
+    // Durable storage is intentionally an exact, credential-free room path.
+    // Legacy/session records may keep harmless UI query/hash state, but no
+    // query, fragment, PIN, claim, or account material is persisted here.
+    if (
+      durable &&
+      (!attemptId || allowSilentTakeover || roomCode === null || parsed.returnTo !== `/${roomCode}`)
+    ) {
+      return null;
+    }
+
     return {
+      attemptId,
+      allowSilentTakeover,
       returnTo: parsed.returnTo,
-      roomCode: parsed.roomCode ?? null,
+      roomCode,
       createdAt: parsed.createdAt,
     };
   } catch {
@@ -50,42 +124,164 @@ function parseIntent(raw: string | null, now = Date.now()): AccountLoginReturnIn
   }
 }
 
-function readIntent(): AccountLoginReturnIntent | null {
+function readIntent(
+  storage: Storage,
+  key: string,
+  durable = false,
+): AccountLoginReturnIntent | null {
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    const intent = parseIntent(raw);
-    if (!intent && raw !== null) sessionStorage.removeItem(STORAGE_KEY);
+    const raw = storage.getItem(key);
+    const intent = parseIntent(raw, Date.now(), durable);
+    if (!intent && raw !== null) storage.removeItem(key);
     return intent;
   } catch {
     return null;
   }
 }
 
-export function rememberAccountLoginReturn(returnTo: string, roomCode: string | null): void {
-  if (!isSafeReturnPath(returnTo) || (roomCode !== null && !/^\d{6}$/.test(roomCode))) return;
+function readSessionIntent(): AccountLoginReturnIntent | null {
   try {
-    sessionStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        returnTo,
-        roomCode,
-        createdAt: Date.now(),
-      } satisfies AccountLoginReturnIntent),
-    );
+    return readIntent(window.sessionStorage, SESSION_STORAGE_KEY);
   } catch {
-    // Storage can be unavailable in hardened/private browser modes. OAuth still
-    // works through its ordinary server-owned returnTo path in that case.
+    return null;
   }
+}
+
+function readDurableIntent(): AccountLoginReturnIntent | null {
+  try {
+    return readIntent(window.localStorage, DURABLE_STORAGE_KEY, true);
+  } catch {
+    return null;
+  }
+}
+
+function removeIntent(storage: Storage, key: string, attemptId?: string): void {
+  try {
+    if (attemptId !== undefined) {
+      const current = readIntent(storage, key, key === DURABLE_STORAGE_KEY);
+      if (current?.attemptId !== attemptId) return;
+    }
+    storage.removeItem(key);
+  } catch {
+    // Best-effort cleanup only.
+  }
+}
+
+function clearAttempt(attemptId: string): void {
+  try {
+    removeIntent(window.sessionStorage, SESSION_STORAGE_KEY, attemptId);
+  } catch {
+    // Storage can be unavailable in hardened/private browser modes.
+  }
+  try {
+    removeIntent(window.localStorage, DURABLE_STORAGE_KEY, attemptId);
+  } catch {
+    // Storage can be unavailable in hardened/private browser modes.
+  }
+}
+
+function createAttemptId(): string {
+  try {
+    if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  } catch {
+    // Fall through to a non-authoritative correlation token.
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+}
+
+function returnPathMatchesRoom(returnTo: string, roomCode: string): boolean {
+  try {
+    const target = new URL(returnTo, window.location.origin);
+    return target.origin === window.location.origin && target.pathname === `/${roomCode}`;
+  } catch {
+    return false;
+  }
+}
+
+function isStandaloneAppContext(): boolean {
+  try {
+    if (window.matchMedia?.('(display-mode: standalone)').matches === true) return true;
+  } catch {
+    // Fall through to the iOS installation hint.
+  }
+  try {
+    return (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Remember one same-tab OAuth attempt and, for PRO rooms, one minimal durable
+ * relaunch path. The returned ID lets a cancelled anchor navigation clear only
+ * its own record without deleting a newer attempt from another tab.
+ */
+export function rememberAccountLoginReturn(
+  returnTo: string,
+  roomCode: string | null,
+  options: { allowSilentTakeover?: boolean } = {},
+): string | null {
+  // Non-PRO routes already round-trip through the server-owned returnTo and
+  // have no presence incarnation to reclaim. Do not create stale app storage
+  // for ordinary account login.
+  if (roomCode === null) return null;
+  const sanitizedReturnTo = sanitizeAccountLoginReturnPath(returnTo);
+  if (
+    !sanitizedReturnTo ||
+    !PRO_ROOM_CODE_RE.test(roomCode) ||
+    !returnPathMatchesRoom(sanitizedReturnTo, roomCode)
+  ) {
+    return null;
+  }
+
+  const attemptId = createAttemptId();
+  const createdAt = Date.now();
+  const sessionIntent: AccountLoginReturnIntent = {
+    attemptId,
+    allowSilentTakeover: options.allowSilentTakeover === true,
+    returnTo: sanitizedReturnTo,
+    roomCode,
+    createdAt,
+  };
+  try {
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionIntent));
+  } catch {
+    // The server-owned returnTo remains the normal callback path.
+  }
+
+  const durableIntent: AccountLoginReturnIntent = {
+    attemptId,
+    allowSilentTakeover: false,
+    // Never copy query/fragment data into localStorage. In particular this
+    // excludes PRO claims, PIN-like values, and account callback material.
+    returnTo: `/${roomCode}`,
+    roomCode,
+    createdAt,
+  };
+  try {
+    window.localStorage.setItem(DURABLE_STORAGE_KEY, JSON.stringify(durableIntent));
+  } catch {
+    // Same-context OAuth still works through sessionStorage/server returnTo.
+  }
+  return attemptId;
 }
 
 /** Restore a PRO route before setup.ts reads the initial URL. */
 export function restoreAccountLoginReturnPath(): boolean {
-  const intent = readIntent();
+  const sessionIntent = readSessionIntent();
+  const intent = sessionIntent?.roomCode
+    ? sessionIntent
+    : isStandaloneAppContext()
+      ? readDurableIntent()
+      : null;
   if (!intent?.roomCode || !/^\/?$/.test(window.location.pathname)) return false;
 
   const target = new URL(intent.returnTo, window.location.origin);
   if (target.origin !== window.location.origin || target.pathname !== `/${intent.roomCode}`) {
-    clearAccountLoginReturn();
+    if (intent.attemptId) clearAttempt(intent.attemptId);
+    else removeIntent(window.sessionStorage, SESSION_STORAGE_KEY);
     return false;
   }
 
@@ -105,20 +301,66 @@ export function restoreAccountLoginReturnPath(): boolean {
   }
 }
 
-/** Whether a room resume may silently replace this tab's pre-OAuth incarnation. */
-export function hasAccountLoginReturnForRoom(roomCode: string): boolean {
-  return readIntent()?.roomCode === roomCode;
+/**
+ * Consume the route hint exactly once when PRO setup starts. A durable PWA
+ * relaunch can restore/navigate, but it cannot silently displace another tab.
+ */
+export function consumeAccountLoginReturnForRoom(
+  roomCode: string,
+): AccountLoginReturnRecovery | null {
+  const sessionIntent = readSessionIntent();
+  if (sessionIntent?.roomCode === roomCode) {
+    if (sessionIntent.attemptId) clearAttempt(sessionIntent.attemptId);
+    else removeIntent(window.sessionStorage, SESSION_STORAGE_KEY);
+    return {
+      allowSilentTakeover: sessionIntent.allowSilentTakeover,
+      source: 'same-context',
+    };
+  }
+
+  // A valid marker for a different live browsing context must win over the
+  // shared durable slot. This avoids treating another tab's attempt as ours.
+  if (sessionIntent || !isStandaloneAppContext()) return null;
+  const durableIntent = readDurableIntent();
+  if (durableIntent?.roomCode !== roomCode) return null;
+  if (durableIntent.attemptId) clearAttempt(durableIntent.attemptId);
+  else removeIntent(window.localStorage, DURABLE_STORAGE_KEY);
+  return { allowSilentTakeover: false, source: 'pwa-relaunch' };
 }
 
-export function clearAccountLoginReturn(): void {
+/** Clear only the OAuth attempt owned by this browsing context. */
+export function clearCurrentAccountLoginReturn(): void {
+  const sessionIntent = readSessionIntent();
+  if (sessionIntent?.attemptId) {
+    clearAttempt(sessionIntent.attemptId);
+    return;
+  }
+  // A legacy session record has no durable counterpart. Never remove the
+  // shared durable slot here because it may belong to another active tab.
+  removeIntent(window.sessionStorage, SESSION_STORAGE_KEY);
+}
+
+export function clearAccountLoginReturn(attemptId?: string): void {
+  if (attemptId !== undefined) {
+    clearAttempt(attemptId);
+    return;
+  }
   try {
-    sessionStorage.removeItem(STORAGE_KEY);
+    window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch {
+    // Best-effort cleanup only.
+  }
+  try {
+    window.localStorage.removeItem(DURABLE_STORAGE_KEY);
   } catch {
     // Best-effort cleanup only.
   }
 }
 
 export const __accountLoginReturnForTests = {
-  STORAGE_KEY,
+  STORAGE_KEY: SESSION_STORAGE_KEY,
+  SESSION_STORAGE_KEY,
+  DURABLE_STORAGE_KEY,
+  MAX_AGE_MS,
   parseIntent,
 };

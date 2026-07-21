@@ -103,9 +103,10 @@ describe('Developer API live canary smoke', () => {
           return json(queue());
         }
         if (method === 'GET' && url.pathname === `/v1/rooms/${ROOM}/effects`) {
+          const effectsVersion = new Headers(init.headers).get('x-mxqr-effects-version');
           return json(
             {
-              schemaVersion: 1,
+              schemaVersion: effectsVersion === '2' ? 2 : 1,
               view: 'effects',
               roomCode: ROOM,
               revision: 1,
@@ -121,10 +122,14 @@ describe('Developer API live canary smoke', () => {
                 equalizer: { bandsDb: [0, 0, 0, 0, 0] },
                 virtualBass: { strengthPercent: 0 },
                 virtualSurround: { widthPercent: 100 },
+                ...(effectsVersion === '2' ? { virtualTreble: { enabled: false } } : {}),
               },
             },
             200,
-            { ETag: '"effects-etag"' },
+            {
+              ETag: effectsVersion === '2' ? '"effects-v2-etag"' : '"effects-etag"',
+              ...(effectsVersion === '2' ? { Vary: 'X-MXQR-Effects-Version' } : {}),
+            },
           );
         }
         if (method === 'GET' && url.pathname === `/v1/rooms/${ROOM}/queue-mode`) {
@@ -245,6 +250,9 @@ describe('Developer API live canary smoke', () => {
     expect(youtubePresent).toBe(false);
     expect(audioPresent).toBe(false);
     expect(calls).toContain(`GET https://api.musixquare.com/v1/rooms/${ROOM}/effects`);
+    expect(
+      calls.filter((call) => call === `GET https://api.musixquare.com/v1/rooms/${ROOM}/effects`),
+    ).toHaveLength(2);
     expect(calls).toContain(`GET https://api.musixquare.com/v1/rooms/${ROOM}/queue-mode`);
     expect(calls).toContain('PUT https://storage.example/upload');
     expect(calls.at(-1)).toBe(

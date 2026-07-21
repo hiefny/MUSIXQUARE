@@ -9,6 +9,7 @@ describe('PRO room effects runtime contract', () => {
     const desired = structuredClone(base);
     desired.reverb.mixPercent = 45;
     desired.equalizer.bandsDb[0] = 3;
+    desired.virtualTreble.enabled = true;
 
     const canonical = structuredClone(base);
     canonical.reverb.decaySeconds = 7;
@@ -18,6 +19,7 @@ describe('PRO room effects runtime contract', () => {
       ...canonical,
       reverb: { ...canonical.reverb, mixPercent: 45 },
       equalizer: { bandsDb: [3, -4, 0, 0, 0] },
+      virtualTreble: { enabled: true },
     });
   });
 
@@ -39,5 +41,7 @@ describe('PRO room effects runtime contract', () => {
     expect(runtimeSource).toContain('snapshot.effectsRevision > acceptedEffects.revision');
     expect(runtimeSource).toContain('snapshot.queueModeRevision > acceptedQueueMode.revision');
     expect(runtimeSource).toContain('applyRoomEffectsState(effects, { broadcast: false })');
+    expect(runtimeSource).toContain("'state:audio.exciter'");
+    expect(runtimeSource).toContain('let desired = captureRoomEffectsState()');
   });
 });

@@ -17,7 +17,11 @@ import {
   requestAccountNicknameChange,
 } from '../account.ts';
 import { updateCurrentAccountNickname } from '../../account/nickname.ts';
-import { clearIntentionalNav } from '../../core/page-lifecycle.ts';
+import { clearIntentionalNav, isIntentionalNav } from '../../core/page-lifecycle.ts';
+import {
+  __accountLoginReturnForTests,
+  rememberAccountLoginReturn,
+} from '../../account/login-return.ts';
 
 vi.mock('../dialog.ts', () => ({ showDialog: vi.fn() }));
 vi.mock('../toast.ts', () => ({ showToast: vi.fn() }));
@@ -60,6 +64,7 @@ beforeEach(() => {
   renderAccountDialog();
   vi.stubGlobal('fetch', vi.fn());
   sessionStorage.clear();
+  localStorage.clear();
   clearIntentionalNav();
   window.history.replaceState({}, '', '/');
 });
@@ -191,6 +196,100 @@ describe('optional account UI', () => {
 
     const returnTo = new URL(hrefAtActivation, window.location.origin).searchParams.get('returnTo');
     expect(returnTo).toBe('/000001?panel=connect#account');
+  });
+
+  it('restores an anonymous PRO route when a closed PWA relaunches at the manifest start URL', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    rememberAccountLoginReturn('/000001?panel=connect#account', '000001');
+    sessionStorage.clear();
+    window.history.replaceState({}, '', '/');
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ configured: true, authenticated: false, account: null }),
+    );
+
+    initAccount();
+
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(
+      '/000001',
+    );
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    expect(getAccountSnapshot().account).toBeNull();
+    expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).not.toBeNull();
+  });
+
+  it('leaves the room and return storage untouched when only the in-app modal is closed', async () => {
+    window.history.replaceState({}, '', '/000001?panel=connect#account');
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ configured: true, authenticated: false, account: null }),
+    );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    openAccountDialog();
+
+    document.getElementById('btn-account-close')?.click();
+
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(
+      '/000001?panel=connect#account',
+    );
+    expect(document.getElementById('account-dialog-overlay')?.classList.contains('show')).toBe(
+      false,
+    );
+    expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('cleans a same-tab fallback marker when the OAuth anchor navigation is cancelled', async () => {
+    window.history.replaceState({}, '', '/000001');
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ configured: true, authenticated: false, account: null }),
+    );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    openAccountDialog();
+    const google = document.getElementById('btn-account-google') as HTMLAnchorElement;
+    google.addEventListener('click', (event) => event.preventDefault());
+
+    google.dispatchEvent(new MouseEvent('click', { button: 0, bubbles: true, cancelable: true }));
+    await Promise.resolve();
+
+    expect(window.location.pathname).toBe('/000001');
+    expect(isIntentionalNav()).toBe(false);
+    expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
+  });
+
+  it('keeps a slow same-tab OAuth navigation recoverable beyond two seconds', async () => {
+    window.history.replaceState({}, '', '/000001');
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ configured: true, authenticated: false, account: null }),
+    );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    openAccountDialog();
+    const google = document.getElementById('btn-account-google') as HTMLAnchorElement;
+    // Keep jsdom on this document without cancelling the activation. The app's
+    // cancellation microtask must therefore treat it like a slow, still-live
+    // navigation rather than deleting its recovery state on elapsed time.
+    google.addEventListener('click', () => google.removeAttribute('href'));
+
+    vi.useFakeTimers();
+    google.dispatchEvent(new MouseEvent('click', { button: 0, bubbles: true, cancelable: true }));
+    await vi.advanceTimersByTimeAsync(2_500);
+
+    expect(isIntentionalNav()).toBe(true);
+    expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).not.toBeNull();
+    expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000 - 2_500);
+    expect(isIntentionalNav()).toBe(false);
+    // The guard timer owns only the unload exemption. Stored recovery state is
+    // independently validated and expired by the login-return parser.
+    expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).not.toBeNull();
+    vi.useRealTimers();
   });
 
   it('focuses one live login popup instead of overwriting its OAuth state', async () => {

@@ -116,6 +116,17 @@ function effectsPayload() {
   };
 }
 
+function effectsPayloadV2() {
+  return {
+    ...effectsPayload(),
+    schemaVersion: 2,
+    effects: {
+      ...effectsPayload().effects,
+      virtualTreble: { enabled: true },
+    },
+  };
+}
+
 function queueModePayload() {
   return {
     schemaVersion: 1,
@@ -568,6 +579,7 @@ describe('Developer API read-only public Worker', () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get('etag')).toMatch(/^"mxqr-effects-[A-Za-z0-9_-]{43}"$/);
+    expect(response.headers.get('vary')).toBe('X-MXQR-Effects-Version');
     await expect(response.json()).resolves.toEqual(effectsPayload());
     expect(JSON.parse(String(setup.facadeFetch.mock.calls[0]?.[1]?.body))).toEqual({
       roomCode: ROOM_CODE,
@@ -585,6 +597,59 @@ describe('Developer API read-only public Worker', () => {
     expect(forbidden.status).toBe(403);
     expect(playbackOnly.facadeFetch).not.toHaveBeenCalled();
   });
+
+  it('opts into the five-field effects v2 projection without changing the default v1 wire', async () => {
+    const setup = await createEnvironment({
+      scopeMask: developerApiScopes['effects:read'],
+      facadePayload: effectsPayloadV2(),
+    });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/effects`, {
+        headers: { 'x-mxqr-effects-version': '2' },
+      }),
+      setup.env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('vary')).toBe('X-MXQR-Effects-Version');
+    await expect(response.json()).resolves.toEqual(effectsPayloadV2());
+    expect(JSON.parse(String(setup.facadeFetch.mock.calls[0]?.[1]?.body))).toEqual({
+      roomCode: ROOM_CODE,
+      keyId: KEY_ID,
+      projection: 'effects',
+      effectsVersion: 2,
+    });
+
+    const mismatched = await createEnvironment({
+      scopeMask: developerApiScopes['effects:read'],
+      facadePayload: effectsPayload(),
+    });
+    const mismatchResponse = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/effects`, {
+        headers: { 'x-mxqr-effects-version': '2' },
+      }),
+      mismatched.env,
+    );
+    expect(mismatchResponse.status).toBe(503);
+    expect(await errorCode(mismatchResponse)).toBe('INTERNAL_RESPONSE_INVALID');
+  });
+
+  it.each(['02', '2.0', 'v2'])(
+    'rejects a non-canonical effects version header %s',
+    async (version) => {
+      const setup = await createEnvironment({ scopeMask: developerApiScopes['effects:read'] });
+      const response = await developerApiWorker.fetch(
+        apiRequest(`/v1/rooms/${ROOM_CODE}/effects`, {
+          headers: { 'x-mxqr-effects-version': version },
+        }),
+        setup.env,
+      );
+
+      expect(response.status).toBe(400);
+      expect(await errorCode(response)).toBe('INVALID_REQUEST');
+      expect(setup.facadeFetch).not.toHaveBeenCalled();
+    },
+  );
 
   it('returns repeat and shuffle state through playback:read without exposing shuffle order', async () => {
     const setup = await createEnvironment({ scopeMask: developerApiScopes['playback:read'] });
@@ -1956,6 +2021,7 @@ describe('Developer API read-only public Worker', () => {
         equalizer: { bandsDb: [-12, -6, 0, 6, 12] },
         virtualBass: { strengthPercent: 75 },
         virtualSurround: { widthPercent: 200 },
+        virtualTreble: { enabled: true },
       },
     };
     const response = await developerApiWorker.fetch(
@@ -2026,6 +2092,7 @@ describe('Developer API read-only public Worker', () => {
       { type: 'set_effects', effects: { equalizer: { bandsDb: [0, 0, 0, 0, 12.1] } } },
       { type: 'set_effects', effects: { virtualBass: { strengthPercent: -1 } } },
       { type: 'set_effects', effects: { virtualSurround: { widthPercent: 201 } } },
+      { type: 'set_effects', effects: { virtualTreble: { enabled: 'yes' } } },
       {
         type: 'set_effects',
         effects: { virtualBass: { strengthPercent: 50, privatePreset: true } },

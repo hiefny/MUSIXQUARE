@@ -399,6 +399,13 @@ function clonePermissions(
   };
 }
 
+function compareStandardAdministratorText(left: string, right: string): number {
+  // Ordinary rooms have a host-owned directory rather than the PRO server
+  // projection. Keep this independent sort deterministic across UI locales.
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
 function _canManageAdministrators(): boolean {
   if (_isProRoom()) return hasRoomCapability('room.configure');
   return _canEditHostOwnedSetting();
@@ -482,12 +489,28 @@ function _administratorsForMembers(members: readonly ConnectedRoomMember[]): Adm
     knownAdministratorIds.add(memberId);
   }
 
-  return views.sort(
-    (left, right) =>
-      Number(right.isOwner) - Number(left.isOwner) ||
-      left.memberDisplayNumber - right.memberDisplayNumber ||
-      left.memberId.localeCompare(right.memberId),
-  );
+  return views.sort((left, right) => {
+    const ownerOrder = Number(right.isOwner) - Number(left.isOwner);
+    if (ownerOrder !== 0) return ownerOrder;
+
+    const leftOnline = left.onlineDeviceCount > 0;
+    const rightOnline = right.onlineDeviceCount > 0;
+    const onlineOrder = Number(rightOnline) - Number(leftOnline);
+    if (onlineOrder !== 0) return onlineOrder;
+
+    if (leftOnline) {
+      const displayNumberOrder = left.memberDisplayNumber - right.memberDisplayNumber;
+      if (displayNumberOrder !== 0) return displayNumberOrder;
+    } else {
+      const displayNameOrder = compareStandardAdministratorText(
+        left.displayName,
+        right.displayName,
+      );
+      if (displayNameOrder !== 0) return displayNameOrder;
+    }
+
+    return compareStandardAdministratorText(left.memberId, right.memberId);
+  });
 }
 
 function _administratorListTitle(count: number): string {

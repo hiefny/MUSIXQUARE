@@ -2,7 +2,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProRoomApiError } from '../api.ts';
-import { rememberAccountLoginReturn } from '../../account/login-return.ts';
+import {
+  __accountLoginReturnForTests,
+  rememberAccountLoginReturn,
+} from '../../account/login-return.ts';
 
 const mocks = vi.hoisted(() => ({
   activate: vi.fn(),
@@ -51,10 +54,12 @@ beforeEach(() => {
   mocks.activate.mockResolvedValue({});
   mocks.recoverOwner.mockResolvedValue({});
   sessionStorage.clear();
+  localStorage.clear();
 });
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe('PRO room setup flow', () => {
@@ -149,7 +154,7 @@ describe('PRO room setup flow', () => {
   });
 
   it('silently reclaims this tab after a same-tab PWA login return', async () => {
-    rememberAccountLoginReturn('/000001', ROOM_CODE);
+    rememberAccountLoginReturn('/000001', ROOM_CODE, { allowSilentTakeover: true });
     mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
     mocks.resume
       .mockRejectedValueOnce(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409))
@@ -166,6 +171,60 @@ describe('PRO room setup flow', () => {
     });
     expect(mocks.showDialog).not.toHaveBeenCalled();
     expect(mocks.announceTakeover).toHaveBeenCalledWith(ROOM_CODE);
+    expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
+  });
+
+  it('does not reclaim from a same-context route hint created before presence existed', async () => {
+    rememberAccountLoginReturn('/000001', ROOM_CODE);
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.resume.mockRejectedValueOnce(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409));
+    mocks.showDialog.mockResolvedValueOnce({ action: 'secondary' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+    expect(mocks.resume).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(mocks.announceTakeover).not.toHaveBeenCalled();
+  });
+
+  it('normally resumes a closed PWA from its durable route hint', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    rememberAccountLoginReturn('/000001?panel=connect', ROOM_CODE);
+    sessionStorage.clear();
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+
+    expect(mocks.resume).toHaveBeenCalledOnce();
+    expect(mocks.resume).toHaveBeenCalledWith(ROOM_CODE, {
+      signal: expect.any(AbortSignal),
+    });
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+    expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
+  });
+
+  it('never silently takes over an active tab from a durable PWA relaunch hint', async () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    rememberAccountLoginReturn('/000001', ROOM_CODE);
+    sessionStorage.clear();
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.resume.mockRejectedValueOnce(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409));
+    mocks.showDialog.mockResolvedValueOnce({ action: 'secondary' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+    expect(mocks.resume).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenCalledWith({
+      title: 'pro.active_tab_title',
+      message: 'pro.active_tab_message',
+      buttonText: 'pro.use_this_tab',
+      secondaryText: 'common.cancel',
+      dismissible: false,
+      defaultFocus: 'secondary',
+    });
+    expect(mocks.announceTakeover).not.toHaveBeenCalled();
+    expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
   });
 
   it('re-prompts after an invalid PIN and never retries unrelated failures', async () => {

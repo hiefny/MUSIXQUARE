@@ -1275,9 +1275,10 @@ describe('PRO room effects API', () => {
     equalizer: { bandsDb: [0, -2, 0, 4, 6] as [number, number, number, number, number] },
     virtualBass: { strengthPercent: 60 },
     virtualSurround: { widthPercent: 120 },
+    virtualTreble: { enabled: true },
   };
   const projection = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     view: 'effects' as const,
     roomCode: ROOM_CODE,
     revision: 2,
@@ -1303,6 +1304,9 @@ describe('PRO room effects API', () => {
       `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/effects`,
     ]);
     expect(fetchMock.mock.calls[1]?.[1]?.method).toBe('PUT');
+    for (const call of fetchMock.mock.calls) {
+      expect(new Headers(call[1]?.headers).get('x-mxqr-pro-effects-version')).toBe('2');
+    }
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
       coordinatorEpoch: 1,
       baseRevision: 2,

@@ -119,7 +119,7 @@ describe('resetVirtualBass', () => {
 describe('room-wide effect snapshots', () => {
   it('applies and captures only the persistent room-wide DSP fields', () => {
     setState('audio.userPreampGain', 1.7);
-    setState('audio.exciter', true);
+    setState('audio.exciter', false);
     setState('audio.subFreq', 87);
     const effects = {
       reverb: {
@@ -132,6 +132,7 @@ describe('room-wide effect snapshots', () => {
       equalizer: { bandsDb: [0, -2, 0, 4, 6] as [number, number, number, number, number] },
       virtualBass: { strengthPercent: 60 },
       virtualSurround: { widthPercent: 120 },
+      virtualTreble: { enabled: true },
     };
 
     expect(applyRoomEffectsState(effects)).toBe(true);

@@ -33,6 +33,17 @@ function effectsPayload() {
   };
 }
 
+function effectsPayloadV2() {
+  return {
+    ...effectsPayload(),
+    schemaVersion: 2,
+    effects: {
+      ...effectsPayload().effects,
+      virtualTreble: { enabled: true },
+    },
+  };
+}
+
 function queueModePayload() {
   return {
     schemaVersion: 1,
@@ -172,6 +183,54 @@ describe('private Developer API facade', () => {
     expect(valid.status).toBe(200);
     await expect(valid.json()).resolves.toEqual(effectsPayload());
     await expect(validRooms.seen[0]!.json()).resolves.toEqual({
+      keyId: KEY_ID,
+      projection: 'effects',
+    });
+  });
+
+  it('forwards an explicit effects v2 negotiation and rejects a downgraded backend', async () => {
+    const rooms = namespace(() => Response.json(effectsPayloadV2()));
+    const response = await facadeWorker.fetch(
+      request({
+        roomCode: ROOM_CODE,
+        keyId: KEY_ID,
+        projection: 'effects',
+        effectsVersion: 2,
+      }),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(effectsPayloadV2());
+    await expect(rooms.seen[0]!.json()).resolves.toEqual({
+      keyId: KEY_ID,
+      projection: 'effects',
+      effectsVersion: 2,
+    });
+
+    const downgradedRooms = namespace(() => Response.json(effectsPayload()));
+    const downgraded = await facadeWorker.fetch(
+      request({ roomCode: ROOM_CODE, projection: 'effects', effectsVersion: 2 }),
+      { PRO_ROOM_DEVELOPER_ROOMS: downgradedRooms },
+    );
+    expect(downgraded.status).toBe(503);
+    await expect(downgraded.json()).resolves.toEqual({ error: 'INVALID_BACKEND_RESPONSE' });
+  });
+
+  it('normalizes an explicit effects v1 request to the rollback-compatible room hop', async () => {
+    const rooms = namespace(() => Response.json(effectsPayload()));
+    const response = await facadeWorker.fetch(
+      request({
+        roomCode: ROOM_CODE,
+        keyId: KEY_ID,
+        projection: 'effects',
+        effectsVersion: 1,
+      }),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(effectsPayload());
+    await expect(rooms.seen[0]!.json()).resolves.toEqual({
       keyId: KEY_ID,
       projection: 'effects',
     });
@@ -423,6 +482,7 @@ describe('private Developer API facade', () => {
         equalizer: { bandsDb: [-12, -6, 0, 6, 12] },
         virtualBass: { strengthPercent: 100 },
         virtualSurround: { widthPercent: 200 },
+        virtualTreble: { enabled: true },
       },
     };
     const response = await facadeWorker.fetch(
@@ -451,6 +511,7 @@ describe('private Developer API facade', () => {
       { type: 'set_effects', effects: { equalizer: { bandsDb: [0, 0, 0, 0] } } },
       { type: 'set_effects', effects: { virtualBass: { strengthPercent: Number.NaN } } },
       { type: 'set_effects', effects: { virtualSurround: { widthPercent: -1 } } },
+      { type: 'set_effects', effects: { virtualTreble: { enabled: 'yes' } } },
       { type: 'set_effects', effects: { preset: 'private' } },
     ];
     for (const command of invalidCommands) {

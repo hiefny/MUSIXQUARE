@@ -1791,6 +1791,7 @@ function cloneRoomEffects(effects: RoomEffectsState): RoomEffectsState {
     },
     virtualBass: { ...effects.virtualBass },
     virtualSurround: { ...effects.virtualSurround },
+    virtualTreble: { ...effects.virtualTreble },
   };
 }
 
@@ -1818,6 +1819,9 @@ function rebaseRoomEffectsIntent(
   }
   if (desired.virtualSurround.widthPercent !== base.virtualSurround.widthPercent) {
     rebased.virtualSurround.widthPercent = desired.virtualSurround.widthPercent;
+  }
+  if (desired.virtualTreble.enabled !== base.virtualTreble.enabled) {
+    rebased.virtualTreble.enabled = desired.virtualTreble.enabled;
   }
   return rebased;
 }
@@ -4170,6 +4174,7 @@ for (const event of [
   'state:audio.eqValues',
   'state:audio.stereoWidth',
   'state:audio.virtualBass',
+  'state:audio.exciter',
 ] as const) {
   bus.on(event, () => scheduleEffectsCheckpoint());
 }

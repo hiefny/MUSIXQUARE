@@ -51,7 +51,7 @@
       <p class="policy-kicker">PRIVATE BETA</p>
       <h1>Developer API</h1>
       <p>Connect a server, bot, or integration to one MUSIXQUARE PRO room.</p>
-      <p class="policy-date">API version: v1 · Updated July 21, 2026</p>
+      <p class="policy-date">API version: v1 · Updated July 22, 2026</p>
     </section>
 
     <article class="policy-doc">
@@ -149,7 +149,9 @@ console.log(await response.json());</code></pre>
             <dt class="api-endpoint"><span class="api-method">GET</span><span class="api-path">/rooms/{roomCode}/effects</span></dt>
             <dd>
               Canonical full room-wide effect state, its revision, and last update time. This state remains available
-              while the PRO room is sleeping.
+              while the PRO room is sleeping. The default version 1 response keeps the original four-effect shape.
+              Send <code>X-MXQR-Effects-Version: 2</code> to receive version 2, which also includes
+              <code>virtualTreble</code>.
             </dd>
           </div>
           <div>
@@ -248,6 +250,7 @@ console.log(command.commandId, command.status);</code></pre>
       equalizer: { bandsDb: [5, 3, 0, -2, -3] },
       virtualBass: { strengthPercent: 60 },
       virtualSurround: { widthPercent: 120 },
+      virtualTreble: { enabled: true },
     },
   }),
 });
@@ -289,12 +292,23 @@ console.log(command.commandId, command.status);</code></pre>
               on value is <code>120</code>; neutral/off is <code>100</code>.
             </dd>
           </div>
+          <div>
+            <dt>Virtual treble</dt>
+            <dd>
+              <code>enabled</code> is a boolean. Use <code>true</code> to turn the room-wide exciter on and
+              <code>false</code> to turn it off. To read it, request effects version 2.
+            </dd>
+          </div>
         </dl>
         <p>
           Effect state is persisted across PRO room sleep/wake cycles and coordinator handoffs, and joining devices
           receive the current state. A new effect command still requires an awake room with a compatible active
           coordinator; read <code>/effects</code> after the command becomes <code>applied</code> to observe the
           canonical result.
+        </p>
+        <p>
+          The in-room BOT reads this same canonical effect state and can turn virtual treble on or off only when the
+          user makes an explicit immediate request.
         </p>
         <p class="api-note">
           These are room-wide Web Audio effects. They do not control device-local volume, channel roles, subwoofer

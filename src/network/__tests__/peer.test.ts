@@ -16,6 +16,10 @@ import {
   safeSend,
 } from '../peer.ts';
 import type { AnyProtocolMsg, DataConnection, PeerInstance } from '../../types/index.ts';
+import {
+  __accountLoginReturnForTests,
+  rememberAccountLoginReturn,
+} from '../../account/login-return.ts';
 
 beforeEach(() => {
   vi.useRealTimers();
@@ -23,6 +27,8 @@ beforeEach(() => {
   resetState();
   setPeer(null);
   bus.clear();
+  sessionStorage.clear();
+  localStorage.clear();
 });
 
 afterEach(() => {
@@ -130,6 +136,17 @@ describe('isRemoteGuest', () => {
 });
 
 describe('leaveSession', () => {
+  it('clears an abandoned login return on explicit leave but preserves it for pagehide', () => {
+    rememberAccountLoginReturn('/000001', '000001');
+    leaveSession({ preserveAccountLoginReturn: true });
+    expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).not.toBeNull();
+    expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).not.toBeNull();
+
+    leaveSession();
+    expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
+  });
+
   it('clears stale track metadata together with the playlist and playback state', () => {
     setState('player.currentTrackMeta', {
       type: 'file',

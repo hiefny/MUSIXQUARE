@@ -21,13 +21,14 @@ describe('room-wide effects contract', () => {
       equalizer: { bandsDb: [0, -2, 0, 4, 6] },
       virtualBass: { strengthPercent: 60 },
       virtualSurround: { widthPercent: 120 },
+      virtualTreble: { enabled: true },
     };
 
     expect(parseRoomEffectsState(effects)).toEqual(effects);
     expect(
       parseProRoomEffectsSnapshot(
         {
-          schemaVersion: 1,
+          schemaVersion: 2,
           view: 'effects',
           roomCode: '000001',
           revision: 7,
@@ -44,12 +45,14 @@ describe('room-wide effects contract', () => {
     const patch = parseRoomEffectsPatch({
       reverb: { mixPercent: 33 },
       equalizer: { bandsDb: [5, 3, 0, -2, -3] },
+      virtualTreble: { enabled: true },
     });
     expect(patch).not.toBeNull();
     const merged = mergeRoomEffectsForTests(current, patch!);
     expect(merged.reverb).toEqual({ ...current.reverb, mixPercent: 33 });
     expect(merged.equalizer.bandsDb).toEqual([5, 3, 0, -2, -3]);
     expect(merged.virtualBass).toEqual(current.virtualBass);
+    expect(merged.virtualTreble).toEqual({ enabled: true });
     expect(roomEffectsEqual(merged, structuredClone(merged))).toBe(true);
   });
 
@@ -60,6 +63,7 @@ describe('room-wide effects contract', () => {
     { equalizer: { bandsDb: [0, 0, 0, 0] } },
     { virtualBass: { strengthPercent: -1 } },
     { virtualSurround: { widthPercent: 201 } },
+    { virtualTreble: { enabled: 'yes' } },
     { virtualBass: { strengthPercent: 20, privatePreset: true } },
   ])('rejects an invalid or ambiguous patch %#', (value) => {
     expect(parseRoomEffectsPatch(value)).toBeNull();
@@ -79,5 +83,21 @@ describe('room-wide effects contract', () => {
         coordinatorId: 'private',
       }),
     ).toBeNull();
+  });
+
+  it('normalizes a negotiated legacy projection to virtual treble off', () => {
+    const effects = createDefaultRoomEffectsState();
+    const { virtualTreble: _virtualTreble, ...legacyEffects } = effects;
+
+    expect(
+      parseProRoomEffectsSnapshot({
+        schemaVersion: 1,
+        view: 'effects',
+        roomCode: '000001',
+        revision: 3,
+        updatedAtMs: 4,
+        effects: legacyEffects,
+      }),
+    ).toEqual(expect.objectContaining({ effects, schemaVersion: 1 }));
   });
 });

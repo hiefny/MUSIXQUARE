@@ -1,6 +1,7 @@
 import { REVERB_DEFAULT_DECAY, REVERB_DEFAULT_PREDELAY } from './constants.ts';
 
-const ROOM_EFFECTS_SCHEMA_VERSION = 1 as const;
+const LEGACY_ROOM_EFFECTS_SCHEMA_VERSION = 1 as const;
+const ROOM_EFFECTS_SCHEMA_VERSION = 2 as const;
 
 interface RoomReverbState {
   mixPercent: number;
@@ -21,6 +22,9 @@ export interface RoomEffectsState {
   virtualSurround: {
     widthPercent: number;
   };
+  virtualTreble: {
+    enabled: boolean;
+  };
 }
 
 export interface RoomEffectsPatch {
@@ -28,10 +32,11 @@ export interface RoomEffectsPatch {
   equalizer?: RoomEffectsState['equalizer'];
   virtualBass?: RoomEffectsState['virtualBass'];
   virtualSurround?: RoomEffectsState['virtualSurround'];
+  virtualTreble?: RoomEffectsState['virtualTreble'];
 }
 
 export interface ProRoomEffectsSnapshot {
-  schemaVersion: typeof ROOM_EFFECTS_SCHEMA_VERSION;
+  schemaVersion: typeof LEGACY_ROOM_EFFECTS_SCHEMA_VERSION | typeof ROOM_EFFECTS_SCHEMA_VERSION;
   view: 'effects';
   roomCode: string;
   revision: number;
@@ -116,6 +121,34 @@ function parseVirtualSurroundState(value: unknown): RoomEffectsState['virtualSur
     : null;
 }
 
+function parseVirtualTrebleState(value: unknown): RoomEffectsState['virtualTreble'] | null {
+  return isRecord(value) && hasExactKeys(value, ['enabled']) && typeof value.enabled === 'boolean'
+    ? { enabled: value.enabled }
+    : null;
+}
+
+function parseLegacyRoomEffectsState(value: unknown): RoomEffectsState | null {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'])
+  ) {
+    return null;
+  }
+  const reverb = parseReverbState(value.reverb);
+  const equalizer = parseEqualizerState(value.equalizer);
+  const virtualBass = parseVirtualBassState(value.virtualBass);
+  const virtualSurround = parseVirtualSurroundState(value.virtualSurround);
+  return reverb && equalizer && virtualBass && virtualSurround
+    ? {
+        reverb,
+        equalizer,
+        virtualBass,
+        virtualSurround,
+        virtualTreble: { enabled: false },
+      }
+    : null;
+}
+
 export function createDefaultRoomEffectsState(): RoomEffectsState {
   return {
     reverb: {
@@ -128,13 +161,14 @@ export function createDefaultRoomEffectsState(): RoomEffectsState {
     equalizer: { bandsDb: [0, 0, 0, 0, 0] },
     virtualBass: { strengthPercent: 0 },
     virtualSurround: { widthPercent: 100 },
+    virtualTreble: { enabled: false },
   };
 }
 
 export function parseRoomEffectsState(value: unknown): RoomEffectsState | null {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'])
+    !hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround', 'virtualTreble'])
   ) {
     return null;
   }
@@ -142,8 +176,9 @@ export function parseRoomEffectsState(value: unknown): RoomEffectsState | null {
   const equalizer = parseEqualizerState(value.equalizer);
   const virtualBass = parseVirtualBassState(value.virtualBass);
   const virtualSurround = parseVirtualSurroundState(value.virtualSurround);
-  return reverb && equalizer && virtualBass && virtualSurround
-    ? { reverb, equalizer, virtualBass, virtualSurround }
+  const virtualTreble = parseVirtualTrebleState(value.virtualTreble);
+  return reverb && equalizer && virtualBass && virtualSurround && virtualTreble
+    ? { reverb, equalizer, virtualBass, virtualSurround, virtualTreble }
     : null;
 }
 
@@ -151,7 +186,11 @@ export function parseRoomEffectsPatch(value: unknown): RoomEffectsPatch | null {
   if (
     !isRecord(value) ||
     Object.keys(value).length === 0 ||
-    !hasExactKeys(value, [], ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'])
+    !hasExactKeys(
+      value,
+      [],
+      ['reverb', 'equalizer', 'virtualBass', 'virtualSurround', 'virtualTreble'],
+    )
   ) {
     return null;
   }
@@ -199,6 +238,11 @@ export function parseRoomEffectsPatch(value: unknown): RoomEffectsPatch | null {
     if (!virtualSurround) return null;
     patch.virtualSurround = virtualSurround;
   }
+  if (value.virtualTreble !== undefined) {
+    const virtualTreble = parseVirtualTrebleState(value.virtualTreble);
+    if (!virtualTreble) return null;
+    patch.virtualTreble = virtualTreble;
+  }
   return patch;
 }
 
@@ -213,6 +257,7 @@ export function mergeRoomEffectsForTests(
       : { bandsDb: [...current.equalizer.bandsDb] },
     virtualBass: { ...(patch.virtualBass ?? current.virtualBass) },
     virtualSurround: { ...(patch.virtualSurround ?? current.virtualSurround) },
+    virtualTreble: { ...(patch.virtualTreble ?? current.virtualTreble) },
   };
 }
 
@@ -225,7 +270,8 @@ export function roomEffectsEqual(left: RoomEffectsState, right: RoomEffectsState
     left.reverb.highCutPercent === right.reverb.highCutPercent &&
     left.equalizer.bandsDb.every((band, index) => band === right.equalizer.bandsDb[index]) &&
     left.virtualBass.strengthPercent === right.virtualBass.strengthPercent &&
-    left.virtualSurround.widthPercent === right.virtualSurround.widthPercent
+    left.virtualSurround.widthPercent === right.virtualSurround.widthPercent &&
+    left.virtualTreble.enabled === right.virtualTreble.enabled
   );
 }
 
@@ -243,7 +289,8 @@ export function parseProRoomEffectsSnapshot(
       'updatedAtMs',
       'effects',
     ]) ||
-    value.schemaVersion !== ROOM_EFFECTS_SCHEMA_VERSION ||
+    (value.schemaVersion !== LEGACY_ROOM_EFFECTS_SCHEMA_VERSION &&
+      value.schemaVersion !== ROOM_EFFECTS_SCHEMA_VERSION) ||
     value.view !== 'effects' ||
     typeof value.roomCode !== 'string' ||
     !/^0\d{5}$/.test(value.roomCode) ||
@@ -255,10 +302,13 @@ export function parseProRoomEffectsSnapshot(
   ) {
     return null;
   }
-  const effects = parseRoomEffectsState(value.effects);
+  const effects =
+    value.schemaVersion === ROOM_EFFECTS_SCHEMA_VERSION
+      ? parseRoomEffectsState(value.effects)
+      : parseLegacyRoomEffectsState(value.effects);
   return effects
     ? {
-        schemaVersion: ROOM_EFFECTS_SCHEMA_VERSION,
+        schemaVersion: value.schemaVersion,
         view: 'effects',
         roomCode: value.roomCode,
         revision: value.revision as number,

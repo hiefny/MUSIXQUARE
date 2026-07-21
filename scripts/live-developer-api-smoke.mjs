@@ -87,12 +87,12 @@ function assertQueueProjection(payload, roomCode, label) {
   return payload;
 }
 
-function assertEffectsProjection(payload, roomCode, label) {
+function assertEffectsProjection(payload, roomCode, label, expectedVersion = 1) {
   const inRange = (value, minimum, maximum) =>
     typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum;
   const effects = payload?.effects;
   if (
-    payload?.schemaVersion !== 1 ||
+    payload?.schemaVersion !== expectedVersion ||
     payload?.view !== 'effects' ||
     payload?.roomCode !== roomCode ||
     !Number.isSafeInteger(payload?.revision) ||
@@ -106,7 +106,12 @@ function assertEffectsProjection(payload, roomCode, label) {
     effects.equalizer.bandsDb.length !== 5 ||
     !effects.equalizer.bandsDb.every((value) => inRange(value, -12, 12)) ||
     !inRange(effects?.virtualBass?.strengthPercent, 0, 100) ||
-    !inRange(effects?.virtualSurround?.widthPercent, 0, 200)
+    !inRange(effects?.virtualSurround?.widthPercent, 0, 200) ||
+    (expectedVersion === 1 &&
+      effects !== null &&
+      typeof effects === 'object' &&
+      Object.prototype.hasOwnProperty.call(effects, 'virtualTreble')) ||
+    (expectedVersion === 2 && typeof effects?.virtualTreble?.enabled !== 'boolean')
   ) {
     throw new Error(`${label} returned an invalid effects projection`);
   }
@@ -247,6 +252,29 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
   if (!roomEtag) throw new Error('Developer API room response omitted ETag');
   if (!effects || !effectsEtag) throw new Error('Developer API effects response omitted ETag');
   if (!queueMode) throw new Error('Developer API queue-mode response was not observed');
+  const effectsV2Response = await fetchWithTimeout(
+    `${API_ORIGIN}/v1/rooms/${roomCode}/effects`,
+    {
+      cache: 'no-store',
+      headers: {
+        Accept: 'application/json',
+        Authorization: authorization,
+        'X-MXQR-Effects-Version': '2',
+      },
+    },
+  );
+  if (effectsV2Response.status !== 200) {
+    throw new Error(`Developer API effects v2 smoke returned HTTP ${effectsV2Response.status}`);
+  }
+  assertEffectsProjection(
+    await readJson(effectsV2Response, 'Developer API effects v2 smoke'),
+    roomCode,
+    'Developer API effects v2 smoke',
+    2,
+  );
+  if (effectsV2Response.headers.get('vary') !== 'X-MXQR-Effects-Version') {
+    throw new Error('Developer API effects v2 response omitted its representation Vary header');
+  }
   const notModified = await fetchWithTimeout(`${API_ORIGIN}/v1/rooms/${roomCode}`, {
     cache: 'no-store',
     headers: {

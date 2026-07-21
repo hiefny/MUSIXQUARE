@@ -30,6 +30,7 @@ import {
   resetLocalSystemAudioSfuCapabilities,
 } from './system-audio-delivery.ts';
 import { requestStandardRoomAccountAssertion } from '../account/room-identity.ts';
+import { clearCurrentAccountLoginReturn } from '../account/login-return.ts';
 import { getRoomContext } from '../rooms/authority.ts';
 import { getStandardRoomTurnCredentials } from './standard-room-prerequisites.ts';
 
@@ -786,7 +787,11 @@ export function cancelPendingSessionSetup(): void {
 /**
  * Leave the current session and clean up all network state.
  */
-export function leaveSession(): void {
+export function leaveSession(options: { preserveAccountLoginReturn?: boolean } = {}): void {
+  // A user-confirmed leave must not let an abandoned OAuth route pull a later
+  // PWA launch back into this room. Confirmed pagehide is different: it is the
+  // boundary used by same-tab OAuth navigation and explicitly opts out below.
+  if (!options.preserveAccountLoginReturn) clearCurrentAccountLoginReturn();
   resetLocalSystemAudioSfuCapabilities();
   resetGuestSystemAudioShareRoute();
   if (getState('room.context').kind === 'pro' || isProRoomCode(getState('network.sessionCode'))) {

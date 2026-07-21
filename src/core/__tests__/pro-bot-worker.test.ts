@@ -915,6 +915,54 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
     }
   });
 
+  it('reads virtual treble conversationally and executes only an explicit matching ON/OFF request', () => {
+    const {
+      isVirtualTrebleControlPrompt,
+      normalizePlanForExecution,
+      parsePlan,
+      planMatchesPromptScope,
+    } = proBotInternalsForTests;
+    expect(parsePlan({ intent: 'virtual_treble', virtualTrebleEnabled: true })).toEqual({
+      intent: 'virtual_treble',
+      virtualTrebleEnabled: true,
+    });
+    expect(parsePlan({ intent: 'virtual_treble', virtualTrebleEnabled: 'yes' })).toBeNull();
+    expect(
+      parsePlan({
+        intent: 'virtual_treble',
+        virtualTrebleEnabled: true,
+        playbackCommand: 'pause',
+      }),
+    ).toBeNull();
+
+    for (const [prompt, enabled] of [
+      ['turn virtual treble on', true],
+      ['disable the exciter', false],
+      ['가상 트레블 켜줘', true],
+      ['트레블 꺼줘', false],
+    ] as const) {
+      const plan = { intent: 'virtual_treble', virtualTrebleEnabled: enabled };
+      expect(isVirtualTrebleControlPrompt(prompt), prompt).toBe(true);
+      expect(planMatchesPromptScope(prompt, plan), prompt).toBe(true);
+      expect(normalizePlanForExecution(prompt, plan), prompt).toEqual(plan);
+      expect(
+        planMatchesPromptScope(prompt, {
+          intent: 'virtual_treble',
+          virtualTrebleEnabled: !enabled,
+        }),
+        prompt,
+      ).toBe(false);
+    }
+
+    expect(isVirtualTrebleControlPrompt("don't turn virtual treble on")).toBe(false);
+    expect(
+      planMatchesPromptScope('is virtual treble on?', {
+        intent: 'answer',
+        answer: 'It is off.',
+      }),
+    ).toBe(true);
+  });
+
   it('answers non-music shuffle questions without mutating the room', () => {
     const { normalizePlanForExecution, planMatchesPromptScope } = proBotInternalsForTests;
     for (const prompt of ['turn shuffle on in my game', '게임에서 셔플 켜는 법 알려줘']) {

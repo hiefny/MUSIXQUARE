@@ -365,6 +365,7 @@ export function captureRoomEffectsState(): RoomEffectsState {
     equalizer: { bandsDb: [...getState('audio.eqValues')] },
     virtualBass: { strengthPercent: getState('audio.virtualBass') * 100 },
     virtualSurround: { widthPercent: getState('audio.stereoWidth') * 100 },
+    virtualTreble: { enabled: getState('audio.exciter') },
   };
   return parseRoomEffectsState(candidate) ?? createDefaultRoomEffectsState();
 }
@@ -383,6 +384,7 @@ function broadcastRoomEffectsState(state: RoomEffectsState): void {
     value: state.virtualSurround.widthPercent,
   } as AnyProtocolMsg);
   broadcast({ type: MSG.VBASS, value: state.virtualBass.strengthPercent } as AnyProtocolMsg);
+  broadcast({ type: MSG.EXCITER, value: state.virtualTreble.enabled ? 1 : 0 } as AnyProtocolMsg);
 }
 
 /**
@@ -404,6 +406,7 @@ export function applyRoomEffectsState(
   setState('audio.eqValues', [...state.equalizer.bandsDb]);
   setState('audio.stereoWidth', state.virtualSurround.widthPercent / 100);
   setState('audio.virtualBass', state.virtualBass.strengthPercent / 100);
+  setState('audio.exciter', state.virtualTreble.enabled);
   applySettingsAsync();
 
   bus.emit('ui:sync-reverb-param', 'mix', state.reverb.mixPercent);
@@ -416,6 +419,7 @@ export function applyRoomEffectsState(
   bus.emit('ui:sync-eq-preset', detectRoomEqPreset(state.equalizer.bandsDb));
   bus.emit('ui:sync-surround', state.virtualSurround.widthPercent > 100);
   bus.emit('ui:sync-vbass', state.virtualBass.strengthPercent > 0);
+  bus.emit('ui:sync-exciter', state.virtualTreble.enabled);
 
   if (options.broadcast) broadcastRoomEffectsState(state);
   return true;

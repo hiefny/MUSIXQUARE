@@ -599,9 +599,15 @@ function parseVirtualSurround(value) {
     : null;
 }
 
+function parseVirtualTreble(value) {
+  return hasExactKeys(value, ['enabled']) && typeof value.enabled === 'boolean'
+    ? { enabled: value.enabled }
+    : null;
+}
+
 function parseEffects(value, requireComplete) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const allowed = ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'];
+  const allowed = ['reverb', 'equalizer', 'virtualBass', 'virtualSurround', 'virtualTreble'];
   const keys = Object.keys(value);
   if (
     keys.length === 0 ||
@@ -620,7 +626,9 @@ function parseEffects(value, requireComplete) {
           ? parseEqualizer(value.equalizer)
           : key === 'virtualBass'
             ? parseVirtualBass(value.virtualBass)
-            : parseVirtualSurround(value.virtualSurround);
+            : key === 'virtualSurround'
+              ? parseVirtualSurround(value.virtualSurround)
+              : parseVirtualTreble(value.virtualTreble);
     if (!parsed) return null;
     effects[key] = parsed;
   }
@@ -633,6 +641,20 @@ function parseEffectsPatch(value) {
 
 function parseEffectsState(value) {
   return parseEffects(value, true);
+}
+
+function parseLegacyEffectsState(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (!hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'])) {
+    return null;
+  }
+  const reverb = parseReverbPatch(value.reverb, true);
+  const equalizer = parseEqualizer(value.equalizer);
+  const virtualBass = parseVirtualBass(value.virtualBass);
+  const virtualSurround = parseVirtualSurround(value.virtualSurround);
+  return reverb && equalizer && virtualBass && virtualSurround
+    ? { reverb, equalizer, virtualBass, virtualSurround }
+    : null;
 }
 
 function parseMetadata(value) {
@@ -898,8 +920,16 @@ function validQueueItem(value) {
   return value.byteLength === undefined;
 }
 
-function validateFacadePayload(value, expectedView, roomCode) {
-  if (!value || typeof value !== 'object' || value.schemaVersion !== 1) return null;
+function validateFacadePayload(value, expectedView, roomCode, expectedEffectsVersion = 1) {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    (expectedView === 'effects'
+      ? value.schemaVersion !== expectedEffectsVersion
+      : value.schemaVersion !== 1)
+  ) {
+    return null;
+  }
   if (value.view !== expectedView || value.roomCode !== roomCode) return null;
   if (expectedView === 'room') {
     if (
@@ -1001,7 +1031,9 @@ function validateFacadePayload(value, expectedView, roomCode) {
       ]) ||
       !isSafeNonNegativeInteger(value.revision) ||
       !isSafeNonNegativeInteger(value.updatedAtMs) ||
-      !parseEffectsState(value.effects)
+      !(value.schemaVersion === 2
+        ? parseEffectsState(value.effects)
+        : parseLegacyEffectsState(value.effects))
     ) {
       return null;
     }
@@ -1368,7 +1400,7 @@ async function authenticatedMediaUploadCompleteLimit(env, principal) {
   );
 }
 
-async function facadeRead(env, route, keyId) {
+async function facadeRead(env, route, keyId, effectsVersion = 1) {
   if (!env.DEVELOPER_API_FACADE?.fetch) return { configurationError: true };
   let response;
   try {
@@ -1377,7 +1409,12 @@ async function facadeRead(env, route, keyId) {
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ roomCode: route.roomCode, keyId, projection: route.view }),
+        body: JSON.stringify({
+          roomCode: route.roomCode,
+          keyId,
+          projection: route.view,
+          ...(route.view === 'effects' && effectsVersion !== 1 ? { effectsVersion } : {}),
+        }),
       },
     );
   } catch {
@@ -1387,7 +1424,7 @@ async function facadeRead(env, route, keyId) {
   if (!response.ok) {
     return response.status === 404 ? { notFound: true } : { backendError: true };
   }
-  const payload = validateFacadePayload(value, route.view, route.roomCode);
+  const payload = validateFacadePayload(value, route.view, route.roomCode, effectsVersion);
   return payload ? { payload } : { invalidResponse: true };
 }
 
@@ -1584,6 +1621,22 @@ async function handleApiRequest(request, env, context, requestId) {
   }
   const route = parseRoute(request.method, url);
   if (!route) return errorResponse('NOT_FOUND', 404, requestId);
+  const effectsVersionHeader = request.headers.get('x-mxqr-effects-version');
+  if (
+    effectsVersionHeader !== null &&
+    (route.kind !== 'read' || route.view !== 'effects')
+  ) {
+    return errorResponse('INVALID_REQUEST', 400, requestId);
+  }
+  const effectsVersion =
+    effectsVersionHeader === null || effectsVersionHeader === '1'
+      ? 1
+      : effectsVersionHeader === '2'
+        ? 2
+        : null;
+  if (effectsVersion === null) {
+    return errorResponse('INVALID_REQUEST', 400, requestId);
+  }
   const writeRoute = [
     'command-create',
     'queue-mode-update',
@@ -1986,7 +2039,7 @@ async function handleApiRequest(request, env, context, requestId) {
     return jsonResponse(facade.payload, 200, requestId, limiterHeaders, 'private, no-cache');
   }
 
-  const facade = await facadeRead(env, route, principal.keyId);
+  const facade = await facadeRead(env, route, principal.keyId, effectsVersion);
   if (facade.configurationError) {
     return errorResponse('API_NOT_CONFIGURED', 503, requestId, { retryable: true });
   }
@@ -1999,18 +2052,20 @@ async function handleApiRequest(request, env, context, requestId) {
   }
 
   const etag = await etagFor(route.view, facade.payload);
+  const representationHeaders =
+    route.view === 'effects' ? { vary: 'X-MXQR-Effects-Version' } : {};
   const ifNoneMatch = request.headers.get('if-none-match');
   if (ifNoneMatch !== null && encoder.encode(ifNoneMatch).byteLength > ETAG_HEADER_MAX_BYTES) {
     return errorResponse('NOT_FOUND', 404, requestId);
   }
   if (ifNoneMatch !== null && ifNoneMatchMatches(ifNoneMatch, etag)) {
-    return emptyResponse(304, requestId, { ...limiterHeaders, etag });
+    return emptyResponse(304, requestId, { ...limiterHeaders, ...representationHeaders, etag });
   }
   return jsonResponse(
     facade.payload,
     200,
     requestId,
-    { ...limiterHeaders, etag },
+    { ...limiterHeaders, ...representationHeaders, etag },
     'private, no-cache',
   );
 }

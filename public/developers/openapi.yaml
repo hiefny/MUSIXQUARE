@@ -81,18 +81,28 @@ paths:
       description: |
         Returns the canonical full room-wide audio-effect state. Requires effects:read. The state remains
         readable while the PRO room is sleeping and persists across sleep/wake cycles and coordinator handoffs.
+        The default version 1 representation remains the four-effect compatibility contract. Send
+        X-MXQR-Effects-Version: 2 to read virtualTreble in the version 2 representation.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
         - $ref: '#/components/parameters/IfNoneMatch'
+        - $ref: '#/components/parameters/EffectsVersion'
       responses:
         '200':
           description: Canonical full room-wide audio-effect state.
           headers:
             ETag: { schema: { type: string } }
+            Vary: { schema: { const: X-MXQR-Effects-Version } }
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/EffectsState' }
-        '304': { description: Representation is unchanged. }
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/EffectsState'
+                  - $ref: '#/components/schemas/EffectsStateV2'
+        '304':
+          description: Representation is unchanged.
+          headers:
+            Vary: { schema: { const: X-MXQR-Effects-Version } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -462,6 +472,17 @@ components:
       in: header
       required: false
       schema: { type: string, maxLength: 128 }
+    EffectsVersion:
+      name: X-MXQR-Effects-Version
+      in: header
+      required: false
+      description: |
+        Exact effects read representation. Omit this header or send 1 for the compatibility representation;
+        send 2 to include room-wide virtualTreble. Other values are rejected.
+      schema:
+        type: string
+        enum: ['1', '2']
+        default: '1'
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -538,6 +559,7 @@ components:
         equalizer: { $ref: '#/components/schemas/EqualizerEffectsPatch' }
         virtualBass: { $ref: '#/components/schemas/VirtualBassEffectsPatch' }
         virtualSurround: { $ref: '#/components/schemas/VirtualSurroundEffectsPatch' }
+        virtualTreble: { $ref: '#/components/schemas/VirtualTrebleEffectsPatch' }
     ReverbEffectsPatch:
       type: object
       additionalProperties: false
@@ -570,6 +592,12 @@ components:
       required: [widthPercent]
       properties:
         widthPercent: { type: number, minimum: 0, maximum: 200 }
+    VirtualTrebleEffectsPatch:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
     EffectsState:
       type: object
       additionalProperties: false
@@ -581,6 +609,17 @@ components:
         revision: { type: integer, minimum: 0 }
         updatedAtMs: { type: integer, minimum: 0 }
         effects: { $ref: '#/components/schemas/RoomEffects' }
+    EffectsStateV2:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, view, roomCode, revision, updatedAtMs, effects]
+      properties:
+        schemaVersion: { const: 2 }
+        view: { const: effects }
+        roomCode: { type: string, pattern: '^0[0-9]{5}$' }
+        revision: { type: integer, minimum: 0 }
+        updatedAtMs: { type: integer, minimum: 0 }
+        effects: { $ref: '#/components/schemas/RoomEffectsV2' }
     QueueModeState:
       type: object
       additionalProperties: false
@@ -621,6 +660,16 @@ components:
         equalizer: { $ref: '#/components/schemas/EqualizerEffects' }
         virtualBass: { $ref: '#/components/schemas/VirtualBassEffects' }
         virtualSurround: { $ref: '#/components/schemas/VirtualSurroundEffects' }
+    RoomEffectsV2:
+      type: object
+      additionalProperties: false
+      required: [reverb, equalizer, virtualBass, virtualSurround, virtualTreble]
+      properties:
+        reverb: { $ref: '#/components/schemas/ReverbEffects' }
+        equalizer: { $ref: '#/components/schemas/EqualizerEffects' }
+        virtualBass: { $ref: '#/components/schemas/VirtualBassEffects' }
+        virtualSurround: { $ref: '#/components/schemas/VirtualSurroundEffects' }
+        virtualTreble: { $ref: '#/components/schemas/VirtualTrebleEffects' }
     ReverbEffects:
       type: object
       additionalProperties: false
@@ -653,6 +702,12 @@ components:
       required: [widthPercent]
       properties:
         widthPercent: { type: number, minimum: 0, maximum: 200 }
+    VirtualTrebleEffects:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
     CommandStatus:
       type: object
       additionalProperties: false

@@ -160,6 +160,19 @@ It exists for exact localhost/staging OAuth clients only; it must still end in
 ## 4. Data lifecycle and account deletion
 
 The OAuth flow cookie and consumed-state digest expire after about ten minutes.
+Installed/mobile same-context login keeps the exact return route in
+`sessionStorage` for that same ten-minute window. Because an installed PWA may
+be closed while Google owns its navigation context and later relaunch at the
+manifest `/` start URL, the app also keeps one `localStorage` recovery hint
+containing only `/0xxxxx`, a random attempt correlation ID, and its creation
+time. That durable hint restores a path only: it is never account, room, or
+same-tab takeover proof, and it contains no OAuth token, PRO PIN, claim, or
+session secret. Setup consumes it once; explicit session leave, abandoned
+anchor navigation, corruption, and expiry remove it. Only the live
+`sessionStorage` marker that captured an already-active PRO presence may use
+the existing same-context reclaim path. A pre-entry route hint or relaunched
+PWA still receives the normal active-tab confirmation.
+
 Each account session has a fixed maximum lifetime of 30 days from creation, and
 one account retains at most 128 browser sessions; issuing another session
 removes the least recently used excess sessions. Sign-out removes the current

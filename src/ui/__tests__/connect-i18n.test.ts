@@ -18,6 +18,7 @@ import { showToast } from '../toast.ts';
 import { showDialog } from '../dialog.ts';
 import { initConnect } from '../connect.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
+import type { ProRoomAdministrator } from '../../pro-room/contracts.ts';
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -879,6 +880,85 @@ describe('member-level connection and administrator UI', () => {
     );
   });
 
+  it('orders ordinary-room administrators by presence and deterministic offline nickname', () => {
+    setState('network.appRole', 'host');
+    const administrator = (memberId: string, memberDisplayNumber: number, displayName: string) => ({
+      memberId,
+      memberDisplayNumber,
+      isAuthenticated: true,
+      displayName,
+      permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+    });
+    setState(
+      'network.standardRoomAdministrators',
+      new Map([
+        ['member-zulu', administrator('member-zulu', 1, 'Zulu Offline')],
+        ['member-korean', administrator('member-korean', 3, '가나다 Offline')],
+        ['member-same-z', administrator('member-same-z', 4, 'Same Offline')],
+        ['member-online-high', administrator('member-online-high', 7, 'Online High')],
+        ['member-alpha', administrator('member-alpha', 8, 'Alpha Offline')],
+        ['member-same-a', administrator('member-same-a', 9, 'Same Offline')],
+        ['member-online-low', administrator('member-online-low', 2, 'Online Low')],
+      ]),
+    );
+    initConnect();
+
+    bus.emit('network:device-list-update', [
+      {
+        id: 'host',
+        label: 'Host',
+        joinOrder: 0,
+        status: 'connected',
+        isHost: true,
+        isOp: true,
+      },
+      {
+        id: 'online-high-device',
+        label: 'Online High',
+        joinOrder: 7,
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+        memberId: 'member-online-high',
+        memberDisplayNumber: 7,
+        isAuthenticated: true,
+      },
+      {
+        id: 'online-low-device',
+        label: 'Online Low',
+        joinOrder: 2,
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+        memberId: 'member-online-low',
+        memberDisplayNumber: 2,
+        isAuthenticated: true,
+      },
+    ]);
+
+    const expectedMemberIds = [
+      'peer:host',
+      'member-online-low',
+      'member-online-high',
+      'member-alpha',
+      'member-same-a',
+      'member-same-z',
+      'member-zulu',
+      'member-korean',
+    ];
+    for (const listId of ['connect-administrator-list', 'desktop-administrator-list']) {
+      const rows = Array.from(
+        document.querySelectorAll<HTMLElement>(`#${listId} .administrator-row`),
+      );
+      expect(
+        rows.map((row) => row.dataset.memberId),
+        listId,
+      ).toEqual(expectedMemberIds);
+      expect(rows.slice(1, 3).every((row) => !row.classList.contains('is-offline'))).toBe(true);
+      expect(rows.slice(3).every((row) => row.classList.contains('is-offline'))).toBe(true);
+    }
+  });
+
   it('shows one administrator for an owner-only PRO room', () => {
     setState('network.appRole', 'guest');
     setState('network.myId', 'owner-device');
@@ -915,6 +995,89 @@ describe('member-level connection and administrator UI', () => {
     expect(
       document.querySelectorAll('#connect-administrator-list .administrator-row'),
     ).toHaveLength(1);
+  });
+
+  it('preserves the PRO server order on mobile and desktop and keeps actions member-bound', async () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'owner-device');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure'],
+    });
+    const administrator = (
+      memberId: string,
+      memberDisplayNumber: number,
+      displayName: string,
+      onlineDeviceCount: number,
+      role: 'owner' | 'controller' = 'controller',
+    ): ProRoomAdministrator => ({
+      memberId,
+      memberDisplayNumber,
+      isAuthenticated: true,
+      displayName,
+      role,
+      permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+      inheritedPermissions:
+        role === 'owner' ? ['media.add', 'playback.control', 'members.kick', 'chat.notice'] : [],
+      onlineDeviceCount,
+    });
+    // This fixture is deliberately not locally sortable by presence, member
+    // number, or nickname. The client must treat the Worker projection as the
+    // canonical sequence instead of introducing a second ordering policy.
+    const projection = [
+      administrator('owner-member', 0, 'Owner', 0, 'owner'),
+      administrator('member-online-high', 7, 'Online High', 2),
+      administrator('member-alpha', 1, 'Alpha Offline', 0),
+      administrator('member-online-low', 2, 'Online Low', 1),
+      administrator('member-same-z', 4, 'Same Offline', 0),
+      administrator('member-same-a', 9, 'Same Offline', 0),
+    ];
+    const expectedMemberIds = projection.map(({ memberId }) => memberId);
+    mockedGetActiveProRoomAdministrators.mockReturnValue(projection);
+    mockedShowDialog.mockResolvedValue({ action: 'ok' });
+    initConnect();
+    bus.emit('pro-room:administrators-updated', projection);
+
+    for (const listId of ['connect-administrator-list', 'desktop-administrator-list']) {
+      const rows = Array.from(
+        document.querySelectorAll<HTMLElement>(`#${listId} .administrator-row`),
+      );
+      expect(
+        rows.map((row) => row.dataset.memberId),
+        listId,
+      ).toEqual(expectedMemberIds);
+    }
+
+    const mobileRows = document.querySelectorAll<HTMLElement>(
+      '#connect-administrator-list .administrator-row',
+    );
+    expect(mobileRows[5]?.dataset.memberId).toBe('member-same-a');
+    mobileRows[5]
+      ?.querySelector<HTMLButtonElement>('.administrator-action-button.settings')
+      ?.click();
+    document.getElementById('btn-administrator-permissions-save')?.click();
+    await vi.waitFor(() =>
+      expect(mockedUpdateActiveProRoomAdministrator).toHaveBeenCalledWith(
+        'member-same-a',
+        FULL_ADMIN_PERMISSIONS_FOR_TEST,
+      ),
+    );
+
+    const desktopRows = document.querySelectorAll<HTMLElement>(
+      '#desktop-administrator-list .administrator-row',
+    );
+    expect(desktopRows[2]?.dataset.memberId).toBe('member-alpha');
+    desktopRows[2]
+      ?.querySelector<HTMLButtonElement>('.administrator-action-button.revoke')
+      ?.click();
+    await vi.waitFor(() =>
+      expect(mockedRevokeActiveProRoomAdministrator).toHaveBeenCalledWith('member-alpha'),
+    );
   });
 
   it('keeps administrator layout aligned and permission rows free of pill hover fills', async () => {

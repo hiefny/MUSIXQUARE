@@ -254,9 +254,16 @@ function sanitizeQueueItem(value) {
   };
 }
 
-function sanitizeProjection(value, projection, roomCode) {
+function sanitizeProjection(value, projection, roomCode, expectedEffectsVersion = 1) {
   if (!value || typeof value !== 'object' || value.roomCode !== roomCode) return null;
-  if (value.schemaVersion !== 1 || value.view !== projection) return null;
+  if (
+    value.view !== projection ||
+    (projection === 'effects'
+      ? value.schemaVersion !== expectedEffectsVersion
+      : value.schemaVersion !== 1)
+  ) {
+    return null;
+  }
   if (projection === 'room') {
     if (
       !['unactivated', 'active', 'suspended'].includes(value.status) ||
@@ -350,7 +357,10 @@ function sanitizeProjection(value, projection, roomCode) {
     };
   }
   if (projection === 'effects') {
-    const effects = parseEffectsState(value.effects);
+    const effects =
+      value.schemaVersion === 2
+        ? parseEffectsState(value.effects)
+        : parseLegacyEffectsState(value.effects);
     if (
       !hasExactKeys(value, [
         'schemaVersion',
@@ -367,7 +377,7 @@ function sanitizeProjection(value, projection, roomCode) {
       return null;
     }
     return {
-      schemaVersion: 1,
+      schemaVersion: value.schemaVersion,
       view: 'effects',
       roomCode,
       revision: value.revision,
@@ -512,9 +522,15 @@ function parseVirtualSurround(value) {
     : null;
 }
 
+function parseVirtualTreble(value) {
+  return hasExactKeys(value, ['enabled']) && typeof value.enabled === 'boolean'
+    ? { enabled: value.enabled }
+    : null;
+}
+
 function parseEffects(value, requireComplete) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const allowed = ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'];
+  const allowed = ['reverb', 'equalizer', 'virtualBass', 'virtualSurround', 'virtualTreble'];
   const keys = Object.keys(value);
   if (
     keys.length === 0 ||
@@ -533,7 +549,9 @@ function parseEffects(value, requireComplete) {
           ? parseEqualizer(value.equalizer)
           : key === 'virtualBass'
             ? parseVirtualBass(value.virtualBass)
-            : parseVirtualSurround(value.virtualSurround);
+            : key === 'virtualSurround'
+              ? parseVirtualSurround(value.virtualSurround)
+              : parseVirtualTreble(value.virtualTreble);
     if (!parsed) return null;
     effects[key] = parsed;
   }
@@ -546,6 +564,20 @@ function parseEffectsPatch(value) {
 
 function parseEffectsState(value) {
   return parseEffects(value, true);
+}
+
+function parseLegacyEffectsState(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (!hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'])) {
+    return null;
+  }
+  const reverb = parseReverbPatch(value.reverb, true);
+  const equalizer = parseEqualizer(value.equalizer);
+  const virtualBass = parseVirtualBass(value.virtualBass);
+  const virtualSurround = parseVirtualSurround(value.virtualSurround);
+  return reverb && equalizer && virtualBass && virtualSurround
+    ? { reverb, equalizer, virtualBass, virtualSurround }
+    : null;
 }
 
 function parseMetadata(value) {
@@ -996,15 +1028,18 @@ export default {
 
     if (url.pathname === '/internal/v1/read') {
       if (
-        !hasExactKeys(body, ['roomCode', 'projection'], ['keyId']) ||
+        !hasExactKeys(body, ['roomCode', 'projection'], ['keyId', 'effectsVersion']) ||
         !ROOM_CODE_RE.test(body.roomCode) ||
         (body.keyId !== undefined && !API_KEY_ID_RE.test(body.keyId || '')) ||
+        (body.effectsVersion !== undefined && ![1, 2].includes(body.effectsVersion)) ||
+        (body.projection !== 'effects' && body.effectsVersion !== undefined) ||
         !['room', 'playback', 'queue', 'effects', 'queue-mode'].includes(body.projection)
       ) {
         return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
       }
       const called = await callRoom(namespace, body.roomCode, '/internal/developer/v1/read', {
         ...(body.keyId === undefined ? {} : { keyId: body.keyId }),
+        ...(body.effectsVersion === 2 ? { effectsVersion: 2 } : {}),
         projection: body.projection,
       });
       if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
@@ -1013,7 +1048,12 @@ export default {
       if (!called.response.ok || !value) {
         return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
       }
-      const sanitized = sanitizeProjection(value, body.projection, body.roomCode);
+      const sanitized = sanitizeProjection(
+        value,
+        body.projection,
+        body.roomCode,
+        body.effectsVersion || 1,
+      );
       return sanitized
         ? jsonResponse(sanitized)
         : jsonResponse({ error: 'INVALID_BACKEND_RESPONSE' }, 503);

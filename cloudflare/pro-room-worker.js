@@ -63,6 +63,7 @@ const SCHEMA_VERSION = 1;
 // completion metadata out of the Durable Object record.
 const STORAGE_KEY = 'pro-room:v1';
 const STORAGE_V2_CORE_KEY = 'pro-room:v2:core';
+const STORAGE_V2_VIRTUAL_TREBLE_KEY = 'pro-room:v2:effects:virtual-treble';
 const STORAGE_V2_PLAYLIST_PREFIX = 'pro-room:v2:playlist:';
 const STORAGE_V2_SCHEMA_VERSION = 2;
 const ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
@@ -394,7 +395,7 @@ function corsHeaders(origin) {
     'access-control-allow-credentials': 'true',
     'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'access-control-allow-headers':
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version',
     'access-control-max-age': '86400',
     vary: 'origin',
   };
@@ -1051,6 +1052,7 @@ function initialEffectsState() {
       equalizer: { bandsDb: [0, 0, 0, 0, 0] },
       virtualBass: { strengthPercent: 0 },
       virtualSurround: { widthPercent: 100 },
+      virtualTreble: { enabled: false },
     },
   };
 }
@@ -1107,7 +1109,13 @@ function parseEffectsVirtualSurround(value) {
     : null;
 }
 
-function parseRoomEffects(value) {
+function parseEffectsVirtualTreble(value) {
+  return hasExactKeys(value, ['enabled']) && typeof value.enabled === 'boolean'
+    ? { enabled: value.enabled }
+    : null;
+}
+
+function parseLegacyRoomEffects(value) {
   if (!hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'])) return null;
   const reverb = parseEffectsReverb(value.reverb);
   const equalizer = parseEffectsEqualizer(value.equalizer);
@@ -1118,8 +1126,30 @@ function parseRoomEffects(value) {
     : null;
 }
 
+function parseRoomEffects(value) {
+  if (
+    !hasExactKeys(value, [
+      'reverb',
+      'equalizer',
+      'virtualBass',
+      'virtualSurround',
+      'virtualTreble',
+    ])
+  ) {
+    return null;
+  }
+  const reverb = parseEffectsReverb(value.reverb);
+  const equalizer = parseEffectsEqualizer(value.equalizer);
+  const virtualBass = parseEffectsVirtualBass(value.virtualBass);
+  const virtualSurround = parseEffectsVirtualSurround(value.virtualSurround);
+  const virtualTreble = parseEffectsVirtualTreble(value.virtualTreble);
+  return reverb && equalizer && virtualBass && virtualSurround && virtualTreble
+    ? { reverb, equalizer, virtualBass, virtualSurround, virtualTreble }
+    : null;
+}
+
 function parseRoomEffectsPatch(value) {
-  const allowed = ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'];
+  const allowed = ['reverb', 'equalizer', 'virtualBass', 'virtualSurround', 'virtualTreble'];
   if (!hasExactKeys(value, [], allowed) || Object.keys(value).length === 0) return null;
   const result = {};
   for (const key of Object.keys(value)) {
@@ -1130,7 +1160,9 @@ function parseRoomEffectsPatch(value) {
           ? parseEffectsEqualizer(value.equalizer)
           : key === 'virtualBass'
             ? parseEffectsVirtualBass(value.virtualBass)
-            : parseEffectsVirtualSurround(value.virtualSurround);
+            : key === 'virtualSurround'
+              ? parseEffectsVirtualSurround(value.virtualSurround)
+              : parseEffectsVirtualTreble(value.virtualTreble);
     if (!parsed) return null;
     result[key] = parsed;
   }
@@ -1145,6 +1177,7 @@ function mergeRoomEffectsPatch(current, patch) {
       : { bandsDb: [...current.equalizer.bandsDb] },
     virtualBass: { ...(patch.virtualBass || current.virtualBass) },
     virtualSurround: { ...(patch.virtualSurround || current.virtualSurround) },
+    virtualTreble: { ...(patch.virtualTreble || current.virtualTreble) },
   };
 }
 
@@ -1157,17 +1190,41 @@ function normalizeStoredEffects(value) {
     return null;
   }
   const effects = parseRoomEffects(value.effects);
-  return effects ? { revision: value.revision, updatedAtMs: value.updatedAtMs, effects } : null;
+  if (effects) {
+    return {
+      state: { revision: value.revision, updatedAtMs: value.updatedAtMs, effects },
+      migrated: false,
+    };
+  }
+  const legacy = parseLegacyRoomEffects(value.effects);
+  return legacy
+    ? {
+        state: {
+          revision: value.revision,
+          updatedAtMs: value.updatedAtMs,
+          effects: { ...legacy, virtualTreble: { enabled: false } },
+        },
+        migrated: true,
+      }
+    : null;
 }
 
-function publicEffects(room) {
+function effectsContractVersion(request) {
+  const version = request.headers.get('x-mxqr-pro-effects-version');
+  if (version === null || version === '1') return 1;
+  return version === '2' ? 2 : null;
+}
+
+function publicEffects(room, contractVersion = 2) {
+  const effects = structuredClone(room.effects.effects);
+  if (contractVersion === 1) delete effects.virtualTreble;
   return {
-    schemaVersion: 1,
+    schemaVersion: contractVersion,
     view: 'effects',
     roomCode: room.roomCode,
     revision: room.effects.revision,
     updatedAtMs: room.effects.updatedAtMs,
-    effects: structuredClone(room.effects.effects),
+    effects,
   };
 }
 
@@ -1381,6 +1438,14 @@ function sessionCapabilities(room, session) {
   return capabilitiesFromPermissions(session.role, sessionPermissionSet(room, session));
 }
 
+function compareAdministratorText(left, right) {
+  // Do not let an isolate's default locale affect a server-authoritative
+  // projection. Relational string comparison has a fixed UTF-16 code-unit
+  // order, and memberId provides the final deterministic tie-breaker.
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
+}
+
 function publicAdministrators(room) {
   const liveCounts = new Map();
   for (const participant of Object.values(room.presence.participants || {})) {
@@ -1424,12 +1489,25 @@ function publicAdministrators(room) {
       onlineDeviceCount: liveCounts.get(administrator.memberId) || 0,
     });
   }
-  return administrators.sort(
-    (left, right) =>
-      Number(right.role === 'owner') - Number(left.role === 'owner') ||
-      left.memberDisplayNumber - right.memberDisplayNumber ||
-      left.memberId.localeCompare(right.memberId),
-  );
+  return administrators.sort((left, right) => {
+    const ownerOrder = Number(right.role === 'owner') - Number(left.role === 'owner');
+    if (ownerOrder !== 0) return ownerOrder;
+
+    const leftOnline = left.onlineDeviceCount > 0;
+    const rightOnline = right.onlineDeviceCount > 0;
+    const onlineOrder = Number(rightOnline) - Number(leftOnline);
+    if (onlineOrder !== 0) return onlineOrder;
+
+    if (leftOnline) {
+      const displayNumberOrder = left.memberDisplayNumber - right.memberDisplayNumber;
+      if (displayNumberOrder !== 0) return displayNumberOrder;
+    } else {
+      const displayNameOrder = compareAdministratorText(left.displayName, right.displayName);
+      if (displayNameOrder !== 0) return displayNameOrder;
+    }
+
+    return compareAdministratorText(left.memberId, right.memberId);
+  });
 }
 
 function publicSnapshot(room, session = null) {
@@ -1548,7 +1626,7 @@ function developerQueueItem(item, requesterKeyId) {
     : metadata;
 }
 
-function developerProjection(room, projection, nowMs, requesterKeyId) {
+function developerProjection(room, projection, nowMs, requesterKeyId, effectsVersion = 1) {
   if (projection === 'room') {
     return {
       schemaVersion: 1,
@@ -1607,7 +1685,7 @@ function developerProjection(room, projection, nowMs, requesterKeyId) {
       items: room.playlist.map((item) => developerQueueItem(item, requesterKeyId)),
     };
   }
-  if (projection === 'effects') return publicEffects(room);
+  if (projection === 'effects') return publicEffects(room, effectsVersion);
   if (projection === 'queue-mode') return developerQueueMode(room);
   return null;
 }
@@ -1843,6 +1921,7 @@ function parseBotPlan(value) {
         'playbackCommand',
         'repeatMode',
         'shuffleEnabled',
+        'virtualTrebleEnabled',
         'answer',
       ],
     ) ||
@@ -1853,6 +1932,7 @@ function parseBotPlan(value) {
       'clear_queue',
       'playback',
       'queue_mode',
+      'virtual_treble',
       'answer',
     ].includes(value.intent)
   ) {
@@ -1939,6 +2019,16 @@ function parseBotPlan(value) {
       ...(value.shuffleEnabled === undefined ? {} : { shuffleEnabled: value.shuffleEnabled }),
       ...(answer ? { answer } : {}),
     };
+  }
+  if (value.intent === 'virtual_treble') {
+    return hasExactKeys(value, ['intent', 'virtualTrebleEnabled'], ['answer']) &&
+      typeof value.virtualTrebleEnabled === 'boolean'
+      ? {
+          intent: value.intent,
+          virtualTrebleEnabled: value.virtualTrebleEnabled,
+          ...(answer ? { answer } : {}),
+        }
+      : null;
   }
   return answer ? { intent: value.intent, answer } : null;
 }
@@ -2689,11 +2779,49 @@ function parseStoredPlaylistItem(value) {
 
 function splitPersistentRoomState(room) {
   const { playlist: _playlist, ...core } = room;
+  const rollbackEffects = rollbackCompatibleEffectsEnvelope(room.effects);
   return {
     schemaVersion: STORAGE_V2_SCHEMA_VERSION,
-    core,
+    core: {
+      ...core,
+      ...(rollbackEffects === undefined ? {} : { effects: rollbackEffects }),
+    },
     playlistOrder: room.playlist.map((item) => item.queueItemId),
   };
+}
+
+function legacyShadowRoomState(room) {
+  const rollbackEffects = rollbackCompatibleEffectsEnvelope(room.effects);
+  return {
+    ...room,
+    ...(rollbackEffects === undefined ? {} : { effects: rollbackEffects }),
+  };
+}
+
+function rollbackCompatibleEffectsEnvelope(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  if (!value.effects || typeof value.effects !== 'object' || Array.isArray(value.effects)) {
+    return value;
+  }
+  const { virtualTreble: _virtualTreble, ...legacyEffects } = value.effects;
+  return { ...value, effects: legacyEffects };
+}
+
+function virtualTrebleStorageState(room) {
+  return {
+    schemaVersion: 1,
+    roomCode: room.roomCode,
+    enabled: room.effects.effects.virtualTreble.enabled,
+  };
+}
+
+function parseVirtualTrebleStorageState(value, roomCode) {
+  return hasExactKeys(value, ['schemaVersion', 'roomCode', 'enabled']) &&
+    value.schemaVersion === 1 &&
+    value.roomCode === roomCode &&
+    typeof value.enabled === 'boolean'
+    ? { enabled: value.enabled }
+    : null;
 }
 
 function serializedCoreStateByteLength(room) {
@@ -2962,7 +3090,8 @@ export class MusixquareProRoom {
     if (!this.room) return;
     const normalized = normalizeStoredEffects(this.room.effects);
     if (normalized) {
-      this.room.effects = normalized;
+      this.room.effects = normalized.state;
+      this.effectsMigrationPending = this.effectsMigrationPending || normalized.migrated;
       return;
     }
     // Effects predate this dedicated resource. An old room starts from the
@@ -3457,6 +3586,16 @@ export class MusixquareProRoom {
         playlist.push(item);
       }
       const room = { ...storedV2.core, playlist };
+      const storedVirtualTreble = parseVirtualTrebleStorageState(
+        await this.storage.get(STORAGE_V2_VIRTUAL_TREBLE_KEY),
+        room.roomCode,
+      );
+      if (storedVirtualTreble && room.effects?.effects) {
+        room.effects = {
+          ...room.effects,
+          effects: { ...room.effects.effects, virtualTreble: storedVirtualTreble },
+        };
+      }
       assertBoundedRoomState(room);
       this.room = room;
       this.persistedPlaylistSignatures = new Map(
@@ -3473,6 +3612,18 @@ export class MusixquareProRoom {
     }
 
     this.room = (await this.storage.get(STORAGE_KEY)) || null;
+    if (this.room) {
+      const storedVirtualTreble = parseVirtualTrebleStorageState(
+        await this.storage.get(STORAGE_V2_VIRTUAL_TREBLE_KEY),
+        this.room.roomCode,
+      );
+      if (storedVirtualTreble && this.room.effects?.effects) {
+        this.room.effects = {
+          ...this.room.effects,
+          effects: { ...this.room.effects.effects, virtualTreble: storedVirtualTreble },
+        };
+      }
+    }
     this.persistedPlaylistSignatures = new Map();
     this.persistedPresenceLastSeenAtMs = new Map(
       Object.values(this.room?.presence?.participants || {}).map((participant) => [
@@ -3602,6 +3753,8 @@ export class MusixquareProRoom {
     assertBoundedRoomState(this.room);
     const writeLegacyShadow = options.writeLegacyShadow !== false;
     const storedCore = splitPersistentRoomState(this.room);
+    const storedVirtualTreble = virtualTrebleStorageState(this.room);
+    const legacyShadow = legacyShadowRoomState(this.room);
     const nextSignatures = new Map(
       this.room.playlist.map((item) => [item.queueItemId, playlistItemSignature(item)]),
     );
@@ -3617,15 +3770,16 @@ export class MusixquareProRoom {
       .filter((queueItemId) => !nextSignatures.has(queueItemId))
       .map(playlistStorageKey);
     const legacyShadowFits =
-      writeLegacyShadow && serializedStateByteLength(this.room) <= STATE_MAX_BYTES;
+      writeLegacyShadow && serializedStateByteLength(legacyShadow) <= STATE_MAX_BYTES;
     const write = async (storage) => {
       await putStorageEntries(storage, changedEntries);
       await deleteStorageKeys(storage, removedKeys);
       await storage.put(STORAGE_V2_CORE_KEY, storedCore);
+      await storage.put(STORAGE_V2_VIRTUAL_TREBLE_KEY, storedVirtualTreble);
       // Keep an exact rollback shadow while it is representable by the old
       // single-record format. Once it no longer fits, retain the last valid
       // shadow instead of deleting the only state an older Worker understands.
-      if (legacyShadowFits) await storage.put(STORAGE_KEY, this.room);
+      if (legacyShadowFits) await storage.put(STORAGE_KEY, legacyShadow);
     };
     try {
       if (typeof this.storage.transaction === 'function') {
@@ -4189,6 +4343,7 @@ export class MusixquareProRoom {
               ? 'all'
               : 'off',
         shuffleEnabled: this.room.queueMode.shuffleEnabled,
+        effects: structuredClone(this.room.effects.effects),
         playlist,
       },
     };
@@ -4330,7 +4485,8 @@ export class MusixquareProRoom {
     if (
       (plan.intent === 'remove_items' ||
         plan.intent === 'clear_queue' ||
-        (plan.intent === 'queue_mode' && this.authorityProjectionEnabled())) &&
+        ((plan.intent === 'queue_mode' || plan.intent === 'virtual_treble') &&
+          this.authorityProjectionEnabled())) &&
       auth.session.role !== 'owner'
     ) {
       return errorResponse('OWNER_REQUIRED', 403);
@@ -4486,6 +4642,12 @@ export class MusixquareProRoom {
         }),
       );
       if (!queueModeResponse.ok) return errorResponse('BOT_ACTION_FAILED', 409);
+    } else if (plan.intent === 'virtual_treble') {
+      const effectsChanged = await this.runBotDeveloperCommand(parsed.value.requestId, {
+        type: 'set_effects',
+        effects: { virtualTreble: { enabled: plan.virtualTrebleEnabled } },
+      });
+      if (!effectsChanged) return errorResponse('BOT_ACTION_FAILED', 409);
     }
 
     if (destructiveResponseBody) return jsonResponse(destructiveResponseBody);
@@ -4514,9 +4676,12 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
     if (
-      !hasExactKeys(parsed.value, ['projection'], ['keyId']) ||
+      !hasExactKeys(parsed.value, ['projection'], ['keyId', 'effectsVersion']) ||
       (parsed.value.keyId !== undefined &&
         !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '')) ||
+      (parsed.value.effectsVersion !== undefined &&
+        ![1, 2].includes(parsed.value.effectsVersion)) ||
+      (parsed.value.projection !== 'effects' && parsed.value.effectsVersion !== undefined) ||
       !['room', 'playback', 'queue', 'effects', 'queue-mode'].includes(parsed.value.projection)
     ) {
       return errorResponse('INVALID_REQUEST', 400);
@@ -4526,6 +4691,7 @@ export class MusixquareProRoom {
       parsed.value.projection,
       Date.now(),
       parsed.value.keyId,
+      parsed.value.effectsVersion || 1,
     );
     return projection ? jsonResponse(projection) : errorResponse('ROOM_STATE_INVALID', 503);
   }
@@ -6732,7 +6898,10 @@ export class MusixquareProRoom {
     if (request.body && (request.headers.get('content-length') || '') !== '0') {
       return errorResponse('INVALID_REQUEST', 400);
     }
-    return jsonResponse(publicEffects(this.room));
+    const contractVersion = effectsContractVersion(request);
+    return contractVersion === null
+      ? errorResponse('INVALID_REQUEST', 400)
+      : jsonResponse(publicEffects(this.room, contractVersion));
   }
 
   async handleUpdateEffects(request) {
@@ -6749,7 +6918,23 @@ export class MusixquareProRoom {
     if (!hasExactKeys(parsed.value, ['coordinatorEpoch', 'baseRevision', 'effects'])) {
       return errorResponse('INVALID_REQUEST', 400);
     }
-    const effects = parseRoomEffects(parsed.value.effects);
+    const contractVersion = effectsContractVersion(request);
+    const parsedEffects =
+      contractVersion === 2
+        ? parseRoomEffects(parsed.value.effects)
+        : contractVersion === 1
+          ? parseLegacyRoomEffects(parsed.value.effects)
+          : null;
+    // A legacy full-form update knows nothing about virtual treble. Preserve
+    // the canonical value so an already-open v1 client cannot erase a v2
+    // participant's room-wide setting while changing an unrelated effect.
+    const effects =
+      contractVersion === 1 && parsedEffects
+        ? {
+            ...parsedEffects,
+            virtualTreble: { ...this.room.effects.effects.virtualTreble },
+          }
+        : parsedEffects;
     if (
       !isSafeNonNegativeInteger(parsed.value.coordinatorEpoch) ||
       !isSafeNonNegativeInteger(parsed.value.baseRevision) ||
@@ -6762,12 +6947,15 @@ export class MusixquareProRoom {
     }
     if (parsed.value.baseRevision !== this.room.effects.revision) {
       return jsonResponse(
-        { error: 'EFFECTS_REVISION_CONFLICT', effects: publicEffects(this.room) },
+        {
+          error: 'EFFECTS_REVISION_CONFLICT',
+          effects: publicEffects(this.room, contractVersion),
+        },
         409,
       );
     }
     if (JSON.stringify(effects) === JSON.stringify(this.room.effects.effects)) {
-      return jsonResponse(publicEffects(this.room));
+      return jsonResponse(publicEffects(this.room, contractVersion));
     }
     if (
       this.room.effects.revision >= Number.MAX_SAFE_INTEGER ||
@@ -6788,7 +6976,7 @@ export class MusixquareProRoom {
     await this.broadcastServerEvent(
       this.invalidationEvent({ effectsRevision: this.room.effects.revision }),
     );
-    return jsonResponse(publicEffects(this.room));
+    return jsonResponse(publicEffects(this.room, contractVersion));
   }
 
   async handleGetQueueMode(request) {

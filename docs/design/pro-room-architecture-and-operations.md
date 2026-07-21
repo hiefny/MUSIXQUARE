@@ -586,6 +586,16 @@ advertises a dependency that is absent:
 3. PRO Worker and Durable Object/R2 bindings.
 4. App Worker, same-origin PRO service binding, and static build last.
 
+The room-effects version 2 rollout follows that same strict server-first order.
+The updated PRO Worker serves the original four-key version 1 projection to old
+clients and preserves `virtualTreble` when they write another effect; refreshed
+clients explicitly negotiate the five-key version 2 projection. Do not roll the
+PRO Worker back below that negotiation boundary while the version 2 app remains
+live: roll the App/static build back first, then the PRO Worker. The dedicated
+virtual-treble storage sidecar preserves state across an old-Worker rollback,
+but it does not make that old Worker's HTTP/CORS contract understand a version
+2 client.
+
 The checked-in command performs all syntax/build checks before step 1 and then
 uses this order:
 

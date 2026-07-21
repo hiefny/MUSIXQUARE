@@ -2963,6 +2963,48 @@ function internalBotRequest(
 }
 
 describe('PRO room server BOT boundary', () => {
+  it('reads and controls canonical virtual treble through the BOT effects contract', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+    };
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({
+        fetch: vi.fn(async () => Response.json({ broadcast: true, eligible: 2, sent: 2 })),
+      })),
+    };
+    const requestId = 'bot-virtual-treble-control-0001';
+    const botContext = await internalBotRequest(
+      context.worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'turn virtual treble on' },
+      context.ownerCookie,
+    );
+    expect(botContext.status).toBe(200);
+    const contextPayload = await responseJson(botContext);
+    expect(contextPayload.room.effects.virtualTreble).toEqual({ enabled: false });
+
+    const execute = await internalBotRequest(
+      context.worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId,
+        leaseToken: contextPayload.leaseToken,
+        plan: { intent: 'virtual_treble', virtualTrebleEnabled: true },
+        tracks: [],
+      },
+      context.ownerCookie,
+    );
+    expect(execute.status).toBe(200);
+    expect(internal.room.effects).toMatchObject({
+      revision: 1,
+      effects: { virtualTreble: { enabled: true } },
+    });
+  });
+
   it('serves every provisioned active PRO room', async () => {
     const roomCode = '000002';
     const { worker, ownerCookie } = await activatedRoom(roomCode);
@@ -7069,14 +7111,14 @@ describe('persistent PRO room bootstrap and activation', () => {
           origin: 'https://musixquare.com',
           'access-control-request-method': 'GET',
           'access-control-request-headers':
-            'x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation',
+            'x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version',
         },
       }),
       env as never,
     );
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get('access-control-allow-headers')).toBe(
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version',
     );
 
     for (const previewOrigin of ['http://localhost:4173', 'http://127.0.0.1:4173']) {
@@ -8347,6 +8389,146 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     expect(deniedRemoval.status).toBe(403);
     await expect(deniedRemoval.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
+  });
+
+  it('projects administrators as owner, online member number, then deterministic offline nickname', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+
+    const addAccountAdministrator = async (index: number, nickname: string) => {
+      const accountId = `acct_${String(index).padStart(22, '0')}`;
+      const response = await context.worker.fetch(
+        await withAccountAssertion(
+          jsonRequest('/sessions', 'POST', { pin: '12345678' }),
+          accountId,
+          nickname,
+        ),
+      );
+      expect(response.status).toBe(200);
+      const envelope = await responseJson(response);
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, envelope);
+      const memberId = envelope.snapshot.viewer.memberId as string;
+      const memberDisplayNumber = envelope.snapshot.viewer.memberDisplayNumber as number;
+      const delegated = await context.worker.fetch(
+        jsonRequest(
+          `/administrators/${memberId}`,
+          'PUT',
+          { permissions: fullDelegatedPermissions },
+          context.ownerCookie,
+        ),
+      );
+      expect(delegated.status).toBe(200);
+      return { accountId, cookie, memberId, memberDisplayNumber, nickname };
+    };
+    const leavePresence = async (cookie: string) => {
+      const response = await context.worker.fetch(
+        request('/presence/current', { method: 'DELETE' }, cookie),
+      );
+      expect(response.status).toBe(200);
+    };
+    const administratorSnapshot = async (cookie: string) =>
+      (await responseJson(await context.worker.fetch(request('/snapshot', {}, cookie)))).snapshot
+        .administrators as Array<{
+        memberId: string;
+        memberDisplayNumber: number;
+        displayName: string;
+        role: 'owner' | 'controller';
+        onlineDeviceCount: number;
+      }>;
+
+    // The oldest member number deliberately becomes offline. If the projection
+    // accidentally returns to number-only sorting it will jump ahead of both
+    // live administrators.
+    const zulu = await addAccountAdministrator(1, 'Zulu Offline');
+    const onlineTwo = await addAccountAdministrator(2, 'Online Two');
+    const onlineThree = await addAccountAdministrator(3, 'Online Three');
+    const korean = await addAccountAdministrator(4, '가나다 Offline');
+    const alpha = await addAccountAdministrator(5, 'Alpha Offline');
+    const sameHighId = await addAccountAdministrator(6, 'Same Offline');
+    const sameLowId = await addAccountAdministrator(7, 'Same Offline');
+    for (const { cookie } of [zulu, korean, alpha, sameHighId, sameLowId]) {
+      await leavePresence(cookie);
+    }
+
+    const ownerMemberId = context.activationEnvelope.snapshot.viewer.memberId as string;
+    const sameMemberIds = [sameHighId.memberId, sameLowId.memberId].sort();
+    const expectedOnlineIds = [onlineTwo.memberId, onlineThree.memberId];
+    const expectedOfflineIds = [alpha.memberId, ...sameMemberIds, zulu.memberId, korean.memberId];
+    const initial = await administratorSnapshot(onlineTwo.cookie);
+    expect(initial.map(({ memberId }) => memberId)).toEqual([
+      ownerMemberId,
+      ...expectedOnlineIds,
+      ...expectedOfflineIds,
+    ]);
+    expect(initial[0]).toMatchObject({ role: 'owner', onlineDeviceCount: 1 });
+    expect(initial.slice(1, 3).map(({ memberDisplayNumber }) => memberDisplayNumber)).toEqual([
+      onlineTwo.memberDisplayNumber,
+      onlineThree.memberDisplayNumber,
+    ]);
+    expect(initial.slice(3).map(({ displayName }) => displayName)).toEqual([
+      'Alpha Offline',
+      'Same Offline',
+      'Same Offline',
+      'Zulu Offline',
+      '가나다 Offline',
+    ]);
+
+    // A live/offline transition changes only presence, but must immediately
+    // move the persistent grant into the nickname-sorted offline group.
+    await leavePresence(onlineThree.cookie);
+    const afterLeave = await administratorSnapshot(onlineTwo.cookie);
+    expect(afterLeave.map(({ memberId }) => memberId)).toEqual([
+      ownerMemberId,
+      onlineTwo.memberId,
+      alpha.memberId,
+      onlineThree.memberId,
+      ...sameMemberIds,
+      zulu.memberId,
+      korean.memberId,
+    ]);
+    expect(afterLeave.find(({ memberId }) => memberId === onlineThree.memberId)).toMatchObject({
+      onlineDeviceCount: 0,
+    });
+
+    const reenteredResponse = await context.worker.fetch(
+      request('/presence/enter', { method: 'POST' }, onlineThree.cookie),
+    );
+    expect(reenteredResponse.status).toBe(200);
+    const reentered = await responseJson(reenteredResponse);
+    bindCookiePresence(onlineThree.cookie, reentered);
+    const reenteredAdministrators = reentered.snapshot.administrators as Array<{
+      memberId: string;
+      memberDisplayNumber: number;
+      onlineDeviceCount: number;
+    }>;
+    const reenteredOnline = reenteredAdministrators.filter(
+      ({ memberId, onlineDeviceCount }) => memberId !== ownerMemberId && onlineDeviceCount > 0,
+    );
+    expect(new Set(reenteredOnline.map(({ memberId }) => memberId))).toEqual(
+      new Set(expectedOnlineIds),
+    );
+    expect(reenteredOnline.map(({ memberDisplayNumber }) => memberDisplayNumber)).toEqual(
+      reenteredOnline
+        .map(({ memberDisplayNumber }) => memberDisplayNumber)
+        .sort((left, right) => left - right),
+    );
+    const reenteredOnlineIds = reenteredOnline.map(({ memberId }) => memberId);
+    expect(reenteredAdministrators.map(({ memberId }) => memberId)).toEqual([
+      ownerMemberId,
+      ...reenteredOnlineIds,
+      ...expectedOfflineIds,
+    ]);
+
+    // The owner remains the first row even while its own presence is offline.
+    await leavePresence(context.ownerCookie);
+    const ownerOffline = await administratorSnapshot(onlineTwo.cookie);
+    expect(ownerOffline[0]).toMatchObject({
+      memberId: ownerMemberId,
+      role: 'owner',
+      onlineDeviceCount: 0,
+    });
+    expect(ownerOffline.slice(1, 3).map(({ memberId }) => memberId)).toEqual(reenteredOnlineIds);
   });
 
   it('persists account delegation offline while anonymous delegation dies with its session', async () => {
@@ -13112,6 +13294,140 @@ describe('persistent PRO room audio effects', () => {
     virtualBass: { strengthPercent: 60 },
     virtualSurround: { widthPercent: 120 },
   };
+  const configuredEffectsV2 = {
+    ...configuredEffects,
+    virtualTreble: { enabled: true },
+  };
+
+  it('negotiates virtual treble v2 while legacy full updates preserve the canonical value', async () => {
+    const context = await activatedRoom();
+    const epoch = context.activationEnvelope.snapshot.presence.coordinatorEpoch as number;
+    const v2Get = request(
+      '/effects',
+      {
+        headers: { 'x-mxqr-pro-effects-version': '2' },
+      },
+      context.ownerCookie,
+    );
+    await expect((await context.worker.fetch(v2Get)).json()).resolves.toEqual({
+      schemaVersion: 2,
+      view: 'effects',
+      roomCode: ROOM_CODE,
+      revision: 0,
+      updatedAtMs: 0,
+      effects: { ...defaultEffects, virtualTreble: { enabled: false } },
+    });
+
+    const v2Update = jsonRequest(
+      '/effects',
+      'PUT',
+      { coordinatorEpoch: epoch, baseRevision: 0, effects: configuredEffectsV2 },
+      context.ownerCookie,
+    );
+    v2Update.headers.set('x-mxqr-pro-effects-version', '2');
+    await expect((await context.worker.fetch(v2Update)).json()).resolves.toMatchObject({
+      schemaVersion: 2,
+      revision: 1,
+      effects: configuredEffectsV2,
+    });
+
+    const legacyUpdate = await context.worker.fetch(
+      jsonRequest(
+        '/effects',
+        'PUT',
+        {
+          coordinatorEpoch: epoch,
+          baseRevision: 1,
+          effects: { ...configuredEffects, virtualBass: { strengthPercent: 25 } },
+        },
+        context.ownerCookie,
+      ),
+    );
+    const legacyPayload = await responseJson(legacyUpdate);
+    expect(legacyPayload).toMatchObject({
+      schemaVersion: 1,
+      effects: { ...configuredEffects, virtualBass: { strengthPercent: 25 } },
+    });
+    expect(legacyPayload.effects).toEqual({
+      ...configuredEffects,
+      virtualBass: { strengthPercent: 25 },
+    });
+    expect(legacyPayload.effects).not.toHaveProperty('virtualTreble');
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    expect(internal.room.effects.effects.virtualTreble).toEqual({ enabled: true });
+
+    const v2AfterLegacy = request(
+      '/effects',
+      {
+        headers: { 'x-mxqr-pro-effects-version': '2' },
+      },
+      context.ownerCookie,
+    );
+    await expect((await context.worker.fetch(v2AfterLegacy)).json()).resolves.toMatchObject({
+      schemaVersion: 2,
+      revision: 2,
+      effects: {
+        virtualBass: { strengthPercent: 25 },
+        virtualTreble: { enabled: true },
+      },
+    });
+  });
+
+  it('keeps rollback-readable effects in core and restores virtual treble from its sidecar', async () => {
+    const context = await activatedRoom();
+    const epoch = context.activationEnvelope.snapshot.presence.coordinatorEpoch as number;
+    const update = jsonRequest(
+      '/effects',
+      'PUT',
+      { coordinatorEpoch: epoch, baseRevision: 0, effects: configuredEffectsV2 },
+      context.ownerCookie,
+    );
+    update.headers.set('x-mxqr-pro-effects-version', '2');
+    expect((await context.worker.fetch(update)).status).toBe(200);
+
+    const storedCore = structuredClone(context.state.storage.data.get('pro-room:v2:core')) as {
+      core: Record<string, any>;
+    };
+    const legacyShadow = context.state.storage.data.get('pro-room:v1') as Record<string, any>;
+    expect(storedCore.core.effects.effects).toEqual(configuredEffects);
+    expect(legacyShadow.effects.effects).toEqual(configuredEffects);
+    expect(context.state.storage.data.get('pro-room:v2:effects:virtual-treble')).toEqual({
+      schemaVersion: 1,
+      roomCode: ROOM_CODE,
+      enabled: true,
+    });
+
+    // Simulate an old Worker changing a legacy effect while leaving the
+    // unknown sidecar untouched, then roll forward to the new Worker again.
+    storedCore.core.effects = {
+      revision: 2,
+      updatedAtMs: 4321,
+      effects: {
+        ...configuredEffects,
+        reverb: { ...configuredEffects.reverb, mixPercent: 15 },
+      },
+    };
+    context.state.storage.data.set('pro-room:v2:core', storedCore);
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const get = request(
+      '/effects',
+      {
+        headers: { 'x-mxqr-pro-effects-version': '2' },
+      },
+      context.ownerCookie,
+    );
+    await expect((await restarted.fetch(get)).json()).resolves.toMatchObject({
+      schemaVersion: 2,
+      revision: 2,
+      effects: {
+        reverb: { mixPercent: 15 },
+        virtualTreble: { enabled: true },
+      },
+    });
+  });
 
   it('persists one strict effects resource and publishes its revision head in snapshot v1', async () => {
     const context = await activatedRoom();
@@ -13340,6 +13656,43 @@ describe('persistent PRO room audio effects', () => {
     ).toBeDefined();
   });
 
+  it('migrates stored effects without virtual treble to off without losing the revision', async () => {
+    const context = await activatedRoom();
+    const stored = structuredClone(context.state.storage.data.get('pro-room:v2:core')) as {
+      core: Record<string, any>;
+    };
+    stored.core.effects = {
+      revision: 7,
+      updatedAtMs: 1234,
+      effects: configuredEffects,
+    };
+    context.state.storage.data.set('pro-room:v2:core', stored);
+    context.state.storage.data.delete('pro-room:v2:effects:virtual-treble');
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const get = request(
+      '/effects',
+      {
+        headers: { 'x-mxqr-pro-effects-version': '2' },
+      },
+      context.ownerCookie,
+    );
+    await expect((await restarted.fetch(get)).json()).resolves.toMatchObject({
+      schemaVersion: 2,
+      revision: 7,
+      updatedAtMs: 1234,
+      effects: { ...configuredEffects, virtualTreble: { enabled: false } },
+    });
+    expect(context.state.storage.data.get('pro-room:v2:effects:virtual-treble')).toMatchObject({
+      schemaVersion: 1,
+      roomCode: ROOM_CODE,
+      enabled: false,
+    });
+  });
+
   it('applies set_effects on the server without a browser control capability', async () => {
     const dispatchFetch = vi.fn(async () => Response.json({ dispatched: true }));
     const context = await activatedRoom();
@@ -13416,6 +13769,18 @@ describe('persistent PRO room audio effects', () => {
     expect(internal.room.effects).toMatchObject({
       revision: 2,
       effects: { reverb: { mixPercent: 40 }, virtualBass: { strengthPercent: 60 } },
+    });
+
+    const treble = await createInternalDeveloperCommand(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'developer-effects-command-0003',
+      { type: 'set_effects', effects: { virtualTreble: { enabled: true } } },
+    );
+    expect(treble.status).toBe(202);
+    expect(internal.room.effects).toMatchObject({
+      revision: 3,
+      effects: { virtualTreble: { enabled: true } },
     });
   });
 });

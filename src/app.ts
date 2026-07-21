@@ -502,7 +502,10 @@ async function bootstrap(): Promise<void> {
   safeInit('PageLifecycle', () =>
     initPageLifecycleHandlers({
       getRole: () => getState('network.appRole'),
-      leaveSession,
+      // A confirmed pagehide may be the installed-PWA OAuth navigation. Keep
+      // its short-lived route hint; direct/user-confirmed leaveSession calls
+      // clear the hint at their explicit session-exit boundary.
+      leaveSession: () => leaveSession({ preserveAccountLoginReturn: true }),
       // A pending bfcache reset is restored immediately before this callback,
       // so the coordinator can paint a fresh overlay and own reload recovery.
       reload: () =>

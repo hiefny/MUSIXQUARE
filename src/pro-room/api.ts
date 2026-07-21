@@ -1052,6 +1052,7 @@ function validatePlaybackCommand(command: ProRoomPlaybackCommand): ProRoomPlayba
 interface RequestOptions<T> {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   body?: unknown;
+  headers?: HeadersInit;
   idempotencyKey?: string;
   signal?: AbortSignal;
   parser: JsonParser<T>;
@@ -1080,7 +1081,8 @@ export class ProRoomApiClient {
       throw new ProRoomApiError('INVALID_REQUEST');
     }
 
-    const headers = new Headers({ Accept: 'application/json' });
+    const headers = new Headers(options.headers);
+    headers.set('Accept', 'application/json');
     let body: string | undefined;
     if (options.body !== undefined) {
       body = encodeRequestBody(options.body);
@@ -1494,6 +1496,7 @@ export class ProRoomApiClient {
     const path = roomPath(code);
     return this.#request(`${path}/effects`, {
       signal,
+      headers: { 'X-MXQR-Pro-Effects-Version': '2' },
       activeRoomCode: code,
       maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
       parser: (value) => parseProRoomEffectsSnapshot(value, code),
@@ -1515,6 +1518,7 @@ export class ProRoomApiClient {
     if (!effects) throw new ProRoomApiError('INVALID_EFFECTS');
     return this.#request(`${path}/effects`, {
       method: 'PUT',
+      headers: { 'X-MXQR-Pro-Effects-Version': '2' },
       body: { coordinatorEpoch: input.coordinatorEpoch, baseRevision: input.baseRevision, effects },
       signal,
       activeRoomCode: input.code,

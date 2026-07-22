@@ -15,6 +15,7 @@ import { batchSetState, getState, setState } from '../core/state.ts';
 import { MSG, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
+import { stripRecognizedAudioFileExtension } from '../media/audio-file.ts';
 import { broadcastSystemMessage, sendSystemMessage } from '../chat/protocol.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import {
@@ -1127,7 +1128,7 @@ export function prepareRemoteShareWait(
       }
     : {
         name,
-        title: name.replace(/\.[^/.]+$/, ''),
+        title: stripRecognizedAudioFileExtension(name),
         queueItemId,
         indexHint,
         size: 0,
@@ -1228,7 +1229,7 @@ function reconcileDeferredPreloadForActiveDescriptor(descriptor: RemoteFileShare
 function remotePreloadMeta(descriptor: RemoteFileSharePayload) {
   return {
     name: descriptor.name,
-    title: descriptor.name.replace(/\.[^/.]+$/, ''),
+    title: stripRecognizedAudioFileExtension(descriptor.name),
     queueItemId: descriptor.queueItemId,
     indexHint: findQueueItemIndex(descriptor.queueItemId),
     size: descriptor.size,
@@ -1675,7 +1676,7 @@ async function handleRemoteFileShare(
     const preservedMeta = {
       ...preReady,
       name: descriptor.name,
-      title: descriptor.name.replace(/\.[^/.]+$/, ''),
+      title: stripRecognizedAudioFileExtension(descriptor.name),
       queueItemId: descriptor.queueItemId,
       indexHint,
       size: preReady.blob.size,
@@ -1938,7 +1939,7 @@ async function handleRemoteFileShare(
 
     const meta = {
       name: publishDescriptor.name,
-      title: publishDescriptor.name.replace(/\.[^/.]+$/, ''),
+      title: stripRecognizedAudioFileExtension(publishDescriptor.name),
       queueItemId: publishDescriptor.queueItemId,
       indexHint,
       size: file.size,

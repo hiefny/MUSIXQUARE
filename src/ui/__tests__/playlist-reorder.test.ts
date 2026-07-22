@@ -129,6 +129,7 @@ describe('playlist reorder interaction controller', () => {
 
   afterEach(() => {
     controllers.splice(0).forEach((controller) => controller.destroy());
+    document.body.style.removeProperty('--desktop-ui-scale');
     vi.restoreAllMocks();
     vi.useRealTimers();
   });
@@ -260,6 +261,72 @@ describe('playlist reorder interaction controller', () => {
     expect(controller.isSettling).toBe(false);
     expect(interactionEnd).toHaveBeenCalledOnce();
     expect(interactionEnd).toHaveBeenCalledWith(true);
+  });
+
+  it('keeps fixed ghosts, FLIP motion, and drop settling in body-local pixels at 1.5x', () => {
+    document.body.style.setProperty('--desktop-ui-scale', '1.5');
+    const { commit, list } = create();
+    const entries = Array.from(list.querySelectorAll<HTMLElement>('.playlist-entry'));
+    const handle = entries[0].querySelector<HTMLElement>('.playlist-reorder-handle')!;
+    vi.spyOn(document.body, 'getBoundingClientRect').mockReturnValue(domRectAt(30, 45, 1200, 900));
+
+    const renderedTop = (entry: HTMLElement): number =>
+      Array.from(list.children).indexOf(entry) * 84 + 150;
+    entries.forEach((entry) => {
+      entry.getBoundingClientRect = () => domRectAt(150, renderedTop(entry), 450, 72);
+      entry.querySelector<HTMLElement>('.track-item')!.getBoundingClientRect = () =>
+        domRectAt(150, renderedTop(entry), 450, 72);
+    });
+    list.getBoundingClientRect = () => domRectAt(150, 150, 450, 400);
+
+    dispatchPointer(handle, 'pointerdown', 180);
+    const ghost = document.querySelector<HTMLElement>('.playlist-reorder-ghost')!;
+    expect(ghost.style.left).toBe('80px');
+    expect(ghost.style.top).toBe('70px');
+    expect(ghost.style.width).toBe('300px');
+
+    dispatchPointer(handle, 'pointermove', 390);
+    expect(ghost.style.transform).toBe('translate3d(0, 140px, 0) scale(1.015)');
+    expect(entries[1].style.transform).toBe('translate3d(0px, 56px, 0)');
+    expect(entries[2].style.transform).toBe('translate3d(0px, 56px, 0)');
+    expect(entries[0].style.transform).toBe('translate3d(0px, -112px, 0)');
+
+    ghost.getBoundingClientRect = () => domRectAt(180, 360, 450, 72);
+    dispatchPointer(handle, 'pointerup', 390);
+    expect(commit).toHaveBeenCalledWith(IDS.a, null);
+    expect(ghost.style.left).toBe('100px');
+    expect(ghost.style.top).toBe('210px');
+
+    vi.advanceTimersByTime(32);
+    expect(ghost.style.transform).toBe('translate3d(-20px, -28px, 0px) scale(1)');
+  });
+
+  it('keeps offset-based reorder thresholds in viewport coordinates at 1.5x', () => {
+    document.body.style.setProperty('--desktop-ui-scale', '1.5');
+    const { list } = create();
+    const entries = Array.from(list.querySelectorAll<HTMLElement>('.playlist-entry'));
+    const rows = entries.map((entry) => entry.querySelector<HTMLElement>('.track-item')!);
+    const handle = entries[0].querySelector<HTMLElement>('.playlist-reorder-handle')!;
+    list.getBoundingClientRect = () => domRectAt(0, 150, 450, 400);
+
+    entries.forEach((entry, index) => {
+      Object.defineProperties(entry, {
+        offsetTop: { configurable: true, value: index * 56 },
+        offsetHeight: { configurable: true, value: 48 },
+      });
+      Object.defineProperty(rows[index], 'offsetHeight', { configurable: true, value: 48 });
+      rows[index].getBoundingClientRect = () => domRectAt(0, 150 + index * 84, 450, 72);
+    });
+
+    dispatchPointer(handle, 'pointerdown', 180);
+    // B's rendered midpoint is 270 and C's is 354. A viewport Y of 300 must
+    // therefore insert before C; mixing unscaled offsets would append A.
+    dispatchPointer(handle, 'pointermove', 300);
+    expect(
+      Array.from(list.querySelectorAll<HTMLElement>('.playlist-entry')).map(
+        (entry) => entry.dataset.queueItemId,
+      ),
+    ).toEqual([IDS.b, IDS.a, IDS.c]);
   });
 
   it('finishes reduced-motion settling after commit without leaking visual state', () => {

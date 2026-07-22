@@ -191,7 +191,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(document.querySelector('.sub-name')?.classList).toContain('user-text-font-ja');
   });
 
-  it('prefers resolved YouTube titles without replacing file-name labels', () => {
+  it('prefers resolved display titles for files and YouTube entries', () => {
     setState('playlist.items', [
       {
         queueItemId: FILE_A,
@@ -216,7 +216,7 @@ describe('playlist queue identity rendering and actions', () => {
     const labels = [...document.querySelectorAll<HTMLElement>('.track-name-text')].map(
       (element) => element.textContent,
     );
-    expect(labels).toEqual(['original-file-name.flac', 'Resolved YouTube title']);
+    expect(labels).toEqual(['Embedded track title', 'Resolved YouTube title']);
   });
 
   it('shows reorder handles only to the host and keeps the same number slot', () => {
@@ -249,6 +249,137 @@ describe('playlist queue identity rendering and actions', () => {
 
     expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(2);
     expect(document.querySelectorAll('.btn-playlist-remove')).toHaveLength(2);
+  });
+
+  it('preserves a PRO deletion task across revision-only context pulses', async () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'coordinator' } as DataConnection);
+    const context = {
+      kind: 'pro' as const,
+      roomId: '000001',
+      role: 'member' as const,
+      coordinatorId: 'coordinator',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure' as const],
+    };
+    setState('room.context', context);
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+    const list = document.getElementById('playlist-ui')!;
+    const replaceChildren = vi.spyOn(list, 'replaceChildren');
+
+    document
+      .querySelector<HTMLButtonElement>(`.btn-playlist-remove[data-queue-item-id="${FILE_A}"]`)!
+      .click();
+    setState('room.context', { ...context, snapshotRevision: 2 });
+    await nextAnimationFrame();
+
+    expect(replaceChildren).not.toHaveBeenCalled();
+    expect(document.querySelector('.playlist-selection-pill')?.classList).toContain('is-visible');
+    expect(
+      document
+        .querySelector(`.btn-playlist-remove[data-queue-item-id="${FILE_A}"]`)
+        ?.getAttribute('aria-pressed'),
+    ).toBe('true');
+  });
+
+  it('cancels a PRO deletion task on authority loss or room-incarnation replacement', async () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'coordinator' } as DataConnection);
+    const context = {
+      kind: 'pro' as const,
+      roomId: '000001',
+      role: 'member' as const,
+      coordinatorId: 'coordinator',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure' as const],
+    };
+    setState('room.context', context);
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+
+    document.querySelector<HTMLButtonElement>('.btn-playlist-remove')!.click();
+    setState('room.context', { ...context, snapshotRevision: 2, capabilities: [] });
+    expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
+      'is-visible',
+    );
+
+    setState('room.context', { ...context, snapshotRevision: 3 });
+    await nextAnimationFrame();
+    document.querySelector<HTMLButtonElement>('.btn-playlist-remove')!.click();
+    setState('room.context', { ...context, epoch: 2, snapshotRevision: 4 });
+    expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
+      'is-visible',
+    );
+
+    setState('room.context', { ...context, epoch: 2, snapshotRevision: 5 });
+    await nextAnimationFrame();
+    document.querySelector<HTMLButtonElement>('.btn-playlist-remove')!.click();
+    setState('room.context', { ...context, roomId: '000002', snapshotRevision: 1 });
+
+    expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
+      'is-visible',
+    );
+  });
+
+  it('keeps an active PRO reorder mounted through revision-only context pulses', () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'coordinator' } as DataConnection);
+    const context = {
+      kind: 'pro' as const,
+      roomId: '000001',
+      role: 'member' as const,
+      coordinatorId: 'coordinator',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure' as const],
+    };
+    setState('room.context', context);
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('.track-item'));
+    rows.forEach((row, index) => {
+      row.getBoundingClientRect = () =>
+        ({
+          top: index * 56,
+          bottom: index * 56 + 48,
+          left: 0,
+          right: 300,
+          width: 300,
+          height: 48,
+          x: 0,
+          y: index * 56,
+          toJSON: () => ({}),
+        }) as DOMRect;
+    });
+    const handle = document.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+    const dispatch = (type: string, clientY: number): void => {
+      const event = new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: 20,
+        clientY,
+      });
+      Object.defineProperties(event, {
+        pointerId: { value: 1 },
+        isPrimary: { value: true },
+      });
+      handle.dispatchEvent(event);
+    };
+
+    dispatch('pointerdown', 20);
+    dispatch('pointermove', 100);
+    expect(document.querySelector('.playlist-reorder-ghost')).not.toBeNull();
+
+    setState('room.context', { ...context, snapshotRevision: 2 });
+    expect(document.querySelector('.playlist-reorder-ghost')).not.toBeNull();
+
+    setState('room.context', { ...context, snapshotRevision: 3, capabilities: [] });
+    expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
   });
 
   it('keeps destructive queue controls host-only for a standard-room administrator', async () => {
@@ -798,7 +929,7 @@ describe('playlist queue identity rendering and actions', () => {
       expect(document.querySelector('.playlist-reorder-settle')).not.toBeNull();
       expect(sourceEntry.classList.contains('is-reorder-source')).toBe(true);
       expectOriginalIdentity();
-      expect(sourceName.textContent).toBe('a.mp3');
+      expect(sourceName.textContent).toBe('A');
 
       vi.advanceTimersByTime(FRAME_MS);
       vi.advanceTimersByTime(FRAME_MS);
@@ -814,7 +945,7 @@ describe('playlist queue identity rendering and actions', () => {
 
       vi.advanceTimersByTime(HANDLE_RETURN_WITH_SAFETY_MS - FRAME_MS - 1);
       expectOriginalIdentity();
-      expect(sourceName.textContent).toBe('a.mp3');
+      expect(sourceName.textContent).toBe('A');
 
       vi.advanceTimersByTime(1);
       expectOriginalIdentity();
@@ -826,7 +957,7 @@ describe('playlist queue identity rendering and actions', () => {
       expect(sourceEntry.isConnected).toBe(false);
       expect(renderedEntry).not.toBe(sourceEntry);
       expect(renderedEntry.querySelector('.playlist-reorder-handle')).not.toBe(sourceHandle);
-      expect(renderedEntry.querySelector('.track-name-text')?.textContent).toBe('committed-a.mp3');
+      expect(renderedEntry.querySelector('.track-name-text')?.textContent).toBe('A');
     } finally {
       unsubscribe?.();
       vi.clearAllTimers();

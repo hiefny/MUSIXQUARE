@@ -32,6 +32,7 @@ import {
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { beginProRoomTrackChangeIntent } from '../player/track-change-intent.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
+import { getTrackDisplayTitle } from '../player/track-display.ts';
 
 const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
 
@@ -155,7 +156,7 @@ function renderLeadingSlot(item: PlaylistItem, idx: number, canReorder: boolean)
   }
 
   const label = t('playlist.reorder_handle', {
-    title: item.title || item.name,
+    title: getTrackDisplayTitle(item),
     position: idx + 1,
   });
   return `
@@ -289,9 +290,7 @@ export function updatePlaylistUI(): void {
     const row = document.createElement('div');
     row.className = `track-item ${isCurrent ? 'active' : ''}`;
     row.dataset.queueItemId = item.queueItemId;
-    const displayName =
-      (item.type === 'youtube' ? item.title || item.name : item.name || item.title) ||
-      t('common.unknown');
+    const displayName = getTrackDisplayTitle(item, t('common.unknown'));
     const expandButton = item.playlistId
       ? `<button type="button" class="expand-toggle ${isExpanded(item) ? 'active' : ''}"
           data-action="expand" data-queue-item-id="${escapeHtml(item.queueItemId)}"
@@ -455,7 +454,7 @@ function createReorderController(list: HTMLElement): PlaylistReorderController {
     getAnnouncement: (queueItemId, position, total) => {
       const item = getQueueItemById(queueItemId);
       return t('playlist.reorder_position', {
-        title: item?.title || item?.name || t('common.unknown'),
+        title: item ? getTrackDisplayTitle(item, t('common.unknown')) : t('common.unknown'),
         position,
         total,
       });
@@ -463,7 +462,7 @@ function createReorderController(list: HTMLElement): PlaylistReorderController {
     getHandleLabel: (queueItemId, position) => {
       const item = getQueueItemById(queueItemId);
       return t('playlist.reorder_handle', {
-        title: item?.title || item?.name || t('common.unknown'),
+        title: item ? getTrackDisplayTitle(item, t('common.unknown')) : t('common.unknown'),
         position,
       });
     },
@@ -526,6 +525,14 @@ export function initPlaylistView(): void {
     });
   }
 
+  const initialRoomContext = getRoomContext();
+  let queueEditBoundary = {
+    kind: initialRoomContext.kind,
+    roomId: initialRoomContext.roomId,
+    epoch: initialRoomContext.epoch,
+    canEdit: canEditQueueStructure(),
+  };
+
   _busScope.on('state:playlist.items', () => {
     if (_reorderController?.isActive && !_reorderController.isSettling) {
       _reorderController.cancel();
@@ -560,11 +567,30 @@ export function initPlaylistView(): void {
     schedulePlaylistUpdate();
   });
   _busScope.on('state:room.context', () => {
-    if (!canEditQueueStructure()) {
+    const context = getRoomContext();
+    const nextBoundary = {
+      kind: context.kind,
+      roomId: context.roomId,
+      epoch: context.epoch,
+      canEdit: canEditQueueStructure(),
+    };
+    const roomChanged =
+      queueEditBoundary.kind !== nextBoundary.kind ||
+      queueEditBoundary.roomId !== nextBoundary.roomId ||
+      queueEditBoundary.epoch !== nextBoundary.epoch;
+    const editAuthorityLost = queueEditBoundary.canEdit && !nextBoundary.canEdit;
+
+    // Snapshot revision pulses and unrelated capability updates do not own an
+    // in-progress queue interaction. Invalidate it only when its room changes
+    // or the user actually loses structural-edit authority.
+    if (roomChanged || editAuthorityLost) {
       _reorderController?.cancel();
       _removalController?.cancel();
     }
-    schedulePlaylistUpdate();
+    if (roomChanged || queueEditBoundary.canEdit !== nextBoundary.canEdit) {
+      schedulePlaylistUpdate();
+    }
+    queueEditBoundary = nextBoundary;
   });
   _busScope.on('state:playback.mode', () => {
     if (getState('playback.mode') === 'system-audio') _removalController?.cancel();
@@ -609,12 +635,6 @@ export function initPlaylistView(): void {
       _removalController?.cancel();
     }
   });
-  _busScope.on('state:room.context', () => {
-    _reorderController?.cancel();
-    _removalController?.cancel();
-    schedulePlaylistUpdate();
-  });
-
   updatePlaylistUI();
   log.info('[PlaylistView] Initialized');
 }

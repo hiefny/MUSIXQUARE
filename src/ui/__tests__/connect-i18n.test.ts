@@ -1230,6 +1230,135 @@ describe('member-level connection and administrator UI', () => {
     expect(focus).toHaveBeenCalledWith({ preventScroll: true });
   });
 
+  it('preserves an unsaved permission draft across revision-only room context pulses', () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'owner-device');
+    const context = {
+      kind: 'pro' as const,
+      roomId: '000001',
+      role: 'member' as const,
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure' as const],
+    };
+    setState('room.context', context);
+    const administrators: ProRoomAdministrator[] = [
+      {
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+      {
+        memberId: 'admin-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        displayName: 'Admin',
+        role: 'controller',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: [],
+        onlineDeviceCount: 1,
+      },
+    ];
+    initConnect();
+    bus.emit('pro-room:administrators-updated', administrators);
+    const oldSettings = document.querySelector<HTMLButtonElement>(
+      '#connect-administrator-list .administrator-action-button.settings',
+    );
+    oldSettings?.click();
+    const mediaPermission = document.querySelector<HTMLButtonElement>(
+      '[data-administrator-permission="media.add"]',
+    )!;
+    mediaPermission.click();
+
+    setState('room.context', { ...context, snapshotRevision: 2 });
+
+    expect(
+      document.getElementById('administrator-permissions-overlay')?.classList.contains('show'),
+    ).toBe(true);
+    expect(mediaPermission.getAttribute('aria-checked')).toBe('false');
+    expect(oldSettings?.isConnected).toBe(true);
+  });
+
+  it('closes a permission draft when its room incarnation or management authority is lost', () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'owner-device');
+    const context = {
+      kind: 'pro' as const,
+      roomId: '000001',
+      role: 'member' as const,
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure' as const],
+    };
+    setState('room.context', context);
+    const administrators: ProRoomAdministrator[] = [
+      {
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+      {
+        memberId: 'admin-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        displayName: 'Admin',
+        role: 'controller',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: [],
+        onlineDeviceCount: 1,
+      },
+    ];
+    initConnect();
+    bus.emit('pro-room:administrators-updated', administrators);
+    document
+      .querySelector<HTMLButtonElement>(
+        '#connect-administrator-list .administrator-action-button.settings',
+      )
+      ?.click();
+
+    setState('room.context', { ...context, epoch: 2, snapshotRevision: 2 });
+    expect(
+      document.getElementById('administrator-permissions-overlay')?.classList.contains('show'),
+    ).toBe(false);
+
+    setState('room.context', { ...context, epoch: 2, snapshotRevision: 3 });
+    bus.emit('pro-room:administrators-updated', administrators);
+    document
+      .querySelector<HTMLButtonElement>(
+        '#connect-administrator-list .administrator-action-button.settings',
+      )
+      ?.click();
+    setState('room.context', { ...context, roomId: '000002', snapshotRevision: 1 });
+    expect(
+      document.getElementById('administrator-permissions-overlay')?.classList.contains('show'),
+    ).toBe(false);
+
+    setState('room.context', { ...context, snapshotRevision: 4 });
+    bus.emit('pro-room:administrators-updated', administrators);
+    document
+      .querySelector<HTMLButtonElement>(
+        '#connect-administrator-list .administrator-action-button.settings',
+      )
+      ?.click();
+    setState('room.context', { ...context, snapshotRevision: 5, capabilities: [] });
+
+    expect(
+      document.getElementById('administrator-permissions-overlay')?.classList.contains('show'),
+    ).toBe(false);
+  });
+
   it('migrates legacy inherited PRO playback control to an editable explicit permission', async () => {
     setState('network.appRole', 'guest');
     setState('network.myId', 'owner-device');
@@ -1448,7 +1577,6 @@ describe('member-level connection and administrator UI', () => {
     // also hides the desktop administrator section that opened the dialog.
     bus.emit('pro-room:administrators-updated', [administrators[0]]);
     document.getElementById('desktop-administrator-section')?.setAttribute('hidden', '');
-    document.getElementById('btn-administrator-permissions-cancel')?.click();
     expect(
       document.getElementById('administrator-permissions-overlay')?.classList.contains('show'),
     ).toBe(false);

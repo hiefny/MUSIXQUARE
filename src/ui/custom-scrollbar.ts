@@ -4,7 +4,11 @@
  * Usage: initCustomScrollbar(containerEl) or initAllCustomScrollbars()
  */
 
-import { isCompactLandscape, onCompactLandscapeChange } from '../core/platform.ts';
+import {
+  getBodyRenderedScale,
+  isCompactLandscape,
+  onCompactLandscapeChange,
+} from '../core/platform.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { bus } from '../core/events.ts';
 
@@ -18,6 +22,7 @@ interface ScrollbarState {
   isDragging: boolean;
   dragStartY: number;
   dragStartScroll: number;
+  dragRenderedScale: number;
   observer: MutationObserver;
   resizeObserver: ResizeObserver;
   cleanup: (() => void)[];
@@ -130,7 +135,9 @@ function updateLayout(state: ScrollbarState): void {
   state.visibleHeight = visibleHeight;
   if (isDesktop || isContained) {
     const parentRect = container.parentElement?.getBoundingClientRect();
-    const offsetTop = parentRect ? containerRect.top - parentRect.top : 0;
+    const offsetTop = parentRect
+      ? (containerRect.top - parentRect.top) / getBodyRenderedScale()
+      : 0;
     track.style.top = `${offsetTop}px`;
     track.style.height = `${visibleHeight}px`;
   } else {
@@ -219,6 +226,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     isDragging: false,
     dragStartY: 0,
     dragStartScroll: 0,
+    dragRenderedScale: 1,
     observer: null!,
     resizeObserver: null!,
     cleanup: [],
@@ -283,6 +291,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     state.isDragging = true;
     state.dragStartY = e.clientY;
     state.dragStartScroll = container.scrollTop;
+    state.dragRenderedScale = getBodyRenderedScale();
     thumb.classList.add('dragging');
     document.body.style.userSelect = 'none';
     clearTimeout(state.fadeTimer);
@@ -301,6 +310,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     track.style.opacity = '1';
     state.dragStartY = e.touches[0].clientY;
     state.dragStartScroll = container.scrollTop;
+    state.dragRenderedScale = getBodyRenderedScale();
     thumb.classList.add('dragging');
   };
 
@@ -310,8 +320,8 @@ export function initCustomScrollbar(container: HTMLElement): void {
     const maxScroll = scrollHeight - clientHeight;
     const trackHeight = state.visibleHeight - state.thumbHeight;
     if (trackHeight <= 0) return;
-    container.scrollTop =
-      state.dragStartScroll + ((e.clientY - state.dragStartY) / trackHeight) * maxScroll;
+    const localDeltaY = (e.clientY - state.dragStartY) / state.dragRenderedScale;
+    container.scrollTop = state.dragStartScroll + (localDeltaY / trackHeight) * maxScroll;
   };
 
   // Touchmove fires on the original touch target (thumb) for the lifetime of
@@ -324,8 +334,8 @@ export function initCustomScrollbar(container: HTMLElement): void {
     const maxScroll = scrollHeight - clientHeight;
     const trackHeight = state.visibleHeight - state.thumbHeight;
     if (trackHeight <= 0) return;
-    container.scrollTop =
-      state.dragStartScroll + ((e.touches[0].clientY - state.dragStartY) / trackHeight) * maxScroll;
+    const localDeltaY = (e.touches[0].clientY - state.dragStartY) / state.dragRenderedScale;
+    container.scrollTop = state.dragStartScroll + (localDeltaY / trackHeight) * maxScroll;
   };
 
   const onDragEnd = () => {

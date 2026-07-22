@@ -383,6 +383,11 @@ let _permissionDialogPreviousFocus: HTMLElement | null = null;
 let _permissionDialogPreviousContainerId: string | null = null;
 let _permissionDialogBusy = false;
 let _permissionDialogInitializedFor: HTMLElement | null = null;
+let _permissionDialogRoomBoundary: {
+  kind: string;
+  roomId: string | null;
+  epoch: number;
+} | null = null;
 
 function memberAuthorityKey(member: ConnectedRoomMember): string {
   return member.memberId || `peer:${member.deviceIds[0] || member.key}`;
@@ -551,6 +556,7 @@ function _administratorActionButton(
 function renderAdministratorLists(members: readonly ConnectedRoomMember[]): void {
   const administrators = _administratorsForMembers(members);
   const canManage = _canManageAdministrators();
+  reconcileAdministratorPermissionsDialog(administrators);
   const sectionIds = ['connect-administrator-section', 'desktop-administrator-section'];
   const titleIds = ['connect-administrator-title', 'desktop-administrator-title'];
   const containerIds = ['connect-administrator-list', 'desktop-administrator-list'];
@@ -721,8 +727,8 @@ function syncPermissionDialogRows(administrator: AdministratorView): void {
   }
 }
 
-function closeAdministratorPermissionsDialog(): void {
-  if (_permissionDialogBusy) return;
+function closeAdministratorPermissionsDialogInternal(ignoreBusy: boolean): void {
+  if (_permissionDialogBusy && !ignoreBusy) return;
   const overlay = document.getElementById('administrator-permissions-overlay');
   if (!overlay?.classList.contains('show')) return;
   overlay.classList.remove('show');
@@ -734,6 +740,7 @@ function closeAdministratorPermissionsDialog(): void {
   _permissionDialogTarget = null;
   _permissionDialogPreviousFocus = null;
   _permissionDialogPreviousContainerId = null;
+  _permissionDialogRoomBoundary = null;
   queueMicrotask(() => {
     if (previousFocus?.isConnected) {
       previousFocus.focus();
@@ -785,6 +792,64 @@ function closeAdministratorPermissionsDialog(): void {
   });
 }
 
+function closeAdministratorPermissionsDialog(): void {
+  closeAdministratorPermissionsDialogInternal(false);
+}
+
+function invalidateAdministratorPermissionsDialog(): void {
+  closeAdministratorPermissionsDialogInternal(true);
+}
+
+function permissionSetsEqual(
+  left: Readonly<ProRoomPermissionSet>,
+  right: Readonly<ProRoomPermissionSet>,
+): boolean {
+  return ADMIN_PERMISSION_KEYS.every((key) => left[key] === right[key]);
+}
+
+function inheritedPermissionsEqual(
+  left: readonly ProRoomPermission[],
+  right: readonly ProRoomPermission[],
+): boolean {
+  return left.length === right.length && left.every((permission) => right.includes(permission));
+}
+
+function reconcileAdministratorPermissionsDialog(
+  administrators: readonly AdministratorView[],
+): void {
+  const overlay = document.getElementById('administrator-permissions-overlay');
+  const target = _permissionDialogTarget;
+  if (!target || !overlay?.classList.contains('show')) return;
+
+  const current = administrators.find(
+    (administrator) => administrator.memberId === target.memberId,
+  );
+  if (
+    !_canManageAdministrators() ||
+    !current ||
+    current.isOwner ||
+    !permissionSetsEqual(current.permissions, target.permissions) ||
+    !inheritedPermissionsEqual(current.inheritedPermissions, target.inheritedPermissions)
+  ) {
+    // A real authority/target transition invalidates the draft. Closing is
+    // safer than letting a stale permission set overwrite a concurrent server
+    // change; identical heartbeat projections compare equal and remain open.
+    invalidateAdministratorPermissionsDialog();
+    return;
+  }
+
+  _permissionDialogTarget = {
+    ...current,
+    permissions: clonePermissions(current.permissions),
+    inheritedPermissions: [...current.inheritedPermissions],
+  };
+  const member = document.getElementById('administrator-permissions-member');
+  if (member && member.textContent !== current.displayName) {
+    member.textContent = current.displayName;
+    applyUserTextFontFallback(member, current.displayName);
+  }
+}
+
 function openAdministratorPermissionsDialog(administrator: AdministratorView): void {
   if (!_canManageAdministrators() || administrator.isOwner) return;
   const overlay = document.getElementById('administrator-permissions-overlay');
@@ -799,6 +864,12 @@ function openAdministratorPermissionsDialog(administrator: AdministratorView): v
     document.activeElement instanceof HTMLElement ? document.activeElement : null;
   _permissionDialogPreviousContainerId =
     _permissionDialogPreviousFocus?.closest<HTMLElement>('.administrator-list')?.id || null;
+  const roomContext = getRoomContext();
+  _permissionDialogRoomBoundary = {
+    kind: roomContext.kind,
+    roomId: roomContext.roomId,
+    epoch: roomContext.epoch,
+  };
   member.textContent = administrator.displayName;
   applyUserTextFontFallback(member, administrator.displayName);
   syncPermissionDialogRows(_permissionDialogTarget);
@@ -1067,6 +1138,14 @@ export function initConnect(): void {
   // Set initial device count title
   _updateDeviceTitles();
 
+  const initialRoomContext = getRoomContext();
+  let connectAuthorityBoundary = {
+    kind: initialRoomContext.kind,
+    roomId: initialRoomContext.roomId,
+    canManageAdministrators: _canManageAdministrators(),
+    canKickMembers: hasRoomCapability('members.manage'),
+  };
+
   // Re-render title on language change (disconnect previous on re-init)
   if (_langObserver) _langObserver.disconnect();
   _langObserver = new MutationObserver(() => {
@@ -1120,7 +1199,30 @@ export function initConnect(): void {
   _busScope.on('state:room.context', () => {
     syncRoomPasswordControls();
     syncHostOwnedConnectSections();
-    closeAdministratorPermissionsDialog();
+    const roomContext = getRoomContext();
+    const nextAuthorityBoundary = {
+      kind: roomContext.kind,
+      roomId: roomContext.roomId,
+      canManageAdministrators: _canManageAdministrators(),
+      canKickMembers: hasRoomCapability('members.manage'),
+    };
+    const dialogRoomChanged =
+      _permissionDialogRoomBoundary !== null &&
+      (_permissionDialogRoomBoundary.kind !== roomContext.kind ||
+        _permissionDialogRoomBoundary.roomId !== roomContext.roomId ||
+        _permissionDialogRoomBoundary.epoch !== roomContext.epoch);
+    if (dialogRoomChanged || (_permissionDialogTarget && !_canManageAdministrators())) {
+      invalidateAdministratorPermissionsDialog();
+    }
+    const authorityPresentationChanged =
+      connectAuthorityBoundary.kind !== nextAuthorityBoundary.kind ||
+      connectAuthorityBoundary.roomId !== nextAuthorityBoundary.roomId ||
+      connectAuthorityBoundary.canManageAdministrators !==
+        nextAuthorityBoundary.canManageAdministrators ||
+      connectAuthorityBoundary.canKickMembers !== nextAuthorityBoundary.canKickMembers;
+    connectAuthorityBoundary = nextAuthorityBoundary;
+    if (!authorityPresentationChanged) return;
+
     if (!_isProRoom()) {
       _lastProAdministrators = [];
       renderConnectDeviceList(_lastDeviceList);

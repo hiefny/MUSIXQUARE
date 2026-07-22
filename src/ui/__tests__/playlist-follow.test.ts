@@ -91,9 +91,40 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  document.body.style.removeProperty('--desktop-ui-scale');
 });
 
 describe('playlist active-track follow', () => {
+  it('centers a physically scaled target using logical scroll coordinates', () => {
+    document.body.style.setProperty('--desktop-ui-scale', '1.5');
+    const { panel, scroller, list } = setupScroller();
+    renderEntries(list, [QUEUE_A, QUEUE_B]);
+    scroller.scrollTop = 120;
+    scroller.getBoundingClientRect = () => domRect(150, 300);
+    const target = list.querySelector<HTMLElement>(
+      `[data-queue-item-id="${QUEUE_B}"] .track-item`,
+    )!;
+    target.getBoundingClientRect = () => domRect(150 + (620 - scroller.scrollTop) * 1.5, 60);
+    const scrollTo = vi.fn((options: ScrollToOptions) => {
+      scroller.scrollTop = options.top as number;
+    });
+    Object.defineProperty(scroller, 'scrollTo', { configurable: true, value: scrollTo });
+
+    const controller = createPlaylistFollowController({
+      list,
+      scrollContainer: scroller,
+      isVisible: () => panel.classList.contains('active'),
+    });
+    try {
+      controller.updateSelection(QUEUE_B, -1);
+      controller.afterRender();
+      vi.advanceTimersByTime(16);
+      expect(scrollTo).toHaveBeenCalledWith({ top: 540, behavior: 'smooth' });
+    } finally {
+      controller.destroy();
+    }
+  });
+
   it('follows a new selection after manual scrolling but leaves the same selection alone', () => {
     const { panel, scroller, list } = setupScroller();
     renderEntries(list, [QUEUE_A, QUEUE_B]);

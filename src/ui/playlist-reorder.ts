@@ -1,3 +1,5 @@
+import { getBodyRenderedScale, viewportLengthToBodyCssPixels } from '../core/platform.ts';
+
 const ENTRY_SELECTOR = '.playlist-entry[data-queue-item-id]';
 const ROW_SELECTOR = '.track-item';
 const HANDLE_SELECTOR = '.playlist-reorder-handle';
@@ -260,8 +262,10 @@ export function createPlaylistReorderController(
       const first = firstRects.get(entry);
       if (!first) continue;
       const last = entry.getBoundingClientRect();
-      const deltaX = first.left - last.left;
-      const deltaY = first.top - last.top;
+      // DOMRects are post-transform viewport pixels. CSS transforms on rows
+      // are body-local lengths and will be scaled by the desktop body again.
+      const deltaX = viewportLengthToBodyCssPixels(first.left - last.left);
+      const deltaY = viewportLengthToBodyCssPixels(first.top - last.top);
       if (Math.abs(deltaX) < 0.5 && Math.abs(deltaY) < 0.5) continue;
 
       const from = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
@@ -421,8 +425,11 @@ export function createPlaylistReorderController(
       // the rect fallback used by the interaction tests.
       const hasLayoutMetrics = entry.offsetHeight > 0 && row.offsetHeight > 0;
       const ownScrollOffset = scrollContainer === list ? list.scrollTop : 0;
-      const top = hasLayoutMetrics ? listRect.top + entry.offsetTop - ownScrollOffset : rect.top;
-      const height = hasLayoutMetrics ? row.offsetHeight : rect.height;
+      const renderedScale = getBodyRenderedScale();
+      const top = hasLayoutMetrics
+        ? listRect.top + (entry.offsetTop - ownScrollOffset) * renderedScale
+        : rect.top;
+      const height = hasLayoutMetrics ? row.offsetHeight * renderedScale : rect.height;
       if (clientY < top + height / 2) return getEntryId(entry);
     }
     return null;
@@ -439,7 +446,7 @@ export function createPlaylistReorderController(
   function updateGhostPosition(): void {
     if (!drag) return;
     const targetTop = drag.lastClientY - drag.grabOffsetY;
-    const translateY = targetTop - drag.ghostOriginTop;
+    const translateY = viewportLengthToBodyCssPixels(targetTop - drag.ghostOriginTop);
     drag.ghost.style.transform = `translate3d(0, ${translateY}px, 0) scale(1.015)`;
   }
 
@@ -504,6 +511,8 @@ export function createPlaylistReorderController(
 
   function makeGhost(row: HTMLElement): { ghost: HTMLElement; originTop: number } {
     const rect = row.getBoundingClientRect();
+    const bodyRect = document.body.getBoundingClientRect();
+    const renderedScale = getBodyRenderedScale();
     const ghost = row.cloneNode(true) as HTMLElement;
     ghost.classList.remove('active');
     ghost.classList.add('playlist-reorder-ghost');
@@ -512,9 +521,12 @@ export function createPlaylistReorderController(
     ghost.querySelectorAll<HTMLElement>('button, [tabindex]').forEach((el) => {
       el.setAttribute('tabindex', '-1');
     });
-    ghost.style.left = `${rect.left}px`;
-    ghost.style.top = `${rect.top}px`;
-    ghost.style.width = `${rect.width}px`;
+    // A transformed body is the containing block for this fixed descendant.
+    // Convert the viewport box back into that body's local CSS coordinate
+    // space; otherwise 1.2x/1.5x density scales the position and width twice.
+    ghost.style.left = `${(rect.left - bodyRect.left) / renderedScale}px`;
+    ghost.style.top = `${(rect.top - bodyRect.top) / renderedScale}px`;
+    ghost.style.width = `${rect.width / renderedScale}px`;
     document.body.appendChild(ghost);
     return { ghost, originTop: rect.top };
   }
@@ -642,12 +654,14 @@ export function createPlaylistReorderController(
       // transition, briefly exposing the drag origin. Freeze the exact release
       // box, establish it as a rendered baseline, then let one transform own
       // the entire trip to the destination.
-      const targetX = targetRect.left - releaseRect.left;
-      const targetY = targetRect.top - releaseRect.top;
+      const bodyRect = document.body.getBoundingClientRect();
+      const renderedScale = getBodyRenderedScale();
+      const targetX = (targetRect.left - releaseRect.left) / renderedScale;
+      const targetY = (targetRect.top - releaseRect.top) / renderedScale;
       ghost.style.transition = 'none';
       ghost.style.transformOrigin = '0 0';
-      ghost.style.left = `${releaseRect.left}px`;
-      ghost.style.top = `${releaseRect.top}px`;
+      ghost.style.left = `${(releaseRect.left - bodyRect.left) / renderedScale}px`;
+      ghost.style.top = `${(releaseRect.top - bodyRect.top) / renderedScale}px`;
       ghost.style.transform = 'translate3d(0px, 0px, 0px) scale(1.015)';
       ghost.classList.remove('playlist-reorder-ghost');
       ghost.classList.add('playlist-reorder-settle');

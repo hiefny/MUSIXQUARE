@@ -52,6 +52,11 @@ describe('PRO room branding', () => {
     expect(proWordmark?.tagName).toBe('svg');
     expect(proWordmark?.getAttribute('viewBox')).toBe('43 12 170 24');
     expect(proWordmark?.querySelectorAll('[data-glyph]')).toHaveLength(7);
+    const proSuffix = proWordmark?.querySelector('[data-wordmark-segment="pro"]');
+    expect(
+      Array.from(proSuffix?.children ?? []).map((glyph) => glyph.getAttribute('data-glyph')),
+    ).toEqual(['P', 'R', 'O']);
+    expect(proWordmark?.querySelectorAll(':scope > [data-glyph]')).toHaveLength(4);
     expect(proWordmark?.querySelector('text')).toBeNull();
     expect(parsed.getElementById('header-pro-badge')).toBeNull();
     expect(stylesheet).toMatch(/\.header-pro-wordmark\s*{\s*display:\s*none;/);
@@ -61,6 +66,7 @@ describe('PRO room branding', () => {
     expect(stylesheet).toMatch(
       /html\[data-pro-room\]\s+\.header-pro-wordmark\s*{\s*display:\s*block;/,
     );
+    expect(stylesheet).toMatch(/\.header-pro-suffix\s*\{\s*opacity:\s*0\.75;/);
     expect(betaBadges).toHaveLength(2);
     for (const badge of betaBadges) {
       expect(badge.classList.contains('feature-badge')).toBe(true);

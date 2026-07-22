@@ -23,17 +23,25 @@
       --desktop-ui-scale: 1;
       --desktop-layout-ratio: 1;
       --desktop-viewport-width: calc(100vw * var(--desktop-layout-ratio));
-      --desktop-viewport-height: calc(100dvh * var(--desktop-layout-ratio));
+      --desktop-viewport-height: calc(
+        var(--app-height, 100dvh) * var(--desktop-layout-ratio)
+      );
     }
 
-    @media (min-width: 2560px) and (min-height: 1440px) {
+    /* Browser chrome and the OS taskbar reduce a maximized QHD viewport well
+       below the panel's nominal 1440px. Height remains the safety gate, so a
+       5120x1080 strip stays 1:1 while a genuinely taller ultrawide still gains
+       the same density as QHD. */
+    @media (min-width: 2560px) and (min-height: 1280px) {
       body {
         --desktop-ui-scale: 1.2;
         --desktop-layout-ratio: 0.833333;
       }
     }
 
-    @media (min-width: 3840px) and (min-height: 2160px) {
+    /* A maximized 4K browser commonly exposes roughly 2,000px of content
+       height rather than the panel's nominal 2160px. */
+    @media (min-width: 3840px) and (min-height: 1900px) {
       body {
         --desktop-ui-scale: 1.5;
         --desktop-layout-ratio: 0.666667;
@@ -67,8 +75,8 @@
            Prevents clipping on Android tablets where 100vh may include the
            area behind the system navigation bar (esp. landscape / PWA). */
       width: var(--desktop-viewport-width);
-      height: calc(var(--app-height, 100vh) * var(--desktop-layout-ratio));
-      max-height: calc(var(--app-height, 100vh) * var(--desktop-layout-ratio));
+      height: var(--desktop-viewport-height);
+      max-height: var(--desktop-viewport-height);
     }
 
     header {
@@ -315,7 +323,7 @@
 
     /* On QHD/4K-class canvases, let visualizers approach the visual weight of
        the height-constrained video without changing familiar FHD proportions. */
-    @media (min-width: 2560px) and (min-height: 1440px) {
+    @media (min-width: 2560px) and (min-height: 1280px) {
       .vinyl-wrapper {
         width: max(
           160px,
@@ -349,7 +357,10 @@
       /* The iframe itself is fluid. Keep its parent proportional to the play
          column and available height. The vertical budget is the effective
          upper bound on large dashboards. */
-      width: min(90%, calc((var(--desktop-viewport-height) - 320px) * 16 / 9));
+      /* Reserve the header, title rail, transport/volume controls and action
+         buttons. 320px omitted the header plus part of the control stack and
+         made a height-bound iframe overflow on canvases such as 5120x1300. */
+      width: min(90%, calc((var(--desktop-viewport-height) - 400px) * 16 / 9));
       max-width: none;
       /* Center in the space above the controls. */
       margin: auto auto 0 auto;
@@ -566,8 +577,8 @@
       inset: 0;
       width: var(--desktop-viewport-width);
       max-width: none;
-      height: calc(var(--app-height, 100vh) * var(--desktop-layout-ratio));
-      max-height: calc(var(--app-height, 100vh) * var(--desktop-layout-ratio));
+      height: var(--desktop-viewport-height);
+      max-height: var(--desktop-viewport-height);
       outline: none;
       box-shadow: none;
       transform: none;

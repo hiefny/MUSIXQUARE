@@ -544,6 +544,15 @@ export class ProRoomSessionController {
     }
     const accepted = result.snapshot;
     if (!accepted) throw new Error('PRO_ROOM_SNAPSHOT_INVALID');
+
+    // A compact heartbeat deliberately resolves to the exact snapshot that is
+    // already installed. Keep the transport-health path in #accept() alive so
+    // an invalidated control channel can still be rebuilt, but do not project
+    // duplicate authority/snapshot state into the runtime. Re-publishing it
+    // would manufacture a fresh RoomContext and make unchanged 15-second
+    // heartbeats look like real authority transitions to UI subscribers.
+    if (result.outcome === 'duplicate') return accepted;
+
     const context = projectProRoomContext(accepted);
     if (!context) throw new Error('PRO_ROOM_NOT_ACTIVE');
 

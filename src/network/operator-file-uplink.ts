@@ -18,7 +18,11 @@ import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { CHUNK_SIZE, MSG, REMOTE_SHARE_MAX_BYTES } from '../core/constants.ts';
-import { partitionAudioFileCandidates, resolveAudioMime } from '../media/audio-file.ts';
+import {
+  partitionAudioFileCandidates,
+  resolveAudioMime,
+  stripRecognizedAudioFileExtension,
+} from '../media/audio-file.ts';
 import { canAppendPlaylistItems } from '../player/queue-model.ts';
 import { getRoomContext, hasRoomCapability, verifyPeerCapability } from '../rooms/authority.ts';
 import { pumpChunksToPeers } from '../storage/chunk-pump.ts';
@@ -368,7 +372,7 @@ function hostBatchKey(peerId: string, requestId: string): string {
 }
 
 function trackTitleFromFileName(name: string): string {
-  return name.replace(/\.[^/.]+$/, '');
+  return stripRecognizedAudioFileExtension(name);
 }
 
 function recordHostBatchCommit(upload: HostUpload): void {

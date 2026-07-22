@@ -360,6 +360,13 @@ describe('playback ownership view', () => {
       videoId: null,
       playlistId: null,
     });
+    expect(createFileTrackMeta('Version.2')).toEqual({
+      type: 'file',
+      title: 'Version.2',
+      name: 'Version.2',
+      videoId: null,
+      playlistId: null,
+    });
   });
 
   it('creates canonical synthetic YouTube track metadata', () => {

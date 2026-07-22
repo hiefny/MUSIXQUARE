@@ -36,6 +36,7 @@ import {
 } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
 import { batchSetState, getState, setState } from '../core/state.ts';
+import { stripRecognizedAudioFileExtension } from '../media/audio-file.ts';
 import type { TrackMeta } from '../types/index.ts';
 
 type PlaybackOwner = 'none' | 'file' | 'youtube' | 'system-audio';
@@ -96,7 +97,7 @@ export function isSystemAudioPlaceholderMeta(meta: TrackMeta | null): boolean {
 }
 
 function titleFromFileName(name: string): string {
-  return name.replace(/\.[^/.]+$/, '') || name;
+  return stripRecognizedAudioFileExtension(name);
 }
 
 export function createFileTrackMeta(name: string, title = titleFromFileName(name)): TrackMeta {

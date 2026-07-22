@@ -674,11 +674,28 @@ describe('PRO room session controller', () => {
     expect(transport.reconfigure).toHaveBeenCalledTimes(2);
   });
 
+  it('does not republish authority or snapshot state for an unchanged heartbeat', async () => {
+    const { transport, observer, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
+    const installed = controller.snapshot;
+    transport.reconfigure.mockClear();
+    observer.authority.mockClear();
+    observer.snapshot.mockClear();
+
+    await expect(controller.heartbeat()).resolves.toBe(installed);
+
+    expect(observer.authority).not.toHaveBeenCalled();
+    expect(observer.snapshot).not.toHaveBeenCalled();
+    expect(transport.reconfigure).not.toHaveBeenCalled();
+  });
+
   it('rebuilds a lost server channel on the same room incarnation without clearing the session', async () => {
     const { transport, observer, controller } = fixtures();
     await controller.join({ code: ROOM_CODE, pin: '12345678' });
     transport.reconfigure.mockClear();
     observer.cleared.mockClear();
+    observer.authority.mockClear();
+    observer.snapshot.mockClear();
 
     controller.invalidateControlChannel();
     await controller.heartbeat();
@@ -686,6 +703,8 @@ describe('PRO room session controller', () => {
     expect(transport.reconfigure).toHaveBeenCalledOnce();
     expect(transport.reconfigure).toHaveBeenCalledWith(snapshot(), signaling(), undefined);
     expect(observer.cleared).not.toHaveBeenCalled();
+    expect(observer.authority).not.toHaveBeenCalled();
+    expect(observer.snapshot).not.toHaveBeenCalled();
     expect(controller.snapshot).toEqual(snapshot());
 
     await controller.heartbeat();

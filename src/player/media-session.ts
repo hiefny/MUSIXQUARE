@@ -20,6 +20,7 @@ import {
 } from './ownership.ts';
 import { getCurrentQueueItemId } from './queue-model.ts';
 import type { PlaylistItem } from '../types/index.ts';
+import { getTrackDisplayTitle } from './track-display.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isLocalYouTubePaused } from '../youtube/_state.ts';
 import {
@@ -45,7 +46,7 @@ function mediaSessionStateFromActivity(activity: PlaybackActivityValue): MediaSe
 export function updateMediaSessionMetadata(item: Partial<PlaylistItem> | null): void {
   if (!('mediaSession' in navigator) || !item) return;
 
-  let title = item.name || item.title || 'Unknown Track';
+  let title = getTrackDisplayTitle(item, 'Unknown Track');
   const artist = item.type === 'youtube' ? 'YouTube' : 'MUSIXQUARE';
   let artwork: MediaImage[] = [];
 

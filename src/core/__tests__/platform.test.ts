@@ -10,6 +10,32 @@ describe('Platform Detection', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();
+    document.body.style.removeProperty('--desktop-ui-scale');
+  });
+
+  describe('body rendered scale', () => {
+    it('converts both large-screen density tiers back to body-local CSS pixels', async () => {
+      const { getBodyRenderedScale, viewportLengthToBodyCssPixels } =
+        await import('../platform.ts');
+
+      document.body.style.setProperty('--desktop-ui-scale', '1.2');
+      expect(getBodyRenderedScale()).toBe(1.2);
+      expect(viewportLengthToBodyCssPixels(120)).toBeCloseTo(100);
+
+      document.body.style.setProperty('--desktop-ui-scale', '1.5');
+      expect(getBodyRenderedScale()).toBe(1.5);
+      expect(viewportLengthToBodyCssPixels(150)).toBeCloseTo(100);
+    });
+
+    it('falls back to an identity scale for absent or invalid values', async () => {
+      const { getBodyRenderedScale, viewportLengthToBodyCssPixels } =
+        await import('../platform.ts');
+
+      expect(getBodyRenderedScale()).toBe(1);
+      document.body.style.setProperty('--desktop-ui-scale', '0');
+      expect(getBodyRenderedScale()).toBe(1);
+      expect(viewportLengthToBodyCssPixels(75)).toBe(75);
+    });
   });
 
   describe('IS_IOS', () => {

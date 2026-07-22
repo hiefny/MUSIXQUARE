@@ -7,6 +7,7 @@ import {
   AUDIO_FILE_ACCEPT,
   partitionAudioFileCandidates,
   resolveAudioMime,
+  stripRecognizedAudioFileExtension,
 } from '../audio-file.ts';
 
 const extensionCases = [
@@ -65,6 +66,12 @@ describe('local audio-file candidates', () => {
   it.each(extensionCases)('shares the .%s extension-to-MIME fallback', (extension, mime) => {
     expect(resolveAudioMime(`TRACK.${extension.toUpperCase()}`, '')).toBe(mime);
     expect(resolveAudioMime(`track.${extension}`, 'application/octet-stream')).toBe(mime);
+  });
+
+  it('strips only suffixes recognized by the shared audio extension table', () => {
+    expect(stripRecognizedAudioFileExtension('archive.mix.FLAC')).toBe('archive.mix');
+    expect(stripRecognizedAudioFileExtension('Version.2')).toBe('Version.2');
+    expect(stripRecognizedAudioFileExtension('.mp3')).toBe('.mp3');
   });
 
   it('preserves a meaningful declared MIME', () => {

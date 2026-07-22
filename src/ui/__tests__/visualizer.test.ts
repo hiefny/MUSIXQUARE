@@ -110,6 +110,172 @@ afterEach(() => {
 
 describe('Visualizer', () => {
   describe('runtime behavior', () => {
+    it('rasterizes for the rendered desktop scale and clamps circular radii to the canvas', async () => {
+      vi.resetModules();
+      const { setState } = await import('../../core/state.ts');
+      const { getAnalyser } = await import('../../audio/engine.ts');
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+
+      const wrapper = document.querySelector<HTMLElement>('.vinyl-wrapper')!;
+      Object.defineProperties(wrapper, {
+        clientWidth: { value: 100, configurable: true },
+        clientHeight: { value: 100, configurable: true },
+      });
+      wrapper.getBoundingClientRect = () =>
+        ({
+          width: 150,
+          height: 150,
+          top: 0,
+          right: 150,
+          bottom: 150,
+          left: 0,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        }) as DOMRect;
+      vi.stubGlobal('devicePixelRatio', 2);
+
+      const canvas = document.createElement('canvas');
+      canvas.id = 'visualizerCanvas';
+      document.body.appendChild(canvas);
+      const ctx = {
+        setTransform: vi.fn(),
+        clearRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        stroke: vi.fn(),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      } as unknown as CanvasRenderingContext2D;
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+      vi.mocked(getAnalyser).mockReturnValue({
+        frequencyBinCount: 16,
+        getFloatFrequencyData: vi.fn((data: Float32Array) => data.fill(-20)),
+      } as unknown as AnalyserNode);
+      const frameCallbacks: FrameRequestCallback[] = [];
+      vi.stubGlobal(
+        'requestAnimationFrame',
+        vi.fn((callback: FrameRequestCallback) => {
+          frameCallbacks.push(callback);
+          return frameCallbacks.length;
+        }),
+      );
+      vi.stubGlobal('cancelAnimationFrame', vi.fn());
+
+      const mod = await import('../visualizer.ts');
+      mod.initVisualizer();
+      for (let frame = 0; frame < 16; frame++) {
+        frameCallbacks.shift()?.(frame * 16);
+      }
+
+      // DPR 2 x rendered body scale 1.5 reaches the guarded 3x backing ratio.
+      expect(canvas.width).toBe(300);
+      expect(canvas.height).toBe(300);
+      expect(ctx.setTransform).toHaveBeenCalledWith(3, 0, 0, 3, 0, 0);
+
+      const radii = vi.mocked(ctx.arc).mock.calls.map((call) => call[2]);
+      expect(radii).toContain(49.5);
+      expect(Math.max(...radii)).toBeLessThanOrEqual(49.5);
+    });
+
+    it('resizes through both observed wrapper and visual viewport callbacks', async () => {
+      vi.resetModules();
+      const { setState } = await import('../../core/state.ts');
+      const { getAnalyser } = await import('../../audio/engine.ts');
+      const { setManagedTimer } = await import('../../core/timers.ts');
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+
+      let logicalSize = 240;
+      const wrapper = document.querySelector<HTMLElement>('.vinyl-wrapper')!;
+      Object.defineProperties(wrapper, {
+        clientWidth: { get: () => logicalSize, configurable: true },
+        clientHeight: { get: () => logicalSize, configurable: true },
+      });
+      wrapper.getBoundingClientRect = () =>
+        ({
+          width: logicalSize,
+          height: logicalSize,
+          top: 0,
+          right: logicalSize,
+          bottom: logicalSize,
+          left: 0,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        }) as DOMRect;
+
+      const resizeCallbacks: {
+        observed?: ResizeObserverCallback;
+        viewport?: EventListener;
+      } = {};
+      const observe = vi.fn();
+      class ResizeObserverMock {
+        constructor(callback: ResizeObserverCallback) {
+          resizeCallbacks.observed = callback;
+        }
+        observe = observe;
+        disconnect = vi.fn();
+        unobserve = vi.fn();
+      }
+      vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+
+      const visualViewport = {
+        addEventListener: vi.fn((type: string, listener: EventListener) => {
+          if (type === 'resize') resizeCallbacks.viewport = listener;
+        }),
+        removeEventListener: vi.fn(),
+      };
+      vi.stubGlobal('visualViewport', visualViewport);
+
+      const canvas = document.createElement('canvas');
+      canvas.id = 'visualizerCanvas';
+      document.body.appendChild(canvas);
+      const ctx = {
+        setTransform: vi.fn(),
+        clearRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        stroke: vi.fn(),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      } as unknown as CanvasRenderingContext2D;
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+      vi.mocked(getAnalyser).mockReturnValue({
+        frequencyBinCount: 16,
+        getFloatFrequencyData: vi.fn((data: Float32Array) => data.fill(-20)),
+      } as unknown as AnalyserNode);
+      vi.stubGlobal(
+        'requestAnimationFrame',
+        vi.fn(() => 1),
+      );
+      const cancelAnimationFrame = vi.fn();
+      vi.stubGlobal('cancelAnimationFrame', cancelAnimationFrame);
+
+      const mod = await import('../visualizer.ts');
+      mod.initVisualizer();
+
+      expect(observe).toHaveBeenCalledWith(wrapper);
+      expect(visualViewport.addEventListener).toHaveBeenCalledWith('resize', expect.any(Function));
+
+      logicalSize = 320;
+      expect(resizeCallbacks.observed).toBeDefined();
+      resizeCallbacks.observed?.([], {} as ResizeObserver);
+      expect(canvas.width).toBe(320);
+      expect(cancelAnimationFrame).toHaveBeenCalled();
+
+      logicalSize = 360;
+      expect(resizeCallbacks.viewport).toBeDefined();
+      resizeCallbacks.viewport?.(new Event('resize'));
+      expect(canvas.width).toBe(360);
+      expect(setManagedTimer).toHaveBeenCalledWith('viz-resize', expect.any(Function), 100);
+    });
+
     it('keeps canvas geometry finite when the analyser returns NaN', async () => {
       vi.resetModules();
       const { setState } = await import('../../core/state.ts');

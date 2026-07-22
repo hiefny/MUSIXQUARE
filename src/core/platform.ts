@@ -40,6 +40,29 @@ export function canCaptureSystemAudio(): boolean {
 
 const MQL_COMPACT = '(min-width: 720px) and (max-width: 1279px)';
 
+/**
+ * Uniform scale applied to the desktop dashboard's body render tree.
+ *
+ * DOMRects and pointer coordinates are reported after this transform, while
+ * layout metrics (`offsetTop`, `clientHeight`, `scrollTop`) and inline CSS
+ * lengths remain in the body's pre-transform coordinate space. Keep the
+ * conversion at the few boundaries that mix those two spaces instead of
+ * making every UI caller aware of the desktop density implementation.
+ */
+export function getBodyRenderedScale(): number {
+  const body = document.body;
+  if (!body) return 1;
+  const value = Number.parseFloat(
+    window.getComputedStyle(body).getPropertyValue('--desktop-ui-scale'),
+  );
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+/** Convert a post-transform viewport distance into a body-local CSS length. */
+export function viewportLengthToBodyCssPixels(viewportPixels: number): number {
+  return viewportPixels / getBodyRenderedScale();
+}
+
 /** Compact landscape: width 720px–1279px */
 export function isCompactLandscape(): boolean {
   return window.matchMedia(MQL_COMPACT).matches;

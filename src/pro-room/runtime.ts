@@ -1198,15 +1198,53 @@ function cloneProRoomAdministrators(
   }));
 }
 
-function publishProRoomAdministrators(snapshot: ProRoomSnapshot): void {
-  acceptedProAdministrators =
-    snapshot.authorityVersion === 1 && snapshot.administrators
-      ? cloneProRoomAdministrators(snapshot.administrators)
-      : [];
-  bus.emit(
-    'pro-room:administrators-updated',
-    cloneProRoomAdministrators(acceptedProAdministrators),
+function proRoomAdministratorEqual(
+  left: Readonly<ProRoomAdministrator>,
+  right: Readonly<ProRoomAdministrator>,
+): boolean {
+  return (
+    left.memberId === right.memberId &&
+    left.memberDisplayNumber === right.memberDisplayNumber &&
+    left.isAuthenticated === right.isAuthenticated &&
+    left.displayName === right.displayName &&
+    left.role === right.role &&
+    left.onlineDeviceCount === right.onlineDeviceCount &&
+    left.permissions['media.add'] === right.permissions['media.add'] &&
+    left.permissions['playback.control'] === right.permissions['playback.control'] &&
+    left.permissions['members.kick'] === right.permissions['members.kick'] &&
+    left.permissions['chat.notice'] === right.permissions['chat.notice'] &&
+    left.inheritedPermissions.length === right.inheritedPermissions.length &&
+    left.inheritedPermissions.every((permission) => right.inheritedPermissions.includes(permission))
   );
+}
+
+function proRoomAdministratorDirectoriesEqual(
+  left: readonly ProRoomAdministrator[],
+  right: readonly ProRoomAdministrator[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((administrator, index) => proRoomAdministratorEqual(administrator, right[index]!))
+  );
+}
+
+function publishProRoomAdministratorDirectory(
+  administrators: readonly ProRoomAdministrator[],
+): ProRoomAdministrator[] {
+  const next = cloneProRoomAdministrators(administrators);
+  if (proRoomAdministratorDirectoriesEqual(acceptedProAdministrators, next)) {
+    return cloneProRoomAdministrators(acceptedProAdministrators);
+  }
+  acceptedProAdministrators = next;
+  const projection = cloneProRoomAdministrators(acceptedProAdministrators);
+  bus.emit('pro-room:administrators-updated', projection);
+  return projection;
+}
+
+function publishProRoomAdministrators(snapshot: ProRoomSnapshot): void {
+  const administrators =
+    snapshot.authorityVersion === 1 && snapshot.administrators ? snapshot.administrators : [];
+  publishProRoomAdministratorDirectory(administrators);
 }
 
 function installLegacyMediaHooks(
@@ -3780,9 +3818,7 @@ function acceptAdministratorDirectory(
   if (!controller.isSessionLeaseCurrent(lease, code)) {
     throw new ProRoomApiError('PRO_ROOM_SESSION_SUPERSEDED');
   }
-  acceptedProAdministrators = cloneProRoomAdministrators(administrators);
-  const projection = cloneProRoomAdministrators(acceptedProAdministrators);
-  bus.emit('pro-room:administrators-updated', projection);
+  const projection = publishProRoomAdministratorDirectory(administrators);
   // The directory mutation also changes participant roles/capabilities. A
   // forced heartbeat reconciles those rows without making the committed
   // directory mutation look failed if the follow-up network read is delayed.

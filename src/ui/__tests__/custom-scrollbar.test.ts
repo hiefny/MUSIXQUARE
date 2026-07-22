@@ -90,15 +90,15 @@ function fireMqlChange(query: string): void {
 const ORIENTATION_QUERY = '(orientation: landscape)';
 const COMPACT_QUERY = '(min-width: 720px) and (max-width: 1279px)';
 
-function makeRect(height: number): DOMRect {
+function makeRect(height: number, top = 0): DOMRect {
   return {
     x: 0,
-    y: 0,
+    y: top,
     width: 100,
     height,
-    top: 0,
+    top,
     right: 100,
-    bottom: height,
+    bottom: top + height,
     left: 0,
     toJSON: () => ({}),
   };
@@ -168,10 +168,33 @@ afterEach(() => {
   _boxes.length = 0;
   clearAllManagedTimers();
   vi.useRealTimers();
+  document.body.style.removeProperty('--desktop-ui-scale');
   document.body.innerHTML = '';
 });
 
 describe('custom-scrollbar settled re-layout (orientation/breakpoint)', () => {
+  it('converts rendered track offsets and thumb drag distance at 1.5x', () => {
+    document.body.style.setProperty('--desktop-ui-scale', '1.5');
+    const box = createScrollbox('scaled-box');
+    box.container.parentElement!.getBoundingClientRect = () => makeRect(600, 120);
+    box.rectSpy.mockImplementation(() => makeRect(300, 300));
+
+    initCustomScrollbar(box.container);
+    const track = box.track();
+    const thumb = track.querySelector<HTMLElement>('.cscroll-thumb')!;
+    expect(track.style.top).toBe('120px');
+    expect(track.style.height).toBe('200px');
+
+    thumb.dispatchEvent(
+      new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientY: 300 }),
+    );
+    window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientY: 360 }));
+
+    // 60 rendered px = 40 local px. With a 160px thumb travel and 800px
+    // scroll range, the drag advances exactly 200 logical scroll pixels.
+    expect(box.container.scrollTop).toBe(200);
+  });
+
   it('re-lays out ALL live instances after one orientation change, on both settle tiers', () => {
     const a = createScrollbox('box-a');
     const b = createScrollbox('box-b');

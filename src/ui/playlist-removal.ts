@@ -1,4 +1,5 @@
 import type { PlaylistItem, QueueItemId } from '../types/index.ts';
+import { getTrackDisplayTitle } from '../player/track-display.ts';
 import { t } from '../i18n/index.ts';
 
 const REMOVE_BUTTON_SELECTOR = '.btn-playlist-remove[data-queue-item-id]';
@@ -120,7 +121,7 @@ export function createPlaylistRemovalController(
       const queueItemId = queueItemIdFromButton(button);
       const selected = !!queueItemId && selectedQueueItemIds.has(queueItemId);
       const item = queueItemId ? itemsById.get(queueItemId) : undefined;
-      const title = item?.title || item?.name || t('common.unknown');
+      const title = item ? getTrackDisplayTitle(item, t('common.unknown')) : t('common.unknown');
       const label = t(
         selected ? 'playlist.deselect_for_deletion' : 'playlist.select_for_deletion',
         { title },

@@ -28,7 +28,10 @@ import {
   getCurrentAudioBuffer,
   setCurrentAudioBuffer,
 } from './_state.ts';
-import { partitionAudioFileCandidates } from '../media/audio-file.ts';
+import {
+  partitionAudioFileCandidates,
+  stripRecognizedAudioFileExtension,
+} from '../media/audio-file.ts';
 import { transition } from './lifecycle.ts';
 
 import {
@@ -1897,7 +1900,7 @@ function appendStandardHostFiles(
       type: 'file',
       file,
       name: file.name,
-      title: file.name.replace(/\.[^/.]+$/, ''),
+      title: stripRecognizedAudioFileExtension(file.name),
       videoId: null,
       playlistId: null,
     });

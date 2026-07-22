@@ -2,6 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyAccountSession, setAccountAnonymous } from '../../account/state.ts';
+import { bus } from '../../core/events.ts';
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
@@ -239,6 +240,81 @@ describe.sequential('PRO runtime account identity lease', () => {
       expect.any(AbortSignal),
     );
     expect(getState('network.isConnecting')).toBe(false);
+  });
+
+  it('publishes unchanged heartbeat directories zero times and real changes once', async () => {
+    const permissions = {
+      'media.add': true,
+      'playback.control': true,
+      'members.kick': true,
+      'chat.notice': true,
+    } as const;
+    const initial: ProRoomSnapshot = {
+      ...snapshot(),
+      authorityVersion: 1,
+      administrators: [
+        {
+          memberId: 'member_lease_0001',
+          memberDisplayNumber: 0,
+          isAuthenticated: true,
+          displayName: 'Minsu',
+          role: 'owner',
+          permissions,
+          inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+          onlineDeviceCount: 1,
+        },
+      ],
+    };
+    const changed: ProRoomSnapshot = {
+      ...initial,
+      revision: 2,
+      administrators: [
+        ...initial.administrators!,
+        {
+          memberId: 'member_lease_0002',
+          memberDisplayNumber: 1,
+          isAuthenticated: true,
+          displayName: 'Jisu',
+          role: 'controller',
+          permissions: { ...permissions, 'chat.notice': false },
+          inheritedPermissions: [],
+          onlineDeviceCount: 0,
+        },
+      ],
+    };
+    vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValueOnce(initial);
+    vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount).mockResolvedValue(initial);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(initial);
+    const administratorEvents: ProRoomSnapshot['administrators'][] = [];
+    let deviceEventCount = 0;
+    const unsubscribeAdministrators = bus.on('pro-room:administrators-updated', (administrators) =>
+      administratorEvents.push(administrators),
+    );
+    const unsubscribeDevices = bus.on('network:device-list-update', () => {
+      deviceEventCount += 1;
+    });
+
+    try {
+      await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+      await vi.waitFor(() => expect(administratorEvents).toHaveLength(1));
+      expect(deviceEventCount).toBe(1);
+
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockClear();
+      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.waitFor(() => expect(ProRoomApiClient.prototype.heartbeat).toHaveBeenCalledOnce());
+      expect(administratorEvents).toHaveLength(1);
+      expect(deviceEventCount).toBe(1);
+
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(changed);
+      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.waitFor(() => expect(ProRoomApiClient.prototype.heartbeat).toHaveBeenCalledTimes(2));
+      expect(administratorEvents).toHaveLength(2);
+      expect(administratorEvents[1]).toEqual(changed.administrators);
+      expect(deviceEventCount).toBe(2);
+    } finally {
+      unsubscribeAdministrators();
+      unsubscribeDevices();
+    }
   });
 
   it('keeps a one-shot anonymous administrator grant after redundant account reconciliation', async () => {

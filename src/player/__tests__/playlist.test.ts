@@ -528,7 +528,11 @@ describe('local file admission', () => {
       })}`,
     );
     expect(systemMessages).toEqual([
-      t('chat.tracks_added_named', { name: 'Studio Host', count: 2, title: 'track' }),
+      t('chat.tracks_added_named', {
+        name: 'Studio Host',
+        count: 2,
+        title: 'track.unknown',
+      }),
     ]);
   });
 

@@ -59,6 +59,12 @@ function inferAudioMimeFromFilename(filename: string): string {
   return AUDIO_MIME_BY_EXTENSION[filenameExtension(filename)] ?? '';
 }
 
+export function stripRecognizedAudioFileExtension(filename: string): string {
+  const match = /\.([^.\\/]+)$/.exec(filename);
+  if (!match || !AUDIO_MIME_BY_EXTENSION[match[1]!.toLowerCase()]) return filename;
+  return filename.slice(0, -match[0].length) || filename;
+}
+
 export function resolveAudioMime(filename: string, mime?: string): string {
   return meaningfulDeclaredMime(mime) || inferAudioMimeFromFilename(filename);
 }

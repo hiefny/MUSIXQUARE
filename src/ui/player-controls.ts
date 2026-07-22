@@ -38,6 +38,7 @@ import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
 import { initSeekBar } from './seekbar.ts';
 import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
+import { getTrackDisplayTitle } from '../player/track-display.ts';
 import type { ProPlaybackUiControlKind } from '../types/index.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { navigateToAppHome } from '../core/navigation.ts';
@@ -170,7 +171,7 @@ function refreshTrackTitle(): void {
       ? t('system_audio.sharing')
       : item.name === 'system-audio-receiving'
         ? t('system_audio.receiving')
-        : item.title || item.name || t('common.unknown');
+        : getTrackDisplayTitle(item, t('common.unknown'));
 
   updateTitleWithMarquee(title);
 
@@ -197,7 +198,7 @@ function getTabTitleTrack(): string {
     ? t('system_audio.sharing')
     : item.name === 'system-audio-receiving'
       ? t('system_audio.receiving')
-      : item.title || item.name || '';
+      : getTrackDisplayTitle(item);
 }
 
 function getTabTitlePlaying(): boolean | undefined {

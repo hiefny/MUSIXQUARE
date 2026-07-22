@@ -120,8 +120,8 @@
       bottom: calc(16px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
     }
 
-    /* Push controls to the bottom, matching the overlay's .ob-actions structure:
-       margin-top: auto + padding-bottom on the DIRECT container */
+    /* Keep the complete controller anchored at the bottom. The shared media
+       stage now gives the title and controller a stable natural separation. */
     #tab-play .controls-area {
       margin-top: auto;
       margin-bottom: 0;
@@ -168,7 +168,9 @@
        --------------------------------------------------- */
     #tab-play {
       --play-content-max: 1600px;
+      --play-stage-height: min(50.625cqw, 900px, calc(100dvh - 320px));
       grid-area: tab-play;
+      container-type: inline-size;
       flex-direction: column;
       justify-content: flex-start;
       align-items: center;
@@ -182,6 +184,16 @@
       gap: 16px;
       overflow-y: auto;
       overflow-x: hidden;
+    }
+
+    .media-stage {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: var(--play-stage-height);
+      flex: 0 0 var(--play-stage-height);
+      margin-top: auto;
     }
 
     #tab-playlist {
@@ -240,19 +252,18 @@
     }
 
     .vinyl-wrapper {
-      width: clamp(160px, min(22vw, 30vh), 520px);
-      height: clamp(160px, min(22vw, 30vh), 520px);
+      width: min(clamp(160px, min(22vw, 30vh), 520px), var(--play-stage-height));
+      height: min(clamp(160px, min(22vw, 30vh), 520px), var(--play-stage-height));
       flex-shrink: 0;
       flex-basis: auto;
       aspect-ratio: auto;
       min-height: auto;
-      margin-top: auto;
-      margin-bottom: 0;
+      margin: 0;
     }
 
     body.viz-spectrum .vinyl-wrapper {
       width: min(calc(100% - 64px), 1400px);
-      height: clamp(160px, min(22vw, 30vh), 520px);
+      height: min(clamp(160px, min(22vw, 30vh), 520px), var(--play-stage-height));
       aspect-ratio: auto;
       max-width: none;
       padding: 0 32px;
@@ -265,8 +276,8 @@
          the old 1080px island in a roughly 3000px-wide 4K play panel. */
       width: min(90%, var(--play-content-max), calc((100dvh - 320px) * 16 / 9));
       max-width: none;
-      /* Center in the space above the controls. */
-      margin: auto auto 0 auto;
+      /* The shared stage owns vertical placement for both media renderers. */
+      margin: 0;
       border-radius: 20px;
       box-shadow: none;
     }

@@ -3,6 +3,27 @@ import {
   ACCOUNT_ASSERTION_HEADER,
   verifyAccountAssertion,
 } from './account-assertion.js';
+import {
+  effectsContractVersion,
+  initialEffectsState,
+  mergeRoomEffectsPatch,
+  normalizeStoredEffects,
+  parseLegacyRoomEffects,
+  parseRoomEffects,
+  parseRoomEffectsPatch,
+  publicEffects,
+} from './pro-room-effects.js';
+import {
+  developerQueueMode,
+  initialQueueModeState,
+  normalizeStoredQueueMode,
+  parseQueueModeValues,
+  PLAYLIST_MAX_ITEMS,
+  publicQueueMode,
+  QUEUE_ITEM_ID_RE,
+  shuffledQueueItemIds,
+} from './pro-room-queue-mode.js';
+import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.js';
 
 /**
  * MUSIXQUARE persistent PRO room service.
@@ -23,7 +44,6 @@ const ACTIVATION_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
 const PRO_ROOM_REGISTRY_MAX_ITEMS = 1000;
 const PRO_ROOM_REGISTRY_REFRESH_MS = 5_000;
 const PIN_RE = /^\d{8}$/;
-const QUEUE_ITEM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const OPAQUE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
 const ADMIN_REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -68,7 +88,6 @@ const STORAGE_V2_PLAYLIST_PREFIX = 'pro-room:v2:playlist:';
 const STORAGE_V2_SCHEMA_VERSION = 2;
 const ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
 const ASSET_MAX_BYTES = 200 * 1024 * 1024;
-const PLAYLIST_MAX_ITEMS = 1000;
 const DEVELOPER_YOUTUBE_BATCH_MAX_ITEMS = 100;
 const YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS = 5000;
 const DEVELOPER_REMOVE_MANY_MAX_ITEMS = 20;
@@ -440,15 +459,6 @@ function withPublicHeaders(response, origin) {
   });
 }
 
-function hasExactKeys(value, required, optional = []) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const allowed = new Set([...required, ...optional]);
-  return (
-    required.every((key) => Object.prototype.hasOwnProperty.call(value, key)) &&
-    Object.keys(value).every((key) => allowed.has(key))
-  );
-}
-
 function boundedString(value, maxLength, allowEmpty = false) {
   if (typeof value !== 'string') return null;
   const result = value.trim();
@@ -516,10 +526,6 @@ function queueAdditionTrackTitle(value) {
     result += character;
   }
   return result || null;
-}
-
-function isSafeNonNegativeInteger(value) {
-  return Number.isSafeInteger(value) && value >= 0;
 }
 
 function base64UrlEncode(value) {
@@ -993,103 +999,6 @@ function initialRoomState(roomCode, provisioned = INITIAL_PRO_ROOM_CODES.has(roo
   };
 }
 
-function initialQueueModeState() {
-  return {
-    revision: 0,
-    updatedAtMs: 0,
-    repeatMode: 0,
-    shuffleEnabled: false,
-    shuffleOrder: [],
-  };
-}
-
-function parseQueueModeValues(value, playlist, stored = false) {
-  const keys = stored
-    ? ['revision', 'updatedAtMs', 'repeatMode', 'shuffleEnabled', 'shuffleOrder']
-    : ['repeatMode', 'shuffleEnabled', 'shuffleOrder'];
-  if (!hasExactKeys(value, keys)) return null;
-  if (
-    (stored &&
-      (!isSafeNonNegativeInteger(value.revision) ||
-        !isSafeNonNegativeInteger(value.updatedAtMs))) ||
-    (value.repeatMode !== 0 && value.repeatMode !== 1 && value.repeatMode !== 2) ||
-    typeof value.shuffleEnabled !== 'boolean' ||
-    !Array.isArray(value.shuffleOrder) ||
-    value.shuffleOrder.length > PLAYLIST_MAX_ITEMS
-  ) {
-    return null;
-  }
-  const liveIds = new Set(playlist.map((item) => item.queueItemId));
-  const seen = new Set();
-  const shuffleOrder = [];
-  for (const queueItemId of value.shuffleOrder) {
-    if (
-      !QUEUE_ITEM_ID_RE.test(queueItemId || '') ||
-      !liveIds.has(queueItemId) ||
-      seen.has(queueItemId)
-    ) {
-      return null;
-    }
-    seen.add(queueItemId);
-    shuffleOrder.push(queueItemId);
-  }
-  if (
-    (!value.shuffleEnabled && shuffleOrder.length !== 0) ||
-    (value.shuffleEnabled && shuffleOrder.length !== playlist.length)
-  ) {
-    return null;
-  }
-  return {
-    ...(stored ? { revision: value.revision, updatedAtMs: value.updatedAtMs } : {}),
-    repeatMode: value.repeatMode,
-    shuffleEnabled: value.shuffleEnabled,
-    shuffleOrder,
-  };
-}
-
-function normalizeStoredQueueMode(value, playlist) {
-  return parseQueueModeValues(value, playlist, true);
-}
-
-function publicQueueMode(room) {
-  return {
-    schemaVersion: 1,
-    view: 'queue-mode',
-    roomCode: room.roomCode,
-    revision: room.queueMode.revision,
-    playlistRevision: room.playlistRevision,
-    updatedAtMs: room.queueMode.updatedAtMs,
-    repeatMode: room.queueMode.repeatMode,
-    shuffleEnabled: room.queueMode.shuffleEnabled,
-    shuffleOrder: [...room.queueMode.shuffleOrder],
-  };
-}
-
-function developerQueueMode(room) {
-  return {
-    schemaVersion: 1,
-    view: 'queue-mode',
-    roomCode: room.roomCode,
-    revision: room.queueMode.revision,
-    playlistRevision: room.playlistRevision,
-    updatedAtMs: room.queueMode.updatedAtMs,
-    repeatMode:
-      room.queueMode.repeatMode === 2 ? 'one' : room.queueMode.repeatMode === 1 ? 'all' : 'off',
-    shuffleEnabled: room.queueMode.shuffleEnabled,
-  };
-}
-
-function shuffledQueueItemIds(playlist) {
-  const queueItemIds = playlist.map((item) => item.queueItemId);
-  const random = new Uint32Array(1);
-  for (let index = queueItemIds.length - 1; index > 0; index -= 1) {
-    crypto.getRandomValues(random);
-    const swapIndex = random[0] % (index + 1);
-    [queueItemIds[index], queueItemIds[swapIndex]] = [queueItemIds[swapIndex], queueItemIds[index]];
-  }
-  return queueItemIds;
-}
-
 function reconcileQueueModePlaylist(room, nowMs = Date.now()) {
   const current = room.queueMode;
   const nextOrder = current.shuffleEnabled
@@ -1116,191 +1025,6 @@ function reconcileQueueModePlaylist(room, nowMs = Date.now()) {
     shuffleOrder: nextOrder,
   };
   return true;
-}
-
-function initialEffectsState() {
-  return {
-    revision: 0,
-    updatedAtMs: 0,
-    effects: {
-      reverb: {
-        mixPercent: 0,
-        decaySeconds: 5,
-        preDelaySeconds: 0.1,
-        lowCutPercent: 0,
-        highCutPercent: 0,
-      },
-      equalizer: { bandsDb: [0, 0, 0, 0, 0] },
-      virtualBass: { strengthPercent: 0 },
-      virtualSurround: { widthPercent: 100 },
-      virtualTreble: { enabled: false },
-    },
-  };
-}
-
-const EFFECT_REVERB_FIELDS = Object.freeze({
-  mixPercent: [0, 100],
-  decaySeconds: [0.1, 30],
-  preDelaySeconds: [0, 1],
-  lowCutPercent: [0, 100],
-  highCutPercent: [0, 100],
-});
-
-function boundedEffectNumber(value, minimum, maximum) {
-  return (
-    typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum
-  );
-}
-
-function parseEffectsReverb(value, complete = true) {
-  const fields = Object.keys(EFFECT_REVERB_FIELDS);
-  if (!hasExactKeys(value, complete ? fields : [], complete ? [] : fields)) return null;
-  if (!complete && Object.keys(value).length === 0) return null;
-  const result = {};
-  for (const key of Object.keys(value)) {
-    const [minimum, maximum] = EFFECT_REVERB_FIELDS[key];
-    if (!boundedEffectNumber(value[key], minimum, maximum)) return null;
-    result[key] = value[key];
-  }
-  return result;
-}
-
-function parseEffectsEqualizer(value) {
-  if (
-    !hasExactKeys(value, ['bandsDb']) ||
-    !Array.isArray(value.bandsDb) ||
-    value.bandsDb.length !== 5 ||
-    value.bandsDb.some((band) => !boundedEffectNumber(band, -12, 12))
-  ) {
-    return null;
-  }
-  return { bandsDb: [...value.bandsDb] };
-}
-
-function parseEffectsVirtualBass(value) {
-  return hasExactKeys(value, ['strengthPercent']) &&
-    boundedEffectNumber(value.strengthPercent, 0, 100)
-    ? { strengthPercent: value.strengthPercent }
-    : null;
-}
-
-function parseEffectsVirtualSurround(value) {
-  return hasExactKeys(value, ['widthPercent']) && boundedEffectNumber(value.widthPercent, 0, 200)
-    ? { widthPercent: value.widthPercent }
-    : null;
-}
-
-function parseEffectsVirtualTreble(value) {
-  return hasExactKeys(value, ['enabled']) && typeof value.enabled === 'boolean'
-    ? { enabled: value.enabled }
-    : null;
-}
-
-function parseLegacyRoomEffects(value) {
-  if (!hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'])) return null;
-  const reverb = parseEffectsReverb(value.reverb);
-  const equalizer = parseEffectsEqualizer(value.equalizer);
-  const virtualBass = parseEffectsVirtualBass(value.virtualBass);
-  const virtualSurround = parseEffectsVirtualSurround(value.virtualSurround);
-  return reverb && equalizer && virtualBass && virtualSurround
-    ? { reverb, equalizer, virtualBass, virtualSurround }
-    : null;
-}
-
-function parseRoomEffects(value) {
-  if (
-    !hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround', 'virtualTreble'])
-  ) {
-    return null;
-  }
-  const reverb = parseEffectsReverb(value.reverb);
-  const equalizer = parseEffectsEqualizer(value.equalizer);
-  const virtualBass = parseEffectsVirtualBass(value.virtualBass);
-  const virtualSurround = parseEffectsVirtualSurround(value.virtualSurround);
-  const virtualTreble = parseEffectsVirtualTreble(value.virtualTreble);
-  return reverb && equalizer && virtualBass && virtualSurround && virtualTreble
-    ? { reverb, equalizer, virtualBass, virtualSurround, virtualTreble }
-    : null;
-}
-
-function parseRoomEffectsPatch(value) {
-  const allowed = ['reverb', 'equalizer', 'virtualBass', 'virtualSurround', 'virtualTreble'];
-  if (!hasExactKeys(value, [], allowed) || Object.keys(value).length === 0) return null;
-  const result = {};
-  for (const key of Object.keys(value)) {
-    const parsed =
-      key === 'reverb'
-        ? parseEffectsReverb(value.reverb, false)
-        : key === 'equalizer'
-          ? parseEffectsEqualizer(value.equalizer)
-          : key === 'virtualBass'
-            ? parseEffectsVirtualBass(value.virtualBass)
-            : key === 'virtualSurround'
-              ? parseEffectsVirtualSurround(value.virtualSurround)
-              : parseEffectsVirtualTreble(value.virtualTreble);
-    if (!parsed) return null;
-    result[key] = parsed;
-  }
-  return result;
-}
-
-function mergeRoomEffectsPatch(current, patch) {
-  return {
-    reverb: { ...current.reverb, ...(patch.reverb || {}) },
-    equalizer: patch.equalizer
-      ? { bandsDb: [...patch.equalizer.bandsDb] }
-      : { bandsDb: [...current.equalizer.bandsDb] },
-    virtualBass: { ...(patch.virtualBass || current.virtualBass) },
-    virtualSurround: { ...(patch.virtualSurround || current.virtualSurround) },
-    virtualTreble: { ...(patch.virtualTreble || current.virtualTreble) },
-  };
-}
-
-function normalizeStoredEffects(value) {
-  if (
-    !hasExactKeys(value, ['revision', 'updatedAtMs', 'effects']) ||
-    !isSafeNonNegativeInteger(value.revision) ||
-    !isSafeNonNegativeInteger(value.updatedAtMs)
-  ) {
-    return null;
-  }
-  const effects = parseRoomEffects(value.effects);
-  if (effects) {
-    return {
-      state: { revision: value.revision, updatedAtMs: value.updatedAtMs, effects },
-      migrated: false,
-    };
-  }
-  const legacy = parseLegacyRoomEffects(value.effects);
-  return legacy
-    ? {
-        state: {
-          revision: value.revision,
-          updatedAtMs: value.updatedAtMs,
-          effects: { ...legacy, virtualTreble: { enabled: false } },
-        },
-        migrated: true,
-      }
-    : null;
-}
-
-function effectsContractVersion(request) {
-  const version = request.headers.get('x-mxqr-pro-effects-version');
-  if (version === null || version === '1') return 1;
-  return version === '2' ? 2 : null;
-}
-
-function publicEffects(room, contractVersion = 2) {
-  const effects = structuredClone(room.effects.effects);
-  if (contractVersion === 1) delete effects.virtualTreble;
-  return {
-    schemaVersion: contractVersion,
-    view: 'effects',
-    roomCode: room.roomCode,
-    revision: room.effects.revision,
-    updatedAtMs: room.effects.updatedAtMs,
-    effects,
-  };
 }
 
 function initialSystemAudioState(generation = 0) {

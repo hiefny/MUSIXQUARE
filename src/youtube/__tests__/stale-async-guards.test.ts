@@ -29,7 +29,7 @@ const QUEUE_ITEM_ID = '88888888-8888-4888-8888-888888888888';
 const SECOND_QUEUE_ITEM_ID = '99999999-9999-4999-8999-999999999999';
 
 const zeroStartFacade = vi.hoisted(() => ({
-  handlePlayerState: vi.fn(() => false),
+  handlePlayerState: vi.fn<(state: number) => boolean>(() => false),
   inFlight: false,
   active: false,
 }));

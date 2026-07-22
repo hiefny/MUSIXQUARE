@@ -27,7 +27,7 @@ import {
   addSystemChatMessage,
   upsertBotChatMessage,
 } from '../../ui/chat-render.ts';
-import type { DataConnection } from '../../types/index.ts';
+import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 import type { ProRealtimeRelayEnvelope } from '../../pro-room/network-bridge.ts';
 
 const realtimeMocks = vi.hoisted(() => ({
@@ -53,6 +53,23 @@ vi.mock('../../core/log.ts', () => ({
 vi.mock('../../pro-room/network-bridge.ts', () => ({
   sendProRoomRealtime: realtimeMocks.send,
 }));
+
+function connectedPeer(
+  overrides: Pick<ConnectedPeer, 'id' | 'conn'> & Partial<ConnectedPeer>,
+): ConnectedPeer {
+  return {
+    slot: 0,
+    label: overrides.id,
+    isOp: false,
+    preloadedQueueItemIds: new Set(),
+    status: 'connected',
+    isDataTarget: false,
+    joinOrder: 0,
+    connectionType: 'unknown',
+    lastHeartbeat: 0,
+    ...overrides,
+  };
+}
 
 describe('PRO member-level chat projection', () => {
   function enterProRoom(): void {
@@ -361,7 +378,7 @@ describe('host chat fan-out truncation (CHAT-1)', () => {
     const memberId = 'member_abcdefghijklmnopqrstuv';
     setState('network.myMemberId', memberId);
     setState('network.connectedPeers', [
-      {
+      connectedPeer({
         id: guestConn.peer,
         label: 'Minsu',
         joinOrder: 3,
@@ -370,7 +387,7 @@ describe('host chat fan-out truncation (CHAT-1)', () => {
         isAuthenticated: true,
         status: 'connected',
         conn: guestConn,
-      },
+      }),
     ]);
     const relayed: Array<Record<string, unknown>> = [];
     bus.on('network:broadcast-except', (_peerId, data) => {
@@ -410,7 +427,7 @@ describe('host chat fan-out truncation (CHAT-1)', () => {
     const memberId = 'member_abcdefghijklmnopqrstuv';
     setState('network.myMemberId', memberId);
     setState('network.connectedPeers', [
-      {
+      connectedPeer({
         id: guestConn.peer,
         label: 'Minsu',
         joinOrder: 3,
@@ -421,7 +438,7 @@ describe('host chat fan-out truncation (CHAT-1)', () => {
         roomCapabilities: ['room.configure'],
         status: 'connected',
         conn: guestConn,
-      },
+      }),
     ]);
     const relayed: Array<Record<string, unknown>> = [];
     bus.on('network:broadcast-except', (_peerId, data) => {
@@ -461,7 +478,7 @@ describe('host chat fan-out truncation (CHAT-1)', () => {
     const otherMemberId = 'member_vutsrqponmlkjihgfedcba';
     setState('network.myMemberId', ownerMemberId);
     setState('network.connectedPeers', [
-      {
+      connectedPeer({
         id: guestConn.peer,
         label: 'Minsu',
         joinOrder: 4,
@@ -472,7 +489,7 @@ describe('host chat fan-out truncation (CHAT-1)', () => {
         roomCapabilities: [],
         status: 'connected',
         conn: guestConn,
-      },
+      }),
     ]);
     const relayed: Array<Record<string, unknown>> = [];
     bus.on('network:broadcast-except', (_peerId, data) => {
@@ -520,12 +537,12 @@ describe('automatic system-message channel', () => {
     const roomSend = vi.fn();
     const lateJoinSend = vi.fn();
     setState('network.connectedPeers', [
-      {
+      connectedPeer({
         id: 'guest-room',
         label: 'GUEST 1',
         status: 'connected',
         conn: { peer: 'guest-room', open: true, send: roomSend } as unknown as DataConnection,
-      },
+      }),
     ]);
     rememberPinnedNotice({
       type: MSG.CHAT_NOTICE,
@@ -598,20 +615,20 @@ describe('host whisper relay canonicalization', () => {
       send: targetSend,
     } as unknown as DataConnection;
     setState('network.connectedPeers', [
-      {
+      connectedPeer({
         id: 'guest-sender',
         label: 'GUEST 1',
         joinOrder: 1,
         status: 'connected',
         conn: senderConn,
-      },
-      {
+      }),
+      connectedPeer({
         id: 'guest-target',
         label: 'GUEST 2',
         joinOrder: 2,
         status: 'connected',
         conn: targetConn,
-      },
+      }),
     ]);
     setState(
       'network.activeHostConnByPeerId',

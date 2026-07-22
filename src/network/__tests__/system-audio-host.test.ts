@@ -6,10 +6,10 @@ import { MSG } from '../../core/constants.ts';
 import type { ConnectedPeer, DataConnection, MediaConnection } from '../../types/index.ts';
 
 const mocks = vi.hoisted(() => ({
-  getPeer: vi.fn(() => null),
-  getStreamL: vi.fn(() => null),
-  getStreamR: vi.fn(() => null),
-  getCapturedAudioStream: vi.fn(() => null),
+  getPeer: vi.fn<() => { call: ReturnType<typeof vi.fn> } | null>(() => null),
+  getStreamL: vi.fn<() => MediaStream | null>(() => null),
+  getStreamR: vi.fn<() => MediaStream | null>(() => null),
+  getCapturedAudioStream: vi.fn<() => MediaStream | null>(() => null),
   safeSend: vi.fn(),
   isSystemAudioActive: vi.fn(() => true),
 }));

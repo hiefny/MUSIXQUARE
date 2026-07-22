@@ -76,6 +76,8 @@ function snapshot(): ProRoomSnapshot {
     runtime: 'awake',
     revision: 4,
     playlistRevision: 0,
+    effectsRevision: 0,
+    queueModeRevision: 0,
     playlist: [],
     currentQueueItemId: null,
     playback: {

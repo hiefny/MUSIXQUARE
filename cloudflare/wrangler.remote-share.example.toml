@@ -9,6 +9,7 @@ RATE_LIMIT_WINDOW_SECONDS = "3600"
 IP_UPLOADS_PER_WINDOW = "60"
 ROOM_UPLOADS_PER_WINDOW = "0"
 ROOM_STORAGE_QUOTA_BYTES = "1073741824"
+REMOTE_SHARE_ATOMIC_QUOTA_ENABLED = "true"
 ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
 
 # Required secrets, set outside this file:
@@ -27,3 +28,22 @@ bucket_name = "musixquare-remote-share"
 [[kv_namespaces]]
 binding = "REMOTE_SHARE_RATE_LIMIT"
 id = "replace-with-kv-namespace-id"
+
+[[durable_objects.bindings]]
+name = "REMOTE_SHARE_QUOTA"
+class_name = "RemoteShareQuota"
+
+# Keep the production Worker's append-only namespace history when deriving a
+# deployable config from this example. The v1 class was retired in v2; v3 is a
+# separate SQLite namespace for atomic room-byte reservations.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RemoteShareRateLimiter"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["RemoteShareRateLimiter"]
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["RemoteShareQuota"]

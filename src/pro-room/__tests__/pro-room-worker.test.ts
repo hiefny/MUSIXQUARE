@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import {
   ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
   ACCOUNT_ASSERTION_HEADER,
@@ -2070,7 +2070,15 @@ const presenceByCookie = new Map<
 
 type StoredRoom = {
   revision: number;
+  playlistRevision: number;
   playlist: unknown[];
+  queueMode: {
+    revision: number;
+    updatedAtMs: number;
+    repeatMode: number;
+    shuffleEnabled: boolean;
+    shuffleOrder: string[];
+  };
   pin: {
     salt: string;
     iterations: number;
@@ -2401,7 +2409,7 @@ async function activatedRoom(roomCode = ROOM_CODE) {
   const ownerCookie = cookieFrom(activation);
   const ownerRecoveryCookie = activation.headers
     .getSetCookie()
-    .find((value) => value.startsWith(`__Host-mxqr_pro_owner_${roomCode}=`))
+    .find((value: string) => value.startsWith(`__Host-mxqr_pro_owner_${roomCode}=`))
     ?.split(';')[0];
   expect(ownerRecoveryCookie).toBeTruthy();
   const activationEnvelope = await responseJson(activation);
@@ -2818,7 +2826,9 @@ function updateInternalDeveloperQueueMode(
 }
 
 async function preparedDeveloperCommandRoom(
-  dispatchFetch = vi.fn(async () => Response.json({ dispatched: true })),
+  dispatchFetch: Mock<(request: Request) => Promise<Response>> = vi.fn(async () =>
+    Response.json({ dispatched: true }),
+  ),
 ) {
   const context = await activatedRoom();
   const internal = context.worker as unknown as {
@@ -5883,7 +5893,9 @@ describe('PRO room private Developer API projections', () => {
 
   it('persists, applies, deduplicates, and server-completes Developer API commands', async () => {
     const { worker, state, ownerCookie, activationEnvelope } = await activatedRoom();
-    const dispatchFetch = vi.fn(async () => Response.json({ dispatched: true }));
+    const dispatchFetch = vi.fn<(request: Request) => Promise<Response>>(async () =>
+      Response.json({ dispatched: true }),
+    );
     const internal = worker as unknown as {
       env: Record<string, any>;
       room: {
@@ -7160,12 +7172,14 @@ describe('persistent PRO room bootstrap and activation', () => {
       expect(response.status).toBe(200);
       const setCookies = response.headers.getSetCookie();
       expect(
-        setCookies.some((value) => value.startsWith(`__Host-mxqr_pro_session_${roomCode}=`)),
+        setCookies.some((value: string) =>
+          value.startsWith(`__Host-mxqr_pro_session_${roomCode}=`),
+        ),
       ).toBe(true);
       expect(
-        setCookies.some((value) => value.startsWith(`__Host-mxqr_pro_owner_${roomCode}=`)),
+        setCookies.some((value: string) => value.startsWith(`__Host-mxqr_pro_owner_${roomCode}=`)),
       ).toBe(true);
-      cookies.push(...setCookies.map((value) => value.split(';')[0]!));
+      cookies.push(...setCookies.map((value: string) => value.split(';')[0]!));
     }
     expect(cookies).toHaveLength(4);
     expect(new Set(cookies.map((value) => value.split('=')[0])).size).toBe(4);
@@ -7621,9 +7635,9 @@ describe('persistent PRO room authentication, presence, and state', () => {
     bindCookiePresence(anonymousCookie, anonymous);
 
     const sessionsFor = (accountId: string) =>
-      Object.values(internal.room.sessions)
-        .filter((session: any) => session.accountId === accountId)
-        .sort((left: any, right: any) => left.peerOrdinal - right.peerOrdinal);
+      (Object.values(internal.room.sessions) as Array<Record<string, any>>)
+        .filter((session) => session.accountId === accountId)
+        .sort((left, right) => left.peerOrdinal - right.peerOrdinal);
     expect(sessionsFor(minsuAccountId).map((session: any) => session.peerOrdinal)).toEqual([
       1, 2, 3,
     ]);
@@ -7648,9 +7662,9 @@ describe('persistent PRO room authentication, presence, and state', () => {
     // reservations must reconstruct to the same admission layout.
     const minsuSessions = sessionsFor(minsuAccountId);
     const jisuSessions = sessionsFor(jisuAccountId);
-    delete minsuSessions[1].peerOrdinal;
-    minsuSessions[2].peerOrdinal = 1;
-    delete jisuSessions[1].peerOrdinal;
+    delete minsuSessions[1]!.peerOrdinal;
+    minsuSessions[2]!.peerOrdinal = 1;
+    delete jisuSessions[1]!.peerOrdinal;
     await internal.persist();
 
     const restartedEnv = environment(context.bucket) as ReturnType<typeof environment> & {
@@ -10809,7 +10823,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
         worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
       ),
     );
-    expect(responses.every((response) => response.status === 200)).toBe(true);
+    expect(responses.every((response: Response) => response.status === 200)).toBe(true);
     expect(coreWrites()).toBe(1);
     expect(vi.getTimerCount()).toBe(1);
 
@@ -13132,7 +13146,10 @@ describe('persistent PRO room private media accounting', () => {
 
     const internal = worker as unknown as {
       room: {
-        assets: Record<string, { expiresAtMs: number; objectKey: string }>;
+        assets: Record<
+          string,
+          { expiresAtMs: number; objectKey: string; stagingObjectKey: string }
+        >;
         quota: { reservedBytes: number };
       };
       alarm(): Promise<void>;
@@ -13185,7 +13202,10 @@ describe('persistent PRO room private media accounting', () => {
     );
     const internal = worker as unknown as {
       room: {
-        assets: Record<string, { expiresAtMs: number; objectKey: string }>;
+        assets: Record<
+          string,
+          { expiresAtMs: number; objectKey: string; stagingObjectKey: string }
+        >;
         quota: { reservedBytes: number };
       };
       alarm(): Promise<void>;
@@ -13920,7 +13940,7 @@ describe('persistent PRO room audio effects', () => {
   it('persists one strict effects resource and publishes its revision head in snapshot v1', async () => {
     const context = await activatedRoom();
     const beforeSnapshot = context.activationEnvelope.snapshot;
-    const dispatchFetch = vi.fn(async () =>
+    const dispatchFetch = vi.fn<(request: Request) => Promise<Response>>(async () =>
       Response.json({ broadcast: true, eligible: 1, sent: 1 }),
     );
     const internal = context.worker as unknown as { env: Record<string, any> };
@@ -14182,7 +14202,9 @@ describe('persistent PRO room audio effects', () => {
   });
 
   it('applies set_effects on the server without a browser control capability', async () => {
-    const dispatchFetch = vi.fn(async () => Response.json({ dispatched: true }));
+    const dispatchFetch = vi.fn<(request: Request) => Promise<Response>>(async () =>
+      Response.json({ dispatched: true }),
+    );
     const context = await activatedRoom();
     const internal = context.worker as unknown as {
       env: Record<string, any>;

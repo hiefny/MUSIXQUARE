@@ -128,7 +128,8 @@ class MockRTCPeerConnection {
 }
 
 function installFetchRouting(): void {
-  fetchMock.mockImplementation((url: string, _cap: string, init?: RequestInit) => {
+  fetchMock.mockImplementation((input, _capability, init) => {
+    const url = String(input);
     if (url.includes('get-turn-config')) {
       // Both TURN endpoints fail fast → base STUN config, no extra suspense.
       return Promise.resolve(new Response(null, { status: 404 }));

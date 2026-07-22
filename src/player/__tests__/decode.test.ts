@@ -114,7 +114,13 @@ vi.mock('../video.ts', () => ({
 }));
 
 function makeConnection(peer: string, send = vi.fn()): DataConnection {
-  return { peer, open: true, send } as DataConnection;
+  return {
+    peer,
+    open: true,
+    send,
+    close: vi.fn(),
+    on: () => undefined,
+  };
 }
 
 function expectCorrelatedRequest(

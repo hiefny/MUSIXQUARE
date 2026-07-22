@@ -2,6 +2,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
+import type { TransportDataConnection } from '../../network/transport/types.ts';
+
+function hostConnection(peer = 'host'): TransportDataConnection {
+  return {
+    peer,
+    open: true,
+    send: vi.fn(),
+    close: vi.fn(),
+    on: vi.fn(),
+  };
+}
 
 const mocks = vi.hoisted(() => ({
   addSystemChatMessage: vi.fn(),
@@ -88,14 +99,14 @@ describe('parseCommand', () => {
 
 describe('executeCommand permission gating', () => {
   it('rejects a host-only command from a guest without running its effect', () => {
-    setState('network.hostConn', { peer: 'host', open: true });
+    setState('network.hostConn', hostConnection());
     executeCommand({ name: 'kick', args: ['someone'], rawArgs: 'someone' });
     expect(mocks.sendToHost).not.toHaveBeenCalled();
     expect(mocks.addSystemChatMessage).toHaveBeenCalledTimes(1);
   });
 
   it('routes /debug (permission "all") to the extracted debug-console entry point', () => {
-    setState('network.hostConn', { peer: 'host', open: true });
+    setState('network.hostConn', hostConnection());
     executeCommand({ name: 'debug', args: ['screen'], rawArgs: 'screen' });
     expect(mocks.cmdDebug).toHaveBeenCalledWith(['screen'], 'screen');
   });
@@ -109,7 +120,7 @@ describe('executeCommand permission gating', () => {
 
 describe('getAvailableCommands permission filtering', () => {
   it('hides host-only commands from a guest but lists them for the host', () => {
-    setState('network.hostConn', { peer: 'host', open: true });
+    setState('network.hostConn', hostConnection());
     const guestCmds = getAvailableCommands().map((c) => c.name);
     expect(guestCmds).not.toContain('kick');
     expect(guestCmds).toContain('users');
@@ -150,7 +161,7 @@ describe('getAvailableCommands permission filtering', () => {
 
   it('exposes only the explicitly granted standard-room administrator commands', () => {
     setState('network.appRole', 'guest');
-    setState('network.hostConn', { peer: 'host', open: true });
+    setState('network.hostConn', hostConnection());
     setState('network.isOperator', true);
     setState('network.standardRoomCapabilities', ['members.manage', 'chat.notice']);
 
@@ -164,7 +175,7 @@ describe('getAvailableCommands permission filtering', () => {
 
   it('routes owner-sibling room controls through the physical host and hides admin-directory commands', () => {
     setState('network.appRole', 'guest');
-    setState('network.hostConn', { peer: 'physical-host', open: true });
+    setState('network.hostConn', hostConnection('physical-host'));
     setState('network.isOperator', true);
     setState('network.standardRoomCapabilities', [
       'media.add',
@@ -201,7 +212,7 @@ describe('getAvailableCommands permission filtering', () => {
 
   it('routes an account target kick through the account-wide standard member event', () => {
     setState('network.appRole', 'guest');
-    setState('network.hostConn', { peer: 'host', open: true });
+    setState('network.hostConn', hostConnection());
     setState('network.isOperator', true);
     setState('network.standardRoomCapabilities', ['members.manage']);
     setState('network.lastKnownDeviceList', [
@@ -229,7 +240,7 @@ describe('getAvailableCommands permission filtering', () => {
 
   it("resolves the grouped member number after that account's first physical device leaves", () => {
     setState('network.appRole', 'guest');
-    setState('network.hostConn', { peer: 'host', open: true });
+    setState('network.hostConn', hostConnection());
     setState('network.isOperator', true);
     setState('network.standardRoomCapabilities', ['members.manage']);
     setState('network.lastKnownDeviceList', [
@@ -261,7 +272,7 @@ describe('getAvailableCommands permission filtering', () => {
 
   it('keeps physical joinOrder targeting for a legacy anonymous device projection', () => {
     setState('network.appRole', 'guest');
-    setState('network.hostConn', { peer: 'host', open: true });
+    setState('network.hostConn', hostConnection());
     setState('network.isOperator', true);
     setState('network.standardRoomCapabilities', ['members.manage']);
     setState('network.lastKnownDeviceList', [
@@ -286,7 +297,7 @@ describe('getAvailableCommands permission filtering', () => {
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
-      role: 'owner',
+      role: 'coordinator',
       coordinatorId: null,
       epoch: 1,
       snapshotRevision: 1,

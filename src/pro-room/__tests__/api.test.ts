@@ -54,7 +54,7 @@ function administratorDirectory() {
         displayName: 'Owner',
         role: 'owner' as const,
         permissions: OWNER_PERMISSIONS,
-        inheritedPermissions: ['playback.control'] as const,
+        inheritedPermissions: ['playback.control'] as Array<keyof ProRoomPermissionSet>,
         onlineDeviceCount: 1,
       },
       {
@@ -64,7 +64,7 @@ function administratorDirectory() {
         displayName: 'Friend',
         role: 'controller' as const,
         permissions: DELEGATED_PERMISSIONS,
-        inheritedPermissions: ['playback.control'] as const,
+        inheritedPermissions: ['playback.control'] as Array<keyof ProRoomPermissionSet>,
         onlineDeviceCount: 2,
       },
     ],

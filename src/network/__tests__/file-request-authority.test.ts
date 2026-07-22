@@ -106,7 +106,7 @@ describe('file request authority', () => {
 
   it('prevents a stale owner or completion from clearing its successor', () => {
     const conn = connection();
-    const first = beginFileRequest(conn, QID_A, 4);
+    beginFileRequest(conn, QID_A, 4);
     const second = beginFileRequest(conn, QID_B, 5);
 
     expect(completeFileRequest(conn, QID_A, 4)).toBe(false);

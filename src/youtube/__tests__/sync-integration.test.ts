@@ -30,12 +30,23 @@ import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { MSG } from '../../core/constants.ts';
 import { isClockCalibrated } from '../../network/shared-clock.ts';
 import { setPlaybackIdle, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
+import type { DataConnection } from '../../types/index.ts';
 import { makeFakeYtPlayer, type FakeYtPlayer, mutationOps } from './__helpers__/fake-yt-player.ts';
 
 const QUEUE_ITEM_ID = '22222222-2222-4222-8222-222222222222';
 const SECOND_QUEUE_ITEM_ID = '33333333-3333-4333-8333-333333333333';
 const ZERO_START_VIDEO_ID = 'M7lc1UVf-VE';
 const ZERO_START_GUEST_ID = 'zero-start-guest';
+
+function dataConnection(peer: string, send = vi.fn()): DataConnection {
+  return {
+    peer,
+    open: true,
+    send,
+    close: vi.fn(),
+    on: () => undefined,
+  };
+}
 
 // ─── Mocks ───────────────────────────────────────────────────────────────
 
@@ -62,13 +73,18 @@ vi.mock('../../network/peer.ts', () => ({
 // handleYouTubeSync / handleYouTubeState directly (they're not exported).
 // Handlers accept an optional `conn` second arg — handleYouTubeState's
 // hostConn guard requires the test to pass the mocked hostConn.
-const capturedHandlers: Record<string, (data: Record<string, unknown>, conn?: unknown) => void> =
-  {};
+const capturedHandlers: Record<
+  string,
+  (data: Record<string, unknown>, conn?: DataConnection) => void
+> = {};
 vi.mock('../../network/protocol.ts', () => ({
   registerHandlers: vi.fn((handlers: Record<string, unknown>) => {
     for (const [type, h] of Object.entries(handlers)) {
       if (typeof h === 'function')
-        capturedHandlers[type] = h as (data: Record<string, unknown>, conn?: unknown) => void;
+        capturedHandlers[type] = h as (
+          data: Record<string, unknown>,
+          conn?: DataConnection,
+        ) => void;
     }
   }),
   verifyOperator: vi.fn(() => true),
@@ -79,7 +95,7 @@ vi.mock('../../network/protocol.ts', () => ({
 // mockHostConn)` and pass it as the stateHandler's second arg. Host-side
 // scheduleYtAutoSync tests intentionally leave hostConn null so the
 // broadcast path stays active.
-const mockHostConn: unknown = { peer: 'mock-host-peer', open: true };
+const mockHostConn = dataConnection('mock-host-peer');
 
 // getHostNow tracks Date.now() so it advances with vitest fake timers.
 vi.mock('../../network/shared-clock.ts', () => ({
@@ -94,9 +110,9 @@ vi.mock('../../network/shared-clock.ts', () => ({
 }));
 
 // fake player swap — each test sets its own via getYouTubePlayerMock.mockReturnValue
-const getYouTubePlayerMock = vi.fn<[], FakeYtPlayer | null>(() => null);
+const getYouTubePlayerMock = vi.fn<() => FakeYtPlayer | null>(() => null);
 vi.mock('../_state.ts', () => ({
-  getYouTubePlayer: (...args: unknown[]) => getYouTubePlayerMock(...(args as [])),
+  getYouTubePlayer: () => getYouTubePlayerMock(),
   isYtPlayerReady: () => getYouTubePlayerMock() !== null,
   setYouTubePlayer: vi.fn(),
   getCurrentSessionId: vi.fn(() => youtubeSessionFacade.id),
@@ -247,13 +263,9 @@ async function importSync() {
   return import('../sync.ts');
 }
 
-function installLiveZeroStartGuest(peerId = ZERO_START_GUEST_ID): {
-  peer: string;
-  open: boolean;
-  send: ReturnType<typeof vi.fn>;
-} {
-  const conn = { peer: peerId, open: true, send: vi.fn() };
-  setState('network.activeHostConnByPeerId', new Map([[peerId, conn as never]]));
+function installLiveZeroStartGuest(peerId = ZERO_START_GUEST_ID): DataConnection {
+  const conn = dataConnection(peerId);
+  setState('network.activeHostConnByPeerId', new Map([[peerId, conn]]));
   return conn;
 }
 
@@ -287,11 +299,11 @@ async function requestGuestExternalFallbackWhilePlayerMissing(
   sequence = 1,
 ): Promise<{
   prepareAtHost: number;
-  prepareHandler: (data: Record<string, unknown>, conn?: unknown) => void;
-  abortHandler: (data: Record<string, unknown>, conn?: unknown) => void;
+  prepareHandler: (data: Record<string, unknown>, conn?: DataConnection) => void;
+  abortHandler: (data: Record<string, unknown>, conn?: DataConnection) => void;
 }> {
   setState('network.appRole', 'guest');
-  setState('network.hostConn', mockHostConn as never);
+  setState('network.hostConn', mockHostConn);
   const { initYouTube } = await importPlayer();
   initYouTube();
 
@@ -433,7 +445,9 @@ describe('YouTube Sync — Regression Integration', () => {
         skipSeek: false,
       });
 
-      expect(player.__log.some((entry) => entry.op === 'seekTo' && entry.args[0] === 0)).toBe(true);
+      expect(player.__log.some((entry) => entry.op === 'seekTo' && entry.args?.[0] === 0)).toBe(
+        true,
+      );
       expect(broadcast).toHaveBeenCalledWith(
         expect.objectContaining({
           type: MSG.YOUTUBE_STATE,
@@ -946,6 +960,9 @@ describe('YouTube Sync — Regression Integration', () => {
         ([, message]) => message.type === MSG.YOUTUBE_ZERO_START_PREPARE,
       )?.[1];
       expect(firstPrepare).toBeDefined();
+      if (!firstPrepare || firstPrepare.type !== MSG.YOUTUBE_ZERO_START_PREPARE) {
+        throw new Error('expected the first zero-start prepare frame');
+      }
 
       setState('playlist.items', [
         ...getState('playlist.items'),
@@ -976,6 +993,10 @@ describe('YouTube Sync — Regression Integration', () => {
             message.type === MSG.YOUTUBE_ZERO_START_PREPARE,
         );
       expect(transitionMessages).toHaveLength(2);
+      const secondTransition = transitionMessages[1];
+      if (!secondTransition || secondTransition.type !== MSG.YOUTUBE_ZERO_START_PREPARE) {
+        throw new Error('expected the replacement zero-start prepare frame');
+      }
       expect(transitionMessages[0]).toMatchObject({
         type: MSG.YOUTUBE_ZERO_START_ABORT,
         runId: firstPrepare?.runId,
@@ -987,7 +1008,7 @@ describe('YouTube Sync — Regression Integration', () => {
         queueItemId: SECOND_QUEUE_ITEM_ID,
         videoId: 'dQw4w9WgXcQ',
       });
-      expect(transitionMessages[1]?.runId).not.toBe(firstPrepare?.runId);
+      expect(secondTransition.runId).not.toBe(firstPrepare.runId);
     });
 
     it('defers a late-join bootstrap during warm PLAYING and retries after zero-start ends', async () => {
@@ -999,8 +1020,8 @@ describe('YouTube Sync — Regression Integration', () => {
       const { initYouTube } = await importPlayer();
       const { safeSend } = await import('../../network/peer.ts');
       const safeSendMock = vi.mocked(safeSend);
-      const lateConn = { peer: 'late-zero-start-guest', open: true, send: vi.fn() };
-      setState('network.activeHostConnByPeerId', new Map([[lateConn.peer, lateConn as never]]));
+      const lateConn = dataConnection('late-zero-start-guest');
+      setState('network.activeHostConnByPeerId', new Map([[lateConn.peer, lateConn]]));
 
       initYouTube();
       // initYouTube resets the previous test's singleton controller. Its
@@ -1010,7 +1031,7 @@ describe('YouTube Sync — Regression Integration', () => {
       safeSendMock.mockClear();
       zeroStartFacade.active = true;
 
-      bus.emit('network:peer-connected', lateConn as never);
+      bus.emit('network:peer-connected', lateConn);
 
       expect(
         safeSendMock.mock.calls.some(
@@ -1041,7 +1062,7 @@ describe('YouTube Sync — Regression Integration', () => {
         __hardMuteFails: true,
       });
       setState('network.appRole', 'guest');
-      setState('network.hostConn', mockHostConn as never);
+      setState('network.hostConn', mockHostConn);
       const { initYouTube } = await importPlayer();
 
       initYouTube();
@@ -1638,7 +1659,7 @@ describe('YouTube Sync — Regression Integration', () => {
       const result = guestRendezvousSync({ silent: true });
 
       expect(result.status).toBe('not-ready');
-      expect(player.__log.filter((call) => mutationOps.has(call.op))).toHaveLength(0);
+      expect(mutationOps(player)).toEqual([]);
     });
   });
 
@@ -1737,6 +1758,7 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(broadcast).toHaveBeenCalledTimes(1);
       const msg = broadcastMock.mock.calls[0][0];
       expect(msg.type).toBe(MSG.YOUTUBE_STATE);
+      if (msg.type !== MSG.YOUTUBE_STATE) throw new Error('expected Stage 1 YouTube state');
       expect(msg.state).toBe(1);
       expect(msg.time).toBe(10);
       expect(msg.videoId).toBe('NEW_VID');
@@ -1823,6 +1845,7 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(broadcast).toHaveBeenCalled();
       const stage2 = broadcastMock.mock.calls[0][0];
       expect(stage2.type).toBe(MSG.YOUTUBE_SYNC);
+      if (stage2.type !== MSG.YOUTUBE_SYNC) throw new Error('expected Stage 2 YouTube sync');
       expect(stage2.isManual).toBe(true);
     });
 
@@ -1875,7 +1898,7 @@ describe('YouTube Sync — Regression Integration', () => {
       bus.emit('youtube:player-ready');
 
       expect(getPendingAutoSyncOnReady()).toBe(false);
-      expect(player.__log.some((c) => c.op === 'seekTo' && c.args[0] === 37)).toBe(true);
+      expect(player.__log.some((c) => c.op === 'seekTo' && c.args?.[0] === 37)).toBe(true);
       expect(player.__log.some((c) => c.op === 'playVideo')).toBe(true);
 
       const stage1 = broadcastMock.mock.calls.find((c) => c[0]?.type === MSG.YOUTUBE_STATE)?.[0];

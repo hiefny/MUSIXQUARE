@@ -9,6 +9,7 @@ import { bus } from '../../core/events.ts';
 import { ramStart, ramWrite, __resetRamStoreForTests } from '../ramstore.ts';
 import { isRemoteGuest } from '../../network/peer.ts';
 import { DEMO_TRACK } from '../../demo/tracks.ts';
+import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 import {
   beginFileRequest,
   getCurrentFileRequestOwnerForTests,
@@ -28,6 +29,37 @@ const Q0 = '00000000-0000-4000-8000-000000000001';
 const Q1 = '00000000-0000-4000-8000-000000000002';
 const Q2 = '00000000-0000-4000-8000-000000000003';
 let nextTestRequestId = 10_000;
+
+function testConnection(peer: string, send = vi.fn()): DataConnection {
+  return {
+    open: true,
+    peer,
+    send,
+    close: vi.fn(),
+    on: () => undefined,
+  };
+}
+
+function connectedPeer(
+  conn: DataConnection,
+  overrides: Partial<ConnectedPeer> = {},
+): ConnectedPeer {
+  const joinOrder = overrides.joinOrder ?? 1;
+  return {
+    id: conn.peer,
+    slot: joinOrder,
+    label: conn.peer,
+    conn,
+    isOp: false,
+    preloadedQueueItemIds: new Set(),
+    status: 'connected',
+    isDataTarget: true,
+    joinOrder,
+    connectionType: 'local',
+    lastHeartbeat: 0,
+    ...overrides,
+  };
+}
 
 type RegisteredHandler = (data: Record<string, unknown>, conn: AnyConn) => unknown;
 const registeredHandlers = vi.hoisted(() => new Map<string, RegisteredHandler>());
@@ -90,7 +122,7 @@ vi.mock('../../core/log.ts', () => ({
 }));
 
 vi.mock('../../core/timers.ts', () => ({
-  setManagedTimer: vi.fn((name: string, fn: () => void, delayMs: number) => {
+  setManagedTimer: vi.fn((_name: string, fn: () => void, delayMs: number) => {
     // Delegate to real setTimeout so vi.useFakeTimers() + advanceTimersByTime works
     setTimeout(fn, delayMs);
   }),
@@ -449,7 +481,7 @@ describe('initRecovery', () => {
     setState('recovery.retryCount', 2);
     setState('recovery.pending', true);
 
-    bus.emit('state:playlist.currentQueueItemId', Q1);
+    bus.emit('state:playlist.currentQueueItemId', Q1, 'playlist.currentQueueItemId');
 
     expect(getCurrentFileRequestOwnerForTests()).toBeNull();
     expect(getState('recovery.retryCount')).toBe(0);
@@ -466,7 +498,7 @@ describe('initRecovery', () => {
     setState('transfer.meta', { queueItemId: Q0, name: 'a.mp3' });
 
     sendRecoveryRequest();
-    bus.emit('state:playlist.currentQueueItemId', Q1);
+    bus.emit('state:playlist.currentQueueItemId', Q1, 'playlist.currentQueueItemId');
     const ownerB = beginFileRequest(conn, Q1, 8);
     vi.advanceTimersByTime(2000);
 
@@ -530,7 +562,10 @@ describe('host cached-blob recovery identity', () => {
     initRecovery();
     const handler = registeredHandlers.get(type);
     expect(handler).toBeDefined();
-    const request = {
+    const request: Record<string, unknown> & {
+      type: typeof type;
+      requestId: number;
+    } = {
       type,
       requestId: ++nextTestRequestId,
       ...data,
@@ -552,16 +587,12 @@ describe('host cached-blob recovery identity', () => {
   }
 
   function makeGuestConn(connectionType: 'local' | 'remote' | 'unknown' = 'local'): AnyConn {
-    const conn = { open: true, peer: 'guest-identity', send: vi.fn() };
+    const conn = testConnection('guest-identity');
     setState('network.connectedPeers', [
-      {
-        id: conn.peer,
-        status: 'connected',
-        conn,
+      connectedPeer(conn, {
         isDataTarget: connectionType !== 'remote',
         connectionType,
-        joinOrder: 1,
-      },
+      }),
     ]);
     setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
     return conn;
@@ -773,7 +804,7 @@ describe('host cached-blob recovery identity', () => {
       ...Array.from({ length: 8 }, (_, index) => ({
         ...first,
         id: `local-${index + 2}`,
-        conn: { open: true, peer: `local-${index + 2}`, send: vi.fn() },
+        conn: testConnection(`local-${index + 2}`),
         joinOrder: index + 2,
       })),
     ];
@@ -812,7 +843,7 @@ describe('host cached-blob recovery identity', () => {
       return {
         ...target,
         id,
-        conn: { open: true, peer: id, send: vi.fn() },
+        conn: testConnection(id),
         joinOrder: index + 1,
       };
     });

@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect } from 'vitest';
-import { t, getResolvedLanguage } from '../index.ts';
+import { t, getResolvedLanguage, type I18nKey } from '../index.ts';
 
 describe('t() translation function', () => {
   it('returns Korean value for known key', () => {
@@ -13,7 +13,9 @@ describe('t() translation function', () => {
   });
 
   it('returns key itself for unknown key', () => {
-    expect(t('nonexistent.key.that.does.not.exist')).toBe('nonexistent.key.that.does.not.exist');
+    expect(t('nonexistent.key.that.does.not.exist' as I18nKey)).toBe(
+      'nonexistent.key.that.does.not.exist',
+    );
   });
 
   it('interpolates {{name}} parameter', () => {

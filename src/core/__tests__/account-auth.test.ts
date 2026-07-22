@@ -1657,7 +1657,7 @@ describe('account session mutations', () => {
       expect(response?.status).toBe(200);
       const payload = (await response!.json()) as {
         assertion: unknown;
-        deletionAssertion: unknown;
+        deletionAssertion: string | null;
       };
       expect(payload.assertion).toBeNull();
       expect(payload.deletionAssertion).toEqual(expect.any(String));

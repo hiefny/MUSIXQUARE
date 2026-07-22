@@ -1600,7 +1600,10 @@ describe('connect account nickname authority', () => {
     document.getElementById('btn-change-nickname')?.click();
 
     await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalled());
-    const validator = mockedShowDialog.mock.calls.at(-1)?.[0].inputField?.validator;
+    const options = mockedShowDialog.mock.calls.at(-1)?.[0];
+    if (!options || typeof options === 'string')
+      throw new Error('expected nickname dialog options');
+    const validator = options.inputField?.validator;
     expect(validator?.('pEeR')).toBe(validator?.('HOST'));
     expect(validator?.('Studio_Tab')).toBeNull();
   });
@@ -1636,6 +1639,8 @@ describe('connect account nickname authority', () => {
 
     await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalled());
     const options = mockedShowDialog.mock.calls.at(-1)?.[0];
+    if (!options || typeof options === 'string')
+      throw new Error('expected nickname dialog options');
     expect(options?.inputField?.validator?.('HOST')).toBe('사용할 수 없는 이름이에요.');
   });
 });

@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
-import type { StandardOperatorFileUplinkProgress } from '../../types/index.ts';
+import type { DataConnection, StandardOperatorFileUplinkProgress } from '../../types/index.ts';
 import { initToast, showToast, showLoader, updateLoader } from '../toast.ts';
 
 let uplinkSequence = 0;
@@ -135,7 +135,14 @@ describe('standard operator file uplink feedback', () => {
 
   it('maps terminal errors and does not replay a duplicate terminal toast', () => {
     setState('network.appRole', 'guest');
-    setState('network.hostConn', { peer: 'host', open: true });
+    const hostConnection: DataConnection = {
+      peer: 'host',
+      open: true,
+      send: vi.fn(),
+      close: vi.fn(),
+      on: () => undefined,
+    };
+    setState('network.hostConn', hostConnection);
     setState('network.isOperator', true);
     setState('network.standardRoomCapabilities', ['asset.upload']);
     const revoked = uplinkProgress();

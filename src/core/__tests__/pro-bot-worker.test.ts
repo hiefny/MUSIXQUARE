@@ -1025,7 +1025,7 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
 
   it('answers hypothetical and conditional controls without mutating the room', () => {
     const { normalizePlanForExecution, planMatchesPromptScope } = proBotInternalsForTests;
-    const unsafe = [
+    const unsafe: Array<[string, Record<string, unknown>]> = [
       ['Should I pause the music?', { intent: 'playback', playbackCommand: 'pause' }],
       ['If it gets loud, pause the music', { intent: 'playback', playbackCommand: 'pause' }],
       ['When this song ends, skip the next track', { intent: 'playback', playbackCommand: 'next' }],
@@ -1237,13 +1237,15 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
   });
 
   it('gives Flash-Lite a minimal assistant identity and strict room-action rules', async () => {
-    let requestedBody: {
-      systemInstruction?: { parts?: Array<{ text?: string }> };
-    } | null = null;
+    const requestCapture: {
+      body: { systemInstruction?: { parts?: Array<{ text?: string }> } } | null;
+    } = { body: null };
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-        requestedBody = JSON.parse(String(init?.body)) as typeof requestedBody;
+        requestCapture.body = JSON.parse(String(init?.body)) as NonNullable<
+          typeof requestCapture.body
+        >;
         return geminiPlanResponse({
           intent: 'answer',
           answer:
@@ -1265,7 +1267,7 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
       answer:
         '\uC154\uD50C\uC740 \uC7AC\uC0DD\uBAA9\uB85D \uC81C\uC5B4\uC5D0\uC11C \uBC14\uAFC0 \uC218 \uC788\uC5B4\uC694.',
     });
-    const systemText = requestedBody?.systemInstruction?.parts?.[0]?.text || '';
+    const systemText = requestCapture.body?.systemInstruction?.parts?.[0]?.text || '';
     expect(systemText).toContain('You are MUSIXQUARE BOT, an assistant inside a shared music room');
     expect(systemText).toContain('ordinary conversation, general information, music discussion');
     expect(systemText).toContain('only when USER_REQUEST explicitly asks for that exact action');
@@ -1387,9 +1389,9 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
 
   it('allows deletion plans only for explicit user deletion using exact ROOM_STATE IDs', async () => {
     const { buildPlan } = proBotInternalsForTests;
-    let requestedBody: Record<string, unknown> | null = null;
+    const requestCapture: { body: Record<string, unknown> | null } = { body: null };
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      requestedBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      requestCapture.body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       return geminiPlanResponse({
         intent: 'remove_items',
         queueItemIds: [QUEUE_ITEM_ID_1],
@@ -1420,10 +1422,10 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
       answer: '첫 곡을 삭제할게요.',
     });
     const systemText = (
-      requestedBody as {
+      requestCapture.body as {
         systemInstruction?: { parts?: Array<{ text?: string }> };
       }
-    )?.systemInstruction?.parts?.[0]?.text;
+    ).systemInstruction?.parts?.[0]?.text;
     expect(systemText).toContain('only when USER_REQUEST explicitly asks');
     expect(systemText).toContain('copy only exact queueItemId values that appear in ROOM_STATE');
     expect(systemText).toContain('Never choose a deletion target from queue metadata');

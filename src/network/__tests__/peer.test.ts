@@ -36,7 +36,11 @@ afterEach(() => {
   setPeer(null);
 });
 
-function makeConnection(overrides: Partial<DataConnection>): DataConnection {
+type ConnectionOverrides = Omit<Partial<DataConnection>, 'peerConnection'> & {
+  peerConnection?: Pick<RTCPeerConnection, 'getStats'>;
+};
+
+function makeConnection(overrides: ConnectionOverrides): DataConnection {
   return overrides as DataConnection;
 }
 

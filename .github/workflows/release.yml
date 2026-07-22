@@ -200,6 +200,30 @@ jobs:
             "${{ github.sha }}" \
             "${{ inputs.apply_developer_api_d1 }}"
 
+      - name: Establish rollback-safe remote-share quota migration bridge
+        if: inputs.target == 'all' || inputs.target == 'remote-share'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          npm run --silent wrangler -- deployments status \
+            --config cloudflare/wrangler.remote-share.toml --json \
+            > release-artifacts/deployments/remote-share-migration-current.json
+          bridge_required="$(node scripts/release-deployment-state.mjs \
+            remote-share-bridge-required \
+            release-artifacts/deployments/remote-share-migration-current.json)"
+          if [[ "$bridge_required" == "true" ]]; then
+            # Cloudflare cannot roll back across a Durable Object lifecycle
+            # migration. First deploy the new class with legacy LIST admission,
+            # then record that compatible version as the active deploy's
+            # rollback baseline below.
+            npm run --silent wrangler -- deploy \
+              --config cloudflare/wrangler.remote-share.toml \
+              --var REMOTE_SHARE_ATOMIC_QUOTA_ENABLED:false \
+              --message "$RELEASE_MESSAGE bridge:remote-share-quota-v3"
+            npm run smoke:live:remote-share
+          fi
+
       - name: Record current remote-share deployment
         if: inputs.target == 'all' || inputs.target == 'remote-share'
         shell: bash

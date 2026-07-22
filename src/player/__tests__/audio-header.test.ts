@@ -15,6 +15,12 @@ function concat(...parts: Uint8Array[]): Uint8Array {
   return result;
 }
 
+function blobPart(bytes: Uint8Array): ArrayBuffer {
+  const copy = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(copy).set(bytes);
+  return copy;
+}
+
 function mp4Box(type: string, payload: Uint8Array): Uint8Array {
   const bytes = new Uint8Array(8 + payload.length);
   new DataView(bytes.buffer).setUint32(0, bytes.length, false);
@@ -34,7 +40,7 @@ function wave(channels: number): Blob {
   view.setUint16(20, 1, true);
   view.setUint16(22, channels, true);
   ascii(bytes, 36, 'data');
-  return new Blob([bytes], { type: 'audio/wav' });
+  return new Blob([blobPart(bytes)], { type: 'audio/wav' });
 }
 
 function flac(channels: number): Blob {
@@ -43,7 +49,7 @@ function flac(channels: number): Blob {
   bytes[4] = 0x80; // last metadata block, STREAMINFO
   bytes[7] = 34;
   bytes[20] = (channels - 1) << 1;
-  return new Blob([bytes], { type: 'audio/flac' });
+  return new Blob([blobPart(bytes)], { type: 'audio/flac' });
 }
 
 function oggPage(packets: Uint8Array[]): Uint8Array {
@@ -64,7 +70,7 @@ function opus(channels: number): Blob {
   ascii(packet, 0, 'OpusHead');
   packet[8] = 1;
   packet[9] = channels;
-  return new Blob([oggPage([packet])], { type: 'audio/ogg' });
+  return new Blob([blobPart(oggPage([packet]))], { type: 'audio/ogg' });
 }
 
 function vorbisWithFakeOpusComment(channels: number): Blob {
@@ -78,7 +84,7 @@ function vorbisWithFakeOpusComment(channels: number): Blob {
   ascii(comment, 1, 'vorbis');
   ascii(comment, 12, 'OpusHead');
   comment[21] = 1;
-  return new Blob([oggPage([identification, comment])], { type: 'audio/ogg' });
+  return new Blob([blobPart(oggPage([identification, comment]))], { type: 'audio/ogg' });
 }
 
 function mp4AudioEntry(channels: number, type = 'mp4a'): Uint8Array {
@@ -131,11 +137,13 @@ function mp4FromEntries(entries: Uint8Array[], tail = false, moovPrefix: Uint8Ar
   const ftypPayload = new Uint8Array(8);
   ascii(ftypPayload, 0, 'M4A ');
   const ftyp = mp4Box('ftyp', ftypPayload);
-  if (!tail) return new Blob([concat(ftyp, moov)], { type: 'audio/mp4' });
+  if (!tail) return new Blob([blobPart(concat(ftyp, moov))], { type: 'audio/mp4' });
   const mediaPayload = new Uint8Array(300 * 1024);
   // A codec-looking sequence in mdat must never be parsed as an MP3 frame.
   mediaPayload.set([0xff, 0xfb, 0x90, 0x00], 128);
-  return new Blob([concat(ftyp, mp4Box('mdat', mediaPayload), moov)], { type: 'audio/mp4' });
+  return new Blob([blobPart(concat(ftyp, mp4Box('mdat', mediaPayload), moov))], {
+    type: 'audio/mp4',
+  });
 }
 
 function mp4(channels: number, tail = false, precedingChannels?: number): Blob {
@@ -155,11 +163,13 @@ function mp4WithFakeFinalMoovInMdat(realChannels: number, fakeChannels: number):
   const finalMediaPayload = concat(new Uint8Array(300 * 1024), fakeMoov);
   return new Blob(
     [
-      concat(
-        mp4Box('ftyp', ftypPayload),
-        mp4Box('mdat', new Uint8Array(300 * 1024)),
-        mp4Moov([mp4AudioEntry(realChannels)]),
-        mp4Box('mdat', finalMediaPayload),
+      blobPart(
+        concat(
+          mp4Box('ftyp', ftypPayload),
+          mp4Box('mdat', new Uint8Array(300 * 1024)),
+          mp4Moov([mp4AudioEntry(realChannels)]),
+          mp4Box('mdat', finalMediaPayload),
+        ),
       ),
     ],
     { type: 'audio/mp4' },
@@ -172,10 +182,12 @@ function mp4WithFakeLeadingMoovInMdat(realChannels: number, fakeChannels: number
   const fakeMoov = mp4Moov([mp4AudioEntry(fakeChannels)]);
   return new Blob(
     [
-      concat(
-        mp4Box('ftyp', ftypPayload),
-        mp4Box('mdat', concat(fakeMoov, new Uint8Array(300 * 1024))),
-        mp4Moov([mp4AudioEntry(realChannels)]),
+      blobPart(
+        concat(
+          mp4Box('ftyp', ftypPayload),
+          mp4Box('mdat', concat(fakeMoov, new Uint8Array(300 * 1024))),
+          mp4Moov([mp4AudioEntry(realChannels)]),
+        ),
       ),
     ],
     { type: 'audio/mp4' },
@@ -190,7 +202,9 @@ function id3TaggedAudio(payloadBytes: number, frame: Uint8Array): Blob {
   header[7] = (payloadBytes >> 14) & 0x7f;
   header[8] = (payloadBytes >> 7) & 0x7f;
   header[9] = payloadBytes & 0x7f;
-  return new Blob([header, new Uint8Array(payloadBytes), frame], { type: 'audio/mpeg' });
+  return new Blob([blobPart(header), blobPart(new Uint8Array(payloadBytes)), blobPart(frame)], {
+    type: 'audio/mpeg',
+  });
 }
 
 describe('bounded audio header channel probe', () => {
@@ -199,8 +213,8 @@ describe('bounded audio header channel probe', () => {
     ['FLAC', flac(8), 8],
     ['Ogg Opus', opus(2), 2],
     ['Ogg Vorbis with fake OpusHead comment', vorbisWithFakeOpusComment(8), 8],
-    ['MP3', new Blob([new Uint8Array([0xff, 0xfb, 0x90, 0xc0])]), 2],
-    ['AAC ADTS', new Blob([new Uint8Array([0xff, 0xf1, 0x50, 0x80])]), 8],
+    ['MP3', new Blob([blobPart(new Uint8Array([0xff, 0xfb, 0x90, 0xc0]))]), 2],
+    ['AAC ADTS', new Blob([blobPart(new Uint8Array([0xff, 0xf1, 0x50, 0x80]))]), 8],
     [
       'large-ID3 MP3',
       id3TaggedAudio(300 * 1024, new Uint8Array([0xff, 0xfb, 0x90, 0xc0, 0xff, 0xf1, 0x50, 0x80])),

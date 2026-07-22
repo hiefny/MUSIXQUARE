@@ -159,14 +159,22 @@ describe('YouTube Sync', () => {
 
     function makePlayer(currentTime = 10): YouTubePlayerInstance {
       return {
+        loadVideoById: vi.fn(),
+        loadPlaylist: vi.fn(),
+        cuePlaylist: vi.fn(),
         getCurrentTime: vi.fn(() => currentTime),
         getDuration: vi.fn(() => 120),
         getPlayerState: vi.fn(() => 1),
+        getPlaylistIndex: vi.fn(() => 0),
         getVideoData: vi.fn(() => ({ video_id: 'same-video', title: 'Same Video' })),
+        getPlaylist: vi.fn(() => []),
         pauseVideo: vi.fn(),
         playVideo: vi.fn(),
+        stopVideo: vi.fn(),
+        destroy: vi.fn(),
         seekTo: vi.fn(),
-      } as YouTubePlayerInstance;
+        setVolume: vi.fn(),
+      };
     }
 
     it('pauses after the production stale-frame threshold and resumes on movement', async () => {

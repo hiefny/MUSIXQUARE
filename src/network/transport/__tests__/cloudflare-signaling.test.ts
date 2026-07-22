@@ -1545,11 +1545,17 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       releaseFirst = resolve;
     });
     vi.spyOn(FakeRTCPeerConnection.prototype, 'setRemoteDescription')
-      .mockImplementationOnce(async function (description) {
+      .mockImplementationOnce(async function (
+        this: FakeRTCPeerConnection,
+        description: RTCSessionDescriptionInit,
+      ) {
         this.remoteDescription = description;
         await firstRemoteDescription;
       })
-      .mockImplementation(async function (description) {
+      .mockImplementation(async function (
+        this: FakeRTCPeerConnection,
+        description: RTCSessionDescriptionInit,
+      ) {
         this.remoteDescription = description;
       });
 

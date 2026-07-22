@@ -1662,11 +1662,12 @@ describe('private Developer API facade', () => {
 
   it('rejects requests carrying browser or caller credentials', async () => {
     const rooms = namespace(() => Response.json({}));
-    for (const headers of [
+    const credentialHeaders: HeadersInit[] = [
       { authorization: 'Bearer secret' },
       { cookie: 'session=secret' },
       { origin: 'https://attacker.example' },
-    ]) {
+    ];
+    for (const headers of credentialHeaders) {
       const response = await facadeWorker.fetch(
         request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'room' }, { headers }),
         { PRO_ROOM_DEVELOPER_ROOMS: rooms },

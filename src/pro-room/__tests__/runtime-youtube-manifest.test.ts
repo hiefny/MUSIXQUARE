@@ -3,12 +3,12 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
+import type { QueueItemId } from '../../types/index.ts';
 import type { ProRoomSnapshot } from '../contracts.ts';
 import {
-  claimLegacyYouTubeManifestCandidatesForTests,
-  hydrateProRoomYouTubeManifestsForTests,
-  maxLazyYouTubeManifestUpgradesForTests,
-} from '../runtime.ts';
+  claimLegacyYouTubeManifestCandidates,
+  hydrateProRoomYouTubeManifests,
+} from '../youtube-manifest-policy.ts';
 
 const QUEUE_ITEM_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -20,6 +20,8 @@ function snapshot(videoIds: string[]): ProRoomSnapshot {
     runtime: 'awake',
     revision: 1,
     playlistRevision: 1,
+    effectsRevision: 0,
+    queueModeRevision: 0,
     playlist: [
       {
         queueItemId: QUEUE_ITEM_ID,
@@ -72,7 +74,7 @@ describe('PRO YouTube manifest runtime projection', () => {
     });
     const authoritative = snapshot(['NEWVIDEO001', 'NEWVIDEO002']);
 
-    hydrateProRoomYouTubeManifestsForTests(authoritative);
+    hydrateProRoomYouTubeManifests(authoritative);
 
     expect(getState('youtube.subItemsMap').PL_MANIFEST).toEqual({
       ids: ['NEWVIDEO001', 'NEWVIDEO002'],
@@ -85,9 +87,6 @@ describe('PRO YouTube manifest runtime projection', () => {
   });
 
   it('reserves most of the per-IP resolver budget for explicit user actions', () => {
-    expect(maxLazyYouTubeManifestUpgradesForTests()).toBeGreaterThan(0);
-    expect(maxLazyYouTubeManifestUpgradesForTests()).toBeLessThanOrEqual(4);
-
     const legacy = snapshot(['NEWVIDEO001']);
     legacy.playlist = Array.from({ length: 7 }, (_, index) => ({
       queueItemId: `${index + 1}0000000-0000-4000-8000-000000000000`,
@@ -99,10 +98,15 @@ describe('PRO YouTube manifest runtime projection', () => {
       },
     }));
     legacy.currentQueueItemId = legacy.playlist[0]!.queueItemId;
-    legacy.playlist[1]!.source.videoIds = [legacy.playlist[1]!.source.videoId];
+    const alreadyHydrated = legacy.playlist[1]!.source;
+    if (alreadyHydrated.kind !== 'youtube') throw new Error('fixture');
+    alreadyHydrated.videoIds = [alreadyHydrated.videoId];
 
-    expect(claimLegacyYouTubeManifestCandidatesForTests(legacy)).toEqual(
-      legacy.playlist.slice(2, 6).map((item) => item.queueItemId),
-    );
+    const attempted = new Set<QueueItemId>();
+    expect(
+      claimLegacyYouTubeManifestCandidates(legacy, attempted).map(
+        (candidate) => candidate.queueItemId,
+      ),
+    ).toEqual(legacy.playlist.slice(2, 6).map((item) => item.queueItemId));
   });
 });

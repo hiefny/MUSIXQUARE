@@ -112,15 +112,15 @@ describe('standard operator file uplink host receiver', () => {
     });
     enterHost([{ conn }]);
 
-    let received: File | null = null;
+    const receipt: { file: File | null } = { file: null };
     const off = bus.on('standard-room:operator-file-received', (file, acknowledge) => {
       order.push('playlist-commit');
-      received = file;
+      receipt.file = file;
       acknowledge(true);
     });
 
     await handleData(startMessage(3), conn);
-    expect(received).toBeNull();
+    expect(receipt.file).toBeNull();
     expect(sentStatuses(send).at(-1)).toMatchObject({ status: 'ready', loaded: 0, total: 3 });
 
     await handleData(
@@ -133,17 +133,18 @@ describe('standard operator file uplink host receiver', () => {
       },
       conn,
     );
-    expect(received).toBeNull();
+    expect(receipt.file).toBeNull();
 
     await handleData(
       { type: MSG.OPERATOR_FILE_UPLOAD_FINISH, requestId: REQUEST_ID, sessionId: SESSION_ID },
       conn,
     );
 
-    expect(received).not.toBeNull();
-    expect((received as File).name).toBe('admin.mp3');
-    expect((received as File).type).toBe('audio/mpeg');
-    expect([...new Uint8Array(await (received as File).arrayBuffer())]).toEqual([1, 2, 3]);
+    expect(receipt.file).not.toBeNull();
+    if (!receipt.file) throw new Error('Expected the assembled operator upload');
+    expect(receipt.file.name).toBe('admin.mp3');
+    expect(receipt.file.type).toBe('audio/mpeg');
+    expect([...new Uint8Array(await receipt.file.arrayBuffer())]).toEqual([1, 2, 3]);
     expect(order).toEqual(['playlist-commit', 'complete-ack']);
     expect(sentStatuses(send).at(-1)).toMatchObject({ status: 'complete', loaded: 3, total: 3 });
     off();

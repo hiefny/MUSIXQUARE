@@ -42,10 +42,10 @@ function fixture(initialViewer: ProRoomAccountReconciliationViewer | null) {
   const adapter = {
     isActive: vi.fn(() => true),
     viewer: vi.fn(() => viewer),
-    attach: vi.fn(async () => {
+    attach: vi.fn<(signal: AbortSignal) => Promise<void>>(async (_signal) => {
       viewer = { isAuthenticated: true, displayName: 'Minsu' };
     }),
-    detach: vi.fn(async () => {
+    detach: vi.fn<(signal: AbortSignal) => Promise<void>>(async (_signal) => {
       viewer = { isAuthenticated: false, displayName: 'Peer 2' };
     }),
     failClosed: vi.fn(),

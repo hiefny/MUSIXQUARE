@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import type { DataConnection } from '../../types/index.ts';
+import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
 vi.mock('../../core/log.ts', () => ({
   log: {
@@ -32,10 +32,15 @@ describe('peer routing orchestrator', () => {
     setState('network.connectedPeers', [
       {
         id: 'peer-1',
+        slot: 1,
         conn,
+        isOp: false,
+        preloadedQueueItemIds: new Set(),
         status: 'connected',
         connectionType: 'local',
         isDataTarget: false,
+        joinOrder: 1,
+        lastHeartbeat: 0,
         label: 'Guest',
       },
     ]);
@@ -57,13 +62,18 @@ describe('peer routing orchestrator', () => {
     id: string,
     connectionType: 'local' | 'remote' | 'unknown',
     isDataTarget = false,
-  ) {
+  ): ConnectedPeer {
     return {
       id,
+      slot: 1,
       conn,
+      isOp: false,
+      preloadedQueueItemIds: new Set(),
       status: 'connected',
       connectionType,
       isDataTarget,
+      joinOrder: 1,
+      lastHeartbeat: 0,
       label: 'Guest',
     };
   }

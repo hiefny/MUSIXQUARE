@@ -319,7 +319,13 @@ function stageGuestTransfer(index: number, file: File, sessionId: number): Queue
 }
 
 const exactHostSend = vi.fn();
-const hostConn = { open: true, peer: 'host-1', send: exactHostSend } as DataConnection;
+const hostConn: DataConnection = {
+  open: true,
+  peer: 'host-1',
+  send: exactHostSend,
+  close: vi.fn(),
+  on: () => undefined,
+};
 
 beforeEach(() => {
   resetState();

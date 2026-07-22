@@ -61,11 +61,13 @@ vi.mock('../../share/remote-share.ts', () => ({
 }));
 
 describe('remote guest PLAY → remote-share wait escalation (DV-2)', () => {
-  const hostConn = {
+  const hostConn: DataConnection = {
     open: true,
     peer: 'host-1',
     send: mocks.exactHostSend,
-  } as DataConnection;
+    close: vi.fn(),
+    on: () => undefined,
+  };
 
   beforeEach(() => {
     resetState();

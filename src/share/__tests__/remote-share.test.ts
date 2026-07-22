@@ -67,7 +67,17 @@ vi.mock('../../core/log.ts', () => ({
   },
 }));
 
-const conn = { open: true, peer: 'host-1' } as DataConnection;
+function dataConnection(peer: string, send = vi.fn()): DataConnection {
+  return {
+    open: true,
+    peer,
+    send,
+    close: vi.fn(),
+    on: () => undefined,
+  };
+}
+
+const conn = dataConnection('host-1');
 const OBJECT_1 = '00000000-0000-4000-8000-000000000001';
 const OBJECT_2 = '00000000-0000-4000-8000-000000000002';
 const OBJECT_A = '00000000-0000-4000-8000-00000000000a';
@@ -103,7 +113,7 @@ describe('remote file share policy', () => {
     // context gate, active download) registered by prior initRemoteShare
     // calls — module state would otherwise leak across tests.
     const { bus } = await import('../../core/events.ts');
-    bus.emit('state:network.sessionCode', null);
+    bus.emit('state:network.sessionCode', null, 'network.sessionCode');
     bus.clear();
     const { resetFileRequestAuthority } = await import('../../network/file-request-authority.ts');
     resetFileRequestAuthority();
@@ -625,10 +635,10 @@ describe('remote file share policy', () => {
   it('aborts a speculative GET as soon as its queue occurrence is removed', async () => {
     const { handleData } = await import('../../network/protocol.ts');
     const { getRemotePreloadOwnershipForTests } = await import('../remote-share.ts');
-    let observedSignal: AbortSignal | null = null;
+    const observedSignal: { current: AbortSignal | null } = { current: null };
     mocks.downloadRemoteFile.mockImplementationOnce(
       async (_descriptor, _onProgress, signal: AbortSignal) => {
-        observedSignal = signal;
+        observedSignal.current = signal;
         return await new Promise<File>((_resolve, reject) => {
           signal.addEventListener(
             'abort',
@@ -652,7 +662,7 @@ describe('remote file share policy', () => {
       getState('playlist.items').filter((item) => item.queueItemId !== Q1),
     );
 
-    expect(observedSignal?.aborted).toBe(true);
+    expect(observedSignal.current?.aborted).toBe(true);
     await preload;
     expect(getRemotePreloadOwnershipForTests().preloadQueueItemId).toBeNull();
   });
@@ -886,7 +896,7 @@ describe('remote file share policy', () => {
     recordGuestFileDelivery(Q0, 7, 'r2');
     expect(isGuestR2FileDelivery(Q0, 7)).toBe(true);
 
-    bus.emit('state:network.sessionCode', '654321');
+    bus.emit('state:network.sessionCode', '654321', 'network.sessionCode');
 
     expect(isGuestR2FileDelivery(Q0, 7)).toBe(false);
   });
@@ -895,10 +905,10 @@ describe('remote file share policy', () => {
     const { handleData } = await import('../../network/protocol.ts');
     const { isGuestR2FileDelivery, recordGuestFileDelivery } =
       await import('../file-delivery-policy.ts');
-    let observedSignal: AbortSignal | null = null;
+    const observedSignal: { current: AbortSignal | null } = { current: null };
     mocks.downloadRemoteFile.mockImplementationOnce(
       async (_descriptor, _onProgress, signal: AbortSignal) => {
-        observedSignal = signal;
+        observedSignal.current = signal;
         return await new Promise<File>((_resolve, reject) => {
           signal.addEventListener(
             'abort',
@@ -916,11 +926,11 @@ describe('remote file share policy', () => {
     );
     await vi.waitFor(() => expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce());
 
-    const replacement = { open: true, peer: 'host-2' } as DataConnection;
+    const replacement = dataConnection('host-2');
     setState('network.hostConn', replacement);
 
     expect(isGuestR2FileDelivery(Q0, 7)).toBe(false);
-    expect(observedSignal?.aborted).toBe(true);
+    expect(observedSignal.current?.aborted).toBe(true);
     await pending;
     expect(getState('share.remote').download.status).toBe('idle');
   });
@@ -958,11 +968,16 @@ describe('remote file share policy', () => {
       return {
         id,
         status: 'connected' as const,
-        conn: { open: true, peer: id, send: vi.fn() } as DataConnection,
+        slot: index + 1,
+        label: id,
+        conn: dataConnection(id),
+        isOp: false,
+        preloadedQueueItemIds: new Set(),
         isDataTarget: true,
         connectionType: 'local' as const,
         joinOrder: index + 1,
-      } as ConnectedPeer;
+        lastHeartbeat: 0,
+      } satisfies ConnectedPeer;
     });
     const target = peers[8]!;
     setState('network.connectedPeers', peers);
@@ -1898,7 +1913,7 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     // descriptor cache) registered by prior initRemoteShare calls — module
     // state would otherwise leak across tests.
     const { bus } = await import('../../core/events.ts');
-    bus.emit('state:network.sessionCode', null);
+    bus.emit('state:network.sessionCode', null, 'network.sessionCode');
     bus.clear();
     vi.clearAllMocks();
 

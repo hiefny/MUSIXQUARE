@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { I18nKey } from '../index.ts';
 
 // i18n/index.ts reads localStorage and navigator.languages at module scope.
 // We test via dynamic import after setting up mocks.
@@ -39,7 +40,7 @@ describe('i18n functions', () => {
       });
       const { t, initI18n } = await import('../index.ts');
       await initI18n();
-      expect(t('nonexistent.key.here')).toBe('nonexistent.key.here');
+      expect(t('nonexistent.key.here' as I18nKey)).toBe('nonexistent.key.here');
     });
 
     it('interpolates {{param}} placeholders', async () => {
@@ -49,7 +50,7 @@ describe('i18n functions', () => {
       });
       const { t, initI18n } = await import('../index.ts');
       await initI18n();
-      const result = t('test.{{name}}.greeting', { name: 'World' });
+      const result = t('test.{{name}}.greeting' as I18nKey, { name: 'World' });
       expect(result).toBe('test.World.greeting');
     });
 
@@ -59,7 +60,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { t } = await import('../index.ts');
-      const result = t('{{a}} and {{b}}', { a: 'X', b: 'Y' });
+      const result = t('{{a}} and {{b}}' as I18nKey, { a: 'X', b: 'Y' });
       expect(result).toBe('X and Y');
     });
 
@@ -69,7 +70,7 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { t } = await import('../index.ts');
-      const result = t('count: {{n}}', { n: 42 });
+      const result = t('count: {{n}}' as I18nKey, { n: 42 });
       expect(result).toBe('count: 42');
     });
   });
@@ -81,7 +82,9 @@ describe('i18n functions', () => {
         configurable: true,
       });
       const { tHtml } = await import('../index.ts');
-      const result = tHtml('hello {{name}}', { name: '<script>alert("xss")</script>' });
+      const result = tHtml('hello {{name}}' as I18nKey, {
+        name: '<script>alert("xss")</script>',
+      });
       expect(result).not.toContain('<script>');
       expect(result).toContain('&lt;script&gt;');
     });
@@ -89,21 +92,21 @@ describe('i18n functions', () => {
     it('escapes ampersands', async () => {
       Object.defineProperty(navigator, 'languages', { value: ['en-US'], configurable: true });
       const { tHtml } = await import('../index.ts');
-      const result = tHtml('{{val}}', { val: 'A & B' });
+      const result = tHtml('{{val}}' as I18nKey, { val: 'A & B' });
       expect(result).toBe('A &amp; B');
     });
 
     it('escapes quotes', async () => {
       Object.defineProperty(navigator, 'languages', { value: ['en-US'], configurable: true });
       const { tHtml } = await import('../index.ts');
-      const result = tHtml('{{val}}', { val: 'say "hello"' });
+      const result = tHtml('{{val}}' as I18nKey, { val: 'say "hello"' });
       expect(result).toContain('&quot;');
     });
 
     it('escapes single quotes', async () => {
       Object.defineProperty(navigator, 'languages', { value: ['en-US'], configurable: true });
       const { tHtml } = await import('../index.ts');
-      const result = tHtml('{{val}}', { val: "it's" });
+      const result = tHtml('{{val}}' as I18nKey, { val: "it's" });
       expect(result).toContain('&#39;');
     });
   });
@@ -308,12 +311,12 @@ describe('i18n functions', () => {
       document.body.innerHTML = '<button data-i18n="setup.host_button"></button>';
 
       let jaBehavior: 'fail' | 'slow' = 'fail';
-      let releaseSlowJa: (() => void) | null = null;
+      const slowJaRequest = { release: null as (() => void) | null };
       let lateJaModuleLoaded = false;
       vi.doMock('../ja.ts', async (importOriginal) => {
         if (jaBehavior === 'fail') throw new Error('simulated lazy chunk 404');
         await new Promise<void>((resolve) => {
-          releaseSlowJa = () => resolve();
+          slowJaRequest.release = () => resolve();
         });
         const mod = await importOriginal();
         // The test must sample after the delayed module is delivered; sampling
@@ -331,7 +334,7 @@ describe('i18n functions', () => {
       jaBehavior = 'slow';
       setLanguageMode('ja');
       await vi.waitFor(() => {
-        expect(releaseSlowJa).toBeTypeOf('function');
+        expect(slowJaRequest.release).toBeTypeOf('function');
       });
 
       // Switch to a preloaded locale while the retry is still unresolved.
@@ -347,7 +350,9 @@ describe('i18n functions', () => {
       });
       try {
         // Releasing the stale request must not replace or re-announce Korean.
-        releaseSlowJa?.();
+        const releaseSlowJa = slowJaRequest.release;
+        if (!releaseSlowJa) throw new Error('slow Japanese locale request was not captured');
+        releaseSlowJa();
         await vi.waitFor(() => {
           expect(lateJaModuleLoaded).toBe(true);
         });

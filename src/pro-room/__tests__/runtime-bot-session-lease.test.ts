@@ -12,6 +12,7 @@ import {
   type ProRoomSnapshot,
 } from '../contracts.ts';
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
+import { parseProRoomSignalingTicket } from '../credentials.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { joinProRoom, requestActiveProRoomBotCommand } from '../runtime.ts';
 
@@ -88,7 +89,7 @@ describe.sequential('PRO BOT runtime session lease', () => {
     restoreSpies.push(
       vi.spyOn(ProRoomApiClient.prototype, 'createSession').mockResolvedValue(snapshot),
       vi.spyOn(ProRoomApiClient.prototype, 'createSignalingTicket').mockResolvedValue({
-        ticket: `v1.${'a'.repeat(32)}.${'B'.repeat(43)}`,
+        ticket: parseProRoomSignalingTicket(`v1.${'a'.repeat(32)}.${'B'.repeat(43)}`)!,
         expiresAtMs: Date.now() + 60_000,
         role: 'member',
         coordinatorEpoch: 1,

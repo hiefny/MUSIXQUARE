@@ -1,9 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import type { ProRoomPresenceParticipant, ProRoomSnapshot } from '../contracts.ts';
 import {
-  diffProRoomPresenceMembersForTests,
-  projectAuthoritativeProDevicesForTests,
-} from '../runtime.ts';
+  diffProPresenceMembers,
+  projectAuthoritativeProDevices,
+  projectProPresenceMembers,
+} from '../presence-projection.ts';
+
+function diffProRoomPresenceMembersForTests(
+  previous: readonly ProRoomPresenceParticipant[],
+  current: readonly ProRoomPresenceParticipant[],
+): { joined: string[]; departed: string[] } {
+  const delta = diffProPresenceMembers(
+    projectProPresenceMembers(previous),
+    projectProPresenceMembers(current),
+  );
+  return {
+    joined: delta.joined.map((member) => member.displayName),
+    departed: delta.departed.map((member) => member.displayName),
+  };
+}
 
 function participant(
   participantId: string,
@@ -61,7 +76,7 @@ describe('PRO physical-device member projection', () => {
     const controllerTablet = participant('device-2', 'member-minsu', 'controller', 1);
     const member = participant('device-3', 'member-guest', 'member', 2);
 
-    const projected = projectAuthoritativeProDevicesForTests(
+    const projected = projectAuthoritativeProDevices(
       snapshot([owner, controllerPhone, controllerTablet, member]),
     );
 

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState } from '../../core/state.ts';
@@ -27,6 +27,7 @@ import {
   registerProPlaybackMediaEndpoint,
   routeProPlaybackCommand,
   type ProPlaybackAuthorityToken,
+  type ProPlaybackMediaEndpoint,
   type ProPlaybackPrepareResult,
 } from '../playback-authority-hooks.ts';
 import { requestProRoomTransportRecovery } from '../transport-recovery.ts';
@@ -173,9 +174,9 @@ function setDocumentVisibility(value: 'hidden' | 'visible', dispatch = true): vo
 describe.sequential('coordinator-free PRO playback runtime', () => {
   const restoreSpies: Array<{ mockRestore(): void }> = [];
   let prepareResult: 'ready' | 'failed';
-  let prepareMedia: ReturnType<typeof vi.fn>;
-  let commitMedia: ReturnType<typeof vi.fn>;
-  let cancelMedia: ReturnType<typeof vi.fn>;
+  let prepareMedia: Mock<ProPlaybackMediaEndpoint['prepare']>;
+  let commitMedia: Mock<ProPlaybackMediaEndpoint['commit']>;
+  let cancelMedia: Mock<NonNullable<ProPlaybackMediaEndpoint['cancel']>>;
   let reportReady: ReturnType<typeof vi.spyOn>;
   let executeCommand: ReturnType<typeof vi.spyOn>;
   let waitForClock: ReturnType<typeof vi.spyOn>;
@@ -244,7 +245,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       });
     restoreSpies.push(reportReady, executeCommand);
 
-    prepareMedia = vi.fn(
+    prepareMedia = vi.fn<ProPlaybackMediaEndpoint['prepare']>(
       async (request): Promise<ProPlaybackPrepareResult> =>
         prepareResult === 'ready'
           ? {
@@ -263,11 +264,13 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
               reason: 'player-unavailable',
             },
     );
-    commitMedia = vi.fn(async (request) => ({
+    commitMedia = vi.fn<ProPlaybackMediaEndpoint['commit']>(async (request) => ({
       status: 'applied' as const,
       authority: request.authority,
     }));
-    cancelMedia = vi.fn((_authority: ProPlaybackAuthorityToken) => undefined);
+    cancelMedia = vi.fn<NonNullable<ProPlaybackMediaEndpoint['cancel']>>(
+      (_authority: ProPlaybackAuthorityToken) => undefined,
+    );
     registerProPlaybackMediaEndpoint({
       prepare: prepareMedia,
       commit: commitMedia,
@@ -418,10 +421,11 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     });
 
     await vi.waitFor(() => expect(executeCommand).toHaveBeenCalledTimes(2));
-    expect(executeCommand.mock.calls.map(([input]) => input.command.type)).toEqual([
-      'pause',
-      'play',
-    ]);
+    expect(
+      executeCommand.mock.calls.map(
+        ([input]: Parameters<ProRoomApiClient['executePlaybackCommand']>) => input.command.type,
+      ),
+    ).toEqual(['pause', 'play']);
   });
 
   it('does not restart a PREPARE cancelled before its HTTP response arrives', async () => {
@@ -496,6 +500,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
         queueItemId: QUEUE_ITEM_ID,
         positionSeconds: 0,
         youtubeSubIndex: 0,
+        youtubeVideoId: null,
       }),
     ).toBe(true);
 
@@ -1287,7 +1292,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
   it('serializes canonical COMMITs and prevents a slow older revision from finishing last', async () => {
     let resolveFirst!: (value: { status: 'applied'; authority: ProPlaybackAuthorityToken }) => void;
     commitMedia.mockImplementationOnce(
-      (request) =>
+      (_request) =>
         new Promise((resolve) => {
           resolveFirst = resolve;
         }),
@@ -1327,7 +1332,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
   it('ignores an out-of-order stale COMMIT without cancelling the newer in-flight revision', async () => {
     let resolveNewer!: (value: { status: 'applied'; authority: ProPlaybackAuthorityToken }) => void;
     commitMedia.mockImplementationOnce(
-      (request) =>
+      (_request) =>
         new Promise((resolve) => {
           resolveNewer = resolve;
         }),
@@ -1366,7 +1371,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       authority: ProPlaybackAuthorityToken;
     }) => void;
     commitMedia.mockImplementationOnce(
-      (request) =>
+      (_request) =>
         new Promise((resolve) => {
           resolveAbandoned = resolve;
         }),
@@ -1580,7 +1585,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     });
     let resolveLocal!: (result: ProPlaybackPrepareResult) => void;
     prepareMedia.mockImplementationOnce(
-      (request) =>
+      (_request) =>
         new Promise<ProPlaybackPrepareResult>((resolve) => {
           resolveLocal = resolve;
         }),
@@ -1822,7 +1827,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       authority: ProPlaybackAuthorityToken;
     }) => void;
     commitMedia.mockImplementationOnce(
-      (request) =>
+      (_request) =>
         new Promise((resolve) => {
           resolveCommit = resolve;
         }),

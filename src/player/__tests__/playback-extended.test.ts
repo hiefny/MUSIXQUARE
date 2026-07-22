@@ -69,6 +69,16 @@ function connectedPeer(slot: number): ConnectedPeer {
   };
 }
 
+function dataConnection(peer: string, send = vi.fn()): DataConnection {
+  return {
+    open: true,
+    peer,
+    send,
+    close: vi.fn(),
+    on: () => undefined,
+  };
+}
+
 function setResidentFile(queueItemId: string, indexHint: number, name: string): void {
   const blob = new File(['audio'], name, { type: 'audio/mpeg' });
   setState('files.current', {
@@ -419,8 +429,10 @@ describe('handleRequestPlay file pipeline guard', () => {
     setResidentFile(QID_OLD, 0, 'old.mp3');
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
 
-    const opConn = { open: true, peer: 'op-1' } as DataConnection;
-    setState('network.connectedPeers', [{ id: 'op-1', label: 'OP', isOp: true, conn: opConn }]);
+    const opConn = dataConnection('op-1');
+    setState('network.connectedPeers', [
+      { ...connectedPeer(1), id: 'op-1', label: 'OP', isOp: true, conn: opConn },
+    ]);
 
     initPlayback();
     await handleData({ type: MSG.REQUEST_PLAY, time: 0, queueItemId: QID_NEW }, opConn);
@@ -436,7 +448,7 @@ describe('handleRequestPlay file pipeline guard', () => {
 
 describe('handlePlayMsg lifecycle gate', () => {
   it('defers play time when host PLAY arrives during DECODING', async () => {
-    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    const hostConn = dataConnection('host-1');
     setState('network.hostConn', hostConn);
     setState('playlist.items', [
       playlistItem(QID_OLD, 'old.mp3', 'Old'),
@@ -455,7 +467,7 @@ describe('handlePlayMsg lifecycle gate', () => {
   });
 
   it('defers play time when host PLAY arrives during DOWNLOADING', async () => {
-    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    const hostConn = dataConnection('host-1');
     setState('network.hostConn', hostConn);
     setState('playlist.items', [
       playlistItem(QID_OLD, 'old.mp3', 'Old'),
@@ -482,7 +494,7 @@ describe('handlePlayMsg lifecycle gate', () => {
 describe('handlePlayMsg orphaned-pipeline recovery', () => {
   it('keeps PLAY pending and requests the persistent PRO file when PLAY wins the race', async () => {
     const exactHostSend = vi.fn();
-    const hostConn = { open: true, peer: 'pro-coordinator', send: exactHostSend } as DataConnection;
+    const hostConn = dataConnection('pro-coordinator', exactHostSend);
     setState('network.hostConn', hostConn);
     setState('network.connectionType', 'remote');
     setState('playlist.items', [playlistItem(QID_NEW, 'persistent.flac', 'Persistent')]);
@@ -508,7 +520,7 @@ describe('handlePlayMsg orphaned-pipeline recovery', () => {
 
   it('requests the current file when PLAY arrives with no buffer and no inbound pipeline', async () => {
     const exactHostSend = vi.fn();
-    const hostConn = { open: true, peer: 'host-1', send: exactHostSend } as DataConnection;
+    const hostConn = dataConnection('host-1', exactHostSend);
     setState('network.hostConn', hostConn);
     setState('network.connectionType', 'local');
     setState('playlist.items', [
@@ -533,7 +545,7 @@ describe('handlePlayMsg orphaned-pipeline recovery', () => {
 
   it('does not fire the recovery request while a pipeline is inbound (DOWNLOADING)', async () => {
     const exactHostSend = vi.fn();
-    const hostConn = { open: true, peer: 'host-1', send: exactHostSend } as DataConnection;
+    const hostConn = dataConnection('host-1', exactHostSend);
     setState('network.hostConn', hostConn);
     setState('network.connectionType', 'local');
     setState('playlist.items', [playlistItem(QID_NEW, 'new.mp3', 'New')]);
@@ -554,7 +566,7 @@ describe('handlePlayMsg orphaned-pipeline recovery', () => {
   // temporarily reads IDLE; restarting would discard partial progress.
   it('does not fire the recovery request while transfer.state is RECEIVING even if lifecycle reads IDLE', async () => {
     const exactHostSend = vi.fn();
-    const hostConn = { open: true, peer: 'host-1', send: exactHostSend } as DataConnection;
+    const hostConn = dataConnection('host-1', exactHostSend);
     setState('network.hostConn', hostConn);
     setState('network.connectionType', 'local');
     setState('playlist.items', [playlistItem(QID_NEW, 'new.mp3', 'New')]);

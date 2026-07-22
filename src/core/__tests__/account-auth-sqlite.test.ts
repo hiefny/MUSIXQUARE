@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  handleAccountAuthRequest,
+  handleAccountAuthRequest as handleMaybeAccountAuthRequest,
   resetAccountAuthCachesForTests,
 } from '../../../cloudflare/account-auth.js';
 import { normalizeSchemaSql } from '../../../scripts/account-stage2-preflight.mjs';
@@ -19,6 +19,12 @@ const NICKNAME_KEY_MIGRATION = readFileSync(
   new URL('../../../cloudflare/auth.nickname-key.migration.sql', import.meta.url),
   'utf8',
 );
+
+async function handleAccountAuthRequest(request: Request, env: unknown): Promise<Response> {
+  const response = await handleMaybeAccountAuthRequest(request, env);
+  if (!response) throw new Error(`Expected account auth route: ${new URL(request.url).pathname}`);
+  return response;
+}
 
 function schemaBeforeNicknameKeyMigration(): string {
   const columnStart = SCHEMA.indexOf('  -- Appended by the global-nickname migration.');
@@ -212,6 +218,9 @@ afterEach(() => {
         const canonicalSql = canonical
           .prepare('SELECT sql FROM sqlite_master WHERE name = ?')
           .get(objectName)?.sql;
+        if (typeof migratedSql !== 'string' || typeof canonicalSql !== 'string') {
+          throw new Error(`Expected SQLite schema SQL for ${objectName}`);
+        }
         expect(normalizeSchemaSql(migratedSql), objectName).toBe(normalizeSchemaSql(canonicalSql));
       }
     } finally {

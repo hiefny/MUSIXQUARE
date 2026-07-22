@@ -1332,12 +1332,6 @@
     padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
   }
 
-  /* Mobile/tablet retain the historical direct-child flex behavior. Desktop
-     turns this into a fixed media stage so alternate renderers share one slot. */
-  .media-stage {
-    display: contents;
-  }
-
   .vinyl-wrapper {
     /* Flex-based sizing: vinyl shrinks first, scrollbar only at minimum */
     flex-shrink: 1;

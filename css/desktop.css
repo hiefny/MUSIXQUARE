@@ -240,8 +240,8 @@
     }
 
     .vinyl-wrapper {
-      width: clamp(160px, min(22vw, 30vh), 520px);
-      height: clamp(160px, min(22vw, 30vh), 520px);
+      width: clamp(160px, min(22vw, 30vh), 720px);
+      height: clamp(160px, min(22vw, 30vh), 720px);
       flex-shrink: 0;
       flex-basis: auto;
       aspect-ratio: auto;
@@ -252,10 +252,10 @@
 
     body.viz-spectrum .vinyl-wrapper {
       width: min(calc(100% - 64px), 1400px);
-      height: clamp(160px, min(22vw, 30vh), 520px);
+      height: clamp(160px, min(22vw, 30vh), 720px);
       aspect-ratio: auto;
       max-width: none;
-      padding: 0 32px;
+      padding: 0;
     }
 
     .video-wrapper {
@@ -274,7 +274,7 @@
     /* Play Controller adjustments */
     .track-box {
       width: min(calc(100% - 64px), var(--play-content-max));
-      padding: 0 32px;
+      padding: 0;
       margin-left: auto;
       margin-right: auto;
     }
@@ -283,7 +283,7 @@
       width: min(calc(100% - 64px), var(--play-content-max));
       max-width: none;
       box-sizing: border-box;
-      padding: 0 32px;
+      padding: 0;
       margin-top: auto;
       margin-left: auto;
       margin-right: auto;

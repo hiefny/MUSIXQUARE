@@ -21,6 +21,7 @@ let _visualizerResizeObserver: ResizeObserver | null = null;
 let _vizMode: 'circular' | 'spectrum' = 'circular';
 let _isVisualizerStartCoalescing = false;
 let _visualizerLoopState: 'idle' | 'active' | 'settling' = 'idle';
+let _canvasPixelRatio = 1;
 
 function readPersistedVisualizerMode(): 'circular' | 'spectrum' {
   try {
@@ -152,32 +153,41 @@ function syncCanvasSize(
 ): number {
   const rawW = wrapper ? wrapper.clientWidth : 0;
   const rawH = wrapper ? wrapper.clientHeight : 0;
+  const renderedRect = wrapper?.getBoundingClientRect();
+  const renderedScaleX = rawW > 0 && renderedRect ? renderedRect.width / rawW : 1;
+  const renderedScaleY = rawH > 0 && renderedRect ? renderedRect.height / rawH : 1;
+  const renderedScale = Math.max(1, renderedScaleX, renderedScaleY);
+  // `devicePixelRatio` alone does not account for the desktop density
+  // transform. Rasterize at the final on-screen scale so a logical 604px
+  // canvas displayed at 1.5x receives roughly 906px of backing resolution.
+  // Cap pathological combinations to keep memory/GPU cost bounded.
+  const pixelRatio = Math.min(3, Math.max(1, (window.devicePixelRatio || 1) * renderedScale));
+  _canvasPixelRatio = pixelRatio;
 
   // For circular mode, we want a square fit
   if (_vizMode === 'circular') {
     const rawSize = Math.min(rawW, rawH);
     const logicalSize = rawSize > 10 ? rawSize : 240;
-    const dpr = window.devicePixelRatio || 1;
+    const targetSize = Math.max(1, Math.round(logicalSize * pixelRatio));
 
-    if (canvas.width !== logicalSize * dpr || canvas.height !== logicalSize * dpr) {
-      canvas.width = logicalSize * dpr;
-      canvas.height = logicalSize * dpr;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.scale(dpr, dpr);
+    if (canvas.width !== targetSize || canvas.height !== targetSize) {
+      canvas.width = targetSize;
+      canvas.height = targetSize;
     }
+    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     return logicalSize;
   } else {
     // For spectrum mode, we use the full rectangular container
     const logicalW = rawW > 10 ? rawW : 400;
     const logicalH = rawH > 10 ? rawH : 240;
-    const dpr = window.devicePixelRatio || 1;
+    const targetW = Math.max(1, Math.round(logicalW * pixelRatio));
+    const targetH = Math.max(1, Math.round(logicalH * pixelRatio));
 
-    if (canvas.width !== logicalW * dpr || canvas.height !== logicalH * dpr) {
-      canvas.width = logicalW * dpr;
-      canvas.height = logicalH * dpr;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.scale(dpr, dpr);
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+      canvas.width = targetW;
+      canvas.height = targetH;
     }
+    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     return logicalW; // Return width for spectrum logic indexing if needed, though they usually use W/H directly
   }
 }
@@ -228,7 +238,8 @@ function drawCircularVisualizerFrame(
   ctx.clearRect(0, 0, logicalSize, logicalSize);
   ctx.shadowBlur = 0;
 
-  const bassRadius = (55 + frame.bassPunch * 200) * scale;
+  const maxRadius = Math.max(0, logicalSize / 2 - 0.5);
+  const bassRadius = Math.min(maxRadius, (55 + frame.bassPunch * 200) * scale);
   ctx.fillStyle = _cachedIsLight
     ? `rgba(66, 129, 241, ${frame.bassOpacity})`
     : `hsla(218, 86%, 60%, ${frame.bassOpacity})`;
@@ -236,7 +247,7 @@ function drawCircularVisualizerFrame(
   ctx.arc(centerX, centerY, bassRadius, 0, twoPi);
   ctx.fill();
 
-  const highRadius = (40 + frame.highPunch * 130) * scale;
+  const highRadius = Math.min(maxRadius, (40 + frame.highPunch * 130) * scale);
   ctx.fillStyle = _cachedIsLight ? 'rgba(66, 129, 241, 1.0)' : 'hsla(218, 86%, 60%, 1.0)';
   ctx.beginPath();
   ctx.arc(centerX, centerY, highRadius, 0, twoPi);
@@ -309,9 +320,8 @@ function drawRestingVisualizerFrame(): void {
   refreshThemeCache();
   const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
   syncCanvasSize(canvas, ctx, wrapper);
-  const dpr = window.devicePixelRatio || 1;
-  const logicalW = canvas.width / dpr;
-  const logicalH = canvas.height / dpr;
+  const logicalW = canvas.width / _canvasPixelRatio;
+  const logicalH = canvas.height / _canvasPixelRatio;
 
   ctx.globalCompositeOperation = 'source-over';
   ctx.clearRect(0, 0, logicalW, logicalH);
@@ -348,9 +358,8 @@ function redrawHeldFrame(): void {
   refreshThemeCache();
   const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
   syncCanvasSize(canvas, ctx, wrapper);
-  const dpr = window.devicePixelRatio || 1;
-  const logicalW = canvas.width / dpr;
-  const logicalH = canvas.height / dpr;
+  const logicalW = canvas.width / _canvasPixelRatio;
+  const logicalH = canvas.height / _canvasPixelRatio;
 
   if (_vizMode === 'circular' && _lastCircularFrame) {
     drawCircularVisualizerFrame(ctx, Math.min(logicalW, logicalH), _lastCircularFrame);
@@ -405,9 +414,8 @@ function settleVisualizerToRest(): void {
   refreshThemeCache();
   const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
   syncCanvasSize(canvas, ctx, wrapper);
-  const dpr = window.devicePixelRatio || 1;
-  const logicalW = canvas.width / dpr;
-  const logicalH = canvas.height / dpr;
+  const logicalW = canvas.width / _canvasPixelRatio;
+  const logicalH = canvas.height / _canvasPixelRatio;
 
   if (_vizMode === 'spectrum' && _lastSpectrumFrame?.points.length) {
     const source = _lastSpectrumFrame;
@@ -583,7 +591,7 @@ export function startVisualizer(): void {
 
     // Self-correct after resize — avoids stale dimensions during the 100ms
     // gap between resize event and startVisualizer() re-init.
-    const curSize = canvas!.width / (window.devicePixelRatio || 1);
+    const curSize = canvas!.width / _canvasPixelRatio;
     if (curSize !== logicalSize) {
       logicalSize = curSize;
     }
@@ -755,8 +763,8 @@ function startSpectrumVisualizer(): void {
   // Sync size
   const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
   syncCanvasSize(canvas, ctx, wrapper);
-  let logicalW = canvas.width / (window.devicePixelRatio || 1);
-  let logicalH = canvas.height / (window.devicePixelRatio || 1);
+  let logicalW = canvas.width / _canvasPixelRatio;
+  let logicalH = canvas.height / _canvasPixelRatio;
 
   const padX = 4;
   const padY = 8;
@@ -776,8 +784,8 @@ function startSpectrumVisualizer(): void {
     }
 
     // Self-correct after resize
-    const curW = canvas!.width / (window.devicePixelRatio || 1);
-    const curH = canvas!.height / (window.devicePixelRatio || 1);
+    const curW = canvas!.width / _canvasPixelRatio;
+    const curH = canvas!.height / _canvasPixelRatio;
     if (curW !== logicalW || curH !== logicalH) {
       logicalW = curW;
       logicalH = curH;

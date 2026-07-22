@@ -177,6 +177,10 @@ describe('Developer API effects-scope migration', () => {
   });
 
   it('rolls masks back without silently granting a legacy scope', () => {
+    const migration = readFileSync(
+      resolve('cloudflare/developer-api.effects-scopes.migration.sql'),
+      'utf8',
+    );
     const rollback = readFileSync(
       resolve('cloudflare/developer-api.effects-scopes.rollback.sql'),
       'utf8',
@@ -186,5 +190,9 @@ describe('Developer API effects-scope migration', () => {
     expect(rollback).toContain('(scope_mask & 63) = 0');
     expect(rollback).toContain('scope_mask & 63');
     expect(rollback).toContain('CHECK (ok = 1)');
+    for (const script of [migration, rollback]) {
+      expect(script).toContain('CREATE TRIGGER trg_mxqr_developer_api_keys_decommissioned_room');
+      expect(script).toContain("RAISE(ABORT, 'PRO_ROOM_DECOMMISSIONED')");
+    }
   });
 });

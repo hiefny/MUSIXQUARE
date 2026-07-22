@@ -614,6 +614,26 @@ describe('system audio operating-cost limits', () => {
     expect(isSystemAudioActive()).toBe(false);
   });
 
+  it('does not resurrect a capture whose native picker resolves after stop', async () => {
+    let resolvePicker!: (stream: MediaStream) => void;
+    stubDisplayMedia(
+      (stream) =>
+        new Promise<MediaStream>((resolve) => {
+          resolvePicker = () => resolve(stream);
+        }),
+    );
+
+    const startPromise = startSystemAudioCapture();
+    await Promise.resolve();
+    bus.emit('system-audio:force-stop');
+    resolvePicker(null as unknown as MediaStream);
+    await startPromise;
+
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(initAudio).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
   it('stops an active share once the fifth device connects', async () => {
     setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES - 1);
     const restoreSpy = await startShareWithPriorYouTube();

@@ -69,6 +69,19 @@ CREATE INDEX idx_mxqr_developer_api_keys_room_status_expiry
 CREATE INDEX idx_mxqr_developer_api_keys_status_expiry
   ON mxqr_developer_api_keys (status, expires_at);
 
+-- Rebuilding mxqr_developer_api_keys drops every trigger attached to the old
+-- table. Restore the permanent room-tombstone fence before credentials can be
+-- issued against the migrated table.
+CREATE TRIGGER trg_mxqr_developer_api_keys_decommissioned_room
+BEFORE INSERT ON mxqr_developer_api_keys
+WHEN EXISTS (
+  SELECT 1 FROM mxqr_developer_api_room_tombstones
+  WHERE room_code = NEW.room_code
+)
+BEGIN
+  SELECT RAISE(ABORT, 'PRO_ROOM_DECOMMISSIONED');
+END;
+
 CREATE TRIGGER trg_mxqr_developer_api_keys_natural_expiry_audit
 AFTER UPDATE OF status, revoked_at, updated_at ON mxqr_developer_api_keys
 WHEN OLD.status = 'active'

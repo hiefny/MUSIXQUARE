@@ -41,12 +41,19 @@ import {
 } from './webrtc-audio-decoder-primer.ts';
 import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 import { getRoomContext } from '../rooms/authority.ts';
+import {
+  cancelResponseBody,
+  readBoundedJsonResponse,
+  withRequestDeadline,
+} from '../core/request-lifetime.ts';
 
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
 const GUEST_SFU_RECEIVE_LIMIT_TIMER = 'system-audio-sfu-guest-limit';
 const HOST_SFU_RETRY_TIMER = 'system-audio-sfu-host-retry';
 const HOST_SFU_RETRY_DELAY_MS = 2500;
 const HOST_SFU_MAX_RETRIES = 1;
+const SFU_CONTROL_REQUEST_TIMEOUT_MS = 15_000;
+const SFU_CONTROL_RESPONSE_MAX_BYTES = 1024 * 1024;
 const BASE_SFU_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
 
 type Channel = 'L' | 'R';
@@ -107,6 +114,7 @@ let hostSessionId: string | null = null;
 let hostSessionOwnerToken: string | null = null;
 let hostPublishedTracks: SfuReadyTrack[] = [];
 let hostPublishPromise: Promise<HostPublication | null> | null = null;
+let hostPublishAbortController: AbortController | null = null;
 let hostSfuUnavailable = false;
 let hostPublishEpoch = 0;
 let hostRetryCount = 0;
@@ -117,6 +125,7 @@ let guestSessionId: string | null = null;
 let guestSessionOwnerToken: string | null = null;
 let guestSubscriptionKey: string | null = null;
 let guestConnectPromise: Promise<void> | null = null;
+let guestConnectAbortController: AbortController | null = null;
 let guestPendingReadyPayload: SfuReadyPayload | null = null;
 let guestSubscribedTrackMids: string[] = [];
 let guestSubscriptionEpoch = 0;
@@ -287,15 +296,31 @@ function normalizeRemoteIceServers(value: unknown): RTCIceServer[] {
   return result;
 }
 
-async function loadSfuRtcConfig(): Promise<RTCConfiguration> {
+async function loadSfuRtcConfig(signal?: AbortSignal): Promise<RTCConfiguration> {
   const iceServers = [...BASE_SFU_ICE_SERVERS];
 
   for (const url of getTurnConfigEndpoints()) {
     try {
-      const response = await fetchWithCapability(url, 'turn');
-      if (!response.ok) continue;
-
-      const payload = (await response.json()) as TurnConfigResponse;
+      const payload = await withRequestDeadline(
+        async (requestSignal) => {
+          const response = await fetchWithCapability(url, 'turn', { signal: requestSignal });
+          if (!response.ok) {
+            await cancelResponseBody(response);
+            return null;
+          }
+          return (await readBoundedJsonResponse(
+            response,
+            SFU_CONTROL_RESPONSE_MAX_BYTES,
+            requestSignal,
+          )) as TurnConfigResponse;
+        },
+        {
+          signal,
+          timeoutMs: SFU_CONTROL_REQUEST_TIMEOUT_MS,
+          timeoutReason: 'SFU_TURN_CONFIG_TIMEOUT',
+        },
+      );
+      if (!payload) continue;
       if (payload.provider !== 'cloudflare') continue;
 
       const cloudflareIceServers = normalizeRemoteIceServers(payload.iceServers);
@@ -304,6 +329,7 @@ async function loadSfuRtcConfig(): Promise<RTCConfiguration> {
       iceServers.push(...cloudflareIceServers);
       break;
     } catch (error) {
+      if (signal?.aborted) throw signal.reason ?? error;
       // User-initiated Turnstile cancel must propagate; otherwise the next
       // capability-protected fetch in the same flow re-prompts the widget.
       if (isCapabilityChallengeCancelled(error)) throw error;
@@ -324,25 +350,41 @@ async function callRealtime(
     sessionOwnerToken?: string;
     payload?: Record<string, unknown>;
     correlationId?: string;
+    signal?: AbortSignal;
   } = {},
 ): Promise<RealtimeResponse> {
   let lastError: unknown = null;
 
   for (const url of getRealtimeEndpoints()) {
     try {
-      const response = await fetchWithCapability(url, 'realtime', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action,
-          sessionId: options.sessionId,
-          sessionOwnerToken: options.sessionOwnerToken,
-          correlationId: options.correlationId,
-          payload: options.payload || {},
-        }),
-      });
-
-      const payload = (await response.json().catch(() => ({}))) as RealtimeResponse;
+      const result = await withRequestDeadline(
+        async (requestSignal) => {
+          const response = await fetchWithCapability(url, 'realtime', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action,
+              sessionId: options.sessionId,
+              sessionOwnerToken: options.sessionOwnerToken,
+              correlationId: options.correlationId,
+              payload: options.payload || {},
+            }),
+            signal: requestSignal,
+          });
+          const payload = (await readBoundedJsonResponse(
+            response,
+            SFU_CONTROL_RESPONSE_MAX_BYTES,
+            requestSignal,
+          )) as RealtimeResponse;
+          return { response, payload };
+        },
+        {
+          signal: options.signal,
+          timeoutMs: SFU_CONTROL_REQUEST_TIMEOUT_MS,
+          timeoutReason: 'SFU_REALTIME_REQUEST_TIMEOUT',
+        },
+      );
+      const { response, payload } = result;
       if (response.ok) return payload;
 
       const message =
@@ -354,6 +396,7 @@ async function callRealtime(
       lastError = new Error(message);
       if (response.status === 503) break;
     } catch (error) {
+      if (options.signal?.aborted) throw options.signal.reason ?? error;
       // User-initiated Turnstile cancel must propagate; otherwise the retry
       // loop re-mints capability and re-prompts the widget.
       if (isCapabilityChallengeCancelled(error)) throw error;
@@ -511,14 +554,17 @@ function closeOwnedRealtimeTracks(
   }).catch((error) => log.debug(`[SysAudioSFU] ${failureLabel}:`, error));
 }
 
-async function publishHostTracks(publishEpoch: number): Promise<HostPublication | null> {
+async function publishHostTracks(
+  publishEpoch: number,
+  signal: AbortSignal,
+): Promise<HostPublication | null> {
   const streamL = getStreamL();
   const streamR = getStreamR();
   const trackL = streamL?.getAudioTracks()[0];
   const trackR = streamR?.getAudioTracks()[0];
   if (!trackL || !trackR) return null;
 
-  const pc = new RTCPeerConnection(await loadSfuRtcConfig());
+  const pc = new RTCPeerConnection(await loadSfuRtcConfig(signal));
   if (publishEpoch !== hostPublishEpoch) {
     // Superseded while the RTC config was loading (share stopped/restarted —
     // cleanupHostSfu bumped the epoch): adopting this pc into the module slot
@@ -546,6 +592,7 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
 
   const session = await callRealtime('new-session', {
     correlationId: buildCorrelationId('host-system-audio'),
+    signal,
   });
   assertRealtimeOk(session);
   if (!session.sessionId) throw new Error('Realtime API did not return a sessionId');
@@ -586,6 +633,7 @@ async function publishHostTracks(publishEpoch: number): Promise<HostPublication 
         sessionDescription: offerDescription,
         tracks: requestedTracks,
       },
+      signal,
     });
   } catch (error) {
     // The edge response can be lost after Cloudflare accepted the tracks. The
@@ -673,7 +721,9 @@ async function ensureHostPublication(): Promise<HostPublication | null> {
   if (hostPublishPromise) return hostPublishPromise;
 
   const publishEpoch = ++hostPublishEpoch;
-  hostPublishPromise = publishHostTracks(publishEpoch)
+  const abortController = new AbortController();
+  hostPublishAbortController = abortController;
+  hostPublishPromise = publishHostTracks(publishEpoch, abortController.signal)
     .then((publication) => {
       // publishHostTracks re-checks the epoch before committing module state
       // and undoes its own server session when superseded, so a null result
@@ -711,7 +761,10 @@ async function ensureHostPublication(): Promise<HostPublication | null> {
     .finally(() => {
       // Only the in-flight owner may clear the memo: a stale finally would
       // null a SUCCESSOR's promise and let a duplicate publish race it.
-      if (publishEpoch === hostPublishEpoch) hostPublishPromise = null;
+      if (publishEpoch === hostPublishEpoch) {
+        hostPublishPromise = null;
+        if (hostPublishAbortController === abortController) hostPublishAbortController = null;
+      }
     });
 
   return hostPublishPromise;
@@ -781,6 +834,8 @@ function cleanupHostSfu(
 ): void {
   const { closeRemoteTracks = true, resetFailureState = true } = options;
   hostPublishEpoch += 1;
+  hostPublishAbortController?.abort();
+  hostPublishAbortController = null;
 
   if (closeRemoteTracks && hostSessionId && hostPublishedTracks.length > 0) {
     closeOwnedRealtimeTracks(
@@ -874,6 +929,8 @@ async function connectGuestTrack(
 
 function cleanupGuestSfu(updateState = true): void {
   guestSubscriptionEpoch += 1;
+  guestConnectAbortController?.abort();
+  guestConnectAbortController = null;
   const shouldCleanupGuestReceiveState = guestReceiving && updateState;
   const pc = guestPc;
   const sessionId = guestSessionId;
@@ -975,14 +1032,13 @@ function normalizeSfuReadyPayload(
   };
 }
 
-async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
+async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal): Promise<void> {
   if (!isPayloadOnFrozenGuestRoute(payload)) return;
   const subscriptionKey = buildSubscriptionKey(payload);
   if (guestSubscriptionKey === subscriptionKey && guestPc) return;
-  cleanupGuestSfu(false);
   const subscriptionEpoch = guestSubscriptionEpoch;
 
-  const rtcConfig = await loadSfuRtcConfig();
+  const rtcConfig = await loadSfuRtcConfig(signal);
   if (subscriptionEpoch !== guestSubscriptionEpoch) return;
   const pc = new RTCPeerConnection(rtcConfig);
   guestPc = pc;
@@ -1051,6 +1107,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
 
   const session = await callRealtime('new-session', {
     correlationId: buildCorrelationId('guest-system-audio'),
+    signal,
   });
   if (subscriptionEpoch !== guestSubscriptionEpoch) return;
   assertRealtimeOk(session);
@@ -1073,6 +1130,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
     sessionId,
     sessionOwnerToken,
     payload: { tracks: trackRequests },
+    signal,
   });
   const subscribedTrackMids = (tracksResponse.tracks || [])
     .map((track) => track.mid)
@@ -1111,6 +1169,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
     sessionId,
     sessionOwnerToken,
     payload: { sessionDescription: answerDescription },
+    signal,
   });
   if (subscriptionEpoch !== guestSubscriptionEpoch) return;
   assertRealtimeOk(renegotiate);
@@ -1121,7 +1180,13 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload): Promise<void> {
 
 function beginGuestSfuSubscription(payload: SfuReadyPayload): void {
   if (!isPayloadOnFrozenGuestRoute(payload)) return;
-  const connectPromise = subscribeGuestToSfu(payload);
+  // Tear down the previous owner before publishing the successor controller.
+  // subscribeGuestToSfu used to perform this cleanup after registration, which
+  // made the new attempt abort itself synchronously.
+  cleanupGuestSfu(false);
+  const abortController = new AbortController();
+  guestConnectAbortController = abortController;
+  const connectPromise = subscribeGuestToSfu(payload, abortController.signal);
   guestConnectPromise = connectPromise;
   connectPromise
     .catch((error) => {
@@ -1152,6 +1217,7 @@ function beginGuestSfuSubscription(payload: SfuReadyPayload): void {
       // in-flight ownership marker.
       if (guestConnectPromise !== connectPromise) return;
       guestConnectPromise = null;
+      if (guestConnectAbortController === abortController) guestConnectAbortController = null;
       const pendingPayload = guestPendingReadyPayload;
       guestPendingReadyPayload = null;
       if (

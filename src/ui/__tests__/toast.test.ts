@@ -433,15 +433,12 @@ describe('showLoader', () => {
 describe('header loader layout contract', () => {
   it('keeps the portrait loading text on the logo rail below the iOS safe area', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
-    const compactStart = stylesheet.indexOf(
-      '@media (min-width: 720px) and (max-width: 1279px) {',
-    );
+    const compactStart = stylesheet.indexOf('@media (min-width: 720px) and (max-width: 1279px) {');
     expect(compactStart).toBeGreaterThanOrEqual(0);
 
     const baseStyles = stylesheet.slice(0, compactStart);
     const headerRules = baseStyles.match(/\n\s*header\s*\{([^}]*)\}/)?.[1] ?? '';
-    const baseLoaderRules =
-      baseStyles.match(/\.header-loading-text\s*\{([^}]*)\}/)?.[1] ?? '';
+    const baseLoaderRules = baseStyles.match(/\.header-loading-text\s*\{([^}]*)\}/)?.[1] ?? '';
 
     // The fixed header includes the iOS status-bar inset in its total height,
     // while its logo is centered only inside the content area below that inset.
@@ -459,17 +456,13 @@ describe('header loader layout contract', () => {
     const parsed = new DOMParser().parseFromString(markup, 'text/html');
     expect(parsed.getElementById('header-loading-text')?.parentElement?.id).toBe('main-header');
 
-    const compactStart = stylesheet.indexOf(
-      '@media (min-width: 720px) and (max-width: 1279px) {',
-    );
+    const compactStart = stylesheet.indexOf('@media (min-width: 720px) and (max-width: 1279px) {');
     const compactEnd = stylesheet.indexOf('/* iPad PWA portrait', compactStart);
     expect(compactStart).toBeGreaterThanOrEqual(0);
     expect(compactEnd).toBeGreaterThan(compactStart);
 
     const baseLoaderRules =
-      stylesheet
-        .slice(0, compactStart)
-        .match(/\.header-loading-text\s*\{([^}]*)\}/)?.[1] ?? '';
+      stylesheet.slice(0, compactStart).match(/\.header-loading-text\s*\{([^}]*)\}/)?.[1] ?? '';
     const compactStyles = stylesheet.slice(compactStart, compactEnd);
     const compactLoaderRules =
       compactStyles.match(/\.header-loading-text\s*\{([^}]*)\}/)?.[1] ?? '';

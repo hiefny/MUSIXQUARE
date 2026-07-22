@@ -251,13 +251,57 @@ describe('capability proof-of-work client', () => {
     controller.abort();
     await expect(explicit).rejects.toMatchObject({ name: 'AbortError' });
 
-    resolveToken(
-      Response.json({ token: 'warm-bundle', expiresAt: Date.now() / 1000 + 600 }),
-    );
+    resolveToken(Response.json({ token: 'warm-bundle', expiresAt: Date.now() / 1000 + 600 }));
     await expect(warmup).resolves.toBe(true);
     expect(tokenRequests).toBe(1);
     await expect(getCapabilityHeaders('/api/get-turn-config', ['turn'])).resolves.toEqual({
       'X-MXQR-Capability': 'warm-bundle',
     });
+  });
+
+  it('does not let the silent warmup deadline cancel a shared caller mint', async () => {
+    vi.useFakeTimers();
+    let resolveToken!: (response: Response) => void;
+    const tokenResponse = new Promise<Response>((resolve) => {
+      resolveToken = resolve;
+    });
+    let tokenRequests = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/security-config')) {
+          return Response.json({
+            capabilityRequired: true,
+            turnstileSiteKey: '',
+            turnstileRequired: false,
+            proofOfWorkRequired: false,
+            proofOfWorkDifficulty: 0,
+            proofOfWorkTtl: 0,
+            ttl: 600,
+          });
+        }
+        if (url.endsWith('/api/capability-token')) {
+          tokenRequests += 1;
+          return tokenResponse;
+        }
+        return new Response('unexpected', { status: 500 });
+      }),
+    );
+
+    const { getCapabilityHeaders, warmCapabilitySilently } = await import('../capability.ts');
+    const warmup = warmCapabilitySilently('/api/get-turn-config', ['turn']);
+    await vi.waitFor(() => expect(tokenRequests).toBe(1));
+    const explicit = getCapabilityHeaders('/api/get-turn-config', ['turn']);
+
+    await vi.advanceTimersByTimeAsync(8_000);
+    await expect(warmup).resolves.toBe(false);
+
+    resolveToken(Response.json({ token: 'shared-bundle', expiresAt: Date.now() / 1000 + 600 }));
+    await expect(explicit).resolves.toEqual({
+      'X-MXQR-Capability': 'shared-bundle',
+    });
+    expect(tokenRequests).toBe(1);
+    vi.useRealTimers();
   });
 });

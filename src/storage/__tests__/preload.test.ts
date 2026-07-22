@@ -1425,6 +1425,41 @@ describe('unicastPreload source liveness', () => {
     expect(messages(conn, MSG.PRELOAD_END)).toHaveLength(0);
   });
 
+  it('finishes a late-join unicast when the same preload resident is promoted current', async () => {
+    vi.useFakeTimers();
+    const selected = new Blob(['promoted-late-join'], { type: 'audio/mpeg' });
+    const conn = installPeer(selected, 1024 * 1024) as DataConnection & {
+      dataChannel: { readyState: string; bufferedAmount: number };
+    };
+
+    const pending = unicastPreload(conn, selected, Q2, 20);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(messages(conn, MSG.PRELOAD_START)).toHaveLength(1);
+
+    const ready = getState('preload.ready')!;
+    setState('files.current', {
+      queueItemId: Q2,
+      indexHint: ready.indexHint,
+      name: ready.name,
+      sessionId: 20,
+      blob: selected,
+      mime: selected.type,
+      size: selected.size,
+    });
+    setState('preload.ready', null);
+    setState('preload.activeTarget', null);
+    setState('preload.nextQueueItemId', null);
+    conn.dataChannel.bufferedAmount = 0;
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await pending;
+
+    expect(messages(conn, MSG.PRELOAD_CHUNK)).toHaveLength(1);
+    expect(messages(conn, MSG.PRELOAD_END)).toEqual([
+      expect.objectContaining({ queueItemId: Q2, sessionId: 20 }),
+    ]);
+  });
+
   it('rechecks the exact source after an asynchronous slice read', async () => {
     let resolveRead: (value: ArrayBuffer) => void = () => undefined;
     const read = new Promise<ArrayBuffer>((resolve) => {

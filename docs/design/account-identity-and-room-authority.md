@@ -187,8 +187,12 @@ admission secret and is not bypassed by login.
 
 ### 6. Capabilities and product baselines
 
-Capabilities are checked by the canonical authority for every resulting action,
-including Developer API and BOT actions. Hiding a button is not authorization.
+Capabilities are checked by the canonical authority for every browser/BOT
+action. Hiding a button is not authorization. A Developer API credential is a
+separate server-to-server principal: within its explicitly issued scopes it is
+room-authoritative and does not inherit the permissions of a browser member.
+Integrations must authenticate the human requester and confirm destructive
+intent themselves, as specified by the public Developer API contract.
 
 The internal model separates at least:
 
@@ -300,7 +304,7 @@ including its shared-playback baseline, while cached clients converge.
    standard-room assertion, and PRO-room assertion secrets.
 3. Change both PRO projection flags to `1` in the same reviewed release; do not
    leave production indefinitely in a one-flag state.
-4. Deploy signaling first, PRO second, and App/static last.
+4. Deploy PRO first, signaling second, and App/static last.
 5. Verify login/nickname, ordinary and PRO multi-device grouping, persistent
    delegation/offline revoke, account-wide kick, per-capability allow/deny,
    physical-session lease expiry/reattach, and account deletion before widening

@@ -106,19 +106,13 @@ npx wrangler secret put MXQR_ADMIN_SESSION_SECRET --config cloudflare/wrangler.a
 `MXQR_ADMIN_SESSION_SECRET` should be a long random string. It signs the
 HttpOnly admin session cookie.
 
-Deploy the Workers after the schema and D1 bindings are configured. The PRO
-Worker must exist before the App Worker's cross-script Durable Object binding
-can become active:
-
-```powershell
-npm run deploy:signaling
-npm run deploy:pro-room
-npm run deploy:app
-```
-
-The app command rebuilds and verifies the immutable Static Assets artifact
-before deployment. Do not deploy `wrangler.app.toml` directly from an
-unverified `dist/` directory.
+After the schema and D1 bindings are committed, push the reviewed commit to
+`main` and run the `Production Release` GitHub workflow with target `all`. The
+workflow deploys signaling, PRO, and App in dependency order, reuses the
+validated immutable Static Assets artifact, runs live smokes, records every
+version ID, and owns rollback. Do not deploy the Wrangler configs directly or
+use the local `deploy:*` primitives for routine releases; the exceptional
+operator path is documented in `docs/hotfix-procedure.md`.
 
 Then open:
 

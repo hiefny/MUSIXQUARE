@@ -36,6 +36,7 @@ describe('announcement polling', () => {
   });
 
   afterEach(() => {
+    setState('network.appRole', 'idle');
     clearAllManagedTimers();
     vi.unstubAllGlobals();
     vi.useRealTimers();
@@ -78,6 +79,7 @@ describe('announcement polling', () => {
       cache: 'no-store',
       credentials: 'same-origin',
       headers: { Accept: 'application/json' },
+      signal: expect.any(AbortSignal),
     });
     expect(showToast).not.toHaveBeenCalled();
     expect(notices).toEqual([
@@ -107,5 +109,31 @@ describe('announcement polling', () => {
       },
     ]);
     expect(localStorage.getItem('musixquare-seen-announcement-id')).toBeNull();
+  });
+
+  it('drops a late response after the room session stops', async () => {
+    let resolveFetch!: (response: Response) => void;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const notices: string[] = [];
+    bus.on('chat:notice-message', (_sender, text) => notices.push(text));
+
+    const { initAnnouncementPolling } = await import('../announcement.ts');
+    initAnnouncementPolling();
+    setState('network.appRole', 'guest');
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    setState('network.appRole', 'idle');
+    resolveFetch(
+      Response.json({ enabled: true, id: 'late-announcement', message: 'Must not leak' }),
+    );
+    await flushAnnouncementCheck();
+
+    expect(notices).toEqual([]);
   });
 });

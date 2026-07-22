@@ -17,6 +17,7 @@ import { isLocalFilePaused, setLocalFilePaused } from './_state.ts';
 
 const SUCCESS_COOLDOWN_MS = 400;
 const RETRY_TIMER = 'local-output-rejoin-retry';
+const PRO_REJOIN_RETRY_MS = [250, 750, 1_500, 3_000, 5_000] as const;
 
 interface RejoinRequestPayload {
   reason: 'media-session-play' | 'audio-context-recovered';
@@ -33,6 +34,7 @@ interface RejoinIdentity {
 
 interface RejoinRequest extends RejoinRequestPayload {
   identity: RejoinIdentity;
+  retryAttempt: number;
 }
 
 interface RejoinResult {
@@ -52,6 +54,7 @@ function captureRequest(payload: RejoinRequestPayload): RejoinRequest {
   const room = getRoomContext();
   return {
     ...payload,
+    retryAttempt: 0,
     identity: {
       generation: rejoinGeneration,
       roomKind: room.kind,
@@ -111,15 +114,18 @@ async function performLocalOutputRejoin(request: RejoinRequest): Promise<RejoinR
     try {
       // Keep the ordinary initial bundle and player dependency graph free of
       // the PRO runtime. This matches the existing manual-sync boundary.
-      const { requestActiveProRoomPlaybackReconciliation } = await import(
-        '../pro-room/runtime.ts'
-      );
+      const { requestActiveProRoomPlaybackReconciliation } = await import('../pro-room/runtime.ts');
       const reconciled = await requestActiveProRoomPlaybackReconciliation({
         showLoading: false,
       });
       if (!requestStillCurrent(request)) return { rejoined: false };
       if (!reconciled && wasLocallyPaused) setLocalPause(mode, true);
-      return { rejoined: reconciled };
+      return {
+        rejoined: reconciled,
+        ...(!reconciled && request.retryAttempt < PRO_REJOIN_RETRY_MS.length
+          ? { retryAfterMs: PRO_REJOIN_RETRY_MS[request.retryAttempt] }
+          : {}),
+      };
     } catch (error) {
       if (wasLocallyPaused) setLocalPause(mode, true);
       throw error;
@@ -186,12 +192,17 @@ function preferRequest(current: RejoinRequest | null, incoming: RejoinRequest): 
 
 function scheduleRetry(request: RejoinRequest, delayMs: number): void {
   if (!requestStillCurrent(request)) return;
-  scheduledRetryRequest = preferRequest(scheduledRetryRequest, request);
-  setManagedTimer(RETRY_TIMER, () => {
-    const retry = scheduledRetryRequest;
-    scheduledRetryRequest = null;
-    if (retry && requestStillCurrent(retry)) void requestLocalOutputRejoin(retry);
-  }, Math.max(10, delayMs));
+  const retryRequest = { ...request, retryAttempt: request.retryAttempt + 1 };
+  scheduledRetryRequest = preferRequest(scheduledRetryRequest, retryRequest);
+  setManagedTimer(
+    RETRY_TIMER,
+    () => {
+      const retry = scheduledRetryRequest;
+      scheduledRetryRequest = null;
+      if (retry && requestStillCurrent(retry)) void requestLocalOutputRejoin(retry);
+    },
+    Math.max(10, delayMs),
+  );
 }
 
 function requestLocalOutputRejoin(request: RejoinRequest): Promise<boolean> {
@@ -225,6 +236,13 @@ function requestLocalOutputRejoin(request: RejoinRequest): Promise<boolean> {
     })
     .catch((error) => {
       log.warn('[Playback] Local output rejoin failed', error);
+      if (
+        requestStillCurrent(request) &&
+        request.identity.roomKind === 'pro' &&
+        request.retryAttempt < PRO_REJOIN_RETRY_MS.length
+      ) {
+        scheduleRetry(request, PRO_REJOIN_RETRY_MS[request.retryAttempt]!);
+      }
       return false;
     })
     .finally(() => {

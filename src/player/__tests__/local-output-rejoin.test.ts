@@ -326,6 +326,59 @@ describe('participant-local output rejoin', () => {
     expect(isLocalFilePaused()).toBe(true);
   });
 
+  it('retries a transient PRO reconciliation miss and rejoins without another OS event', async () => {
+    vi.useFakeTimers();
+    mocks.reconcilePro.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    startSession();
+    setProRoom();
+    setPlaybackFilePaused();
+    setLocalFilePaused(true);
+
+    bus.emit('playback:local-output-rejoin', {
+      reason: 'media-session-play',
+      mode: 'file',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.reconcilePro).toHaveBeenCalledTimes(1);
+    expect(isLocalFilePaused()).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(mocks.reconcilePro).toHaveBeenCalledTimes(2);
+    expect(isLocalFilePaused()).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('drops a transient PRO retry after the room lease changes', async () => {
+    vi.useFakeTimers();
+    mocks.reconcilePro.mockResolvedValue(false);
+    startSession();
+    setProRoom();
+    setPlaybackYouTubePlaying();
+    setLocalYouTubePaused(true);
+
+    bus.emit('playback:local-output-rejoin', {
+      reason: 'audio-context-recovered',
+      mode: 'youtube',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.reconcilePro).toHaveBeenCalledTimes(1);
+
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 2,
+      snapshotRevision: 2,
+      capabilities: [],
+    });
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(mocks.reconcilePro).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
   it('ignores startup/no-session events and coalesces duplicate active requests', async () => {
     setStandardGuest();
     setPlaybackFilePlaying();

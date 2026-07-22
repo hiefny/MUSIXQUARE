@@ -200,7 +200,9 @@ afterEach(() => {
       canonical.exec(SCHEMA);
 
       expect(
-        migrated.prepare('SELECT nickname_key FROM mxqr_accounts WHERE account_id = ?').get(ACCOUNT_ID),
+        migrated
+          .prepare('SELECT nickname_key FROM mxqr_accounts WHERE account_id = ?')
+          .get(ACCOUNT_ID),
       ).toMatchObject({ nickname_key: 'musixquare' });
 
       for (const objectName of ['mxqr_accounts', 'idx_mxqr_accounts_nickname_key']) {
@@ -210,9 +212,7 @@ afterEach(() => {
         const canonicalSql = canonical
           .prepare('SELECT sql FROM sqlite_master WHERE name = ?')
           .get(objectName)?.sql;
-        expect(normalizeSchemaSql(migratedSql), objectName).toBe(
-          normalizeSchemaSql(canonicalSql),
-        );
+        expect(normalizeSchemaSql(migratedSql), objectName).toBe(normalizeSchemaSql(canonicalSql));
       }
     } finally {
       migrated.close();

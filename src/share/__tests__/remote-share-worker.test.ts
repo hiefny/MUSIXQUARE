@@ -251,6 +251,8 @@ describe('remote-share Worker capability gate', () => {
       ['https://*.toss.im', 'https://music.toss.im'],
       ['https://toss-internal.com', 'https://toss-internal.com'],
       ['https://*.toss-internal.com', 'https://music.toss-internal.com'],
+      ['http://localhost:4173', 'http://localhost:4173'],
+      ['http://127.0.0.1:4173', 'http://127.0.0.1:4173'],
     ] as const;
 
     for (const [corsOrigin, requestOrigin] of originContract) {

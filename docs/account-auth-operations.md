@@ -272,7 +272,7 @@ Perform Sections 1-3, then apply the following as one reviewed activation:
 Before changing either projection flag, run the dedicated manual preflight:
 
 ```text
-npm run account:stage2:preflight -- --remote --confirm-production --callback https://musixquare.com/api/auth/google/callback --ack-deploy-order signaling,pro-room,app
+npm run account:stage2:preflight -- --remote --confirm-production --callback https://musixquare.com/api/auth/google/callback --ack-deploy-order pro-room,signaling,app
 ```
 
 This command is intentionally absent from normal build, test, and deploy
@@ -288,7 +288,7 @@ are present. Even then it performs only these read-only operations:
 - exercise the PRO, Standard attach, and Standard deletion assertion codecs
   locally with a one-use in-memory key; and
 - require an explicit acknowledgement of the only supported activation order:
-  signaling, then PRO, then App/static.
+  PRO, then signaling, then App/static.
 
 Copy the callback argument from the production Google Web-client settings. The
 script verifies that the acknowledgement and the Worker's built-in default are
@@ -311,7 +311,7 @@ or deploys a Worker.
 4. Change both `PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION` and
    `PRO_ROOM_MEMBER_AUTHORITY_PROJECTION` to `1`; do not operate indefinitely
    with one flag enabled.
-5. Deploy signaling first, PRO second, and App/static last. Do not publish the
+5. Deploy PRO first, signaling second, and App/static last. Do not publish the
    App while either downstream Worker is still on its pre-activation version.
 
 Verify that the session endpoint now reports `configured:true`, complete one

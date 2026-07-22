@@ -300,11 +300,8 @@ describe('YouTube Player', () => {
       };
       const stateMod = await import('../_state.ts');
       const syncMod = await import('../sync.ts');
-      const {
-        getPendingAutoSyncOnReadyForTests,
-        initYouTube,
-        setPendingAutoSyncOnReady,
-      } = await import('../player.ts');
+      const { getPendingAutoSyncOnReadyForTests, initYouTube, setPendingAutoSyncOnReady } =
+        await import('../player.ts');
       stateMod.setYouTubePlayer(player as unknown as YouTubePlayerInstance);
       stateMod.setYtLoadInProgress(true);
       initYouTube();

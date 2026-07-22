@@ -8,7 +8,7 @@
  * is the defense-in-depth behind it.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { resetState, setState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG, PEER_NAME_PREFIX } from '../../core/constants.ts';
 import { handleData } from '../../network/protocol.ts';
@@ -22,7 +22,11 @@ import {
   sendLatestPinnedNotice,
   sendSystemMessage,
 } from '../protocol.ts';
-import { addChatMessage, upsertBotChatMessage } from '../../ui/chat-render.ts';
+import {
+  addChatMessage,
+  addSystemChatMessage,
+  upsertBotChatMessage,
+} from '../../ui/chat-render.ts';
 import type { DataConnection } from '../../types/index.ts';
 import type { ProRealtimeRelayEnvelope } from '../../pro-room/network-bridge.ts';
 
@@ -210,6 +214,42 @@ describe('PRO member-level chat projection', () => {
       2,
       'member-guest',
     );
+  });
+
+  it('silently applies an authenticated reconnect control projection, including OFF values', () => {
+    setState('network.chatFrozen', true);
+    setState('network.filterEnabled', true);
+    setState('network.slowmodeSeconds', 15);
+    const muted: boolean[] = [];
+    bus.on('chat:muted-state-changed', (on) => muted.push(on));
+    const snapshotFrame: ProRealtimeRelayEnvelope = {
+      type: 'pro-realtime',
+      version: 1,
+      roomCode: '000001',
+      coordinatorEpoch: 7,
+      eventId: 'snapshot-control-state',
+      channel: 'chat-control-snapshot',
+      payload: {
+        revision: 8,
+        frozen: false,
+        filterEnabled: false,
+        slowmodeSeconds: 0,
+        muted: false,
+      },
+      sender: {
+        participantId: 'server',
+        presenceIncarnationId: 'server-chat-state',
+        displayName: 'MUSIXQUARE',
+      },
+    };
+
+    receiveProRoomRealtimeChat(snapshotFrame);
+
+    expect(getState('network.chatFrozen')).toBe(false);
+    expect(getState('network.filterEnabled')).toBe(false);
+    expect(getState('network.slowmodeSeconds')).toBe(0);
+    expect(muted).toEqual([false]);
+    expect(addSystemChatMessage).not.toHaveBeenCalled();
   });
 });
 

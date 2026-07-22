@@ -117,8 +117,7 @@ export function hasPendingAudioContextInterruption(mode?: RejoinMode): boolean {
 }
 
 /** Retry a rejected OS auto-resume inside a trusted Media Session PLAY. */
-export function resumePendingAudioContextInterruptionFromGesture(
-): Promise<ContextResumeResult> {
+export function resumePendingAudioContextInterruptionFromGesture(): Promise<ContextResumeResult> {
   const recovery = pendingRecovery;
   if (!recovery) return Promise.resolve({ running: false, rejoinEmitted: false });
   if (String(recovery.context.state) === 'running') {

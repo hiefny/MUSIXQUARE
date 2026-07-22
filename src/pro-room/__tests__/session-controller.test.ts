@@ -100,7 +100,11 @@ function fixtures() {
     createSession: vi.fn(async () => initial),
     enterPresence: vi.fn(async () => initial),
     attachCurrentAccount: vi.fn(async () => initial),
-    detachCurrentAccount: vi.fn(async () => initial),
+    detachCurrentAccount: vi.fn(async () => ({
+      ok: true as const,
+      detached: true as const,
+      snapshot: initial,
+    })),
     getSnapshot: vi.fn(async () => initial),
     heartbeat: vi.fn(async () => initial),
     leavePresence: vi.fn(async () => initial),
@@ -374,12 +378,81 @@ describe('PRO room session controller', () => {
         ],
       },
     });
-    api.detachCurrentAccount.mockResolvedValueOnce(detached);
+    api.detachCurrentAccount.mockResolvedValueOnce({
+      ok: true,
+      detached: true,
+      snapshot: detached,
+    });
 
-    await expect(controller.detachCurrentAccount()).resolves.toEqual(detached);
+    await expect(controller.detachCurrentAccount()).resolves.toEqual({
+      ok: true,
+      detached: true,
+      snapshot: detached,
+    });
 
     expect(api.detachCurrentAccount).toHaveBeenCalledWith(ROOM_CODE, undefined);
     expect(transport.reconfigure).toHaveBeenCalledOnce();
+  });
+
+  it('re-enters without takeover when a committed detach has no surviving presence snapshot', async () => {
+    const { api, transport, observer, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
+    api.detachCurrentAccount.mockResolvedValueOnce({
+      ok: true,
+      detached: true,
+      snapshot: null,
+    });
+
+    await expect(controller.detachCurrentAccount()).resolves.toEqual({
+      ok: true,
+      detached: true,
+      snapshot: null,
+    });
+    // Null is a committed server boundary, not permission to forge an
+    // anonymous projection from the previously authenticated local snapshot.
+    expect(controller.snapshot?.viewer?.isAuthenticated).not.toBe(false);
+
+    const recovered = snapshot({
+      revision: 2,
+      viewer: {
+        ...snapshot().viewer!,
+        memberId: 'member_anonymous000000002',
+        participantId: 'participant_00002',
+        presenceIncarnationId: 'presence_0000000002',
+        displayName: 'Peer 1',
+        role: 'member',
+        capabilities: ['playback.control'],
+      },
+      presence: {
+        ...snapshot().presence,
+        revision: 2,
+        participants: [
+          {
+            ...snapshot().presence.participants[0]!,
+            participantId: 'participant_00002',
+            displayName: 'Peer 1',
+            role: 'member',
+          },
+        ],
+      },
+    });
+    api.enterPresence.mockResolvedValueOnce(recovered);
+    api.createSignalingTicket.mockResolvedValueOnce({
+      ...signaling(),
+      presenceIncarnationId: 'presence_0000000002',
+      ticketSequence: 2,
+    });
+
+    await expect(controller.reenterAfterDetachedPresence()).resolves.toEqual(recovered);
+
+    expect(transport.disconnect).toHaveBeenCalledOnce();
+    expect(api.enterPresence).toHaveBeenCalledWith(
+      ROOM_CODE,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(api.enterPresence.mock.calls[0]?.[1]).not.toHaveProperty('takeover');
+    expect(observer.cleared).not.toHaveBeenCalled();
+    expect(controller.snapshot?.viewer?.displayName).toBe('Peer 1');
   });
 
   it('fails locally instead of rotating the cookie incarnation while already active', async () => {

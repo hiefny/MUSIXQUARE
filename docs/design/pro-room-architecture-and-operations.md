@@ -139,8 +139,8 @@ signaling, or upload credentials cannot become valid in a new incarnation.
 Operator audit events remain under the existing 365-day retention policy; all
 room-scoped Developer API audit detail is removed with the room.
 
-For a release containing this protocol, deploy signaling before the PRO Worker
-and deploy both the PRO and Developer API Workers before the app Worker. The
+For a release containing this protocol, deploy the PRO Worker before signaling
+and deploy both the signaling and Developer API Workers before the app Worker. The
 checked-in all-workers command already satisfies those dependency edges. The
 PRO Worker owns cross-script bindings to signaling and the room-scoped
 Developer API limiter so its alarm can finish every cleanup phase without an
@@ -188,9 +188,11 @@ dependencies are not ready.
   addition, member removal, and chat-announcement capabilities only through
   their respective explicit toggles; disabling the playback toggle removes
   `playback.control`. Queue deletion/reordering/clear, effects, repeat, shuffle,
-  PIN/recovery, and other room configuration remain owner-only. BOT and
-  Developer API commands are checked as the initiating room member and cannot
-  bypass those capability boundaries. An anonymous delegation is session-lived;
+  PIN/recovery, and other room configuration remain owner-only. BOT commands
+  are checked as the initiating room member and cannot bypass those capability
+  boundaries. Developer API keys are instead independent room-authoritative
+  principals within their issued scopes; integrations own requester identity
+  and destructive-intent confirmation. An anonymous delegation is session-lived;
   a verified account delegation is persisted in the room until owner revocation
   or room deletion.
 - Browser credentials are room-scoped, host-only, Secure, HttpOnly cookies, so
@@ -481,17 +483,17 @@ Secret values must come from the approved password/secret manager. Never put a
 value in source, a committed `.env`, a shell argument, a URL query, an issue, or
 a deployment message.
 
-| Binding                      | Scope and rotation consequence                                                   |
-| ---------------------------- | -------------------------------------------------------------------------------- |
-| `PRO_ROOM_ACTIVATION_SECRET` | PRO Worker plus the offline issuer. Rotation invalidates unredeemed claims.      |
-| `PRO_ROOM_PIN_PEPPER`        | PRO Worker only. Rotation invalidates existing PIN hashes without migration.     |
-| `PRO_ROOM_SESSION_SECRET`    | PRO Worker only. Rotation signs out member and owner browser credentials.        |
-| `PRO_ROOM_RATE_LIMIT_SECRET` | PRO Worker only. Rotation resets pseudonymous rate-limit buckets.                |
-| `PRO_SIGNALING_SECRET`       | Same value in PRO and signaling Workers; rotate/deploy both together.            |
+| Binding                                  | Scope and rotation consequence                                                                |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `PRO_ROOM_ACTIVATION_SECRET`             | PRO Worker plus the offline issuer. Rotation invalidates unredeemed claims.                   |
+| `PRO_ROOM_PIN_PEPPER`                    | PRO Worker only. Rotation invalidates existing PIN hashes without migration.                  |
+| `PRO_ROOM_SESSION_SECRET`                | PRO Worker only. Rotation signs out member and owner browser credentials.                     |
+| `PRO_ROOM_RATE_LIMIT_SECRET`             | PRO Worker only. Rotation resets pseudonymous rate-limit buckets.                             |
+| `PRO_SIGNALING_SECRET`                   | Same value in PRO and signaling Workers; rotate/deploy both together.                         |
 | `MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET` | Same independent value in App and PRO Workers; signs short-lived PRO room/account assertions. |
-| `R2_ACCOUNT_ID`              | Public account identifier used by the presigner and exact client host allowlist. |
-| `R2_ACCESS_KEY_ID`           | R2 S3 credential restricted to the dedicated PRO media bucket.                   |
-| `R2_SECRET_ACCESS_KEY`       | Paired R2 S3 secret; rotation interrupts new presigned URLs until redeployed.    |
+| `R2_ACCOUNT_ID`                          | Public account identifier used by the presigner and exact client host allowlist.              |
+| `R2_ACCESS_KEY_ID`                       | R2 S3 credential restricted to the dedicated PRO media bucket.                                |
+| `R2_SECRET_ACCESS_KEY`                   | Paired R2 S3 secret; rotation interrupts new presigned URLs until redeployed.                 |
 
 Set Worker secrets through Wrangler's interactive prompt, for example:
 
@@ -573,7 +575,7 @@ authority.
 3. Change both `PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION` and
    `PRO_ROOM_MEMBER_AUTHORITY_PROJECTION` from `0` to `1` in the same reviewed
    release. Do not operate indefinitely with only one flag enabled.
-4. Deploy signaling first, PRO second, and App/static last. Verify the account
+4. Deploy PRO first, signaling second, and App/static last. Verify the account
    session endpoint, one login/nickname flow, multi-device grouping, delegated
    allow/deny boundaries, lease expiry/reattach, logout-all, and cross-room
    deletion purge before inviting additional PRO users.
@@ -582,8 +584,9 @@ Within either stage, use this Worker dependency order so the public app never
 advertises a dependency that is absent:
 
 1. Remote-share Worker (independent baseline service).
-2. Signaling Worker, reserving `0xxxxx` before any client can advertise PRO.
-3. PRO Worker and Durable Object/R2 bindings.
+2. PRO Worker and Durable Object/R2 bindings, including the authority endpoint
+   used by signaling.
+3. Signaling Worker, reserving `0xxxxx` before the App can advertise PRO.
 4. App Worker, same-origin PRO service binding, and static build last.
 
 The room-effects version 2 rollout follows that same strict server-first order.
@@ -596,15 +599,16 @@ virtual-treble storage sidecar preserves state across an old-Worker rollback,
 but it does not make that old Worker's HTTP/CORS contract understand a version
 2 client.
 
-The checked-in command performs all syntax/build checks before step 1 and then
-uses this order:
+Production releases use the repository's `Production Release` GitHub workflow
+for the exact reviewed `main` commit. Select `all` for a cross-Worker contract
+change or `pro-room` for a backward-compatible PRO-only change, approve the
+`production` environment after validation, and retain the recorded deployment
+IDs. The workflow owns the dependency order above, immutable app artifact,
+live smokes, and conflict-aware rollback.
 
-```powershell
-npm run deploy:all-workers
-```
-
-For a narrowly scoped PRO backend update, use `npm run deploy:pro-room`. Do not
-run either deploy command from tests or local validation.
+The local `deploy:*` scripts are emergency/operator primitives only. They are
+not the normal release path and must follow the exceptional procedure in
+`docs/hotfix-procedure.md`; do not run them from tests or routine validation.
 
 After deployment but before activation:
 

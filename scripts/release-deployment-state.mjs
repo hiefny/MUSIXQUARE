@@ -16,11 +16,11 @@ const TARGETS = {
   },
   signaling: {
     config: 'cloudflare/wrangler.signaling.toml',
-    rollbackOrder: 2,
+    rollbackOrder: 3,
   },
   'pro-room': {
     config: 'cloudflare/wrangler.pro-room.toml',
-    rollbackOrder: 3,
+    rollbackOrder: 2,
   },
   'developer-api-facade': {
     config: 'cloudflare/wrangler.developer-api-facade.toml',
@@ -431,13 +431,31 @@ function rollbackDependencyBlock(target, states, results) {
   // while the legacy Worker cannot authenticate a new app that omits the URL
   // secret. If app recovery is uncertain, retaining the new signaling Worker
   // is the only combination that keeps both cached and current clients usable.
-  if (target !== 'signaling' || !states.some((state) => state.target === 'app')) return null;
-  const appResult = results.find((result) => result.target === 'app');
-  if (appResult && ['restored', 'already-restored'].includes(appResult.status)) return null;
-  return {
-    dependency: 'app',
-    dependencyStatus: appResult?.status || 'not-processed',
-  };
+  if (target === 'signaling' && states.some((state) => state.target === 'app')) {
+    const appResult = results.find((result) => result.target === 'app');
+    if (appResult && ['restored', 'already-restored'].includes(appResult.status)) return null;
+    return {
+      dependency: 'app',
+      dependencyStatus: appResult?.status || 'not-processed',
+    };
+  }
+
+  // Signaling authorization is server-owned by the PRO room Durable Object.
+  // A release that rolled signaling forward must restore signaling before it
+  // can safely restore PRO. Otherwise a newer signaling Worker would call an
+  // authority endpoint that no longer exists on the previous PRO Worker.
+  if (target === 'pro-room' && states.some((state) => state.target === 'signaling')) {
+    const signalingResult = results.find((result) => result.target === 'signaling');
+    if (signalingResult && ['restored', 'already-restored'].includes(signalingResult.status)) {
+      return null;
+    }
+    return {
+      dependency: 'signaling',
+      dependencyStatus: signalingResult?.status || 'not-processed',
+    };
+  }
+
+  return null;
 }
 
 function rollback(directory) {
@@ -488,11 +506,11 @@ function rollback(directory) {
 
     const dependencyBlock = rollbackDependencyBlock(state.target, states, report.results);
     if (dependencyBlock) {
-      result.status = 'skipped-dependent-app-not-restored';
+      result.status = 'skipped-dependent-worker-not-restored';
       result.error =
-        `Automatic signaling rollback was withheld because app recovery is ` +
-        `${dependencyBlock.dependencyStatus}; the new signaling Worker remains compatible ` +
-        'with both cached and current app clients.';
+        `Automatic ${state.target} rollback was withheld because ` +
+        `${dependencyBlock.dependency} recovery is ${dependencyBlock.dependencyStatus}; ` +
+        `the newer ${state.target} Worker remains deployed to preserve cross-Worker compatibility.`;
       failed = true;
       continue;
     }

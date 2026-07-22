@@ -263,8 +263,27 @@ export function publishBotChatResult(
 
 /** Accept a signaling-validated, server-attributed PRO chat relay. */
 export function receiveProRoomRealtimeChat(frame: ProRealtimeRelayEnvelope): void {
-  if (frame.channel !== 'chat' || getRoomContext().kind !== 'pro') return;
+  if (getRoomContext().kind !== 'pro') return;
   const payload = frame.payload;
+  if (frame.channel === 'chat-control-snapshot') {
+    if (
+      frame.sender.participantId !== 'server' ||
+      frame.sender.presenceIncarnationId !== 'server-chat-state' ||
+      typeof payload.frozen !== 'boolean' ||
+      typeof payload.filterEnabled !== 'boolean' ||
+      !Number.isSafeInteger(payload.slowmodeSeconds) ||
+      (payload.slowmodeSeconds as number) < 0 ||
+      typeof payload.muted !== 'boolean'
+    ) {
+      return;
+    }
+    setState('network.chatFrozen', payload.frozen);
+    setState('network.filterEnabled', payload.filterEnabled);
+    setState('network.slowmodeSeconds', payload.slowmodeSeconds as number);
+    bus.emit('chat:muted-state-changed', payload.muted);
+    return;
+  }
+  if (frame.channel !== 'chat') return;
   const kind = payload.kind;
   const senderId = frame.sender.participantId;
   const senderLabel =

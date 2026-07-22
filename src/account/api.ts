@@ -6,6 +6,8 @@
  * on these requests succeeding.
  */
 
+import { readBoundedResponseText, withRequestDeadline } from '../core/request-lifetime.ts';
+
 export interface AccountProfile {
   nickname: string;
   profileComplete: boolean;
@@ -42,6 +44,8 @@ interface RawAccountSessionResponse {
 }
 
 const ACCOUNT_CSRF_HEADER = 'X-MXQR-Account-CSRF';
+const ACCOUNT_REQUEST_TIMEOUT_MS = 15_000;
+const ACCOUNT_RESPONSE_MAX_BYTES = 64 * 1024;
 
 export class AccountApiError extends Error {
   readonly code: string;
@@ -87,8 +91,8 @@ function normalizeAccountResponse(value: unknown): AccountSessionResponse {
   };
 }
 
-async function readJson(response: Response): Promise<unknown> {
-  const text = await response.text();
+async function readJson(response: Response, signal?: AbortSignal): Promise<unknown> {
+  const text = await readBoundedResponseText(response, ACCOUNT_RESPONSE_MAX_BYTES, signal);
   if (!text) return {};
   try {
     return JSON.parse(text) as unknown;
@@ -98,31 +102,43 @@ async function readJson(response: Response): Promise<unknown> {
 }
 
 async function requestJson(path: string, init: RequestInit = {}): Promise<unknown> {
-  let response: Response;
   try {
-    response = await fetch(path, {
-      ...init,
-      credentials: 'same-origin',
-      headers: {
-        Accept: 'application/json',
-        ...init.headers,
+    return await withRequestDeadline(
+      async (signal) => {
+        const response = await fetch(path, {
+          ...init,
+          credentials: 'same-origin',
+          headers: {
+            Accept: 'application/json',
+            ...init.headers,
+          },
+          signal,
+        });
+
+        // Consume the body inside the deadline. Fetch resolving at headers is
+        // not completion and must not pin account refresh/mutation state.
+        const payload = await readJson(response, signal);
+        if (!response.ok) {
+          const code =
+            payload &&
+            typeof payload === 'object' &&
+            typeof (payload as { error?: unknown }).error === 'string'
+              ? (payload as { error: string }).error
+              : 'ACCOUNT_REQUEST_FAILED';
+          throw new AccountApiError(code, response.status);
+        }
+        return payload;
       },
-    });
-  } catch {
+      {
+        signal: init.signal ?? undefined,
+        timeoutMs: ACCOUNT_REQUEST_TIMEOUT_MS,
+        timeoutReason: 'ACCOUNT_REQUEST_TIMEOUT',
+      },
+    );
+  } catch (error) {
+    if (error instanceof AccountApiError) throw error;
     throw new AccountApiError('ACCOUNT_NETWORK_ERROR', 0);
   }
-
-  const payload = await readJson(response);
-  if (!response.ok) {
-    const code =
-      payload &&
-      typeof payload === 'object' &&
-      typeof (payload as { error?: unknown }).error === 'string'
-        ? (payload as { error: string }).error
-        : 'ACCOUNT_REQUEST_FAILED';
-    throw new AccountApiError(code, response.status);
-  }
-  return payload;
 }
 
 function mutationHeaders(): HeadersInit {

@@ -15,6 +15,7 @@ import {
 import { bus } from '../core/events.ts';
 
 let _operationGeneration = 0;
+let _sessionFence = 0;
 let _refreshInFlight: Promise<void> | null = null;
 let _refreshFollowUp = false;
 let _mutationDepth = 0;
@@ -116,14 +117,15 @@ function refreshAccountSession(showLoading = true): Promise<void> {
   }
   _lastRefreshStartedAt = Date.now();
   const generation = ++_operationGeneration;
+  const sessionFence = _sessionFence;
   if (showLoading) setAccountLoading();
   const operation = (async () => {
     try {
       const response = await getAccountSession();
-      if (generation !== _operationGeneration) return;
+      if (sessionFence !== _sessionFence || generation !== _operationGeneration) return;
       applyAccountSession(response);
     } catch {
-      if (generation !== _operationGeneration) return;
+      if (sessionFence !== _sessionFence || generation !== _operationGeneration) return;
       setAccountUnavailable();
     }
   })();
@@ -138,11 +140,14 @@ function refreshAccountSession(showLoading = true): Promise<void> {
 
 export async function saveAccountNickname(nickname: string): Promise<AccountProfile> {
   const generation = ++_operationGeneration;
+  const sessionFence = _sessionFence;
   _mutationDepth += 1;
   try {
     const response = await updateAccountProfile(nickname);
     if (!response.authenticated || !response.account) throw new Error('ACCOUNT_INVALID_RESPONSE');
-    if (generation === _operationGeneration) applyAccountSession(response);
+    if (sessionFence === _sessionFence && generation === _operationGeneration) {
+      applyAccountSession(response);
+    }
     broadcastAccountChange();
     return response.account;
   } finally {
@@ -153,11 +158,14 @@ export async function saveAccountNickname(nickname: string): Promise<AccountProf
 
 export async function signOutAccount(everywhere = false): Promise<void> {
   const generation = ++_operationGeneration;
+  const sessionFence = _sessionFence;
   _mutationDepth += 1;
   try {
     if (everywhere) await logoutAllAccounts();
     else await logoutAccount();
-    if (generation === _operationGeneration) setAccountAnonymous(true);
+    if (sessionFence === _sessionFence && generation === _operationGeneration) {
+      setAccountAnonymous(true);
+    }
     broadcastAccountChange();
   } finally {
     _mutationDepth -= 1;
@@ -167,10 +175,11 @@ export async function signOutAccount(everywhere = false): Promise<void> {
 
 export async function removeAccount(): Promise<void> {
   const generation = ++_operationGeneration;
+  const sessionFence = _sessionFence;
   _mutationDepth += 1;
   try {
     await deleteAccount();
-    if (generation === _operationGeneration) {
+    if (sessionFence === _sessionFence && generation === _operationGeneration) {
       bus.emit('account:deleted');
       setAccountAnonymous(true);
     }
@@ -197,7 +206,11 @@ export function __resetAccountSessionForTests(): void {
   }
   _syncChannel = null;
   _lifecycleBound = false;
-  _operationGeneration = 0;
+  // Never reset an async generation to a reusable value: a late operation
+  // from the previous lifecycle could otherwise collide with generation 1 of
+  // the next lifecycle and overwrite the fresh account state.
+  _sessionFence += 1;
+  _operationGeneration += 1;
   _refreshInFlight = null;
   _refreshFollowUp = false;
   _mutationDepth = 0;

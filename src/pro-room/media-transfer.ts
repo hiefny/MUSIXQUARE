@@ -14,6 +14,7 @@ import {
 } from './contracts.ts';
 import { createProRoomIdempotencyKey } from './idempotency.ts';
 import { ProRoomAssetCache } from './media-cache.ts';
+import { createIdleWatchdog, createLinkedAbortScope } from '../core/request-lifetime.ts';
 
 export type ProRoomMediaProgress = (fraction: number) => void;
 
@@ -81,9 +82,37 @@ class ProRoomMediaTransferError extends Error {
 type XhrFactory = () => XMLHttpRequest;
 type IdempotencyKeyFactory = () => string;
 const OPAQUE_ASSET_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
+// A transfer may take arbitrarily long while bytes keep moving. Only a fully
+// idle connection is abandoned; there is deliberately no total-size deadline.
+const PRO_ROOM_MEDIA_IDLE_TIMEOUT_MS = 60_000;
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_ABORTED');
+}
+
+function readWithAbort<T>(
+  reader: ReadableStreamDefaultReader<T>,
+  signal?: AbortSignal,
+): Promise<ReadableStreamReadResult<T>> {
+  if (!signal) return reader.read();
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort);
+      reject(signal.reason);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    reader.read().then(
+      (result) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(result);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 function reportProgress(callback: ProRoomMediaProgress | undefined, fraction: number): void {
@@ -195,11 +224,14 @@ function directPut(
     let settled = false;
     let lastLoaded = 0;
     let xhr: XMLHttpRequest;
+    let idleExpired = false;
+    let idleWatchdog: ReturnType<typeof createIdleWatchdog> | null = null;
 
     const settle = (error?: ProRoomMediaTransferError): void => {
       if (settled) return;
       settled = true;
       signal?.removeEventListener('abort', handleAbort);
+      idleWatchdog?.cleanup();
       if (error) reject(error);
       else resolve();
     };
@@ -209,7 +241,11 @@ function directPut(
       } catch {
         // The abort outcome below remains authoritative.
       }
-      settle(new ProRoomMediaTransferError('PRO_ROOM_MEDIA_ABORTED'));
+      settle(
+        new ProRoomMediaTransferError(
+          idleExpired ? 'PRO_ROOM_MEDIA_UPLOAD_NETWORK' : 'PRO_ROOM_MEDIA_ABORTED',
+        ),
+      );
     };
 
     try {
@@ -229,6 +265,15 @@ function directPut(
       return;
     }
     signal?.addEventListener('abort', handleAbort, { once: true });
+    idleWatchdog = createIdleWatchdog(() => {
+      idleExpired = true;
+      try {
+        xhr.abort();
+      } catch {
+        // settle() below owns the observable outcome.
+      }
+      settle(new ProRoomMediaTransferError('PRO_ROOM_MEDIA_UPLOAD_NETWORK'));
+    }, PRO_ROOM_MEDIA_IDLE_TIMEOUT_MS);
 
     xhr.upload.onprogress = (event): void => {
       if (settled) return;
@@ -246,8 +291,14 @@ function directPut(
         }
         return;
       }
-      lastLoaded = event.loaded;
-      reportProgress(onProgress, event.loaded / file.size);
+      // Browsers and intermediaries may emit duplicate/zero-progress events.
+      // Only real byte progress may renew the idle lease; otherwise a stalled
+      // upload could remain pending forever while producing empty callbacks.
+      if (event.loaded > lastLoaded) {
+        lastLoaded = event.loaded;
+        idleWatchdog?.touch();
+        reportProgress(onProgress, event.loaded / file.size);
+      }
     };
     xhr.onload = (): void => {
       if (settled) return;
@@ -318,6 +369,7 @@ async function readExactBody(
   expectedBytes: number,
   onProgress?: ProRoomMediaProgress,
   signal?: AbortSignal,
+  onProgressBytes?: () => void,
 ): Promise<Uint8Array<ArrayBuffer>> {
   if (!response.body) {
     throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_DOWNLOAD_BODY_MISSING');
@@ -328,9 +380,11 @@ async function readExactBody(
   try {
     while (true) {
       throwIfAborted(signal);
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithAbort(reader, signal);
       if (done) break;
-      if (!value) continue;
+      // A zero-length chunk is legal but is not network progress. In
+      // particular it must not keep an otherwise stalled response alive.
+      if (!value || value.byteLength === 0) continue;
       if (
         offset + value.byteLength > expectedBytes ||
         offset + value.byteLength > PRO_ROOM_MAX_ASSET_BYTES
@@ -340,21 +394,23 @@ async function readExactBody(
       }
       bytes.set(value, offset);
       offset += value.byteLength;
+      onProgressBytes?.();
       reportProgress(onProgress, offset / expectedBytes);
     }
   } catch (error) {
     if (signal?.aborted) {
-      try {
-        await reader.cancel();
-      } catch {
-        // Ignore stream cleanup failures after an authoritative abort.
-      }
+      void reader.cancel().catch(() => undefined);
       throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_ABORTED', { cause: error });
     }
     if (error instanceof ProRoomMediaTransferError) throw error;
     throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_DOWNLOAD_NETWORK', { cause: error });
   } finally {
-    reader.releaseLock();
+    try {
+      reader.releaseLock();
+    } catch {
+      // An implementation may retain a pending read while cancellation is
+      // propagating. The abort still owns this transfer's observable lifetime.
+    }
   }
 
   throwIfAborted(signal);
@@ -478,9 +534,14 @@ export class ProRoomMediaTransfer {
     }
     const url = assertPresignedR2Url(descriptor.url).toString();
 
-    let response: Response;
+    const transferScope = createLinkedAbortScope(input.signal, 0);
+    let idleExpired = false;
+    const idleWatchdog = createIdleWatchdog(() => {
+      idleExpired = true;
+      transferScope.abort(new Error('PRO_ROOM_MEDIA_DOWNLOAD_IDLE_TIMEOUT'));
+    }, PRO_ROOM_MEDIA_IDLE_TIMEOUT_MS);
     try {
-      response = await this.#fetch(url, {
+      const response = await this.#fetch(url, {
         method: 'GET',
         headers: { Accept: 'application/octet-stream' },
         credentials: 'omit',
@@ -488,40 +549,56 @@ export class ProRoomMediaTransfer {
         redirect: 'error',
         referrerPolicy: 'no-referrer',
         mode: 'cors',
-        signal: input.signal,
+        signal: transferScope.signal,
       });
+      idleWatchdog.touch();
+      if (response.redirected || (response.url !== '' && !sameUrl(response.url, url))) {
+        await cancelResponseBody(response);
+        throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_DOWNLOAD_REDIRECTED');
+      }
+      if (!response.ok || response.status !== 200) {
+        await cancelResponseBody(response);
+        throw new ProRoomMediaTransferError(`PRO_ROOM_MEDIA_DOWNLOAD_HTTP_${response.status}`);
+      }
+      try {
+        parseExpectedContentLength(response, input.source.byteLength);
+      } catch (error) {
+        await cancelResponseBody(response);
+        throw error;
+      }
+      // Make room only after the response and its declared size are verified,
+      // but before readExactBody creates the incoming byte buffer. put() still
+      // enforces the final ledger; this pre-eviction bounds the transient
+      // old-cache + new-body overlap without discarding cache on network errors.
+      this.#cache.prepareForIncoming(input.source.byteLength, input.retainedEncodedBytes ?? 0);
+      const bytes = await readExactBody(
+        response,
+        input.source.byteLength,
+        report,
+        transferScope.signal,
+        () => idleWatchdog.touch(),
+      );
+      const file = new File([bytes], input.name, {
+        type: effectiveMime(input.name, input.source.mime),
+      });
+      if (file.size <= this.#cache.maxTotalBytes) this.#cache.put(input.source, file);
+      report(1);
+      return file;
     } catch (error) {
+      if (error instanceof ProRoomMediaTransferError) {
+        if (idleExpired && error.code === 'PRO_ROOM_MEDIA_ABORTED') {
+          throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_DOWNLOAD_NETWORK', { cause: error });
+        }
+        throw error;
+      }
       throw new ProRoomMediaTransferError(
         input.signal?.aborted ? 'PRO_ROOM_MEDIA_ABORTED' : 'PRO_ROOM_MEDIA_DOWNLOAD_NETWORK',
         { cause: error },
       );
+    } finally {
+      idleWatchdog.cleanup();
+      transferScope.cleanup();
     }
-    if (response.redirected || (response.url !== '' && !sameUrl(response.url, url))) {
-      await cancelResponseBody(response);
-      throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_DOWNLOAD_REDIRECTED');
-    }
-    if (!response.ok || response.status !== 200) {
-      await cancelResponseBody(response);
-      throw new ProRoomMediaTransferError(`PRO_ROOM_MEDIA_DOWNLOAD_HTTP_${response.status}`);
-    }
-    try {
-      parseExpectedContentLength(response, input.source.byteLength);
-    } catch (error) {
-      await cancelResponseBody(response);
-      throw error;
-    }
-    // Make room only after the response and its declared size are verified,
-    // but before readExactBody creates the incoming byte buffer. put() still
-    // enforces the final ledger; this pre-eviction bounds the transient
-    // old-cache + new-body overlap without discarding cache on network errors.
-    this.#cache.prepareForIncoming(input.source.byteLength, input.retainedEncodedBytes ?? 0);
-    const bytes = await readExactBody(response, input.source.byteLength, report, input.signal);
-    const file = new File([bytes], input.name, {
-      type: effectiveMime(input.name, input.source.mime),
-    });
-    if (file.size <= this.#cache.maxTotalBytes) this.#cache.put(input.source, file);
-    report(1);
-    return file;
   }
 
   /**

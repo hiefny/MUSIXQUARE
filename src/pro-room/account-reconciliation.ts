@@ -79,8 +79,7 @@ export class ProRoomAccountReconciler {
     // The superseded request may already have committed at the server even
     // when abort prevents its response from updating the local viewer.
     this.#forceOperation =
-      this.#operationAbort !== null ||
-      (target.kind === 'detach' && this.#attachMayHaveCommitted);
+      this.#operationAbort !== null || (target.kind === 'detach' && this.#attachMayHaveCommitted);
     this.#target = target;
     this.#generation += 1;
     // A definitive logout must revoke account-only authority synchronously,

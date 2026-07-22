@@ -2,7 +2,8 @@
 
 This runbook records which Cloudflare settings live outside Worker source and
 how to compare them with the repository without printing secret values. The
-inventory was reconciled on 2026-07-16.
+repository inventory was reconciled on 2026-07-22. A date here records the
+checked-in contract, not proof that the live dashboard was inspected that day.
 
 ## R2 CORS
 
@@ -13,12 +14,15 @@ Repository inputs:
   browser `GET`/`HEAD` requests for public assets.
 - `r2-cors.remote-share.json`: credential-bearing direct uploads. Keep the
   explicit production and local-development origin list; do not use `*`.
+- `r2-cors.pro-media.json`: persistent PRO-room media. Keep its explicit
+  production and local-development origin list aligned with the PRO Worker.
 
 Compare the live buckets:
 
 ```powershell
 npm run wrangler -- r2 bucket cors list musixquare-demo-tracks
 npm run wrangler -- r2 bucket cors list musixquare-remote-share
+npm run wrangler -- r2 bucket cors list musixquare-pro-media
 ```
 
 Apply a reviewed repository file only when the listing differs:
@@ -26,6 +30,7 @@ Apply a reviewed repository file only when the listing differs:
 ```powershell
 npm run wrangler -- r2 bucket cors set musixquare-demo-tracks --file cloudflare/r2-cors.demo-tracks.json
 npm run wrangler -- r2 bucket cors set musixquare-remote-share --file cloudflare/r2-cors.remote-share.json
+npm run wrangler -- r2 bucket cors set musixquare-pro-media --file cloudflare/r2-cors.pro-media.json --config cloudflare/wrangler.pro-room.toml
 ```
 
 ## Worker Secret Inventory
@@ -37,16 +42,26 @@ variables actually read by each Worker before adding or deleting anything:
 npm run wrangler -- secret list --config cloudflare/wrangler.app.toml --format pretty
 npm run wrangler -- secret list --config cloudflare/wrangler.remote-share.toml --format pretty
 npm run wrangler -- secret list --config cloudflare/wrangler.signaling.toml --format pretty
+npm run wrangler -- secret list --config cloudflare/wrangler.pro-room.toml --format pretty
+npm run wrangler -- secret list --config cloudflare/wrangler.developer-api.toml --format pretty
+npm run wrangler -- secret list --config cloudflare/wrangler.developer-api-facade.toml --format pretty
 ```
 
 Current production requirements:
 
-- App: `YOUTUBE_API_KEY`, Cloudflare TURN credentials,
-  `MXQR_CAPABILITY_SECRET`, both `MXQR_ADMIN_*` secrets, and the enabled
-  Realtime/SFU credentials.
+- App: YouTube/Gemini/Google OAuth credentials, Cloudflare TURN and Realtime
+  credentials, account/session peppers and assertion secrets,
+  `MXQR_CAPABILITY_SECRET`, `MXQR_DEVELOPER_API_KEY_PEPPER`, and the Access/admin
+  session secrets described in `wrangler.app.toml` and the private deployment
+  inventory.
 - Remote share: `MXQR_CAPABILITY_SECRET`, `REMOTE_SHARE_SIGNING_SECRET`, and the
   three R2 S3 credentials.
-- Signaling: no Worker secrets.
+- Signaling: `PRO_SIGNALING_SECRET` and
+  `MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET`.
+- PRO room: activation/PIN/session/rate-limit secrets, the shared PRO signaling
+  and independent account assertion secrets, plus the three R2 S3 credentials.
+- Developer API: key pepper and rate-limit secret.
+- Developer API facade: intentionally no secrets.
 
 The 2026-07-16 reconciliation removed the unreferenced `TURN_USER` and
 `TURN_PASS` secrets and the inactive Turnstile keys. If the product policy is
@@ -56,7 +71,18 @@ Secret deletion is otherwise irreversible because Cloudflare does not reveal
 stored values: confirm a backup or accept re-issuance before running
 `wrangler secret delete`.
 
-## D1
+## Bindings and D1
+
+Inventory every deployed Worker, not only the three original services:
+
+- App: Static Assets, Soro R2/KV, admin/auth/Developer API D1, PRO service and
+  admin Durable Object bindings.
+- Signaling: room Durable Object, PRO authority binding, and admin D1.
+- PRO: room/signaling/rate-limiter Durable Objects, PRO media R2, admin and
+  Developer API D1.
+- Remote share: temporary-media R2 and rate-limit KV.
+- Developer API: D1, limiter Durable Object, and private facade service.
+- Developer API facade: private PRO-room Durable Object binding only.
 
 The tracked admin schema contains `mxqr_metric_buckets`,
 `mxqr_pro_room_registry`, and `mxqr_pro_room_admin_audit`, and explicitly drops
@@ -64,3 +90,17 @@ the retired `mxqr_api_rate_limits` table. Production metrics were reconciled on
 2026-07-16 without deleting metric rows; apply the current schema before the
 first PRO-room admin rollout. Use the drift and retention procedure in
 `admin-dashboard-ops.md` before changing any other table found in production.
+
+The independent `musixquare-auth` and `musixquare-developer-api` databases must
+also match `auth.schema.sql` plus its tracked nickname migration, and
+`developer-api.schema.sql` plus the effects-scope forward/rollback pair. A
+Developer API release now compares the deployed Worker's recorded git SHA with
+these tracked files and refuses a schema-changing release unless the explicit
+D1 option is enabled.
+
+Finally, verify the dashboard-only controls that source cannot enforce:
+Cloudflare Access/MFA for `/admin`, WAF/rate-limit rules for session and paid
+API routes, Worker/R2/D1 spend notifications, and the absence of a second
+Git-triggered production deployment path. Record the review date without
+copying identities, tokens, rule expressions containing private data, or
+secret values into the repository.

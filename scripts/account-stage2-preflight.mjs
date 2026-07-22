@@ -19,7 +19,7 @@ import {
 import { accountNicknameKey } from '../cloudflare/account-nickname.js';
 
 export const PRODUCTION_ACCOUNT_CALLBACK = 'https://musixquare.com/api/auth/google/callback';
-export const ACCOUNT_STAGE2_DEPLOYMENT_ORDER = ['signaling', 'pro-room', 'app'];
+export const ACCOUNT_STAGE2_DEPLOYMENT_ORDER = ['pro-room', 'signaling', 'app'];
 
 const REPO_ROOT = resolve(import.meta.dirname, '..');
 const APP_CONFIG_PATH = 'cloudflare/wrangler.app.toml';
@@ -331,7 +331,7 @@ export function validateDeploymentOrder(value) {
   return provided.length === ACCOUNT_STAGE2_DEPLOYMENT_ORDER.length &&
     provided.every((item, index) => item === ACCOUNT_STAGE2_DEPLOYMENT_ORDER[index])
     ? []
-    : ['Stage 2 deployment order must be signaling,pro-room,app.'];
+    : ['Stage 2 deployment order must be pro-room,signaling,app.'];
 }
 
 /**

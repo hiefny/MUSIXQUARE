@@ -15,7 +15,6 @@ export default defineConfig({
       args: [
         '--use-fake-device-for-media-stream',
         '--autoplay-policy=no-user-gesture-required',
-        '--disable-web-security',
       ],
     },
   },

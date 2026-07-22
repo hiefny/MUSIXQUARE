@@ -3528,6 +3528,7 @@ describe('Cloudflare app worker PRO room facade', () => {
           'CF-Connecting-IP': '203.0.113.10',
           'X-MXQR-Pro-Room-Code': '000999',
           'X-MXQR-Pro-IP-Hash': 'spoofed',
+          'X-MXQR-Pro-Detach-Version': '2',
         },
         body: JSON.stringify({ pin: '00000001', displayName: 'Peer 1' }),
       }),
@@ -3542,6 +3543,7 @@ describe('Cloudflare app worker PRO room facade', () => {
     expect(forwarded!.headers.get('CF-Connecting-IP')).toBe('203.0.113.10');
     expect(forwarded!.headers.get('X-MXQR-Pro-Room-Code')).toBeNull();
     expect(forwarded!.headers.get('X-MXQR-Pro-IP-Hash')).toBeNull();
+    expect(forwarded!.headers.get('X-MXQR-Pro-Detach-Version')).toBe('2');
     expect(forwarded!.headers.get('Cookie')).toBe(
       '__Host-mxqr_pro_session_000001=facade-session; __Host-mxqr_pro_owner_000001=facade-owner',
     );
@@ -3562,6 +3564,85 @@ describe('Cloudflare app worker PRO room facade', () => {
       '__Secure-mxqr_pro_owner_000001=owner-token; Path=/api/pro-room/v1/rooms/000001;',
     );
     expect(setCookies.join('\n')).not.toContain('__Host-mxqr_pro_');
+  });
+
+  it('finishes a bounded PRO mutation body before invoking the room service', async () => {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const upstreamFetch = vi.fn(async (request: Request) => {
+      await expect(request.json()).resolves.toEqual({ pin: '12345678' });
+      return Response.json({ ok: true });
+    });
+    const body = new ReadableStream<Uint8Array>({
+      start(value) {
+        controller = value;
+        controller.enqueue(new TextEncoder().encode('{"pin":"1234'));
+      },
+    });
+    const responsePromise = appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/v1/rooms/000001/sessions', {
+        method: 'POST',
+        headers: { Origin: 'https://musixquare.com', 'Content-Type': 'application/json' },
+        body,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+      { PRO_ROOM_PUBLIC_API: { fetch: upstreamFetch } },
+    );
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(upstreamFetch).not.toHaveBeenCalled();
+    controller.enqueue(new TextEncoder().encode('5678"}'));
+    controller.close();
+    const response = await responsePromise;
+    expect(response.status).toBe(200);
+    expect(upstreamFetch).toHaveBeenCalledOnce();
+  });
+
+  it('rejects stalled and oversized PRO bodies without entering the room service', async () => {
+    vi.useFakeTimers();
+    const upstreamFetch = vi.fn(async () => Response.json({ ok: true }));
+    const stalledBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"pin":"'));
+      },
+    });
+    const stalledPromise = appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/v1/rooms/000001/sessions', {
+        method: 'POST',
+        headers: { Origin: 'https://musixquare.com', 'Content-Type': 'application/json' },
+        body: stalledBody,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+      { PRO_ROOM_PUBLIC_API: { fetch: upstreamFetch } },
+    );
+    await vi.advanceTimersByTimeAsync(10_001);
+    const stalled = await stalledPromise;
+    expect(stalled.status).toBe(408);
+    await expect(stalled.json()).resolves.toEqual({ error: 'PRO_ROOM_REQUEST_BODY_TIMEOUT' });
+    expect(upstreamFetch).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+    const oversizedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(4 * 1024 * 1024));
+        controller.enqueue(new Uint8Array([1]));
+        controller.close();
+      },
+    });
+    const oversized = await appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/v1/rooms/000001/snapshot', {
+        method: 'PUT',
+        headers: { Origin: 'https://musixquare.com', 'Content-Type': 'application/json' },
+        body: oversizedBody,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+      { PRO_ROOM_PUBLIC_API: { fetch: upstreamFetch } },
+    );
+    expect(oversized.status).toBe(413);
+    await expect(oversized.json()).resolves.toEqual({
+      error: 'PRO_ROOM_REQUEST_BODY_TOO_LARGE',
+    });
+    expect(upstreamFetch).not.toHaveBeenCalled();
   });
 
   it('preserves a supplied Origin for the PRO Worker to reject and fails closed', async () => {

@@ -111,7 +111,7 @@ class MockMediaStream {
 }
 
 function response(body: unknown, ok = true, status = ok ? 200 : 500): Response {
-  return { ok, status, json: async () => body } as Response;
+  return Response.json(body, { status });
 }
 
 function installSuccessfulFetchRouting(): void {

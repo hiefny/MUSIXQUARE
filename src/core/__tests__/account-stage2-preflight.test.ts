@@ -212,11 +212,11 @@ describe('account Stage 2 activation preflight', () => {
     ]);
   });
 
-  it('accepts only the reviewed signaling -> PRO -> App deployment order', () => {
+  it('accepts only the reviewed PRO -> signaling -> App deployment order', () => {
     expect(validateDeploymentOrder(ACCOUNT_STAGE2_DEPLOYMENT_ORDER)).toEqual([]);
-    expect(validateDeploymentOrder('signaling,pro-room,app')).toEqual([]);
+    expect(validateDeploymentOrder('pro-room,signaling,app')).toEqual([]);
     expect(validateDeploymentOrder('app,signaling,pro-room')).toEqual([
-      'Stage 2 deployment order must be signaling,pro-room,app.',
+      'Stage 2 deployment order must be pro-room,signaling,app.',
     ]);
   });
 
@@ -238,7 +238,7 @@ describe('account Stage 2 activation preflight', () => {
           remote: false,
           confirmProduction: true,
           callback: PRODUCTION_ACCOUNT_CALLBACK,
-          deploymentOrder: 'signaling,pro-room,app',
+          deploymentOrder: 'pro-room,signaling,app',
         },
         { runWrangler },
       ),
@@ -291,7 +291,7 @@ describe('account Stage 2 activation preflight', () => {
           remote: true,
           confirmProduction: true,
           callback: PRODUCTION_ACCOUNT_CALLBACK,
-          deploymentOrder: 'signaling,pro-room,app',
+          deploymentOrder: 'pro-room,signaling,app',
         },
         {
           readText: async (path) => files[path],
@@ -301,7 +301,7 @@ describe('account Stage 2 activation preflight', () => {
     ).resolves.toMatchObject({
       ok: true,
       callback: PRODUCTION_ACCOUNT_CALLBACK,
-      deploymentOrder: ['signaling', 'pro-room', 'app'],
+      deploymentOrder: ['pro-room', 'signaling', 'app'],
     });
     expect(requests.map((request) => request.kind)).toEqual([
       'd1-schema',
@@ -325,13 +325,13 @@ describe('account Stage 2 activation preflight', () => {
         '--callback',
         PRODUCTION_ACCOUNT_CALLBACK,
         '--ack-deploy-order',
-        'signaling,pro-room,app',
+        'pro-room,signaling,app',
       ]),
     ).toEqual({
       remote: true,
       confirmProduction: true,
       callback: PRODUCTION_ACCOUNT_CALLBACK,
-      deploymentOrder: 'signaling,pro-room,app',
+      deploymentOrder: 'pro-room,signaling,app',
     });
   });
 });

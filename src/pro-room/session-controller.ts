@@ -1,5 +1,6 @@
 import {
   ProRoomApiError,
+  type ProRoomAccountDetachResult,
   type ProRoomPresenceIdentity,
   type ActivateProRoomInput,
   type CloseProRoomSessionFencedInput,
@@ -19,7 +20,7 @@ interface ProRoomSessionApi {
   createSession(input: CreateProRoomSessionInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   enterPresence(code: string, options?: EnterProRoomPresenceOptions): Promise<ProRoomSnapshot>;
   attachCurrentAccount(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
-  detachCurrentAccount(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
+  detachCurrentAccount(code: string, signal?: AbortSignal): Promise<ProRoomAccountDetachResult>;
   getSnapshot(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   heartbeat(
     code: string,
@@ -83,6 +84,7 @@ export class ProRoomSessionController {
   #openAbort: AbortController | null = null;
   #pendingRoomCode: string | null = null;
   #ownedPresence: (ProRoomPresenceIdentity & { roomCode: string }) | null = null;
+  #observerClearGeneration = 0;
 
   constructor(
     private readonly api: ProRoomSessionApi,
@@ -207,18 +209,73 @@ export class ProRoomSessionController {
   async detachCurrentAccount(
     signal?: AbortSignal,
     onCommitted?: (snapshot: ProRoomSnapshot) => void,
-  ): Promise<ProRoomSnapshot> {
+  ): Promise<ProRoomAccountDetachResult> {
     const operationEpoch = this.#operationEpoch;
     const roomCode = this.#requireRoomCode();
-    let incoming: ProRoomSnapshot;
+    let result: ProRoomAccountDetachResult;
     try {
-      incoming = await this.api.detachCurrentAccount(roomCode, signal);
+      result = await this.api.detachCurrentAccount(roomCode, signal);
     } catch (error) {
       this.#assertOperationCurrent(operationEpoch);
       throw error;
     }
     this.#assertOperationCurrent(operationEpoch);
-    return this.#accept(incoming, true, signal, operationEpoch, onCommitted);
+    if (!result.snapshot) {
+      // The server has committed account detachment, but the old presence no
+      // longer exists and therefore cannot produce a signed replacement
+      // snapshot. Do not manufacture one from the authenticated local cache;
+      // the runtime must fail closed and reopen through ordinary enterPresence.
+      return result;
+    }
+    const accepted = await this.#accept(result.snapshot, true, signal, operationEpoch, onCommitted);
+    return { ...result, snapshot: accepted };
+  }
+
+  /**
+   * Re-enter after a committed detach reports that the old presence expired.
+   *
+   * The missing snapshot is not an error and must never be replaced with the
+   * cached authenticated projection. Retire that absent incarnation locally,
+   * then use the ordinary, non-takeover presence entry endpoint to obtain a
+   * new signed anonymous snapshot and signaling ticket.
+   */
+  async reenterAfterDetachedPresence(signal?: AbortSignal): Promise<ProRoomSnapshot> {
+    const roomCode = this.#requireRoomCode();
+    const replacementEpoch = ++this.#operationEpoch;
+    this.#openAbort?.abort();
+    this.#openAbort = null;
+    this.#pendingRoomCode = null;
+
+    try {
+      await this.transport.disconnect();
+    } catch {
+      // A successful replacement connect below owns the transport afterwards;
+      // an old-channel teardown error must not resurrect cached authority.
+    }
+    this.#assertOperationCurrent(replacementEpoch);
+    this.#clear(false);
+    if (signal?.aborted) {
+      this.#observerClearGeneration += 1;
+      this.observer.cleared();
+      throw new DOMException('Aborted', 'AbortError');
+    }
+
+    const clearGeneration = this.#observerClearGeneration;
+    try {
+      // Deliberately omit takeover. A genuinely active sibling tab keeps the
+      // existing single-tab protection and must win over this recovery.
+      return await this.resume(roomCode, { signal });
+    } catch (error) {
+      // #open() already publishes cleared() when it committed a snapshot and
+      // later failed to connect. Authentication/network failures before that
+      // point still need to end the old runtime instead of leaving it active
+      // with no controller session.
+      if (this.#observerClearGeneration === clearGeneration) {
+        this.#observerClearGeneration += 1;
+        this.observer.cleared();
+      }
+      throw error;
+    }
   }
 
   /**
@@ -529,7 +586,7 @@ export class ProRoomSessionController {
     }
   }
 
-  #clear(): void {
+  #clear(notifyObserver = true): void {
     this.#controlChannelContext = null;
     this.#controlChannelDisplayName = null;
     this.#controlChannelMemberId = null;
@@ -543,6 +600,9 @@ export class ProRoomSessionController {
         presenceIncarnationId: ownedPresence.presenceIncarnationId,
       });
     }
-    this.observer.cleared();
+    if (notifyObserver) {
+      this.#observerClearGeneration += 1;
+      this.observer.cleared();
+    }
   }
 }

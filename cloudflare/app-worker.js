@@ -120,6 +120,12 @@ const PRO_ROOM_FACADE_PREFIX = '/api/pro-room';
 const PRO_ROOM_FACADE_HEALTH_PATH = `${PRO_ROOM_FACADE_PREFIX}/health`;
 const PRO_ROOM_FACADE_PATH_RE = /^\/api\/pro-room(\/v1\/rooms\/(0\d{5})(?:\/|$).*)$/;
 const PRO_ROOM_UPSTREAM_ORIGIN = 'https://pro-room.internal';
+// Buffer every public PRO mutation at the stateless facade before invoking
+// the room Durable Object. Otherwise a client that opens a chunked request and
+// never finishes it can leave the downstream body parser waiting while it owns
+// the room's serialized mutation queue.
+const PRO_ROOM_FACADE_BODY_MAX_BYTES = 4 * 1024 * 1024;
+const PRO_ROOM_FACADE_BODY_TIMEOUT_MS = 10_000;
 const INITIAL_ADMIN_PRO_ROOMS = Object.freeze([
   Object.freeze({ roomCode: '000000', label: 'MUSIXQUARE Developer' }),
   Object.freeze({ roomCode: '000001', label: 'Friends & Family' }),
@@ -344,6 +350,29 @@ async function handleProRoomFacade(request, env, url) {
     return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 503, { 'Cache-Control': 'no-store' });
   }
 
+  let bufferedMutationBody = null;
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    const buffered = await readBodyBytesLimited(
+      request,
+      PRO_ROOM_FACADE_BODY_MAX_BYTES,
+      PRO_ROOM_FACADE_BODY_TIMEOUT_MS,
+    );
+    if (buffered.error === 'too-large') {
+      return json({ error: 'PRO_ROOM_REQUEST_BODY_TOO_LARGE' }, 413, {
+        'Cache-Control': 'no-store',
+      });
+    }
+    if (buffered.error === 'timeout' || buffered.error === 'aborted') {
+      return json({ error: 'PRO_ROOM_REQUEST_BODY_TIMEOUT' }, 408, {
+        'Cache-Control': 'no-store',
+      });
+    }
+    if (buffered.error) {
+      return json({ error: 'INVALID_REQUEST' }, 400, { 'Cache-Control': 'no-store' });
+    }
+    bufferedMutationBody = buffered.body;
+  }
+
   const [, upstreamPath, roomCode] = route;
   const headers = new Headers(request.headers);
   // Preserve a browser-supplied Origin so the PRO Worker remains the single
@@ -419,8 +448,7 @@ async function handleProRoomFacade(request, env, url) {
     redirect: 'manual',
   };
   if (request.method !== 'GET' && request.method !== 'HEAD') {
-    upstreamInit.body = request.body;
-    upstreamInit.duplex = 'half';
+    if (bufferedMutationBody !== null) upstreamInit.body = bufferedMutationBody;
   }
   let response;
   try {
@@ -429,6 +457,78 @@ async function handleProRoomFacade(request, env, url) {
     return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
   }
   return withFacadeProRoomCookies(response, roomCode);
+}
+
+async function readBodyBytesLimited(request, maxBytes, timeoutMs) {
+  const contentLength = request.headers.get('Content-Length');
+  if (contentLength !== null) {
+    const normalized = contentLength.trim();
+    if (!/^\d+$/.test(normalized)) return { error: 'invalid' };
+    if (Number(normalized) > maxBytes) return { error: 'too-large' };
+  }
+  if (!request.body) return { body: null };
+
+  const reader = request.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  let stop;
+  const stopped = new Promise((resolve) => {
+    stop = resolve;
+  });
+  const timeout = setTimeout(() => {
+    stop({ kind: 'timeout' });
+    void reader.cancel('PRO_ROOM_REQUEST_BODY_TIMEOUT').catch(() => {});
+  }, timeoutMs);
+  const abort = () => {
+    stop({ kind: 'aborted' });
+    void reader.cancel(request.signal.reason).catch(() => {});
+  };
+  if (request.signal.aborted) abort();
+  else request.signal.addEventListener('abort', abort, { once: true });
+
+  try {
+    while (true) {
+      const outcome = await Promise.race([
+        reader.read().then(
+          (value) => ({ kind: 'read', value }),
+          () => ({ kind: 'invalid' }),
+        ),
+        stopped,
+      ]);
+      if (outcome.kind !== 'read') return { error: outcome.kind };
+      if (outcome.value.done) break;
+      const bytes =
+        outcome.value.value instanceof Uint8Array
+          ? outcome.value.value
+          : new Uint8Array(outcome.value.value);
+      totalBytes += bytes.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel('PRO_ROOM_REQUEST_BODY_TOO_LARGE').catch(() => {});
+        return { error: 'too-large' };
+      }
+      chunks.push(bytes);
+    }
+  } finally {
+    clearTimeout(timeout);
+    request.signal.removeEventListener('abort', abort);
+    // A deliberately stalled stream may still own an unsettled read when the
+    // deadline wins. Cancellation is best-effort for custom/host streams, and
+    // releaseLock() is allowed to throw while that read remains pending. The
+    // facade response must still deterministically be the bounded 408.
+    try {
+      reader.releaseLock();
+    } catch {
+      /* pending non-cooperative stream read */
+    }
+  }
+
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { body };
 }
 
 async function readJsonBodyLimited(request, maxBytes) {

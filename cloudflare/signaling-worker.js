@@ -39,6 +39,8 @@ const PRO_ROOM_META_KEY = 'proRoomMeta';
 const PRO_TICKET_USES_KEY = 'proSignalingTicketUses';
 const PRO_PARTICIPANT_HIGH_WATER_KEY = 'proSignalingParticipantHighWater';
 const PRO_PRESENCE_AUTHORITY_KEY = 'proSignalingPresenceAuthority';
+const PRO_CHAT_CONTROL_STATE_KEY = 'proChatControlState';
+const PRO_BOT_REQUEST_PROOFS_KEY = 'proBotRequestProofs';
 const PRO_DECOMMISSIONED_KEY = 'proRoomDecommissioned';
 const PRO_SIGNALING_TICKET_KIND = 'pro-signaling';
 const PRO_SIGNALING_TICKET_VERSION = 1;
@@ -48,6 +50,16 @@ const PRO_REALTIME_BODY_MAX_BYTES = 8 * 1024;
 const PRO_SERVER_EVENT_MAX_BYTES = 3 * 1024;
 const PRO_REALTIME_TEXT_MAX_LENGTH = 500;
 const PRO_AUTHORITY_CHECK_TIMEOUT_MS = 1_000;
+const PRO_CHAT_SLOWMODE_MAX_SECONDS = 60;
+// BOT requests are rendered as remote typing bubbles before their client-side
+// execution finishes. Retain only a short, bounded server-observed proof so a
+// terminal failure can close that bubble without allowing arbitrary BOT
+// identity spoofing. Consumed entries remain until expiry to make the proof
+// one-shot across Durable Object hibernation and same-participant reconnects.
+const PRO_BOT_REQUEST_PROOF_TTL_MS = 60_000;
+const PRO_BOT_REQUEST_PROOF_MAX_ITEMS = 128;
+const MAINTENANCE_ALARM_RETRY_BASE_MS = 100;
+const MAINTENANCE_ALARM_RETRY_MAX_MS = 5_000;
 const PRO_DISPLAY_NAME_MAX_LENGTH = 64;
 const PRO_REALTIME_EVENT_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
 const PRO_REALTIME_COMMAND_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
@@ -118,6 +130,14 @@ function isAllowedOrigin(origin, env = {}) {
 
 function isValidPeerId(peerId) {
   return typeof peerId === 'string' && /^[A-Za-z0-9_-]{1,96}$/.test(peerId);
+}
+
+function hasValidOptionalNegotiationId(message) {
+  return (
+    message.negotiationId === undefined ||
+    (typeof message.negotiationId === 'string' &&
+      /^[A-Za-z0-9_-]{16,64}$/.test(message.negotiationId))
+  );
 }
 
 function isValidProEpoch(value) {
@@ -549,6 +569,7 @@ const PRO_SYSTEM_MESSAGE_KEYS_WITHOUT_PARAMS = new Set([
   'chat.system_audio_started_system_message',
   'chat.system_audio_stopped_system_message',
 ]);
+const PRO_CHAT_MODERATION_KINDS = new Set(['clear', 'freeze', 'filter', 'slowmode', 'mute']);
 
 function normalizeProSystemMessage(value) {
   if (
@@ -570,6 +591,13 @@ function normalizeProSystemMessage(value) {
   return null;
 }
 
+function isProBotCommandText(value) {
+  if (typeof value !== 'string') return false;
+  const explicit = /^\/bot(?:\s+)([\s\S]+)$/i.exec(value);
+  const compact = explicit ? null : /^\/\/(?!\/)([\s\S]+)$/.exec(value);
+  return !!(explicit?.[1] ?? compact?.[1] ?? '').trim();
+}
+
 function normalizeProChatPayload(value) {
   if (!isRecord(value) || typeof value.kind !== 'string') return null;
   if (value.kind === 'message') {
@@ -585,7 +613,8 @@ function normalizeProChatPayload(value) {
       value.clientTs > Number.MAX_SAFE_INTEGER ||
       (value.botRequestId !== undefined &&
         (typeof value.botRequestId !== 'string' ||
-          !PRO_REALTIME_EVENT_ID_RE.test(value.botRequestId)))
+          !PRO_REALTIME_EVENT_ID_RE.test(value.botRequestId) ||
+          !isProBotCommandText(value.text)))
     ) {
       return null;
     }
@@ -820,15 +849,21 @@ function validateIncomingMessage(message, role) {
     if (message.to !== 'host') return 'ignore';
     if (message.type === 'signal-offer') {
       if (isOversizedSdp(message.sdp)) return 'oversized';
-      return isValidSdp(message.sdp, 'offer') ? 'valid' : 'ignore';
+      return isValidSdp(message.sdp, 'offer') && hasValidOptionalNegotiationId(message)
+        ? 'valid'
+        : 'ignore';
     }
     if (message.type === 'signal-candidate') {
       if (isOversizedIceCandidate(message.candidate)) return 'oversized';
-      return isValidIceCandidate(message.candidate) ? 'valid' : 'ignore';
+      return isValidIceCandidate(message.candidate) && hasValidOptionalNegotiationId(message)
+        ? 'valid'
+        : 'ignore';
     }
     if (message.type === 'media-answer') {
       if (isOversizedSdp(message.sdp)) return 'oversized';
-      return isValidPeerId(message.callId) && isValidSdp(message.sdp, 'answer')
+      return isValidPeerId(message.callId) &&
+        isValidSdp(message.sdp, 'answer') &&
+        hasValidOptionalNegotiationId(message)
         ? 'valid'
         : 'ignore';
     }
@@ -862,15 +897,23 @@ function validateIncomingMessage(message, role) {
   if (!isValidPeerId(message.to)) return 'ignore';
   if (message.type === 'signal-answer') {
     if (isOversizedSdp(message.sdp)) return 'oversized';
-    return isValidSdp(message.sdp, 'answer') ? 'valid' : 'ignore';
+    return isValidSdp(message.sdp, 'answer') && hasValidOptionalNegotiationId(message)
+      ? 'valid'
+      : 'ignore';
   }
   if (message.type === 'signal-candidate') {
     if (isOversizedIceCandidate(message.candidate)) return 'oversized';
-    return isValidIceCandidate(message.candidate) ? 'valid' : 'ignore';
+    return isValidIceCandidate(message.candidate) && hasValidOptionalNegotiationId(message)
+      ? 'valid'
+      : 'ignore';
   }
   if (message.type === 'media-offer') {
     if (isOversizedSdp(message.sdp)) return 'oversized';
-    return isValidPeerId(message.callId) && isValidSdp(message.sdp, 'offer') ? 'valid' : 'ignore';
+    return isValidPeerId(message.callId) &&
+      isValidSdp(message.sdp, 'offer') &&
+      hasValidOptionalNegotiationId(message)
+      ? 'valid'
+      : 'ignore';
   }
   if (message.type === 'media-close') {
     return isValidPeerId(message.callId) ? 'valid' : 'ignore';
@@ -1078,6 +1121,112 @@ function normalizeProRoomMeta(value) {
   };
 }
 
+function defaultProChatControlState(roomId, coordinatorEpoch) {
+  return {
+    v: 1,
+    roomId,
+    coordinatorEpoch,
+    revision: 0,
+    frozen: false,
+    filterEnabled: false,
+    slowmodeSeconds: 0,
+    mutedParticipantIds: [],
+  };
+}
+
+function normalizeProChatControlState(value) {
+  if (
+    !hasExactKeys(value, [
+      'v',
+      'roomId',
+      'coordinatorEpoch',
+      'revision',
+      'frozen',
+      'filterEnabled',
+      'slowmodeSeconds',
+      'mutedParticipantIds',
+    ]) ||
+    value.v !== 1 ||
+    !isProNamespaceRoomCode(value.roomId) ||
+    !isValidProEpoch(value.coordinatorEpoch) ||
+    !Number.isSafeInteger(value.revision) ||
+    value.revision < 0 ||
+    typeof value.frozen !== 'boolean' ||
+    typeof value.filterEnabled !== 'boolean' ||
+    !Number.isSafeInteger(value.slowmodeSeconds) ||
+    value.slowmodeSeconds < 0 ||
+    value.slowmodeSeconds > PRO_CHAT_SLOWMODE_MAX_SECONDS ||
+    !Array.isArray(value.mutedParticipantIds) ||
+    value.mutedParticipantIds.length > MAX_PRO_ROOM_MEMBERS
+  ) {
+    return null;
+  }
+  const mutedParticipantIds = [];
+  const seen = new Set();
+  for (const participantId of value.mutedParticipantIds) {
+    if (!isValidPeerId(participantId) || seen.has(participantId)) return null;
+    seen.add(participantId);
+    mutedParticipantIds.push(participantId);
+  }
+  mutedParticipantIds.sort();
+  return {
+    v: 1,
+    roomId: value.roomId,
+    coordinatorEpoch: value.coordinatorEpoch,
+    revision: value.revision,
+    frozen: value.frozen,
+    filterEnabled: value.filterEnabled,
+    slowmodeSeconds: value.slowmodeSeconds,
+    mutedParticipantIds,
+  };
+}
+
+function defaultProBotRequestProofs(roomId, coordinatorEpoch) {
+  return { v: 1, roomId, coordinatorEpoch, entries: [] };
+}
+
+function normalizeProBotRequestProofs(value) {
+  if (
+    !hasExactKeys(value, ['v', 'roomId', 'coordinatorEpoch', 'entries']) ||
+    value.v !== 1 ||
+    !isProNamespaceRoomCode(value.roomId) ||
+    !isValidProEpoch(value.coordinatorEpoch) ||
+    !Array.isArray(value.entries) ||
+    value.entries.length > PRO_BOT_REQUEST_PROOF_MAX_ITEMS
+  ) {
+    return null;
+  }
+
+  const entries = [];
+  const seen = new Set();
+  for (const entry of value.entries) {
+    if (
+      !hasExactKeys(entry, ['requestId', 'participantId', 'status', 'expiresAtMs']) ||
+      !PRO_REALTIME_EVENT_ID_RE.test(entry.requestId || '') ||
+      !isValidPeerId(entry.participantId) ||
+      (entry.status !== 'pending' && entry.status !== 'consumed') ||
+      !Number.isSafeInteger(entry.expiresAtMs) ||
+      entry.expiresAtMs <= 0 ||
+      seen.has(entry.requestId)
+    ) {
+      return null;
+    }
+    seen.add(entry.requestId);
+    entries.push({
+      requestId: entry.requestId,
+      participantId: entry.participantId,
+      status: entry.status,
+      expiresAtMs: entry.expiresAtMs,
+    });
+  }
+  return {
+    v: 1,
+    roomId: value.roomId,
+    coordinatorEpoch: value.coordinatorEpoch,
+    entries,
+  };
+}
+
 function normalizeStandardRoomIdentityAttachment(value) {
   const identityKeys = [
     'accountSubject',
@@ -1182,6 +1331,9 @@ function normalizeAttachment(value) {
         Math.max(0, value.realtimeMessageTokens),
       );
       proAttachment.realtimeMessageUpdatedAt = Math.max(0, value.realtimeMessageUpdatedAt);
+    }
+    if (Number.isFinite(value.chatLastMessageAtMs)) {
+      proAttachment.chatLastMessageAtMs = Math.max(0, value.chatLastMessageAtMs);
     }
     return proAttachment;
   }
@@ -1289,13 +1441,17 @@ export class MusixquareRoom {
     this.proTicketUses = null;
     this.proParticipantHighWater = null;
     this.proPresenceAuthority = undefined;
+    this.proChatControlState = undefined;
+    this.proBotRequestProofs = undefined;
     // Standard-room host metadata and guest reconnect bindings describe one
     // room epoch. Serialize their admission/leave mutations together so an
     // awaited host reconnect write cannot be overwritten by a stale host close
     // or an overlapping empty-room cleanup.
     this.standardAdmissionSync = Promise.resolve();
     this.proAdmissionSync = Promise.resolve();
+    this.proChatMutationSync = Promise.resolve();
     this.alarmSync = Promise.resolve();
+    this.alarmMaintenanceRetryAttempt = 0;
     this.proSocketsValidated = false;
     this.rehydrateSockets();
   }
@@ -1377,7 +1533,7 @@ export class MusixquareRoom {
     return tokens >= 1;
   }
 
-  async hasProRealtimePermission(attachment, permission) {
+  async hasProRealtimePermission(attachment, permission, details = {}) {
     const namespace = this.env?.PRO_ROOM_AUTHORITY_ROOMS;
     if (
       !namespace ||
@@ -1399,22 +1555,20 @@ export class MusixquareRoom {
         this.recordMetric('pro_realtime_authority_unavailable');
         return false;
       }
-      authorityRequest = new Request(
-        'https://pro-room.internal/internal/authority/check',
-        {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-mxqr-pro-room-code': attachment.roomId,
-          },
-          body: JSON.stringify({
-            participantId: attachment.participantId,
-            presenceIncarnationId: attachment.presenceIncarnationId,
-            permission,
-          }),
-          signal: AbortSignal.timeout(PRO_AUTHORITY_CHECK_TIMEOUT_MS),
+      authorityRequest = new Request('https://pro-room.internal/internal/authority/check', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': attachment.roomId,
         },
-      );
+        body: JSON.stringify({
+          participantId: attachment.participantId,
+          presenceIncarnationId: attachment.presenceIncarnationId,
+          permission,
+          ...details,
+        }),
+        signal: AbortSignal.timeout(PRO_AUTHORITY_CHECK_TIMEOUT_MS),
+      });
       const response = await room.fetch(authorityRequest);
       if (response.status !== 200) {
         this.recordMetric('pro_realtime_authority_denied');
@@ -1540,6 +1694,295 @@ export class MusixquareRoom {
     await this.state.storage.put(PRO_ROOM_META_KEY, normalized);
     this.proRoomMeta = normalized;
     return normalized;
+  }
+
+  async loadProChatControlState(roomId, coordinatorEpoch) {
+    const cached = this.proChatControlState;
+    if (cached !== undefined) {
+      if (cached?.roomId === roomId && cached.coordinatorEpoch === coordinatorEpoch) return cached;
+      const initial = defaultProChatControlState(roomId, coordinatorEpoch);
+      this.proChatControlState = initial;
+      return initial;
+    }
+    const stored = await this.state.storage.get(PRO_CHAT_CONTROL_STATE_KEY);
+    if (stored === undefined || stored === null) {
+      const initial = defaultProChatControlState(roomId, coordinatorEpoch);
+      this.proChatControlState = initial;
+      return initial;
+    }
+    const normalized = normalizeProChatControlState(stored);
+    if (!normalized) throw new Error('INVALID_PRO_CHAT_CONTROL_STATE');
+    if (normalized.roomId !== roomId || normalized.coordinatorEpoch !== coordinatorEpoch) {
+      const initial = defaultProChatControlState(roomId, coordinatorEpoch);
+      this.proChatControlState = initial;
+      return initial;
+    }
+    this.proChatControlState = normalized;
+    return normalized;
+  }
+
+  async saveProChatControlState(state) {
+    const normalized = normalizeProChatControlState(state);
+    if (!normalized) throw new Error('INVALID_PRO_CHAT_CONTROL_STATE');
+    await this.state.storage.put(PRO_CHAT_CONTROL_STATE_KEY, normalized);
+    this.proChatControlState = normalized;
+    return normalized;
+  }
+
+  async loadProBotRequestProofs(roomId, coordinatorEpoch) {
+    const cached = this.proBotRequestProofs;
+    if (cached !== undefined) {
+      if (cached?.roomId === roomId && cached.coordinatorEpoch === coordinatorEpoch) return cached;
+      const initial = defaultProBotRequestProofs(roomId, coordinatorEpoch);
+      this.proBotRequestProofs = initial;
+      return initial;
+    }
+    const stored = await this.state.storage.get(PRO_BOT_REQUEST_PROOFS_KEY);
+    if (stored === undefined || stored === null) {
+      const initial = defaultProBotRequestProofs(roomId, coordinatorEpoch);
+      this.proBotRequestProofs = initial;
+      return initial;
+    }
+    const normalized = normalizeProBotRequestProofs(stored);
+    if (!normalized) throw new Error('INVALID_PRO_BOT_REQUEST_PROOFS');
+    if (normalized.roomId !== roomId || normalized.coordinatorEpoch !== coordinatorEpoch) {
+      const initial = defaultProBotRequestProofs(roomId, coordinatorEpoch);
+      this.proBotRequestProofs = initial;
+      return initial;
+    }
+    this.proBotRequestProofs = normalized;
+    return normalized;
+  }
+
+  async saveProBotRequestProofs(state) {
+    const normalized = normalizeProBotRequestProofs(state);
+    if (!normalized) throw new Error('INVALID_PRO_BOT_REQUEST_PROOFS');
+    await this.state.storage.put(PRO_BOT_REQUEST_PROOFS_KEY, normalized);
+    this.proBotRequestProofs = normalized;
+    return normalized;
+  }
+
+  pruneProBotRequestProofs(state, nowMs = Date.now()) {
+    const entries = state.entries.filter((entry) => entry.expiresAtMs > nowMs);
+    return entries.length === state.entries.length ? state : { ...state, entries };
+  }
+
+  async rememberProBotRequest(roomId, coordinatorEpoch, participantId, requestId) {
+    const nowMs = Date.now();
+    const loaded = await this.loadProBotRequestProofs(roomId, coordinatorEpoch);
+    const current = this.pruneProBotRequestProofs(loaded, nowMs);
+    if (current.entries.some((entry) => entry.requestId === requestId)) {
+      if (current !== loaded) await this.saveProBotRequestProofs(current);
+      return false;
+    }
+    if (current.entries.length >= PRO_BOT_REQUEST_PROOF_MAX_ITEMS) {
+      if (current !== loaded) await this.saveProBotRequestProofs(current);
+      return false;
+    }
+    await this.saveProBotRequestProofs({
+      ...current,
+      entries: [
+        ...current.entries,
+        {
+          requestId,
+          participantId,
+          status: 'pending',
+          expiresAtMs: nowMs + PRO_BOT_REQUEST_PROOF_TTL_MS,
+        },
+      ],
+    });
+    this.scheduleMaintenanceAlarm();
+    return true;
+  }
+
+  async consumeProBotRequest(
+    roomId,
+    coordinatorEpoch,
+    participantId,
+    requestId,
+    allowUnobservedSuccess,
+  ) {
+    const nowMs = Date.now();
+    const loaded = await this.loadProBotRequestProofs(roomId, coordinatorEpoch);
+    const current = this.pruneProBotRequestProofs(loaded, nowMs);
+    const index = current.entries.findIndex((entry) => entry.requestId === requestId);
+    if (index >= 0) {
+      const proof = current.entries[index];
+      if (proof.participantId !== participantId || proof.status !== 'pending') {
+        if (current !== loaded) await this.saveProBotRequestProofs(current);
+        return false;
+      }
+      const entries = [...current.entries];
+      entries[index] = {
+        ...proof,
+        status: 'consumed',
+        expiresAtMs: nowMs + PRO_BOT_REQUEST_PROOF_TTL_MS,
+      };
+      await this.saveProBotRequestProofs({ ...current, entries });
+      this.scheduleMaintenanceAlarm();
+      return true;
+    }
+    if (!allowUnobservedSuccess || current.entries.length >= PRO_BOT_REQUEST_PROOF_MAX_ITEMS) {
+      if (current !== loaded) await this.saveProBotRequestProofs(current);
+      return false;
+    }
+
+    // During a rolling deploy, the request message can have crossed an older
+    // signaling Worker that did not retain proofs. An exact successful PRO
+    // Worker execution receipt remains sufficient, but record a consumed
+    // tombstone now so the same terminal frame cannot be replayed.
+    await this.saveProBotRequestProofs({
+      ...current,
+      entries: [
+        ...current.entries,
+        {
+          requestId,
+          participantId,
+          status: 'consumed',
+          expiresAtMs: nowMs + PRO_BOT_REQUEST_PROOF_TTL_MS,
+        },
+      ],
+    });
+    this.scheduleMaintenanceAlarm();
+    return true;
+  }
+
+  async pruneExpiredProBotRequests(roomId, coordinatorEpoch, nowMs = Date.now()) {
+    const loaded = await this.loadProBotRequestProofs(roomId, coordinatorEpoch);
+    const current = this.pruneProBotRequestProofs(loaded, nowMs);
+    if (current !== loaded) await this.saveProBotRequestProofs(current);
+    return current;
+  }
+
+  async pruneProChatMutedParticipants(roomId, coordinatorEpoch, activeIncarnationIds) {
+    return this.enqueueProChatMutation(async () => {
+      const state = await this.loadProChatControlState(roomId, coordinatorEpoch);
+      if (state.mutedParticipantIds.length === 0) return state;
+
+      // Presence snapshots identify live incarnations, while mute authority is
+      // intentionally participant-scoped so a socket reconnect does not clear
+      // it. The persisted ticket high-water fence is the canonical bridge
+      // between those identities, including participants that are temporarily
+      // disconnected when the snapshot arrives.
+      const activeIncarnations = new Set(activeIncarnationIds);
+      const highWater = await this.loadProParticipantHighWater();
+      const activeParticipantIds = new Set(
+        highWater.entries
+          .filter((entry) => activeIncarnations.has(entry.presenceIncarnationId))
+          .map((entry) => entry.participantId),
+      );
+      // Include current socket attachments as a rolling-deploy fallback for a
+      // hibernated namespace whose high-water ledger has not yet been seeded.
+      for (const [participantId, socket] of this.proMembers) {
+        const attachment = readAttachment(socket);
+        if (
+          attachment?.roomKind === 'pro' &&
+          attachment.auth === 'ok' &&
+          attachment.roomId === roomId &&
+          attachment.coordinatorEpoch === coordinatorEpoch &&
+          attachment.participantId === participantId &&
+          activeIncarnations.has(attachment.presenceIncarnationId)
+        ) {
+          activeParticipantIds.add(participantId);
+        }
+      }
+
+      const mutedParticipantIds = state.mutedParticipantIds.filter((participantId) =>
+        activeParticipantIds.has(participantId),
+      );
+      if (mutedParticipantIds.length === state.mutedParticipantIds.length) return state;
+      return this.saveProChatControlState({
+        ...state,
+        revision: state.revision + 1,
+        mutedParticipantIds,
+      });
+    });
+  }
+
+  enqueueProChatMutation(task) {
+    const run = this.proChatMutationSync.then(task, task);
+    this.proChatMutationSync = run.catch(() => {});
+    return run;
+  }
+
+  currentProRealtimeAttachment(ws, expected) {
+    const current = readAttachment(ws);
+    if (
+      current?.roomKind !== 'pro' ||
+      current.role !== 'member' ||
+      current.auth !== 'ok' ||
+      current.roomId !== expected.roomId ||
+      current.coordinatorEpoch !== expected.coordinatorEpoch ||
+      current.participantId !== expected.participantId ||
+      current.presenceIncarnationId !== expected.presenceIncarnationId ||
+      this.proMembers.get(expected.participantId) !== ws
+    ) {
+      return null;
+    }
+    return current;
+  }
+
+  proRealtimeRelay(normalized, attachment) {
+    return {
+      ...normalized,
+      roomCode: attachment.roomId,
+      coordinatorEpoch: attachment.coordinatorEpoch,
+      sender: {
+        participantId: attachment.participantId,
+        presenceIncarnationId: attachment.presenceIncarnationId,
+        ...(attachment.memberId ? { memberId: attachment.memberId } : {}),
+        displayName: attachment.displayName,
+      },
+    };
+  }
+
+  broadcastProRealtimeRelay(ws, attachment, normalized, targetSocket = null) {
+    const relay = this.proRealtimeRelay(normalized, attachment);
+    if (normalized.channel === 'chat' && normalized.payload.kind === 'whisper') {
+      if (targetSocket) sendChecked(targetSocket, relay);
+      return;
+    }
+    for (const [participantId, socket] of this.proMembers) {
+      if (socket === ws) continue;
+      const recipient = readAttachment(socket);
+      if (
+        recipient?.roomKind !== 'pro' ||
+        recipient.auth !== 'ok' ||
+        recipient.roomId !== attachment.roomId ||
+        recipient.coordinatorEpoch !== attachment.coordinatorEpoch ||
+        recipient.participantId !== participantId ||
+        this.proMembers.get(participantId) !== socket
+      ) {
+        continue;
+      }
+      sendChecked(socket, relay);
+    }
+  }
+
+  sendProChatControlSnapshot(ws, attachment, state) {
+    // A dedicated server-only channel is ignored by rolling-deploy clients,
+    // while current clients atomically replace all local control state. This
+    // avoids replaying historical moderation commands as four new messages.
+    sendChecked(ws, {
+      type: 'pro-realtime',
+      version: 1,
+      eventId: crypto.randomUUID(),
+      channel: 'chat-control-snapshot',
+      payload: {
+        revision: state.revision,
+        frozen: state.frozen,
+        filterEnabled: state.filterEnabled,
+        slowmodeSeconds: state.slowmodeSeconds,
+        muted: state.mutedParticipantIds.includes(attachment.participantId),
+      },
+      roomCode: attachment.roomId,
+      coordinatorEpoch: attachment.coordinatorEpoch,
+      sender: {
+        participantId: 'server',
+        presenceIncarnationId: 'server-chat-state',
+        displayName: 'MUSIXQUARE',
+      },
+    });
   }
 
   async loadProTicketUses(nowSeconds = Math.floor(Date.now() / 1000)) {
@@ -2031,33 +2474,79 @@ export class MusixquareRoom {
       const identityExpiryAt = attachment.identityExpiresAt + 1000;
       if (earliest === null || identityExpiryAt < earliest) earliest = identityExpiryAt;
     }
+    for (const proof of this.proBotRequestProofs?.entries || []) {
+      const proofExpiryAt = proof.expiresAtMs + 1;
+      if (earliest === null || proofExpiryAt < earliest) earliest = proofExpiryAt;
+    }
     return earliest;
   }
 
   async syncMaintenanceAlarm() {
-    try {
-      const nextAlarmAt = this.nextMaintenanceAlarmAt();
-      const currentAlarm = await this.state.storage.getAlarm();
-      if (nextAlarmAt === null) {
-        if (currentAlarm !== null) await this.state.storage.deleteAlarm();
-        return;
-      }
-      if (currentAlarm !== nextAlarmAt) await this.state.storage.setAlarm(nextAlarmAt);
-    } catch (error) {
-      console.warn('[Room] Failed to synchronize maintenance alarm', error);
+    const proMeta = await this.loadProRoomMeta();
+    if (proMeta) {
+      await this.loadProBotRequestProofs(proMeta.roomId, proMeta.coordinatorEpoch);
     }
+    const nextAlarmAt = this.nextMaintenanceAlarmAt();
+    const currentAlarm = await this.state.storage.getAlarm();
+    if (nextAlarmAt === null) {
+      if (currentAlarm !== null) await this.state.storage.deleteAlarm();
+      return;
+    }
+    if (currentAlarm !== nextAlarmAt) await this.state.storage.setAlarm(nextAlarmAt);
+  }
+
+  async scheduleMaintenanceAlarmRetry() {
+    const delay = Math.min(
+      MAINTENANCE_ALARM_RETRY_MAX_MS,
+      MAINTENANCE_ALARM_RETRY_BASE_MS * 2 ** this.alarmMaintenanceRetryAttempt,
+    );
+    this.alarmMaintenanceRetryAttempt += 1;
+    // Durable Objects expose one persistent alarm and may hibernate between
+    // events. Use that alarm itself as the retry clock instead of a JavaScript
+    // timer, which would keep the isolate alive and disappear on eviction.
+    await this.state.storage.setAlarm(Date.now() + delay);
+  }
+
+  clearMaintenanceAlarmRetry() {
+    this.alarmMaintenanceRetryAttempt = 0;
   }
 
   scheduleMaintenanceAlarm() {
     // Alarm updates may be requested by overlapping WebSocket callbacks. Keep
     // them ordered and recompute from the latest in-memory state at execution
     // time so an older request cannot overwrite a newer deadline.
-    this.alarmSync = this.alarmSync.then(
+    const run = this.alarmSync.then(
       () => this.syncMaintenanceAlarm(),
       () => this.syncMaintenanceAlarm(),
     );
-    this.defer(this.alarmSync);
-    return this.alarmSync;
+    // Keep the serialization tail fulfilled so one transient storage failure
+    // cannot poison every later alarm update. The returned operation still
+    // rejects, allowing an awaited alarm callback to surface the fault, while
+    // the bounded Durable Object alarm repairs fire-and-forget WebSocket paths
+    // even if the isolate hibernates immediately afterwards.
+    this.alarmSync = run.catch(() => {});
+    const observed = run.then(
+      () => {
+        this.clearMaintenanceAlarmRetry();
+      },
+      async (error) => {
+        console.warn('[Room] Failed to synchronize maintenance alarm', error);
+        try {
+          await this.scheduleMaintenanceAlarmRetry();
+        } catch (retryError) {
+          throw new AggregateError(
+            [error, retryError],
+            'Failed to synchronize or arm a maintenance alarm retry',
+          );
+        }
+        throw error;
+      },
+    );
+    // Attaching a handled branch prevents callers that intentionally fire and
+    // forget from producing an unhandled rejection. Callers that await the
+    // original operation still receive the failure.
+    this.defer(observed.catch(() => {}));
+    return observed;
   }
 
   acceptSocket(ws, attachment, tags) {
@@ -2081,7 +2570,9 @@ export class MusixquareRoom {
         return this.enqueueProAdmission(() => this.handleInternalProRealtimeBroadcast(request));
       }
       if (url.pathname === '/internal/admin/v1/decommission') {
-        return this.enqueueProAdmission(() => this.handleInternalAdminDecommission(request));
+        return this.enqueueProAdmission(() =>
+          this.enqueueProChatMutation(() => this.handleInternalAdminDecommission(request)),
+        );
       }
       return json({ error: 'NOT_FOUND' }, 404);
     }
@@ -2199,6 +2690,8 @@ export class MusixquareRoom {
     this.proTicketUses = null;
     this.proParticipantHighWater = null;
     this.proPresenceAuthority = undefined;
+    this.proChatControlState = undefined;
+    this.proBotRequestProofs = undefined;
     this.proSocketsValidated = true;
 
     const stored =
@@ -2212,6 +2705,8 @@ export class MusixquareRoom {
           PRO_TICKET_USES_KEY,
           PRO_PARTICIPANT_HIGH_WATER_KEY,
           PRO_PRESENCE_AUTHORITY_KEY,
+          PRO_CHAT_CONTROL_STATE_KEY,
+          PRO_BOT_REQUEST_PROOFS_KEY,
         ];
     for (const key of keys) {
       if (key !== PRO_DECOMMISSIONED_KEY && typeof this.state.storage.delete === 'function') {
@@ -2276,6 +2771,7 @@ export class MusixquareRoom {
       if (authorityResult === 'conflict') {
         return json({ error: 'PRO_PRESENCE_REVISION_CONFLICT' }, 409);
       }
+      await this.pruneProChatMutedParticipants(value.roomCode, value.coordinatorEpoch, targets);
     }
 
     const targetSet = new Set(targets);
@@ -2321,21 +2817,39 @@ export class MusixquareRoom {
   }
 
   async resetProRoomEpoch(roomCode, coordinatorEpoch) {
-    for (const socket of typeof this.state.getWebSockets === 'function'
-      ? this.state.getWebSockets()
-      : []) {
-      const attachment = readAttachment(socket);
-      if (attachment?.roomKind === 'pro') {
-        closeSocket(socket, 1012, 'PRO_ROOM_EPOCH_ADVANCED');
+    return this.enqueueProChatMutation(async () => {
+      for (const socket of typeof this.state.getWebSockets === 'function'
+        ? this.state.getWebSockets()
+        : []) {
+        const attachment = readAttachment(socket);
+        if (attachment?.roomKind === 'pro') {
+          closeSocket(socket, 1012, 'PRO_ROOM_EPOCH_ADVANCED');
+        }
       }
-    }
-    this.proMembers.clear();
-    this.proSocketsValidated = true;
-    return this.saveProRoomMeta({
-      v: 2,
-      kind: 'pro',
-      roomId: roomCode,
-      coordinatorEpoch,
+      this.proMembers.clear();
+      this.proSocketsValidated = true;
+      const nextMeta = normalizeProRoomMeta({
+        v: 2,
+        kind: 'pro',
+        roomId: roomCode,
+        coordinatorEpoch,
+      });
+      if (!nextMeta) throw new Error('INVALID_PRO_ROOM_META');
+      if (typeof this.state.storage.transaction === 'function') {
+        await this.state.storage.transaction(async (transaction) => {
+          await transaction.put(PRO_ROOM_META_KEY, nextMeta);
+          await transaction.delete(PRO_CHAT_CONTROL_STATE_KEY);
+          await transaction.delete(PRO_BOT_REQUEST_PROOFS_KEY);
+        });
+      } else {
+        await this.state.storage.put(PRO_ROOM_META_KEY, nextMeta);
+        await this.state.storage.delete(PRO_CHAT_CONTROL_STATE_KEY);
+        await this.state.storage.delete(PRO_BOT_REQUEST_PROOFS_KEY);
+      }
+      this.proRoomMeta = nextMeta;
+      this.proChatControlState = defaultProChatControlState(roomCode, coordinatorEpoch);
+      this.proBotRequestProofs = defaultProBotRequestProofs(roomCode, coordinatorEpoch);
+      return nextMeta;
     });
   }
 
@@ -2405,6 +2919,9 @@ export class MusixquareRoom {
             realtimeMessageUpdatedAt: previousAttachment.realtimeMessageUpdatedAt,
           }
         : {}),
+      ...(Number.isFinite(previousAttachment?.chatLastMessageAtMs)
+        ? { chatLastMessageAtMs: previousAttachment.chatLastMessageAtMs }
+        : {}),
     };
     this.acceptSocket(ws, attachment, [
       'kind:pro',
@@ -2419,6 +2936,18 @@ export class MusixquareRoom {
       peerId: ticket.participantId,
       roomId: ticket.roomCode,
       ...workerVersionFields(this.env),
+    });
+    await this.enqueueProChatMutation(async () => {
+      let currentAttachment = this.currentProRealtimeAttachment(ws, attachment);
+      if (!currentAttachment) return;
+      const chatState = await this.loadProChatControlState(
+        ticket.roomCode,
+        ticket.coordinatorEpoch,
+      );
+      // Loading durable state yields. Revalidate so a same-participant
+      // replacement cannot receive a snapshot intended for its predecessor.
+      currentAttachment = this.currentProRealtimeAttachment(ws, currentAttachment);
+      if (currentAttachment) this.sendProChatControlSnapshot(ws, currentAttachment, chatState);
     });
   }
 
@@ -2520,7 +3049,9 @@ export class MusixquareRoom {
         type: 'peer-open',
         peerId: roomId,
         roomId,
-        ...(identity ? { memberIdentity: standardRoomMemberIdentityFromAttachment(attachment) } : {}),
+        ...(identity
+          ? { memberIdentity: standardRoomMemberIdentityFromAttachment(attachment) }
+          : {}),
         ...workerVersionFields(this.env),
       })
     ) {
@@ -2649,6 +3180,12 @@ export class MusixquareRoom {
       }
       // The same alarm also expires host metadata after reconnect grace.
       await this.clearExpiredHostRelease();
+    });
+    await this.enqueueProChatMutation(async () => {
+      const meta = await this.loadProRoomMeta();
+      if (meta) {
+        await this.pruneExpiredProBotRequests(meta.roomId, meta.coordinatorEpoch, now);
+      }
     });
     await this.scheduleMaintenanceAlarm();
   }
@@ -2990,69 +3527,196 @@ export class MusixquareRoom {
       return;
     }
 
-    // Notice messages are privileged room-wide announcements. The browser's
-    // payload contains no authority claim: authorize the server-admitted
-    // participant and its exact live presence incarnation against the PRO room
-    // Durable Object immediately before relay. An unavailable authority service
-    // drops only this notice; the WebSocket and ordinary chat remain usable.
-    if (
-      normalized.channel === 'chat' &&
-      normalized.payload.kind === 'notice' &&
-      !(await this.hasProRealtimePermission(attachment, 'chat.notice'))
-    ) {
+    const liveAttachment = this.currentProRealtimeAttachment(ws, attachment);
+    if (!liveAttachment) return;
+
+    if (normalized.channel !== 'chat') {
+      this.broadcastProRealtimeRelay(ws, liveAttachment, normalized);
       return;
     }
 
-    const targetParticipantId =
-      normalized.channel === 'chat' &&
-      (normalized.payload.kind === 'whisper' || normalized.payload.kind === 'mute')
-        ? normalized.payload.targetParticipantId
-        : null;
-    let targetSocket = null;
-    if (targetParticipantId) {
-      targetSocket = this.proMembers.get(targetParticipantId) || null;
-      const targetAttachment = readAttachment(targetSocket);
+    const payload = normalized.payload;
+    if (PRO_CHAT_MODERATION_KINDS.has(payload.kind)) {
+      return this.enqueueProChatMutation(async () => {
+        let actor = this.currentProRealtimeAttachment(ws, liveAttachment);
+        if (!actor) return;
+        if (!(await this.hasProRealtimePermission(actor, 'room.configure'))) return;
+        // Authority is tied to an exact presence incarnation, but the socket
+        // can still be replaced while the cross-DO check is in flight.
+        actor = this.currentProRealtimeAttachment(ws, actor);
+        if (!actor) return;
+
+        let targetSocket = null;
+        if (payload.kind === 'mute') {
+          targetSocket = this.proMembers.get(payload.targetParticipantId) || null;
+          const target = readAttachment(targetSocket);
+          if (
+            !targetSocket ||
+            target?.roomKind !== 'pro' ||
+            target.auth !== 'ok' ||
+            target.roomId !== actor.roomId ||
+            target.coordinatorEpoch !== actor.coordinatorEpoch ||
+            target.participantId !== payload.targetParticipantId ||
+            this.proMembers.get(payload.targetParticipantId) !== targetSocket
+          ) {
+            return;
+          }
+        }
+
+        const currentState = await this.loadProChatControlState(
+          actor.roomId,
+          actor.coordinatorEpoch,
+        );
+        let nextState = currentState;
+        if (payload.kind === 'freeze' && currentState.frozen !== payload.on) {
+          nextState = { ...currentState, revision: currentState.revision + 1, frozen: payload.on };
+        } else if (payload.kind === 'filter' && currentState.filterEnabled !== payload.on) {
+          nextState = {
+            ...currentState,
+            revision: currentState.revision + 1,
+            filterEnabled: payload.on,
+          };
+        } else if (
+          payload.kind === 'slowmode' &&
+          currentState.slowmodeSeconds !== payload.seconds
+        ) {
+          nextState = {
+            ...currentState,
+            revision: currentState.revision + 1,
+            slowmodeSeconds: payload.seconds,
+          };
+        } else if (payload.kind === 'mute') {
+          const muted = new Set(currentState.mutedParticipantIds);
+          const wasMuted = muted.has(payload.targetParticipantId);
+          if (payload.on) muted.add(payload.targetParticipantId);
+          else muted.delete(payload.targetParticipantId);
+          if (wasMuted !== payload.on) {
+            nextState = {
+              ...currentState,
+              revision: currentState.revision + 1,
+              mutedParticipantIds: [...muted].sort(),
+            };
+          }
+        }
+
+        // `clear` is a transient command. Every other moderation mutation is
+        // committed before relay so hibernation/reconnect cannot make live
+        // recipients disagree with a later participant.
+        if (nextState !== currentState) await this.saveProChatControlState(nextState);
+        if (payload.kind === 'clear' || nextState !== currentState) {
+          this.broadcastProRealtimeRelay(ws, actor, normalized, targetSocket);
+        }
+      });
+    }
+
+    if (payload.kind === 'message' || payload.kind === 'whisper') {
+      return this.enqueueProChatMutation(async () => {
+        let actor = this.currentProRealtimeAttachment(ws, liveAttachment);
+        if (!actor) return;
+        const state = await this.loadProChatControlState(actor.roomId, actor.coordinatorEpoch);
+        if (state.mutedParticipantIds.includes(actor.participantId)) return;
+
+        if (payload.kind === 'message' && state.frozen) {
+          if (!(await this.hasProRealtimePermission(actor, 'chat.manage'))) return;
+          actor = this.currentProRealtimeAttachment(ws, actor);
+          if (!actor) return;
+        }
+
+        let targetSocket = null;
+        if (payload.kind === 'whisper') {
+          targetSocket = this.proMembers.get(payload.targetParticipantId) || null;
+          const target = readAttachment(targetSocket);
+          if (
+            !targetSocket ||
+            target?.roomKind !== 'pro' ||
+            target.auth !== 'ok' ||
+            target.roomId !== actor.roomId ||
+            target.coordinatorEpoch !== actor.coordinatorEpoch ||
+            target.participantId !== payload.targetParticipantId ||
+            this.proMembers.get(payload.targetParticipantId) !== targetSocket
+          ) {
+            return;
+          }
+        }
+
+        if (payload.kind === 'message' && state.slowmodeSeconds > 0) {
+          const nowMs = Date.now();
+          const lastMessageAtMs = Number.isFinite(actor.chatLastMessageAtMs)
+            ? actor.chatLastMessageAtMs
+            : 0;
+          if (nowMs - lastMessageAtMs < state.slowmodeSeconds * 1000) return;
+          actor = { ...actor, chatLastMessageAtMs: nowMs };
+          ws.serializeAttachment(actor);
+        }
+        if (payload.kind === 'message' && payload.botRequestId) {
+          const remembered = await this.rememberProBotRequest(
+            actor.roomId,
+            actor.coordinatorEpoch,
+            actor.participantId,
+            payload.botRequestId,
+          );
+          if (!remembered) return;
+          // The durable proof write yields. Only the exact socket that sent the
+          // observed request may cause its visible chat command to be relayed.
+          actor = this.currentProRealtimeAttachment(ws, actor);
+          if (!actor) return;
+        }
+        this.broadcastProRealtimeRelay(ws, actor, normalized, targetSocket);
+      });
+    }
+
+    if (payload.kind === 'bot-result') {
+      return this.enqueueProChatMutation(async () => {
+        let actor = this.currentProRealtimeAttachment(ws, liveAttachment);
+        if (!actor) return;
+        const successful = payload.result.kind === 'answer' || payload.result.kind === 'added';
+        if (
+          successful &&
+          !(await this.hasProRealtimePermission(actor, 'bot.result', {
+            requestId: payload.requestId,
+            result: payload.result,
+          }))
+        ) {
+          return;
+        }
+        // A successful result remains bound to the exact PRO Worker execution
+        // receipt. Failure/rate-limit results have no execution receipt, so
+        // they instead require the pending request that this signaling DO
+        // observed from the same participant. Every accepted terminal result
+        // consumes a durable one-shot proof before it is relayed.
+        actor = this.currentProRealtimeAttachment(ws, actor);
+        if (!actor) return;
+        const consumed = await this.consumeProBotRequest(
+          actor.roomId,
+          actor.coordinatorEpoch,
+          actor.participantId,
+          payload.requestId,
+          successful,
+        );
+        if (!consumed) return;
+        actor = this.currentProRealtimeAttachment(ws, actor);
+        if (!actor) return;
+        this.broadcastProRealtimeRelay(ws, actor, normalized);
+      });
+    }
+
+    let requiredPermission = null;
+    let authorityDetails = {};
+    if (payload.kind === 'notice') {
+      requiredPermission = 'chat.notice';
+    } else if (payload.kind === 'system') {
+      requiredPermission = 'system.broadcast';
+      authorityDetails = { i18nKey: payload.i18nKey };
+    }
+    if (requiredPermission) {
       if (
-        !targetSocket ||
-        targetAttachment?.roomKind !== 'pro' ||
-        targetAttachment.auth !== 'ok' ||
-        targetAttachment.roomId !== attachment.roomId ||
-        targetAttachment.coordinatorEpoch !== attachment.coordinatorEpoch ||
-        targetAttachment.participantId !== targetParticipantId
+        !(await this.hasProRealtimePermission(liveAttachment, requiredPermission, authorityDetails))
       ) {
         return;
       }
-    }
-
-    const relay = {
-      ...normalized,
-      roomCode: attachment.roomId,
-      coordinatorEpoch: attachment.coordinatorEpoch,
-      sender: {
-        participantId: attachment.participantId,
-        presenceIncarnationId: attachment.presenceIncarnationId,
-        ...(attachment.memberId ? { memberId: attachment.memberId } : {}),
-        displayName: attachment.displayName,
-      },
-    };
-    if (normalized.channel === 'chat' && normalized.payload.kind === 'whisper') {
-      sendChecked(targetSocket, relay);
-      return;
-    }
-    for (const [participantId, socket] of this.proMembers) {
-      if (socket === ws) continue;
-      const recipient = readAttachment(socket);
-      if (
-        recipient?.roomKind !== 'pro' ||
-        recipient.auth !== 'ok' ||
-        recipient.roomId !== attachment.roomId ||
-        recipient.coordinatorEpoch !== attachment.coordinatorEpoch ||
-        recipient.participantId !== participantId ||
-        this.proMembers.get(participantId) !== socket
-      ) {
-        continue;
-      }
-      sendChecked(socket, relay);
+      const actor = this.currentProRealtimeAttachment(ws, liveAttachment);
+      if (!actor) return;
+      this.broadcastProRealtimeRelay(ws, actor, normalized);
     }
   }
 

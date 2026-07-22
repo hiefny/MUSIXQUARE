@@ -2,9 +2,9 @@ import { expect, test } from '@playwright/test';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-// This contract depends on the browser's real CORS/network stack. Override the
-// suite-wide --disable-web-security flag for this file.
-test.use({ launchOptions: { args: [] } });
+// This contract depends on the browser's real CORS/network stack. The shared
+// Playwright profile intentionally keeps web security enabled for every test,
+// so release smoke and ordinary E2E cannot hide an origin-policy regression.
 
 test('browser XHR supplies the exact Content-Length signed by the R2 URL', async ({ page }) => {
   let putHeaders: Record<string, string> | null = null;

@@ -89,6 +89,12 @@ function isRecord(value: unknown): value is JsonRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function hasExactKeys(value: JsonRecord, expected: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  return actual.length === wanted.length && actual.every((key, index) => key === wanted[index]);
+}
+
 function isSafePositiveInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 1;
 }
@@ -148,6 +154,28 @@ function parseServerFrame(
       (value.sender.memberId !== undefined &&
         (typeof value.sender.memberId !== 'string' ||
           !/^(?:member|owner)_[A-Za-z0-9_-]{16,128}$/.test(value.sender.memberId)))
+    ) {
+      return null;
+    }
+    if (
+      value.channel === 'chat-control-snapshot' &&
+      (value.sender.participantId !== 'server' ||
+        value.sender.presenceIncarnationId !== 'server-chat-state' ||
+        !hasExactKeys(value.payload, [
+          'revision',
+          'frozen',
+          'filterEnabled',
+          'slowmodeSeconds',
+          'muted',
+        ]) ||
+        !Number.isSafeInteger(value.payload.revision) ||
+        (value.payload.revision as number) < 0 ||
+        typeof value.payload.frozen !== 'boolean' ||
+        typeof value.payload.filterEnabled !== 'boolean' ||
+        !Number.isSafeInteger(value.payload.slowmodeSeconds) ||
+        (value.payload.slowmodeSeconds as number) < 0 ||
+        (value.payload.slowmodeSeconds as number) > 60 ||
+        typeof value.payload.muted !== 'boolean')
     ) {
       return null;
     }

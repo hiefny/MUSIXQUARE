@@ -35,7 +35,10 @@ describe('user-text and UI-locale font loading integration', () => {
   });
 
   it.each(['ko', 'en'])('detects user scripts independently of the %s UI locale', (locale) => {
-    __setLocaleFontLoaderForTests('ru', vi.fn(async () => undefined));
+    __setLocaleFontLoaderForTests(
+      'ru',
+      vi.fn(async () => undefined),
+    );
     document.documentElement.lang = locale;
     const element = document.createElement('span');
 
@@ -46,7 +49,10 @@ describe('user-text and UI-locale font loading integration', () => {
   });
 
   it('marks text synchronously and remains non-blocking when a font chunk fails', async () => {
-    __setLocaleFontLoaderForTests('th', vi.fn(async () => Promise.reject(new Error('offline'))));
+    __setLocaleFontLoaderForTests(
+      'th',
+      vi.fn(async () => Promise.reject(new Error('offline'))),
+    );
     const element = document.createElement('span');
 
     expect(() => applyUserTextFontFallback(element, 'สวัสดี')).not.toThrow();

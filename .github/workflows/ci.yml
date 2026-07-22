@@ -53,6 +53,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Critical runtime coverage
+        run: npm run test:coverage:critical
+
       - name: Build and verify production bundle
         run: npm run build:checked
 

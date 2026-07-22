@@ -41,6 +41,10 @@ import {
   type ProRoomRepeatMode,
 } from './queue-mode.ts';
 import { BOT_RATE_LIMIT_MAX_RETRY_SECONDS } from '../core/constants.ts';
+import {
+  DEFAULT_CONTROL_REQUEST_TIMEOUT_MS,
+  withRequestDeadline,
+} from '../core/request-lifetime.ts';
 
 const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://musixquare.com/api/pro-room';
 export const PRO_ROOM_R2_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';
@@ -199,6 +203,13 @@ export interface ReportProRoomPlaybackReadyInput {
 export interface ProRoomPresenceIdentity {
   participantId: string;
   presenceIncarnationId: string;
+}
+
+export interface ProRoomAccountDetachResult {
+  ok: true;
+  detached: true;
+  /** Null means the previous presence already expired before detachment. */
+  snapshot: ProRoomSnapshot | null;
 }
 
 interface ProRoomAdministratorDirectory {
@@ -490,11 +501,63 @@ function encodeRequestBody(value: unknown): string {
   return body;
 }
 
-async function readBoundedText(response: Response, maxBytes: number): Promise<string> {
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException('Aborted', 'AbortError');
+}
+
+function cancelUnreadResponseBody(response: Response): void {
+  try {
+    void response.body?.cancel().catch(() => undefined);
+  } catch {
+    // Best-effort resource release; the protocol error below is authoritative.
+  }
+}
+
+function readBodyChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal?: AbortSignal,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (!signal) return reader.read();
+  if (signal.aborted) return Promise.reject(abortReason(signal));
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = () => signal.removeEventListener('abort', onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      finish();
+      void reader.cancel(signal.reason).catch(() => undefined);
+      reject(abortReason(signal));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    void reader.read().then(
+      (result) => {
+        if (settled) return;
+        settled = true;
+        finish();
+        resolve(result);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        finish();
+        reject(error);
+      },
+    );
+  });
+}
+
+async function readBoundedText(
+  response: Response,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<string> {
   const declaredLength = response.headers.get('content-length');
   if (declaredLength !== null) {
     const parsedLength = Number(declaredLength);
     if (!Number.isSafeInteger(parsedLength) || parsedLength < 0 || parsedLength > maxBytes) {
+      cancelUnreadResponseBody(response);
       throw new BodyLimitError();
     }
   }
@@ -505,7 +568,7 @@ async function readBoundedText(response: Response, maxBytes: number): Promise<st
   let total = 0;
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readBodyChunk(reader, signal);
       if (done) break;
       if (!value) continue;
       total += value.byteLength;
@@ -516,7 +579,13 @@ async function readBoundedText(response: Response, maxBytes: number): Promise<st
       chunks.push(value);
     }
   } finally {
-    reader.releaseLock();
+    try {
+      reader.releaseLock();
+    } catch {
+      // A deliberately non-cooperative stream may keep its read pending after
+      // abort. The request promise is still released; native fetch streams
+      // settle their pending read when the linked signal aborts.
+    }
   }
 
   const bytes = new Uint8Array(total);
@@ -537,11 +606,18 @@ function isJsonResponse(response: Response): boolean {
   return contentType !== null && /^application\/json(?:\s*;|$)/i.test(contentType);
 }
 
-async function readJson(response: Response, maxBytes: number): Promise<unknown> {
-  if (!isJsonResponse(response)) throw new ProRoomApiError('INVALID_RESPONSE', response.status);
+async function readJson(
+  response: Response,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  if (!isJsonResponse(response)) {
+    cancelUnreadResponseBody(response);
+    throw new ProRoomApiError('INVALID_RESPONSE', response.status);
+  }
   let text: string;
   try {
-    text = await readBoundedText(response, maxBytes);
+    text = await readBoundedText(response, maxBytes, signal);
   } catch (error) {
     if (error instanceof BodyLimitError) {
       throw new ProRoomApiError('RESPONSE_TOO_LARGE', response.status);
@@ -577,11 +653,16 @@ function parseRetryAfter(response: Response, payload: unknown): number | null {
   return null;
 }
 
-async function throwResponseError(response: Response): Promise<never> {
+async function throwResponseError(response: Response, signal?: AbortSignal): Promise<never> {
   let payload: unknown = null;
   try {
-    if (isJsonResponse(response)) payload = await readJson(response, MAX_ERROR_JSON_BYTES);
+    if (isJsonResponse(response)) {
+      payload = await readJson(response, MAX_ERROR_JSON_BYTES, signal);
+    } else {
+      cancelUnreadResponseBody(response);
+    }
   } catch {
+    if (signal?.aborted) throw abortReason(signal);
     payload = null;
   }
   const serverCode = isRecord(payload) && typeof payload.error === 'string' ? payload.error : null;
@@ -594,6 +675,34 @@ function parseSnapshotEnvelope(value: unknown, expectedCode: string): ProRoomSna
   if (!isRecord(value) || !hasExactKeys(value, ['snapshot'])) return null;
   const snapshot = parseProRoomSnapshot(value.snapshot);
   return snapshot?.roomCode === expectedCode ? snapshot : null;
+}
+
+function parseAccountDetachResult(
+  value: unknown,
+  expectedCode: string,
+): ProRoomAccountDetachResult | null {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, ['ok', 'detached', 'snapshot']) ||
+    value.ok !== true ||
+    value.detached !== true
+  ) {
+    return null;
+  }
+  if (value.snapshot === null) return { ok: true, detached: true, snapshot: null };
+  const snapshot = parseProRoomSnapshot(value.snapshot);
+  // A detach response is authority evidence only when the server projects the
+  // same room as anonymous. Never reinterpret an authenticated snapshot as a
+  // successful authority downgrade.
+  if (
+    !snapshot ||
+    snapshot.roomCode !== expectedCode ||
+    snapshot.viewer === null ||
+    snapshot.viewer.isAuthenticated
+  ) {
+    return null;
+  }
+  return { ok: true, detached: true, snapshot };
 }
 
 function parseAdministratorDirectory(value: unknown): ProRoomAdministratorDirectory | null {
@@ -1103,28 +1212,44 @@ export class ProRoomApiClient {
       headers.set('X-MXQR-Pro-Presence-Incarnation', identity.presenceIncarnationId);
     }
 
-    let response: Response;
     try {
-      response = await this.#fetch(url, {
-        method: options.method ?? 'GET',
-        headers,
-        body,
-        credentials: 'include',
-        cache: 'no-store',
-        redirect: 'error',
-        referrerPolicy: 'no-referrer',
-        signal: options.signal,
-        ...(options.keepalive === true ? { keepalive: true } : {}),
-      });
-    } catch {
+      return await withRequestDeadline(
+        async (requestSignal) => {
+          const response = await this.#fetch(url, {
+            method: options.method ?? 'GET',
+            headers,
+            body,
+            credentials: 'include',
+            cache: 'no-store',
+            redirect: 'error',
+            referrerPolicy: 'no-referrer',
+            signal: requestSignal,
+            ...(options.keepalive === true ? { keepalive: true } : {}),
+          });
+
+          // Keep the intrinsic deadline alive through the complete response
+          // body. A header-only timeout leaves heartbeat/mutation promises
+          // pinned forever when a proxy stalls mid-JSON.
+          if (!response.ok) await throwResponseError(response, requestSignal);
+          const value = await readJson(
+            response,
+            options.maxResponseBytes ?? MAX_RESPONSE_JSON_BYTES,
+            requestSignal,
+          );
+          const parsed = options.parser(value);
+          if (parsed === null) throw new ProRoomApiError('INVALID_RESPONSE', response.status);
+          return parsed;
+        },
+        {
+          signal: options.signal,
+          timeoutMs: DEFAULT_CONTROL_REQUEST_TIMEOUT_MS,
+          timeoutReason: 'PRO_ROOM_REQUEST_TIMEOUT',
+        },
+      );
+    } catch (error) {
+      if (error instanceof ProRoomApiError) throw error;
       throw new ProRoomApiError(options.signal?.aborted ? 'ABORTED' : 'NETWORK_ERROR');
     }
-
-    if (!response.ok) await throwResponseError(response);
-    const value = await readJson(response, options.maxResponseBytes ?? MAX_RESPONSE_JSON_BYTES);
-    const parsed = options.parser(value);
-    if (parsed === null) throw new ProRoomApiError('INVALID_RESPONSE', response.status);
-    return parsed;
   }
 
   #bindPresenceIdentity(code: string, snapshot: ProRoomSnapshot): ProRoomSnapshot {
@@ -1269,15 +1394,19 @@ export class ProRoomApiClient {
     });
   }
 
-  async detachCurrentAccount(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot> {
+  async detachCurrentAccount(
+    code: string,
+    signal?: AbortSignal,
+  ): Promise<ProRoomAccountDetachResult> {
     const path = roomPath(code);
     // Account detachment is session-cookie scoped rather than presence scoped.
     // A backgrounded tab must be able to shed account authority even after its
     // live presence has expired, so do not attach the active-presence headers.
     return this.#request(`${path}/sessions/current/account`, {
       method: 'DELETE',
+      headers: { 'X-MXQR-Pro-Detach-Version': '2' },
       signal,
-      parser: (value) => parseSnapshotEnvelope(value, code),
+      parser: (value) => parseAccountDetachResult(value, code),
       maxResponseBytes: MAX_RESPONSE_JSON_BYTES,
     });
   }

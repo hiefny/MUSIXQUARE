@@ -281,6 +281,28 @@ const persistedResolvedTitleByQueueItem = new Map<
     attempts: number;
   }
 >();
+const PERSISTED_TITLE_ATTEMPT_MAX_ITEMS = 256;
+
+function rememberPersistedTitleAttempt(
+  queueItemId: QueueItemId,
+  attempt: {
+    authorityIdentity: string;
+    writeIdentity: string;
+    attemptedAtMs: number;
+    attempts: number;
+  },
+): void {
+  // Map insertion order gives us a tiny LRU without another long-lived index.
+  // Refreshing an existing item moves it to the back; deleted/old queue items
+  // can therefore never accumulate for the lifetime of a persistent iframe.
+  persistedResolvedTitleByQueueItem.delete(queueItemId);
+  persistedResolvedTitleByQueueItem.set(queueItemId, attempt);
+  while (persistedResolvedTitleByQueueItem.size > PERSISTED_TITLE_ATTEMPT_MAX_ITEMS) {
+    const oldest = persistedResolvedTitleByQueueItem.keys().next().value as QueueItemId | undefined;
+    if (oldest === undefined) break;
+    persistedResolvedTitleByQueueItem.delete(oldest);
+  }
+}
 
 function persistResolvedProYouTubeTitle(
   queueItemId: QueueItemId | null,
@@ -329,7 +351,7 @@ function persistResolvedProYouTubeTitle(
     title: nextTitle,
   });
   if (accepted) {
-    persistedResolvedTitleByQueueItem.set(queueItemId, {
+    rememberPersistedTitleAttempt(queueItemId, {
       authorityIdentity,
       writeIdentity,
       attemptedAtMs: nowMs,

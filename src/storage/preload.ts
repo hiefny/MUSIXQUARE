@@ -1064,11 +1064,23 @@ export async function unicastPreload(
 
   const isSourceCurrent = (): boolean => {
     const meta = getState('preload.activeTarget');
-    return (
+    const isPreloadResident =
       getState('preload.ready')?.blob === file &&
       getState('preload.nextQueueItemId') === queueItemId &&
       meta?.queueItemId === queueItemId &&
-      Number(meta?.sessionId) === sessionId
+      Number(meta?.sessionId) === sessionId;
+    if (isPreloadResident) return true;
+
+    // Normal activation atomically promotes the same encoded resident from
+    // preload.ready into files.current before clearing the preload projection.
+    // That consumer-side ownership move must not cancel a late-join unicast
+    // that already froze the exact Blob/session/queue tuple. A replacement
+    // resident still fails all three identity checks and stops the transfer.
+    const current = getState('files.current');
+    return (
+      current?.blob === file &&
+      current.queueItemId === queueItemId &&
+      Number(current.sessionId) === sessionId
     );
   };
   const canContinue = (): boolean =>

@@ -71,15 +71,19 @@ describe('release deployment rollback state', () => {
     }
   });
 
-  it('keeps the room-bound Developer API release chain ordered', () => {
+  it('keeps the cross-Worker release chain in dependency order', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const remoteShare = workflow.indexOf('Deploy and record remote-share Worker');
     const proRoom = workflow.indexOf('Deploy and record PRO room Worker');
+    const signaling = workflow.indexOf('Deploy and record signaling Worker');
     const facade = workflow.indexOf('Deploy and record Developer API facade Worker');
     const developerApi = workflow.indexOf('Deploy and record Developer API Worker');
     const app = workflow.indexOf('Deploy and record app Worker with immutable dist');
 
-    expect(proRoom).toBeGreaterThan(-1);
-    expect(facade).toBeGreaterThan(proRoom);
+    expect(remoteShare).toBeGreaterThan(-1);
+    expect(proRoom).toBeGreaterThan(remoteShare);
+    expect(signaling).toBeGreaterThan(proRoom);
+    expect(facade).toBeGreaterThan(signaling);
     expect(developerApi).toBeGreaterThan(facade);
     expect(app).toBeGreaterThan(developerApi);
     expect(workflow).toContain('- developer-api');
@@ -92,12 +96,16 @@ describe('release deployment rollback state', () => {
       scripts: Record<string, string>;
     };
     const deployAll = packageJson.scripts['deploy:all-workers'];
+    const remoteConfig = deployAll.indexOf('npm run deploy:remote-share');
     const proConfig = deployAll.indexOf('cloudflare/wrangler.pro-room.toml');
+    const signalingConfig = deployAll.indexOf('npm run deploy:signaling');
     const facadeConfig = deployAll.indexOf('cloudflare/wrangler.developer-api-facade.toml');
     const apiConfig = deployAll.indexOf('cloudflare/wrangler.developer-api.toml');
     const appConfig = deployAll.indexOf('cloudflare/wrangler.app.toml');
 
-    expect(facadeConfig).toBeGreaterThan(proConfig);
+    expect(proConfig).toBeGreaterThan(remoteConfig);
+    expect(signalingConfig).toBeGreaterThan(proConfig);
+    expect(facadeConfig).toBeGreaterThan(signalingConfig);
     expect(apiConfig).toBeGreaterThan(facadeConfig);
     expect(appConfig).toBeGreaterThan(apiConfig);
   });
@@ -496,8 +504,8 @@ describe('release deployment rollback state', () => {
       'app',
       'developer-api',
       'developer-api-facade',
-      'pro-room',
       'signaling',
+      'pro-room',
       'remote-share',
     ]);
   });
@@ -522,6 +530,30 @@ describe('release deployment rollback state', () => {
       rollbackDependencyBlock('signaling', states, [{ target: 'app', status: 'restored' }]),
     ).toBeNull();
     expect(rollbackDependencyBlock('signaling', [{ target: 'signaling' }], [])).toBeNull();
+  });
+
+  it('withholds legacy PRO when signaling was not safely restored first', () => {
+    const states = [{ target: 'signaling' }, { target: 'pro-room' }];
+
+    expect(rollbackDependencyBlock('pro-room', states, [])).toEqual({
+      dependency: 'signaling',
+      dependencyStatus: 'not-processed',
+    });
+    expect(
+      rollbackDependencyBlock('pro-room', states, [
+        { target: 'signaling', status: 'skipped-dependent-worker-not-restored' },
+      ]),
+    ).toEqual({
+      dependency: 'signaling',
+      dependencyStatus: 'skipped-dependent-worker-not-restored',
+    });
+    expect(
+      rollbackDependencyBlock('pro-room', states, [{ target: 'signaling', status: 'conflict' }]),
+    ).toEqual({ dependency: 'signaling', dependencyStatus: 'conflict' });
+    expect(
+      rollbackDependencyBlock('pro-room', states, [{ target: 'signaling', status: 'restored' }]),
+    ).toBeNull();
+    expect(rollbackDependencyBlock('pro-room', [{ target: 'pro-room' }], [])).toBeNull();
   });
 
   it('verifies every attempted Worker still matches the release after live smoke', () => {

@@ -1657,6 +1657,56 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     expect(ProRoomApiClient.prototype.heartbeat).toHaveBeenCalled();
   });
 
+  it('runs a stronger manual rendezvous after an overlapping visibility repair', async () => {
+    const current = {
+      ...snapshot(playback(1, { positionSeconds: 18, updatedAtMs: Date.now(), state: 'playing' })),
+      revision: 2,
+    };
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ ...commitEvent(null, 1), playback: current.playback } as unknown as Record<
+        string,
+        unknown
+      >),
+    );
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    heartbeat.mockClear();
+    prepareMedia.mockClear();
+    commitMedia.mockClear();
+    let resolveVisibilityHeartbeat!: (value: ProRoomSnapshot) => void;
+    heartbeat
+      .mockImplementationOnce(
+        () =>
+          new Promise<ProRoomSnapshot>((resolve) => {
+            resolveVisibilityHeartbeat = resolve;
+          }),
+      )
+      .mockResolvedValue(current);
+
+    setDocumentVisibility('hidden');
+    setDocumentVisibility('visible');
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
+
+    // The foreground repair is YouTube-only and deliberately skips a local
+    // rendezvous. A manual Sync arriving during that request is stronger and
+    // must not silently inherit the weaker in-flight promise.
+    const manualSync = requestActiveProRoomPlaybackReconciliation();
+    resolveVisibilityHeartbeat(current);
+
+    await expect(manualSync).resolves.toBe(true);
+    expect(heartbeat).toHaveBeenCalledTimes(2);
+    expect(prepareMedia).toHaveBeenCalledOnce();
+    expect(commitMedia).toHaveBeenCalledTimes(2);
+    expect(commitMedia.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        state: 'playing',
+        timingMode: 'scheduled-control',
+        scheduleDelayMs: 700,
+      }),
+    );
+  });
+
   it('retains foreground recovery after an async failure and schedules a retry', async () => {
     acceptProRoomRealtimeFrameForTests(
       serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),

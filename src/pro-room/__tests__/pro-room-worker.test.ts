@@ -2219,6 +2219,14 @@ function request(path: string, init: RequestInit = {}, cookie?: string): Request
   return requestForRoom(ROOM_CODE, path, init, cookie);
 }
 
+function detachV2Request(cookie: string): Request {
+  return request(
+    '/sessions/current/account',
+    { method: 'DELETE', headers: { 'x-mxqr-pro-detach-version': '2' } },
+    cookie,
+  );
+}
+
 describe('PRO room Worker health', () => {
   it('publishes the exact deployed Worker version for release readiness checks', async () => {
     const response = await proRoomWorker.fetch(new Request('https://pro.musixquare.com/health'), {
@@ -6437,6 +6445,89 @@ describe('persistent PRO room bootstrap and activation', () => {
     });
   });
 
+  it('restores the active room when the initial decommission tombstone commit fails', async () => {
+    const context = await activatedRoom();
+    const externalCalls = {
+      signaling: vi.fn(async () =>
+        Response.json({ ok: true, roomCode: ROOM_CODE, status: 'decommissioned' }),
+      ),
+      developerDb: vi.fn(async () => ({ meta: { changes: 1 } })),
+      limiter: vi.fn(async () => Response.json({ ok: true, roomCode: ROOM_CODE })),
+      registry: vi.fn(async () => ({ meta: { changes: 1 } })),
+    };
+    const internal = context.worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+    };
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: externalCalls.signaling })),
+    };
+    internal.env.DEVELOPER_API_DB = {
+      prepare: vi.fn(() => ({
+        bind: vi.fn(() => ({ run: externalCalls.developerDb })),
+      })),
+    };
+    internal.env.DEVELOPER_API_LIMITERS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: externalCalls.limiter })),
+    };
+    internal.env.MUSIXQUARE_ADMIN_DB = {
+      prepare: vi.fn(() => ({
+        bind: vi.fn(() => ({
+          run: externalCalls.registry,
+          first: vi.fn(async () => ({ status: 'decommissioned' })),
+          all: vi.fn(async () => ({ results: [{ status: 'decommissioned' }] })),
+        })),
+      })),
+    };
+
+    const before = structuredClone(internal.room);
+    const originalPut = context.state.storage.put.bind(context.state.storage);
+    let failCoreOnce = true;
+    context.state.storage.put = async (key, value) => {
+      if (failCoreOnce && key === 'pro-room:v2:core') {
+        failCoreOnce = false;
+        throw new Error('simulated decommission fence failure');
+      }
+      return originalPut(key, value);
+    };
+    const decommissionRequest = () =>
+      new Request('https://pro-room.internal/internal/admin/decommission', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+        },
+        body: JSON.stringify({
+          roomCode: ROOM_CODE,
+          requestId: '018f977e-5df5-4c8f-bb80-55d847ddec9e',
+        }),
+      });
+
+    await expect(context.worker.fetch(decommissionRequest())).rejects.toMatchObject({
+      name: 'RoomStateStorageCommitError',
+    });
+    expect(internal.room).toEqual(before);
+    expect(internal.room.status).toBe('active');
+    expect(externalCalls.signaling).not.toHaveBeenCalled();
+    expect(externalCalls.developerDb).not.toHaveBeenCalled();
+    expect(externalCalls.limiter).not.toHaveBeenCalled();
+    expect(externalCalls.registry).not.toHaveBeenCalled();
+
+    context.state.storage.put = originalPut;
+    const retried = await context.worker.fetch(decommissionRequest());
+    expect(retried.status).toBe(202);
+    await expect(retried.json()).resolves.toMatchObject({
+      ok: true,
+      roomCode: ROOM_CODE,
+      status: 'decommissioning',
+      changed: true,
+    });
+    expect(internal.room.status).toBe('decommissioning');
+    expect(externalCalls.signaling).toHaveBeenCalledOnce();
+  });
+
   it('permanently decommissions a room, sweeps late R2 uploads, and preserves its tombstone', async () => {
     vi.useFakeTimers();
     const startedAtMs = Date.parse('2026-07-18T02:00:00.000Z');
@@ -7118,7 +7209,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     );
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get('access-control-allow-headers')).toBe(
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version,x-mxqr-pro-detach-version',
     );
 
     for (const previewOrigin of ['http://localhost:4173', 'http://127.0.0.1:4173']) {
@@ -7137,6 +7228,98 @@ describe('persistent PRO room bootstrap and activation', () => {
     );
     expect(blocked.status).toBe(403);
     expect(blocked.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
+  it('bounds a direct public mutation body before the room Durable Object is invoked', async () => {
+    const downstream = vi.fn(async (incoming: Request) => {
+      await expect(incoming.json()).resolves.toEqual({ pin: '12345678' });
+      return Response.json({ ok: true });
+    });
+    const env = {
+      ...environment(),
+      PRO_ROOM_RATE_LIMIT_SECRET: 'rate-limit-secret-'.padEnd(48, 'r'),
+      PRO_ROOMS: {
+        idFromName: (value: string) => value,
+        get: () => ({ fetch: downstream }),
+      },
+    };
+    let controlled!: ReadableStreamDefaultController<Uint8Array>;
+    const controlledBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controlled = controller;
+        controller.enqueue(new TextEncoder().encode('{"pin":"1234'));
+      },
+    });
+    const completedPromise = proRoomWorker.fetch(
+      new Request(`${BASE_URL}/sessions`, {
+        method: 'POST',
+        headers: { origin: 'https://musixquare.com', 'content-type': 'application/json' },
+        body: controlledBody,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+      env as never,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(downstream).not.toHaveBeenCalled();
+    controlled.enqueue(new TextEncoder().encode('5678"}'));
+    controlled.close();
+    expect((await completedPromise).status).toBe(200);
+    expect(downstream).toHaveBeenCalledOnce();
+    downstream.mockClear();
+
+    vi.useFakeTimers();
+    const stalledBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"pin":"'));
+      },
+    });
+    const stalledPromise = proRoomWorker.fetch(
+      new Request(`${BASE_URL}/sessions`, {
+        method: 'POST',
+        headers: { origin: 'https://musixquare.com', 'content-type': 'application/json' },
+        body: stalledBody,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+      env as never,
+    );
+
+    // The facade hashes the source IP before it starts consuming the body.
+    // Let that native WebCrypto continuation install the bounded-body timer
+    // before advancing the fake clock.
+    for (let attempt = 0; attempt < 20 && vi.getTimerCount() === 0; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    }
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    await vi.advanceTimersByTimeAsync(10_001);
+    const stalled = await stalledPromise;
+    expect(stalled.status).toBe(408);
+    await expect(stalled.json()).resolves.toEqual({ error: 'PRO_ROOM_REQUEST_BODY_TIMEOUT' });
+    expect(downstream).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
+    const oversizedBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(4 * 1024 * 1024));
+        controller.enqueue(new Uint8Array([1]));
+        controller.close();
+      },
+    });
+    const oversized = await proRoomWorker.fetch(
+      new Request(`${BASE_URL}/sessions`, {
+        method: 'POST',
+        headers: { origin: 'https://musixquare.com', 'content-type': 'application/json' },
+        body: oversizedBody,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+      env as never,
+    );
+    expect(oversized.status).toBe(413);
+    await expect(oversized.json()).resolves.toEqual({
+      error: 'PRO_ROOM_REQUEST_BODY_TOO_LARGE',
+    });
+    expect(downstream).not.toHaveBeenCalled();
   });
 });
 
@@ -7581,11 +7764,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
       await context.worker.fetch(request('/snapshot', {}, first.cookie)),
     );
     const beforeRevision = internal.room.revision as number;
-    const detachedResponse = await context.worker.fetch(
-      request('/sessions/current/account', { method: 'DELETE' }, first.cookie),
-    );
+    const detachedResponse = await context.worker.fetch(detachV2Request(first.cookie));
     expect(detachedResponse.status).toBe(200);
     const detached = await responseJson(detachedResponse);
+    expect(detached).toMatchObject({ ok: true, detached: true });
     expect(detached.snapshot.viewer).toMatchObject({
       role: 'member',
       isAuthenticated: false,
@@ -7649,11 +7831,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ),
     ).toHaveLength(1);
 
-    const idempotent = await context.worker.fetch(
-      request('/sessions/current/account', { method: 'DELETE' }, first.cookie),
-    );
+    const idempotent = await context.worker.fetch(detachV2Request(first.cookie));
     expect(idempotent.status).toBe(200);
     const idempotentEnvelope = await responseJson(idempotent);
+    expect(idempotentEnvelope).toMatchObject({ ok: true, detached: true });
     expect(idempotentEnvelope.snapshot.viewer).toMatchObject({
       memberId: detached.snapshot.viewer.memberId,
       memberDisplayNumber: detached.snapshot.viewer.memberDisplayNumber,
@@ -7661,6 +7842,11 @@ describe('persistent PRO room authentication, presence, and state', () => {
       isAuthenticated: false,
     });
     expect(internal.room.revision).toBe(beforeRevision + 1);
+
+    const legacy = await context.worker.fetch(
+      request('/sessions/current/account', { method: 'DELETE' }, first.cookie),
+    );
+    await expect(legacy.json()).resolves.toEqual({ snapshot: idempotentEnvelope.snapshot });
 
     const secondSnapshot = await responseJson(
       await context.worker.fetch(request('/snapshot', {}, second.cookie)),
@@ -7706,11 +7892,19 @@ describe('persistent PRO room authentication, presence, and state', () => {
         .status,
     ).toBe(200);
 
-    const detached = await context.worker.fetch(
+    const detached = await context.worker.fetch(detachV2Request(cookie));
+    expect(detached.status).toBe(200);
+    await expect(detached.json()).resolves.toEqual({
+      ok: true,
+      detached: true,
+      snapshot: null,
+    });
+    const legacyOffline = await context.worker.fetch(
       request('/sessions/current/account', { method: 'DELETE' }, cookie),
     );
-    expect(detached.status).toBe(200);
-    await expect(detached.json()).resolves.toMatchObject({ snapshot: { viewer: null } });
+    const legacyOfflineEnvelope = await responseJson(legacyOffline);
+    expect(Object.keys(legacyOfflineEnvelope)).toEqual(['snapshot']);
+    expect(legacyOfflineEnvelope.snapshot.viewer).toBeNull();
     expect(internal.room.accountMembers[accountId]).toMatchObject({
       memberId,
       role: 'controller',
@@ -7751,11 +7945,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const otherCookie = cookieFrom(otherDeviceResponse);
     bindCookiePresence(otherCookie, otherDevice);
 
-    const detachedResponse = await context.worker.fetch(
-      request('/sessions/current/account', { method: 'DELETE' }, context.ownerCookie),
-    );
+    const detachedResponse = await context.worker.fetch(detachV2Request(context.ownerCookie));
     expect(detachedResponse.status).toBe(200);
     const detached = await responseJson(detachedResponse);
+    expect(detached).toMatchObject({ ok: true, detached: true });
     expect(detached.snapshot.viewer).toMatchObject({
       role: 'member',
       isAuthenticated: false,
@@ -8162,6 +8355,214 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     expect(immutableOwner.status).toBe(409);
     await expect(immutableOwner.json()).resolves.toEqual({ error: 'OWNER_AUTHORITY_IMMUTABLE' });
+  });
+
+  it('does not let BOT widen a delegated administrator playback permission', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const friend = await addAuthorityMember(context);
+    const memberId = friend.envelope.snapshot.viewer.memberId as string;
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${memberId}`,
+            'PUT',
+            { permissions: { ...fullDelegatedPermissions, 'playback.control': false } },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+
+    const execute = async (
+      requestId: string,
+      plan: Record<string, unknown>,
+      tracks: Record<string, unknown>[] = [],
+    ) => {
+      const botContext = await internalBotRequest(
+        context.worker,
+        'context',
+        { roomCode: ROOM_CODE, requestId, prompt: 'permission boundary' },
+        friend.cookie,
+      );
+      expect(botContext.status).toBe(200);
+      const contextBody = await responseJson(botContext);
+      return internalBotRequest(
+        context.worker,
+        'execute',
+        { roomCode: ROOM_CODE, requestId, leaseToken: contextBody.leaseToken, plan, tracks },
+        friend.cookie,
+      );
+    };
+
+    const addRequestId = 'bot-playback-disabled-add-0001';
+    const addContext = await internalBotRequest(
+      context.worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: addRequestId, prompt: 'add and play' },
+      friend.cookie,
+    );
+    const addContextBody = await responseJson(addContext);
+    const track = { videoId: 'dQw4w9WgXcQ', name: 'Permission fixture' };
+    const deniedAddAndPlay = await internalBotRequest(
+      context.worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId: addRequestId,
+        leaseToken: addContextBody.leaseToken,
+        plan: {
+          intent: 'add_youtube',
+          trackQueries: ['Permission fixture official audio'],
+          playAddedIndex: 0,
+        },
+        tracks: [track],
+      },
+      friend.cookie,
+    );
+    expect(deniedAddAndPlay.status).toBe(403);
+    await expect(deniedAddAndPlay.json()).resolves.toEqual({ error: 'PERMISSION_REQUIRED' });
+
+    // The same valid context may still perform the separately delegated media
+    // addition when it does not also request playback.
+    const allowedAddOnly = await internalBotRequest(
+      context.worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId: addRequestId,
+        leaseToken: addContextBody.leaseToken,
+        plan: {
+          intent: 'add_youtube',
+          trackQueries: ['Permission fixture official audio'],
+          playAddedIndex: -1,
+        },
+        tracks: [track],
+      },
+      friend.cookie,
+    );
+    expect(allowedAddOnly.status).toBe(200);
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const queueItemId = internal.room.playlist[0].queueItemId as string;
+
+    const deniedPlayback = await execute('bot-playback-disabled-command-0002', {
+      intent: 'playback',
+      playbackCommand: 'play',
+    });
+    expect(deniedPlayback.status).toBe(403);
+    await expect(deniedPlayback.json()).resolves.toEqual({ error: 'PERMISSION_REQUIRED' });
+
+    const deniedSelection = await execute('bot-playback-disabled-select-0003', {
+      intent: 'play_existing',
+      queueItemId,
+    });
+    expect(deniedSelection.status).toBe(403);
+    await expect(deniedSelection.json()).resolves.toEqual({ error: 'PERMISSION_REQUIRED' });
+  });
+
+  it('authorizes privileged realtime chat from canonical server-side facts', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const friend = await addAuthorityMember(context);
+    const memberId = friend.envelope.snapshot.viewer.memberId as string;
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${memberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    const owner = context.activationEnvelope.snapshot.viewer;
+    const controller = friend.envelope.snapshot.viewer;
+    const authority = (
+      viewer: Record<string, any>,
+      permission: string,
+      details: Record<string, unknown> = {},
+    ) =>
+      context.worker.fetch(
+        new Request('https://pro-room.internal/internal/authority/check', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+          },
+          body: JSON.stringify({
+            participantId: viewer.participantId,
+            presenceIncarnationId: viewer.presenceIncarnationId,
+            permission,
+            ...details,
+          }),
+        }),
+      );
+
+    expect((await authority(owner, 'room.configure')).status).toBe(200);
+    expect((await authority(controller, 'room.configure')).status).toBe(403);
+    expect((await authority(controller, 'chat.manage')).status).toBe(200);
+    expect(
+      (
+        await authority(controller, 'system.broadcast', {
+          i18nKey: 'chat.decode_skip_system_message',
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await authority(controller, 'system.broadcast', {
+          i18nKey: 'chat.system_audio_started_system_message',
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await authority(owner, 'system.broadcast', {
+          i18nKey: 'chat.system_audio_started_system_message',
+        })
+      ).status,
+    ).toBe(200);
+
+    const requestId = 'bot-authority-result-proof-0001';
+    const botContext = await internalBotRequest(
+      context.worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'say done' },
+      context.ownerCookie,
+    );
+    const botContextBody = await responseJson(botContext);
+    const executed = await internalBotRequest(
+      context.worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId,
+        leaseToken: botContextBody.leaseToken,
+        plan: { intent: 'answer', answer: 'Done.' },
+        tracks: [],
+      },
+      context.ownerCookie,
+    );
+    expect(executed.status).toBe(200);
+    expect(
+      (
+        await authority(owner, 'bot.result', {
+          requestId,
+          result: { kind: 'answer', text: 'Done.' },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await authority(owner, 'bot.result', {
+          requestId,
+          result: { kind: 'answer', text: 'Forged.' },
+        })
+      ).status,
+    ).toBe(403);
   });
 
   it('keeps system-audio publishing owner-only even when media addition is delegated', async () => {
@@ -12304,6 +12705,93 @@ describe('persistent PRO room authentication, presence, and state', () => {
 });
 
 describe('persistent PRO room private media accounting', () => {
+  it('recovers participant completion after final R2 creation outlives a failed room commit', async () => {
+    const context = await activatedRoom();
+    const reservationResponse = await context.worker.fetch(
+      jsonRequest(
+        '/media/reservations',
+        'POST',
+        { byteLength: 4096, name: 'recover.flac', mime: 'audio/flac' },
+        context.ownerCookie,
+        `${IDEMPOTENCY_KEY}-participant-recover-reserve`,
+      ),
+    );
+    const reservation = await responseJson(reservationResponse);
+    const assetId = reservation.reservation.assetId as string;
+    const internal = context.worker as unknown as { room: StoredRoom };
+    const asset = structuredClone(internal.room.assets[assetId]!);
+    context.bucket.objects.set(asset.stagingObjectKey, {
+      size: asset.byteLength,
+      httpMetadata: { contentType: asset.mime },
+      customMetadata: {
+        'mxqr-room': ROOM_CODE,
+        'mxqr-asset': asset.assetId,
+        'mxqr-version': String(asset.version),
+        'mxqr-bytes': String(asset.byteLength),
+      },
+    });
+
+    const originalPut = context.state.storage.put.bind(context.state.storage);
+    let failCoreOnce = true;
+    context.state.storage.put = async (key, value) => {
+      if (failCoreOnce && key === 'pro-room:v2:core') {
+        failCoreOnce = false;
+        throw new Error('simulated participant completion commit failure');
+      }
+      return originalPut(key, value);
+    };
+    const completion = () =>
+      request(
+        `/media/${assetId}/complete`,
+        {
+          method: 'POST',
+          headers: {
+            'idempotency-key': `${IDEMPOTENCY_KEY}-participant-recover-complete`,
+          },
+        },
+        context.ownerCookie,
+      );
+
+    await expect(context.worker.fetch(completion())).rejects.toMatchObject({
+      name: 'RoomStateStorageCommitError',
+    });
+    expect(internal.room.assets[assetId]).toMatchObject({ status: 'reserved' });
+    expect(internal.room.quota).toMatchObject({ usedBytes: 0, reservedBytes: asset.byteLength });
+    expect(context.bucket.objects.get(asset.objectKey)).toMatchObject({
+      size: asset.byteLength,
+      httpMetadata: { contentType: asset.mime },
+    });
+    expect(context.bucket.objects.has(asset.stagingObjectKey)).toBe(true);
+
+    // Recreate the isolate after the client-uploaded staging object has gone
+    // away. The exact final object is sufficient to finish the reserved
+    // transaction without charging the room twice.
+    context.state.storage.put = originalPut;
+    context.bucket.objects.delete(asset.stagingObjectKey);
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const recovered = await restarted.fetch(completion());
+    expect(recovered.status).toBe(200);
+    await expect(recovered.json()).resolves.toMatchObject({
+      asset: { assetId },
+      quota: { usedBytes: asset.byteLength, reservedBytes: 0 },
+    });
+    const restartedInternal = restarted as unknown as { room: StoredRoom };
+    expect(restartedInternal.room.assets[assetId]).toMatchObject({ status: 'ready' });
+    expect(restartedInternal.room.quota).toMatchObject({
+      usedBytes: asset.byteLength,
+      reservedBytes: 0,
+    });
+
+    const replay = await restarted.fetch(completion());
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({
+      quota: { usedBytes: asset.byteLength, reservedBytes: 0 },
+    });
+  });
+
   it('completes and indexes a local upload beside a playlist above the legacy state budget', async () => {
     const { worker, bucket, ownerCookie } = await activatedRoom();
     const internal = worker as unknown as {

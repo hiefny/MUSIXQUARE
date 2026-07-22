@@ -97,13 +97,16 @@ Worker that rejects the remaining scope bits; independent Workers still return
 to their previous versions. The release remains failed and reports the withheld
 target for operator review.
 
-The app and signaling rollback also has a compatibility fence. The current
-signaling Worker accepts both first-frame host authentication and the temporary
-legacy URL form, but the previous signaling Worker cannot authenticate a new
-app that no longer places its secret in the URL. If app rollback is attempted
-but cannot be verified as restored, recovery therefore keeps the current
-signaling Worker and reports a partial failure instead of creating a known
-broken new-app/old-signaling pairing.
+The app, signaling, and PRO rollback chain also has compatibility fences. The
+current signaling Worker accepts both first-frame host authentication and the
+temporary legacy URL form, but the previous signaling Worker cannot
+authenticate a new app that no longer places its secret in the URL. If app
+rollback is attempted but cannot be verified as restored, recovery therefore
+keeps the current signaling Worker. Signaling also delegates PRO chat and
+authority decisions to the PRO room Worker. If signaling cannot be verified as
+restored, recovery keeps the current PRO Worker instead of creating a known
+broken new-signaling/old-PRO pairing. Either fence is reported as a partial
+failure for operator review.
 
 The same dependency is fenced in the forward direction. An app-only production
 release runs the live signaling smoke before touching the app Worker, and the
@@ -156,8 +159,8 @@ change that touches every Worker, `all` uses this order so the existing browser
 remains usable while backends roll forward:
 
 1. `cloudflare/wrangler.remote-share.toml`, then its live smoke;
-2. `cloudflare/wrangler.signaling.toml`, then its live smoke;
-3. `cloudflare/wrangler.pro-room.toml`, then its version-aware health smoke;
+2. `cloudflare/wrangler.pro-room.toml`, then its version-aware health smoke;
+3. `cloudflare/wrangler.signaling.toml`, then its live smoke;
 4. `cloudflare/wrangler.developer-api-facade.toml` (private service binding only);
 5. `cloudflare/wrangler.developer-api.toml`, then its authenticated live smoke
    against the fixed `000001` smoke room;

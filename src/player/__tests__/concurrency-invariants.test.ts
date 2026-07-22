@@ -163,7 +163,7 @@ import {
   setPlayLocked,
   setPlayPreloadedInProgress,
 } from '../_state.ts';
-import { play, stopAllMedia } from '../transport.ts';
+import { pause, play, stopAllMedia } from '../transport.ts';
 import { finalizeGuestFile, loadPreloadedTrack } from '../decode.ts';
 import { initPlayback } from '../playback.ts';
 import { transition } from '../lifecycle.ts';
@@ -958,6 +958,38 @@ describe('pin (c) — stopAllMedia during the in-flight play window', () => {
 });
 
 describe('play invocation owner — stale unlock/watchdog isolation', () => {
+  it('does not revive a queued PLAY after its authority revision is superseded', async () => {
+    vi.useFakeTimers();
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    const runningPlay = deferred<void>();
+    mocks.ensureRunning.mockReturnValueOnce(runningPlay.promise);
+
+    const first = play(1);
+    await vi.waitFor(() => expect(mocks.ensureRunning).toHaveBeenCalledOnce());
+
+    let authorityRevision = 1;
+    await play(7, 0, performance.now() + 1_000, () => authorityRevision === 1);
+    expect(getPendingPlayTime()).toBe(7);
+
+    // A newer authoritative PAUSE/revision invalidates the queued PLAY while
+    // the original node start still owns the page-global lock.
+    authorityRevision = 2;
+    pause(4, { showToast: false });
+    expect(getPendingPlayTime()).toBeUndefined();
+
+    runningPlay.resolve();
+    await first;
+    await vi.advanceTimersByTimeAsync(20);
+
+    expect(mocks.ensureRunning).toHaveBeenCalledOnce();
+    // PAUSE revokes the active async node start as well as the queued intent.
+    // The invocation still owns and releases the lock through its finally,
+    // but it must not make a stale source audible after the pause.
+    expect(mocks.createBufferSource).not.toHaveBeenCalled();
+    expect(getPendingPlayTime()).toBeUndefined();
+  });
+
   it('does not let an older finally clear the replacement play watchdog or unlock its mailbox', async () => {
     vi.useFakeTimers();
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);

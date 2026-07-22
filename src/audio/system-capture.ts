@@ -76,6 +76,7 @@ interface PreSystemAudioState {
 
 let _preSysAudioState: PreSystemAudioState | null = null;
 let _captureStartPromise: Promise<void> | null = null;
+let _captureStartEpoch = 0;
 let _captureRoomKind: 'standard' | 'pro' | null = null;
 const SYSTEM_AUDIO_SHARE_LIMIT_TIMER = 'system-audio-host-share-limit';
 
@@ -242,7 +243,8 @@ export async function startSystemAudioCapture(): Promise<void> {
   // Both calls begin in this user-activation turn. Waiting for the server
   // before getDisplayMedia would lose the browser's trusted click gesture.
   const proLeaseAttempt = isProRoom ? beginProLeaseAttempt() : null;
-  const attempt = performSystemAudioCaptureStart(isProRoom, proLeaseAttempt);
+  const startEpoch = ++_captureStartEpoch;
+  const attempt = performSystemAudioCaptureStart(isProRoom, proLeaseAttempt, startEpoch);
   _captureStartPromise = attempt;
   try {
     await attempt;
@@ -254,6 +256,7 @@ export async function startSystemAudioCapture(): Promise<void> {
 async function performSystemAudioCaptureStart(
   isProRoom: boolean,
   proLeaseAttempt: ProLeaseAttempt | null,
+  startEpoch: number,
 ): Promise<void> {
   let authoritativeLiveExpiresAt: number | null = null;
   // 1. Capture FIRST (user gesture must be synchronous call stack)
@@ -271,8 +274,18 @@ async function performSystemAudioCaptureStart(
     });
   } catch (e) {
     releaseProLeaseAttempt(proLeaseAttempt);
+    if (startEpoch !== _captureStartEpoch) return;
     log.warn('[SystemAudio] getDisplayMedia denied or failed:', e);
     bus.emit('ui:show-toast', t('system_audio.capture_denied'));
+    return;
+  }
+
+  // getDisplayMedia itself is not abortable. stop/leave invalidates the epoch;
+  // when the native picker eventually resolves, discard its tracks and release
+  // any lease instead of resurrecting a capture after teardown.
+  if (startEpoch !== _captureStartEpoch) {
+    releaseProLeaseAttempt(proLeaseAttempt);
+    discardPendingCapture(stream);
     return;
   }
 
@@ -291,6 +304,11 @@ async function performSystemAudioCaptureStart(
 
   if (isProRoom) {
     const leaseResult = await proLeaseAttempt!;
+    if (startEpoch !== _captureStartEpoch) {
+      discardPendingCapture(stream);
+      if (leaseResult.ok) void releaseLocalProSystemAudioLease().catch(() => undefined);
+      return;
+    }
     if (!leaseResult.ok) {
       discardPendingCapture(stream);
       await refreshProLeaseFailure(leaseResult.error);
@@ -321,6 +339,12 @@ async function performSystemAudioCaptureStart(
     discardPendingCapture(stream);
     if (isProRoom) void releaseLocalProSystemAudioLease().catch(() => undefined);
     throw error;
+  }
+
+  if (startEpoch !== _captureStartEpoch) {
+    discardPendingCapture(stream);
+    if (isProRoom) void releaseLocalProSystemAudioLease().catch(() => undefined);
+    return;
   }
 
   if (!isProRoom && (!isCoordinator() || !hasSystemAudioDeviceCapacity())) {
@@ -430,8 +454,16 @@ async function performSystemAudioCaptureStart(
       const rightTrack = _streamR?.getAudioTracks()[0];
       if (!leftTrack || !rightTrack) throw new Error('PRO_SYSTEM_AUDIO_TRACKS_UNAVAILABLE');
       const liveState = await publishLocalProSystemAudio(leftTrack, rightTrack);
+      if (startEpoch !== _captureStartEpoch) {
+        void releaseLocalProSystemAudioLease().catch(() => undefined);
+        return;
+      }
       authoritativeLiveExpiresAt = liveState.status === 'live' ? liveState.liveExpiresAt : null;
     } catch (error) {
+      if (startEpoch !== _captureStartEpoch) {
+        void releaseLocalProSystemAudioLease().catch(() => undefined);
+        return;
+      }
       log.warn('[SystemAudio] PRO publication failed:', error);
       abortPreparedCapture();
       void releaseLocalProSystemAudioLease().catch(() => undefined);
@@ -490,6 +522,8 @@ function stopSystemAudioCapture(opts?: {
   reason?: SystemAudioStopReason;
 }): void {
   clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
+  _captureStartEpoch += 1;
+  _captureStartPromise = null;
   if (!isSystemAudioActive() && !_capturedStream) return;
   const shouldRestore = opts?.restore ?? true;
   const captureRoomKind = _captureRoomKind;

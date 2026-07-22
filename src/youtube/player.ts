@@ -328,11 +328,7 @@ import {
   handleRequestYouTubeSubSeek,
   handleRequestYouTubePlaylistInfo,
 } from './handlers.ts';
-import {
-  broadcastYouTubeSync,
-  cancelGuestRendezvous,
-  resetYouTubeSyncState,
-} from './sync.ts';
+import { broadcastYouTubeSync, cancelGuestRendezvous, resetYouTubeSyncState } from './sync.ts';
 import {
   clearProCoordinatorYouTubeNudgeAnchor,
   isProCoordinatorYouTubeEndpoint,

@@ -129,6 +129,20 @@ describe('Developer API public documentation', () => {
     expect(spec).not.toContain('/internal/');
   });
 
+  it('keeps the internal authority design aligned with the public API principal', async () => {
+    const [identityDesign, proDesign] = await Promise.all([
+      readFile('docs/design/account-identity-and-room-authority.md', 'utf8'),
+      readFile('docs/design/pro-room-architecture-and-operations.md', 'utf8'),
+    ]);
+    expect(identityDesign).toContain('separate server-to-server principal');
+    expect(proDesign).toMatch(/independent room-authoritative\s+principals/);
+    for (const design of [identityDesign, proDesign]) {
+      expect(design).not.toMatch(
+        /BOT and\s+Developer API commands are checked as the initiating room member/,
+      );
+    }
+  });
+
   it('documents persistent room-wide effects, scopes, ranges, and partial commands', async () => {
     const [html, spec] = await Promise.all([
       readFile(DOC_PATH, 'utf8'),

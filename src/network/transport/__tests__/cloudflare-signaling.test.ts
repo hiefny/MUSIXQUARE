@@ -136,6 +136,7 @@ class FakeRTCPeerConnection {
   localDescription: FakeLocalDescription | null = null;
   remoteDescription: RTCSessionDescriptionInit | null = null;
   readonly channels: FakeDataChannel[] = [];
+  readonly addedCandidates: RTCIceCandidateInit[] = [];
   private listeners = new Map<string, Set<FakeRTCListener>>();
 
   constructor() {
@@ -176,8 +177,8 @@ class FakeRTCPeerConnection {
     this.remoteDescription = description;
   }
 
-  async addIceCandidate(): Promise<void> {
-    /* noop */
+  async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
+    this.addedCandidates.push(candidate);
   }
 
   getSenders(): RTCRtpSender[] {
@@ -1520,6 +1521,279 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     expect(firstConnection.open).toBe(true);
     expect(failedPc.connectionState).toBe('closed');
     expect(privateMaps(peer).connections.get('guest-reconnect')).toBe(firstConnection);
+
+    peer.destroy();
+  });
+
+  it('keeps candidates and answers scoped to the newest overlapping offer generation', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createHostPeer();
+    const onError = vi.fn();
+    peer.on('error', onError);
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    let releaseFirst!: () => void;
+    const firstRemoteDescription = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    vi.spyOn(FakeRTCPeerConnection.prototype, 'setRemoteDescription')
+      .mockImplementationOnce(async function (description) {
+        this.remoteDescription = description;
+        await firstRemoteDescription;
+      })
+      .mockImplementation(async function (description) {
+        this.remoteDescription = description;
+      });
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-overlap',
+        sdp: { type: 'offer', sdp: 'v=0\r\na=ice-ufrag:first' },
+      }),
+    );
+    await Promise.resolve();
+    const firstPc = FakeRTCPeerConnection.instances[0]!;
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-overlap',
+        sdp: { type: 'offer', sdp: 'v=0\r\na=ice-ufrag:second' },
+      }),
+    );
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-candidate',
+        from: 'guest-overlap',
+        candidate: {
+          candidate: 'candidate:2 1 udp 1 192.0.2.2 5000 typ host ufrag second',
+          usernameFragment: 'second',
+        },
+      }),
+    );
+
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(1));
+    const secondPc = FakeRTCPeerConnection.instances[1]!;
+    expect(secondPc.addedCandidates).toEqual([
+      expect.objectContaining({ usernameFragment: 'second' }),
+    ]);
+
+    releaseFirst();
+    await flushAsync();
+
+    expect(sentOfType(socket, 'signal-answer')).toHaveLength(1);
+    expect(firstPc.addedCandidates).toEqual([]);
+    expect(onError).not.toHaveBeenCalled();
+    peer.destroy();
+  });
+
+  it('echoes a negotiation token and admits only matching token-aware candidates', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    const negotiationId = 'negotiation_token_000001';
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-token',
+        negotiationId,
+        sdp: { type: 'offer', sdp: 'v=0\r\na=ice-ufrag:token-aware' },
+      }),
+    );
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(1));
+    expect(sentOfType(socket, 'signal-answer')[0]).toMatchObject({ negotiationId });
+
+    const pc = FakeRTCPeerConnection.instances[0]!;
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-candidate',
+        from: 'guest-token',
+        candidate: { candidate: 'candidate:legacy-without-ufrag' },
+      }),
+    );
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-candidate',
+        from: 'guest-token',
+        negotiationId: 'negotiation_token_999999',
+        candidate: { candidate: 'candidate:wrong-token' },
+      }),
+    );
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-candidate',
+        from: 'guest-token',
+        negotiationId,
+        candidate: { candidate: 'candidate:matching-token' },
+      }),
+    );
+    await flushAsync();
+
+    expect(pc.addedCandidates).toEqual([{ candidate: 'candidate:matching-token' }]);
+    peer.destroy();
+  });
+
+  it('keeps early candidates isolated by token and drops trickle from a superseded local pc', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    const firstToken = 'negotiation_token_000001';
+    const secondToken = 'negotiation_token_000002';
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-token-overlap',
+        negotiationId: firstToken,
+        sdp: { type: 'offer', sdp: 'first-offer' },
+      }),
+    );
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(1));
+    const firstPc = FakeRTCPeerConnection.instances[0]!;
+
+    // WebSocket ordering usually puts the offer first, but the browser may
+    // emit local trickle before the offer continuation sends its frame.
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-candidate',
+        from: 'guest-token-overlap',
+        negotiationId: secondToken,
+        candidate: { candidate: 'candidate:early-second' },
+      }),
+    );
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-token-overlap',
+        negotiationId: secondToken,
+        sdp: { type: 'offer', sdp: 'second-offer' },
+      }),
+    );
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(2));
+    const secondPc = FakeRTCPeerConnection.instances[1]!;
+    expect(secondPc.addedCandidates).toEqual([{ candidate: 'candidate:early-second' }]);
+
+    firstPc.dispatch('icecandidate', {
+      candidate: { toJSON: () => ({ candidate: 'candidate:late-first' }) },
+    });
+    secondPc.dispatch('icecandidate', {
+      candidate: { toJSON: () => ({ candidate: 'candidate:current-second' }) },
+    });
+    const sentCandidates = sentOfType(socket, 'signal-candidate');
+    expect(sentCandidates).toHaveLength(1);
+    expect(sentCandidates[0]).toMatchObject({
+      negotiationId: secondToken,
+      candidate: { candidate: 'candidate:current-second' },
+    });
+    peer.destroy();
+  });
+
+  it('falls back to ufrag-only ICE when an older answer omits the negotiation token', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createGuestPeer();
+    peer.connect('123456');
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    expect(sentOfType(socket, 'signal-offer')[0]?.negotiationId).toEqual(expect.any(String));
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-candidate',
+        from: 'host',
+        candidate: { candidate: 'candidate:legacy-host' },
+      }),
+    );
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-answer',
+        from: 'host',
+        sdp: { type: 'answer', sdp: 'legacy-answer' },
+      }),
+    );
+    await flushAsync();
+
+    expect(FakeRTCPeerConnection.instances[0]?.addedCandidates).toEqual([
+      { candidate: 'candidate:legacy-host' },
+    ]);
+    peer.destroy();
+  });
+
+  it('does not let a late legacy data answer overwrite the active media negotiation', async () => {
+    const { peer, socket, pc } = await establishGuest();
+    const onCall = vi.fn();
+    peer.on('call', onCall);
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'media-offer',
+        from: 'host',
+        callId: 'legacy-media-call',
+        sdp: { type: 'offer', sdp: 'current-media-offer' },
+        audioTrackCount: 1,
+      }),
+    );
+    await flushAsync();
+    const mediaConn = onCall.mock.calls[0]?.[0] as TransportMediaConnection;
+    expect(mediaConn).toBeDefined();
+    mediaConn.answer();
+    await vi.waitFor(() => expect(sentOfType(socket, 'media-answer')).toHaveLength(1));
+    expect(pc.remoteDescription).toEqual({ type: 'offer', sdp: 'current-media-offer' });
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-answer',
+        from: 'host',
+        // A rolling-deploy legacy peer has no negotiationId.
+        sdp: { type: 'answer', sdp: 'late-legacy-data-answer' },
+      }),
+    );
+    await flushAsync();
+    expect(pc.remoteDescription).toEqual({ type: 'offer', sdp: 'current-media-offer' });
 
     peer.destroy();
   });

@@ -111,6 +111,7 @@ const PLAYLIST_ITEM_MAX_BYTES = 128 * 1024;
 // able to carry every playlist accepted by the 3 MiB persisted-state budget.
 // Keep the endpoint bounded while matching the browser client's JSON ceiling.
 const REQUEST_MAX_BYTES = 4 * 1024 * 1024;
+const PUBLIC_MUTATION_BODY_TIMEOUT_MS = 10_000;
 const SMALL_REQUEST_MAX_BYTES = 16 * 1024;
 const UNLOAD_CLOSE_REQUEST_MAX_BYTES = 4 * 1024;
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -236,6 +237,18 @@ const MEMBER_CAPABILITIES = [];
 const LEGACY_MEMBER_CAPABILITIES = ['playback.control'];
 const OWNER_CAPABILITIES = [...CONTROLLER_CAPABILITIES, 'room.configure'];
 const PRO_ROOM_PERMISSION_KEYS = ['media.add', 'playback.control', 'members.kick', 'chat.notice'];
+const PRO_INTERNAL_AUTHORITY_PERMISSIONS = new Set([
+  ...PRO_ROOM_PERMISSION_KEYS,
+  'room.configure',
+  'chat.manage',
+  'bot.result',
+  'system.broadcast',
+]);
+const PRO_SYSTEM_MESSAGE_PERMISSION = new Map([
+  ['chat.decode_skip_system_message', 'playback.control'],
+  ['chat.system_audio_started_system_message', 'room.configure'],
+  ['chat.system_audio_stopped_system_message', 'room.configure'],
+]);
 const MEMBER_PERMISSIONS = Object.freeze({
   'media.add': false,
   'playback.control': false,
@@ -395,7 +408,7 @@ function corsHeaders(origin) {
     'access-control-allow-credentials': 'true',
     'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'access-control-allow-headers':
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version,x-mxqr-pro-detach-version',
     'access-control-max-age': '86400',
     vary: 'origin',
   };
@@ -815,6 +828,74 @@ async function readJsonBody(request, maxBytes, allowSimpleText = false, allowEmp
   }
 }
 
+async function readBodyBytesLimited(request, maxBytes, timeoutMs) {
+  const declared = request.headers.get('content-length');
+  if (declared !== null) {
+    const normalized = declared.trim();
+    if (!/^\d+$/.test(normalized)) return { error: 'invalid' };
+    if (Number(normalized) > maxBytes) return { error: 'too-large' };
+  }
+  if (!request.body) return { body: null };
+
+  const reader = request.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  let stop;
+  const stopped = new Promise((resolve) => {
+    stop = resolve;
+  });
+  const timeout = setTimeout(() => {
+    stop({ kind: 'timeout' });
+    void reader.cancel('PRO_ROOM_REQUEST_BODY_TIMEOUT').catch(() => {});
+  }, timeoutMs);
+  const abort = () => {
+    stop({ kind: 'aborted' });
+    void reader.cancel(request.signal.reason).catch(() => {});
+  };
+  if (request.signal.aborted) abort();
+  else request.signal.addEventListener('abort', abort, { once: true });
+
+  try {
+    while (true) {
+      const outcome = await Promise.race([
+        reader.read().then(
+          (value) => ({ kind: 'read', value }),
+          () => ({ kind: 'invalid' }),
+        ),
+        stopped,
+      ]);
+      if (outcome.kind !== 'read') return { error: outcome.kind };
+      if (outcome.value.done) break;
+      const bytes =
+        outcome.value.value instanceof Uint8Array
+          ? outcome.value.value
+          : new Uint8Array(outcome.value.value);
+      totalBytes += bytes.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel('PRO_ROOM_REQUEST_BODY_TOO_LARGE').catch(() => {});
+        return { error: 'too-large' };
+      }
+      chunks.push(bytes);
+    }
+  } finally {
+    clearTimeout(timeout);
+    request.signal.removeEventListener('abort', abort);
+    try {
+      reader.releaseLock();
+    } catch {
+      /* pending non-cooperative stream read */
+    }
+  }
+
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { body };
+}
+
 function cookieValue(request, name) {
   const cookie = request.headers.get('cookie') || '';
   for (const part of cookie.split(';')) {
@@ -1128,13 +1209,7 @@ function parseLegacyRoomEffects(value) {
 
 function parseRoomEffects(value) {
   if (
-    !hasExactKeys(value, [
-      'reverb',
-      'equalizer',
-      'virtualBass',
-      'virtualSurround',
-      'virtualTreble',
-    ])
+    !hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround', 'virtualTreble'])
   ) {
     return null;
   }
@@ -2957,14 +3032,37 @@ export default {
       request.headers.get('cf-connecting-ip') ||
       request.headers.get('x-forwarded-for') ||
       'unknown';
+    // Start the public-body deadline before the asynchronous IP HMAC. A slow
+    // sender must not gain extra unbounded time merely because the facade is
+    // completing unrelated control-plane work before forwarding the request.
+    const bodyReadPromise =
+      request.method === 'GET' || request.method === 'HEAD'
+        ? Promise.resolve({ body: null })
+        : readBodyBytesLimited(request, REQUEST_MAX_BYTES, PUBLIC_MUTATION_BODY_TIMEOUT_MS);
     const ipHash = await hmacBase64Url(rateSecret, `pro-room-rate:${rawIp}`);
     const headers = new Headers(request.headers);
     headers.set('x-mxqr-pro-room-code', match[1]);
     headers.set('x-mxqr-pro-ip-hash', ipHash);
     headers.delete('cf-connecting-ip');
     headers.delete('x-forwarded-for');
+    let body = null;
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      const buffered = await bodyReadPromise;
+      if (buffered.error === 'too-large') {
+        return withPublicHeaders(errorResponse('PRO_ROOM_REQUEST_BODY_TOO_LARGE', 413), origin);
+      }
+      if (buffered.error === 'timeout' || buffered.error === 'aborted') {
+        return withPublicHeaders(errorResponse('PRO_ROOM_REQUEST_BODY_TIMEOUT', 408), origin);
+      }
+      if (buffered.error) {
+        return withPublicHeaders(errorResponse('INVALID_REQUEST', 400), origin);
+      }
+      body = buffered.body;
+    }
     const stub = env.PRO_ROOMS.get(env.PRO_ROOMS.idFromName(match[1]));
-    const response = await stub.fetch(new Request(request, { headers }));
+    const upstreamInit = { method: request.method, headers, signal: request.signal };
+    if (body !== null) upstreamInit.body = body;
+    const response = await stub.fetch(new Request(request.url, upstreamInit));
     return withPublicHeaders(response, origin);
   },
 };
@@ -4201,9 +4299,13 @@ export class MusixquareProRoom {
       const deleteMediaMatch = url.pathname.match(
         new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})$`),
       );
-      const hasExternalMediaSideEffects =
-        (request.method === 'POST' && completeMediaMatch !== null) ||
-        (request.method === 'DELETE' && deleteMediaMatch !== null);
+      // Completion may leave a verified immutable final object in R2 before
+      // the room-state commit. Its retry path now treats that object as the
+      // recovery source, so rewinding the in-memory reservation on a storage
+      // commit failure is both safe and required. Deletion is different: once
+      // an R2 object is removed there is no recovery source, therefore only
+      // that route keeps its post-side-effect state on commit failure.
+      const hasIrreversibleMediaDelete = request.method === 'DELETE' && deleteMediaMatch !== null;
       return this.withStateCapacityRollback(
         async () => {
           const administratorMatch = url.pathname.match(
@@ -4284,7 +4386,7 @@ export class MusixquareProRoom {
             return this.handleDeleteMedia(request, deleteMediaMatch[1]);
           return errorResponse('NOT_FOUND', 404);
         },
-        { rollbackStorageFailure: !hasExternalMediaSideEffects },
+        { rollbackStorageFailure: !hasIrreversibleMediaDelete },
       );
     });
   }
@@ -4480,6 +4582,19 @@ export class MusixquareProRoom {
     const plan = parseBotPlan(parsed.value.plan);
     if (!plan) return errorResponse('INVALID_REQUEST', 400);
     if (plan.intent === 'add_youtube' && !this.sessionHasPermission(auth.session, 'media.add')) {
+      return errorResponse('PERMISSION_REQUIRED', 403);
+    }
+    // BOT is only an alternate command surface; it never widens the calling
+    // room member's authority. In particular, a delegated administrator whose
+    // playback toggle was revoked may still converse with BOT or add media,
+    // but cannot smuggle a play/pause/next/item-selection action through the
+    // internal Developer-command executor.
+    if (
+      (plan.intent === 'playback' ||
+        plan.intent === 'play_existing' ||
+        (plan.intent === 'add_youtube' && plan.playAddedIndex >= 0)) &&
+      !this.sessionHasPermission(auth.session, 'playback.control')
+    ) {
       return errorResponse('PERMISSION_REQUIRED', 403);
     }
     if (
@@ -6536,28 +6651,82 @@ export class MusixquareProRoom {
 
   async handleInternalAuthorityCheck(request) {
     const parsed = await this.parseBody(request, 2 * 1024);
+    const permission = parsed.value?.permission;
+    const expectedKeys =
+      permission === 'bot.result'
+        ? ['participantId', 'presenceIncarnationId', 'permission', 'requestId', 'result']
+        : permission === 'system.broadcast'
+          ? ['participantId', 'presenceIncarnationId', 'permission', 'i18nKey']
+          : ['participantId', 'presenceIncarnationId', 'permission'];
     if (
       parsed.response ||
-      !hasExactKeys(parsed.value, ['participantId', 'presenceIncarnationId', 'permission']) ||
+      !hasExactKeys(parsed.value, expectedKeys) ||
       !OPAQUE_ID_RE.test(parsed.value.participantId || '') ||
       !OPAQUE_ID_RE.test(parsed.value.presenceIncarnationId || '') ||
-      !PRO_ROOM_PERMISSION_KEYS.includes(parsed.value.permission)
+      !PRO_INTERNAL_AUTHORITY_PERMISSIONS.has(permission)
     ) {
       return parsed.response || errorResponse('INVALID_REQUEST', 400);
     }
     const participant = this.room.presence.participants[parsed.value.participantId];
     const session = participant ? this.room.sessions[participant.sessionHash] : null;
-    const allowed =
+    const hasCurrentPresence =
       !!participant &&
       !!session &&
-      participant.presenceIncarnationId === parsed.value.presenceIncarnationId &&
-      this.sessionHasPermission(session, parsed.value.permission);
+      participant.presenceIncarnationId === parsed.value.presenceIncarnationId;
+    let allowed = false;
+    if (hasCurrentPresence) {
+      if (PRO_ROOM_PERMISSION_KEYS.includes(permission)) {
+        allowed = this.sessionHasPermission(session, permission);
+      } else if (permission === 'room.configure') {
+        allowed = session.role === 'owner';
+      } else if (permission === 'chat.manage') {
+        allowed = session.role === 'owner' || session.role === 'controller';
+      } else if (permission === 'system.broadcast') {
+        const requiredPermission = PRO_SYSTEM_MESSAGE_PERMISSION.get(parsed.value.i18nKey);
+        allowed =
+          requiredPermission === 'room.configure'
+            ? session.role === 'owner'
+            : requiredPermission === 'playback.control' &&
+              this.sessionHasPermission(session, 'playback.control');
+      } else if (
+        permission === 'bot.result' &&
+        BOT_REQUEST_ID_RE.test(parsed.value.requestId || '')
+      ) {
+        const receipt =
+          this.room.idempotency[`bot-execute:${participant.sessionHash}:${parsed.value.requestId}`];
+        const body = receipt?.body;
+        let expectedResult = null;
+        if (
+          body?.ok === true &&
+          Number.isSafeInteger(body.addedCount) &&
+          body.addedCount > 0 &&
+          body.addedCount <= BOT_MAX_TRACK_ITEMS &&
+          typeof body.playbackChanged === 'boolean'
+        ) {
+          expectedResult = {
+            kind: 'added',
+            count: body.addedCount,
+            playbackChanged: body.playbackChanged,
+          };
+        } else if (
+          body?.ok === true &&
+          typeof body.summary === 'string' &&
+          body.summary.trim().length > 0 &&
+          body.summary.length <= 500
+        ) {
+          expectedResult = { kind: 'answer', text: body.summary };
+        }
+        allowed =
+          expectedResult !== null &&
+          JSON.stringify(parsed.value.result) === JSON.stringify(expectedResult);
+      }
+    }
     return allowed
       ? jsonResponse({
           allowed: true,
           memberId: session.memberId,
           role: session.role,
-          permission: parsed.value.permission,
+          permission,
         })
       : errorResponse('PERMISSION_REQUIRED', 403);
   }
@@ -8633,8 +8802,20 @@ export class MusixquareProRoom {
       developerLimiterCleared: false,
       finalEmptySinceMs: null,
     };
+    // The first tombstone commit is the irreversible admission fence. If that
+    // atomic storage transaction fails, no external cleanup has started yet;
+    // restore the exact active in-memory state so a following request cannot
+    // continue a decommission job that durable storage never recorded.
+    const checkpoint = this.captureInMemoryState();
     this.room = tombstone;
-    await this.persist();
+    try {
+      await this.persist();
+    } catch (error) {
+      if (error instanceof RoomStateStorageCommitError) {
+        this.restoreInMemoryState(checkpoint);
+      }
+      throw error;
+    }
     await this.continueDecommission(nowMs);
     return jsonResponse(
       {
@@ -9132,10 +9313,21 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request, SMALL_REQUEST_MAX_BYTES, false, true);
     if (parsed.response) return parsed.response;
     if (!parsed.empty) return errorResponse('INVALID_REQUEST', 400);
+    const explicitEnvelope = request.headers.get('x-mxqr-pro-detach-version') === '2';
+    const detachResponse = (session, participant) => {
+      const snapshot = participant ? publicSnapshot(this.room, session) : null;
+      // Cached v1 clients parse an exact `{ snapshot }` envelope and may remain
+      // active while a new Worker deploys. Negotiate the nullable, explicit
+      // result so rolling deployment cannot turn logout into a protocol error.
+      return explicitEnvelope
+        ? jsonResponse({ ok: true, detached: true, snapshot })
+        : jsonResponse({ snapshot: snapshot || publicSnapshot(this.room, session) });
+    };
 
     // Repeated logout/cross-tab reconciliation is deliberately idempotent.
     if (!auth.session.accountId) {
-      return jsonResponse({ snapshot: publicSnapshot(this.room, auth.session) });
+      const participant = this.room.presence.participants[auth.session.participantId] || null;
+      return detachResponse(auth.session, participant);
     }
 
     const participant = this.room.presence.participants[auth.session.participantId] || null;
@@ -9156,7 +9348,7 @@ export class MusixquareProRoom {
     // the same account therefore keep their identity and authority.
     await this.persist();
     if (participant) this.scheduleServerEvent(this.presenceEvent());
-    return jsonResponse({ snapshot: publicSnapshot(this.room, auth.session) });
+    return detachResponse(auth.session, participant);
   }
 
   async handleEnterPresence(request) {
@@ -10245,24 +10437,43 @@ export class MusixquareProRoom {
     if (serializedCoreStateByteLength(this.room) > STATE_MAX_BYTES - 8 * 1024) {
       return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
     }
-    let object;
+    const finalMetadata = {
+      'mxqr-room': this.room.roomCode,
+      'mxqr-asset': asset.assetId,
+      'mxqr-version': String(asset.version),
+      'mxqr-bytes': String(asset.byteLength),
+      ...(asset.sha256 === undefined ? {} : { 'mxqr-sha256': asset.sha256 }),
+    };
+    const objectMatchesReservation = (object) => {
+      const metadata = object?.customMetadata || {};
+      return (
+        object?.size === asset.byteLength &&
+        object?.httpMetadata?.contentType === asset.mime &&
+        Object.entries(finalMetadata).every(
+          ([metadataKey, metadataValue]) => metadata[metadataKey] === metadataValue,
+        ) &&
+        (asset.sha256 !== undefined || metadata['mxqr-sha256'] === undefined)
+      );
+    };
+
+    let stagingObject;
+    let finalObject;
     try {
-      object = await this.env.PRO_MEDIA_BUCKET.head(asset.stagingObjectKey);
+      [stagingObject, finalObject] = await Promise.all([
+        this.env.PRO_MEDIA_BUCKET.head(asset.stagingObjectKey),
+        this.env.PRO_MEDIA_BUCKET.head(asset.objectKey),
+      ]);
     } catch {
       return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
     }
-    if (!object) return errorResponse('UPLOAD_INCOMPLETE', 409);
-    const metadata = object.customMetadata || {};
-    const contentType = object.httpMetadata?.contentType || '';
-    const metadataMatches =
-      metadata['mxqr-room'] === this.room.roomCode &&
-      metadata['mxqr-asset'] === asset.assetId &&
-      metadata['mxqr-version'] === String(asset.version) &&
-      metadata['mxqr-bytes'] === String(asset.byteLength) &&
-      (asset.sha256
-        ? metadata['mxqr-sha256'] === asset.sha256
-        : metadata['mxqr-sha256'] === undefined);
-    if (object.size !== asset.byteLength || contentType !== asset.mime || !metadataMatches) {
+
+    // A prior completion may have created and verified the immutable final
+    // object, then lost the Durable Object commit or response. Treat that exact
+    // object as the recovery source instead of requiring staging to survive.
+    if (!objectMatchesReservation(finalObject) && !stagingObject) {
+      return errorResponse('UPLOAD_INCOMPLETE', 409);
+    }
+    if (!objectMatchesReservation(finalObject) && !objectMatchesReservation(stagingObject)) {
       try {
         await this.env.PRO_MEDIA_BUCKET.delete(asset.stagingObjectKey);
       } catch {
@@ -10277,40 +10488,25 @@ export class MusixquareProRoom {
       await this.persist();
       return errorResponse('UPLOAD_MISMATCH', 409);
     }
-    const finalMetadata = {
-      'mxqr-room': this.room.roomCode,
-      'mxqr-asset': asset.assetId,
-      'mxqr-version': String(asset.version),
-      'mxqr-bytes': String(asset.byteLength),
-      ...(asset.sha256 === undefined ? {} : { 'mxqr-sha256': asset.sha256 }),
-    };
-    try {
-      const staged = await this.env.PRO_MEDIA_BUCKET.get(asset.stagingObjectKey);
-      if (!staged?.body) return errorResponse('UPLOAD_INCOMPLETE', 409);
-      await this.env.PRO_MEDIA_BUCKET.put(asset.objectKey, staged.body, {
-        httpMetadata: { contentType: asset.mime },
-        customMetadata: finalMetadata,
-      });
-      const finalObject = await this.env.PRO_MEDIA_BUCKET.head(asset.objectKey);
-      const finalObjectMetadata = finalObject?.customMetadata || {};
-      if (
-        !finalObject ||
-        finalObject.size !== asset.byteLength ||
-        finalObject.httpMetadata?.contentType !== asset.mime ||
-        Object.entries(finalMetadata).some(
-          ([metadataKey, metadataValue]) => finalObjectMetadata[metadataKey] !== metadataValue,
-        )
-      ) {
+
+    if (!objectMatchesReservation(finalObject)) {
+      try {
+        const staged = await this.env.PRO_MEDIA_BUCKET.get(asset.stagingObjectKey);
+        if (!staged?.body) return errorResponse('UPLOAD_INCOMPLETE', 409);
+        await this.env.PRO_MEDIA_BUCKET.put(asset.objectKey, staged.body, {
+          httpMetadata: { contentType: asset.mime },
+          customMetadata: finalMetadata,
+        });
+        finalObject = await this.env.PRO_MEDIA_BUCKET.head(asset.objectKey);
+      } catch {
+        // Keep both keys. R2 PUT is atomic and a retry can verify/recover an
+        // already-created final object even when the post-PUT HEAD failed.
+        return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+      }
+      if (!objectMatchesReservation(finalObject)) {
         await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey).catch(() => {});
         return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
       }
-      // A presigned staging URL is reusable until it expires. Delete now for
-      // normal clients, then retain a cleanup marker so an after-completion
-      // replay is deleted again once the URL can no longer be used.
-      await this.env.PRO_MEDIA_BUCKET.delete(asset.stagingObjectKey).catch(() => {});
-    } catch {
-      await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey).catch(() => {});
-      return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
     }
     const completedAtMs = Date.now();
     asset.status = 'ready';
@@ -10327,6 +10523,12 @@ export class MusixquareProRoom {
     const responseBody = { asset: publicAsset(asset), quota: { ...this.room.quota } };
     this.storeIdempotency(scope, key, fingerprint, responseBody);
     await this.persist();
+    // Commit metadata and idempotency before deleting the only client-uploaded
+    // copy. If cleanup is interrupted, alarm GC retries via
+    // stagingCleanupAfterMs; if persistence failed, the next completion can
+    // recover from the verified final object above.
+    const cleanup = this.env.PRO_MEDIA_BUCKET.delete(asset.stagingObjectKey).catch(() => {});
+    if (typeof this.state.waitUntil === 'function') this.state.waitUntil(cleanup);
     return jsonResponse(responseBody);
   }
 

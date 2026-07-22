@@ -14,6 +14,7 @@ import {
 } from '../core/capability.ts';
 import { REMOTE_SHARE_MAX_ENCRYPTED_BYTES } from '../core/constants.ts';
 import type { QueueItemId } from '../types/index.ts';
+import { withRequestDeadline } from '../core/request-lifetime.ts';
 
 interface RemoteUploadResponse {
   objectId: string;
@@ -72,6 +73,8 @@ const PROD_ENDPOINT = 'https://share.musixquare.com';
 // valid regardless of total wall-clock duration.
 const REMOTE_SHARE_XHR_STALL_TIMEOUT_MS = 90_000;
 const REMOTE_SHARE_SECURITY_CONFIG_CACHE_MS = 5 * 60_000;
+const REMOTE_SHARE_CONTROL_REQUEST_TIMEOUT_MS = 15_000;
+const REMOTE_SHARE_CONTROL_RESPONSE_MAX_BYTES = 64 * 1024;
 const REMOTE_OBJECT_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let remoteShareSecurityConfigCache: {
@@ -79,6 +82,96 @@ let remoteShareSecurityConfigCache: {
   expiresAt: number;
   value: RemoteShareSecurityConfig;
 } | null = null;
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException('Aborted', 'AbortError');
+}
+
+function readBodyChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal?: AbortSignal,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (!signal) return reader.read();
+  if (signal.aborted) return Promise.reject(abortReason(signal));
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = () => signal.removeEventListener('abort', onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      finish();
+      void reader.cancel(signal.reason).catch(() => undefined);
+      reject(abortReason(signal));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    void reader.read().then(
+      (result) => {
+        if (settled) return;
+        settled = true;
+        finish();
+        resolve(result);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        finish();
+        reject(error);
+      },
+    );
+  });
+}
+
+async function readBoundedJson(
+  response: Response,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const declared = response.headers.get('content-length');
+  if (declared !== null) {
+    const length = Number(declared);
+    if (!Number.isSafeInteger(length) || length < 0 || length > maxBytes) {
+      void response.body?.cancel().catch(() => undefined);
+      throw new Error('REMOTE_SHARE_CONTROL_RESPONSE_TOO_LARGE');
+    }
+  }
+  if (!response.body) return null;
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await readBodyChunk(reader, signal);
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        void reader.cancel().catch(() => undefined);
+        throw new Error('REMOTE_SHARE_CONTROL_RESPONSE_TOO_LARGE');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // Native fetch streams unlock after abort; a non-cooperative test or
+      // custom stream must not keep the public request promise pinned.
+    }
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  if (bytes.byteLength === 0) return null;
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+  } catch (error) {
+    throw new Error('REMOTE_SHARE_CONTROL_RESPONSE_INVALID', { cause: error });
+  }
+}
 
 function normalizeEndpoint(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -216,13 +309,29 @@ async function getRemoteShareSecurityConfig(
   }
 
   try {
-    const response = await fetch(`${endpoint}/security-config`, {
-      headers: { Accept: 'application/json' },
-      signal,
-    });
-    if (!response.ok) throw new Error(`REMOTE_SHARE_SECURITY_CONFIG_HTTP_${response.status}`);
-
-    const payload = (await response.json()) as Record<string, unknown>;
+    const payload = await withRequestDeadline(
+      async (requestSignal) => {
+        const response = await fetch(`${endpoint}/security-config`, {
+          headers: { Accept: 'application/json' },
+          signal: requestSignal,
+        });
+        if (!response.ok) {
+          // This endpoint has no error-body contract. Release a streaming or
+          // attacker-sized body before falling back to the conservative config.
+          await response.body?.cancel().catch(() => undefined);
+          throw new Error(`REMOTE_SHARE_SECURITY_CONFIG_HTTP_${response.status}`);
+        }
+        return (await readBoundedJson(response, 8 * 1024, requestSignal)) as Record<
+          string,
+          unknown
+        >;
+      },
+      {
+        signal,
+        timeoutMs: REMOTE_SHARE_CONTROL_REQUEST_TIMEOUT_MS,
+        timeoutReason: 'REMOTE_SHARE_SECURITY_CONFIG_TIMEOUT',
+      },
+    );
     const value = { capabilityRequired: payload.capabilityRequired === true };
     remoteShareSecurityConfigCache = {
       endpoint,
@@ -274,13 +383,38 @@ async function requestUploadSession(
       encryptedSize: encryptedBlob.size,
     });
     const capabilityTarget = new URL('/api/capability-token', location.origin);
+    const requestOnce = (capabilityHeaders: Record<string, string>) =>
+      withRequestDeadline(
+        async (requestSignal) => {
+          const response = await fetch(`${endpoint}/session`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', ...capabilityHeaders },
+            body: requestBody,
+            signal: requestSignal,
+          });
+          let body: Partial<RemoteUploadSessionResponse> | null = null;
+          try {
+            body = (await readBoundedJson(
+              response,
+              REMOTE_SHARE_CONTROL_RESPONSE_MAX_BYTES,
+              requestSignal,
+            )) as Partial<RemoteUploadSessionResponse> | null;
+          } catch (error) {
+            // Invalid/oversized JSON remains an ordinary invalid response, but
+            // an intrinsic deadline must escape so the caller can distinguish
+            // a stalled control plane from a malformed completed response.
+            if (requestSignal.aborted) throw error;
+          }
+          return { response, body };
+        },
+        {
+          signal,
+          timeoutMs: REMOTE_SHARE_CONTROL_REQUEST_TIMEOUT_MS,
+          timeoutReason: 'REMOTE_SHARE_SESSION_TIMEOUT',
+        },
+      );
     let capabilityHeaders = await getRemoteShareSessionHeaders(endpoint, signal);
-    let response = await fetch(`${endpoint}/session`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...capabilityHeaders },
-      body: requestBody,
-      signal,
-    });
+    let { response, body } = await requestOnce(capabilityHeaders);
 
     // A 401 may mean the token is stale or the capability probe was inaccurate.
     // Invalidate both caches, probe again, and retry once.
@@ -288,19 +422,13 @@ async function requestUploadSession(
       if (capabilityHeaders['X-MXQR-Capability']) invalidateCapabilityToken(capabilityTarget);
       invalidateRemoteShareSecurityConfig(endpoint);
       capabilityHeaders = await getRemoteShareSessionHeaders(endpoint, signal);
-      response = await fetch(`${endpoint}/session`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...capabilityHeaders },
-        body: requestBody,
-        signal,
-      });
+      ({ response, body } = await requestOnce(capabilityHeaders));
     }
 
     if (!response.ok) {
       throw new Error(`REMOTE_SHARE_SESSION_HTTP_${response.status}`);
     }
 
-    const body = (await response.json()) as Partial<RemoteUploadSessionResponse> | null;
     if (
       typeof body?.uploadUrl !== 'string' ||
       typeof body.completeToken !== 'string' ||
@@ -340,22 +468,38 @@ async function completeDirectUpload(
   signal?: AbortSignal,
 ): Promise<RemoteUploadResponse> {
   try {
-    const response = await fetch(`${endpoint}/complete`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        roomId: meta.roomId,
-        objectId: session.objectId,
-        completeToken: session.completeToken,
-      }),
-      signal,
-    });
+    const { response, body } = await withRequestDeadline(
+      async (requestSignal) => {
+        const response = await fetch(`${endpoint}/complete`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            roomId: meta.roomId,
+            objectId: session.objectId,
+            completeToken: session.completeToken,
+          }),
+          signal: requestSignal,
+        });
+        let body: Partial<RemoteUploadResponse> | null = null;
+        try {
+          body = (await readBoundedJson(
+            response,
+            REMOTE_SHARE_CONTROL_RESPONSE_MAX_BYTES,
+            requestSignal,
+          )) as Partial<RemoteUploadResponse> | null;
+        } catch (error) {
+          if (requestSignal.aborted) throw error;
+        }
+        return { response, body };
+      },
+      {
+        signal,
+        timeoutMs: REMOTE_SHARE_CONTROL_REQUEST_TIMEOUT_MS,
+        timeoutReason: 'REMOTE_SHARE_COMPLETE_TIMEOUT',
+      },
+    );
 
-    if (!response.ok) {
-      throw new Error(`REMOTE_SHARE_COMPLETE_HTTP_${response.status}`);
-    }
-
-    const body = (await response.json()) as Partial<RemoteUploadResponse> | null;
+    if (!response.ok) throw new Error(`REMOTE_SHARE_COMPLETE_HTTP_${response.status}`);
     if (
       typeof body?.objectId !== 'string' ||
       body.objectId !== session.objectId ||
@@ -382,12 +526,24 @@ async function cleanupUploadSession(
 ): Promise<void> {
   if (!session.cleanupToken) return;
   try {
-    await fetch(
-      `${endpoint}/object/${encodeURIComponent(meta.roomId)}/${encodeURIComponent(session.objectId)}`,
+    await withRequestDeadline(
+      async (signal) => {
+        const response = await fetch(
+          `${endpoint}/object/${encodeURIComponent(meta.roomId)}/${encodeURIComponent(session.objectId)}`,
+          {
+            method: 'DELETE',
+            headers: { 'x-mxqr-cleanup-token': session.cleanupToken! },
+            keepalive: true,
+            signal,
+          },
+        );
+        // Best-effort cleanup has no response payload contract. Cancel the
+        // bounded body instead of materializing an attacker-sized error page.
+        await response.body?.cancel();
+      },
       {
-        method: 'DELETE',
-        headers: { 'x-mxqr-cleanup-token': session.cleanupToken },
-        keepalive: true,
+        timeoutMs: REMOTE_SHARE_CONTROL_REQUEST_TIMEOUT_MS,
+        timeoutReason: 'REMOTE_SHARE_CLEANUP_TIMEOUT',
       },
     );
   } catch {
@@ -412,9 +568,22 @@ export async function uploadEncryptedBlob(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     let settled = false;
+    let xhrFinalized = false;
+    const xhrLifecycle: {
+      stall?: ReturnType<typeof createXhrStallWatchdog>;
+      detachAbort?: (() => void) | null;
+    } = {};
+    const finalizeXhr = (): void => {
+      if (xhrFinalized) return;
+      xhrFinalized = true;
+      xhrLifecycle.stall?.clear();
+      xhrLifecycle.detachAbort?.();
+      xhrLifecycle.detachAbort = undefined;
+    };
     const rejectWithCleanup = (error: Error): void => {
       if (settled) return;
       settled = true;
+      finalizeXhr();
       void cleanupUploadSession(endpoint, session, meta);
       reject(error);
     };
@@ -428,10 +597,14 @@ export async function uploadEncryptedBlob(
       return;
     }
 
-    const stall = createXhrStallWatchdog(xhr, rejectWithCleanup, 'REMOTE_SHARE_UPLOAD_STALLED');
-    const detachAbort = wireAbort(xhr, rejectWithCleanup, signal, stall.clear);
-    if (detachAbort === null) {
-      stall.clear();
+    xhrLifecycle.stall = createXhrStallWatchdog(
+      xhr,
+      rejectWithCleanup,
+      'REMOTE_SHARE_UPLOAD_STALLED',
+    );
+    xhrLifecycle.detachAbort = wireAbort(xhr, rejectWithCleanup, signal, finalizeXhr);
+    if (xhrLifecycle.detachAbort === null) {
+      finalizeXhr();
       return;
     }
 
@@ -439,15 +612,14 @@ export async function uploadEncryptedBlob(
     xhr.upload.onprogress = (event) => {
       if (event.loaded > lastUploadedBytes) {
         lastUploadedBytes = event.loaded;
-        stall.reset();
+        xhrLifecycle.stall?.reset();
       }
       if (event.lengthComputable && onProgress) {
         reportProgress(event.loaded / event.total);
       }
     };
     xhr.onload = () => {
-      stall.clear();
-      detachAbort?.();
+      finalizeXhr();
       if (xhr.status >= 200 && xhr.status < 300) {
         void completeDirectUpload(endpoint, session, meta, signal).then((body) => {
           if (settled) return;
@@ -460,15 +632,11 @@ export async function uploadEncryptedBlob(
       rejectWithCleanup(new Error(`REMOTE_SHARE_DIRECT_UPLOAD_HTTP_${xhr.status}`));
     };
     xhr.onerror = () => {
-      stall.clear();
-      detachAbort?.();
       rejectWithCleanup(new Error('REMOTE_SHARE_UPLOAD_NETWORK'));
     };
     try {
       xhr.send(encryptedBlob);
     } catch (error) {
-      stall.clear();
-      detachAbort?.();
       rejectWithCleanup(
         signal?.aborted
           ? new Error('REMOTE_SHARE_ABORTED', { cause: error })
@@ -502,43 +670,74 @@ export function downloadEncryptedObject(
     xhr.open('GET', requestUrl, true);
     xhr.responseType = 'arraybuffer';
 
-    const stall = createXhrStallWatchdog(xhr, reject, 'REMOTE_SHARE_DOWNLOAD_STALLED');
-    const detachAbort = wireAbort(xhr, reject, signal, stall.clear);
-    if (detachAbort === null) {
-      stall.clear();
+    let settled = false;
+    let xhrFinalized = false;
+    const xhrLifecycle: {
+      stall?: ReturnType<typeof createXhrStallWatchdog>;
+      detachAbort?: (() => void) | null;
+    } = {};
+    const finalizeXhr = (): void => {
+      if (xhrFinalized) return;
+      xhrFinalized = true;
+      xhrLifecycle.stall?.clear();
+      xhrLifecycle.detachAbort?.();
+      xhrLifecycle.detachAbort = undefined;
+    };
+    const rejectOnce = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      finalizeXhr();
+      reject(error);
+    };
+    const resolveOnce = (value: ArrayBuffer): void => {
+      if (settled) return;
+      settled = true;
+      finalizeXhr();
+      resolve(value);
+    };
+
+    xhrLifecycle.stall = createXhrStallWatchdog(xhr, rejectOnce, 'REMOTE_SHARE_DOWNLOAD_STALLED');
+    xhrLifecycle.detachAbort = wireAbort(xhr, rejectOnce, signal, finalizeXhr);
+    if (xhrLifecycle.detachAbort === null) {
+      finalizeXhr();
       return;
     }
 
     let lastDownloadedBytes = 0;
     xhr.onprogress = (event) => {
+      if (
+        event.loaded > expectedEncryptedSize ||
+        (event.lengthComputable && event.total !== expectedEncryptedSize)
+      ) {
+        finalizeXhr();
+        try {
+          xhr.abort();
+        } catch {
+          /* ignore */
+        }
+        rejectOnce(new Error('REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH'));
+        return;
+      }
       if (event.loaded > lastDownloadedBytes) {
         lastDownloadedBytes = event.loaded;
-        stall.reset();
-      }
-      if (event.lengthComputable && event.total !== expectedEncryptedSize) {
-        stall.clear();
-        detachAbort?.();
-        xhr.abort();
-        reject(new Error('REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH'));
-        return;
+        xhrLifecycle.stall?.reset();
       }
       if (event.lengthComputable && onProgress) {
         reportProgress(event.loaded / event.total);
       }
     };
     xhr.onload = () => {
-      stall.clear();
-      detachAbort?.();
+      finalizeXhr();
       try {
         if (
           !xhr.responseURL ||
           buildDownloadUrl(roomId, objectId, xhr.responseURL) !== new URL(requestUrl).toString()
         ) {
-          reject(new Error('REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID'));
+          rejectOnce(new Error('REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID'));
           return;
         }
       } catch {
-        reject(new Error('REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID'));
+        rejectOnce(new Error('REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID'));
         return;
       }
       if (
@@ -548,26 +747,22 @@ export function downloadEncryptedObject(
         xhr.response.byteLength === expectedEncryptedSize
       ) {
         reportProgress(1);
-        resolve(xhr.response);
+        resolveOnce(xhr.response);
         return;
       }
       if (xhr.status >= 200 && xhr.status < 300 && xhr.response instanceof ArrayBuffer) {
-        reject(new Error('REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH'));
+        rejectOnce(new Error('REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH'));
         return;
       }
-      reject(new Error(`REMOTE_SHARE_DOWNLOAD_HTTP_${xhr.status}`));
+      rejectOnce(new Error(`REMOTE_SHARE_DOWNLOAD_HTTP_${xhr.status}`));
     };
     xhr.onerror = () => {
-      stall.clear();
-      detachAbort?.();
-      reject(new Error('REMOTE_SHARE_DOWNLOAD_NETWORK'));
+      rejectOnce(new Error('REMOTE_SHARE_DOWNLOAD_NETWORK'));
     };
     try {
       xhr.send();
     } catch (error) {
-      stall.clear();
-      detachAbort?.();
-      reject(
+      rejectOnce(
         signal?.aborted
           ? new Error('REMOTE_SHARE_ABORTED', { cause: error })
           : new Error('REMOTE_SHARE_DOWNLOAD_NETWORK', { cause: error }),

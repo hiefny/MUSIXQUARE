@@ -177,10 +177,33 @@ async function establishPresence(
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
 describe('PRO room endpoint boundary', () => {
+  it('releases a request whose JSON body stalls after response headers', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull: () => new Promise<void>(() => undefined),
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    const pending = client.getBootstrap(ROOM_CODE);
+    const rejected = expect(pending).rejects.toMatchObject({
+      code: 'NETWORK_ERROR',
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    await rejected;
+  });
+
   it('uses production by default and only accepts trusted HTTPS or loopback overrides', () => {
     expect(resolveProRoomEndpoint(undefined)).toBe(PRO_ROOM_PRODUCTION_ENDPOINT);
     expect(resolveProRoomEndpoint('https://pro-staging.musixquare.com/')).toBe(
@@ -227,27 +250,58 @@ describe('PRO room endpoint boundary', () => {
     expect(init.credentials).toBe('include');
     expect(init.cache).toBe('no-store');
     expect(init.redirect).toBe('error');
-    expect(init.signal).toBe(signal);
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init.signal).not.toBe(signal);
     const headers = new Headers(init.headers);
     expect(headers.get('authorization')).toBeNull();
     expect(headers.get('accept')).toBe('application/json');
   });
 
   it('rejects a bootstrap body that exceeds its declared bound before parsing it', async () => {
-    const fetchMock = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        jsonResponse(
-          { roomCode: ROOM_CODE, status: 'pin_required' },
-          { headers: { 'content-length': '9000' } },
-        ),
-      );
+    let cancelled = false;
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        {
+          headers: {
+            'content-type': 'application/json',
+            'content-length': '9000',
+          },
+        },
+      ),
+    );
     const client = new ProRoomApiClient({ fetch: fetchMock });
 
     await expect(client.getBootstrap(ROOM_CODE)).rejects.toMatchObject({
       code: 'RESPONSE_TOO_LARGE',
       status: 200,
     });
+    await vi.waitFor(() => expect(cancelled).toBe(true));
+  });
+
+  it('cancels an unread non-JSON error response before rejecting it', async () => {
+    let cancelled = false;
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        { status: 502, headers: { 'content-type': 'text/plain' } },
+      ),
+    );
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    await expect(client.getBootstrap(ROOM_CODE)).rejects.toMatchObject({
+      code: 'HTTP_502',
+      status: 502,
+    });
+    await vi.waitFor(() => expect(cancelled).toBe(true));
   });
 
   it('rejects any bootstrap response that tries to expose a claim credential', async () => {
@@ -508,9 +562,13 @@ describe('PRO room cookie session API', () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);
-    fetchMock.mockResolvedValueOnce(jsonResponse({ snapshot: detached }));
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true, detached: true, snapshot: detached }));
 
-    await expect(client.detachCurrentAccount(ROOM_CODE)).resolves.toEqual(detached);
+    await expect(client.detachCurrentAccount(ROOM_CODE)).resolves.toEqual({
+      ok: true,
+      detached: true,
+      snapshot: detached,
+    });
 
     const { url, init } = requestParts(fetchMock);
     expect(url.pathname).toBe(
@@ -521,6 +579,19 @@ describe('PRO room cookie session API', () => {
     const headers = new Headers(init.headers);
     expect(headers.get('x-mxqr-pro-participant-id')).toBeNull();
     expect(headers.get('x-mxqr-pro-presence-incarnation')).toBeNull();
+    expect(headers.get('x-mxqr-pro-detach-version')).toBe('2');
+  });
+
+  it('accepts a detached account result with no snapshot when presence already expired', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true, detached: true, snapshot: null }));
+
+    await expect(client.detachCurrentAccount(ROOM_CODE)).resolves.toEqual({
+      ok: true,
+      detached: true,
+      snapshot: null,
+    });
   });
 
   it('sends known heartbeat revisions and reuses the validated local snapshot on a compact reply', async () => {

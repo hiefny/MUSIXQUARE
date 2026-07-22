@@ -266,7 +266,19 @@ const playbackCommitInFlight = new Map<number, Promise<void>>();
 let playbackCommitTail: Promise<void> = Promise.resolve();
 let playbackCommitGeneration = 0;
 let playbackReconciliationSequence = 0;
-let playbackReconciliationInFlight: Promise<boolean> | null = null;
+interface PlaybackReconciliationOptions {
+  showLoading: boolean;
+  youtubeOnly: boolean;
+  rendezvous: boolean;
+}
+interface PlaybackReconciliationFlight {
+  options: PlaybackReconciliationOptions;
+  promise: Promise<boolean>;
+}
+let playbackReconciliationInFlight: PlaybackReconciliationFlight | null = null;
+let playbackReconciliationFollowUpOptions: PlaybackReconciliationOptions | null = null;
+let playbackReconciliationFollowUp: Promise<boolean> | null = null;
+let playbackReconciliationSchedulerGeneration = 0;
 interface PendingLocalPlaybackUiControl {
   token: number;
   roomCode: string;
@@ -3250,19 +3262,83 @@ async function reapplyCurrentPlaybackCheckpoint(
   return result.status === 'applied' && isCurrent();
 }
 
-interface PlaybackReconciliationOptions {
-  showLoading: boolean;
-  youtubeOnly: boolean;
-  rendezvous: boolean;
+function reconciliationOptionsCover(
+  running: Readonly<PlaybackReconciliationOptions>,
+  requested: Readonly<PlaybackReconciliationOptions>,
+): boolean {
+  return (
+    (!running.youtubeOnly || requested.youtubeOnly) && (running.rendezvous || !requested.rendezvous)
+  );
+}
+
+function mergeReconciliationOptions(
+  left: Readonly<PlaybackReconciliationOptions> | null,
+  right: Readonly<PlaybackReconciliationOptions>,
+): PlaybackReconciliationOptions {
+  if (!left) return { ...right };
+  return {
+    showLoading: left.showLoading || right.showLoading,
+    // false means all supported media and is therefore the stronger request.
+    youtubeOnly: left.youtubeOnly && right.youtubeOnly,
+    rendezvous: left.rendezvous || right.rendezvous,
+  };
+}
+
+function withReconciliationLoading(
+  promise: Promise<boolean>,
+  showLoading: boolean,
+): Promise<boolean> {
+  if (!showLoading) return promise;
+  const transitionUiId = `local_reconcile_${++playbackReconciliationSequence}`;
+  beginPlaybackTransitionUi(transitionUiId);
+  return promise.finally(() => settlePlaybackTransitionUi(transitionUiId));
+}
+
+function enqueuePlaybackReconciliationFollowUp(
+  options: Readonly<PlaybackReconciliationOptions>,
+  current: PlaybackReconciliationFlight,
+): Promise<boolean> {
+  playbackReconciliationFollowUpOptions = mergeReconciliationOptions(
+    playbackReconciliationFollowUpOptions,
+    options,
+  );
+  if (playbackReconciliationFollowUp) return playbackReconciliationFollowUp;
+
+  const schedulerGeneration = playbackReconciliationSchedulerGeneration;
+  const preceding = current.promise;
+  const followUp: Promise<boolean> = preceding
+    .catch(() => false)
+    .then(() => {
+      if (schedulerGeneration !== playbackReconciliationSchedulerGeneration || !active) {
+        return false;
+      }
+      const next = playbackReconciliationFollowUpOptions;
+      playbackReconciliationFollowUpOptions = null;
+      if (playbackReconciliationFollowUp === followUp) {
+        playbackReconciliationFollowUp = null;
+      }
+      if (!next) return false;
+      return reconcileActiveProRoomPlayback({ ...next, showLoading: false });
+    });
+  playbackReconciliationFollowUp = followUp;
+  return followUp;
 }
 
 async function reconcileActiveProRoomPlayback(
   options: Readonly<PlaybackReconciliationOptions>,
 ): Promise<boolean> {
-  if (playbackReconciliationInFlight) return playbackReconciliationInFlight;
-  const transitionUiId = `local_reconcile_${++playbackReconciliationSequence}`;
-  if (options.showLoading) beginPlaybackTransitionUi(transitionUiId);
+  const current = playbackReconciliationInFlight;
+  if (current) {
+    const promise = reconciliationOptionsCover(current.options, options)
+      ? current.promise
+      : enqueuePlaybackReconciliationFollowUp(options, current);
+    return withReconciliationLoading(promise, options.showLoading);
+  }
 
+  const flight: PlaybackReconciliationFlight = {
+    options: { ...options, showLoading: false },
+    promise: Promise.resolve(false),
+  };
   const operation = (async () => {
     await runHeartbeat(true, true);
     const snapshot = playlistManager?.snapshot ?? controller.snapshot;
@@ -3313,11 +3389,11 @@ async function reconcileActiveProRoomPlayback(
       options.rendezvous,
     );
   })().finally(() => {
-    if (options.showLoading) settlePlaybackTransitionUi(transitionUiId);
-    if (playbackReconciliationInFlight === operation) playbackReconciliationInFlight = null;
+    if (playbackReconciliationInFlight === flight) playbackReconciliationInFlight = null;
   });
-  playbackReconciliationInFlight = operation;
-  return operation;
+  flight.promise = operation;
+  playbackReconciliationInFlight = flight;
+  return withReconciliationLoading(operation, options.showLoading);
 }
 
 /**
@@ -3368,7 +3444,10 @@ function stopLifecycle(): void {
   active = false;
   visibilityPlaybackRecoveryPending = false;
   visibilityPlaybackRecoveryAttempt = 0;
+  playbackReconciliationSchedulerGeneration += 1;
   playbackReconciliationInFlight = null;
+  playbackReconciliationFollowUpOptions = null;
+  playbackReconciliationFollowUp = null;
   accountReconciler.stop();
   accountIdentityGeneration += 1;
   accountAuthorityFailClosed = false;
@@ -3423,7 +3502,7 @@ async function acceptAccountReconciliationSnapshot(
   operation: 'attach' | 'detach',
   signal: AbortSignal,
 ): Promise<void> {
-  const lease = controller.captureSessionLease();
+  let lease = controller.captureSessionLease();
   const acceptCommittedAccountAuthority = (committed: ProRoomSnapshot) => {
     // Account authority becomes trustworthy as soon as the signed server
     // snapshot is committed. Playlist projection and control-channel
@@ -3449,6 +3528,24 @@ async function acceptAccountReconciliationSnapshot(
     const context = controller.context;
     if (active && context) applyAuthority(context);
   };
+  const recoverMissingDetachedPresence = async (): Promise<ProRoomSnapshot> => {
+    // `snapshot:null` proves detachment but says the old presence no longer
+    // exists. Keep every account-bound capability revoked while the normal
+    // non-takeover enter path establishes a new anonymous incarnation.
+    accountAuthorityFailClosed = true;
+    const previousContext = controller.context;
+    if (active && previousContext) applyAuthority(previousContext);
+    const recovered = await controller.reenterAfterDetachedPresence(signal);
+    if (recovered.viewer?.isAuthenticated === true) {
+      // A recovery path is never authentication evidence. Refuse an
+      // unexpected authenticated projection instead of silently restoring
+      // the account authority that the server just detached.
+      await controller.terminate().catch(() => undefined);
+      throw new ProRoomApiError('INVALID_RESPONSE');
+    }
+    lease = controller.captureSessionLease();
+    return recovered;
+  };
   let snapshot: ProRoomSnapshot;
   if (operation === 'attach') {
     try {
@@ -3466,11 +3563,14 @@ async function acceptAccountReconciliationSnapshot(
       const context = controller.context;
       if (active && context) applyAuthority(context);
       let anonymousDetachCommitted = false;
+      let detachedSnapshot: ProRoomSnapshot | null | undefined;
       try {
-        await controller.detachCurrentAccount(signal, (committed) => {
+        const detached = await controller.detachCurrentAccount(signal, (committed) => {
           anonymousDetachCommitted = true;
           acceptCommittedAnonymousAuthority(committed);
         });
+        anonymousDetachCommitted = true;
+        detachedSnapshot = detached.snapshot;
       } catch (detachError) {
         // Once the signed anonymous snapshot is committed, only the optional
         // control-channel replacement can still fail. Continue proving the
@@ -3479,12 +3579,22 @@ async function acceptAccountReconciliationSnapshot(
         if (!anonymousDetachCommitted) throw detachError;
       }
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      if (detachedSnapshot === null) {
+        await recoverMissingDetachedPresence();
+      }
       snapshot = await controller.attachCurrentAccount(signal, acceptCommittedAccountAuthority);
     }
   } else {
-    snapshot = await controller.detachCurrentAccount(signal, acceptCommittedAnonymousAuthority);
+    const detached = await controller.detachCurrentAccount(
+      signal,
+      acceptCommittedAnonymousAuthority,
+    );
+    snapshot = detached.snapshot ?? (await recoverMissingDetachedPresence());
   }
   if (!controller.isSessionLeaseCurrent(lease, snapshot.roomCode)) return;
+  accountAuthorityFailClosed = false;
+  const context = controller.context;
+  if (active && context) applyAuthority(context);
   await acceptPlaylistSnapshot(snapshot);
   refreshHeartbeatAdjunctState(snapshot);
 }

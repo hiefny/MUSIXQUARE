@@ -131,14 +131,13 @@ function installFetchRouting(): void {
   fetchMock.mockImplementation((url: string, _cap: string, init?: RequestInit) => {
     if (url.includes('get-turn-config')) {
       // Both TURN endpoints fail fast → base STUN config, no extra suspense.
-      return Promise.resolve({ ok: false } as Response);
+      return Promise.resolve(new Response(null, { status: 404 }));
     }
     const action = init?.body ? (JSON.parse(String(init.body)) as { action: string }).action : '?';
     return new Promise<Response>((resolve, reject) => {
       pendingRealtimeCalls.push({
         action,
-        resolve: (json: unknown) =>
-          resolve({ ok: true, json: async () => json } as unknown as Response),
+        resolve: (json: unknown) => resolve(Response.json(json)),
         reject,
       });
     });
@@ -435,6 +434,11 @@ describe('host SFU runtime connection failure (F-2403)', () => {
 });
 
 describe('bounded large-room SFU failure policy', () => {
+  const retryTimerCalls = () =>
+    vi
+      .mocked(setManagedTimer)
+      .mock.calls.filter(([name]) => name === 'system-audio-sfu-host-retry');
+
   async function loadSfuModuleWithCapableLocalGuests(count = 9) {
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
@@ -461,7 +465,7 @@ describe('bounded large-room SFU failure policy', () => {
     await waitForNewSessionCalls(1);
     await rejectAllRealtimeCalls();
 
-    expect(vi.mocked(setManagedTimer)).toHaveBeenCalledTimes(1);
+    expect(retryTimerCalls()).toHaveLength(1);
     const callsAfterInitialFailure = countNewSessionCalls();
     bus.emit('system-audio:streams-ready');
     expect(countNewSessionCalls()).toBe(callsAfterInitialFailure);
@@ -474,7 +478,7 @@ describe('bounded large-room SFU failure policy', () => {
         ),
     ).toBe(false);
 
-    const retry = vi.mocked(setManagedTimer).mock.calls[0]?.[1] as (() => void) | undefined;
+    const retry = retryTimerCalls()[0]?.[1] as (() => void) | undefined;
     expect(retry).toBeTypeOf('function');
     retry!();
     await waitForNewSessionCalls(callsAfterInitialFailure + 1);
@@ -488,7 +492,7 @@ describe('bounded large-room SFU failure policy', () => {
       .map(([conn]) => conn);
     expect(stoppedConnections).toHaveLength(peers.length);
     expect(stoppedConnections).toEqual(expect.arrayContaining(peers.map((peer) => peer.conn)));
-    expect(vi.mocked(setManagedTimer)).toHaveBeenCalledTimes(1);
+    expect(retryTimerCalls()).toHaveLength(1);
   });
 
   it('keeps all-audience retry policy when ICE later relabels every peer as remote', async () => {
@@ -505,7 +509,7 @@ describe('bounded large-room SFU failure policy', () => {
     expect(mod.getSystemAudioSfuDebugSnapshot().host.delivery.sfuAudiences).toEqual(
       Object.fromEntries(peers.map((peer) => [peer.id, 'all'])),
     );
-    expect(vi.mocked(setManagedTimer)).toHaveBeenCalledTimes(1);
+    expect(retryTimerCalls()).toHaveLength(1);
   });
 
   it('keeps eight remote fallback calls alive and stops only overflow SFU waiters', async () => {
@@ -536,7 +540,7 @@ describe('bounded large-room SFU failure policy', () => {
       )
       .map(([conn]) => conn);
     expect(stoppedConnections).toEqual([peers[8].conn]);
-    expect(vi.mocked(setManagedTimer)).not.toHaveBeenCalled();
+    expect(retryTimerCalls()).toHaveLength(0);
   });
 
   it('retries once for a late capable LAN guest without republishing to frozen remote fallbacks', async () => {
@@ -592,7 +596,7 @@ describe('bounded large-room SFU failure policy', () => {
       expect(readyCalls).toHaveLength(1);
       expect(readyCalls[0]?.[0]).toBe(localPeer.conn);
     });
-    expect(vi.mocked(setManagedTimer)).not.toHaveBeenCalled();
+    expect(retryTimerCalls()).toHaveLength(0);
   });
 
   it('uses the same bounded retry when LAN capability arrives after the peer event', async () => {
@@ -655,6 +659,44 @@ describe('bounded large-room SFU failure policy', () => {
 });
 
 describe('guest SFU teardown and successor ownership (F-2402)', () => {
+  it('does not abort the successor request while replacing the previous guest subscription', async () => {
+    const mod = await import('../system-audio-sfu.ts');
+    mod.registerSystemAudioSfuListeners();
+    bus.emit('system-audio:stop');
+    const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'remote');
+
+    const { registerHandler } = await import('../protocol.ts');
+    const handler = vi
+      .mocked(registerHandler)
+      .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
+      | ((data: unknown, conn?: unknown) => void)
+      | undefined;
+    handler!(
+      {
+        version: 1,
+        audience: 'remote',
+        sessionId: 'host-successor-publication',
+        tracks: [{ trackName: 'audio-L-successor', channel: 'L', mid: '0' }],
+      },
+      hostConn,
+    );
+
+    await waitForNewSessionCalls(1);
+    const request = fetchMock.mock.calls.find(
+      ([url, , init]) =>
+        String(url).includes('cloudflare-realtime') &&
+        init?.body &&
+        (JSON.parse(String(init.body)) as { action: string }).action === 'new-session',
+    );
+    expect(request?.[2]?.signal).toBeInstanceOf(AbortSignal);
+    expect((request?.[2]?.signal as AbortSignal).aborted).toBe(false);
+    bus.emit('system-audio:stop');
+    expect((request?.[2]?.signal as AbortSignal).aborted).toBe(true);
+  });
+
   it('closes exact guest mids returned by a failed partial tracks-new response', async () => {
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
@@ -867,7 +909,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     fetchMock.mockImplementationOnce(
       () =>
         new Promise<Response>((resolve) => {
-          releaseTurn = () => resolve({ ok: false } as Response);
+          releaseTurn = () => resolve(new Response(null, { status: 404 }));
         }),
     );
     const { registerHandler } = await import('../protocol.ts');

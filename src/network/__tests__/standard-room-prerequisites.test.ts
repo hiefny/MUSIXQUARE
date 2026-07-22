@@ -133,9 +133,7 @@ describe('standard-room prerequisite cache', () => {
     );
 
     const hung = getStandardRoomTurnCredentials();
-    await vi.advanceTimersByTimeAsync(
-      __standardRoomPrerequisitesForTests.turnRequestTimeoutMs,
-    );
+    await vi.advanceTimersByTimeAsync(__standardRoomPrerequisitesForTests.turnRequestTimeoutMs);
     await expect(hung).resolves.toBeNull();
 
     mocks.fetchWithCapability.mockResolvedValueOnce(turnResponse());

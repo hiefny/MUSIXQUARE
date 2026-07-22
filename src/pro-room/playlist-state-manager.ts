@@ -22,6 +22,7 @@ import {
 
 type QueueItemId = ProRoomPlaylistWireItem['queueItemId'];
 type ProjectedPlaylist = ReturnType<ProRoomPlaylistProjection['project']>;
+const CLIENT_IDEMPOTENCY_HISTORY_MAX_ITEMS = 512;
 
 interface ProRoomPlaylistStateApi {
   getSnapshot(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
@@ -297,6 +298,7 @@ export class ProRoomPlaylistStateManager {
   readonly #createQueueItemId: () => QueueItemId;
   readonly #now: () => number;
   readonly #issuedIdempotencyKeys = new Set<string>();
+  readonly #issuedIdempotencyKeyOrder: string[] = [];
   #snapshot: ProRoomSnapshot | null = null;
   #operationTail: Promise<void> = Promise.resolve();
 
@@ -928,6 +930,11 @@ export class ProRoomPlaylistStateManager {
       throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_IDEMPOTENCY_KEY_REUSED');
     }
     this.#issuedIdempotencyKeys.add(key);
+    this.#issuedIdempotencyKeyOrder.push(key);
+    while (this.#issuedIdempotencyKeyOrder.length > CLIENT_IDEMPOTENCY_HISTORY_MAX_ITEMS) {
+      const expired = this.#issuedIdempotencyKeyOrder.shift();
+      if (expired !== undefined) this.#issuedIdempotencyKeys.delete(expired);
+    }
     return key;
   }
 

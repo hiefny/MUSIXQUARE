@@ -110,7 +110,15 @@ describe('R2 download boundary', () => {
   it('times out only after a no-progress stall, not a fixed total duration', async () => {
     vi.useFakeTimers();
     const { downloadEncryptedObject } = await import('../r2-client.ts');
-    const pending = downloadEncryptedObject(roomId, objectId, 20, expectedUrl);
+    const controller = new AbortController();
+    const pending = downloadEncryptedObject(
+      roomId,
+      objectId,
+      20,
+      expectedUrl,
+      undefined,
+      controller.signal,
+    );
     const xhr = FakeXmlHttpRequest.instances.at(-1)!;
     const rejected = expect(pending).rejects.toThrow('REMOTE_SHARE_DOWNLOAD_STALLED');
 
@@ -126,6 +134,53 @@ describe('R2 download boundary', () => {
 
     await rejected;
     expect(xhr.abortCalls).toBe(1);
+    controller.abort();
+    expect(xhr.abortCalls).toBe(1);
+  });
+
+  it('aborts immediately when bytes exceed the descriptor even without Content-Length', async () => {
+    const { downloadEncryptedObject } = await import('../r2-client.ts');
+    const controller = new AbortController();
+    const pending = downloadEncryptedObject(
+      roomId,
+      objectId,
+      20,
+      expectedUrl,
+      undefined,
+      controller.signal,
+    );
+    const xhr = FakeXmlHttpRequest.instances.at(-1)!;
+
+    xhr.onprogress?.call(
+      xhr as unknown as XMLHttpRequest,
+      new ProgressEvent('progress', { lengthComputable: false, loaded: 21 }),
+    );
+
+    await expect(pending).rejects.toThrow('REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH');
+    expect(xhr.abortCalls).toBe(1);
+    controller.abort();
+    expect(xhr.abortCalls).toBe(1);
+  });
+
+  it('detaches its abort listener after a successful download', async () => {
+    const { downloadEncryptedObject } = await import('../r2-client.ts');
+    const controller = new AbortController();
+    const pending = downloadEncryptedObject(
+      roomId,
+      objectId,
+      20,
+      expectedUrl,
+      undefined,
+      controller.signal,
+    );
+    const xhr = FakeXmlHttpRequest.instances.at(-1)!;
+    xhr.responseURL = expectedUrl;
+    xhr.response = new ArrayBuffer(20);
+    xhr.onload?.call(xhr as unknown as XMLHttpRequest, new ProgressEvent('load'));
+
+    await expect(pending).resolves.toBe(xhr.response);
+    controller.abort();
+    expect(xhr.abortCalls).toBe(0);
   });
 
   it('does not extend the stall deadline for duplicate zero-progress events', async () => {
@@ -152,6 +207,144 @@ describe('R2 download boundary', () => {
 });
 
 describe('R2 upload progress watchdog', () => {
+  it('cancels a non-success security-config body before using the safe fallback', async () => {
+    Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__', {
+      configurable: true,
+      value: 'https://security-error-share.example.test',
+    });
+    const cancelSecurityBody = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/security-config')) {
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new Uint8Array([1]));
+              },
+              cancel: cancelSecurityBody,
+            }),
+            { status: 503 },
+          );
+        }
+        if (url.endsWith('/session')) return new Response('{}', { status: 503 });
+        return new Response('unexpected', { status: 500 });
+      }),
+    );
+
+    const { uploadEncryptedBlob } = await import('../r2-client.ts');
+    await expect(
+      uploadEncryptedBlob(new Blob([new Uint8Array(20)]), {
+        roomId,
+        name: 'security-error.mp3',
+        mime: 'audio/mpeg',
+        size: 4,
+        sessionId: 9,
+        queueItemId,
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_SESSION_HTTP_503');
+
+    expect(cancelSecurityBody).toHaveBeenCalledOnce();
+    expect(FakeXmlHttpRequest.instances).toHaveLength(0);
+  });
+
+  it('releases a session request whose JSON body stalls after response headers', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__', {
+      configurable: true,
+      value: 'https://stalled-share.example.test',
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/security-config')) {
+        return Response.json({ capabilityRequired: false });
+      }
+      if (url.endsWith('/session')) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            pull: () => new Promise<void>(() => undefined),
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response('unexpected', { status: 500 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { uploadEncryptedBlob } = await import('../r2-client.ts');
+    const pending = uploadEncryptedBlob(new Blob([new Uint8Array(20)]), {
+      roomId,
+      name: 'stalled.mp3',
+      mime: 'audio/mpeg',
+      size: 4,
+      sessionId: 5,
+      queueItemId,
+    });
+    const rejected = expect(pending).rejects.toThrow('REMOTE_SHARE_SESSION_TIMEOUT');
+    await vi.waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://stalled-share.example.test/session',
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    await rejected;
+    expect(FakeXmlHttpRequest.instances).toHaveLength(0);
+  });
+
+  it('bounds a completed session control response before creating the upload XHR', async () => {
+    Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__', {
+      configurable: true,
+      value: 'https://oversized-share.example.test',
+    });
+    const cancel = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/security-config')) {
+          return Response.json({ capabilityRequired: false });
+        }
+        if (url.endsWith('/session')) {
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new Uint8Array([123, 125]));
+                controller.close();
+              },
+              cancel,
+            }),
+            {
+              headers: {
+                'content-type': 'application/json',
+                'content-length': String(64 * 1024 + 1),
+              },
+            },
+          );
+        }
+        return new Response('unexpected', { status: 500 });
+      }),
+    );
+
+    const { uploadEncryptedBlob } = await import('../r2-client.ts');
+    await expect(
+      uploadEncryptedBlob(new Blob([new Uint8Array(20)]), {
+        roomId,
+        name: 'oversized.mp3',
+        mime: 'audio/mpeg',
+        size: 4,
+        sessionId: 6,
+        queueItemId,
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_BAD_SESSION_RESPONSE');
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(FakeXmlHttpRequest.instances).toHaveLength(0);
+  });
+
   it('stalls on no new uploaded bytes and ignores duplicate progress events', async () => {
     vi.useFakeTimers();
     let cleanupCalls = 0;
@@ -183,14 +376,20 @@ describe('R2 upload progress watchdog', () => {
       }),
     );
     const { uploadEncryptedBlob } = await import('../r2-client.ts');
-    const pending = uploadEncryptedBlob(new Blob([new Uint8Array(20)]), {
-      roomId,
-      name: 'song.mp3',
-      mime: 'audio/mpeg',
-      size: 4,
-      sessionId: 7,
-      queueItemId,
-    });
+    const controller = new AbortController();
+    const pending = uploadEncryptedBlob(
+      new Blob([new Uint8Array(20)]),
+      {
+        roomId,
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        size: 4,
+        sessionId: 7,
+        queueItemId,
+      },
+      undefined,
+      controller.signal,
+    );
     await vi.waitFor(() => expect(FakeXmlHttpRequest.instances).toHaveLength(1));
     const xhr = FakeXmlHttpRequest.instances[0];
     const rejected = expect(pending).rejects.toThrow('REMOTE_SHARE_UPLOAD_STALLED');
@@ -210,6 +409,8 @@ describe('R2 upload progress watchdog', () => {
     await vi.advanceTimersByTimeAsync(45_000);
 
     await rejected;
+    expect(xhr.abortCalls).toBe(1);
+    controller.abort();
     expect(xhr.abortCalls).toBe(1);
     await vi.waitFor(() => expect(cleanupCalls).toBe(1));
   });

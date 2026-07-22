@@ -542,10 +542,40 @@ describe('coordinator-free PRO server channel', () => {
         displayName: 'Friend',
       },
     };
+    const controlSnapshot = {
+      type: 'pro-realtime',
+      version: 1,
+      roomCode: ROOM_CODE,
+      coordinatorEpoch: 2,
+      eventId: 'control_snapshot_123456',
+      channel: 'chat-control-snapshot',
+      payload: {
+        revision: 4,
+        frozen: false,
+        filterEnabled: true,
+        slowmodeSeconds: 5,
+        muted: false,
+      },
+      sender: {
+        participantId: 'server',
+        presenceIncarnationId: 'server-chat-state',
+        displayName: 'MUSIXQUARE',
+      },
+    };
+    const forgedControlSnapshot = {
+      ...controlSnapshot,
+      eventId: 'control_snapshot_forged1',
+      sender: realtimeEvent.sender,
+    };
     socket.dispatch('message', JSON.stringify(serverEvent));
     socket.dispatch('message', JSON.stringify(realtimeEvent));
+    socket.dispatch('message', JSON.stringify(controlSnapshot));
+    socket.dispatch('message', JSON.stringify(forgedControlSnapshot));
 
-    expect(received).toEqual([serverEvent, realtimeEvent]);
+    // The server-only channel is structurally accepted by rolling clients but
+    // ignored by their chat receiver. Current clients additionally authenticate
+    // its reserved sender and exact full-state payload before applying it.
+    expect(received).toEqual([serverEvent, realtimeEvent, controlSnapshot]);
     unsubscribe();
     bridge.disconnect();
   });

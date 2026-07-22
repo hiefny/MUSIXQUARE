@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { clearAllManagedTimers } from '../../core/timers.ts';
 import { PRO_ROOM_R2_HOST, type ProRoomMediaReservation } from '../api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
@@ -14,6 +15,11 @@ import {
 
 const ROOM_CODE = '000001';
 const ASSET_ID = 'asset_00000000001';
+
+afterEach(() => {
+  clearAllManagedTimers();
+  vi.useRealTimers();
+});
 
 const quota: ProRoomQuotaSnapshot = {
   limitBytes: PRO_ROOM_QUOTA_BYTES,
@@ -222,6 +228,68 @@ describe('PRO room direct R2 upload orchestration', () => {
     expect(harness.completeMedia).not.toHaveBeenCalled();
   });
 
+  it('abandons a fully stalled PUT without imposing a total transfer deadline', async () => {
+    vi.useFakeTimers();
+    const harness = apiHarness();
+    harness.createMediaReservation.mockResolvedValue(reservation());
+    harness.deleteMedia.mockResolvedValue({ assetId: ASSET_ID, quota });
+    const xhr = new FakeXhr();
+    const keys = ['reserve-key-0001', 'cleanup-key-0002'];
+    const transfer = new ProRoomMediaTransfer({
+      api: harness.api,
+      xhrFactory: () => xhr as unknown as XMLHttpRequest,
+      createIdempotencyKey: () => keys.shift()!,
+    });
+
+    const pending = transfer.upload({ code: ROOM_CODE, file: new File(['data'], 'a.flac') });
+    await waitForSend(xhr);
+    const rejection = expect(pending).rejects.toMatchObject({
+      code: 'PRO_ROOM_MEDIA_UPLOAD_NETWORK',
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    await rejection;
+    expect(xhr.aborted).toBe(true);
+    expect(harness.deleteMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not treat duplicate zero-byte progress events as upload progress', async () => {
+    vi.useFakeTimers();
+    const harness = apiHarness();
+    harness.createMediaReservation.mockResolvedValue(reservation());
+    harness.deleteMedia.mockResolvedValue({ assetId: ASSET_ID, quota });
+    const xhr = new FakeXhr();
+    const keys = ['reserve-key-0001', 'cleanup-key-0002'];
+    const progress: number[] = [];
+    const transfer = new ProRoomMediaTransfer({
+      api: harness.api,
+      xhrFactory: () => xhr as unknown as XMLHttpRequest,
+      createIdempotencyKey: () => keys.shift()!,
+    });
+
+    const pending = transfer.upload({
+      code: ROOM_CODE,
+      file: new File(['data'], 'a.flac'),
+      onProgress: (value) => progress.push(value),
+    });
+    await waitForSend(xhr);
+    const rejection = expect(pending).rejects.toMatchObject({
+      code: 'PRO_ROOM_MEDIA_UPLOAD_NETWORK',
+    });
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    xhr.upload.onprogress?.({
+      loaded: 0,
+      total: 4,
+      lengthComputable: true,
+    } as ProgressEvent);
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await rejection;
+    expect(xhr.aborted).toBe(true);
+    expect(progress).toEqual([]);
+  });
+
   it('rejects a mismatched reservation descriptor before sending bytes', async () => {
     const harness = apiHarness();
     harness.createMediaReservation.mockResolvedValue({ ...reservation(), byteLength: 3 });
@@ -350,6 +418,95 @@ describe('PRO room signed R2 download orchestration', () => {
     expect(cached.name).toBe('renamed.flac');
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(harness.getMediaDownload).toHaveBeenCalledOnce();
+  });
+
+  it('abandons a GET only after the response body makes no progress for the idle window', async () => {
+    vi.useFakeTimers();
+    const harness = apiHarness();
+    harness.getMediaDownload.mockResolvedValue({
+      asset: source(),
+      url: presignedUrl(),
+      expiresAtMs: 1_900_000_000_000,
+    });
+    const stalledResponse = new Response(
+      new ReadableStream<Uint8Array>({
+        pull: () => new Promise<void>(() => undefined),
+      }),
+      {
+        status: 200,
+        headers: {
+          'content-type': 'application/octet-stream',
+          'content-length': '4',
+        },
+      },
+    );
+    const transfer = new ProRoomMediaTransfer({
+      api: harness.api,
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(stalledResponse),
+    });
+
+    const pending = transfer.download({ code: ROOM_CODE, name: 'a.flac', source: source() });
+    await Promise.resolve();
+    const rejection = expect(pending).rejects.toMatchObject({
+      code: 'PRO_ROOM_MEDIA_DOWNLOAD_NETWORK',
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    await rejection;
+  });
+
+  it('does not treat zero-byte stream chunks as download progress', async () => {
+    vi.useFakeTimers();
+    const harness = apiHarness();
+    harness.getMediaDownload.mockResolvedValue({
+      asset: source(),
+      url: presignedUrl(),
+      expiresAtMs: 1_900_000_000_000,
+    });
+    let emitted = 0;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (emitted >= 2) return new Promise<void>(() => undefined);
+          return new Promise<void>((resolve) => {
+            setTimeout(() => {
+              emitted += 1;
+              controller.enqueue(new Uint8Array(0));
+              resolve();
+            }, 20_000);
+          });
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          'content-type': 'application/octet-stream',
+          'content-length': '4',
+        },
+      },
+    );
+    const progress: number[] = [];
+    const transfer = new ProRoomMediaTransfer({
+      api: harness.api,
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(response),
+    });
+
+    const pending = transfer.download({
+      code: ROOM_CODE,
+      name: 'a.flac',
+      source: source(),
+      onProgress: (value) => progress.push(value),
+    });
+    await Promise.resolve();
+    const rejection = expect(pending).rejects.toMatchObject({
+      code: 'PRO_ROOM_MEDIA_DOWNLOAD_NETWORK',
+    });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    await rejection;
+    expect(emitted).toBe(2);
+    expect(progress).toEqual([]);
   });
 
   it.each([

@@ -1,3 +1,9 @@
+import {
+  cancelResponseBody,
+  readBoundedJsonResponse,
+  withRequestDeadline,
+} from './request-lifetime.ts';
+
 export type CapabilityScope = 'turn' | 'realtime' | 'youtube-search' | 'remote-share';
 
 interface SecurityConfig {
@@ -51,6 +57,8 @@ const TOKEN_REFRESH_SKEW_SECONDS = 30;
 const TURNSTILE_EXECUTION_TIMEOUT_MS = 30_000;
 const TURNSTILE_OVERLAY_FADE_MS = 180;
 const SILENT_CAPABILITY_WARM_TIMEOUT_MS = 8_000;
+const CAPABILITY_HTTP_TIMEOUT_MS = 15_000;
+const CAPABILITY_RESPONSE_MAX_BYTES = 64 * 1024;
 const TURNSTILE_SCRIPT_SRC =
   'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const TURNSTILE_STYLE_ID = 'mxqr-turnstile-style';
@@ -72,6 +80,23 @@ const BUNDLE_SCOPES: CapabilityScope[] = ['realtime', 'remote-share', 'turn', 'y
 const configCache = new Map<string, { expiresAt: number; value: SecurityConfig }>();
 const tokenCache = new Map<string, { expiresAt: number; token: string }>();
 const tokenRequestCache = new Map<string, Promise<string>>();
+
+function getOrCreateSharedTokenRequest(
+  cacheKey: string,
+  apiBase: string,
+  config: SecurityConfig,
+): Promise<string> {
+  const existing = tokenRequestCache.get(cacheKey);
+  if (existing) return existing;
+  // Shared work is intentionally ownerless. Individual caller/warmup aborts
+  // race only their own wait and must never cancel another upload or SFU
+  // request that adopted the same mint.
+  const request = requestCapabilityToken(apiBase, BUNDLE_SCOPES, config).finally(() => {
+    if (tokenRequestCache.get(cacheKey) === request) tokenRequestCache.delete(cacheKey);
+  });
+  tokenRequestCache.set(cacheKey, request);
+  return request;
+}
 let turnstileLoadPromise: Promise<void> | null = null;
 let turnstileExecution: Promise<string> | null = null;
 let turnstileWidgetId: string | null = null;
@@ -182,12 +207,26 @@ async function getSecurityConfig(
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
   try {
-    const response = await fetch(`${apiBase}/api/security-config`, {
-      headers: { Accept: 'application/json' },
-      signal,
-    });
-    if (!response.ok) throw new Error(`security config HTTP ${response.status}`);
-    const value = normalizeSecurityConfig(await response.json());
+    const value = await withRequestDeadline(
+      async (requestSignal) => {
+        const response = await fetch(`${apiBase}/api/security-config`, {
+          headers: { Accept: 'application/json' },
+          signal: requestSignal,
+        });
+        if (!response.ok) {
+          await cancelResponseBody(response);
+          throw new Error(`security config HTTP ${response.status}`);
+        }
+        return normalizeSecurityConfig(
+          await readBoundedJsonResponse(response, CAPABILITY_RESPONSE_MAX_BYTES, requestSignal),
+        );
+      },
+      {
+        signal,
+        timeoutMs: CAPABILITY_HTTP_TIMEOUT_MS,
+        timeoutReason: 'CAPABILITY_SECURITY_CONFIG_TIMEOUT',
+      },
+    );
     configCache.set(apiBase, {
       expiresAt: Date.now() + SECURITY_CONFIG_CACHE_MS,
       value,
@@ -509,15 +548,30 @@ async function getCapabilityProofOfWork(
 ): Promise<{ challenge: string; solution: string }> {
   throwIfAborted(signal);
   const cancelGeneration = capabilityCancelGeneration;
-  const response = await fetch(`${apiBase}/api/capability-challenge`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scopes }),
-    signal,
-  });
-  if (!response.ok) throw new Error(`capability challenge HTTP ${response.status}`);
-
-  const payload = (await response.json()) as ProofOfWorkChallengeResponse;
+  const payload = await withRequestDeadline(
+    async (requestSignal) => {
+      const response = await fetch(`${apiBase}/api/capability-challenge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scopes }),
+        signal: requestSignal,
+      });
+      if (!response.ok) {
+        await cancelResponseBody(response);
+        throw new Error(`capability challenge HTTP ${response.status}`);
+      }
+      return (await readBoundedJsonResponse(
+        response,
+        CAPABILITY_RESPONSE_MAX_BYTES,
+        requestSignal,
+      )) as ProofOfWorkChallengeResponse;
+    },
+    {
+      signal,
+      timeoutMs: CAPABILITY_HTTP_TIMEOUT_MS,
+      timeoutReason: 'CAPABILITY_CHALLENGE_TIMEOUT',
+    },
+  );
   if (cancelGeneration !== capabilityCancelGeneration) {
     throw createCapabilityChallengeCancelledError('Capability challenge cancelled');
   }
@@ -572,19 +626,34 @@ async function requestCapabilityToken(
       : null;
 
   throwIfAborted(signal);
-  const response = await fetch(`${apiBase}/api/capability-token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      scopes,
-      ...(turnstileToken ? { turnstileToken } : {}),
-      ...(proofOfWork ? { proofOfWork } : {}),
-    }),
-    signal,
-  });
-  if (!response.ok) throw new Error(`capability token HTTP ${response.status}`);
-
-  const payload = (await response.json()) as CapabilityTokenResponse;
+  const payload = await withRequestDeadline(
+    async (requestSignal) => {
+      const response = await fetch(`${apiBase}/api/capability-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scopes,
+          ...(turnstileToken ? { turnstileToken } : {}),
+          ...(proofOfWork ? { proofOfWork } : {}),
+        }),
+        signal: requestSignal,
+      });
+      if (!response.ok) {
+        await cancelResponseBody(response);
+        throw new Error(`capability token HTTP ${response.status}`);
+      }
+      return (await readBoundedJsonResponse(
+        response,
+        CAPABILITY_RESPONSE_MAX_BYTES,
+        requestSignal,
+      )) as CapabilityTokenResponse;
+    },
+    {
+      signal,
+      timeoutMs: CAPABILITY_HTTP_TIMEOUT_MS,
+      timeoutReason: 'CAPABILITY_TOKEN_TIMEOUT',
+    },
+  );
   if (!payload.token || typeof payload.expiresAt !== 'number') {
     throw new Error('Invalid capability token response');
   }
@@ -629,17 +698,7 @@ export async function getCapabilityHeaders(
       // upload cancel another caller's challenge/token fetch.
       request = requestCapabilityToken(apiBase, BUNDLE_SCOPES, config, signal);
     } else {
-      const newSharedRequest = requestCapabilityToken(
-        apiBase,
-        BUNDLE_SCOPES,
-        config,
-      ).finally(() => {
-        if (tokenRequestCache.get(cacheKey) === newSharedRequest) {
-          tokenRequestCache.delete(cacheKey);
-        }
-      });
-      tokenRequestCache.set(cacheKey, newSharedRequest);
-      request = newSharedRequest;
+      request = getOrCreateSharedTokenRequest(cacheKey, apiBase, config);
     }
     const token = await request;
     throwIfAborted(signal);
@@ -679,22 +738,8 @@ export async function warmCapabilitySilently(
     const cached = tokenCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now() / 1000 + TOKEN_REFRESH_SKEW_SECONDS) return true;
 
-    let request = tokenRequestCache.get(cacheKey);
-    if (!request) {
-      const newRequest = requestCapabilityToken(
-        apiBase,
-        BUNDLE_SCOPES,
-        config,
-        controller.signal,
-      ).finally(() => {
-        if (tokenRequestCache.get(cacheKey) === newRequest) tokenRequestCache.delete(cacheKey);
-      });
-      tokenRequestCache.set(cacheKey, newRequest);
-      request = newRequest;
-    } else {
-      request = settleWithAbort(request, controller.signal);
-    }
-    await request;
+    const request = getOrCreateSharedTokenRequest(cacheKey, apiBase, config);
+    await settleWithAbort(request, controller.signal);
     return true;
   } catch (error) {
     if (isCapabilityChallengeCancelled(error)) throw error;
@@ -724,6 +769,7 @@ export async function fetchWithCapability(
   for (const [name, value] of Object.entries(capabilityHeaders)) headers.set(name, value);
   const response = await fetch(input, { ...init, headers });
   if (response.status !== 401) return response;
+  await cancelResponseBody(response);
 
   // 401 means the endpoint demanded capability. Either our token was stale, or
   // we sent none because the security-config probe failed open (a transient

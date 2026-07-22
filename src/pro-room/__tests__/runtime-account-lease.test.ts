@@ -226,9 +226,9 @@ describe.sequential('PRO runtime account identity lease', () => {
       new Promise<never>(() => undefined),
     );
 
-    await expect(
-      joinProRoom({ code: ROOM_CODE, pin: '12345678' }),
-    ).resolves.toMatchObject({ roomCode: ROOM_CODE });
+    await expect(joinProRoom({ code: ROOM_CODE, pin: '12345678' })).resolves.toMatchObject({
+      roomCode: ROOM_CODE,
+    });
 
     expect(ProRoomApiClient.prototype.getEffects).toHaveBeenCalledWith(
       ROOM_CODE,
@@ -311,7 +311,7 @@ describe.sequential('PRO runtime account identity lease', () => {
     vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(delegated);
     const detach = vi
       .spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount')
-      .mockResolvedValue(delegated);
+      .mockResolvedValue({ ok: true, detached: true, snapshot: delegated });
 
     await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
     await Promise.resolve();
@@ -324,7 +324,11 @@ describe.sequential('PRO runtime account identity lease', () => {
 
   it('projects a detached Peer identity before signaling reconfiguration can echo the old nickname', async () => {
     const detached = detachedSnapshot();
-    vi.spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount').mockResolvedValue(detached);
+    vi.spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount').mockResolvedValue({
+      ok: true,
+      detached: true,
+      snapshot: detached,
+    });
 
     await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
     await vi.waitFor(() =>
@@ -355,6 +359,63 @@ describe.sequential('PRO runtime account identity lease', () => {
     ]);
   });
 
+  it('fails closed and re-enters anonymously without takeover after an expired-presence detach', async () => {
+    const detached = detachedSnapshot();
+    const recovered: ProRoomSnapshot = {
+      ...detached,
+      revision: 3,
+      presence: {
+        ...detached.presence,
+        revision: 3,
+        participants: [
+          {
+            ...detached.presence.participants[0]!,
+            participantId: 'participant_lease_2',
+          },
+        ],
+      },
+      viewer: {
+        ...detached.viewer!,
+        participantId: 'participant_lease_2',
+        presenceIncarnationId: 'presence_lease_2',
+      },
+    };
+    vi.spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount').mockResolvedValue({
+      ok: true,
+      detached: true,
+      snapshot: null,
+    });
+    let finishEnter!: (snapshot: ProRoomSnapshot) => void;
+    const enter = vi.spyOn(ProRoomApiClient.prototype, 'enterPresence').mockImplementationOnce(
+      () =>
+        new Promise<ProRoomSnapshot>((resolve) => {
+          finishEnter = resolve;
+        }),
+    );
+
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    await vi.waitFor(() =>
+      expect(ProRoomApiClient.prototype.attachCurrentAccount).toHaveBeenCalledOnce(),
+    );
+    vi.mocked(ProRoomApiClient.prototype.createSignalingTicket).mockResolvedValueOnce({
+      ...signalingAccess(),
+      presenceIncarnationId: 'presence_lease_2',
+      ticketSequence: 2,
+    });
+
+    setAccountAnonymous(true);
+    await vi.waitFor(() => expect(enter).toHaveBeenCalledOnce());
+    expect(getState('room.context').capabilities).toEqual([]);
+    expect(enter.mock.calls[0]?.[1]).not.toHaveProperty('takeover');
+
+    finishEnter(recovered);
+    await vi.waitFor(() => expect(getState('network.myDeviceLabel')).toBe('Peer 1'));
+    await vi.waitFor(() =>
+      expect(getState('room.context').capabilities).toEqual(['playback.control']),
+    );
+    expect(getState('network.myMemberAuthenticated')).toBe(false);
+  });
+
   it('continues an account switch after the committed detach channel rebuild fails', async () => {
     const detached = detachedSnapshot();
     const switched: ProRoomSnapshot = {
@@ -378,7 +439,11 @@ describe.sequential('PRO runtime account identity lease', () => {
     vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount)
       .mockRejectedValueOnce(new ProRoomApiError('SESSION_ACCOUNT_CONFLICT', 409))
       .mockResolvedValueOnce(switched);
-    vi.spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount').mockResolvedValue(detached);
+    vi.spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount').mockResolvedValue({
+      ok: true,
+      detached: true,
+      snapshot: detached,
+    });
     vi.mocked(ServerProRoomNetworkBridge.prototype.reconfigure)
       .mockRejectedValueOnce(new Error('old account channel unavailable'))
       .mockResolvedValueOnce(undefined);
@@ -403,7 +468,11 @@ describe.sequential('PRO runtime account identity lease', () => {
       .spyOn(ProRoomApiClient.prototype, 'renewCurrentAccountLease')
       .mockReturnValue(renewal);
     const detached = detachedSnapshot();
-    vi.spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount').mockResolvedValue(detached);
+    vi.spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount').mockResolvedValue({
+      ok: true,
+      detached: true,
+      snapshot: detached,
+    });
 
     await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
     await vi.waitFor(() =>

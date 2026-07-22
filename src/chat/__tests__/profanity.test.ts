@@ -98,9 +98,7 @@ describe('profanity', () => {
   describe('filter identity as the match signal', () => {
     it('keeps empty and clean text identical', () => {
       expect(filterProfanity('')).toBe('');
-      expect(filterProfanity('a perfectly normal sentence')).toBe(
-        'a perfectly normal sentence',
-      );
+      expect(filterProfanity('a perfectly normal sentence')).toBe('a perfectly normal sentence');
     });
 
     it('does not flag legitimate words that embed a token (Cassidy regression)', () => {

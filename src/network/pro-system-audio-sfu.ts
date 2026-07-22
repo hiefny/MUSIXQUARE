@@ -11,6 +11,11 @@
 import { fetchWithCapability, isCapabilityChallengeCancelled } from '../core/capability.ts';
 import { log } from '../core/log.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import {
+  cancelResponseBody,
+  readBoundedJsonResponse,
+  withRequestDeadline,
+} from '../core/request-lifetime.ts';
 
 const BASE_SFU_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
@@ -20,6 +25,8 @@ const MAX_ROOM_ID_LENGTH = 64;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const PUBLISHER_EXPIRY_TIMER = 'pro-system-audio-sfu:publisher-expiry';
 const SUBSCRIBER_EXPIRY_TIMER = 'pro-system-audio-sfu:subscriber-expiry';
+const SFU_CONTROL_REQUEST_TIMEOUT_MS = 15_000;
+const SFU_CONTROL_RESPONSE_MAX_BYTES = 1024 * 1024;
 
 type ProSystemAudioSfuChannel = 'L' | 'R';
 
@@ -123,12 +130,14 @@ let publisherPc: RTCPeerConnection | null = null;
 let publisherOwnedTracks: OwnedRealtimeTracks | null = null;
 let publisherDescriptor: ProSystemAudioSfuPublicationDescriptor | null = null;
 let publisherPromise: Promise<ProSystemAudioSfuPublicationDescriptor> | null = null;
+let publisherAbortController: AbortController | null = null;
 
 let subscriberEpoch = 0;
 let subscriberPc: RTCPeerConnection | null = null;
 let subscriberOwnedTracks: OwnedRealtimeTracks | null = null;
 let subscriberDescriptor: ProSystemAudioSfuPublicationDescriptor | null = null;
 let subscriberPromise: Promise<void> | null = null;
+let subscriberAbortController: AbortController | null = null;
 let subscriberKey: string | null = null;
 
 export function onProSystemAudioSfuEvent(listener: ProSystemAudioSfuEventListener): () => void {
@@ -181,19 +190,37 @@ function normalizeRemoteIceServers(value: unknown): RTCIceServer[] {
   return result;
 }
 
-async function loadSfuRtcConfig(): Promise<RTCConfiguration> {
+async function loadSfuRtcConfig(signal?: AbortSignal): Promise<RTCConfiguration> {
   const iceServers = [...BASE_SFU_ICE_SERVERS];
   for (const endpoint of getTurnConfigEndpoints()) {
     try {
-      const response = await fetchWithCapability(endpoint, 'turn');
-      if (!response.ok) continue;
-      const body = (await response.json()) as TurnConfigResponse;
+      const body = await withRequestDeadline(
+        async (requestSignal) => {
+          const response = await fetchWithCapability(endpoint, 'turn', { signal: requestSignal });
+          if (!response.ok) {
+            await cancelResponseBody(response);
+            return null;
+          }
+          return (await readBoundedJsonResponse(
+            response,
+            SFU_CONTROL_RESPONSE_MAX_BYTES,
+            requestSignal,
+          )) as TurnConfigResponse;
+        },
+        {
+          signal,
+          timeoutMs: SFU_CONTROL_REQUEST_TIMEOUT_MS,
+          timeoutReason: 'PRO_SFU_TURN_CONFIG_TIMEOUT',
+        },
+      );
+      if (!body) continue;
       if (body.provider !== 'cloudflare') continue;
       const remote = normalizeRemoteIceServers(body.iceServers);
       if (remote.length === 0) continue;
       iceServers.push(...remote);
       break;
     } catch (error) {
+      if (signal?.aborted) throw signal.reason ?? error;
       if (isCapabilityChallengeCancelled(error)) throw error;
       // Cloudflare's public STUN entry is enough for the initial attempt.
     }
@@ -208,23 +235,39 @@ async function callRealtime(
     sessionOwnerToken?: string;
     payload?: Record<string, unknown>;
     correlationId?: string;
+    signal?: AbortSignal;
   } = {},
 ): Promise<RealtimeResponse> {
   let lastError: unknown = null;
   for (const endpoint of getRealtimeEndpoints()) {
     try {
-      const response = await fetchWithCapability(endpoint, 'realtime', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action,
-          sessionId: options.sessionId,
-          sessionOwnerToken: options.sessionOwnerToken,
-          correlationId: options.correlationId,
-          payload: options.payload || {},
-        }),
-      });
-      const body = (await response.json().catch(() => ({}))) as RealtimeResponse;
+      const { response, body } = await withRequestDeadline(
+        async (requestSignal) => {
+          const response = await fetchWithCapability(endpoint, 'realtime', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action,
+              sessionId: options.sessionId,
+              sessionOwnerToken: options.sessionOwnerToken,
+              correlationId: options.correlationId,
+              payload: options.payload || {},
+            }),
+            signal: requestSignal,
+          });
+          const body = (await readBoundedJsonResponse(
+            response,
+            SFU_CONTROL_RESPONSE_MAX_BYTES,
+            requestSignal,
+          )) as RealtimeResponse;
+          return { response, body };
+        },
+        {
+          signal: options.signal,
+          timeoutMs: SFU_CONTROL_REQUEST_TIMEOUT_MS,
+          timeoutReason: 'PRO_SFU_REALTIME_REQUEST_TIMEOUT',
+        },
+      );
       if (response.ok) return body;
       lastError = new Error(
         body.errorDescription ||
@@ -234,6 +277,7 @@ async function callRealtime(
       );
       if (response.status === 503) break;
     } catch (error) {
+      if (options.signal?.aborted) throw options.signal.reason ?? error;
       if (isCapabilityChallengeCancelled(error)) throw error;
       lastError = error;
     }
@@ -467,6 +511,8 @@ function scheduleSubscriberExpiry(descriptor: ProSystemAudioSfuPublicationDescri
 
 function stopPublisherInternal(emitStopped: boolean): void {
   publisherEpoch += 1;
+  publisherAbortController?.abort();
+  publisherAbortController = null;
   const descriptor = publisherDescriptor;
   const hadState = !!publisherPc || !!publisherOwnedTracks || !!publisherPromise || !!descriptor;
   const pc = publisherPc;
@@ -485,6 +531,8 @@ function stopPublisherInternal(emitStopped: boolean): void {
 
 function stopSubscriberInternal(emitStopped: boolean): void {
   subscriberEpoch += 1;
+  subscriberAbortController?.abort();
+  subscriberAbortController = null;
   const descriptor = subscriberDescriptor;
   const hadState = !!subscriberPc || !!subscriberOwnedTracks || !!subscriberPromise || !!descriptor;
   const pc = subscriberPc;
@@ -535,8 +583,9 @@ function ensurePublisherCurrent(epoch: number, pc: RTCPeerConnection): void {
 async function performPublish(
   input: PublishProSystemAudioSfuOptions,
   epoch: number,
+  signal: AbortSignal,
 ): Promise<ProSystemAudioSfuPublicationDescriptor> {
-  const rtcConfig = await loadSfuRtcConfig();
+  const rtcConfig = await loadSfuRtcConfig(signal);
   if (epoch !== publisherEpoch) throw new ProSystemAudioSfuSupersededError();
   const pc = new RTCPeerConnection(rtcConfig);
   publisherPc = pc;
@@ -557,6 +606,7 @@ async function performPublish(
   try {
     const session = await callRealtime('new-session', {
       correlationId: buildCorrelationId('pro-system-audio-publisher', input.roomId),
+      signal,
     });
     ensurePublisherCurrent(epoch, pc);
     assertRealtimeOk(session);
@@ -598,6 +648,7 @@ async function performPublish(
       sessionId: session.sessionId,
       sessionOwnerToken: session.sessionOwnerToken,
       payload: { sessionDescription: offer, tracks: requested },
+      signal,
     });
     const responseTracks = tracksResponse.tracks || [];
     const tracks: ProSystemAudioSfuTrackDescriptor[] = Object.freeze([
@@ -657,8 +708,10 @@ export function publishProSystemAudioSfu(
 
   stopPublisherInternal(false);
   const epoch = publisherEpoch;
+  const abortController = new AbortController();
+  publisherAbortController = abortController;
   emitEvent({ type: 'publisher-state', state: 'publishing', descriptor: null });
-  const promise = performPublish(input, epoch)
+  const promise = performPublish(input, epoch, abortController.signal)
     .catch((error) => {
       if (epoch === publisherEpoch && !(error instanceof ProSystemAudioSfuSupersededError)) {
         emitEvent({
@@ -672,7 +725,10 @@ export function publishProSystemAudioSfu(
       throw error;
     })
     .finally(() => {
-      if (epoch === publisherEpoch && publisherPromise === promise) publisherPromise = null;
+      if (epoch === publisherEpoch && publisherPromise === promise) {
+        publisherPromise = null;
+        if (publisherAbortController === abortController) publisherAbortController = null;
+      }
     });
   publisherPromise = promise;
   return promise;
@@ -693,8 +749,9 @@ function setReceiverDelay(receiver: RTCRtpReceiver): void {
 async function performSubscribe(
   descriptor: ProSystemAudioSfuPublicationDescriptor,
   epoch: number,
+  signal: AbortSignal,
 ): Promise<void> {
-  const rtcConfig = await loadSfuRtcConfig();
+  const rtcConfig = await loadSfuRtcConfig(signal);
   if (epoch !== subscriberEpoch) throw new ProSystemAudioSfuSupersededError();
   const pc = new RTCPeerConnection(rtcConfig);
   subscriberPc = pc;
@@ -762,6 +819,7 @@ async function performSubscribe(
   try {
     const session = await callRealtime('new-session', {
       correlationId: buildCorrelationId('pro-system-audio-subscriber'),
+      signal,
     });
     ensureSubscriberCurrent(epoch, pc);
     assertRealtimeOk(session);
@@ -778,6 +836,7 @@ async function performSubscribe(
       sessionId: session.sessionId,
       sessionOwnerToken: session.sessionOwnerToken,
       payload: { tracks: requested },
+      signal,
     });
     const mids = (tracksResponse.tracks || [])
       .map((track) => track.mid)
@@ -809,6 +868,7 @@ async function performSubscribe(
       sessionId: session.sessionId,
       sessionOwnerToken: session.sessionOwnerToken,
       payload: { sessionDescription: answer },
+      signal,
     });
     ensureSubscriberCurrent(epoch, pc);
     assertRealtimeOk(renegotiate);
@@ -850,10 +910,12 @@ export function subscribeProSystemAudioSfu(value: unknown): Promise<void> {
 
   stopSubscriberInternal(false);
   const epoch = subscriberEpoch;
+  const abortController = new AbortController();
+  subscriberAbortController = abortController;
   subscriberKey = nextKey;
   subscriberDescriptor = descriptor;
   emitEvent({ type: 'subscriber-state', state: 'subscribing', descriptor });
-  const promise = performSubscribe(descriptor, epoch)
+  const promise = performSubscribe(descriptor, epoch, abortController.signal)
     .catch((error) => {
       if (epoch === subscriberEpoch && !(error instanceof ProSystemAudioSfuSupersededError)) {
         emitEvent({
@@ -867,7 +929,10 @@ export function subscribeProSystemAudioSfu(value: unknown): Promise<void> {
       throw error;
     })
     .finally(() => {
-      if (epoch === subscriberEpoch && subscriberPromise === promise) subscriberPromise = null;
+      if (epoch === subscriberEpoch && subscriberPromise === promise) {
+        subscriberPromise = null;
+        if (subscriberAbortController === abortController) subscriberAbortController = null;
+      }
     });
   subscriberPromise = promise;
   return promise;

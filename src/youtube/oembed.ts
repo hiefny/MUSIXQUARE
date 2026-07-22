@@ -15,7 +15,93 @@
 import { log } from '../core/log.ts';
 import { fetchWithCapability, type CapabilityScope } from '../core/capability.ts';
 import { decodeHtmlEntities } from '../core/html-entities.ts';
+import {
+  cancelResponseBody,
+  createLinkedAbortScope,
+  readBoundedJsonResponse,
+  type LinkedAbortScope,
+} from '../core/request-lifetime.ts';
 import { OEMBED_CACHE_MAX, OEMBED_CACHE_TTL_MS, OEMBED_FETCH_TIMEOUT_MS } from './constants.ts';
+
+const OEMBED_RESPONSE_MAX_BYTES = 64 * 1024;
+
+const RESPONSE_BODY_METHODS = new Set<PropertyKey>([
+  'arrayBuffer',
+  'blob',
+  'bytes',
+  'formData',
+  'json',
+  'text',
+]);
+
+/** Keep the request deadline alive until the response body reaches EOF. */
+function bindResponseBodyLifetime(response: Response, scope: LinkedAbortScope): Response {
+  if (!response.body) {
+    scope.cleanup();
+    return response;
+  }
+
+  let finished = false;
+  let wrappedBody: ReadableStream<Uint8Array> | null = null;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    scope.signal.removeEventListener('abort', finish);
+    scope.cleanup();
+  };
+  scope.signal.addEventListener('abort', finish, { once: true });
+
+  const getWrappedBody = (): ReadableStream<Uint8Array> => {
+    if (wrappedBody) return wrappedBody;
+    wrappedBody = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          reader ??= response.body!.getReader();
+          const result = await reader.read();
+          if (result.done) {
+            reader.releaseLock();
+            reader = null;
+            controller.close();
+            finish();
+            return;
+          }
+          if (result.value) controller.enqueue(result.value);
+        } catch (error) {
+          finish();
+          controller.error(error);
+        }
+      },
+      async cancel(reason) {
+        try {
+          if (reader) await reader.cancel(reason);
+          else await response.body!.cancel(reason);
+        } finally {
+          if (reader) {
+            reader.releaseLock();
+            reader = null;
+          }
+          scope.abort(reason);
+          finish();
+        }
+      },
+    });
+    return wrappedBody;
+  };
+
+  return new Proxy(response, {
+    get(target, property) {
+      if (property === 'body') return getWrappedBody();
+      const value = Reflect.get(target, property, target) as unknown;
+      if (typeof value !== 'function') return value;
+      if (RESPONSE_BODY_METHODS.has(property)) {
+        return (...args: unknown[]) =>
+          Promise.resolve(Reflect.apply(value, target, args)).finally(finish);
+      }
+      return value.bind(target);
+    },
+  });
+}
 
 // ─── Fetch with Timeout ──────────────────────────────────────────
 
@@ -26,24 +112,16 @@ export async function fetchWithTimeout(
   init: RequestInit = {},
   capabilityScope?: CapabilityScope,
 ): Promise<Response> {
-  const controller = new AbortController();
-  const id = window.setTimeout(() => controller.abort(), timeoutMs);
-  // Forward external abort to our controller
-  const onExternalAbort = () => controller.abort();
-  if (externalSignal) {
-    if (externalSignal.aborted) {
-      window.clearTimeout(id);
-      controller.abort();
-    } else externalSignal.addEventListener('abort', onExternalAbort, { once: true });
-  }
+  const scope = createLinkedAbortScope(externalSignal, timeoutMs, 'YOUTUBE_REQUEST_TIMEOUT');
   try {
-    const requestInit = { ...init, signal: controller.signal };
-    return capabilityScope
+    const requestInit = { ...init, signal: scope.signal };
+    const response = capabilityScope
       ? await fetchWithCapability(url, capabilityScope, requestInit)
       : await fetch(url, requestInit);
-  } finally {
-    window.clearTimeout(id);
-    externalSignal?.removeEventListener('abort', onExternalAbort);
+    return bindResponseBodyLifetime(response, scope);
+  } catch (error) {
+    scope.cleanup();
+    throw error;
   }
 }
 
@@ -92,8 +170,13 @@ export async function fetchOEmbedTitle(url: string): Promise<string | null> {
     try {
       const oEmbedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(key)}&format=json`;
       const response = await fetchWithTimeout(oEmbedUrl);
-      if (!response.ok) return null;
-      const data = await response.json();
+      if (!response.ok) {
+        await cancelResponseBody(response);
+        return null;
+      }
+      const data = (await readBoundedJsonResponse(response, OEMBED_RESPONSE_MAX_BYTES)) as {
+        title?: unknown;
+      };
       const title = normalizeExternalTitle(data?.title);
       return title || null;
     } catch (e) {

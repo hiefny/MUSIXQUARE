@@ -54,6 +54,49 @@ const WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC = 0.02;
 // advance that epoch, while it still tears down the play-lock tuple.
 let playInvocationGeneration = 0;
 
+// A play invocation owns the page-global lock until its async setup settles,
+// but PAUSE must be able to revoke the pending node start without stealing
+// that lock ownership (otherwise the invocation's finally cannot unlock it).
+// Keep this semantic fence separate from playInvocationGeneration.
+let playStartFence = 0;
+
+/**
+ * Latest deferred node-start intent.
+ *
+ * `playback.pendingPlayTime` remains the cross-module pipeline mailbox used by
+ * decode/fetch completion. A play-lock deferral needs more information than
+ * that legacy scalar: its authority predicate and absolute scheduling
+ * deadline must survive the current lock owner.
+ */
+interface PendingPlayIntent {
+  readonly offset: number;
+  readonly scheduleDelay: number;
+  readonly scheduleDeadlineMs?: number;
+  readonly shouldApply?: () => boolean;
+}
+
+let pendingPlayIntent: PendingPlayIntent | null = null;
+
+function queuePendingPlayIntent(intent: PendingPlayIntent): void {
+  pendingPlayIntent = intent;
+  setPendingPlayTime(intent.offset);
+}
+
+function clearPendingPlayIntent(): void {
+  pendingPlayIntent = null;
+  setPendingPlayTime(undefined);
+}
+
+function takePendingPlayIntent(): PendingPlayIntent | null {
+  const intent = pendingPlayIntent;
+  pendingPlayIntent = null;
+  // A decode/preload completion may have published a newer scalar mailbox
+  // while this lock owner was awaiting AudioContext setup. Only consume the
+  // legacy mirror when this unlock actually owns a typed lock intent.
+  if (intent) setPendingPlayTime(undefined);
+  return intent;
+}
+
 function claimPlayInvocation(): number {
   playInvocationGeneration += 1;
   return playInvocationGeneration;
@@ -65,6 +108,10 @@ function invalidatePlayInvocation(): void {
 
 function isCurrentPlayInvocation(invocation: number): boolean {
   return invocation === playInvocationGeneration;
+}
+
+function revokeInFlightPlayStart(): void {
+  playStartFence += 1;
 }
 
 function getPlatformLocalFileOutputOffset(): number {
@@ -94,7 +141,6 @@ import {
   incrementLoadSessionId,
   isPlayLocked,
   setPlayLocked,
-  getPendingPlayTime,
   setPendingPlayTime,
   setPlayPreloadedInProgress,
   setCurrentAudioBuffer,
@@ -306,7 +352,7 @@ export function stopAllMedia(opts?: {
   clearManagedTimer('navigator-lock-watchdog');
   clearManagedTimer('playback-unlock-delay');
   setPlayLocked(false);
-  setPendingPlayTime(undefined);
+  clearPendingPlayIntent();
   setPlayPreloadedInProgress(false);
 
   // silent=true usually suppresses the IDLE flash while another audio track
@@ -441,7 +487,7 @@ export async function play(
   if (shouldApply?.() === false) return;
   if (isPlayLocked()) {
     log.warn('[Play] Blocked: queuing play request');
-    setPendingPlayTime(offset);
+    queuePendingPlayIntent({ offset, scheduleDelay, scheduleDeadlineMs, shouldApply });
     return;
   }
   // Source-level guard for callers that reach play during a file load. The
@@ -449,6 +495,11 @@ export async function play(
   // for the pipeline-completion path instead of starting stale audio.
   if (isFilePipelineBusyForPlay()) {
     log.warn('[Play] Deferred: file pipeline busy — queuing as pendingPlayTime');
+    // Decode/fetch completion owns this legacy cross-module mailbox. It cannot
+    // preserve callable authority predicates, so keep it separate from the
+    // play-lock mailbox and let the pipeline's queue/session fences decide
+    // whether it is still current.
+    pendingPlayIntent = null;
     setPendingPlayTime(offset);
     return;
   }
@@ -456,6 +507,7 @@ export async function play(
   // claim time also keeps the named timer registry aligned with the lock.
   clearManagedTimer('playback-unlock-delay');
   const myPlayInvocation = claimPlayInvocation();
+  const myPlayStartFence = playStartFence;
   setPlayLocked(true);
 
   const lockStartTime = Date.now();
@@ -473,7 +525,7 @@ export async function play(
         // playback state together. Clear pendingPlayTime before unlocking so
         // the queued-request consumer observes a consistent empty mailbox.
         setPlayLocked(false);
-        setPendingPlayTime(undefined);
+        clearPendingPlayIntent();
         stopPlayerNode();
         // Allocate a new load epoch so any in-flight _internalPlay aborts at
         // its next await checkpoint instead of overwriting the post-watchdog
@@ -492,7 +544,7 @@ export async function play(
   );
 
   try {
-    await _internalPlay(offset, scheduleDelay, scheduleDeadlineMs, shouldApply);
+    await _internalPlay(offset, scheduleDelay, scheduleDeadlineMs, shouldApply, myPlayStartFence);
   } finally {
     if (isCurrentPlayInvocation(myPlayInvocation)) {
       clearManagedTimer('navigator-lock-watchdog');
@@ -503,11 +555,19 @@ export async function play(
           invalidatePlayInvocation();
           setPlayLocked(false);
           // Consume queued play request (e.g. sync correction that arrived during lock)
-          const pendingTime = getPendingPlayTime();
-          if (pendingTime !== undefined) {
-            setPendingPlayTime(undefined);
-            log.debug(`[Play] Consuming queued play request: ${pendingTime.toFixed(2)}s`);
-            play(pendingTime);
+          const pendingIntent = takePendingPlayIntent();
+          if (pendingIntent) {
+            if (pendingIntent.shouldApply?.() === false) {
+              log.debug('[Play] Dropping superseded queued play request');
+              return;
+            }
+            log.debug(`[Play] Consuming queued play request: ${pendingIntent.offset.toFixed(2)}s`);
+            void play(
+              pendingIntent.offset,
+              pendingIntent.scheduleDelay,
+              pendingIntent.scheduleDeadlineMs,
+              pendingIntent.shouldApply,
+            );
           }
         },
         10,
@@ -521,8 +581,9 @@ async function _internalPlay(
   scheduleDelay = 0,
   scheduleDeadlineMs?: number,
   shouldApply?: () => boolean,
+  expectedPlayStartFence = playStartFence,
 ): Promise<void> {
-  setPendingPlayTime(undefined);
+  clearPendingPlayIntent();
   // Snapshot the load epoch at entry. If the play()-level watchdog fires
   // (or another path allocates a new epoch, e.g. track switch), every await
   // checkpoint below will see a superseded epoch and abort cleanly instead
@@ -542,7 +603,7 @@ async function _internalPlay(
     log.warn('Resume failed:', e);
   }
 
-  if (shouldApply?.() === false) return;
+  if (shouldApply?.() === false || expectedPlayStartFence !== playStartFence) return;
 
   if (!isCurrentLoadEpoch(myLoadEpoch)) {
     log.warn('[Play] Aborted — load epoch superseded during ensureRunning');
@@ -576,7 +637,7 @@ async function _internalPlay(
     return;
   }
 
-  if (shouldApply?.() === false) return;
+  if (shouldApply?.() === false || expectedPlayStartFence !== playStartFence) return;
 
   if (!isCurrentLoadEpoch(myLoadEpoch)) {
     log.warn('[Play] Aborted — load epoch superseded during initAudio');
@@ -618,7 +679,7 @@ async function _internalPlay(
     if (duration > 0) safeOffset = Math.max(0, Math.min(duration - 0.001, safeOffset));
   }
 
-  if (shouldApply?.() === false) return;
+  if (shouldApply?.() === false || expectedPlayStartFence !== playStartFence) return;
 
   // Buffer Mode playback
   if (_currentAudioBuffer) {
@@ -691,6 +752,11 @@ export function pause(
   forcedTime?: number,
   opts?: { holdVisualizer?: boolean; showToast?: boolean },
 ): void {
+  // PAUSE is newer than any node start waiting behind the play lock. Revoke
+  // the complete intent before checking concrete media ownership so a late
+  // unlock cannot resurrect audio after an authoritative pause.
+  clearPendingPlayIntent();
+  revokeInFlightPlayStart();
   if (isFileTransportInactive()) return;
 
   let pausePos: number;
@@ -742,6 +808,8 @@ export async function applyProPlaybackFileCommit(
     return false;
   }
   const generation = ++proAuthorityFileCommitGeneration;
+  const isCurrentAuthority = () =>
+    generation === proAuthorityFileCommitGeneration && request.isCurrent?.() !== false;
 
   const positionSeconds = Number.isFinite(request.positionSeconds)
     ? Math.max(0, request.positionSeconds)
@@ -752,19 +820,21 @@ export async function applyProPlaybackFileCommit(
 
   if (request.state === 'playing') {
     const scheduleDeadlineMs = performance.now() + delayMs;
-    await play(positionSeconds, delayMs / 1000, scheduleDeadlineMs, request.isCurrent);
+    await play(positionSeconds, delayMs / 1000, scheduleDeadlineMs, isCurrentAuthority);
     return (
-      request.isCurrent?.() !== false &&
-      generation === proAuthorityFileCommitGeneration &&
+      isCurrentAuthority() &&
       getCurrentQueueItemId() === request.queueItemId &&
       getState('playback.activity') === 'playing'
     );
   }
 
+  // The scheduled pause may intentionally wait for its rendezvous instant,
+  // but an older queued play must not become audible during that wait.
+  clearPendingPlayIntent();
+
   if (delayMs > 0) await delay(delayMs);
   if (
-    request.isCurrent?.() === false ||
-    generation !== proAuthorityFileCommitGeneration ||
+    !isCurrentAuthority() ||
     getState('room.context').kind !== 'pro' ||
     getCurrentQueueItemId() !== request.queueItemId ||
     getState('files.current')?.queueItemId !== request.queueItemId

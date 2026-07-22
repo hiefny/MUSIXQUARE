@@ -210,7 +210,7 @@ const ru: Record<I18nKey, string> = {
   'connect.administrator_revoke_aria': 'Отозвать права администратора у {{name}}',
   'connect.administrator_revoke_title': 'Отозвать права администратора?',
   'connect.administrator_revoke_message': 'Отозвать права администратора у {{name}}?',
-  'connect.permissions_title': 'Права администратора',
+  'connect.permissions_title': 'Права пользователя {{name}}',
   'connect.permission_media_add': 'Добавление медиа',
   'connect.permission_playback_control': 'Управление воспроизведением',
   'connect.permission_members_kick': 'Удаление участников',

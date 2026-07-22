@@ -66,7 +66,7 @@ describe('PRO room branding', () => {
     expect(stylesheet).toMatch(
       /html\[data-pro-room\]\s+\.header-pro-wordmark\s*{\s*display:\s*block;/,
     );
-    expect(stylesheet).toMatch(/\.header-pro-suffix\s*\{\s*opacity:\s*0\.75;/);
+    expect(stylesheet).toMatch(/\.header-pro-suffix\s*\{\s*opacity:\s*0\.5;/);
     expect(betaBadges).toHaveLength(2);
     for (const badge of betaBadges) {
       expect(badge.classList.contains('feature-badge')).toBe(true);

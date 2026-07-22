@@ -1091,4 +1091,6 @@ function switchSettingsSubtab(id: string): void {
   document
     .querySelectorAll<HTMLElement>('.settings-subtab-panel')
     .forEach((p) => p.classList.toggle('active', p.dataset.panel === id));
+  const settingsPanel = document.getElementById('tab-settings');
+  if (settingsPanel) bus.emit('ui:scrollbar-reveal', settingsPanel);
 }

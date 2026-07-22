@@ -214,7 +214,7 @@ const nl: Record<I18nKey, string> = {
   'connect.administrator_revoke_aria': 'Beheerdersrechten van {{name}} intrekken',
   'connect.administrator_revoke_title': 'Beheerdersrechten intrekken?',
   'connect.administrator_revoke_message': 'Beheerdersrechten van {{name}} intrekken?',
-  'connect.permissions_title': 'Beheerdersrechten',
+  'connect.permissions_title': 'Rechten van {{name}}',
   'connect.permission_media_add': 'Media toevoegen',
   'connect.permission_playback_control': 'Afspelen bedienen',
   'connect.permission_members_kick': 'Leden verwijderen',

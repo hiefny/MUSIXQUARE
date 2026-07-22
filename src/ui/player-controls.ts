@@ -18,7 +18,6 @@ import { showToast } from './toast.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { switchTab } from './tabs.ts';
 import {
-  updateOverlayOpenClass,
   syncOverlayState,
   animateTransition,
   copyTextToClipboard,
@@ -437,7 +436,7 @@ function openMediaSourcePopup(): void {
     const overlay = document.getElementById('media-source-overlay');
     if (overlay) {
       overlay.classList.add('active');
-      updateOverlayOpenClass();
+      syncOverlayState('media-source-overlay');
     }
   });
 }
@@ -498,7 +497,7 @@ function closeMediaSourcePopup(): void {
     const overlay = document.getElementById('media-source-overlay');
     if (overlay) {
       overlay.classList.remove('active');
-      updateOverlayOpenClass();
+      syncOverlayState();
     }
   });
 }
@@ -512,7 +511,7 @@ function openYouTubePopup(): void {
     const overlay = document.getElementById('youtube-url-overlay');
     if (overlay) {
       overlay.classList.add('active');
-      updateOverlayOpenClass();
+      syncOverlayState('youtube-url-overlay');
     }
     clearYouTubeInputState();
     const input = document.getElementById('youtube-url-input') as HTMLElement | null;
@@ -529,7 +528,7 @@ function closeYouTubePopup(): void {
     const overlay = document.getElementById('youtube-url-overlay');
     if (overlay) {
       overlay.classList.remove('active');
-      updateOverlayOpenClass();
+      syncOverlayState();
     }
   });
 }

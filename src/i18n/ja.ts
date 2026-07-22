@@ -214,7 +214,7 @@ const ja: Record<I18nKey, string> = {
   'connect.administrator_revoke_aria': '{{name}}の管理者権限を解除',
   'connect.administrator_revoke_title': '管理者権限を解除しますか？',
   'connect.administrator_revoke_message': '{{name}}の管理者権限を解除しますか？',
-  'connect.permissions_title': '管理者権限',
+  'connect.permissions_title': '{{name}}の権限',
   'connect.permission_media_add': 'メディアを追加',
   'connect.permission_playback_control': '再生を操作',
   'connect.permission_members_kick': 'メンバーを退出させる',

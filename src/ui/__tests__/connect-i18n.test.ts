@@ -94,8 +94,12 @@ beforeEach(() => {
     <button id="btn-change-nickname"></button>
     <button id="desktop-btn-change-nickname"></button>
     <div id="administrator-permissions-overlay" aria-hidden="true">
-      <div id="administrator-permissions-dialog" aria-busy="false">
-        <span id="administrator-permissions-member"></span>
+      <div
+        id="administrator-permissions-dialog"
+        aria-busy="false"
+        aria-labelledby="administrator-permissions-title"
+      >
+        <span id="administrator-permissions-title"></span>
         <button data-administrator-permission="media.add" role="switch" aria-checked="false"></button>
         <button data-administrator-permission="playback.control" role="switch" aria-checked="false">
           <small class="administrator-permission-inherited" hidden></small>
@@ -1080,8 +1084,62 @@ describe('member-level connection and administrator UI', () => {
     );
   });
 
+  it('uses the edited member name as the localized accessible permission-dialog title', async () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'owner-device');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure'],
+    });
+    const administrators: ProRoomAdministrator[] = [
+      {
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+      {
+        memberId: 'admin-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        displayName: 'MUSIXQUARE',
+        role: 'controller',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: [],
+        onlineDeviceCount: 1,
+      },
+    ];
+    initConnect();
+    bus.emit('pro-room:administrators-updated', administrators);
+    document
+      .querySelector<HTMLButtonElement>(
+        '#connect-administrator-list .administrator-action-button.settings',
+      )
+      ?.click();
+
+    const dialog = document.getElementById('administrator-permissions-dialog');
+    const title = document.getElementById('administrator-permissions-title');
+    expect(title?.textContent).toBe('MUSIXQUARE님의 권한');
+    expect(dialog?.getAttribute('aria-labelledby')).toBe('administrator-permissions-title');
+    expect(dialog?.hasAttribute('aria-describedby')).toBe(false);
+    expect(document.getElementById('administrator-permissions-member')).toBeNull();
+
+    setLanguageMode('en');
+    await vi.waitFor(() => expect(title?.textContent).toBe('MUSIXQUARE’s permissions'));
+  });
+
   it('keeps administrator layout aligned and permission rows free of pill hover fills', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
+    const markup = await readFile('index.html', 'utf8');
     const desktopStylesheet = await readFile('css/desktop.css', 'utf8');
     const deviceCountRules = stylesheet.match(/\.d-device-count\s*\{([^}]*)\}/)?.[1] ?? '';
     const nameLabelRules = stylesheet.match(/\.device-row \.d-name-label\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -1098,6 +1156,9 @@ describe('member-level connection and administrator UI', () => {
       stylesheet.match(
         /\.dialog\.administrator-permissions-dialog\s+\.administrator-permissions-header\s*\{([^}]*)\}/,
       )?.[1] ?? '';
+    const titleRules =
+      stylesheet.match(/\.administrator-permissions-header \.dialog-title\s*\{([^}]*)\}/)?.[1] ??
+      '';
     const listRules = stylesheet.match(/\.administrator-permissions-list\s*\{([^}]*)\}/)?.[1] ?? '';
     const actionRules =
       stylesheet.match(
@@ -1126,7 +1187,11 @@ describe('member-level connection and administrator UI', () => {
     expect(dialogRules).not.toContain('scale(');
     expect(shownDialogRules).toContain('transform: translateY(0)');
     expect(shownDialogRules).not.toContain('scale(');
-    expect(headerRules).toContain('padding: 30px 32px 22px');
+    expect(headerRules).toContain('padding: 30px 32px 26px');
+    expect(titleRules).toContain('width: 100%');
+    expect(titleRules).toContain('overflow-wrap: anywhere');
+    expect(markup).toContain('aria-labelledby="administrator-permissions-title"');
+    expect(markup).not.toContain('administrator-permissions-member');
     expect(listRules).toContain('flex: 1 1 auto');
     expect(listRules).toContain('padding: 0 32px 16px');
     expect(listRules).toContain('gap: 4px');

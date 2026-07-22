@@ -814,6 +814,15 @@ function inheritedPermissionsEqual(
   return left.length === right.length && left.every((permission) => right.includes(permission));
 }
 
+function syncAdministratorPermissionsDialogTitle(administrator: AdministratorView): void {
+  const title = document.getElementById('administrator-permissions-title');
+  if (!title) return;
+  const displayName = administrator.displayName || t('common.peer');
+  const text = t('connect.permissions_title', { name: displayName });
+  title.textContent = text;
+  applyUserTextFontFallback(title, text);
+}
+
 function reconcileAdministratorPermissionsDialog(
   administrators: readonly AdministratorView[],
 ): void {
@@ -843,18 +852,14 @@ function reconcileAdministratorPermissionsDialog(
     permissions: clonePermissions(current.permissions),
     inheritedPermissions: [...current.inheritedPermissions],
   };
-  const member = document.getElementById('administrator-permissions-member');
-  if (member && member.textContent !== current.displayName) {
-    member.textContent = current.displayName;
-    applyUserTextFontFallback(member, current.displayName);
-  }
+  syncAdministratorPermissionsDialogTitle(current);
 }
 
 function openAdministratorPermissionsDialog(administrator: AdministratorView): void {
   if (!_canManageAdministrators() || administrator.isOwner) return;
   const overlay = document.getElementById('administrator-permissions-overlay');
-  const member = document.getElementById('administrator-permissions-member');
-  if (!overlay || !member) return;
+  const title = document.getElementById('administrator-permissions-title');
+  if (!overlay || !title) return;
   _permissionDialogTarget = {
     ...administrator,
     permissions: clonePermissions(administrator.permissions),
@@ -870,8 +875,7 @@ function openAdministratorPermissionsDialog(administrator: AdministratorView): v
     roomId: roomContext.roomId,
     epoch: roomContext.epoch,
   };
-  member.textContent = administrator.displayName;
-  applyUserTextFontFallback(member, administrator.displayName);
+  syncAdministratorPermissionsDialogTitle(administrator);
   syncPermissionDialogRows(_permissionDialogTarget);
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');

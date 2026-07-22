@@ -214,7 +214,7 @@ const fr: Record<I18nKey, string> = {
   'connect.administrator_revoke_aria': 'Retirer les droits administrateur de {{name}}',
   'connect.administrator_revoke_title': 'Retirer les droits administrateur ?',
   'connect.administrator_revoke_message': 'Retirer les droits administrateur de {{name}} ?',
-  'connect.permissions_title': 'Droits administrateur',
+  'connect.permissions_title': 'Droits de {{name}}',
   'connect.permission_media_add': 'Ajouter des médias',
   'connect.permission_playback_control': 'Contrôler la lecture',
   'connect.permission_members_kick': 'Expulser des membres',

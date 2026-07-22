@@ -214,7 +214,7 @@ const id: Record<I18nKey, string> = {
   'connect.administrator_revoke_aria': 'Cabut administrator dari {{name}}',
   'connect.administrator_revoke_title': 'Cabut administrator?',
   'connect.administrator_revoke_message': 'Cabut izin administrator dari {{name}}?',
-  'connect.permissions_title': 'Izin administrator',
+  'connect.permissions_title': 'Izin untuk {{name}}',
   'connect.permission_media_add': 'Tambah media',
   'connect.permission_playback_control': 'Kontrol pemutaran',
   'connect.permission_members_kick': 'Keluarkan anggota',

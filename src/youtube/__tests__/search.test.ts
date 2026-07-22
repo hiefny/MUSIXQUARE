@@ -3,6 +3,7 @@
  */
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { setLanguageMode } from '../../i18n/index.ts';
+import { bus } from '../../core/events.ts';
 import {
   clearYouTubeInputState,
   extractYouTubeVideoId,
@@ -357,6 +358,45 @@ describe('YouTube playlist manifest resolution', () => {
 });
 
 describe('YouTube search result rendering sink', () => {
+  it('coalesces a rendered result list into one scrollbar reveal per frame', async () => {
+    document.body.innerHTML = `
+      <div id="youtube-preview"></div>
+      <div id="youtube-preview-status"></div>
+      <div id="youtube-search-results" role="group"></div>
+      <button id="youtube-play-btn"></button>
+    `;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          results: [
+            {
+              videoId: 'EEEEEEEEEEE',
+              title: 'Single reveal',
+              channelTitle: 'MUSIXQUARE',
+              thumbnailUrl: '',
+              url: 'https://www.youtube.com/watch?v=EEEEEEEEEEE',
+            },
+          ],
+        }),
+      ),
+    );
+    const reveal = vi.fn();
+    const cleanup = bus.on('ui:scrollbar-reveal', reveal);
+
+    try {
+      await searchYouTubeFromInput('single reveal probe 20260723');
+      await new Promise((resolve) => window.setTimeout(resolve, 40));
+
+      expect(reveal).toHaveBeenCalledTimes(1);
+      expect(reveal).toHaveBeenCalledWith(document.getElementById('youtube-search-results'));
+    } finally {
+      cleanup();
+      clearYouTubeInputState();
+      document.body.innerHTML = '';
+    }
+  });
+
   // HTML entities are decoded BEFORE the title reaches the DOM; that is only
   // safe because every title sink is textContent/innerText. Exercise that
   // decode-then-textContent contract: a decoded markup payload must

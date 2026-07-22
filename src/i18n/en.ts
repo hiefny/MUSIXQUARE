@@ -213,7 +213,7 @@ const en: Record<I18nKey, string> = {
   'connect.administrator_revoke_aria': 'Revoke administrator from {{name}}',
   'connect.administrator_revoke_title': 'Revoke administrator?',
   'connect.administrator_revoke_message': 'Revoke administrator permissions from {{name}}?',
-  'connect.permissions_title': 'Administrator permissions',
+  'connect.permissions_title': '{{name}}’s permissions',
   'connect.permission_media_add': 'Add media',
   'connect.permission_playback_control': 'Playback control',
   'connect.permission_members_kick': 'Kick members',

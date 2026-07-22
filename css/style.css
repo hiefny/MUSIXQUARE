@@ -796,7 +796,7 @@
   }
 
   .header-pro-suffix {
-    opacity: 0.75;
+    opacity: 0.5;
   }
 
   /* The guided demo is synchronized by the standard-room P2P coordinator.
@@ -3785,21 +3785,15 @@
     flex: 0 0 auto;
     display: flex;
     align-items: baseline;
-    justify-content: space-between;
-    gap: 16px;
     /* This full declaration intentionally outranks the generic .dialog-header
-       shorthand below. Keep a stable, explicit gap above the first switch. */
-    padding: 30px 32px 22px;
+       shorthand below. Keep a stable, explicit gap above the first switch and
+       the focus outline that extends beyond it. */
+    padding: 30px 32px 26px;
   }
 
-  .administrator-permissions-member {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--text-sub);
-    font-size: 13px;
-    font-weight: 600;
+  .administrator-permissions-header .dialog-title {
+    width: 100%;
+    overflow-wrap: anywhere;
   }
 
   .administrator-permissions-list {
@@ -3811,6 +3805,11 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .administrator-permissions-dialog > .cscroll-track {
+    right: 24px;
+    z-index: 2;
   }
 
   .administrator-permissions-dialog .dialog-actions {
@@ -3959,6 +3958,11 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     overflow-anchor: none;
+  }
+
+  .account-dialog > .cscroll-track {
+    right: 24px;
+    z-index: 2;
   }
 
   .account-dialog-content[hidden] {
@@ -5306,6 +5310,12 @@
     flex-direction: column;
     gap: 12px;
     margin-bottom: 8px;
+  }
+
+  #media-source-overlay .setup-slot-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
   }
 
   @media (hover: hover) {
@@ -8162,7 +8172,7 @@
       height: var(--app-height, 100dvh) !important;
       max-height: var(--app-height, 100dvh) !important;
       min-height: var(--app-height, 100dvh) !important;
-      overflow-y: auto !important;
+      overflow-y: hidden !important;
       background: var(--bg) !important;
     }
 
@@ -8200,6 +8210,9 @@
     #media-source-overlay .setup-slot-list {
       grid-column: 1 / -1 !important;
       grid-row: 2 !important;
+      align-self: stretch !important;
+      min-height: 0 !important;
+      overflow-y: auto !important;
     }
 
     #media-source-overlay #btn-close-media-popup {
@@ -8516,7 +8529,7 @@
     }
 
     /* Content padding inside right panel */
-    .setup-mobile-view > div:not(.ob-actions, .setup-header-pill) {
+    .setup-mobile-view > div:not(.ob-actions, .setup-header-pill, .cscroll-track) {
       padding-left: var(--setup-px) !important;
       padding-right: var(--setup-px-end) !important;
     }

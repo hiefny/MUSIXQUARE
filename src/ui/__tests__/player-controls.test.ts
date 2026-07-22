@@ -478,6 +478,8 @@ describe('PRO room media-source capabilities', () => {
     });
     const input = document.getElementById('file-input') as HTMLInputElement;
     const inputClick = vi.spyOn(input, 'click');
+    const reveal = vi.fn();
+    bus.on('ui:scrollbar-reveal', reveal);
 
     initPlayerControls();
     expect(document.getElementById('btn-media-source')?.style.opacity).toBe('');
@@ -485,12 +487,14 @@ describe('PRO room media-source capabilities', () => {
     expect(document.getElementById('media-source-overlay')?.classList.contains('active')).toBe(
       true,
     );
+    expect(reveal).toHaveBeenCalledWith(document.getElementById('media-source-overlay'));
 
     document.getElementById('btn-local-file')?.click();
     expect(inputClick).toHaveBeenCalledTimes(1);
 
     document.getElementById('btn-youtube-source')?.click();
     expect(document.getElementById('youtube-url-overlay')?.classList.contains('active')).toBe(true);
+    expect(reveal).toHaveBeenCalledWith(document.getElementById('youtube-url-overlay'));
 
     expect(document.getElementById('btn-system-audio')?.hidden).toBe(true);
   });

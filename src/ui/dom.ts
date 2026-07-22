@@ -6,6 +6,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { bus } from '../core/events.ts';
 import { setManagedTimer } from '../core/timers.ts';
 
 // ─── Batch View Transition ───────────────────────────────────────
@@ -242,6 +243,16 @@ function syncModalStack(preferredTopOverlayId?: OverlayId): void {
 export function syncOverlayState(preferredTopOverlayId?: OverlayId): void {
   updateOverlayOpenClass();
   syncModalStack(preferredTopOverlayId);
+  if (preferredTopOverlayId) {
+    const overlay = document.getElementById(preferredTopOverlayId);
+    const definition = OVERLAYS.find((candidate) => candidate.id === preferredTopOverlayId);
+    if (overlay && definition && overlay.classList.contains(definition.cls)) {
+      // Opening a previously hidden surface can change both its scroll owner
+      // and its measured height. Scope the reveal so background tabs/dialogs
+      // stay quiet while overflowing content advertises itself once.
+      bus.emit('ui:scrollbar-reveal', overlay);
+    }
+  }
 }
 
 // ─── Observer (single watcher, both effects) ─────────────────────

@@ -212,7 +212,7 @@ const pl: Record<I18nKey, string> = {
   'connect.administrator_revoke_title': 'Odebrać uprawnienia administratora?',
   'connect.administrator_revoke_message':
     'Odebrać uprawnienia administratora użytkownikowi {{name}}?',
-  'connect.permissions_title': 'Uprawnienia administratora',
+  'connect.permissions_title': 'Uprawnienia użytkownika {{name}}',
   'connect.permission_media_add': 'Dodawanie multimediów',
   'connect.permission_playback_control': 'Sterowanie odtwarzaniem',
   'connect.permission_members_kick': 'Usuwanie członków',

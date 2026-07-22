@@ -212,7 +212,7 @@ const tr: Record<I18nKey, string> = {
   'connect.administrator_revoke_title': 'Yöneticilik kaldırılsın mı?',
   'connect.administrator_revoke_message':
     '{{name}} kullanıcısının yönetici izinleri kaldırılsın mı?',
-  'connect.permissions_title': 'Yönetici izinleri',
+  'connect.permissions_title': '{{name}} kullanıcısının izinleri',
   'connect.permission_media_add': 'Medya ekleme',
   'connect.permission_playback_control': 'Oynatmayı kontrol etme',
   'connect.permission_members_kick': 'Üyeleri çıkarma',

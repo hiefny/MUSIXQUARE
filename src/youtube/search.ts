@@ -388,9 +388,16 @@ function setYouTubePrimaryButton(enabled: boolean, labelKey: I18nKey = 'player.p
   playBtn.textContent = t(labelKey);
 }
 
+let _searchScrollbarRelayoutPending = false;
+
 function scheduleSearchScrollbarRelayout(): void {
+  if (_searchScrollbarRelayoutPending) return;
+  _searchScrollbarRelayoutPending = true;
   window.requestAnimationFrame(() => {
-    bus.emit('ui:scrollbar-relayout');
+    _searchScrollbarRelayoutPending = false;
+    const results = getSearchResultsContainer();
+    if (results && !results.hidden) bus.emit('ui:scrollbar-reveal', results);
+    else bus.emit('ui:scrollbar-relayout');
     updateSearchScrollMask();
   });
 }

@@ -215,7 +215,7 @@ const es: Record<I18nKey, string> = {
   'connect.administrator_revoke_aria': 'Revocar permisos de administrador de {{name}}',
   'connect.administrator_revoke_title': '¿Revocar permisos de administrador?',
   'connect.administrator_revoke_message': '¿Revocar los permisos de administrador de {{name}}?',
-  'connect.permissions_title': 'Permisos de administrador',
+  'connect.permissions_title': 'Permisos de {{name}}',
   'connect.permission_media_add': 'Añadir contenido',
   'connect.permission_playback_control': 'Controlar reproducción',
   'connect.permission_members_kick': 'Expulsar miembros',

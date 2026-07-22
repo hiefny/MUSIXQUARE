@@ -36,6 +36,21 @@ interface ScrollbarState {
 
 const _instances = new Map<HTMLElement, ScrollbarState>();
 
+function hasVisibleOverflow(container: HTMLElement): boolean {
+  const { scrollHeight, clientHeight } = container;
+  const style = getComputedStyle(container);
+  // A parked tab/dialog can retain its content scrollHeight while its layout
+  // box collapses to zero. Visibility-hidden overlays retain full geometry,
+  // so exclude those too; otherwise their faded track remains an invisible
+  // pointer target above the active screen.
+  return (
+    style.display !== 'none' &&
+    style.visibility !== 'hidden' &&
+    clientHeight > 1 &&
+    scrollHeight > clientHeight + 1
+  );
+}
+
 // ─── Global settled re-layout (orientation / breakpoint changes) ─────────
 //
 // Orientation and compact-landscape MQL changes are page-global events, so
@@ -105,10 +120,17 @@ function updateLayout(state: ScrollbarState): void {
   const { scrollHeight, clientHeight } = container;
   const isContained = container.hasAttribute('data-custom-scroll-contained');
 
-  if (scrollHeight <= clientHeight + 1) {
+  if (!hasVisibleOverflow(container)) {
+    clearTimeout(state.fadeTimer);
+    state.visibleHeight = 0;
+    state.thumbHeight = 0;
+    track.style.opacity = '0';
+    track.style.height = '0px';
+    track.style.pointerEvents = 'none';
     thumb.style.display = 'none';
     return;
   }
+  track.style.removeProperty('pointer-events');
   thumb.style.display = '';
 
   const containerRect = container.getBoundingClientRect();
@@ -242,6 +264,11 @@ export function initCustomScrollbar(container: HTMLElement): void {
   track.style.transition = 'opacity 0.3s ease';
 
   function showTrack(): void {
+    if (!hasVisibleOverflow(container)) {
+      clearTimeout(state.fadeTimer);
+      track.style.opacity = '0';
+      return;
+    }
     track.style.opacity = '1';
     clearTimeout(state.fadeTimer);
     state.fadeTimer = window.setTimeout(() => {
@@ -284,6 +311,11 @@ export function initCustomScrollbar(container: HTMLElement): void {
   // change and the open/close class lands on an ancestor — so external
   // callers must signal a relayout when they animate visibility.
   const cleanupRelayoutBus = bus.on('ui:scrollbar-relayout', () => updateLayout(state));
+  const cleanupRevealBus = bus.on('ui:scrollbar-reveal', (scope) => {
+    if (scope && scope !== container && !scope.contains(container)) return;
+    updateLayout(state);
+    showTrack();
+  });
 
   thumb.addEventListener('mousedown', (e) => {
     e.preventDefault();
@@ -369,6 +401,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     () => window.removeEventListener('mouseup', onDragEnd),
     () => window.removeEventListener('blur', onDragEnd),
     cleanupRelayoutBus,
+    cleanupRevealBus,
   ];
 
   track.addEventListener('mousedown', (e) => {

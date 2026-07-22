@@ -698,8 +698,8 @@
     }
 
     /* Padding for inner content (media/youtube overlays) */
-    #media-source-overlay .setup-card.full-screen > div:not(.ob-actions),
-    #youtube-url-overlay .setup-card.full-screen > div:not(.ob-actions) {
+    #media-source-overlay .setup-card.full-screen > div:not(.ob-actions, .cscroll-track),
+    #youtube-url-overlay .setup-card.full-screen > div:not(.ob-actions, .cscroll-track) {
       padding-left: 40px;
       padding-right: 40px;
     }

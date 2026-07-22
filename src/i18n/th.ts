@@ -210,7 +210,7 @@ const th: Record<I18nKey, string> = {
   'connect.administrator_revoke_aria': 'ถอนสิทธิ์ผู้ดูแลของ {{name}}',
   'connect.administrator_revoke_title': 'ถอนสิทธิ์ผู้ดูแล?',
   'connect.administrator_revoke_message': 'ถอนสิทธิ์ผู้ดูแลของ {{name}} หรือไม่?',
-  'connect.permissions_title': 'สิทธิ์ผู้ดูแล',
+  'connect.permissions_title': 'สิทธิ์ของ {{name}}',
   'connect.permission_media_add': 'เพิ่มสื่อ',
   'connect.permission_playback_control': 'ควบคุมการเล่น',
   'connect.permission_members_kick': 'นำสมาชิกออก',

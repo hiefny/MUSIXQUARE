@@ -282,6 +282,49 @@ describe('Chat Module', () => {
       expect(badge.classList.contains('show')).toBe(false);
     });
 
+    it('reveals the drawer scrollbar when the chat surface opens', async () => {
+      renderChatShell();
+      const { toggleChatDrawer } = await import('../chat.ts');
+      const reveal = vi.fn();
+      bus.on('ui:scrollbar-reveal', reveal);
+
+      toggleChatDrawer();
+
+      const drawer = document.getElementById('chat-drawer')!;
+      const settled = new Event('transitionend');
+      Object.defineProperty(settled, 'propertyName', { value: 'transform' });
+      drawer.dispatchEvent(settled);
+      expect(reveal).toHaveBeenCalledWith(drawer);
+      toggleChatDrawer();
+    });
+
+    it('settles only the latest scrollbar transition across rapid drawer toggles', async () => {
+      renderChatShell();
+      const { toggleChatDrawer } = await import('../chat.ts');
+      const reveal = vi.fn();
+      const relayout = vi.fn();
+      bus.on('ui:scrollbar-reveal', reveal);
+      bus.on('ui:scrollbar-relayout', relayout);
+
+      toggleChatDrawer();
+      toggleChatDrawer();
+      toggleChatDrawer();
+
+      reveal.mockClear();
+      relayout.mockClear();
+      const drawer = document.getElementById('chat-drawer')!;
+      const settled = new Event('transitionend');
+      Object.defineProperty(settled, 'propertyName', { value: 'transform' });
+      drawer.dispatchEvent(settled);
+      drawer.dispatchEvent(settled);
+
+      expect(reveal).toHaveBeenCalledTimes(1);
+      expect(reveal).toHaveBeenCalledWith(drawer);
+      expect(relayout).not.toHaveBeenCalled();
+
+      toggleChatDrawer();
+    });
+
     it('marks the compact preview from the sender and message scripts', async () => {
       renderChatShell();
       const { initChat } = await import('../chat.ts');

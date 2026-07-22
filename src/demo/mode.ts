@@ -561,6 +561,7 @@ function applyDemoDomActive(overlay: HTMLElement | null): void {
   }
   mountVisualizerForMobile();
   updateOverlayOpenClass();
+  if (overlay) bus.emit('ui:scrollbar-reveal', overlay);
   scheduleDemoLayoutRefresh();
 }
 
@@ -763,7 +764,7 @@ async function renderDemoQRCode(code: string): Promise<void> {
   }
 }
 
-function syncDemoStep(step = _demoStep): void {
+function syncDemoStep(step = _demoStep, revealScrollbar = false): void {
   _demoStep = Math.min(4, Math.max(1, Number(step) || 1));
   document.querySelectorAll<HTMLElement>('[data-demo-panel]').forEach((panel) => {
     panel.classList.toggle('active', panel.dataset.demoPanel === String(_demoStep));
@@ -798,7 +799,12 @@ function syncDemoStep(step = _demoStep): void {
     btn.setAttribute('aria-label', t(isFinal ? 'demo.step_finish' : 'common.next'));
     btn.setAttribute('title', t(isFinal ? 'demo.step_finish' : 'common.next'));
   });
-  bus.emit('ui:scrollbar-relayout');
+  const overlay = document.getElementById('demo-overlay');
+  if (revealScrollbar && overlay?.classList.contains('active')) {
+    bus.emit('ui:scrollbar-reveal', overlay);
+  } else {
+    bus.emit('ui:scrollbar-relayout');
+  }
   window.dispatchEvent(new Event('resize'));
 }
 
@@ -1159,7 +1165,7 @@ function advanceDemoStep(): void {
     bus.emit('demo:request-exit');
     return;
   }
-  syncDemoStep(_demoStep + 1);
+  syncDemoStep(_demoStep + 1, true);
 }
 
 function getPlacementToastKey(mode: number): Parameters<typeof t>[0] {
@@ -1378,7 +1384,7 @@ function bindDemoDom(): void {
     btn.addEventListener('click', () => advanceDemoStep());
   });
   document.querySelectorAll<HTMLElement>('[data-demo-step]').forEach((btn) => {
-    btn.addEventListener('click', () => syncDemoStep(Number(btn.dataset.demoStep)));
+    btn.addEventListener('click', () => syncDemoStep(Number(btn.dataset.demoStep), true));
   });
 }
 

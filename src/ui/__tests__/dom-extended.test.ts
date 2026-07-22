@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { bus } from '../../core/events.ts';
 import {
   escapeHtml,
   escapeAttr,
@@ -328,6 +329,19 @@ describe('initOverlayObservers — modal stack', () => {
     expect(isInert('hdr')).toBe(true);
     expect(isInert('non-modal')).toBe(true);
     expect(manualSyncOverlay.style.zIndex).toBe('6000');
+  });
+
+  it('reveals overflowing descendants when a hidden overlay is opened explicitly', () => {
+    const languageOverlay = document.getElementById('language-dialog-overlay')!;
+    const reveal = vi.fn();
+    const cleanup = bus.on('ui:scrollbar-reveal', reveal);
+
+    languageOverlay.classList.add('show');
+    syncOverlayState('language-dialog-overlay');
+
+    expect(reveal).toHaveBeenCalledOnce();
+    expect(reveal).toHaveBeenCalledWith(languageOverlay);
+    cleanup();
   });
 
   it('promotes a common dialog over an already open language dialog', () => {

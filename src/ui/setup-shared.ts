@@ -180,6 +180,17 @@ export function setupEl(id: string): HTMLElement | null {
   return document.getElementById(id);
 }
 
+function scheduleSetupScrollbarReveal(): void {
+  setManagedTimer(
+    'setup-scrollbar-reveal',
+    () => {
+      const overlay = setupEl('setup-overlay');
+      if (overlay?.classList.contains('active')) bus.emit('ui:scrollbar-reveal', overlay);
+    },
+    0,
+  );
+}
+
 export function showSetupOverlay(): void {
   animateTransition(() => {
     const ov = setupEl('setup-overlay');
@@ -191,6 +202,7 @@ export function showSetupOverlay(): void {
       /* ignore */
     }
     _setupOverlayEverShown = true;
+    scheduleSetupScrollbarReveal();
   });
 }
 
@@ -233,8 +245,10 @@ export function hideSetupOverlay(): void {
 // setup change supersede each other and produce aborted-transition errors.
 export function setupShowCodeArea(show: boolean): void {
   const box = setupEl('setup-code-area');
+  const becameVisible = !!box && show && box.style.display !== 'flex';
   if (box) box.style.display = show ? 'flex' : 'none';
   syncDesktopLeftPanel();
+  if (becameVisible) scheduleSetupScrollbarReveal();
 }
 
 export function setupSetCode(code: string): void {
@@ -250,14 +264,18 @@ export function setupSetCode(code: string): void {
 
 export function setupShowJoinArea(show: boolean): void {
   const el = setupEl('setup-join-area');
+  const becameVisible = !!el && show && el.style.display !== 'flex';
   if (el) el.style.display = show ? 'flex' : 'none';
   syncDesktopLeftPanel();
+  if (becameVisible) scheduleSetupScrollbarReveal();
 }
 
 export function setupShowAutoJoinArea(show: boolean): void {
   const el = setupEl('setup-auto-join-area');
+  const becameVisible = !!el && show && el.style.display !== 'flex';
   if (el) el.style.display = show ? 'flex' : 'none';
   syncDesktopLeftPanel();
+  if (becameVisible) scheduleSetupScrollbarReveal();
 }
 
 export function setupSetAutoJoinCode(code: string): void {
@@ -267,14 +285,18 @@ export function setupSetAutoJoinCode(code: string): void {
 
 export function setupShowRoleArea(show: boolean): void {
   const el = setupEl('setup-role-area');
+  const becameVisible = !!el && show && el.style.display !== 'flex';
   if (el) el.style.display = show ? 'flex' : 'none';
   syncDesktopLeftPanel();
+  if (becameVisible) scheduleSetupScrollbarReveal();
 }
 
 export function setupShowWelcome(show: boolean): void {
   const el = setupEl('setup-welcome-area');
+  const becameVisible = !!el && show && el.style.display !== 'flex';
   if (el) el.style.display = show ? 'flex' : 'none';
   syncDesktopLeftPanel();
+  if (becameVisible) scheduleSetupScrollbarReveal();
 }
 
 export function setupSetGuestJoinBusy(busy: boolean): void {

@@ -213,7 +213,7 @@ const zhHans: Record<I18nKey, string> = {
   'connect.administrator_revoke_aria': '撤销 {{name}} 的管理员权限',
   'connect.administrator_revoke_title': '撤销管理员权限？',
   'connect.administrator_revoke_message': '要撤销 {{name}} 的管理员权限吗？',
-  'connect.permissions_title': '管理员权限',
+  'connect.permissions_title': '{{name}}的权限',
   'connect.permission_media_add': '添加媒体',
   'connect.permission_playback_control': '播放控制',
   'connect.permission_members_kick': '移出成员',

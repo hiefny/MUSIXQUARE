@@ -1742,7 +1742,12 @@
         <div class="setup-mobile-view" data-custom-scroll>
           <div class="setup-header-pill" hidden></div>
 
-          <div id="setup-welcome-area" class="setup-welcome-wrap">
+          <div
+            id="setup-welcome-area"
+            class="setup-welcome-wrap"
+            data-custom-scroll
+            data-custom-scroll-contained
+          >
             <div id="setup-welcome-header" class="setup-header-text">
               <svg
                 class="logo-svg logo-welcome"
@@ -2207,7 +2212,13 @@
             </div>
           </div>
 
-          <div id="setup-code-area" class="setup-code-area" hidden>
+          <div
+            id="setup-code-area"
+            class="setup-code-area"
+            data-custom-scroll
+            data-custom-scroll-contained
+            hidden
+          >
             <div class="setup-header-text">
               <h2 data-i18n="setup.last_step"></h2>
               <p data-i18n="setup.connect_devices"></p>
@@ -2303,7 +2314,13 @@
             </div>
           </div>
 
-          <div id="setup-join-area" class="setup-area-block" hidden>
+          <div
+            id="setup-join-area"
+            class="setup-area-block"
+            data-custom-scroll
+            data-custom-scroll-contained
+            hidden
+          >
             <div class="setup-header-text">
               <h2 data-i18n="setup.last_step"></h2>
               <p data-i18n="setup.enter_host_code_alt"></p>
@@ -2389,7 +2406,13 @@
             </div>
           </div>
 
-          <div id="setup-auto-join-area" class="setup-area-block setup-auto-join-area" hidden>
+          <div
+            id="setup-auto-join-area"
+            class="setup-area-block setup-auto-join-area"
+            data-custom-scroll
+            data-custom-scroll-contained
+            hidden
+          >
             <div class="setup-header-text">
               <h2 data-i18n="setup.welcome_title"></h2>
               <p id="setup-auto-join-subtitle"></p>
@@ -2397,7 +2420,13 @@
           </div>
 
           <!-- Reserved for an explicit role picker; the current flow assigns the center role. -->
-          <div id="setup-role-area" class="setup-area-block is-relative" hidden>
+          <div
+            id="setup-role-area"
+            class="setup-area-block is-relative"
+            data-custom-scroll
+            data-custom-scroll-contained
+            hidden
+          >
             <div class="setup-header-text">
               <h2 data-i18n="setup.what_sound"></h2>
               <p data-i18n="setup.change_later"></p>
@@ -2584,7 +2613,12 @@
         <div class="dialog-header account-dialog-header">
           <span class="dialog-title" id="account-dialog-title"></span>
         </div>
-        <div class="account-dialog-content" id="account-dialog-content">
+        <div
+          class="account-dialog-content"
+          id="account-dialog-content"
+          data-custom-scroll
+          data-custom-scroll-contained
+        >
           <p class="account-dialog-message" id="account-dialog-message"></p>
           <strong class="account-dialog-nickname" id="account-dialog-nickname" hidden></strong>
           <a class="account-google-button" id="btn-account-google" href="#" hidden>
@@ -2647,21 +2681,16 @@
         role="dialog"
         aria-modal="true"
         aria-labelledby="administrator-permissions-title"
-        aria-describedby="administrator-permissions-member"
         aria-busy="false"
       >
         <div class="dialog-header administrator-permissions-header">
-          <span
-            class="dialog-title"
-            id="administrator-permissions-title"
-            data-i18n="connect.permissions_title"
-          ></span>
-          <span
-            class="administrator-permissions-member"
-            id="administrator-permissions-member"
-          ></span>
+          <span class="dialog-title" id="administrator-permissions-title"></span>
         </div>
-        <div class="administrator-permissions-list">
+        <div
+          class="administrator-permissions-list"
+          data-custom-scroll
+          data-custom-scroll-contained
+        >
           <button
             type="button"
             class="administrator-permission-row"
@@ -3109,7 +3138,7 @@
           <p data-i18n="help.media_synced_detail"></p>
         </div>
 
-        <div class="setup-slot-list">
+        <div class="setup-slot-list" data-custom-scroll data-custom-scroll-contained>
           <button class="file-select-btn" id="btn-local-file">
             <div class="btn-icon-bg">
               <svg viewBox="0 0 24 24">
@@ -3160,7 +3189,11 @@
           <p data-i18n-html="youtube.enter_link_desc_html"></p>
         </div>
 
-        <div class="setup-join-area setup-mt-0">
+        <div
+          class="setup-join-area setup-mt-0"
+          data-custom-scroll
+          data-custom-scroll-contained
+        >
           <div
             contenteditable="true"
             id="youtube-url-input"

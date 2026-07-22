@@ -214,7 +214,7 @@ const vi: Record<I18nKey, string> = {
   'connect.administrator_revoke_aria': 'Thu hồi quyền quản trị của {{name}}',
   'connect.administrator_revoke_title': 'Thu hồi quyền quản trị?',
   'connect.administrator_revoke_message': 'Thu hồi quyền quản trị của {{name}}?',
-  'connect.permissions_title': 'Quyền quản trị viên',
+  'connect.permissions_title': 'Quyền của {{name}}',
   'connect.permission_media_add': 'Thêm nội dung',
   'connect.permission_playback_control': 'Điều khiển phát',
   'connect.permission_members_kick': 'Mời thành viên ra',

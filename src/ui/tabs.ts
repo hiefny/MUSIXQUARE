@@ -62,6 +62,8 @@ export function switchTab(tabId: string): void {
       );
     }
 
+    if (tabEl) bus.emit('ui:scrollbar-reveal', tabEl);
+
     bus.emit('ui:close-chat-drawer');
   });
 }

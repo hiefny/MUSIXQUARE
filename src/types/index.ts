@@ -1218,6 +1218,11 @@ interface BaseEventMap {
   'ui:seek-reset': [];
   'ui:loop-start': [];
   'ui:scrollbar-relayout': [];
+  /**
+   * Re-measure and briefly reveal custom scrollbars inside a newly visible
+   * surface. The optional scope keeps parked tabs/dialogs from flashing.
+   */
+  'ui:scrollbar-reveal': [scope?: HTMLElement];
   'ui:time-update': [
     currentFormatted: string,
     totalFormatted: string,

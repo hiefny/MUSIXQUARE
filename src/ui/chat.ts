@@ -113,8 +113,20 @@ function resetUnread(): void {
  * transition before it had a chance to emit transitionend.
  */
 const CHAT_DRAWER_RELAYOUT_FALLBACK_MS = 400;
+let _pendingChatDrawerTransition: {
+  drawer: HTMLElement;
+  listener: (event: TransitionEvent) => void;
+} | null = null;
 let _chatTouchContainmentAC: AbortController | null = null;
 let _chatTouchStartY = 0;
+
+function clearPendingChatDrawerTransition(): void {
+  clearManagedTimer('chat-drawer-relayout');
+  if (!_pendingChatDrawerTransition) return;
+  const { drawer, listener } = _pendingChatDrawerTransition;
+  drawer.removeEventListener('transitionend', listener);
+  _pendingChatDrawerTransition = null;
+}
 
 export function toggleChatDrawer(): void {
   const drawer = document.getElementById('chat-drawer');
@@ -148,23 +160,32 @@ export function toggleChatDrawer(): void {
   // a 400ms safety timer covers browsers that occasionally drop the event
   // (e.g. when the drawer is toggled again before the previous transition
   // resolves).
-  bus.emit('ui:scrollbar-relayout');
   const drawerEl = drawer as HTMLElement;
+  const settleDrawerScrollbar = (): void => {
+    if (_isChatDrawerOpen && drawerEl.classList.contains('open')) {
+      bus.emit('ui:scrollbar-reveal', drawerEl);
+    } else {
+      bus.emit('ui:scrollbar-relayout');
+    }
+  };
+  // Reposition immediately, but reveal only once the moving surface reaches
+  // its final geometry. This avoids restarting the fade timer twice per open.
+  clearPendingChatDrawerTransition();
+  bus.emit('ui:scrollbar-relayout');
+  let settled = false;
+  const settleOnce = (): void => {
+    if (settled) return;
+    settled = true;
+    clearPendingChatDrawerTransition();
+    settleDrawerScrollbar();
+  };
   const onTransitionEnd = (e: TransitionEvent) => {
     if (e.propertyName !== 'transform') return;
-    drawerEl.removeEventListener('transitionend', onTransitionEnd);
-    clearManagedTimer('chat-drawer-relayout');
-    bus.emit('ui:scrollbar-relayout');
+    settleOnce();
   };
+  _pendingChatDrawerTransition = { drawer: drawerEl, listener: onTransitionEnd };
   drawerEl.addEventListener('transitionend', onTransitionEnd);
-  setManagedTimer(
-    'chat-drawer-relayout',
-    () => {
-      drawerEl.removeEventListener('transitionend', onTransitionEnd);
-      bus.emit('ui:scrollbar-relayout');
-    },
-    CHAT_DRAWER_RELAYOUT_FALLBACK_MS,
-  );
+  setManagedTimer('chat-drawer-relayout', settleOnce, CHAT_DRAWER_RELAYOUT_FALLBACK_MS);
 }
 
 // ─── Chat Drawer: Swipe-to-Dismiss ──────────────────────────────

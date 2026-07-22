@@ -10,6 +10,7 @@
  */
 import { readFile } from 'node:fs/promises';
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 
 // ── jsdom polyfills (module scope, installed once for the whole file) ──────
@@ -108,6 +109,7 @@ interface Scrollbox {
   container: HTMLElement;
   rectSpy: Mock<() => DOMRect>;
   setClientHeight(px: number): void;
+  setScrollHeight(px: number): void;
   track(): HTMLElement;
 }
 
@@ -129,9 +131,10 @@ function createScrollbox(id: string): Scrollbox {
   document.body.appendChild(parent);
 
   let clientHeight = 200;
+  let scrollHeight = 1000;
   Object.defineProperty(container, 'scrollHeight', {
     configurable: true,
-    get: () => 1000,
+    get: () => scrollHeight,
   });
   Object.defineProperty(container, 'clientHeight', {
     configurable: true,
@@ -146,6 +149,9 @@ function createScrollbox(id: string): Scrollbox {
     setClientHeight: (px: number): void => {
       clientHeight = px;
     },
+    setScrollHeight: (px: number): void => {
+      scrollHeight = px;
+    },
     track: (): HTMLElement => {
       const t = parent.querySelector<HTMLElement>('.cscroll-track');
       if (!t) throw new Error(`track not created for #${id}`);
@@ -159,6 +165,7 @@ function createScrollbox(id: string): Scrollbox {
 beforeEach(() => {
   vi.useFakeTimers();
   clearAllManagedTimers();
+  bus.clear();
 });
 
 afterEach(() => {
@@ -284,7 +291,85 @@ describe('custom-scrollbar settled re-layout (orientation/breakpoint)', () => {
   });
 });
 
+describe('custom-scrollbar transition reveal', () => {
+  it('reveals only overflowing instances in the requested surface, then fades', () => {
+    const scoped = createScrollbox('scoped-overflow');
+    const background = createScrollbox('background-overflow');
+    initCustomScrollbar(scoped.container);
+    initCustomScrollbar(background.container);
+
+    expect(scoped.track().style.opacity).toBe('0');
+    expect(background.track().style.opacity).toBe('0');
+
+    bus.emit('ui:scrollbar-reveal', scoped.container.parentElement!);
+
+    expect(scoped.track().style.opacity).toBe('1');
+    expect(background.track().style.opacity).toBe('0');
+    vi.advanceTimersByTime(1199);
+    expect(scoped.track().style.opacity).toBe('1');
+    vi.advanceTimersByTime(1);
+    expect(scoped.track().style.opacity).toBe('0');
+  });
+
+  it('does not reveal a non-overflowing or zero-height parked instance', () => {
+    const fitted = createScrollbox('fitted');
+    fitted.setScrollHeight(200);
+    const parked = createScrollbox('parked');
+    parked.setClientHeight(0);
+    initCustomScrollbar(fitted.container);
+    initCustomScrollbar(parked.container);
+
+    bus.emit('ui:scrollbar-reveal');
+
+    for (const box of [fitted, parked]) {
+      expect(box.track().style.opacity).toBe('0');
+      expect(box.track().style.height).toBe('0px');
+      expect(box.track().style.pointerEvents).toBe('none');
+      expect(box.track().querySelector<HTMLElement>('.cscroll-thumb')?.style.display).toBe('none');
+    }
+  });
+
+  it('does not reveal an overflowing surface hidden by an ancestor transition state', () => {
+    const hidden = createScrollbox('visibility-hidden');
+    hidden.container.style.visibility = 'hidden';
+    initCustomScrollbar(hidden.container);
+
+    bus.emit('ui:scrollbar-reveal', hidden.container.parentElement!);
+
+    expect(hidden.track().style.opacity).toBe('0');
+    expect(hidden.track().style.height).toBe('0px');
+    expect(hidden.track().style.pointerEvents).toBe('none');
+  });
+
+  it('re-measures and reveals a dialog list initialized while hidden', () => {
+    const dialogList = createScrollbox('hidden-dialog-list');
+    dialogList.setClientHeight(0);
+    initCustomScrollbar(dialogList.container);
+    expect(dialogList.track().style.height).toBe('0px');
+
+    dialogList.setClientHeight(180);
+    bus.emit('ui:scrollbar-reveal', dialogList.container.parentElement!);
+
+    expect(dialogList.track().style.height).toBe('180px');
+    expect(dialogList.track().style.opacity).toBe('1');
+    expect(dialogList.track().querySelector<HTMLElement>('.cscroll-thumb')?.style.display).toBe('');
+  });
+});
+
 describe('compact-landscape scrollbar ownership contract', () => {
+  it('gives the administrator permission toggle region a contained custom scrollbar', async () => {
+    const [markup, stylesheet] = await Promise.all([
+      readFile('index.html', 'utf8'),
+      readFile('css/style.css', 'utf8'),
+    ]);
+    expect(markup).toMatch(
+      /class="administrator-permissions-list"\s+data-custom-scroll\s+data-custom-scroll-contained/,
+    );
+    expect(stylesheet).toMatch(
+      /\.administrator-permissions-dialog\s*>\s*\.cscroll-track\s*{[^}]*right:\s*24px;/s,
+    );
+  });
+
   it('applies the sidebar inset only to viewport-owned tracks', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const compactStart = stylesheet.indexOf('@media (min-width: 720px) and (max-width: 1279px) {');
@@ -306,5 +391,50 @@ describe('compact-landscape scrollbar ownership contract', () => {
     expect(stylesheet).toMatch(
       /\.onboarding-card\s*>\s*div:not\(\.ob-actions,\s*\.cscroll-track\)\s*\{/,
     );
+    expect(stylesheet).toMatch(
+      /\.setup-mobile-view\s*>\s*div:not\(\.ob-actions,\s*\.setup-header-pill,\s*\.cscroll-track\)\s*\{/,
+    );
+  });
+
+  it('attaches discovery scrollbars to each real setup and dialog scroll owner', async () => {
+    const [markup, stylesheet, desktopStylesheet] = await Promise.all([
+      readFile('index.html', 'utf8'),
+      readFile('css/style.css', 'utf8'),
+      readFile('css/desktop.css', 'utf8'),
+    ]);
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+
+    for (const id of [
+      'setup-welcome-area',
+      'setup-code-area',
+      'setup-join-area',
+      'setup-auto-join-area',
+      'setup-role-area',
+      'account-dialog-content',
+    ]) {
+      const owner = parsed.getElementById(id);
+      expect(owner, `missing #${id}`).not.toBeNull();
+      expect(owner?.hasAttribute('data-custom-scroll'), `#${id} custom scroll`).toBe(true);
+      expect(owner?.hasAttribute('data-custom-scroll-contained'), `#${id} contained track`).toBe(
+        true,
+      );
+    }
+
+    const mediaList = parsed.querySelector(
+      '#media-source-overlay > .setup-card > .setup-slot-list',
+    );
+    expect(mediaList?.hasAttribute('data-custom-scroll')).toBe(true);
+    expect(mediaList?.hasAttribute('data-custom-scroll-contained')).toBe(true);
+    expect(stylesheet).toMatch(
+      /#media-source-overlay\s+\.setup-slot-list\s*\{[^}]*align-self:\s*stretch\s*!important;[^}]*overflow-y:\s*auto\s*!important;/s,
+    );
+    expect(desktopStylesheet).toMatch(
+      /#media-source-overlay\s+\.setup-card\.full-screen\s*>\s*div:not\(\.ob-actions,\s*\.cscroll-track\)/,
+    );
+    const youtubeForm = parsed.querySelector(
+      '#youtube-url-overlay > .setup-card > .setup-join-area',
+    );
+    expect(youtubeForm?.hasAttribute('data-custom-scroll')).toBe(true);
+    expect(youtubeForm?.hasAttribute('data-custom-scroll-contained')).toBe(true);
   });
 });

@@ -211,7 +211,7 @@ const ko = {
   'connect.administrator_revoke_aria': '{{name}} 님의 관리자 권한 해제',
   'connect.administrator_revoke_title': '관리자 권한을 해제할까요?',
   'connect.administrator_revoke_message': '{{name}} 님의 관리자 권한을 해제할까요?',
-  'connect.permissions_title': '관리자 권한 설정',
+  'connect.permissions_title': '{{name}}님의 권한',
   'connect.permission_media_add': '미디어 추가',
   'connect.permission_playback_control': '재생 제어',
   'connect.permission_members_kick': '멤버 추방',

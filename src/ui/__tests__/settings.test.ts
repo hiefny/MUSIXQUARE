@@ -452,6 +452,33 @@ describe('initSettings language controls', () => {
   });
 });
 
+describe('settings subtab scrollbar affordance', () => {
+  it('reveals scrollbars in the settings surface after changing subtab', () => {
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      `
+        <section id="tab-settings">
+          <button class="subtab-pill active" data-subtab="general">General</button>
+          <button class="subtab-pill" data-subtab="audio">Audio</button>
+          <div class="settings-subtab-panel active" data-panel="general"></div>
+          <div class="settings-subtab-panel" data-panel="audio"></div>
+        </section>
+      `,
+    );
+    initSettings();
+    const reveal = vi.fn();
+    bus.on('ui:scrollbar-reveal', reveal);
+
+    document.querySelector<HTMLButtonElement>('[data-subtab="audio"]')?.click();
+
+    const settingsPanel = document.getElementById('tab-settings');
+    expect(settingsPanel?.querySelector('[data-panel="audio"]')?.classList.contains('active')).toBe(
+      true,
+    );
+    expect(reveal).toHaveBeenCalledWith(settingsPanel);
+  });
+});
+
 describe('initSettings effect slider fill sync', () => {
   it('updates reverb range fill when a preset sets hidden advanced sliders', () => {
     installEffectSettingsDom();

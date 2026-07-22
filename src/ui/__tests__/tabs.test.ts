@@ -84,6 +84,16 @@ describe('switchTab', () => {
     switchTab('settings');
     expect(fn).toHaveBeenCalledWith('settings');
   });
+
+  it('briefly advertises scrolling only inside the newly active tab', () => {
+    const fn = vi.fn();
+    bus.on('ui:scrollbar-reveal', fn);
+
+    switchTab('settings');
+
+    expect(fn).toHaveBeenCalledOnce();
+    expect(fn).toHaveBeenCalledWith(document.getElementById('tab-settings'));
+  });
 });
 
 describe('initTabs', () => {

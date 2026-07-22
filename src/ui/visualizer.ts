@@ -17,6 +17,7 @@ let _animationId: number | null = null;
 let _visualizerRetryCount = 0;
 const MAX_VISUALIZER_RETRIES = 20;
 let _resizeListenerAdded = false;
+let _visualizerResizeObserver: ResizeObserver | null = null;
 let _vizMode: 'circular' | 'spectrum' = 'circular';
 let _isVisualizerStartCoalescing = false;
 let _visualizerLoopState: 'idle' | 'active' | 'settling' = 'idle';
@@ -859,12 +860,24 @@ export function initVisualizer(): void {
     _resizeListenerAdded = true;
 
     const handleResize = () => {
-      // For responsiveness, we can sync size immediately and THEN throttle the expensive draw
+      // Browser zoom can change the viewport, DPR and wrapper geometry in
+      // separate steps. Stop the old loop before resizing the bitmap so a
+      // stale frame cannot draw with the previous coordinate system and leave
+      // clipped arcs at the new canvas edges.
+      const wasHoldingPauseFrame = _isHoldingPauseFrame;
+      cancelVisualizerAnimation();
+
       const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
       const ctx = canvas?.getContext('2d');
       const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
       if (canvas && ctx && wrapper) {
         syncCanvasSize(canvas, ctx, wrapper);
+        if (_lastCircularFrame || _lastSpectrumFrame) {
+          redrawHeldFrame();
+          _isHoldingPauseFrame = wasHoldingPauseFrame;
+        } else {
+          drawRestingVisualizerFrame();
+        }
       }
 
       setManagedTimer(
@@ -878,6 +891,17 @@ export function initVisualizer(): void {
     };
 
     window.addEventListener('resize', handleResize);
+    window.visualViewport?.addEventListener('resize', handleResize);
+
+    // CSS breakpoint and transformed-density changes are not guaranteed to
+    // produce their final wrapper size in the same window resize callback.
+    // Observe the actual drawing container as the authoritative geometry.
+    const resizeWrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
+    if (resizeWrapper && typeof ResizeObserver !== 'undefined') {
+      _visualizerResizeObserver?.disconnect();
+      _visualizerResizeObserver = new ResizeObserver(handleResize);
+      _visualizerResizeObserver.observe(resizeWrapper);
+    }
 
     // Orientation change: CSS transitions need time to settle before re-measuring
     const vizOrientationMql = window.matchMedia('(orientation: landscape)');

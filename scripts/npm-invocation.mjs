@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { win32 } from 'node:path';
 
 /**
  * Resolve npm without asking Node to execute a Windows .cmd shim directly.
@@ -19,7 +19,7 @@ export function npmInvocation(platform = process.platform, options = {}) {
   const fileExists = options.fileExists || existsSync;
   const candidates = [
     environment.npm_execpath,
-    resolve(dirname(nodeExecutable), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    win32.resolve(win32.dirname(nodeExecutable), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
   ].filter(Boolean);
   const npmCli = candidates.find((candidate) => fileExists(candidate));
   if (npmCli) {

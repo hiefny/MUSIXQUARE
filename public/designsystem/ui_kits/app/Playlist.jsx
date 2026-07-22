@@ -22,7 +22,7 @@ function Playlist({ tracks, activeIdx, onPick, onAdd }) {
 
       {tracks.length === 0 && (
         <div style={{ textAlign: 'center', color: 'var(--text-sub)', marginTop: 40, fontSize: 13 }}>
-          Please add media.
+          No media yet.
         </div>
       )}
     </>

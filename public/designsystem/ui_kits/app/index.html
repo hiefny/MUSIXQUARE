@@ -148,7 +148,7 @@
       body = <Playlist tracks={TRACKS}
                        activeIdx={trackIdx}
                        onPick={(i) => { setTrackIdx(i); setPlaying(true); showToast('Playing: ' + TRACKS[i].title); }}
-                       onAdd={() => showToast('Please add media')}/>;
+                       onAdd={() => showToast('No media yet')}/>;
     } else if (tab === 'connect') {
       body = <Connect code="492815"
                       devices={DEVICES}

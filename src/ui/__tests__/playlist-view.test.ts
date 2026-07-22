@@ -139,7 +139,7 @@ describe('playlist empty state i18n', () => {
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
     const empty = document.querySelector<HTMLElement>('.list-empty-state');
-    expect(empty?.textContent).toBe('Please add media.');
+    expect(empty?.textContent).toBe('No media yet.');
   });
 });
 

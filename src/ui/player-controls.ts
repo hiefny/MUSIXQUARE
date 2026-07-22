@@ -1217,7 +1217,7 @@ export function initPlayerControls(): void {
   // Play button state (enabled/disabled)
   // aria-disabled instead of HTML `disabled` so the click handler still
   // fires when there's no media — _internalPlay surfaces a toast hint
-  // ("미디어를 추가해주세요") that real `disabled` would silence.
+  // (the empty-playlist hint) that real `disabled` would silence.
   _busScope.on('ui:play-btn-state', (enabled) => {
     // Media readiness and room authority change independently. Preserve the
     // former across an administrator grant/revoke, then project both into the

@@ -263,8 +263,7 @@ export function updatePlaylistUI(): void {
 
   if (playlist.length === 0) {
     followController.reset();
-    const canAddMedia = hasRoomCapability('media.add');
-    const key = canAddMedia ? 'playlist.empty_hint' : 'playlist.empty_hint_guest';
+    const key = 'playlist.empty_hint';
     const empty = document.createElement('li');
     empty.className = 'list-empty-state';
     empty.setAttribute('data-i18n', key);

@@ -4,7 +4,6 @@ export class StaleSignalingVersionError extends Error {
   expectedVersion: string;
   actualVersion: string | null;
 }
-export function classifyHostSocketOpenError(error: unknown, expectedVersion: string): unknown;
 export function assertPeerOpenVersion(
   message: { workerVersionId?: unknown } | null | undefined,
   expectedVersion: string,

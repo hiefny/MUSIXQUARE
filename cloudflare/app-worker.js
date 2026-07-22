@@ -138,7 +138,6 @@ const ADMIN_METRIC_EVENTS = [
   { key: 'room_opened', label: 'Rooms opened' },
   { key: 'guest_joined', label: 'Guest joins' },
   { key: 'host_reconnected', label: 'Host reconnects' },
-  { key: 'host_legacy_url_auth', label: 'Legacy host URL auth' },
   { key: 'guest_host_unavailable', label: 'Guest host-missing errors' },
   { key: 'guest_auth_pending', label: 'Password prompts' },
   { key: 'guest_auth_failed', label: 'Password failures' },

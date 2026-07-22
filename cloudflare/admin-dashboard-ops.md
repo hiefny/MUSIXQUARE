@@ -24,7 +24,6 @@ Events:
 | -------------------------- | ---------------------------------------------------------------------------------------- |
 | `room_opened`              | A host created a fresh room.                                                             |
 | `host_reconnected`         | A host reclaimed or refreshed an existing room.                                          |
-| `host_legacy_url_auth`     | An older cached host authenticated through the temporary query compatibility path.       |
 | `guest_joined`             | A guest successfully joined.                                                             |
 | `guest_host_unavailable`   | A guest tried to join a missing room.                                                    |
 | `guest_auth_pending`       | A password-protected guest reached the password prompt.                                  |
@@ -42,31 +41,32 @@ Metric writes are deferred with the Worker execution context, so D1 latency is
 not part of the room admission path. They are operational counters rather than
 an authentication or billing source of truth.
 
-## Legacy Host Authentication Removal
+## First-Frame-Only Host Authentication
 
-Current standard-room clients send the random host ownership secret in their
-first WebSocket frame. They never put it in the URL. The signaling Worker
-temporarily still accepts the old `?secret=` query contract because an already
-open or deferred-update PWA can reconnect while the Worker is rolling forward.
-Do not log full standard-room WebSocket URLs while this bridge exists.
+As of 2026-07-22, standard-room hosts authenticate only by sending their random
+ownership secret in the first WebSocket frame. The `?secret=` query no longer
+grants host ownership, and signaling no longer emits `host_legacy_url_auth`.
+The `host-auth` first frame, its timeout, and the rule that a candidate cannot
+replace the live host before successful authentication remain permanent.
 
-Deploy the signaling Worker before the app. That order lets both the new
-first-frame client and an older cached query client use the new Worker during
-the rollout without putting the current client's credential back into its URL.
+This removal used an explicit owner-approved **prelaunch exception** to the
+previous 30-day rollout and seven-consecutive-zero-days gates. At the decision
+time:
 
-Remove the query parser and `host_legacy_url_auth` event only after all of these
-conditions hold:
+- production D1 contained two legacy-auth events dated 2026-07-18 through
+  2026-07-19 and no newer legacy-auth event;
+- the beta cohort was very small, had not been promoted publicly, and every
+  known user was contactable and recoverable by refreshing to the current app;
+- the owner accepted that a cached pre-first-frame client could require that
+  recovery after the signaling cutover; and
+- first-frame host creation and reconnect remained required live-smoke gates
+  for the production deployment.
 
-1. The app/service-worker release containing first-frame host authentication
-   has been in production for at least 30 days; record its deployed SHA and
-   cache version in the release log.
-2. `host_legacy_url_auth` has remained zero for seven consecutive days.
-3. A live smoke confirms first-frame host creation and reconnect against the
-   then-current signaling Worker.
-
-The removal must delete only the legacy query branch. The `host-auth` first
-frame, its timeout, and the rule that a candidate cannot replace the live host
-before successful authentication remain permanent.
+The historical D1 metric buckets are harmless operational history, not
+credentials or authentication state. They require no deletion or migration.
+Because `host_legacy_url_auth` is no longer in the current event inventory, the
+dashboard summary ignores those rows while the raw retention data remains
+available for audit.
 
 ## Cloudflare Setup
 

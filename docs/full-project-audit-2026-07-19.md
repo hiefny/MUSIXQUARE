@@ -39,8 +39,14 @@ rate limiting, and device-specific sync compensation intact.
    without a cache-version bump. A first-parent, full-history guard now fails
    closed until a monotonic bump covers the changed runtime tree.
 4. **Standard signaling credentials:** the host bearer secret was present in a
-   WebSocket URL. Current clients authenticate in the first frame; the Worker
-   temporarily retains the legacy URL form only for rolling compatibility.
+   WebSocket URL. Current clients authenticate in the first frame. On
+   2026-07-22 the owner approved a prelaunch exception and removed the temporary
+   legacy URL bridge without waiting for the planned 30-day rollout and seven
+   consecutive zero-event days: production D1 had recorded two legacy events
+   dated 2026-07-18 through 2026-07-19, the unpromoted beta cohort was small and
+   contactable, and every known user could be recovered by refreshing the app.
+   Historical D1 buckets remain harmless audit data and are ignored by the
+   current metric inventory; no data deletion or migration is required.
 5. **Signaling admission races:** host reconnect, stale host close, room expiry,
    guest admission, and last-guest cleanup could overwrite one another across
    awaited Durable Object storage. Standard-room ownership mutations now share

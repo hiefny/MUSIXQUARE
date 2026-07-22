@@ -965,19 +965,16 @@ describe('release deployment rollback state', () => {
     ]);
   });
 
-  it('withholds legacy signaling when an attempted app was not safely restored', () => {
+  it('restores first-frame signaling independently of the app rollback result', () => {
     const states = [{ target: 'app' }, { target: 'signaling' }];
 
-    expect(rollbackDependencyBlock('signaling', states, [])).toEqual({
-      dependency: 'app',
-      dependencyStatus: 'not-processed',
-    });
+    expect(rollbackDependencyBlock('signaling', states, [])).toBeNull();
     expect(
       rollbackDependencyBlock('signaling', states, [{ target: 'app', status: 'conflict' }]),
-    ).toEqual({ dependency: 'app', dependencyStatus: 'conflict' });
+    ).toBeNull();
     expect(
       rollbackDependencyBlock('signaling', states, [{ target: 'app', status: 'failed' }]),
-    ).toEqual({ dependency: 'app', dependencyStatus: 'failed' });
+    ).toBeNull();
     expect(
       rollbackDependencyBlock('signaling', states, [{ target: 'app', status: 'already-restored' }]),
     ).toBeNull();

@@ -1642,7 +1642,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     await expect(responses[2].json()).resolves.toEqual({ error: 'ADMIN_CSRF_REJECTED' });
   });
 
-  it('sets an HttpOnly admin session cookie and serves D1-backed metrics', async () => {
+  it('sets an HttpOnly admin session cookie and serves current D1-backed metrics', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
     const nowMinute = Math.floor(Date.now() / 60000);
@@ -1705,7 +1705,7 @@ describe('Cloudflare app worker admin dashboard', () => {
 
     expect(metrics.status).toBe(200);
     expect(payload.summary?.last24?.room_opened).toBe(3);
-    expect(payload.summary?.last24?.host_legacy_url_auth).toBe(2);
+    expect(payload.summary?.last24?.host_legacy_url_auth).toBeUndefined();
     expect(payload.summary?.last24?.guest_joined).toBe(7);
     expect(payload.summary?.last24?.guest_room_full).toBe(2);
     expect(payload.summary?.last24?.guest_reconnect_denied).toBe(5);

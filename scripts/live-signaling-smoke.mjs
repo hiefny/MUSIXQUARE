@@ -20,19 +20,6 @@ export class StaleSignalingVersionError extends Error {
   }
 }
 
-export function classifyHostSocketOpenError(error, expectedVersion) {
-  const message = error instanceof Error ? error.message : String(error);
-  // The immediately previous rolling contract required the host secret in
-  // the WebSocket URL and therefore rejects the new first-frame handshake
-  // with HTTP 400 before it can expose workerVersionId. Only a release that
-  // knows the exact version it just deployed may treat that response as edge
-  // propagation staleness; ordinary/manual smoke runs still surface the 400.
-  if (expectedVersion && message === 'Unexpected server response: 400') {
-    return new StaleSignalingVersionError(expectedVersion, null);
-  }
-  return error;
-}
-
 export function assertPeerOpenVersion(message, expectedVersion, label, retryIfStale = false) {
   if (!expectedVersion) return;
   const actualVersion =
@@ -51,7 +38,7 @@ function socketUrl(roomId, role, peerId) {
   return url.toString();
 }
 
-function createSocketInbox(url, label, mapOpenError = (error) => error) {
+function createSocketInbox(url, label) {
   const socket = new WebSocket(url, { origin: APP_ORIGIN });
   const queued = [];
   const waiters = new Set();
@@ -71,7 +58,7 @@ function createSocketInbox(url, label, mapOpenError = (error) => error) {
     });
     socket.once('error', (error) => {
       clearTimeout(timer);
-      reject(mapOpenError(error));
+      reject(error);
     });
   });
 
@@ -230,7 +217,6 @@ async function runRoomAttempt(password, expectedVersion) {
   const host = createSocketInbox(
     socketUrl(roomId, 'host', hostPeerId),
     `${password ? 'protected' : 'passwordless'} host`,
-    (error) => classifyHostSocketOpenError(error, expectedVersion),
   );
   const guestSockets = new Set();
   const createGuest = (peerId, label) => {
@@ -240,6 +226,7 @@ async function runRoomAttempt(password, expectedVersion) {
   };
   let originalGuest;
   let reconnectedGuest;
+  let reconnectedHost;
 
   try {
     await host.opened;
@@ -370,6 +357,24 @@ async function runRoomAttempt(password, expectedVersion) {
       throw new Error('legitimate reconnect room or peer mismatch');
     }
 
+    reconnectedHost = createSocketInbox(
+      socketUrl(roomId, 'host', hostPeerId),
+      `${password ? 'protected' : 'passwordless'} reconnect host`,
+    );
+    await reconnectedHost.opened;
+    // Reconnect with the same RAM-only bearer proof and exercise the permanent
+    // first-frame contract again. The query remains limited to routing IDs.
+    reconnectedHost.socket.send(JSON.stringify({ type: 'host-auth', secret: hostSecret }));
+    const reconnectedHostOpen = await waitForType(reconnectedHost, 'peer-open');
+    assertPeerOpenVersion(reconnectedHostOpen, expectedVersion, 'reconnected host peer-open');
+    if (reconnectedHostOpen.roomId !== roomId) throw new Error('reconnected host room mismatch');
+    const replacedHostClose = await withTimeout(host.closed, 'replaced host socket close');
+    if (replacedHostClose.code !== 1012 || replacedHostClose.reason !== 'HOST_REPLACED') {
+      throw new Error(
+        `replaced host closed ${replacedHostClose.code}/${replacedHostClose.reason || 'without reason'}`,
+      );
+    }
+
     const offer = {
       type: 'signal-offer',
       to: 'host',
@@ -378,7 +383,7 @@ async function runRoomAttempt(password, expectedVersion) {
       futureField: 'forward-compatible',
     };
     reconnectedGuest.socket.send(JSON.stringify(offer));
-    const relayedOffer = await host.waitFor(
+    const relayedOffer = await reconnectedHost.waitFor(
       (message) => message?.type === 'signal-offer' && message?.from === guestPeerId,
       'relayed guest offer',
     );
@@ -392,7 +397,7 @@ async function runRoomAttempt(password, expectedVersion) {
       sdp: { type: 'answer', sdp: 'v=0\r\ns=musixquare-live-smoke-answer\r\n' },
       futureField: 'forward-compatible',
     };
-    host.socket.send(JSON.stringify(answer));
+    reconnectedHost.socket.send(JSON.stringify(answer));
     const relayedAnswer = await reconnectedGuest.waitFor(
       (message) => message?.type === 'signal-answer' && message?.from === hostPeerId,
       'relayed host answer',
@@ -410,11 +415,13 @@ async function runRoomAttempt(password, expectedVersion) {
       originalGuestSurvivedRejectedReplacements: true,
       disconnectedBindingProtected: true,
       legitimateReconnect: true,
+      hostReconnect: true,
       offer: true,
       answer: true,
     };
   } finally {
     for (const inbox of guestSockets) await closeSocket(inbox.socket);
+    if (reconnectedHost) await closeSocket(reconnectedHost.socket);
     await closeSocket(host.socket);
   }
 }

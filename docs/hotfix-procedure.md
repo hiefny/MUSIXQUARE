@@ -97,16 +97,15 @@ Worker that rejects the remaining scope bits; independent Workers still return
 to their previous versions. The release remains failed and reports the withheld
 target for operator review.
 
-The app, signaling, and PRO rollback chain also has compatibility fences. The
-current signaling Worker accepts both first-frame host authentication and the
-temporary legacy URL form, but the previous signaling Worker cannot
-authenticate a new app that no longer places its secret in the URL. If app
-rollback is attempted but cannot be verified as restored, recovery therefore
-keeps the current signaling Worker. Signaling also delegates PRO chat and
-authority decisions to the PRO room Worker. If signaling cannot be verified as
-restored, recovery keeps the current PRO Worker instead of creating a known
-broken new-signaling/old-PRO pairing. Either fence is reported as a partial
-failure for operator review.
+The app and signaling rollback floor is first-frame host authentication. Every
+signaling version eligible for routine rollback must accept the `host-auth`
+first frame; never restore a query-only signaling version below that floor.
+Because both sides of the supported rollback boundary use the same first-frame
+contract, signaling recovery no longer depends on app recovery succeeding.
+Signaling still delegates PRO chat and authority decisions to the PRO room
+Worker. If signaling cannot be verified as restored, recovery keeps the current
+PRO Worker instead of creating a known broken new-signaling/old-PRO pairing.
+That dependency fence is reported as a partial failure for operator review.
 
 The same dependency is fenced in the forward direction. Before any approved
 partial release, the workflow reads every unselected Worker's live deployment

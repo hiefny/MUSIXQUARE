@@ -4,7 +4,6 @@ import {
   STALE_VERSION_RETRY_DELAYS_MS,
   StaleSignalingVersionError,
   assertPeerOpenVersion,
-  classifyHostSocketOpenError,
   withStaleVersionRetry,
 } from '../../../scripts/live-signaling-smoke.mjs';
 
@@ -50,17 +49,6 @@ describe('live signaling smoke deployment readiness', () => {
         'guest peer-open',
       ),
     ).not.toThrow();
-  });
-
-  it('retries the previous host handshake only when an exact release version is expected', () => {
-    const rollingContractError = new Error('Unexpected server response: 400');
-    expect(classifyHostSocketOpenError(rollingContractError, EXPECTED_VERSION)).toBeInstanceOf(
-      StaleSignalingVersionError,
-    );
-    expect(classifyHostSocketOpenError(rollingContractError, '')).toBe(rollingContractError);
-
-    const forbidden = new Error('Unexpected server response: 403');
-    expect(classifyHostSocketOpenError(forbidden, EXPECTED_VERSION)).toBe(forbidden);
   });
 
   it('retries stale host versions with a fresh operation invocation', async () => {

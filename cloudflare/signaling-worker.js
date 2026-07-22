@@ -2614,28 +2614,18 @@ export class MusixquareRoom {
     const roomId = url.pathname.match(ROOM_PATH)?.[1];
     const role = url.searchParams.get('role');
     const peerId = url.searchParams.get('peerId');
-    const secret = url.searchParams.get('secret') || '';
     if (!roomId || (role !== 'host' && role !== 'guest') || !isValidPeerId(peerId)) {
       return json({ error: 'Bad request' }, 400);
     }
     if (isProNamespaceRoomCode(roomId)) {
       return json({ error: 'ROOM_RESERVED' }, 403);
     }
-    if (role === 'host' && secret && !isValidPeerId(secret)) {
-      return json({ error: 'Bad request' }, 400);
-    }
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
 
     if (role === 'host') {
-      if (secret) {
-        // Temporary rolling compatibility for cached app shells that still put
-        // the host secret in the query. Current clients use first-frame auth.
-        await this.enqueueHostAdmission(() => this.acceptHost(server, roomId, peerId, secret));
-      } else {
-        this.acceptPendingHost(server, roomId, peerId);
-      }
+      this.acceptPendingHost(server, roomId, peerId);
     } else if (role === 'guest') {
       await this.acceptGuest(server, roomId, peerId);
     } else {
@@ -2984,24 +2974,17 @@ export class MusixquareRoom {
     return false;
   }
 
-  async acceptHost(ws, roomId, peerId, secret) {
-    const accepted = await this.completeHostAccept(ws, roomId, peerId, secret, false);
-    if (accepted) this.recordMetric('host_legacy_url_auth');
-  }
-
-  async completeHostAccept(ws, roomId, peerId, secret, alreadyAccepted, accountAssertion = '') {
+  async completeHostAccept(ws, roomId, peerId, secret, accountAssertion = '') {
     // The caller owns standardAdmissionSync. Expire the previous epoch in the
     // same queue before reading the ownership snapshot used by this claim.
     const meta = await this.clearExpiredHostRelease();
     if (!secret) {
-      if (!alreadyAccepted) this.acceptSocket(ws, null, ['role:host']);
       this.pendingHosts.delete(ws);
       closeWithError(ws, 'invalid-id', 'MISSING_ROOM_SECRET');
       this.scheduleMaintenanceAlarm();
       return false;
     }
     if (meta.roomSecret && meta.roomSecret !== secret) {
-      if (!alreadyAccepted) this.acceptSocket(ws, null, ['role:host']);
       this.pendingHosts.delete(ws);
       closeWithError(ws, 'id-taken', 'ROOM_ALREADY_ACTIVE');
       this.scheduleMaintenanceAlarm();
@@ -3037,14 +3020,13 @@ export class MusixquareRoom {
       hostPeerId: peerId,
       hostReleaseAt: 0,
     });
-    if (alreadyAccepted) ws.serializeAttachment(attachment);
-    else this.acceptSocket(ws, attachment, ['role:host', `peer:${peerId}`]);
+    ws.serializeAttachment(attachment);
 
     // A socket can close while the Durable Object storage write is awaited.
     // Prove the accepted candidate is still reachable before replacing the
     // live host; otherwise restore the prior metadata inside the same queue.
     if (
-      (alreadyAccepted && !this.pendingHosts.has(ws)) ||
+      !this.pendingHosts.has(ws) ||
       !sendChecked(ws, {
         type: 'peer-open',
         peerId: roomId,
@@ -3752,7 +3734,6 @@ export class MusixquareRoom {
       attachment.roomId,
       attachment.peerId,
       message.secret,
-      true,
       message.accountAssertion,
     );
   }
@@ -4093,15 +4074,11 @@ export default {
 
     const role = url.searchParams.get('role');
     const peerId = url.searchParams.get('peerId');
-    const secret = url.searchParams.get('secret') || '';
     if (!roomId || (role !== 'host' && role !== 'guest') || !isValidPeerId(peerId)) {
       return json({ error: 'Bad request' }, 400);
     }
     if (isProNamespaceRoomCode(roomId)) {
       return json({ error: 'ROOM_RESERVED' }, 403);
-    }
-    if (role === 'host' && secret && !isValidPeerId(secret)) {
-      return json({ error: 'Bad request' }, 400);
     }
     if (!(await checkRateLimit(request, 'ws-open'))) {
       return json({ error: 'Too Many Requests' }, 429);

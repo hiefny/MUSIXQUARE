@@ -735,20 +735,6 @@ function rollbackDisposition(state, current) {
 }
 
 function rollbackDependencyBlock(target, states, results) {
-  // First-frame host authentication is deliberately forward-compatible:
-  // the new signaling Worker accepts both the new frame and the legacy URL,
-  // while the legacy Worker cannot authenticate a new app that omits the URL
-  // secret. If app recovery is uncertain, retaining the new signaling Worker
-  // is the only combination that keeps both cached and current clients usable.
-  if (target === 'signaling' && states.some((state) => state.target === 'app')) {
-    const appResult = results.find((result) => result.target === 'app');
-    if (appResult && ['restored', 'already-restored'].includes(appResult.status)) return null;
-    return {
-      dependency: 'app',
-      dependencyStatus: appResult?.status || 'not-processed',
-    };
-  }
-
   // Signaling authorization is server-owned by the PRO room Durable Object.
   // A release that rolled signaling forward must restore signaling before it
   // can safely restore PRO. Otherwise a newer signaling Worker would call an

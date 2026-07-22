@@ -224,16 +224,10 @@ function restoreWorkerGlobals(): void {
   }
 }
 
-function wsRequest(
-  roomId: string,
-  role: 'host' | 'guest',
-  peerId: string,
-  secret?: string,
-): Request {
+function wsRequest(roomId: string, role: 'host' | 'guest', peerId: string): Request {
   const url = new URL(`https://signal.example.test/api/rooms/${roomId}/ws`);
   url.searchParams.set('role', role);
   url.searchParams.set('peerId', peerId);
-  if (secret !== undefined) url.searchParams.set('secret', secret);
 
   return {
     url: url.toString(),
@@ -243,6 +237,13 @@ function wsRequest(
       },
     },
   } as Request;
+}
+
+function wsRequestWithLegacyHostSecret(roomId: string, peerId: string, secret: string): Request {
+  const request = wsRequest(roomId, 'host', peerId);
+  const url = new URL(request.url);
+  url.searchParams.set('secret', secret);
+  return { ...request, url: url.toString() } as Request;
 }
 
 const PRO_SIGNALING_SECRET = 'pro-signaling-test-secret-with-at-least-32-bytes';
@@ -418,8 +419,27 @@ async function createHostRoom(): Promise<{
 }> {
   const state = new FakeDurableObjectState();
   const room = new workerModule.MusixquareRoom(state);
-  await room.fetch(wsRequest('123456', 'host', 'host-1', 'secret-a'));
-  return { room, state, host: lastServer() };
+  const host = await authenticateHost(room, 'host-1', 'secret-a');
+  return { room, state, host };
+}
+
+async function authenticateHost(
+  room: InstanceType<WorkerModule['MusixquareRoom']>,
+  peerId: string,
+  secret: string,
+  accountAssertion?: string,
+): Promise<FakeSocket> {
+  await room.fetch(wsRequest('123456', 'host', peerId));
+  const host = lastServer();
+  await room.webSocketMessage(
+    host,
+    JSON.stringify({
+      type: 'host-auth',
+      secret,
+      ...(accountAssertion === undefined ? {} : { accountAssertion }),
+    }),
+  );
+  return host;
 }
 
 async function createPasswordRoom(): Promise<{
@@ -575,38 +595,37 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(new URL(request.url).searchParams.get('secret')).toBeNull();
   });
 
-  it('still rejects a malformed non-empty legacy host secret at the edge', async () => {
-    const { env, idFromName } = workerEnv();
-    const response = await workerModule.default.fetch(
-      requestLike(
-        'https://signal.example.test/api/rooms/123456/ws?role=host&peerId=host&secret=bad!secret',
-        {
-          Origin: 'https://musixquare.com',
-          Upgrade: 'websocket',
-        },
-      ),
-      env,
+  it('does not interpret a retired host secret query at the edge', async () => {
+    const { env, idFromName, roomFetch } = workerEnv();
+    const request = requestLike(
+      'https://signal.example.test/api/rooms/123456/ws?role=host&peerId=host&secret=bad!secret',
+      {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+      },
     );
 
-    expect(response.status).toBe(400);
-    expect(idFromName).not.toHaveBeenCalled();
+    const response = await workerModule.default.fetch(request, env);
+
+    expect(response.status).toBe(101);
+    expect(idFromName).toHaveBeenCalledWith('123456');
+    expect(roomFetch).toHaveBeenCalledWith(request);
   });
 
   it.each([
-    ['000000', 'host', 'secret-a'],
-    ['000000', 'guest', undefined],
-    ['000001', 'host', 'secret-a'],
-    ['000001', 'guest', undefined],
-    ['000002', 'host', 'secret-a'],
-    ['000002', 'guest', undefined],
+    ['000000', 'host'],
+    ['000000', 'guest'],
+    ['000001', 'host'],
+    ['000001', 'guest'],
+    ['000002', 'host'],
+    ['000002', 'guest'],
   ] as const)(
     'rejects reserved room %s %s claims before Durable Object lookup',
-    async (roomId, role, secret) => {
+    async (roomId, role) => {
       const { env, idFromName, roomFetch } = workerEnv();
       const url = new URL(`https://signal.example.test/api/rooms/${roomId}/ws`);
       url.searchParams.set('role', role);
       url.searchParams.set('peerId', `${role}-peer`);
-      if (secret) url.searchParams.set('secret', secret);
 
       const response = await workerModule.default.fetch(
         requestLike(url.toString(), {
@@ -624,31 +643,27 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
   );
 
   it.each([
-    ['100000', 'host', 'secret-a'],
-    ['100000', 'guest', undefined],
-    ['999999', 'host', 'secret-a'],
-    ['999999', 'guest', undefined],
-  ] as const)(
-    'keeps ordinary room %s %s routing to its Durable Object',
-    async (roomId, role, secret) => {
-      const { env, idFromName, roomFetch } = workerEnv();
-      const url = new URL(`https://signal.example.test/api/rooms/${roomId}/ws`);
-      url.searchParams.set('role', role);
-      url.searchParams.set('peerId', `${role}-${roomId}`);
-      if (secret) url.searchParams.set('secret', secret);
-      const response = await workerModule.default.fetch(
-        requestLike(url.toString(), {
-          Origin: 'https://musixquare.com',
-          Upgrade: 'websocket',
-        }),
-        env,
-      );
+    ['100000', 'host'],
+    ['100000', 'guest'],
+    ['999999', 'host'],
+    ['999999', 'guest'],
+  ] as const)('keeps ordinary room %s %s routing to its Durable Object', async (roomId, role) => {
+    const { env, idFromName, roomFetch } = workerEnv();
+    const url = new URL(`https://signal.example.test/api/rooms/${roomId}/ws`);
+    url.searchParams.set('role', role);
+    url.searchParams.set('peerId', `${role}-${roomId}`);
+    const response = await workerModule.default.fetch(
+      requestLike(url.toString(), {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+      }),
+      env,
+    );
 
-      expect(response.status).toBe(101);
-      expect(idFromName).toHaveBeenCalledWith(roomId);
-      expect(roomFetch).toHaveBeenCalledTimes(1);
-    },
-  );
+    expect(response.status).toBe(101);
+    expect(idFromName).toHaveBeenCalledWith(roomId);
+    expect(roomFetch).toHaveBeenCalledTimes(1);
+  });
 
   it('does not let a provisioning allowlist seize an ordinary room code', async () => {
     const { env, idFromName, roomFetch } = workerEnv();
@@ -687,7 +702,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state);
 
-    const response = await room.fetch(wsRequest('000000', 'host', 'host-1', 'secret-a'));
+    const response = await room.fetch(wsRequest('000000', 'host', 'host-1'));
 
     expect(response.status).toBe(403);
     expect(state.sockets).toHaveLength(0);
@@ -3307,26 +3322,31 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     });
   });
 
-  it('retains the temporary legacy query-auth path for cached host clients', async () => {
-    const { state, host } = await createHostRoom();
+  it('treats a retired query secret as inert until first-frame host auth arrives', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state);
+
+    await room.fetch(wsRequestWithLegacyHostSecret('123456', 'legacy-host', 'legacy-secret'));
+    const host = lastServer();
 
     expect(host.accepted).toBe(true);
-    expect(host.tags).toContain('role:host');
-    expect(host.deserializeAttachment()).toEqual({
-      v: 1,
+    expect(sent(host)).toEqual([]);
+    expect(host.deserializeAttachment()).toMatchObject({
       role: 'host',
-      roomId: '123456',
-      peerId: 'host-1',
-      secret: 'secret-a',
-      auth: 'ok',
+      peerId: 'legacy-host',
+      auth: 'pending',
     });
+    expect(await state.storage.get('roomMeta')).toBeUndefined();
+
+    await room.webSocketMessage(
+      host,
+      JSON.stringify({ type: 'host-auth', secret: 'first-frame-secret' }),
+    );
+
     expect(sent(host)[0]).toEqual({ type: 'peer-open', peerId: '123456', roomId: '123456' });
     expect(await state.storage.get('roomMeta')).toMatchObject({
-      v: 1,
-      roomSecret: 'secret-a',
-      roomPassword: '',
-      hostPeerId: 'host-1',
-      hostReleaseAt: 0,
+      roomSecret: 'first-frame-secret',
+      hostPeerId: 'legacy-host',
     });
   });
 
@@ -3659,8 +3679,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const room = new workerModule.MusixquareRoom(state, {
       MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
     });
-    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
-    const host = lastServer();
+    const host = await authenticateHost(room, 'host-1', 'room-secret-one');
     const first = await joinGuest(room, 'minsu-phone', {
       reconnectSecret: 'a'.repeat(43),
       accountAssertion: await standardAccountAssertion({
@@ -3720,8 +3739,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const room = new workerModule.MusixquareRoom(state, {
       MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
     });
-    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
-    const host = lastServer();
+    const host = await authenticateHost(room, 'host-1', 'room-secret-one');
     const first = await joinGuest(room, 'delete-phone', {
       reconnectSecret: 'g'.repeat(43),
       accountAssertion: await standardAccountAssertion({
@@ -3790,8 +3808,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const room = new workerModule.MusixquareRoom(state, {
       MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
     });
-    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
-    const host = lastServer();
+    const host = await authenticateHost(room, 'host-1', 'room-secret-one');
     const first = await joinGuest(room, 'expired-delete-phone', {
       reconnectSecret: 'i'.repeat(43),
       accountAssertion: await standardAccountAssertion({
@@ -3843,8 +3860,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const room = new workerModule.MusixquareRoom(state, {
       MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
     });
-    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
-    const host = lastServer();
+    const host = await authenticateHost(room, 'host-1', 'room-secret-one');
     const first = await joinGuest(room, 'account-a-device', {
       reconnectSecret: 'k'.repeat(43),
       accountAssertion: await standardAccountAssertion({
@@ -3896,7 +3912,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const room = new workerModule.MusixquareRoom(state, {
       MXQR_AUTH_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
     });
-    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
+    await authenticateHost(room, 'host-1', 'room-secret-one');
     const guest = await joinGuest(room, 'legacy-secret-guest', {
       reconnectSecret: 'z'.repeat(43),
       accountAssertion: await standardAccountAssertion({
@@ -3914,8 +3930,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const room = new workerModule.MusixquareRoom(state, {
       MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
     });
-    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
-    const host = lastServer();
+    const host = await authenticateHost(room, 'host-1', 'room-secret-one');
     const minsu = await joinGuest(room, 'account-a-device', {
       reconnectSecret: 'c'.repeat(43),
       accountAssertion: await standardAccountAssertion({
@@ -3965,7 +3980,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const room = new workerModule.MusixquareRoom(state, {
       MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
     });
-    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
+    await authenticateHost(room, 'host-1', 'room-secret-one');
     const first = await joinGuest(room, 'departing-account', {
       reconnectSecret: 'e'.repeat(43),
       accountAssertion: await standardAccountAssertion({
@@ -3997,7 +4012,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const room = new workerModule.MusixquareRoom(state, {
       MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
     });
-    await room.fetch(wsRequest('123456', 'host', 'host-1', 'room-secret-one'));
+    await authenticateHost(room, 'host-1', 'room-secret-one');
 
     const minsuAccount = 'acct_abcdefghijklmnopqrstuv';
     const jisuAccount = 'acct_zyxwvutsrqponmlkjihgfe';
@@ -4139,8 +4154,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       CF_VERSION_METADATA: { id: 'worker-version-123' },
     });
 
-    await room.fetch(wsRequest('123456', 'host', 'host-1', 'secret-a'));
-    const host = lastServer();
+    const host = await authenticateHost(room, 'host-1', 'secret-a');
     const guest = await joinGuest(room, 'guest-1');
 
     expect(sent(host)[0]).toEqual({
@@ -4172,13 +4186,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, metrics.env);
 
-    await room.fetch(wsRequest('123456', 'host', 'host-1', 'secret-a'));
+    await authenticateHost(room, 'host-1', 'secret-a');
     await joinGuest(room, 'guest-1');
     await state.flushWaitUntil();
 
     expect(metrics.events).toEqual([
       { bucketMinute: Math.floor(Date.now() / 60000), event: 'room_opened' },
-      { bucketMinute: Math.floor(Date.now() / 60000), event: 'host_legacy_url_auth' },
       { bucketMinute: Math.floor(Date.now() / 60000), event: 'guest_joined' },
     ]);
   });
@@ -4199,8 +4212,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       },
     });
 
-    await room.fetch(wsRequest('123456', 'host', 'host-1', 'secret-a'));
-    const host = lastServer();
+    const host = await authenticateHost(room, 'host-1', 'secret-a');
     const guest = await joinGuest(room, 'guest-1');
 
     expect(sent(host)[0]).toEqual({ type: 'peer-open', peerId: '123456', roomId: '123456' });
@@ -4642,11 +4654,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     });
     expect(state.storage.alarmTime).toBe(Date.now() + 60_000);
 
-    await room.fetch(wsRequest('123456', 'host', 'host-2', 'secret-b'));
-    expect(lastServer().closeEvents.at(-1)?.reason).toBe('ROOM_ALREADY_ACTIVE');
+    const rejectedHost = await authenticateHost(room, 'host-2', 'secret-b');
+    expect(rejectedHost.closeEvents.at(-1)?.reason).toBe('ROOM_ALREADY_ACTIVE');
 
-    await room.fetch(wsRequest('123456', 'host', 'host-1', 'secret-a'));
-    expect(sent(lastServer()).at(-1)).toMatchObject({ type: 'peer-open', roomId: '123456' });
+    const restoredHost = await authenticateHost(room, 'host-1', 'secret-a');
+    expect(sent(restoredHost).at(-1)).toMatchObject({ type: 'peer-open', roomId: '123456' });
 
     const attacker = await joinGuest(room, 'guest-1', {
       reconnectSecret: OTHER_RECONNECT_SECRET,
@@ -4690,8 +4702,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const cleanup = room.webSocketClose(guest);
     await cleanupEntered;
 
-    const reconnect = room.fetch(wsRequest('123456', 'host', 'host-1', 'secret-a'));
+    await room.fetch(wsRequest('123456', 'host', 'host-1'));
     const reconnectedHost = lastServer();
+    const reconnect = room.webSocketMessage(
+      reconnectedHost,
+      JSON.stringify({ type: 'host-auth', secret: 'secret-a' }),
+    );
 
     releaseCleanup();
     await Promise.all([cleanup, reconnect]);
@@ -5363,8 +5379,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       hostReleaseAt: Date.now() + 60_000,
     });
 
-    await room.fetch(wsRequest('123456', 'host', 'host-2', 'secret-b'));
-    const rejected = lastServer();
+    const rejected = await authenticateHost(room, 'host-2', 'secret-b');
     expect(sent(rejected).at(-1)).toEqual({
       type: 'error',
       errorType: 'id-taken',
@@ -5372,8 +5387,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     });
 
     vi.setSystemTime(new Date('2026-05-16T00:01:01.000Z'));
-    await room.fetch(wsRequest('123456', 'host', 'host-3', 'secret-b'));
-    const reclaimed = lastServer();
+    const reclaimed = await authenticateHost(room, 'host-3', 'secret-b');
     expect(sent(reclaimed).at(-1)).toEqual({
       type: 'peer-open',
       peerId: '123456',
@@ -5452,7 +5466,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     });
     expect(await state.storage.get('guestReconnectBindings')).toEqual({ v: 1, entries: [] });
 
-    await room.fetch(wsRequest('123456', 'host', 'host-2', 'secret-b'));
+    await authenticateHost(room, 'host-2', 'secret-b');
     const newEpochGuest = await joinGuest(room, 'guest-1', {
       reconnectSecret: OTHER_RECONNECT_SECRET,
     });

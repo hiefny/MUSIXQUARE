@@ -184,26 +184,26 @@ test.describe('Comprehensive UI', () => {
     await expect(pair.hostPage.locator('#visualizerCanvas')).toBeAttached();
   });
 
-  // ── Role Badge ──────────────────────────────────────────────
+  // ── Account Entry Point ────────────────────────────────────────
 
-  test('host shows HOST role badge', async () => {
+  test('anonymous host shows LOGIN account entry point', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const roleText = await pair.hostPage.evaluate(() => {
-      const el = document.getElementById('role-text');
-      return el?.textContent?.trim() || '';
-    });
-    expect(roleText.toUpperCase()).toContain('HOST');
+    await expect(pair.hostPage.locator('#role-text')).toHaveText('LOGIN');
+    await expect(pair.hostPage.locator('#role-badge')).toHaveAttribute(
+      'aria-controls',
+      'account-dialog',
+    );
   });
 
-  test('guest shows GUEST role badge', async () => {
+  test('anonymous guest shows LOGIN account entry point', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const roleText = await pair.guestPage.evaluate(() => {
-      const el = document.getElementById('role-text');
-      return el?.textContent?.trim() || '';
-    });
-    expect(roleText.length).toBeGreaterThan(0);
+    await expect(pair.guestPage.locator('#role-text')).toHaveText('LOGIN');
+    await expect(pair.guestPage.locator('#role-badge')).toHaveAttribute(
+      'aria-controls',
+      'account-dialog',
+    );
   });
 
   // ── Invite Code Display ──────────────────────────────────────

@@ -5,7 +5,11 @@
  * late-join state sync, whisper, notice, slowmode, and admin ops.
  */
 import { test, expect } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
+import {
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import {
   openChatDrawer,
@@ -13,6 +17,7 @@ import {
   sendChat,
   waitForChatMessage,
   waitForOverlayDismissed,
+  waitForState,
 } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
@@ -39,7 +44,9 @@ async function hasNonSystemChatContaining(
     const container = document.getElementById('chat-messages');
     if (!container) return false;
     // Look at all chat-bubble elements that are NOT system messages
-    const bubbles = container.querySelectorAll('.chat-bubble:not(.system):not(.notice):not(.whisper)');
+    const bubbles = container.querySelectorAll(
+      '.chat-bubble:not(.system):not(.notice):not(.whisper)',
+    );
     for (const bubble of bubbles) {
       if (bubble.textContent?.includes(t)) return true;
     }
@@ -154,12 +161,15 @@ test.describe('Chat Commands', () => {
     await sendChat(pair.hostPage, '/freeze on');
     // Wait for freeze system message to appear on guest (freeze doesn't disable contentEditable,
     // it only blocks at send-time via state check)
-    await pair.guestPage.waitForFunction(() => {
-      const container = document.getElementById('chat-messages');
-      if (!container) return false;
-      const text = container.textContent || '';
-      return text.includes('frozen') || text.includes('동결');
-    }, { timeout: 15_000 });
+    await pair.guestPage.waitForFunction(
+      () => {
+        const container = document.getElementById('chat-messages');
+        if (!container) return false;
+        const text = container.textContent || '';
+        return text.includes('frozen') || text.includes('동결');
+      },
+      { timeout: 15_000 },
+    );
 
     // Guest tries to send message — should be blocked at send-time
     await sendChat(pair.guestPage, 'I am frozen');
@@ -179,21 +189,27 @@ test.describe('Chat Commands', () => {
     // Freeze then unfreeze
     await sendChat(pair.hostPage, '/freeze on');
     // Wait for freeze system message on guest
-    await pair.guestPage.waitForFunction(() => {
-      const container = document.getElementById('chat-messages');
-      if (!container) return false;
-      const text = container.textContent || '';
-      return text.includes('frozen') || text.includes('동결');
-    }, { timeout: 15_000 });
+    await pair.guestPage.waitForFunction(
+      () => {
+        const container = document.getElementById('chat-messages');
+        if (!container) return false;
+        const text = container.textContent || '';
+        return text.includes('frozen') || text.includes('동결');
+      },
+      { timeout: 15_000 },
+    );
 
     await sendChat(pair.hostPage, '/freeze off');
     // Wait for unfreeze system message on guest
-    await pair.guestPage.waitForFunction(() => {
-      const container = document.getElementById('chat-messages');
-      if (!container) return false;
-      const text = container.textContent || '';
-      return text.includes('unfrozen') || text.includes('해제');
-    }, { timeout: 15_000 });
+    await pair.guestPage.waitForFunction(
+      () => {
+        const container = document.getElementById('chat-messages');
+        if (!container) return false;
+        const text = container.textContent || '';
+        return text.includes('unfrozen') || text.includes('해제');
+      },
+      { timeout: 15_000 },
+    );
 
     // Guest should be able to chat again
     await sendChat(pair.guestPage, 'I am free');
@@ -207,12 +223,15 @@ test.describe('Chat Commands', () => {
 
     await sendChat(pair.hostPage, '/freeze on');
     // Wait for freeze system message on guest
-    await pair.guestPage.waitForFunction(() => {
-      const container = document.getElementById('chat-messages');
-      if (!container) return false;
-      const text = container.textContent || '';
-      return text.includes('frozen') || text.includes('동결');
-    }, { timeout: 15_000 });
+    await pair.guestPage.waitForFunction(
+      () => {
+        const container = document.getElementById('chat-messages');
+        if (!container) return false;
+        const text = container.textContent || '';
+        return text.includes('frozen') || text.includes('동결');
+      },
+      { timeout: 15_000 },
+    );
 
     // Host should still be able to send
     await sendChat(pair.hostPage, 'Host can talk');
@@ -229,20 +248,26 @@ test.describe('Chat Commands', () => {
     // Host mutes guest #1
     await sendChat(pair.hostPage, '/mute #1');
     // Wait for mute state to propagate to guest (contentEditable becomes 'false')
-    await pair.guestPage.waitForFunction(() => {
-      const input = document.getElementById('chat-input') as HTMLElement | null;
-      return input?.contentEditable === 'false';
-    }, { timeout: 10000 });
+    await pair.guestPage.waitForFunction(
+      () => {
+        const input = document.getElementById('chat-input') as HTMLElement | null;
+        return input?.contentEditable === 'false';
+      },
+      { timeout: 10000 },
+    );
     const isDisabled = await isChatInputDisabled(pair.guestPage);
     expect(isDisabled).toBe(true);
 
     // Unmute
     await sendChat(pair.hostPage, '/unmute #1');
     // Wait for unmute to propagate (contentEditable becomes 'true' again)
-    await pair.guestPage.waitForFunction(() => {
-      const input = document.getElementById('chat-input') as HTMLElement | null;
-      return input?.contentEditable === 'true';
-    }, { timeout: 10000 });
+    await pair.guestPage.waitForFunction(
+      () => {
+        const input = document.getElementById('chat-input') as HTMLElement | null;
+        return input?.contentEditable === 'true';
+      },
+      { timeout: 10000 },
+    );
 
     const isEnabledAgain = await isChatInputDisabled(pair.guestPage);
     expect(isEnabledAgain).toBe(false);
@@ -269,12 +294,15 @@ test.describe('Chat Commands', () => {
     // Clear
     await sendChat(pair.hostPage, '/clear');
     // Wait for messages to be cleared on guest
-    await pair.guestPage.waitForFunction(() => {
-      const container = document.getElementById('chat-messages');
-      if (!container) return false;
-      const text = container.innerText || '';
-      return !text.includes('Message A') && !text.includes('Message B');
-    }, { timeout: 10_000 });
+    await pair.guestPage.waitForFunction(
+      () => {
+        const container = document.getElementById('chat-messages');
+        if (!container) return false;
+        const text = container.innerText || '';
+        return !text.includes('Message A') && !text.includes('Message B');
+      },
+      { timeout: 10_000 },
+    );
 
     // Old messages should be gone on guest
     const guestText = await getChatText(pair.guestPage);
@@ -354,12 +382,15 @@ test.describe('Chat Commands', () => {
     // Set 5-second slowmode
     await sendChat(pair.hostPage, '/slowmode 5');
     // Wait for slowmode system message on guest (en: "Slow mode" / ko: "슬로우 모드")
-    await pair.guestPage.waitForFunction(() => {
-      const container = document.getElementById('chat-messages');
-      if (!container) return false;
-      const text = (container.textContent || '').toLowerCase();
-      return text.includes('slow') || text.includes('슬로우');
-    }, { timeout: 15_000 });
+    await pair.guestPage.waitForFunction(
+      () => {
+        const container = document.getElementById('chat-messages');
+        if (!container) return false;
+        const text = (container.textContent || '').toLowerCase();
+        return text.includes('slow') || text.includes('슬로우');
+      },
+      { timeout: 15_000 },
+    );
 
     // Guest sends first message (should work)
     await sendChat(pair.guestPage, 'First msg');
@@ -386,11 +417,14 @@ test.describe('Chat Commands', () => {
 
     await sendChat(pair.hostPage, '/filter on');
     // Wait for filter confirmation system message
-    await pair.hostPage.waitForFunction(() => {
-      const container = document.getElementById('chat-messages');
-      if (!container) return false;
-      return (container.innerText || '').length > 10;
-    }, { timeout: 10_000 });
+    await pair.hostPage.waitForFunction(
+      () => {
+        const container = document.getElementById('chat-messages');
+        if (!container) return false;
+        return (container.innerText || '').length > 10;
+      },
+      { timeout: 10_000 },
+    );
 
     // Verify the system message appeared (filter enabled confirmation)
     const hostText = await getChatText(pair.hostPage);
@@ -416,11 +450,14 @@ test.describe('Chat Commands', () => {
 
     await sendChat(pair.guestPage, '/kick #0');
     // Wait for permission error message
-    await pair.guestPage.waitForFunction(() => {
-      const container = document.getElementById('chat-messages');
-      if (!container) return false;
-      return (container.innerText || '').length > 0;
-    }, { timeout: 10_000 });
+    await pair.guestPage.waitForFunction(
+      () => {
+        const container = document.getElementById('chat-messages');
+        if (!container) return false;
+        return (container.innerText || '').length > 0;
+      },
+      { timeout: 10_000 },
+    );
 
     const guestText = await getChatText(pair.guestPage);
     // Should show no-permission error
@@ -440,28 +477,26 @@ test.describe('Chat Commands', () => {
 
   // ── /op + OP commands ──────────────────────────────────────────
 
-  test('/op grants operator and enables host+op commands', async () => {
+  test('/op grants delegated administrator commands', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await openChatDrawer(pair.hostPage);
     await openChatDrawer(pair.guestPage);
 
-    // Host grants OP to guest
+    // Host grants the standard delegated-administrator capability set.
     await sendChat(pair.hostPage, '/op #1');
-    // Wait for OP grant system message on guest
-    await pair.guestPage.waitForFunction(() => {
-      const container = document.getElementById('chat-messages');
-      if (!container) return false;
-      return (container.innerText || '').length > 0;
-    }, { timeout: 10_000 });
+    await waitForState(pair.guestPage, 'network.isOperator', true);
 
-    // Guest should now see more commands in /help
+    // Delegated administrators receive moderation/member commands, but room
+    // configuration commands remain owner-only.
     await sendChat(pair.guestPage, '/help');
-    await waitForChatMessage(pair.guestPage, '/clear');
+    await waitForChatMessage(pair.guestPage, '/kick');
 
     const guestText = await getChatText(pair.guestPage);
-    // Use innerText which preserves line breaks, making /clear and /mute findable
-    expect(guestText).toContain('/clear');
-    expect(guestText).toContain('/mute');
+    expect(guestText).toContain('/kick');
+    expect(guestText).toContain('/notice');
+    expect(guestText).not.toContain('/clear');
+    expect(guestText).not.toContain('/mute');
+    expect(guestText).not.toContain('/op');
   });
 
   test('/deop revokes operator permissions', async () => {
@@ -472,18 +507,24 @@ test.describe('Chat Commands', () => {
     // Grant OP — guest receives OPERATOR_GRANT which sets network.isOperator = true
     await sendChat(pair.hostPage, '/op #1');
     // Wait for operator state to propagate to guest
-    await pair.guestPage.waitForFunction(() => {
-      const get = (window as any).__MUSIXQUARE_GET_STATE__;
-      return get ? get('network.isOperator') === true : false;
-    }, { timeout: 15_000 });
+    await pair.guestPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        return get ? get('network.isOperator') === true : false;
+      },
+      { timeout: 15_000 },
+    );
 
     // Revoke OP
     await sendChat(pair.hostPage, '/deop #1');
     // Wait for operator state to be revoked on guest
-    await pair.guestPage.waitForFunction(() => {
-      const get = (window as any).__MUSIXQUARE_GET_STATE__;
-      return get ? get('network.isOperator') === false : false;
-    }, { timeout: 15_000 });
+    await pair.guestPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        return get ? get('network.isOperator') === false : false;
+      },
+      { timeout: 15_000 },
+    );
 
     // Guest should only see basic commands
     await sendChat(pair.guestPage, '/help');
@@ -512,7 +553,9 @@ test.describe('Chat Commands', () => {
 
   test('/freeze + late-join guest cannot chat', async ({ browser }) => {
     // Setup host only
-    const hostContext = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const hostContext = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const hostPage = await hostContext.newPage();
 
     // Inject PeerJS config
@@ -529,15 +572,20 @@ test.describe('Chat Commands', () => {
     // Freeze chat BEFORE guest joins
     await sendChat(hostPage, '/freeze on');
     // Wait for freeze confirmation (en: "frozen" / ko: "동결")
-    await hostPage.waitForFunction(() => {
-      const container = document.getElementById('chat-messages');
-      if (!container) return false;
-      const text = container.textContent || '';
-      return text.includes('frozen') || text.includes('동결');
-    }, { timeout: 15_000 });
+    await hostPage.waitForFunction(
+      () => {
+        const container = document.getElementById('chat-messages');
+        if (!container) return false;
+        const text = container.textContent || '';
+        return text.includes('frozen') || text.includes('동결');
+      },
+      { timeout: 15_000 },
+    );
 
     // Now create guest and join
-    const guestContext = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const guestContext = await browser.newContext({
+      permissions: ['clipboard-read', 'clipboard-write'],
+    });
     const guestPage = await guestContext.newPage();
     await injectPeerServer(guestPage);
     await guestPage.goto('/');
@@ -547,10 +595,13 @@ test.describe('Chat Commands', () => {
 
     await waitForOverlayDismissed(guestPage);
     // Wait for freeze state to propagate to late-join guest via welcome message
-    await guestPage.waitForFunction(() => {
-      const get = (window as any).__MUSIXQUARE_GET_STATE__;
-      return get ? get('network.chatFrozen') === true : false;
-    }, { timeout: 15_000 });
+    await guestPage.waitForFunction(
+      () => {
+        const get = (window as any).__MUSIXQUARE_GET_STATE__;
+        return get ? get('network.chatFrozen') === true : false;
+      },
+      { timeout: 15_000 },
+    );
 
     await openChatDrawer(guestPage);
 
@@ -580,12 +631,15 @@ test.describe('Chat Commands', () => {
     // Unmute by #1
     await sendChat(pair.hostPage, '/unmute #1');
     // Wait for unmute confirmation message
-    await pair.hostPage.waitForFunction(() => {
-      const container = document.getElementById('chat-messages');
-      if (!container) return false;
-      const bubbles = container.querySelectorAll('.chat-bubble.system, .chat-bubble.notice');
-      return bubbles.length >= 2;
-    }, { timeout: 10_000 });
+    await pair.hostPage.waitForFunction(
+      () => {
+        const container = document.getElementById('chat-messages');
+        if (!container) return false;
+        const bubbles = container.querySelectorAll('.chat-bubble.system, .chat-bubble.notice');
+        return bubbles.length >= 2;
+      },
+      { timeout: 10_000 },
+    );
     hostText = await getChatText(pair.hostPage);
     expect(hostText.length).toBeGreaterThan(0);
   });

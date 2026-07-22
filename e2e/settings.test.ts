@@ -83,7 +83,7 @@ test.describe('Settings Panel', () => {
   // Language selection uses a dialog rather than inline chips:
   // "Select" (#btn-language-select) opens #language-dialog-overlay, which
   // holds .language-option[data-lang] entries. Active state lives on the
-  // chosen option (class "active" + aria-selected) and on the grid button
+  // chosen option (class "active" + aria-pressed) and on the grid button
   // (#btn-language-select vs #btn-language-system).
 
   /** Open the language dialog from the settings General panel. */
@@ -174,10 +174,10 @@ test.describe('Settings Panel', () => {
       .locator('.language-option[data-lang="en"]')
       .evaluate((el) => ({
         active: el.classList.contains('active'),
-        selected: el.getAttribute('aria-selected'),
+        pressed: el.getAttribute('aria-pressed'),
       }));
     expect(optionState.active).toBe(true);
-    expect(optionState.selected).toBe('true');
+    expect(optionState.pressed).toBe('true');
 
     // Explicit selection also marks the grid's "Select" button active
     // (vs "Use system language").

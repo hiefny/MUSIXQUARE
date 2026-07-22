@@ -11,6 +11,7 @@ import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import {
   readPlaybackProjection,
   waitForClass,
+  waitForPlaylistCount,
   waitForPlaybackProjection,
   waitForPlaybackProjectionIn,
 } from './helpers/wait.ts';
@@ -135,10 +136,22 @@ test.describe('YouTube Integration', () => {
 
     // Uploading while another track is active appends to the queue and warms
     // its preload; it does not implicitly interrupt the active YouTube item.
-    const localTrack = pair.hostPage
-      .locator('#playlist-ui > .playlist-entry > .track-item')
-      .filter({ hasText: 'test-01.mp3' });
-    await expect(localTrack).toHaveCount(1);
+    // Display titles are metadata-aware and hide recognized audio extensions,
+    // so assert the canonical queue item and select its appended row rather
+    // than coupling this ownership test to user-facing title formatting.
+    await waitForPlaylistCount(pair.hostPage, 2);
+    const appendedItem = await pair.hostPage.evaluate(() => {
+      const get = (window as unknown as Record<string, (path: string) => unknown>)
+        .__MUSIXQUARE_GET_STATE__;
+      const items = get?.('playlist.items');
+      const item = Array.isArray(items) ? items.at(-1) : null;
+      if (!item || typeof item !== 'object') return null;
+      const queueItem = item as { type?: unknown; name?: unknown };
+      return { type: queueItem.type, name: queueItem.name };
+    });
+    expect(appendedItem).toEqual({ type: 'file', name: 'test-01.mp3' });
+
+    const localTrack = pair.hostPage.locator('#playlist-ui > .playlist-entry > .track-item').last();
     await expect(localTrack).toBeVisible();
     expect(await readPlaybackProjection(pair.hostPage)).toBe('PLAYING_YOUTUBE');
 

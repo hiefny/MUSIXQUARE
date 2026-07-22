@@ -10,13 +10,13 @@
        --------------------------------------------------- */
     body {
       display: grid;
-      /* Keep the dashboard compact at ordinary desktop sizes, but let the
-         information panels gain a little width on 4K/5K displays instead of
-         leaving all additional space to the play panel. */
+      /* Preserve the familiar 420px side panels at FHD, then distribute
+         additional width at a 3:1:1 ratio so ultra-wide screens invest more
+         space in playlist/chat and settings instead of empty play gutters. */
       grid-template-columns:
-        minmax(0, 1fr)
-        clamp(420px, 12vw, 560px)
-        clamp(420px, 12vw, 560px);
+        minmax(0, 3fr)
+        minmax(420px, 1fr)
+        minmax(420px, 1fr);
       grid-template-rows: var(--header-height) 1fr 1fr;
       grid-template-areas:
         'header header header'
@@ -167,7 +167,6 @@
        4. Specific Panel: Play (Main)
        --------------------------------------------------- */
     #tab-play {
-      --play-content-max: 1600px;
       grid-area: tab-play;
       flex-direction: column;
       justify-content: flex-start;
@@ -240,8 +239,8 @@
     }
 
     .vinyl-wrapper {
-      width: clamp(160px, min(22vw, 30vh), 720px);
-      height: clamp(160px, min(22vw, 30vh), 720px);
+      width: max(160px, min(22vw, 30vh));
+      height: max(160px, min(22vw, 30vh));
       flex-shrink: 0;
       flex-basis: auto;
       aspect-ratio: auto;
@@ -251,19 +250,32 @@
     }
 
     body.viz-spectrum .vinyl-wrapper {
-      width: min(calc(100% - 64px), 1400px);
-      height: clamp(160px, min(22vw, 30vh), 720px);
+      width: calc(100% - 64px);
+      height: max(160px, min(22vw, 30vh));
       aspect-ratio: auto;
       max-width: none;
       padding: 0;
     }
 
+    /* On QHD/4K-class canvases, let visualizers approach the visual weight of
+       the height-constrained video without changing familiar FHD proportions. */
+    @media (min-width: 2560px) and (min-height: 1440px) {
+      .vinyl-wrapper {
+        width: max(160px, min(28vw, 42vh));
+        height: max(160px, min(28vw, 42vh));
+      }
+
+      body.viz-spectrum .vinyl-wrapper {
+        width: calc(100% - 64px);
+        height: max(160px, min(28vw, 42vh));
+      }
+    }
+
     .video-wrapper {
       /* The iframe itself is fluid. Keep its parent proportional to the play
-         column and available height, with a conservative 1600px ceiling for
-         large dashboards. This preserves the current FHD size while avoiding
-         the old 1080px island in a roughly 3000px-wide 4K play panel. */
-      width: min(90%, var(--play-content-max), calc((100dvh - 320px) * 16 / 9));
+         column and available height. The vertical budget is the effective
+         upper bound on large dashboards. */
+      width: min(90%, calc((100dvh - 320px) * 16 / 9));
       max-width: none;
       /* Center in the space above the controls. */
       margin: auto auto 0 auto;
@@ -273,14 +285,14 @@
 
     /* Play Controller adjustments */
     .track-box {
-      width: min(calc(100% - 64px), var(--play-content-max));
+      width: calc(100% - 64px);
       padding: 0;
       margin-left: auto;
       margin-right: auto;
     }
 
     .controls-area {
-      width: min(calc(100% - 64px), var(--play-content-max));
+      width: calc(100% - 64px);
       max-width: none;
       box-sizing: border-box;
       padding: 0;

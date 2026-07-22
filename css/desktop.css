@@ -10,7 +10,13 @@
        --------------------------------------------------- */
     body {
       display: grid;
-      grid-template-columns: 1fr 420px 420px;
+      /* Keep the dashboard compact at ordinary desktop sizes, but let the
+         information panels gain a little width on 4K/5K displays instead of
+         leaving all additional space to the play panel. */
+      grid-template-columns:
+        minmax(0, 1fr)
+        clamp(420px, 12vw, 560px)
+        clamp(420px, 12vw, 560px);
       grid-template-rows: var(--header-height) 1fr 1fr;
       grid-template-areas:
         'header header header'
@@ -161,6 +167,7 @@
        4. Specific Panel: Play (Main)
        --------------------------------------------------- */
     #tab-play {
+      --play-content-max: 1600px;
       grid-area: tab-play;
       flex-direction: column;
       justify-content: flex-start;
@@ -233,8 +240,8 @@
     }
 
     .vinyl-wrapper {
-      width: clamp(160px, min(22vw, 30vh), 320px);
-      height: clamp(160px, min(22vw, 30vh), 320px);
+      width: clamp(160px, min(22vw, 30vh), 520px);
+      height: clamp(160px, min(22vw, 30vh), 520px);
       flex-shrink: 0;
       flex-basis: auto;
       aspect-ratio: auto;
@@ -244,17 +251,20 @@
     }
 
     body.viz-spectrum .vinyl-wrapper {
-      width: 100%;
-      height: clamp(160px, min(22vw, 30vh), 320px);
+      width: min(calc(100% - 64px), 1400px);
+      height: clamp(160px, min(22vw, 30vh), 520px);
       aspect-ratio: auto;
       max-width: none;
       padding: 0 32px;
     }
 
     .video-wrapper {
-      width: 100%;
-      /* Bound video size by both horizontal and vertical control space. */
-      max-width: min(90%, 1080px, calc((100vh - 360px) * 16 / 9));
+      /* The iframe itself is fluid. Keep its parent proportional to the play
+         column and available height, with a conservative 1600px ceiling for
+         large dashboards. This preserves the current FHD size while avoiding
+         the old 1080px island in a roughly 3000px-wide 4K play panel. */
+      width: min(90%, var(--play-content-max), calc((100dvh - 320px) * 16 / 9));
+      max-width: none;
       /* Center in the space above the controls. */
       margin: auto auto 0 auto;
       border-radius: 20px;
@@ -263,13 +273,20 @@
 
     /* Play Controller adjustments */
     .track-box {
+      width: min(calc(100% - 64px), var(--play-content-max));
       padding: 0 32px;
+      margin-left: auto;
+      margin-right: auto;
     }
 
     .controls-area {
-      max-width: 100%;
+      width: min(calc(100% - 64px), var(--play-content-max));
+      max-width: none;
+      box-sizing: border-box;
       padding: 0 32px;
       margin-top: auto;
+      margin-left: auto;
+      margin-right: auto;
       flex-grow: 0;
       padding-bottom: 32px;
     }

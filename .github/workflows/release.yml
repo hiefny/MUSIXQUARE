@@ -37,7 +37,7 @@ jobs:
     name: Validate release candidate
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout exact release commit
@@ -76,6 +76,9 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+      - name: Critical runtime coverage
+        run: npm run test:coverage:critical
 
       - name: Install Playwright browser
         run: npx playwright install --with-deps chromium
@@ -154,6 +157,13 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npm run --silent wrangler -- whoami
+
+      - name: Verify partial release dependency compatibility
+        if: inputs.target != 'all'
+        timeout-minutes: 5
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/release-deployment-state.mjs compatibility "$RELEASE_TARGET" "${{ github.sha }}"
 
       - name: Verify Developer API D1 migration credentials
         if: inputs.apply_developer_api_d1 && (inputs.target == 'all' || inputs.target == 'developer-api')

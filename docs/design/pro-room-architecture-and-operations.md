@@ -606,9 +606,11 @@ change or `pro-room` for a backward-compatible PRO-only change, approve the
 IDs. The workflow owns the dependency order above, immutable app artifact,
 live smokes, and conflict-aware rollback.
 
-The local `deploy:*` scripts are emergency/operator primitives only. They are
-not the normal release path and must follow the exceptional procedure in
-`docs/hotfix-procedure.md`; do not run them from tests or routine validation.
+The local `deploy:*` scripts are non-deploying guards that always stop. The
+separate `emergency:deploy:*` scripts are emergency/operator primitives only;
+they require the target-and-commit confirmation described in
+`docs/hotfix-procedure.md`, generate immutable Git provenance for every Worker
+deployment internally, and are not a routine validation or release path.
 
 After deployment but before activation:
 

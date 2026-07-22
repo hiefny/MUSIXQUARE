@@ -74,8 +74,8 @@ rate limiting, and device-specific sync compensation intact.
     has dependency-aware conflict handling.
 12. **Forward deployment compatibility:** an app-only release could publish the
     first-frame client against an old signaling Worker. Both the approved
-    workflow and emergency `deploy:app` command now prove the live signaling
-    contract before touching the app.
+    workflow and emergency `emergency:deploy:app` command now prove the live
+    signaling contract before touching the app.
 13. **Accessibility semantics:** the manual-sync overlay lacked a complete
     modal/focus lifecycle, language/theme controls advertised listbox semantics
     without option elements, and the skip target was not programmatically

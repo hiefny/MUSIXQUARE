@@ -2,6 +2,9 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
+
+import { executeNpm, npmInvocation } from './npm-invocation.mjs';
 
 const SCHEMA_VERSION = 1;
 const DEFAULT_DIRECTORY = 'release-artifacts/deployments';
@@ -36,6 +39,75 @@ const TARGETS = {
   },
 };
 
+const RELEASE_TARGET_WORKERS = Object.freeze({
+  'remote-share': ['remote-share'],
+  signaling: ['signaling'],
+  'pro-room': ['pro-room'],
+  'developer-api': ['developer-api-facade', 'developer-api'],
+  app: ['app'],
+  all: Object.keys(TARGETS),
+});
+
+// Files that become production code or deployment configuration for each
+// Worker. Shared modules intentionally appear in every Worker that imports
+// them: a partial release must not publish only one copy of an identity or
+// protocol contract that changed in the same source revision.
+const TARGET_RUNTIME_PATHS = Object.freeze({
+  'remote-share': ['cloudflare/remote-share-worker.js', 'cloudflare/wrangler.remote-share.toml'],
+  signaling: [
+    'cloudflare/signaling-worker.js',
+    'cloudflare/standard-room-account-assertion.js',
+    'cloudflare/account-nickname.js',
+    'src/chat/profanity-patterns.generated.json',
+    'cloudflare/wrangler.signaling.toml',
+  ],
+  'pro-room': [
+    'cloudflare/pro-room-worker.js',
+    'cloudflare/account-assertion.js',
+    'cloudflare/account-nickname.js',
+    'src/chat/profanity-patterns.generated.json',
+    'cloudflare/wrangler.pro-room.toml',
+  ],
+  'developer-api-facade': [
+    'cloudflare/developer-api-facade-worker.js',
+    'cloudflare/wrangler.developer-api-facade.toml',
+  ],
+  'developer-api': [
+    'cloudflare/developer-api-worker.js',
+    'cloudflare/developer-api.schema.sql',
+    'cloudflare/developer-api.effects-scopes.migration.sql',
+    'cloudflare/developer-api.effects-scopes.rollback.sql',
+    'cloudflare/wrangler.developer-api.toml',
+  ],
+  app: [
+    'src',
+    ':(exclude)src/**/__tests__/**',
+    ':(exclude)src/**/*.test.ts',
+    ':(exclude)src/**/*.test.tsx',
+    'public',
+    'css',
+    '.workshop/landing',
+    '.workshop/privacy',
+    '.workshop/terms',
+    '.workshop/faq',
+    '.workshop/developers',
+    'index.html',
+    'vite.config.ts',
+    'tsconfig.json',
+    'cloudflare/app-static-assets/_headers',
+    'scripts/materialize-app-static-headers.mjs',
+    'cloudflare/app-worker.js',
+    'cloudflare/pro-bot.js',
+    'cloudflare/account-auth.js',
+    'cloudflare/account-assertion.js',
+    'cloudflare/standard-room-account-assertion.js',
+    'cloudflare/account-nickname.js',
+    'cloudflare/wrangler.app.toml',
+  ],
+});
+
+const RELEASE_GIT_SHA_RE = /(?:^|\s)git:([0-9a-f]{40})(?=\s|$)/i;
+
 function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, 'utf8'));
 }
@@ -51,6 +123,120 @@ function targetDefinition(target) {
     throw new Error(`Unknown release target: ${target}`);
   }
   return definition;
+}
+
+function releaseTargetWorkers(releaseTarget) {
+  const workers = RELEASE_TARGET_WORKERS[releaseTarget];
+  if (!workers) throw new Error(`Unknown release target: ${releaseTarget}`);
+  return new Set(workers);
+}
+
+function runtimePathsForWorker(worker) {
+  const paths = TARGET_RUNTIME_PATHS[worker];
+  if (!paths) throw new Error(`Unknown Worker target: ${worker}`);
+  return [...paths];
+}
+
+function releaseGitSha(message) {
+  if (typeof message !== 'string') return null;
+  return RELEASE_GIT_SHA_RE.exec(message)?.[1]?.toLowerCase() || null;
+}
+
+function rollbackDeploymentMessage(state, fallbackMessage) {
+  const restoredGitSha = releaseGitSha(state?.beforeMessage);
+  return restoredGitSha ? `git:${restoredGitSha} ${fallbackMessage}` : fallbackMessage;
+}
+
+function runGit(args, options = {}) {
+  return execFileSync('git', args, {
+    encoding: 'utf8',
+    stdio: options.capture ? ['ignore', 'pipe', 'inherit'] : 'inherit',
+  });
+}
+
+function changedRuntimePaths(baseSha, headSha, runtimePaths, options = {}) {
+  const runner = options.runner || runGit;
+  try {
+    runner(['merge-base', '--is-ancestor', baseSha, headSha], { capture: true });
+  } catch (error) {
+    throw new Error(
+      `Deployed commit ${baseSha} is not an ancestor of release commit ${headSha}; ` +
+        `a partial release cannot prove compatibility.`,
+      { cause: error },
+    );
+  }
+  const stdout = runner(
+    [
+      'diff',
+      '--name-only',
+      '--diff-filter=ACDMRTUXB',
+      `${baseSha}..${headSha}`,
+      '--',
+      ...runtimePaths,
+    ],
+    { capture: true },
+  );
+  return [...new Set(String(stdout).split(/\r?\n/).filter(Boolean))].sort();
+}
+
+function sortedObject(value) {
+  if (Array.isArray(value)) return value.map(sortedObject);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortedObject(value[key])]),
+  );
+}
+
+function appRuntimeDependencySnapshot(revision, options = {}) {
+  const runner = options.runner || runGit;
+  const readGitJson = (path) => {
+    const source = runner(['show', `${revision}:${path}`], { capture: true });
+    try {
+      return JSON.parse(source);
+    } catch (error) {
+      throw new Error(`${path} at ${revision} is not valid JSON.`, { cause: error });
+    }
+  };
+  const packageJson = readGitJson('package.json');
+  const packageLock = readGitJson('package-lock.json');
+  const runtimePackageFields = [
+    'version',
+    'resolved',
+    'integrity',
+    'link',
+    'dependencies',
+    'optionalDependencies',
+    'peerDependencies',
+    'bundledDependencies',
+  ];
+  const productionPackages = Object.fromEntries(
+    Object.entries(packageLock.packages || {})
+      .filter(([path, record]) => path !== '' && record?.dev !== true)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+      .map(([path, record]) => [
+        path,
+        Object.fromEntries(
+          runtimePackageFields
+            .filter((field) => record[field] !== undefined)
+            .map((field) => [field, sortedObject(record[field])]),
+        ),
+      ]),
+  );
+  return {
+    dependencies: sortedObject(packageJson.dependencies || {}),
+    lockfileVersion: packageLock.lockfileVersion ?? null,
+    productionPackages,
+  };
+}
+
+function changedAppRuntimeDependencies(baseSha, headSha, options = {}) {
+  const before = appRuntimeDependencySnapshot(baseSha, options);
+  const after = appRuntimeDependencySnapshot(headSha, options);
+  return isDeepStrictEqual(before, after)
+    ? []
+    : ['package.json#dependencies', 'package-lock.json#production-resolution'];
 }
 
 function productionVersion(deployment, label) {
@@ -131,6 +317,7 @@ function prepare(target, directory) {
     releaseMessage,
     beforeDeploymentId: before.id || null,
     beforeVersionId: productionVersion(before, `${target} before deployment`),
+    beforeMessage: deploymentMessage(before),
     attempted: false,
     afterDeploymentId: null,
     afterVersionId: null,
@@ -188,12 +375,8 @@ function recordedVersion(target, directory) {
   process.stdout.write(state.afterVersionId);
 }
 
-function npmExecutable() {
-  return process.platform === 'win32' ? 'npm.cmd' : 'npm';
-}
-
 function runWrangler(args, options = {}) {
-  return execFileSync(npmExecutable(), ['run', '--silent', 'wrangler', '--', ...args], {
+  return executeNpm(['run', '--silent', 'wrangler', '--', ...args], {
     encoding: 'utf8',
     stdio: options.capture ? ['ignore', 'pipe', 'inherit'] : 'inherit',
   });
@@ -203,6 +386,7 @@ function queryCurrentOnce(target, config, outputPath, runner = runWrangler) {
   const stdout = runner(['deployments', 'status', '--config', config, '--json'], {
     capture: true,
   });
+  mkdirSync(dirname(outputPath), { recursive: true });
   writeFileSync(outputPath, stdout, 'utf8');
   const deployment = JSON.parse(stdout);
   return {
@@ -219,6 +403,108 @@ function queryCurrent(target, config, outputPath, options = {}) {
     () => queryCurrentOnce(target, config, outputPath, options.runner),
     { ...QUERY_RETRY, ...options.retry },
   );
+}
+
+function verifyPartialReleaseCompatibility(releaseTarget, headSha, directory, options = {}) {
+  const selectedWorkers = releaseTargetWorkers(releaseTarget);
+  const reportPath = resolve(directory, 'partial-release-compatibility.json');
+  const report = {
+    schemaVersion: SCHEMA_VERSION,
+    releaseTarget,
+    releaseGitSha: headSha,
+    startedAt: new Date().toISOString(),
+    status: releaseTarget === 'all' ? 'not-required' : 'pending',
+    results: [],
+  };
+
+  if (releaseTarget === 'all') {
+    report.completedAt = new Date().toISOString();
+    writeJson(reportPath, report);
+    console.log('Full release selected; partial-release compatibility gate is not required.');
+    return report;
+  }
+  if (!/^[0-9a-f]{40}$/i.test(headSha || '')) {
+    throw new Error('A full 40-character release Git SHA is required for compatibility checks.');
+  }
+
+  let failed = false;
+  const query = options.queryCurrent || queryCurrent;
+  const diffRuntimePaths = options.changedRuntimePaths || changedRuntimePaths;
+  const diffRuntimeDependencies =
+    options.changedAppRuntimeDependencies || changedAppRuntimeDependencies;
+  for (const [target, definition] of Object.entries(TARGETS)) {
+    if (selectedWorkers.has(target)) continue;
+    const result = {
+      target,
+      status: 'pending',
+      runtimePaths: TARGET_RUNTIME_PATHS[target],
+    };
+    report.results.push(result);
+    try {
+      const current = query(
+        target,
+        definition.config,
+        resolve(directory, `${target}-compatibility-current.json`),
+        options.queryOptions,
+      );
+      result.deployedVersionId = current.versionId || null;
+      result.deployedMessage = current.message || null;
+      result.deployedGitSha = releaseGitSha(current.message);
+      if (!result.deployedGitSha) {
+        throw new Error(
+          `${target} production deployment does not record a git:<40-char-sha> release message.`,
+        );
+      }
+      const changedPaths = diffRuntimePaths(
+        result.deployedGitSha,
+        headSha.toLowerCase(),
+        TARGET_RUNTIME_PATHS[target],
+        { target, kind: 'runtime' },
+      );
+      if (target === 'app') {
+        const manifestChanges = diffRuntimePaths(
+          result.deployedGitSha,
+          headSha.toLowerCase(),
+          ['package.json', 'package-lock.json'],
+          { target, kind: 'dependency-manifest' },
+        );
+        if (manifestChanges.length > 0) {
+          changedPaths.push(
+            ...diffRuntimeDependencies(result.deployedGitSha, headSha.toLowerCase(), {
+              runner: options.gitRunner,
+            }),
+          );
+        }
+      }
+      result.changedPaths = [...new Set(changedPaths)].sort();
+      if (result.changedPaths.length > 0) {
+        result.status = 'incompatible';
+        result.error =
+          `${target} has undeployed production-source changes. ` +
+          `Use target 'all' or first publish a source-equivalent ${target} release.`;
+        failed = true;
+      } else {
+        result.status = 'compatible';
+      }
+    } catch (error) {
+      result.status = 'failed';
+      result.error = error instanceof Error ? error.message : String(error);
+      failed = true;
+    }
+  }
+
+  report.completedAt = new Date().toISOString();
+  report.status = failed ? 'failed' : 'compatible';
+  writeJson(reportPath, report);
+  console.log(`Partial-release compatibility: ${reportPath} (${report.status})`);
+  if (failed) {
+    const blocked = report.results
+      .filter((result) => result.status !== 'compatible')
+      .map((result) => `${result.target}: ${result.error}`)
+      .join(' | ');
+    throw new Error(`Partial release compatibility check failed. ${blocked}`);
+  }
+  return report;
 }
 
 function preflight(target, directory, options = {}) {
@@ -516,9 +802,10 @@ function rollback(directory) {
     }
 
     try {
-      const rollbackMessage =
+      const rollbackContext =
         process.env.RELEASE_ROLLBACK_MESSAGE ||
         `rollback:${process.env.GITHUB_SHA || 'unknown'} run:${process.env.GITHUB_RUN_ID || 'local'}`;
+      const rollbackMessage = rollbackDeploymentMessage(state, rollbackContext);
       const rollbackAttempt = runRollbackWithRetry(state, rollbackMessage, {
         outputPath: paths.rollbackCurrent,
       });
@@ -584,11 +871,13 @@ function summary(directory) {
 }
 
 function main() {
-  const [mode, targetArgument, directoryArgument] = process.argv.slice(2);
+  const [mode, targetArgument, valueArgument, directoryArgument] = process.argv.slice(2);
   const directory = resolve(
-    mode === 'verify-current' || mode === 'rollback' || mode === 'summary'
-      ? targetArgument || DEFAULT_DIRECTORY
-      : directoryArgument || DEFAULT_DIRECTORY,
+    mode === 'compatibility'
+      ? directoryArgument || DEFAULT_DIRECTORY
+      : mode === 'verify-current' || mode === 'rollback' || mode === 'summary'
+        ? targetArgument || DEFAULT_DIRECTORY
+        : valueArgument || DEFAULT_DIRECTORY,
   );
 
   if (mode === 'prepare') prepare(targetArgument, directory);
@@ -596,12 +885,14 @@ function main() {
   else if (mode === 'attempt') markAttempt(targetArgument, directory);
   else if (mode === 'record') record(targetArgument, directory);
   else if (mode === 'version') recordedVersion(targetArgument, directory);
-  else if (mode === 'verify-current') verifyCurrentRelease(directory);
+  else if (mode === 'compatibility') {
+    verifyPartialReleaseCompatibility(targetArgument, valueArgument, directory);
+  } else if (mode === 'verify-current') verifyCurrentRelease(directory);
   else if (mode === 'rollback') rollback(directory);
   else if (mode === 'summary') summary(directory);
   else {
     throw new Error(
-      'Usage: node scripts/release-deployment-state.mjs <prepare|preflight|attempt|record|version> <target> [directory] | <verify-current|rollback|summary> [directory]',
+      'Usage: node scripts/release-deployment-state.mjs <prepare|preflight|attempt|record|version> <target> [directory] | compatibility <release-target> <git-sha> [directory] | <verify-current|rollback|summary> [directory]',
     );
   }
 }
@@ -612,15 +903,23 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
 
 export {
   attemptedStates,
+  changedRuntimePaths,
+  changedAppRuntimeDependencies,
   deploymentMessage,
+  npmInvocation,
   preflight,
   productionVersion,
   queryCurrent,
+  releaseGitSha,
+  releaseTargetWorkers,
+  runtimePathsForWorker,
+  rollbackDeploymentMessage,
   retrySync,
   rollbackDisposition,
   rollbackDependencyBlock,
   rollbackSkipTargets,
   runRollbackWithRetry,
+  verifyPartialReleaseCompatibility,
   verifyCurrentRelease,
   verifyProductionVersion,
 };

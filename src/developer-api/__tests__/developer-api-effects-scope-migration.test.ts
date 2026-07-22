@@ -10,6 +10,7 @@ import {
   runEffectsScopeReleaseRollback,
   scopeMaskLimitFromSchema,
 } from '../../../scripts/developer-api-effects-scope-migration.mjs';
+import { emergencyDeploymentPlan } from '../../../scripts/emergency-deploy.mjs';
 
 function schemaResult(limit: number): string {
   return JSON.stringify([
@@ -121,13 +122,10 @@ describe('Developer API effects-scope migration', () => {
     expect(deployBlock).not.toContain('developer-api:schema:remote');
     expect(workflow.match(/developer-api:schema:remote/g)).toHaveLength(1);
 
-    const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
-      scripts: Record<string, string>;
-    };
-    for (const scriptName of ['deploy:developer-api-stack', 'deploy:all-workers']) {
-      const script = packageJson.scripts[scriptName];
-      expect(script.indexOf('cloudflare/wrangler.developer-api.toml')).toBeLessThan(
-        script.indexOf('developer-api:effects-scopes:remote'),
+    for (const target of ['developer-api-stack', 'all-workers']) {
+      const plan = emergencyDeploymentPlan(target, '1'.repeat(40)).flat().join(' ');
+      expect(plan.indexOf('cloudflare/wrangler.developer-api.toml')).toBeLessThan(
+        plan.indexOf('developer-api:effects-scopes:remote'),
       );
     }
   });

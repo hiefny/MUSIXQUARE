@@ -33,6 +33,24 @@ npm run wrangler -- r2 bucket cors set musixquare-remote-share --file cloudflare
 npm run wrangler -- r2 bucket cors set musixquare-pro-media --file cloudflare/r2-cors.pro-media.json --config cloudflare/wrangler.pro-room.toml
 ```
 
+The checked-in source-to-live mapping is
+`cloudflare/ops-drift.contract.json`. The manually dispatched
+`Operations Drift Audit` GitHub workflow performs **GET-only** comparisons for
+all three R2 policies and the effective `main` branch rules. It never applies a
+CORS policy or edits a GitHub ruleset. The workflow runs only for `main` and
+injects credentials only into the live comparison step. It prefers the
+production environment's `CLOUDFLARE_DRIFT_AUDIT_TOKEN` with R2 configuration
+read access only, falling back to the existing `CLOUDFLARE_API_TOKEN` during
+credential migration. GitHub follows the same optional
+`GITHUB_DRIFT_AUDIT_TOKEN` then built-in `github.token` order. Source CORS
+objects are exact-key validated so misspelled fields fail before any live
+query; the audit script contains no mutating HTTP method.
+
+The workflow retains a JSON report for 90 days and writes a compact table to
+the Actions summary. A missing credential, API error, missing required branch
+rule, or CORS mismatch fails the job. Rows marked `MANUAL` were deliberately
+not queried and must never be interpreted as passing.
+
 ## Worker Secret Inventory
 
 `wrangler secret list` prints names and types, not values. Compare names to the
@@ -98,7 +116,23 @@ Developer API release now compares the deployed Worker's recorded git SHA with
 these tracked files and refuses a schema-changing release unless the explicit
 D1 option is enabled.
 
-Finally, verify the dashboard-only controls that source cannot enforce:
+`cloudflare/d1-migrations.manifest.json` is the fail-closed inventory for all
+checked-in D1 baselines and migrations. `scripts/check-d1-migration-contract.mjs`
+rejects an unregistered `.schema.sql`, `.migration.sql`, or `.rollback.sql`
+file. A migration must declare one of two honest contracts:
+
+- `paired`: a matching checked-in rollback SQL file plus the ordering rule that
+  schema rollback happens before Worker rollback;
+- `forward-only`: `rollback: null` plus a concrete runbook and a roll-forward,
+  matched-Worker-floor, or provider-restore recovery boundary.
+
+The manifest does not claim that a declarative baseline or arbitrary DDL can be
+reversed automatically. Any destructive future schema change still needs its
+own reviewed migration entry and recovery decision.
+
+Finally, verify the dashboard-only controls that source cannot enforce. They
+are listed as `manual-only` in `ops-drift.contract.json` so the automated audit
+reports the gap instead of silently claiming success:
 Cloudflare Access/MFA for `/admin`, WAF/rate-limit rules for session and paid
 API routes, Worker/R2/D1 spend notifications, and the absence of a second
 Git-triggered production deployment path. Record the review date without

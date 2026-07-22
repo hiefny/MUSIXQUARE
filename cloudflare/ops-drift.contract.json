@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "r2Cors": [
+    {
+      "bucket": "musixquare-demo-tracks",
+      "source": "cloudflare/r2-cors.demo-tracks.json"
+    },
+    {
+      "bucket": "musixquare-remote-share",
+      "source": "cloudflare/r2-cors.remote-share.json"
+    },
+    {
+      "bucket": "musixquare-pro-media",
+      "source": "cloudflare/r2-cors.pro-media.json"
+    }
+  ],
+  "github": {
+    "repository": "hiefny/MUSIXQUARE",
+    "branch": "main",
+    "requiredEffectiveRuleTypes": ["deletion", "non_fast_forward"]
+  },
+  "manualChecks": [
+    {
+      "id": "cloudflare-access-admin",
+      "label": "Cloudflare Access and MFA protect /admin",
+      "runbook": "cloudflare/config-drift-ops.md",
+      "reason": "The Access application and identity-provider policy are account-level controls that this repository cannot prove with the R2-scoped audit token."
+    },
+    {
+      "id": "cloudflare-waf-cost-controls",
+      "label": "WAF rate limits and Worker/R2/D1 spend notifications are active",
+      "runbook": "cloudflare/config-drift-ops.md",
+      "reason": "Rule expressions, notification destinations, and billing thresholds require a separate privileged account review and must not be inferred from Worker source."
+    },
+    {
+      "id": "cloudflare-secondary-deployments",
+      "label": "No second Git-triggered production deployment path is enabled",
+      "runbook": "cloudflare/config-drift-ops.md",
+      "reason": "Cloudflare dashboard build integrations are external state and are intentionally reported as manual-only rather than guessed from GitHub workflow files."
+    },
+    {
+      "id": "github-review-policy",
+      "label": "The current main-branch review and required-check policy matches the operator's release policy",
+      "runbook": "cloudflare/config-drift-ops.md",
+      "reason": "The automated check proves the minimum history-protection rules only; whether pull requests or named checks must be mandatory is a product-operations decision."
+    }
+  ]
+}

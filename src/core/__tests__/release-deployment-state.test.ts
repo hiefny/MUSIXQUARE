@@ -1,22 +1,31 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { dirname, relative, resolve } from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   attemptedStates,
+  changedAppRuntimeDependencies,
+  changedRuntimePaths,
+  npmInvocation,
   preflight,
   productionVersion,
   queryCurrent,
+  releaseGitSha,
+  releaseTargetWorkers,
+  runtimePathsForWorker,
   retrySync,
   runRollbackWithRetry,
   rollbackDisposition,
   rollbackDependencyBlock,
+  rollbackDeploymentMessage,
   rollbackSkipTargets,
+  verifyPartialReleaseCompatibility,
   verifyCurrentRelease,
   verifyProductionVersion,
 } from '../../../scripts/release-deployment-state.mjs';
+import { emergencyDeploymentPlan } from '../../../scripts/emergency-deploy.mjs';
 
 const SCRIPT_PATH = resolve('scripts/release-deployment-state.mjs');
 const temporaryDirectories: string[] = [];
@@ -92,13 +101,10 @@ describe('release deployment rollback state', () => {
       'MXQR_DEVELOPER_API_SMOKE_KEY: ${{ secrets.MXQR_DEVELOPER_API_SMOKE_KEY }}',
     );
 
-    const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
-      scripts: Record<string, string>;
-    };
-    const deployAll = packageJson.scripts['deploy:all-workers'];
-    const remoteConfig = deployAll.indexOf('npm run deploy:remote-share');
+    const deployAll = emergencyDeploymentPlan('all-workers', '1'.repeat(40)).flat().join(' ');
+    const remoteConfig = deployAll.indexOf('cloudflare/wrangler.remote-share.toml');
     const proConfig = deployAll.indexOf('cloudflare/wrangler.pro-room.toml');
-    const signalingConfig = deployAll.indexOf('npm run deploy:signaling');
+    const signalingConfig = deployAll.indexOf('cloudflare/wrangler.signaling.toml');
     const facadeConfig = deployAll.indexOf('cloudflare/wrangler.developer-api-facade.toml');
     const apiConfig = deployAll.indexOf('cloudflare/wrangler.developer-api.toml');
     const appConfig = deployAll.indexOf('cloudflare/wrangler.app.toml');
@@ -108,6 +114,401 @@ describe('release deployment rollback state', () => {
     expect(facadeConfig).toBeGreaterThan(signalingConfig);
     expect(apiConfig).toBeGreaterThan(facadeConfig);
     expect(appConfig).toBeGreaterThan(apiConfig);
+  });
+
+  it('maps logical release targets to the exact Worker set they publish', () => {
+    expect([...releaseTargetWorkers('app')]).toEqual(['app']);
+    expect([...releaseTargetWorkers('developer-api')]).toEqual([
+      'developer-api-facade',
+      'developer-api',
+    ]);
+    expect([...releaseTargetWorkers('all')]).toEqual([
+      'remote-share',
+      'signaling',
+      'pro-room',
+      'developer-api-facade',
+      'developer-api',
+      'app',
+    ]);
+    expect(() => releaseTargetWorkers('unknown')).toThrow('Unknown release target');
+  });
+
+  it('maps every transitive local Worker import into the compatibility contract', () => {
+    const entries: Record<string, string> = {
+      'remote-share': 'cloudflare/remote-share-worker.js',
+      signaling: 'cloudflare/signaling-worker.js',
+      'pro-room': 'cloudflare/pro-room-worker.js',
+      'developer-api-facade': 'cloudflare/developer-api-facade-worker.js',
+      'developer-api': 'cloudflare/developer-api-worker.js',
+      app: 'cloudflare/app-worker.js',
+    };
+    const collect = (entry: string, found = new Set<string>()): Set<string> => {
+      const normalized = entry.replaceAll('\\', '/');
+      if (found.has(normalized)) return found;
+      found.add(normalized);
+      const source = readFileSync(resolve(normalized), 'utf8');
+      const imports = source.matchAll(/(?:from\s+|import\s*\()\s*['"](\.[^'"]+)['"]/gu);
+      for (const match of imports) {
+        const imported = relative(
+          process.cwd(),
+          resolve(dirname(resolve(normalized)), match[1]),
+        ).replaceAll('\\', '/');
+        collect(imported, found);
+      }
+      return found;
+    };
+
+    for (const [worker, entry] of Object.entries(entries)) {
+      const mapped = runtimePathsForWorker(worker);
+      for (const imported of collect(entry)) {
+        const covered = mapped.some(
+          (path) =>
+            !path.startsWith(':(') && (path === imported || imported.startsWith(`${path}/`)),
+        );
+        expect(covered, `${worker}: ${imported}`).toBe(true);
+      }
+    }
+  });
+
+  it('extracts only an exact release Git SHA from deployment messages', () => {
+    const sha = 'a'.repeat(40);
+    expect(releaseGitSha(`git:${sha} run:123 target:all`)).toBe(sha);
+    expect(releaseGitSha(`prefix git:${sha.toUpperCase()} suffix`)).toBe(sha);
+    expect(releaseGitSha(`git:${'a'.repeat(39)} run:123`)).toBeNull();
+    expect(releaseGitSha(`git:${sha}trailing`)).toBeNull();
+    expect(releaseGitSha(null)).toBeNull();
+  });
+
+  it('preserves the restored release provenance in rollback deployment messages', () => {
+    const restoredSha = 'a'.repeat(40);
+    expect(
+      rollbackDeploymentMessage(
+        { beforeMessage: `git:${restoredSha} run:10 target:all` },
+        `rollback:${'b'.repeat(40)} run:11`,
+      ),
+    ).toBe(`git:${restoredSha} rollback:${'b'.repeat(40)} run:11`);
+    expect(
+      rollbackDeploymentMessage({ beforeMessage: 'legacy manual deploy' }, 'rollback:unknown'),
+    ).toBe('rollback:unknown');
+  });
+
+  it('checks an ancestor diff through argument-safe Git calls', () => {
+    const calls: string[][] = [];
+    const changed = changedRuntimePaths('a'.repeat(40), 'b'.repeat(40), ['src', 'public'], {
+      runner: (args: string[]) => {
+        calls.push(args);
+        return args[0] === 'diff' ? 'src/app.ts\npublic/service-worker.js\nsrc/app.ts\n' : '';
+      },
+    });
+    expect(changed).toEqual(['public/service-worker.js', 'src/app.ts']);
+    expect(calls).toEqual([
+      ['merge-base', '--is-ancestor', 'a'.repeat(40), 'b'.repeat(40)],
+      [
+        'diff',
+        '--name-only',
+        '--diff-filter=ACDMRTUXB',
+        `${'a'.repeat(40)}..${'b'.repeat(40)}`,
+        '--',
+        'src',
+        'public',
+      ],
+    ]);
+  });
+
+  it('keeps test-only app files outside the partial-release runtime diff', () => {
+    const calls: string[][] = [];
+    changedRuntimePaths(
+      'a'.repeat(40),
+      'b'.repeat(40),
+      [
+        'src',
+        ':(exclude)src/**/__tests__/**',
+        ':(exclude)src/**/*.test.ts',
+        ':(exclude)src/**/*.test.tsx',
+      ],
+      {
+        runner: (args: string[]) => {
+          calls.push(args);
+          return '';
+        },
+      },
+    );
+    const diffCall = calls.find(([command]) => command === 'diff');
+    expect(diffCall).toContain(':(exclude)src/**/__tests__/**');
+    expect(diffCall).toContain(':(exclude)src/**/*.test.ts');
+    expect(diffCall).toContain(':(exclude)src/**/*.test.tsx');
+  });
+
+  it('treats deleted runtime files as compatibility-relevant changes', () => {
+    const repository = createDirectory();
+    const git = (args: string[], options: { capture?: boolean } = {}): string =>
+      execFileSync('git', ['-C', repository, ...args], {
+        encoding: 'utf8',
+        stdio: options.capture ? ['ignore', 'pipe', 'inherit'] : 'pipe',
+      });
+    git(['init', '--quiet']);
+    git(['config', 'user.email', 'release-test@musixquare.invalid']);
+    git(['config', 'user.name', 'MUSIXQUARE Release Test']);
+    mkdirSync(resolve(repository, 'src'), { recursive: true });
+    writeFileSync(resolve(repository, 'src', 'deleted-runtime.ts'), 'export const live = true;\n');
+    git(['add', '.']);
+    git(['commit', '--quiet', '-m', 'base']);
+    const baseSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+    rmSync(resolve(repository, 'src', 'deleted-runtime.ts'));
+    git(['add', '.']);
+    git(['commit', '--quiet', '-m', 'delete runtime']);
+    const headSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+
+    expect(changedRuntimePaths(baseSha, headSha, ['src'], { runner: git })).toEqual([
+      'src/deleted-runtime.ts',
+    ]);
+  });
+
+  it('keeps test and release-tool dependency changes outside the app runtime diff', () => {
+    const repository = createDirectory();
+    const git = (args: string[], options: { capture?: boolean } = {}): string =>
+      execFileSync('git', ['-C', repository, ...args], {
+        encoding: 'utf8',
+        stdio: options.capture ? ['ignore', 'pipe', 'inherit'] : 'pipe',
+      });
+    git(['init', '--quiet']);
+    git(['config', 'user.email', 'release-test@musixquare.invalid']);
+    git(['config', 'user.name', 'MUSIXQUARE Release Test']);
+    mkdirSync(resolve(repository, 'src', '__tests__'), { recursive: true });
+    writeFileSync(resolve(repository, 'src', 'app.ts'), 'export const value = 1;\n');
+    writeFileSync(resolve(repository, 'src', '__tests__', 'app.test.ts'), 'test("one");\n');
+    writeFileSync(resolve(repository, 'package.json'), '{"private":true}\n');
+    writeFileSync(resolve(repository, 'package-lock.json'), '{"lockfileVersion":3}\n');
+    git(['add', '.']);
+    git(['commit', '--quiet', '-m', 'base']);
+    const baseSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+
+    writeFileSync(resolve(repository, 'src', '__tests__', 'app.test.ts'), 'test("two");\n');
+    git(['add', '.']);
+    git(['commit', '--quiet', '-m', 'test only']);
+    const testOnlySha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+    const queryCurrent = (target: string) => ({
+      deploymentId: `deployment-${target}`,
+      versionId: `version-${target}`,
+      message: `git:${baseSha} run:1 target:all`,
+    });
+    const diffWithRepository = (from: string, to: string, paths: string[]) =>
+      changedRuntimePaths(from, to, paths, { runner: git });
+
+    expect(
+      verifyPartialReleaseCompatibility('signaling', testOnlySha, repository, {
+        queryCurrent,
+        changedRuntimePaths: diffWithRepository,
+        gitRunner: git,
+      }).status,
+    ).toBe('compatible');
+
+    writeFileSync(
+      resolve(repository, 'package-lock.json'),
+      '{"lockfileVersion":3,"changed":true}\n',
+    );
+    git(['add', '.']);
+    git(['commit', '--quiet', '-m', 'dependency change']);
+    const dependencySha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+    expect(
+      verifyPartialReleaseCompatibility('signaling', dependencySha, repository, {
+        queryCurrent,
+        changedRuntimePaths: diffWithRepository,
+        gitRunner: git,
+      }).status,
+    ).toBe('compatible');
+  });
+
+  it('allows an app-only release when every unselected Worker is source-equivalent', () => {
+    const directory = createDirectory();
+    const deployedSha = 'a'.repeat(40);
+    const headSha = 'b'.repeat(40);
+    const queried: string[] = [];
+    const diffed: string[] = [];
+    const report = verifyPartialReleaseCompatibility('app', headSha, directory, {
+      queryCurrent: (target: string) => {
+        queried.push(target);
+        return {
+          deploymentId: `deployment-${target}`,
+          versionId: `version-${target}`,
+          message: `git:${deployedSha} run:1 target:all`,
+        };
+      },
+      changedRuntimePaths: (
+        _base: string,
+        _head: string,
+        _paths: string[],
+        context: { target: string },
+      ) => {
+        diffed.push(context.target);
+        return [];
+      },
+    });
+
+    expect(report.status).toBe('compatible');
+    expect(queried).not.toContain('app');
+    expect(diffed).toEqual(queried);
+    expect(report.results).toHaveLength(5);
+  });
+
+  it('blocks a partial release when another Worker has undeployed runtime changes', () => {
+    const directory = createDirectory();
+    const deployedSha = 'a'.repeat(40);
+    const headSha = 'b'.repeat(40);
+    expect(() =>
+      verifyPartialReleaseCompatibility('app', headSha, directory, {
+        queryCurrent: (target: string) => ({
+          deploymentId: `deployment-${target}`,
+          versionId: `version-${target}`,
+          message: `git:${deployedSha} run:1 target:all`,
+        }),
+        changedRuntimePaths: (
+          _base: string,
+          _head: string,
+          _paths: string[],
+          context: { target: string },
+        ) => (context.target === 'signaling' ? ['cloudflare/signaling-worker.js'] : []),
+      }),
+    ).toThrow('signaling has undeployed production-source changes');
+
+    const report = JSON.parse(
+      readFileSync(resolve(directory, 'partial-release-compatibility.json'), 'utf8'),
+    ) as { status: string; results: Array<{ target: string; status: string }> };
+    expect(report.status).toBe('failed');
+    expect(report.results).toContainEqual(
+      expect.objectContaining({ target: 'signaling', status: 'incompatible' }),
+    );
+  });
+
+  it('tracks app runtime sources without treating repository tooling as a Worker contract', () => {
+    const directory = createDirectory();
+    const report = verifyPartialReleaseCompatibility('signaling', 'b'.repeat(40), directory, {
+      queryCurrent: (target: string) => ({
+        deploymentId: `deployment-${target}`,
+        versionId: `version-${target}`,
+        message: `git:${'a'.repeat(40)} run:1 target:all`,
+      }),
+      changedRuntimePaths: (
+        _base: string,
+        _head: string,
+        paths: string[],
+        context: { target: string; kind?: string },
+      ) => {
+        if (context.target !== 'app') return [];
+        if (context.kind === 'dependency-manifest') return [];
+        expect(paths).toContain('src');
+        expect(paths).toContain('css');
+        expect(paths).toContain('.workshop/privacy');
+        expect(paths).toContain('cloudflare/app-static-assets/_headers');
+        expect(paths).toContain('scripts/materialize-app-static-headers.mjs');
+        expect(paths).not.toContain('package.json');
+        expect(paths).not.toContain('package-lock.json');
+        return [];
+      },
+    });
+    expect(report.status).toBe('compatible');
+  });
+
+  it('blocks an unselected app when its production dependency resolution changed', () => {
+    const repository = createDirectory();
+    const git = (args: string[], options: { capture?: boolean } = {}): string =>
+      execFileSync('git', ['-C', repository, ...args], {
+        encoding: 'utf8',
+        stdio: options.capture ? ['ignore', 'pipe', 'inherit'] : 'pipe',
+      });
+    const packageState = (version: string) => ({
+      packageJson: JSON.stringify({ dependencies: { peerjs: '^1.0.0' } }),
+      packageLock: JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          '': { dependencies: { peerjs: '^1.0.0' } },
+          'node_modules/peerjs': {
+            version,
+            resolved: `https://registry.example/peerjs-${version}.tgz`,
+            integrity: `sha512-${version}`,
+          },
+          'node_modules/test-only': { version: '1.0.0', dev: true },
+        },
+      }),
+    });
+    git(['init', '--quiet']);
+    git(['config', 'user.email', 'release-test@musixquare.invalid']);
+    git(['config', 'user.name', 'MUSIXQUARE Release Test']);
+    const before = packageState('1.0.0');
+    writeFileSync(resolve(repository, 'package.json'), before.packageJson);
+    writeFileSync(resolve(repository, 'package-lock.json'), before.packageLock);
+    git(['add', '.']);
+    git(['commit', '--quiet', '-m', 'base']);
+    const baseSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+    const after = packageState('1.1.0');
+    writeFileSync(resolve(repository, 'package-lock.json'), after.packageLock);
+    git(['add', '.']);
+    git(['commit', '--quiet', '-m', 'runtime dependency update']);
+    const headSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+    const queryCurrent = (target: string) => ({
+      deploymentId: `deployment-${target}`,
+      versionId: `version-${target}`,
+      message: `git:${baseSha}`,
+    });
+    const diffWithRepository = (from: string, to: string, paths: string[]) =>
+      changedRuntimePaths(from, to, paths, { runner: git });
+
+    expect(changedAppRuntimeDependencies(baseSha, headSha, { runner: git })).toEqual([
+      'package.json#dependencies',
+      'package-lock.json#production-resolution',
+    ]);
+    expect(() =>
+      verifyPartialReleaseCompatibility('signaling', headSha, repository, {
+        queryCurrent,
+        changedRuntimePaths: diffWithRepository,
+        gitRunner: git,
+      }),
+    ).toThrow('app has undeployed production-source changes');
+  });
+
+  it('invokes npm through its JavaScript CLI on Windows', () => {
+    expect(
+      npmInvocation('win32', {
+        nodeExecutable: 'C:/Node/node.exe',
+        environment: {},
+        fileExists: (path: string) => path.replaceAll('\\', '/').endsWith('/npm-cli.js'),
+      }),
+    ).toEqual({
+      executable: 'C:/Node/node.exe',
+      prefixArgs: ['C:\\Node\\node_modules\\npm\\bin\\npm-cli.js'],
+    });
+    expect(npmInvocation('linux')).toEqual({ executable: 'npm', prefixArgs: [] });
+  });
+
+  it('treats both Developer API Workers as selected and fails closed without release provenance', () => {
+    const directory = createDirectory();
+    const queried: string[] = [];
+    expect(() =>
+      verifyPartialReleaseCompatibility('developer-api', 'b'.repeat(40), directory, {
+        queryCurrent: (target: string) => {
+          queried.push(target);
+          return {
+            deploymentId: `deployment-${target}`,
+            versionId: `version-${target}`,
+            message: target === 'remote-share' ? 'manual release' : `git:${'a'.repeat(40)}`,
+          };
+        },
+        changedRuntimePaths: () => [],
+      }),
+    ).toThrow('does not record a git:<40-char-sha>');
+    expect(queried).not.toContain('developer-api-facade');
+    expect(queried).not.toContain('developer-api');
+  });
+
+  it('does not query production compatibility state for a full release', () => {
+    const directory = createDirectory();
+    const report = verifyPartialReleaseCompatibility('all', 'not-needed', directory, {
+      queryCurrent: () => {
+        throw new Error('must not query');
+      },
+    });
+    expect(report.status).toBe('not-required');
+    expect(report.results).toEqual([]);
   });
 
   it('requires exactly one 100% production version', () => {
@@ -237,6 +638,18 @@ describe('release deployment rollback state', () => {
     expect(current.versionId).toBe('current');
     expect(attempts).toBe(3);
     expect(delays).toEqual([10, 20]);
+  });
+
+  it('creates the deployment artifact directory for standalone compatibility queries', () => {
+    const directory = resolve(createDirectory(), 'not-created-yet', 'nested');
+    const outputPath = resolve(directory, 'current.json');
+    const current = queryCurrent('app', 'wrangler.toml', outputPath, {
+      runner: () => JSON.stringify(deployment('current')),
+      retry: { maxAttempts: 1 },
+    });
+
+    expect(current.versionId).toBe('current');
+    expect(JSON.parse(readFileSync(outputPath, 'utf8'))).toEqual(deployment('current'));
   });
 
   it('stops retrying after the configured attempt budget', () => {
@@ -692,6 +1105,24 @@ describe('release deployment rollback state', () => {
     }
   });
 
+  it('runs critical coverage and the partial-release compatibility gate before production deploys', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const coverage = workflow.indexOf('run: npm run test:coverage:critical');
+    const compatibility = workflow.indexOf('Verify partial release dependency compatibility');
+    const firstDeploy = workflow.indexOf('Deploy and record remote-share Worker');
+    expect(coverage).toBeGreaterThan(-1);
+    expect(coverage).toBeLessThan(firstDeploy);
+    expect(compatibility).toBeGreaterThan(-1);
+    expect(compatibility).toBeLessThan(firstDeploy);
+    const nextStep = workflow.indexOf('\n      - name:', compatibility + 1);
+    const step = workflow.slice(compatibility, nextStep);
+    expect(step).toContain("if: inputs.target != 'all'");
+    expect(step).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
+    expect(step).toContain(
+      'node scripts/release-deployment-state.mjs compatibility "$RELEASE_TARGET" "${{ github.sha }}"',
+    );
+  });
+
   it('proves first-frame signaling compatibility before an app-only deployment', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
     const preflight = workflow.indexOf('Verify current signaling contract before app-only release');
@@ -703,10 +1134,33 @@ describe('release deployment rollback state', () => {
     expect(preflightStep).toContain("if: inputs.target == 'app'");
     expect(preflightStep).toContain('run: npm run smoke:live:signaling');
 
+    const appPlan = emergencyDeploymentPlan('app', '1'.repeat(40));
+    expect(appPlan[0]).toEqual(['run', '--silent', 'smoke:live:signaling']);
+    expect(appPlan[1]).toEqual(['run', '--silent', 'build:checked']);
+  });
+
+  it('blocks ordinary local deploy scripts and gates every emergency route', () => {
     const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
       scripts: Record<string, string>;
     };
-    expect(packageJson.scripts['deploy:app']).toMatch(/^npm run smoke:live:signaling && /);
+    const targets = [
+      'remote-share',
+      'pro-room',
+      'developer-api-facade',
+      'developer-api',
+      'developer-api-stack',
+      'signaling',
+      'app',
+      'all-workers',
+    ];
+    for (const target of targets) {
+      expect(packageJson.scripts[`deploy:${target}`]).toBe(
+        `node scripts/guard-emergency-deploy.mjs reject ${target}`,
+      );
+      expect(packageJson.scripts[`emergency:deploy:${target}`]).toBe(
+        `node scripts/emergency-deploy.mjs ${target}`,
+      );
+    }
   });
 
   it('bounds production live-smoke requests and step runtimes before rollback', () => {

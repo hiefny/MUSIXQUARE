@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "databases": [
+    {
+      "database": "musixquare-admin-metrics",
+      "baseline": "cloudflare/admin-metrics.schema.sql",
+      "baselineRevision": 1,
+      "baselineSha256": "9e48c6712c534148bb9933a3576d362cb4fc86167431ad532f0c7ddb6478ce08",
+      "baselineMigration": null,
+      "baselineRecovery": {
+        "strategy": "roll-forward-or-provider-restore",
+        "runbook": "cloudflare/admin-dashboard-ops.md",
+        "note": "The declarative baseline is idempotent, but arbitrary future DDL still requires an explicit recovery decision."
+      },
+      "migrations": []
+    },
+    {
+      "database": "musixquare-auth",
+      "baseline": "cloudflare/auth.schema.sql",
+      "baselineRevision": 2,
+      "baselineSha256": "09744b78daad009e85ec8c2f176cf1a4aed5c22c66607d1ad6ab65bb10574651",
+      "baselineMigration": "auth-nickname-key-v1",
+      "baselineRecovery": {
+        "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
+        "runbook": "docs/account-auth-operations.md",
+        "note": "Account schema changes use a documented matched Worker floor and must not be treated as automatically reversible."
+      },
+      "migrations": [
+        {
+          "id": "auth-nickname-key-v1",
+          "forward": "cloudflare/auth.nickname-key.migration.sql",
+          "forwardSha256": "d2013329c57ac3197b0f9c81020f5aab9a4015b92d0e1b87af52a8c860711344",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
+            "runbook": "docs/account-auth-operations.md",
+            "note": "The normalized nickname key becomes part of the write contract, so recovery preserves the matched account-aware Worker floor instead of dropping the column."
+          }
+        }
+      ]
+    },
+    {
+      "database": "musixquare-developer-api",
+      "baseline": "cloudflare/developer-api.schema.sql",
+      "baselineRevision": 2,
+      "baselineSha256": "68a3f28d07b07efe4cd775c3cf9a10b62ce78babf220461769689154b1d26fba",
+      "baselineMigration": "developer-api-effects-scopes-v1",
+      "baselineRecovery": {
+        "strategy": "roll-forward-or-provider-restore",
+        "runbook": "cloudflare/config-drift-ops.md",
+        "note": "The baseline repairs idempotent objects only; destructive changes require their own manifest entry and recovery contract."
+      },
+      "migrations": [
+        {
+          "id": "developer-api-effects-scopes-v1",
+          "forward": "cloudflare/developer-api.effects-scopes.migration.sql",
+          "forwardSha256": "c7f3aac0ef9206c69231d6d89bd1fe99a878f29948a66ffd35151fd306b9b21f",
+          "reversibility": "paired",
+          "rollback": "cloudflare/developer-api.effects-scopes.rollback.sql",
+          "rollbackSha256": "ad8a6258cca1f1ad43c70a2d661974211f9a37888b37d9976814b1292fe77ee2",
+          "recovery": {
+            "strategy": "paired-sql-before-worker-rollback",
+            "runbook": "docs/hotfix-procedure.md",
+            "note": "The rollback narrows stored scope masks before an older Developer API Worker is restored."
+          }
+        }
+      ]
+    }
+  ]
+}

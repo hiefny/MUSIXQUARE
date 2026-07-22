@@ -1,0 +1,60 @@
+name: Operations Drift Audit
+
+# Read-only, manually dispatched comparison of practical live controls with
+# their checked-in contracts. It never applies CORS or edits a GitHub ruleset.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musixquare-operations-drift-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+
+    steps:
+      - name: Checkout audit contract
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # The D1 guard verifies every visible manifest revision, so the
+          # read-only audit must retain full first-parent history too.
+          fetch-depth: 0
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+
+      - name: Validate source contracts
+        run: |
+          node scripts/check-d1-migration-contract.mjs
+          node scripts/audit-ops-drift.mjs --source-only
+
+      - name: Compare read-only live controls
+        run: node scripts/audit-ops-drift.mjs
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          # Prefer a narrowly scoped read-only credential. Keep the production
+          # token only as an explicit migration fallback.
+          CLOUDFLARE_DRIFT_AUDIT_TOKEN: ${{ secrets.CLOUDFLARE_DRIFT_AUDIT_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GITHUB_DRIFT_AUDIT_TOKEN: ${{ secrets.GITHUB_DRIFT_AUDIT_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Upload drift report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: operations-drift-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/ops-drift/report.json
+          if-no-files-found: warn
+          retention-days: 90

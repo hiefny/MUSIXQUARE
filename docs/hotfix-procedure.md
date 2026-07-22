@@ -108,11 +108,29 @@ restored, recovery keeps the current PRO Worker instead of creating a known
 broken new-signaling/old-PRO pairing. Either fence is reported as a partial
 failure for operator review.
 
-The same dependency is fenced in the forward direction. An app-only production
-release runs the live signaling smoke before touching the app Worker, and the
-local `deploy:app` command does the same. A signaling protocol change must be
-deployed and smoked first (normally with release target `all`); the preflight
-fails closed while production still serves an incompatible signaling contract.
+The same dependency is fenced in the forward direction. Before any approved
+partial release, the workflow reads every unselected Worker's live deployment
+message, requires an exact `git:<40-character SHA>` provenance token, proves
+that commit is an ancestor of the candidate, and checks that Worker's mapped
+runtime inputs for undeployed changes. The app mapping covers client source,
+CSS, public and workshop pages, static-header generation, and production npm
+dependency resolutions. Worker mappings include their transitive local helper
+modules and deployment configuration. A deleted runtime file is a change too.
+If the proof is unavailable or a counterpart changed, use target `all` rather
+than guessing that the contracts remain compatible.
+
+An app-only production release additionally runs the live signaling smoke
+before touching the app Worker, and the emergency-only
+`emergency:deploy:app` command does the same. A signaling protocol change must
+be deployed and smoked first (normally with release target `all`); the
+preflight fails closed while production still serves an incompatible
+signaling contract.
+
+Automatic rollback preserves the restored deployment's original Git SHA in
+the new rollback message when that provenance exists. A legacy or manual
+deployment without Git provenance remains deliberately unverifiable; after
+such a rollback, the next approved release must use target `all` to establish
+a fresh common baseline.
 
 If the rollback report records a conflict or exhausted retry, inspect the live
 version before taking manual action. Deployment records and the Actions summary
@@ -125,13 +143,52 @@ Cloudflare's separate Git-triggered app deployment is intentionally disabled;
 do not enable it while the GitHub release workflow is authoritative. Keeping
 both paths enabled creates an unapproved duplicate deployment.
 
-For a local emergency app-only deployment, use the repository-pinned Wrangler
-command, which always rebuilds and verifies `dist` first:
+The ordinary local `deploy:*` scripts are deliberately non-deploying traps: they
+always stop and direct the operator back to the approved GitHub workflow. For a
+local emergency app-only deployment, first commit every change and leave the
+worktree clean, push it to `origin/main`, and keep `main` checked out. Then bind
+the exact target and current commit into the one-shot
+confirmation before using the cross-platform Node deployment orchestrator,
+which also verifies signaling and rebuilds `dist`:
 
 ```bash
-npm run deploy:app -- --message "Emergency hotfix: <summary> git:<sha>"
+export MXQR_EMERGENCY_DEPLOY_CONFIRM="MUSIXQUARE_EMERGENCY_DEPLOY:app:$(git rev-parse HEAD)"
+npm run emergency:deploy:app
+unset MXQR_EMERGENCY_DEPLOY_CONFIRM
 npm run smoke:live:app-session
 ```
+
+PowerShell uses the same exact confirmation:
+
+```powershell
+$sha = (git rev-parse HEAD).Trim()
+$env:MXQR_EMERGENCY_DEPLOY_CONFIRM = "MUSIXQUARE_EMERGENCY_DEPLOY:app:$sha"
+npm run emergency:deploy:app
+Remove-Item Env:MXQR_EMERGENCY_DEPLOY_CONFIRM
+npm run smoke:live:app-session
+```
+
+For another Worker, replace `app` in both the confirmation and npm script with
+one of `remote-share`, `pro-room`, `signaling`, `developer-api-stack`, or
+`all-workers`. The Developer API facade and backend are one deployment contract;
+their standalone emergency aliases deliberately stop and direct the operator to
+`developer-api-stack`. A confirmation for a
+different target or an older commit is rejected, as is any dirty worktree. The
+guard also rejects detached/non-`main` checkouts and any HEAD that differs from
+the live `origin/main` reported by `git ls-remote`, so a stale local tracking ref
+cannot authorize an old release and every emergency deployment remains
+traceable to GitHub. A network or remote-authentication failure fails closed. The
+environment variable is authorization for exactly that command invocation; do
+not put it in a profile, `.env` file, CI secret, or shell startup script.
+The orchestrator derives `git:<full-HEAD-SHA> emergency-target:<target>` itself
+and passes that immutable message to every Wrangler Worker deployment,
+including both Developer API Workers and every Worker in `all-workers`.
+Operator-supplied trailing arguments are rejected rather than forwarded to
+Wrangler, so do not add `-- --message` or any other command-line option.
+Before any partial emergency deployment, the same live deployment provenance
+and unselected-Worker source compatibility gate used by the approved workflow
+runs locally. If another Worker changed in the pushed commit, use
+`all-workers` instead of publishing a mixed contract.
 
 After the deploy is live, verify the production URL in a fresh browser session
 and confirm the active version with

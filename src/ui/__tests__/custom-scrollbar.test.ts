@@ -127,6 +127,7 @@ function createScrollbox(id: string): Scrollbox {
   container.id = id;
   container.setAttribute('data-custom-scroll', '');
   container.setAttribute('data-custom-scroll-contained', '');
+  container.style.overflowY = 'auto';
   parent.appendChild(container);
   document.body.appendChild(parent);
 
@@ -314,19 +315,38 @@ describe('custom-scrollbar transition reveal', () => {
   it('does not reveal a non-overflowing or zero-height parked instance', () => {
     const fitted = createScrollbox('fitted');
     fitted.setScrollHeight(200);
+    const rounded = createScrollbox('rounded');
+    rounded.setScrollHeight(202);
     const parked = createScrollbox('parked');
     parked.setClientHeight(0);
     initCustomScrollbar(fitted.container);
+    initCustomScrollbar(rounded.container);
     initCustomScrollbar(parked.container);
 
     bus.emit('ui:scrollbar-reveal');
 
-    for (const box of [fitted, parked]) {
+    for (const box of [fitted, rounded, parked]) {
       expect(box.track().style.opacity).toBe('0');
       expect(box.track().style.height).toBe('0px');
       expect(box.track().style.pointerEvents).toBe('none');
       expect(box.track().querySelector<HTMLElement>('.cscroll-thumb')?.style.display).toBe('none');
     }
+  });
+
+  it('reveals only a user-scrollable owner beyond the rounding tolerance', () => {
+    const hiddenOuter = createScrollbox('hidden-outer');
+    hiddenOuter.container.style.overflowY = 'hidden';
+    const meaningful = createScrollbox('meaningful-overflow');
+    meaningful.setScrollHeight(203);
+    initCustomScrollbar(hiddenOuter.container);
+    initCustomScrollbar(meaningful.container);
+
+    bus.emit('ui:scrollbar-reveal');
+
+    expect(hiddenOuter.track().style.opacity).toBe('0');
+    expect(hiddenOuter.track().style.height).toBe('0px');
+    expect(meaningful.track().style.opacity).toBe('1');
+    expect(meaningful.track().style.height).toBe('200px');
   });
 
   it('does not reveal an overflowing surface hidden by an ancestor transition state', () => {
@@ -428,8 +448,20 @@ describe('compact-landscape scrollbar ownership contract', () => {
     expect(stylesheet).toMatch(
       /#media-source-overlay\s+\.setup-slot-list\s*\{[^}]*align-self:\s*stretch\s*!important;[^}]*overflow-y:\s*auto\s*!important;/s,
     );
+    expect(stylesheet).not.toMatch(
+      /#media-source-overlay\s+\.setup-slot-list\s*\{[^}]*flex:\s*1(?:\s|;)/s,
+    );
+    expect(stylesheet).toMatch(
+      /#media-source-overlay\s+\.setup-slot-list\s*\{[^}]*flex:\s*0\s+1\s+auto;[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s,
+    );
+    expect(stylesheet).toMatch(
+      /#media-source-overlay\s+\.setup-slot-list\s*>\s*\.file-select-btn\s*\{[^}]*flex-shrink:\s*0;[^}]*margin-top:\s*0;/s,
+    );
     expect(desktopStylesheet).toMatch(
       /#media-source-overlay\s+\.setup-card\.full-screen\s*>\s*div:not\(\.ob-actions,\s*\.cscroll-track\)/,
+    );
+    expect(desktopStylesheet).toMatch(
+      /#media-source-overlay\s+\.setup-card\.full-screen\s*>\s*\.setup-slot-list\s*\{[^}]*flex-shrink:\s*1;[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s,
     );
     const youtubeForm = parsed.querySelector(
       '#youtube-url-overlay > .setup-card > .setup-join-area',

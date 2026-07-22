@@ -697,6 +697,15 @@
       flex-shrink: 0;
     }
 
+    /* The media choices stay top-aligned, but this is the one desktop card
+       section that may shrink and scroll when the viewport is unusually
+       short. The generic rule above must not clip its final choice. */
+    #media-source-overlay .setup-card.full-screen > .setup-slot-list {
+      flex-shrink: 1;
+      min-height: 0;
+      overflow-y: auto;
+    }
+
     /* Padding for inner content (media/youtube overlays) */
     #media-source-overlay .setup-card.full-screen > div:not(.ob-actions, .cscroll-track),
     #youtube-url-overlay .setup-card.full-screen > div:not(.ob-actions, .cscroll-track) {

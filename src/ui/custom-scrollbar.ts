@@ -14,6 +14,8 @@ import { bus } from '../core/events.ts';
 
 const THUMB_MIN_HEIGHT = 30;
 const FADE_DELAY = 1200;
+const OVERFLOW_ROUNDING_TOLERANCE_PX = 2;
+const SCROLLABLE_OVERFLOW_VALUES = new Set(['auto', 'scroll', 'overlay']);
 
 interface ScrollbarState {
   container: HTMLElement;
@@ -46,8 +48,9 @@ function hasVisibleOverflow(container: HTMLElement): boolean {
   return (
     style.display !== 'none' &&
     style.visibility !== 'hidden' &&
+    SCROLLABLE_OVERFLOW_VALUES.has(style.overflowY) &&
     clientHeight > 1 &&
-    scrollHeight > clientHeight + 1
+    scrollHeight > clientHeight + OVERFLOW_ROUNDING_TOLERANCE_PX
   );
 }
 
@@ -197,7 +200,7 @@ function updateScroll(state: ScrollbarState): void {
   const { container, thumb, visibleHeight, thumbHeight } = state;
   const { scrollTop, scrollHeight, clientHeight } = container;
 
-  if (scrollHeight <= clientHeight + 1) return;
+  if (scrollHeight <= clientHeight + OVERFLOW_ROUNDING_TOLERANCE_PX) return;
 
   const maxScroll = scrollHeight - clientHeight;
   const maxThumbTop = visibleHeight - thumbHeight;

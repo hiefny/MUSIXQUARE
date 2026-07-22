@@ -1193,7 +1193,7 @@ describe('member-level connection and administrator UI', () => {
     expect(markup).toContain('aria-labelledby="administrator-permissions-title"');
     expect(markup).not.toContain('administrator-permissions-member');
     expect(listRules).toContain('flex: 1 1 auto');
-    expect(listRules).toContain('padding: 0 32px 16px');
+    expect(listRules).toContain('padding: 8px 32px 24px');
     expect(listRules).toContain('gap: 4px');
     expect(listRules).toContain('overflow-y: auto');
     expect(listRules).toContain('-webkit-overflow-scrolling: touch');

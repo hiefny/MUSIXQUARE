@@ -3799,7 +3799,9 @@
   .administrator-permissions-list {
     flex: 1 1 auto;
     min-height: 0;
-    padding: 0 32px 16px;
+    /* Reserve the 7px focus-outline footprint at both ends of the scroll
+       region, then keep the title and action gaps visually balanced. */
+    padding: 8px 32px 24px;
     display: grid;
     gap: 4px;
     overflow-y: auto;
@@ -5312,8 +5314,13 @@
     margin-bottom: 8px;
   }
 
+  #media-source-overlay .setup-slot-list > .file-select-btn {
+    flex-shrink: 0;
+    margin-top: 0;
+  }
+
   #media-source-overlay .setup-slot-list {
-    flex: 1;
+    flex: 0 1 auto;
     min-height: 0;
     overflow-y: auto;
   }

@@ -29,6 +29,12 @@ function readPathInitialX(element: Element | null): number {
   return Number(match[1]);
 }
 
+function readPathInitialY(element: Element | null): number {
+  const match = (element?.getAttribute('d') ?? '').match(/^M-?\d+(?:\.\d+)?,(-?\d+(?:\.\d+)?)/);
+  if (!match) throw new Error('Expected an absolute initial SVG path coordinate.');
+  return Number(match[1]);
+}
+
 beforeEach(() => {
   document.body.innerHTML = `
     <svg id="header-standard-wordmark"></svg>
@@ -95,6 +101,18 @@ describe('PRO room branding', () => {
     for (const proR of proRs) expect(proR.getAttribute('d')).toBe(originalR);
     expect(originalR).toContain('5.8306272,10.0920839');
     expect(originalR).toContain('-4.5310104-7.8424689');
+  });
+
+  it('lowers the P bowl while preserving its original stroke weight', async () => {
+    const markup = await readFile('index.html', 'utf8');
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    const pro = parsed.getElementById('header-pro-wordmark');
+    const p = pro?.querySelector('[data-glyph="P"]') ?? null;
+    const suffixR = pro?.querySelector('[data-wordmark-segment="pro"] [data-glyph="R"]') ?? null;
+
+    const pPath = p?.getAttribute('d') ?? '';
+    expect(readPathInitialY(p) - readPathInitialY(suffixR)).toBeCloseTo(1.5, 4);
+    expect(pPath).toContain('.0013333,5.9999998-8.9999996.0026666-.0013333-5.9999998Z');
   });
 
   it('carries the production X optical kerning into MXQR without opening the suffix', async () => {

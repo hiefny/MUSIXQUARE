@@ -379,8 +379,14 @@ function lastServer(): FakeSocket {
   return pair.server;
 }
 
-function sent(ws: FakeSocket): unknown[] {
-  return ws.sent.map((item) => JSON.parse(item));
+function sent(ws: FakeSocket): Array<Record<string, unknown>> {
+  return ws.sent.map((item) => {
+    const parsed: unknown = JSON.parse(item);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error('Expected a JSON object frame');
+    }
+    return parsed as Record<string, unknown>;
+  });
 }
 
 const DEFAULT_RECONNECT_SECRET = 's'.repeat(43);

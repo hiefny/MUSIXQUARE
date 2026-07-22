@@ -372,7 +372,7 @@ describe('optional account UI', () => {
     );
     const focus = vi.fn();
     const replace = vi.fn();
-    const open = vi.spyOn(window, 'open').mockReturnValue({
+    vi.spyOn(window, 'open').mockReturnValue({
       closed: false,
       focus,
       location: { replace },

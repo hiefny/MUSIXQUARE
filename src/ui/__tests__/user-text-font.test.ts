@@ -2,9 +2,10 @@
  * @vitest-environment jsdom
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { LocaleFontCode } from '../../i18n/locale-fonts.ts';
 
 const { loadLocaleFont } = vi.hoisted(() => ({
-  loadLocaleFont: vi.fn(() => Promise.resolve()),
+  loadLocaleFont: vi.fn<(code: LocaleFontCode) => Promise<void>>(() => Promise.resolve()),
 }));
 vi.mock('../../i18n/locale-fonts.ts', () => ({ loadLocaleFont }));
 

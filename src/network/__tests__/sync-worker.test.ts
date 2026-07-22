@@ -26,7 +26,9 @@ function makeFakeWorker(): FakeWorker {
 }
 
 function setFakeSyncWorker(worker: FakeWorker): void {
-  setSyncWorker(worker as Worker);
+  // This fixture intentionally implements only the Worker surface consumed by
+  // sync-worker.ts.
+  setSyncWorker(worker as unknown as Worker);
 }
 
 beforeEach(() => {

@@ -308,7 +308,7 @@ describe('admin PRO room operations dashboard', () => {
       }
       if (url.pathname === '/api/admin/pro-rooms/000001/api-keys/ActiveKeyId00001') {
         expect(init?.method).toBe('DELETE');
-        expect(new Headers(init.headers).get('X-MXQR-Admin-CSRF')).toBe('1');
+        expect(new Headers(init?.headers).get('X-MXQR-Admin-CSRF')).toBe('1');
         revoked = true;
         return Response.json({ ok: true, roomCode: '000001', keyId: 'ActiveKeyId00001' });
       }

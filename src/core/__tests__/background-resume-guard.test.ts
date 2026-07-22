@@ -3,6 +3,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import {
   DEFAULT_WARN_THRESHOLD_MS,
   initBackgroundResumeGuard,
@@ -26,17 +27,19 @@ interface InitOptions {
   warnThresholdMs?: number;
 }
 
+type ResumeCallback = (event: { hiddenMs: number }) => void | Promise<void>;
+
 describe('initBackgroundResumeGuard', () => {
   let now: number;
   let handle: BackgroundResumeGuardHandle | null;
-  let recover: ReturnType<typeof vi.fn>;
-  let warn: ReturnType<typeof vi.fn>;
+  let recover: Mock<ResumeCallback>;
+  let warn: Mock<ResumeCallback>;
 
   beforeEach(() => {
     now = 1_000;
     handle = null;
-    recover = vi.fn();
-    warn = vi.fn();
+    recover = vi.fn<ResumeCallback>();
+    warn = vi.fn<ResumeCallback>();
     setVisibility('visible');
   });
 

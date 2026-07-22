@@ -22,6 +22,16 @@ import {
 const QUEUE_ITEM_ID = '44444444-4444-4444-8444-444444444444';
 const SECOND_QUEUE_ITEM_ID = '55555555-5555-4555-8555-555555555555';
 
+function dataConnection(peer: string, send = vi.fn()): DataConnection {
+  return {
+    open: true,
+    peer,
+    send,
+    close: vi.fn(),
+    on: () => undefined,
+  };
+}
+
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -884,7 +894,7 @@ describe('YouTube Player', () => {
       setState('room.context', {
         kind: 'standard',
         roomId: '123456',
-        role: 'host',
+        role: 'coordinator',
         coordinatorId: null,
         epoch: 0,
         snapshotRevision: 0,
@@ -954,7 +964,7 @@ describe('YouTube Player', () => {
 
       initYouTube();
 
-      const conn = { open: true, peer: 'guest-1', send: vi.fn() } as DataConnection;
+      const conn = dataConnection('guest-1');
       bus.emit('network:peer-connected', conn);
 
       expect(safeSend).toHaveBeenCalledWith(
@@ -1009,7 +1019,7 @@ describe('YouTube Player', () => {
         snapshotRevision: 1,
         capabilities: ['playback.control'],
       });
-      const proConn = { open: true, peer: 'pro-guest', send: vi.fn() } as DataConnection;
+      const proConn = dataConnection('pro-guest');
       bus.emit('network:peer-connected', proConn);
 
       expect(safeSend).toHaveBeenCalledWith(
@@ -1031,11 +1041,7 @@ describe('YouTube Player', () => {
           ? ({} as ReturnType<typeof getManagedTimer>)
           : null,
       );
-      const settlingConn = {
-        open: true,
-        peer: 'settling-guest',
-        send: vi.fn(),
-      } as DataConnection;
+      const settlingConn = dataConnection('settling-guest');
       bus.emit('network:peer-connected', settlingConn);
       expect(vi.mocked(safeSend).mock.calls.some(([target]) => target === settlingConn)).toBe(
         false,
@@ -1052,11 +1058,7 @@ describe('YouTube Player', () => {
         expect.objectContaining({ type: MSG.YOUTUBE_STATE, time: 41.75 }),
       );
 
-      const midNudgeConn = {
-        open: true,
-        peer: 'mid-nudge-guest',
-        send: vi.fn(),
-      } as DataConnection;
+      const midNudgeConn = dataConnection('mid-nudge-guest');
       bus.emit('network:peer-connected', midNudgeConn);
       const midNudgeTimer = vi
         .mocked(setManagedTimer)
@@ -1267,7 +1269,7 @@ describe('YouTube Player', () => {
     });
 
     it('delegates a stable queue occurrence and title patch for a PRO member', async () => {
-      const addYouTube = vi.fn(() => true);
+      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>(() => true);
       const updateTrackMetadata = vi.fn(() => true);
       registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube, updateTrackMetadata }));
       setState('room.context', {
@@ -1306,7 +1308,7 @@ describe('YouTube Player', () => {
     });
 
     it('resolves a playlist-only PRO add without interrupting current playback', async () => {
-      const addYouTube = vi.fn(() => true);
+      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>(() => true);
       registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube }));
       setState('room.context', {
         kind: 'pro',
@@ -1370,7 +1372,7 @@ describe('YouTube Player', () => {
     });
 
     it('keeps a PRO video-plus-playlist entry while preserving canonical manifest order', async () => {
-      const addYouTube = vi.fn(() => true);
+      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>(() => true);
       registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube }));
       setState('room.context', {
         kind: 'pro',
@@ -1424,7 +1426,7 @@ describe('YouTube Player', () => {
     });
 
     it('drops a resolved PRO manifest after the room lease changes', async () => {
-      const addYouTube = vi.fn(() => true);
+      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>(() => true);
       registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube }));
       setState('room.context', {
         kind: 'pro',
@@ -1486,7 +1488,7 @@ describe('YouTube Player', () => {
     });
 
     it('reports a playlist-only PRO resolution failure without mutating the queue', async () => {
-      const addYouTube = vi.fn(() => true);
+      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>(() => true);
       registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube }));
       setState('room.context', {
         kind: 'pro',

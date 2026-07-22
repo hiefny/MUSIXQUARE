@@ -9,7 +9,7 @@
  * scrollbars without a post-rotation settled re-layout.
  */
 import { readFile } from 'node:fs/promises';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 
 // ── jsdom polyfills (module scope, installed once for the whole file) ──────
@@ -104,7 +104,12 @@ function makeRect(height: number): DOMRect {
   };
 }
 
-type Scrollbox = ReturnType<typeof createScrollbox>;
+interface Scrollbox {
+  container: HTMLElement;
+  rectSpy: Mock<() => DOMRect>;
+  setClientHeight(px: number): void;
+  track(): HTMLElement;
+}
 
 const _boxes: Scrollbox[] = [];
 
@@ -114,7 +119,7 @@ const _boxes: Scrollbox[] = [];
  * branch: track height = clientHeight, no bottom-nav / transform-block walk.
  * rectSpy counts updateLayout runs (called exactly once per layout pass).
  */
-function createScrollbox(id: string) {
+function createScrollbox(id: string): Scrollbox {
   const parent = document.createElement('div');
   const container = document.createElement('div');
   container.id = id;

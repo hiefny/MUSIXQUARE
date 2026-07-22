@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
-import { rebaseRoomEffectsIntentForTests } from '../runtime.ts';
+import { rebaseRoomEffectsIntent as rebaseRoomEffectsIntentForTests } from '../effects-reconciliation.ts';
 import runtimeSource from '../runtime.ts?raw';
 
 describe('PRO room effects runtime contract', () => {

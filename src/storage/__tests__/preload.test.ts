@@ -20,7 +20,7 @@ import {
   markLocalFileR2Capable,
   resetFileDeliveryPolicies,
 } from '../../share/file-delivery-policy.ts';
-import type { DataConnection, PlaylistItem } from '../../types/index.ts';
+import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
 
 const storageMocks = vi.hoisted(() => ({
   readStoredFile: vi.fn(),
@@ -38,6 +38,33 @@ const Q2 = '00000000-0000-4000-8000-000000000003';
 let queueSequence = 10;
 const nextQueueItemId = () =>
   `00000000-0000-4000-8000-${String(queueSequence++).padStart(12, '0')}`;
+
+function connectedPeer(
+  conn: DataConnection,
+  overrides: Partial<ConnectedPeer> = {},
+): ConnectedPeer {
+  const joinOrder = overrides.joinOrder ?? 1;
+  return {
+    id: conn.peer,
+    slot: joinOrder,
+    label: conn.peer,
+    conn,
+    isOp: false,
+    preloadedQueueItemIds: new Set(),
+    status: 'connected',
+    isDataTarget: true,
+    joinOrder,
+    connectionType: 'local',
+    lastHeartbeat: 0,
+    ...overrides,
+  };
+}
+
+function messageType(message: unknown): unknown {
+  return typeof message === 'object' && message !== null && 'type' in message
+    ? message.type
+    : undefined;
+}
 
 vi.mock('../storage.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../storage.ts')>();
@@ -113,16 +140,7 @@ describe('schedulePreload', () => {
     });
     setState('playlist.items', [current, { ...next, file: undefined }]);
     setState('playlist.currentQueueItemId', Q0);
-    setState('network.connectedPeers', [
-      {
-        id: conn.peer,
-        status: 'connected',
-        conn,
-        isDataTarget: true,
-        connectionType: 'local',
-        joinOrder: 1,
-      },
-    ]);
+    setState('network.connectedPeers', [connectedPeer(conn)]);
     proRoomMocks.preloadFile.mockResolvedValueOnce(downloaded);
 
     schedulePreload(0);
@@ -138,9 +156,9 @@ describe('schedulePreload', () => {
     expect(messages).toContainEqual(
       expect.objectContaining({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1 }),
     );
-    expect(messages.some((message) => message.type === MSG.PRELOAD_START)).toBe(false);
-    expect(messages.some((message) => message.type === MSG.PRELOAD_CHUNK)).toBe(false);
-    expect(messages.some((message) => message.type === MSG.PRELOAD_END)).toBe(false);
+    expect(messages.some((message) => messageType(message) === MSG.PRELOAD_START)).toBe(false);
+    expect(messages.some((message) => messageType(message) === MSG.PRELOAD_CHUNK)).toBe(false);
+    expect(messages.some((message) => messageType(message) === MSG.PRELOAD_END)).toBe(false);
   });
 
   it('accepts a PRO preload hint only from the exact coordinator connection', async () => {
@@ -430,16 +448,7 @@ describe('schedulePreload', () => {
       snapshotRevision: 4,
       capabilities: ['playback.control'],
     });
-    setState('network.connectedPeers', [
-      {
-        id: conn.peer,
-        status: 'connected',
-        conn,
-        isDataTarget: true,
-        connectionType: 'remote',
-        joinOrder: 1,
-      },
-    ]);
+    setState('network.connectedPeers', [connectedPeer(conn, { connectionType: 'remote' })]);
     setState('preload.nextQueueItemId', Q1);
     setState('preload.activeTarget', {
       queueItemId: Q1,
@@ -814,14 +823,7 @@ function makeBulkConn(peer: string, bufferedAmount = 0, readyState = 'open'): Da
 function connectBulkPeers(conns: DataConnection[]): void {
   setState(
     'network.connectedPeers',
-    conns.map((conn, i) => ({
-      id: conn.peer,
-      status: 'connected',
-      conn,
-      isDataTarget: true,
-      connectionType: 'local',
-      joinOrder: i + 1,
-    })),
+    conns.map((conn, i) => connectedPeer(conn, { joinOrder: i + 1 })),
   );
   setState('network.activeHostConnByPeerId', new Map(conns.map((conn) => [conn.peer, conn])));
 }
@@ -1303,16 +1305,7 @@ describe('unicastPreload source liveness', () => {
       peerConnection: { connectionState: 'connected' },
       dataChannel: { readyState: 'open', bufferedAmount },
     } as unknown as DataConnection;
-    setState('network.connectedPeers', [
-      {
-        id: conn.peer,
-        status: 'connected',
-        conn,
-        isDataTarget: true,
-        connectionType: 'local',
-        joinOrder: 1,
-      },
-    ]);
+    setState('network.connectedPeers', [connectedPeer(conn)]);
     setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
     const ready = {
       queueItemId: Q2,

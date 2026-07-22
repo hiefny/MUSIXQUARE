@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import { MAX_GUEST_SLOTS, MAX_SYSTEM_AUDIO_DEVICES, MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
@@ -82,15 +83,19 @@ function makeSlottedPeer(id: string, slot: number, send: ReturnType<typeof vi.fn
   };
 }
 
-type FiringConn = DataConnection & { fire: (event: string, ...args: unknown[]) => void };
+type FiringConn = DataConnection & {
+  send: Mock<(data: unknown) => void>;
+  close: Mock<() => void>;
+  fire: (event: string, ...args: unknown[]) => void;
+};
 
 function makeIncomingConn(peerId: string): FiringConn {
   const handlers = new Map<string, Array<(...args: unknown[]) => void>>();
   return {
     peer: peerId,
     open: true,
-    send: vi.fn(),
-    close: vi.fn(),
+    send: vi.fn<(data: unknown) => void>(),
+    close: vi.fn<() => void>(),
     on(event: string, cb: (...args: unknown[]) => void) {
       const list = handlers.get(event) ?? [];
       list.push(cb);

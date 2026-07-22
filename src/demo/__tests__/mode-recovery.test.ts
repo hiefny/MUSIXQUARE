@@ -135,7 +135,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     // against: buffer publish + transfer.meta overwrite (decode.ts).
     mocks.loadDemoFile.mockImplementation(async (_file: File, meta: { name?: string }) => {
       setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
-      setState('transfer.meta', { name: meta?.name || 'demo.m4a', index: 0 });
+      setState('transfer.meta', { name: meta?.name || 'demo.m4a', indexHint: 0 });
     });
     // Real stopAllMedia releases playback to idle — the restore policy
     // depends on it.

@@ -1537,7 +1537,9 @@ describe('YouTubeZeroStartController', () => {
     vi.advanceTimersByTime(620);
 
     expect(
-      harness.guestOutbound.findLast((message) => message.type === 'youtube-zero-start-armed'),
+      [...harness.guestOutbound]
+        .reverse()
+        .find((message) => message.type === 'youtube-zero-start-armed'),
     ).toMatchObject({
       startLeadMs: -85,
       audibleBaseLeadMs: 0,
@@ -1558,7 +1560,9 @@ describe('YouTubeZeroStartController', () => {
     vi.advanceTimersByTime(620);
 
     expect(
-      harness.guestOutbound.findLast((message) => message.type === 'youtube-zero-start-armed'),
+      [...harness.guestOutbound]
+        .reverse()
+        .find((message) => message.type === 'youtube-zero-start-armed'),
     ).toMatchObject({
       startLeadMs: 0,
       audibleBaseLeadMs: 0,

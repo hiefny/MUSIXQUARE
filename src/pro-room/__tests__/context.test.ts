@@ -13,6 +13,8 @@ function snapshot(): ProRoomSnapshot {
     runtime: 'awake',
     revision: 7,
     playlistRevision: 2,
+    effectsRevision: 0,
+    queueModeRevision: 0,
     playlist: [],
     currentQueueItemId: null,
     playback: {

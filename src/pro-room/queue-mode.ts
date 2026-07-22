@@ -1,5 +1,5 @@
 import type { QueueItemId } from '../types/index.ts';
-import { PRO_ROOM_MAX_PLAYLIST_ITEMS } from './contracts.ts';
+import { PRO_ROOM_MAX_PLAYLIST_ITEMS, type ProRoomSnapshot } from './contracts.ts';
 import { isProRoomCode } from './room-code.ts';
 import { isProRoomQueueItemId } from './snapshot.ts';
 
@@ -87,4 +87,22 @@ export function parseProRoomQueueModeSnapshot(
     shuffleEnabled: value.shuffleEnabled,
     shuffleOrder,
   };
+}
+
+export function queueModeMatchesPlaylist(
+  queueMode: ProRoomQueueModeSnapshot,
+  snapshot: ProRoomSnapshot,
+): boolean {
+  if (
+    queueMode.roomCode !== snapshot.roomCode ||
+    queueMode.playlistRevision !== snapshot.playlistRevision
+  ) {
+    return false;
+  }
+  if (!queueMode.shuffleEnabled) return queueMode.shuffleOrder.length === 0;
+  if (queueMode.shuffleOrder.length !== snapshot.playlist.length) return false;
+  const liveIds = new Set(snapshot.playlist.map((item) => item.queueItemId));
+  return (
+    queueMode.shuffleOrder.every((queueItemId) => liveIds.delete(queueItemId)) && liveIds.size === 0
+  );
 }

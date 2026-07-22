@@ -78,9 +78,9 @@ describe('PRO room setup flow', () => {
   it('aborts a stalled entry operation instead of leaving setup busy forever', async () => {
     vi.useFakeTimers();
     mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
-    let resumeSignal: AbortSignal | null = null;
+    const resumeSignal: { current: AbortSignal | null } = { current: null };
     mocks.resume.mockImplementation((_code: string, options: { signal?: AbortSignal } = {}) => {
-      resumeSignal = options.signal ?? null;
+      resumeSignal.current = options.signal ?? null;
       // Model a mobile request that never reports either success or failure
       // after the document returns from an OAuth window.
       return new Promise<never>(() => undefined);
@@ -96,7 +96,7 @@ describe('PRO room setup flow', () => {
 
     await vi.advanceTimersByTimeAsync(20_000);
     await rejection;
-    expect(resumeSignal?.aborted).toBe(true);
+    expect(resumeSignal.current?.aborted).toBe(true);
   });
 
   it('falls back to an eight-digit PIN only when the cookie session is missing', async () => {

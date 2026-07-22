@@ -100,9 +100,9 @@ const ramEnd = (
   total?: number,
   queueItemId = Q[0]!,
 ) => rawRamEnd(queueItemId, name, isPreload, sid, totalSize, total);
-const ramReadBlob = (name: string, isPreload: boolean, sid: number, queueItemId = Q[0]!) =>
+const ramReadBlob = (_name: string, isPreload: boolean, sid: number, queueItemId = Q[0]!) =>
   rawRamReadBlob(queueItemId, isPreload, sid);
-const ramContiguousCount = (name: string, isPreload: boolean, sid: number, queueItemId = Q[0]!) =>
+const ramContiguousCount = (_name: string, isPreload: boolean, sid: number, queueItemId = Q[0]!) =>
   rawRamContiguousCount(queueItemId, isPreload, sid);
 const FOUR_CHUNK_FILE_SIZE = 3 * CHUNK_SIZE + 1;
 const TWO_CHUNK_FILE_SIZE = CHUNK_SIZE + 1;
@@ -223,8 +223,8 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
       queueItemId: Q[1],
     };
     const chunk = {
-      type: 'file-chunk',
       ...start,
+      type: 'file-chunk',
       chunkIndex: 0,
       chunk: u8(0xaa),
     };
@@ -1131,7 +1131,7 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
   });
 
   it('bootstraps a truly fresh IDLE transfer from a self-describing chunk after authoritative PLAY', async () => {
-    const { handleFileChunk, getTransferMemoryStats } = await import('../transfer-receive.ts');
+    const { handleFileChunk } = await import('../transfer-receive.ts');
     const { postCommand } = await import('../storage.ts');
     setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
     setState('transfer.state', TRANSFER_STATE.IDLE);

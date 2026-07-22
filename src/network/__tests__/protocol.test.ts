@@ -20,7 +20,8 @@ import {
   initProtocol,
   registerInboundRateLimitExemptionGuard,
 } from '../protocol.ts';
-import type { ConnectedPeer, DataConnection, MsgType } from '../../types/index.ts';
+import type { MsgType } from '../../core/constants.ts';
+import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 const OTHER_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';

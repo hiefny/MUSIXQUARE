@@ -6,7 +6,7 @@ import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG, TRANSFER_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
-import type { DataConnection } from '../../types/index.ts';
+import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 import {
   freezeFileDeliveryMode,
   markLocalFileR2Capable,
@@ -15,6 +15,29 @@ import {
 
 const Q0 = '00000000-0000-4000-8000-000000000001';
 const Q1 = '00000000-0000-4000-8000-000000000002';
+type ConnectedTestPeer = ConnectedPeer & { conn: DataConnection };
+
+function connectedPeer(
+  id: string,
+  conn: DataConnection,
+  overrides: Partial<ConnectedPeer> = {},
+): ConnectedTestPeer {
+  const joinOrder = overrides.joinOrder ?? 1;
+  return {
+    id,
+    slot: joinOrder,
+    label: id,
+    isOp: false,
+    preloadedQueueItemIds: new Set(),
+    status: 'connected',
+    isDataTarget: true,
+    joinOrder,
+    connectionType: 'local',
+    lastHeartbeat: 0,
+    ...overrides,
+    conn,
+  };
+}
 
 function publishHostFile(file: File | Blob, queueItemId = Q0, sessionId = 1): void {
   setState('playlist.items', [
@@ -113,14 +136,7 @@ describe('host outgoing transfer routing', () => {
     const peers = Array.from({ length: 10 }, (_, index) => {
       const id = `mixed-peer-${index + 1}`;
       const conn = { open: true, peer: id, send: vi.fn() } as unknown as DataConnection;
-      return {
-        id,
-        status: 'connected' as const,
-        conn,
-        isDataTarget: true,
-        connectionType: 'local' as const,
-        joinOrder: index + 1,
-      };
+      return connectedPeer(id, conn, { joinOrder: index + 1 });
     });
     const capable = peers[9]!;
     markLocalFileR2Capable(capable.id);
@@ -157,14 +173,10 @@ describe('host outgoing transfer routing', () => {
   it('defers an unclassified legacy peer until ICE chooses remote R2 or local overflow', async () => {
     const { sendFilePrepareByDelivery } = await import('../transfer.ts');
     const conn = { open: true, peer: 'unknown-legacy', send: vi.fn() } as unknown as DataConnection;
-    const unknownPeer = {
-      id: conn.peer,
-      status: 'connected' as const,
-      conn,
+    const unknownPeer = connectedPeer(conn.peer, conn, {
       isDataTarget: false,
-      connectionType: 'unknown' as const,
-      joinOrder: 1,
-    };
+      connectionType: 'unknown',
+    });
     setState('network.connectedPeers', [unknownPeer]);
     const prepare = {
       type: MSG.FILE_PREPARE,
@@ -191,14 +203,10 @@ describe('host outgoing transfer routing', () => {
       peer: 'unknown-capable',
       send: vi.fn(),
     } as unknown as DataConnection;
-    const peer = {
-      id: conn.peer,
-      status: 'connected' as const,
-      conn,
+    const peer = connectedPeer(conn.peer, conn, {
       isDataTarget: false,
-      connectionType: 'unknown' as const,
-      joinOrder: 1,
-    };
+      connectionType: 'unknown',
+    });
     setState('network.connectedPeers', [peer]);
     markLocalFileR2Capable(peer.id);
     const prepare = {
@@ -230,14 +238,7 @@ describe('host outgoing transfer routing', () => {
       peerConnection: { connectionState: 'connected', iceConnectionState: 'connected' },
       dataChannel: { readyState: 'open', bufferedAmount: 0 },
     } as unknown as DataConnection;
-    const localPeer = {
-      id: conn.peer,
-      status: 'connected' as const,
-      conn,
-      isDataTarget: true,
-      connectionType: 'local' as const,
-      joinOrder: 1,
-    };
+    const localPeer = connectedPeer(conn.peer, conn);
     setState('network.connectedPeers', [localPeer]);
     setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
     publishHostFile(file, Q0, 31);
@@ -265,16 +266,7 @@ describe('host outgoing transfer routing', () => {
       peer: 'peer-stale',
       send: vi.fn((msg: Record<string, unknown>) => {
         if (msg.type !== MSG.FILE_START) return;
-        setState('network.connectedPeers', [
-          {
-            id: 'peer-current',
-            status: 'connected',
-            conn: currentConn,
-            isDataTarget: true,
-            connectionType: 'local',
-            joinOrder: 1,
-          },
-        ]);
+        setState('network.connectedPeers', [connectedPeer('peer-current', currentConn)]);
         setState('network.activeHostConnByPeerId', new Map([['peer-current', currentConn]]));
       }),
     } as unknown as DataConnection;
@@ -282,22 +274,8 @@ describe('host outgoing transfer routing', () => {
     const file = new File(['abc'], 'song.mp3', { type: 'audio/mpeg' });
     publishHostFile(file, Q0, 1);
     setState('network.connectedPeers', [
-      {
-        id: 'peer-current',
-        status: 'connected',
-        conn: currentConn,
-        isDataTarget: true,
-        connectionType: 'local',
-        joinOrder: 1,
-      },
-      {
-        id: 'peer-stale',
-        status: 'connected',
-        conn: staleConn,
-        isDataTarget: true,
-        connectionType: 'local',
-        joinOrder: 2,
-      },
+      connectedPeer('peer-current', currentConn),
+      connectedPeer('peer-stale', staleConn, { joinOrder: 2 }),
     ]);
     setState(
       'network.activeHostConnByPeerId',
@@ -348,22 +326,8 @@ describe('host outgoing transfer routing', () => {
       const fileB = new File(['bbb'], 'b.mp3', { type: 'audio/mpeg' });
       publishHostFile(fileA, Q0, 1);
       setState('network.connectedPeers', [
-        {
-          id: 'peer-slow',
-          status: 'connected',
-          conn: slowConn,
-          isDataTarget: true,
-          connectionType: 'local',
-          joinOrder: 1,
-        },
-        {
-          id: 'peer-healthy',
-          status: 'connected',
-          conn: healthyConn,
-          isDataTarget: true,
-          connectionType: 'local',
-          joinOrder: 2,
-        },
+        connectedPeer('peer-slow', slowConn),
+        connectedPeer('peer-healthy', healthyConn, { joinOrder: 2 }),
       ]);
       setState(
         'network.activeHostConnByPeerId',
@@ -420,22 +384,8 @@ describe('host outgoing transfer routing', () => {
     const file = new File(['abc'], 'song.mp3', { type: 'audio/mpeg' });
     publishHostFile(file, Q0, 1);
     setState('network.connectedPeers', [
-      {
-        id: 'peer-live',
-        status: 'connected',
-        conn: liveConn,
-        isDataTarget: true,
-        connectionType: 'local',
-        joinOrder: 1,
-      },
-      {
-        id: 'peer-disconnected',
-        status: 'connected',
-        conn: disconnectedConn,
-        isDataTarget: true,
-        connectionType: 'local',
-        joinOrder: 2,
-      },
+      connectedPeer('peer-live', liveConn),
+      connectedPeer('peer-disconnected', disconnectedConn, { joinOrder: 2 }),
     ]);
     setState(
       'network.activeHostConnByPeerId',
@@ -463,16 +413,7 @@ describe('host unicast source liveness', () => {
       peerConnection: { connectionState: 'connected' },
       dataChannel: { readyState: 'open', bufferedAmount: 0 },
     } as unknown as DataConnection;
-    setState('network.connectedPeers', [
-      {
-        id,
-        status: 'connected',
-        conn,
-        isDataTarget: true,
-        connectionType: 'local',
-        joinOrder: 1,
-      },
-    ]);
+    setState('network.connectedPeers', [connectedPeer(id, conn)]);
     setState('network.activeHostConnByPeerId', new Map([[id, conn]]));
     return conn;
   }
@@ -607,16 +548,7 @@ describe('debounced broadcast cancellation', () => {
       peerConnection: { connectionState: 'connected' },
       dataChannel: { readyState: 'open', bufferedAmount: 0 },
     } as unknown as DataConnection;
-    setState('network.connectedPeers', [
-      {
-        id,
-        status: 'connected',
-        conn,
-        isDataTarget: true,
-        connectionType: 'local',
-        joinOrder: 1,
-      },
-    ]);
+    setState('network.connectedPeers', [connectedPeer(id, conn)]);
     setState('network.activeHostConnByPeerId', new Map([[id, conn]]));
     return send;
   }

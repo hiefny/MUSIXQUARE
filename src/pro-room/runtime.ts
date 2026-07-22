@@ -34,7 +34,6 @@ import {
 } from '../player/playlist.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { setPlaybackTrackMeta } from '../player/ownership.ts';
-import { updateSubItemIds } from '../youtube/_state.ts';
 import { resolveYouTubePlaylistManifest } from '../youtube/search.ts';
 import { resetRoomContext, setRoomContext } from '../rooms/authority.ts';
 import type { PlaylistItem, PlaylistWireItem, QueueItemId, RoomContext } from '../types/index.ts';
@@ -67,7 +66,19 @@ import type {
   ProRoomR2Source,
   ProRoomSnapshot,
 } from './contracts.ts';
-import type { ProRoomQueueModeSnapshot } from './queue-mode.ts';
+import { queueModeMatchesPlaylist, type ProRoomQueueModeSnapshot } from './queue-mode.ts';
+import { rebaseRoomEffectsIntent } from './effects-reconciliation.ts';
+import {
+  diffProPresenceMembers,
+  projectAuthoritativeProDevices,
+  projectProPresenceMembers,
+  type ProPresenceMemberProjection,
+} from './presence-projection.ts';
+import {
+  claimLegacyYouTubeManifestCandidates,
+  hydrateProRoomYouTubeManifests,
+  sameStringArray,
+} from './youtube-manifest-policy.ts';
 import {
   registerProRoomLegacyMediaHooks,
   type ProRoomLegacyMediaHooks,
@@ -155,11 +166,6 @@ const EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS = 1_200;
 const PLAYBACK_COMMAND_REQUEST_TIMEOUT_MS = 6_000;
 const PLAYLIST_HYDRATION_MAX_WAIT_MS = 1_500;
 const PLAYLIST_HYDRATION_PREPARE_RESERVE_MS = 500;
-// Keep well below the manifest endpoint's per-IP minute budget so a room with
-// legacy rows cannot starve an explicit user add. Remaining rows continue on
-// a later room session.
-const MAX_LAZY_YOUTUBE_MANIFEST_UPGRADES = 4;
-
 const api = new ProRoomApiClient();
 configureProSystemAudioService(api);
 const bridge = proRoomServerBridge;
@@ -204,18 +210,12 @@ let accountLeaseRenewalInFlight = false;
 let accountIdentityGeneration = 0;
 const heartbeatSingleFlight = new ProRoomHeartbeatSingleFlight();
 const playlistProjectionListeners = new Set<() => void>();
-interface AcceptedProPresenceMember {
-  key: string;
-  memberId: string | null;
-  displayName: string;
-  joinedAtMs: number;
-}
-let acceptedProPresence: {
-  roomCode: string;
-  revision: number;
-  members: Map<string, AcceptedProPresenceMember>;
-  participantMemberKeys: Map<string, string>;
-} | null = null;
+let acceptedProPresence:
+  | (ProPresenceMemberProjection & {
+      roomCode: string;
+      revision: number;
+    })
+  | null = null;
 let acceptedProAdministrators: ProRoomAdministrator[] = [];
 const seenQueueAdditionEventIds = new Set<string>();
 const pendingQueueAdditions = new Map<string, ProQueueAdditionFrame>();
@@ -611,29 +611,6 @@ function projectedSignature(snapshot: ProRoomSnapshot): string {
   return JSON.stringify([snapshot.playlist, snapshot.currentQueueItemId]);
 }
 
-function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
-}
-
-/** Publish canonical server manifests into the legacy YouTube navigation map. */
-function hydrateProRoomYouTubeManifests(snapshot: ProRoomSnapshot): void {
-  for (const item of snapshot.playlist) {
-    if (item.source.kind !== 'youtube' || !item.source.playlistId || !item.source.videoIds) {
-      continue;
-    }
-    const current = getState('youtube.subItemsMap')[item.source.playlistId];
-    if (current && sameStringArray(current.ids, item.source.videoIds)) continue;
-    // updateSubItemIds clones the IDs and retains any richer titles already
-    // fetched by this endpoint instead of replacing them with empty labels.
-    updateSubItemIds(item.source.playlistId, item.source.videoIds);
-  }
-}
-
-/** @internal Focused regression seam for authoritative manifest hydration. */
-export function hydrateProRoomYouTubeManifestsForTests(snapshot: ProRoomSnapshot): void {
-  hydrateProRoomYouTubeManifests(snapshot);
-}
-
 function isLegacyYouTubeSourceCurrent(
   queueItemId: QueueItemId,
   playlistId: string,
@@ -646,38 +623,6 @@ function isLegacyYouTubeSourceCurrent(
     source.videoId === videoId &&
     source.videoIds === undefined
   );
-}
-
-interface LegacyYouTubeManifestCandidate {
-  queueItemId: QueueItemId;
-  playlistId: string;
-  videoId: string;
-}
-
-function claimLegacyYouTubeManifestCandidates(
-  snapshot: ProRoomSnapshot,
-  attempted: Set<QueueItemId>,
-): LegacyYouTubeManifestCandidate[] {
-  const candidates: LegacyYouTubeManifestCandidate[] = [];
-  for (const item of snapshot.playlist) {
-    if (attempted.size >= MAX_LAZY_YOUTUBE_MANIFEST_UPGRADES) break;
-    if (
-      item.source.kind !== 'youtube' ||
-      !item.source.playlistId ||
-      item.source.videoIds ||
-      item.queueItemId === snapshot.currentQueueItemId ||
-      attempted.has(item.queueItemId)
-    ) {
-      continue;
-    }
-    attempted.add(item.queueItemId);
-    candidates.push({
-      queueItemId: item.queueItemId,
-      playlistId: item.source.playlistId,
-      videoId: item.source.videoId,
-    });
-  }
-  return candidates;
 }
 
 function scheduleLegacyYouTubeManifestUpgrades(
@@ -730,21 +675,6 @@ function scheduleLegacyYouTubeManifestUpgrades(
       }
     });
   }
-}
-
-/** @internal Stable policy seam for bounded-upgrade regression tests. */
-export function maxLazyYouTubeManifestUpgradesForTests(): number {
-  return MAX_LAZY_YOUTUBE_MANIFEST_UPGRADES;
-}
-
-/** @internal Exact bounded candidate-selection seam for regression tests. */
-export function claimLegacyYouTubeManifestCandidatesForTests(
-  snapshot: ProRoomSnapshot,
-  attempted: readonly QueueItemId[] = [],
-): QueueItemId[] {
-  return claimLegacyYouTubeManifestCandidates(snapshot, new Set(attempted)).map(
-    (candidate) => candidate.queueItemId,
-  );
 }
 
 function playlistWireItems(items: readonly PlaylistItem[]): PlaylistWireItem[] {
@@ -1185,98 +1115,11 @@ function cancelDeferredProRoomPreload(queueItemId?: QueueItemId): void {
   deferredPreloadRequest = null;
 }
 
-function proPresenceMemberKey(participant: ProRoomPresenceParticipant): string {
-  const memberId = participant.memberId?.trim();
-  return memberId ? `member:${memberId}` : `participant:${participant.participantId}`;
-}
-
-function projectProPresenceMembers(
-  participants: readonly ProRoomPresenceParticipant[],
-): Map<string, AcceptedProPresenceMember> {
-  const members = new Map<string, AcceptedProPresenceMember>();
-  for (const participant of participants) {
-    const key = proPresenceMemberKey(participant);
-    const existing = members.get(key);
-    if (!existing || participant.joinedAtMs < existing.joinedAtMs) {
-      members.set(key, {
-        key,
-        memberId: participant.memberId?.trim() || null,
-        displayName: participant.displayName,
-        joinedAtMs: participant.joinedAtMs,
-      });
-    }
-  }
-  return members;
-}
-
-function projectProPresenceParticipantMemberKeys(
-  participants: readonly ProRoomPresenceParticipant[],
-): Map<string, string> {
-  return new Map(
-    participants.map((participant) => [
-      participant.participantId,
-      proPresenceMemberKey(participant),
-    ]),
-  );
-}
-
-function diffProPresenceMembers(
-  previous: ReadonlyMap<string, AcceptedProPresenceMember>,
-  current: ReadonlyMap<string, AcceptedProPresenceMember>,
-  previousParticipantMemberKeys: ReadonlyMap<string, string>,
-  currentParticipantMemberKeys: ReadonlyMap<string, string>,
-): { joined: AcceptedProPresenceMember[]; departed: AcceptedProPresenceMember[] } {
-  // Identity attachment/detachment can move one still-connected participant
-  // from a device key to an account key (or between account keys). A new
-  // member row is a physical join only when at least one participantId in it
-  // is itself new; likewise a vanished row is a leave only when at least one
-  // participantId actually disappeared. This preserves member-level first/
-  // last notices without announcing login, logout, or lease expiry as motion.
-  const physicallyJoinedMemberKeys = new Set<string>();
-  for (const [participantId, key] of currentParticipantMemberKeys) {
-    if (!previousParticipantMemberKeys.has(participantId)) physicallyJoinedMemberKeys.add(key);
-  }
-  const physicallyDepartedMemberKeys = new Set<string>();
-  for (const [participantId, key] of previousParticipantMemberKeys) {
-    if (!currentParticipantMemberKeys.has(participantId)) physicallyDepartedMemberKeys.add(key);
-  }
-  return {
-    joined: [...current.values()]
-      .filter((member) => !previous.has(member.key) && physicallyJoinedMemberKeys.has(member.key))
-      .sort(
-        (left, right) => left.joinedAtMs - right.joinedAtMs || left.key.localeCompare(right.key),
-      ),
-    departed: [...previous.values()]
-      .filter((member) => !current.has(member.key) && physicallyDepartedMemberKeys.has(member.key))
-      .sort(
-        (left, right) => left.joinedAtMs - right.joinedAtMs || left.key.localeCompare(right.key),
-      ),
-  };
-}
-
-/** @internal Focused regression seam for account-level PRO presence notices. */
-export function diffProRoomPresenceMembersForTests(
-  previous: readonly ProRoomPresenceParticipant[],
-  current: readonly ProRoomPresenceParticipant[],
-): { joined: string[]; departed: string[] } {
-  const delta = diffProPresenceMembers(
-    projectProPresenceMembers(previous),
-    projectProPresenceMembers(current),
-    projectProPresenceParticipantMemberKeys(previous),
-    projectProPresenceParticipantMemberKeys(current),
-  );
-  return {
-    joined: delta.joined.map((member) => member.displayName),
-    departed: delta.departed.map((member) => member.displayName),
-  };
-}
-
 function reconcileAuthoritativePresenceMessages(
   snapshot: ProRoomSnapshot,
   participants: readonly ProRoomPresenceParticipant[],
 ): void {
   const current = projectProPresenceMembers(participants);
-  const currentParticipantMemberKeys = projectProPresenceParticipantMemberKeys(participants);
   const previous = acceptedProPresence;
 
   // The first authenticated snapshot is a baseline, not a burst of historical
@@ -1285,8 +1128,8 @@ function reconcileAuthoritativePresenceMessages(
     acceptedProPresence = {
       roomCode: snapshot.roomCode,
       revision: snapshot.presence.revision,
-      members: current,
-      participantMemberKeys: currentParticipantMemberKeys,
+      members: current.members,
+      participantMemberKeys: current.participantMemberKeys,
     };
     return;
   }
@@ -1297,12 +1140,7 @@ function reconcileAuthoritativePresenceMessages(
   if (snapshot.presence.revision <= previous.revision) return;
 
   if (active) {
-    const delta = diffProPresenceMembers(
-      previous.members,
-      current,
-      previous.participantMemberKeys,
-      currentParticipantMemberKeys,
-    );
+    const delta = diffProPresenceMembers(previous, current);
     for (const member of delta.joined) {
       announceSystemMessageLocally('chat.peer_connected', {
         name: member.displayName,
@@ -1318,41 +1156,9 @@ function reconcileAuthoritativePresenceMessages(
   acceptedProPresence = {
     roomCode: snapshot.roomCode,
     revision: snapshot.presence.revision,
-    members: current,
-    participantMemberKeys: currentParticipantMemberKeys,
+    members: current.members,
+    participantMemberKeys: current.participantMemberKeys,
   };
-}
-
-function projectAuthoritativeProDevices(snapshot: ProRoomSnapshot) {
-  const viewerId = snapshot.viewer?.participantId ?? '';
-  const participants = [...snapshot.presence.participants].sort(
-    (left, right) =>
-      left.joinedAtMs - right.joinedAtMs || left.participantId.localeCompare(right.participantId),
-  );
-  const list = participants.map((participant, index) => ({
-    id: participant.participantId,
-    label: participant.displayName,
-    // Transport topology remains coordinator-free, but room ownership and
-    // delegated authority are still meaningful product roles.
-    isOp: participant.role === 'owner' || participant.role === 'controller',
-    isHost: participant.role === 'owner',
-    status: 'connected',
-    joinOrder: index,
-    connectionType: 'remote' as const,
-    memberId: participant.memberId,
-    memberDisplayNumber: participant.memberDisplayNumber,
-    isAuthenticated: participant.isAuthenticated === true,
-    role: participant.role,
-    capabilities: participant.capabilities ? [...participant.capabilities] : undefined,
-  }));
-  const ownIndex = participants.findIndex((participant) => participant.participantId === viewerId);
-  const ownParticipant = ownIndex >= 0 ? participants[ownIndex] : null;
-  return { participants, list, ownIndex, ownParticipant };
-}
-
-/** @internal Focused regression seam for the physical-device projection. */
-export function projectAuthoritativeProDevicesForTests(snapshot: ProRoomSnapshot) {
-  return projectAuthoritativeProDevices(snapshot);
 }
 
 function reconcileAuthoritativePeers(snapshot: ProRoomSnapshot): void {
@@ -1795,58 +1601,6 @@ function effectsRuntimeSnapshot(): ProRoomSnapshot | null {
   return playlistManager?.snapshot ?? controller.snapshot;
 }
 
-function cloneRoomEffects(effects: RoomEffectsState): RoomEffectsState {
-  return {
-    reverb: { ...effects.reverb },
-    equalizer: {
-      bandsDb: [...effects.equalizer.bandsDb] as RoomEffectsState['equalizer']['bandsDb'],
-    },
-    virtualBass: { ...effects.virtualBass },
-    virtualSurround: { ...effects.virtualSurround },
-    virtualTreble: { ...effects.virtualTreble },
-  };
-}
-
-/**
- * Reapply only the fields changed relative to `base` onto a newer canonical
- * snapshot. Two participants can therefore adjust unrelated controls without
- * a stale full-form write erasing either change.
- */
-function rebaseRoomEffectsIntent(
-  base: RoomEffectsState,
-  desired: RoomEffectsState,
-  canonical: RoomEffectsState,
-): RoomEffectsState {
-  const rebased = cloneRoomEffects(canonical);
-  for (const key of Object.keys(base.reverb) as (keyof RoomEffectsState['reverb'])[]) {
-    if (desired.reverb[key] !== base.reverb[key]) rebased.reverb[key] = desired.reverb[key];
-  }
-  for (let index = 0; index < desired.equalizer.bandsDb.length; index += 1) {
-    if (desired.equalizer.bandsDb[index] !== base.equalizer.bandsDb[index]) {
-      rebased.equalizer.bandsDb[index] = desired.equalizer.bandsDb[index];
-    }
-  }
-  if (desired.virtualBass.strengthPercent !== base.virtualBass.strengthPercent) {
-    rebased.virtualBass.strengthPercent = desired.virtualBass.strengthPercent;
-  }
-  if (desired.virtualSurround.widthPercent !== base.virtualSurround.widthPercent) {
-    rebased.virtualSurround.widthPercent = desired.virtualSurround.widthPercent;
-  }
-  if (desired.virtualTreble.enabled !== base.virtualTreble.enabled) {
-    rebased.virtualTreble.enabled = desired.virtualTreble.enabled;
-  }
-  return rebased;
-}
-
-/** @internal Deterministic seam for concurrent-effects regression tests. */
-export function rebaseRoomEffectsIntentForTests(
-  base: RoomEffectsState,
-  desired: RoomEffectsState,
-  canonical: RoomEffectsState,
-): RoomEffectsState {
-  return rebaseRoomEffectsIntent(base, desired, canonical);
-}
-
 function applyCanonicalRoomEffects(effects: RoomEffectsState): boolean {
   suppressEffectsCheckpoint = true;
   try {
@@ -2025,24 +1779,6 @@ async function refreshPersistedEffects(snapshot: ProRoomSnapshot): Promise<boole
   })();
   effectsRefreshInFlight = flight;
   return flight.promise;
-}
-
-function queueModeMatchesPlaylist(
-  queueMode: ProRoomQueueModeSnapshot,
-  snapshot: ProRoomSnapshot,
-): boolean {
-  if (
-    queueMode.roomCode !== snapshot.roomCode ||
-    queueMode.playlistRevision !== snapshot.playlistRevision
-  ) {
-    return false;
-  }
-  if (!queueMode.shuffleEnabled) return queueMode.shuffleOrder.length === 0;
-  if (queueMode.shuffleOrder.length !== snapshot.playlist.length) return false;
-  const liveIds = new Set(snapshot.playlist.map((item) => item.queueItemId));
-  return (
-    queueMode.shuffleOrder.every((queueItemId) => liveIds.delete(queueItemId)) && liveIds.size === 0
-  );
 }
 
 function enqueueQueueModeMutation<T>(operation: () => Promise<T>): Promise<T> {

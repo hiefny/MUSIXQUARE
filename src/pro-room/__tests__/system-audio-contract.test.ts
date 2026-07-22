@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { ProRoomSystemAudioState } from '../contracts.ts';
+import type { ProRoomSystemAudioPublication, ProRoomSystemAudioState } from '../contracts.ts';
 import { parseProRoomSystemAudioPublication, parseProRoomSystemAudioState } from '../snapshot.ts';
 
 const OWNER_ID = 'participant_00001';
 
-function publication() {
+function publication(): ProRoomSystemAudioPublication {
   return {
     publicationId: 'publication_00001',
     sessionId: 'realtime_session_01',

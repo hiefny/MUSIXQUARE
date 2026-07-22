@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import { resetState, setState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
@@ -36,6 +37,21 @@ import {
 } from '../../player/ownership.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
+
+type MockDataConnection = DataConnection & {
+  send: Mock<(data: unknown) => void>;
+  close: Mock<() => void>;
+};
+
+function mockDataConnection(peer = 'host'): MockDataConnection {
+  return {
+    peer,
+    open: true,
+    send: vi.fn<(data: unknown) => void>(),
+    close: vi.fn<() => void>(),
+    on: vi.fn(),
+  };
+}
 
 const transportMocks = vi.hoisted(() => ({
   play: vi.fn(),
@@ -236,13 +252,20 @@ describe('manual sync nudge routing', () => {
 describe('SYNC_PING playback snapshot', () => {
   it('records transport liveness without replacing the global peer list', async () => {
     initSync();
-    const conn = { peer: 'guest-liveness', open: true, send: vi.fn() } as DataConnection;
+    const conn = mockDataConnection('guest-liveness');
     const peer = {
       id: conn.peer,
+      slot: 1,
+      label: 'Guest',
       conn,
+      isOp: false,
+      preloadedQueueItemIds: new Set(),
       status: 'connected',
+      isDataTarget: true,
+      joinOrder: 1,
+      connectionType: 'local',
       lastHeartbeat: 1,
-    } as ConnectedPeer;
+    } satisfies ConnectedPeer;
     const connectedPeers = [peer];
     setState('network.connectedPeers', connectedPeers);
 
@@ -259,7 +282,7 @@ describe('SYNC_PING playback snapshot', () => {
     setState('playback.lifecycle', PLAYBACK_STATE.READY);
     setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
 
-    const conn = { peer: 'guest-audible', open: true, send: vi.fn() } as DataConnection;
+    const conn = mockDataConnection('guest-audible');
     await handleData({ type: MSG.SYNC_PING, pingId: 7 }, conn);
 
     expect(conn.send).toHaveBeenCalledTimes(1);
@@ -288,7 +311,7 @@ describe('SYNC_PING playback snapshot', () => {
       activity: 'playing',
     });
 
-    const conn = { peer: 'guest-audible', open: true, send: vi.fn() } as DataConnection;
+    const conn = mockDataConnection('guest-audible');
     await handleData({ type: MSG.SYNC_PING, pingId: 8 }, conn);
 
     expect(conn.send).toHaveBeenCalledWith(
@@ -385,7 +408,7 @@ describe('host heartbeat cleanup ordering', () => {
     setState('setup.sessionStarted', true);
 
     initSync();
-    bus.emit('state:setup.sessionStarted', true);
+    bus.emit('state:setup.sessionStarted', true, 'setup.sessionStarted');
     vi.advanceTimersByTime(5000);
 
     expect(conn.close).toHaveBeenCalledTimes(1);
@@ -503,7 +526,7 @@ describe('local-file sync correction', () => {
     vi.setSystemTime(1000);
     initSync();
 
-    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
+    const hostConn = mockDataConnection('host-1');
     setState('network.hostConn', hostConn);
     setPlaybackFilePlaying();
     setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
@@ -533,7 +556,7 @@ describe('local-file sync correction', () => {
     vi.setSystemTime(1000);
     initSync();
 
-    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
+    const hostConn = mockDataConnection('host-1');
     setState('network.hostConn', hostConn);
     // Guest locally paused: file/paused (PAUSED lifecycle, not a decode state)
     // with a decoded buffer — without the flag the SYNC_PONG bootstrap resumes
@@ -566,7 +589,7 @@ describe('local-file sync correction', () => {
     vi.setSystemTime(1000);
     initSync();
 
-    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
+    const hostConn = mockDataConnection('host-1');
     setState('network.hostConn', hostConn);
     // Identical to the case above except the local-pause flag is clear, so the
     // bootstrap must fire (proves the guard above is what suppresses it).
@@ -598,7 +621,7 @@ describe('local-file sync correction', () => {
     vi.setSystemTime(1000);
     initSync();
 
-    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
+    const hostConn = mockDataConnection('host-1');
     setState('network.hostConn', hostConn);
     setPlaybackFilePlaying();
     setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
@@ -622,7 +645,7 @@ describe('local-file sync correction', () => {
     vi.setSystemTime(1000);
     initSync();
 
-    const hostConn = { peer: 'host-1', open: true, send: vi.fn() } as DataConnection;
+    const hostConn = mockDataConnection('host-1');
     setState('network.hostConn', hostConn);
     setPlaybackFilePlaying();
     setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);

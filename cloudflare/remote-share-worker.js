@@ -4,6 +4,7 @@
  * Required bindings:
  * - REMOTE_SHARE_BUCKET: R2 bucket
  * - REMOTE_SHARE_RATE_LIMIT: KV namespace
+ * - REMOTE_SHARE_QUOTA: per-room Durable Object namespace when quota is enabled
  * - REMOTE_SHARE_SIGNING_SECRET: HMAC secret for upload session tokens
  * - R2_ACCOUNT_ID: Cloudflare account ID for S3 presigned URLs
  * - R2_ACCESS_KEY_ID: R2 S3 API access key ID
@@ -46,6 +47,11 @@ const CAPABILITY_SCOPE = 'remote-share';
 const CAPABILITY_TOKEN_TTL_DEFAULT = 600;
 const SESSION_JSON_BODY_MAX_BYTES = 8 * 1024;
 const COMPLETE_JSON_BODY_MAX_BYTES = 8 * 1024;
+const QUOTA_JSON_BODY_MAX_BYTES = 4 * 1024;
+const QUOTA_STATE_KEY = 'quota-state';
+const QUOTA_STATE_VERSION = 1;
+const QUOTA_STATE_MAX_ENTRIES = ROOM_STORAGE_SCAN_MAX_OBJECTS;
+const QUOTA_ALARM_RETRY_MS = 60 * 1000;
 // Standard ephemeral rooms are generated only in the 100000-999999 range.
 // The complete 0xxxxx namespace belongs to persistent PRO rooms and must never
 // share this temporary encrypted-object bucket or its per-room quota keys.
@@ -530,6 +536,13 @@ function roomStorageQuotaBytes(env) {
   return parseOptionalLimit(env.ROOM_STORAGE_QUOTA_BYTES, DEFAULT_ROOM_STORAGE_QUOTA_BYTES);
 }
 
+function atomicRoomStorageQuotaEnabled(env) {
+  return (
+    roomStorageQuotaBytes(env) > 0 &&
+    String(env.REMOTE_SHARE_ATOMIC_QUOTA_ENABLED ?? 'true').toLowerCase() !== 'false'
+  );
+}
+
 async function deleteBucketKeysInChunks(bucket, keys) {
   for (let offset = 0; offset < keys.length; offset += ROOM_STORAGE_LIST_PAGE_SIZE) {
     const chunk = keys.slice(offset, offset + ROOM_STORAGE_LIST_PAGE_SIZE);
@@ -544,9 +557,10 @@ async function deleteBucketKeysInChunks(bucket, keys) {
   }
 }
 
-async function calculateRoomStorageBytes(bucket, roomId, now) {
+async function inspectRoomStorage(bucket, roomId, now) {
   const prefix = `room/${roomId}/`;
   const staleKeys = [];
+  const activeKeys = new Set();
   let cursor;
   let scannedObjects = 0;
   let totalBytes = 0;
@@ -571,14 +585,24 @@ async function calculateRoomStorageBytes(bucket, roomId, now) {
         continue;
       }
       const size = Number(object?.size);
-      if (Number.isSafeInteger(size) && size > 0) totalBytes += size;
+      if (Number.isSafeInteger(size) && size > 0) {
+        totalBytes += size;
+        activeKeys.add(object.key);
+      }
     }
     if (saturated) break;
     cursor = page?.truncated ? page.cursor : undefined;
   } while (cursor);
 
   if (staleKeys.length > 0) await deleteBucketKeysInChunks(bucket, staleKeys);
-  return saturated ? Number.POSITIVE_INFINITY : totalBytes;
+  return {
+    activeKeys,
+    totalBytes: saturated ? Number.POSITIVE_INFINITY : totalBytes,
+  };
+}
+
+async function calculateRoomStorageBytes(bucket, roomId, now) {
+  return (await inspectRoomStorage(bucket, roomId, now)).totalBytes;
 }
 
 async function roomHasStorageCapacity(env, roomId, additionalBytes) {
@@ -600,6 +624,77 @@ function roomStorageQuotaExceeded(request, env) {
     },
     409,
   );
+}
+
+function roomQuotaStub(env, roomId) {
+  const namespace = env.REMOTE_SHARE_QUOTA;
+  if (
+    !namespace ||
+    typeof namespace.idFromName !== 'function' ||
+    typeof namespace.get !== 'function'
+  ) {
+    throw new Error('room storage quota Durable Object missing');
+  }
+  return namespace.get(namespace.idFromName(roomId));
+}
+
+async function callRoomQuota(env, roomId, operation, body) {
+  const stub = roomQuotaStub(env, roomId);
+  const response = await stub.fetch(
+    new Request(`https://remote-share-quota.internal/${operation}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ roomId, ...body }),
+    }),
+  );
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error('invalid room storage quota response');
+  }
+  return { payload, status: response.status };
+}
+
+async function reserveRoomStorage(env, reservation) {
+  const result = await callRoomQuota(env, reservation.roomId, 'reserve', reservation);
+  if (result.status === 200 && result.payload?.reserved === true) return true;
+  if (result.status === 409 && result.payload?.code === 'ROOM_STORAGE_QUOTA_EXCEEDED') {
+    return false;
+  }
+  throw new Error('room storage quota unavailable');
+}
+
+async function completeRoomStorageReservation(env, reservation) {
+  const result = await callRoomQuota(env, reservation.roomId, 'complete', reservation);
+  if (result.status === 200 && result.payload?.completed === true) return 'completed';
+  if (result.status === 409 && result.payload?.code === 'ROOM_STORAGE_QUOTA_EXCEEDED') {
+    return 'quota-exceeded';
+  }
+  if (result.status === 404) return 'missing';
+  throw new Error('room storage quota unavailable');
+}
+
+async function releaseRoomStorageReservation(env, roomId, objectId, cleanupToken) {
+  if (roomStorageQuotaBytes(env) <= 0 || !cleanupToken) return false;
+  const result = await callRoomQuota(env, roomId, 'release', {
+    cleanupToken,
+    objectId,
+  });
+  if (result.status === 200 && typeof result.payload?.released === 'boolean') {
+    return result.payload.released;
+  }
+  throw new Error('room storage quota unavailable');
+}
+
+async function releaseRoomStorageReservationBestEffort(env, roomId, objectId, cleanupToken) {
+  try {
+    await releaseRoomStorageReservation(env, roomId, objectId, cleanupToken);
+  } catch (error) {
+    // A failed release leaves a conservative reservation until expiry. It can
+    // temporarily deny capacity, but can never admit an over-quota upload.
+    console.warn('remote share room storage reservation release failed', error);
+  }
 }
 
 function rateLimited(request, env, message, retryAfterSeconds) {
@@ -669,15 +764,6 @@ async function handleSession(request, env) {
     if (!roomAllowed) return rateLimited(request, env, 'room rate limited', rateWindowSeconds);
   }
 
-  try {
-    if (!(await roomHasStorageCapacity(env, roomId, encryptedSize))) {
-      return roomStorageQuotaExceeded(request, env);
-    }
-  } catch (error) {
-    console.warn('remote share room storage quota unavailable', error);
-    return json(request, env, { error: 'room storage quota unavailable' }, 503);
-  }
-
   const ttlSeconds = parseLimit(env.UPLOAD_TOKEN_TTL_SECONDS, DEFAULT_UPLOAD_TOKEN_TTL_SECONDS);
   const now = Date.now();
   const uploadUrlExpiresAt = now + ttlSeconds * 1000;
@@ -688,69 +774,135 @@ async function handleSession(request, env) {
   const cleanupToken = crypto.randomUUID();
   const name = metadataString(body?.name, 'track');
   const mime = metadataString(body?.mime, 'application/octet-stream');
-  const uploadHeaders = {
-    'content-type': 'application/octet-stream',
-    'x-amz-meta-cleanup-token': cleanupToken,
-    'x-amz-meta-encrypted-size': String(encryptedSize),
-    'x-amz-meta-expires-at': String(expiresAt),
-    'x-amz-meta-mime': mime,
-    'x-amz-meta-name': name,
-    'x-amz-meta-object-id': objectId,
-    'x-amz-meta-room-id': roomId,
-    'x-amz-meta-size-bytes': String(size),
-  };
-  // Content-Length is a forbidden browser header, so the client must not set
-  // it itself. The user agent still sends the real request length. Include
-  // the declared ciphertext length only in SigV4's signed headers so R2
-  // rejects an oversized/undersized PUT before it can become an orphan.
-  const signedUploadHeaders = {
-    ...uploadHeaders,
-    'content-length': String(encryptedSize),
-  };
-  const uploadUrl = await createR2PresignedPutUrl({
-    env,
-    objectKey: objectKeyValue,
-    headers: signedUploadHeaders,
-    expiresInSeconds: ttlSeconds,
-    now: new Date(now),
-  });
-  if (!uploadUrl) return json(request, env, { error: 'r2 s3 config missing' }, 500);
+  const quotaEnabled = atomicRoomStorageQuotaEnabled(env);
+  let quotaReserved = false;
+  try {
+    // The migration bridge keeps the previous bounded LIST admission behavior
+    // while establishing the Durable Object namespace as a rollback baseline.
+    if (!quotaEnabled && roomStorageQuotaBytes(env) > 0) {
+      try {
+        if (!(await roomHasStorageCapacity(env, roomId, encryptedSize))) {
+          return roomStorageQuotaExceeded(request, env);
+        }
+      } catch (error) {
+        console.warn('remote share room storage quota unavailable', error);
+        return json(request, env, { error: 'room storage quota unavailable' }, 503);
+      }
+    }
+    if (quotaEnabled) {
+      let reserved;
+      try {
+        reserved = await reserveRoomStorage(env, {
+          cleanupToken,
+          encryptedSize,
+          expiresAt,
+          objectId,
+          objectKey: objectKeyValue,
+          roomId,
+        });
+      } catch (error) {
+        console.warn('remote share room storage quota unavailable', error);
+        // The Durable Object may have persisted the reservation and then lost
+        // its alarm/response. No presigned URL has been exposed yet, so an
+        // idempotent release with the same identity safely resolves that
+        // ambiguous partial commit. A failed release remains conservative.
+        await releaseRoomStorageReservationBestEffort(env, roomId, objectId, cleanupToken);
+        return json(request, env, { error: 'room storage quota unavailable' }, 503);
+      }
+      if (!reserved) return roomStorageQuotaExceeded(request, env);
+      quotaReserved = true;
+    }
 
-  // The presigned URL only governs when R2 accepts the PUT request. A slow,
-  // steadily progressing PUT may finish after that start window, so its
-  // completion capability remains valid only until the already-fixed object
-  // expiry. Neither the PUT URL nor the object's usable lifetime is extended.
-  const completeToken = await createSignedToken(
-    {
-      v: 2,
-      kind: 'complete',
-      roomId,
-      objectId,
+    const uploadHeaders = {
+      'content-type': 'application/octet-stream',
+      'x-amz-meta-cleanup-token': cleanupToken,
+      'x-amz-meta-encrypted-size': String(encryptedSize),
+      'x-amz-meta-expires-at': String(expiresAt),
+      'x-amz-meta-mime': mime,
+      'x-amz-meta-name': name,
+      'x-amz-meta-object-id': objectId,
+      'x-amz-meta-room-id': roomId,
+      'x-amz-meta-size-bytes': String(size),
+    };
+    // Content-Length is a forbidden browser header, so the client must not set
+    // it itself. The user agent still sends the real request length. Include
+    // the declared ciphertext length only in SigV4's signed headers so R2
+    // rejects an oversized/undersized PUT before it can become an orphan.
+    const signedUploadHeaders = {
+      ...uploadHeaders,
+      'content-length': String(encryptedSize),
+    };
+    const uploadUrl = await createR2PresignedPutUrl({
+      env,
       objectKey: objectKeyValue,
-      sessionId,
-      queueItemId,
-      size,
-      encryptedSize,
-      expiresAt,
-      cleanupToken,
-      iat: now,
-      exp: expiresAt,
-      nonce: crypto.randomUUID(),
-    },
-    secret,
-  );
+      headers: signedUploadHeaders,
+      expiresInSeconds: ttlSeconds,
+      now: new Date(now),
+    });
+    if (!uploadUrl) {
+      if (quotaReserved) {
+        await releaseRoomStorageReservationBestEffort(env, roomId, objectId, cleanupToken);
+        quotaReserved = false;
+      }
+      return json(request, env, { error: 'r2 s3 config missing' }, 500);
+    }
 
-  const url = new URL(request.url);
-  return json(request, env, {
-    uploadUrl,
-    uploadHeaders,
-    uploadUrlExpiresAt,
-    completeToken,
-    objectId,
-    expiresAt,
-    downloadUrl: `${url.origin}/download/${roomId}/${objectId}`,
-    cleanupToken,
-  });
+    // The presigned URL only governs when R2 accepts the PUT request. A slow,
+    // steadily progressing PUT may finish after that start window, so its
+    // completion capability remains valid only until the already-fixed object
+    // expiry. Neither the PUT URL nor the object's usable lifetime is extended.
+    // Keep the established v2 envelope across the migration bridge and later
+    // same-lifecycle rollbacks. The signed marker opts the new Worker into
+    // Durable Object settlement; old Workers ignore the extra field and
+    // retain their bounded LIST validation.
+    const completeToken = await createSignedToken(
+      {
+        v: 2,
+        ...(quotaEnabled ? { quotaReservationVersion: 1 } : {}),
+        kind: 'complete',
+        roomId,
+        objectId,
+        objectKey: objectKeyValue,
+        sessionId,
+        queueItemId,
+        size,
+        encryptedSize,
+        expiresAt,
+        cleanupToken,
+        iat: now,
+        exp: expiresAt,
+        nonce: crypto.randomUUID(),
+      },
+      secret,
+    );
+
+    const url = new URL(request.url);
+    const response = json(request, env, {
+      uploadUrl,
+      uploadHeaders,
+      uploadUrlExpiresAt,
+      completeToken,
+      objectId,
+      expiresAt,
+      downloadUrl: `${url.origin}/download/${roomId}/${objectId}`,
+      cleanupToken,
+    });
+    quotaReserved = false;
+    return response;
+  } catch (error) {
+    if (quotaReserved) {
+      await releaseRoomStorageReservationBestEffort(env, roomId, objectId, cleanupToken);
+    }
+    throw error;
+  }
+}
+
+async function deleteObjectAndRetainReservation(env, _roomId, _objectId, key, _cleanupToken) {
+  await env.REMOTE_SHARE_BUCKET.delete(key);
+  // Once a presigned PUT URL has been returned, deleting its current object
+  // does not revoke that write authority. Keep the exact-byte reservation
+  // until fixed expiry so a late or replayed PUT cannot arrive after another
+  // session consumed the same capacity.
 }
 
 async function handleComplete(request, env) {
@@ -774,6 +926,7 @@ async function handleComplete(request, env) {
     !roomId ||
     !payload ||
     payload.v !== 2 ||
+    (payload.quotaReservationVersion !== undefined && payload.quotaReservationVersion !== 1) ||
     payload.kind !== 'complete' ||
     payload.roomId !== roomId ||
     payload.objectId !== objectId ||
@@ -806,7 +959,7 @@ async function handleComplete(request, env) {
     object.size !== expectedSize ||
     object.size > REMOTE_SHARE_MAX_ENCRYPTED_BYTES
   ) {
-    await env.REMOTE_SHARE_BUCKET.delete(key);
+    await deleteObjectAndRetainReservation(env, roomId, objectId, key, payload.cleanupToken);
     return json(request, env, { error: 'invalid uploaded object' }, 403);
   }
 
@@ -828,7 +981,7 @@ async function handleComplete(request, env) {
     storedCleanupToken !== payload.cleanupToken ||
     storedExpiresAt !== Number(payload.expiresAt)
   ) {
-    await env.REMOTE_SHARE_BUCKET.delete(key);
+    await deleteObjectAndRetainReservation(env, roomId, objectId, key, payload.cleanupToken);
     return json(request, env, { error: 'invalid uploaded object metadata' }, 403);
   }
 
@@ -837,25 +990,56 @@ async function handleComplete(request, env) {
   // that crossed object expiry while R2 was responding cannot publish an
   // already-stale descriptor.
   if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
-    await env.REMOTE_SHARE_BUCKET.delete(key);
+    await deleteObjectAndRetainReservation(env, roomId, objectId, key, payload.cleanupToken);
     return json(request, env, { error: 'expired' }, 404);
   }
 
-  try {
-    if (!(await roomHasStorageCapacity(env, roomId, 0))) {
-      await env.REMOTE_SHARE_BUCKET.delete(key);
-      return roomStorageQuotaExceeded(request, env);
+  const quotaSettlementRequired = roomStorageQuotaBytes(env) > 0 || Boolean(env.REMOTE_SHARE_QUOTA);
+  if (payload.quotaReservationVersion === 1 && quotaSettlementRequired) {
+    try {
+      const completion = await completeRoomStorageReservation(env, {
+        cleanupToken: payload.cleanupToken,
+        encryptedSize: expectedSize,
+        expiresAt,
+        objectId,
+        objectKey: key,
+        roomId,
+      });
+      if (completion === 'quota-exceeded') {
+        await deleteObjectAndRetainReservation(env, roomId, objectId, key, payload.cleanupToken);
+        return roomStorageQuotaExceeded(request, env);
+      }
+      if (completion !== 'completed') {
+        return json(request, env, { error: 'room storage quota unavailable' }, 503);
+      }
+    } catch (error) {
+      console.warn('remote share completed-object quota validation unavailable', error);
+      // Preserve the already-validated object and reservation so the caller
+      // can retry after a transient binding/DO outage. Deleting here would not
+      // revoke the still-live direct PUT URL anyway.
+      return json(request, env, { error: 'room storage quota unavailable' }, 503);
     }
-  } catch (error) {
-    console.warn('remote share completed-object quota validation unavailable', error);
-    await env.REMOTE_SHARE_BUCKET.delete(key);
-    return json(request, env, { error: 'room storage quota unavailable' }, 503);
+  } else {
+    // Deployment/rollback compatibility for unmarked v2 tokens. A marked
+    // token also reaches this path only when admission was explicitly disabled
+    // and the quota binding was removed; its valid object can remain usable
+    // without destructive settlement because no new reservations are admitted.
+    try {
+      if (!(await roomHasStorageCapacity(env, roomId, 0))) {
+        await env.REMOTE_SHARE_BUCKET.delete(key);
+        return roomStorageQuotaExceeded(request, env);
+      }
+    } catch (error) {
+      console.warn('remote share completed-object quota validation unavailable', error);
+      await env.REMOTE_SHARE_BUCKET.delete(key);
+      return json(request, env, { error: 'room storage quota unavailable' }, 503);
+    }
   }
 
   // The quota LIST is another network boundary and may cross object expiry.
   // Never publish a descriptor for an object that cleanup just expired.
   if (expiresAt <= Date.now()) {
-    await env.REMOTE_SHARE_BUCKET.delete(key);
+    await deleteObjectAndRetainReservation(env, roomId, objectId, key, payload.cleanupToken);
     return json(request, env, { error: 'expired' }, 404);
   }
 
@@ -888,8 +1072,11 @@ async function handleDownload(request, env, roomId, objectId) {
   const object = await env.REMOTE_SHARE_BUCKET.get(key);
   if (!object) return json(request, env, { error: 'not found' }, 404);
 
+  const storedCleanupToken = String(
+    readMetadata(object, 'cleanupToken', 'cleanup-token', 'cleanuptoken') || '',
+  );
   if (object.size > REMOTE_SHARE_MAX_ENCRYPTED_BYTES) {
-    await env.REMOTE_SHARE_BUCKET.delete(key);
+    await deleteObjectAndRetainReservation(env, roomId, objectId, key, storedCleanupToken);
     return json(request, env, { error: 'file too large', maxBytes: REMOTE_SHARE_MAX_BYTES }, 413);
   }
 
@@ -909,13 +1096,13 @@ async function handleDownload(request, env, roomId, objectId) {
     storedRoomId !== standardRoomId(roomId) ||
     storedObjectId !== objectId
   ) {
-    await env.REMOTE_SHARE_BUCKET.delete(key);
+    await deleteObjectAndRetainReservation(env, roomId, objectId, key, storedCleanupToken);
     return json(request, env, { error: 'invalid stored object' }, 404);
   }
 
   const expiresAt = Number(readMetadata(object, 'expiresAt', 'expires-at', 'expiresat') || '0');
   if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
-    await env.REMOTE_SHARE_BUCKET.delete(key);
+    await deleteObjectAndRetainReservation(env, roomId, objectId, key, storedCleanupToken);
     return json(request, env, { error: 'expired' }, 404);
   }
 
@@ -936,16 +1123,346 @@ async function handleDelete(request, env, roomId, objectId) {
   const key = objectKey(roomId, objectId);
   if (!key) return json(request, env, { ok: true });
 
-  const object = await env.REMOTE_SHARE_BUCKET.head(key);
-  if (!object) return json(request, env, { ok: true });
-  const expected = readMetadata(object, 'cleanupToken', 'cleanup-token', 'cleanuptoken');
   const supplied = request.headers.get('x-mxqr-cleanup-token') || '';
+  const object = await env.REMOTE_SHARE_BUCKET.head(key);
+  if (!object) {
+    // A presigned PUT can still be in flight (or be started with the already
+    // issued URL) even though HEAD currently sees no object. Releasing here
+    // would let another session consume the same bytes before that PUT lands.
+    // Keep the reservation fail-closed until its expiry alarm reconciles it.
+    return json(request, env, { ok: true });
+  }
+  const expected = readMetadata(object, 'cleanupToken', 'cleanup-token', 'cleanuptoken');
   if (!expected || supplied !== expected) {
     return json(request, env, { error: 'forbidden' }, 403);
   }
 
   await env.REMOTE_SHARE_BUCKET.delete(key);
+  // The presigned PUT remains reusable until its fixed authority window. The
+  // reservation therefore stays charged until expiry even after a successful
+  // authenticated physical delete.
   return json(request, env, { ok: true });
+}
+
+function quotaJson(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+    },
+  });
+}
+
+function emptyQuotaState(roomId) {
+  return {
+    v: QUOTA_STATE_VERSION,
+    roomId,
+    reservations: {},
+  };
+}
+
+function validQuotaReservation(objectId, value, roomId) {
+  return (
+    value &&
+    typeof value === 'object' &&
+    value.objectId === objectId &&
+    value.objectKey === objectKey(roomId, objectId) &&
+    Number.isSafeInteger(value.encryptedSize) &&
+    value.encryptedSize > AES_GCM_TAG_BYTES &&
+    value.encryptedSize <= REMOTE_SHARE_MAX_ENCRYPTED_BYTES &&
+    Number.isSafeInteger(value.expiresAt) &&
+    typeof value.cleanupToken === 'string' &&
+    value.cleanupToken.length >= 16 &&
+    (value.status === 'reserved' || value.status === 'completed')
+  );
+}
+
+function parseQuotaReservation(body) {
+  const roomId = standardRoomId(body?.roomId);
+  const objectId = String(body?.objectId || '');
+  const key = objectKey(roomId, objectId);
+  const encryptedSize = Number(body?.encryptedSize);
+  const expiresAt = Number(body?.expiresAt);
+  const cleanupToken = String(body?.cleanupToken || '');
+  if (
+    !roomId ||
+    !key ||
+    body?.objectKey !== key ||
+    !Number.isSafeInteger(encryptedSize) ||
+    encryptedSize <= AES_GCM_TAG_BYTES ||
+    encryptedSize > REMOTE_SHARE_MAX_ENCRYPTED_BYTES ||
+    !Number.isSafeInteger(expiresAt) ||
+    cleanupToken.length < 16
+  ) {
+    return null;
+  }
+  return {
+    cleanupToken,
+    encryptedSize,
+    expiresAt,
+    objectId,
+    objectKey: key,
+    roomId,
+  };
+}
+
+function reservationsMatch(left, right) {
+  return (
+    left.objectId === right.objectId &&
+    left.objectKey === right.objectKey &&
+    left.encryptedSize === right.encryptedSize &&
+    left.expiresAt === right.expiresAt &&
+    constantTimeEqual(left.cleanupToken, right.cleanupToken)
+  );
+}
+
+export class RemoteShareQuota {
+  constructor(state, env) {
+    this.storage = state.storage;
+    this.env = env;
+    this.mutationTail = Promise.resolve();
+  }
+
+  enqueueMutation(task) {
+    const run = this.mutationTail.then(task, task);
+    this.mutationTail = run.catch(() => {});
+    return run;
+  }
+
+  fetch(request) {
+    return this.enqueueMutation(async () => {
+      try {
+        return await this.handleFetch(request);
+      } catch (error) {
+        console.warn('remote share quota Durable Object unavailable', error);
+        return quotaJson({ error: 'QUOTA_UNAVAILABLE' }, 503);
+      }
+    });
+  }
+
+  async readState(roomId) {
+    const stored = await this.storage.get(QUOTA_STATE_KEY);
+    if (stored === undefined || stored === null) return emptyQuotaState(roomId);
+    if (
+      !stored ||
+      typeof stored !== 'object' ||
+      stored.v !== QUOTA_STATE_VERSION ||
+      stored.roomId !== roomId ||
+      !stored.reservations ||
+      typeof stored.reservations !== 'object' ||
+      Array.isArray(stored.reservations)
+    ) {
+      throw new Error('invalid room storage quota state');
+    }
+    const reservations = {};
+    for (const [objectId, reservation] of Object.entries(stored.reservations)) {
+      if (!validQuotaReservation(objectId, reservation, roomId)) {
+        throw new Error('invalid room storage reservation state');
+      }
+      reservations[objectId] = { ...reservation };
+    }
+    return {
+      v: QUOTA_STATE_VERSION,
+      roomId,
+      reservations,
+    };
+  }
+
+  async scheduleAlarm(state) {
+    const expiries = Object.values(state.reservations).map((reservation) => reservation.expiresAt);
+    if (expiries.length === 0) {
+      if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
+      return;
+    }
+    if (typeof this.storage.setAlarm === 'function') {
+      await this.storage.setAlarm(Math.min(...expiries));
+    }
+  }
+
+  async persistState(state) {
+    if (Object.keys(state.reservations).length === 0) {
+      if (typeof this.storage.delete === 'function') await this.storage.delete(QUOTA_STATE_KEY);
+    } else {
+      await this.storage.put(QUOTA_STATE_KEY, state);
+    }
+    await this.scheduleAlarm(state);
+  }
+
+  async maintainState(state, changed) {
+    if (changed) await this.persistState(state);
+    else await this.scheduleAlarm(state);
+  }
+
+  async reconcile(state, now) {
+    if (!this.env.REMOTE_SHARE_BUCKET) {
+      throw new Error('room storage quota bucket missing');
+    }
+    const snapshot = await inspectRoomStorage(this.env.REMOTE_SHARE_BUCKET, state.roomId, now);
+    let changed = false;
+    for (const [objectId, reservation] of Object.entries(state.reservations)) {
+      if (reservation.expiresAt <= now) {
+        delete state.reservations[objectId];
+        changed = true;
+      }
+    }
+    return { changed, snapshot };
+  }
+
+  accountedBytes(state, snapshot) {
+    let totalBytes = snapshot.totalBytes;
+    for (const reservation of Object.values(state.reservations)) {
+      if (!snapshot.activeKeys.has(reservation.objectKey)) {
+        totalBytes += reservation.encryptedSize;
+      }
+    }
+    return Number.isSafeInteger(totalBytes) ? totalBytes : Number.POSITIVE_INFINITY;
+  }
+
+  async handleFetch(request) {
+    if (request.method !== 'POST') return quotaJson({ error: 'NOT_FOUND' }, 404);
+    const url = new URL(request.url);
+    const parsedBody = await readJsonBodyLimited(request, QUOTA_JSON_BODY_MAX_BYTES);
+    if (parsedBody.error) return quotaJson({ error: 'INVALID_REQUEST' }, 400);
+    const body = parsedBody.value;
+    const roomId = standardRoomId(body?.roomId);
+    if (!roomId) return quotaJson({ error: 'INVALID_REQUEST' }, 400);
+
+    if (url.pathname === '/release') return this.handleRelease(roomId, body);
+    if (url.pathname !== '/reserve' && url.pathname !== '/complete') {
+      return quotaJson({ error: 'NOT_FOUND' }, 404);
+    }
+    const reservation = parseQuotaReservation(body);
+    if (!reservation || reservation.roomId !== roomId) {
+      return quotaJson({ error: 'INVALID_REQUEST' }, 400);
+    }
+    return url.pathname === '/reserve'
+      ? this.handleReserve(reservation)
+      : this.handleComplete(reservation);
+  }
+
+  async handleReserve(reservation) {
+    const quotaBytes = roomStorageQuotaBytes(this.env);
+    if (quotaBytes <= 0) return quotaJson({ error: 'QUOTA_UNAVAILABLE' }, 503);
+    const now = Date.now();
+    if (reservation.expiresAt <= now) return quotaJson({ error: 'INVALID_REQUEST' }, 400);
+
+    const state = await this.readState(reservation.roomId);
+    const { changed, snapshot } = await this.reconcile(state, now);
+    const existing = state.reservations[reservation.objectId];
+    if (existing) {
+      if (!reservationsMatch(existing, reservation)) {
+        await this.maintainState(state, changed);
+        return quotaJson({ error: 'RESERVATION_CONFLICT' }, 409);
+      }
+      await this.maintainState(state, changed);
+      return quotaJson({ reserved: true });
+    }
+
+    if (Object.keys(state.reservations).length >= QUOTA_STATE_MAX_ENTRIES) {
+      await this.maintainState(state, changed);
+      return quotaJson({ error: 'QUOTA_UNAVAILABLE' }, 503);
+    }
+    const accountedBytes = this.accountedBytes(state, snapshot);
+    if (accountedBytes + reservation.encryptedSize > quotaBytes) {
+      await this.maintainState(state, changed);
+      return quotaJson(
+        {
+          code: 'ROOM_STORAGE_QUOTA_EXCEEDED',
+          maxBytes: quotaBytes,
+        },
+        409,
+      );
+    }
+
+    state.reservations[reservation.objectId] = {
+      ...reservation,
+      status: 'reserved',
+    };
+    await this.persistState(state);
+    return quotaJson({ reserved: true });
+  }
+
+  async handleComplete(reservation) {
+    const quotaBytes = roomStorageQuotaBytes(this.env);
+    const now = Date.now();
+    if (reservation.expiresAt <= now) return quotaJson({ error: 'RESERVATION_MISSING' }, 404);
+
+    const state = await this.readState(reservation.roomId);
+    const { changed, snapshot } = await this.reconcile(state, now);
+    const existing = state.reservations[reservation.objectId];
+    if (
+      !existing ||
+      !reservationsMatch(existing, reservation) ||
+      !snapshot.activeKeys.has(reservation.objectKey)
+    ) {
+      await this.maintainState(state, changed);
+      return quotaJson({ error: 'RESERVATION_MISSING' }, 404);
+    }
+
+    // Disabling new quota admission must not strand reservations already
+    // issued by the previous configuration. They still settle through this
+    // Durable Object; only the over-limit decision is disabled.
+    if (quotaBytes > 0 && this.accountedBytes(state, snapshot) > quotaBytes) {
+      await this.maintainState(state, changed);
+      return quotaJson(
+        {
+          code: 'ROOM_STORAGE_QUOTA_EXCEEDED',
+          maxBytes: quotaBytes,
+        },
+        409,
+      );
+    }
+
+    state.reservations[reservation.objectId] = {
+      ...existing,
+      status: 'completed',
+    };
+    await this.persistState(state);
+    return quotaJson({ completed: true });
+  }
+
+  async handleRelease(roomId, body) {
+    const objectId = String(body?.objectId || '');
+    const cleanupToken = String(body?.cleanupToken || '');
+    if (!objectKey(roomId, objectId) || cleanupToken.length < 16) {
+      return quotaJson({ error: 'INVALID_REQUEST' }, 400);
+    }
+
+    const state = await this.readState(roomId);
+    const existing = state.reservations[objectId];
+    if (!existing || !constantTimeEqual(existing.cleanupToken, cleanupToken)) {
+      await this.scheduleAlarm(state);
+      return quotaJson({ released: false });
+    }
+    delete state.reservations[objectId];
+    await this.persistState(state);
+    return quotaJson({ released: true });
+  }
+
+  alarm() {
+    return this.enqueueMutation(async () => {
+      try {
+        const stored = await this.storage.get(QUOTA_STATE_KEY);
+        if (stored === undefined || stored === null) {
+          if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
+          return;
+        }
+        const roomId = standardRoomId(stored?.roomId);
+        if (!roomId) throw new Error('invalid room storage quota state');
+        const state = await this.readState(roomId);
+        await this.reconcile(state, Date.now());
+        await this.persistState(state);
+      } catch (error) {
+        console.warn('remote share quota alarm failed', error);
+        if (typeof this.storage.setAlarm === 'function') {
+          await this.storage.setAlarm(Date.now() + QUOTA_ALARM_RETRY_MS);
+          return;
+        }
+        throw error;
+      }
+    });
+  }
 }
 
 export default {

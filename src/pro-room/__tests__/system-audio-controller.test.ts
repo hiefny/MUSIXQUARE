@@ -25,6 +25,8 @@ function sessionSnapshot(coordinatorParticipantId = COORDINATOR_ID): ProRoomSnap
     runtime: 'awake',
     revision: 1,
     playlistRevision: 0,
+    effectsRevision: 0,
+    queueModeRevision: 0,
     playlist: [],
     currentQueueItemId: null,
     playback: {

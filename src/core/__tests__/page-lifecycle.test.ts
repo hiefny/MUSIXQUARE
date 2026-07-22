@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { Mock } from 'vitest';
 import {
   markIntentionalNav,
   clearIntentionalNav,
@@ -58,13 +59,13 @@ describe('page-lifecycle flag', () => {
 describe('initPageLifecycleHandlers — beforeunload', () => {
   let handle: PageLifecycleHandle;
   let role: string;
-  let leaveSession: ReturnType<typeof vi.fn>;
-  let reload: ReturnType<typeof vi.fn>;
+  let leaveSession: Mock<() => void>;
+  let reload: Mock<() => void>;
 
   beforeEach(() => {
     role = 'idle';
-    leaveSession = vi.fn();
-    reload = vi.fn();
+    leaveSession = vi.fn<() => void>();
+    reload = vi.fn<() => void>();
     handle = initPageLifecycleHandlers({
       getRole: () => role,
       leaveSession,
@@ -108,11 +109,11 @@ describe('initPageLifecycleHandlers — beforeunload', () => {
 describe('initPageLifecycleHandlers — pagehide', () => {
   let handle: PageLifecycleHandle;
   let role: string;
-  let leaveSession: ReturnType<typeof vi.fn>;
+  let leaveSession: Mock<() => void>;
 
   beforeEach(() => {
     role = 'host';
-    leaveSession = vi.fn();
+    leaveSession = vi.fn<() => void>();
     handle = initPageLifecycleHandlers({
       getRole: () => role,
       leaveSession,
@@ -153,11 +154,11 @@ describe('initPageLifecycleHandlers — pagehide', () => {
 describe('initPageLifecycleHandlers — pageshow', () => {
   let handle: PageLifecycleHandle;
   let role: string;
-  let reload: ReturnType<typeof vi.fn>;
+  let reload: Mock<() => void>;
 
   beforeEach(() => {
     role = 'host';
-    reload = vi.fn();
+    reload = vi.fn<() => void>();
     handle = initPageLifecycleHandlers({
       getRole: () => role,
       leaveSession: vi.fn(),

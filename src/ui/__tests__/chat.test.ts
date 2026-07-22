@@ -8,9 +8,15 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { sendToHost } from '../../network/peer.ts';
 import type { DataConnection } from '../../types/index.ts';
 
+interface ProRealtimeTestPayload {
+  kind?: string;
+  text?: string;
+  botRequestId?: string;
+}
+
 const requestActiveProRoomBotCommand = vi.hoisted(() => vi.fn());
 const proRealtimeMocks = vi.hoisted(() => ({
-  send: vi.fn(() => true),
+  send: vi.fn<(channel: string, payload: ProRealtimeTestPayload) => boolean>(() => true),
 }));
 const botProtocolMocks = vi.hoisted(() => ({
   beginLocalBotChatRequest: vi.fn(() => true),
@@ -648,13 +654,10 @@ describe('Chat Module', () => {
       await vi.waitFor(() => {
         expect(requestActiveProRoomBotCommand).toHaveBeenCalledOnce();
       });
-      const [channel, outbound] = proRealtimeMocks.send.mock.calls[0] as [
-        string,
-        {
-          text?: string;
-          botRequestId?: string;
-        },
-      ];
+      const realtimeCall = proRealtimeMocks.send.mock.calls[0];
+      expect(realtimeCall).toBeDefined();
+      if (!realtimeCall) throw new Error('expected a PRO realtime chat send');
+      const [channel, outbound] = realtimeCall;
       expect(channel).toBe('chat');
       expect(outbound).toMatchObject({
         kind: 'message',
@@ -722,10 +725,10 @@ describe('Chat Module', () => {
       sendChatMessage();
 
       await vi.waitFor(() => expect(requestActiveProRoomBotCommand).toHaveBeenCalledOnce());
-      const [channel, outbound] = proRealtimeMocks.send.mock.calls[0] as [
-        string,
-        { text?: string; botRequestId?: string },
-      ];
+      const realtimeCall = proRealtimeMocks.send.mock.calls[0];
+      expect(realtimeCall).toBeDefined();
+      if (!realtimeCall) throw new Error('expected a PRO realtime chat send');
+      const [channel, outbound] = realtimeCall;
       expect(channel).toBe('chat');
       expect(outbound.text).toBe('//강남스타일 틀어줘');
       expect(outbound.botRequestId).toMatch(/^mxqr-pro-[a-f0-9]{48}$/);

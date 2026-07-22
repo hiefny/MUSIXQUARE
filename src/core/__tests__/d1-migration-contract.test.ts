@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -138,6 +138,7 @@ describe('D1 migration contract', () => {
     const auth = previous.databases.find(
       (database: { database: string }) => database.database === 'musixquare-auth',
     );
+    if (!auth) throw new Error('Expected the auth database contract');
     auth.baselineRevision = 1;
     auth.baselineSha256 = '0'.repeat(64);
     auth.baselineMigration = null;
@@ -172,6 +173,7 @@ describe('D1 migration contract', () => {
     const firstDeveloper = first.databases.find(
       (database: { database: string }) => database.database === 'musixquare-developer-api',
     );
+    if (!firstDeveloper) throw new Error('Expected the Developer API database contract');
     firstDeveloper.baselineRevision = 1;
     firstDeveloper.baselineSha256 = '0'.repeat(64);
     firstDeveloper.baselineMigration = null;
@@ -227,6 +229,7 @@ describe('D1 migration contract', () => {
     const developer = manifest.databases.find(
       (database: { database: string }) => database.database === 'musixquare-developer-api',
     );
+    if (!developer) throw new Error('Expected the Developer API database contract');
     developer.migrations[0].rollback = null;
     expect(() => assertD1MigrationContract({ manifest })).toThrow(
       'developer-api-effects-scopes-v1.rollback must be a repository-relative .rollback.sql path',
@@ -236,6 +239,7 @@ describe('D1 migration contract', () => {
     const auth = forwardOnly.databases.find(
       (database: { database: string }) => database.database === 'musixquare-auth',
     );
+    if (!auth) throw new Error('Expected the auth database contract');
     auth.migrations[0].rollback = 'cloudflare/developer-api.effects-scopes.rollback.sql';
     expect(() => assertD1MigrationContract({ manifest: forwardOnly })).toThrow(
       'forward-only migration must use rollback: null',

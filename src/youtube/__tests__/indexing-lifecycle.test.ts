@@ -392,7 +392,13 @@ describe('YouTube indexing session lifecycle', () => {
     // Non-empty queue: without the stale-indexing flag, a chat add must NOT
     // take the isIdle takeover branch.
     setState('playlist.items', [
-      { queueItemId: FILE_QUEUE_ITEM_ID, type: 'file', name: 'song.mp3' },
+      {
+        queueItemId: FILE_QUEUE_ITEM_ID,
+        type: 'file',
+        name: 'song.mp3',
+        videoId: null,
+        playlistId: null,
+      },
     ] satisfies PlaylistItem[]);
     setState('playlist.currentQueueItemId', FILE_QUEUE_ITEM_ID);
 
@@ -474,7 +480,13 @@ describe('YouTube indexing session lifecycle', () => {
     // `|| isYtIndexing()` term — the index-then-autoplay contract. It only
     // holds because the poll clears the session AFTER the callback runs.
     setState('playlist.items', [
-      { queueItemId: FILE_QUEUE_ITEM_ID, type: 'file', name: 'song.mp3' },
+      {
+        queueItemId: FILE_QUEUE_ITEM_ID,
+        type: 'file',
+        name: 'song.mp3',
+        videoId: null,
+        playlistId: null,
+      },
     ] satisfies PlaylistItem[]);
 
     const url = 'https://www.youtube.com/watch?v=ibaEntry000&list=PL_IBA';

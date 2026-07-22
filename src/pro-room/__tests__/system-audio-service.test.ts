@@ -108,6 +108,8 @@ function snapshot(incarnation = 'presence_local_01'): ProRoomSnapshot {
     runtime: 'awake',
     revision: 1,
     playlistRevision: 0,
+    effectsRevision: 0,
+    queueModeRevision: 0,
     playlist: [],
     currentQueueItemId: null,
     playback: {
@@ -185,7 +187,7 @@ function preparing(generation = 1): ProRoomSystemAudioState {
   };
 }
 
-function live(generation = 1): ProRoomSystemAudioState {
+function live(generation = 1): Extract<ProRoomSystemAudioState, { status: 'live' }> {
   return {
     generation,
     status: 'live',

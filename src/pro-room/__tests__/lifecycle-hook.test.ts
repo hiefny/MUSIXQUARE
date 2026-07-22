@@ -21,7 +21,9 @@ afterEach(() => {
 describe('PRO room confirmed-unload lifecycle', () => {
   it('starts the atomic close before local pagehide teardown and suppresses explicit leave', () => {
     const order: string[] = [];
-    const explicitLeave = vi.fn(() => order.push('explicit-leave'));
+    const explicitLeave = vi.fn((): void => {
+      order.push('explicit-leave');
+    });
     const localTeardown = (event: Event) => {
       if ((event as PageTransitionEvent).persisted) return;
       order.push('local-teardown');

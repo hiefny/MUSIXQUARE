@@ -77,7 +77,7 @@ function snapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
 }
 
 function signaling(
-  role: 'coordinator' | 'member' = 'member',
+  role: 'member' = 'member',
   epoch = 1,
   pendingPlaybackTransition: ProRoomSignalingAccess['pendingPlaybackTransition'] = null,
 ): ProRoomSignalingAccess {
@@ -97,10 +97,10 @@ function fixtures() {
   const api = {
     activate: vi.fn(async () => initial),
     recoverOwner: vi.fn(async () => initial),
-    createSession: vi.fn(async () => initial),
-    enterPresence: vi.fn(async () => initial),
+    createSession: vi.fn<ProRoomSessionApi['createSession']>(async () => initial),
+    enterPresence: vi.fn<ProRoomSessionApi['enterPresence']>(async () => initial),
     attachCurrentAccount: vi.fn(async () => initial),
-    detachCurrentAccount: vi.fn(async () => ({
+    detachCurrentAccount: vi.fn<ProRoomSessionApi['detachCurrentAccount']>(async () => ({
       ok: true as const,
       detached: true as const,
       snapshot: initial,
@@ -110,11 +110,11 @@ function fixtures() {
     leavePresence: vi.fn(async () => initial),
     createSignalingTicket: vi.fn(async () => signaling()),
     closeSession: vi.fn(async () => undefined),
-    closeSessionFenced: vi.fn(async () => undefined),
+    closeSessionFenced: vi.fn<ProRoomSessionApi['closeSessionFenced']>(async () => undefined),
   } satisfies ProRoomSessionApi;
   const transport = {
     connect: vi.fn(async () => undefined),
-    reconfigure: vi.fn(async () => undefined),
+    reconfigure: vi.fn<ProRoomTransportBridge['reconfigure']>(async () => undefined),
     refreshCredentials: vi.fn(async () => true),
     disconnect: vi.fn(async () => undefined),
   } satisfies ProRoomTransportBridge;
@@ -528,7 +528,8 @@ describe('PRO room session controller', () => {
 
   it('rejects a legacy coordinator ticket even when its room-incarnation fence matches', async () => {
     const { api, transport, controller } = fixtures();
-    api.createSignalingTicket.mockResolvedValue(signaling('coordinator'));
+    const legacyAccess = { ...signaling(), role: 'coordinator' as const };
+    api.createSignalingTicket.mockResolvedValue(legacyAccess as unknown as ProRoomSignalingAccess);
 
     await expect(controller.join({ code: ROOM_CODE, pin: '12345678' })).rejects.toThrow(
       'PRO_ROOM_SIGNALING_TICKET_MISMATCH',
@@ -674,7 +675,7 @@ describe('PRO room session controller', () => {
   });
 
   it('rebuilds a lost server channel on the same room incarnation without clearing the session', async () => {
-    const { api, transport, observer, controller } = fixtures();
+    const { transport, observer, controller } = fixtures();
     await controller.join({ code: ROOM_CODE, pin: '12345678' });
     transport.reconfigure.mockClear();
     observer.cleared.mockClear();
@@ -759,7 +760,7 @@ describe('PRO room session controller', () => {
   });
 
   it('rotates a control-channel ticket in place while the room incarnation is unchanged', async () => {
-    const { api, transport, controller } = fixtures();
+    const { transport, controller } = fixtures();
     await controller.join({ code: ROOM_CODE, pin: '12345678' });
     transport.refreshCredentials.mockClear();
 

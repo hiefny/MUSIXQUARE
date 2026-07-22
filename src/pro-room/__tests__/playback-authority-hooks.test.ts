@@ -295,7 +295,7 @@ describe('coordinator-free PRO playback authority seam', () => {
     setState('room.context', {
       kind: 'standard',
       roomId: '123456',
-      role: 'host',
+      role: 'coordinator',
       coordinatorId: null,
       epoch: 0,
       snapshotRevision: 0,
@@ -633,7 +633,7 @@ describe('coordinator-free PRO playback authority seam', () => {
       authority: ReturnType<typeof authority>;
     }) => void;
     const commit = vi.fn(
-      (request) =>
+      (_request) =>
         new Promise<{ status: 'applied'; authority: ReturnType<typeof authority> }>((resolve) => {
           resolveCommit = resolve;
         }),

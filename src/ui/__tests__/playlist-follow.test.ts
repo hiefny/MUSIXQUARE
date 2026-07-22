@@ -54,7 +54,9 @@ function setupScroller(): {
     scrollHeight: { configurable: true, value: 1000 },
   });
 
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+    this: HTMLElement,
+  ) {
     if (this === scroller) return domRect(100, 200);
     if (this.classList.contains('track-item')) {
       const queueItemId = this.closest<HTMLElement>('.playlist-entry')?.dataset.queueItemId;

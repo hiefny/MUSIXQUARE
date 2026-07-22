@@ -154,7 +154,7 @@ describe.sequential('PRO room runtime preload adoption', () => {
 
     download = vi
       .spyOn(ProRoomMediaTransfer.prototype, 'download')
-      .mockImplementation(async function (input) {
+      .mockImplementation(async function (this: ProRoomMediaTransfer, input) {
         const file = input.source.assetId === CACHE_SOURCE.assetId ? CACHE_FILE : PROMOTED_FILE;
         this.cache.put(input.source, file);
         input.onProgress?.(1);
@@ -206,7 +206,10 @@ describe.sequential('PRO room runtime preload adoption', () => {
     expect(foreground).toBe(preload);
     await expect(foreground).resolves.toBe(PROMOTED_FILE);
     expect(
-      download.mock.calls.filter(([input]) => input.source.assetId === PROMOTE_SOURCE.assetId),
+      download.mock.calls.filter(
+        ([input]: Parameters<ProRoomMediaTransfer['download']>) =>
+          input.source.assetId === PROMOTE_SOURCE.assetId,
+      ),
     ).toHaveLength(1);
   });
 
@@ -341,7 +344,7 @@ describe.sequential('PRO room runtime preload adoption', () => {
       }));
     const deleteAsset = vi
       .spyOn(ProRoomMediaTransfer.prototype, 'deleteAsset')
-      .mockResolvedValue(undefined);
+      .mockResolvedValue({ assetId: CACHE_SOURCE.assetId, quota: roomSnapshot().quota });
 
     expect(handleProRoomTrackRemoval([CACHE_QUEUE_ITEM_ID, PROMOTE_QUEUE_ITEM_ID])).toBe(true);
 

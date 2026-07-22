@@ -6,10 +6,17 @@ type RemoteShareWorker = {
   default: {
     fetch(request: Request, env: Record<string, unknown>): Promise<Response>;
   };
+  RemoteShareQuota: new (
+    state: { storage: FakeQuotaStorage },
+    env: Record<string, unknown>,
+  ) => {
+    fetch(request: Request): Promise<Response>;
+    alarm(): Promise<void>;
+  };
 };
 
-const workerModule =
-  (await import('../../../cloudflare/remote-share-worker.js')) as RemoteShareWorker;
+const remoteShareWorkerModulePath = '../../../cloudflare/remote-share-worker.js';
+const workerModule = (await import(remoteShareWorkerModulePath)) as RemoteShareWorker;
 const ORIGIN = 'https://musixquare.com';
 const SIGNING_SECRET = 'remote-share-signing-secret-for-tests';
 const CAPABILITY_SECRET = 'remote-share-capability-secret-for-tests';
@@ -42,6 +49,14 @@ function base64UrlEncode(value: Uint8Array): string {
   let binary = '';
   for (const byte of value) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function decodeSignedTokenPayload(token: unknown): Record<string, unknown> {
+  const payloadPart = String(token).split('.')[0] || '';
+  const base64 = payloadPart.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+  const bytes = Uint8Array.from(atob(padded), (character) => character.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
 }
 
 async function hmacSha256(secret: string, value: string): Promise<string> {
@@ -163,6 +178,80 @@ function directUploadEnv(extra: Record<string, unknown> = {}): Record<string, un
     R2_BUCKET_NAME: 'test-bucket',
     ...extra,
   });
+}
+
+class FakeQuotaStorage {
+  readonly values = new Map<string, unknown>();
+  alarmAt: number | null = null;
+
+  async get(key: string): Promise<unknown> {
+    const value = this.values.get(key);
+    return value === undefined ? undefined : structuredClone(value);
+  }
+
+  async put(key: string, value: unknown): Promise<void> {
+    this.values.set(key, structuredClone(value));
+  }
+
+  async delete(key: string): Promise<void> {
+    this.values.delete(key);
+  }
+
+  async deleteAll(): Promise<void> {
+    this.values.clear();
+  }
+
+  async setAlarm(timestamp: number): Promise<void> {
+    this.alarmAt = timestamp;
+  }
+
+  async getAlarm(): Promise<number | null> {
+    return this.alarmAt;
+  }
+
+  async deleteAlarm(): Promise<void> {
+    this.alarmAt = null;
+  }
+}
+
+interface FakeQuotaInstance {
+  object: InstanceType<RemoteShareWorker['RemoteShareQuota']>;
+  storage: FakeQuotaStorage;
+}
+
+interface FakeQuotaNamespace {
+  idFromName(name: string): string;
+  get(id: string): { fetch(request: Request): Promise<Response> };
+  instance(name: string): FakeQuotaInstance;
+}
+
+function attachQuotaNamespace(workerEnv: Record<string, unknown>): FakeQuotaNamespace {
+  const instances = new Map<string, FakeQuotaInstance>();
+  const instance = (name: string): FakeQuotaInstance => {
+    let current = instances.get(name);
+    if (!current) {
+      const storage = new FakeQuotaStorage();
+      current = {
+        object: new workerModule.RemoteShareQuota({ storage }, workerEnv),
+        storage,
+      };
+      instances.set(name, current);
+    }
+    return current;
+  };
+  const namespace: FakeQuotaNamespace = {
+    idFromName: (name) => name,
+    get: (id) => ({ fetch: (quotaRequest) => instance(id).object.fetch(quotaRequest) }),
+    instance,
+  };
+  workerEnv.REMOTE_SHARE_QUOTA = namespace;
+  return namespace;
+}
+
+function directUploadQuotaEnv(extra: Record<string, unknown> = {}): Record<string, unknown> {
+  const workerEnv = directUploadEnv(extra);
+  attachQuotaNamespace(workerEnv);
+  return workerEnv;
 }
 
 function sessionRequestBody(overrides: Record<string, unknown> = {}): string {
@@ -585,6 +674,555 @@ describe('remote-share Worker capability gate', () => {
     expect(response.status).toBe(200);
   });
 
+  it('fails closed when quota is enabled without its Durable Object binding', async () => {
+    const token = await createCapabilityToken();
+    const response = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      directUploadEnv({
+        REMOTE_SHARE_BUCKET: createQuotaBucket(),
+        ROOM_STORAGE_QUOTA_BYTES: '32',
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'room storage quota unavailable' });
+  });
+
+  it('serializes concurrent session reservations without changing the public response shape', async () => {
+    const token = await createCapabilityToken();
+    const workerEnv = directUploadQuotaEnv({
+      REMOTE_SHARE_BUCKET: createQuotaBucket(),
+      ROOM_STORAGE_QUOTA_BYTES: '32',
+    });
+    const createSession = (): Promise<Response> =>
+      workerModule.default.fetch(
+        request('/session', {
+          method: 'POST',
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-capability': token,
+          },
+          body: sessionRequestBody(),
+        }),
+        workerEnv,
+      );
+
+    const responses = await Promise.all([createSession(), createSession()]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+
+    const success = (await responses.find((response) => response.status === 200)!.json()) as Record<
+      string,
+      unknown
+    >;
+    expect(Object.keys(success).sort()).toEqual(
+      [
+        'cleanupToken',
+        'completeToken',
+        'downloadUrl',
+        'expiresAt',
+        'objectId',
+        'uploadHeaders',
+        'uploadUrl',
+        'uploadUrlExpiresAt',
+      ].sort(),
+    );
+    expect(decodeSignedTokenPayload(success.completeToken)).toMatchObject({
+      v: 2,
+      quotaReservationVersion: 1,
+    });
+    expect(await responses.find((response) => response.status === 409)!.json()).toEqual({
+      error: 'room storage quota exceeded',
+      code: 'ROOM_STORAGE_QUOTA_EXCEEDED',
+      maxBytes: 32,
+    });
+  });
+
+  it('keeps the migration bridge on the legacy admission path with a v2 token', async () => {
+    const token = await createCapabilityToken();
+    const workerEnv = directUploadQuotaEnv({
+      REMOTE_SHARE_ATOMIC_QUOTA_ENABLED: 'false',
+      REMOTE_SHARE_BUCKET: createQuotaBucket(),
+      ROOM_STORAGE_QUOTA_BYTES: '32',
+    });
+    const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+
+    const response = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      workerEnv,
+    );
+
+    expect(response.status).toBe(200);
+    const session = (await response.json()) as { completeToken: string };
+    const payload = decodeSignedTokenPayload(session.completeToken);
+    expect(payload.v).toBe(2);
+    expect(payload).not.toHaveProperty('quotaReservationVersion');
+    expect(namespace.instance('123456').storage.values.size).toBe(0);
+  });
+
+  it('rolls back a reservation when presigning cannot finish', async () => {
+    const token = await createCapabilityToken();
+    const workerEnv = directUploadQuotaEnv({
+      REMOTE_SHARE_BUCKET: createQuotaBucket(),
+      ROOM_STORAGE_QUOTA_BYTES: '32',
+    });
+    const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+    delete workerEnv.R2_SECRET_ACCESS_KEY;
+
+    const failed = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      workerEnv,
+    );
+
+    expect(failed.status).toBe(500);
+    expect(await failed.json()).toEqual({ error: 'r2 s3 config missing' });
+    expect(namespace.instance('123456').storage.values.size).toBe(0);
+    expect(namespace.instance('123456').storage.alarmAt).toBeNull();
+
+    workerEnv.R2_SECRET_ACCESS_KEY = 'test-secret-access-key';
+    const retried = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      workerEnv,
+    );
+    expect(retried.status).toBe(200);
+  });
+
+  it('rolls back an ambiguous reserve commit when the Durable Object acknowledgement fails', async () => {
+    const token = await createCapabilityToken();
+    const workerEnv = directUploadQuotaEnv({
+      REMOTE_SHARE_BUCKET: createQuotaBucket(),
+      ROOM_STORAGE_QUOTA_BYTES: '32',
+    });
+    const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+    const quotaInstance = namespace.instance('123456');
+    vi.spyOn(quotaInstance.storage, 'setAlarm').mockRejectedValueOnce(
+      new Error('alarm unavailable after storage put'),
+    );
+
+    const failed = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      workerEnv,
+    );
+
+    expect(failed.status).toBe(503);
+    expect(await failed.json()).toEqual({ error: 'room storage quota unavailable' });
+    expect(quotaInstance.storage.values.size).toBe(0);
+    expect(quotaInstance.storage.alarmAt).toBeNull();
+
+    const retried = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      workerEnv,
+    );
+    expect(retried.status).toBe(200);
+  });
+
+  it('retains a reservation across cleanup and a replayed presigned PUT until expiry', async () => {
+    const token = await createCapabilityToken();
+    const bucket = createQuotaBucket();
+    const workerEnv = directUploadQuotaEnv({
+      REMOTE_SHARE_BUCKET: bucket,
+      ROOM_STORAGE_QUOTA_BYTES: '32',
+    });
+    const createSession = (): Promise<Response> =>
+      workerModule.default.fetch(
+        request('/session', {
+          method: 'POST',
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-capability': token,
+          },
+          body: sessionRequestBody(),
+        }),
+        workerEnv,
+      );
+    const firstResponse = await createSession();
+    const first = (await firstResponse.json()) as {
+      cleanupToken: string;
+      objectId: string;
+    };
+    expect(firstResponse.status).toBe(200);
+
+    const cleanupBeforePut = await workerModule.default.fetch(
+      request(`/object/123456/${first.objectId}`, {
+        method: 'DELETE',
+        headers: { 'x-mxqr-cleanup-token': first.cleanupToken },
+      }),
+      workerEnv,
+    );
+    expect(cleanupBeforePut.status).toBe(200);
+    expect(await cleanupBeforePut.json()).toEqual({ ok: true });
+
+    // The already-issued direct PUT lands after cleanup's HEAD returned null.
+    // Its still-live reservation must prevent another 20-byte session from
+    // crossing the 32-byte room ceiling.
+    const uploadedKey = `room/123456/${first.objectId}`;
+    const lateUpload = quotaObject(uploadedKey, 20);
+    lateUpload.customMetadata.cleanupToken = first.cleanupToken;
+    bucket.objects.set(uploadedKey, lateUpload);
+
+    const wrongCleanup = await workerModule.default.fetch(
+      request(`/object/123456/${first.objectId}`, {
+        method: 'DELETE',
+        headers: { 'x-mxqr-cleanup-token': crypto.randomUUID() },
+      }),
+      workerEnv,
+    );
+    expect(wrongCleanup.status).toBe(403);
+    expect((await createSession()).status).toBe(409);
+
+    const cleanup = await workerModule.default.fetch(
+      request(`/object/123456/${first.objectId}`, {
+        method: 'DELETE',
+        headers: { 'x-mxqr-cleanup-token': first.cleanupToken },
+      }),
+      workerEnv,
+    );
+    expect(cleanup.status).toBe(200);
+    expect(await cleanup.json()).toEqual({ ok: true });
+    expect(bucket.objects.has(uploadedKey)).toBe(false);
+
+    // Physical deletion cannot revoke the still-valid presigned URL. Keep the
+    // reservation charged when the same authorized PUT is replayed.
+    expect((await createSession()).status).toBe(409);
+    bucket.objects.set(uploadedKey, lateUpload);
+    expect((await createSession()).status).toBe(409);
+  });
+
+  it('expires reservations and stale physical objects through the Durable Object alarm', async () => {
+    vi.useFakeTimers();
+    const startedAt = new Date('2026-07-22T00:00:00.000Z');
+    vi.setSystemTime(startedAt);
+    const token = await createCapabilityToken();
+    const bucket = createQuotaBucket();
+    const workerEnv = directUploadQuotaEnv({
+      OBJECT_TTL_SECONDS: '1',
+      REMOTE_SHARE_BUCKET: bucket,
+      ROOM_STORAGE_QUOTA_BYTES: '32',
+    });
+    const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+    const sessionResponse = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      workerEnv,
+    );
+    const session = (await sessionResponse.json()) as {
+      expiresAt: number;
+      objectId: string;
+    };
+    expect(sessionResponse.status).toBe(200);
+    bucket.objects.set(
+      `room/123456/${session.objectId}`,
+      quotaObject(`room/123456/${session.objectId}`, 20, session.expiresAt),
+    );
+    expect(namespace.instance('123456').storage.alarmAt).toBe(session.expiresAt);
+
+    vi.setSystemTime(startedAt.getTime() + 1_001);
+    await namespace.instance('123456').object.alarm();
+
+    expect(bucket.objects.size).toBe(0);
+    expect(namespace.instance('123456').storage.values.size).toBe(0);
+    expect(namespace.instance('123456').storage.alarmAt).toBeNull();
+  });
+
+  it('keeps an expired reservation fail-closed when alarm cleanup must retry', async () => {
+    vi.useFakeTimers();
+    const startedAt = new Date('2026-07-22T00:00:00.000Z');
+    vi.setSystemTime(startedAt);
+    const token = await createCapabilityToken();
+    const bucket = createQuotaBucket();
+    const workerEnv = directUploadQuotaEnv({
+      OBJECT_TTL_SECONDS: '1',
+      REMOTE_SHARE_BUCKET: bucket,
+      ROOM_STORAGE_QUOTA_BYTES: '32',
+    });
+    const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+    const sessionResponse = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      workerEnv,
+    );
+    const session = (await sessionResponse.json()) as {
+      expiresAt: number;
+      objectId: string;
+    };
+    const uploadedKey = `room/123456/${session.objectId}`;
+    bucket.objects.set(uploadedKey, quotaObject(uploadedKey, 20, session.expiresAt));
+    bucket.delete.mockRejectedValueOnce(new Error('temporary R2 outage'));
+
+    vi.setSystemTime(startedAt.getTime() + 1_001);
+    await namespace.instance('123456').object.alarm();
+
+    expect(bucket.objects.has(uploadedKey)).toBe(true);
+    expect(namespace.instance('123456').storage.values.size).toBe(1);
+    expect(namespace.instance('123456').storage.alarmAt).toBe(Date.now() + 60_000);
+
+    vi.setSystemTime(Date.now() + 60_000);
+    await namespace.instance('123456').object.alarm();
+    expect(bucket.objects.has(uploadedKey)).toBe(false);
+    expect(namespace.instance('123456').storage.values.size).toBe(0);
+  });
+
+  it('commits a validated object and retains its reservation after physical cleanup', async () => {
+    const token = await createCapabilityToken();
+    const bucket = createQuotaBucket();
+    const workerEnv = directUploadQuotaEnv({
+      REMOTE_SHARE_BUCKET: bucket,
+      ROOM_STORAGE_QUOTA_BYTES: '32',
+    });
+    const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+    const sessionResponse = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      workerEnv,
+    );
+    const session = (await sessionResponse.json()) as {
+      cleanupToken: string;
+      completeToken: string;
+      expiresAt: number;
+      objectId: string;
+    };
+    const uploadedKey = `room/123456/${session.objectId}`;
+    bucket.objects.set(uploadedKey, {
+      key: uploadedKey,
+      size: 20,
+      customMetadata: {
+        roomId: '123456',
+        objectId: session.objectId,
+        sizeBytes: '4',
+        encryptedSize: '20',
+        expiresAt: String(session.expiresAt),
+        cleanupToken: session.cleanupToken,
+      },
+    });
+
+    const complete = await workerModule.default.fetch(
+      request('/complete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomId: '123456',
+          objectId: session.objectId,
+          completeToken: session.completeToken,
+        }),
+      }),
+      workerEnv,
+    );
+    expect(complete.status).toBe(200);
+    expect(Object.keys((await complete.json()) as object).sort()).toEqual(
+      ['cleanupToken', 'downloadUrl', 'expiresAt', 'objectId'].sort(),
+    );
+    const stored = namespace.instance('123456').storage.values.get('quota-state') as {
+      reservations: Record<string, { status: string }>;
+    };
+    expect(stored.reservations[session.objectId]?.status).toBe('completed');
+
+    const cleanup = await workerModule.default.fetch(
+      request(`/object/123456/${session.objectId}`, {
+        method: 'DELETE',
+        headers: { 'x-mxqr-cleanup-token': session.cleanupToken },
+      }),
+      workerEnv,
+    );
+    expect(cleanup.status).toBe(200);
+    expect(bucket.objects.has(uploadedKey)).toBe(false);
+    expect(namespace.instance('123456').storage.values.size).toBe(1);
+  });
+
+  it('settles an issued atomic reservation after quota admission is disabled', async () => {
+    const token = await createCapabilityToken();
+    const bucket = createQuotaBucket();
+    const workerEnv = directUploadQuotaEnv({
+      REMOTE_SHARE_BUCKET: bucket,
+      ROOM_STORAGE_QUOTA_BYTES: '32',
+    });
+    const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+    const sessionResponse = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      workerEnv,
+    );
+    const session = (await sessionResponse.json()) as {
+      cleanupToken: string;
+      completeToken: string;
+      expiresAt: number;
+      objectId: string;
+    };
+    const uploadedKey = `room/123456/${session.objectId}`;
+    bucket.objects.set(uploadedKey, {
+      key: uploadedKey,
+      size: 20,
+      customMetadata: {
+        roomId: '123456',
+        objectId: session.objectId,
+        sizeBytes: '4',
+        encryptedSize: '20',
+        expiresAt: String(session.expiresAt),
+        cleanupToken: session.cleanupToken,
+      },
+    });
+
+    workerEnv.ROOM_STORAGE_QUOTA_BYTES = '0';
+    const complete = await workerModule.default.fetch(
+      request('/complete', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomId: '123456',
+          objectId: session.objectId,
+          completeToken: session.completeToken,
+        }),
+      }),
+      workerEnv,
+    );
+
+    expect(complete.status).toBe(200);
+    const stored = namespace.instance('123456').storage.values.get('quota-state') as {
+      reservations: Record<string, { status: string }>;
+    };
+    expect(stored.reservations[session.objectId]?.status).toBe('completed');
+  });
+
+  it('preserves a validated upload while the quota binding is temporarily unavailable', async () => {
+    const token = await createCapabilityToken();
+    const bucket = createQuotaBucket();
+    const workerEnv = directUploadQuotaEnv({
+      REMOTE_SHARE_BUCKET: bucket,
+      ROOM_STORAGE_QUOTA_BYTES: '32',
+    });
+    const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+    const sessionResponse = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      workerEnv,
+    );
+    const session = (await sessionResponse.json()) as {
+      cleanupToken: string;
+      completeToken: string;
+      expiresAt: number;
+      objectId: string;
+    };
+    const uploadedKey = `room/123456/${session.objectId}`;
+    bucket.objects.set(uploadedKey, {
+      key: uploadedKey,
+      size: 20,
+      customMetadata: {
+        roomId: '123456',
+        objectId: session.objectId,
+        sizeBytes: '4',
+        encryptedSize: '20',
+        expiresAt: String(session.expiresAt),
+        cleanupToken: session.cleanupToken,
+      },
+    });
+    delete workerEnv.REMOTE_SHARE_QUOTA;
+    const completeRequest = (): Promise<Response> =>
+      workerModule.default.fetch(
+        request('/complete', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            roomId: '123456',
+            objectId: session.objectId,
+            completeToken: session.completeToken,
+          }),
+        }),
+        workerEnv,
+      );
+
+    const unavailable = await completeRequest();
+    expect(unavailable.status).toBe(503);
+    expect(bucket.objects.has(uploadedKey)).toBe(true);
+
+    workerEnv.REMOTE_SHARE_QUOTA = namespace;
+    const retried = await completeRequest();
+    expect(retried.status).toBe(200);
+    expect(bucket.objects.has(uploadedKey)).toBe(true);
+  });
+
   it('rejects a session before upload when the room would exceed its storage quota', async () => {
     const token = await createCapabilityToken();
     const bucket = createQuotaBucket([quotaObject('room/123456/existing', 20)]);
@@ -598,7 +1236,7 @@ describe('remote-share Worker capability gate', () => {
         },
         body: sessionRequestBody(),
       }),
-      directUploadEnv({
+      directUploadQuotaEnv({
         REMOTE_SHARE_BUCKET: bucket,
         ROOM_STORAGE_QUOTA_BYTES: '32',
       }),
@@ -625,7 +1263,7 @@ describe('remote-share Worker capability gate', () => {
         },
         body: sessionRequestBody(),
       }),
-      directUploadEnv({
+      directUploadQuotaEnv({
         REMOTE_SHARE_BUCKET: bucket,
         ROOM_STORAGE_QUOTA_BYTES: '32',
       }),
@@ -650,7 +1288,7 @@ describe('remote-share Worker capability gate', () => {
         },
         body: sessionRequestBody(),
       }),
-      directUploadEnv({
+      directUploadQuotaEnv({
         REMOTE_SHARE_BUCKET: bucket,
         ROOM_STORAGE_QUOTA_BYTES: '32',
       }),
@@ -662,7 +1300,7 @@ describe('remote-share Worker capability gate', () => {
   it('deletes a racing upload that exceeds the authoritative completion quota', async () => {
     const token = await createCapabilityToken();
     const bucket = createQuotaBucket();
-    const workerEnv = directUploadEnv({
+    const workerEnv = directUploadQuotaEnv({
       REMOTE_SHARE_BUCKET: bucket,
       ROOM_STORAGE_QUOTA_BYTES: '32',
     });
@@ -718,6 +1356,8 @@ describe('remote-share Worker capability gate', () => {
     expect(complete.status).toBe(409);
     expect(bucket.objects.has(uploadedKey)).toBe(false);
     expect(bucket.objects.size).toBe(1);
+    const quotaNamespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+    expect(quotaNamespace.instance('123456').storage.values.size).toBe(1);
   });
 
   it('paginates room usage and deletes more than 1,000 stale objects in safe chunks', async () => {
@@ -738,7 +1378,7 @@ describe('remote-share Worker capability gate', () => {
         },
         body: sessionRequestBody(),
       }),
-      directUploadEnv({
+      directUploadQuotaEnv({
         REMOTE_SHARE_BUCKET: bucket,
         ROOM_STORAGE_QUOTA_BYTES: '32',
       }),
@@ -769,7 +1409,7 @@ describe('remote-share Worker capability gate', () => {
         },
         body: sessionRequestBody(),
       }),
-      directUploadEnv({
+      directUploadQuotaEnv({
         REMOTE_SHARE_BUCKET: bucket,
         ROOM_STORAGE_QUOTA_BYTES: '32',
       }),
@@ -798,7 +1438,7 @@ describe('remote-share Worker capability gate', () => {
         },
         body: sessionRequestBody(),
       }),
-      directUploadEnv({
+      directUploadQuotaEnv({
         REMOTE_SHARE_BUCKET: bucket,
         ROOM_STORAGE_QUOTA_BYTES: '10000',
       }),

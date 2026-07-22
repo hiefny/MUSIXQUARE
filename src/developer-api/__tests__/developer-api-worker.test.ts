@@ -932,7 +932,9 @@ describe('Developer API read-only public Worker', () => {
     ]) {
       const valid = await createEnvironment();
       const row = (await valid.database.first()) as KeyRow;
-      valid.database.first.mockResolvedValue({ ...row, ...mutation });
+      // These fixtures intentionally model malformed, untyped D1 rows at the
+      // Worker boundary, so they must not satisfy the valid KeyRow contract.
+      valid.database.first.mockResolvedValue({ ...row, ...mutation } as unknown as KeyRow);
       const response = await developerApiWorker.fetch(apiRequest(), valid.env);
       expect(response.status).toBe(401);
       expect(await errorCode(response)).toBe('UNAUTHORIZED');
@@ -2195,10 +2197,20 @@ describe('Developer API read-only public Worker', () => {
   });
 
   it('requires a bounded Idempotency-Key and a body no larger than 1 KiB', async () => {
-    for (const headers of [
-      { 'content-type': 'application/json' },
-      { 'content-type': 'application/json', 'idempotency-key': 'short' },
-    ]) {
+    const headerCases: Array<{
+      headers: Record<string, string>;
+      expectedCode: 'INVALID_REQUEST' | 'IDEMPOTENCY_KEY_REQUIRED';
+    }> = [
+      {
+        headers: { 'content-type': 'application/json' },
+        expectedCode: 'IDEMPOTENCY_KEY_REQUIRED',
+      },
+      {
+        headers: { 'content-type': 'application/json', 'idempotency-key': 'short' },
+        expectedCode: 'INVALID_REQUEST',
+      },
+    ];
+    for (const { headers, expectedCode } of headerCases) {
       const setup = await createEnvironment({
         mode: 'enabled',
         scopeMask: developerApiScopes['playback:control'],
@@ -2212,9 +2224,7 @@ describe('Developer API read-only public Worker', () => {
         setup.env,
       );
       expect(response.status).toBe(400);
-      expect(await errorCode(response)).toBe(
-        'idempotency-key' in headers ? 'INVALID_REQUEST' : 'IDEMPOTENCY_KEY_REQUIRED',
-      );
+      expect(await errorCode(response)).toBe(expectedCode);
     }
 
     const oversized = await createEnvironment({

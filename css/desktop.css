@@ -5,10 +5,47 @@
 
 @layer desktop {
   @media (min-width: 1280px) {
+    /*
+       Desktop density experiment
+
+       Treat very large 100%-scaled displays like a physically larger version
+       of the familiar desktop canvas. A root transform scales fixed-pixel
+       controls as a single system; the inverse logical viewport keeps the
+       dashboard inside the real screen instead of creating overflow. Unlike
+       CSS `zoom`, transform preserves one consistent coordinate system for
+       grid rows and fixed-position descendants.
+
+       FHD and smaller desktop canvases intentionally remain 1:1. These values
+       are deliberately gentler than raw resolution ratios (QHD 1.333 / 4K 2)
+       so the app gains presence without throwing away all extra workspace.
+    */
+    body {
+      --desktop-ui-scale: 1;
+      --desktop-layout-ratio: 1;
+      --desktop-viewport-width: calc(100vw * var(--desktop-layout-ratio));
+      --desktop-viewport-height: calc(100dvh * var(--desktop-layout-ratio));
+    }
+
+    @media (min-width: 2560px) and (min-height: 1440px) {
+      body {
+        --desktop-ui-scale: 1.2;
+        --desktop-layout-ratio: 0.833333;
+      }
+    }
+
+    @media (min-width: 3840px) and (min-height: 2160px) {
+      body {
+        --desktop-ui-scale: 1.5;
+        --desktop-layout-ratio: 0.666667;
+      }
+    }
+
     /* ---------------------------------------------------
        1. Application Base Grid
        --------------------------------------------------- */
     body {
+      transform: scale(var(--desktop-ui-scale));
+      transform-origin: top left;
       display: grid;
       /* Preserve the familiar 420px side panels at FHD, then distribute
          additional width at a 3:1:1 ratio so ultra-wide screens invest more
@@ -29,8 +66,9 @@
       /* Use JS-measured visible viewport height when available.
            Prevents clipping on Android tablets where 100vh may include the
            area behind the system navigation bar (esp. landscape / PWA). */
-      height: var(--app-height, 100vh);
-      max-height: var(--app-height, 100vh);
+      width: var(--desktop-viewport-width);
+      height: calc(var(--app-height, 100vh) * var(--desktop-layout-ratio));
+      max-height: calc(var(--app-height, 100vh) * var(--desktop-layout-ratio));
     }
 
     header {
@@ -239,8 +277,20 @@
     }
 
     .vinyl-wrapper {
-      width: max(160px, min(22vw, 30vh));
-      height: max(160px, min(22vw, 30vh));
+      width: max(
+        160px,
+        min(
+          calc(22vw * var(--desktop-layout-ratio)),
+          calc(30vh * var(--desktop-layout-ratio))
+        )
+      );
+      height: max(
+        160px,
+        min(
+          calc(22vw * var(--desktop-layout-ratio)),
+          calc(30vh * var(--desktop-layout-ratio))
+        )
+      );
       flex-shrink: 0;
       flex-basis: auto;
       aspect-ratio: auto;
@@ -251,7 +301,13 @@
 
     body.viz-spectrum .vinyl-wrapper {
       width: calc(100% - 64px);
-      height: max(160px, min(22vw, 30vh));
+      height: max(
+        160px,
+        min(
+          calc(22vw * var(--desktop-layout-ratio)),
+          calc(30vh * var(--desktop-layout-ratio))
+        )
+      );
       aspect-ratio: auto;
       max-width: none;
       padding: 0;
@@ -261,13 +317,31 @@
        the height-constrained video without changing familiar FHD proportions. */
     @media (min-width: 2560px) and (min-height: 1440px) {
       .vinyl-wrapper {
-        width: max(160px, min(28vw, 42vh));
-        height: max(160px, min(28vw, 42vh));
+        width: max(
+          160px,
+          min(
+            calc(28vw * var(--desktop-layout-ratio)),
+            calc(42vh * var(--desktop-layout-ratio))
+          )
+        );
+        height: max(
+          160px,
+          min(
+            calc(28vw * var(--desktop-layout-ratio)),
+            calc(42vh * var(--desktop-layout-ratio))
+          )
+        );
       }
 
       body.viz-spectrum .vinyl-wrapper {
         width: calc(100% - 64px);
-        height: max(160px, min(28vw, 42vh));
+        height: max(
+          160px,
+          min(
+            calc(28vw * var(--desktop-layout-ratio)),
+            calc(42vh * var(--desktop-layout-ratio))
+          )
+        );
       }
     }
 
@@ -275,7 +349,7 @@
       /* The iframe itself is fluid. Keep its parent proportional to the play
          column and available height. The vertical budget is the effective
          upper bound on large dashboards. */
-      width: min(90%, calc((100dvh - 320px) * 16 / 9));
+      width: min(90%, calc((var(--desktop-viewport-height) - 320px) * 16 / 9));
       max-width: none;
       /* Center in the space above the controls. */
       margin: auto auto 0 auto;
@@ -490,10 +564,10 @@
     #setup-overlay .setup-card.full-screen {
       position: fixed;
       inset: 0;
-      width: 100vw;
+      width: var(--desktop-viewport-width);
       max-width: none;
-      height: var(--app-height, 100vh);
-      max-height: var(--app-height, 100vh);
+      height: calc(var(--app-height, 100vh) * var(--desktop-layout-ratio));
+      max-height: calc(var(--app-height, 100vh) * var(--desktop-layout-ratio));
       outline: none;
       box-shadow: none;
       transform: none;
@@ -648,12 +722,12 @@
 
     /* Limit preview thumbnail to avoid pushing buttons off-screen */
     #youtube-url-overlay #youtube-preview {
-      max-height: calc(100vh - 420px);
+      max-height: calc(var(--desktop-viewport-height) - 420px);
       overflow-y: auto;
     }
 
     #youtube-url-overlay #youtube-preview-thumb {
-      max-height: 40vh;
+      max-height: calc(40vh * var(--desktop-layout-ratio));
       width: 100%;
       object-fit: cover;
     }
@@ -838,3 +912,38 @@
     }
   }
 } /* end @layer desktop */
+
+/* These base components use viewport units outside cascade layers. Once the
+   desktop dashboard is transformed, give them the same inverse viewport so
+   dialogs and full-screen flows are enlarged exactly once. */
+@media (min-width: 1280px) {
+  .dialog.account-dialog,
+  .dialog.administrator-permissions-dialog {
+    max-height: calc(var(--desktop-viewport-height) - 48px);
+  }
+
+  .onboarding-overlay {
+    max-height: var(--desktop-viewport-height) !important;
+  }
+
+  .onboarding-overlay .setup-card.full-screen {
+    height: var(--desktop-viewport-height) !important;
+    max-height: var(--desktop-viewport-height) !important;
+  }
+
+  .onboarding-overlay .setup-mobile-view {
+    max-height: var(--desktop-viewport-height) !important;
+  }
+
+  .demo-mobile-shell {
+    height: var(--desktop-viewport-height);
+    min-height: var(--desktop-viewport-height);
+  }
+
+  /* Fake fullscreen must use the physical viewport and therefore temporarily
+     opts out of dashboard density scaling. */
+  body.has-fake-fullscreen {
+    --desktop-ui-scale: 1;
+    --desktop-layout-ratio: 1;
+  }
+}

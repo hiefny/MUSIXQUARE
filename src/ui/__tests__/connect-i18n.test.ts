@@ -1755,6 +1755,40 @@ describe('member-level connection and administrator UI', () => {
     expect(actionRules).toContain('padding-top: 8px');
   });
 
+  it('matches main-row removal icons to expand chevrons without enlarging device subrow removal', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const playlistRemoveIconRules =
+      stylesheet.match(/\.btn-playlist-remove svg\s*\{([^}]*)\}/)?.[1] ?? '';
+    const playlistRemoveButtonRules =
+      stylesheet.match(/\.btn-playlist-remove\s*\{([^}]*)\}/)?.[1] ?? '';
+    const memberKickIconRules =
+      stylesheet.match(/\.btn-kick-device svg\s*\{([^}]*)\}/)?.[1] ?? '';
+    const memberKickButtonRules =
+      stylesheet.match(/\.btn-kick-device\s*\{([^}]*)\}/)?.[1] ?? '';
+    const kickButtonBaseRules =
+      stylesheet.match(
+        /\.btn-kick-device,\s*\.btn-kick-physical-device\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
+    const physicalDeviceKickIconRules =
+      stylesheet.match(/\.btn-kick-physical-device svg\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(playlistRemoveButtonRules).toContain('opacity: 1');
+    expect(playlistRemoveButtonRules).toContain('color: var(--text-muted)');
+    expect(playlistRemoveIconRules).toContain('width: 16px');
+    expect(playlistRemoveIconRules).toContain('height: 16px');
+    expect(playlistRemoveIconRules).toContain('stroke: currentColor');
+    expect(playlistRemoveIconRules).toContain('stroke-width: 0.5');
+    expect(memberKickIconRules).toContain('width: 16px');
+    expect(memberKickIconRules).toContain('height: 16px');
+    expect(memberKickIconRules).toContain('stroke: currentColor');
+    expect(memberKickIconRules).toContain('stroke-width: 0.5');
+    expect(memberKickButtonRules).toContain('opacity: 1');
+    expect(kickButtonBaseRules).toContain('color: var(--text-muted)');
+    expect(physicalDeviceKickIconRules).toContain('width: 16px');
+    expect(physicalDeviceKickIconRules).toContain('height: 16px');
+    expect(physicalDeviceKickIconRules).not.toContain('stroke-width');
+  });
+
   it('shares crown colors with chat and distinguishes online from offline administrators', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const administratorCrownRules =

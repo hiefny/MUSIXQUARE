@@ -2212,7 +2212,7 @@
     border: none;
     border-radius: 50%;
     cursor: pointer;
-    opacity: 0.5;
+    opacity: 1;
     transition:
       opacity 0.15s,
       color 0.15s;
@@ -2244,6 +2244,9 @@
     width: 16px;
     height: 16px;
     fill: currentColor;
+    stroke: currentColor;
+    stroke-width: 0.5;
+    stroke-linejoin: round;
     transition:
       color 0.16s ease,
       transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -2267,7 +2270,7 @@
   }
 
   .track-item:focus-within .btn-playlist-remove:not(.is-selected) {
-    opacity: 0.75;
+    opacity: 1;
   }
 
   @media (hover: hover) {
@@ -3229,7 +3232,19 @@
     padding: 0;
   }
 
-  .btn-kick-device svg,
+  .btn-kick-device svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+    stroke: currentColor;
+    stroke-width: 0.5;
+    stroke-linejoin: round;
+  }
+
+  .btn-kick-device {
+    opacity: 1;
+  }
+
   .btn-kick-physical-device svg {
     width: 16px;
     height: 16px;
@@ -3237,7 +3252,7 @@
   }
 
   .device-row:hover .btn-kick-device {
-    opacity: 0.6;
+    opacity: 1;
   }
 
   .device-subrow:hover .btn-kick-physical-device {
@@ -3256,7 +3271,10 @@
   }
 
   @media (pointer: coarse) {
-    .btn-kick-device,
+    .btn-kick-device {
+      opacity: 1;
+    }
+
     .btn-kick-physical-device {
       opacity: 0.5;
     }

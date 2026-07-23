@@ -40,11 +40,25 @@ import { seekTo } from '../player/transport.ts';
 import { showToast } from './toast.ts';
 import { normalizeEmptyContentEditable } from './dom.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
+import {
+  canCollapseChatDrawerFullToHalf,
+  canExpandChatDrawer,
+  canUseChatDrawerHalfDetent,
+  getChatDrawerFullDismissThreshold,
+  getInitialChatDrawerDetent,
+  resolveChatDrawerRelease,
+  type ChatDrawerDetent,
+  type ChatDrawerViewportContext,
+} from './chat-drawer-detents.ts';
 
 // ─── Chat State ──────────────────────────────────────────────────
 
 let _unreadCount = 0;
-let _isChatDrawerOpen = false;
+let _chatDrawerState: 'closed' | ChatDrawerDetent = 'closed';
+
+function isChatDrawerOpen(): boolean {
+  return _chatDrawerState !== 'closed';
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -85,7 +99,7 @@ function updateChatPreview(sender: string, text: string): void {
 }
 
 function incrementUnread(): void {
-  if (_isChatDrawerOpen) return;
+  if (isChatDrawerOpen()) return;
   _unreadCount++;
   const badge = document.getElementById('chat-preview-badge');
   if (badge) {
@@ -107,18 +121,94 @@ function resetUnread(): void {
 
 /**
  * Safety net for ui:scrollbar-relayout in case transitionend never fires.
- * The drawer's CSS transform transition is 200ms; doubling that absorbs
- * timing skew across browsers (Chrome on Android occasionally finishes
- * 5-10ms late) and survives a toggle that supersedes a previous
+ * The open transform lasts 600ms. A slightly longer fallback absorbs timing
+ * skew across browsers and survives a toggle that supersedes a previous
  * transition before it had a chance to emit transitionend.
  */
-const CHAT_DRAWER_RELAYOUT_FALLBACK_MS = 400;
+const CHAT_DRAWER_RELAYOUT_FALLBACK_MS = 700;
+const CHAT_DRAWER_HEIGHT_SETTLE_FALLBACK_MS = 400;
+const _isDesktop = window.matchMedia('(min-width: 1280px)');
+let _chatDrawerBottomAnchorFrame: number | null = null;
+let _chatDrawerBottomAnchorAC: AbortController | null = null;
+let _pendingChatDrawerSnap: {
+  drawer: HTMLElement;
+  listener: (event: TransitionEvent) => void;
+  frame: number;
+} | null = null;
 let _pendingChatDrawerTransition: {
   drawer: HTMLElement;
   listener: (event: TransitionEvent) => void;
 } | null = null;
 let _chatTouchContainmentAC: AbortController | null = null;
 let _chatTouchStartY = 0;
+
+function stopChatDrawerBottomAnchor(): void {
+  _chatDrawerBottomAnchorAC?.abort();
+  _chatDrawerBottomAnchorAC = null;
+  if (_chatDrawerBottomAnchorFrame !== null) {
+    window.cancelAnimationFrame(_chatDrawerBottomAnchorFrame);
+    _chatDrawerBottomAnchorFrame = null;
+  }
+}
+
+function scrollChatMessagesToBottom(messages: HTMLElement): void {
+  messages.scrollTop = messages.scrollHeight;
+}
+
+/**
+ * A shrinking overflow container keeps its old scrollTop, which can push the
+ * newest messages below the visible viewport during a full -> half snap.
+ * Preserve bottom anchoring only when the user was already at the bottom;
+ * users reading older messages keep their exact scroll position.
+ */
+function maintainChatDrawerBottomAnchor(
+  drawer: HTMLElement,
+  messages: HTMLElement,
+  onUserTakeover: () => void,
+): void {
+  stopChatDrawerBottomAnchor();
+  const controller = new AbortController();
+  _chatDrawerBottomAnchorAC = controller;
+  const deadline = window.performance.now() + CHAT_DRAWER_HEIGHT_SETTLE_FALLBACK_MS;
+
+  const pinNextFrame = (timestamp: number): void => {
+    if (_chatDrawerBottomAnchorAC !== controller) return;
+    scrollChatMessagesToBottom(messages);
+    if (timestamp >= deadline) {
+      stopChatDrawerBottomAnchor();
+      return;
+    }
+    _chatDrawerBottomAnchorFrame = window.requestAnimationFrame(pinNextFrame);
+  };
+
+  const stopOnHeightTransition = (event: TransitionEvent): void => {
+    if (event.target === drawer && event.propertyName === 'height') stopChatDrawerBottomAnchor();
+  };
+  drawer.addEventListener('transitionend', stopOnHeightTransition, { signal: controller.signal });
+
+  // Let an immediate user gesture take ownership of the scroll position.
+  const stopForUser = (): void => {
+    onUserTakeover();
+    stopChatDrawerBottomAnchor();
+  };
+  for (const eventName of ['pointerdown', 'touchstart', 'wheel'] as const) {
+    drawer.addEventListener(eventName, stopForUser, {
+      passive: true,
+      signal: controller.signal,
+    });
+  }
+
+  scrollChatMessagesToBottom(messages);
+  _chatDrawerBottomAnchorFrame = window.requestAnimationFrame(pinNextFrame);
+}
+
+function clearPendingChatDrawerSnap(): void {
+  if (!_pendingChatDrawerSnap) return;
+  const { drawer, listener, frame } = _pendingChatDrawerSnap;
+  drawer.removeEventListener('transitionend', listener);
+  window.cancelAnimationFrame(frame);
+  _pendingChatDrawerSnap = null;
+}
 
 function clearPendingChatDrawerTransition(): void {
   clearManagedTimer('chat-drawer-relayout');
@@ -128,18 +218,190 @@ function clearPendingChatDrawerTransition(): void {
   _pendingChatDrawerTransition = null;
 }
 
+function getChatDrawerViewportHeight(): number {
+  const cssHeight = Number.parseFloat(
+    window.getComputedStyle(document.documentElement).getPropertyValue('--app-height'),
+  );
+  if (Number.isFinite(cssHeight) && cssHeight > 0) return cssHeight;
+  return Math.max(0, window.innerHeight || document.documentElement.clientHeight);
+}
+
+function getChatDrawerStageBottom(): number | null {
+  const playTab = document.getElementById('tab-play');
+  if (playTab && !playTab.classList.contains('active')) return null;
+
+  const selector = document.body.classList.contains('mode-youtube')
+    ? '.video-wrapper'
+    : '.vinyl-wrapper';
+  const stage = document.querySelector<HTMLElement>(selector);
+  if (!stage) return null;
+
+  const style = window.getComputedStyle(stage);
+  const rect = stage.getBoundingClientRect();
+  if (
+    style.display === 'none' ||
+    style.visibility === 'hidden' ||
+    rect.width <= 1 ||
+    rect.height <= 1 ||
+    rect.right <= 0 ||
+    rect.left >= window.innerWidth ||
+    rect.bottom <= 0 ||
+    rect.top >= getChatDrawerViewportHeight()
+  ) {
+    return null;
+  }
+  return rect.bottom;
+}
+
+function getChatDrawerViewportContext(): ChatDrawerViewportContext {
+  const viewportWidth = Math.max(0, window.innerWidth || document.documentElement.clientWidth);
+  const viewportHeight = getChatDrawerViewportHeight();
+  return {
+    viewportWidth,
+    viewportHeight,
+    isPortrait: viewportHeight >= viewportWidth,
+    stageBottom: getChatDrawerStageBottom(),
+  };
+}
+
+function clearChatDrawerLiveGeometry(drawer: HTMLElement): void {
+  clearPendingChatDrawerSnap();
+  stopChatDrawerBottomAnchor();
+  drawer.classList.remove('is-dragging');
+  drawer.classList.remove('is-snapping');
+  drawer.style.removeProperty('--chat-live-height');
+  drawer.style.removeProperty('--chat-offset-y');
+}
+
+function getChatDrawerRenderedOffsetY(drawer: HTMLElement): number {
+  const transform = window.getComputedStyle(drawer).transform;
+  if (transform && transform !== 'none') {
+    const matrix3d = transform.match(/^matrix3d\((.+)\)$/);
+    if (matrix3d) {
+      const values = matrix3d[1].split(',').map(Number);
+      const translateY = values[13];
+      if (Number.isFinite(translateY)) return Math.max(0, translateY);
+    }
+
+    const matrix = transform.match(/^matrix\((.+)\)$/);
+    if (matrix) {
+      const values = matrix[1].split(',').map(Number);
+      const translateY = values[5];
+      if (Number.isFinite(translateY)) return Math.max(0, translateY);
+    }
+  }
+
+  const liveOffset = Number.parseFloat(drawer.style.getPropertyValue('--chat-offset-y'));
+  return Number.isFinite(liveOffset) ? Math.max(0, liveOffset) : 0;
+}
+
+function setChatDrawerDetent(
+  drawer: HTMLElement,
+  detent: ChatDrawerDetent,
+  animated: boolean,
+): void {
+  const viewportHeight = getChatDrawerViewportHeight();
+  const targetHeight = viewportHeight * (detent === 'half' ? 0.5 : 1);
+  const currentRect = drawer.getBoundingClientRect();
+  const currentHeight = currentRect.height || targetHeight;
+  const currentOffsetY = getChatDrawerRenderedOffsetY(drawer);
+  const messages = document.getElementById('chat-messages');
+  let keepMessagesAtBottom = messages ? isContainerAtBottom(messages) : false;
+
+  clearPendingChatDrawerSnap();
+  stopChatDrawerBottomAnchor();
+
+  if (!animated || !isChatDrawerOpen()) {
+    drawer.classList.remove('is-dragging');
+    drawer.classList.remove('is-snapping');
+    drawer.dataset.chatSnap = detent;
+    drawer.style.removeProperty('--chat-live-height');
+    drawer.style.removeProperty('--chat-offset-y');
+    _chatDrawerState = detent;
+    if (keepMessagesAtBottom && messages) scrollChatMessagesToBottom(messages);
+    return;
+  }
+
+  drawer.style.setProperty('--chat-live-height', `${currentHeight}px`);
+  drawer.style.setProperty('--chat-offset-y', `${currentOffsetY}px`);
+  drawer.classList.add('is-dragging');
+  drawer.classList.add('is-snapping');
+  drawer.dataset.chatSnap = detent;
+  _chatDrawerState = detent;
+  void drawer.offsetHeight;
+  drawer.classList.remove('is-dragging');
+  void drawer.offsetHeight;
+  drawer.style.setProperty('--chat-live-height', `${targetHeight}px`);
+  drawer.style.setProperty('--chat-offset-y', '0px');
+  if (keepMessagesAtBottom && messages) {
+    maintainChatDrawerBottomAnchor(drawer, messages, () => {
+      keepMessagesAtBottom = false;
+    });
+  }
+  bus.emit('ui:scrollbar-relayout');
+
+  let settled = false;
+  const settleSnap = (): void => {
+    if (settled) return;
+    settled = true;
+    clearPendingChatDrawerSnap();
+    stopChatDrawerBottomAnchor();
+    drawer.classList.remove('is-snapping');
+    drawer.style.removeProperty('--chat-live-height');
+    drawer.style.removeProperty('--chat-offset-y');
+    if (keepMessagesAtBottom && messages) scrollChatMessagesToBottom(messages);
+    if (isChatDrawerOpen() && drawer.classList.contains('open')) {
+      bus.emit('ui:scrollbar-reveal', drawer);
+    }
+  };
+  const onHeightTransitionEnd = (event: TransitionEvent): void => {
+    if (event.target === drawer && event.propertyName === 'height') settleSnap();
+  };
+  const deadline = window.performance.now() + CHAT_DRAWER_HEIGHT_SETTLE_FALLBACK_MS;
+  const pendingSnap = { drawer, listener: onHeightTransitionEnd, frame: 0 };
+  const settleAfterDeadline = (timestamp: number): void => {
+    if (_pendingChatDrawerSnap !== pendingSnap) return;
+    if (timestamp >= deadline) {
+      settleSnap();
+      return;
+    }
+    pendingSnap.frame = window.requestAnimationFrame(settleAfterDeadline);
+  };
+  drawer.addEventListener('transitionend', onHeightTransitionEnd);
+  _pendingChatDrawerSnap = pendingSnap;
+  pendingSnap.frame = window.requestAnimationFrame(settleAfterDeadline);
+}
+
+function blurChatDrawerInput(drawer: HTMLElement): void {
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && drawer.contains(active)) active.blur();
+}
+
 export function toggleChatDrawer(): void {
   const drawer = document.getElementById('chat-drawer');
   if (!drawer) return;
 
-  _isChatDrawerOpen = !_isChatDrawerOpen;
-  drawer.classList.toggle('open', _isChatDrawerOpen);
+  const opening = !isChatDrawerOpen();
+  if (opening) {
+    const context = getChatDrawerViewportContext();
+    const detent = _isDesktop.matches ? 'full' : getInitialChatDrawerDetent(context);
+    drawer.dataset.chatSnapSource = 'policy';
+    _chatDrawerLayoutMode = getChatDrawerLayoutMode(context);
+    setChatDrawerDetent(drawer, detent, false);
+  } else {
+    _cancelActiveChatDrawerDrag?.(false);
+    blurChatDrawerInput(drawer);
+    clearChatDrawerLiveGeometry(drawer);
+    _chatDrawerState = 'closed';
+    delete drawer.dataset.chatSnapSource;
+  }
+  drawer.classList.toggle('open', opening);
 
   // Sync backdrop
   const backdrop = document.getElementById('chat-backdrop');
-  if (backdrop) backdrop.classList.toggle('open', _isChatDrawerOpen);
+  if (backdrop) backdrop.classList.toggle('open', opening);
 
-  if (_isChatDrawerOpen) {
+  if (opening) {
     resetUnread();
     const messages = document.getElementById('chat-messages');
     if (messages) messages.scrollTop = messages.scrollHeight;
@@ -157,12 +419,12 @@ export function toggleChatDrawer(): void {
   // measured a still-mid-flight rect, leaving the scrollbar shorter than
   // the messages area and offset toward the input bar (the user repro).
   // transitionend fires precisely at the end of the transform animation;
-  // a 400ms safety timer covers browsers that occasionally drop the event
+  // a 700ms safety timer covers browsers that occasionally drop the event
   // (e.g. when the drawer is toggled again before the previous transition
   // resolves).
   const drawerEl = drawer as HTMLElement;
   const settleDrawerScrollbar = (): void => {
-    if (_isChatDrawerOpen && drawerEl.classList.contains('open')) {
+    if (isChatDrawerOpen() && drawerEl.classList.contains('open')) {
       bus.emit('ui:scrollbar-reveal', drawerEl);
     } else {
       bus.emit('ui:scrollbar-relayout');
@@ -189,39 +451,20 @@ export function toggleChatDrawer(): void {
 }
 
 // ─── Chat Drawer: Swipe-to-Dismiss ──────────────────────────────
-const SWIPE_DISMISS_THRESHOLD = 100; // px
 const CHAT_DRAWER_PULL_MAX = 22;
 const CHAT_DRAWER_PULL_RESISTANCE = 88;
-const CHAT_DRAWER_STRETCH_RESET_MS = 260;
-const _isDesktop = window.matchMedia('(min-width: 1280px)');
+let _chatDrawerGestureAC: AbortController | null = null;
+let _chatDrawerMouseDragAC: AbortController | null = null;
+let _cancelActiveChatDrawerDrag: ((restoreDetent?: boolean) => void) | null = null;
 
-function setChatDrawerStretch(drawer: HTMLElement, baseHeight: number, pullPx: number): void {
-  clearManagedTimer('chat-drawer-stretch-reset');
-  drawer.style.maxHeight = `${baseHeight + CHAT_DRAWER_PULL_MAX}px`;
-  drawer.style.height = `${baseHeight + pullPx}px`;
+function resistedDistance(distance: number): number {
+  if (distance <= 0) return 0;
+  return CHAT_DRAWER_PULL_MAX * (1 - Math.exp(-distance / CHAT_DRAWER_PULL_RESISTANCE));
 }
 
-function resetChatDrawerStretch(drawer: HTMLElement, baseHeight: number, animated: boolean): void {
-  clearManagedTimer('chat-drawer-stretch-reset');
-  if (!drawer.style.height) return;
-
-  if (!animated || baseHeight <= 0) {
-    drawer.style.height = '';
-    drawer.style.maxHeight = '';
-    return;
-  }
-
-  drawer.style.transition = `height ${CHAT_DRAWER_STRETCH_RESET_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`;
-  drawer.style.height = `${baseHeight}px`;
-  setManagedTimer(
-    'chat-drawer-stretch-reset',
-    () => {
-      drawer.style.height = '';
-      drawer.style.maxHeight = '';
-      drawer.style.transition = '';
-    },
-    CHAT_DRAWER_STRETCH_RESET_MS,
-  );
+function setChatDrawerLiveGeometry(drawer: HTMLElement, height: number, offsetY = 0): void {
+  drawer.style.setProperty('--chat-live-height', `${Math.max(0, height)}px`);
+  drawer.style.setProperty('--chat-offset-y', `${Math.max(0, offsetY)}px`);
 }
 
 function initChatSwipeToDismiss(): void {
@@ -229,93 +472,293 @@ function initChatSwipeToDismiss(): void {
   const drawer = document.getElementById('chat-drawer');
   if (!header || !drawer) return;
 
+  _cancelActiveChatDrawerDrag?.(false);
+  _chatDrawerGestureAC?.abort();
+  _chatDrawerMouseDragAC?.abort();
+  _chatDrawerGestureAC = new AbortController();
+  _chatDrawerMouseDragAC = null;
+  const { signal: gestureSignal } = _chatDrawerGestureAC;
+
   let startY = 0;
-  let deltaY = 0;
+  let rawDeltaY = 0;
   let dragDistanceY = 0;
-  let baseDrawerHeight = 0;
+  let startDetent: ChatDrawerDetent = 'half';
+  let halfHeight = 0;
+  let fullHeight = 0;
+  let startRenderedHeight = 0;
+  let startRenderedOffsetY = 0;
+  let canExpandToFull = false;
+  let canCollapseFullToHalf = false;
+  let keepMessagesAtBottom = false;
   let isDragging = false;
 
-  const startDrag = (y: number) => {
-    if (_isDesktop.matches || !_isChatDrawerOpen) return;
+  const startDrag = (y: number): boolean => {
+    if (_isDesktop.matches || !isChatDrawerOpen()) return false;
+
+    const context = getChatDrawerViewportContext();
     startY = y;
-    deltaY = 0;
+    rawDeltaY = 0;
     dragDistanceY = 0;
-    baseDrawerHeight = drawer.getBoundingClientRect().height;
+    startDetent = _chatDrawerState === 'full' ? 'full' : 'half';
+    fullHeight = context.viewportHeight;
+    halfHeight = fullHeight * 0.5;
+    canExpandToFull = canExpandChatDrawer(context);
+    canCollapseFullToHalf = canCollapseChatDrawerFullToHalf(context);
+    const currentRect = drawer.getBoundingClientRect();
+    startRenderedHeight = currentRect.height || (startDetent === 'full' ? fullHeight : halfHeight);
+    startRenderedOffsetY = getChatDrawerRenderedOffsetY(drawer);
+    const messages = document.getElementById('chat-messages');
+    keepMessagesAtBottom = messages ? isContainerAtBottom(messages) : false;
     isDragging = true;
-    drawer.style.transition = 'none';
+    clearPendingChatDrawerSnap();
+    stopChatDrawerBottomAnchor();
+    setChatDrawerLiveGeometry(drawer, startRenderedHeight, startRenderedOffsetY);
+    drawer.classList.add('is-dragging');
+    return true;
+  };
+
+  const setDragGeometry = (height: number, offsetY = 0): void => {
+    setChatDrawerLiveGeometry(drawer, height, offsetY);
+    if (!keepMessagesAtBottom) return;
+    const messages = document.getElementById('chat-messages');
+    if (messages) scrollChatMessagesToBottom(messages);
   };
 
   const moveDrag = (y: number) => {
     if (!isDragging) return;
-    const rawDeltaY = y - startY;
+    rawDeltaY = y - startY;
     dragDistanceY = Math.abs(rawDeltaY);
-    if (rawDeltaY >= 0) {
-      deltaY = rawDeltaY;
-      setChatDrawerStretch(drawer, baseDrawerHeight, 0);
-    } else {
-      deltaY = 0;
-      const pullPx = CHAT_DRAWER_PULL_MAX * (1 - Math.exp(rawDeltaY / CHAT_DRAWER_PULL_RESISTANCE));
-      setChatDrawerStretch(drawer, baseDrawerHeight, pullPx);
+
+    if (startDetent === 'half') {
+      if (rawDeltaY < 0 && canExpandToFull) {
+        const requestedHeight = startRenderedHeight - rawDeltaY;
+        const overshoot = Math.max(0, requestedHeight - fullHeight);
+        setDragGeometry(
+          Math.min(fullHeight, requestedHeight) + resistedDistance(overshoot),
+          Math.max(0, startRenderedOffsetY + rawDeltaY),
+        );
+      } else if (rawDeltaY < 0) {
+        setDragGeometry(
+          startRenderedHeight + resistedDistance(-rawDeltaY),
+          Math.max(0, startRenderedOffsetY + rawDeltaY),
+        );
+      } else {
+        setDragGeometry(startRenderedHeight, startRenderedOffsetY + rawDeltaY);
+      }
+      return;
     }
-    drawer.style.transform = `translateY(${deltaY}px)`;
+
+    if (rawDeltaY < 0) {
+      const requestedHeight = startRenderedHeight - rawDeltaY;
+      const overshoot = Math.max(0, requestedHeight - fullHeight);
+      setDragGeometry(
+        Math.min(fullHeight, requestedHeight) + resistedDistance(overshoot),
+        Math.max(0, startRenderedOffsetY + rawDeltaY),
+      );
+    } else if (canCollapseFullToHalf) {
+      const requestedHeight = startRenderedHeight - rawDeltaY;
+      const belowHalf = Math.max(0, halfHeight - requestedHeight);
+      setDragGeometry(
+        Math.max(halfHeight, requestedHeight),
+        startRenderedOffsetY + resistedDistance(belowHalf),
+      );
+    } else {
+      setDragGeometry(startRenderedHeight, startRenderedOffsetY + rawDeltaY);
+    }
   };
 
-  const endDrag = () => {
+  const endDrag = (cancelled = false) => {
     if (!isDragging) return;
     isDragging = false;
-    if (deltaY > SWIPE_DISMISS_THRESHOLD) {
-      resetChatDrawerStretch(drawer, baseDrawerHeight, false);
-      drawer.style.transition = '';
-      drawer.style.transform = '';
+
+    const target = resolveChatDrawerRelease({
+      startDetent,
+      deltaY: rawDeltaY,
+      canExpand: canExpandToFull,
+      canCollapseFullToHalf,
+      fullDismissThreshold: getChatDrawerFullDismissThreshold(fullHeight),
+      cancelled,
+    });
+
+    if (target === 'closed') {
+      clearChatDrawerLiveGeometry(drawer);
       toggleChatDrawer();
       return;
     }
-    drawer.style.transition = '';
-    drawer.style.transform = '';
-    resetChatDrawerStretch(drawer, baseDrawerHeight, true);
+
+    drawer.dataset.chatSnapSource = 'gesture';
+    setChatDrawerDetent(drawer, target, true);
+  };
+  _cancelActiveChatDrawerDrag = (restoreDetent = true) => {
+    if (!isDragging) return;
+    if (restoreDetent) {
+      endDrag(true);
+      return;
+    }
+
+    isDragging = false;
+    _chatDrawerMouseDragAC?.abort();
+    _chatDrawerMouseDragAC = null;
+    drawer.classList.remove('is-dragging');
   };
 
   // Touch events
-  header.addEventListener('touchstart', (e: TouchEvent) => startDrag(e.touches[0].clientY), {
-    passive: true,
-  });
-  header.addEventListener('touchmove', (e: TouchEvent) => moveDrag(e.touches[0].clientY), {
-    passive: true,
-  });
-  header.addEventListener('touchend', endDrag);
-  header.addEventListener('touchcancel', endDrag);
+  header.addEventListener(
+    'touchstart',
+    (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (touch) startDrag(touch.clientY);
+    },
+    { passive: true, signal: gestureSignal },
+  );
+  header.addEventListener(
+    'touchmove',
+    (e: TouchEvent) => {
+      const touch = e.touches[0];
+      if (touch) moveDrag(touch.clientY);
+    },
+    { passive: true, signal: gestureSignal },
+  );
+  header.addEventListener('touchend', () => endDrag(), { signal: gestureSignal });
+  header.addEventListener('touchcancel', () => endDrag(true), { signal: gestureSignal });
 
   // Mouse events (for small-screen PC users)
   // Attach window listeners only during active drag to prevent permanent leak.
   // An AbortController lets us nuke every window listener atomically — including
   // the blur fallback for the "mousedown then tab-switch without mouseup" case
   // that would otherwise strand dangling handlers.
-  let dragAC: AbortController | null = null;
   const teardownDrag = () => {
-    dragAC?.abort();
-    dragAC = null;
+    _chatDrawerMouseDragAC?.abort();
+    _chatDrawerMouseDragAC = null;
   };
   const onMouseUp = () => {
     endDrag();
     teardownDrag();
   };
-  header.addEventListener('mousedown', (e: MouseEvent) => {
-    // If a previous drag never received mouseup (tab switch, devtools grab),
-    // abort its listeners before starting a new one so they don't accumulate.
-    teardownDrag();
-    startDrag(e.clientY);
-    e.preventDefault(); // prevent text selection while dragging
-    dragAC = new AbortController();
-    const { signal } = dragAC;
-    window.addEventListener('mousemove', (ev: MouseEvent) => moveDrag(ev.clientY), { signal });
-    window.addEventListener('mouseup', onMouseUp, { signal });
-    window.addEventListener('blur', onMouseUp, { signal });
-  });
+  header.addEventListener(
+    'mousedown',
+    (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      teardownDrag();
+      if (!startDrag(e.clientY)) return;
+      e.preventDefault();
+      _chatDrawerMouseDragAC = new AbortController();
+      const { signal } = _chatDrawerMouseDragAC;
+      window.addEventListener('mousemove', (ev: MouseEvent) => moveDrag(ev.clientY), { signal });
+      window.addEventListener('mouseup', onMouseUp, { signal });
+      window.addEventListener(
+        'blur',
+        () => {
+          endDrag(true);
+          teardownDrag();
+        },
+        { signal },
+      );
+    },
+    { signal: gestureSignal },
+  );
 
   // Header click to close (tap or click without drag)
-  header.addEventListener('click', () => {
-    if (_isDesktop.matches || !_isChatDrawerOpen) return;
-    if (dragDistanceY < 5) toggleChatDrawer(); // only if no significant drag occurred
+  header.addEventListener(
+    'click',
+    () => {
+      if (_isDesktop.matches || !isChatDrawerOpen()) return;
+      if (dragDistanceY < 5) toggleChatDrawer();
+    },
+    { signal: gestureSignal },
+  );
+}
+
+let _chatDrawerViewportAC: AbortController | null = null;
+let _chatDrawerLayoutMode: 'desktop' | 'portrait' | 'landscape' | null = null;
+
+function getChatDrawerLayoutMode(
+  context: ChatDrawerViewportContext,
+): 'desktop' | 'portrait' | 'landscape' {
+  if (context.viewportWidth >= 1280) return 'desktop';
+  return context.isPortrait ? 'portrait' : 'landscape';
+}
+
+function initChatDrawerViewportReconciliation(): void {
+  _chatDrawerViewportAC?.abort();
+  _chatDrawerViewportAC = new AbortController();
+  const { signal } = _chatDrawerViewportAC;
+
+  const scheduleReconciliation = () => {
+    if (document.documentElement.classList.contains('keyboard-open')) return;
+
+    setManagedTimer(
+      'chat-drawer-viewport-reconcile',
+      () => {
+        if (!isChatDrawerOpen() || document.documentElement.classList.contains('keyboard-open')) {
+          return;
+        }
+
+        const drawer = document.getElementById('chat-drawer');
+        if (!drawer) return;
+
+        _cancelActiveChatDrawerDrag?.(false);
+        const context = getChatDrawerViewportContext();
+        const nextMode = getChatDrawerLayoutMode(context);
+        const modeChanged = _chatDrawerLayoutMode !== null && _chatDrawerLayoutMode !== nextMode;
+        _chatDrawerLayoutMode = nextMode;
+
+        if (nextMode === 'desktop') {
+          clearChatDrawerLiveGeometry(drawer);
+          return;
+        }
+
+        if (modeChanged) {
+          drawer.dataset.chatSnapSource = 'policy';
+          setChatDrawerDetent(drawer, getInitialChatDrawerDetent(context), true);
+          return;
+        }
+
+        if (_chatDrawerState === 'half' && !canUseChatDrawerHalfDetent(context)) {
+          drawer.dataset.chatSnapSource = 'policy';
+          setChatDrawerDetent(drawer, 'full', true);
+          return;
+        }
+
+        if (
+          _chatDrawerState === 'full' &&
+          drawer.dataset.chatSnapSource === 'policy' &&
+          canUseChatDrawerHalfDetent(context)
+        ) {
+          setChatDrawerDetent(drawer, 'half', true);
+        }
+      },
+      550,
+    );
+  };
+
+  const handleOrientationChange = () => {
+    if (
+      isChatDrawerOpen() &&
+      !document.documentElement.classList.contains('keyboard-open') &&
+      !_isDesktop.matches
+    ) {
+      const drawer = document.getElementById('chat-drawer');
+      if (drawer) {
+        _cancelActiveChatDrawerDrag?.(false);
+        // Orientation metrics settle asynchronously on mobile browsers. Full
+        // is the only interim detent guaranteed not to cover media partially;
+        // the debounced measurement below can safely restore half afterward.
+        drawer.dataset.chatSnapSource = 'policy';
+        setChatDrawerDetent(drawer, 'full', false);
+      }
+    }
+    scheduleReconciliation();
+  };
+
+  window.addEventListener('resize', scheduleReconciliation, { passive: true, signal });
+  window.addEventListener('orientationchange', handleOrientationChange, {
+    passive: true,
+    signal,
+  });
+  window.visualViewport?.addEventListener('resize', scheduleReconciliation, {
+    passive: true,
+    signal,
   });
 }
 
@@ -340,7 +783,7 @@ function getScrollableChatElement(
 }
 
 function shouldContainDrawerTouch(e: TouchEvent, drawer: HTMLElement): boolean {
-  if (!_isChatDrawerOpen || !drawer.classList.contains('open')) return false;
+  if (!isChatDrawerOpen() || !drawer.classList.contains('open')) return false;
   if (e.touches.length !== 1) return true;
 
   const scrollable = getScrollableChatElement(e.target, drawer);
@@ -379,7 +822,7 @@ function initChatTouchContainment(): void {
   backdrop?.addEventListener(
     'touchmove',
     (e) => {
-      if (_isChatDrawerOpen && e.cancelable) e.preventDefault();
+      if (isChatDrawerOpen() && e.cancelable) e.preventDefault();
     },
     { passive: false, signal },
   );
@@ -597,25 +1040,35 @@ function initChatEventDelegation(): void {
 // ─── Init ────────────────────────────────────────────────────────
 
 const _busScope = createBusScope();
+let _chatUiAC: AbortController | null = null;
 
 export function initChat(): void {
   // Release any prior-init subscriptions so HMR / future re-init paths
   // don't stack duplicate chat-message and drawer toggle handlers.
   // Matches the pattern in player-controls / playlist-view / connect.
   _busScope.dispose();
+  _chatUiAC?.abort();
+  stopChatDrawerBottomAnchor();
+  _chatUiAC = new AbortController();
+  const { signal: uiSignal } = _chatUiAC;
 
   registerChatProtocolHandlers();
 
   initChatEventDelegation();
   initChatSwipeToDismiss();
+  initChatDrawerViewportReconciliation();
   initChatTouchContainment();
 
   // Backdrop tap to close
   const backdrop = document.getElementById('chat-backdrop');
   if (backdrop)
-    backdrop.addEventListener('click', () => {
-      if (_isChatDrawerOpen) toggleChatDrawer();
-    });
+    backdrop.addEventListener(
+      'click',
+      () => {
+        if (isChatDrawerOpen()) toggleChatDrawer();
+      },
+      { signal: uiSignal },
+    );
 
   const chatMessages = document.getElementById('chat-messages');
   const scrollDownBtn = document.getElementById('btn-chat-scroll-down');
@@ -629,12 +1082,16 @@ export function initChat(): void {
       () => {
         scrollDownBtn.classList.toggle('show', !isContainerAtBottom(chatMessages));
       },
-      { passive: true },
+      { passive: true, signal: uiSignal },
     );
 
-    scrollDownBtn.addEventListener('click', () => {
-      chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'smooth' });
-    });
+    scrollDownBtn.addEventListener(
+      'click',
+      () => {
+        chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'smooth' });
+      },
+      { signal: uiSignal },
+    );
   }
 
   // Wire up UI buttons
@@ -646,19 +1103,23 @@ export function initChat(): void {
       const chatInput = document.getElementById('chat-input') as HTMLDivElement | null;
       if (chatInput) chatInput.focus();
     };
-    sendBtn.addEventListener('pointerdown', handleSend);
-    sendBtn.addEventListener('click', (e) => {
-      // Fallback for keyboard accessibility (Space/Enter on button)
-      if (e.detail !== 0) return; // Ignore if triggered by mouse/touch pointerdown
-      handleSend(e);
-    });
+    sendBtn.addEventListener('pointerdown', handleSend, { signal: uiSignal });
+    sendBtn.addEventListener(
+      'click',
+      (e) => {
+        // Fallback for keyboard accessibility (Space/Enter on button)
+        if (e.detail !== 0) return; // Ignore if triggered by mouse/touch pointerdown
+        handleSend(e);
+      },
+      { signal: uiSignal },
+    );
   }
 
   const closeBtn = document.getElementById('btn-chat-close');
-  if (closeBtn) closeBtn.addEventListener('click', toggleChatDrawer);
+  if (closeBtn) closeBtn.addEventListener('click', toggleChatDrawer, { signal: uiSignal });
 
   const previewBtn = document.getElementById('chat-preview-btn');
-  if (previewBtn) previewBtn.addEventListener('click', toggleChatDrawer);
+  if (previewBtn) previewBtn.addEventListener('click', toggleChatDrawer, { signal: uiSignal });
 
   // Chat input: send on Enter + command autocomplete
   const chatInput = document.getElementById('chat-input') as HTMLDivElement | null;
@@ -667,6 +1128,9 @@ export function initChat(): void {
     const wrapper = chatInput.closest('.chat-input-wrapper');
     if (wrapper) {
       (wrapper as HTMLElement).style.position = 'relative';
+      wrapper
+        .querySelectorAll(':scope > .chat-cmd-suggest, :scope > .chat-cmd-ghost')
+        .forEach((element) => element.remove());
     }
     const suggest = document.createElement('div');
     suggest.className = 'chat-cmd-suggest';
@@ -776,138 +1240,170 @@ export function initChat(): void {
     }
 
     // Paste handler: strip HTML, paste plain text only
-    chatInput.addEventListener('paste', (e) => {
-      e.preventDefault();
-      const text = e.clipboardData?.getData('text/plain') || '';
-      // Remove line breaks and limit length
-      const clean = text.replace(/[\r\n]/g, ' ').substring(0, MAX_MSG_LENGTH);
-      document.execCommand('insertText', false, clean);
-    });
+    chatInput.addEventListener(
+      'paste',
+      (e) => {
+        e.preventDefault();
+        const text = e.clipboardData?.getData('text/plain') || '';
+        // Remove line breaks and limit length
+        const clean = text.replace(/[\r\n]/g, ' ').substring(0, MAX_MSG_LENGTH);
+        document.execCommand('insertText', false, clean);
+      },
+      { signal: uiSignal },
+    );
 
     // Prevent line breaks in contenteditable
-    chatInput.addEventListener('beforeinput', (e) => {
-      if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') {
-        e.preventDefault();
-        return;
-      }
-      // Enforce maxlength
-      if (e.inputType === 'insertText') {
-        const current = getInputValue();
-        const incoming = e.data || '';
-        if (current.length + incoming.length > MAX_MSG_LENGTH) {
+    chatInput.addEventListener(
+      'beforeinput',
+      (e) => {
+        if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') {
           e.preventDefault();
-          // Insert only what fits
-          const remaining = MAX_MSG_LENGTH - current.length;
-          if (remaining > 0) {
-            document.execCommand('insertText', false, incoming.substring(0, remaining));
+          return;
+        }
+        // Enforce maxlength
+        if (e.inputType === 'insertText') {
+          const current = getInputValue();
+          const incoming = e.data || '';
+          if (current.length + incoming.length > MAX_MSG_LENGTH) {
+            e.preventDefault();
+            // Insert only what fits
+            const remaining = MAX_MSG_LENGTH - current.length;
+            if (remaining > 0) {
+              document.execCommand('insertText', false, incoming.substring(0, remaining));
+            }
           }
         }
-      }
-    });
+      },
+      { signal: uiSignal },
+    );
 
     // Drop handler: prevent dropping rich content
-    chatInput.addEventListener('drop', (e) => {
-      e.preventDefault();
-    });
+    chatInput.addEventListener(
+      'drop',
+      (e) => {
+        e.preventDefault();
+      },
+      { signal: uiSignal },
+    );
 
     // Input event: filter commands + ghost text
-    chatInput.addEventListener('input', (e) => {
-      // Stray-<br> placeholder restore — shared helper, see dom.ts.
-      normalizeEmptyContentEditable(chatInput, e);
-      const val = getInputValue();
-      applyUserTextFontFallback(chatInput, val);
-      updateGhost();
-      if (!val.startsWith('/') || val.includes(' ')) {
-        hideSuggest();
-        return;
-      }
-      const query = val.slice(1).toLowerCase();
-      const matches = getAvailableCommands(query);
-      showSuggest(matches);
-    });
+    chatInput.addEventListener(
+      'input',
+      (e) => {
+        // Stray-<br> placeholder restore — shared helper, see dom.ts.
+        normalizeEmptyContentEditable(chatInput, e);
+        const val = getInputValue();
+        applyUserTextFontFallback(chatInput, val);
+        updateGhost();
+        if (!val.startsWith('/') || val.includes(' ')) {
+          hideSuggest();
+          return;
+        }
+        const query = val.slice(1).toLowerCase();
+        const matches = getAvailableCommands(query);
+        showSuggest(matches);
+      },
+      { signal: uiSignal },
+    );
 
     // Click on suggest item
-    suggest.addEventListener('mousedown', (e) => {
-      e.preventDefault(); // Keep focus on input
-      const el = (e.target as HTMLElement).closest('.chat-cmd-item') as HTMLElement | null;
-      if (el) {
-        _suggestIdx = parseInt(el.dataset.idx || '0', 10);
-        applySuggest();
-      }
-    });
+    suggest.addEventListener(
+      'mousedown',
+      (e) => {
+        e.preventDefault(); // Keep focus on input
+        const el = (e.target as HTMLElement).closest('.chat-cmd-item') as HTMLElement | null;
+        if (el) {
+          _suggestIdx = parseInt(el.dataset.idx || '0', 10);
+          applySuggest();
+        }
+      },
+      { signal: uiSignal },
+    );
 
     // Blur: hide suggest (with delay for click to register)
-    chatInput.addEventListener('blur', () => {
-      setManagedTimer('chat-hide-suggest', hideSuggest, 150);
-    });
+    chatInput.addEventListener(
+      'blur',
+      () => {
+        setManagedTimer('chat-hide-suggest', hideSuggest, 150);
+      },
+      { signal: uiSignal },
+    );
 
-    chatInput.addEventListener('keydown', (e) => {
-      // Autocomplete navigation
-      if (_suggestItems.length && suggest.style.display !== 'none') {
-        if (e.key === 'Tab') {
-          e.preventDefault();
-          applySuggest();
-          return;
-        }
-        if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          _suggestIdx = (_suggestIdx + 1) % _suggestItems.length;
-          suggest.querySelectorAll('.chat-cmd-item').forEach((el, i) => {
-            el.classList.toggle('active', i === _suggestIdx);
-            if (i === _suggestIdx) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
-          });
-          return;
-        }
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          _suggestIdx = (_suggestIdx - 1 + _suggestItems.length) % _suggestItems.length;
-          suggest.querySelectorAll('.chat-cmd-item').forEach((el, i) => {
-            el.classList.toggle('active', i === _suggestIdx);
-            if (i === _suggestIdx) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
-          });
-          return;
-        }
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          hideSuggest();
-          return;
-        }
-        if (e.key === 'Enter') {
-          hideSuggest();
-          // Fall through to normal Enter send below
-        }
-      }
-
-      // Normal Enter: send message
-      if (e.key === 'Enter' && !e.shiftKey) {
-        // On macOS/iOS, defer Enter while IME composition is active and send as
-        // soon as composition finishes. This preserves one-press send without
-        // duplicating the committed character.
-        if (e.isComposing) {
-          _isConfirmingIME = true;
-          return;
+    chatInput.addEventListener(
+      'keydown',
+      (e) => {
+        // Autocomplete navigation
+        if (_suggestItems.length && suggest.style.display !== 'none') {
+          if (e.key === 'Tab') {
+            e.preventDefault();
+            applySuggest();
+            return;
+          }
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            _suggestIdx = (_suggestIdx + 1) % _suggestItems.length;
+            suggest.querySelectorAll('.chat-cmd-item').forEach((el, i) => {
+              el.classList.toggle('active', i === _suggestIdx);
+              if (i === _suggestIdx) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+            });
+            return;
+          }
+          if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            _suggestIdx = (_suggestIdx - 1 + _suggestItems.length) % _suggestItems.length;
+            suggest.querySelectorAll('.chat-cmd-item').forEach((el, i) => {
+              el.classList.toggle('active', i === _suggestIdx);
+              if (i === _suggestIdx) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+            });
+            return;
+          }
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            hideSuggest();
+            return;
+          }
+          if (e.key === 'Enter') {
+            hideSuggest();
+            // Fall through to normal Enter send below
+          }
         }
 
-        e.preventDefault();
-        sendChatMessage();
-      }
-    });
+        // Normal Enter: send message
+        if (e.key === 'Enter' && !e.shiftKey) {
+          // On macOS/iOS, defer Enter while IME composition is active and send as
+          // soon as composition finishes. This preserves one-press send without
+          // duplicating the committed character.
+          if (e.isComposing) {
+            _isConfirmingIME = true;
+            return;
+          }
+
+          e.preventDefault();
+          sendChatMessage();
+        }
+      },
+      { signal: uiSignal },
+    );
 
     let _isConfirmingIME = false;
-    chatInput.addEventListener('compositionend', () => {
-      // If Enter was pressed during composition, trigger send now that it's finished.
-      if (_isConfirmingIME) {
-        _isConfirmingIME = false;
-        // Zero-delay timeout is more stable for IME-to-DOM sync on Safari/Mac than rAF.
-        setManagedTimer(
-          'chat-ime-send',
-          () => {
-            sendChatMessage();
-          },
-          0,
-        );
-      }
-    });
+    chatInput.addEventListener(
+      'compositionend',
+      () => {
+        // If Enter was pressed during composition, trigger send now that it's finished.
+        if (_isConfirmingIME) {
+          _isConfirmingIME = false;
+          // Zero-delay timeout is more stable for IME-to-DOM sync on Safari/Mac than rAF.
+          setManagedTimer(
+            'chat-ime-send',
+            () => {
+              sendChatMessage();
+            },
+            0,
+          );
+        }
+      },
+      { signal: uiSignal },
+    );
 
     // Re-render ghost text on language change. Store the observer ref so
     // re-init (HMR, future re-wiring) disconnects the prior one instead of
@@ -923,18 +1419,22 @@ export function initChat(): void {
     // focus, preventing layout thrashing. Keep the delayed blur handler as
     // safety-net cleanup in case the
     // visualViewport.resize event doesn't fire (e.g. external keyboard).
-    chatInput.addEventListener('blur', () => {
-      setManagedTimer(
-        'kb-blur-guard',
-        () => {
-          const active = document.activeElement;
-          if (!active?.matches('input, textarea, [contenteditable="true"]')) {
-            document.documentElement.classList.remove('keyboard-open');
-          }
-        },
-        400,
-      );
-    });
+    chatInput.addEventListener(
+      'blur',
+      () => {
+        setManagedTimer(
+          'kb-blur-guard',
+          () => {
+            const active = document.activeElement;
+            if (!active?.matches('input, textarea, [contenteditable="true"]')) {
+              document.documentElement.classList.remove('keyboard-open');
+            }
+          },
+          400,
+        );
+      },
+      { signal: uiSignal },
+    );
   }
 
   // Render primitives emit this when a chat, whisper, or banner-only notice
@@ -952,7 +1452,7 @@ export function initChat(): void {
 
   // Close chat drawer (used by YouTube load-from-chat)
   _busScope.on('ui:close-chat-drawer', () => {
-    if (_isChatDrawerOpen) toggleChatDrawer();
+    if (isChatDrawerOpen()) toggleChatDrawer();
   });
 
   // System messages from loader (avoids circular import with toast.ts)

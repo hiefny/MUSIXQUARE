@@ -4777,6 +4777,15 @@
     z-index: 1;
   }
 
+  /* A full-height mobile chat sits above the app header so its drag handle
+     remains reachable. Full-screen setup/media overlays must still win the
+     stacking order if one opens while chat is visible. */
+  body:has(#setup-overlay.active) .chat-drawer,
+  body:has(#media-source-overlay.active) .chat-drawer,
+  body:has(#youtube-url-overlay.active) .chat-drawer {
+    z-index: 1000 !important;
+  }
+
   /* Hide mobile bottom navigation to prevent peeking in PWA mode */
   body:has(#setup-overlay.active) .bottom-nav,
   body:has(#media-source-overlay.active) .bottom-nav,
@@ -6153,15 +6162,18 @@
 
   /* Slide-up Chat Drawer */
   .chat-drawer {
+    --chat-snap-height: calc(var(--app-height, 100dvh) * 0.5);
+    --chat-offset-y: 0px;
     position: fixed;
     left: 0;
     right: 0;
     /* iOS PWA: keep the drawer at the physical bottom. Combining a safe-area
        offset with translateY(100%) can leave a visible strip. */
     bottom: 0;
-    /* Keep chat within the lower half of the viewport. */
-    height: 50vh;
-    max-height: calc(var(--app-height, 100dvh) * 0.5);
+    height: var(--chat-live-height, var(--chat-snap-height));
+    min-height: 0;
+    max-height: calc(var(--app-height, 100dvh) + 22px);
+    box-sizing: border-box;
     background: var(--surface-1);
     border-top-left-radius: 20px;
     border-top-right-radius: 20px;
@@ -6170,6 +6182,7 @@
     transform: translateY(100%);
     transition:
       transform 0.2s cubic-bezier(0.4, 0, 0.6, 1),
+      height 0.32s cubic-bezier(0.22, 1, 0.36, 1),
       visibility 0s 0.2s;
     z-index: 1000;
     display: flex;
@@ -6187,11 +6200,39 @@
   }
 
   .chat-drawer.open {
-    transform: translateY(0);
+    transform: translateY(var(--chat-offset-y));
     visibility: visible;
     transition:
       transform 0.6s cubic-bezier(0.25, 1, 0.5, 1),
+      height 0.32s cubic-bezier(0.22, 1, 0.36, 1),
       visibility 0s 0s;
+  }
+
+  @media (max-width: 1279px) {
+    .chat-drawer {
+      z-index: 3000;
+    }
+
+    .chat-drawer[data-chat-snap='half'] {
+      --chat-snap-height: calc(var(--app-height, 100dvh) * 0.5);
+      padding-top: 0;
+      border-top-left-radius: 20px;
+      border-top-right-radius: 20px;
+    }
+
+    .chat-drawer[data-chat-snap='full'] {
+      --chat-snap-height: var(--app-height, 100dvh);
+      padding-top: var(--safe-top);
+      border-radius: 0;
+    }
+
+    .chat-drawer.is-dragging {
+      transition: none !important;
+    }
+
+    .chat-drawer:is(.is-dragging, .is-snapping) .cscroll-track {
+      opacity: 0 !important;
+    }
   }
 
   .chat-drawer-header {
@@ -6365,6 +6406,14 @@
     gap: 12px;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: none;
+  }
+
+  /* Mobile chat grows upward from the input like a native messenger. Desktop
+     keeps the conventional panel flow and starts its first message at the top. */
+  @media (max-width: 1279px) {
+    .chat-drawer-messages > .chat-group:first-child {
+      margin-top: auto;
+    }
   }
 
   /* ── Chat Scroll Down Button ── */
@@ -8238,19 +8287,31 @@
 
     /* ── Chat drawer ── */
     .chat-drawer {
+      --chat-snap-height: var(--app-height, 100dvh);
       left: 0 !important;
       width: calc(100% - (200px + var(--safe-right))) !important;
-      height: var(--app-height, 100dvh) !important;
-      max-height: var(--app-height, 100dvh) !important;
-      min-height: var(--app-height, 100dvh) !important;
+      height: var(--chat-live-height, var(--chat-snap-height)) !important;
+      max-height: calc(var(--app-height, 100dvh) + 22px) !important;
+      min-height: 0 !important;
       border-radius: 0 !important;
       z-index: 3000 !important;
       padding-left: var(--safe-left) !important;
       bottom: 0 !important;
     }
 
+    .chat-drawer[data-chat-snap='half'] {
+      border-top-left-radius: 20px !important;
+      border-top-right-radius: 20px !important;
+      padding-top: 0 !important;
+    }
+
+    .chat-drawer[data-chat-snap='full'] {
+      border-radius: 0 !important;
+      padding-top: var(--safe-top) !important;
+    }
+
     .chat-drawer.open {
-      transform: translateY(0) !important;
+      transform: translateY(var(--chat-offset-y)) !important;
     }
 
     .chat-drawer-header {
@@ -8496,7 +8557,7 @@
       padding-top: calc(16px + var(--safe-top)) !important;
     }
 
-    html.ios-standalone .chat-drawer {
+    html.ios-standalone .chat-drawer[data-chat-snap='full'] {
       padding-top: var(--safe-top) !important;
     }
 

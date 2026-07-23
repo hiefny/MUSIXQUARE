@@ -257,7 +257,9 @@ describe('Chat Module', () => {
           <span class="chat-preview-text"></span>
         </button>
         <div id="chat-backdrop"></div>
-        <div id="chat-drawer"></div>
+        <div id="chat-drawer" data-chat-snap="half">
+          <div class="chat-drawer-header"></div>
+        </div>
         <div id="chat-messages"></div>
         <button id="btn-chat-scroll-down"></button>
         <button id="btn-chat-send"></button>
@@ -323,6 +325,346 @@ describe('Chat Module', () => {
       expect(relayout).not.toHaveBeenCalled();
 
       toggleChatDrawer();
+    });
+
+    it('moves through half, full, half, and closed one detent per drag', async () => {
+      renderChatShell();
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844);
+      document.documentElement.style.setProperty('--app-height', '844px');
+
+      const drawer = document.getElementById('chat-drawer') as HTMLElement;
+      drawer.getBoundingClientRect = vi.fn(() => {
+        const liveHeight = Number.parseFloat(drawer.style.getPropertyValue('--chat-live-height'));
+        const height =
+          Number.isFinite(liveHeight) && liveHeight > 0
+            ? liveHeight
+            : drawer.dataset.chatSnap === 'full'
+              ? 844
+              : 422;
+        return {
+          x: 0,
+          y: 844 - height,
+          width: 390,
+          height,
+          top: 844 - height,
+          right: 390,
+          bottom: 844,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      });
+
+      const { initChat, toggleChatDrawer } = await import('../chat.ts');
+      initChat();
+      toggleChatDrawer();
+
+      const header = drawer.querySelector('.chat-drawer-header') as HTMLElement;
+      const drag = (startY: number, endY: number): void => {
+        header.dispatchEvent(
+          new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientY: startY,
+          }),
+        );
+        window.dispatchEvent(
+          new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientY: endY }),
+        );
+        window.dispatchEvent(
+          new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientY: endY }),
+        );
+      };
+
+      expect(drawer.dataset.chatSnap).toBe('half');
+      drag(600, 510);
+      expect(drawer.dataset.chatSnap).toBe('full');
+      expect(drawer.classList.contains('open')).toBe(true);
+
+      drag(100, 190);
+      expect(drawer.dataset.chatSnap).toBe('half');
+      expect(drawer.classList.contains('open')).toBe(true);
+
+      drag(500, 620);
+      expect(drawer.classList.contains('open')).toBe(false);
+
+      toggleChatDrawer();
+      header.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          clientY: 500,
+        }),
+      );
+      window.dispatchEvent(
+        new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientY: 630 }),
+      );
+      window.dispatchEvent(new Event('blur'));
+      expect(drawer.dataset.chatSnap).toBe('half');
+      expect(drawer.classList.contains('open')).toBe(true);
+
+      toggleChatDrawer();
+      toggleChatDrawer();
+      drag(600, 510);
+      expect(drawer.dataset.chatSnap).toBe('full');
+      drag(100, 450);
+      expect(drawer.classList.contains('open')).toBe(false);
+
+      document.documentElement.style.removeProperty('--app-height');
+    });
+
+    it('keeps the latest message visible across detent changes without moving older reads', async () => {
+      renderChatShell();
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844);
+      const anchorFrames: FrameRequestCallback[] = [];
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+        anchorFrames.push(callback);
+        return anchorFrames.length;
+      });
+      vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
+      document.documentElement.style.setProperty('--app-height', '844px');
+
+      const drawer = document.getElementById('chat-drawer') as HTMLElement;
+      drawer.getBoundingClientRect = vi.fn(() => {
+        const liveHeight = Number.parseFloat(drawer.style.getPropertyValue('--chat-live-height'));
+        const height =
+          Number.isFinite(liveHeight) && liveHeight > 0
+            ? liveHeight
+            : drawer.dataset.chatSnap === 'full'
+              ? 844
+              : 422;
+        return {
+          x: 0,
+          y: 844 - height,
+          width: 390,
+          height,
+          top: 844 - height,
+          right: 390,
+          bottom: 844,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      });
+
+      const messages = document.getElementById('chat-messages') as HTMLElement;
+      Object.defineProperty(messages, 'scrollHeight', { configurable: true, value: 1_000 });
+      Object.defineProperty(messages, 'clientHeight', { configurable: true, value: 400 });
+
+      const { initChat, toggleChatDrawer } = await import('../chat.ts');
+      initChat();
+      toggleChatDrawer();
+
+      const header = drawer.querySelector('.chat-drawer-header') as HTMLElement;
+      const drag = (startY: number, endY: number): void => {
+        header.dispatchEvent(
+          new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientY: startY,
+          }),
+        );
+        window.dispatchEvent(
+          new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientY: endY }),
+        );
+        window.dispatchEvent(
+          new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientY: endY }),
+        );
+      };
+
+      messages.scrollTop = 600;
+      drag(600, 510);
+      expect(drawer.dataset.chatSnap).toBe('full');
+
+      messages.scrollTop = 600;
+      drag(100, 190);
+      expect(drawer.dataset.chatSnap).toBe('half');
+      expect(messages.scrollTop).toBe(messages.scrollHeight);
+
+      const staleSnapFrames = [...anchorFrames];
+      expect(staleSnapFrames.length).toBeGreaterThan(0);
+      drawer.dispatchEvent(new Event('pointerdown'));
+      messages.scrollTop = 100;
+      clearAllManagedTimers();
+      for (const callback of staleSnapFrames) callback(window.performance.now() + 500);
+      expect(messages.scrollTop).toBe(100);
+      expect(drawer.classList.contains('is-snapping')).toBe(false);
+      expect(drawer.style.getPropertyValue('--chat-live-height')).toBe('');
+
+      messages.scrollTop = 100;
+      drag(600, 510);
+      expect(drawer.dataset.chatSnap).toBe('full');
+      expect(messages.scrollTop).toBe(100);
+
+      toggleChatDrawer();
+      document.documentElement.style.removeProperty('--app-height');
+    });
+
+    it('keeps the drawer closed when an external close interrupts an active drag', async () => {
+      renderChatShell();
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844);
+      document.documentElement.style.setProperty('--app-height', '844px');
+
+      const drawer = document.getElementById('chat-drawer') as HTMLElement;
+      drawer.getBoundingClientRect = vi.fn(() => ({
+        x: 0,
+        y: 422,
+        width: 390,
+        height: 422,
+        top: 422,
+        right: 390,
+        bottom: 844,
+        left: 0,
+        toJSON: () => ({}),
+      }));
+
+      const { initChat, toggleChatDrawer } = await import('../chat.ts');
+      initChat();
+      toggleChatDrawer();
+      const header = drawer.querySelector('.chat-drawer-header') as HTMLElement;
+      header.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          clientY: 500,
+        }),
+      );
+      window.dispatchEvent(
+        new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientY: 620 }),
+      );
+
+      bus.emit('ui:close-chat-drawer');
+      window.dispatchEvent(
+        new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientY: 620 }),
+      );
+      expect(drawer.classList.contains('open')).toBe(false);
+
+      toggleChatDrawer();
+      expect(drawer.classList.contains('open')).toBe(true);
+      toggleChatDrawer();
+      document.documentElement.style.removeProperty('--app-height');
+    });
+
+    it('expands on a short portrait screen but closes full without the half detent', async () => {
+      renderChatShell();
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(370);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(558);
+      document.documentElement.style.setProperty('--app-height', '558px');
+
+      const drawer = document.getElementById('chat-drawer') as HTMLElement;
+      drawer.getBoundingClientRect = vi.fn(() => {
+        const liveHeight = Number.parseFloat(drawer.style.getPropertyValue('--chat-live-height'));
+        const height =
+          Number.isFinite(liveHeight) && liveHeight > 0
+            ? liveHeight
+            : drawer.dataset.chatSnap === 'full'
+              ? 558
+              : 279;
+        return {
+          x: 0,
+          y: 558 - height,
+          width: 370,
+          height,
+          top: 558 - height,
+          right: 370,
+          bottom: 558,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      });
+
+      const { initChat, toggleChatDrawer } = await import('../chat.ts');
+      initChat();
+      toggleChatDrawer();
+
+      const header = drawer.querySelector('.chat-drawer-header') as HTMLElement;
+      const drag = (startY: number, endY: number): void => {
+        header.dispatchEvent(
+          new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            clientY: startY,
+          }),
+        );
+        window.dispatchEvent(
+          new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientY: endY }),
+        );
+        window.dispatchEvent(
+          new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientY: endY }),
+        );
+      };
+
+      expect(drawer.dataset.chatSnap).toBe('half');
+      drag(400, 320);
+      expect(drawer.dataset.chatSnap).toBe('full');
+      expect(drawer.classList.contains('open')).toBe(true);
+
+      drag(80, 170);
+      expect(drawer.dataset.chatSnap).toBe('full');
+      expect(drawer.classList.contains('open')).toBe(true);
+
+      drag(80, 200);
+      expect(drawer.classList.contains('open')).toBe(false);
+      document.documentElement.style.removeProperty('--app-height');
+    });
+
+    it('does not mistake an Android system-bar height gap for a dragged offset', async () => {
+      renderChatShell();
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(820);
+      document.documentElement.style.setProperty('--app-height', '800px');
+
+      const drawer = document.getElementById('chat-drawer') as HTMLElement;
+      drawer.getBoundingClientRect = vi.fn(() => ({
+        x: 0,
+        y: 420,
+        width: 390,
+        height: 400,
+        top: 420,
+        right: 390,
+        bottom: 820,
+        left: 0,
+        toJSON: () => ({}),
+      }));
+
+      const { initChat, toggleChatDrawer } = await import('../chat.ts');
+      initChat();
+      toggleChatDrawer();
+
+      const header = drawer.querySelector('.chat-drawer-header') as HTMLElement;
+      header.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          clientY: 500,
+        }),
+      );
+
+      expect(drawer.style.getPropertyValue('--chat-offset-y')).toBe('0px');
+      window.dispatchEvent(new Event('blur'));
+      toggleChatDrawer();
+      document.documentElement.style.removeProperty('--app-height');
+    });
+
+    it('does not stack drawer button or backdrop handlers when chat is reinitialized', async () => {
+      renderChatShell();
+      const { initChat } = await import('../chat.ts');
+      initChat();
+      initChat();
+
+      document.getElementById('chat-preview-btn')?.click();
+      const drawer = document.getElementById('chat-drawer')!;
+      expect(drawer.classList.contains('open')).toBe(true);
+
+      document.getElementById('chat-backdrop')?.click();
+      expect(drawer.classList.contains('open')).toBe(false);
     });
 
     it('marks the compact preview from the sender and message scripts', async () => {

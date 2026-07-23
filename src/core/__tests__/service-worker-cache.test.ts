@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const ACTIVE_CACHE_VERSION = 'v267';
+const ACTIVE_CACHE_VERSION = 'v268';
 const RETIRED_CACHE_VERSION = 'v194';
 
 type FetchListener = (event: {
@@ -30,6 +30,7 @@ describe('service worker cache policy', () => {
   let cacheDelete: ReturnType<typeof vi.fn>;
   let fetchMock: ReturnType<typeof vi.fn>;
   let clientsClaim: ReturnType<typeof vi.fn>;
+  let skipWaiting: ReturnType<typeof vi.fn>;
   let windowClients: Array<{ id: string; postMessage: ReturnType<typeof vi.fn> }>;
 
   beforeEach(async () => {
@@ -44,6 +45,7 @@ describe('service worker cache policy', () => {
     cacheDelete = vi.fn(async () => true);
     fetchMock = vi.fn();
     clientsClaim = vi.fn(async () => undefined);
+    skipWaiting = vi.fn(async () => undefined);
     windowClients = [];
 
     const self = {
@@ -54,7 +56,7 @@ describe('service worker cache policy', () => {
       addEventListener: (type: string, listener: (event: never) => void) => {
         listeners.set(type, listener);
       },
-      skipWaiting: vi.fn(),
+      skipWaiting,
       clients: {
         claim: clientsClaim,
         matchAll: vi.fn(async () => windowClients),
@@ -141,6 +143,26 @@ describe('service worker cache policy', () => {
 
     expect(response.status).toBe(503);
     expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it('keeps an approved skipWaiting activation alive through the message event', async () => {
+    let finishActivation: (() => void) | undefined;
+    const activation = new Promise<void>((resolve) => {
+      finishActivation = resolve;
+    });
+    skipWaiting.mockReturnValueOnce(activation);
+    const work: Array<Promise<unknown>> = [];
+
+    messageListener({
+      data: { type: 'SKIP_WAITING' },
+      waitUntil: (promise) => work.push(promise),
+    });
+
+    expect(skipWaiting).toHaveBeenCalledOnce();
+    expect(work).toEqual([activation]);
+
+    finishActivation?.();
+    await Promise.all(work);
   });
 
   it('caches a successful navigation in the runtime cache', async () => {

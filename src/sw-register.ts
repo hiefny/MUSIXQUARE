@@ -14,6 +14,7 @@ import { setManagedTimer } from './core/timers.ts';
 import { scheduleSessionReset } from './core/session-reset.ts';
 
 const SW_UPDATE_KEY = 'sw-updated-at';
+const SW_CONTROLLER_CONFIRMED_KEY = 'sw-controller-confirmed-at';
 // Avoid a second update prompt when controller activation and reload overlap.
 const SW_COOLDOWN_MS = 30_000;
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
@@ -25,8 +26,33 @@ let _swReloading = false;
 function reloadForServiceWorkerUpdate(): void {
   if (_swReloading) return;
   _swReloading = true;
-  sessionStorage.setItem(SW_UPDATE_KEY, String(Date.now()));
+  const confirmedAt = Date.now();
+  sessionStorage.setItem(SW_UPDATE_KEY, String(confirmedAt));
+  // Every caller reaches this seam only after controllerchange (or after
+  // proving that navigator.serviceWorker.controller already changed). A new
+  // document can therefore distinguish this aligned reload from the legacy
+  // v267 flow, which reloaded before activation completed.
+  sessionStorage.setItem(SW_CONTROLLER_CONFIRMED_KEY, String(confirmedAt));
   scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
+}
+
+function isReloadNavigation(): boolean {
+  try {
+    const navigation = performance.getEntriesByType('navigation')[0] as
+      | PerformanceNavigationTiming
+      | undefined;
+    return navigation?.type === 'reload';
+  } catch {
+    return false;
+  }
+}
+
+function isUnconfirmedRecentUpdateReload(): boolean {
+  if (!isReloadNavigation()) return false;
+  const updatedAt = Number(sessionStorage.getItem(SW_UPDATE_KEY) || '0');
+  const controllerConfirmedAt = Number(sessionStorage.getItem(SW_CONTROLLER_CONFIRMED_KEY) || '0');
+  const age = Date.now() - updatedAt;
+  return updatedAt > 0 && age >= 0 && age < SW_COOLDOWN_MS && controllerConfirmedAt < updatedAt;
 }
 
 export function registerServiceWorker(): void {
@@ -48,9 +74,51 @@ export function registerServiceWorker(): void {
     // import old Vite-hashed chunks and cannot approve old-cache retirement.
     let pageController = navigator.serviceWorker.controller;
     let cacheSafeForCurrentController = true;
+    let updateFoundInThisDocument = false;
+    let controllerChangedWhilePrompting = false;
+    let activationState:
+      | 'passive'
+      | 'prompting'
+      | 'awaiting-local-controller'
+      | 'reload-scheduled' = 'passive';
 
     const probeCacheStatus = () => {
       navigator.serviceWorker.controller?.postMessage({ type: CACHE_STATUS_PROBE });
+    };
+
+    const scheduleControllerAlignedReload = () => {
+      if (activationState === 'reload-scheduled' || _swReloading) return;
+      activationState = 'reload-scheduled';
+      reloadForServiceWorkerUpdate();
+    };
+
+    const handlePassiveControllerChange = () => {
+      if (_swReloading || activationState === 'reload-scheduled') return;
+
+      // Transitional recovery for the version that introduced this fix:
+      // v267 could reload before skipWaiting/clients.claim completed. The new
+      // document then receives the SAME activation as a late controllerchange.
+      // Require a real reload navigation and the absence of a controller-
+      // confirmed marker, so normal future updates and cloned sessionStorage
+      // in newly opened tabs keep the cross-tab notification behavior.
+      if (!updateFoundInThisDocument && isUnconfirmedRecentUpdateReload()) {
+        log.info('[SW] Completing a pre-activation update reload without a duplicate notice');
+        scheduleControllerAlignedReload();
+        return;
+      }
+
+      // controllerchange fires in EVERY controlled same-origin tab when any
+      // one of them accepts the update (skipWaiting activation migrates all
+      // clients). Do not auto-reload another tab that is hosting or joined
+      // to a live room; markIntentionalNav would also suppress its leave
+      // prompt.
+      if (getState('network.appRole') !== 'idle') {
+        log.info('[SW] Update activated elsewhere — deferring reload (session active)');
+        showToast(t('dialog.sw_update_msg'));
+        return;
+      }
+
+      scheduleControllerAlignedReload();
     };
 
     navigator.serviceWorker.addEventListener('message', (event) => {
@@ -90,31 +158,29 @@ export function registerServiceWorker(): void {
           return;
         }
 
-        // controllerchange fires in EVERY controlled same-origin tab when any
-        // one of them accepts the update (skipWaiting activation migrates all
-        // clients). Do not auto-reload another tab that is hosting or joined
-        // to a live room; markIntentionalNav would also suppress its leave
-        // prompt.
-        // Defer for in-session tabs; the update applies on their next natural
-        // load. The page/worker cache-status handshake marks this controller
-        // switch as unsafe, so prior-version caches (including old Vite-hashed
-        // lazy chunks) remain until every live tab has naturally reloaded.
-        // NOTE: this gate must stay OUT of reloadForServiceWorkerUpdate() —
-        // the dialog-OK path below is explicit same-tab consent and must keep
-        // reloading even mid-session.
-        if (getState('network.appRole') !== 'idle') {
-          cacheSafeForCurrentController = false;
-          probeCacheStatus();
-          log.info('[SW] Update activated elsewhere — deferring reload (session active)');
-          showToast(t('dialog.sw_update_msg'));
+        cacheSafeForCurrentController = false;
+        probeCacheStatus();
+
+        if (_swReloading || activationState === 'reload-scheduled') return;
+
+        // An update may be activated by another tab while this tab's dialog is
+        // still open. Defer the decision until the user chooses Refresh/Later
+        // so a local Refresh remains authoritative and never produces a toast.
+        if (activationState === 'prompting') {
+          controllerChangedWhilePrompting = true;
           return;
         }
 
-        cacheSafeForCurrentController = false;
-        reloadForServiceWorkerUpdate();
+        if (activationState === 'awaiting-local-controller') {
+          scheduleControllerAlignedReload();
+          return;
+        }
+
+        handlePassiveControllerChange();
       });
 
       reg.addEventListener('updatefound', () => {
+        updateFoundInThisDocument = true;
         const newWorker = reg.installing;
         if (!newWorker) return;
 
@@ -127,27 +193,58 @@ export function registerServiceWorker(): void {
             // During cooldown: silently activate, no dialog
             if (inCooldown) {
               log.debug('[SW] Update found during cooldown — silently activating');
-              if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+              (reg.waiting || newWorker).postMessage({ type: 'SKIP_WAITING' });
               return;
             }
 
+            activationState = 'prompting';
+            controllerChangedWhilePrompting = false;
+            let result: Awaited<ReturnType<typeof showDialog>> | undefined;
             try {
-              const result = await showDialog({
+              result = await showDialog({
                 title: t('dialog.sw_update_title'),
                 message: t('dialog.sw_update_msg'),
                 buttonText: t('common.refresh'),
                 secondaryText: t('common.later'),
               });
-
-              // Activate + reload only if user clicked Refresh.
-              if (result && result.action === 'ok') {
-                if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-                reloadForServiceWorkerUpdate();
-              }
             } catch {
-              // Dialog dismissed or failed — do NOT activate the waiting worker.
-              // The update will be applied on next natural page load.
-              log.debug('[SW] Update dialog dismissed — skipping activation');
+              result = undefined;
+            }
+
+            // Activate only if the user clicked Refresh. The reload itself is
+            // owned by controllerchange, which is the proof that skipWaiting
+            // and clients.claim finished. Reloading immediately after
+            // postMessage recreated the same update as a false follow-up toast.
+            if (result?.action === 'ok') {
+              // controllerchange cannot schedule a reload while the state is
+              // prompting; it only records controllerChangedWhilePrompting.
+              // _swReloading still covers an already-started external reset.
+              if (_swReloading) return;
+              activationState = 'awaiting-local-controller';
+              const requestedAt = Date.now();
+              sessionStorage.setItem(SW_UPDATE_KEY, String(requestedAt));
+              sessionStorage.removeItem(SW_CONTROLLER_CONFIRMED_KEY);
+
+              if (
+                controllerChangedWhilePrompting ||
+                navigator.serviceWorker.controller !== pageController
+              ) {
+                scheduleControllerAlignedReload();
+                return;
+              }
+
+              (reg.waiting || newWorker).postMessage({ type: 'SKIP_WAITING' });
+              return;
+            }
+
+            // Dialog dismissed or failed — do not activate this waiting worker.
+            // If another tab already activated it while the dialog was open,
+            // apply the normal cross-tab policy now.
+            activationState = 'passive';
+            log.debug('[SW] Update dialog dismissed — skipping local activation');
+            if (controllerChangedWhilePrompting) {
+              controllerChangedWhilePrompting = false;
+              handlePassiveControllerChange();
             }
           }
         });

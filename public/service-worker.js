@@ -8,7 +8,7 @@
 
 // Bump this whenever a stable-path app-shell asset changes so existing clients
 // migrate to a fresh cache.
-const CACHE_VERSION = 'v267';
+const CACHE_VERSION = 'v268';
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
@@ -84,7 +84,8 @@ self.addEventListener('install', (event) => {
 // The page may opt into immediate activation after presenting its update UI.
 self.addEventListener('message', (event) => {
   if (event && event.data && event.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
+    const activation = self.skipWaiting();
+    if (typeof event.waitUntil === 'function') event.waitUntil(activation);
     return;
   }
 

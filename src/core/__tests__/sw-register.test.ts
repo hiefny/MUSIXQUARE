@@ -36,7 +36,10 @@ interface SwHarness {
   reload: ReturnType<typeof vi.fn>;
 }
 
-function installServiceWorkerHarness(initialController: FakeWorker | null): SwHarness {
+function installServiceWorkerHarness(
+  initialController: FakeWorker | null,
+  navigationType: NavigationTimingType = 'navigate',
+): SwHarness {
   const listeners = new Map<string, Array<(event: any) => void>>();
   const registrationListeners = new Map<string, Array<() => void>>();
   let controller = initialController;
@@ -71,6 +74,11 @@ function installServiceWorkerHarness(initialController: FakeWorker | null): SwHa
   Object.defineProperty(navigator, 'serviceWorker', {
     configurable: true,
     value: container,
+  });
+  vi.stubGlobal('performance', {
+    getEntriesByType: vi.fn((type: string) =>
+      type === 'navigation' ? [{ type: navigationType }] : [],
+    ),
   });
   vi.stubGlobal('window', {
     isSecureContext: true,
@@ -209,9 +217,27 @@ describe('service-worker cache-retirement client handshake', () => {
     expect(harness.reload).toHaveBeenCalledOnce();
   });
 
-  it('activates an approved update and routes its reload through the reset coordinator', async () => {
-    const controller: FakeWorker = { postMessage: vi.fn() };
-    const harness = installServiceWorkerHarness(controller);
+  it('keeps another tab update non-disruptive while this tab has an active session', async () => {
+    const oldController: FakeWorker = { postMessage: vi.fn() };
+    const newController: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(oldController);
+    moduleMocks.getState.mockReturnValue('host');
+    await registerWithHarness(harness);
+
+    harness.setController(newController);
+    harness.emit('controllerchange');
+
+    expect(moduleMocks.showToast).toHaveBeenCalledOnce();
+    expect(moduleMocks.showToast).toHaveBeenCalledWith('dialog.sw_update_msg');
+    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+    expect(harness.reload).not.toHaveBeenCalled();
+  });
+
+  it('waits for controllerchange before reloading an approved active-session update', async () => {
+    const oldController: FakeWorker = { postMessage: vi.fn() };
+    const newController: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(oldController);
+    moduleMocks.getState.mockReturnValue('host');
     moduleMocks.showDialog.mockResolvedValue({ action: 'ok' });
     await registerWithHarness(harness);
 
@@ -219,7 +245,17 @@ describe('service-worker cache-retirement client handshake', () => {
     update.emitInstalled();
 
     await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
-    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(update.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
+    );
+    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+    expect(moduleMocks.showToast).not.toHaveBeenCalled();
+
+    harness.setController(newController);
+    harness.emit('controllerchange');
+
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+    expect(moduleMocks.showToast).not.toHaveBeenCalled();
     expect(update.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
     expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledWith(
       'dialog.refreshing_session',
@@ -229,5 +265,73 @@ describe('service-worker cache-retirement client handshake', () => {
     expect(resetAction).toBeTypeOf('function');
     resetAction?.();
     expect(harness.reload).toHaveBeenCalledOnce();
+
+    // A duplicate/late lifecycle signal cannot turn the same accepted update
+    // into a second update toast or reload.
+    harness.emit('controllerchange');
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+    expect(moduleMocks.showToast).not.toHaveBeenCalled();
+    expect(harness.reload).toHaveBeenCalledOnce();
+  });
+
+  it('honors Refresh when another tab activates the worker while the dialog is open', async () => {
+    const oldController: FakeWorker = { postMessage: vi.fn() };
+    const newController: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(oldController);
+    moduleMocks.getState.mockReturnValue('host');
+    let resolveDialog!: (value: { action: 'ok' }) => void;
+    moduleMocks.showDialog.mockReturnValue(
+      new Promise((resolve) => {
+        resolveDialog = resolve;
+      }),
+    );
+    await registerWithHarness(harness);
+
+    const update = harness.installUpdate();
+    update.emitInstalled();
+    await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+
+    harness.setController(newController);
+    harness.emit('controllerchange');
+    expect(moduleMocks.showToast).not.toHaveBeenCalled();
+    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+
+    resolveDialog({ action: 'ok' });
+    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
+    expect(moduleMocks.showToast).not.toHaveBeenCalled();
+    expect(update.waitingWorker.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('finishes a legacy pre-activation reload without showing a duplicate update toast', async () => {
+    const oldController: FakeWorker = { postMessage: vi.fn() };
+    const newController: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(oldController, 'reload');
+    moduleMocks.getState.mockReturnValue('host');
+    sessionStorage.setItem('sw-updated-at', String(Date.now()));
+    await registerWithHarness(harness);
+
+    harness.setController(newController);
+    harness.emit('controllerchange');
+
+    expect(moduleMocks.showToast).not.toHaveBeenCalled();
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+    expect(Number(sessionStorage.getItem('sw-controller-confirmed-at'))).toBeGreaterThan(0);
+  });
+
+  it('does not treat a controller-confirmed reload as a legacy activation handoff', async () => {
+    const oldController: FakeWorker = { postMessage: vi.fn() };
+    const newController: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(oldController, 'reload');
+    moduleMocks.getState.mockReturnValue('host');
+    const confirmedAt = Date.now();
+    sessionStorage.setItem('sw-updated-at', String(confirmedAt));
+    sessionStorage.setItem('sw-controller-confirmed-at', String(confirmedAt));
+    await registerWithHarness(harness);
+
+    harness.setController(newController);
+    harness.emit('controllerchange');
+
+    expect(moduleMocks.showToast).toHaveBeenCalledWith('dialog.sw_update_msg');
+    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
   });
 });

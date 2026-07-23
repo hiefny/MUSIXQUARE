@@ -592,14 +592,31 @@ export async function playTrack(
     return;
   }
 
+  const itemSubMap = getState('youtube.subItemsMap') || {};
+  const itemSubIds =
+    item.type === 'youtube' && item.playlistId ? itemSubMap[item.playlistId]?.ids : undefined;
+  const storedVideoSubIndex =
+    item.type === 'youtube' && item.videoId && itemSubIds ? itemSubIds.indexOf(item.videoId) : -1;
+  const rawRequestedSubIndex =
+    item.type === 'youtube'
+      ? (subIndex ?? (storedVideoSubIndex >= 0 ? storedVideoSubIndex : 0))
+      : null;
+  const requestedTrackSubIndex =
+    rawRequestedSubIndex !== null &&
+    Number.isInteger(rawRequestedSubIndex) &&
+    rawRequestedSubIndex >= 0 &&
+    (!itemSubIds?.length || itemSubIds[rawRequestedSubIndex])
+      ? rawRequestedSubIndex
+      : item.type === 'youtube'
+        ? 0
+        : null;
+
   const appliesServerAuthority =
     isProPlaybackAuthorityToken(options.proAuthority) || options.proRestore !== undefined;
   if (!appliesServerAuthority) {
-    const subMap = getState('youtube.subItemsMap') || {};
-    const requestedSubIndex = item.type === 'youtube' ? (subIndex ?? 0) : null;
     const requestedVideoId =
       item.type === 'youtube'
-        ? ((item.playlistId ? subMap[item.playlistId]?.ids?.[requestedSubIndex ?? 0] : null) ??
+        ? ((item.playlistId ? itemSubIds?.[requestedTrackSubIndex ?? 0] : null) ??
           item.videoId ??
           null)
         : null;
@@ -608,7 +625,7 @@ export async function playTrack(
         kind: 'select',
         queueItemId,
         positionSeconds: 0,
-        youtubeSubIndex: requestedSubIndex,
+        youtubeSubIndex: requestedTrackSubIndex,
         youtubeVideoId: requestedVideoId,
       })
     ) {
@@ -659,10 +676,9 @@ export async function playTrack(
     item.type === 'youtube' &&
     isYouTubeOwner()
   ) {
-    const requestedSubIndex = subIndex ?? 0;
     const subMap = getState('youtube.subItemsMap') || {};
     const requestedVideoId =
-      (item.playlistId ? subMap[item.playlistId]?.ids?.[requestedSubIndex] : null) ||
+      (item.playlistId ? subMap[item.playlistId]?.ids?.[requestedTrackSubIndex ?? 0] : null) ||
       item.videoId ||
       null;
     const currentSubIndex = getState('youtube.currentSubIndex') ?? 0;
@@ -673,7 +689,8 @@ export async function playTrack(
     } catch {
       residentVideoId = '';
     }
-    const samePlaylistPosition = !item.playlistId || currentSubIndex === requestedSubIndex;
+    const samePlaylistPosition =
+      !item.playlistId || currentSubIndex === (requestedTrackSubIndex ?? 0);
 
     if (requestedVideoId && residentVideoId === requestedVideoId && samePlaylistPosition) {
       cancelYtAutoSync();
@@ -682,7 +699,7 @@ export async function playTrack(
         zeroStart: true,
         targetTime: 0,
         videoId: requestedVideoId,
-        subIndex: requestedSubIndex,
+        subIndex: requestedTrackSubIndex ?? 0,
         skipSeek: false,
       });
       return;
@@ -1024,8 +1041,21 @@ export async function playTrack(
       // not an instruction to start YouTube's native playlist engine. Prefer
       // the host's sub-item snapshot when available.
       const subMap = getState('youtube.subItemsMap') || {};
-      const hostIds = subMap[item.playlistId as string]?.ids;
-      const broadcastVideoId = (hostIds && hostIds[subIndex ?? 0]) || (item.videoId ?? null);
+      const hostEntry = subMap[item.playlistId as string];
+      const hostIds = hostEntry?.ids;
+      const resolvedSubIndex = requestedTrackSubIndex ?? 0;
+      const broadcastVideoId = (hostIds && hostIds[resolvedSubIndex]) || (item.videoId ?? null);
+      const hasIndexedManifest = Boolean(
+        item.playlistId && hostIds && (hostEntry?.manifestComplete === true || hostIds.length > 1),
+      );
+      // A populated manifest already gives us the exact sub-video. Keep the
+      // playlistId on queue/meta/network state for navigation, but do not pass
+      // it to the iframe: doing so wakes YouTube's native playlist resolver
+      // and can outlive the initiating iOS gesture before the first video is
+      // ready. The youtube:load listener repeats this normalization for other
+      // internal callers that still carry both IDs.
+      const iframeVideoId = hasIndexedManifest ? broadcastVideoId : (item.videoId ?? null);
+      const iframePlaylistId = hasIndexedManifest ? null : (item.playlistId ?? null);
 
       if (options.proAuthorityPreparation) {
         const preparedSubIndex = options.proAuthorityPreparation.youtubeSubIndex ?? subIndex ?? 0;
@@ -1079,7 +1109,7 @@ export async function playTrack(
         name: item.name || item.title,
         queueItemId,
         autoplay: shouldAutoplay,
-        subIndex: subIndex ?? 0,
+        subIndex: resolvedSubIndex,
       });
 
       // Also send YOUTUBE_PLAYLIST_INFO so guests have the sub-items map
@@ -1101,22 +1131,22 @@ export async function playTrack(
         setState('player.isFirstTrackLoad', false);
         bus.emit(
           'youtube:load',
-          item.videoId ?? null,
-          item.playlistId ?? null,
+          iframeVideoId,
+          iframePlaylistId,
           queueItemId,
           shouldAutoplay,
-          subIndex ?? 0,
+          resolvedSubIndex,
         );
         showToast(t('youtube.ready'));
       } else {
         if (isFirstTrackLoad) setState('player.isFirstTrackLoad', false);
         bus.emit(
           'youtube:load',
-          item.videoId ?? null,
-          item.playlistId ?? null,
+          iframeVideoId,
+          iframePlaylistId,
           queueItemId,
           shouldAutoplay,
-          subIndex ?? 0,
+          resolvedSubIndex,
         );
         // Arm after youtube:load: fresh non-YT -> YT loads synchronously
         // stop existing media, which clears stale pending sync first.
@@ -1124,7 +1154,7 @@ export async function playTrack(
           isTrackTransition: isAlreadyYt,
           zeroStart: true,
           targetTime: 0,
-          subIndex: subIndex ?? 0,
+          subIndex: resolvedSubIndex,
           videoId: broadcastVideoId ?? undefined,
           // Distinct videos are freshly cued at 0, but two queue occurrences
           // may intentionally reuse one resident iframe without cueing it.

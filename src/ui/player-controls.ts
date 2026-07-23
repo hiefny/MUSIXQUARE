@@ -31,6 +31,8 @@ import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { getCurrentQueueItemId, getCurrentQueueItemIndex } from '../player/queue-model.ts';
 import { AUDIO_FILE_ACCEPT } from '../media/audio-file.ts';
 import { clearPreviewDebounce, clearYouTubeInputState } from '../youtube/search.ts';
+import { primeYouTubePlayer, waitForPendingYouTubePrimeBounce } from '../youtube/iframe.ts';
+import { YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS } from '../youtube/constants.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
@@ -507,6 +509,11 @@ function openYouTubePopup(): void {
     showToast(t('toast.host_only_youtube'));
     return;
   }
+  invalidateYouTubeGestureSubmit();
+  // This click is a second explicit iOS gesture after room setup. If the
+  // eager primer was not ready for the setup tap (or its first bounce timed
+  // out), retry it here before the user spends time entering a URL.
+  primeYouTubePlayer();
   animateTransition(() => {
     const overlay = document.getElementById('youtube-url-overlay');
     if (overlay) {
@@ -519,7 +526,77 @@ function openYouTubePopup(): void {
   });
 }
 
+let youtubeGestureSubmitGeneration = 0;
+let youtubeGestureSubmitOwner: number | null = null;
+
+function invalidateYouTubeGestureSubmit(): void {
+  youtubeGestureSubmitGeneration++;
+  youtubeGestureSubmitOwner = null;
+  document.getElementById('youtube-play-btn')?.removeAttribute('aria-busy');
+}
+
+function submitYouTubeFromGesture(input: HTMLElement): void {
+  if (youtubeGestureSubmitOwner !== null) return;
+
+  // Non-iOS and already-primed clients stay in this synchronous branch, so a
+  // concrete video load still runs in the original click/Enter call stack.
+  // retryPending makes this FINAL gesture call playVideo() again instead of
+  // merely waiting for an older popup-open attempt that may still time out.
+  const mustWaitForPrimeProof = primeYouTubePlayer({ retryPending: true });
+  if (!mustWaitForPrimeProof) {
+    bus.emit('youtube:load-from-input');
+    if (IS_IOS || IS_ANDROID) input.blur();
+    return;
+  }
+
+  // If popup-open priming was still pending, or its timeout re-armed a retry,
+  // spend this final gesture on the silent bounce first. Once PLAYING proves
+  // WebKit accepted it, the resident iframe remains unlocked for the concrete
+  // async load. A bounded failure simply falls through to the visible tap
+  // fallback rather than trapping the submit action.
+  const submitGeneration = ++youtubeGestureSubmitGeneration;
+  youtubeGestureSubmitOwner = submitGeneration;
+  const submittedText = input.textContent || '';
+  const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
+  if (playButton) {
+    playButton.disabled = true;
+    playButton.setAttribute('aria-busy', 'true');
+  }
+
+  void waitForPendingYouTubePrimeBounce(YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS)
+    .catch((error) => log.debug('[YouTube Prime] submit wait failed:', error))
+    .then(() => {
+      if (
+        youtubeGestureSubmitGeneration !== submitGeneration ||
+        youtubeGestureSubmitOwner !== submitGeneration
+      ) {
+        return;
+      }
+      const overlay = document.getElementById('youtube-url-overlay');
+      if (overlay && !overlay.classList.contains('active')) return;
+      if ((input.textContent || '') !== submittedText) return;
+      bus.emit('youtube:load-from-input');
+      if (IS_IOS || IS_ANDROID) input.blur();
+    })
+    .finally(() => {
+      if (
+        youtubeGestureSubmitGeneration !== submitGeneration ||
+        youtubeGestureSubmitOwner !== submitGeneration
+      ) {
+        return;
+      }
+      youtubeGestureSubmitOwner = null;
+      if (playButton?.isConnected) {
+        playButton.removeAttribute('aria-busy');
+        // A changed input owns its newer preview gate; only restore the exact
+        // submission whose text is still present.
+        if ((input.textContent || '') === submittedText) playButton.disabled = false;
+      }
+    });
+}
+
 function closeYouTubePopup(): void {
+  invalidateYouTubeGestureSubmit();
   clearPreviewDebounce();
   clearYouTubeInputState();
   const ytInput = document.getElementById('youtube-url-input');
@@ -1051,6 +1128,7 @@ export function initPlayerControls(): void {
   const ytInput = document.getElementById('youtube-url-input');
   if (ytInput) {
     ytInput.addEventListener('input', (e) => {
+      invalidateYouTubeGestureSubmit();
       // Stray-<br> placeholder restore — shared helper, see dom.ts.
       normalizeEmptyContentEditable(ytInput, e);
       const inputText = ytInput.textContent || '';
@@ -1061,8 +1139,13 @@ export function initPlayerControls(): void {
       if (e.key === 'Enter') {
         if (e.isComposing || e.keyCode === 229) return;
         e.preventDefault();
-        bus.emit('youtube:load-from-input');
-        if (IS_IOS || IS_ANDROID) ytInput.blur();
+        // URL preview deliberately keeps this button disabled while a
+        // playlist manifest is being prefetched. A fast Enter press must
+        // honor the same gate as a physical button click, otherwise iOS falls
+        // back to the asynchronous iframe indexer and loses this gesture.
+        const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
+        if (playButton?.disabled) return;
+        submitYouTubeFromGesture(ytInput);
       }
     });
     ytInput.addEventListener('paste', (e) => {
@@ -1077,7 +1160,9 @@ export function initPlayerControls(): void {
     });
   }
   $on('btn-yt-cancel', 'click', () => closeYouTubePopup());
-  $on('youtube-play-btn', 'click', () => bus.emit('youtube:load-from-input'));
+  if (ytInput) {
+    $on('youtube-play-btn', 'click', () => submitYouTubeFromGesture(ytInput));
+  }
 
   // Seek bar
   initSeekBar();

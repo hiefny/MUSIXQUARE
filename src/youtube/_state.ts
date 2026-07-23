@@ -339,7 +339,15 @@ export function resetYouTubeModuleState(): void {
 
 // ─── SubItemsMap Centralized Updaters ─────────────────────────────
 
-type SubItemsMap = Record<string, { ids: string[]; titles: string[]; loadError?: boolean }>;
+type SubItemsMap = Record<
+  string,
+  {
+    ids: string[];
+    titles: string[];
+    loadError?: boolean;
+    manifestComplete?: boolean;
+  }
+>;
 const MAX_SUB_ITEMS_ENTRIES = 50;
 
 function _getSubMap(): SubItemsMap {
@@ -379,20 +387,27 @@ function _pruneSubMap(subMap: SubItemsMap): SubItemsMap {
   return pruned;
 }
 
-/** Set playlist IDs for a YouTube playlist (preserves existing titles). */
-export function updateSubItemIds(playlistId: string, ids: string[]): void {
+/** Set playlist IDs for a YouTube playlist (preserves existing titles/manifest proof). */
+export function updateSubItemIds(
+  playlistId: string,
+  ids: string[],
+  options: { manifestComplete?: boolean } = {},
+): void {
   const subMap = _getSubMap();
   const nextIds = [...ids];
-  setState(
-    'youtube.subItemsMap',
-    _pruneSubMap(
-      _touchSubMapEntry(subMap, playlistId, {
-        ids: nextIds,
-        titles: (subMap[playlistId]?.titles || []).slice(0, nextIds.length),
-        loadError: subMap[playlistId]?.loadError,
-      }),
-    ),
-  );
+  const existingIds = subMap[playlistId]?.ids || [];
+  const preservesExistingProof =
+    subMap[playlistId]?.manifestComplete === true &&
+    existingIds.length === nextIds.length &&
+    existingIds.every((id, index) => id === nextIds[index]);
+  const manifestComplete = options.manifestComplete === true || preservesExistingProof;
+  const nextEntry: SubItemsMap[string] = {
+    ids: nextIds,
+    titles: (subMap[playlistId]?.titles || []).slice(0, nextIds.length),
+    loadError: subMap[playlistId]?.loadError,
+  };
+  if (manifestComplete) nextEntry.manifestComplete = true;
+  setState('youtube.subItemsMap', _pruneSubMap(_touchSubMapEntry(subMap, playlistId, nextEntry)));
 }
 
 /** Update a single sub-item title by index (shallow copy — avoids deep triple spread). */
@@ -419,6 +434,11 @@ export function updateSubItemTitle(playlistId: string, subIdx: number, title: st
 export function setSubItemsData(playlistId: string, ids: string[], titles: string[]): void {
   const subMap = _getSubMap();
   const nextIds = ids || [];
+  const existingIds = subMap[playlistId]?.ids || [];
+  const preservesExistingProof =
+    subMap[playlistId]?.manifestComplete === true &&
+    existingIds.length === nextIds.length &&
+    existingIds.every((id, index) => id === nextIds[index]);
   setState(
     'youtube.subItemsMap',
     _pruneSubMap(
@@ -426,6 +446,7 @@ export function setSubItemsData(playlistId: string, ids: string[], titles: strin
         ids: nextIds,
         titles: (titles || []).slice(0, nextIds.length),
         loadError: subMap[playlistId]?.loadError,
+        ...(preservesExistingProof ? { manifestComplete: true } : {}),
       }),
     ),
   );
@@ -434,9 +455,9 @@ export function setSubItemsData(playlistId: string, ids: string[], titles: strin
 export function setSubItemsLoadError(playlistId: string, loadError: boolean): void {
   const subMap = _getSubMap();
   const entry = subMap[playlistId] || { ids: [], titles: [] };
-  const nextEntry = loadError
-    ? { ...entry, loadError: true }
-    : { ids: entry.ids || [], titles: entry.titles || [] };
+  const nextEntry: SubItemsMap[string] = { ...entry };
+  if (loadError) nextEntry.loadError = true;
+  else delete nextEntry.loadError;
 
   setState('youtube.subItemsMap', _pruneSubMap(_touchSubMapEntry(subMap, playlistId, nextEntry)));
 }

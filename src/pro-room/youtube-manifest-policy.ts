@@ -19,10 +19,18 @@ export function hydrateProRoomYouTubeManifests(snapshot: ProRoomSnapshot): void 
       continue;
     }
     const current = getState('youtube.subItemsMap')[item.source.playlistId];
-    if (current && sameStringArray(current.ids, item.source.videoIds)) continue;
+    if (
+      current &&
+      current.manifestComplete === true &&
+      sameStringArray(current.ids, item.source.videoIds)
+    ) {
+      continue;
+    }
     // updateSubItemIds clones the IDs and retains any richer titles already
     // fetched by this endpoint instead of replacing them with empty labels.
-    updateSubItemIds(item.source.playlistId, item.source.videoIds);
+    updateSubItemIds(item.source.playlistId, item.source.videoIds, {
+      manifestComplete: true,
+    });
   }
 }
 

@@ -80,10 +80,28 @@ describe('PRO YouTube manifest runtime projection', () => {
       ids: ['NEWVIDEO001', 'NEWVIDEO002'],
       titles: ['Resolved first title', 'Resolved second title'],
       loadError: true,
+      manifestComplete: true,
     });
     if (authoritative.playlist[0]?.source.kind !== 'youtube') throw new Error('fixture');
     authoritative.playlist[0].source.videoIds![0] = 'MUTATED0001';
     expect(getState('youtube.subItemsMap').PL_MANIFEST?.ids[0]).toBe('NEWVIDEO001');
+  });
+
+  it('promotes an identical one-item placeholder to a complete server manifest', () => {
+    setState('youtube.subItemsMap', {
+      PL_MANIFEST: {
+        ids: ['NEWVIDEO001'],
+        titles: ['Only video'],
+      },
+    });
+
+    hydrateProRoomYouTubeManifests(snapshot(['NEWVIDEO001']));
+
+    expect(getState('youtube.subItemsMap').PL_MANIFEST).toMatchObject({
+      ids: ['NEWVIDEO001'],
+      titles: ['Only video'],
+      manifestComplete: true,
+    });
   });
 
   it('reserves most of the per-IP resolver budget for explicit user actions', () => {

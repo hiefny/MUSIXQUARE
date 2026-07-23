@@ -75,6 +75,7 @@ vi.mock('../search.ts', () => ({
   extractYouTubePlaylistId: vi.fn(() => null),
   isYouTubeLiveUrl: vi.fn(() => false),
   getYouTubeInputIntent: vi.fn(() => ({ kind: 'invalid-url' })),
+  getPrefetchedYouTubePlaylistManifest: vi.fn(() => null),
   getSelectedYouTubeSearchResult: vi.fn(() => null),
   searchYouTubeFromInput: vi.fn(),
   clearYouTubeInputState: vi.fn(),
@@ -266,6 +267,8 @@ describe('YouTube indexing session lifecycle', () => {
     loadYouTubeVideo('persistent1', null, true, 0);
 
     expect(player.destroy).not.toHaveBeenCalled();
+    expect(player.pauseVideo).toHaveBeenCalled();
+    expect(player.stopVideo).not.toHaveBeenCalled();
     expect(player.loadVideoById).toHaveBeenCalledWith('persistent1');
     expect(lastTimerCallback('youtubeUILoop')).toBeTypeOf('function');
     expect(lastTimerCallback('youtubeSyncLoop')).toBeTypeOf('function');
@@ -464,6 +467,91 @@ describe('YouTube indexing session lifecycle', () => {
     expect(getState('playlist.items')[0].isExpanded).toBe(true);
     // Session fully released after completion.
     expect(stateMod.isYtIndexing()).toBe(false);
+  });
+
+  it('loads a fully cached manifest as one concrete video without native playlist indexing', async () => {
+    const stateMod = await import('../_state.ts');
+    const { initYouTube } = await import('../player.ts');
+    const player = createMockYtPlayer();
+    installYtNamespace(player);
+
+    setPlaybackFilePlaying();
+    setState('playlist.items', [
+      {
+        queueItemId: YOUTUBE_QUEUE_ITEM_ID,
+        type: 'youtube',
+        videoId: 'cachedFirst',
+        playlistId: 'PL_CACHED',
+        name: 'Cached Playlist',
+      },
+    ] satisfies PlaylistItem[]);
+    setState('playlist.currentQueueItemId', YOUTUBE_QUEUE_ITEM_ID);
+    setState('youtube.subItemsMap', {
+      PL_CACHED: {
+        ids: ['cachedFirst', 'cachedSecond', 'cachedThird'],
+        titles: ['First', 'Second', 'Third'],
+      },
+    });
+
+    initYouTube();
+    wireStopAllMediaChain();
+    bus.emit('youtube:load', 'cachedFirst', 'PL_CACHED', YOUTUBE_QUEUE_ITEM_ID, false, 1);
+
+    expect(stateMod.isYtIndexing()).toBe(false);
+    expect(window.YT?.Player).toHaveBeenCalledOnce();
+    expect(window.YT?.Player).toHaveBeenCalledWith(
+      'youtube-player',
+      expect.objectContaining({
+        videoId: 'cachedSecond',
+        playerVars: expect.not.objectContaining({
+          list: 'PL_CACHED',
+          listType: 'playlist',
+        }),
+      }),
+    );
+    expect(player.cuePlaylist).not.toHaveBeenCalled();
+    expect(player.loadPlaylist).not.toHaveBeenCalled();
+    expect(getState('playlist.items')[0]).toMatchObject({
+      playlistId: 'PL_CACHED',
+      videoId: 'cachedFirst',
+    });
+  });
+
+  it('does not re-index a complete one-item server manifest', async () => {
+    const stateMod = await import('../_state.ts');
+    const { initYouTube } = await import('../player.ts');
+    const player = createMockYtPlayer();
+    installYtNamespace(player);
+
+    setPlaybackFilePlaying();
+    setState('playlist.items', [
+      {
+        queueItemId: YOUTUBE_QUEUE_ITEM_ID,
+        type: 'youtube',
+        videoId: 'singleVideo',
+        playlistId: 'PL_SINGLE',
+        name: 'Single-item playlist',
+      },
+    ] satisfies PlaylistItem[]);
+    setState('playlist.currentQueueItemId', YOUTUBE_QUEUE_ITEM_ID);
+    stateMod.updateSubItemIds('PL_SINGLE', ['singleVideo'], { manifestComplete: true });
+
+    initYouTube();
+    wireStopAllMediaChain();
+    bus.emit('youtube:load', 'singleVideo', 'PL_SINGLE', YOUTUBE_QUEUE_ITEM_ID, false, 0);
+
+    expect(stateMod.isYtIndexing()).toBe(false);
+    expect(window.YT?.Player).toHaveBeenCalledWith(
+      'youtube-player',
+      expect.objectContaining({
+        videoId: 'singleVideo',
+        playerVars: expect.not.objectContaining({
+          list: 'PL_SINGLE',
+          listType: 'playlist',
+        }),
+      }),
+    );
+    expect(player.cuePlaylist).not.toHaveBeenCalled();
   });
 
   it('index-before-add: pasted playlist with a non-empty idle queue auto-plays after indexing (isIdle contract)', async () => {

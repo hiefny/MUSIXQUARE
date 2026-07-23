@@ -105,6 +105,7 @@ vi.mock('../search.ts', () => ({
   extractYouTubePlaylistId: vi.fn(() => null),
   isYouTubeLiveUrl: vi.fn(() => false),
   getYouTubeInputIntent: vi.fn(() => ({ kind: 'invalid-url' })),
+  getPrefetchedYouTubePlaylistManifest: vi.fn(() => null),
   getSelectedYouTubeSearchResult: vi.fn(() => null),
   searchYouTubeFromInput: vi.fn(),
   clearYouTubeInputState: vi.fn(),
@@ -571,8 +572,12 @@ describe('scrape poll supersession (F-2401)', () => {
 
     // Supersede: YT→YT switch to a plain video (reuse path — no scrape armed).
     const { loadYouTubeVideo } = await import('../iframe.ts');
+    vi.mocked(player.pauseVideo!).mockClear();
+    vi.mocked(player.stopVideo!).mockClear();
     loadYouTubeVideo('vidB000000B', null, false, 0);
     expect(player.loadVideoById).toHaveBeenCalledWith('vidB000000B');
+    expect(player.pauseVideo).toHaveBeenCalledOnce();
+    expect(player.stopVideo).not.toHaveBeenCalled();
 
     // The stale chain must die at its identity guard: no player reads, no
     // _finishScrape (which would loadVideoById+playVideo the current track),
@@ -855,6 +860,159 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
 });
 
 describe('persistent prime transition supersession', () => {
+  it('keeps a precreated player retryable when the setup tap beats onReady', async () => {
+    const player = createMockYtPlayer();
+    const handle = installYtNamespace(player);
+    const { precreateYouTubePlayer, primeYouTubePlayer } = await import('../iframe.ts');
+    const stateMod = await import('../_state.ts');
+
+    precreateYouTubePlayer();
+
+    // The setup-start gesture arrived before the iframe was ready. It must not
+    // invent an asynchronous play later from onReady.
+    primeYouTubePlayer();
+    expect(player.playVideo).not.toHaveBeenCalled();
+
+    handle.fireReady();
+    expect(stateMod.isYtPrimeReady()).toBe(true);
+    expect(player.playVideo).not.toHaveBeenCalled();
+
+    // A later, direct media gesture calls the same synchronous seam again.
+    primeYouTubePlayer();
+    expect(player.playVideo).toHaveBeenCalledOnce();
+    expect(stateMod.isYtPrimeReady()).toBe(false);
+    expect(stateMod.isYtPrimeBouncePending()).toBe(true);
+  });
+
+  it('re-arms a timed-out bounce without replaying outside the next gesture', async () => {
+    const player = createMockYtPlayer();
+    const handle = installYtNamespace(player);
+    const { precreateYouTubePlayer, primeYouTubePlayer } = await import('../iframe.ts');
+    const stateMod = await import('../_state.ts');
+
+    precreateYouTubePlayer();
+    handle.fireReady();
+    primeYouTubePlayer();
+    expect(player.playVideo).toHaveBeenCalledOnce();
+
+    const timeout = lastTimerCallback('yt-prime-bounce-timeout');
+    expect(timeout).toBeDefined();
+    timeout?.();
+
+    // The timer is intentionally state-only: autoplay from this async callback
+    // would lose the iOS user-activation token.
+    expect(player.playVideo).toHaveBeenCalledOnce();
+    expect(stateMod.isYtPrimeBouncePending()).toBe(false);
+    expect(stateMod.isYtPrimeReady()).toBe(true);
+
+    primeYouTubePlayer();
+    expect(player.playVideo).toHaveBeenCalledTimes(2);
+    expect(stateMod.isYtPrimeBouncePending()).toBe(true);
+    expect(stateMod.isYtPrimeReady()).toBe(false);
+  });
+
+  it('lets the final gesture replace a pending bounce without an old timeout clearing it', async () => {
+    const player = createMockYtPlayer();
+    const handle = installYtNamespace(player);
+    const { precreateYouTubePlayer, primeYouTubePlayer } = await import('../iframe.ts');
+    const stateMod = await import('../_state.ts');
+
+    precreateYouTubePlayer();
+    handle.fireReady();
+    expect(primeYouTubePlayer()).toBe(true);
+    expect(player.playVideo).toHaveBeenCalledOnce();
+    const staleTimeout = lastTimerCallback('yt-prime-bounce-timeout');
+
+    // The media-submit tap is the final usable activation. It must spend that
+    // gesture on a fresh playVideo() call even while popup-open priming is
+    // pending, and supersede every callback owned by the earlier attempt.
+    expect(primeYouTubePlayer({ retryPending: true })).toBe(true);
+    expect(player.playVideo).toHaveBeenCalledTimes(2);
+    const activeTimeout = lastTimerCallback('yt-prime-bounce-timeout');
+    expect(activeTimeout).not.toBe(staleTimeout);
+
+    staleTimeout?.();
+    expect(stateMod.isYtPrimeBouncePending()).toBe(true);
+    expect(stateMod.isYtPrimeReady()).toBe(false);
+
+    activeTimeout?.();
+    expect(stateMod.isYtPrimeBouncePending()).toBe(false);
+    expect(stateMod.isYtPrimeReady()).toBe(true);
+    expect(player.playVideo).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-arms a synchronous bounce failure for a later direct gesture', async () => {
+    const player = createMockYtPlayer();
+    const playVideo = vi
+      .fn<() => void>()
+      .mockImplementationOnce(() => {
+        throw new Error('transient iframe rejection');
+      })
+      .mockImplementation(() => {});
+    player.playVideo = playVideo;
+    const handle = installYtNamespace(player);
+    const { precreateYouTubePlayer, primeYouTubePlayer } = await import('../iframe.ts');
+    const stateMod = await import('../_state.ts');
+
+    precreateYouTubePlayer();
+    handle.fireReady();
+    primeYouTubePlayer();
+
+    expect(playVideo).toHaveBeenCalledOnce();
+    expect(stateMod.isYtPrimeBouncePending()).toBe(false);
+    expect(stateMod.isYtPrimeReady()).toBe(true);
+
+    primeYouTubePlayer();
+    expect(playVideo).toHaveBeenCalledTimes(2);
+    expect(stateMod.isYtPrimeBouncePending()).toBe(true);
+    expect(stateMod.isYtPrimeReady()).toBe(false);
+  });
+
+  it('keeps an iframe-reported bounce error retryable and silent', async () => {
+    const player = createMockYtPlayer();
+    const handle = installYtNamespace(player);
+    const { precreateYouTubePlayer, primeYouTubePlayer } = await import('../iframe.ts');
+    const stateMod = await import('../_state.ts');
+
+    precreateYouTubePlayer();
+    handle.fireReady();
+    primeYouTubePlayer();
+    showToastMock.mockClear();
+
+    handle.fireError(5);
+
+    expect(showToastMock).not.toHaveBeenCalled();
+    expect(stateMod.isYtPrimeBouncePending()).toBe(false);
+    expect(stateMod.isYtPrimeReady()).toBe(true);
+
+    primeYouTubePlayer();
+    expect(player.playVideo).toHaveBeenCalledTimes(2);
+    expect(stateMod.isYtPrimeBouncePending()).toBe(true);
+    expect(stateMod.isYtPrimeReady()).toBe(false);
+  });
+
+  it('accepts a late PLAYING proof after the retry timeout without another play call', async () => {
+    const player = createMockYtPlayer();
+    const handle = installYtNamespace(player);
+    const { precreateYouTubePlayer, primeYouTubePlayer } = await import('../iframe.ts');
+    const stateMod = await import('../_state.ts');
+
+    precreateYouTubePlayer();
+    handle.fireReady();
+    primeYouTubePlayer();
+    lastTimerCallback('yt-prime-bounce-timeout')?.();
+
+    expect(stateMod.isYtPrimeReady()).toBe(true);
+    expect(player.playVideo).toHaveBeenCalledOnce();
+
+    handle.fireStateChange(1);
+
+    expect(player.playVideo).toHaveBeenCalledOnce();
+    expect(player.pauseVideo).toHaveBeenCalledOnce();
+    expect(stateMod.isYtPrimed()).toBe(true);
+    expect(stateMod.isYtPrimeReady()).toBe(false);
+  });
+
   it('publishes runtime readiness when the iOS gesture bounce reaches PLAYING', async () => {
     const player = createMockYtPlayer();
     const handle = installYtNamespace(player);

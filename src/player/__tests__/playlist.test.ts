@@ -245,6 +245,32 @@ describe('coordinator-free PRO playback routing', () => {
     expect(decodeMocks.loadAndBroadcastFile).not.toHaveBeenCalled();
   });
 
+  it('routes a PRO playlist row from its stored selected manifest video', async () => {
+    const item = youtubeItem('Server-owned playlist', 'secondVideo', 'playlist-pro');
+    setState('playlist.items', [item]);
+    setState('youtube.subItemsMap', {
+      'playlist-pro': {
+        ids: ['firstVideo', 'secondVideo'],
+        titles: ['First', 'Second'],
+        manifestComplete: true,
+      },
+    });
+    enterProRoom(['playback.control']);
+    const handler = vi.fn();
+    registerProPlaybackCommandHandler(handler);
+
+    await playTrack(item.queueItemId);
+
+    expect(handler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'select',
+        queueItemId: item.queueItemId,
+        youtubeSubIndex: 1,
+        youtubeVideoId: 'secondVideo',
+      }),
+    );
+  });
+
   it('reuses the exact resident YouTube video during server preparation', async () => {
     const item = youtubeItem('Resident video', 'RESIDENT_VIDEO_01');
     setState('playlist.items', [item]);
@@ -1305,7 +1331,8 @@ describe('playTrack YouTube auto-rendezvous', () => {
       },
     });
 
-    bus.on('youtube:load', () => {});
+    const load = vi.fn();
+    bus.on('youtube:load', load);
 
     await playTrack(playlistItem.queueItemId, 1);
 
@@ -1318,6 +1345,40 @@ describe('playTrack YouTube auto-rendezvous', () => {
         subIndex: 1,
       }),
     );
+    expect(load).toHaveBeenCalledWith('secondVideo', null, playlistItem.queueItemId, false, 1);
+  });
+
+  it('replays a queued playlist from its stored selected video when no sub-index is supplied', async () => {
+    const send = vi.fn();
+    const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
+    setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-1', false), conn }]);
+    setState('player.isFirstTrackLoad', false);
+    const playlistItem = {
+      ...youtubeItem('Playlist', 'secondVideo', 'playlist-selected'),
+      title: 'Playlist',
+    };
+    setState('playlist.items', [playlistItem]);
+    selectIndex(0);
+    setState('youtube.subItemsMap', {
+      'playlist-selected': {
+        ids: ['firstVideo', 'secondVideo'],
+        titles: ['First', 'Second'],
+        manifestComplete: true,
+      },
+    });
+
+    const load = vi.fn();
+    bus.on('youtube:load', load);
+    await playTrack(playlistItem.queueItemId);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.YOUTUBE_PLAY,
+        videoId: 'secondVideo',
+        subIndex: 1,
+      }),
+    );
+    expect(load).toHaveBeenCalledWith('secondVideo', null, playlistItem.queueItemId, false, 1);
   });
 
   it('drops a local-file broadcast parked in the debounce window when switching to YouTube', async () => {

@@ -5,10 +5,13 @@ import { afterEach, describe, it, expect, vi } from 'vitest';
 import { setLanguageMode } from '../../i18n/index.ts';
 import { bus } from '../../core/events.ts';
 import {
+  clearPreviewDebounce,
   clearYouTubeInputState,
   extractYouTubeVideoId,
   extractYouTubePlaylistId,
+  fetchYouTubePreview,
   fetchYouTubeSearchResults,
+  getPrefetchedYouTubePlaylistManifest,
   getSelectedYouTubeSearchResult,
   getYouTubeInputIntent,
   isYouTubeLiveUrl,
@@ -19,6 +22,8 @@ import {
 import { fetchOEmbedTitle } from '../oembed.ts';
 
 afterEach(() => {
+  clearPreviewDebounce();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -354,6 +359,244 @@ describe('YouTube playlist manifest resolution', () => {
     await expect(resolveYouTubePlaylistManifest('PL_MANIFEST_01')).rejects.toThrow(
       'Invalid YouTube playlist manifest response',
     );
+  });
+});
+
+describe('YouTube playlist manifest preview prefetch', () => {
+  function mountYouTubePreview(): HTMLButtonElement {
+    document.body.innerHTML = `
+      <div id="youtube-preview" hidden></div>
+      <div id="youtube-preview-status"></div>
+      <img id="youtube-preview-thumb">
+      <div id="youtube-preview-title"></div>
+      <div id="youtube-preview-channel"></div>
+      <div id="youtube-search-results"></div>
+      <button id="youtube-play-btn"></button>
+    `;
+    return document.getElementById('youtube-play-btn') as HTMLButtonElement;
+  }
+
+  it('prefetches and synchronously exposes a playlist manifest before enabling play', async () => {
+    vi.useFakeTimers();
+    const playButton = mountYouTubePreview();
+    const manifestRequests: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/security-config')) {
+          return Response.json({ capabilityRequired: false });
+        }
+        if (url.includes('/api/youtube-playlist-manifest')) {
+          manifestRequests.push(url);
+          return Response.json({
+            playlistId: 'PL_PREVIEW_READY',
+            videoId: 'AAAAAAAAAAA',
+            videoIds: ['AAAAAAAAAAA', 'BBBBBBBBBBB'],
+            title: 'Preview playlist',
+          });
+        }
+        if (url.includes('youtube.com/oembed')) {
+          return Response.json({
+            title: 'Preview playlist',
+            author_name: 'MUSIXQUARE',
+            thumbnail_url: 'https://i.ytimg.com/vi/AAAAAAAAAAA/mqdefault.jpg',
+          });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    fetchYouTubePreview('https://youtube.com/playlist?list=PL_PREVIEW_READY');
+    expect(playButton.disabled).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(500);
+    expect(playButton.disabled).toBe(false);
+    expect(manifestRequests).toHaveLength(1);
+
+    const prefetched = getPrefetchedYouTubePlaylistManifest('PL_PREVIEW_READY');
+    expect(prefetched).toEqual({
+      playlistId: 'PL_PREVIEW_READY',
+      videoId: 'AAAAAAAAAAA',
+      videoIds: ['AAAAAAAAAAA', 'BBBBBBBBBBB'],
+      title: 'Preview playlist',
+    });
+
+    prefetched!.videoIds[0] = 'CCCCCCCCCCC';
+    expect(getPrefetchedYouTubePlaylistManifest('PL_PREVIEW_READY')?.videoIds[0]).toBe(
+      'AAAAAAAAAAA',
+    );
+  });
+
+  it('keeps a video-attached Mix URL on the immediate single-video preview path', async () => {
+    vi.useFakeTimers();
+    const playButton = mountYouTubePreview();
+    const requests: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        requests.push(url);
+        if (url.includes('/api/security-config')) {
+          return Response.json({ capabilityRequired: false });
+        }
+        if (url.includes('youtube.com/oembed')) {
+          return Response.json({
+            title: 'Mix-attached video',
+            author_name: 'MUSIXQUARE',
+          });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    fetchYouTubePreview('https://www.youtube.com/watch?v=AAAAAAAAAAA&list=RDAAAAAAAAAAA');
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(playButton.disabled).toBe(false);
+    expect(requests.some((url) => url.includes('/api/youtube-playlist-manifest'))).toBe(false);
+  });
+
+  it('keeps play gated only for the bounded manifest budget, then permits iframe fallback', async () => {
+    vi.useFakeTimers();
+    const playButton = mountYouTubePreview();
+    let resolveManifest!: (response: Response) => void;
+    const pendingManifest = new Promise<Response>((resolve) => {
+      resolveManifest = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/security-config')) {
+          return Response.json({ capabilityRequired: false });
+        }
+        if (url.includes('/api/youtube-playlist-manifest')) return pendingManifest;
+        if (url.includes('youtube.com/oembed')) {
+          return Response.json({
+            title: 'Slow manifest playlist',
+            author_name: 'MUSIXQUARE',
+          });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    fetchYouTubePreview('https://youtube.com/playlist?list=PL_PREVIEW_SLOW');
+    await vi.advanceTimersByTimeAsync(500);
+    expect(playButton.disabled).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(7_999);
+    expect(playButton.disabled).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(playButton.disabled).toBe(false);
+    expect(getPrefetchedYouTubePlaylistManifest('PL_PREVIEW_SLOW')).toBeNull();
+
+    resolveManifest(
+      Response.json({
+        playlistId: 'PL_PREVIEW_SLOW',
+        videoId: 'AAAAAAAAAAA',
+        videoIds: ['AAAAAAAAAAA'],
+        title: 'Slow manifest playlist',
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getPrefetchedYouTubePlaylistManifest('PL_PREVIEW_SLOW')?.videoId).toBe('AAAAAAAAAAA');
+  });
+
+  it('drops a stale manifest when the URL changes before its prefetch resolves', async () => {
+    vi.useFakeTimers();
+    mountYouTubePreview();
+    let resolveStaleManifest!: (response: Response) => void;
+    const staleManifest = new Promise<Response>((resolve) => {
+      resolveStaleManifest = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/security-config')) {
+          return Response.json({ capabilityRequired: false });
+        }
+        if (url.includes('playlistId=PL_PREVIEW_STALE')) return staleManifest;
+        if (url.includes('playlistId=PL_PREVIEW_CURRENT')) {
+          return Response.json({
+            playlistId: 'PL_PREVIEW_CURRENT',
+            videoId: 'BBBBBBBBBBB',
+            videoIds: ['BBBBBBBBBBB'],
+            title: 'Current playlist',
+          });
+        }
+        if (url.includes('youtube.com/oembed')) {
+          return Response.json({ title: 'Playlist', author_name: 'MUSIXQUARE' });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    fetchYouTubePreview('https://youtube.com/playlist?list=PL_PREVIEW_STALE');
+    await vi.advanceTimersByTimeAsync(500);
+    fetchYouTubePreview('https://youtube.com/playlist?list=PL_PREVIEW_CURRENT');
+    await vi.advanceTimersByTimeAsync(500);
+
+    resolveStaleManifest(
+      Response.json({
+        playlistId: 'PL_PREVIEW_STALE',
+        videoId: 'AAAAAAAAAAA',
+        videoIds: ['AAAAAAAAAAA'],
+        title: 'Stale playlist',
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(getPrefetchedYouTubePlaylistManifest('PL_PREVIEW_STALE')).toBeNull();
+    expect(getPrefetchedYouTubePlaylistManifest('PL_PREVIEW_CURRENT')?.videoId).toBe('BBBBBBBBBBB');
+  });
+
+  it('aborts an unfinished manifest prefetch when the preview overlay closes', async () => {
+    vi.useFakeTimers();
+    const playButton = mountYouTubePreview();
+    const manifestRequest: { signal: AbortSignal | null } = { signal: null };
+    let resolveManifest!: (response: Response) => void;
+    const pendingManifest = new Promise<Response>((resolve) => {
+      resolveManifest = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/api/security-config')) {
+          return Response.json({ capabilityRequired: false });
+        }
+        if (url.includes('/api/youtube-playlist-manifest')) {
+          manifestRequest.signal = init?.signal ?? null;
+          return pendingManifest;
+        }
+        if (url.includes('youtube.com/oembed')) {
+          return Response.json({ title: 'Closing playlist', author_name: 'MUSIXQUARE' });
+        }
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    fetchYouTubePreview('https://youtube.com/playlist?list=PL_PREVIEW_CLOSED');
+    await vi.advanceTimersByTimeAsync(500);
+    expect(playButton.disabled).toBe(true);
+
+    clearPreviewDebounce();
+    expect(manifestRequest.signal?.aborted).toBe(true);
+
+    resolveManifest(
+      Response.json({
+        playlistId: 'PL_PREVIEW_CLOSED',
+        videoId: 'AAAAAAAAAAA',
+        videoIds: ['AAAAAAAAAAA'],
+        title: 'Closing playlist',
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getPrefetchedYouTubePlaylistManifest('PL_PREVIEW_CLOSED')).toBeNull();
+    expect(playButton.disabled).toBe(true);
   });
 });
 

@@ -25,6 +25,10 @@ const PLAY_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 const PAUSE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
 
 const zeroStartFacade = vi.hoisted(() => ({ active: false }));
+const youtubePrimer = vi.hoisted(() => ({
+  prime: vi.fn((_options?: { retryPending?: boolean }) => false),
+  wait: vi.fn(async () => true),
+}));
 
 const proPlaybackRuntime = vi.hoisted(() => ({
   reconcile: vi.fn<() => Promise<boolean>>(),
@@ -61,6 +65,11 @@ vi.mock('../../youtube/sync.ts', () => ({
 
 vi.mock('../../youtube/zero-start.ts', () => ({
   isYouTubeZeroStartProtocolActive: vi.fn(() => zeroStartFacade.active),
+}));
+
+vi.mock('../../youtube/iframe.ts', () => ({
+  primeYouTubePlayer: youtubePrimer.prime,
+  waitForPendingYouTubePrimeBounce: youtubePrimer.wait,
 }));
 
 vi.mock('../../pro-room/runtime.ts', () => ({
@@ -495,6 +504,7 @@ describe('PRO room media-source capabilities', () => {
     document.getElementById('btn-youtube-source')?.click();
     expect(document.getElementById('youtube-url-overlay')?.classList.contains('active')).toBe(true);
     expect(reveal).toHaveBeenCalledWith(document.getElementById('youtube-url-overlay'));
+    expect(youtubePrimer.prime).toHaveBeenCalledTimes(1);
 
     expect(document.getElementById('btn-system-audio')?.hidden).toBe(true);
   });
@@ -509,6 +519,102 @@ describe('PRO room media-source capabilities', () => {
 
     expect(input.classList).toContain('user-text-font');
     expect(input.classList).toContain('user-text-font-th');
+  });
+
+  it('does not let Enter bypass a disabled YouTube preview submit gate', () => {
+    document.body.innerHTML = `
+      <div id="youtube-url-input" contenteditable="true"></div>
+      <button id="youtube-play-btn" disabled></button>
+    `;
+    const input = document.getElementById('youtube-url-input') as HTMLDivElement;
+    const submit = vi.fn();
+    bus.on('youtube:load-from-input', submit);
+
+    initPlayerControls();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('waits for a gesture-bound iOS prime proof before submitting the real video load', async () => {
+    document.body.innerHTML = `
+      <div id="youtube-url-overlay" class="active"></div>
+      <div id="youtube-url-input" contenteditable="true">https://youtube.com/playlist?list=PL_READY</div>
+      <button id="youtube-play-btn"></button>
+    `;
+    const submit = vi.fn();
+    bus.on('youtube:load-from-input', submit);
+    youtubePrimer.prime.mockReturnValueOnce(true);
+
+    initPlayerControls();
+    const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement;
+    playButton.click();
+
+    expect(submit).not.toHaveBeenCalled();
+    expect(playButton.disabled).toBe(true);
+    expect(playButton.getAttribute('aria-busy')).toBe('true');
+    expect(youtubePrimer.prime).toHaveBeenCalledWith({ retryPending: true });
+    expect(youtubePrimer.wait).toHaveBeenCalledWith(1_500);
+
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    expect(playButton.disabled).toBe(false);
+    expect(playButton.hasAttribute('aria-busy')).toBe(false);
+  });
+
+  it('keeps an already-primed YouTube submit in the original click stack', () => {
+    document.body.innerHTML = `
+      <div id="youtube-url-input" contenteditable="true">https://youtube.com/watch?v=AAAAAAAAAAA</div>
+      <button id="youtube-play-btn"></button>
+    `;
+    const submit = vi.fn();
+    bus.on('youtube:load-from-input', submit);
+    youtubePrimer.prime.mockReturnValueOnce(false);
+
+    initPlayerControls();
+    document.getElementById('youtube-play-btn')?.click();
+
+    expect(submit).toHaveBeenCalledOnce();
+    expect(youtubePrimer.prime).toHaveBeenCalledWith({ retryPending: true });
+    expect(youtubePrimer.wait).not.toHaveBeenCalled();
+  });
+
+  it('does not let a closed submit resume into a reopened popup with the same URL', async () => {
+    document.body.innerHTML = `
+      <div id="youtube-url-overlay" class="active"></div>
+      <div id="youtube-url-input" contenteditable="true">https://youtube.com/playlist?list=PL_STALE</div>
+      <button id="youtube-play-btn"></button>
+      <button id="btn-yt-cancel"></button>
+    `;
+    let resolvePrime!: (value: boolean) => void;
+    youtubePrimer.prime.mockReturnValueOnce(true);
+    youtubePrimer.wait.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolvePrime = resolve;
+      }),
+    );
+    const submit = vi.fn();
+    bus.on('youtube:load-from-input', submit);
+
+    initPlayerControls();
+    const overlay = document.getElementById('youtube-url-overlay') as HTMLDivElement;
+    const input = document.getElementById('youtube-url-input') as HTMLDivElement;
+    const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement;
+    playButton.click();
+    expect(playButton.disabled).toBe(true);
+
+    document.getElementById('btn-yt-cancel')?.click();
+    overlay.classList.add('active');
+    input.textContent = 'https://youtube.com/playlist?list=PL_STALE';
+    playButton.disabled = true;
+
+    resolvePrime(true);
+    await vi.waitFor(() => expect(youtubePrimer.wait).toHaveBeenCalledOnce());
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(submit).not.toHaveBeenCalled();
+    expect(playButton.disabled).toBe(true);
+    expect(playButton.hasAttribute('aria-busy')).toBe(false);
   });
 
   it('shows the current owner and never starts a second PRO picker', () => {

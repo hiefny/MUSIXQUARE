@@ -84,6 +84,7 @@ vi.mock('../search.ts', () => ({
   extractYouTubePlaylistId: vi.fn(() => null),
   isYouTubeLiveUrl: vi.fn(() => false),
   getYouTubeInputIntent: vi.fn(() => ({ kind: 'invalid-url' })),
+  getPrefetchedYouTubePlaylistManifest: vi.fn(() => null),
   getSelectedYouTubeSearchResult: vi.fn(() => null),
   searchYouTubeFromInput: vi.fn(),
   resolveYouTubePlaylistEntry: vi.fn(async (playlistId: string) => ({
@@ -1305,6 +1306,147 @@ describe('YouTube Player', () => {
           title: 'Test Title',
         });
       });
+    });
+
+    it('consumes a prefetched playlist manifest synchronously on the submit gesture', async () => {
+      const input = document.createElement('div');
+      input.id = 'youtube-url-input';
+      input.textContent = 'https://www.youtube.com/playlist?list=PL_GESTURE_READY';
+      document.body.appendChild(input);
+      const title = document.createElement('div');
+      title.id = 'youtube-preview-title';
+      title.textContent = 'Gesture-ready playlist';
+      document.body.appendChild(title);
+
+      const search = await import('../search.ts');
+      vi.mocked(search.getYouTubeInputIntent).mockReturnValueOnce({
+        kind: 'playlist-url',
+        raw: input.textContent,
+        videoId: null,
+        playlistId: 'PL_GESTURE_READY',
+        query: null,
+      });
+      vi.mocked(search.getPrefetchedYouTubePlaylistManifest).mockReturnValueOnce({
+        playlistId: 'PL_GESTURE_READY',
+        videoId: 'AAAAAAAAAAA',
+        videoIds: ['AAAAAAAAAAA', 'BBBBBBBBBBB'],
+        title: 'Gesture-ready playlist',
+      });
+
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+      bus.emit('youtube:load-from-input');
+
+      expect(search.resolveYouTubePlaylistManifest).not.toHaveBeenCalled();
+      expect(getState('youtube.subItemsMap').PL_GESTURE_READY?.ids).toEqual([
+        'AAAAAAAAAAA',
+        'BBBBBBBBBBB',
+      ]);
+      expect(getState('youtube.subItemsMap').PL_GESTURE_READY?.manifestComplete).toBe(true);
+      expect(getState('playlist.items')).toHaveLength(1);
+      expect(getState('playlist.items')[0]).toMatchObject({
+        type: 'youtube',
+        videoId: 'AAAAAAAAAAA',
+        playlistId: 'PL_GESTURE_READY',
+        name: 'Gesture-ready playlist',
+      });
+    });
+
+    it('uses the requested video from a prefetched playlist without changing manifest order', async () => {
+      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>(() => true);
+      registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube }));
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['media.add'],
+      });
+      const sourceUrl = 'https://www.youtube.com/watch?v=BBBBBBBBBBB&list=PL_GESTURE_SELECTED';
+      const input = document.createElement('div');
+      input.id = 'youtube-url-input';
+      input.textContent = sourceUrl;
+      document.body.appendChild(input);
+
+      const search = await import('../search.ts');
+      vi.mocked(search.getYouTubeInputIntent).mockReturnValueOnce({
+        kind: 'video-url',
+        raw: sourceUrl,
+        videoId: 'BBBBBBBBBBB',
+        playlistId: 'PL_GESTURE_SELECTED',
+        query: null,
+      });
+      vi.mocked(search.getPrefetchedYouTubePlaylistManifest).mockReturnValueOnce({
+        playlistId: 'PL_GESTURE_SELECTED',
+        videoId: 'AAAAAAAAAAA',
+        videoIds: ['AAAAAAAAAAA', 'BBBBBBBBBBB', 'CCCCCCCCCCC'],
+        title: 'Gesture-selected playlist',
+      });
+
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+      bus.emit('youtube:load-from-input');
+
+      expect(addYouTube).toHaveBeenCalledWith(
+        expect.objectContaining({
+          videoId: 'BBBBBBBBBBB',
+          playlistId: 'PL_GESTURE_SELECTED',
+        }),
+        sourceUrl,
+        ['AAAAAAAAAAA', 'BBBBBBBBBBB', 'CCCCCCCCCCC'],
+      );
+      expect(search.resolveYouTubePlaylistManifest).not.toHaveBeenCalled();
+      expect(getState('youtube.subItemsMap').PL_GESTURE_SELECTED?.ids).toEqual([
+        'AAAAAAAAAAA',
+        'BBBBBBBBBBB',
+        'CCCCCCCCCCC',
+      ]);
+    });
+
+    it('keeps the selected manifest index aligned across local state and guest broadcasts', async () => {
+      const sourceUrl = 'https://www.youtube.com/watch?v=BBBBBBBBBBB&list=PL_GESTURE_STANDARD';
+      const input = document.createElement('div');
+      input.id = 'youtube-url-input';
+      input.textContent = sourceUrl;
+      document.body.appendChild(input);
+
+      const search = await import('../search.ts');
+      vi.mocked(search.getYouTubeInputIntent).mockReturnValueOnce({
+        kind: 'video-url',
+        raw: sourceUrl,
+        videoId: 'BBBBBBBBBBB',
+        playlistId: 'PL_GESTURE_STANDARD',
+        query: null,
+      });
+      vi.mocked(search.getPrefetchedYouTubePlaylistManifest).mockReturnValueOnce({
+        playlistId: 'PL_GESTURE_STANDARD',
+        videoId: 'AAAAAAAAAAA',
+        videoIds: ['AAAAAAAAAAA', 'BBBBBBBBBBB', 'CCCCCCCCCCC'],
+        title: 'Selected standard playlist',
+      });
+      const { broadcast } = await import('../../network/peer.ts');
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+
+      bus.emit('youtube:load-from-input');
+
+      expect(getState('youtube.currentSubIndex')).toBe(1);
+      expect(broadcast).toHaveBeenCalledWith({
+        type: MSG.YOUTUBE_PLAYLIST_INFO,
+        playlistId: 'PL_GESTURE_STANDARD',
+        ids: ['AAAAAAAAAAA', 'BBBBBBBBBBB', 'CCCCCCCCCCC'],
+        titles: [],
+      });
+      expect(broadcast).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.YOUTUBE_PLAY,
+          videoId: 'BBBBBBBBBBB',
+          playlistId: null,
+          subIndex: 1,
+        }),
+      );
     });
 
     it('resolves a playlist-only PRO add without interrupting current playback', async () => {

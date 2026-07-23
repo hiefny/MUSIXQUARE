@@ -728,14 +728,23 @@ export function precreateYouTubePlayer(): void {
  * in the gesture call stack so iOS registers a user-initiated audible play and
  * unlocks the iframe; onYouTubePlayerStateChange(PLAYING) then pauses it back
  * and marks the player primed. If the player is not ready yet (user tapped
- * before onReady), do nothing — the iOS tap-to-play watchdog stays as fallback.
+ * before onReady), do nothing. The ready callback leaves the bounce armed so
+ * a later direct media gesture can call this function again synchronously.
+ * A rejected/timed-out bounce is retryable for the same reason; no retry ever
+ * starts from a timer or another asynchronous callback.
  */
-export function primeYouTubePlayer(): void {
-  if (!IS_IOS || isYtPrimed() || isYtPrimeBouncePending()) return;
-  if (!isYtPrimeReady()) return;
-  const player = getYouTubePlayer();
-  if (!player?.playVideo) return;
+let primeBounceAttempt = 0;
 
+export function primeYouTubePlayer(options: { retryPending?: boolean } = {}): boolean {
+  if (!IS_IOS || isYtPrimed()) return false;
+  const alreadyPending = isYtPrimeBouncePending();
+  if (alreadyPending && !options.retryPending) return true;
+  if (!alreadyPending && !isYtPrimeReady()) return false;
+  const player = getYouTubePlayer();
+  if (!player?.playVideo) return false;
+
+  const attempt = ++primeBounceAttempt;
+  clearManagedTimer('yt-prime-bounce-timeout');
   setYtPrimeReady(false);
   setYtPrimeBouncePending(true);
   setYtAutoplayIntent(false);
@@ -744,12 +753,30 @@ export function primeYouTubePlayer(): void {
     player.playVideo();
     setManagedTimer(
       'yt-prime-bounce-timeout',
-      () => setYtPrimeBouncePending(false),
+      () => {
+        if (attempt !== primeBounceAttempt) return;
+        if (!isYtPrimeBouncePending()) return;
+        setYtPrimeBouncePending(false);
+        // WebKit can accept playVideo() without emitting PLAYING inside our
+        // short proof window. Do not spend the only ready gesture opportunity:
+        // merely re-arm it for the NEXT explicit gesture. This callback must
+        // never call playVideo() itself because it is outside a user gesture.
+        if (getYouTubePlayer() === player && isYtPlayerReady() && !isYtPrimed()) {
+          setYtPrimeReady(true);
+        }
+      },
       YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS,
     );
+    return true;
   } catch (e) {
     setYtPrimeBouncePending(false);
+    // A synchronous player exception does not prove the resident iframe is
+    // unusable. Preserve readiness so another direct gesture can retry.
+    if (getYouTubePlayer() === player && isYtPlayerReady() && !isYtPrimed()) {
+      setYtPrimeReady(true);
+    }
     log.warn('[YouTube Prime] gesture bounce failed; tap-to-play fallback remains available', e);
+    return false;
   }
 }
 
@@ -915,11 +942,11 @@ export function loadYouTubeVideo(
   if (isYouTubeToYouTube) {
     log.debug('[YouTube] YouTube-to-YouTube transition — reusing player, skipping stop-all-media');
     try {
-      // stopVideo emits ENDED, while cueVideoById(sameId) may be coalesced.
-      // Pause the resident occurrence instead; zero-start will own the
-      // hard-muted explicit restart after the new queue identity is armed.
-      if (isSameVideoReuse) player!.pauseVideo?.();
-      else player!.stopVideo?.();
+      // A retained iframe has more media work immediately ahead. stopVideo()
+      // can emit ENDED and WebKit may discard reusable playback state; pause
+      // the outgoing occurrence instead. The concrete load below replaces it
+      // synchronously for both same- and different-video transitions.
+      player!.pauseVideo?.();
     } catch {
       /* noop */
     }
@@ -1820,10 +1847,16 @@ function onYouTubePlayerError(event: { data: number }): void {
   // next-track advance below — priming is a background op with no active
   // YouTube session, so user-facing recovery would be wrong here.
   if (isYtPriming() || isYtPrimeBouncePending()) {
+    const failedBounce = isYtPrimeBouncePending();
+    const primePlayer = getYouTubePlayer();
     log.warn('[YouTube Prime] player error during prime; tap-to-play fallback remains', code);
     setYtPriming(false);
     setYtPrimeBouncePending(false);
     setYtPrimed(false);
+    // Treat a bounce error as retryable while the exact resident player is
+    // still ready. The retry itself is deliberately deferred until another
+    // explicit gesture calls primeYouTubePlayer().
+    setYtPrimeReady(failedBounce && primePlayer !== null && isYtPlayerReady());
     bus.emit('youtube:zero-start-readiness-changed');
     clearManagedTimer('yt-prime-bounce-timeout');
     setYtLoadInProgress(false);
@@ -1968,8 +2001,12 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     return;
   }
 
-  if (isYtPrimeBouncePending() && state === YT.PlayerState.PLAYING) {
+  if (
+    state === YT.PlayerState.PLAYING &&
+    (isYtPrimeBouncePending() || (isYtPrimeReady() && !isPlaybackModeYouTube() && !indexing))
+  ) {
     setYtPrimeBouncePending(false);
+    setYtPrimeReady(false);
     setYtPrimed(true);
     bus.emit('youtube:zero-start-readiness-changed');
     clearManagedTimer('yt-prime-bounce-timeout');

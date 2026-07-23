@@ -256,6 +256,7 @@ import {
   extractYouTubePlaylistId,
   isYouTubeLiveUrl,
   getYouTubeInputIntent,
+  getPrefetchedYouTubePlaylistManifest,
   getSelectedYouTubeSearchResult,
   searchYouTubeFromInput,
   resolveYouTubePlaylistEntry,
@@ -264,6 +265,7 @@ import {
   fetchPlaylistSubTitles,
   cancelSubTitleFetch,
 } from './search.ts';
+import type { YouTubePlaylistManifest } from './search.ts';
 import { fetchOEmbedTitle } from './oembed.ts';
 import type {
   DataConnection,
@@ -1081,11 +1083,15 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
     try {
       log.debug(
         retainPlayer
-          ? '[YouTube] Stopping retained player instance...'
+          ? '[YouTube] Pausing retained player instance...'
           : '[YouTube] Destroying player instance...',
       );
-      player.stopVideo();
-      if (!retainPlayer && typeof player.destroy === 'function') player.destroy();
+      if (retainPlayer) {
+        player.pauseVideo?.();
+      } else {
+        player.stopVideo();
+        if (typeof player.destroy === 'function') player.destroy();
+      }
     } catch (e: unknown) {
       log.debug('[YouTube] Cleanup error (non-critical):', (e as Error).message);
     }
@@ -2360,8 +2366,11 @@ export function initYouTube(): void {
     // simply re-index on each navigation — wasteful but harmless).
     const subMap = getState('youtube.subItemsMap') || {};
     const playlistIdStr = playlistId as string | null;
-    const cachedIds = playlistIdStr ? subMap[playlistIdStr]?.ids || [] : [];
-    const needsIndex = !!playlistIdStr && cachedIds.length <= 1;
+    const cachedEntry = playlistIdStr ? subMap[playlistIdStr] : undefined;
+    const cachedIds = cachedEntry?.ids || [];
+    const hasIndexedManifest =
+      !!playlistIdStr && (cachedEntry?.manifestComplete === true || cachedIds.length > 1);
+    const needsIndex = !!playlistIdStr && !hasIndexedManifest;
 
     if (needsIndex) {
       log.info(`[YouTube] Deferred playlist navigation — indexing ${playlistIdStr} before play`);
@@ -2432,6 +2441,19 @@ export function initYouTube(): void {
       // (needsScrape || indexing) branch fires cuePlaylist, then onPlayerStateChange's
       // CUED handler routes to _pollIndexingPlaylist which fires the callback above.
       loadYouTubeVideo(videoId as string, playlistIdStr, false, 0, { indexingCallback });
+      return;
+    }
+
+    if (hasIndexedManifest) {
+      const requestedSubIndex =
+        typeof subIndex === 'number' && Number.isInteger(subIndex) && subIndex >= 0 ? subIndex : 0;
+      const targetSubIndex = cachedIds[requestedSubIndex] ? requestedSubIndex : 0;
+      const targetVideoId = cachedIds[targetSubIndex] ?? (videoId as string | null);
+      // playlistId remains attached to the queue item/playback metadata. At
+      // the physical iframe boundary, however, a complete manifest is always
+      // loaded as one concrete video so the host follows the same fast path as
+      // guests and never re-resolves the native playlist asynchronously.
+      loadYouTubeVideo(targetVideoId, null, autoplay as boolean, targetSubIndex);
       return;
     }
 
@@ -2935,6 +2957,9 @@ export function initYouTube(): void {
     completeManifestVideoIds?: readonly string[],
   ): QueueItemId {
     const playlist = getState('playlist.items') || [];
+    const manifestSelectedIndex =
+      videoId && completeManifestVideoIds ? completeManifestVideoIds.indexOf(videoId) : -1;
+    const initialSubIndex = manifestSelectedIndex >= 0 ? manifestSelectedIndex : 0;
 
     // Safety: If this is a playlist load but we have a videoId (resolved from indexing),
     // force single-video mode so the iframe's native playlist engine never runs.
@@ -3018,10 +3043,10 @@ export function initYouTube(): void {
     if (isIdle) {
       setState('player.isFirstTrackLoad', false);
       setPlaybackTrackMeta(newTrack);
-      setYouTubeSubIndex(0); // Initialize only a newly active track.
+      setYouTubeSubIndex(initialSubIndex); // Initialize only a newly active track.
 
       // Load YouTube with autoplay=FALSE for sync coordination.
-      loadYouTubeVideo(finalVideoId, finalPlaylistId, false);
+      loadYouTubeVideo(finalVideoId, finalPlaylistId, false, initialSubIndex);
       // Adding a YT entry while IDLE = fresh other-to-yt scenario: host and
       // guests both go through iframe init + first BUFFERING/CUED together,
       // so STAGE2 (2s) is enough. Mark explicitly so we don't fall into the
@@ -3030,7 +3055,7 @@ export function initYouTube(): void {
         isTrackTransition: false,
         zeroStart: true,
         targetTime: 0,
-        subIndex: 0,
+        subIndex: initialSubIndex,
         videoId: finalVideoId || undefined,
         skipSeek: true,
       });
@@ -3045,6 +3070,16 @@ export function initYouTube(): void {
       broadcast({ type: MSG.PLAYLIST_UPDATE, ...playlistSnapshot });
       broadcastTracksAdded(actorName, 1, title);
 
+      if (playlistId && completeManifestVideoIds?.length) {
+        const manifestEntry = getState('youtube.subItemsMap')[playlistId];
+        broadcast({
+          type: MSG.YOUTUBE_PLAYLIST_INFO,
+          playlistId,
+          ids: [...completeManifestVideoIds],
+          titles: manifestEntry?.titles || [],
+        });
+      }
+
       if (isIdle) {
         broadcast({
           type: MSG.YOUTUBE_PLAY,
@@ -3058,7 +3093,7 @@ export function initYouTube(): void {
           // autoplay=false: guest also loads without iframe auto-start and
           // waits for host's hostPlayAt broadcast from scheduleYtAutoSync.
           autoplay: false,
-          subIndex: 0,
+          subIndex: initialSubIndex,
         });
       }
     }
@@ -3101,7 +3136,7 @@ export function initYouTube(): void {
           requestedVideoId && manifest.videoIds.includes(requestedVideoId)
             ? requestedVideoId
             : manifest.videoId;
-        updateSubItemIds(playlistId, videoIds);
+        updateSubItemIds(playlistId, videoIds, { manifestComplete: true });
         const resolvedTitle = title && title !== sourceUrl ? title : manifest.title;
         _addYouTubeToPlaylist(
           videoId,
@@ -3122,6 +3157,41 @@ export function initYouTube(): void {
         resolvingProPlaylists.delete(requestKey);
         showLoader(false, undefined, loaderId);
       });
+    return true;
+  }
+
+  /**
+   * Consume a preview-prefetched manifest synchronously in the submit
+   * gesture. This is the critical iOS path: the iframe receives one concrete
+   * video immediately, just like a pasted single-video URL, while the queue
+   * retains the playlist metadata and complete sub-item order.
+   */
+  function _addPrefetchedPlaylistFromGesture(
+    playlistId: string,
+    requestedVideoId: string | null,
+    title: string,
+    sourceUrl: string,
+    manifest: YouTubePlaylistManifest,
+  ): boolean {
+    if (manifest.playlistId !== playlistId || manifest.videoIds.length === 0) {
+      return false;
+    }
+
+    const videoIds = [...manifest.videoIds];
+    const concreteVideoId =
+      requestedVideoId && videoIds.includes(requestedVideoId) ? requestedVideoId : manifest.videoId;
+    if (!concreteVideoId || !videoIds.includes(concreteVideoId)) return false;
+
+    updateSubItemIds(playlistId, videoIds, { manifestComplete: true });
+    const resolvedTitle = title && title !== sourceUrl ? title : manifest.title;
+    _addYouTubeToPlaylist(
+      concreteVideoId,
+      playlistId,
+      resolvedTitle,
+      sourceUrl,
+      localQueueActorName(),
+      videoIds,
+    );
     return true;
   }
 
@@ -3185,9 +3255,28 @@ export function initYouTube(): void {
       showLiveStreamSyncWarning();
     }
 
+    // Read the cache before closing the overlay. clearYouTubeInputState()
+    // aborts in-flight preview work, while completed manifests intentionally
+    // remain available through this synchronous cache seam.
+    const prefetchedManifest = playlistId ? getPrefetchedYouTubePlaylistManifest(playlistId) : null;
+
     _closeYouTubeInputOverlay(input);
 
     if (requestStandardOperatorYouTubeAdd(sourceUrl, titleText)) return;
+
+    if (playlistId && prefetchedManifest) {
+      if (
+        _addPrefetchedPlaylistFromGesture(
+          playlistId,
+          videoId,
+          titleText,
+          sourceUrl,
+          prefetchedManifest,
+        )
+      ) {
+        return;
+      }
+    }
 
     // A persistent PRO playlist needs one concrete entry video. Resolve it
     // without borrowing the hidden iframe indexer, which stops active media.

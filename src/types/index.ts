@@ -985,7 +985,16 @@ export interface StateTree {
   files: { current: ResidentFile | null };
   youtube: {
     currentSubIndex: number;
-    subItemsMap: Record<string, { ids: string[]; titles: string[]; loadError?: boolean }>;
+    subItemsMap: Record<
+      string,
+      {
+        ids: string[];
+        titles: string[];
+        loadError?: boolean;
+        /** True when ids came from a complete server manifest, including a real one-item list. */
+        manifestComplete?: boolean;
+      }
+    >;
     /**
      * Guest-only: estimated `playVideo()` call → audible output latency (ms).
      * Used by the rendezvous sync (guest-initiated, host-nondisruptive) to

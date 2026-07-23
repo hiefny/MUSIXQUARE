@@ -58,6 +58,23 @@ describe('YouTube subItemsMap cache', () => {
     expect(subMap['pid-50']?.ids).toEqual(['v50']);
   });
 
+  it('preserves complete-manifest proof only while the canonical IDs stay identical', () => {
+    updateSubItemIds('pid-single', ['AAAAAAAAAAA'], { manifestComplete: true });
+    setSubItemsLoadError('pid-single', true);
+    setSubItemsLoadError('pid-single', false);
+    updateSubItemIds('pid-single', ['AAAAAAAAAAA']);
+    setSubItemsData('pid-single', ['AAAAAAAAAAA'], ['Only video']);
+
+    expect(getState('youtube.subItemsMap')['pid-single']).toMatchObject({
+      ids: ['AAAAAAAAAAA'],
+      titles: ['Only video'],
+      manifestComplete: true,
+    });
+
+    updateSubItemIds('pid-single', ['BBBBBBBBBBB']);
+    expect(getState('youtube.subItemsMap')['pid-single']?.manifestComplete).toBeUndefined();
+  });
+
   it('keeps load-error updates behind the same pruning path', () => {
     for (let i = 0; i < 50; i++) {
       setSubItemsData(`pid-${i}`, [`v${i}`], [`Video ${i}`]);

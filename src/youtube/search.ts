@@ -34,6 +34,9 @@ const YOUTUBE_PLAYLIST_MANIFEST_ENDPOINT = '/api/youtube-playlist-manifest';
 const YOUTUBE_SEARCH_TIMEOUT_MS = 8000;
 const YOUTUBE_PLAYLIST_MANIFEST_TIMEOUT_MS = 60_000;
 const YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS = 5_000;
+const YOUTUBE_PLAYLIST_PREVIEW_BUDGET_MS = 8_000;
+const YOUTUBE_PLAYLIST_PREVIEW_CACHE_TTL_MS = 10 * 60 * 1000;
+const YOUTUBE_PLAYLIST_PREVIEW_CACHE_MAX = 25;
 const YOUTUBE_SEARCH_CACHE_MAX = 25;
 const YOUTUBE_SEARCH_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -71,6 +74,11 @@ interface YouTubePlaylistEntry {
 
 export interface YouTubePlaylistManifest extends YouTubePlaylistEntry {
   videoIds: string[];
+}
+
+interface YouTubePlaylistManifestCacheEntry {
+  manifest: YouTubePlaylistManifest;
+  ts: number;
 }
 
 // fetchWithTimeout / normalizeExternalTitle / fetchOEmbedTitle live in
@@ -339,6 +347,45 @@ export async function resolveYouTubePlaylistManifest(
   return { playlistId, videoId: payload.videoId, videoIds: [...videoIds], title };
 }
 
+const _playlistPreviewManifestCache = new Map<string, YouTubePlaylistManifestCacheEntry>();
+
+function cloneYouTubePlaylistManifest(manifest: YouTubePlaylistManifest): YouTubePlaylistManifest {
+  return { ...manifest, videoIds: [...manifest.videoIds] };
+}
+
+function cachePreviewPlaylistManifest(manifest: YouTubePlaylistManifest): void {
+  const playlistId = manifest.playlistId;
+  _playlistPreviewManifestCache.delete(playlistId);
+  while (_playlistPreviewManifestCache.size >= YOUTUBE_PLAYLIST_PREVIEW_CACHE_MAX) {
+    const oldest = _playlistPreviewManifestCache.keys().next().value;
+    if (oldest === undefined) break;
+    _playlistPreviewManifestCache.delete(oldest);
+  }
+  _playlistPreviewManifestCache.set(playlistId, {
+    manifest: cloneYouTubePlaylistManifest(manifest),
+    ts: Date.now(),
+  });
+}
+
+/**
+ * Synchronously returns a manifest that finished prefetching while its URL
+ * preview was open. The clone keeps click-path callers from mutating the
+ * bounded preview cache.
+ */
+export function getPrefetchedYouTubePlaylistManifest(
+  playlistId: string,
+): YouTubePlaylistManifest | null {
+  const entry = _playlistPreviewManifestCache.get(playlistId);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > YOUTUBE_PLAYLIST_PREVIEW_CACHE_TTL_MS) {
+    _playlistPreviewManifestCache.delete(playlistId);
+    return null;
+  }
+  _playlistPreviewManifestCache.delete(playlistId);
+  _playlistPreviewManifestCache.set(playlistId, entry);
+  return cloneYouTubePlaylistManifest(entry.manifest);
+}
+
 function getStatusText(): HTMLElement | null {
   return document.getElementById('youtube-preview-status');
 }
@@ -562,14 +609,73 @@ export function clearYouTubeInputState(): void {
 // ─── oEmbed Preview Fetch (UI-bound) ───────────────────────────────
 
 let _previewAbort: AbortController | null = null;
+let _previewGeneration = 0;
 
-/** Clear any pending preview debounce timer (call on overlay close). */
-export function clearPreviewDebounce(): void {
-  clearManagedTimer('yt-preview-debounce');
+type PreviewManifestPrefetchResult = 'ready' | 'failed';
+
+function abortPreviewRequest(): void {
   if (_previewAbort) {
     _previewAbort.abort();
     _previewAbort = null;
   }
+}
+
+function prefetchPreviewPlaylistManifest(
+  playlistId: string,
+  signal: AbortSignal,
+): Promise<PreviewManifestPrefetchResult> {
+  if (getPrefetchedYouTubePlaylistManifest(playlistId)) {
+    return Promise.resolve('ready');
+  }
+
+  return resolveYouTubePlaylistManifest(playlistId, signal)
+    .then((manifest) => {
+      if (signal.aborted) return 'failed' as const;
+      cachePreviewPlaylistManifest(manifest);
+      return 'ready' as const;
+    })
+    .catch((error: unknown) => {
+      if (!signal.aborted) {
+        log.warn(
+          '[YouTube Preview] Playlist manifest prefetch failed; using iframe fallback:',
+          error,
+        );
+      }
+      return 'failed' as const;
+    });
+}
+
+async function waitForPreviewManifestBudget(
+  prefetch: Promise<PreviewManifestPrefetchResult>,
+  startedAt: number,
+  signal: AbortSignal,
+): Promise<PreviewManifestPrefetchResult | 'timeout' | 'aborted'> {
+  if (signal.aborted) return 'aborted';
+
+  const remainingMs = Math.max(0, YOUTUBE_PLAYLIST_PREVIEW_BUDGET_MS - (Date.now() - startedAt));
+  if (remainingMs === 0) return 'timeout';
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: PreviewManifestPrefetchResult | 'timeout' | 'aborted'): void => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      signal.removeEventListener('abort', onAbort);
+      resolve(result);
+    };
+    const onAbort = (): void => finish('aborted');
+    const timeoutId = window.setTimeout(() => finish('timeout'), remainingMs);
+    signal.addEventListener('abort', onAbort, { once: true });
+    void prefetch.then(finish);
+  });
+}
+
+/** Clear any pending preview debounce timer (call on overlay close). */
+export function clearPreviewDebounce(): void {
+  _previewGeneration++;
+  clearManagedTimer('yt-preview-debounce');
+  abortPreviewRequest();
 }
 
 export function fetchYouTubePreview(url: string): void {
@@ -578,7 +684,9 @@ export function fetchYouTubePreview(url: string): void {
 
   if (!previewContainer || !statusText) return;
 
+  const previewGeneration = ++_previewGeneration;
   clearManagedTimer('yt-preview-debounce');
+  abortPreviewRequest();
   const intent = getYouTubeInputIntent(url);
 
   if (intent.kind === 'empty') {
@@ -606,7 +714,11 @@ export function fetchYouTubePreview(url: string): void {
   clearSearchResults();
 
   const videoId = intent.videoId;
-  const playlistId = intent.playlistId;
+  // Match the submit path: YouTube Mix (RD...) parameters attached to a
+  // concrete video are treated as single-video intent. Prefetching those
+  // generated lists would unnecessarily hold the primary button for up to
+  // the playlist preview budget even though playback will ignore the list.
+  const playlistId = videoId && intent.playlistId?.startsWith('RD') ? null : intent.playlistId;
 
   if (intent.kind === 'invalid-url' || (!videoId && !playlistId)) {
     hidePreviewCard();
@@ -638,14 +750,20 @@ export function fetchYouTubePreview(url: string): void {
       if (_previewAbort) _previewAbort.abort();
       const abort = new AbortController();
       _previewAbort = abort;
+      const previewStartedAt = Date.now();
+      const manifestPrefetch = playlistId
+        ? prefetchPreviewPlaylistManifest(playlistId, abort.signal)
+        : null;
+      const isCurrentPreview = (): boolean =>
+        !abort.signal.aborted && previewGeneration === _previewGeneration;
 
       try {
         const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
         const response = await fetchWithTimeout(oembedUrl, OEMBED_FETCH_TIMEOUT_MS, abort.signal);
-        if (abort.signal.aborted) return;
+        if (!isCurrentPreview()) return;
         if (!response.ok) throw new Error('Video not found');
         const data = await response.json();
-        if (abort.signal.aborted) return;
+        if (!isCurrentPreview()) return;
 
         const thumb = document.getElementById('youtube-preview-thumb') as HTMLImageElement | null;
         const title = document.getElementById('youtube-preview-title');
@@ -680,9 +798,24 @@ export function fetchYouTubePreview(url: string): void {
         freshPreview.style.removeProperty('display');
         freshPreview.hidden = false;
         freshStatus.style.display = 'none';
+
+        if (manifestPrefetch) {
+          const manifestResult = await waitForPreviewManifestBudget(
+            manifestPrefetch,
+            previewStartedAt,
+            abort.signal,
+          );
+          if (!isCurrentPreview() || manifestResult === 'aborted') return;
+          if (manifestResult === 'timeout') {
+            log.info(
+              `[YouTube Preview] Playlist manifest prefetch exceeded ${YOUTUBE_PLAYLIST_PREVIEW_BUDGET_MS}ms; enabling iframe fallback.`,
+            );
+          }
+        }
+
         freshSetPlayBtnEnabled(true);
       } catch (e) {
-        if (abort.signal.aborted) return;
+        if (!isCurrentPreview()) return;
         log.error('[YouTube Preview] Error:', e);
         freshPreview.hidden = true;
         freshPreview.style.removeProperty('display');
@@ -691,6 +824,17 @@ export function fetchYouTubePreview(url: string): void {
         freshStatus.innerText = t('youtube.fetch_failed');
         freshStatus.style.color = 'var(--danger, #ef4444)';
         freshSetPlayBtnEnabled(false);
+        abort.abort();
+      } finally {
+        if (_previewAbort === abort) {
+          if (manifestPrefetch && !abort.signal.aborted) {
+            void manifestPrefetch.finally(() => {
+              if (_previewAbort === abort) _previewAbort = null;
+            });
+          } else {
+            _previewAbort = null;
+          }
+        }
       }
     },
     OEMBED_PREVIEW_DEBOUNCE_MS,

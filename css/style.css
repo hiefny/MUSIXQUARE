@@ -877,7 +877,6 @@
     color: var(--text-main);
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
 
     transform: translateY(100%);
     /* Start from below */
@@ -887,6 +886,18 @@
       opacity 0.5s ease;
     z-index: 6;
     pointer-events: none;
+  }
+
+  /* Apply ellipsis to a real flex child. Direct text becomes an anonymous
+     flex item in Chromium, where text-overflow does not paint the ellipsis. */
+  .header-loading-text-content {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
   /* --- Loading Active State (Applied to <header>) --- */
@@ -900,12 +911,12 @@
     opacity: 1;
   }
 
-  /* Phones have enough header height for two short status lines. Wrapping here
-     preserves the operation/file context instead of truncating it early. */
+  /* Keep loader status visually stable on phones. Long translated messages
+     and file names stay on one line and use the base ellipsis treatment. */
   @media (max-width: 719px) {
     .header-loading-text {
-      white-space: normal;
-      overflow-wrap: anywhere;
+      white-space: nowrap;
+      overflow-wrap: normal;
       line-height: 18px;
     }
   }
@@ -8071,8 +8082,8 @@
       width: auto !important;
       height: 54px !important;
       line-height: 18px;
-      white-space: normal;
-      overflow-wrap: anywhere;
+      white-space: nowrap;
+      overflow-wrap: normal;
     }
 
     /* ── Tab navigation: centered between logo and role badge ── */

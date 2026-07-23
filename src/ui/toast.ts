@@ -51,10 +51,26 @@ function foregroundLoader(): [string, LoaderHolder] | null {
   return foreground;
 }
 
+function getLoadingTextContent(loadingText: HTMLElement | null): HTMLElement | null {
+  if (!loadingText) return null;
+
+  const existing = loadingText.querySelector<HTMLElement>('.header-loading-text-content');
+  if (existing) return existing;
+
+  // Preserve compatibility with isolated embeds and tests that still provide
+  // the legacy container without the inner ellipsis element.
+  const content = document.createElement('span');
+  content.className = 'header-loading-text-content';
+  content.textContent = loadingText.textContent || '';
+  loadingText.replaceChildren(content);
+  return content;
+}
+
 function renderLoader(holder: LoaderHolder): void {
   const loadingText = document.getElementById('header-loading-text');
+  const loadingTextContent = getLoadingTextContent(loadingText);
   const progressBg = document.getElementById('header-progress-bg') as HTMLElement | null;
-  if (loadingText) loadingText.innerText = holder.text;
+  if (loadingTextContent) loadingTextContent.textContent = holder.text;
   if (progressBg) progressBg.style.width = `${holder.percent}%`;
 }
 
@@ -91,6 +107,7 @@ export function showLoader(show: boolean, txt?: string, id?: string): void {
   const key = id ?? DEFAULT_LOADER_ID;
   const header = document.getElementById('main-header');
   const loadingText = document.getElementById('header-loading-text');
+  const loadingTextContent = getLoadingTextContent(loadingText);
   const progressBg = document.getElementById('header-progress-bg') as HTMLElement | null;
 
   if (show) {
@@ -101,7 +118,7 @@ export function showLoader(show: boolean, txt?: string, id?: string): void {
           text: txt ?? existing.text,
         }
       : {
-          text: txt ?? loadingText?.innerText ?? '',
+          text: txt ?? loadingTextContent?.textContent ?? '',
           // Retaining the displayed value preserves the legacy quick
           // hide/show transition. New determinate flows should publish their
           // initial 0 tick.

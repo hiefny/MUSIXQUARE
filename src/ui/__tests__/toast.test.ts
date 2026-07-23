@@ -10,6 +10,12 @@ import { initToast, showToast, showLoader, updateLoader } from '../toast.ts';
 
 let uplinkSequence = 0;
 
+function headerLoaderText(): string {
+  return (
+    document.querySelector<HTMLElement>('.header-loading-text-content')?.textContent ?? ''
+  );
+}
+
 function uplinkProgress(
   overrides: Partial<StandardOperatorFileUplinkProgress> = {},
 ): StandardOperatorFileUplinkProgress {
@@ -32,7 +38,9 @@ beforeEach(() => {
   document.body.innerHTML = `
     <div id="toast"><span id="toast-msg"></span></div>
     <header id="main-header">
-      <span id="header-loading-text"></span>
+      <span id="header-loading-text">
+        <span class="header-loading-text-content"></span>
+      </span>
       <div id="header-progress-bg" style="width: 0%"></div>
     </header>
   `;
@@ -55,7 +63,7 @@ describe('standard operator file uplink feedback', () => {
 
     bus.emit('standard-room:operator-file-uplink-progress', progress);
     expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(true);
-    expect(document.getElementById('header-loading-text')!.innerText).toBe('Sending file\u2026');
+    expect(headerLoaderText()).toBe('Sending file\u2026');
     expect(document.getElementById('header-progress-bg')!.style.width).toBe('0%');
 
     bus.emit('standard-room:operator-file-uplink-progress', {
@@ -93,9 +101,7 @@ describe('standard operator file uplink feedback', () => {
 
     bus.emit('standard-room:operator-file-uplink-progress', progress);
 
-    expect(document.getElementById('header-loading-text')!.innerText).toBe(
-      'Sending file… 2/3 · a-very-long-orch….flac',
-    );
+    expect(headerLoaderText()).toBe('Sending file… 2/3 · a-very-long-orch….flac');
   });
 
   it('ignores host receive progress', () => {
@@ -123,7 +129,7 @@ describe('standard operator file uplink feedback', () => {
     });
 
     expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(true);
-    expect(document.getElementById('header-loading-text')!.innerText).toBe('Sending file\u2026');
+    expect(headerLoaderText()).toBe('Sending file\u2026');
     expect(document.getElementById('header-progress-bg')!.style.width).toBe('0%');
 
     bus.emit('standard-room:operator-file-uplink-progress', {
@@ -356,8 +362,7 @@ describe('showLoader', () => {
 
   it('sets loading text', () => {
     showLoader(true, 'Downloading...');
-    const loadingText = document.getElementById('header-loading-text')!;
-    expect(loadingText.innerText).toBe('Downloading...');
+    expect(headerLoaderText()).toBe('Downloading...');
   });
 
   it('removes loading class when show=false', () => {
@@ -400,12 +405,12 @@ describe('showLoader', () => {
 
     // Background progress is retained without repainting the foreground.
     updateLoader(45, 'loader-a');
-    expect(document.getElementById('header-loading-text')!.innerText).toBe('Downloading...');
+    expect(headerLoaderText()).toBe('Downloading...');
     expect(document.getElementById('header-progress-bg')!.style.width).toBe('70%');
 
     showLoader(false, undefined, 'loader-b');
     expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(true);
-    expect(document.getElementById('header-loading-text')!.innerText).toBe('Uploading...');
+    expect(headerLoaderText()).toBe('Uploading...');
     expect(document.getElementById('header-progress-bg')!.style.width).toBe('45%');
   });
 
@@ -416,7 +421,7 @@ describe('showLoader', () => {
     showLoader(false, undefined, 'loader-a');
 
     expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(true);
-    expect(document.getElementById('header-loading-text')!.innerText).toBe('Downloading...');
+    expect(headerLoaderText()).toBe('Downloading...');
   });
 
   it('does not promote a background holder when it reports new text or progress', () => {
@@ -428,11 +433,11 @@ describe('showLoader', () => {
     showLoader(true, 'Upload A 50%', 'loader-a');
     updateLoader(50, 'loader-a');
 
-    expect(document.getElementById('header-loading-text')!.innerText).toBe('Download B');
+    expect(headerLoaderText()).toBe('Download B');
     expect(document.getElementById('header-progress-bg')!.style.width).toBe('10%');
 
     showLoader(false, undefined, 'loader-b');
-    expect(document.getElementById('header-loading-text')!.innerText).toBe('Upload A 50%');
+    expect(headerLoaderText()).toBe('Upload A 50%');
     expect(document.getElementById('header-progress-bg')!.style.width).toBe('50%');
   });
 });
@@ -457,11 +462,14 @@ describe('header loader layout contract', () => {
     expect(baseLoaderRules).toMatch(/height:\s*calc\(100% - var\(--safe-top\)\);/);
   });
 
-  it('uses the whole header while preserving the compact sidebar rail', async () => {
+  it('uses the whole header while preserving a single-line compact sidebar rail', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const markup = await readFile('index.html', 'utf8');
     const parsed = new DOMParser().parseFromString(markup, 'text/html');
     expect(parsed.getElementById('header-loading-text')?.parentElement?.id).toBe('main-header');
+    expect(
+      parsed.querySelector('#header-loading-text > .header-loading-text-content')?.textContent,
+    ).toBe('Loading...');
 
     const compactStart = stylesheet.indexOf('@media (min-width: 720px) and (max-width: 1279px) {');
     const compactEnd = stylesheet.indexOf('/* iPad PWA portrait', compactStart);
@@ -485,8 +493,28 @@ describe('header loader layout contract', () => {
     expect(compactLoaderRules).toMatch(/width:\s*auto\s*!important;/);
     expect(compactLoaderRules).toMatch(/height:\s*54px\s*!important;/);
     expect(compactLoaderRules).toMatch(/line-height:\s*18px;/);
-    expect(compactLoaderRules).toMatch(/white-space:\s*normal;/);
-    expect(compactLoaderRules).toMatch(/overflow-wrap:\s*anywhere;/);
+    expect(compactLoaderRules).toMatch(/white-space:\s*nowrap;/);
+    expect(compactLoaderRules).toMatch(/overflow-wrap:\s*normal;/);
+  });
+
+  it('keeps every responsive header loader on one line with ellipsis overflow', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const loaderRuleBodies = [...stylesheet.matchAll(/\.header-loading-text\s*\{([^}]*)\}/g)].map(
+      (match) => match[1] ?? '',
+    );
+    const baseLoaderRules = loaderRuleBodies[0] ?? '';
+    const contentRules = stylesheet.match(/\.header-loading-text-content\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(baseLoaderRules).toMatch(/white-space:\s*nowrap;/);
+    expect(baseLoaderRules).toMatch(/overflow:\s*hidden;/);
+    expect(contentRules).toMatch(/flex:\s*1 1 auto;/);
+    expect(contentRules).toMatch(/min-width:\s*0;/);
+    expect(contentRules).toMatch(/max-width:\s*100%;/);
+    expect(contentRules).toMatch(/overflow:\s*hidden;/);
+    expect(contentRules).toMatch(/white-space:\s*nowrap;/);
+    expect(contentRules).toMatch(/text-overflow:\s*ellipsis;/);
+    expect(loaderRuleBodies.some((rules) => /white-space:\s*normal;/.test(rules))).toBe(false);
+    expect(loaderRuleBodies.some((rules) => /overflow-wrap:\s*anywhere;/.test(rules))).toBe(false);
   });
 });
 
@@ -515,11 +543,11 @@ describe('updateLoader', () => {
     showLoader(true, 'Uploading...', 'remote-upload');
     updateLoader(40);
 
-    expect(document.getElementById('header-loading-text')!.innerText).toBe('Uploading...');
+    expect(headerLoaderText()).toBe('Uploading...');
     expect(document.getElementById('header-progress-bg')!.style.width).toBe('0%');
 
     showLoader(false, undefined, 'remote-upload');
-    expect(document.getElementById('header-loading-text')!.innerText).toBe('Preparing...');
+    expect(headerLoaderText()).toBe('Preparing...');
     expect(document.getElementById('header-progress-bg')!.style.width).toBe('40%');
   });
 

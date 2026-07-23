@@ -12,6 +12,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MAX_GUEST_SLOTS, MSG, PEER_NAME_PREFIX } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
+import { getDevicePlatform } from '../core/platform.ts';
 import type {
   DataConnection,
   PeerInstance,
@@ -292,6 +293,7 @@ export function broadcastDeviceList(): void {
       memberId: getState('network.myMemberId') ?? undefined,
       memberDisplayNumber: getState('network.myMemberDisplayNumber') ?? undefined,
       isAuthenticated: getState('network.myMemberAuthenticated'),
+      devicePlatform: getDevicePlatform(),
     },
     ...[...connectedPeers]
       .sort((a, b) => a.joinOrder - b.joinOrder)
@@ -302,6 +304,7 @@ export function broadcastDeviceList(): void {
         isHost: false,
         isOp: p.isOp,
         connectionType: (p.connectionType as string) || 'unknown',
+        devicePlatform: p.devicePlatform ?? 'other',
         joinOrder: p.joinOrder,
         memberId: p.memberId,
         memberDisplayNumber: p.memberDisplayNumber,

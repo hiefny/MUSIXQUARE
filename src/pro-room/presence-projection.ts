@@ -105,6 +105,7 @@ export function projectAuthoritativeProDevices(snapshot: ProRoomSnapshot) {
     status: 'connected',
     joinOrder: index,
     connectionType: 'remote' as const,
+    devicePlatform: participant.devicePlatform ?? 'other',
     memberId: participant.memberId,
     memberDisplayNumber: participant.memberDisplayNumber,
     isAuthenticated: participant.isAuthenticated === true,

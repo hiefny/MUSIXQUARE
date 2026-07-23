@@ -1,4 +1,4 @@
-import type { QueueItemId } from '../types/index.ts';
+import type { DevicePlatform, QueueItemId } from '../types/index.ts';
 import {
   capabilitiesForProRoomRole,
   PRO_ROOM_MAX_ASSET_BYTES,
@@ -38,6 +38,14 @@ const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const SYSTEM_AUDIO_PUBLIC_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const MAX_SYSTEM_AUDIO_TRACK_NAME_LENGTH = 160;
 const MAX_SYSTEM_AUDIO_MID_LENGTH = 64;
+const DEVICE_PLATFORMS = new Set<DevicePlatform>([
+  'ios',
+  'android',
+  'windows',
+  'macos',
+  'linux',
+  'other',
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -485,7 +493,7 @@ function parsePresenceParticipant(value: unknown): ProRoomPresenceParticipant | 
     !hasExactKeysWithOptionals(
       value,
       ['participantId', 'displayName', 'role', 'joinedAtMs'],
-      ['memberId', 'memberDisplayNumber', 'isAuthenticated', 'capabilities'],
+      ['memberId', 'memberDisplayNumber', 'isAuthenticated', 'capabilities', 'devicePlatform'],
     )
   ) {
     return null;
@@ -498,6 +506,13 @@ function parsePresenceParticipant(value: unknown): ProRoomPresenceParticipant | 
   const capabilities =
     value.capabilities === undefined ? undefined : parseCapabilities(value.capabilities);
   if (capabilities === null) return null;
+  if (
+    value.devicePlatform !== undefined &&
+    (typeof value.devicePlatform !== 'string' ||
+      !DEVICE_PLATFORMS.has(value.devicePlatform as DevicePlatform))
+  ) {
+    return null;
+  }
   const hasMemberIdentity = value.memberId !== undefined;
   if (
     hasMemberIdentity !== (value.memberDisplayNumber !== undefined) ||
@@ -522,6 +537,9 @@ function parsePresenceParticipant(value: unknown): ProRoomPresenceParticipant | 
         }
       : {}),
     displayName: value.displayName,
+    ...(value.devicePlatform === undefined
+      ? {}
+      : { devicePlatform: value.devicePlatform as DevicePlatform }),
     role: value.role,
     ...(capabilities === undefined ? {} : { capabilities }),
     joinedAtMs: value.joinedAtMs,

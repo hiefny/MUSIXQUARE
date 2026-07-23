@@ -421,6 +421,23 @@ function allowedOrigin(request, env) {
   return configuredAllowedOrigins(env).has(origin) ? origin : null;
 }
 
+function devicePlatformFromRequest(request) {
+  const userAgent = String(request.headers.get('user-agent') || '');
+  if (/iPad|iPhone|iPod/i.test(userAgent) || (/Macintosh/i.test(userAgent) && /Mobile/i.test(userAgent))) {
+    return 'ios';
+  }
+  if (/Android/i.test(userAgent)) return 'android';
+  if (/Windows/i.test(userAgent)) return 'windows';
+  if (/Macintosh|Mac OS X/i.test(userAgent)) return 'macos';
+  if (/Linux|X11/i.test(userAgent)) return 'linux';
+  return 'other';
+}
+
+function requestSupportsDevicePlatformProjection(request) {
+  const accept = String(request.headers.get('accept') || '');
+  return /(?:^|[;,]\s*)mxqr-device-platform\s*=\s*1(?:\s*(?:[;,]|$))/i.test(accept);
+}
+
 function corsHeaders(origin) {
   return {
     'access-control-allow-origin': origin,
@@ -1309,7 +1326,7 @@ function publicAdministrators(room) {
   });
 }
 
-function publicSnapshot(room, session = null) {
+function publicSnapshot(room, session = null, includeDevicePlatform = false) {
   const memberIdentityEnabled = room.__memberIdentityProjectionEnabled === true;
   const memberAuthorityEnabled = room.__memberAuthorityProjectionEnabled === true;
   const participants = Object.values(room.presence.participants)
@@ -1334,6 +1351,9 @@ function publicSnapshot(room, session = null) {
             }
           : {}),
         displayName: participant.displayName,
+        ...(includeDevicePlatform
+          ? { devicePlatform: participant.devicePlatform || 'other' }
+          : {}),
         role: participant.role,
         ...(memberAuthorityEnabled && participantSession
           ? {
@@ -4062,6 +4082,8 @@ export class MusixquareProRoom {
             return this.handleEnterPresence(request);
           if (request.method === 'POST' && url.pathname === `${prefix}/presence/close`)
             return this.handleClosePresence(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/presence/kick-device`)
+            return this.handleKickPhysicalPresence(request);
           if (request.method === 'POST' && url.pathname === `${prefix}/presence/kick`)
             return this.handleKickPresence(request);
           if (request.method === 'PUT' && administratorMatch)
@@ -7166,10 +7188,11 @@ export class MusixquareProRoom {
     return this.systemAudioResponse();
   }
 
-  joinPresence(session, tokenHash, nowMs) {
+  joinPresence(session, tokenHash, nowMs, devicePlatform = 'other') {
     const existing = this.room.presence.participants[session.participantId];
     if (existing) {
       existing.lastSeenAtMs = nowMs;
+      existing.devicePlatform = devicePlatform;
       session.presenceIncarnationId = existing.presenceIncarnationId;
       return false;
     }
@@ -7188,6 +7211,7 @@ export class MusixquareProRoom {
         : {}),
       sessionHash: tokenHash,
       displayName: session.displayName,
+      devicePlatform,
       role: session.role,
       joinedAtMs: nowMs,
       lastSeenAtMs: nowMs,
@@ -7239,10 +7263,12 @@ export class MusixquareProRoom {
     return true;
   }
 
-  enterPresence(session, tokenHash, nowMs, takeover = false) {
+  enterPresence(session, tokenHash, nowMs, takeover = false, devicePlatform = 'other') {
     const existing = this.room.presence.participants[session.participantId];
     if (!existing) {
-      return this.joinPresence(session, tokenHash, nowMs) === null ? 'room-full' : 'entered';
+      return this.joinPresence(session, tokenHash, nowMs, devicePlatform) === null
+        ? 'room-full'
+        : 'entered';
     }
     if (existing.sessionHash !== tokenHash) return 'identity-mismatch';
 
@@ -7264,6 +7290,7 @@ export class MusixquareProRoom {
     existing.developerControlVersion = 0;
     existing.joinedAtMs = nowMs;
     existing.lastSeenAtMs = nowMs;
+    existing.devicePlatform = devicePlatform;
     const pending = this.room.pendingPlaybackTransition;
     if (pending?.cohort.includes(previousPresenceIncarnationId)) {
       pending.cohort = pending.cohort.map((candidate) =>
@@ -8742,10 +8769,16 @@ export class MusixquareProRoom {
     if (!created || !ownerCredential) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
     this.room.ownerCredentialHash = ownerCredential.hash;
     this.room.ownerDisplayName = created.session.displayName;
-    this.joinPresence(created.session, created.tokenHash, nowMs);
+    this.joinPresence(created.session, created.tokenHash, nowMs, devicePlatformFromRequest(request));
     await this.persist();
     this.markRegistryActivationActive();
-    const response = jsonResponse({ snapshot: publicSnapshot(this.room, created.session) }, 200, {
+    const response = jsonResponse({
+      snapshot: publicSnapshot(
+        this.room,
+        created.session,
+        requestSupportsDevicePlatformProjection(request),
+      ),
+    }, 200, {
       'set-cookie': sessionCookie(this.room.roomCode, created.token, this.sessionTtlSeconds()),
     });
     response.headers.append('set-cookie', ownerCookie(this.room.roomCode, ownerCredential.token));
@@ -8829,9 +8862,15 @@ export class MusixquareProRoom {
     this.room.ownerCredentialHash = ownerCredential.hash;
     this.room.ownerDisplayName = created.session.displayName;
     this.room.consumedRecoveryNonces[nonceHash] = claim.exp;
-    this.joinPresence(created.session, created.tokenHash, nowMs);
+    this.joinPresence(created.session, created.tokenHash, nowMs, devicePlatformFromRequest(request));
     await this.persist();
-    const response = jsonResponse({ snapshot: publicSnapshot(this.room, created.session) }, 200, {
+    const response = jsonResponse({
+      snapshot: publicSnapshot(
+        this.room,
+        created.session,
+        requestSupportsDevicePlatformProjection(request),
+      ),
+    }, 200, {
       'set-cookie': sessionCookie(this.room.roomCode, created.token, this.sessionTtlSeconds()),
     });
     response.headers.append('set-cookie', ownerCookie(this.room.roomCode, ownerCredential.token));
@@ -8886,14 +8925,25 @@ export class MusixquareProRoom {
       accountMember,
     );
     if (!created) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
-    if (this.joinPresence(created.session, created.tokenHash, nowMs) === null) {
+    if (
+      this.joinPresence(
+        created.session,
+        created.tokenHash,
+        nowMs,
+        devicePlatformFromRequest(request),
+      ) === null
+    ) {
       this.removeSessionRecord(created.tokenHash);
       return errorResponse('ROOM_FULL', 409);
     }
     await this.persist();
     return jsonResponse(
       {
-        snapshot: publicSnapshot(this.room, created.session),
+        snapshot: publicSnapshot(
+          this.room,
+          created.session,
+          requestSupportsDevicePlatformProjection(request),
+        ),
         session: { expiresAtMs: created.session.expiresAtMs },
       },
       200,
@@ -8907,7 +8957,13 @@ export class MusixquareProRoom {
   async handleGetSnapshot(request) {
     const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
-    return jsonResponse({ snapshot: publicSnapshot(this.room, auth.session) });
+    return jsonResponse({
+      snapshot: publicSnapshot(
+        this.room,
+        auth.session,
+        requestSupportsDevicePlatformProjection(request),
+      ),
+    });
   }
 
   async handleAttachCurrentAccount(request) {
@@ -8957,7 +9013,13 @@ export class MusixquareProRoom {
         auth.session.accountLeaseExpiresAtMs = this.accountIdentityLeaseExpiresAt(nowMs);
         await this.persist({ writeLegacyShadow: false, retainEarlierAlarm: true });
       }
-      return jsonResponse({ snapshot: publicSnapshot(this.room, auth.session) }, 200, {
+      return jsonResponse({
+        snapshot: publicSnapshot(
+          this.room,
+          auth.session,
+          requestSupportsDevicePlatformProjection(request),
+        ),
+      }, 200, {
         'x-mxqr-account-linked': '1',
       });
     }
@@ -8987,7 +9049,13 @@ export class MusixquareProRoom {
     this.room.revision += 1;
     await this.persist();
     this.scheduleServerEvent(this.presenceEvent());
-    return jsonResponse({ snapshot: publicSnapshot(this.room, auth.session) }, 200, {
+    return jsonResponse({
+      snapshot: publicSnapshot(
+        this.room,
+        auth.session,
+        requestSupportsDevicePlatformProjection(request),
+      ),
+    }, 200, {
       'x-mxqr-account-linked': '1',
     });
   }
@@ -9039,13 +9107,18 @@ export class MusixquareProRoom {
     if (!parsed.empty) return errorResponse('INVALID_REQUEST', 400);
     const explicitEnvelope = request.headers.get('x-mxqr-pro-detach-version') === '2';
     const detachResponse = (session, participant) => {
-      const snapshot = participant ? publicSnapshot(this.room, session) : null;
+      const includeDevicePlatform = requestSupportsDevicePlatformProjection(request);
+      const snapshot = participant
+        ? publicSnapshot(this.room, session, includeDevicePlatform)
+        : null;
       // Cached v1 clients parse an exact `{ snapshot }` envelope and may remain
       // active while a new Worker deploys. Negotiate the nullable, explicit
       // result so rolling deployment cannot turn logout into a protocol error.
       return explicitEnvelope
         ? jsonResponse({ ok: true, detached: true, snapshot })
-        : jsonResponse({ snapshot: snapshot || publicSnapshot(this.room, session) });
+        : jsonResponse({
+            snapshot: snapshot || publicSnapshot(this.room, session, includeDevicePlatform),
+          });
     };
 
     // Repeated logout/cross-tab reconciliation is deliberately idempotent.
@@ -9087,7 +9160,13 @@ export class MusixquareProRoom {
       }
       takeover = true;
     }
-    const entered = this.enterPresence(auth.session, auth.tokenHash, Date.now(), takeover);
+    const entered = this.enterPresence(
+      auth.session,
+      auth.tokenHash,
+      Date.now(),
+      takeover,
+      devicePlatformFromRequest(request),
+    );
     if (entered === 'room-full') return errorResponse('ROOM_FULL', 409);
     if (entered === 'active-elsewhere') {
       return errorResponse('PRESENCE_ACTIVE_ELSEWHERE', 409);
@@ -9096,7 +9175,13 @@ export class MusixquareProRoom {
       return errorResponse('PRESENCE_IDENTITY_MISMATCH', 409);
     }
     await this.persist();
-    return jsonResponse({ snapshot: publicSnapshot(this.room, auth.session) });
+    return jsonResponse({
+      snapshot: publicSnapshot(
+        this.room,
+        auth.session,
+        requestSupportsDevicePlatformProjection(request),
+      ),
+    });
   }
 
   async handleCloseSession(request) {
@@ -9306,7 +9391,13 @@ export class MusixquareProRoom {
         coordinatorEpoch: this.room.presence.coordinatorEpoch,
       });
     }
-    return jsonResponse({ snapshot: publicSnapshot(this.room, auth.session) });
+    return jsonResponse({
+      snapshot: publicSnapshot(
+        this.room,
+        auth.session,
+        requestSupportsDevicePlatformProjection(request),
+      ),
+    });
   }
 
   async handleLeavePresence(request) {
@@ -9316,12 +9407,15 @@ export class MusixquareProRoom {
     // its presence list. When other peers remain, return the last internally
     // consistent departing snapshot while persisting the newer server state;
     // the caller is leaving and must not apply a phantom post-leave viewer.
-    const departingSnapshot = publicSnapshot(this.room, auth.session);
+    const includeDevicePlatform = requestSupportsDevicePlatformProjection(request);
+    const departingSnapshot = publicSnapshot(this.room, auth.session, includeDevicePlatform);
     const hadOtherParticipants = Object.keys(this.room.presence.participants).length > 1;
     this.removePresence(auth.session.participantId, Date.now());
     await this.persist();
     return jsonResponse({
-      snapshot: hadOtherParticipants ? departingSnapshot : publicSnapshot(this.room, auth.session),
+      snapshot: hadOtherParticipants
+        ? departingSnapshot
+        : publicSnapshot(this.room, auth.session, includeDevicePlatform),
     });
   }
 
@@ -9368,7 +9462,14 @@ export class MusixquareProRoom {
     // while a never-processed old request cannot target the new incarnation.
     const scope = `participant:${body.expectedParticipantId}:incarnation:${body.expectedPresenceIncarnationId}:session:${auth.tokenHash}:presence-close`;
     const fingerprint = await this.idempotencyFingerprint(scope, mutation);
-    const replay = this.replayIdempotency(scope, key, fingerprint, auth.session);
+    const replay = this.replayIdempotency(
+      scope,
+      key,
+      fingerprint,
+      auth.session,
+      null,
+      requestSupportsDevicePlatformProjection(request),
+    );
     if (replay) return replay;
     const participant = this.room.presence.participants[body.expectedParticipantId];
     if (
@@ -9438,12 +9539,11 @@ export class MusixquareProRoom {
       if (auth.session.role !== 'owner' && targetSession.role === 'controller') {
         return errorResponse('ADMINISTRATOR_TARGET_FORBIDDEN', 403);
       }
-      // A room-owner kick is an account-wide removal, not a temporary transport
-      // disconnect. If the target is an authenticated delegated administrator,
-      // revoke the durable grant before deleting its sessions; otherwise the
-      // same Google account could immediately rejoin with the authority the
-      // owner just removed. Ordinary delegated administrators cannot reach this
-      // branch for another administrator (guarded above).
+    }
+    if (this.authorityProjectionEnabled()) {
+      // Preserve the legacy /presence/kick contract during rolling deploys:
+      // either legacy target shape means an account-wide authority removal.
+      // Exact transport removal lives exclusively at /presence/kick-device.
       if (targetSession.accountId) {
         const member = this.room.accountMembers?.[targetSession.accountId];
         if (member?.role === 'controller') {
@@ -9462,11 +9562,62 @@ export class MusixquareProRoom {
         this.removeSessionRecord(tokenHash);
       }
     } else {
-      delete this.room.sessions[target.sessionHash];
+      this.removeSessionRecord(target.sessionHash);
       this.removePresence(targetParticipantId, Date.now());
     }
     await this.persist();
-    return jsonResponse({ snapshot: publicSnapshot(this.room, auth.session) });
+    return jsonResponse({
+      snapshot: publicSnapshot(
+        this.room,
+        auth.session,
+        requestSupportsDevicePlatformProjection(request),
+      ),
+    });
+  }
+
+  async handleKickPhysicalPresence(request) {
+    const auth = await this.requireSession(request, {
+      activePresence: true,
+      capability: 'members.manage',
+    });
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request, 1024);
+    if (parsed.response) return parsed.response;
+    if (
+      !hasExactKeys(parsed.value, ['targetParticipantId']) ||
+      !OPAQUE_ID_RE.test(parsed.value.targetParticipantId || '')
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const target = this.room.presence.participants[parsed.value.targetParticipantId];
+    if (!target) return errorResponse('PARTICIPANT_NOT_FOUND', 404);
+    const targetSession = this.room.sessions[target.sessionHash];
+    if (!targetSession) return errorResponse('PARTICIPANT_NOT_FOUND', 404);
+    if (
+      target.participantId === auth.session.participantId ||
+      (this.authorityProjectionEnabled() && targetSession.memberId === auth.session.memberId)
+    ) {
+      return errorResponse('CANNOT_KICK_SELF', 409);
+    }
+    if (this.authorityProjectionEnabled()) {
+      if (targetSession.role === 'owner') return errorResponse('OWNER_AUTHORITY_IMMUTABLE', 409);
+      if (auth.session.role !== 'owner' && targetSession.role === 'controller') {
+        return errorResponse('ADMINISTRATOR_TARGET_FORBIDDEN', 403);
+      }
+    }
+
+    // This endpoint is intentionally exact and transport-scoped. Sibling
+    // sessions, the member directory, and delegated authority stay intact.
+    this.removeSessionRecord(target.sessionHash);
+    this.removePresence(target.participantId, Date.now());
+    await this.persist();
+    return jsonResponse({
+      snapshot: publicSnapshot(
+        this.room,
+        auth.session,
+        requestSupportsDevicePlatformProjection(request),
+      ),
+    });
   }
 
   async handleSignalingTicket(request) {
@@ -9556,7 +9707,14 @@ export class MusixquareProRoom {
     }
     const scope = `participant:${auth.session.participantId}:playback-authority`;
     const fingerprint = await this.idempotencyFingerprint(scope, command);
-    const replay = this.replayIdempotency(scope, key, fingerprint, auth.session);
+    const replay = this.replayIdempotency(
+      scope,
+      key,
+      fingerprint,
+      auth.session,
+      null,
+      requestSupportsDevicePlatformProjection(request),
+    );
     if (replay) return replay;
 
     const nowMs = Date.now();
@@ -9653,14 +9811,24 @@ export class MusixquareProRoom {
     return sha256Base64Url(`${scope}\n${JSON.stringify(body)}`);
   }
 
-  replayIdempotency(scope, key, fingerprint, session = null, developerRequesterKeyId = null) {
+  replayIdempotency(
+    scope,
+    key,
+    fingerprint,
+    session = null,
+    developerRequesterKeyId = null,
+    includeDevicePlatform = false,
+  ) {
     const record = this.room.idempotency[`${scope}:${key}`];
     if (!record) return null;
     if (!constantTimeEqual(record.fingerprint, fingerprint)) {
       return errorResponse('IDEMPOTENCY_CONFLICT', 409);
     }
     if (record.kind === 'snapshot') {
-      return jsonResponse({ snapshot: publicSnapshot(this.room, session) }, record.status);
+      return jsonResponse(
+        { snapshot: publicSnapshot(this.room, session, includeDevicePlatform) },
+        record.status,
+      );
     }
     if (record.kind === 'developer-queue') {
       // The action is replayed from a compact receipt, while the response is
@@ -9766,7 +9934,15 @@ export class MusixquareProRoom {
     }
     const scope = `participant:${auth.session.participantId}:snapshot`;
     const fingerprint = await this.idempotencyFingerprint(scope, body);
-    const replay = this.replayIdempotency(scope, key, fingerprint, auth.session);
+    const includeDevicePlatform = requestSupportsDevicePlatformProjection(request);
+    const replay = this.replayIdempotency(
+      scope,
+      key,
+      fingerprint,
+      auth.session,
+      null,
+      includeDevicePlatform,
+    );
     if (replay) return replay;
     if (!isSafeNonNegativeInteger(body.baseRevision)) return errorResponse('INVALID_REVISION', 400);
     if (body.baseRevision !== this.room.revision) {
@@ -9787,6 +9963,7 @@ export class MusixquareProRoom {
       playlist: parsedPlaylist,
       currentQueueItemId: body.currentQueueItemId,
       playbackInput: body.playback,
+      includeDevicePlatform,
     });
   }
 
@@ -9814,7 +9991,15 @@ export class MusixquareProRoom {
     }
     const scope = `participant:${auth.session.participantId}:snapshot`;
     const fingerprint = await this.idempotencyFingerprint(scope, body);
-    const replay = this.replayIdempotency(scope, key, fingerprint, auth.session);
+    const includeDevicePlatform = requestSupportsDevicePlatformProjection(request);
+    const replay = this.replayIdempotency(
+      scope,
+      key,
+      fingerprint,
+      auth.session,
+      null,
+      includeDevicePlatform,
+    );
     if (replay) return replay;
     if (!isSafeNonNegativeInteger(body.baseRevision)) return errorResponse('INVALID_REVISION', 400);
     if (body.baseRevision !== this.room.revision) {
@@ -9865,6 +10050,7 @@ export class MusixquareProRoom {
       playlist,
       currentQueueItemId: body.currentQueueItemId,
       playbackInput: body.playback,
+      includeDevicePlatform,
     });
   }
 
@@ -9876,6 +10062,7 @@ export class MusixquareProRoom {
     playlist: parsedPlaylist,
     currentQueueItemId,
     playbackInput,
+    includeDevicePlatform,
   }) {
     const previousPlaylistById = new Map(
       this.room.playlist.map((item) => [item.queueItemId, item]),
@@ -9987,7 +10174,9 @@ export class MusixquareProRoom {
       this.room.playlistRevision += 1;
     }
     this.room.revision += 1;
-    const responseBody = { snapshot: publicSnapshot(this.room, auth.session) };
+    const responseBody = {
+      snapshot: publicSnapshot(this.room, auth.session, includeDevicePlatform),
+    };
     this.storeSnapshotIdempotency(scope, key, fingerprint, this.room.revision);
     if (pendingCancelEvent) this.enqueuePlaybackBroadcast(pendingCancelEvent);
     if (playbackCleared) {

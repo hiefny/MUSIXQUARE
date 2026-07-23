@@ -58,7 +58,7 @@
     <main class="policy-shell">
       <section class="policy-hero">
         <h1>Privacy Policy</h1>
-        <p class="policy-date">Effective date: July 20, 2026</p>
+        <p class="policy-date">Effective date: July 23, 2026</p>
       </section>
 
       <article class="policy-doc">
@@ -82,9 +82,11 @@
             <div>
               <dt>Room and connection data</dt>
               <dd>
-                Room codes, optional room passwords, temporary device or peer identifiers, IP and
-                WebRTC connection information, connection status, and related signaling data may be
-                processed to create and maintain rooms.
+                Room codes, optional room passwords, temporary device or peer identifiers, coarse
+                device-platform categories (such as iOS, Android, Windows, macOS, Linux, or other),
+                IP and WebRTC connection information, connection status, and related signaling data
+                may be processed to create and maintain rooms and manage individual active device
+                connections.
               </dd>
             </div>
             <div>
@@ -113,8 +115,11 @@
                 In account-aware rooms, a signed-in user is represented by a room-scoped member
                 identifier and nickname rather than a Google identifier or email address. Multiple
                 devices signed in to the same account may be grouped as one room member. Other
-                participants may see the nickname, member number, connected-device count, and room
-                role, while each device's connection and audio output remain separate.
+                participants may see the nickname, member number, connected-device count, room role,
+                and, for each active connection, a coarse platform label and shortened room-session
+                identifier. The shortened identifier is derived from a temporary connection ID; it
+                is not a hardware serial number, advertising ID, or persistent device fingerprint.
+                Each device's connection and audio output remain separate.
               </dd>
             </div>
             <div>

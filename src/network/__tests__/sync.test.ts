@@ -1031,6 +1031,55 @@ describe('PRO controller member kick requests', () => {
     expect(kick).toHaveBeenCalledWith('target-member');
   });
 
+  it('routes a physical-device request to the exact disconnect path', async () => {
+    const senderConn = openConnection('controller-member');
+    const targetConn = openConnection('target-member');
+    configureProKickTopology(senderConn, targetConn);
+    setState('room.context', {
+      kind: 'standard',
+      roomId: '123456',
+      role: 'coordinator',
+      coordinatorId: '123456',
+      epoch: 0,
+      snapshotRevision: 0,
+      capabilities: [],
+    });
+    setState('network.connectedPeers', [
+      memberManagementPeer('controller-member', senderConn, ['members.manage']),
+      { ...memberManagementPeer('target-member', targetConn, []), isOp: false },
+    ]);
+    initSync();
+    const memberKick = vi.fn();
+    const physicalKick = vi.fn();
+    bus.on('network:kick-device', memberKick);
+    bus.on('network:kick-physical-device', physicalKick);
+
+    await handleData(
+      { type: MSG.REQUEST_KICK_PHYSICAL_DEVICE, targetPeerId: 'target-member' },
+      senderConn,
+    );
+
+    expect(physicalKick).toHaveBeenCalledTimes(1);
+    expect(physicalKick).toHaveBeenCalledWith('target-member');
+    expect(memberKick).not.toHaveBeenCalled();
+  });
+
+  it('rejects a physical-device peer frame in PRO rooms so the server stays authoritative', async () => {
+    const senderConn = openConnection('controller-member');
+    const targetConn = openConnection('target-member');
+    configureProKickTopology(senderConn, targetConn);
+    initSync();
+    const physicalKick = vi.fn();
+    bus.on('network:kick-physical-device', physicalKick);
+
+    await handleData(
+      { type: MSG.REQUEST_KICK_PHYSICAL_DEVICE, targetPeerId: 'target-member' },
+      senderConn,
+    );
+
+    expect(physicalKick).not.toHaveBeenCalled();
+  });
+
   it('does not let a delegated standard-room administrator kick another administrator', async () => {
     const senderConn = openConnection('controller-member');
     const targetConn = openConnection('target-member');

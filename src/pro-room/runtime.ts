@@ -3860,6 +3860,22 @@ export async function kickActiveProRoomMember(
   publishProRoomAdministrators(snapshot);
 }
 
+/** Disconnect exactly one live PRO presence without revoking member authority. */
+export async function kickActiveProRoomPresence(
+  participantId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const { code, lease } = requireActiveProRoomAuthorityLease();
+  const snapshot = await api.kickPresence(code, participantId, signal);
+  if (!controller.isSessionLeaseCurrent(lease, code)) {
+    throw new ProRoomApiError('PRO_ROOM_SESSION_SUPERSEDED');
+  }
+  await acceptPlaylistSnapshot(snapshot);
+  if (!controller.isSessionLeaseCurrent(lease, code)) return;
+  reconcileAuthoritativePeers(snapshot);
+  publishProRoomAdministrators(snapshot);
+}
+
 async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSnapshot> {
   try {
     await acceptPlaylistSnapshot(snapshot);

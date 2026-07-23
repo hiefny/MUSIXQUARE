@@ -2037,7 +2037,7 @@ describe('PRO room server-authoritative playback', () => {
     const ownerParticipantId = context.activationEnvelope.snapshot.viewer.participantId as string;
     const kicked = await context.worker.fetch(
       jsonRequest(
-        '/presence/kick',
+        '/presence/kick-device',
         'POST',
         { targetParticipantId: ownerParticipantId },
         friend.cookie,
@@ -7361,6 +7361,53 @@ describe('persistent PRO room authentication, presence, and state', () => {
     return { response, envelope, cookie };
   }
 
+  it('negotiates coarse device platforms without breaking cached snapshot clients', async () => {
+    const context = await activatedRoom();
+    const joinRequest = jsonRequest('/sessions', 'POST', { pin: '12345678' });
+    joinRequest.headers.set('accept', 'application/json; mxqr-device-platform=1');
+    joinRequest.headers.set(
+      'user-agent',
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+    );
+    const joinedResponse = await context.worker.fetch(joinRequest);
+    expect(joinedResponse.status).toBe(200);
+    const joined = await responseJson(joinedResponse);
+    expect(
+      joined.snapshot.presence.participants.find(
+        (participant: Record<string, unknown>) =>
+          participant.participantId === joined.snapshot.viewer.participantId,
+      ),
+    ).toMatchObject({ devicePlatform: 'ios' });
+    expect(parseProRoomSnapshot(joined.snapshot)).not.toBeNull();
+
+    const legacy = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    expect(
+      legacy.snapshot.presence.participants.every(
+        (participant: Record<string, unknown>) =>
+          !Object.prototype.hasOwnProperty.call(participant, 'devicePlatform'),
+      ),
+    ).toBe(true);
+    expect(parseProRoomSnapshot(legacy.snapshot)).not.toBeNull();
+
+    const negotiated = await responseJson(
+      await context.worker.fetch(
+        request(
+          '/snapshot',
+          { headers: { accept: 'application/json; mxqr-device-platform=1' } },
+          context.ownerCookie,
+        ),
+      ),
+    );
+    expect(
+      negotiated.snapshot.presence.participants.find(
+        (participant: Record<string, unknown>) =>
+          participant.participantId === joined.snapshot.viewer.participantId,
+      ),
+    ).toMatchObject({ devicePlatform: 'ios' });
+  });
+
   it('keeps one room member identity across several devices of the same account', async () => {
     const context = await activatedRoom();
     const internal = context.worker as unknown as {
@@ -9357,13 +9404,102 @@ describe('persistent PRO room authentication, presence, and state', () => {
       jsonRequest(
         '/presence/kick',
         'POST',
-        { targetMemberId: first.envelope.snapshot.viewer.memberId },
+        { targetParticipantId: first.envelope.snapshot.viewer.participantId },
         delegated.cookie,
       ),
     );
     expect(kicked.status).toBe(200);
     expect((await context.worker.fetch(request('/snapshot', {}, first.cookie))).status).toBe(401);
     expect((await context.worker.fetch(request('/snapshot', {}, second.cookie))).status).toBe(401);
+  });
+
+  it('disconnects one exact device while preserving sibling sessions and delegated authority', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const accountId = 'acct_singledevice0123456789';
+    const createAccountDevice = async () => {
+      const response = await context.worker.fetch(
+        await withAccountAssertion(
+          jsonRequest('/sessions', 'POST', { pin: '12345678' }),
+          accountId,
+          'Device administrator',
+        ),
+      );
+      expect(response.status).toBe(200);
+      const envelope = await responseJson(response);
+      const cookie = cookieFrom(response);
+      bindCookiePresence(cookie, envelope);
+      return { envelope, cookie };
+    };
+    const first = await createAccountDevice();
+    const second = await createAccountDevice();
+    const memberId = first.envelope.snapshot.viewer.memberId as string;
+    expect(second.envelope.snapshot.viewer.memberId).toBe(memberId);
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${memberId}`,
+            'PUT',
+            { permissions: fullDelegatedPermissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+
+    const memberShape = await context.worker.fetch(
+      jsonRequest(
+        '/presence/kick-device',
+        'POST',
+        { targetMemberId: memberId },
+        context.ownerCookie,
+      ),
+    );
+    expect(memberShape.status).toBe(400);
+    await expect(memberShape.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+
+    const kicked = await context.worker.fetch(
+      jsonRequest(
+        '/presence/kick-device',
+        'POST',
+        { targetParticipantId: first.envelope.snapshot.viewer.participantId },
+        context.ownerCookie,
+      ),
+    );
+    expect(kicked.status).toBe(200);
+    expect((await context.worker.fetch(request('/snapshot', {}, first.cookie))).status).toBe(401);
+
+    const siblingSnapshot = await context.worker.fetch(request('/snapshot', {}, second.cookie));
+    expect(siblingSnapshot.status).toBe(200);
+    const sibling = await responseJson(siblingSnapshot);
+    const remainingParticipantIds = sibling.snapshot.presence.participants.map(
+      (participant: Record<string, unknown>) => participant.participantId,
+    );
+    expect(remainingParticipantIds).not.toContain(
+      first.envelope.snapshot.viewer.participantId,
+    );
+    expect(remainingParticipantIds).toContain(second.envelope.snapshot.viewer.participantId);
+    expect(sibling.snapshot.viewer).toMatchObject({
+      memberId,
+      role: 'controller',
+      isAuthenticated: true,
+      capabilities: ['queue.mutate', 'playback.control', 'asset.upload', 'members.manage'],
+    });
+    expect(sibling.snapshot.administrators).toContainEqual(
+      expect.objectContaining({
+        memberId,
+        role: 'controller',
+        isAuthenticated: true,
+        permissions: fullDelegatedPermissions,
+      }),
+    );
+    expect(internal.room.accountMembers[accountId]).toMatchObject({
+      memberId,
+      role: 'controller',
+      permissions: fullDelegatedPermissions,
+    });
   });
 
   it('revokes an authenticated administrator account when the owner kicks that member', async () => {
@@ -12236,14 +12372,43 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(first.status).toBe(200);
     const firstEnvelope = await responseJson(first);
     expect(firstEnvelope.snapshot.playback).toEqual(current.snapshot.playback);
+    expect(
+      firstEnvelope.snapshot.presence.participants.every(
+        (participant: Record<string, unknown>) =>
+          !Object.prototype.hasOwnProperty.call(participant, 'devicePlatform'),
+      ),
+    ).toBe(true);
     const controller = await worker.fetch(jsonRequest('/sessions', 'POST', { pin: '12345678' }));
     expect(controller.status).toBe(200);
-    const replay = await worker.fetch(
-      jsonRequest('/snapshot', 'PUT', body, ownerCookie, IDEMPOTENCY_KEY),
+    const negotiatedReplay = jsonRequest(
+      '/snapshot',
+      'PUT',
+      body,
+      ownerCookie,
+      IDEMPOTENCY_KEY,
     );
+    negotiatedReplay.headers.set('accept', 'application/json; mxqr-device-platform=1');
+    const replay = await worker.fetch(negotiatedReplay);
     const replayEnvelope = await responseJson(replay);
     expect(replayEnvelope.snapshot.revision).toBeGreaterThan(firstEnvelope.snapshot.revision);
     expect(replayEnvelope.snapshot.playlist).toEqual(firstEnvelope.snapshot.playlist);
+    expect(
+      replayEnvelope.snapshot.presence.participants.every(
+        (participant: Record<string, unknown>) =>
+          typeof participant.devicePlatform === 'string',
+      ),
+    ).toBe(true);
+    const legacyReplay = await responseJson(
+      await worker.fetch(
+        jsonRequest('/snapshot', 'PUT', body, ownerCookie, IDEMPOTENCY_KEY),
+      ),
+    );
+    expect(
+      legacyReplay.snapshot.presence.participants.every(
+        (participant: Record<string, unknown>) =>
+          !Object.prototype.hasOwnProperty.call(participant, 'devicePlatform'),
+      ),
+    ).toBe(true);
     const internal = worker as unknown as {
       room: { idempotency: Record<string, Record<string, unknown>> };
     };

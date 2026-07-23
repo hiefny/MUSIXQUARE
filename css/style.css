@@ -2063,7 +2063,8 @@
   }
 
   /* Expand Toggle */
-  .expand-toggle {
+  .expand-toggle,
+  .device-expand-toggle {
     width: 32px;
     height: 32px;
     display: flex;
@@ -2078,20 +2079,23 @@
   }
 
   @media (hover: hover) {
-    .expand-toggle:hover {
+    .expand-toggle:hover,
+    .device-expand-toggle:hover {
       background: var(--surface-3);
       color: var(--text-main);
     }
   }
 
-  .expand-toggle svg {
+  .expand-toggle svg,
+  .device-expand-toggle svg {
     width: 20px;
     height: 20px;
     fill: currentColor;
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  .expand-toggle.active svg {
+  .expand-toggle.active svg,
+  .device-expand-toggle.active svg {
     transform: rotate(180deg);
   }
 
@@ -2922,6 +2926,12 @@
   }
 
   /* ── Device List Row (playlist-unified) ─────────────────────────── */
+  .device-entry {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
   .device-row {
     display: flex;
     align-items: center;
@@ -2969,24 +2979,6 @@
     white-space: nowrap;
   }
 
-  .d-device-count {
-    flex: 0 0 auto;
-    min-width: 0;
-    height: auto;
-    margin-left: 2px;
-    padding: 0;
-    align-self: flex-start;
-    display: inline-block;
-    border-radius: 0;
-    background: transparent;
-    color: var(--primary);
-    font-size: 10px;
-    font-weight: 800;
-    font-variant-numeric: tabular-nums;
-    line-height: 1;
-    transform: translateY(-0.45em);
-  }
-
   .sr-only {
     position: absolute !important;
     width: 1px !important;
@@ -3021,6 +3013,70 @@
     gap: 4px;
     align-items: center;
     flex-shrink: 0;
+  }
+
+  .device-sublist {
+    list-style: none;
+    padding: 0 16px 8px 56px;
+    margin: 0 0 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    transition: opacity 0.18s ease;
+  }
+
+  .device-sublist[hidden] {
+    display: none;
+  }
+
+  .device-subrow {
+    padding: 8px 12px;
+    border-radius: var(--radius-s);
+    font-size: 13px;
+    color: var(--text-sub);
+    cursor: default;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    transition: all 0.2s;
+  }
+
+  @media (hover: hover) {
+    .device-subrow:hover {
+      background: var(--surface-2);
+      color: var(--text-main);
+    }
+  }
+
+  .device-subrow.is-current-device,
+  .device-subrow.is-current-device:hover {
+    color: var(--primary);
+  }
+
+  .device-sub-index {
+    width: 20px;
+    flex: 0 0 20px;
+    font-size: 11px;
+    font-weight: var(--font-weight-display);
+    opacity: 0.5;
+  }
+
+  .device-sub-name {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .device-subrow.is-current-device .device-sub-name {
+    font-weight: 700;
+  }
+
+  .device-expand-toggle {
+    flex: 0 0 32px;
   }
 
   .administrator-section[hidden] {
@@ -3153,7 +3209,8 @@
   }
 
   /* ── Kick Device Button (playlist-remove style) ────────────────── */
-  .btn-kick-device {
+  .btn-kick-device,
+  .btn-kick-physical-device {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3172,7 +3229,8 @@
     padding: 0;
   }
 
-  .btn-kick-device svg {
+  .btn-kick-device svg,
+  .btn-kick-physical-device svg {
     width: 16px;
     height: 16px;
     fill: currentColor;
@@ -3182,14 +3240,45 @@
     opacity: 0.6;
   }
 
+  .device-subrow:hover .btn-kick-physical-device {
+    opacity: 0.6;
+  }
+
+  .device-subrow:hover .btn-kick-physical-device:hover,
+  .btn-kick-physical-device:focus-visible {
+    opacity: 1;
+    color: #ff4d4f;
+  }
+
   .device-row:hover .btn-kick-device:hover {
     opacity: 1;
     color: #ff4d4f;
   }
 
   @media (pointer: coarse) {
-    .btn-kick-device {
+    .btn-kick-device,
+    .btn-kick-physical-device {
       opacity: 0.5;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .device-row {
+      gap: 8px;
+      padding-inline: 8px;
+    }
+
+    .d-actions {
+      gap: 2px;
+    }
+
+    .d-op-btn {
+      padding-inline: 8px;
+    }
+
+    .device-sublist {
+      padding-left: 40px;
+      padding-right: 8px;
     }
   }
 
@@ -9394,6 +9483,7 @@ button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(
 .track-item,
 .sub-track-item,
 .device-row,
+.device-subrow,
 .list-empty-state {
   border-radius: 999px !important;
 }

@@ -260,6 +260,8 @@ export interface StorageEvent {
 }
 
 // ─── Device List ───────────────────────────────────────────────────
+export type DevicePlatform = 'ios' | 'android' | 'windows' | 'macos' | 'linux' | 'other';
+
 export interface DeviceInfo {
   id: string;
   label: string;
@@ -268,6 +270,8 @@ export interface DeviceInfo {
   status: string;
   joinOrder?: number;
   connectionType?: 'local' | 'remote' | 'unknown' | string;
+  /** Coarse, self-reported OS category. Never contains a raw user agent or model name. */
+  devicePlatform?: DevicePlatform;
   memberId?: string;
   memberDisplayNumber?: number;
   isAuthenticated?: boolean;
@@ -300,6 +304,8 @@ export interface ConnectedPeer {
   isDataTarget: boolean;
   joinOrder: number;
   connectionType: 'local' | 'remote' | 'unknown';
+  /** Cosmetic coarse OS category supplied by the connected browser. */
+  devicePlatform?: DevicePlatform;
   lastHeartbeat: number;
   /** Server-verified standard-room person identity, independent of peerId. */
   memberId?: StandardRoomMemberIdentity['memberId'];
@@ -533,6 +539,7 @@ export interface ProtocolMap {
       isHost: boolean;
       isOp?: boolean;
       connectionType?: string;
+      devicePlatform?: DevicePlatform;
       joinOrder?: number;
       memberId?: string;
       memberDisplayNumber?: number;
@@ -615,6 +622,7 @@ export interface ProtocolMap {
   };
   /** Authenticated PRO controller request; the coordinator re-authorizes the target. */
   'request-kick-device': { targetPeerId: string };
+  'request-kick-physical-device': { targetPeerId: string };
   'request-youtube-play': { queueItemId: QueueItemId };
   'request-youtube-pause': { queueItemId: QueueItemId };
   'request-youtube-toggle': { queueItemId: QueueItemId };
@@ -1356,12 +1364,16 @@ interface BaseEventMap {
    * expands a verified memberId to every live device.
    */
   'network:request-kick-standard-room-member': [detail: { memberId: string }];
+  /** UI-facing request to disconnect exactly one physical standard-room connection. */
+  'network:request-kick-standard-room-device': [detail: { peerId: string }];
   /** Verified signaling proof that an account was deleted from this room generation. */
   'network:standard-room-account-deleted': [detail: { memberId: string }];
   'network:role-badge-update': [];
   'network:session-full': [msg: unknown];
   'network:kicked-from-session': [];
   'network:kick-device': [peerId: string];
+  /** Host-only exact physical disconnect; unlike kick-device, it preserves member authority. */
+  'network:kick-physical-device': [peerId: string];
   /** PRO-room member removal is enforced by the room server across every account device. */
   'pro-room:kick-member': [memberIdOrLegacyParticipantId: string];
   'pro-room:administrators-updated': [administrators: ProRoomAdministrator[]];

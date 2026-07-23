@@ -152,6 +152,7 @@ export const MSG = {
   REQUEST_DATA_RECOVERY: 'request-data-recovery',
   REQUEST_EQ_RESET: 'request-eq-reset',
   REQUEST_KICK_DEVICE: 'request-kick-device',
+  REQUEST_KICK_PHYSICAL_DEVICE: 'request-kick-physical-device',
   REQUEST_NEXT_TRACK: 'request-next-track',
   REQUEST_PAUSE: 'request-pause',
   REQUEST_PLAYLIST_ADD_YOUTUBE: 'request-playlist-add-youtube',

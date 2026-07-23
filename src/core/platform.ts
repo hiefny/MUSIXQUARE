@@ -4,6 +4,7 @@
 
 import { log } from './log.ts';
 import { setManagedTimer } from './timers.ts';
+import type { DevicePlatform } from '../types/index.ts';
 
 type NavigatorWithInstallHints = Navigator & {
   standalone?: boolean;
@@ -27,6 +28,37 @@ export const IS_ANDROID: boolean = /Android/i.test(navigator.userAgent);
 export const IS_WINDOWS: boolean =
   /Windows/i.test(navigator.userAgent) ||
   /^Win/i.test(installNavigator.userAgentData?.platform ?? navigator.platform ?? '');
+
+const DEVICE_PLATFORMS = new Set<DevicePlatform>([
+  'ios',
+  'android',
+  'windows',
+  'macos',
+  'linux',
+  'other',
+]);
+
+/** Accept only the coarse platform categories allowed in room presence data. */
+export function normalizeDevicePlatform(value: unknown): DevicePlatform {
+  return typeof value === 'string' && DEVICE_PLATFORMS.has(value as DevicePlatform)
+    ? (value as DevicePlatform)
+    : 'other';
+}
+
+/**
+ * Return a coarse OS category without exposing a raw user agent, device model,
+ * serial number, or persistent fingerprint to the room.
+ */
+export function getDevicePlatform(): DevicePlatform {
+  if (IS_IOS) return 'ios';
+  if (IS_ANDROID) return 'android';
+  if (IS_WINDOWS) return 'windows';
+  const platform = installNavigator.userAgentData?.platform ?? navigator.platform ?? '';
+  const userAgent = navigator.userAgent ?? '';
+  if (/Mac/i.test(platform) || /Macintosh|Mac OS X/i.test(userAgent)) return 'macos';
+  if (/Linux|X11/i.test(platform) || /Linux|X11/i.test(userAgent)) return 'linux';
+  return 'other';
+}
 
 /** Desktop Chromium browser (Chrome, Edge, Opera, etc.) — supports getDisplayMedia with audio */
 const IS_DESKTOP_CHROMIUM: boolean = !IS_IOS && !IS_ANDROID && /Chrome\//.test(navigator.userAgent);

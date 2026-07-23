@@ -248,6 +248,30 @@ describe('duplicate guest connection handoff', () => {
     expect(systemMessages).toHaveLength(1);
   });
 
+  it('keeps only an allowlisted coarse platform from untrusted connection metadata', () => {
+    const ios = makeIncomingConn('guest-ios');
+    (ios as unknown as { metadata: unknown }).metadata = {
+      devicePlatform: 'ios',
+      userAgent: 'must-not-enter-room-state',
+    };
+    const invalid = makeIncomingConn('guest-invalid-platform');
+    (invalid as unknown as { metadata: unknown }).metadata = { devicePlatform: 'freebsd' };
+
+    handleHostIncomingConnection(ios);
+    handleHostIncomingConnection(invalid);
+
+    expect(
+      getState('network.connectedPeers').find((peer) => peer.id === 'guest-ios')?.devicePlatform,
+    ).toBe('ios');
+    expect(
+      getState('network.connectedPeers').find((peer) => peer.id === 'guest-invalid-platform')
+        ?.devicePlatform,
+    ).toBe('other');
+    expect(getState('network.connectedPeers')).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ userAgent: expect.anything() })]),
+    );
+  });
+
   it('rejects a connection over capacity with SESSION_FULL and a deferred close, leaving no record', () => {
     const ids = Array.from({ length: MAX_GUEST_SLOTS }, (_, index) => `g${index + 1}`);
     setState('network.peerSlots', [null, ...ids]);
@@ -955,5 +979,25 @@ describe('standard-room account authority', () => {
     expect(first.close).toHaveBeenCalled();
     expect(second.close).toHaveBeenCalled();
     expect(other.close).not.toHaveBeenCalled();
+  });
+
+  it('disconnects one physical device while preserving its sibling and member grant', () => {
+    const identity = verifiedIdentity();
+    const first = makeVerifiedIncomingConn('physical-device-a', identity);
+    const second = makeVerifiedIncomingConn('physical-device-b', identity);
+    handleHostIncomingConnection(first);
+    handleHostIncomingConnection(second);
+    first.fire('open');
+    second.fire('open');
+    bus.emit('network:grant-standard-room-administrator', { memberId: identity.memberId });
+
+    bus.emit('network:request-kick-standard-room-device', { peerId: 'physical-device-a' });
+
+    expect(first.send).toHaveBeenCalledWith({ type: MSG.KICK_DEVICE });
+    expect(second.send).not.toHaveBeenCalledWith({ type: MSG.KICK_DEVICE });
+    expect(getState('network.standardRoomAdministrators').has(identity.memberId)).toBe(true);
+    vi.advanceTimersByTime(300);
+    expect(first.close).toHaveBeenCalled();
+    expect(second.close).not.toHaveBeenCalled();
   });
 });

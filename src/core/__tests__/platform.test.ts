@@ -44,8 +44,9 @@ describe('Platform Detection', () => {
         value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
         configurable: true,
       });
-      const { IS_IOS } = await import('../platform.ts');
+      const { IS_IOS, getDevicePlatform } = await import('../platform.ts');
       expect(IS_IOS).toBe(true);
+      expect(getDevicePlatform()).toBe('ios');
     });
 
     it('detects iPad userAgent as iOS', async () => {
@@ -98,8 +99,9 @@ describe('Platform Detection', () => {
         value: 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120',
         configurable: true,
       });
-      const { IS_ANDROID } = await import('../platform.ts');
+      const { IS_ANDROID, getDevicePlatform } = await import('../platform.ts');
       expect(IS_ANDROID).toBe(true);
+      expect(getDevicePlatform()).toBe('android');
     });
 
     it('does not flag iOS as Android', async () => {
@@ -122,8 +124,9 @@ describe('Platform Detection', () => {
         value: 'Win32',
         configurable: true,
       });
-      const { IS_WINDOWS } = await import('../platform.ts');
+      const { IS_WINDOWS, getDevicePlatform } = await import('../platform.ts');
       expect(IS_WINDOWS).toBe(true);
+      expect(getDevicePlatform()).toBe('windows');
     });
 
     it('does not flag Android as Windows', async () => {
@@ -137,6 +140,50 @@ describe('Platform Detection', () => {
       });
       const { IS_WINDOWS } = await import('../platform.ts');
       expect(IS_WINDOWS).toBe(false);
+    });
+  });
+
+  describe('coarse device platform', () => {
+    it('accepts only the six room-visible platform categories', async () => {
+      const { normalizeDevicePlatform } = await import('../platform.ts');
+      for (const platform of ['ios', 'android', 'windows', 'macos', 'linux', 'other'] as const) {
+        expect(normalizeDevicePlatform(platform)).toBe(platform);
+      }
+      expect(normalizeDevicePlatform('IOS')).toBe('other');
+      expect(normalizeDevicePlatform(' ios ')).toBe('other');
+      expect(normalizeDevicePlatform({ platform: 'ios' })).toBe('other');
+      expect(normalizeDevicePlatform(null)).toBe('other');
+    });
+
+    it('reports macOS without exposing a raw user agent', async () => {
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'platform', { value: 'MacIntel', configurable: true });
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 0, configurable: true });
+      const { getDevicePlatform } = await import('../platform.ts');
+      expect(getDevicePlatform()).toBe('macos');
+    });
+
+    it('reports Linux and falls back to other for unknown platforms', async () => {
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (X11; Linux x86_64)',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'platform', { value: 'Linux x86_64', configurable: true });
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 0, configurable: true });
+      let platform = await import('../platform.ts');
+      expect(platform.getDevicePlatform()).toBe('linux');
+
+      vi.resetModules();
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (UnknownOS)',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'platform', { value: '', configurable: true });
+      platform = await import('../platform.ts');
+      expect(platform.getDevicePlatform()).toBe('other');
     });
   });
 

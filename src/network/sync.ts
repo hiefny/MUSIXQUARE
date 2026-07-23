@@ -603,9 +603,12 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
 // Registered here instead of host.ts to avoid circular dependency
 // (host.ts → protocol.ts → peer.ts → host.ts).
 
-function handleRequestKickDevice(data: Record<string, unknown>, conn: DataConnection): void {
+function resolveRequestedKickTarget(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+): string | null {
   const room = getRoomContext();
-  if (getState('network.hostConn') || getState('network.appRole') !== 'host') return;
+  if (getState('network.hostConn') || getState('network.appRole') !== 'host') return null;
   if (room.kind === 'pro') {
     if (
       room.role !== 'coordinator' ||
@@ -614,12 +617,12 @@ function handleRequestKickDevice(data: Record<string, unknown>, conn: DataConnec
       !room.capabilities.includes('members.manage') ||
       room.roomId !== getState('network.sessionCode')
     ) {
-      return;
+      return null;
     }
   }
 
   const senderId = conn?.peer;
-  if (!senderId || !conn.open || !verifyPeerCapability(conn, 'members.manage')) return;
+  if (!senderId || !conn.open || !verifyPeerCapability(conn, 'members.manage')) return null;
 
   const peers = getState('network.connectedPeers');
   const activeConnections = getState('network.activeHostConnByPeerId');
@@ -630,7 +633,7 @@ function handleRequestKickDevice(data: Record<string, unknown>, conn: DataConnec
       peer.status === 'connected' &&
       activeConnections.get(senderId) === conn,
   );
-  if (!sender) return;
+  if (!sender) return null;
 
   const targetPeerId = data.targetPeerId as string;
   const coordinatorTransportId = getState('network.myId');
@@ -639,7 +642,7 @@ function handleRequestKickDevice(data: Record<string, unknown>, conn: DataConnec
     targetPeerId === coordinatorTransportId ||
     targetPeerId === room.coordinatorId
   ) {
-    return;
+    return null;
   }
 
   const target = peers.find((peer) => peer.id === targetPeerId);
@@ -650,20 +653,41 @@ function handleRequestKickDevice(data: Record<string, unknown>, conn: DataConnec
     !targetConnection?.open ||
     activeConnections.get(targetPeerId) !== targetConnection
   ) {
-    return;
+    return null;
   }
 
   if (room.kind === 'standard') {
     // A delegated member-kick grant removes ordinary members only. Authority
     // management remains host-owned, and one account cannot evict another
     // physical device representing itself.
-    if (target.isOp || (sender.memberId && sender.memberId === target.memberId)) return;
+    if (target.isOp || (sender.memberId && sender.memberId === target.memberId)) return null;
   }
 
-  // Reuse the established host kick path (notification, kick frame and delayed
-  // connection close). This is a current-session removal; the room PIN still
-  // permits the participant to authenticate and join again.
+  return targetPeerId;
+}
+
+function handleRequestKickDevice(data: Record<string, unknown>, conn: DataConnection): void {
+  const targetPeerId = resolveRequestedKickTarget(data, conn);
+  if (!targetPeerId) return;
+
+  // The established member-level path expands authenticated targets to every
+  // sibling connection and revokes account-level administrator authority.
   bus.emit('network:kick-device', targetPeerId);
+}
+
+function handleRequestKickPhysicalDevice(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+): void {
+  // PRO removals are server-authoritative (`/presence/kick`). Never let a
+  // peer frame bypass the Worker’s owner/administrator protections and turn
+  // the coordinator transport into an alternate exact-kick endpoint.
+  if (getRoomContext().kind !== 'standard') return;
+  const targetPeerId = resolveRequestedKickTarget(data, conn);
+  if (!targetPeerId) return;
+  // Exact connection removal deliberately preserves sibling devices and the
+  // member's account-level administrator grant.
+  bus.emit('network:kick-physical-device', targetPeerId);
 }
 
 // ─── Chat Command Request (OP guest → Host) ─────────────────────
@@ -791,6 +815,7 @@ export function initSync(): void {
     [MSG.SYNC_PING]: handleSyncPing,
     [MSG.SYNC_PONG]: handleSyncPong,
     [MSG.REQUEST_KICK_DEVICE]: handleRequestKickDevice,
+    [MSG.REQUEST_KICK_PHYSICAL_DEVICE]: handleRequestKickPhysicalDevice,
     [MSG.REQUEST_CHAT_COMMAND]: handleRequestChatCommand,
   });
 

@@ -65,6 +65,23 @@ describe('standard-room delegated member requests', () => {
     });
   });
 
+  it('uses a distinct frame for one exact physical connection', () => {
+    const host = hostConnection();
+    const identity = memberDevice();
+    setState('network.hostConn', host);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['members.manage']);
+    setState('network.lastKnownDeviceList', [identity, memberDevice({ id: 'target-device-b' })]);
+
+    bus.emit('network:request-kick-standard-room-device', { peerId: 'target-device-b' });
+
+    expect(host.send).toHaveBeenCalledTimes(1);
+    expect(host.send).toHaveBeenCalledWith({
+      type: MSG.REQUEST_KICK_PHYSICAL_DEVICE,
+      targetPeerId: 'target-device-b',
+    });
+  });
+
   it('supports the anonymous canonical peer key', () => {
     const host = hostConnection();
     setState('network.hostConn', host);

@@ -254,7 +254,7 @@ describe('PRO room endpoint boundary', () => {
     expect(init.signal).not.toBe(signal);
     const headers = new Headers(init.headers);
     expect(headers.get('authorization')).toBeNull();
-    expect(headers.get('accept')).toBe('application/json');
+    expect(headers.get('accept')).toBe('application/json; mxqr-device-platform=1');
   });
 
   it('rejects a bootstrap body that exceeds its declared bound before parsing it', async () => {
@@ -1274,6 +1274,23 @@ describe('PRO room administrator API', () => {
       `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/administrators/${DELEGATED_MEMBER_ID}`,
     );
     expect(init.method).toBe('DELETE');
+
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ snapshot: { ...activeSnapshot(), revision: 4 } }),
+    );
+    await expect(client.kickPresence(ROOM_CODE, 'participant_0000000002')).resolves.toMatchObject({
+      roomCode: ROOM_CODE,
+      revision: 4,
+    });
+    ({ url, init } = requestParts(fetchMock));
+    expect(url.pathname).toBe(
+      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/presence/kick-device`,
+    );
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(String(init.body))).toEqual({
+      targetParticipantId: 'participant_0000000002',
+    });
 
     fetchMock.mockClear();
     fetchMock.mockResolvedValueOnce(

@@ -328,6 +328,21 @@ describe('PRO room snapshot validation', () => {
     expect(parsed?.playback).not.toBe(raw.playback);
   });
 
+  it('accepts only coarse device-platform categories in presence snapshots', () => {
+    const known = activeSnapshot();
+    known.presence.participants[0]!.devicePlatform = 'ios';
+    expect(parseProRoomSnapshot(known)?.presence.participants[0]?.devicePlatform).toBe('ios');
+
+    const unknown = activeSnapshot();
+    (unknown.presence.participants[0] as unknown as Record<string, unknown>).devicePlatform =
+      'freebsd';
+    expect(parseProRoomSnapshot(unknown)).toBeNull();
+
+    const nonString = activeSnapshot();
+    (nonString.presence.participants[0] as unknown as Record<string, unknown>).devicePlatform = 42;
+    expect(parseProRoomSnapshot(nonString)).toBeNull();
+  });
+
   it('accepts both new member denial and legacy member playback without widening either', () => {
     const denied = parseProRoomSnapshot(authorityMemberSnapshot([]));
     expect(denied?.viewer?.capabilities).toEqual([]);

@@ -19,7 +19,7 @@ import { normalizeProRoomPin } from '../pro-room/room-code.ts';
 import { requestAccountNicknameChange } from './account.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { groupConnectedRoomMembers, type ConnectedRoomMember } from '../rooms/member-directory.ts';
-import type { DeviceInfo, StandardRoomPermissionSet } from '../types/index.ts';
+import type { DeviceInfo, DevicePlatform, StandardRoomPermissionSet } from '../types/index.ts';
 import type {
   ProRoomAdministrator,
   ProRoomPermission,
@@ -29,6 +29,8 @@ import type {
 let _langObserver: MutationObserver | null = null;
 let _lastDeviceList: Array<Record<string, unknown>> = [];
 let _lastProAdministrators: ProRoomAdministrator[] = [];
+const _expandedDeviceMemberKeys = new Set<string>();
+let _deviceExpansionRoomBoundary = '';
 
 // ─── Host-Ctrl Lock (shared pattern) ────────────────────────────
 
@@ -699,6 +701,74 @@ async function kickRoomMember(member: ConnectedRoomMember): Promise<void> {
   });
 }
 
+async function kickRoomPhysicalDevice(device: DeviceInfo): Promise<void> {
+  if (_isProRoom()) {
+    const { kickActiveProRoomPresence } = await import('../pro-room/runtime.ts');
+    await kickActiveProRoomPresence(device.id);
+    return;
+  }
+  bus.emit('network:request-kick-standard-room-device', { peerId: device.id });
+}
+
+function deviceExpansionRoomBoundary(): string {
+  const room = getRoomContext();
+  return `${room.kind}:${room.roomId ?? ''}:${room.epoch}`;
+}
+
+function syncDeviceExpansionRoomBoundary(): void {
+  const boundary = deviceExpansionRoomBoundary();
+  if (_deviceExpansionRoomBoundary === boundary) return;
+  _deviceExpansionRoomBoundary = boundary;
+  _expandedDeviceMemberKeys.clear();
+}
+
+function shortDeviceCode(deviceId: string): string {
+  const compact = deviceId.replace(/[^A-Za-z0-9]/g, '');
+  return (compact.slice(-4) || deviceId.slice(-4) || '----').toUpperCase();
+}
+
+function devicePlatformName(platform: DevicePlatform | undefined): string {
+  switch (platform) {
+    case 'ios':
+      return 'iOS';
+    case 'android':
+      return 'Android';
+    case 'windows':
+      return 'Windows';
+    case 'macos':
+      return 'macOS';
+    case 'linux':
+      return 'Linux';
+    default:
+      return t('connect.platform_other');
+  }
+}
+
+function deviceDisplayName(device: DeviceInfo): string {
+  return t('connect.device_label', {
+    platform: devicePlatformName(device.devicePlatform),
+    code: shortDeviceCode(device.id),
+  });
+}
+
+function syncExpandedDeviceMember(memberKey: string): void {
+  const expanded = _expandedDeviceMemberKeys.has(memberKey);
+  document.querySelectorAll<HTMLElement>('.device-entry').forEach((entry) => {
+    if (entry.dataset.memberKey !== memberKey) return;
+    const toggle = entry.querySelector<HTMLButtonElement>('.device-expand-toggle');
+    const sublist = entry.querySelector<HTMLElement>('.device-sublist');
+    toggle?.setAttribute('aria-expanded', String(expanded));
+    toggle?.classList.toggle('active', expanded);
+    if (sublist) sublist.hidden = !expanded;
+  });
+}
+
+function toggleExpandedDeviceMember(memberKey: string): void {
+  if (_expandedDeviceMemberKeys.has(memberKey)) _expandedDeviceMemberKeys.delete(memberKey);
+  else _expandedDeviceMemberKeys.add(memberKey);
+  syncExpandedDeviceMember(memberKey);
+}
+
 function permissionRows(): HTMLButtonElement[] {
   return Array.from(
     document.querySelectorAll<HTMLButtonElement>('[data-administrator-permission]'),
@@ -969,11 +1039,31 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
   _lastDeviceList = list;
   _lastDeviceCount = list.length;
   _updateDeviceTitles();
+  syncDeviceExpansionRoomBoundary();
   const isProRoom = _isProRoom();
+  const devices = list as unknown as DeviceInfo[];
+  // The coarse platform projection doubles as an additive rollout signal.
+  // Old standard hosts and old PRO Workers omit the field; hiding the exact
+  // action then prevents a silent no-op (standard) or the legacy account-wide
+  // participant kick semantics (PRO) during rolling deploys.
+  const supportsPhysicalDeviceKick = devices.some((device) =>
+    Object.prototype.hasOwnProperty.call(device, 'devicePlatform'),
+  );
+  const deviceById = new Map(
+    devices
+      .filter((device) => device && typeof device.id === 'string' && device.id)
+      .map((device) => [device.id, device] as const),
+  );
   const members = groupConnectedRoomMembers(
-    list as unknown as DeviceInfo[],
+    devices,
     getState('network.myId') || '',
   );
+  const expandableKeys = new Set(
+    members.filter((member) => member.deviceCount > 1).map((member) => member.key),
+  );
+  for (const key of _expandedDeviceMemberKeys) {
+    if (!expandableKeys.has(key)) _expandedDeviceMemberKeys.delete(key);
+  }
   const administrators = _administratorsForMembers(members);
   const administratorIds = new Set(administrators.map((administrator) => administrator.memberId));
   const ownerIds = new Set(
@@ -992,9 +1082,14 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
     container.setAttribute('role', 'list');
     container.replaceChildren();
 
-    members.forEach((member) => {
+    members.forEach((member, memberIndex) => {
+      const entry = document.createElement('div');
+      entry.setAttribute('role', 'listitem');
+      entry.className = 'device-entry';
+      entry.dataset.memberKey = member.key;
+      entry.dataset.memberId = member.memberId || '';
+
       const row = document.createElement('div');
-      row.setAttribute('role', 'listitem');
       row.className = `device-row${member.isCurrent ? ' is-current-member' : ''}`;
       row.dataset.memberId = member.memberId || '';
       if (member.isCurrent) {
@@ -1020,17 +1115,6 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
       nameLabel.textContent = member.label || t('common.peer');
       applyUserTextFontFallback(nameLabel, nameLabel.textContent);
       name.appendChild(nameLabel);
-      if (member.deviceCount > 1) {
-        const deviceCount = document.createElement('span');
-        deviceCount.className = 'd-device-count';
-        deviceCount.textContent = String(member.deviceCount);
-        deviceCount.setAttribute('aria-hidden', 'true');
-        name.appendChild(deviceCount);
-        const accessibleDeviceCount = document.createElement('span');
-        accessibleDeviceCount.className = 'sr-only';
-        accessibleDeviceCount.textContent = `, ${_deviceListTitle(member.deviceCount)}`;
-        name.appendChild(accessibleDeviceCount);
-      }
       row.appendChild(name);
 
       const authorityKey = memberAuthorityKey(member);
@@ -1050,8 +1134,9 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
         !isRoomOwner &&
         (!isAdministrator || canManageAdministrators) &&
         member.status === 'connected';
+      const canExpand = member.deviceCount > 1;
 
-      if (canGrant || canKick) {
+      if (canGrant || canKick || canExpand) {
         const actions = document.createElement('div');
         actions.className = 'd-actions';
 
@@ -1074,6 +1159,28 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
               });
           });
           actions.appendChild(opBtn);
+        }
+
+        if (canExpand) {
+          const expanded = _expandedDeviceMemberKeys.has(member.key);
+          const sublistId = `${container.id}-device-sublist-${memberIndex}`;
+          const expandBtn = document.createElement('button');
+          expandBtn.type = 'button';
+          expandBtn.className = `device-expand-toggle${expanded ? ' active' : ''}`;
+          expandBtn.setAttribute('aria-expanded', String(expanded));
+          expandBtn.setAttribute('aria-controls', sublistId);
+          expandBtn.setAttribute(
+            'aria-label',
+            t('connect.device_toggle', { name: member.label || t('common.peer') }),
+          );
+          expandBtn.innerHTML =
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6-1.41-1.41Z"/></svg>';
+          expandBtn.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleExpandedDeviceMember(member.key);
+          });
+          actions.appendChild(expandBtn);
         }
 
         if (canKick) {
@@ -1113,7 +1220,91 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
         row.appendChild(actions);
       }
 
-      container.appendChild(row);
+      entry.appendChild(row);
+
+      if (canExpand) {
+        const sublist = document.createElement('ul');
+        sublist.id = `${container.id}-device-sublist-${memberIndex}`;
+        sublist.className = 'device-sublist';
+        sublist.hidden = !_expandedDeviceMemberKeys.has(member.key);
+
+        member.deviceIds.forEach((deviceId, deviceIndex) => {
+          const device = deviceById.get(deviceId);
+          if (!device) return;
+          const isCurrentDevice = device.id === (getState('network.myId') || '');
+          const subrow = document.createElement('li');
+          subrow.className = `device-subrow${isCurrentDevice ? ' is-current-device' : ''}`;
+          subrow.dataset.deviceId = device.id;
+          if (isCurrentDevice) subrow.setAttribute('aria-current', 'true');
+
+          const subIndex = document.createElement('span');
+          subIndex.className = 'device-sub-index';
+          subIndex.textContent = String(deviceIndex + 1);
+          subIndex.setAttribute('aria-hidden', 'true');
+
+          const subName = document.createElement('span');
+          subName.className = 'device-sub-name';
+          const displayName = deviceDisplayName(device);
+          subName.textContent = displayName;
+          applyUserTextFontFallback(subName, displayName);
+          subrow.append(subIndex, subName);
+
+          if (isCurrentDevice) {
+            const current = document.createElement('span');
+            current.className = 'sr-only';
+            current.textContent = `, ${t('connect.current_device')}`;
+            subrow.appendChild(current);
+          }
+
+          const canKickPhysicalDevice =
+            supportsPhysicalDeviceKick &&
+            canKick &&
+            !member.isCurrent &&
+            !isCurrentDevice &&
+            device.status === 'connected';
+          if (canKickPhysicalDevice) {
+            const kickDeviceBtn = document.createElement('button');
+            kickDeviceBtn.type = 'button';
+            kickDeviceBtn.className = 'btn-kick-physical-device';
+            kickDeviceBtn.setAttribute('aria-label', `${t('connect.kick_title')}: ${displayName}`);
+            kickDeviceBtn.innerHTML =
+              '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
+            kickDeviceBtn.addEventListener('click', async (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              const result = await showDialog({
+                title: `${t('connect.kick_title')} · ${displayName}`,
+                message: t('connect.kick_message'),
+                buttonText: t('connect.kick_yes'),
+                secondaryText: t('common.cancel'),
+              });
+              if (
+                result.action !== 'ok' ||
+                !hasRoomCapability('members.manage') ||
+                device.id === getState('network.myId') ||
+                device.isHost ||
+                isRoomOwner ||
+                (isAdministrator && !_canManageAdministrators())
+              ) {
+                return;
+              }
+              try {
+                await kickRoomPhysicalDevice(device);
+              } catch (error) {
+                log.warn('[Connect] Could not disconnect physical device', error);
+                showToast(t('error.network_generic'));
+              }
+            });
+            subrow.appendChild(kickDeviceBtn);
+          }
+
+          sublist.appendChild(subrow);
+        });
+
+        entry.appendChild(sublist);
+      }
+
+      container.appendChild(entry);
     });
   });
 }

@@ -739,6 +739,12 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     Object.prototype.hasOwnProperty.call(d, 'targetPeerId') &&
     typeof d.targetPeerId === 'string' &&
     PRO_PEER_ID_RE.test(d.targetPeerId),
+  [MSG.REQUEST_KICK_PHYSICAL_DEVICE]: (d) =>
+    Object.keys(d).length === 2 &&
+    Object.prototype.hasOwnProperty.call(d, 'type') &&
+    Object.prototype.hasOwnProperty.call(d, 'targetPeerId') &&
+    typeof d.targetPeerId === 'string' &&
+    PRO_PEER_ID_RE.test(d.targetPeerId),
 
   // File transfer — validate session IDs and indices
   [MSG.FILE_PREPARE]: (d) =>

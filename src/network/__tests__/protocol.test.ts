@@ -305,6 +305,33 @@ describe('PRO member kick request validation', () => {
 
     expect(handler).not.toHaveBeenCalled();
   });
+
+  it('accepts the distinct physical-device disconnect request', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('pro-controller-1');
+    registerHandler(MSG.REQUEST_KICK_PHYSICAL_DEVICE, handler);
+
+    await handleData(
+      { type: MSG.REQUEST_KICK_PHYSICAL_DEVICE, targetPeerId: 'pro-member_00000001' },
+      conn,
+    );
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { type: MSG.REQUEST_KICK_PHYSICAL_DEVICE },
+    { type: MSG.REQUEST_KICK_PHYSICAL_DEVICE, targetPeerId: '' },
+    { type: MSG.REQUEST_KICK_PHYSICAL_DEVICE, targetPeerId: 'member with spaces' },
+    { type: MSG.REQUEST_KICK_PHYSICAL_DEVICE, targetPeerId: 'member-2', extra: true },
+  ])('drops malformed physical-device frames: %o', async (message) => {
+    const handler = vi.fn();
+    registerHandler(MSG.REQUEST_KICK_PHYSICAL_DEVICE, handler);
+
+    await handleData(message, makeConnection('pro-controller-1'));
+
+    expect(handler).not.toHaveBeenCalled();
+  });
 });
 
 describe('YOUTUBE_PLAYLIST_INFO validation', () => {

@@ -1191,7 +1191,11 @@ export class ProRoomApiClient {
     }
 
     const headers = new Headers(options.headers);
-    headers.set('Accept', 'application/json');
+    // Negotiate additive participant fields through the safelisted Accept
+    // header. A cached v1 client keeps receiving the exact legacy snapshot,
+    // while this client remains compatible with an older Worker that simply
+    // ignores the media-type parameter (no new CORS preflight header needed).
+    headers.set('Accept', 'application/json; mxqr-device-platform=1');
     let body: string | undefined;
     if (options.body !== undefined) {
       body = encodeRequestBody(options.body);
@@ -1417,7 +1421,10 @@ export class ProRoomApiClient {
     signal?: AbortSignal,
   ): Promise<ProRoomSnapshot> {
     const path = roomPath(code);
-    return this.#request(`${path}/presence/kick`, {
+    // A distinct endpoint keeps rolling deploys fail-closed: an older Worker
+    // returns 404 instead of applying the legacy account-wide kick semantics
+    // to a participant-shaped body.
+    return this.#request(`${path}/presence/kick-device`, {
       method: 'POST',
       body: {
         targetParticipantId: validateOpaqueId(targetParticipantId, 'INVALID_PARTICIPANT_ID'),

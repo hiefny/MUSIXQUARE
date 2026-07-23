@@ -11,6 +11,7 @@ import {
   changeActiveProRoomPin,
   getActiveProRoomAdministrators,
   kickActiveProRoomMember,
+  kickActiveProRoomPresence,
   revokeActiveProRoomAdministrator,
   updateActiveProRoomAdministrator,
 } from '../../pro-room/runtime.ts';
@@ -37,6 +38,7 @@ vi.mock('../../pro-room/runtime.ts', () => ({
   changeActiveProRoomPin: vi.fn(),
   getActiveProRoomAdministrators: vi.fn(() => []),
   kickActiveProRoomMember: vi.fn(),
+  kickActiveProRoomPresence: vi.fn(),
   revokeActiveProRoomAdministrator: vi.fn(),
   updateActiveProRoomAdministrator: vi.fn(),
 }));
@@ -45,6 +47,7 @@ const mockedShowDialog = vi.mocked(showDialog);
 const mockedChangeActiveProRoomPin = vi.mocked(changeActiveProRoomPin);
 const mockedGetActiveProRoomAdministrators = vi.mocked(getActiveProRoomAdministrators);
 const mockedKickActiveProRoomMember = vi.mocked(kickActiveProRoomMember);
+const mockedKickActiveProRoomPresence = vi.mocked(kickActiveProRoomPresence);
 const mockedRevokeActiveProRoomAdministrator = vi.mocked(revokeActiveProRoomAdministrator);
 const mockedUpdateActiveProRoomAdministrator = vi.mocked(updateActiveProRoomAdministrator);
 const FULL_ADMIN_PERMISSIONS_FOR_TEST = {
@@ -624,6 +627,7 @@ describe('member-level connection and administrator UI', () => {
         memberId: 'member-minsu',
         memberDisplayNumber: 1,
         isAuthenticated: true,
+        devicePlatform: 'windows',
       },
       {
         id: 'minsu-phone',
@@ -635,6 +639,7 @@ describe('member-level connection and administrator UI', () => {
         memberId: 'member-minsu',
         memberDisplayNumber: 1,
         isAuthenticated: true,
+        devicePlatform: 'ios',
       },
       {
         id: 'minsu-tablet',
@@ -646,6 +651,7 @@ describe('member-level connection and administrator UI', () => {
         memberId: 'member-minsu',
         memberDisplayNumber: 1,
         isAuthenticated: true,
+        devicePlatform: 'android',
       },
       {
         id: 'same-name-other-account',
@@ -677,10 +683,204 @@ describe('member-level connection and administrator UI', () => {
     );
     expect(mine?.textContent).toContain('#1');
     expect(mine?.querySelector('.d-name-label')?.textContent).toBe('Minsu');
-    expect(mine?.querySelector('.d-device-count')?.textContent).toBe('3');
     expect(mine?.getAttribute('aria-current')).toBe('true');
-    expect(mine?.querySelector('.d-device-count')?.getAttribute('aria-hidden')).toBe('true');
-    expect(mine?.querySelector('.sr-only')?.textContent).toContain('연결된 기기 3대');
+    const mineEntry = mine?.closest<HTMLElement>('.device-entry');
+    const toggle = mineEntry?.querySelector<HTMLButtonElement>('.device-expand-toggle');
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+    expect(mineEntry?.querySelector('.device-sublist')?.hasAttribute('hidden')).toBe(true);
+    toggle?.click();
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+    const devices = mineEntry?.querySelectorAll<HTMLElement>('.device-subrow');
+    expect(devices).toHaveLength(3);
+    expect(devices?.[0]?.textContent).toContain('Windows');
+    expect(devices?.[1]?.textContent).toContain('iOS');
+    expect(devices?.[1]?.querySelector('.device-sub-name')?.textContent).toBe('iOS 기기 (HONE)');
+    expect(devices?.[1]?.classList.contains('is-current-device')).toBe(true);
+    expect(devices?.[1]?.getAttribute('aria-current')).toBe('true');
+    expect(devices?.[2]?.textContent).toContain('Android');
+  });
+
+  it('keeps an expanded device sublist open across heartbeat rerenders and syncs both layouts', () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'viewer-device');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000077',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    initConnect();
+    const deviceList = [
+      {
+        id: 'viewer-device',
+        label: 'Viewer',
+        joinOrder: 0,
+        status: 'connected',
+        isHost: false,
+        isOp: false,
+        memberId: 'viewer-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+      },
+      {
+        id: 'friend-ios-A7F2',
+        label: 'Friend',
+        joinOrder: 1,
+        status: 'connected',
+        isHost: false,
+        isOp: false,
+        memberId: 'friend-member',
+        memberDisplayNumber: 2,
+        isAuthenticated: true,
+        devicePlatform: 'ios',
+      },
+      {
+        id: 'friend-windows-B9C4',
+        label: 'Friend',
+        joinOrder: 2,
+        status: 'connected',
+        isHost: false,
+        isOp: false,
+        memberId: 'friend-member',
+        memberDisplayNumber: 2,
+        isAuthenticated: true,
+        devicePlatform: 'windows',
+      },
+    ];
+
+    bus.emit('network:device-list-update', deviceList);
+    document
+      .querySelector<HTMLButtonElement>(
+        '#connect-device-list [data-member-id="friend-member"] .device-expand-toggle',
+      )
+      ?.click();
+
+    for (const listId of ['connect-device-list', 'desktop-device-list']) {
+      const entry = document.querySelector<HTMLElement>(
+        `#${listId} [data-member-id="friend-member"].device-entry`,
+      );
+      expect(entry?.querySelector('.device-expand-toggle')?.getAttribute('aria-expanded')).toBe(
+        'true',
+      );
+      expect(entry?.querySelector('.device-sublist')?.hasAttribute('hidden')).toBe(false);
+    }
+
+    bus.emit('network:device-list-update', deviceList);
+
+    for (const listId of ['connect-device-list', 'desktop-device-list']) {
+      const entry = document.querySelector<HTMLElement>(
+        `#${listId} [data-member-id="friend-member"].device-entry`,
+      );
+      expect(entry?.querySelector('.device-expand-toggle')?.getAttribute('aria-expanded')).toBe(
+        'true',
+      );
+      expect(entry?.querySelector('.device-sublist')?.hasAttribute('hidden')).toBe(false);
+      expect(entry?.querySelectorAll('.device-subrow')).toHaveLength(2);
+    }
+    const mobileControls = document.querySelector<HTMLButtonElement>(
+      '#connect-device-list [data-member-id="friend-member"] .device-expand-toggle',
+    )?.getAttribute('aria-controls');
+    const desktopControls = document.querySelector<HTMLButtonElement>(
+      '#desktop-device-list [data-member-id="friend-member"] .device-expand-toggle',
+    )?.getAttribute('aria-controls');
+    expect(mobileControls).not.toBe(desktopControls);
+  });
+
+  it('disconnects one selected PRO device without using the account-wide kick action', async () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'owner-device');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000078',
+      role: 'coordinator',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['members.manage', 'room.configure'],
+    });
+    mockedShowDialog.mockResolvedValue({ action: 'ok' });
+    initConnect();
+    bus.emit('pro-room:administrators-updated', [
+      {
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+    ]);
+    const supportedDeviceList: Array<Record<string, unknown>> = [
+      {
+        id: 'owner-device',
+        label: 'Owner',
+        joinOrder: 0,
+        status: 'connected',
+        isHost: true,
+        isOp: true,
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+      },
+      {
+        id: 'friend-ios-A7F2',
+        label: 'Friend',
+        joinOrder: 1,
+        status: 'connected',
+        isHost: false,
+        isOp: false,
+        memberId: 'friend-member',
+        memberDisplayNumber: 2,
+        isAuthenticated: true,
+        devicePlatform: 'ios',
+      },
+      {
+        id: 'friend-windows-B9C4',
+        label: 'Friend',
+        joinOrder: 2,
+        status: 'connected',
+        isHost: false,
+        isOp: false,
+        memberId: 'friend-member',
+        memberDisplayNumber: 2,
+        isAuthenticated: true,
+        devicePlatform: 'windows',
+      },
+    ];
+    const legacyDeviceList = supportedDeviceList.map((device) => {
+      const legacy = { ...device };
+      delete legacy.devicePlatform;
+      return legacy;
+    });
+    bus.emit('network:device-list-update', legacyDeviceList);
+
+    let targetEntry = document.querySelector<HTMLElement>(
+      '#connect-device-list [data-member-id="friend-member"].device-entry',
+    );
+    targetEntry?.querySelector<HTMLButtonElement>('.device-expand-toggle')?.click();
+    expect(targetEntry?.querySelector('.btn-kick-physical-device')).toBeNull();
+
+    bus.emit('network:device-list-update', supportedDeviceList);
+    targetEntry = document.querySelector<HTMLElement>(
+      '#connect-device-list [data-member-id="friend-member"].device-entry',
+    );
+    expect(targetEntry?.querySelector('.device-expand-toggle')?.getAttribute('aria-expanded')).toBe(
+      'true',
+    );
+    const kickPhysicalDeviceButton =
+      targetEntry?.querySelector<HTMLButtonElement>('.btn-kick-physical-device');
+    expect(kickPhysicalDeviceButton?.getAttribute('aria-label')).toContain('iOS 기기 (A7F2)');
+    kickPhysicalDeviceButton?.click();
+
+    await vi.waitFor(() =>
+      expect(mockedKickActiveProRoomPresence).toHaveBeenCalledWith('friend-ios-A7F2'),
+    );
+    expect(mockedKickActiveProRoomMember).not.toHaveBeenCalled();
   });
 
   it('shows connected standard administrators to non-host participants from the live projection', () => {
@@ -1141,7 +1341,7 @@ describe('member-level connection and administrator UI', () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const markup = await readFile('index.html', 'utf8');
     const desktopStylesheet = await readFile('css/desktop.css', 'utf8');
-    const deviceCountRules = stylesheet.match(/\.d-device-count\s*\{([^}]*)\}/)?.[1] ?? '';
+    const deviceSubrowRules = stylesheet.match(/\.device-subrow\s*\{([^}]*)\}/)?.[1] ?? '';
     const nameLabelRules = stylesheet.match(/\.device-row \.d-name-label\s*\{([^}]*)\}/)?.[1] ?? '';
     const administratorRowRules = stylesheet.match(/\.administrator-row\s*\{([^}]*)\}/)?.[1] ?? '';
     const administratorNameRules =
@@ -1172,12 +1372,13 @@ describe('member-level connection and administrator UI', () => {
     expect(stylesheet).toMatch(
       /\.administrator-permission-row:hover,\s*\.administrator-permission-row:focus-visible\s*{\s*background:\s*transparent;/,
     );
-    expect(deviceCountRules).toContain('background: transparent');
-    expect(deviceCountRules).toContain('color: var(--primary)');
-    expect(deviceCountRules).not.toContain('border-radius: 999px');
+    expect(stylesheet).not.toContain('.d-device-count');
+    expect(deviceSubrowRules).toContain('font-size: 13px');
+    expect(deviceSubrowRules).toContain('color: var(--text-sub)');
+    expect(stylesheet).toContain('.device-subrow.is-current-device');
     expect(nameLabelRules).toContain('display: block');
-    // Keep the grouped-device count next to the visible nickname while still
-    // allowing a long nickname to shrink into the existing ellipsis boundary.
+    // Keep the disclosure control in the action rail while still allowing a
+    // long nickname to shrink into the existing ellipsis boundary.
     expect(nameLabelRules).toContain('flex: 0 1 auto');
     expect(nameLabelRules).toContain('text-overflow: ellipsis');
     expect(nameLabelRules).toContain('white-space: nowrap');

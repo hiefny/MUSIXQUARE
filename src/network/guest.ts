@@ -16,6 +16,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { isCapabilityChallengeCancelled } from '../core/capability.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { getDevicePlatform } from '../core/platform.ts';
 import { registerHandlers } from './protocol.ts';
 import type { DataConnection, DeviceInfo, RoomCapability } from '../types/index.ts';
 
@@ -229,7 +230,7 @@ export function joinSession(
     const channelMode = getState('audio.channelMode');
     conn = peer.connect(hostId, {
       reliable: true,
-      metadata: { label: `mode-${channelMode}` },
+      metadata: { label: `mode-${channelMode}`, devicePlatform: getDevicePlatform() },
       roomPassword,
     });
   } catch (e) {
@@ -677,6 +678,29 @@ export function initGuestProtocolHandlers(): void {
     safeSend(hostConn, {
       type: MSG.REQUEST_KICK_DEVICE,
       targetPeerId: target.id,
+    });
+  });
+
+  bus.on('network:request-kick-standard-room-device', ({ peerId }) => {
+    const hostConn = getState('network.hostConn') as DataConnection | null;
+    if (
+      getRoomContext().kind !== 'standard' ||
+      !hostConn?.open ||
+      !hasRoomCapability('members.manage') ||
+      !peerId
+    ) {
+      return;
+    }
+
+    const target = getState('network.lastKnownDeviceList')?.find(
+      (device) =>
+        device.id === peerId && !device.isHost && device.status === 'connected',
+    );
+    if (!target) return;
+
+    safeSend(hostConn, {
+      type: MSG.REQUEST_KICK_PHYSICAL_DEVICE,
+      targetPeerId: peerId,
     });
   });
 

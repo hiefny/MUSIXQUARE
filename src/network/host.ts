@@ -13,6 +13,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MAX_GUEST_SLOTS, MSG } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { normalizeDevicePlatform } from '../core/platform.ts';
 import type {
   ConnectedPeer,
   DataConnection,
@@ -54,6 +55,12 @@ import {
 
 function isStandardRoom(): boolean {
   return getRoomContext().kind === 'standard';
+}
+
+function connectionDevicePlatform(conn: DataConnection) {
+  const metadata = conn.metadata;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return 'other' as const;
+  return normalizeDevicePlatform((metadata as Record<string, unknown>).devicePlatform);
 }
 
 function permissionsForStandardPeer(peer: ConnectedPeer): StandardRoomPermissionSet | null {
@@ -507,6 +514,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     lastHeartbeat: Date.now(),
     preloadedQueueItemIds: new Set(),
     connectionType: 'unknown',
+    devicePlatform: connectionDevicePlatform(conn),
     ...(connectionIdentity
       ? {
           memberId: connectionIdentity.memberId,
@@ -861,6 +869,11 @@ bus.on('network:request-kick-standard-room-member', ({ memberId }) => {
   kickStandardRoomAuthorityKey(memberId);
 });
 
+bus.on('network:request-kick-standard-room-device', ({ peerId }) => {
+  if (!isStandardRoom() || !peerId || getState('network.hostConn')) return;
+  bus.emit('network:kick-physical-device', peerId);
+});
+
 // Signing the physical host in/out changes which verified account, if any,
 // owns person-level product authority. Reproject live siblings immediately;
 // transport ownership, the host connection, and room teardown stay untouched.
@@ -968,6 +981,30 @@ bus.on('network:kick-device', (peerId) => {
   }
 
   log.info(`[Host] Kicked ${targets.length} device(s) for ${target.label || peerId}`);
+  showToast(t('toast.device_kicked', { name: target.label || peerId }));
+});
+
+// Disconnect exactly one physical connection while preserving any account-
+// level administrator grant carried by its sibling devices.
+bus.on('network:kick-physical-device', (peerId) => {
+  if (!isStandardRoom() || !peerId || getState('network.hostConn')) return;
+  const target = getState('network.connectedPeers').find((peer) => peer.id === peerId);
+  const conn = target?.conn as DataConnection | null | undefined;
+  if (!target || target.status !== 'connected' || !conn?.open) return;
+
+  safeSend(conn, { type: MSG.KICK_DEVICE });
+  setManagedTimer(
+    'kick-physical-close-' + target.id,
+    () => {
+      try {
+        conn.close();
+      } catch {
+        /* noop */
+      }
+    },
+    300,
+  );
+  log.info(`[Host] Disconnected physical device ${target.id} for ${target.label || peerId}`);
   showToast(t('toast.device_kicked', { name: target.label || peerId }));
 });
 

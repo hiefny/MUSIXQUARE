@@ -1,4 +1,4 @@
-import type { QueueItemId } from '../types/index.ts';
+import type { DevicePlatform, QueueItemId } from '../types/index.ts';
 
 export const PRO_ROOM_SNAPSHOT_SCHEMA_VERSION = 1 as const;
 export const PRO_ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
@@ -123,6 +123,8 @@ export interface ProRoomPresenceParticipant {
   memberDisplayNumber?: number;
   isAuthenticated?: boolean;
   displayName: string;
+  /** Coarse active-device OS category; no raw UA or hardware model. */
+  devicePlatform?: DevicePlatform;
   role: ProRoomRole;
   /** Effective server authority. Present only with authority projection v1. */
   capabilities?: ProRoomCapability[];

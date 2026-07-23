@@ -16,6 +16,21 @@ describe('spectrum ordered dithering', () => {
     expect(values.reduce((sum, value) => sum + value, 0) / values.length).toBe(30.5);
   });
 
+  it('applies the 160% spread symmetrically around an integer alpha', () => {
+    const rgba = buildSpectrumDitherStrip(
+      SPECTRUM_DITHER_TILE_SIZE,
+      SPECTRUM_DITHER_TILE_SIZE,
+      100,
+      30 / 255,
+    );
+    const values = Array.from(rgba).filter((_, index) => index % 4 === 3);
+
+    expect(values.filter((value) => value === 29)).toHaveLength(12);
+    expect(values.filter((value) => value === 30)).toHaveLength(40);
+    expect(values.filter((value) => value === 31)).toHaveLength(12);
+    expect(values.reduce((sum, value) => sum + value, 0) / values.length).toBe(30);
+  });
+
   it('clamps alpha endpoints without introducing noise', () => {
     const transparent = buildSpectrumDitherStrip(8, 8, 100, -1);
     const opaque = buildSpectrumDitherStrip(8, 8, 100, 2);

@@ -6,19 +6,19 @@ const BAYER_ORDER_8X8 = new Uint8Array([
 
 export const SPECTRUM_DITHER_TILE_SIZE = 8;
 const SPECTRUM_BLUE = [59, 130, 246] as const;
+const SPECTRUM_DITHER_STRENGTH = 1.6;
 
 /**
  * Quantize an exact 8-bit alpha with a stable 8x8 ordered threshold.
- * A full-strength threshold spans exactly one alpha LSB, preserving the
- * original spatial average while replacing visible horizontal bands with
- * sub-pixel-scale texture.
+ * The centered threshold is intentionally boosted to 160% (about +/-0.8
+ * alpha LSB), preserving the original spatial average while replacing
+ * visible horizontal bands with slightly stronger sub-pixel-scale texture.
  */
 function orderedDitherAlphaByte(exactAlphaByte: number, x: number, y: number): number {
   const bounded = Math.max(0, Math.min(255, exactAlphaByte));
-  const lower = Math.floor(bounded);
-  if (lower >= 255) return 255;
+  if (bounded <= 0) return 0;
+  if (bounded >= 255) return 255;
 
-  const fraction = bounded - lower;
   const matrixX =
     ((Math.trunc(x) % SPECTRUM_DITHER_TILE_SIZE) + SPECTRUM_DITHER_TILE_SIZE) %
     SPECTRUM_DITHER_TILE_SIZE;
@@ -27,7 +27,8 @@ function orderedDitherAlphaByte(exactAlphaByte: number, x: number, y: number): n
     SPECTRUM_DITHER_TILE_SIZE;
   const rank = BAYER_ORDER_8X8[matrixY * SPECTRUM_DITHER_TILE_SIZE + matrixX];
   const threshold = (rank + 0.5) / (SPECTRUM_DITHER_TILE_SIZE * SPECTRUM_DITHER_TILE_SIZE);
-  return lower + (fraction >= threshold ? 1 : 0);
+  const centeredOffset = (0.5 - threshold) * SPECTRUM_DITHER_STRENGTH;
+  return Math.max(0, Math.min(255, Math.round(bounded + centeredOffset)));
 }
 
 /**

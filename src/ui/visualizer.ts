@@ -10,6 +10,7 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { getAnalyser as getEngineAnalyser } from '../audio/engine.ts';
 import { scopePlaybackModeActivity } from './_state-hooks.ts';
 import { isPlaybackModeYouTube, isPlaybackPaused, isPlaybackPlaying } from '../player/ownership.ts';
+import { buildSpectrumDitherStrip, SPECTRUM_DITHER_TILE_SIZE } from './spectrum-dither.ts';
 
 // ─── State ───────────────────────────────────────────────────────
 
@@ -22,6 +23,17 @@ let _vizMode: 'circular' | 'spectrum' = 'circular';
 let _isVisualizerStartCoalescing = false;
 let _visualizerLoopState: 'idle' | 'active' | 'settling' = 'idle';
 let _canvasPixelRatio = 1;
+
+interface SpectrumDitherPatternCache {
+  context: CanvasRenderingContext2D;
+  physicalHeight: number;
+  logicalHeight: number;
+  padY: number;
+  maxAlpha: number;
+  pattern: CanvasPattern;
+}
+
+let _spectrumDitherPatternCache: SpectrumDitherPatternCache | null = null;
 
 function readPersistedVisualizerMode(): 'circular' | 'spectrum' {
   try {
@@ -270,6 +282,55 @@ function drawSpectrumRestingLine(
   ctx.stroke();
 }
 
+function getSpectrumDitherPattern(
+  ctx: CanvasRenderingContext2D,
+  logicalHeight: number,
+  padY: number,
+  isLight: boolean,
+): CanvasPattern | null {
+  if (typeof document === 'undefined' || typeof ctx.createPattern !== 'function') return null;
+
+  const physicalHeight = ctx.canvas.height;
+  const maxAlpha = isLight ? 0.15 : 0.12;
+  const cached = _spectrumDitherPatternCache;
+  if (
+    cached?.context === ctx &&
+    cached.physicalHeight === physicalHeight &&
+    cached.logicalHeight === logicalHeight &&
+    cached.padY === padY &&
+    cached.maxAlpha === maxAlpha
+  ) {
+    return cached.pattern;
+  }
+
+  try {
+    const tile = document.createElement('canvas');
+    tile.width = SPECTRUM_DITHER_TILE_SIZE;
+    tile.height = physicalHeight;
+    const tileContext = tile.getContext('2d');
+    if (!tileContext) return null;
+
+    const imageData = tileContext.createImageData(tile.width, tile.height);
+    imageData.data.set(buildSpectrumDitherStrip(physicalHeight, logicalHeight, padY, maxAlpha));
+    tileContext.putImageData(imageData, 0, 0);
+
+    const pattern = ctx.createPattern(tile, 'repeat');
+    if (!pattern) return null;
+    _spectrumDitherPatternCache = {
+      context: ctx,
+      physicalHeight,
+      logicalHeight,
+      padY,
+      maxAlpha,
+      pattern,
+    };
+    return pattern;
+  } catch (error) {
+    log.debug('[Visualizer] spectrum dither unavailable:', error);
+    return null;
+  }
+}
+
 function drawSpectrumCurve(
   ctx: CanvasRenderingContext2D,
   points: SpectrumPoint[],
@@ -281,10 +342,6 @@ function drawSpectrumCurve(
   if (points.length < 2) return;
 
   ctx.globalCompositeOperation = isLight ? 'source-over' : 'lighter';
-  const grad = ctx.createLinearGradient(0, padY, 0, logicalH - padY);
-  grad.addColorStop(0, isLight ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.12)');
-  grad.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
-  ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.moveTo(padX, logicalH - padY);
   ctx.lineTo(padX, points[0].y);
@@ -297,7 +354,26 @@ function drawSpectrumCurve(
   ctx.lineTo(last.x, last.y);
   ctx.lineTo(last.x, logicalH - padY);
   ctx.closePath();
-  ctx.fill();
+
+  const ditherPattern = getSpectrumDitherPattern(ctx, logicalH, padY, isLight);
+  if (ditherPattern) {
+    ctx.save();
+    ctx.clip();
+    // The strip is generated in backing pixels. Fill under an identity
+    // transform so its 8x8 threshold remains one physical pixel per cell,
+    // including on high-DPI and desktop-density-scaled canvases.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = ditherPattern;
+    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    ctx.restore();
+  } else {
+    // Compatibility fallback for constrained Canvas implementations.
+    const grad = ctx.createLinearGradient(0, padY, 0, logicalH - padY);
+    grad.addColorStop(0, isLight ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.12)');
+    grad.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
+  }
 
   ctx.strokeStyle = 'rgba(59, 130, 246, 0.9)';
   ctx.lineWidth = 2;

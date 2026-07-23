@@ -37,6 +37,7 @@ import { syncOverlayState } from './dom.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audio/ui-sounds.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
+import { hasLocaleFont, preloadLocaleFontGlyphs } from '../i18n/locale-fonts.ts';
 
 // ─── Host-Ctrl Lock (Guest cannot change host-controlled settings) ──
 
@@ -701,9 +702,43 @@ function bindLanguageScrollMask(): void {
   list.addEventListener('scroll', () => updateLanguageScrollMask(), { passive: true });
 }
 
+let _languagePickerFontsReady = false;
+let _languagePickerPreparationGeneration = 0;
+let _languagePickerPreparationRequest = 0;
+
+function prepareLanguagePickerFonts(): void {
+  if (_languagePickerFontsReady) return;
+
+  const preloadTasks: Promise<boolean>[] = [];
+  for (const language of LANGUAGE_OPTIONS) {
+    if (!hasLocaleFont(language.code)) continue;
+    preloadTasks.push(preloadLocaleFontGlyphs(language.code, language.nativeName));
+  }
+  const generation = _languagePickerPreparationGeneration;
+  const request = ++_languagePickerPreparationRequest;
+
+  void Promise.all(preloadTasks)
+    .then((results) => results.every(Boolean))
+    .catch(() => false)
+    .then((ready) => {
+      if (
+        generation !== _languagePickerPreparationGeneration ||
+        request !== _languagePickerPreparationRequest
+      ) {
+        return;
+      }
+      if (ready) _languagePickerFontsReady = true;
+      // Font metrics may have changed while the dialog was visible. Only the
+      // latest intent performs the shared scrollbar/mask relayout.
+      bus.emit('ui:scrollbar-relayout');
+      updateLanguageScrollMask();
+    });
+}
+
 let _languageDialogPreviousFocus: HTMLElement | null = null;
 
 function openLanguageDialog(): void {
+  prepareLanguagePickerFonts();
   renderLanguageOptions();
   refreshLanguageControls();
 
@@ -777,7 +812,13 @@ export function initSettings(): void {
   });
 
   // Language controls
+  _languagePickerPreparationGeneration += 1;
+  _languagePickerPreparationRequest = 0;
+  _languagePickerFontsReady = false;
   renderLanguageOptions();
+  const languageSelectButton = document.getElementById('btn-language-select');
+  languageSelectButton?.addEventListener('pointerdown', prepareLanguagePickerFonts);
+  languageSelectButton?.addEventListener('focus', prepareLanguagePickerFonts);
   $on('btn-language-select', 'click', () => openLanguageDialog());
   $on('btn-language-system', 'click', () => setLanguageMode('system'));
   $on('btn-language-dialog-done', 'click', () => closeLanguageDialog());

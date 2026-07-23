@@ -8,6 +8,18 @@ import { showToast } from '../toast.ts';
 import { LANGUAGE_OPTIONS, setLanguageMode } from '../../i18n/index.ts';
 import type { DataConnection } from '../../types/index.ts';
 
+const preloadLocaleFontGlyphsMock = vi.hoisted(() =>
+  vi.fn<(code: string, text: string) => Promise<boolean>>(() => Promise.resolve(true)),
+);
+
+vi.mock('../../i18n/locale-fonts.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../i18n/locale-fonts.ts')>();
+  return {
+    ...actual,
+    preloadLocaleFontGlyphs: preloadLocaleFontGlyphsMock,
+  };
+});
+
 // Mock player-controls.ts (transitive dep)
 vi.mock('../player-controls.ts', () => ({
   getStandardRolePreset: vi.fn(() => ({})),
@@ -148,6 +160,7 @@ beforeEach(() => {
   resetState();
   bus.clear();
   vi.mocked(showToast).mockClear();
+  preloadLocaleFontGlyphsMock.mockReset().mockResolvedValue(true);
   localStorage.clear();
   // Polyfill matchMedia for jsdom
   Object.defineProperty(window, 'matchMedia', {
@@ -322,6 +335,13 @@ describe('initSettings PRO device authority', () => {
 });
 
 describe('initSettings language controls', () => {
+  it('does not preload hidden language-picker fonts during settings initialization', () => {
+    installLanguageSettingsDom();
+    initSettings();
+
+    expect(preloadLocaleFontGlyphsMock).not.toHaveBeenCalled();
+  });
+
   it('moves a supported system language to the top of the language list', () => {
     vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('ja-JP');
     vi.spyOn(window.navigator, 'languages', 'get').mockReturnValue(['ja-JP', 'en-US']);
@@ -374,6 +394,81 @@ describe('initSettings language controls', () => {
         .querySelector<HTMLElement>('.language-option[data-lang="ko"]')
         ?.getAttribute('aria-pressed'),
     ).toBe('true');
+    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('preloads only the five self-hosted native names on pointer intent before opening', async () => {
+    installLanguageSettingsDom();
+    initSettings();
+    const trigger = document.getElementById('btn-language-select')!;
+
+    trigger.dispatchEvent(new Event('pointerdown'));
+
+    expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
+      false,
+    );
+    expect(preloadLocaleFontGlyphsMock.mock.calls).toEqual([
+      ['ja', '日本語'],
+      ['zh-hans', '简体中文'],
+      ['zh-hant', '繁體中文'],
+      ['ru', 'Русский'],
+      ['th', 'ไทย'],
+    ]);
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    trigger.focus();
+    trigger.click();
+
+    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(5);
+    expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
+      true,
+    );
+  });
+
+  it('preloads from keyboard focus without opening the dialog', () => {
+    installLanguageSettingsDom();
+    initSettings();
+
+    document.getElementById('btn-language-select')?.focus();
+
+    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(5);
+    expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
+      false,
+    );
+  });
+
+  it('retries a false preload result on the next language-picker intent', async () => {
+    preloadLocaleFontGlyphsMock.mockResolvedValue(false);
+    installLanguageSettingsDom();
+    initSettings();
+    const trigger = document.getElementById('btn-language-select')!;
+
+    trigger.dispatchEvent(new Event('pointerdown'));
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(5);
+
+    preloadLocaleFontGlyphsMock.mockResolvedValue(true);
+    trigger.focus();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(10);
+
+    trigger.click();
+    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(10);
+  });
+
+  it('keeps the dialog responsive when a glyph preload fails', async () => {
+    preloadLocaleFontGlyphsMock.mockRejectedValue(new Error('offline'));
+    installLanguageSettingsDom();
+    initSettings();
+
+    document.getElementById('btn-language-select')?.click();
+
+    expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
+      true,
+    );
+    await vi.waitFor(() => {
+      expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(5);
+    });
   });
 
   it('switches between explicit selection and system language mode', () => {

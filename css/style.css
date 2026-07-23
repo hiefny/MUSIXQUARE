@@ -4621,23 +4621,24 @@
   }
 
   .language-option-native:lang(ja) {
-    font-family: var(--font-sans-ja);
+    font-family: 'Noto Sans JP', 'Pretendard', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
   }
 
   .language-option-native:lang(zh-Hans) {
-    font-family: var(--font-sans-cjk-sc);
+    font-family: 'Noto Sans SC', 'Pretendard', 'Microsoft YaHei', 'PingFang SC', sans-serif;
   }
 
   .language-option-native:lang(zh-Hant) {
-    font-family: var(--font-sans-cjk-tc);
+    font-family: 'Noto Sans TC', 'Pretendard', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
   }
 
   .language-option-native:lang(th) {
-    font-family: var(--font-sans-th);
+    font-family: 'Noto Sans Thai', 'Pretendard', 'Leelawadee UI', 'Tahoma', sans-serif;
   }
 
   .language-option-native:lang(ru) {
-    font-family: var(--font-sans-cyrillic);
+    font-family:
+      'Noto Sans', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
   }
 
   .language-option-english {

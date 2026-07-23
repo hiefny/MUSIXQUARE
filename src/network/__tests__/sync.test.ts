@@ -917,6 +917,47 @@ function configureProKickTopology(
   );
 }
 
+function configureStandardKickTopology(
+  senderConn: DataConnection,
+  targetConn: DataConnection,
+  senderOverrides: Partial<ConnectedPeer> = {},
+  targetOverrides: Partial<ConnectedPeer> = {},
+): void {
+  setState('network.appRole', 'host');
+  setState('network.myId', 'standard-host');
+  setState('network.sessionCode', '123456');
+  setState('room.context', {
+    kind: 'standard',
+    roomId: '123456',
+    role: 'coordinator',
+    coordinatorId: 'standard-host',
+    epoch: 0,
+    snapshotRevision: 0,
+    capabilities: [],
+  });
+  setState('network.connectedPeers', [
+    {
+      ...memberManagementPeer('controller-member', senderConn, ['members.manage']),
+      memberId: 'member-controller',
+      isAuthenticated: true,
+      ...senderOverrides,
+    },
+    {
+      ...memberManagementPeer('target-member', targetConn),
+      memberId: 'member-target',
+      isAuthenticated: true,
+      ...targetOverrides,
+    },
+  ]);
+  setState(
+    'network.activeHostConnByPeerId',
+    new Map([
+      ['controller-member', senderConn],
+      ['target-member', targetConn],
+    ]),
+  );
+}
+
 describe('PRO controller member kick requests', () => {
   function openConnection(peer: string): DataConnection {
     return { peer, open: true } as DataConnection;
@@ -1004,23 +1045,7 @@ describe('PRO controller member kick requests', () => {
   it('lets a delegated standard-room administrator request an ordinary member kick', async () => {
     const senderConn = openConnection('controller-member');
     const targetConn = openConnection('target-member');
-    configureProKickTopology(senderConn, targetConn);
-    setState('room.context', {
-      kind: 'standard',
-      roomId: '123456',
-      role: 'coordinator',
-      coordinatorId: '123456',
-      epoch: 0,
-      snapshotRevision: 0,
-      capabilities: [],
-    });
-    setState('network.connectedPeers', [
-      memberManagementPeer('controller-member', senderConn, ['members.manage']),
-      {
-        ...memberManagementPeer('target-member', targetConn, []),
-        isOp: false,
-      },
-    ]);
+    configureStandardKickTopology(senderConn, targetConn, {}, { isOp: false });
     initSync();
     const kick = vi.fn();
     bus.on('network:kick-device', kick);
@@ -1031,23 +1056,15 @@ describe('PRO controller member kick requests', () => {
     expect(kick).toHaveBeenCalledWith('target-member');
   });
 
-  it('routes a physical-device request to the exact disconnect path', async () => {
+  it('allows an exact physical disconnect of a verified same-account administrator sibling', async () => {
     const senderConn = openConnection('controller-member');
     const targetConn = openConnection('target-member');
-    configureProKickTopology(senderConn, targetConn);
-    setState('room.context', {
-      kind: 'standard',
-      roomId: '123456',
-      role: 'coordinator',
-      coordinatorId: '123456',
-      epoch: 0,
-      snapshotRevision: 0,
-      capabilities: [],
-    });
-    setState('network.connectedPeers', [
-      memberManagementPeer('controller-member', senderConn, ['members.manage']),
-      { ...memberManagementPeer('target-member', targetConn, []), isOp: false },
-    ]);
+    configureStandardKickTopology(
+      senderConn,
+      targetConn,
+      { memberId: 'member-shared' },
+      { memberId: 'member-shared' },
+    );
     initSync();
     const memberKick = vi.fn();
     const physicalKick = vi.fn();
@@ -1063,6 +1080,80 @@ describe('PRO controller member kick requests', () => {
     expect(physicalKick).toHaveBeenCalledWith('target-member');
     expect(memberKick).not.toHaveBeenCalled();
   });
+
+  it('keeps an account-wide kick of the current authenticated member blocked', async () => {
+    const senderConn = openConnection('controller-member');
+    const targetConn = openConnection('target-member');
+    configureStandardKickTopology(
+      senderConn,
+      targetConn,
+      { memberId: 'member-shared' },
+      { memberId: 'member-shared' },
+    );
+    initSync();
+    const memberKick = vi.fn();
+    const physicalKick = vi.fn();
+    bus.on('network:kick-device', memberKick);
+    bus.on('network:kick-physical-device', physicalKick);
+
+    await handleData({ type: MSG.REQUEST_KICK_DEVICE, targetPeerId: 'target-member' }, senderConn);
+
+    expect(memberKick).not.toHaveBeenCalled();
+    expect(physicalKick).not.toHaveBeenCalled();
+  });
+
+  it('does not treat an unverified matching member id as ownership of another device', async () => {
+    const senderConn = openConnection('controller-member');
+    const targetConn = openConnection('target-member');
+    configureStandardKickTopology(
+      senderConn,
+      targetConn,
+      { memberId: 'member-unverified', isAuthenticated: false },
+      { memberId: 'member-unverified', isAuthenticated: false },
+    );
+    initSync();
+    const physicalKick = vi.fn();
+    bus.on('network:kick-physical-device', physicalKick);
+
+    await handleData(
+      { type: MSG.REQUEST_KICK_PHYSICAL_DEVICE, targetPeerId: 'target-member' },
+      senderConn,
+    );
+
+    expect(physicalKick).not.toHaveBeenCalled();
+  });
+
+  it('does not let a standard-room administrator exactly disconnect another administrator', async () => {
+    const senderConn = openConnection('controller-member');
+    const targetConn = openConnection('target-member');
+    configureStandardKickTopology(senderConn, targetConn);
+    initSync();
+    const physicalKick = vi.fn();
+    bus.on('network:kick-physical-device', physicalKick);
+
+    await handleData(
+      { type: MSG.REQUEST_KICK_PHYSICAL_DEVICE, targetPeerId: 'target-member' },
+      senderConn,
+    );
+
+    expect(physicalKick).not.toHaveBeenCalled();
+  });
+
+  it.each(['controller-member', 'standard-host'])(
+    'keeps the current sender and physical host protected from an exact disconnect: %s',
+    async (targetPeerId) => {
+      const senderConn = openConnection('controller-member');
+      const targetConn = openConnection('target-member');
+      configureStandardKickTopology(senderConn, targetConn);
+      initSync();
+      const physicalKick = vi.fn();
+      bus.on('network:kick-physical-device', physicalKick);
+
+      await handleData({ type: MSG.REQUEST_KICK_PHYSICAL_DEVICE, targetPeerId }, senderConn);
+
+      expect(physicalKick).not.toHaveBeenCalled();
+    },
+  );
 
   it('rejects a physical-device peer frame in PRO rooms so the server stays authoritative', async () => {
     const senderConn = openConnection('controller-member');
@@ -1083,20 +1174,7 @@ describe('PRO controller member kick requests', () => {
   it('does not let a delegated standard-room administrator kick another administrator', async () => {
     const senderConn = openConnection('controller-member');
     const targetConn = openConnection('target-member');
-    configureProKickTopology(senderConn, targetConn);
-    setState('room.context', {
-      kind: 'standard',
-      roomId: '123456',
-      role: 'coordinator',
-      coordinatorId: '123456',
-      epoch: 0,
-      snapshotRevision: 0,
-      capabilities: [],
-    });
-    setState('network.connectedPeers', [
-      memberManagementPeer('controller-member', senderConn, ['members.manage']),
-      memberManagementPeer('target-member', targetConn, ['playback.control']),
-    ]);
+    configureStandardKickTopology(senderConn, targetConn);
     initSync();
     const kick = vi.fn();
     bus.on('network:kick-device', kick);

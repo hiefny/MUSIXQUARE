@@ -9595,13 +9595,30 @@ export class MusixquareProRoom {
     if (!targetSession) return errorResponse('PARTICIPANT_NOT_FOUND', 404);
     if (
       target.participantId === auth.session.participantId ||
-      (this.authorityProjectionEnabled() && targetSession.memberId === auth.session.memberId)
+      target.sessionHash === auth.tokenHash
     ) {
       return errorResponse('CANNOT_KICK_SELF', 409);
     }
+    const isVerifiedAccountSibling =
+      this.authorityProjectionEnabled() &&
+      typeof auth.session.accountId === 'string' &&
+      auth.session.accountId.length > 0 &&
+      targetSession.accountId === auth.session.accountId &&
+      auth.participant.accountId === auth.session.accountId &&
+      target.accountId === targetSession.accountId &&
+      auth.participant.memberId === auth.session.memberId &&
+      target.memberId === targetSession.memberId &&
+      targetSession.memberId === auth.session.memberId &&
+      target.sessionHash !== auth.tokenHash;
     if (this.authorityProjectionEnabled()) {
-      if (targetSession.role === 'owner') return errorResponse('OWNER_AUTHORITY_IMMUTABLE', 409);
-      if (auth.session.role !== 'owner' && targetSession.role === 'controller') {
+      if (!isVerifiedAccountSibling && targetSession.role === 'owner') {
+        return errorResponse('OWNER_AUTHORITY_IMMUTABLE', 409);
+      }
+      if (
+        !isVerifiedAccountSibling &&
+        auth.session.role !== 'owner' &&
+        targetSession.role === 'controller'
+      ) {
         return errorResponse('ADMINISTRATOR_TARGET_FORBIDDEN', 403);
       }
     }

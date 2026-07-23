@@ -603,9 +603,12 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
 // Registered here instead of host.ts to avoid circular dependency
 // (host.ts → protocol.ts → peer.ts → host.ts).
 
+type RequestedKickScope = 'member' | 'physical';
+
 function resolveRequestedKickTarget(
   data: Record<string, unknown>,
   conn: DataConnection,
+  scope: RequestedKickScope,
 ): string | null {
   const room = getRoomContext();
   if (getState('network.hostConn') || getState('network.appRole') !== 'host') return null;
@@ -657,17 +660,35 @@ function resolveRequestedKickTarget(
   }
 
   if (room.kind === 'standard') {
-    // A delegated member-kick grant removes ordinary members only. Authority
-    // management remains host-owned, and one account cannot evict another
-    // physical device representing itself.
-    if (target.isOp || (sender.memberId && sender.memberId === target.memberId)) return null;
+    const sameClaimedMember =
+      typeof sender.memberId === 'string' &&
+      sender.memberId.length > 0 &&
+      sender.memberId === target.memberId;
+    const sameAuthenticatedMember =
+      sameClaimedMember && sender.isAuthenticated === true && target.isAuthenticated === true;
+
+    if (scope === 'member') {
+      // Member-wide removal also revokes account authority, so it must never
+      // target the caller's own account or another administrator.
+      if (target.isOp || sameClaimedMember) return null;
+    } else {
+      // Exact removal may disconnect a verified sibling connection while
+      // preserving the shared account grant. Unverified identity collisions
+      // fail closed, and administrators from other accounts remain protected.
+      if (
+        (sameClaimedMember && !sameAuthenticatedMember) ||
+        (target.isOp && !sameAuthenticatedMember)
+      ) {
+        return null;
+      }
+    }
   }
 
   return targetPeerId;
 }
 
 function handleRequestKickDevice(data: Record<string, unknown>, conn: DataConnection): void {
-  const targetPeerId = resolveRequestedKickTarget(data, conn);
+  const targetPeerId = resolveRequestedKickTarget(data, conn, 'member');
   if (!targetPeerId) return;
 
   // The established member-level path expands authenticated targets to every
@@ -683,7 +704,7 @@ function handleRequestKickPhysicalDevice(
   // peer frame bypass the Worker’s owner/administrator protections and turn
   // the coordinator transport into an alternate exact-kick endpoint.
   if (getRoomContext().kind !== 'standard') return;
-  const targetPeerId = resolveRequestedKickTarget(data, conn);
+  const targetPeerId = resolveRequestedKickTarget(data, conn, 'physical');
   if (!targetPeerId) return;
   // Exact connection removal deliberately preserves sibling devices and the
   // member's account-level administrator grant.

@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { setLanguageMode } from '../../i18n/index.ts';
-import type { DataConnection } from '../../types/index.ts';
+import type { DataConnection, RoomContext } from '../../types/index.ts';
 import {
   changeActiveProRoomPin,
   getActiveProRoomAdministrators,
@@ -16,7 +16,7 @@ import {
   updateActiveProRoomAdministrator,
 } from '../../pro-room/runtime.ts';
 import { showToast } from '../toast.ts';
-import { showDialog } from '../dialog.ts';
+import { showDialog, type DialogResult } from '../dialog.ts';
 import { initConnect } from '../connect.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
 import type { ProRoomAdministrator } from '../../pro-room/contracts.ts';
@@ -780,12 +780,16 @@ describe('member-level connection and administrator UI', () => {
       expect(entry?.querySelector('.device-sublist')?.hasAttribute('hidden')).toBe(false);
       expect(entry?.querySelectorAll('.device-subrow')).toHaveLength(2);
     }
-    const mobileControls = document.querySelector<HTMLButtonElement>(
-      '#connect-device-list [data-member-id="friend-member"] .device-expand-toggle',
-    )?.getAttribute('aria-controls');
-    const desktopControls = document.querySelector<HTMLButtonElement>(
-      '#desktop-device-list [data-member-id="friend-member"] .device-expand-toggle',
-    )?.getAttribute('aria-controls');
+    const mobileControls = document
+      .querySelector<HTMLButtonElement>(
+        '#connect-device-list [data-member-id="friend-member"] .device-expand-toggle',
+      )
+      ?.getAttribute('aria-controls');
+    const desktopControls = document
+      .querySelector<HTMLButtonElement>(
+        '#desktop-device-list [data-member-id="friend-member"] .device-expand-toggle',
+      )
+      ?.getAttribute('aria-controls');
     expect(mobileControls).not.toBe(desktopControls);
   });
 
@@ -872,8 +876,9 @@ describe('member-level connection and administrator UI', () => {
     expect(targetEntry?.querySelector('.device-expand-toggle')?.getAttribute('aria-expanded')).toBe(
       'true',
     );
-    const kickPhysicalDeviceButton =
-      targetEntry?.querySelector<HTMLButtonElement>('.btn-kick-physical-device');
+    const kickPhysicalDeviceButton = targetEntry?.querySelector<HTMLButtonElement>(
+      '.btn-kick-physical-device',
+    );
     expect(kickPhysicalDeviceButton?.getAttribute('aria-label')).toContain('iOS 기기 (A7F2)');
     kickPhysicalDeviceButton?.click();
 
@@ -881,6 +886,353 @@ describe('member-level connection and administrator UI', () => {
       expect(mockedKickActiveProRoomPresence).toHaveBeenCalledWith('friend-ios-A7F2'),
     );
     expect(mockedKickActiveProRoomMember).not.toHaveBeenCalled();
+  });
+
+  it('lets the PRO owner disconnect only a sibling device while protecting the current and offline devices', async () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'owner-current-A7F1');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000079',
+      role: 'coordinator',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['members.manage', 'room.configure'],
+    });
+    mockedShowDialog.mockResolvedValue({ action: 'ok' });
+    initConnect();
+    bus.emit('pro-room:administrators-updated', [
+      {
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 2,
+      },
+    ]);
+    bus.emit('network:device-list-update', [
+      {
+        id: 'owner-current-A7F1',
+        label: 'Owner',
+        joinOrder: 0,
+        status: 'connected',
+        isHost: true,
+        isOp: true,
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        devicePlatform: 'windows',
+      },
+      {
+        id: 'owner-sibling-A7F2',
+        label: 'Owner',
+        joinOrder: 1,
+        status: 'connected',
+        // Every owner presence is projected as a host-like product role in
+        // PRO rooms. That must not hide the exact action for my other device.
+        isHost: true,
+        isOp: true,
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        devicePlatform: 'ios',
+      },
+      {
+        id: 'owner-offline-A7F3',
+        label: 'Owner',
+        joinOrder: 2,
+        status: 'disconnected',
+        isHost: true,
+        isOp: true,
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        devicePlatform: 'android',
+      },
+    ]);
+
+    const ownerEntry = document.querySelector<HTMLElement>(
+      '#connect-device-list [data-member-id="owner-member"].device-entry',
+    );
+    ownerEntry?.querySelector<HTMLButtonElement>('.device-expand-toggle')?.click();
+    const current = ownerEntry?.querySelector<HTMLElement>('[data-device-id="owner-current-A7F1"]');
+    const sibling = ownerEntry?.querySelector<HTMLElement>('[data-device-id="owner-sibling-A7F2"]');
+    const offline = ownerEntry?.querySelector<HTMLElement>('[data-device-id="owner-offline-A7F3"]');
+
+    expect(current?.getAttribute('aria-current')).toBe('true');
+    expect(current?.querySelector('.btn-kick-physical-device')).toBeNull();
+    expect(current?.querySelector('.sr-only')?.textContent).toContain('현재');
+    expect(offline?.querySelector('.btn-kick-physical-device')).toBeNull();
+    expect(ownerEntry?.querySelector('.btn-kick-device')).toBeNull();
+
+    const kickSibling = sibling?.querySelector<HTMLButtonElement>('.btn-kick-physical-device');
+    expect(kickSibling?.getAttribute('aria-label')).toContain('iOS');
+    expect(kickSibling?.getAttribute('aria-label')).toContain('A7F2');
+    kickSibling?.click();
+
+    await vi.waitFor(() =>
+      expect(mockedKickActiveProRoomPresence).toHaveBeenCalledWith('owner-sibling-A7F2'),
+    );
+    expect(mockedKickActiveProRoomPresence).toHaveBeenCalledTimes(1);
+    expect(mockedKickActiveProRoomMember).not.toHaveBeenCalled();
+  });
+
+  it('lets the standard-room host disconnect an authenticated sibling without targeting itself', async () => {
+    setState('network.appRole', 'host');
+    setState('network.myId', 'standard-host-current');
+    setState('network.hostConn', null);
+    setState('room.context', {
+      kind: 'standard',
+      roomId: '123456',
+      role: 'coordinator',
+      coordinatorId: 'standard-host-current',
+      epoch: 0,
+      snapshotRevision: 0,
+      capabilities: [],
+    });
+    mockedShowDialog.mockResolvedValue({ action: 'ok' });
+    const requestExactKick = vi.fn();
+    bus.on('network:request-kick-standard-room-device', requestExactKick);
+    initConnect();
+    const devices: Array<Record<string, unknown>> = [
+      {
+        id: 'standard-host-current',
+        label: 'Standard owner',
+        joinOrder: 0,
+        status: 'connected',
+        isHost: true,
+        isOp: true,
+        memberId: 'standard-owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        devicePlatform: 'windows',
+      },
+      {
+        id: 'standard-owner-sibling',
+        label: 'Standard owner',
+        joinOrder: 1,
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+        memberId: 'standard-owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        devicePlatform: 'ios',
+      },
+    ];
+    bus.emit('network:device-list-update', devices);
+
+    const ownerEntry = document.querySelector<HTMLElement>(
+      '#connect-device-list [data-member-id="standard-owner-member"].device-entry',
+    );
+    ownerEntry?.querySelector<HTMLButtonElement>('.device-expand-toggle')?.click();
+    expect(
+      ownerEntry?.querySelector(
+        '[data-device-id="standard-host-current"] .btn-kick-physical-device',
+      ),
+    ).toBeNull();
+
+    const siblingKick = ownerEntry?.querySelector<HTMLButtonElement>(
+      '[data-device-id="standard-owner-sibling"] .btn-kick-physical-device',
+    );
+    siblingKick?.click();
+
+    await vi.waitFor(() =>
+      expect(requestExactKick).toHaveBeenCalledWith({ peerId: 'standard-owner-sibling' }),
+    );
+    expect(requestExactKick).toHaveBeenCalledTimes(1);
+
+    let resolveOfflineDialog!: (result: DialogResult) => void;
+    mockedShowDialog.mockReturnValueOnce(
+      new Promise<DialogResult>((resolve) => {
+        resolveOfflineDialog = resolve;
+      }),
+    );
+    siblingKick?.click();
+    bus.emit(
+      'network:device-list-update',
+      devices.map((device) =>
+        device.id === 'standard-owner-sibling' ? { ...device, status: 'disconnected' } : device,
+      ),
+    );
+    resolveOfflineDialog({ action: 'ok' });
+    await Promise.resolve();
+    expect(requestExactKick).toHaveBeenCalledTimes(1);
+
+    bus.emit('network:device-list-update', devices);
+    const refreshedEntry = document.querySelector<HTMLElement>(
+      '#connect-device-list [data-member-id="standard-owner-member"].device-entry',
+    );
+    refreshedEntry?.querySelector<HTMLButtonElement>('.device-expand-toggle')?.click();
+    const refreshedSiblingKick = refreshedEntry?.querySelector<HTMLButtonElement>(
+      '[data-device-id="standard-owner-sibling"] .btn-kick-physical-device',
+    );
+    let resolveRoomSwitchDialog!: (result: DialogResult) => void;
+    mockedShowDialog.mockReturnValueOnce(
+      new Promise<DialogResult>((resolve) => {
+        resolveRoomSwitchDialog = resolve;
+      }),
+    );
+    refreshedSiblingKick?.click();
+    setState('room.context', {
+      kind: 'standard',
+      roomId: '654321',
+      role: 'coordinator',
+      coordinatorId: 'standard-host-current',
+      epoch: 1,
+      snapshotRevision: 0,
+      capabilities: [],
+    });
+    resolveRoomSwitchDialog({ action: 'ok' });
+    await Promise.resolve();
+    expect(requestExactKick).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps sibling exact actions capability-gated and protects other PRO authorities', () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'controller-current');
+    const authorizedContext: RoomContext = {
+      kind: 'pro',
+      roomId: '000080',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['members.manage'],
+    };
+    setState('room.context', authorizedContext);
+    initConnect();
+    bus.emit('pro-room:administrators-updated', [
+      {
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 2,
+      },
+      {
+        memberId: 'controller-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        displayName: 'Controller',
+        role: 'controller',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: [],
+        onlineDeviceCount: 2,
+      },
+      {
+        memberId: 'other-controller-member',
+        memberDisplayNumber: 2,
+        isAuthenticated: true,
+        displayName: 'Other controller',
+        role: 'controller',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: [],
+        onlineDeviceCount: 2,
+      },
+    ]);
+    const devices = [
+      {
+        id: 'owner-a',
+        label: 'Owner',
+        joinOrder: 0,
+        status: 'connected',
+        isHost: true,
+        isOp: true,
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        devicePlatform: 'windows',
+      },
+      {
+        id: 'owner-b',
+        label: 'Owner',
+        joinOrder: 1,
+        status: 'connected',
+        isHost: true,
+        isOp: true,
+        memberId: 'owner-member',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        devicePlatform: 'ios',
+      },
+      {
+        id: 'controller-current',
+        label: 'Controller',
+        joinOrder: 2,
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+        memberId: 'controller-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        devicePlatform: 'windows',
+      },
+      {
+        id: 'controller-sibling',
+        label: 'Controller',
+        joinOrder: 3,
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+        memberId: 'controller-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        devicePlatform: 'ios',
+      },
+      {
+        id: 'other-controller-a',
+        label: 'Other controller',
+        joinOrder: 4,
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+        memberId: 'other-controller-member',
+        memberDisplayNumber: 2,
+        isAuthenticated: true,
+        devicePlatform: 'android',
+      },
+      {
+        id: 'other-controller-b',
+        label: 'Other controller',
+        joinOrder: 5,
+        status: 'connected',
+        isHost: false,
+        isOp: true,
+        memberId: 'other-controller-member',
+        memberDisplayNumber: 2,
+        isAuthenticated: true,
+        devicePlatform: 'linux',
+      },
+    ];
+    bus.emit('network:device-list-update', devices);
+
+    const entry = (memberId: string) =>
+      document.querySelector<HTMLElement>(
+        `#connect-device-list [data-member-id="${memberId}"].device-entry`,
+      );
+    for (const memberId of ['owner-member', 'controller-member', 'other-controller-member']) {
+      entry(memberId)?.querySelector<HTMLButtonElement>('.device-expand-toggle')?.click();
+    }
+
+    expect(
+      entry('controller-member')?.querySelector(
+        '[data-device-id="controller-sibling"] .btn-kick-physical-device',
+      ),
+    ).not.toBeNull();
+    expect(entry('owner-member')?.querySelector('.btn-kick-physical-device')).toBeNull();
+    expect(entry('other-controller-member')?.querySelector('.btn-kick-physical-device')).toBeNull();
+
+    setState('room.context', { ...authorizedContext, capabilities: [] });
+    bus.emit('network:device-list-update', devices);
+    expect(entry('controller-member')?.querySelector('.btn-kick-physical-device')).toBeNull();
   });
 
   it('shows connected standard administrators to non-host participants from the live projection', () => {

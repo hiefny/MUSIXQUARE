@@ -751,6 +751,20 @@ function deviceDisplayName(device: DeviceInfo): string {
   });
 }
 
+function isAuthenticatedSiblingDevice(
+  currentDevice: DeviceInfo | undefined,
+  targetDevice: DeviceInfo,
+): boolean {
+  return (
+    currentDevice?.id !== targetDevice.id &&
+    currentDevice?.isAuthenticated === true &&
+    targetDevice.isAuthenticated === true &&
+    typeof currentDevice.memberId === 'string' &&
+    currentDevice.memberId.length > 0 &&
+    currentDevice.memberId === targetDevice.memberId
+  );
+}
+
 function syncExpandedDeviceMember(memberKey: string): void {
   const expanded = _expandedDeviceMemberKeys.has(memberKey);
   document.querySelectorAll<HTMLElement>('.device-entry').forEach((entry) => {
@@ -1049,15 +1063,14 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
   const supportsPhysicalDeviceKick = devices.some((device) =>
     Object.prototype.hasOwnProperty.call(device, 'devicePlatform'),
   );
+  const currentDeviceId = getState('network.myId') || '';
   const deviceById = new Map(
     devices
       .filter((device) => device && typeof device.id === 'string' && device.id)
       .map((device) => [device.id, device] as const),
   );
-  const members = groupConnectedRoomMembers(
-    devices,
-    getState('network.myId') || '',
-  );
+  const members = groupConnectedRoomMembers(devices, currentDeviceId);
+  const renderBoundary = deviceExpansionRoomBoundary();
   const expandableKeys = new Set(
     members.filter((member) => member.deviceCount > 1).map((member) => member.key),
   );
@@ -1256,12 +1269,16 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
             subrow.appendChild(current);
           }
 
+          const ownAuthenticatedSibling =
+            member.isCurrent &&
+            member.isAuthenticated &&
+            isAuthenticatedSiblingDevice(deviceById.get(currentDeviceId), device);
           const canKickPhysicalDevice =
             supportsPhysicalDeviceKick &&
-            canKick &&
-            !member.isCurrent &&
+            hasRoomCapability('members.manage') &&
             !isCurrentDevice &&
-            device.status === 'connected';
+            device.status === 'connected' &&
+            (ownAuthenticatedSibling ? isProRoom || device.isHost !== true : canKick);
           if (canKickPhysicalDevice) {
             const kickDeviceBtn = document.createElement('button');
             kickDeviceBtn.type = 'button';
@@ -1272,6 +1289,7 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
             kickDeviceBtn.addEventListener('click', async (event) => {
               event.preventDefault();
               event.stopPropagation();
+              if (deviceExpansionRoomBoundary() !== renderBoundary) return;
               const result = await showDialog({
                 title: `${t('connect.kick_title')} · ${displayName}`,
                 message: t('connect.kick_message'),
@@ -1281,15 +1299,69 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
               if (
                 result.action !== 'ok' ||
                 !hasRoomCapability('members.manage') ||
-                device.id === getState('network.myId') ||
-                device.isHost ||
-                isRoomOwner ||
-                (isAdministrator && !_canManageAdministrators())
+                deviceExpansionRoomBoundary() !== renderBoundary
+              ) {
+                return;
+              }
+
+              // The confirmation dialog can outlive a room switch or a
+              // heartbeat update. Re-resolve every identity and authority
+              // decision from the latest projection before dispatching.
+              const latestDevices = _lastDeviceList as unknown as DeviceInfo[];
+              const latestDeviceById = new Map(
+                latestDevices
+                  .filter((candidate) => candidate && typeof candidate.id === 'string')
+                  .map((candidate) => [candidate.id, candidate] as const),
+              );
+              const latestCurrentDeviceId = getState('network.myId') || '';
+              const latestTarget = latestDeviceById.get(device.id);
+              if (
+                !latestTarget ||
+                latestTarget.id === latestCurrentDeviceId ||
+                latestTarget.status !== 'connected' ||
+                !latestDevices.some((candidate) =>
+                  Object.prototype.hasOwnProperty.call(candidate, 'devicePlatform'),
+                )
+              ) {
+                return;
+              }
+
+              const latestMembers = groupConnectedRoomMembers(latestDevices, latestCurrentDeviceId);
+              const latestMember = latestMembers.find((candidate) =>
+                candidate.deviceIds.includes(latestTarget.id),
+              );
+              if (!latestMember) return;
+              const latestAdministrators = _administratorsForMembers(latestMembers);
+              const latestAuthorityKey = memberAuthorityKey(latestMember);
+              const latestIsAdministrator =
+                latestMember.isAdministrator ||
+                latestAdministrators.some(
+                  (administrator) => administrator.memberId === latestAuthorityKey,
+                );
+              const latestIsRoomOwner = latestAdministrators.some(
+                (administrator) =>
+                  administrator.isOwner && administrator.memberId === latestAuthorityKey,
+              );
+              const ownAuthenticatedSiblingNow =
+                latestMember.isCurrent &&
+                latestMember.isAuthenticated &&
+                isAuthenticatedSiblingDevice(
+                  latestDeviceById.get(latestCurrentDeviceId),
+                  latestTarget,
+                );
+              if (
+                ownAuthenticatedSiblingNow
+                  ? !_isProRoom() && latestTarget.isHost === true
+                  : latestMember.isCurrent ||
+                    latestMember.isHost ||
+                    latestTarget.isHost === true ||
+                    latestIsRoomOwner ||
+                    (latestIsAdministrator && !_canManageAdministrators())
               ) {
                 return;
               }
               try {
-                await kickRoomPhysicalDevice(device);
+                await kickRoomPhysicalDevice(latestTarget);
               } catch (error) {
                 log.warn('[Connect] Could not disconnect physical device', error);
                 showToast(t('error.network_generic'));

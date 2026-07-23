@@ -9391,7 +9391,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     ).toBe(200);
     const forbidden = await context.worker.fetch(
       jsonRequest(
-        '/presence/kick',
+        '/presence/kick-device',
         'POST',
         { targetParticipantId: otherAdministrator.envelope.snapshot.viewer.participantId },
         delegated.cookie,
@@ -9399,6 +9399,25 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     expect(forbidden.status).toBe(403);
     await expect(forbidden.json()).resolves.toEqual({ error: 'ADMINISTRATOR_TARGET_FORBIDDEN' });
+    expect(
+      (await context.worker.fetch(request('/snapshot', {}, otherAdministrator.cookie))).status,
+    ).toBe(200);
+
+    const immutableOwner = await context.worker.fetch(
+      jsonRequest(
+        '/presence/kick-device',
+        'POST',
+        { targetParticipantId: context.activationEnvelope.snapshot.viewer.participantId },
+        delegated.cookie,
+      ),
+    );
+    expect(immutableOwner.status).toBe(409);
+    await expect(immutableOwner.json()).resolves.toEqual({
+      error: 'OWNER_AUTHORITY_IMMUTABLE',
+    });
+    expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
+      200,
+    );
 
     const kicked = await context.worker.fetch(
       jsonRequest(
@@ -9413,7 +9432,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect((await context.worker.fetch(request('/snapshot', {}, second.cookie))).status).toBe(401);
   });
 
-  it('disconnects one exact device while preserving sibling sessions and delegated authority', async () => {
+  it('lets a delegated controller disconnect its sibling device while preserving its current session and authority', async () => {
     const context = await activatedRoom();
     enableMemberAuthority(context);
     const internal = context.worker as unknown as { room: Record<string, any> };
@@ -9460,12 +9479,25 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(memberShape.status).toBe(400);
     await expect(memberShape.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
 
+    const currentParticipantId = second.envelope.snapshot.viewer.participantId as string;
+    const currentDevice = await context.worker.fetch(
+      jsonRequest(
+        '/presence/kick-device',
+        'POST',
+        { targetParticipantId: currentParticipantId },
+        second.cookie,
+      ),
+    );
+    expect(currentDevice.status).toBe(409);
+    await expect(currentDevice.json()).resolves.toEqual({ error: 'CANNOT_KICK_SELF' });
+    expect((await context.worker.fetch(request('/snapshot', {}, second.cookie))).status).toBe(200);
+
     const kicked = await context.worker.fetch(
       jsonRequest(
         '/presence/kick-device',
         'POST',
         { targetParticipantId: first.envelope.snapshot.viewer.participantId },
-        context.ownerCookie,
+        second.cookie,
       ),
     );
     expect(kicked.status).toBe(200);
@@ -9477,9 +9509,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const remainingParticipantIds = sibling.snapshot.presence.participants.map(
       (participant: Record<string, unknown>) => participant.participantId,
     );
-    expect(remainingParticipantIds).not.toContain(
-      first.envelope.snapshot.viewer.participantId,
-    );
+    expect(remainingParticipantIds).not.toContain(first.envelope.snapshot.viewer.participantId);
     expect(remainingParticipantIds).toContain(second.envelope.snapshot.viewer.participantId);
     expect(sibling.snapshot.viewer).toMatchObject({
       memberId,
@@ -9500,6 +9530,111 @@ describe('persistent PRO room authentication, presence, and state', () => {
       role: 'controller',
       permissions: fullDelegatedPermissions,
     });
+  });
+
+  it('lets an account-linked owner disconnect a sibling owner device without weakening owner authority', async () => {
+    const context = await activatedRoom();
+    enableMemberAuthority(context);
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const accountId = 'acct_ownerdevices0123456789';
+    const attachedResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        request('/sessions/current/account', { method: 'POST' }, context.ownerCookie),
+        accountId,
+        'Owner devices',
+      ),
+    );
+    expect(attachedResponse.status).toBe(200);
+    const attached = await responseJson(attachedResponse);
+    const ownerMemberId = attached.snapshot.viewer.memberId as string;
+    const currentParticipantId = attached.snapshot.viewer.participantId as string;
+
+    const siblingResponse = await context.worker.fetch(
+      await withAccountAssertion(
+        jsonRequest('/sessions', 'POST', { pin: '12345678' }),
+        accountId,
+        'Owner devices',
+      ),
+    );
+    expect(siblingResponse.status).toBe(200);
+    const sibling = await responseJson(siblingResponse);
+    const siblingCookie = cookieFrom(siblingResponse);
+    bindCookiePresence(siblingCookie, sibling);
+    const siblingParticipantId = sibling.snapshot.viewer.participantId as string;
+    expect(sibling.snapshot.viewer).toMatchObject({
+      memberId: ownerMemberId,
+      role: 'owner',
+      isAuthenticated: true,
+    });
+    expect(siblingParticipantId).not.toBe(currentParticipantId);
+
+    const currentDevice = await context.worker.fetch(
+      jsonRequest(
+        '/presence/kick-device',
+        'POST',
+        { targetParticipantId: currentParticipantId },
+        context.ownerCookie,
+      ),
+    );
+    expect(currentDevice.status).toBe(409);
+    await expect(currentDevice.json()).resolves.toEqual({ error: 'CANNOT_KICK_SELF' });
+    expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
+      200,
+    );
+
+    const kicked = await context.worker.fetch(
+      jsonRequest(
+        '/presence/kick-device',
+        'POST',
+        { targetParticipantId: siblingParticipantId },
+        context.ownerCookie,
+      ),
+    );
+    expect(kicked.status).toBe(200);
+    expect((await context.worker.fetch(request('/snapshot', {}, siblingCookie))).status).toBe(401);
+
+    const ownerSnapshotResponse = await context.worker.fetch(
+      request('/snapshot', {}, context.ownerCookie),
+    );
+    expect(ownerSnapshotResponse.status).toBe(200);
+    const ownerSnapshot = await responseJson(ownerSnapshotResponse);
+    const remainingParticipantIds = ownerSnapshot.snapshot.presence.participants.map(
+      (participant: Record<string, unknown>) => participant.participantId,
+    );
+    expect(remainingParticipantIds).toContain(currentParticipantId);
+    expect(remainingParticipantIds).not.toContain(siblingParticipantId);
+    expect(ownerSnapshot.snapshot.viewer).toMatchObject({
+      memberId: ownerMemberId,
+      participantId: currentParticipantId,
+      role: 'owner',
+      isAuthenticated: true,
+      capabilities: expect.arrayContaining([
+        'queue.mutate',
+        'playback.control',
+        'asset.upload',
+        'members.manage',
+      ]),
+    });
+    expect(ownerSnapshot.snapshot.administrators).toContainEqual(
+      expect.objectContaining({
+        memberId: ownerMemberId,
+        role: 'owner',
+        isAuthenticated: true,
+        onlineDeviceCount: 1,
+        permissions: fullDelegatedPermissions,
+      }),
+    );
+    expect(internal.room.ownerAccountId).toBe(accountId);
+    expect(internal.room.accountMembers[accountId]).toMatchObject({
+      memberId: ownerMemberId,
+      role: 'owner',
+      permissions: fullDelegatedPermissions,
+    });
+    expect(
+      Object.values(internal.room.sessions).filter(
+        (session: any) => session.accountId === accountId,
+      ),
+    ).toHaveLength(1);
   });
 
   it('revokes an authenticated administrator account when the owner kicks that member', async () => {
@@ -12380,13 +12515,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     ).toBe(true);
     const controller = await worker.fetch(jsonRequest('/sessions', 'POST', { pin: '12345678' }));
     expect(controller.status).toBe(200);
-    const negotiatedReplay = jsonRequest(
-      '/snapshot',
-      'PUT',
-      body,
-      ownerCookie,
-      IDEMPOTENCY_KEY,
-    );
+    const negotiatedReplay = jsonRequest('/snapshot', 'PUT', body, ownerCookie, IDEMPOTENCY_KEY);
     negotiatedReplay.headers.set('accept', 'application/json; mxqr-device-platform=1');
     const replay = await worker.fetch(negotiatedReplay);
     const replayEnvelope = await responseJson(replay);
@@ -12394,14 +12523,11 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(replayEnvelope.snapshot.playlist).toEqual(firstEnvelope.snapshot.playlist);
     expect(
       replayEnvelope.snapshot.presence.participants.every(
-        (participant: Record<string, unknown>) =>
-          typeof participant.devicePlatform === 'string',
+        (participant: Record<string, unknown>) => typeof participant.devicePlatform === 'string',
       ),
     ).toBe(true);
     const legacyReplay = await responseJson(
-      await worker.fetch(
-        jsonRequest('/snapshot', 'PUT', body, ownerCookie, IDEMPOTENCY_KEY),
-      ),
+      await worker.fetch(jsonRequest('/snapshot', 'PUT', body, ownerCookie, IDEMPOTENCY_KEY)),
     );
     expect(
       legacyReplay.snapshot.presence.participants.every(

@@ -16,7 +16,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
-import { YOUTUBE_PRIME_VIDEO_ID } from '../constants.ts';
+import {
+  IOS_WATCHDOG_MS,
+  UNAVAILABLE_STUCK_THRESHOLD_MS,
+  YOUTUBE_PRIME_VIDEO_ID,
+} from '../constants.ts';
 import { setManagedTimer } from '../../core/timers.ts';
 import { showToast } from '../../ui/toast.ts';
 import { broadcast } from '../../network/peer.ts';
@@ -38,6 +42,15 @@ const zeroStartFacade = vi.hoisted(() => ({
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+// This suite exercises the persistent-player and gesture-gate paths that are
+// specific to iOS WebKit. Other YouTube suites retain the default jsdom
+// (non-iOS) platform, so both branches remain covered.
+vi.mock('../../core/platform.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../core/platform.ts')>()),
+  IS_IOS: true,
+  IS_ANDROID: false,
 }));
 
 vi.mock('../../i18n/index.ts', () => ({
@@ -171,12 +184,14 @@ interface YtTestHandle {
   fireStateChange: (state: number) => void;
   fireReady: () => void;
   fireError: (code: number) => void;
+  fireAutoplayBlocked: () => void;
 }
 
 function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
   let capturedOnStateChange: ((event: { data: number }) => void) | undefined;
   let capturedOnReady: ((event: { target: YouTubePlayerInstance }) => void) | undefined;
   let capturedOnError: ((event: { data: number }) => void) | undefined;
+  let capturedOnAutoplayBlocked: ((event: { target: YouTubePlayerInstance }) => void) | undefined;
   (window as unknown as { YT: unknown }).YT = {
     Player: vi.fn(function (
       _target: string,
@@ -185,12 +200,14 @@ function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
           onStateChange?: (event: { data: number }) => void;
           onReady?: (event: { target: YouTubePlayerInstance }) => void;
           onError?: (event: { data: number }) => void;
+          onAutoplayBlocked?: (event: { target: YouTubePlayerInstance }) => void;
         };
       },
     ) {
       capturedOnStateChange = options.events.onStateChange;
       capturedOnReady = options.events.onReady;
       capturedOnError = options.events.onError;
+      capturedOnAutoplayBlocked = options.events.onAutoplayBlocked;
       return player;
     }),
     PlayerState: {
@@ -214,6 +231,10 @@ function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
     fireError: (code: number) => {
       if (!capturedOnError) throw new Error('onError was never captured');
       capturedOnError({ data: code });
+    },
+    fireAutoplayBlocked: () => {
+      if (!capturedOnAutoplayBlocked) throw new Error('onAutoplayBlocked was never captured');
+      capturedOnAutoplayBlocked({ target: player });
     },
   };
 }
@@ -308,6 +329,233 @@ describe('IFrame runtime readiness identity', () => {
     loadYouTubeVideo('readyEpoch2', null, false, 0);
 
     expect(buttonStates.at(-1)).toBe(true);
+  });
+});
+
+describe('autoplay-policy recovery', () => {
+  it('does not classify an intentionally CUED iOS track as unavailable before play is requested', async () => {
+    const player = createMockYtPlayer(['firstVideo1', 'secondVideo']);
+    vi.mocked(player.getPlayerState!).mockReturnValue(5);
+    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'firstVideo1' });
+    const handle = installYtNamespace(player);
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Manual-start playlist',
+        videoId: 'firstVideo1',
+        playlistId: 'PL_MANUAL',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setState('youtube.subItemsMap', {
+      PL_MANUAL: {
+        ids: ['firstVideo1', 'secondVideo'],
+        titles: ['First', 'Second'],
+      },
+    });
+
+    const now = vi.spyOn(Date, 'now');
+    now.mockReturnValue(20_000);
+    loadYouTubeVideo('firstVideo1', null, false, 0);
+    handle.fireReady();
+    const uiTick = lastTimerCallback('youtubeUILoop');
+    expect(uiTick).toBeTypeOf('function');
+
+    const tryNext = vi.fn();
+    const nextTrack = vi.fn();
+    bus.on('youtube:try-next-internal', tryNext);
+    bus.on('playlist:next-track', nextTrack);
+
+    uiTick?.();
+    now.mockReturnValue(20_000 + UNAVAILABLE_STUCK_THRESHOLD_MS + IOS_WATCHDOG_MS + 1);
+    uiTick?.();
+
+    expect(document.getElementById('youtube-ios-sync-overlay')).toBeNull();
+    expect(tryNext).not.toHaveBeenCalled();
+    expect(nextTrack).not.toHaveBeenCalled();
+    expect(getState('youtube.currentSubIndex')).toBe(0);
+  });
+
+  it('turns a persistently CUED iOS play attempt into a tap gate before unavailable recovery can advance it', async () => {
+    const player = createMockYtPlayer(['firstVideo1', 'secondVideo']);
+    vi.mocked(player.getPlayerState!).mockReturnValue(5);
+    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'firstVideo1' });
+    const handle = installYtNamespace(player);
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    const { setYtAutoplayIntent } = await import('../_state.ts');
+
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Indexed playlist',
+        videoId: 'firstVideo1',
+        playlistId: 'PL_INDEXED',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setState('youtube.subItemsMap', {
+      PL_INDEXED: {
+        ids: ['firstVideo1', 'secondVideo'],
+        titles: ['First', 'Second'],
+      },
+    });
+
+    const now = vi.spyOn(Date, 'now');
+    now.mockReturnValue(10_000);
+    loadYouTubeVideo('firstVideo1', null, false, 0);
+    handle.fireReady();
+    setYtAutoplayIntent(true);
+    const uiTick = lastTimerCallback('youtubeUILoop');
+    expect(uiTick).toBeTypeOf('function');
+
+    const tryNext = vi.fn();
+    const nextTrack = vi.fn();
+    bus.on('youtube:try-next-internal', tryNext);
+    bus.on('playlist:next-track', nextTrack);
+
+    uiTick?.();
+    now.mockReturnValue(10_000 + IOS_WATCHDOG_MS + 1);
+    uiTick?.();
+
+    expect(document.getElementById('youtube-ios-sync-overlay')).not.toBeNull();
+    expect(getState('youtube.currentSubIndex')).toBe(0);
+
+    // Even after the generic unavailable threshold, the visible policy gate
+    // owns this stall and must protect the selected first item from #2.
+    now.mockReturnValue(10_000 + UNAVAILABLE_STUCK_THRESHOLD_MS + IOS_WATCHDOG_MS + 2);
+    uiTick?.();
+    expect(tryNext).not.toHaveBeenCalled();
+    expect(nextTrack).not.toHaveBeenCalled();
+    expect(getState('youtube.currentSubIndex')).toBe(0);
+  });
+
+  it('keeps the first indexed playlist video selected and asks for a tap when scripted play is blocked', async () => {
+    const player = createMockYtPlayer(['firstVideo1', 'secondVideo']);
+    vi.mocked(player.getPlayerState!).mockReturnValue(-1);
+    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'firstVideo1' });
+    const handle = installYtNamespace(player);
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    const { setYtAutoplayIntent } = await import('../_state.ts');
+
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Indexed playlist',
+        videoId: 'firstVideo1',
+        playlistId: 'PL_INDEXED',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setState('youtube.subItemsMap', {
+      PL_INDEXED: {
+        ids: ['firstVideo1', 'secondVideo'],
+        titles: ['First', 'Second'],
+      },
+    });
+
+    // Mirrors the post-indexing handoff: the native playlist indexer has
+    // resolved IDs and playback is forced to the first concrete video.
+    loadYouTubeVideo('firstVideo1', null, false, 0);
+    // The rendezvous/zero-start owner has now committed to scripted playback.
+    // A policy block before this point is only a harmless cue/indexing event;
+    // after this point it needs one explicit user gesture.
+    setYtAutoplayIntent(true);
+
+    const tryNext = vi.fn();
+    const nextTrack = vi.fn();
+    bus.on('youtube:try-next-internal', tryNext);
+    bus.on('playlist:next-track', nextTrack);
+    showToastMock.mockClear();
+    broadcastSystemMessageMock.mockClear();
+
+    handle.fireAutoplayBlocked();
+
+    expect(document.getElementById('youtube-ios-sync-overlay')).not.toBeNull();
+    expect(getState('youtube.currentSubIndex')).toBe(0);
+    expect(getState('playlist.currentQueueItemId')).toBe(QUEUE_ITEM_ID);
+    expect(tryNext).not.toHaveBeenCalled();
+    expect(nextTrack).not.toHaveBeenCalled();
+    expect(showToastMock).not.toHaveBeenCalledWith('youtube.video_unavailable');
+    expect(broadcastSystemMessageMock).not.toHaveBeenCalledWith('youtube.video_unavailable');
+
+    vi.mocked(player.playVideo!).mockClear();
+    vi.mocked(player.pauseVideo!).mockClear();
+    document.getElementById('youtube-ios-sync-overlay')?.click();
+
+    // Host tap: synchronously acquire the iframe gesture with play/pause,
+    // dismiss the gate, then retry the selected first video in-place.
+    expect(player.playVideo).toHaveBeenCalledTimes(2);
+    expect(player.pauseVideo).toHaveBeenCalledTimes(1);
+    expect(document.getElementById('youtube-ios-sync-overlay')).toBeNull();
+    expect(getState('youtube.currentSubIndex')).toBe(0);
+    expect(tryNext).not.toHaveBeenCalled();
+    expect(nextTrack).not.toHaveBeenCalled();
+  });
+
+  it('uses a PRO gate tap only to unlock the iframe before rejoining the server timeline', async () => {
+    const player = createMockYtPlayer();
+    vi.mocked(player.getPlayerState!).mockReturnValue(5);
+    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'proVideo001' });
+    const handle = installYtNamespace(player);
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    const { setYtAutoplayIntent } = await import('../_state.ts');
+
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'PRO playlist entry',
+        videoId: 'proVideo001',
+        playlistId: 'PL_PRO',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+
+    loadYouTubeVideo('proVideo001', null, false, 0);
+    setYtAutoplayIntent(true);
+
+    const rejoin = vi.fn();
+    bus.on('playback:local-output-rejoin', rejoin);
+    handle.fireAutoplayBlocked();
+    expect(document.getElementById('youtube-ios-sync-overlay')).not.toBeNull();
+
+    vi.mocked(player.playVideo!).mockClear();
+    vi.mocked(player.pauseVideo!).mockClear();
+    document.getElementById('youtube-ios-sync-overlay')?.click();
+
+    // The synchronous pair captures WebKit's gesture for this endpoint.
+    // Canonical playback still comes from the PRO server rejoin path, so
+    // there must be no second direct local play command.
+    expect(player.playVideo).toHaveBeenCalledTimes(1);
+    expect(player.pauseVideo).toHaveBeenCalledTimes(1);
+    expect(rejoin).toHaveBeenCalledOnce();
+    expect(rejoin).toHaveBeenCalledWith({
+      reason: 'media-session-play',
+      mode: 'youtube',
+    });
+    expect(document.getElementById('youtube-ios-sync-overlay')).toBeNull();
   });
 });
 

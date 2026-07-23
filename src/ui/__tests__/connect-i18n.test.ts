@@ -1757,21 +1757,27 @@ describe('member-level connection and administrator UI', () => {
 
   it('matches main-row removal icons to expand chevrons without enlarging device subrow removal', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
+    const expandIconRules =
+      stylesheet.match(/\.expand-toggle svg,\s*\.device-expand-toggle svg\s*\{([^}]*)\}/)?.[1] ??
+      '';
     const playlistRemoveIconRules =
       stylesheet.match(/\.btn-playlist-remove svg\s*\{([^}]*)\}/)?.[1] ?? '';
     const playlistRemoveButtonRules =
       stylesheet.match(/\.btn-playlist-remove\s*\{([^}]*)\}/)?.[1] ?? '';
-    const memberKickIconRules =
-      stylesheet.match(/\.btn-kick-device svg\s*\{([^}]*)\}/)?.[1] ?? '';
-    const memberKickButtonRules =
-      stylesheet.match(/\.btn-kick-device\s*\{([^}]*)\}/)?.[1] ?? '';
+    const memberKickIconRules = stylesheet.match(/\.btn-kick-device svg\s*\{([^}]*)\}/)?.[1] ?? '';
+    const memberKickButtonRules = stylesheet.match(/\.btn-kick-device\s*\{([^}]*)\}/)?.[1] ?? '';
     const kickButtonBaseRules =
-      stylesheet.match(
-        /\.btn-kick-device,\s*\.btn-kick-physical-device\s*\{([^}]*)\}/,
-      )?.[1] ?? '';
+      stylesheet.match(/\.btn-kick-device,\s*\.btn-kick-physical-device\s*\{([^}]*)\}/)?.[1] ?? '';
     const physicalDeviceKickIconRules =
       stylesheet.match(/\.btn-kick-physical-device svg\s*\{([^}]*)\}/)?.[1] ?? '';
 
+    expect(expandIconRules).toContain('width: 22px');
+    expect(expandIconRules).toContain('height: 22px');
+    expect(expandIconRules).toContain('fill: none');
+    expect(expandIconRules).toContain('stroke: currentColor');
+    expect(expandIconRules).toContain('stroke-width: 1.8');
+    expect(expandIconRules).toContain('stroke-linecap: butt');
+    expect(expandIconRules).toContain('stroke-linejoin: miter');
     expect(playlistRemoveButtonRules).toContain('opacity: 1');
     expect(playlistRemoveButtonRules).toContain('color: var(--text-muted)');
     expect(playlistRemoveIconRules).toContain('width: 16px');

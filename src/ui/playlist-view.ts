@@ -295,7 +295,7 @@ export function updatePlaylistUI(): void {
       ? `<button type="button" class="expand-toggle ${isExpanded(item) ? 'active' : ''}"
           data-action="expand" data-queue-item-id="${escapeHtml(item.queueItemId)}"
           aria-label="${escapeHtml(t('playlist.toggle'))}" aria-expanded="${isExpanded(item)}">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6-1.41-1.41Z"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9 5.5 5.5L17.5 9"/></svg>
         </button>`
       : '';
     const isRemovalSelected = _removalController?.isSelected(item.queueItemId) ?? false;

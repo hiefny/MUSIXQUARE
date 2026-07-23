@@ -871,6 +871,11 @@ export function loadYouTubeVideo(
   setYtPrimeReady(false);
   setYtPrimeBouncePending(false);
   clearManagedTimer('yt-prime-bounce-timeout');
+  // A gesture block belongs to one concrete load. A track switch must not
+  // inherit either its visible tap gate or the watchdog's elapsed time.
+  showYouTubeSyncOverlay(false);
+  setYtIOSWatchdog(null);
+  _ifr.unavailableStuckSince = null;
 
   // Reset pre-empt guard on every new load. The guard compares against
   // the iframe's current playlistIdx; if the value is stale from a prior
@@ -1369,12 +1374,19 @@ function createYouTubePlayer(
           startSeconds: 0,
         });
       } else if (playlistId) {
-        existingPlayer.loadPlaylist({
+        const playlistArgs = {
           list: playlistId,
           listType: 'playlist',
           index: subIndex,
           startSeconds: 0,
-        });
+        };
+        // loadPlaylist() is a load-and-play command. On iOS an async playlist
+        // resolution commonly outlives the initiating tap, so using it while
+        // autoplay is disabled needlessly trips the browser's autoplay policy.
+        // CUED is already a supported pending-sync handoff below; cue first and
+        // let the synchronized play owner issue the eventual playVideo().
+        if (!autoplay && existingPlayer.cuePlaylist) existingPlayer.cuePlaylist(playlistArgs);
+        else existingPlayer.loadPlaylist(playlistArgs);
       } else if (videoId) {
         // A synchronized track transition must not let the persistent iframe
         // emit a few audible frames before the rendezvous barrier is armed.
@@ -1509,6 +1521,7 @@ function createYouTubePlayer(
       onReady: onYouTubePlayerReady,
       onStateChange: onYouTubePlayerStateChange,
       onError: onYouTubePlayerError,
+      onAutoplayBlocked: onYouTubeAutoplayBlocked,
     },
   };
 
@@ -1918,6 +1931,24 @@ function onYouTubePlayerError(event: { data: number }): void {
   // Generic fallback (e.g. code 2 invalid param, code 5 HTML5 engine)
   showToast(t('youtube.load_fail'));
   routeCurrentProYouTubeObservation('unavailable');
+}
+
+/**
+ * Browser autoplay policy is not a media failure. Playlist indexing is
+ * asynchronous, so iOS can legitimately lose the user-gesture window before
+ * the resolved first video reaches playVideo(). Keep the selected occurrence
+ * in place and ask for one explicit tap instead of letting the unavailable
+ * watchdog advance to the second item.
+ */
+function onYouTubeAutoplayBlocked(event: { target: YouTubePlayerInstance }): void {
+  if (event.target !== getYouTubePlayer()) return;
+  if (!isPlaybackModeYouTube() || isYtIndexing() || isYtPriming()) return;
+  if (!getCurrentQueueItemId() || !getYtAutoplayIntent()) return;
+
+  log.info('[YouTube] Scripted playback was blocked; waiting for an explicit user tap');
+  _ifr.unavailableStuckSince = null;
+  showLoader(false);
+  showYouTubeSyncOverlay(true);
 }
 
 function onYouTubePlayerStateChange(event: { data: number }): void {
@@ -2331,9 +2362,12 @@ function updateYouTubeUI(): void {
     const playlistIdx = player.getPlaylistIndex?.() ?? -1;
     const state = player.getPlayerState?.() ?? -1;
 
-    // iOS watchdog: only trigger on UNSTARTED (-1), not CUED (5)
-    // state=5 (CUED) is a normal pre-play state, not a playback failure
-    if (IS_IOS && state === -1) {
+    // iOS fallback for older/quirky iframe builds that do not deliver
+    // onAutoplayBlocked. CUED is normally healthy, but if a synchronized play
+    // is explicitly intended and it remains CUED, WebKit is waiting for a tap.
+    const iosGestureBlockedCandidate =
+      IS_IOS && (state === -1 || (state === 5 && getYtAutoplayIntent()));
+    if (iosGestureBlockedCandidate) {
       if (!getYtIOSWatchdog()) setYtIOSWatchdog(Date.now());
       if (Date.now() - getYtIOSWatchdog()! > IOS_WATCHDOG_MS) {
         showYouTubeSyncOverlay(true);
@@ -2382,12 +2416,16 @@ function updateYouTubeUI(): void {
     //   - isScrapingPlaylist — CUED is intentional while indexing IDs
     //   - PLAYING/PAUSED — video is fine (ads live here too)
     const isHost = !getState('network.hostConn');
-    const STUCK_STATES = new Set([-1, 5, 3]); // UNSTARTED, CUED, BUFFERING
+    // CUED is only a failure candidate after an actual play intent. A track
+    // deliberately prepared for manual start may remain CUED indefinitely and
+    // must never auto-skip merely because the listener has not pressed Play.
+    const stuckStateEligible =
+      state === -1 || state === 3 || (state === 5 && getYtAutoplayIntent());
     const iosOverlayVisible =
       document.getElementById('youtube-ios-sync-overlay')?.style.display === 'flex';
     const stuckEligible =
       isHost &&
-      STUCK_STATES.has(state) &&
+      stuckStateEligible &&
       !iosOverlayVisible &&
       !document.hidden &&
       !_ifr.isScrapingPlaylist;
@@ -2634,6 +2672,17 @@ function showYouTubeSyncOverlay(show: boolean): void {
 
         // Step 2 — decide fallback path. Guest → rendezvous (aligned start).
         // Host/standalone → plain playVideo (no external reference to follow).
+        // A PRO tap unlocks only this endpoint. Room playback remains owned by
+        // the server, so rejoin its canonical timeline instead of manufacturing
+        // a direct local play command.
+        if (getState('room.context').kind === 'pro') {
+          bus.emit('playback:local-output-rejoin', {
+            reason: 'media-session-play',
+            mode: 'youtube',
+          });
+          return;
+        }
+
         const hostConn = getState('network.hostConn');
         if (hostConn) {
           try {

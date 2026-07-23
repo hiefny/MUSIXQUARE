@@ -1187,7 +1187,7 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
             t('connect.device_toggle', { name: member.label || t('common.peer') }),
           );
           expandBtn.innerHTML =
-            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6-1.41-1.41Z"/></svg>';
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9 5.5 5.5L17.5 9"/></svg>';
           expandBtn.addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();

@@ -24,6 +24,15 @@ every allocated incarnation, including the current active or in-progress one;
 losing or corrupting a mutable registry pointer must never make generation `0`
 available again.
 
+An operator label is mutable display metadata, not part of room authority. Edit
+it from the expanded room card only after the dashboard has loaded the current
+immutable `room_generation`. The write compares both the room code and
+generation, rejects provisioning or terminal incarnations, and records only the
+pseudonymous actor, action/result, code, generation, and timestamp in the audit
+table. Old and new label text are deliberately excluded from audit records.
+Changing a label never changes ownership, activation, credentials, Durable
+Object identity, or storage paths.
+
 The audit stores a session-scoped HMAC actor pseudonym, action/result, PRO room
 code, immutable room generation, and timestamp only. It must never store a PIN,
 activation or owner-recovery claim, bearer URL, admin cookie, account

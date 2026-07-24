@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const adminScript = readFileSync(resolve(process.cwd(), 'public/admin.js'), 'utf8');
+const adminStyles = readFileSync(resolve(process.cwd(), 'public/admin.css'), 'utf8');
 
 function installAdminDom(): void {
   document.body.innerHTML = `
@@ -249,6 +250,114 @@ describe('admin PRO room claim lifecycle', () => {
 });
 
 describe('admin PRO room operations dashboard', () => {
+  it('edits the exact room generation label and matches the app accordion styling', async () => {
+    installAdminDom();
+    let currentLabel = 'Friends room';
+    let submittedBody: unknown;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms/000001/label') {
+        expect(init?.method).toBe('POST');
+        expect(new Headers(init?.headers).get('X-MXQR-Admin-CSRF')).toBe('1');
+        submittedBody = JSON.parse(String(init?.body));
+        currentLabel = String((submittedBody as { label?: string }).label || '');
+        return Response.json({
+          ok: true,
+          roomCode: '000001',
+          roomGeneration: 7,
+          label: currentLabel,
+          changed: true,
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms/000001/api-keys') {
+        return Response.json({
+          roomCode: '000001',
+          roomGeneration: 7,
+          keys: [],
+          maxActiveKeys: 3,
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          rooms: [
+            {
+              roomCode: '000001',
+              roomGeneration: 7,
+              label: currentLabel,
+              status: 'registered',
+              activationState: 'active',
+              createdAt: Date.now(),
+            },
+          ],
+        });
+      }
+      if (url.pathname === '/api/admin/articles') {
+        return Response.json({ generatedAt: new Date().toISOString(), articles: [] });
+      }
+      if (url.pathname === '/api/admin/announcement') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          announcement: {},
+          history: [],
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+
+    const room = await vi.waitFor(() => {
+      const item = document.querySelector<HTMLDetailsElement>('[data-pro-room-item="000001"]');
+      expect(item).not.toBeNull();
+      return item!;
+    });
+    expect(room.querySelector('.pro-room-chevron')?.textContent).toBe('');
+    expect(room.querySelector('.pro-room-chevron path')?.getAttribute('d')).toBe(
+      'm6.5 9 5.5 5.5L17.5 9',
+    );
+    expect(adminStyles).toMatch(
+      /\.pro-room-item\[open\]\s*\{\s*background:\s*rgba\(var\(--primary-rgb\),\s*0\.08\)/,
+    );
+    expect(adminStyles).toMatch(
+      /\.pro-room-chevron svg\s*\{[^}]*stroke-width:\s*1\.8;[^}]*stroke-linecap:\s*butt;[^}]*stroke-linejoin:\s*miter;/s,
+    );
+
+    room.open = true;
+    room.dispatchEvent(new Event('toggle'));
+    const input = room.querySelector<HTMLInputElement>('[data-pro-room-label-form] input')!;
+    const save = room.querySelector<HTMLButtonElement>('[data-pro-room-label-form] button')!;
+    input.value = 'Late night room';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(save.disabled).toBe(false);
+    room
+      .querySelector<HTMLFormElement>('[data-pro-room-label-form]')
+      ?.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(submittedBody).toEqual({ roomGeneration: 7, label: 'Late night room' });
+      expect(room.querySelector('[data-pro-room-label-value]')?.textContent).toBe(
+        'Late night room',
+      );
+      expect(room.querySelector('.pro-room-label-status')?.textContent).toBe('Label saved.');
+    });
+  });
+
   it('binds room state changes to the exact rendered generation', async () => {
     installAdminDom();
     let stateBody: unknown;

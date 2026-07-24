@@ -2633,6 +2633,238 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(JSON.stringify(audits)).not.toContain('operator@example.com');
   });
 
+  it('updates only the current PRO room generation label with transactional audit', async () => {
+    type RegistryRow = {
+      room_code: string;
+      label: string;
+      status: string;
+      activation_state: string;
+      room_generation: number;
+      created_at: number;
+      updated_at: number;
+    };
+    const roomCode = '000001';
+    const rows = new Map<string, RegistryRow>([
+      [
+        roomCode,
+        {
+          room_code: roomCode,
+          label: 'Original label',
+          status: 'registered',
+          activation_state: 'active',
+          room_generation: 4,
+          created_at: Date.now(),
+          updated_at: Date.now(),
+        },
+      ],
+    ]);
+    const audits: Array<{
+      actorId: string;
+      action: string;
+      result: string;
+      roomCode: string;
+      roomGeneration: number;
+      createdAt: number;
+    }> = [];
+    let failAudit = false;
+    let forceConflict = false;
+
+    const executeRun = (sql: string, values: unknown[]) => {
+      if (/INSERT OR IGNORE INTO mxqr_pro_room_registry/i.test(sql)) {
+        const [seedCode, label, timestamp] = values as [string, string, number];
+        if (rows.has(seedCode)) return { meta: { changes: 0 } };
+        rows.set(seedCode, {
+          room_code: seedCode,
+          label,
+          status: 'registered',
+          activation_state: 'unactivated',
+          room_generation: 0,
+          created_at: timestamp,
+          updated_at: timestamp,
+        });
+        return { meta: { changes: 1 } };
+      }
+      if (/INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
+        if (failAudit) throw new Error('audit unavailable');
+        const [actorId, action, result, auditRoomCode, roomGeneration, createdAt] =
+          values.length === 4 && /'room\.label\.update', 'authorized'/i.test(sql)
+            ? [values[0], 'room.label.update', 'authorized', values[1], values[2], values[3]]
+            : values;
+        audits.push({
+          actorId: String(actorId),
+          action: String(action),
+          result: String(result),
+          roomCode: String(auditRoomCode),
+          roomGeneration: Number(roomGeneration),
+          createdAt: Number(createdAt),
+        });
+        return { meta: { changes: 1 } };
+      }
+      if (/SET label = \?4, updated_at = \?5/i.test(sql)) {
+        const [targetCode, roomGeneration, oldLabel, nextLabel, timestamp] = values as [
+          string,
+          number,
+          string,
+          string,
+          number,
+        ];
+        const row = rows.get(targetCode);
+        if (forceConflict && row) {
+          forceConflict = false;
+          row.label = 'Concurrent label';
+          row.updated_at = timestamp - 1;
+          return { meta: { changes: 0 } };
+        }
+        if (
+          !row ||
+          row.room_generation !== roomGeneration ||
+          row.label !== oldLabel ||
+          !['registered', 'suspended'].includes(row.status)
+        ) {
+          return { meta: { changes: 0 } };
+        }
+        row.label = nextLabel;
+        row.updated_at = timestamp;
+        return { meta: { changes: 1 } };
+      }
+      return { meta: { changes: 0 } };
+    };
+
+    const db = {
+      prepare: vi.fn((sql: string) => ({
+        run: vi.fn(async () => executeRun(sql, [])),
+        bind: vi.fn((...values: unknown[]) => ({
+          run: vi.fn(async () => executeRun(sql, values)),
+          first: vi.fn(async () => rows.get(String(values[0])) || null),
+          all: vi.fn(async () => ({
+            results: /WHERE room_code/i.test(sql)
+              ? [rows.get(String(values[0]))].filter(Boolean)
+              : [...rows.values()],
+          })),
+        })),
+      })),
+      batch: vi.fn(async (statements: Array<{ run: () => Promise<unknown> }>) => {
+        const rowSnapshot = structuredClone([...rows.entries()]) as Array<[string, RegistryRow]>;
+        const auditLength = audits.length;
+        try {
+          const results = [];
+          for (const statement of statements) results.push(await statement.run());
+          return results;
+        } catch (error) {
+          rows.clear();
+          for (const [key, value] of rowSnapshot) rows.set(key, value);
+          audits.splice(auditLength);
+          throw error;
+        }
+      }),
+    };
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MUSIXQUARE_ADMIN_DB: db,
+    };
+
+    const unauthenticated = await appWorker.fetch(
+      new Request(`https://musixquare.com/api/admin/pro-rooms/${roomCode}/label`, {
+        method: 'POST',
+        headers: adminMutationHeaders(),
+        body: JSON.stringify({ roomGeneration: 4, label: 'Updated label' }),
+      }),
+      env,
+    );
+    expect(unauthenticated.status).toBe(401);
+
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.88' }),
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      env,
+    );
+    const headers = adminMutationHeaders({
+      Cookie: (login.headers.get('Set-Cookie') || '').split(';')[0],
+      'Cf-Access-Authenticated-User-Email': 'operator@example.com',
+    });
+    const updateLabel = (body: unknown) =>
+      appWorker.fetch(
+        new Request(`https://musixquare.com/api/admin/pro-rooms/${roomCode}/label`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+        }),
+        env,
+      );
+
+    for (const invalidBody of [
+      { roomGeneration: 4, label: '' },
+      { roomGeneration: 4, label: 'x'.repeat(65) },
+      { roomGeneration: 4, label: 'Unsafe\u202e label' },
+      { roomGeneration: 4, label: 'Updated label', extra: true },
+    ]) {
+      const response = await updateLabel(invalidBody);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: 'INVALID_REQUEST' });
+    }
+
+    const updated = await updateLabel({ roomGeneration: 4, label: '  Updated label  ' });
+    expect(updated.status).toBe(200);
+    expect(await updated.json()).toEqual({
+      ok: true,
+      roomCode,
+      roomGeneration: 4,
+      label: 'Updated label',
+      changed: true,
+    });
+    expect(rows.get(roomCode)?.label).toBe('Updated label');
+
+    const replay = await updateLabel({ roomGeneration: 4, label: 'Updated label' });
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ label: 'Updated label', changed: false });
+
+    const stale = await updateLabel({ roomGeneration: 3, label: 'Stale edit' });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toEqual({ error: 'PRO_ROOM_GENERATION_MISMATCH' });
+    expect(rows.get(roomCode)?.label).toBe('Updated label');
+
+    failAudit = true;
+    const unaudited = await updateLabel({ roomGeneration: 4, label: 'Never committed' });
+    expect(unaudited.status).toBe(503);
+    expect(await unaudited.json()).toEqual({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' });
+    expect(rows.get(roomCode)?.label).toBe('Updated label');
+    failAudit = false;
+
+    forceConflict = true;
+    const conflict = await updateLabel({ roomGeneration: 4, label: 'Conflicting label' });
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toEqual({ error: 'PRO_ROOM_LABEL_CONFLICT' });
+    expect(rows.get(roomCode)?.label).toBe('Concurrent label');
+
+    rows.get(roomCode)!.status = 'provisioning';
+    const provisioning = await updateLabel({ roomGeneration: 4, label: 'Too early' });
+    expect(provisioning.status).toBe(409);
+    expect(await provisioning.json()).toEqual({ error: 'PRO_ROOM_PROVISIONING_INCOMPLETE' });
+
+    rows.get(roomCode)!.status = 'decommissioned';
+    const terminal = await updateLabel({ roomGeneration: 4, label: 'Too late' });
+    expect(terminal.status).toBe(410);
+    expect(await terminal.json()).toEqual({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' });
+
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: 'room.label.update', result: 'authorized' }),
+        expect.objectContaining({ action: 'room.label.update', result: 'already_applied' }),
+        expect.objectContaining({ action: 'room.label.update', result: 'generation_mismatch' }),
+        expect.objectContaining({ action: 'room.label.update', result: 'provisioning_incomplete' }),
+        expect.objectContaining({ action: 'room.label.update', result: 'room_closed' }),
+      ]),
+    );
+    expect(audits.every((entry) => entry.roomGeneration >= 0)).toBe(true);
+    expect(JSON.stringify(audits)).not.toContain('Updated label');
+    expect(JSON.stringify(audits)).not.toContain('Concurrent label');
+    expect(JSON.stringify(audits)).not.toContain('operator@example.com');
+  });
+
   it('permanently decommissions a PRO room only after strict admin confirmation', async () => {
     type RegistryRow = {
       room_code: string;

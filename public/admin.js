@@ -1174,6 +1174,86 @@ async function loadProRoomApiKeys(
   }
 }
 
+function renderProRoomLabelEditor(room, roomCode, roomGeneration) {
+  const form = document.createElement('form');
+  form.className = 'pro-room-label-form';
+  form.dataset.proRoomLabelForm = roomCode;
+
+  const field = document.createElement('label');
+  field.className = 'pro-room-label-field';
+  const title = document.createElement('span');
+  title.textContent = 'Room label';
+  const input = document.createElement('input');
+  input.name = 'label';
+  input.value = String(room?.label || '');
+  input.maxLength = 64;
+  input.autocomplete = 'off';
+  input.required = true;
+  input.setAttribute('aria-label', `${roomCode} room label`);
+  field.append(title, input);
+
+  const save = document.createElement('button');
+  save.type = 'submit';
+  save.textContent = 'Save label';
+  save.disabled = true;
+
+  const status = document.createElement('p');
+  status.className = 'pro-room-label-status';
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+
+  const syncSaveState = () => {
+    const nextLabel = input.value.trim();
+    save.disabled =
+      !nextLabel || nextLabel.length > 64 || nextLabel === String(room?.label || '').trim();
+  };
+  input.addEventListener('input', syncSaveState);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const nextLabel = input.value.trim();
+    if (!nextLabel || nextLabel.length > 64 || save.disabled) return;
+    input.disabled = true;
+    save.disabled = true;
+    save.textContent = 'Saving...';
+    status.textContent = '';
+    status.classList.remove('is-error');
+    try {
+      const payload = await fetchJson(`/api/admin/pro-rooms/${roomCode}/label`, {
+        method: 'POST',
+        body: JSON.stringify({ roomGeneration, label: nextLabel }),
+      });
+      if (
+        payload?.roomCode !== roomCode ||
+        normalizeProRoomGeneration(payload?.roomGeneration) !== roomGeneration ||
+        typeof payload?.label !== 'string' ||
+        !payload.label.trim()
+      ) {
+        throw new Error('PRO_ROOM_GENERATION_MISMATCH');
+      }
+      room.label = payload.label.trim();
+      input.value = room.label;
+      const summaryLabel = form
+        .closest('[data-pro-room-item]')
+        ?.querySelector('[data-pro-room-label-value]');
+      if (summaryLabel) summaryLabel.textContent = room.label;
+      status.textContent = payload.changed === false ? 'Label is already up to date.' : 'Label saved.';
+    } catch (error) {
+      status.textContent = adminErrorMessage(error, 'Room label could not be saved.');
+      status.classList.add('is-error');
+      if (isProRoomGenerationMismatchError(error)) {
+        loadProRooms({ updateTimestamp: false }).catch(() => {});
+      }
+    } finally {
+      input.disabled = false;
+      save.textContent = 'Save label';
+      syncSaveState();
+    }
+  });
+
+  form.append(field, save, status);
+  return form;
+}
+
 function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
   const section = document.createElement('section');
   section.className = 'pro-room-controls';
@@ -1201,6 +1281,11 @@ function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
     section.append(heading, message);
     return section;
   }
+
+  const labelEditor =
+    rawStatus === 'provisioning'
+      ? null
+      : renderProRoomLabelEditor(room, roomCode, roomGeneration);
 
   if (rawStatus !== 'provisioning' && rawStatus !== 'suspended') {
     const open = document.createElement('a');
@@ -1325,7 +1410,9 @@ function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
     actions.append(stateButton);
   }
 
-  section.append(heading, actions);
+  section.append(heading);
+  if (labelEditor) section.append(labelEditor);
+  section.append(actions);
   return section;
 }
 
@@ -1378,6 +1465,7 @@ function renderProRoomRow(room) {
   const code = document.createElement('strong');
   code.textContent = roomCode;
   const label = document.createElement('span');
+  label.dataset.proRoomLabelValue = roomCode;
   label.textContent = String(room.label || 'Unlabelled PRO room');
   identity.append(code, label);
 
@@ -1393,7 +1481,8 @@ function renderProRoomRow(room) {
   const chevron = document.createElement('span');
   chevron.className = 'pro-room-chevron';
   chevron.setAttribute('aria-hidden', 'true');
-  chevron.textContent = '›';
+  chevron.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9 5.5 5.5L17.5 9"/></svg>';
   summary.append(identity, details, chevron);
 
   const expanded = document.createElement('div');

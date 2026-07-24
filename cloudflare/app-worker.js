@@ -90,6 +90,7 @@ const ADMIN_PRO_ROOM_PATH_RE = /^\/api\/admin\/pro-rooms(?:\/(0\d{5})\/activatio
 const ADMIN_PRO_ROOM_OWNER_RECOVERY_PATH_RE =
   /^\/api\/admin\/pro-rooms\/(0\d{5})\/owner-recovery-claim$/;
 const ADMIN_PRO_ROOM_STATE_PATH_RE = /^\/api\/admin\/pro-rooms\/(0\d{5})\/state$/;
+const ADMIN_PRO_ROOM_LABEL_PATH_RE = /^\/api\/admin\/pro-rooms\/(0\d{5})\/label$/;
 const ADMIN_PRO_ROOM_DELETE_PATH_RE = /^\/api\/admin\/pro-rooms\/(0\d{5})$/;
 const ADMIN_DEVELOPER_API_KEY_PATH_RE =
   /^\/api\/admin\/pro-rooms\/(0\d{5})\/api-keys(?:\/([A-Za-z0-9_-]{16}))?$/;
@@ -1792,6 +1793,15 @@ function normalizeAdminProRoomRow(row) {
   };
 }
 
+function normalizeAdminProRoomLabel(value) {
+  const label = typeof value === 'string' ? value.trim() : '';
+  return label &&
+    label.length <= ADMIN_PRO_ROOM_LABEL_MAX_LENGTH &&
+    !/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(label)
+    ? label
+    : null;
+}
+
 async function readAdminProRoom(db, roomCode) {
   await ensureAdminProRoomRegistry(db);
   const statement = db
@@ -3051,12 +3061,8 @@ async function handleAdminProRooms(request, env, pathname) {
     }
     const roomCode = body.roomCode;
     const rawLabel = body.label === undefined ? `PRO Room ${roomCode}` : body.label;
-    const label = typeof rawLabel === 'string' ? rawLabel.trim() : '';
-    if (
-      !ADMIN_PRO_ROOM_CODE_RE.test(roomCode) ||
-      !label ||
-      label.length > ADMIN_PRO_ROOM_LABEL_MAX_LENGTH
-    ) {
+    const label = normalizeAdminProRoomLabel(rawLabel);
+    if (!ADMIN_PRO_ROOM_CODE_RE.test(roomCode) || !label) {
       return json({ error: 'INVALID_PRO_ROOM' }, 400);
     }
 
@@ -3586,6 +3592,168 @@ async function handleAdminProRoomState(request, env, pathname) {
     status: targetStatus,
     changed: payload.changed,
   });
+}
+
+async function handleAdminProRoomLabel(request, env, pathname) {
+  const route = pathname.match(ADMIN_PRO_ROOM_LABEL_PATH_RE);
+  if (!route) return json({ error: 'NOT_FOUND' }, 404);
+  const methodError = adminApiMethodAllowed(request, ['POST']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+
+  const db = getAdminDb(env);
+  if (!db?.prepare || typeof db.batch !== 'function') {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+
+  const roomCode = route[1];
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody);
+  const body = parsedBody.value;
+  const label = normalizeAdminProRoomLabel(body?.label);
+  if (
+    !body ||
+    typeof body !== 'object' ||
+    Array.isArray(body) ||
+    Object.keys(body).length !== 2 ||
+    !Object.prototype.hasOwnProperty.call(body, 'roomGeneration') ||
+    !Object.prototype.hasOwnProperty.call(body, 'label') ||
+    !isProRoomGeneration(body.roomGeneration) ||
+    !label
+  ) {
+    return json({ error: 'INVALID_REQUEST' }, 400);
+  }
+
+  let room;
+  try {
+    room = await readAdminProRoom(db, roomCode);
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  if (!room) return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  if (room.roomGeneration !== body.roomGeneration) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'room.label.update',
+      'generation_mismatch',
+      roomCode,
+      body.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
+  }
+  if (room.status === 'decommissioning' || room.status === 'decommissioned') {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'room.label.update',
+      'room_closed',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' }, 410);
+  }
+  if (room.status === 'provisioning') {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'room.label.update',
+      'provisioning_incomplete',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_PROVISIONING_INCOMPLETE' }, 409);
+  }
+  if (room.label === label) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'room.label.update',
+      'already_applied',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({
+      ok: true,
+      roomCode,
+      roomGeneration: room.roomGeneration,
+      label,
+      changed: false,
+    });
+  }
+
+  const nowMs = Date.now();
+  let actorId;
+  try {
+    actorId = await adminProRoomAuditActor(request, env);
+    const audit = db
+      .prepare(
+        `INSERT INTO ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+          (actor_id, action, result, room_code, room_generation, created_at)
+         VALUES (?1, 'room.label.update', 'authorized', ?2, ?3, ?4)`,
+      )
+      .bind(actorId, roomCode, room.roomGeneration, nowMs);
+    const mutation = db
+      .prepare(
+        `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+         SET label = ?4, updated_at = ?5
+         WHERE room_code = ?1
+           AND room_generation = ?2
+           AND label = ?3
+           AND status IN ('registered', 'suspended')`,
+      )
+      .bind(roomCode, room.roomGeneration, room.label, label, nowMs);
+    const results = await db.batch([audit, mutation]);
+    if (!Array.isArray(results) || !d1MutationChanged(results[0])) {
+      throw new Error('PRO room label audit was not confirmed');
+    }
+    if (d1MutationChanged(results[1])) {
+      return json({
+        ok: true,
+        roomCode,
+        roomGeneration: room.roomGeneration,
+        label,
+        changed: true,
+      });
+    }
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+
+  let current;
+  try {
+    current = await readAdminProRoom(db, roomCode);
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  if (!current) return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  if (current.roomGeneration !== room.roomGeneration) {
+    return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
+  }
+  if (current.status === 'decommissioning' || current.status === 'decommissioned') {
+    return json({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' }, 410);
+  }
+  if (current.status === 'provisioning') {
+    return json({ error: 'PRO_ROOM_PROVISIONING_INCOMPLETE' }, 409);
+  }
+  if (current.label === label) {
+    return json({
+      ok: true,
+      roomCode,
+      roomGeneration: current.roomGeneration,
+      label,
+      changed: false,
+    });
+  }
+  return json({ error: 'PRO_ROOM_LABEL_CONFLICT' }, 409);
 }
 
 async function handleAdminProRoomDelete(request, env, pathname) {
@@ -6865,6 +7033,10 @@ export default {
 
     if (ADMIN_PRO_ROOM_STATE_PATH_RE.test(url.pathname)) {
       return handleAdminProRoomState(request, env, url.pathname);
+    }
+
+    if (ADMIN_PRO_ROOM_LABEL_PATH_RE.test(url.pathname)) {
+      return handleAdminProRoomLabel(request, env, url.pathname);
     }
 
     if (ADMIN_PRO_ROOM_DELETE_PATH_RE.test(url.pathname)) {

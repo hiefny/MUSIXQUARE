@@ -394,6 +394,7 @@ p {
 
 .pro-room-field input,
 .pro-room-claim-row input,
+.pro-room-label-field input,
 .pro-room-api-field input,
 .pro-room-api-field select,
 .pro-room-api-secret-row input {
@@ -416,6 +417,7 @@ p {
 
 .pro-room-field input:focus,
 .pro-room-claim-row input:focus,
+.pro-room-label-field input:focus,
 .pro-room-api-field input:focus,
 .pro-room-api-field select:focus,
 .pro-room-api-secret-row input:focus {
@@ -429,6 +431,7 @@ p {
 
 .pro-room-register,
 .pro-room-claim-row button,
+.pro-room-label-form button,
 .pro-room-actions a,
 .pro-room-actions button,
 .pro-room-api-form button,
@@ -454,6 +457,7 @@ p {
 
 .pro-room-register:disabled,
 .pro-room-claim-row button:disabled,
+.pro-room-label-form button:disabled,
 .pro-room-actions button:disabled,
 .pro-room-api-form button:disabled,
 .pro-room-api-key-actions button:disabled,
@@ -545,6 +549,11 @@ p {
   overflow: clip;
   border-radius: var(--radius);
   background: var(--surface-1);
+  transition: background 180ms ease;
+}
+
+.pro-room-item[open] {
+  background: rgba(var(--primary-rgb), 0.08);
 }
 
 .pro-room-summary {
@@ -568,21 +577,43 @@ p {
 }
 
 .pro-room-chevron {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 32px;
   height: 32px;
+  border-radius: 50%;
+  background: transparent;
   color: var(--text-muted);
-  font-size: 27px;
-  font-weight: 500;
-  line-height: 1;
-  transform: rotate(0deg);
-  transition: transform 180ms ease, color 180ms ease;
+  transition:
+    background 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@media (hover: hover) {
+  .pro-room-summary:hover .pro-room-chevron {
+    background: var(--surface-3);
+    color: var(--text-main);
+  }
+}
+
+.pro-room-chevron svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: butt;
+  stroke-linejoin: miter;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .pro-room-item[open] .pro-room-chevron {
   color: var(--text-main);
-  transform: rotate(90deg);
+}
+
+.pro-room-item[open] .pro-room-chevron svg {
+  transform: rotate(180deg);
 }
 
 .pro-room-expanded {
@@ -666,6 +697,40 @@ p {
   flex-wrap: wrap;
   justify-content: flex-start;
   gap: 8px;
+}
+
+.pro-room-label-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 8px 10px;
+}
+
+.pro-room-label-field {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.pro-room-label-field > span {
+  color: var(--text-sub);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pro-room-label-form button {
+  height: 42px;
+}
+
+.pro-room-label-status {
+  grid-column: 1 / -1;
+  min-height: 1.25em;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.pro-room-label-status.is-error {
+  color: var(--fail);
 }
 
 .pro-room-actions a {
@@ -1741,7 +1806,8 @@ p {
   }
 
   .pro-room-form,
-  .pro-room-claim-row {
+  .pro-room-claim-row,
+  .pro-room-label-form {
     grid-template-columns: 1fr;
   }
 

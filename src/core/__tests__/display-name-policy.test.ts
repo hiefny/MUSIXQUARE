@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  hasDisplayNameWhitespaceOrFiller,
   hasVisibleDisplayNameContent,
   isSafeVisibleDisplayName,
   sanitizeDisplayNameForValidation,
@@ -65,6 +66,27 @@ describe('visible display-name policy', () => {
     for (const whitespace of ['\u00a0', '\u1680', '\u2000', '\u202f', '\u3000']) {
       expect(isSafeVisibleDisplayName(`Owner${whitespace}name`)).toBe(false);
     }
+  });
+
+  it('classifies Unicode whitespace and blank fillers as visual spacing', () => {
+    for (const spacing of [
+      ' ',
+      '\u00a0',
+      '\u1680',
+      '\u2007',
+      '\u202f',
+      '\u115f',
+      '\u1160',
+      '\u2800',
+      '\u3164',
+      '\uffa0',
+    ]) {
+      expect(hasDisplayNameWhitespaceOrFiller(`Min${spacing}su`), JSON.stringify(spacing)).toBe(
+        true,
+      );
+    }
+    expect(hasDisplayNameWhitespaceOrFiller('Minsu')).toBe(false);
+    expect(hasDisplayNameWhitespaceOrFiller('Min\u200bsu')).toBe(false);
   });
 
   it('requires visible content while allowing normal multilingual labels', () => {

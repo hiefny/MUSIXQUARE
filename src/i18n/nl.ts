@@ -56,7 +56,8 @@ const nl: Record<I18nKey, string> = {
   'account.nickname_placeholder': 'Nickname',
   'account.nickname_hint': 'Gebruik maximaal 12 tekens.',
   'account.nickname_required': 'Voer een nickname in.',
-  'account.nickname_whitespace': 'Een nickname mag geen spaties bevatten.',
+  'account.nickname_whitespace':
+    'Een nickname mag geen spaties of onzichtbare tekens bevatten.',
   'account.nickname_taken': 'Deze nickname is al in gebruik.',
   'account.nickname_saved': 'Nickname gewijzigd in {{name}}.',
   'account.action_failed': 'Het account kon niet worden bijgewerkt. Probeer het later opnieuw.',

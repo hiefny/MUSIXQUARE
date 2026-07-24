@@ -55,7 +55,7 @@ const zhHant: Record<I18nKey, string> = {
   'account.nickname_placeholder': '暱稱',
   'account.nickname_hint': '最多輸入 12 個字元。',
   'account.nickname_required': '請輸入暱稱。',
-  'account.nickname_whitespace': '暱稱中不能包含空格。',
+  'account.nickname_whitespace': '暱稱中不能包含空格或不可見字元。',
   'account.nickname_taken': '這個暱稱已被使用。',
   'account.nickname_saved': '暱稱已變更為 {{name}}。',
   'account.action_failed': '無法更新帳號，請稍後再試。',

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
+import { t } from '../../i18n/index.ts';
 import {
   accountNicknameKeyForTests,
   normalizeAccountNickname,
@@ -42,26 +43,44 @@ describe('account nickname validation', () => {
       expect(
         validateAccountNickname(`Min${whitespace}su`),
         JSON.stringify(whitespace),
-      ).not.toBeNull();
+      ).toBe(t('account.nickname_whitespace'));
     }
     expect(validateAccountNickname('\u0301\u0308')).not.toBeNull();
   });
 
   it('rejects blank fillers and hidden format characters without breaking emoji selectors', () => {
+    for (const filler of [
+      '\u115f',
+      '\u1160',
+      '\u2800',
+      '\u3164',
+      '\uffa0',
+    ]) {
+      expect(validateAccountNickname(filler), JSON.stringify(filler)).toBe(
+        t('account.nickname_whitespace'),
+      );
+      expect(validateAccountNickname(`Min${filler}su`), JSON.stringify(filler)).toBe(
+        t('account.nickname_whitespace'),
+      );
+    }
+    expect(validateAccountNickname('남춘천\u3164닭갈비')).toBe(
+      t('account.nickname_whitespace'),
+    );
+    expect(validateAccountNickname('Min\u200bsu')).toBe(t('account.nickname_whitespace'));
+    expect(validateAccountNickname('H\u200bOST')).toBe(t('connect.rename_reserved'));
     for (const hidden of [
       '\u00ad',
       '\u0600',
       '\u061c',
-      '\u115f',
-      '\u1160',
       '\u180e',
-      '\u2800',
-      '\u3164',
-      '\uffa0',
       '\ufff9',
     ]) {
-      expect(validateAccountNickname(hidden), JSON.stringify(hidden)).not.toBeNull();
-      expect(validateAccountNickname(`Min${hidden}su`), JSON.stringify(hidden)).not.toBeNull();
+      expect(validateAccountNickname(hidden), JSON.stringify(hidden)).toBe(
+        t('account.nickname_whitespace'),
+      );
+      expect(validateAccountNickname(`Min${hidden}su`), JSON.stringify(hidden)).toBe(
+        t('account.nickname_whitespace'),
+      );
     }
     expect(validateAccountNickname('\uff9e')).not.toBeNull();
     expect(validateAccountNickname('\uff9f')).not.toBeNull();

@@ -2,6 +2,7 @@ import profanityPatterns from '../chat/profanity-patterns.generated.json';
 import { PRO_GENERATED_PEER_NAME_RE, RESERVED_NAMES } from '../core/constants.ts';
 import {
   displayNameSecuritySkeleton,
+  hasDisplayNameWhitespaceOrFiller,
   hasVisibleDisplayNameContent,
   sanitizeDisplayNameForValidation,
 } from '../../cloudflare/display-name-policy.js';
@@ -17,8 +18,6 @@ export const ACCOUNT_NICKNAME_MAX_CODE_POINTS = 12;
 const ENGLISH_NICKNAME_PROFANITY_RE = profanityPatterns.accountEnglish
   ? new RegExp(profanityPatterns.accountEnglish, 'iu')
   : null;
-const ACCOUNT_NICKNAME_WHITESPACE_RE = /\p{White_Space}/u;
-
 function containsEnglishNicknameProfanity(value: string): boolean {
   return Boolean(ENGLISH_NICKNAME_PROFANITY_RE?.test(value));
 }
@@ -43,8 +42,8 @@ export function validateAccountNickname(value: string): string | null {
   if (!nickname) return t('account.nickname_required');
   const nicknameKey = accountNicknameKey(nickname);
   if (
-    ACCOUNT_NICKNAME_WHITESPACE_RE.test(nickname) ||
-    ACCOUNT_NICKNAME_WHITESPACE_RE.test(nicknameKey)
+    hasDisplayNameWhitespaceOrFiller(nickname) ||
+    hasDisplayNameWhitespaceOrFiller(nicknameKey)
   ) {
     return t('account.nickname_whitespace');
   }
@@ -57,7 +56,7 @@ export function validateAccountNickname(value: string): string | null {
     if (RESERVED_NAMES.some((name) => sanitizedKey === accountNicknameKey(name))) {
       return t('connect.rename_reserved');
     }
-    return t('account.nickname_required');
+    return t('account.nickname_whitespace');
   }
   if (!hasVisibleDisplayNameContent(nickname) || !hasVisibleDisplayNameContent(nicknameKey)) {
     return t('account.nickname_required');

@@ -1,6 +1,7 @@
 import profanityPatterns from '../src/chat/profanity-patterns.generated.json' with { type: 'json' };
 import {
   displayNameSecuritySkeleton,
+  hasDisplayNameWhitespaceOrFiller,
   hasVisibleDisplayNameContent,
   sanitizeDisplayNameForValidation,
 } from './display-name-policy.js';
@@ -10,7 +11,6 @@ import {
 // sessions and signed room assertions until their owner chooses a new name.
 const NICKNAME_WRITE_MAX_CODE_POINTS = 12;
 const NICKNAME_STORED_MAX_CODE_POINTS = 20;
-const NICKNAME_WHITESPACE_RE = /\p{White_Space}/u;
 const GENERATED_PEER_NAME_RE = /^peer(?: \d+)?$/i;
 const NUMBER_BADGE_NAME_RE = /^#\d+$/u;
 const RESERVED_NICKNAMES = new Set([
@@ -56,8 +56,8 @@ function normalizeAccountNicknameWithLimit(
     !normalized ||
     !comparisonKey ||
     Array.from(normalized).length > maxCodePoints ||
-    (rejectWhitespace && NICKNAME_WHITESPACE_RE.test(normalized)) ||
-    (rejectWhitespace && NICKNAME_WHITESPACE_RE.test(comparisonKey)) ||
+    (rejectWhitespace && hasDisplayNameWhitespaceOrFiller(normalized)) ||
+    (rejectWhitespace && hasDisplayNameWhitespaceOrFiller(comparisonKey)) ||
     sanitizeDisplayNameForValidation(normalized) !== normalized ||
     !hasVisibleDisplayNameContent(normalized)
   ) {

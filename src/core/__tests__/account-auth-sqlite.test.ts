@@ -478,7 +478,15 @@ afterEach(() => {
     try {
       await seedAccount(db, [token]);
       const env = authEnv(db);
-      for (const nickname of ['Min su', ' Minsu', 'Minsu\u00a0', 'Min\tsu', 'Min\nsu']) {
+      for (const nickname of [
+        'Min su',
+        ' Minsu',
+        'Minsu\u00a0',
+        '남춘천\u3164닭갈비',
+        'Min\u200Bsu',
+        'Min\tsu',
+        'Min\nsu',
+      ]) {
         const response = await handleAccountAuthRequest(
           request('/api/auth/profile', {
             method: 'PATCH',

@@ -56,7 +56,8 @@ const de: Record<I18nKey, string> = {
   'account.nickname_placeholder': 'Nickname',
   'account.nickname_hint': 'Maximal 12 Zeichen.',
   'account.nickname_required': 'Gib einen Nickname ein.',
-  'account.nickname_whitespace': 'Nicknames dürfen keine Leerzeichen enthalten.',
+  'account.nickname_whitespace':
+    'Nicknames dürfen keine Leerzeichen oder unsichtbaren Zeichen enthalten.',
   'account.nickname_taken': 'Dieser Nickname ist bereits vergeben.',
   'account.nickname_saved': 'Nickname in {{name}} geändert.',
   'account.action_failed': 'Das Konto konnte nicht aktualisiert werden. Versuche es später erneut.',

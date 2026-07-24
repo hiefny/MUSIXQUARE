@@ -15,6 +15,21 @@ const EMOJI_CANCEL_TAG = '\u{E007F}';
 const EMOJI_TAG_BASE = '\u{1F3F4}';
 const VISIBLE_NAME_CONTENT_RE = /[\p{L}\p{N}\p{P}\p{S}]/u;
 
+/**
+ * Report characters that create blank visual spacing in a display name.
+ *
+ * Unicode does not classify every blank-looking character as White_Space.
+ * Hangul fillers and braille blank therefore need to share the same product
+ * error as ordinary whitespace even though the security sanitizer also
+ * rejects them independently.
+ */
+export function hasDisplayNameWhitespaceOrFiller(value) {
+  return (
+    typeof value === 'string' &&
+    (WHITE_SPACE_RE.test(value) || VISUALLY_BLANK_FILLER_RE.test(value))
+  );
+}
+
 function isAllowedVariationSelector(character, previousCharacter) {
   return (
     VARIATION_SELECTOR_RE.test(character) &&

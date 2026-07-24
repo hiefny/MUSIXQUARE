@@ -1318,6 +1318,8 @@ describe('account session mutations', () => {
       'name\u0085',
       'Min su',
       '\u00a0Minsu',
+      '남춘천\u3164닭갈비',
+      'Min\u200Bsu',
       '\u0301',
       'fuck',
       'x'.repeat(13),

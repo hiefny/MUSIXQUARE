@@ -55,7 +55,7 @@ const zhHans: Record<I18nKey, string> = {
   'account.nickname_placeholder': '昵称',
   'account.nickname_hint': '最多输入 12 个字符。',
   'account.nickname_required': '请输入昵称。',
-  'account.nickname_whitespace': '昵称中不能包含空格。',
+  'account.nickname_whitespace': '昵称中不能包含空格或不可见字符。',
   'account.nickname_taken': '该昵称已被使用。',
   'account.nickname_saved': '昵称已改为 {{name}}。',
   'account.action_failed': '无法更新账号，请稍后重试。',

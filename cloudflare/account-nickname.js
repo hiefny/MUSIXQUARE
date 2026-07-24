@@ -1,19 +1,18 @@
 import profanityPatterns from '../src/chat/profanity-patterns.generated.json' with { type: 'json' };
+import {
+  displayNameSecuritySkeleton,
+  hasVisibleDisplayNameContent,
+  sanitizeDisplayNameForValidation,
+} from './display-name-policy.js';
 
 // New profile writes use the shorter product limit. Keep the stored/read
 // boundary at 20 so accounts created before the limit changed remain valid in
 // sessions and signed room assertions until their owner chooses a new name.
 const NICKNAME_WRITE_MAX_CODE_POINTS = 12;
 const NICKNAME_STORED_MAX_CODE_POINTS = 20;
-// Reject rather than silently strip at every boundary. Browser and scripted
-// callers both receive an explicit validation failure instead of storing a
-// visually ambiguous ID.
-const NICKNAME_FORBIDDEN_RE =
-  /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/u;
 const NICKNAME_WHITESPACE_RE = /\p{White_Space}/u;
 const GENERATED_PEER_NAME_RE = /^peer(?: \d+)?$/i;
 const NUMBER_BADGE_NAME_RE = /^#\d+$/u;
-const MARKS_ONLY_RE = /^\p{M}+$/u;
 const RESERVED_NICKNAMES = new Set([
   'host',
   'guest',
@@ -59,16 +58,17 @@ function normalizeAccountNicknameWithLimit(
     Array.from(normalized).length > maxCodePoints ||
     (rejectWhitespace && NICKNAME_WHITESPACE_RE.test(normalized)) ||
     (rejectWhitespace && NICKNAME_WHITESPACE_RE.test(comparisonKey)) ||
-    NICKNAME_FORBIDDEN_RE.test(normalized) ||
-    MARKS_ONLY_RE.test(normalized)
+    sanitizeDisplayNameForValidation(normalized) !== normalized ||
+    !hasVisibleDisplayNameContent(normalized)
   ) {
     return null;
   }
+  const policyKey = displayNameSecuritySkeleton(comparisonKey);
   if (
-    RESERVED_NICKNAMES.has(comparisonKey) ||
-    GENERATED_PEER_NAME_RE.test(comparisonKey) ||
-    NUMBER_BADGE_NAME_RE.test(comparisonKey) ||
-    containsEnglishNicknameProfanity(comparisonKey)
+    RESERVED_NICKNAMES.has(policyKey) ||
+    GENERATED_PEER_NAME_RE.test(policyKey) ||
+    NUMBER_BADGE_NAME_RE.test(policyKey) ||
+    containsEnglishNicknameProfanity(policyKey)
   ) {
     return null;
   }
@@ -84,7 +84,9 @@ function normalizeAccountNicknameWithLimit(
 export function accountNicknameKey(value) {
   if (typeof value !== 'string' || !value) return null;
   const key = value.normalize('NFKC').toLocaleLowerCase('en-US').normalize('NFC');
-  return key && !NICKNAME_FORBIDDEN_RE.test(key) ? key : null;
+  return key && sanitizeDisplayNameForValidation(key) === key && hasVisibleDisplayNameContent(key)
+    ? key
+    : null;
 }
 
 /**

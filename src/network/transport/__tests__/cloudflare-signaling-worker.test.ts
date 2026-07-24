@@ -802,6 +802,9 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     ['blank display name', async () => proTicket({ displayName: '   ' })],
     ['oversized display name', async () => proTicket({ displayName: 'x'.repeat(65) })],
     ['control-character display name', async () => proTicket({ displayName: 'Peer\u0000One' })],
+    ['blank-filler display name', async () => proTicket({ displayName: '\u3164' })],
+    ['zero-width display name', async () => proTicket({ displayName: 'Peer\u200bOne' })],
+    ['nonbreaking-space display name', async () => proTicket({ displayName: 'Peer\u00a0One' })],
     ['invalid room generation', async () => proTicket({ roomGeneration: -1 })],
     ['negative presence revision', async () => proTicket({ presenceRevision: -1 })],
   ] as const)('rejects a PRO %s before Durable Object lookup', async (_label, makeTicket) => {
@@ -3461,6 +3464,32 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
 
     expect(legacyCoordinator.closeEvents).toEqual([
+      { code: 1012, reason: 'PRO_ROOM_PROTOCOL_UPGRADED' },
+    ]);
+  });
+
+  it('closes an invisible-name PRO attachment during hibernation rehydration', () => {
+    const state = new FakeDurableObjectState();
+    const hiddenNameMember = new FakeSocket();
+    hiddenNameMember.serializeAttachment({
+      v: 1,
+      roomKind: 'pro',
+      role: 'member',
+      roomId: '000001',
+      peerId: 'hidden-name-member',
+      participantId: 'hidden-name-member',
+      displayName: '\u3164',
+      coordinatorEpoch: 1,
+      ticketJti: 'hidden-name-ticket-00001',
+      presenceIncarnationId: 'hidden-name-presence-0001',
+      ticketSequence: 1,
+      auth: 'ok',
+    });
+    state.sockets.push(hiddenNameMember);
+
+    new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+
+    expect(hiddenNameMember.closeEvents).toEqual([
       { code: 1012, reason: 'PRO_ROOM_PROTOCOL_UPGRADED' },
     ]);
   });

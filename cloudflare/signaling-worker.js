@@ -10,6 +10,7 @@ import {
   proRoomMediaPrefix,
   proRoomObjectName,
 } from './pro-room-generation.js';
+import { isSafeVisibleDisplayName } from './display-name-policy.js';
 
 const ROOM_PATH = /^\/api\/rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_PATH = /^\/api\/pro-rooms\/(\d{6})\/ws$/;
@@ -306,8 +307,7 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
     typeof value.displayName !== 'string' ||
     value.displayName.length < 1 ||
     value.displayName.length > PRO_DISPLAY_NAME_MAX_LENGTH ||
-    !value.displayName.trim() ||
-    /[\u0000-\u001f\u007f-\u009f]/.test(value.displayName)
+    !isSafeVisibleDisplayName(value.displayName)
   ) {
     return null;
   }
@@ -1384,6 +1384,7 @@ function normalizeStandardRoomIdentityAttachment(value) {
     typeof value.memberNickname !== 'string' ||
     !value.memberNickname.trim() ||
     [...value.memberNickname].length > 20 ||
+    !isSafeVisibleDisplayName(value.memberNickname.normalize('NFC').trim()) ||
     !Number.isSafeInteger(value.identityExpiresAt) ||
     value.identityExpiresAt <= 0
   ) {
@@ -1420,8 +1421,7 @@ function normalizeAttachment(value) {
       typeof value.displayName !== 'string' ||
       value.displayName.length < 1 ||
       value.displayName.length > PRO_DISPLAY_NAME_MAX_LENGTH ||
-      !value.displayName.trim() ||
-      /[\u0000-\u001f\u007f-\u009f]/.test(value.displayName)
+      !isSafeVisibleDisplayName(value.displayName)
     ) {
       return null;
     }

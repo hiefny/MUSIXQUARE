@@ -350,6 +350,24 @@ describe('PRO room cookie session API', () => {
     });
   });
 
+  it('rejects an invisible PRO owner display name before sending activation', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    for (const ownerName of ['\u3164', 'Owner\u200b', 'Owner\u00a0name', '️']) {
+      expect(() =>
+        client.activate({
+          code: ROOM_CODE,
+          claimToken: CLAIM_TOKEN,
+          temporaryPin: '00000001',
+          newPin: '12345678',
+          ownerName,
+        }),
+      ).toThrowError(expect.objectContaining({ code: 'INVALID_DISPLAY_NAME' }));
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('exchanges an owner-recovery claim only in a strict POST body', async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

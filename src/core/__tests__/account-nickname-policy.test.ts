@@ -52,6 +52,29 @@ describe('account nickname length policy', () => {
     expect(accountNicknameKey('e\u0301')).toBe('\u00e9');
   });
 
+  it('rejects visually blank fillers and unsafe default-ignorable characters', () => {
+    for (const hidden of [
+      '\u00ad',
+      '\u0600',
+      '\u061c',
+      '\u115f',
+      '\u1160',
+      '\u180e',
+      '\u2800',
+      '\u3164',
+      '\uffa0',
+      '\ufff9',
+    ]) {
+      expect(normalizeNewAccountNickname(hidden), JSON.stringify(hidden)).toBeNull();
+      expect(normalizeNewAccountNickname(`Min${hidden}su`), JSON.stringify(hidden)).toBeNull();
+    }
+    expect(normalizeNewAccountNickname('\uff9e')).toBeNull();
+    expect(normalizeNewAccountNickname('\uff9f')).toBeNull();
+    expect(normalizeNewAccountNickname('☕️')).toBe('☕️');
+    expect(normalizeNewAccountNickname('A️')).toBe('A️');
+    expect(normalizeNewAccountNickname('#️1')).toBeNull();
+  });
+
   it('keeps legacy read normalization while bounding NFKC key expansion in storage', () => {
     expect(normalizeAccountNickname(' 민수 ')).toBe('민수');
     expect(normalizeNewAccountNickname(' 민수 ')).toBeNull();

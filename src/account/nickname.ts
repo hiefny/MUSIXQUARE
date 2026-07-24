@@ -1,9 +1,10 @@
 import profanityPatterns from '../chat/profanity-patterns.generated.json';
+import { PRO_GENERATED_PEER_NAME_RE, RESERVED_NAMES } from '../core/constants.ts';
 import {
-  ACCOUNT_NICKNAME_SANITIZE_RE,
-  PRO_GENERATED_PEER_NAME_RE,
-  RESERVED_NAMES,
-} from '../core/constants.ts';
+  displayNameSecuritySkeleton,
+  hasVisibleDisplayNameContent,
+  sanitizeDisplayNameForValidation,
+} from '../../cloudflare/display-name-policy.js';
 import { t } from '../i18n/index.ts';
 import { AccountApiError } from './api.ts';
 import { saveAccountNickname } from './session.ts';
@@ -47,9 +48,10 @@ export function validateAccountNickname(value: string): string | null {
   ) {
     return t('account.nickname_whitespace');
   }
-  const sanitizedNickname = nickname.replace(ACCOUNT_NICKNAME_SANITIZE_RE, '');
+  const sanitizedNickname = sanitizeDisplayNameForValidation(nickname);
+  const sanitizedComparisonKey = sanitizeDisplayNameForValidation(nicknameKey);
   const sanitizedKey = accountNicknameKey(sanitizedNickname);
-  if (sanitizedNickname !== nickname) {
+  if (sanitizedNickname !== nickname || sanitizedComparisonKey !== nicknameKey) {
     // Preserve the existing, explicit anti-impersonation message for visually
     // hidden characters inserted into a reserved identity such as HOST.
     if (RESERVED_NAMES.some((name) => sanitizedKey === accountNicknameKey(name))) {
@@ -57,18 +59,21 @@ export function validateAccountNickname(value: string): string | null {
     }
     return t('account.nickname_required');
   }
-  if (/^\p{M}+$/u.test(nickname)) return t('account.nickname_required');
+  if (!hasVisibleDisplayNameContent(nickname) || !hasVisibleDisplayNameContent(nicknameKey)) {
+    return t('account.nickname_required');
+  }
   if (Array.from(nickname).length > ACCOUNT_NICKNAME_MAX_CODE_POINTS) {
     return t('account.nickname_hint');
   }
+  const policyKey = displayNameSecuritySkeleton(nicknameKey);
   if (
-    RESERVED_NAMES.some((name) => nicknameKey === accountNicknameKey(name)) ||
-    /^#\d+$/.test(nicknameKey) ||
-    PRO_GENERATED_PEER_NAME_RE.test(nicknameKey)
+    RESERVED_NAMES.some((name) => policyKey === accountNicknameKey(name)) ||
+    /^#\d+$/.test(policyKey) ||
+    PRO_GENERATED_PEER_NAME_RE.test(policyKey)
   ) {
     return t('connect.rename_reserved');
   }
-  if (containsEnglishNicknameProfanity(nicknameKey)) return t('connect.rename_profanity');
+  if (containsEnglishNicknameProfanity(policyKey)) return t('connect.rename_profanity');
   return null;
 }
 

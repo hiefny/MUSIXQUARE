@@ -24,6 +24,7 @@ import {
   shuffledQueueItemIds,
 } from './pro-room-queue-mode.js';
 import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.js';
+import { isSafeVisibleDisplayName } from './display-name-policy.js';
 import {
   LEGACY_PRO_ROOM_GENERATION,
   isProRoomGeneration,
@@ -619,26 +620,19 @@ function isGeneratedPeerNamespaceDisplayName(value) {
 }
 
 function validDeveloperActorName(value) {
-  return (
-    boundedString(value, MAX_DISPLAY_NAME_LENGTH) !== null &&
-    !/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(value)
-  );
+  const normalized = boundedString(value, MAX_DISPLAY_NAME_LENGTH);
+  return normalized !== null && isSafeVisibleDisplayName(normalized);
 }
 
 function signalingDisplayName(value) {
-  const normalized =
-    typeof value === 'string'
-      ? value.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, '').trim()
-      : '';
-  return normalized.slice(0, MAX_DISPLAY_NAME_LENGTH) || 'Peer';
+  const normalized = boundedString(value, MAX_DISPLAY_NAME_LENGTH);
+  return normalized !== null && isSafeVisibleDisplayName(normalized) ? normalized : 'Peer';
 }
 
 function queueAdditionActorName(value, fallback = 'Peer') {
-  const normalized =
-    typeof value === 'string'
-      ? value.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, '').trim()
-      : '';
-  const source = normalized || fallback;
+  const normalized = boundedString(value, MAX_DISPLAY_NAME_LENGTH);
+  const source =
+    normalized !== null && isSafeVisibleDisplayName(normalized) ? normalized : fallback;
   let result = '';
   for (const character of source) {
     if (result.length + character.length > 30) break;
@@ -9099,7 +9093,12 @@ export class MusixquareProRoom {
       body.ownerName === undefined
         ? 'Owner'
         : boundedString(body.ownerName, MAX_DISPLAY_NAME_LENGTH);
-    if (!ownerName || !PIN_RE.test(body.newPin) || body.newPin === body.temporaryPin) {
+    if (
+      !ownerName ||
+      !isSafeVisibleDisplayName(ownerName) ||
+      !PIN_RE.test(body.newPin) ||
+      body.newPin === body.temporaryPin
+    ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const activationSecret = String(this.env.PRO_ROOM_ACTIVATION_SECRET || '');

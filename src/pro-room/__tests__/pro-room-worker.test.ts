@@ -6892,6 +6892,38 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(await responseJson(wrongTemporaryPin)).toEqual({ error: 'ACTIVATION_INVALID' });
   });
 
+  it('rejects invisible owner names at the authoritative activation boundary', async () => {
+    const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
+    const claimToken = await issueProRoomActivationClaim(ROOM_CODE, ACTIVATION_SECRET, {
+      nowMs: Date.now() - 1_000,
+      expiresAtMs: Date.now() + 60_000,
+      nonce: 'visible-owner-name-boundary',
+    });
+
+    for (const ownerName of ['\u3164', 'Owner\u200b', 'Owner\u00a0name', '️']) {
+      const response = await worker.fetch(
+        jsonRequest('/activation', 'POST', {
+          claimToken,
+          temporaryPin: '00000001',
+          newPin: '12345678',
+          ownerName,
+        }),
+      );
+      expect(response.status).toBe(400);
+      expect(await responseJson(response)).toEqual({ error: 'INVALID_REQUEST' });
+    }
+
+    const valid = await worker.fetch(
+      jsonRequest('/activation', 'POST', {
+        claimToken,
+        temporaryPin: '00000001',
+        newPin: '12345678',
+        ownerName: 'Replacement owner',
+      }),
+    );
+    expect(valid.status).toBe(200);
+  });
+
   it('atomically activates an owner session and returns a contract-valid snapshot', async () => {
     const { worker, state, ownerCookie } = await activatedRoom();
     const response = await worker.fetch(request('/snapshot', {}, ownerCookie));

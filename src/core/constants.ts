@@ -254,12 +254,4 @@ export const RESERVED_NAMES = [
 // visible namespace so account nicknames cannot impersonate a Peer N label.
 export const PRO_GENERATED_PEER_NAME_RE = /^peer(?: \d+)?$/i;
 
-// Control / zero-width / bidi-override characters rejected by account
-// nickname validation ("HOST"+zero-width-space must not slip past as a
-// visually identical impersonation; U+202E must not reorder the rendered
-// name). The global flag is retained for a non-mutating client comparison.
-export const ACCOUNT_NICKNAME_SANITIZE_RE =
-  // eslint-disable-next-line no-control-regex
-  /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u2028-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g;
-
 // ─── Misc ──────────────────────────────────────────────────────────

@@ -45,6 +45,7 @@ import {
   DEFAULT_CONTROL_REQUEST_TIMEOUT_MS,
   withRequestDeadline,
 } from '../core/request-lifetime.ts';
+import { isSafeVisibleDisplayName } from '../../cloudflare/display-name-policy.js';
 
 const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://musixquare.com/api/pro-room';
 export const PRO_ROOM_R2_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';
@@ -1314,7 +1315,10 @@ export class ProRoomApiClient {
       input.ownerName === undefined
         ? undefined
         : parseBoundedString(input.ownerName, MAX_DISPLAY_NAME_LENGTH);
-    if (input.ownerName !== undefined && ownerName === null) {
+    if (
+      input.ownerName !== undefined &&
+      (ownerName === null || !isSafeVisibleDisplayName(ownerName))
+    ) {
       throw new ProRoomApiError('INVALID_DISPLAY_NAME');
     }
     return this.#request(`${path}/activation`, {

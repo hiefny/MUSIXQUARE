@@ -47,6 +47,29 @@ describe('account nickname validation', () => {
     expect(validateAccountNickname('\u0301\u0308')).not.toBeNull();
   });
 
+  it('rejects blank fillers and hidden format characters without breaking emoji selectors', () => {
+    for (const hidden of [
+      '\u00ad',
+      '\u0600',
+      '\u061c',
+      '\u115f',
+      '\u1160',
+      '\u180e',
+      '\u2800',
+      '\u3164',
+      '\uffa0',
+      '\ufff9',
+    ]) {
+      expect(validateAccountNickname(hidden), JSON.stringify(hidden)).not.toBeNull();
+      expect(validateAccountNickname(`Min${hidden}su`), JSON.stringify(hidden)).not.toBeNull();
+    }
+    expect(validateAccountNickname('\uff9e')).not.toBeNull();
+    expect(validateAccountNickname('\uff9f')).not.toBeNull();
+    expect(validateAccountNickname('☕️')).toBeNull();
+    expect(validateAccountNickname('A️')).toBeNull();
+    expect(validateAccountNickname('#️1')).not.toBeNull();
+  });
+
   it('uses the service NFKC/case key for reserved-name validation', () => {
     expect(accountNicknameKeyForTests('Ｍｉｎｓｕ')).toBe('minsu');
     expect(validateAccountNickname('ＨＯＳＴ')).not.toBeNull();

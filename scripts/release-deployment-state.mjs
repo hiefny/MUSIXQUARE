@@ -62,6 +62,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/pro-room-generation.js',
     'cloudflare/standard-room-account-assertion.js',
     'cloudflare/account-nickname.js',
+    'cloudflare/display-name-policy.js',
     'src/chat/profanity-patterns.generated.json',
     'cloudflare/wrangler.signaling.toml',
   ],
@@ -73,6 +74,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/pro-room-validation.js',
     'cloudflare/account-assertion.js',
     'cloudflare/account-nickname.js',
+    'cloudflare/display-name-policy.js',
     'cloudflare/admin-metrics.schema.sql',
     'cloudflare/admin-metrics.pro-room-generation.migration.sql',
     'cloudflare/developer-api.schema.sql',
@@ -127,6 +129,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/account-assertion.js',
     'cloudflare/standard-room-account-assertion.js',
     'cloudflare/account-nickname.js',
+    'cloudflare/display-name-policy.js',
     'cloudflare/wrangler.app.toml',
   ],
 });

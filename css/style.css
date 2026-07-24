@@ -2089,6 +2089,17 @@
     border: none;
   }
 
+  /* Match the playlist remove control's 44px touch target without allowing
+     the disclosure button to make YouTube playlist rows 4px taller. The
+     negative margins keep its flex footprint on the row's 28px content rail;
+     the chevron itself retains the shared 22px visual size below. */
+  .expand-toggle {
+    width: 44px;
+    height: 44px;
+    margin: -8px;
+    flex: 0 0 44px;
+  }
+
   @media (hover: hover) {
     .expand-toggle:hover,
     .device-expand-toggle:hover {
@@ -2955,7 +2966,9 @@
     align-items: center;
     gap: 16px;
     padding: 16px;
-    min-height: 61px;
+    /* The disclosure control is 32px tall; keep single-device and
+       multi-device member rows on the same 64px rail. */
+    min-height: 64px;
     box-sizing: border-box;
     border-radius: var(--radius-m);
     background: transparent;
@@ -3049,6 +3062,8 @@
 
   .device-subrow {
     padding: 8px 12px;
+    min-height: 44px;
+    box-sizing: border-box;
     border-radius: var(--radius-s);
     font-size: 13px;
     color: var(--text-sub);
@@ -3239,7 +3254,7 @@
     border: none;
     border-radius: 50%;
     cursor: pointer;
-    opacity: 0;
+    opacity: 1;
     transition:
       opacity 0.15s,
       color 0.15s;
@@ -3271,7 +3286,7 @@
   }
 
   .device-subrow:hover .btn-kick-physical-device {
-    opacity: 0.6;
+    opacity: 1;
   }
 
   .device-subrow:hover .btn-kick-physical-device:hover,
@@ -3291,7 +3306,7 @@
     }
 
     .btn-kick-physical-device {
-      opacity: 0.5;
+      opacity: 1;
     }
   }
 

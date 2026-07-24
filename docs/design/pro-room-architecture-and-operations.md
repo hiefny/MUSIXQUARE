@@ -950,9 +950,10 @@ OS, browser/PWA mode, network, room code, build/version, and observed result.
    pre-account equal-member compatibility behavior and none is exposed as a
    browser host/coordinator. At Stage 2, confirm an ordinary member cannot
    control playback, the owner always can, and a delegated administrator can do
-   so only while its playback toggle is enabled. Confirm media addition, member
-   removal, and announcements follow their independent toggles; queue
-   destruction, reordering, effects, repeat, and shuffle remain owner-only.
+   so only while its playback toggle is enabled. Confirm media addition,
+   deletion/clearing, reordering, repeat, and shuffle follow the media-management
+   toggle; member removal and announcements follow their independent toggles,
+   while effects remain owner-only.
 4. Add YouTube media, empty the room, reopen from another device, and verify the
    playlist and frozen server anchor resume correctly. While another
    item is playing, add a playlist-only YouTube URL and confirm the current

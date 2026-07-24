@@ -2010,7 +2010,7 @@ export function initYouTube(): void {
     // A standard guest must never fall through to the local commit path, even
     // if its operator capability is revoked between opening and submitting.
     if (!hasRoomCapability('media.add')) {
-      showToast(t('toast.host_only_youtube'));
+      showToast(t('toast.media_management_required'));
       return true;
     }
     if (sourceUrl.length > 2048) {
@@ -3205,7 +3205,7 @@ export function initYouTube(): void {
   // YouTube load from input field
   bus.on('youtube:load-from-input', () => {
     if (getState('network.hostConn') && !hasRoomCapability('media.add')) {
-      showToast(t('toast.host_only_youtube'));
+      showToast(t('toast.media_management_required'));
       return;
     }
     const input = document.getElementById('youtube-url-input') as HTMLElement | null;
@@ -3526,7 +3526,7 @@ export function initYouTube(): void {
     // Standard guests cannot mutate the queue. Authenticated PRO members can.
     const hostConn = getState('network.hostConn');
     if (hostConn && !hasRoomCapability('media.add')) {
-      showToast(t('toast.host_only_youtube'));
+      showToast(t('toast.media_management_required'));
       return;
     }
 

@@ -424,7 +424,7 @@ async function copyInviteCode(): Promise<void> {
 
 function openMediaSourcePopup(): void {
   if (!hasRoomCapability('media.add') && !hasRoomCapability('asset.upload')) {
-    showToast(t('toast.host_only_media'));
+    showToast(t('toast.media_management_required'));
     return;
   }
   const systemAudioButton = document.getElementById('btn-system-audio');
@@ -480,8 +480,7 @@ function syncMediaSourceButtonAuthority(): void {
 }
 
 function canConfigureQueueMode(): boolean {
-  if (getRoomContext().kind === 'pro') return hasRoomCapability('room.configure');
-  return hasRoomCapability('room.configure');
+  return hasRoomCapability('queue.mutate');
 }
 
 function syncQueueModeButtonAuthority(): void {
@@ -506,7 +505,7 @@ function closeMediaSourcePopup(): void {
 
 function openYouTubePopup(): void {
   if (!hasRoomCapability('media.add')) {
-    showToast(t('toast.host_only_youtube'));
+    showToast(t('toast.media_management_required'));
     return;
   }
   invalidateYouTubeGestureSubmit();
@@ -1059,14 +1058,14 @@ export function initPlayerControls(): void {
   // Playlist tab
   $on('btn-repeat', 'click', () => {
     if (!canConfigureQueueMode()) {
-      showToast(t('toast.host_only_control'));
+      showToast(t('toast.media_management_required'));
       return;
     }
     bus.emit('playlist:toggle-repeat');
   });
   $on('btn-shuffle', 'click', () => {
     if (!canConfigureQueueMode()) {
-      showToast(t('toast.host_only_control'));
+      showToast(t('toast.media_management_required'));
       return;
     }
     bus.emit('playlist:toggle-shuffle');

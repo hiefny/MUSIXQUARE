@@ -1760,6 +1760,7 @@ describe('member-level connection and administrator UI', () => {
     const expandIconRules =
       stylesheet.match(/\.expand-toggle svg,\s*\.device-expand-toggle svg\s*\{([^}]*)\}/)?.[1] ??
       '';
+    const playlistExpandButtonRules = stylesheet.match(/\.expand-toggle\s*\{([^}]*)\}/)?.[1] ?? '';
     const playlistRemoveIconRules =
       stylesheet.match(/\.btn-playlist-remove svg\s*\{([^}]*)\}/)?.[1] ?? '';
     const playlistRemoveButtonRules =
@@ -1778,6 +1779,10 @@ describe('member-level connection and administrator UI', () => {
     expect(expandIconRules).toContain('stroke-width: 1.8');
     expect(expandIconRules).toContain('stroke-linecap: butt');
     expect(expandIconRules).toContain('stroke-linejoin: miter');
+    expect(playlistExpandButtonRules).toContain('width: 44px');
+    expect(playlistExpandButtonRules).toContain('height: 44px');
+    expect(playlistExpandButtonRules).toContain('margin: -8px');
+    expect(playlistExpandButtonRules).toContain('flex: 0 0 44px');
     expect(playlistRemoveButtonRules).toContain('opacity: 1');
     expect(playlistRemoveButtonRules).toContain('color: var(--text-muted)');
     expect(playlistRemoveIconRules).toContain('width: 16px');

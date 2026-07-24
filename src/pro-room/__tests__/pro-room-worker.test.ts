@@ -8362,7 +8362,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(deniedEffects.status).toBe(403);
     await expect(deniedEffects.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
 
-    const destructiveRequestId = 'bot-admin-destructive-denied-0001';
+    const destructiveRequestId = 'bot-admin-destructive-allowed-0001';
     const destructiveContext = await internalBotRequest(
       context.worker,
       'context',
@@ -8386,10 +8386,9 @@ describe('persistent PRO room authentication, presence, and state', () => {
       },
       friend.cookie,
     );
-    expect(destructiveBot.status).toBe(403);
-    await expect(destructiveBot.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
+    expect(destructiveBot.status).toBe(200);
 
-    const delegatedModeRequestId = 'bot-admin-queue-mode-denied-0001';
+    const delegatedModeRequestId = 'bot-admin-queue-mode-allowed-0001';
     const delegatedModeContext = await internalBotRequest(
       context.worker,
       'context',
@@ -8410,8 +8409,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       },
       friend.cookie,
     );
-    expect(delegatedModeBot.status).toBe(403);
-    await expect(delegatedModeBot.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
+    expect(delegatedModeBot.status).toBe(200);
 
     const ownerModeRequestId = 'bot-owner-queue-mode-allowed-0001';
     const ownerModeContext = await internalBotRequest(
@@ -8723,7 +8721,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(ownerAcquire.status).toBe(200);
   });
 
-  it('separates delegated media addition from owner-only queue organization', async () => {
+  it('grants add, remove, and reorder through the stable media permission', async () => {
     const context = await activatedRoom();
     enableMemberAuthority(context);
     const firstAuthorityQueueItemId = '61111111-1111-4111-8111-111111111111';
@@ -8743,6 +8741,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const friend = await addAuthorityMember(context);
     const memberId = friend.envelope.snapshot.viewer.memberId as string;
     const noMediaAdd = { ...fullDelegatedPermissions, 'media.add': false };
+    const mediaManagerPermissions = {
+      ...fullDelegatedPermissions,
+      'playback.control': false,
+    };
     expect(
       (
         await context.worker.fetch(
@@ -8763,6 +8765,29 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     expect(before.snapshot.viewer.capabilities).not.toContain('queue.mutate');
     expect(before.snapshot.viewer.capabilities).not.toContain('asset.upload');
+
+    const queueModeBeforeGrant = await responseJson(
+      await context.worker.fetch(request('/queue-mode', {}, friend.cookie)),
+    );
+    const deniedQueueModeBeforeGrant = await context.worker.fetch(
+      jsonRequest(
+        '/queue-mode',
+        'PUT',
+        {
+          coordinatorEpoch: before.snapshot.presence.coordinatorEpoch,
+          baseRevision: queueModeBeforeGrant.revision,
+          playlistRevision: before.snapshot.playlistRevision,
+          repeatMode: 1,
+          shuffleEnabled: false,
+          shuffleOrder: [],
+        },
+        friend.cookie,
+      ),
+    );
+    expect(deniedQueueModeBeforeGrant.status).toBe(403);
+    await expect(deniedQueueModeBeforeGrant.json()).resolves.toEqual({
+      error: 'CAPABILITY_REQUIRED',
+    });
 
     const addRequestId = 'bot-admin-media-add-denied-0001';
     const addContext = await internalBotRequest(
@@ -8791,6 +8816,32 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     expect(deniedBotAddition.status).toBe(403);
     await expect(deniedBotAddition.json()).resolves.toEqual({ error: 'PERMISSION_REQUIRED' });
+
+    const queueModeRequestId = 'bot-admin-queue-mode-denied-without-media-0001';
+    const queueModeContext = await internalBotRequest(
+      context.worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: queueModeRequestId, prompt: 'enable shuffle' },
+      friend.cookie,
+    );
+    expect(queueModeContext.status).toBe(200);
+    const queueModeContextBody = await responseJson(queueModeContext);
+    const deniedBotQueueMode = await internalBotRequest(
+      context.worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId: queueModeRequestId,
+        leaseToken: queueModeContextBody.leaseToken,
+        plan: { intent: 'queue_mode', shuffleEnabled: true },
+        tracks: [],
+      },
+      friend.cookie,
+    );
+    expect(deniedBotQueueMode.status).toBe(403);
+    await expect(deniedBotQueueMode.json()).resolves.toEqual({
+      error: 'PERMISSION_REQUIRED',
+    });
 
     const reordered = await context.worker.fetch(
       jsonRequest(
@@ -8844,7 +8895,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
           jsonRequest(
             `/administrators/${memberId}`,
             'PUT',
-            { permissions: fullDelegatedPermissions },
+            { permissions: mediaManagerPermissions },
             context.ownerCookie,
           ),
         )
@@ -8854,13 +8905,37 @@ describe('persistent PRO room authentication, presence, and state', () => {
       await context.worker.fetch(request('/snapshot', {}, friend.cookie)),
     );
     expect(afterGrant.snapshot.viewer.capabilities).toContain('queue.mutate');
+    expect(afterGrant.snapshot.viewer.capabilities).not.toContain('playback.control');
     expect(afterGrant.snapshot.viewer.capabilities).not.toContain('effects.control');
-    const deniedReorderWithAddAlias = await context.worker.fetch(
+    const initialQueueMode = await responseJson(
+      await context.worker.fetch(request('/queue-mode', {}, friend.cookie)),
+    );
+    const managedQueueMode = await context.worker.fetch(
+      jsonRequest(
+        '/queue-mode',
+        'PUT',
+        {
+          coordinatorEpoch: afterGrant.snapshot.presence.coordinatorEpoch,
+          baseRevision: initialQueueMode.revision,
+          playlistRevision: afterGrant.snapshot.playlistRevision,
+          repeatMode: 1,
+          shuffleEnabled: false,
+          shuffleOrder: [],
+        },
+        friend.cookie,
+      ),
+    );
+    expect(managedQueueMode.status).toBe(200);
+    await expect(managedQueueMode.json()).resolves.toMatchObject({ repeatMode: 1 });
+    const afterQueueMode = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, friend.cookie)),
+    );
+    const managedReorder = await context.worker.fetch(
       jsonRequest(
         '/snapshot/compact',
         'POST',
         {
-          baseRevision: afterGrant.snapshot.revision,
+          baseRevision: afterQueueMode.snapshot.revision,
           playlistOrder: [secondAuthorityQueueItemId, firstAuthorityQueueItemId],
           upserts: [],
           currentQueueItemId: null,
@@ -8870,18 +8945,21 @@ describe('persistent PRO room authentication, presence, and state', () => {
         `${IDEMPOTENCY_KEY}-authority-reorder-with-add-alias`,
       ),
     );
-    expect(deniedReorderWithAddAlias.status).toBe(403);
-    await expect(deniedReorderWithAddAlias.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
+    expect(managedReorder.status).toBe(200);
+    const afterReorder = await responseJson(managedReorder);
+    expect(
+      afterReorder.snapshot.playlist.map((item: { queueItemId: string }) => item.queueItemId),
+    ).toEqual([secondAuthorityQueueItemId, firstAuthorityQueueItemId]);
 
     const added = await context.worker.fetch(
       jsonRequest(
         '/snapshot/compact',
         'POST',
         {
-          baseRevision: afterGrant.snapshot.revision,
+          baseRevision: afterReorder.snapshot.revision,
           playlistOrder: [
-            firstAuthorityQueueItemId,
             secondAuthorityQueueItemId,
+            firstAuthorityQueueItemId,
             '63333333-3333-4333-8333-333333333333',
           ],
           upserts: [
@@ -8901,23 +8979,50 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(added.status).toBe(200);
 
     const afterAddition = await responseJson(added);
-    const deniedRemoval = await context.worker.fetch(
+    const managedRemoval = await context.worker.fetch(
       jsonRequest(
         '/snapshot/compact',
         'POST',
         {
           baseRevision: afterAddition.snapshot.revision,
-          playlistOrder: [firstAuthorityQueueItemId, secondAuthorityQueueItemId],
+          playlistOrder: [secondAuthorityQueueItemId, firstAuthorityQueueItemId],
           upserts: [],
           currentQueueItemId: null,
           playback: null,
         },
         friend.cookie,
-        `${IDEMPOTENCY_KEY}-authority-remove-denied`,
+        `${IDEMPOTENCY_KEY}-authority-remove-allowed`,
       ),
     );
-    expect(deniedRemoval.status).toBe(403);
-    await expect(deniedRemoval.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
+    expect(managedRemoval.status).toBe(200);
+    const afterRemoval = await responseJson(managedRemoval);
+    expect(
+      afterRemoval.snapshot.playlist.map((item: { queueItemId: string }) => item.queueItemId),
+    ).toEqual([secondAuthorityQueueItemId, firstAuthorityQueueItemId]);
+
+    const deniedMetadataRewrite = await context.worker.fetch(
+      jsonRequest(
+        '/snapshot/compact',
+        'POST',
+        {
+          baseRevision: afterRemoval.snapshot.revision,
+          playlistOrder: [secondAuthorityQueueItemId, firstAuthorityQueueItemId],
+          upserts: [
+            {
+              queueItemId: firstAuthorityQueueItemId,
+              name: 'Rewritten authority item',
+              source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
+            },
+          ],
+          currentQueueItemId: null,
+          playback: null,
+        },
+        friend.cookie,
+        `${IDEMPOTENCY_KEY}-authority-rewrite-denied`,
+      ),
+    );
+    expect(deniedMetadataRewrite.status).toBe(403);
+    await expect(deniedMetadataRewrite.json()).resolves.toEqual({ error: 'OWNER_REQUIRED' });
   });
 
   it('projects administrators as owner, online member number, then deterministic offline nickname', async () => {

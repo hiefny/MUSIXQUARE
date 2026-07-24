@@ -362,10 +362,10 @@ function capabilitiesFromPermissions(role, permissions) {
     return [...OWNER_CAPABILITIES];
   }
   if (role === 'member') return [...MEMBER_CAPABILITIES];
-  // `queue.mutate` remains a rolling-client compatibility alias for the add
-  // path; the mutation handler separately fences every existing-item edit to
-  // the owner. Playback is now an explicit delegated permission rather than a
-  // capability inherited by every room participant.
+  // `media.add` is the stable v1 wire/storage key for media management.
+  // Project queue.mutate for add, remove, and reorder while retaining the
+  // existing key across rolling clients. Playback remains an independent
+  // delegated permission.
   const effective = permissions['media.add'] ? ['queue.mutate'] : [];
   if (permissions['playback.control']) effective.push('playback.control');
   if (permissions['media.add']) effective.push('asset.upload');
@@ -4508,13 +4508,24 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('PERMISSION_REQUIRED', 403);
     }
-    if (
-      (plan.intent === 'remove_items' ||
-        plan.intent === 'clear_queue' ||
-        ((plan.intent === 'queue_mode' || plan.intent === 'virtual_treble') &&
-          this.authorityProjectionEnabled())) &&
+    if (this.authorityProjectionEnabled()) {
+      if (
+        (plan.intent === 'remove_items' ||
+          plan.intent === 'clear_queue' ||
+          plan.intent === 'queue_mode') &&
+        !this.sessionHasPermission(auth.session, 'media.add')
+      ) {
+        return errorResponse('PERMISSION_REQUIRED', 403);
+      }
+      if (plan.intent === 'virtual_treble' && auth.session.role !== 'owner') {
+        return errorResponse('OWNER_REQUIRED', 403);
+      }
+    } else if (
+      (plan.intent === 'remove_items' || plan.intent === 'clear_queue') &&
       auth.session.role !== 'owner'
     ) {
+      // Preserve the pre-authority destructive BOT contract while old rooms
+      // and cached clients complete their rolling migration.
       return errorResponse('OWNER_REQUIRED', 403);
     }
     const tracks =
@@ -7138,17 +7149,12 @@ export class MusixquareProRoom {
   async handleUpdateQueueMode(request) {
     const auth = await this.requireSession(request, {
       activePresence: true,
-      capability: 'playback.control',
+      capability: 'queue.mutate',
     });
     if (auth.response) return auth.response;
-    // Repeat and shuffle change the room's durable queue policy. They are not
-    // part of the delegated playback-control surface (play/pause/seek/next/item
-    // selection), so keep them with the owner just like effects and destructive
-    // queue organization. Preserve the legacy controller behavior until the
-    // member-authority rollout flag is enabled.
-    if (this.authorityProjectionEnabled() && auth.session.role !== 'owner') {
-      return errorResponse('OWNER_REQUIRED', 403);
-    }
+    // Repeat and shuffle are queue policy, so they follow media management
+    // rather than playback control. queue.mutate is server-projected only for
+    // the owner or a controller with the stable `media.add` permission.
     const parsed = await this.parseBody(request, 128 * 1024);
     if (parsed.response) return parsed.response;
     if (
@@ -10510,15 +10516,6 @@ export class MusixquareProRoom {
       return errorResponse('PERMISSION_REQUIRED', 403);
     }
     if (this.authorityProjectionEnabled() && auth.session.role !== 'owner') {
-      const previousQueueItemIds = this.room.playlist.map((item) => item.queueItemId);
-      const existingQueueItemIds = playlist
-        .filter((item) => previousPlaylistById.has(item.queueItemId))
-        .map((item) => item.queueItemId);
-      const preservesExistingOrderAndMembership =
-        existingQueueItemIds.length === previousQueueItemIds.length &&
-        existingQueueItemIds.every(
-          (queueItemId, index) => queueItemId === previousQueueItemIds[index],
-        );
       const changesExistingItem = playlist.some((item) => {
         const previous = previousPlaylistById.get(item.queueItemId);
         return (
@@ -10526,7 +10523,10 @@ export class MusixquareProRoom {
           JSON.stringify(publicPlaylistItem(previous)) !== JSON.stringify(publicPlaylistItem(item))
         );
       });
-      if (!preservesExistingOrderAndMembership || changesExistingItem) {
+      // Media managers may add, remove, and reorder queue entries. Mutating an
+      // existing item's canonical metadata/source remains owner-only because
+      // it is outside the four-permission UI contract.
+      if (changesExistingItem) {
         return errorResponse('OWNER_REQUIRED', 403);
       }
     }

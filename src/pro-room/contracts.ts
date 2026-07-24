@@ -43,6 +43,8 @@ export function capabilitiesForProRoomRole(
   if (role === 'owner') return OWNER_CAPABILITIES;
   if (role === 'member' || !permissions) return MEMBER_CAPABILITIES;
   return [
+    // `media.add` is retained as the v1 permission key, but represents the
+    // complete media-management surface: add/upload, remove, and reorder.
     ...(permissions['media.add'] ? (['queue.mutate'] as const) : []),
     ...(permissions['playback.control'] ? (['playback.control'] as const) : []),
     ...(permissions['media.add'] ? (['asset.upload'] as const) : []),

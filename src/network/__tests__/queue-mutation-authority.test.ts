@@ -206,7 +206,7 @@ describe('standard queue mutation result fence', () => {
     ]);
   });
 
-  it('keeps remove and reorder host-only even for a delegated administrator', () => {
+  it('fails closed for a legacy administrator without explicit queue authority', () => {
     const conn = connection('operator');
     configureHost(conn);
 
@@ -225,6 +225,26 @@ describe('standard queue mutation result fence', () => {
         code: 'unauthorized',
       }),
     );
+  });
+
+  it('accepts remove and reorder from an explicit media manager', () => {
+    const conn = connection('media-manager');
+    configureHost(conn);
+    setState('network.connectedPeers', [
+      {
+        ...getState('network.connectedPeers')[0],
+        roomCapabilities: ['media.add', 'queue.mutate', 'asset.upload'],
+      },
+    ]);
+
+    expect(
+      acceptStandardQueueMutationRequest({
+        conn,
+        requestId: REQUEST_ID,
+        requestName: MSG.REQUEST_PLAYLIST_REMOVE,
+        fingerprint: `remove:${QUEUE_ITEM_ID}`,
+      }),
+    ).toBe('accepted');
   });
 
   it('routes owner-sibling queue mutation through the physical host authority fence', () => {

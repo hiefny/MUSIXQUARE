@@ -52,8 +52,7 @@ const pl: Record<I18nKey, string> = {
   'account.nickname_placeholder': 'Pseudonim',
   'account.nickname_hint': 'Maksymalnie 12 znaków.',
   'account.nickname_required': 'Wpisz pseudonim.',
-  'account.nickname_whitespace':
-    'Pseudonim nie może zawierać spacji ani niewidocznych znaków.',
+  'account.nickname_whitespace': 'Pseudonim nie może zawierać spacji ani niewidocznych znaków.',
   'account.nickname_taken': 'Ten pseudonim jest już zajęty.',
   'account.nickname_saved': 'Pseudonim zmieniono na {{name}}.',
   'account.action_failed': 'Nie udało się zaktualizować konta. Spróbuj ponownie później.',
@@ -214,7 +213,7 @@ const pl: Record<I18nKey, string> = {
   'connect.administrator_revoke_message':
     'Odebrać uprawnienia administratora użytkownikowi {{name}}?',
   'connect.permissions_title': 'Uprawnienia użytkownika {{name}}',
-  'connect.permission_media_add': 'Dodawanie multimediów',
+  'connect.permission_media_add': 'Zarządzanie multimediami',
   'connect.permission_playback_control': 'Sterowanie odtwarzaniem',
   'connect.permission_members_kick': 'Usuwanie członków',
   'connect.permission_chat_notice': 'Ogłoszenia na czacie',
@@ -482,6 +481,7 @@ const pl: Record<I18nKey, string> = {
   'toast.email_copied': 'Adres e-mail skopiowany do schowka!',
   'toast.host_only': 'Tylko host pokoju może wykonać tę operację.',
   'toast.host_only_media': 'Tylko host pokoju może dodawać utwory.',
+  'toast.media_management_required': 'Wymagane jest uprawnienie do zarządzania multimediami.',
   'toast.host_only_youtube': 'Tylko host pokoju może dodawać linki z YouTube.',
   'toast.host_only_control': 'Tylko host pokoju może kontrolować odtwarzanie.',
   'toast.host_setting_required': 'Tylko host pokoju może zmienić to ustawienie',

@@ -432,7 +432,7 @@ describe('PRO room media-source capabilities', () => {
     expect(document.getElementById('btn-media-source')?.style.opacity).toBe('');
   });
 
-  it('keeps repeat and shuffle owner-only even for a delegated administrator', () => {
+  it('lets a delegated media manager control repeat and shuffle independently', () => {
     document.body.innerHTML = `
       <button id="btn-repeat"></button>
       <button id="btn-shuffle"></button>
@@ -442,7 +442,7 @@ describe('PRO room media-source capabilities', () => {
     setState('network.isOperator', true);
     setState('network.standardRoomCapabilities', [
       'media.add',
-      'playback.control',
+      'queue.mutate',
       'asset.upload',
       'members.manage',
     ]);
@@ -455,11 +455,10 @@ describe('PRO room media-source capabilities', () => {
     document.getElementById('btn-repeat')?.click();
     document.getElementById('btn-shuffle')?.click();
 
-    expect(document.getElementById('btn-repeat')?.getAttribute('aria-disabled')).toBe('true');
-    expect(document.getElementById('btn-shuffle')?.getAttribute('aria-disabled')).toBe('true');
-    expect(repeat).not.toHaveBeenCalled();
-    expect(shuffle).not.toHaveBeenCalled();
-    expect(showToast).toHaveBeenCalledWith(t('toast.host_only_control'));
+    expect(document.getElementById('btn-repeat')?.getAttribute('aria-disabled')).toBe('false');
+    expect(document.getElementById('btn-shuffle')?.getAttribute('aria-disabled')).toBe('false');
+    expect(repeat).toHaveBeenCalledTimes(1);
+    expect(shuffle).toHaveBeenCalledTimes(1);
   });
 
   it('lets a PRO administrator add files and YouTube entries but keeps live capture owner-only', () => {

@@ -213,7 +213,7 @@ const tr: Record<I18nKey, string> = {
   'connect.administrator_revoke_message':
     '{{name}} kullanıcısının yönetici izinleri kaldırılsın mı?',
   'connect.permissions_title': '{{name}} kullanıcısının izinleri',
-  'connect.permission_media_add': 'Medya ekleme',
+  'connect.permission_media_add': 'Medya yönetimi',
   'connect.permission_playback_control': 'Oynatmayı kontrol etme',
   'connect.permission_members_kick': 'Üyeleri çıkarma',
   'connect.permission_chat_notice': 'Sohbet duyurusu gönderme',
@@ -479,6 +479,7 @@ const tr: Record<I18nKey, string> = {
   'toast.email_copied': 'E-posta adresi panoya kopyalandı!',
   'toast.host_only': 'Bunu yalnızca oda sahibi yapabilir.',
   'toast.host_only_media': 'Sadece oda sahibi medya ekleyebilir.',
+  'toast.media_management_required': 'Medya yönetimi izni gerekli.',
   'toast.host_only_youtube': 'Sadece oda sahibi YouTube linki ekleyebilir.',
   'toast.host_only_control': 'Sadece oda sahibi kontrol edebilir',
   'toast.host_setting_required': 'Bu ayarı yalnızca oda sahibi değiştirebilir',

@@ -231,7 +231,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(document.querySelectorAll('.track-leading-static .track-idx')).toHaveLength(2);
   });
 
-  it('shows queue editing controls only to the PRO lifecycle owner', () => {
+  it('shows queue editing controls to a PRO media manager', () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', { open: true, peer: 'coordinator' } as DataConnection);
     setState('room.context', {
@@ -241,7 +241,7 @@ describe('playlist queue identity rendering and actions', () => {
       coordinatorId: 'coordinator',
       epoch: 1,
       snapshotRevision: 1,
-      capabilities: ['room.configure'],
+      capabilities: ['queue.mutate'],
     });
     setState('playlist.items', sampleItems());
 
@@ -261,7 +261,7 @@ describe('playlist queue identity rendering and actions', () => {
       coordinatorId: 'coordinator',
       epoch: 1,
       snapshotRevision: 1,
-      capabilities: ['room.configure' as const],
+      capabilities: ['queue.mutate' as const],
     };
     setState('room.context', context);
     setState('playlist.items', sampleItems());
@@ -294,7 +294,7 @@ describe('playlist queue identity rendering and actions', () => {
       coordinatorId: 'coordinator',
       epoch: 1,
       snapshotRevision: 1,
-      capabilities: ['room.configure' as const],
+      capabilities: ['queue.mutate' as const],
     };
     setState('room.context', context);
     setState('playlist.items', sampleItems());
@@ -334,7 +334,7 @@ describe('playlist queue identity rendering and actions', () => {
       coordinatorId: 'coordinator',
       epoch: 1,
       snapshotRevision: 1,
-      capabilities: ['room.configure' as const],
+      capabilities: ['queue.mutate' as const],
     };
     setState('room.context', context);
     setState('playlist.items', sampleItems());
@@ -382,7 +382,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
   });
 
-  it('keeps destructive queue controls host-only for a standard-room administrator', async () => {
+  it('shows queue controls only when a standard-room administrator can manage media', async () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', { open: true, peer: 'host' } as DataConnection);
     setState('playlist.items', sampleItems());
@@ -394,13 +394,14 @@ describe('playlist queue identity rendering and actions', () => {
     setState('network.isOperator', true);
     setState('network.standardRoomCapabilities', [
       'media.add',
+      'queue.mutate',
       'playback.control',
       'asset.upload',
       'members.manage',
     ]);
     await nextAnimationFrame();
-    expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(0);
-    expect(document.querySelectorAll('.btn-playlist-remove')).toHaveLength(0);
+    expect(document.querySelectorAll('.playlist-reorder-handle')).not.toHaveLength(0);
+    expect(document.querySelectorAll('.btn-playlist-remove')).not.toHaveLength(0);
 
     setState('network.isOperator', false);
     await nextAnimationFrame();

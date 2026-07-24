@@ -197,20 +197,20 @@ intent themselves, as specified by the public Developer API contract.
 The internal model separates at least:
 
 ```text
-media.add
+media.add           (stable wire key; user-facing "media management")
 playback.control
 members.kick
 chat.notice
-room.configure       (owner only; queue/effect/destructive policy)
+room.configure       (owner-only room lifecycle and effect policy)
 ```
 
-The user-facing `미디어 추가` toggle grants local/YouTube addition and the queue
-commit required for that addition. Live system-audio publishing, deleting,
-clearing, and reordering existing items, and changing room-wide effects remain
-owner/ordinary-host operations in the first release. BOT commands inherit the
-caller and must pass each generated action's capability; a delegated
-administrator cannot use BOT to bypass an owner-only queue mutation or queue
-mode change.
+The stored `media.add` key is retained for backwards compatibility, while its
+user-facing `미디어 관리` toggle grants local/YouTube addition, file upload,
+deleting or clearing items, reordering, and repeat/shuffle queue policy. Live
+system-audio publishing and changing room-wide effects remain
+owner/ordinary-host operations. BOT commands inherit the caller and must pass
+the same media-management permission for generated queue mutations and
+repeat/shuffle changes.
 
 Ordinary guests retain their current no-control baseline. A second verified
 device of the physical ordinary-room host's account shares the owner's

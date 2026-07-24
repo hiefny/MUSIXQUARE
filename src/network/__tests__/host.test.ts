@@ -466,6 +466,7 @@ describe('host operator toggle', () => {
       type: MSG.OPERATOR_GRANT,
       capabilities: [
         'media.add',
+        'queue.mutate',
         'asset.upload',
         'playback.control',
         'members.manage',
@@ -787,6 +788,7 @@ describe('standard-room account authority', () => {
       isOp: true,
       roomCapabilities: [
         'media.add',
+        'queue.mutate',
         'asset.upload',
         'playback.control',
         'members.manage',
@@ -935,6 +937,7 @@ describe('standard-room account authority', () => {
 
     expect(getState('network.connectedPeers')[0].roomCapabilities).toEqual([
       'media.add',
+      'queue.mutate',
       'asset.upload',
     ]);
 

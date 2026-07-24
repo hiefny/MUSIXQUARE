@@ -54,7 +54,10 @@ export function standardRoomAuthorityKey(
 
 export function standardRoomCapabilities(permissions: StandardRoomPermissionSet): RoomCapability[] {
   const capabilities: RoomCapability[] = [];
-  if (permissions['media.add']) capabilities.push('media.add', 'asset.upload');
+  // `media.add` is the stable wire/storage key for the user-facing media
+  // management permission. Keep the key for backwards compatibility while
+  // projecting every queue-management capability granted by that permission.
+  if (permissions['media.add']) capabilities.push('media.add', 'queue.mutate', 'asset.upload');
   if (permissions['playback.control']) capabilities.push('playback.control');
   if (permissions['members.kick']) capabilities.push('members.manage');
   if (permissions['chat.notice']) capabilities.push('chat.notice');

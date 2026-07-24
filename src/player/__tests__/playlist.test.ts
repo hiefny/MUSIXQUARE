@@ -22,6 +22,8 @@ import {
   capturePlaylistQueueModeState,
   setRepeatMode,
   setShuffle,
+  toggleRepeat,
+  toggleShuffle,
   getShuffleNextPlayableQueueItemId,
   advanceToShuffleNextQueueItemId,
   advanceToShufflePreviousQueueItemId,
@@ -492,6 +494,20 @@ describe('setShuffle', () => {
   it('disables shuffle', () => {
     setShuffle(false, false);
     expect(getState('playlist.isShuffle')).toBe(false);
+  });
+});
+
+describe('media-manager queue mode', () => {
+  it('lets queue.mutate toggle repeat and shuffle without playback.control', () => {
+    enterProRoom(['queue.mutate']);
+    setState('playlist.repeatMode', 0);
+    setState('playlist.isShuffle', false);
+
+    toggleRepeat();
+    toggleShuffle();
+
+    expect(getState('playlist.repeatMode')).toBe(1);
+    expect(getState('playlist.isShuffle')).toBe(true);
   });
 });
 
@@ -2567,13 +2583,13 @@ describe('standard operator queue mutation requests', () => {
     expect(getState('playlist.revision')).toBe(3);
   });
 
-  it('keeps queue removal and reorder host-only on a standard administrator guest', () => {
+  it('routes removal and reorder for a standard media manager without playback permission', () => {
     const send = vi.fn();
     const hostConn = { peer: 'host', open: true, send } as unknown as DataConnection;
     setState('network.appRole', 'guest');
     setState('network.hostConn', hostConn);
     setState('network.isOperator', true);
-    setState('network.standardRoomCapabilities', ['media.add', 'playback.control']);
+    setState('network.standardRoomCapabilities', ['media.add', 'queue.mutate', 'asset.upload']);
     const a = fileItem('a.mp3');
     const b = fileItem('b.mp3');
     setState('playlist.items', [a, b]);
@@ -2585,7 +2601,21 @@ describe('standard operator queue mutation requests', () => {
 
     expect(getState('playlist.items')).toEqual([a, b]);
     expect(getState('playlist.revision')).toBe(6);
-    expect(send).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.REQUEST_PLAYLIST_REMOVE,
+        baseRevision: 6,
+        queueItemIds: [b.queueItemId],
+      }),
+    );
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.REQUEST_PLAYLIST_REORDER,
+        baseRevision: 6,
+        queueItemId: b.queueItemId,
+        beforeQueueItemId: a.queueItemId,
+      }),
+    );
   });
 
   it('appends only a fully received supported operator file on the host', () => {
@@ -2627,6 +2657,28 @@ describe('request-setting authorization', () => {
     const beforeDecay = getState('audio.reverbDecay');
     await handleData({ type: MSG.REQUEST_SETTING, settingType: MSG.REVERB_DECAY, value: 8 }, conn);
     expect(getState('audio.reverbDecay')).toBe(beforeDecay);
+  });
+
+  it('lets a standard media manager set repeat and shuffle without playback control', async () => {
+    const conn = makeConnection('media-manager');
+    setState('network.appRole', 'host');
+    setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
+    setState('network.connectedPeers', [
+      {
+        ...makeConnectedPeer(conn.peer, true),
+        conn,
+        roomCapabilities: ['media.add', 'queue.mutate', 'asset.upload'],
+      },
+    ]);
+
+    await handleData({ type: MSG.REQUEST_SETTING, settingType: MSG.REPEAT_MODE, value: 1 }, conn);
+    await handleData(
+      { type: MSG.REQUEST_SETTING, settingType: MSG.SHUFFLE_MODE, value: true },
+      conn,
+    );
+
+    expect(getState('playlist.repeatMode')).toBe(1);
+    expect(getState('playlist.isShuffle')).toBe(true);
   });
 
   it('keeps full room effects host-only for standard administrators', async () => {

@@ -433,9 +433,8 @@ export function applyPlaylistQueueModeState(
 // ─── Repeat / Shuffle ──────────────────────────────────────────────
 
 export function toggleRepeat(): void {
-  if (isGuestBlocked()) return;
-  if (!hasRoomCapability('room.configure')) {
-    showToast(t('toast.host_only_control'));
+  if (!hasRoomCapability('queue.mutate')) {
+    showToast(t('toast.media_management_required'));
     return;
   }
   const hostConn = getState('network.hostConn');
@@ -481,9 +480,8 @@ export function setRepeatMode(mode: number, notify = true): void {
 }
 
 export function toggleShuffle(): void {
-  if (isGuestBlocked()) return;
-  if (!hasRoomCapability('room.configure')) {
-    showToast(t('toast.host_only_control'));
+  if (!hasRoomCapability('queue.mutate')) {
+    showToast(t('toast.media_management_required'));
     return;
   }
   const hostConn = getState('network.hostConn');
@@ -1779,11 +1777,13 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
     MSG.REVERB_LOWCUT,
     MSG.REVERB_HIGHCUT,
   ]);
-  const isOp = verifyOperator(
-    conn,
-    data,
-    effectSettingTypes.has(st) ? 'effects.control' : 'room.configure',
-  );
+  const requiredCapability =
+    st === MSG.REPEAT_MODE || st === MSG.SHUFFLE_MODE
+      ? 'queue.mutate'
+      : effectSettingTypes.has(st)
+        ? 'effects.control'
+        : 'room.configure';
+  const isOp = verifyOperator(conn, data, requiredCapability);
   const isDemoAllowed = getState('demo.active') && DEMO_ALLOWED_SETTING_TYPES.has(st);
   if (!isOp && !isDemoAllowed) {
     log.warn(`[Playlist] Rejected request-setting from non-OP: ${conn?.peer}`);

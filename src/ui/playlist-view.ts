@@ -51,14 +51,7 @@ let _followScrollContainer: HTMLElement | null = null;
 const _expansionOverrides = new Map<QueueItemId, boolean>();
 const _busScope = createBusScope();
 
-/**
- * Queue structure is deliberately stricter than playback control. A delegated
- * administrator may start or seek a track, but deleting/reordering the shared
- * library remains a lifecycle-owner action in PRO and a host action in a
- * standard room.
- */
 function canEditQueueStructure(): boolean {
-  if (getRoomContext().kind === 'pro') return hasRoomCapability('room.configure');
   return hasRoomCapability('queue.mutate');
 }
 

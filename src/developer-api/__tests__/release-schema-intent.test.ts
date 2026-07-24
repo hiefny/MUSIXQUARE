@@ -129,10 +129,14 @@ describe('Developer API schema release intent', () => {
     const previousDeveloper = previousManifest.databases.find(
       (database: { database: string }) => database.database === 'musixquare-developer-api',
     );
-    previousDeveloper.baselineRevision = 1;
+    const currentDeveloper = currentManifest.databases.find(
+      (database: { database: string }) => database.database === 'musixquare-developer-api',
+    );
+    if (!currentDeveloper) throw new Error('Expected the current Developer API contract');
+    previousDeveloper.baselineRevision = currentDeveloper.baselineRevision - 1;
     previousDeveloper.baselineSha256 = '0'.repeat(64);
-    previousDeveloper.baselineMigration = null;
-    previousDeveloper.migrations = [];
+    previousDeveloper.baselineMigration = currentDeveloper.migrations.at(-2)?.id ?? null;
+    previousDeveloper.migrations = currentDeveloper.migrations.slice(0, -1);
     const changedRunner = vi.fn((_command: string, args: string[]) => {
       if (args[0] === 'diff') return 'cloudflare/developer-api.schema.sql\n';
       if (args[0] === 'cat-file') return '';

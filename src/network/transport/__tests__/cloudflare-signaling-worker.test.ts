@@ -33,6 +33,7 @@ type ProTicketPayload = {
   v: 1;
   kind: 'pro-signaling';
   roomCode: string;
+  roomGeneration?: number;
   participantId: string;
   memberId?: string;
   displayName: string;
@@ -351,6 +352,8 @@ function proAuthorityNamespace(
     new originalResponse(
       JSON.stringify({
         allowed: true,
+        roomCode: '000001',
+        roomGeneration: 0,
         memberId: 'member_authorized000000001',
         role: 'controller',
         permission: 'chat.notice',
@@ -731,6 +734,29 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(roomFetch).toHaveBeenCalledTimes(1);
   });
 
+  it('routes each reusable PRO room generation to an isolated Durable Object name', async () => {
+    const { env, idFromName, roomFetch } = workerEnv();
+    env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    const ticket = await proTicket({
+      roomGeneration: 17,
+      participantId: 'generation-seventeen-member',
+    });
+    const url = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
+    url.searchParams.set('ticket', ticket);
+
+    const response = await workerModule.default.fetch(
+      requestLike(url.toString(), {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(101);
+    expect(idFromName).toHaveBeenCalledWith('000001:generation:17');
+    expect(roomFetch).toHaveBeenCalledTimes(1);
+  });
+
   it('never exposes the private signaling dispatch route through the public Worker', async () => {
     const { env, idFromName, roomFetch } = workerEnv();
     const response = await workerModule.default.fetch(
@@ -776,6 +802,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     ['blank display name', async () => proTicket({ displayName: '   ' })],
     ['oversized display name', async () => proTicket({ displayName: 'x'.repeat(65) })],
     ['control-character display name', async () => proTicket({ displayName: 'Peer\u0000One' })],
+    ['invalid room generation', async () => proTicket({ roomGeneration: -1 })],
     ['negative presence revision', async () => proTicket({ presenceRevision: -1 })],
   ] as const)('rejects a PRO %s before Durable Object lookup', async (_label, makeTicket) => {
     const { env, idFromName, roomFetch } = workerEnv();
@@ -853,6 +880,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       displayName: 'Room owner',
       coordinatorEpoch: 1,
     });
+    expect(coordinator.deserializeAttachment()).not.toHaveProperty('roomGeneration');
     expect(member.deserializeAttachment()).toMatchObject({
       roomKind: 'pro',
       role: 'member',
@@ -862,6 +890,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       coordinatorEpoch: 1,
       auth: 'ok',
     });
+    expect(member.deserializeAttachment()).not.toHaveProperty('roomGeneration');
     expect(sent(member)[0]).toMatchObject({
       type: 'peer-open',
       peerId: 'signed-member',
@@ -872,6 +901,115 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       kind: 'pro',
       roomId: '000001',
       coordinatorEpoch: 1,
+    });
+    expect(await state.storage.get('proRoomMeta')).not.toHaveProperty('roomGeneration');
+    expect(await state.storage.get('proSignalingTicketUses')).not.toHaveProperty('roomGeneration');
+    expect(await state.storage.get('proSignalingParticipantHighWater')).not.toHaveProperty(
+      'roomGeneration',
+    );
+  });
+
+  it('binds PRO signaling state, broadcasts, and decommission tombstones to one generation', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const generation = 23;
+    const presenceIncarnationId = 'generation-bound-presence-01';
+    const member = await joinProMember(room, {
+      roomGeneration: generation,
+      participantId: 'generation-bound-member',
+      presenceIncarnationId,
+      jti: 'generation-bound-ticket-001',
+    });
+
+    expect(member.deserializeAttachment()).toMatchObject({
+      roomKind: 'pro',
+      roomId: '000001',
+      roomGeneration: generation,
+    });
+    expect(await state.storage.get('proRoomMeta')).toMatchObject({
+      roomId: '000001',
+      roomGeneration: generation,
+    });
+    expect(await state.storage.get('proSignalingTicketUses')).toMatchObject({
+      roomGeneration: generation,
+      entries: [{ jti: 'generation-bound-ticket-001' }],
+    });
+    expect(await state.storage.get('proSignalingParticipantHighWater')).toMatchObject({
+      roomGeneration: generation,
+      entries: [{ participantId: 'generation-bound-member' }],
+    });
+
+    await room.fetch(
+      await proWsRequest({
+        roomGeneration: generation + 1,
+        participantId: 'wrong-generation-member',
+        presenceIncarnationId: 'wrong-generation-presence-01',
+        jti: 'wrong-generation-ticket-0001',
+      }),
+    );
+    expect(lastServer().closeEvents.at(-1)).toEqual({
+      code: 1008,
+      reason: 'PRO_ROOM_GENERATION_MISMATCH',
+    });
+
+    const broadcast = (roomGeneration: number) =>
+      room.fetch(
+        new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': '000001',
+            'x-mxqr-pro-room-generation': String(roomGeneration),
+          },
+          body: JSON.stringify({
+            roomCode: '000001',
+            roomGeneration,
+            coordinatorEpoch: 1,
+            targets: [presenceIncarnationId],
+            event: { type: 'pro-presence-snapshot', presenceRevision: 1 },
+          }),
+        }),
+      );
+
+    expect((await broadcast(generation + 1)).status).toBe(409);
+    expect((await broadcast(generation)).status).toBe(200);
+    expect(await state.storage.get('proSignalingPresenceAuthority')).toMatchObject({
+      roomId: '000001',
+      roomGeneration: generation,
+      activeIncarnationIds: [presenceIncarnationId],
+    });
+    expect(sent(member).at(-1)).toMatchObject({
+      type: 'pro-server-event',
+      roomCode: '000001',
+      roomGeneration: generation,
+    });
+
+    const requestId = '32345678-1234-4123-8123-123456789abc';
+    const decommission = (roomGeneration: number) =>
+      room.fetch(
+        new Request('https://signaling.internal/internal/admin/v1/decommission', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': '000001',
+            'x-mxqr-pro-room-generation': String(roomGeneration),
+          },
+          body: JSON.stringify({ roomCode: '000001', roomGeneration, requestId }),
+        }),
+      );
+
+    expect((await decommission(generation + 1)).status).toBe(409);
+    const deleted = await decommission(generation);
+    expect(deleted.status).toBe(200);
+    expect(JSON.parse(String(deleted.body))).toMatchObject({
+      ok: true,
+      roomCode: '000001',
+      roomGeneration: generation,
+      status: 'decommissioned',
+    });
+    expect(await state.storage.get('proRoomDecommissioned')).toMatchObject({
+      roomCode: '000001',
+      roomGeneration: generation,
     });
   });
 
@@ -1101,6 +1239,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       type: 'pro-server-event',
       version: 1,
       roomCode: '000001',
+      roomGeneration: 0,
       coordinatorEpoch: 1,
       event,
     };
@@ -1505,6 +1644,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       channel: 'chat',
       payload: { kind: 'message', text: 'hello', clientTs: 123 },
       roomCode: '000001',
+      roomGeneration: 0,
       coordinatorEpoch: 1,
       sender: {
         participantId: 'member-alice',
@@ -1523,6 +1663,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       expect(new URL(request.url).pathname).toBe('/internal/authority/check');
       expect(request.method).toBe('POST');
       expect(request.headers.get('x-mxqr-pro-room-code')).toBe('000001');
+      expect(request.headers.get('x-mxqr-pro-room-generation')).toBeNull();
       expect(await request.json()).toEqual({
         participantId: 'notice-authorized',
         presenceIncarnationId: 'notice-presence-authorized',
@@ -1579,6 +1720,63 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         presenceIncarnationId: 'notice-presence-authorized',
       },
     });
+  });
+
+  it('routes PRO authority checks by generation and rejects a mismatched authority response', async () => {
+    const authority = proAuthorityNamespace(async (request) => {
+      expect(request.headers.get('x-mxqr-pro-room-code')).toBe('000001');
+      expect(request.headers.get('x-mxqr-pro-room-generation')).toBe('31');
+      expect(await request.json()).toEqual({
+        roomGeneration: 31,
+        participantId: 'generation-authority-sender',
+        presenceIncarnationId: 'generation-authority-presence',
+        permission: 'chat.notice',
+      });
+      return new originalResponse(
+        JSON.stringify({
+          allowed: true,
+          roomCode: '000001',
+          roomGeneration: 30,
+          memberId: 'member_generationauthority001',
+          role: 'controller',
+          permission: 'chat.notice',
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      PRO_SIGNALING_SECRET,
+      PRO_ROOM_AUTHORITY_ROOMS: authority.binding,
+    });
+    const sender = await joinProMember(room, {
+      roomGeneration: 31,
+      participantId: 'generation-authority-sender',
+      presenceIncarnationId: 'generation-authority-presence',
+      jti: 'generation-authority-ticket1',
+    });
+    const recipient = await joinProMember(room, {
+      roomGeneration: 31,
+      participantId: 'generation-authority-target',
+      presenceIncarnationId: 'generation-authority-target-presence',
+      jti: 'generation-authority-ticket2',
+    });
+    const recipientCount = recipient.sent.length;
+
+    await room.webSocketMessage(
+      sender,
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId: 'generation-authority-event1',
+        channel: 'chat',
+        payload: { kind: 'notice', text: 'must not relay' },
+      }),
+    );
+
+    expect(authority.binding.idFromName).toHaveBeenCalledWith('000001:generation:31');
+    expect(recipient.sent).toHaveLength(recipientCount);
+    expect(sender.closed).toBe(false);
   });
 
   it('drops denied or superseded PRO notices but keeps ordinary chat and the socket alive', async () => {
@@ -1798,6 +1996,8 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       return new originalResponse(
         JSON.stringify({
           allowed: true,
+          roomCode: '000001',
+          roomGeneration: 0,
           memberId: 'member_authorized000000001',
           role: 'owner',
           permission: body.permission,
@@ -1959,6 +2159,8 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
           allowed
             ? {
                 allowed: true,
+                roomCode: '000001',
+                roomGeneration: 0,
                 memberId: 'owner_chatauthority000000001',
                 role: 'owner',
                 permission: body.permission,
@@ -2167,6 +2369,8 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
           allowed
             ? {
                 allowed: true,
+                roomCode: '000001',
+                roomGeneration: 0,
                 memberId: 'member_provenance000000001',
                 role: 'controller',
                 permission: body.permission,

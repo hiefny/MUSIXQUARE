@@ -1,9 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  developerApiKeySchemaStateFromSql,
   migrationDisposition,
   parseD1Rows,
   runEffectsScopeMigration,
@@ -12,13 +13,13 @@ import {
 } from '../../../scripts/developer-api-effects-scope-migration.mjs';
 import { emergencyDeploymentPlan } from '../../../scripts/emergency-deploy.mjs';
 
-function schemaResult(limit: number): string {
+function schemaResult(limit: number, hasRoomGeneration = false): string {
   return JSON.stringify([
     {
       success: true,
       results: [
         {
-          sql: `CREATE TABLE mxqr_developer_api_keys (scope_mask INTEGER CHECK (scope_mask BETWEEN 1 AND ${limit}))`,
+          sql: `CREATE TABLE mxqr_developer_api_keys (${hasRoomGeneration ? 'room_generation INTEGER NOT NULL, ' : ''}scope_mask INTEGER CHECK (scope_mask BETWEEN 1 AND ${limit}))`,
         },
       ],
     },
@@ -34,6 +35,74 @@ describe('Developer API effects-scope migration', () => {
     expect(migrationDisposition(255, 'rollback')).toBe('apply');
     expect(migrationDisposition(63, 'rollback')).toBe('skip');
     expect(() => migrationDisposition(127, 'apply')).toThrow('unexpected scope limit 127');
+    expect(developerApiKeySchemaStateFromSql(parseD1Rows(schemaResult(255, true))[0]?.sql)).toEqual(
+      { scopeMaskLimit: 255, hasRoomGeneration: true },
+    );
+  });
+
+  it('never lets the legacy table rebuild erase generation binding', () => {
+    const applyRunner = vi.fn((args: string[]) => {
+      if (args[0] === '--command') return schemaResult(63, true);
+      throw new Error(`unexpected mutation: ${args.join(' ')}`);
+    });
+    const stdout = { write: vi.fn() };
+
+    expect(() =>
+      runEffectsScopeMigration('apply', {
+        runner: applyRunner,
+        outputPath: null,
+        stdout,
+      }),
+    ).toThrow('does not preserve room_generation');
+    expect(applyRunner.mock.calls.filter(([args]) => args[0] === '--file')).toHaveLength(0);
+
+    const alreadyAppliedRunner = vi.fn((args: string[]) => {
+      if (args[0] === '--command') return schemaResult(255, true);
+      throw new Error(`unexpected mutation: ${args.join(' ')}`);
+    });
+    expect(
+      runEffectsScopeMigration('apply', {
+        runner: alreadyAppliedRunner,
+        outputPath: null,
+        stdout,
+      }),
+    ).toEqual({ applied: false, scopeMaskLimit: 255 });
+    expect(alreadyAppliedRunner.mock.calls.filter(([args]) => args[0] === '--file')).toHaveLength(
+      0,
+    );
+  });
+
+  it('fails release rollback closed instead of dropping room_generation', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'mxqr-effects-generation-'));
+    const journalPath = join(directory, 'journal.json');
+    const runner = vi.fn((args: string[]) => {
+      if (args[0] === '--command') return schemaResult(255, true);
+      throw new Error(`unexpected mutation: ${args.join(' ')}`);
+    });
+    const stdout = { write: vi.fn() };
+
+    try {
+      writeFileSync(
+        journalPath,
+        `${JSON.stringify({
+          version: 1,
+          operation: 'apply',
+          beforeScopeMaskLimit: 63,
+        })}\n`,
+        'utf8',
+      );
+      expect(() =>
+        runEffectsScopeReleaseRollback({
+          runner,
+          outputPath: null,
+          stdout,
+          journalPath,
+        }),
+      ).toThrow('does not preserve room_generation');
+      expect(runner.mock.calls.filter(([args]) => args[0] === '--file')).toHaveLength(0);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('applies once, verifies the new constraint, and skips a repeat', () => {

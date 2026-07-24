@@ -74,6 +74,7 @@ describe('admin PRO room claim lifecycle', () => {
           rooms: [
             {
               roomCode: '000000',
+              roomGeneration: 0,
               label: 'Developer room',
               status: 'registered',
               activationState: 'unactivated',
@@ -84,8 +85,10 @@ describe('admin PRO room claim lifecycle', () => {
       }
       if (url.pathname === '/api/admin/pro-rooms/000000/activation-claim') {
         expect(init?.method).toBe('POST');
+        expect(JSON.parse(String(init?.body))).toEqual({ roomGeneration: 0 });
         return Response.json({
           roomCode: '000000',
+          roomGeneration: 0,
           activationUrl: 'https://musixquare.com/000000#pro-claim=sensitive-claim',
           expiresAt: Date.now() + 15 * 60 * 1000,
         });
@@ -177,6 +180,7 @@ describe('admin PRO room claim lifecycle', () => {
           rooms: [
             {
               roomCode: '000001',
+              roomGeneration: 4,
               label: 'Friends room',
               status: 'registered',
               activationState: 'active',
@@ -187,10 +191,11 @@ describe('admin PRO room claim lifecycle', () => {
       }
       if (url.pathname === '/api/admin/pro-rooms/000001/owner-recovery-claim') {
         expect(init?.method).toBe('POST');
-        expect(init?.body).toBe('{}');
+        expect(JSON.parse(String(init?.body))).toEqual({ roomGeneration: 4 });
         expect(new Headers(init?.headers).get('X-MXQR-Admin-CSRF')).toBe('1');
         return Response.json({
           roomCode: '000001',
+          roomGeneration: 4,
           recoveryUrl: 'https://musixquare.com/000001#pro-recovery=v1.payload.signature',
           expiresAt: Date.now() + 10 * 60 * 1000,
           ownerAccountLinked: false,
@@ -244,6 +249,148 @@ describe('admin PRO room claim lifecycle', () => {
 });
 
 describe('admin PRO room operations dashboard', () => {
+  it('binds room state changes to the exact rendered generation', async () => {
+    installAdminDom();
+    let stateBody: unknown;
+    let suspended = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms/000001/state') {
+        stateBody = JSON.parse(String(init?.body));
+        suspended = true;
+        return Response.json({
+          ok: true,
+          roomCode: '000001',
+          roomGeneration: 12,
+          status: 'suspended',
+          changed: true,
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          rooms: [
+            {
+              roomCode: '000001',
+              roomGeneration: 12,
+              label: 'Reused room',
+              status: suspended ? 'suspended' : 'registered',
+              activationState: 'active',
+              createdAt: Date.now(),
+            },
+          ],
+        });
+      }
+      if (url.pathname === '/api/admin/articles') {
+        return Response.json({ generatedAt: new Date().toISOString(), articles: [] });
+      }
+      if (url.pathname === '/api/admin/announcement') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          announcement: {},
+          history: [],
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+
+    const suspendButton = await vi.waitFor(() => {
+      const button = [
+        ...document.querySelectorAll<HTMLButtonElement>('.pro-room-actions button'),
+      ].find((candidate) => candidate.textContent === 'Suspend room');
+      expect(button).not.toBeUndefined();
+      return button!;
+    });
+    suspendButton.click();
+
+    await vi.waitFor(() => {
+      expect(stateBody).toEqual({ roomGeneration: 12, status: 'suspended' });
+      expect(document.querySelector('.pro-room-state')?.textContent).toBe('Suspended');
+    });
+  });
+
+  it('fails closed when a registry row has no valid room generation', async () => {
+    installAdminDom();
+    let apiKeyRequests = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          rooms: [
+            {
+              roomCode: '000001',
+              label: 'Invalid registry row',
+              status: 'registered',
+              activationState: 'active',
+              createdAt: Date.now(),
+            },
+          ],
+        });
+      }
+      if (url.pathname.includes('/api-keys')) apiKeyRequests += 1;
+      if (url.pathname === '/api/admin/articles') {
+        return Response.json({ generatedAt: new Date().toISOString(), articles: [] });
+      }
+      if (url.pathname === '/api/admin/announcement') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          announcement: {},
+          history: [],
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+
+    const room = await vi.waitFor(() => {
+      const item = document.querySelector<HTMLDetailsElement>('[data-pro-room-item="000001"]');
+      expect(item).not.toBeNull();
+      return item!;
+    });
+    expect(room.querySelector('.pro-room-actions')).toBeNull();
+    expect(room.querySelector('[data-pro-room-destroy]')).toBeNull();
+    expect(room.textContent).toContain('Room generation is unavailable');
+    room.open = true;
+    room.dispatchEvent(new Event('toggle'));
+    await Promise.resolve();
+    expect(apiKeyRequests).toBe(0);
+  });
+
   it('expands one room, manages API keys, and clears a one-time key when collapsed', async () => {
     installAdminDom();
     const apiKey = 'mxqr_live_one-time-secret';
@@ -284,6 +431,7 @@ describe('admin PRO room operations dashboard', () => {
           rooms: [
             {
               roomCode: '000001',
+              roomGeneration: 4,
               label: 'Friends room',
               status: 'registered',
               activationState: 'active',
@@ -296,12 +444,18 @@ describe('admin PRO room operations dashboard', () => {
         if (init?.method === 'POST') {
           expect(new Headers(init.headers).get('X-MXQR-Admin-CSRF')).toBe('1');
           issuedBody = JSON.parse(String(init.body));
-          return Response.json({ roomCode: '000001', apiKey, key: keyRecord });
+          return Response.json({
+            roomCode: '000001',
+            roomGeneration: 4,
+            apiKey,
+            key: keyRecord,
+          });
         }
         apiKeyListReads += 1;
         if (apiKeyListReads === 1) return initialApiKeys;
         return Response.json({
           roomCode: '000001',
+          roomGeneration: 4,
           maxActiveKeys: 3,
           keys: revoked ? [] : [keyRecord],
         });
@@ -309,8 +463,14 @@ describe('admin PRO room operations dashboard', () => {
       if (url.pathname === '/api/admin/pro-rooms/000001/api-keys/ActiveKeyId00001') {
         expect(init?.method).toBe('DELETE');
         expect(new Headers(init?.headers).get('X-MXQR-Admin-CSRF')).toBe('1');
+        expect(JSON.parse(String(init?.body))).toEqual({ roomGeneration: 4 });
         revoked = true;
-        return Response.json({ ok: true, roomCode: '000001', keyId: 'ActiveKeyId00001' });
+        return Response.json({
+          ok: true,
+          roomCode: '000001',
+          roomGeneration: 4,
+          keyId: 'ActiveKeyId00001',
+        });
       }
       if (url.pathname === '/api/admin/articles') {
         return Response.json({ generatedAt: new Date().toISOString(), articles: [] });
@@ -351,6 +511,7 @@ describe('admin PRO room operations dashboard', () => {
     resolveInitialApiKeys?.(
       Response.json({
         roomCode: '000001',
+        roomGeneration: 4,
         maxActiveKeys: 3,
         keys: [keyRecord],
       }),
@@ -379,6 +540,7 @@ describe('admin PRO room operations dashboard', () => {
       ).toBe(apiKey);
     });
     expect(issuedBody).toMatchObject({
+      roomGeneration: 4,
       label: 'Cafe controller',
       days: 365,
       scopes: [
@@ -415,6 +577,96 @@ describe('admin PRO room operations dashboard', () => {
     });
   });
 
+  it('discards a room-code-only API-key response before rendering a reused room generation', async () => {
+    installAdminDom();
+    let apiKeyListReads = 0;
+    const keyRecord = (keyId: string, label: string) => ({
+      keyId,
+      label,
+      scopes: ['room:read'],
+      status: 'active',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      expiresAt: Date.now() + 86_400_000,
+      revokedAt: null,
+      lastUsedAt: null,
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          rooms: [
+            {
+              roomCode: '000002',
+              roomGeneration: 1,
+              label: 'Reused room',
+              status: 'registered',
+              activationState: 'active',
+              createdAt: Date.now(),
+            },
+          ],
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms/000002/api-keys') {
+        apiKeyListReads += 1;
+        return apiKeyListReads === 1
+          ? Response.json({
+              roomCode: '000002',
+              maxActiveKeys: 3,
+              keys: [keyRecord('StaleKeyId000001', 'stale generation-zero key')],
+            })
+          : Response.json({
+              roomCode: '000002',
+              roomGeneration: 1,
+              maxActiveKeys: 3,
+              keys: [keyRecord('FreshKeyId000001', 'fresh generation-one key')],
+            });
+      }
+      if (url.pathname === '/api/admin/articles') {
+        return Response.json({ generatedAt: new Date().toISOString(), articles: [] });
+      }
+      if (url.pathname === '/api/admin/announcement') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          announcement: {},
+          history: [],
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+    const room = await vi.waitFor(() => {
+      const value = document.querySelector<HTMLDetailsElement>('[data-pro-room-item="000002"]');
+      expect(value).not.toBeNull();
+      return value!;
+    });
+    room.open = true;
+    room.dispatchEvent(new Event('toggle'));
+
+    await vi.waitFor(() => {
+      expect(apiKeyListReads).toBeGreaterThanOrEqual(2);
+      expect(document.body.textContent).toContain('fresh generation-one key');
+    });
+    expect(document.body.textContent).not.toContain('stale generation-zero key');
+  });
+
   it('requires an exact room-code confirmation before permanently deleting a room', async () => {
     installAdminDom();
     let deleted = false;
@@ -443,7 +695,12 @@ describe('admin PRO room operations dashboard', () => {
           return Response.json({ error: 'DELETE_TEMPORARILY_UNAVAILABLE' }, { status: 503 });
         }
         deleted = true;
-        return Response.json({ ok: true, roomCode: '000001', status: 'destroyed' });
+        return Response.json({
+          ok: true,
+          roomCode: '000001',
+          roomGeneration: 9,
+          status: 'destroyed',
+        });
       }
       if (url.pathname === '/api/admin/pro-rooms') {
         return Response.json({
@@ -453,6 +710,7 @@ describe('admin PRO room operations dashboard', () => {
             : [
                 {
                   roomCode: '000001',
+                  roomGeneration: 9,
                   label: 'Friends room',
                   status: 'registered',
                   activationState: 'active',
@@ -534,9 +792,11 @@ describe('admin PRO room operations dashboard', () => {
     expect(new Headers(firstRequest.headers).get('X-MXQR-Admin-CSRF')).toBe('1');
     const firstBody = JSON.parse(String(firstRequest.body)) as {
       confirmRoomCode?: string;
+      roomGeneration?: number;
       requestId?: string;
     };
     expect(firstBody.confirmRoomCode).toBe('000001');
+    expect(firstBody.roomGeneration).toBe(9);
     expect(firstBody.requestId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );

@@ -6,6 +6,14 @@
  * forwards caller headers, cookies, API keys, or caller-selected paths.
  */
 
+import {
+  LEGACY_PRO_ROOM_GENERATION,
+  isProRoomGeneration,
+  proRoomGenerationHeaderValue,
+  proRoomObjectName,
+} from './pro-room-generation.js';
+
+const PRO_ROOM_GENERATION_HEADER = 'x-mxqr-pro-room-generation';
 const REQUEST_MAX_BYTES = 64 * 1024;
 // A valid public 128 KiB queue mutation gains a small authenticated envelope.
 const QUEUE_MUTATION_REQUEST_MAX_BYTES = 192 * 1024;
@@ -784,7 +792,7 @@ function sanitizeQuota(value) {
   };
 }
 
-function sanitizeUpload(value, roomCode, expectedMedia) {
+function sanitizeUpload(value, roomCode, roomGeneration, expectedMedia) {
   const quota = sanitizeQuota(value?.quota);
   if (
     !hasExactKeys(value, [
@@ -837,6 +845,7 @@ function sanitizeUpload(value, roomCode, expectedMedia) {
     'content-length',
     'content-type',
     'x-amz-meta-mxqr-room',
+    'x-amz-meta-mxqr-generation',
     'x-amz-meta-mxqr-asset',
     'x-amz-meta-mxqr-version',
     'x-amz-meta-mxqr-bytes',
@@ -846,6 +855,10 @@ function sanitizeUpload(value, roomCode, expectedMedia) {
     Object.keys(headers).some((key) => !allowedHeaders.has(key)) ||
     headers['content-length'] !== String(value.byteLength) ||
     headers['x-amz-meta-mxqr-room'] !== roomCode ||
+    (roomGeneration === LEGACY_PRO_ROOM_GENERATION
+      ? headers['x-amz-meta-mxqr-generation'] !== undefined &&
+        headers['x-amz-meta-mxqr-generation'] !== String(LEGACY_PRO_ROOM_GENERATION)
+      : headers['x-amz-meta-mxqr-generation'] !== String(roomGeneration)) ||
     headers['x-amz-meta-mxqr-asset'] !== value.assetId ||
     headers['x-amz-meta-mxqr-version'] !== '1' ||
     headers['x-amz-meta-mxqr-bytes'] !== String(value.byteLength) ||
@@ -973,18 +986,40 @@ function backendError(value, status) {
   return mapped && mapped.status === status ? mapped : null;
 }
 
-async function callRoom(namespace, roomCode, path, body) {
+function exactFacadeRoomGeneration(request, body) {
+  const hasBodyGeneration = Object.prototype.hasOwnProperty.call(body || {}, 'roomGeneration');
+  const header = request.headers.get(PRO_ROOM_GENERATION_HEADER);
+  if (!hasBodyGeneration && header === null) {
+    return { valid: true, roomGeneration: LEGACY_PRO_ROOM_GENERATION };
+  }
+  const roomGeneration = body?.roomGeneration;
+  return {
+    valid:
+      hasBodyGeneration &&
+      isProRoomGeneration(roomGeneration) &&
+      header === proRoomGenerationHeaderValue(roomGeneration),
+    roomGeneration,
+  };
+}
+
+async function callRoom(namespace, roomCode, roomGeneration, path, body) {
   let response;
   try {
-    const stub = namespace.get(namespace.idFromName(roomCode));
+    const stub = namespace.get(namespace.idFromName(proRoomObjectName(roomCode, roomGeneration)));
     response = await stub.fetch(
       new Request(`https://pro-room.internal${path}`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': roomCode,
+          ...(roomGeneration === LEGACY_PRO_ROOM_GENERATION
+            ? {}
+            : { [PRO_ROOM_GENERATION_HEADER]: proRoomGenerationHeaderValue(roomGeneration) }),
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          ...body,
+          ...(roomGeneration === LEGACY_PRO_ROOM_GENERATION ? {} : { roomGeneration }),
+        }),
       }),
     );
   } catch {
@@ -1025,10 +1060,19 @@ export default {
     if (!namespace?.idFromName || !namespace?.get) {
       return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
     }
+    const generation = exactFacadeRoomGeneration(request, body);
+    if (!generation.valid) {
+      return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+    }
+    const roomGeneration = generation.roomGeneration;
 
     if (url.pathname === '/internal/v1/read') {
       if (
-        !hasExactKeys(body, ['roomCode', 'projection'], ['keyId', 'effectsVersion']) ||
+        !hasExactKeys(
+          body,
+          ['roomCode', 'projection'],
+          ['keyId', 'effectsVersion', 'roomGeneration'],
+        ) ||
         !ROOM_CODE_RE.test(body.roomCode) ||
         (body.keyId !== undefined && !API_KEY_ID_RE.test(body.keyId || '')) ||
         (body.effectsVersion !== undefined && ![1, 2].includes(body.effectsVersion)) ||
@@ -1037,11 +1081,17 @@ export default {
       ) {
         return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
       }
-      const called = await callRoom(namespace, body.roomCode, '/internal/developer/v1/read', {
-        ...(body.keyId === undefined ? {} : { keyId: body.keyId }),
-        ...(body.effectsVersion === 2 ? { effectsVersion: 2 } : {}),
-        projection: body.projection,
-      });
+      const called = await callRoom(
+        namespace,
+        body.roomCode,
+        roomGeneration,
+        '/internal/developer/v1/read',
+        {
+          ...(body.keyId === undefined ? {} : { keyId: body.keyId }),
+          ...(body.effectsVersion === 2 ? { effectsVersion: 2 } : {}),
+          projection: body.projection,
+        },
+      );
       if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
       const value = await readJsonResponse(called.response, PROJECTION_RESPONSE_MAX_BYTES);
       if (called.response.status === 404) return jsonResponse({ error: 'NOT_FOUND' }, 404);
@@ -1061,7 +1111,11 @@ export default {
 
     if (url.pathname === '/internal/v1/queue-mode/update') {
       if (
-        !hasExactKeys(body, ['keyId', 'roomCode', 'idempotencyKey', 'queueMode']) ||
+        !hasExactKeys(
+          body,
+          ['keyId', 'roomCode', 'idempotencyKey', 'queueMode'],
+          ['roomGeneration'],
+        ) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
         !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '')
@@ -1073,6 +1127,7 @@ export default {
       const called = await callRoom(
         namespace,
         body.roomCode,
+        roomGeneration,
         '/internal/developer/v1/queue-mode/update',
         {
           roomCode: body.roomCode,
@@ -1097,7 +1152,11 @@ export default {
 
     if (url.pathname === '/internal/v1/commands/create') {
       if (
-        !hasExactKeys(body, ['keyId', 'roomCode', 'idempotencyKey', 'command']) ||
+        !hasExactKeys(
+          body,
+          ['keyId', 'roomCode', 'idempotencyKey', 'command'],
+          ['roomGeneration'],
+        ) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
         !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '')
@@ -1109,6 +1168,7 @@ export default {
       const called = await callRoom(
         namespace,
         body.roomCode,
+        roomGeneration,
         '/internal/developer/v1/commands/create',
         {
           roomCode: body.roomCode,
@@ -1139,7 +1199,11 @@ export default {
 
     if (url.pathname === '/internal/v1/queue/mutate') {
       if (
-        !hasExactKeys(body, ['keyId', 'roomCode', 'idempotencyKey', 'mutation'], ['actorName']) ||
+        !hasExactKeys(
+          body,
+          ['keyId', 'roomCode', 'idempotencyKey', 'mutation'],
+          ['actorName', 'roomGeneration'],
+        ) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
         !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '') ||
@@ -1152,6 +1216,7 @@ export default {
       const called = await callRoom(
         namespace,
         body.roomCode,
+        roomGeneration,
         '/internal/developer/v1/queue/mutate',
         {
           roomCode: body.roomCode,
@@ -1179,7 +1244,7 @@ export default {
 
     if (url.pathname === '/internal/v1/media/uploads/create') {
       if (
-        !hasExactKeys(body, ['keyId', 'roomCode', 'idempotencyKey', 'media']) ||
+        !hasExactKeys(body, ['keyId', 'roomCode', 'idempotencyKey', 'media'], ['roomGeneration']) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
         !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '')
@@ -1191,6 +1256,7 @@ export default {
       const called = await callRoom(
         namespace,
         body.roomCode,
+        roomGeneration,
         '/internal/developer/v1/media/uploads/create',
         { roomCode: body.roomCode, keyId: body.keyId, idempotencyKey: body.idempotencyKey, media },
       );
@@ -1202,7 +1268,7 @@ export default {
           ? jsonResponse({ error: mapped.error }, mapped.status)
           : jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
       }
-      const sanitized = sanitizeUpload(value, body.roomCode, media);
+      const sanitized = sanitizeUpload(value, body.roomCode, roomGeneration, media);
       return called.response.status === 201 && sanitized
         ? jsonResponse(sanitized, 201)
         : jsonResponse({ error: 'INVALID_BACKEND_RESPONSE' }, 503);
@@ -1210,7 +1276,11 @@ export default {
 
     if (url.pathname === '/internal/v1/media/uploads/complete') {
       if (
-        !hasExactKeys(body, ['keyId', 'roomCode', 'idempotencyKey', 'assetId'], ['actorName']) ||
+        !hasExactKeys(
+          body,
+          ['keyId', 'roomCode', 'idempotencyKey', 'assetId'],
+          ['actorName', 'roomGeneration'],
+        ) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
         !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '') ||
@@ -1222,6 +1292,7 @@ export default {
       const called = await callRoom(
         namespace,
         body.roomCode,
+        roomGeneration,
         '/internal/developer/v1/media/uploads/complete',
         {
           roomCode: body.roomCode,
@@ -1246,7 +1317,7 @@ export default {
     }
 
     if (
-      !hasExactKeys(body, ['roomCode', 'keyId', 'commandId']) ||
+      !hasExactKeys(body, ['roomCode', 'keyId', 'commandId'], ['roomGeneration']) ||
       !ROOM_CODE_RE.test(body.roomCode || '') ||
       !API_KEY_ID_RE.test(body.keyId || '') ||
       !COMMAND_ID_RE.test(body.commandId || '')
@@ -1256,6 +1327,7 @@ export default {
     const called = await callRoom(
       namespace,
       body.roomCode,
+      roomGeneration,
       '/internal/developer/v1/commands/status',
       { roomCode: body.roomCode, keyId: body.keyId, commandId: body.commandId },
     );

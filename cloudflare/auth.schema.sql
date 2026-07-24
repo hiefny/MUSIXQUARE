@@ -95,6 +95,28 @@ CREATE TABLE IF NOT EXISTS mxqr_account_pro_rooms (
 CREATE INDEX IF NOT EXISTS idx_mxqr_account_pro_rooms_account
   ON mxqr_account_pro_rooms(account_id);
 
+-- Incarnation-aware reverse index. The legacy table above remains readable so
+-- accounts linked before reusable PRO numbers can still be deleted safely.
+-- Generation zero continues writing the legacy table during the additive
+-- rollout; later generations use this table. Cleanup and capacity checks read
+-- the union, preventing an old account deletion from revoking authority in a
+-- later room that happens to reuse the same six-digit public code.
+CREATE TABLE IF NOT EXISTS mxqr_account_pro_room_generations (
+  account_id TEXT NOT NULL,
+  room_code TEXT NOT NULL,
+  room_generation INTEGER NOT NULL DEFAULT 0,
+  first_linked_at INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL,
+  PRIMARY KEY (account_id, room_code, room_generation),
+  FOREIGN KEY (account_id) REFERENCES mxqr_accounts(account_id) ON DELETE CASCADE,
+  CHECK (length(room_code) = 6 AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'),
+  CHECK (room_generation >= 0),
+  CHECK (first_linked_at > 0 AND last_seen_at >= first_linked_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_mxqr_account_pro_room_generations_account
+  ON mxqr_account_pro_room_generations(account_id);
+
 -- Consumed OAuth state digests make callback replay fail closed even if a
 -- cleared flow cookie is copied and replayed outside the normal browser path.
 CREATE TABLE IF NOT EXISTS mxqr_oauth_flows (

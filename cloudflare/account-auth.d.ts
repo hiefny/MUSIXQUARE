@@ -8,6 +8,7 @@ export interface AccountDeletionIntegrations {
   purgeProRoomAccountAuthority?: (input: {
     accountId: string;
     roomCode: string;
+    roomGeneration: number;
   }) => Promise<unknown>;
 }
 
@@ -26,6 +27,7 @@ export function recordAccountProRoomLink(
   accountId: string,
   roomCode: string,
   nowMs?: number,
+  roomGeneration?: number,
 ): Promise<boolean>;
 export function cleanupExpiredAccountSessions(
   env: unknown,

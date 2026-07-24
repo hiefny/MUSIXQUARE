@@ -131,6 +131,9 @@ class FakeAuthDb {
     this.assertAvailable();
     this.boundValues.push([...values]);
     const normalized = normalizeSql(sql);
+    if (normalized.includes('from mxqr_account_pro_room_generations')) {
+      throw new Error('no such table: mxqr_account_pro_room_generations');
+    }
     if (normalized.includes('from mxqr_account_pro_rooms')) {
       const accountId = String(values[0]);
       return [...this.proRoomLinks.values()]
@@ -1483,8 +1486,9 @@ describe('account session mutations', () => {
       {
         ...env,
         // Lease renewal cannot establish a new account-room relationship and
-        // therefore deliberately skips both registry preflight and link upsert.
-        MUSIXQUARE_ADMIN_DB: createProRoomRegistryDb([]),
+        // therefore skips the reverse-index write, but still resolves the
+        // current immutable generation before an assertion is minted.
+        MUSIXQUARE_ADMIN_DB: createProRoomRegistryDb(),
         MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: assertionSecret,
         PRO_ROOM_PUBLIC_API: {
           fetch: vi.fn(async (request: Request) => {
@@ -1751,6 +1755,39 @@ describe('account session mutations', () => {
     expect(db.proRoomLinks.size).toBe(0);
   });
 
+  it('fails account deletion closed when the generation reverse index is transiently unavailable', async () => {
+    const db = new FakeAuthDb();
+    const env = authEnv(db);
+    const login = await completeLogin(env);
+    const accountId = [...db.accounts.keys()][0]!;
+    vi.unstubAllGlobals();
+    const originalAll = db.all.bind(db);
+    db.all = async (sql: string, values: unknown[]) => {
+      if (normalizeSql(sql).includes('from mxqr_account_pro_room_generations')) {
+        throw new Error('transient D1 timeout');
+      }
+      return originalAll(sql, values);
+    };
+
+    const response = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/account', {
+        method: 'DELETE',
+        headers: mutationHeaders(login.sessionCookie!),
+        body: JSON.stringify({ confirm: true }),
+      }),
+      env,
+      undefined,
+      {
+        purgeProRoomAccountAuthority: async () => true,
+      },
+    );
+
+    expect(response?.status).toBe(503);
+    expect(db.accounts.has(accountId)).toBe(true);
+    expect(db.sessions.size).toBe(1);
+    expect(db.accountDeletions.has(accountId)).toBe(false);
+  });
+
   it('blocks new PRO authority edges for the full lifetime of a deletion fence', async () => {
     const db = new FakeAuthDb();
     const env = authEnv(db);
@@ -1764,6 +1801,36 @@ describe('account session mutations', () => {
       false,
     );
     expect(db.proRoomLinks.size).toBe(0);
+  });
+
+  it('records a reusable PRO room incarnation as a generation-scoped reverse edge', async () => {
+    const statements: Array<{ sql: string; values: unknown[] }> = [];
+    const db = {
+      prepare: (sql: string) => ({
+        bind: (...values: unknown[]) => ({
+          run: async () => {
+            statements.push({ sql: normalizeSql(sql), values });
+            return { success: true, meta: { changes: 1 } };
+          },
+        }),
+      }),
+    };
+    const accountId = 'acct_0123456789abcdefghijkl';
+
+    await expect(
+      recordAccountProRoomLink(
+        { MUSIXQUARE_AUTH_DB: db },
+        accountId,
+        '000001',
+        1_784_524_800_000,
+        7,
+      ),
+    ).resolves.toBe(true);
+
+    expect(statements).toHaveLength(1);
+    expect(statements[0]?.sql).toContain('insert into mxqr_account_pro_room_generations');
+    expect(statements[0]?.sql).toContain('on conflict(account_id, room_code, room_generation)');
+    expect(statements[0]?.values).toEqual([accountId, '000001', 7, 1_784_524_800_000, 1_000]);
   });
 
   it('bounds PRO reverse edges at 1000 while allowing existing touches and deletion cleanup', async () => {

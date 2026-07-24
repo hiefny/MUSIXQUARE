@@ -70,6 +70,71 @@ describe('account room assertions', () => {
     ).resolves.toBeNull();
   });
 
+  it('binds an assertion to one immutable PRO room generation', async () => {
+    const issuedAt = 1_784_524_800;
+    const legacy = await createAccountAssertion(
+      {
+        accountId: 'acct_0123456789abcdefghijkl',
+        nickname: 'Legacy owner',
+        roomCode: '000001',
+        roomGeneration: 0,
+        audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
+      },
+      secret,
+      issuedAt,
+    );
+    const replacement = await createAccountAssertion(
+      {
+        accountId: 'acct_0123456789abcdefghijkl',
+        nickname: 'Replacement owner',
+        roomCode: '000001',
+        roomGeneration: 1,
+        audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
+      },
+      secret,
+      issuedAt,
+    );
+
+    const decodePayload = (token: string | null) =>
+      JSON.parse(
+        Buffer.from(
+          String(token).split('.')[0]!.replace(/-/g, '+').replace(/_/g, '/'),
+          'base64',
+        ).toString('utf8'),
+      ) as Record<string, unknown>;
+    expect(decodePayload(legacy)).not.toHaveProperty('roomGeneration');
+    expect(decodePayload(replacement)).toMatchObject({ roomGeneration: 1 });
+
+    await expect(
+      verifyAccountAssertion(legacy, secret, {
+        audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
+        roomCode: '000001',
+        roomGeneration: 1,
+        nowSeconds: issuedAt,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      verifyAccountAssertion(replacement, secret, {
+        audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
+        roomCode: '000001',
+        roomGeneration: 0,
+        nowSeconds: issuedAt,
+      }),
+    ).resolves.toBeNull();
+    await expect(
+      verifyAccountAssertion(replacement, secret, {
+        audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
+        roomCode: '000001',
+        roomGeneration: 1,
+        nowSeconds: issuedAt,
+      }),
+    ).resolves.toMatchObject({
+      roomCode: '000001',
+      roomGeneration: 1,
+      accountId: 'acct_0123456789abcdefghijkl',
+    });
+  });
+
   it('does not mint assertions for malformed identities or weak secrets', async () => {
     await expect(
       createAccountAssertion(

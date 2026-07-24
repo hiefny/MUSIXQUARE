@@ -82,6 +82,26 @@ profile has a key and no key is duplicated, then run the Stage-2 preflight. An
 App version predating `nickname_key` is no longer a safe rollback target after
 the migration because an old nickname update would not maintain the key.
 
+Reusable PRO room codes add a separate forward-only reverse-index migration.
+Back up the auth database or confirm D1 Time Travel. The routine production path
+is the `Production Release` workflow with target `all` and its dedicated PRO
+generation migration input, which probes and migrates the admin, auth, and
+Developer API databases before Worker deployment. The following direct command
+is an emergency/operator recovery primitive only:
+
+```text
+npm run wrangler -- d1 execute musixquare-auth --remote --config cloudflare/wrangler.app.toml --file cloudflare/auth.pro-room-generation.migration.sql
+```
+
+The migration copies every legacy `mxqr_account_pro_rooms` edge into
+`mxqr_account_pro_room_generations` as generation `0`. Verify that every row
+which existed at migration time was backfilled, and verify the composite
+`(account_id, room_code, room_generation)` primary key and account index. This
+is one-time migration evidence, not a live parity invariant: generation-`0`
+traffic deliberately continues writing the legacy table and deletion reads the
+distinct union. Do not drop the legacy table during the rolling compatibility
+window and do not collapse generation-aware rows back to room-code-only edges.
+
 ## 2. Configure Google OpenID Connect
 
 Create a Google OAuth 2.0 **Web application** client and register this exact
@@ -146,12 +166,14 @@ MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET
 ```
 
 Never reuse the ordinary-room value. PRO assertions are likewise short-lived
-and bound to their room and assertion audience. The trusted App facade injects
-the assertion into the exact room request; the PRO Worker binds the verified
-account to the participant represented by that room-session cookie. The PRO
-Durable Object also retains a short account-deletion tombstone so an assertion
-minted immediately before deletion cannot arrive late and recreate the purged
-member or authority record.
+and bound to their public room code, immutable `roomGeneration`, and assertion
+audience. Existing rooms use generation `0`; a missing generation is accepted
+only at that legacy boundary. The trusted App facade injects the assertion into
+the exact room-incarnation request; the PRO Worker rejects any generation
+mismatch before binding the verified account to the participant represented by
+that room-session cookie. The PRO Durable Object also retains a short
+account-deletion tombstone so an assertion minted immediately before deletion
+cannot arrive late and recreate the purged member or authority record.
 
 `MXQR_AUTH_REDIRECT_URI` is optional and defaults to the production URI above.
 It exists for exact localhost/staging OAuth clients only; it must still end in
@@ -193,15 +215,24 @@ describe deletion from the active database and must not promise immediate
 erasure from every recovery copy.
 
 Before a signed-in account assertion can reach a PRO room, the App Worker writes
-a conservative account-to-room edge to `mxqr_account_pro_rooms`. Account
-deletion enumerates those edges and wakes each room Durable Object to remove the
-account member, delegated authority, owner association, presence, and active
-room sessions. The purge is idempotent. If any room cannot be purged, deletion
-returns `503 ACCOUNT_DELETE_CLEANUP_UNAVAILABLE` and keeps the account and
-reverse index so the user can retry safely; rooms already purged remain safe to
-purge again. The reverse index is atomically capped at 1,000 rooms per account;
-an existing edge may still refresh at that limit, but a new account-to-room
-edge is rejected so the synchronous deletion fan-out always remains bounded.
+a conservative account-to-room-incarnation edge. Generation `0` keeps writing
+the legacy `mxqr_account_pro_rooms` table during the additive compatibility
+window; later generations write `mxqr_account_pro_room_generations`. Both
+tables are read as one distinct generation-aware index. Account deletion
+enumerates the distinct `(roomCode, roomGeneration)` edges and wakes only that
+exact Durable Object to remove the account member, delegated authority, owner
+association, presence, and active room sessions. An old account edge can never
+purge a later owner who received the same public code. Cleanup of an already
+decommissioned incarnation is idempotent success; it must not be redirected to
+the current generation.
+
+If any incarnation cannot be purged, deletion returns
+`503 ACCOUNT_DELETE_CLEANUP_UNAVAILABLE` and keeps the account and reverse
+index so the user can retry safely; incarnations already purged remain safe to
+purge again. The reverse index is atomically capped at 1,000 distinct
+incarnations per account; an existing edge may still refresh at that limit, but
+a new account-to-incarnation edge is rejected so the synchronous deletion
+fan-out always remains bounded.
 
 A PRO room cookie does not carry account authority for its full 30-day life.
 Each physical room session instead holds a 120-second account-identity lease,
@@ -313,6 +344,19 @@ or deploys a Worker.
    with one flag enabled.
 5. Deploy PRO first, signaling second, and App/static last. Do not publish the
    App while either downstream Worker is still on its pre-activation version.
+
+For the reusable-code release, apply the auth generation migration before the
+Worker release and use the broader dependency order in the PRO operations ADR:
+PRO, signaling, Developer API facade/API, then App/static. Keep manual
+re-registration unused until every generation-aware smoke passes. Once the
+reuse cutover is marked `ready`, a concurrent administrator may create a later
+generation at any moment, so the matched generation-aware Worker set and D1
+schemas are a permanent rollback floor even before a generation-`1` row is
+observed. The cutover row retains this fact in `ever_enabled` and the original
+`floor_release_sha` even while a later release temporarily fences the current
+status as `disabled`. A generation-blind App could purge or assert against the
+wrong owner, so recovery must forward-fix or restore a matched provider
+checkpoint rather than dropping the composite reverse index.
 
 Verify that the session endpoint now reports `configured:true`, complete one
 login and nickname update, then test logout, logout-all, 120-second PRO lease

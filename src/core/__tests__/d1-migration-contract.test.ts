@@ -33,9 +33,9 @@ describe('D1 migration contract', () => {
     expect(assertD1MigrationContract()).toEqual({
       schemaVersion: 1,
       databaseCount: 3,
-      migrationCount: 2,
+      migrationCount: 5,
       pairedMigrationCount: 1,
-      forwardOnlyMigrationCount: 1,
+      forwardOnlyMigrationCount: 4,
     });
   });
 
@@ -45,6 +45,7 @@ describe('D1 migration contract', () => {
       'cloudflare/developer-api.schema.sql',
       'cloudflare/developer-api.effects-scopes.migration.sql',
       'cloudflare/developer-api.effects-scopes.rollback.sql',
+      'cloudflare/developer-api-room-generation.migration.sql',
     ]);
   });
 
@@ -139,10 +140,10 @@ describe('D1 migration contract', () => {
       (database: { database: string }) => database.database === 'musixquare-auth',
     );
     if (!auth) throw new Error('Expected the auth database contract');
-    auth.baselineRevision = 1;
+    auth.baselineRevision = current.databases[1].baselineRevision - 1;
     auth.baselineSha256 = '0'.repeat(64);
-    auth.baselineMigration = null;
-    auth.migrations = [];
+    auth.baselineMigration = current.databases[1].migrations.at(-2)?.id ?? null;
+    auth.migrations = current.databases[1].migrations.slice(0, -1);
     expect(
       assertD1MigrationManifestAppendOnly({ previousManifest: previous, currentManifest: current }),
     ).toEqual({ previousDatabaseCount: 3 });
@@ -174,10 +175,10 @@ describe('D1 migration contract', () => {
       (database: { database: string }) => database.database === 'musixquare-developer-api',
     );
     if (!firstDeveloper) throw new Error('Expected the Developer API database contract');
-    firstDeveloper.baselineRevision = 1;
+    firstDeveloper.baselineRevision = current.databases[2].baselineRevision - 1;
     firstDeveloper.baselineSha256 = '0'.repeat(64);
-    firstDeveloper.baselineMigration = null;
-    firstDeveloper.migrations = [];
+    firstDeveloper.baselineMigration = current.databases[2].migrations.at(-2)?.id ?? null;
+    firstDeveloper.migrations = current.databases[2].migrations.slice(0, -1);
     const firstCommit = '1'.repeat(40);
     const secondCommit = '2'.repeat(40);
     const runner = (command: string, args: string[]) => {

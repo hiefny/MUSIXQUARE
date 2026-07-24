@@ -46,18 +46,24 @@ function botRequest(
 function roomNamespace(handler: (request: Request) => Response | Promise<Response>): {
   binding: Record<string, unknown>;
   requests: Request[];
+  objectNames: string[];
 } {
   const requests: Request[] = [];
+  const objectNames: string[] = [];
   const fetch = vi.fn(async (request: Request) => {
     requests.push(request.clone());
     return handler(request);
   });
   return {
     binding: {
-      idFromName: vi.fn((value: string) => value),
+      idFromName: vi.fn((value: string) => {
+        objectNames.push(value);
+        return value;
+      }),
       get: vi.fn(() => ({ fetch })),
     },
     requests,
+    objectNames,
   };
 }
 
@@ -72,7 +78,7 @@ function appBotEnvironment(
       prepare: vi.fn(() => ({
         bind: vi.fn((roomCode: string) => ({
           first: vi.fn(async () =>
-            registeredRooms.has(roomCode) ? { status: 'registered' } : null,
+            registeredRooms.has(roomCode) ? { status: 'registered', room_generation: 0 } : null,
           ),
         })),
       })),
@@ -124,6 +130,110 @@ describe('server-only PRO BOT app boundary', () => {
     await expect(response.json()).resolves.toEqual({ error: 'BOT_ROOM_ONLY' });
     expect(namespace.requests).toHaveLength(0);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('pins both BOT calls to the preflight generation instead of the legacy room object', async () => {
+    const answer = 'Hello from the room bot.';
+    const namespace = roomNamespace(async (request) => {
+      const path = new URL(request.url).pathname;
+      if (path === '/internal/bot/context') return roomContextResponse();
+      if (path === '/internal/bot/execute') {
+        return Response.json({
+          ok: true,
+          summary: answer,
+          addedCount: 0,
+          playbackChanged: false,
+        });
+      }
+      return Response.json({ error: 'NOT_FOUND' }, { status: 404 });
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => geminiPlanResponse({ intent: 'answer', answer })),
+    );
+
+    const response = await handleProBotRequest(
+      botRequest({
+        body: { prompt: 'Say hello without changing playback.', requestId: REQUEST_ID },
+      }),
+      {
+        PRO_ROOM_ADMIN_ROOMS: namespace.binding,
+        GEMINI_API_KEY: GEMINI_KEY,
+      },
+      {
+        roomCode: ROOM_CODE,
+        preflightRoom: async () => ({ roomGeneration: 7 }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(namespace.objectNames).toEqual([
+      `${ROOM_CODE}:generation:7`,
+      `${ROOM_CODE}:generation:7`,
+    ]);
+    expect(namespace.objectNames).not.toContain(ROOM_CODE);
+    expect(namespace.requests).toHaveLength(2);
+    for (const forwarded of namespace.requests) {
+      expect(forwarded.headers.get('x-mxqr-pro-room-code')).toBe(ROOM_CODE);
+      expect(forwarded.headers.get('x-mxqr-pro-room-generation')).toBe('7');
+      await expect(forwarded.clone().json()).resolves.toMatchObject({
+        roomCode: ROOM_CODE,
+        roomGeneration: 7,
+        requestId: REQUEST_ID,
+      });
+    }
+  });
+
+  it('keeps a legacy null preflight on the original generation-zero room object', async () => {
+    const terminalResult = {
+      ok: true,
+      summary: 'Already completed.',
+      addedCount: 0,
+      playbackChanged: false,
+    };
+    const namespace = roomNamespace(() => Response.json({ replay: terminalResult }));
+
+    const response = await handleProBotRequest(
+      botRequest(),
+      { PRO_ROOM_ADMIN_ROOMS: namespace.binding },
+      {
+        roomCode: ROOM_CODE,
+        preflightRoom: async () => null,
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(namespace.objectNames).toEqual([ROOM_CODE]);
+    expect(namespace.requests[0]?.headers.get('x-mxqr-pro-room-generation')).toBeNull();
+    await expect(namespace.requests[0]?.clone().json()).resolves.toEqual({
+      roomCode: ROOM_CODE,
+      requestId: REQUEST_ID,
+      prompt: 'Add one test song',
+    });
+  });
+
+  it('fails closed before room access when preflight returns an invalid explicit generation', async () => {
+    for (const preflightResult of [
+      { roomGeneration: -1 },
+      { roomGeneration: '1' },
+      { roomGeneration: Number.MAX_SAFE_INTEGER + 1 },
+      {},
+    ]) {
+      const namespace = roomNamespace(() => roomContextResponse());
+      const response = await handleProBotRequest(
+        botRequest(),
+        { PRO_ROOM_ADMIN_ROOMS: namespace.binding },
+        {
+          roomCode: ROOM_CODE,
+          preflightRoom: async () => preflightResult,
+        },
+      );
+
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({ error: 'BOT_UNAVAILABLE' });
+      expect(namespace.objectNames).toHaveLength(0);
+      expect(namespace.requests).toHaveLength(0);
+    }
   });
 
   it('rejects an unregistered PRO room before waking its room or AI providers', async () => {

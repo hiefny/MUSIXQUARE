@@ -31,6 +31,7 @@ afterEach(() => {
 type KeyRow = {
   key_id: string;
   room_code: string;
+  room_generation?: number;
   label: string;
   secret_digest: string;
   digest_version: number;
@@ -269,6 +270,7 @@ async function createEnvironment(
     facadeStatus?: number;
     mode?: string;
     label?: string;
+    roomGeneration?: number;
   } = {},
 ) {
   const now = Date.now();
@@ -276,6 +278,7 @@ async function createEnvironment(
   const defaultRow: KeyRow = {
     key_id: KEY_ID,
     room_code: ROOM_CODE,
+    room_generation: options.roomGeneration ?? 0,
     label: options.label ?? 'Friend integration',
     secret_digest: digest,
     digest_version: 1,
@@ -464,6 +467,10 @@ describe('Developer API key expiry maintenance', () => {
       new URL('../../../cloudflare/developer-api.schema.sql', import.meta.url),
       'utf8',
     );
+    const generationMigration = readFileSync(
+      new URL('../../../cloudflare/developer-api-room-generation.migration.sql', import.meta.url),
+      'utf8',
+    );
 
     expect(config).toMatch(/\[triggers\]\s+crons = \["0 \*\/6 \* \* \*"\]/);
     expect(schema).toMatch(
@@ -481,6 +488,15 @@ describe('Developer API key expiry maintenance', () => {
     expect(schema).toMatch(
       /CREATE TABLE IF NOT EXISTS mxqr_developer_api_room_tombstones[\s\S]*?room_code TEXT PRIMARY KEY/,
     );
+    expect(schema).toMatch(
+      /CREATE TABLE IF NOT EXISTS mxqr_developer_api_room_generation_tombstones[\s\S]*?PRIMARY KEY \(room_code, room_generation\)/,
+    );
+    expect(schema).toMatch(
+      /mxqr_developer_api_keys[\s\S]*?room_generation INTEGER NOT NULL DEFAULT 0/,
+    );
+    expect(schema).toMatch(
+      /trg_mxqr_developer_api_keys_active_insert[\s\S]*?room_code = NEW\.room_code[\s\S]*?room_generation = NEW\.room_generation/,
+    );
     for (const trigger of [
       'trg_mxqr_developer_api_keys_decommissioned_room',
       'trg_mxqr_developer_api_audit_decommissioned_room',
@@ -488,6 +504,33 @@ describe('Developer API key expiry maintenance', () => {
     ]) {
       expect(schema).toContain(`CREATE TRIGGER IF NOT EXISTS ${trigger}`);
     }
+    for (const table of [
+      'mxqr_developer_api_keys',
+      'mxqr_developer_api_audit',
+      'mxqr_developer_api_admin_audit',
+    ]) {
+      expect(generationMigration).toMatch(
+        new RegExp(
+          `ALTER TABLE ${table}[\\s\\S]*?ADD COLUMN room_generation INTEGER NOT NULL DEFAULT 0`,
+        ),
+      );
+    }
+    expect(generationMigration).toContain(
+      'CREATE TABLE IF NOT EXISTS mxqr_developer_api_room_generation_tombstones',
+    );
+    for (const trigger of [
+      'trg_mxqr_developer_api_keys_incarnation_immutable',
+      'trg_mxqr_developer_api_room_tombstones_monotonic',
+      'trg_mxqr_developer_api_room_tombstones_no_delete',
+      'trg_mxqr_developer_api_room_generation_tombstones_monotonic',
+      'trg_mxqr_developer_api_room_generation_tombstones_no_delete',
+    ]) {
+      expect(schema).toContain(`CREATE TRIGGER IF NOT EXISTS ${trigger}`);
+      expect(generationMigration).toContain(`CREATE TRIGGER ${trigger}`);
+    }
+    expect(generationMigration).toMatch(
+      /NEW\.room_generation = 0[\s\S]*?mxqr_developer_api_room_tombstones/,
+    );
   });
 });
 
@@ -522,6 +565,10 @@ describe('Developer API read-only public Worker', () => {
     expect(limiter.calls[0]?.name).toMatch(/^ingress:[A-Za-z0-9_-]{43}$/);
     expect(limiter.calls[0]?.name).not.toContain('203.0.113.10');
     expect(limiter.calls[1]?.name).toBe(`room:${ROOM_CODE}`);
+    expect(limiter.calls[1]?.body).toEqual({
+      operation: 'authenticated-read',
+      keyId: KEY_ID,
+    });
     expect(facadeFetch).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(facadeFetch.mock.calls)).not.toContain(API_KEY);
     const [facadeInput, facadeInit] = facadeFetch.mock.calls[0]!;
@@ -533,6 +580,29 @@ describe('Developer API read-only public Worker', () => {
     });
     await Promise.all(waits);
     expect(database.run).toHaveBeenCalledTimes(1);
+  });
+
+  it('binds a later-generation key to generation-specific limiter and facade identities', async () => {
+    const setup = await createEnvironment({ roomGeneration: 7 });
+    const response = await developerApiWorker.fetch(apiRequest(), setup.env);
+
+    expect(response.status).toBe(200);
+    expect(setup.limiter.calls[1]).toEqual({
+      name: `room:${ROOM_CODE}:generation:7`,
+      body: {
+        operation: 'authenticated-read',
+        keyId: KEY_ID,
+        roomGeneration: 7,
+      },
+    });
+    const [, facadeInit] = setup.facadeFetch.mock.calls[0]!;
+    expect(new Headers(facadeInit?.headers).get('x-mxqr-pro-room-generation')).toBe('7');
+    expect(JSON.parse(String(facadeInit?.body))).toEqual({
+      roomCode: ROOM_CODE,
+      roomGeneration: 7,
+      keyId: KEY_ID,
+      projection: 'room',
+    });
   });
 
   it('does not enqueue another last-used write when the key was already seen this hour', async () => {
@@ -1073,6 +1143,7 @@ describe('Developer API read-only public Worker', () => {
       expect.stringMatching(/^req_/),
       KEY_ID,
       ROOM_CODE,
+      0,
       'queue.add_youtube_batch',
       'applied',
       201,
@@ -1419,6 +1490,7 @@ describe('Developer API read-only public Worker', () => {
       expect.stringMatching(/^req_/),
       KEY_ID,
       ROOM_CODE,
+      0,
       'queue.clear',
       'applied',
       200,
@@ -1472,6 +1544,7 @@ describe('Developer API read-only public Worker', () => {
       expect.stringMatching(/^req_/),
       KEY_ID,
       ROOM_CODE,
+      0,
       'queue.clear_owned',
       'applied',
       200,
@@ -1755,6 +1828,50 @@ describe('Developer API read-only public Worker', () => {
     expect(mediaOnlyForbidden.status).toBe(403);
     expect(await errorCode(mediaOnlyForbidden)).toBe('FORBIDDEN');
     expect(mediaOnlyKey.facadeFetch).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a later-generation upload response echoes another incarnation', async () => {
+    const matchingPayload = uploadPayload();
+    (matchingPayload.upload.headers as Record<string, string>)['x-amz-meta-mxqr-generation'] = '7';
+    const matching = await createEnvironment({
+      roomGeneration: 7,
+      scopeMask: developerApiScopes['media:upload'] | developerApiScopes['queue:write'],
+      facadePayload: matchingPayload,
+      facadeStatus: 201,
+    });
+    const requestOptions: RequestInit = {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'idempotency-key': 'request.generation-upload',
+      },
+      body: JSON.stringify({
+        name: 'Orchestra.flac',
+        byteLength: 4_096,
+        mime: 'audio/flac',
+      }),
+    };
+    const accepted = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/media/uploads`, requestOptions),
+      matching.env,
+    );
+    expect(accepted.status).toBe(201);
+
+    const mismatchedPayload = uploadPayload();
+    (mismatchedPayload.upload.headers as Record<string, string>)['x-amz-meta-mxqr-generation'] =
+      '6';
+    const mismatched = await createEnvironment({
+      roomGeneration: 7,
+      scopeMask: developerApiScopes['media:upload'] | developerApiScopes['queue:write'],
+      facadePayload: mismatchedPayload,
+      facadeStatus: 201,
+    });
+    const rejected = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/media/uploads`, requestOptions),
+      mismatched.env,
+    );
+    expect(rejected.status).toBe(503);
+    expect(await errorCode(rejected)).toBe('INTERNAL_RESPONSE_INVALID');
   });
 
   it('requires idempotency for every queue and upload mutation', async () => {
@@ -2542,6 +2659,7 @@ describe('Developer API atomic room limiter', () => {
       }),
     );
     expect(charged.status).toBe(200);
+    expect(storage.values.get('roomIdentity')).toEqual({ v: 1 });
     expect(storage.values.has('buckets')).toBe(true);
     expect(storage.alarmAt).not.toBeNull();
 
@@ -2588,5 +2706,41 @@ describe('Developer API atomic room limiter', () => {
     await limiter.alarm();
     expect([...storage.values.keys()]).toEqual(['decommissioned']);
     expect(storage.alarmAt).toBeNull();
+  });
+
+  it('requires an exact generation body/header pair before tombstoning a later limiter', async () => {
+    const storage = new FakeStorage();
+    const limiter = new DeveloperApiRateLimiter({ storage } as never);
+    const decommissionRequest = (headerGeneration: string) =>
+      new Request('https://developer-api-rate.internal/internal/admin/v1/decommission', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': headerGeneration,
+        },
+        body: JSON.stringify({
+          roomCode: ROOM_CODE,
+          roomGeneration: 7,
+          requestId: '12345678-1234-4123-8123-123456789abc',
+        }),
+      });
+
+    const mismatched = await limiter.fetch(decommissionRequest('8'));
+    expect(mismatched.status).toBe(400);
+    expect(storage.deleteAllCalls).toBe(0);
+
+    const accepted = await limiter.fetch(decommissionRequest('7'));
+    expect(accepted.status).toBe(200);
+    expect(await accepted.json()).toEqual({
+      ok: true,
+      roomCode: ROOM_CODE,
+      roomGeneration: 7,
+      status: 'decommissioned',
+    });
+    expect(storage.values.get('decommissioned')).toMatchObject({
+      roomCode: ROOM_CODE,
+      roomGeneration: 7,
+    });
   });
 });

@@ -2,12 +2,14 @@ export interface ProRoomActivationClaimOptions {
   nowMs?: number;
   expiresAtMs?: number;
   generation?: number;
+  roomGeneration?: number;
   nonce?: string;
 }
 
 export interface ProRoomOwnerRecoveryClaimOptions {
   nowMs?: number;
   expiresAtMs?: number;
+  roomGeneration?: number;
   nonce?: string;
 }
 

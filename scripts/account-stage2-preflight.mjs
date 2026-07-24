@@ -30,6 +30,7 @@ const ACCOUNT_SCHEMA_PATH = 'cloudflare/auth.schema.sql';
 
 export const EXPECTED_ACCOUNT_SCHEMA_OBJECTS = [
   'idx_mxqr_account_deleted_sessions_expiry',
+  'idx_mxqr_account_pro_room_generations_account',
   'idx_mxqr_account_pro_rooms_account',
   'idx_mxqr_account_sessions_account',
   'idx_mxqr_account_sessions_expiry',
@@ -37,6 +38,7 @@ export const EXPECTED_ACCOUNT_SCHEMA_OBJECTS = [
   'idx_mxqr_oauth_flows_expiry',
   'mxqr_account_deleted_sessions',
   'mxqr_account_deletions',
+  'mxqr_account_pro_room_generations',
   'mxqr_account_pro_rooms',
   'mxqr_account_sessions',
   'mxqr_accounts',

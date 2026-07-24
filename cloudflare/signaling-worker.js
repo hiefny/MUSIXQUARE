@@ -3,6 +3,12 @@ import {
   verifyStandardRoomAccountAssertion,
   verifyStandardRoomAccountDeletionAssertion,
 } from './standard-room-account-assertion.js';
+import {
+  LEGACY_PRO_ROOM_GENERATION,
+  isProRoomGeneration,
+  proRoomGenerationHeaderValue,
+  proRoomObjectName,
+} from './pro-room-generation.js';
 
 const ROOM_PATH = /^\/api\/rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_PATH = /^\/api\/pro-rooms\/(\d{6})\/ws$/;
@@ -44,6 +50,7 @@ const PRO_BOT_REQUEST_PROOFS_KEY = 'proBotRequestProofs';
 const PRO_DECOMMISSIONED_KEY = 'proRoomDecommissioned';
 const PRO_SIGNALING_TICKET_KIND = 'pro-signaling';
 const PRO_SIGNALING_TICKET_VERSION = 1;
+const PRO_ROOM_GENERATION_HEADER = 'x-mxqr-pro-room-generation';
 const PRO_SIGNALING_TICKET_MAX_SECONDS = 5 * 60;
 const PRO_SIGNALING_CLOCK_SKEW_SECONDS = 30;
 const PRO_REALTIME_BODY_MAX_BYTES = 8 * 1024;
@@ -148,6 +155,63 @@ function isProNamespaceRoomCode(roomId) {
   return typeof roomId === 'string' && PRO_ROOM_CODE_PATTERN.test(roomId);
 }
 
+function legacyCompatibleProRoomGeneration(value) {
+  return value === undefined
+    ? LEGACY_PRO_ROOM_GENERATION
+    : isProRoomGeneration(value)
+      ? value
+      : null;
+}
+
+function internalProRoomGeneration(request, value) {
+  if (!isRecord(value)) return null;
+  const hasBodyGeneration = Object.prototype.hasOwnProperty.call(value, 'roomGeneration');
+  const bodyGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
+  if (bodyGeneration === null) return null;
+
+  const header = request.headers.get(PRO_ROOM_GENERATION_HEADER);
+  // A missing generation in both places is the rolling-deploy/legacy-v1
+  // representation of generation zero. Once either side is explicit, require
+  // both representations and an exact numeric match.
+  if (header === null) {
+    return hasBodyGeneration ? null : LEGACY_PRO_ROOM_GENERATION;
+  }
+  if (!hasBodyGeneration || !/^(?:0|[1-9]\d*)$/.test(header)) return null;
+  const headerGeneration = Number(header);
+  return isProRoomGeneration(headerGeneration) && headerGeneration === bodyGeneration
+    ? bodyGeneration
+    : null;
+}
+
+function proRoomGenerationWireFields(roomGeneration) {
+  if (!isProRoomGeneration(roomGeneration)) throw new Error('INVALID_PRO_ROOM_GENERATION');
+  return roomGeneration === LEGACY_PRO_ROOM_GENERATION ? {} : { roomGeneration };
+}
+
+function proRoomGenerationWireHeaders(roomGeneration) {
+  if (!isProRoomGeneration(roomGeneration)) throw new Error('INVALID_PRO_ROOM_GENERATION');
+  return roomGeneration === LEGACY_PRO_ROOM_GENERATION
+    ? {}
+    : { [PRO_ROOM_GENERATION_HEADER]: proRoomGenerationHeaderValue(roomGeneration) };
+}
+
+function responseRoomGenerationMatches(payload, roomGeneration) {
+  if (!isRecord(payload) || !isProRoomGeneration(roomGeneration)) return false;
+  const hasGeneration = Object.prototype.hasOwnProperty.call(payload, 'roomGeneration');
+  return roomGeneration === LEGACY_PRO_ROOM_GENERATION
+    ? !hasGeneration || payload.roomGeneration === LEGACY_PRO_ROOM_GENERATION
+    : hasGeneration && payload.roomGeneration === roomGeneration;
+}
+
+function persistedProGenerationRecord(value, roomGeneration) {
+  if (!isRecord(value) || !isProRoomGeneration(roomGeneration)) {
+    throw new Error('INVALID_PRO_ROOM_GENERATION_RECORD');
+  }
+  if (roomGeneration !== LEGACY_PRO_ROOM_GENERATION) return value;
+  const { roomGeneration: _legacyGeneration, ...legacyShape } = value;
+  return legacyShape;
+}
+
 function isValidGuestReconnectSecret(secret) {
   return typeof secret === 'string' && /^[A-Za-z0-9_-]{43}$/.test(secret);
 }
@@ -183,6 +247,7 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
     'v',
     'kind',
     'roomCode',
+    'roomGeneration',
     'participantId',
     'memberId',
     'displayName',
@@ -207,6 +272,8 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
     return null;
   }
   if (value.roomCode !== expectedRoomId || !/^\d{6}$/.test(value.roomCode)) return null;
+  const roomGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
+  if (roomGeneration === null) return null;
   if (!isValidPeerId(value.participantId)) return null;
   if (
     value.memberId !== undefined &&
@@ -243,6 +310,7 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
     v: PRO_SIGNALING_TICKET_VERSION,
     kind: PRO_SIGNALING_TICKET_KIND,
     roomCode: value.roomCode,
+    roomGeneration,
     participantId: value.participantId,
     ...(value.memberId ? { memberId: value.memberId } : {}),
     displayName: value.displayName,
@@ -363,12 +431,20 @@ async function readBoundedJson(request, maxBytes) {
   }
 }
 
-function defaultProTicketUses() {
-  return { v: 1, entries: [] };
+function defaultProTicketUses(roomGeneration = LEGACY_PRO_ROOM_GENERATION) {
+  return { v: 1, roomGeneration, entries: [] };
 }
 
 function normalizeProTicketUses(value) {
-  if (!isRecord(value) || value.v !== 1 || !Array.isArray(value.entries)) return null;
+  if (
+    !hasExactKeys(value, ['v', 'entries'], ['roomGeneration']) ||
+    value.v !== 1 ||
+    !Array.isArray(value.entries)
+  ) {
+    return null;
+  }
+  const roomGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
+  if (roomGeneration === null) return null;
   if (value.entries.length > MAX_PRO_TICKET_USES) return null;
   const entries = [];
   const seen = new Set();
@@ -379,15 +455,23 @@ function normalizeProTicketUses(value) {
     seen.add(entry.jti);
     entries.push({ jti: entry.jti, exp: entry.exp });
   }
-  return { v: 1, entries };
+  return { v: 1, roomGeneration, entries };
 }
 
-function defaultProParticipantHighWater() {
-  return { v: 1, entries: [] };
+function defaultProParticipantHighWater(roomGeneration = LEGACY_PRO_ROOM_GENERATION) {
+  return { v: 1, roomGeneration, entries: [] };
 }
 
 function normalizeProParticipantHighWater(value) {
-  if (!isRecord(value) || value.v !== 1 || !Array.isArray(value.entries)) return null;
+  if (
+    !hasExactKeys(value, ['v', 'entries'], ['roomGeneration']) ||
+    value.v !== 1 ||
+    !Array.isArray(value.entries)
+  ) {
+    return null;
+  }
+  const roomGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
+  if (roomGeneration === null) return null;
   if (value.entries.length > MAX_PRO_PARTICIPANT_HIGH_WATER) return null;
   const entries = [];
   const seen = new Set();
@@ -413,18 +497,16 @@ function normalizeProParticipantHighWater(value) {
       exp: entry.exp,
     });
   }
-  return { v: 1, entries };
+  return { v: 1, roomGeneration, entries };
 }
 
 function normalizeProPresenceAuthority(value) {
   if (
-    !hasExactKeys(value, [
-      'v',
-      'roomId',
-      'coordinatorEpoch',
-      'presenceRevision',
-      'activeIncarnationIds',
-    ]) ||
+    !hasExactKeys(
+      value,
+      ['v', 'roomId', 'coordinatorEpoch', 'presenceRevision', 'activeIncarnationIds'],
+      ['roomGeneration'],
+    ) ||
     value.v !== 1 ||
     !isProNamespaceRoomCode(value.roomId) ||
     !isValidProEpoch(value.coordinatorEpoch) ||
@@ -433,14 +515,43 @@ function normalizeProPresenceAuthority(value) {
   ) {
     return null;
   }
+  const roomGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
+  if (roomGeneration === null) return null;
   const activeIncarnationIds = normalizeProBroadcastTargets(value.activeIncarnationIds);
   if (!activeIncarnationIds) return null;
   return {
     v: 1,
     roomId: value.roomId,
+    roomGeneration,
     coordinatorEpoch: value.coordinatorEpoch,
     presenceRevision: value.presenceRevision,
     activeIncarnationIds: [...activeIncarnationIds].sort(),
+  };
+}
+
+function normalizeProDecommissioned(value) {
+  if (
+    !hasExactKeys(
+      value,
+      ['v', 'roomCode', 'requestId', 'decommissionedAtMs'],
+      ['roomGeneration'],
+    ) ||
+    value.v !== 1 ||
+    !isProNamespaceRoomCode(value.roomCode) ||
+    !ADMIN_REQUEST_ID_RE.test(value.requestId) ||
+    !Number.isSafeInteger(value.decommissionedAtMs) ||
+    value.decommissionedAtMs <= 0
+  ) {
+    return null;
+  }
+  const roomGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
+  if (roomGeneration === null) return null;
+  return {
+    v: 1,
+    roomCode: value.roomCode,
+    roomGeneration,
+    requestId: value.requestId,
+    decommissionedAtMs: value.decommissionedAtMs,
   };
 }
 
@@ -1105,18 +1216,21 @@ function normalizeRoomMeta(value) {
 
 function normalizeProRoomMeta(value) {
   if (
-    !hasExactKeys(value, ['v', 'kind', 'roomId', 'coordinatorEpoch']) ||
+    !hasExactKeys(value, ['v', 'kind', 'roomId', 'coordinatorEpoch'], ['roomGeneration']) ||
     value.v !== 2 ||
     value.kind !== 'pro' ||
     !isProNamespaceRoomCode(value.roomId)
   ) {
     return null;
   }
+  const roomGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
+  if (roomGeneration === null) return null;
   if (!isValidProEpoch(value.coordinatorEpoch)) return null;
   return {
     v: 2,
     kind: 'pro',
     roomId: value.roomId,
+    roomGeneration,
     coordinatorEpoch: value.coordinatorEpoch,
   };
 }
@@ -1271,6 +1385,8 @@ function normalizeAttachment(value) {
   if (value.roomKind === 'pro') {
     if (value.role !== 'member') return null;
     if (!isProNamespaceRoomCode(value.roomId) || value.peerId !== value.participantId) return null;
+    const roomGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
+    if (roomGeneration === null) return null;
     if (!isValidProEpoch(value.coordinatorEpoch)) return null;
     if (!isValidPeerId(value.participantId)) return null;
     if (
@@ -1307,6 +1423,7 @@ function normalizeAttachment(value) {
       roomKind: 'pro',
       role: 'member',
       roomId: value.roomId,
+      roomGeneration,
       peerId: value.peerId,
       participantId: value.participantId,
       ...(typeof value.memberId === 'string' ? { memberId: value.memberId } : {}),
@@ -1416,6 +1533,17 @@ function readAttachment(ws) {
   return normalizeAttachment(deserializeAttachment(ws));
 }
 
+function serializeSocketAttachment(ws, attachment) {
+  const stored =
+    attachment?.roomKind === 'pro'
+      ? persistedProGenerationRecord(
+          attachment,
+          attachment.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION,
+        )
+      : attachment;
+  ws.serializeAttachment(stored);
+}
+
 function closeSocket(ws, code, reason) {
   try {
     ws.close(code, reason);
@@ -1500,7 +1628,7 @@ export class MusixquareRoom {
     // keeps one active guest from receiving a fresh burst after rehydration.
     // A genuinely new connection still starts a new burst; reconnect churn is
     // separately bounded by the outer per-IP `ws-open` limiter.
-    ws.serializeAttachment({
+    serializeSocketAttachment(ws, {
       ...attachment,
       guestMessageTokens: remainingTokens,
       guestMessageUpdatedAt: now,
@@ -1525,7 +1653,7 @@ export class MusixquareRoom {
       GUEST_MESSAGE_BUCKET_CAPACITY,
       previousTokens + elapsed * GUEST_MESSAGE_REFILL_PER_MS,
     );
-    ws.serializeAttachment({
+    serializeSocketAttachment(ws, {
       ...attachment,
       realtimeMessageTokens: tokens < 1 ? tokens : tokens - 1,
       realtimeMessageUpdatedAt: now,
@@ -1546,7 +1674,9 @@ export class MusixquareRoom {
 
     let authorityRequest;
     try {
-      const room = namespace.get(namespace.idFromName(attachment.roomId));
+      const room = namespace.get(
+        namespace.idFromName(proRoomObjectName(attachment.roomId, attachment.roomGeneration)),
+      );
       if (!room || typeof room.fetch !== 'function') {
         this.recordMetric('pro_realtime_authority_unavailable');
         return false;
@@ -1560,8 +1690,10 @@ export class MusixquareRoom {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': attachment.roomId,
+          ...proRoomGenerationWireHeaders(attachment.roomGeneration),
         },
         body: JSON.stringify({
+          ...proRoomGenerationWireFields(attachment.roomGeneration),
           participantId: attachment.participantId,
           presenceIncarnationId: attachment.presenceIncarnationId,
           permission,
@@ -1584,6 +1716,10 @@ export class MusixquareRoom {
       const allowed =
         isRecord(payload) &&
         payload.allowed === true &&
+        (attachment.roomGeneration === LEGACY_PRO_ROOM_GENERATION
+          ? payload.roomCode === undefined || payload.roomCode === attachment.roomId
+          : payload.roomCode === attachment.roomId) &&
+        responseRoomGenerationMatches(payload, attachment.roomGeneration) &&
         payload.permission === permission &&
         typeof payload.memberId === 'string' &&
         typeof payload.role === 'string';
@@ -1620,7 +1756,10 @@ export class MusixquareRoom {
       const previous = this.proMembers.get(attachment.participantId);
       const previousAttachment = readAttachment(previous);
       if (previous && previous !== ws) {
-        if ((previousAttachment?.ticketSequence || 0) >= attachment.ticketSequence) {
+        if (
+          previousAttachment?.roomGeneration !== attachment.roomGeneration ||
+          (previousAttachment?.ticketSequence || 0) >= attachment.ticketSequence
+        ) {
           closeSocket(ws, 1012, 'PRO_MEMBER_REPLACED');
           return;
         }
@@ -1691,7 +1830,10 @@ export class MusixquareRoom {
   async saveProRoomMeta(meta) {
     const normalized = normalizeProRoomMeta(meta);
     if (!normalized) throw new Error('INVALID_PRO_ROOM_META');
-    await this.state.storage.put(PRO_ROOM_META_KEY, normalized);
+    await this.state.storage.put(
+      PRO_ROOM_META_KEY,
+      persistedProGenerationRecord(normalized, normalized.roomGeneration),
+    );
     this.proRoomMeta = normalized;
     return normalized;
   }
@@ -1854,7 +1996,12 @@ export class MusixquareRoom {
     return current;
   }
 
-  async pruneProChatMutedParticipants(roomId, coordinatorEpoch, activeIncarnationIds) {
+  async pruneProChatMutedParticipants(
+    roomId,
+    roomGeneration,
+    coordinatorEpoch,
+    activeIncarnationIds,
+  ) {
     return this.enqueueProChatMutation(async () => {
       const state = await this.loadProChatControlState(roomId, coordinatorEpoch);
       if (state.mutedParticipantIds.length === 0) return state;
@@ -1865,7 +2012,7 @@ export class MusixquareRoom {
       // between those identities, including participants that are temporarily
       // disconnected when the snapshot arrives.
       const activeIncarnations = new Set(activeIncarnationIds);
-      const highWater = await this.loadProParticipantHighWater();
+      const highWater = await this.loadProParticipantHighWater(roomGeneration);
       const activeParticipantIds = new Set(
         highWater.entries
           .filter((entry) => activeIncarnations.has(entry.presenceIncarnationId))
@@ -1879,6 +2026,7 @@ export class MusixquareRoom {
           attachment?.roomKind === 'pro' &&
           attachment.auth === 'ok' &&
           attachment.roomId === roomId &&
+          attachment.roomGeneration === roomGeneration &&
           attachment.coordinatorEpoch === coordinatorEpoch &&
           attachment.participantId === participantId &&
           activeIncarnations.has(attachment.presenceIncarnationId)
@@ -1912,6 +2060,7 @@ export class MusixquareRoom {
       current.role !== 'member' ||
       current.auth !== 'ok' ||
       current.roomId !== expected.roomId ||
+      current.roomGeneration !== expected.roomGeneration ||
       current.coordinatorEpoch !== expected.coordinatorEpoch ||
       current.participantId !== expected.participantId ||
       current.presenceIncarnationId !== expected.presenceIncarnationId ||
@@ -1926,6 +2075,7 @@ export class MusixquareRoom {
     return {
       ...normalized,
       roomCode: attachment.roomId,
+      roomGeneration: attachment.roomGeneration,
       coordinatorEpoch: attachment.coordinatorEpoch,
       sender: {
         participantId: attachment.participantId,
@@ -1949,6 +2099,7 @@ export class MusixquareRoom {
         recipient?.roomKind !== 'pro' ||
         recipient.auth !== 'ok' ||
         recipient.roomId !== attachment.roomId ||
+        recipient.roomGeneration !== attachment.roomGeneration ||
         recipient.coordinatorEpoch !== attachment.coordinatorEpoch ||
         recipient.participantId !== participantId ||
         this.proMembers.get(participantId) !== socket
@@ -1976,6 +2127,7 @@ export class MusixquareRoom {
         muted: state.mutedParticipantIds.includes(attachment.participantId),
       },
       roomCode: attachment.roomId,
+      roomGeneration: attachment.roomGeneration,
       coordinatorEpoch: attachment.coordinatorEpoch,
       sender: {
         participantId: 'server',
@@ -1985,12 +2137,23 @@ export class MusixquareRoom {
     });
   }
 
-  async loadProTicketUses(nowSeconds = Math.floor(Date.now() / 1000)) {
-    if (this.proTicketUses) return this.proTicketUses;
+  async loadProTicketUses(roomGeneration, nowSeconds = Math.floor(Date.now() / 1000)) {
+    if (!isProRoomGeneration(roomGeneration)) {
+      throw new Error('INVALID_PRO_ROOM_GENERATION');
+    }
+    if (this.proTicketUses) {
+      if (this.proTicketUses.roomGeneration !== roomGeneration) {
+        throw new Error('PRO_SIGNALING_TICKET_LEDGER_GENERATION_MISMATCH');
+      }
+      return this.proTicketUses;
+    }
     const stored = await this.state.storage.get(PRO_TICKET_USES_KEY);
     if (stored !== undefined && stored !== null) {
       const normalized = normalizeProTicketUses(stored);
       if (!normalized) throw new Error('INVALID_PRO_SIGNALING_TICKET_LEDGER');
+      if (normalized.roomGeneration !== roomGeneration) {
+        throw new Error('PRO_SIGNALING_TICKET_LEDGER_GENERATION_MISMATCH');
+      }
       this.proTicketUses = normalized;
       return normalized;
     }
@@ -1999,25 +2162,33 @@ export class MusixquareRoom {
     // carry their JTI, while no persistent one-use ledger exists yet. Seed those
     // live tickets for one maximum ticket lifetime so a replay cannot replace a
     // hibernated participant immediately after deployment.
-    const seeded = defaultProTicketUses();
+    const seeded = defaultProTicketUses(roomGeneration);
     for (const socket of typeof this.state.getWebSockets === 'function'
       ? this.state.getWebSockets()
       : []) {
       const attachment = readAttachment(socket);
       if (attachment?.roomKind !== 'pro' || seeded.entries.length >= MAX_PRO_TICKET_USES) continue;
+      if (attachment.roomGeneration !== roomGeneration) {
+        throw new Error('PRO_SIGNALING_ATTACHMENT_GENERATION_MISMATCH');
+      }
       if (seeded.entries.some((entry) => entry.jti === attachment.ticketJti)) continue;
       seeded.entries.push({
         jti: attachment.ticketJti,
         exp: nowSeconds + PRO_SIGNALING_TICKET_MAX_SECONDS,
       });
     }
-    if (seeded.entries.length > 0) await this.state.storage.put(PRO_TICKET_USES_KEY, seeded);
+    if (seeded.entries.length > 0) {
+      await this.state.storage.put(
+        PRO_TICKET_USES_KEY,
+        persistedProGenerationRecord(seeded, roomGeneration),
+      );
+    }
     this.proTicketUses = seeded;
     return seeded;
   }
 
   async consumeProTicket(ticket, nowSeconds = Math.floor(Date.now() / 1000)) {
-    const current = await this.loadProTicketUses(nowSeconds);
+    const current = await this.loadProTicketUses(ticket.roomGeneration, nowSeconds);
     const entries = current.entries.filter((entry) => entry.exp > nowSeconds);
     if (entries.some((entry) => entry.jti === ticket.jti)) return false;
     if (entries.length >= MAX_PRO_TICKET_USES) {
@@ -2025,21 +2196,36 @@ export class MusixquareRoom {
     }
     const next = {
       v: 1,
+      roomGeneration: ticket.roomGeneration,
       entries: [...entries, { jti: ticket.jti, exp: ticket.exp }],
     };
     // Persist before replacing any live socket. A failed write therefore fails
     // closed instead of admitting a replayable credential.
-    await this.state.storage.put(PRO_TICKET_USES_KEY, next);
+    await this.state.storage.put(
+      PRO_TICKET_USES_KEY,
+      persistedProGenerationRecord(next, ticket.roomGeneration),
+    );
     this.proTicketUses = next;
     return true;
   }
 
-  async loadProParticipantHighWater(nowSeconds = Math.floor(Date.now() / 1000)) {
-    if (this.proParticipantHighWater) return this.proParticipantHighWater;
+  async loadProParticipantHighWater(roomGeneration, nowSeconds = Math.floor(Date.now() / 1000)) {
+    if (!isProRoomGeneration(roomGeneration)) {
+      throw new Error('INVALID_PRO_ROOM_GENERATION');
+    }
+    if (this.proParticipantHighWater) {
+      if (this.proParticipantHighWater.roomGeneration !== roomGeneration) {
+        throw new Error('PRO_SIGNALING_PARTICIPANT_HIGH_WATER_GENERATION_MISMATCH');
+      }
+      return this.proParticipantHighWater;
+    }
     const stored = await this.state.storage.get(PRO_PARTICIPANT_HIGH_WATER_KEY);
     if (stored !== undefined && stored !== null) {
       const normalized = normalizeProParticipantHighWater(stored);
       if (!normalized) throw new Error('INVALID_PRO_SIGNALING_PARTICIPANT_HIGH_WATER');
+      if (normalized.roomGeneration !== roomGeneration) {
+        throw new Error('PRO_SIGNALING_PARTICIPANT_HIGH_WATER_GENERATION_MISMATCH');
+      }
       this.proParticipantHighWater = normalized;
       return normalized;
     }
@@ -2053,6 +2239,9 @@ export class MusixquareRoom {
       : []) {
       const attachment = readAttachment(socket);
       if (attachment?.roomKind !== 'pro' || attachment.ticketSequence < 1) continue;
+      if (attachment.roomGeneration !== roomGeneration) {
+        throw new Error('PRO_SIGNALING_ATTACHMENT_GENERATION_MISMATCH');
+      }
       const current = byParticipant.get(attachment.participantId);
       if (!current || attachment.ticketSequence > current.ticketSequence) {
         byParticipant.set(attachment.participantId, {
@@ -2065,17 +2254,21 @@ export class MusixquareRoom {
     }
     const seeded = {
       v: 1,
+      roomGeneration,
       entries: [...byParticipant.values()].slice(0, MAX_PRO_PARTICIPANT_HIGH_WATER),
     };
     if (seeded.entries.length > 0) {
-      await this.state.storage.put(PRO_PARTICIPANT_HIGH_WATER_KEY, seeded);
+      await this.state.storage.put(
+        PRO_PARTICIPANT_HIGH_WATER_KEY,
+        persistedProGenerationRecord(seeded, roomGeneration),
+      );
     }
     this.proParticipantHighWater = seeded;
     return seeded;
   }
 
   async advanceProParticipantHighWater(ticket, nowSeconds = Math.floor(Date.now() / 1000)) {
-    const current = await this.loadProParticipantHighWater(nowSeconds);
+    const current = await this.loadProParticipantHighWater(ticket.roomGeneration, nowSeconds);
     const entries = current.entries.filter(
       (entry) => entry.exp > nowSeconds || entry.participantId === ticket.participantId,
     );
@@ -2087,6 +2280,7 @@ export class MusixquareRoom {
     }
     const next = {
       v: 1,
+      roomGeneration: ticket.roomGeneration,
       entries: [
         ...remaining,
         {
@@ -2097,13 +2291,27 @@ export class MusixquareRoom {
         },
       ],
     };
-    await this.state.storage.put(PRO_PARTICIPANT_HIGH_WATER_KEY, next);
+    await this.state.storage.put(
+      PRO_PARTICIPANT_HIGH_WATER_KEY,
+      persistedProGenerationRecord(next, ticket.roomGeneration),
+    );
     this.proParticipantHighWater = next;
     return true;
   }
 
-  async loadProPresenceAuthority() {
-    if (this.proPresenceAuthority !== undefined) return this.proPresenceAuthority;
+  async loadProPresenceAuthority(roomGeneration) {
+    if (!isProRoomGeneration(roomGeneration)) {
+      throw new Error('INVALID_PRO_ROOM_GENERATION');
+    }
+    if (this.proPresenceAuthority !== undefined) {
+      if (
+        this.proPresenceAuthority &&
+        this.proPresenceAuthority.roomGeneration !== roomGeneration
+      ) {
+        throw new Error('PRO_SIGNALING_PRESENCE_AUTHORITY_GENERATION_MISMATCH');
+      }
+      return this.proPresenceAuthority;
+    }
     const stored = await this.state.storage.get(PRO_PRESENCE_AUTHORITY_KEY);
     if (stored === undefined || stored === null) {
       this.proPresenceAuthority = null;
@@ -2111,21 +2319,31 @@ export class MusixquareRoom {
     }
     const normalized = normalizeProPresenceAuthority(stored);
     if (!normalized) throw new Error('INVALID_PRO_SIGNALING_PRESENCE_AUTHORITY');
+    if (normalized.roomGeneration !== roomGeneration) {
+      throw new Error('PRO_SIGNALING_PRESENCE_AUTHORITY_GENERATION_MISMATCH');
+    }
     this.proPresenceAuthority = normalized;
     return normalized;
   }
 
-  async advanceProPresenceAuthority(roomId, coordinatorEpoch, presenceRevision, targets) {
+  async advanceProPresenceAuthority(
+    roomId,
+    roomGeneration,
+    coordinatorEpoch,
+    presenceRevision,
+    targets,
+  ) {
     const candidate = normalizeProPresenceAuthority({
       v: 1,
       roomId,
+      roomGeneration,
       coordinatorEpoch,
       presenceRevision,
       activeIncarnationIds: targets,
     });
     if (!candidate) throw new Error('INVALID_PRO_SIGNALING_PRESENCE_AUTHORITY');
 
-    const current = await this.loadProPresenceAuthority();
+    const current = await this.loadProPresenceAuthority(roomGeneration);
     if (current) {
       if (candidate.coordinatorEpoch < current.coordinatorEpoch) return 'stale';
       if (candidate.coordinatorEpoch === current.coordinatorEpoch) {
@@ -2144,15 +2362,19 @@ export class MusixquareRoom {
     // Persist the new authoritative live-set before it is used to close or
     // admit sockets. A failed write leaves the previous fence intact and the
     // broadcast fails closed instead of creating a memory-only revocation.
-    await this.state.storage.put(PRO_PRESENCE_AUTHORITY_KEY, candidate);
+    await this.state.storage.put(
+      PRO_PRESENCE_AUTHORITY_KEY,
+      persistedProGenerationRecord(candidate, roomGeneration),
+    );
     this.proPresenceAuthority = candidate;
     return 'advanced';
   }
 
   async isProTicketPresenceAuthorized(ticket) {
-    const authority = await this.loadProPresenceAuthority();
+    const authority = await this.loadProPresenceAuthority(ticket.roomGeneration);
     if (!authority) return true;
     if (authority.roomId !== ticket.roomCode) return false;
+    if (authority.roomGeneration !== ticket.roomGeneration) return false;
     if (ticket.coordinatorEpoch < authority.coordinatorEpoch) return false;
     if (ticket.coordinatorEpoch > authority.coordinatorEpoch) return true;
     if (ticket.presenceRevision < authority.presenceRevision) return false;
@@ -2172,9 +2394,12 @@ export class MusixquareRoom {
   async acceptProSocket(ws, ticket) {
     try {
       const meta = await this.loadProRoomMeta();
-      if (meta && meta.roomId !== ticket.roomCode) {
+      if (
+        meta &&
+        (meta.roomId !== ticket.roomCode || meta.roomGeneration !== ticket.roomGeneration)
+      ) {
         this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:room-mismatch']);
-        closeWithError(ws, 'invalid-id', 'PRO_ROOM_MISMATCH', 1008);
+        closeWithError(ws, 'invalid-id', 'PRO_ROOM_GENERATION_MISMATCH', 1008);
         return;
       }
       if (meta && ticket.coordinatorEpoch < meta.coordinatorEpoch) {
@@ -2237,10 +2462,16 @@ export class MusixquareRoom {
     await this.acceptProMember(ws, ticket);
   }
 
-  async validateRehydratedProSockets() {
+  async validateRehydratedProSockets(roomGeneration) {
+    if (!isProRoomGeneration(roomGeneration)) {
+      throw new Error('INVALID_PRO_ROOM_GENERATION');
+    }
     if (this.proSocketsValidated) return;
     const meta = await this.loadProRoomMeta();
-    const authority = await this.loadProPresenceAuthority();
+    if (meta && meta.roomGeneration !== roomGeneration) {
+      throw new Error('PRO_SIGNALING_ROOM_META_GENERATION_MISMATCH');
+    }
+    const authority = await this.loadProPresenceAuthority(roomGeneration);
     for (const socket of typeof this.state.getWebSockets === 'function'
       ? this.state.getWebSockets()
       : []) {
@@ -2249,9 +2480,12 @@ export class MusixquareRoom {
       const current =
         meta?.kind === 'pro' &&
         meta.roomId === attachment.roomId &&
+        meta.roomGeneration === attachment.roomGeneration &&
+        attachment.roomGeneration === roomGeneration &&
         meta.coordinatorEpoch === attachment.coordinatorEpoch &&
         (!authority ||
           (authority.roomId === attachment.roomId &&
+            authority.roomGeneration === attachment.roomGeneration &&
             (authority.coordinatorEpoch < attachment.coordinatorEpoch ||
               (authority.coordinatorEpoch === attachment.coordinatorEpoch &&
                 (attachment.presenceRevision > authority.presenceRevision ||
@@ -2260,6 +2494,7 @@ export class MusixquareRoom {
       if (current) continue;
       const presenceRevoked =
         authority?.roomId === attachment.roomId &&
+        authority.roomGeneration === attachment.roomGeneration &&
         authority.coordinatorEpoch === attachment.coordinatorEpoch &&
         authority.presenceRevision >= attachment.presenceRevision &&
         !authority.activeIncarnationIds.includes(attachment.presenceIncarnationId);
@@ -2551,7 +2786,7 @@ export class MusixquareRoom {
 
   acceptSocket(ws, attachment, tags) {
     this.state.acceptWebSocket(ws, tags);
-    if (attachment) ws.serializeAttachment(attachment);
+    if (attachment) serializeSocketAttachment(ws, attachment);
   }
 
   async fetch(request) {
@@ -2599,11 +2834,29 @@ export class MusixquareRoom {
         // Keep the tombstone read in the same queue as ticket consumption and
         // permanent decommission. A connection that passed an earlier check
         // must never repopulate signaling storage after the deletion sweep.
-        const decommissioned = await this.state.storage.get(PRO_DECOMMISSIONED_KEY);
-        if (decommissioned?.roomCode === proRoomId) {
+        const storedDecommissioned = await this.state.storage.get(PRO_DECOMMISSIONED_KEY);
+        const decommissioned =
+          storedDecommissioned === undefined || storedDecommissioned === null
+            ? null
+            : normalizeProDecommissioned(storedDecommissioned);
+        if (
+          storedDecommissioned !== undefined &&
+          storedDecommissioned !== null &&
+          !decommissioned
+        ) {
+          return json({ error: 'PRO_SIGNALING_ROOM_STATE_UNAVAILABLE' }, 503);
+        }
+        if (
+          decommissioned &&
+          (decommissioned.roomCode !== proRoomId ||
+            decommissioned.roomGeneration !== ticket.roomGeneration)
+        ) {
+          return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
+        }
+        if (decommissioned) {
           return json({ error: 'PRO_ROOM_DECOMMISSIONED' }, 410);
         }
-        await this.validateRehydratedProSockets();
+        await this.validateRehydratedProSockets(ticket.roomGeneration);
         const pair = new WebSocketPair();
         const [client, server] = Object.values(pair);
         await this.acceptProSocket(server, ticket);
@@ -2638,21 +2891,41 @@ export class MusixquareRoom {
 
   async handleInternalAdminDecommission(request) {
     const value = await readBoundedJson(request, INTERNAL_ADMIN_BODY_MAX_BYTES);
+    const roomGeneration = internalProRoomGeneration(request, value);
     if (
-      !hasExactKeys(value, ['roomCode', 'requestId']) ||
+      !hasExactKeys(value, ['roomCode', 'requestId'], ['roomGeneration']) ||
       !isProNamespaceRoomCode(value.roomCode) ||
       request.headers.get('x-mxqr-pro-room-code') !== value.roomCode ||
+      roomGeneration === null ||
       !ADMIN_REQUEST_ID_RE.test(value.requestId)
     ) {
       return json({ error: 'INVALID_REQUEST' }, 400);
     }
 
-    const existing = await this.state.storage.get(PRO_DECOMMISSIONED_KEY);
-    const changed = existing?.roomCode !== value.roomCode;
+    const storedExisting = await this.state.storage.get(PRO_DECOMMISSIONED_KEY);
+    const existing =
+      storedExisting === undefined || storedExisting === null
+        ? null
+        : normalizeProDecommissioned(storedExisting);
+    if (storedExisting !== undefined && storedExisting !== null && !existing) {
+      return json({ error: 'PRO_SIGNALING_ROOM_STATE_UNAVAILABLE' }, 503);
+    }
+    if (
+      existing &&
+      (existing.roomCode !== value.roomCode || existing.roomGeneration !== roomGeneration)
+    ) {
+      return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
+    }
+    const meta = await this.loadProRoomMeta();
+    if (meta && (meta.roomId !== value.roomCode || meta.roomGeneration !== roomGeneration)) {
+      return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
+    }
+    const changed = !existing;
     const tombstone = changed
       ? {
           v: 1,
           roomCode: value.roomCode,
+          ...proRoomGenerationWireFields(roomGeneration),
           requestId: value.requestId,
           decommissionedAtMs: Date.now(),
         }
@@ -2661,7 +2934,10 @@ export class MusixquareRoom {
     // Persist the admission fence before deleting any other key. If cleanup is
     // interrupted, old signaling tickets remain rejected and an idempotent
     // retry repairs the residue without a deleteAll -> put crash window.
-    await this.state.storage.put(PRO_DECOMMISSIONED_KEY, tombstone);
+    await this.state.storage.put(
+      PRO_DECOMMISSIONED_KEY,
+      persistedProGenerationRecord(tombstone, roomGeneration),
+    );
 
     for (const socket of typeof this.state.getWebSockets === 'function'
       ? this.state.getWebSockets()
@@ -2709,6 +2985,7 @@ export class MusixquareRoom {
     return json({
       ok: true,
       roomCode: value.roomCode,
+      ...proRoomGenerationWireFields(roomGeneration),
       status: 'decommissioned',
       changed,
     });
@@ -2718,9 +2995,19 @@ export class MusixquareRoom {
     const value = await readBoundedJson(request, PRO_REALTIME_BODY_MAX_BYTES);
     const targets = normalizeProBroadcastTargets(value?.targets);
     const event = normalizeProServerEvent(value?.event);
+    const roomGeneration = internalProRoomGeneration(request, value);
     if (
-      !hasExactKeys(value, ['roomCode', 'coordinatorEpoch', 'targets', 'event']) ||
+      !hasExactKeys(
+        value,
+        ['roomCode', 'coordinatorEpoch', 'targets', 'event'],
+        ['roomGeneration'],
+      ) ||
       !isProNamespaceRoomCode(value.roomCode) ||
+      roomGeneration === null ||
+      (Object.prototype.hasOwnProperty.call(value, 'roomGeneration') &&
+        request.headers.get('x-mxqr-pro-room-code') !== value.roomCode) ||
+      (request.headers.get('x-mxqr-pro-room-code') !== null &&
+        request.headers.get('x-mxqr-pro-room-code') !== value.roomCode) ||
       !isValidProEpoch(value.coordinatorEpoch) ||
       !targets ||
       !event
@@ -2728,9 +3015,9 @@ export class MusixquareRoom {
       return json({ error: 'INVALID_REQUEST' }, 400);
     }
 
-    await this.validateRehydratedProSockets();
+    await this.validateRehydratedProSockets(roomGeneration);
     let meta = await this.loadProRoomMeta();
-    if (meta && meta.roomId !== value.roomCode) {
+    if (meta && (meta.roomId !== value.roomCode || meta.roomGeneration !== roomGeneration)) {
       return json({ error: 'PRO_ROOM_EPOCH_STALE' }, 409);
     }
     if (!meta || value.coordinatorEpoch > meta.coordinatorEpoch) {
@@ -2742,7 +3029,7 @@ export class MusixquareRoom {
       if (event.type !== 'pro-presence-snapshot') {
         return json({ error: 'PRO_ROOM_EPOCH_STALE' }, 409);
       }
-      meta = await this.resetProRoomEpoch(value.roomCode, value.coordinatorEpoch);
+      meta = await this.resetProRoomEpoch(value.roomCode, roomGeneration, value.coordinatorEpoch);
     }
     if (value.coordinatorEpoch < meta.coordinatorEpoch) {
       return json({ error: 'PRO_ROOM_EPOCH_STALE' }, 409);
@@ -2751,6 +3038,7 @@ export class MusixquareRoom {
     if (event.type === 'pro-presence-snapshot') {
       const authorityResult = await this.advanceProPresenceAuthority(
         value.roomCode,
+        roomGeneration,
         value.coordinatorEpoch,
         event.presenceRevision,
         targets,
@@ -2761,7 +3049,12 @@ export class MusixquareRoom {
       if (authorityResult === 'conflict') {
         return json({ error: 'PRO_PRESENCE_REVISION_CONFLICT' }, 409);
       }
-      await this.pruneProChatMutedParticipants(value.roomCode, value.coordinatorEpoch, targets);
+      await this.pruneProChatMutedParticipants(
+        value.roomCode,
+        roomGeneration,
+        value.coordinatorEpoch,
+        targets,
+      );
     }
 
     const targetSet = new Set(targets);
@@ -2769,6 +3062,7 @@ export class MusixquareRoom {
       type: 'pro-server-event',
       version: 1,
       roomCode: value.roomCode,
+      roomGeneration,
       coordinatorEpoch: value.coordinatorEpoch,
       event,
     };
@@ -2781,6 +3075,7 @@ export class MusixquareRoom {
         attachment.role !== 'member' ||
         attachment.auth !== 'ok' ||
         attachment.roomId !== value.roomCode ||
+        attachment.roomGeneration !== roomGeneration ||
         attachment.coordinatorEpoch !== value.coordinatorEpoch ||
         attachment.participantId !== participantId ||
         this.proMembers.get(participantId) !== socket;
@@ -2806,7 +3101,10 @@ export class MusixquareRoom {
     return json({ broadcast: true, eligible, sent: sentCount });
   }
 
-  async resetProRoomEpoch(roomCode, coordinatorEpoch) {
+  async resetProRoomEpoch(roomCode, roomGeneration, coordinatorEpoch) {
+    if (!isProRoomGeneration(roomGeneration)) {
+      throw new Error('INVALID_PRO_ROOM_GENERATION');
+    }
     return this.enqueueProChatMutation(async () => {
       for (const socket of typeof this.state.getWebSockets === 'function'
         ? this.state.getWebSockets()
@@ -2822,17 +3120,24 @@ export class MusixquareRoom {
         v: 2,
         kind: 'pro',
         roomId: roomCode,
+        roomGeneration,
         coordinatorEpoch,
       });
       if (!nextMeta) throw new Error('INVALID_PRO_ROOM_META');
       if (typeof this.state.storage.transaction === 'function') {
         await this.state.storage.transaction(async (transaction) => {
-          await transaction.put(PRO_ROOM_META_KEY, nextMeta);
+          await transaction.put(
+            PRO_ROOM_META_KEY,
+            persistedProGenerationRecord(nextMeta, roomGeneration),
+          );
           await transaction.delete(PRO_CHAT_CONTROL_STATE_KEY);
           await transaction.delete(PRO_BOT_REQUEST_PROOFS_KEY);
         });
       } else {
-        await this.state.storage.put(PRO_ROOM_META_KEY, nextMeta);
+        await this.state.storage.put(
+          PRO_ROOM_META_KEY,
+          persistedProGenerationRecord(nextMeta, roomGeneration),
+        );
         await this.state.storage.delete(PRO_CHAT_CONTROL_STATE_KEY);
         await this.state.storage.delete(PRO_BOT_REQUEST_PROOFS_KEY);
       }
@@ -2844,14 +3149,17 @@ export class MusixquareRoom {
   }
 
   async resetForProEpoch(ticket) {
-    return this.resetProRoomEpoch(ticket.roomCode, ticket.coordinatorEpoch);
+    return this.resetProRoomEpoch(ticket.roomCode, ticket.roomGeneration, ticket.coordinatorEpoch);
   }
 
   async acceptProMember(ws, ticket) {
     let meta = await this.loadProRoomMeta();
-    if (meta && meta.roomId !== ticket.roomCode) {
+    if (
+      meta &&
+      (meta.roomId !== ticket.roomCode || meta.roomGeneration !== ticket.roomGeneration)
+    ) {
       this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:room-mismatch']);
-      closeWithError(ws, 'invalid-id', 'PRO_ROOM_MISMATCH', 1008);
+      closeWithError(ws, 'invalid-id', 'PRO_ROOM_GENERATION_MISMATCH', 1008);
       return;
     }
     if (meta && ticket.coordinatorEpoch < meta.coordinatorEpoch) {
@@ -2867,6 +3175,7 @@ export class MusixquareRoom {
     if (
       !meta ||
       meta.roomId !== ticket.roomCode ||
+      meta.roomGeneration !== ticket.roomGeneration ||
       meta.coordinatorEpoch !== ticket.coordinatorEpoch
     ) {
       this.acceptSocket(ws, null, ['kind:pro', 'role:member', 'rejected:stale-epoch']);
@@ -2892,6 +3201,7 @@ export class MusixquareRoom {
       roomKind: 'pro',
       role: 'member',
       roomId: ticket.roomCode,
+      roomGeneration: ticket.roomGeneration,
       peerId: ticket.participantId,
       participantId: ticket.participantId,
       ...(ticket.memberId ? { memberId: ticket.memberId } : {}),
@@ -2917,6 +3227,7 @@ export class MusixquareRoom {
       'kind:pro',
       'role:member',
       `peer:${ticket.participantId}`,
+      `generation:${ticket.roomGeneration}`,
       `epoch:${ticket.coordinatorEpoch}`,
     ]);
     this.proMembers.set(ticket.participantId, ws);
@@ -2925,6 +3236,7 @@ export class MusixquareRoom {
       type: 'peer-open',
       peerId: ticket.participantId,
       roomId: ticket.roomCode,
+      roomGeneration: ticket.roomGeneration,
       ...workerVersionFields(this.env),
     });
     await this.enqueueProChatMutation(async () => {
@@ -3020,7 +3332,7 @@ export class MusixquareRoom {
       hostPeerId: peerId,
       hostReleaseAt: 0,
     });
-    ws.serializeAttachment(attachment);
+    serializeSocketAttachment(ws, attachment);
 
     // A socket can close while the Durable Object storage write is awaited.
     // Prove the accepted candidate is still reachable before replacing the
@@ -3205,7 +3517,7 @@ export class MusixquareRoom {
           }
         : {}),
     };
-    ws.serializeAttachment(attachment);
+    serializeSocketAttachment(ws, attachment);
 
     this.pendingGuests.delete(ws);
     this.guests.set(peerId, ws);
@@ -3243,7 +3555,7 @@ export class MusixquareRoom {
       ...withoutStandardRoomIdentity(attachment),
       ...standardRoomIdentityAttachmentFields(identity),
     };
-    ws.serializeAttachment(next);
+    serializeSocketAttachment(ws, next);
     this.notifyStandardRoomIdentity(ws, next, clearReason);
 
     // Nickname and member number belong to the account member, not one tab.
@@ -3266,7 +3578,7 @@ export class MusixquareRoom {
           memberDisplayNumber: identity.memberDisplayNumber,
           memberNickname: identity.nickname,
         };
-        peerSocket.serializeAttachment(updated);
+        serializeSocketAttachment(peerSocket, updated);
         this.notifyStandardRoomIdentity(peerSocket, updated);
       }
     }
@@ -3307,7 +3619,7 @@ export class MusixquareRoom {
           continue;
         }
         const cleared = withoutStandardRoomIdentity(peerAttachment);
-        peerSocket.serializeAttachment(cleared);
+        serializeSocketAttachment(peerSocket, cleared);
         this.notifyStandardRoomIdentity(peerSocket, cleared, 'deleted');
       }
       if (
@@ -3455,12 +3767,14 @@ export class MusixquareRoom {
 
   async handleProRealtimeMessage(ws, raw, attachment) {
     const meta = await this.loadProRoomMeta();
-    const authority = await this.loadProPresenceAuthority();
+    const authority = await this.loadProPresenceAuthority(attachment.roomGeneration);
     const current =
       meta?.roomId === attachment.roomId &&
+      meta.roomGeneration === attachment.roomGeneration &&
       meta.coordinatorEpoch === attachment.coordinatorEpoch &&
       (!authority ||
         (authority.roomId === attachment.roomId &&
+          authority.roomGeneration === attachment.roomGeneration &&
           (authority.coordinatorEpoch < attachment.coordinatorEpoch ||
             (authority.coordinatorEpoch === attachment.coordinatorEpoch &&
               (attachment.presenceRevision > authority.presenceRevision ||
@@ -3469,6 +3783,7 @@ export class MusixquareRoom {
     if (!current) {
       const presenceRevoked =
         authority?.roomId === attachment.roomId &&
+        authority.roomGeneration === attachment.roomGeneration &&
         authority.coordinatorEpoch === attachment.coordinatorEpoch &&
         authority.presenceRevision >= attachment.presenceRevision &&
         !authority.activeIncarnationIds.includes(attachment.presenceIncarnationId);
@@ -3537,6 +3852,7 @@ export class MusixquareRoom {
             target?.roomKind !== 'pro' ||
             target.auth !== 'ok' ||
             target.roomId !== actor.roomId ||
+            target.roomGeneration !== actor.roomGeneration ||
             target.coordinatorEpoch !== actor.coordinatorEpoch ||
             target.participantId !== payload.targetParticipantId ||
             this.proMembers.get(payload.targetParticipantId) !== targetSocket
@@ -3613,6 +3929,7 @@ export class MusixquareRoom {
             target?.roomKind !== 'pro' ||
             target.auth !== 'ok' ||
             target.roomId !== actor.roomId ||
+            target.roomGeneration !== actor.roomGeneration ||
             target.coordinatorEpoch !== actor.coordinatorEpoch ||
             target.participantId !== payload.targetParticipantId ||
             this.proMembers.get(payload.targetParticipantId) !== targetSocket
@@ -3628,7 +3945,7 @@ export class MusixquareRoom {
             : 0;
           if (nowMs - lastMessageAtMs < state.slowmodeSeconds * 1000) return;
           actor = { ...actor, chatLastMessageAtMs: nowMs };
-          ws.serializeAttachment(actor);
+          serializeSocketAttachment(ws, actor);
         }
         if (payload.kind === 'message' && payload.botRequestId) {
           const remembered = await this.rememberProBotRequest(
@@ -3705,7 +4022,7 @@ export class MusixquareRoom {
   async handleHostAuth(ws, message, attachment) {
     const currentAttachment = readAttachment(ws) || attachment;
     if (currentAttachment.authStarted) return;
-    ws.serializeAttachment({ ...currentAttachment, authStarted: true });
+    serializeSocketAttachment(ws, { ...currentAttachment, authStarted: true });
     try {
       return await this.enqueueHostAdmission(() => this.finishHostAuth(ws, message, attachment));
     } catch (error) {
@@ -3715,7 +4032,7 @@ export class MusixquareRoom {
       // amplification.
       const latest = readAttachment(ws);
       if (this.pendingHosts.has(ws) && latest?.role === 'host' && latest.auth === 'pending') {
-        ws.serializeAttachment({ ...latest, authStarted: false });
+        serializeSocketAttachment(ws, { ...latest, authStarted: false });
       }
       throw error;
     }
@@ -3744,13 +4061,13 @@ export class MusixquareRoom {
     // the stale pre-consumption snapshot passed by webSocketMessage().
     const currentAttachment = readAttachment(ws) || attachment;
     if (currentAttachment.authStarted) return;
-    ws.serializeAttachment({ ...currentAttachment, authStarted: true });
+    serializeSocketAttachment(ws, { ...currentAttachment, authStarted: true });
     try {
       return await this.enqueueGuestAdmission(() => this.finishGuestAuth(ws, message, attachment));
     } catch (error) {
       const latest = readAttachment(ws);
       if (this.pendingGuests.has(ws) && latest?.role === 'guest' && latest.auth === 'pending') {
-        ws.serializeAttachment({ ...latest, authStarted: false });
+        serializeSocketAttachment(ws, { ...latest, authStarted: false });
       }
       throw error;
     }
@@ -4064,10 +4381,11 @@ export default {
         env,
       );
       if (!ticket) return json({ error: 'INVALID_PRO_SIGNALING_TICKET' }, 401);
-      if (!(await checkRateLimit(request, 'pro-ws-open'))) {
+      const proRoomObject = proRoomObjectName(roomId, ticket.roomGeneration);
+      if (!(await checkRateLimit(request, `pro-ws-open:${proRoomObject}`))) {
         return json({ error: 'Too Many Requests' }, 429);
       }
-      const id = env.MUSIXQUARE_ROOMS.idFromName(roomId);
+      const id = env.MUSIXQUARE_ROOMS.idFromName(proRoomObject);
       const room = env.MUSIXQUARE_ROOMS.get(id);
       return room.fetch(request);
     }

@@ -7,9 +7,12 @@ import {
   deriveDeveloperApiKeyDigest,
   developerApiScopes,
 } from '../cloudflare/developer-api-worker.js';
+import { isProRoomGeneration } from '../cloudflare/pro-room-generation.js';
 
 const DATABASE_NAME = 'musixquare-developer-api';
 const WRANGLER_CONFIG = 'cloudflare/wrangler.developer-api.toml';
+const ADMIN_DATABASE_NAME = 'musixquare-admin-metrics';
+const ADMIN_WRANGLER_CONFIG = 'cloudflare/wrangler.app.toml';
 const ROOM_CODE_RE = /^0\d{5}$/;
 const KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
 const READ_SCOPES = Object.freeze([
@@ -120,7 +123,7 @@ function sqlString(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
 
-export function executeDeveloperApiD1(sql) {
+function executeD1(databaseName, wranglerConfig, sql) {
   const npmArgs = [
     'run',
     '--silent',
@@ -128,10 +131,10 @@ export function executeDeveloperApiD1(sql) {
     '--',
     'd1',
     'execute',
-    DATABASE_NAME,
+    databaseName,
     '--remote',
     '--config',
-    WRANGLER_CONFIG,
+    wranglerConfig,
     '--json',
     '--command',
     sql,
@@ -161,6 +164,33 @@ export function executeDeveloperApiD1(sql) {
   return payload.flatMap((result) => (Array.isArray(result.results) ? result.results : []));
 }
 
+export function executeDeveloperApiD1(sql) {
+  return executeD1(DATABASE_NAME, WRANGLER_CONFIG, sql);
+}
+
+export function executeAdminD1(sql) {
+  return executeD1(ADMIN_DATABASE_NAME, ADMIN_WRANGLER_CONFIG, sql);
+}
+
+export function resolveCurrentProRoomGeneration(roomCode, execute = executeAdminD1) {
+  const rows = execute(
+    `SELECT room_code, room_generation, status, activation_state ` +
+      `FROM mxqr_pro_room_registry WHERE room_code = ${sqlString(roomCode)} LIMIT 2;`,
+  );
+  if (
+    rows.length !== 1 ||
+    rows[0]?.room_code !== roomCode ||
+    !isProRoomGeneration(rows[0]?.room_generation) ||
+    rows[0]?.status !== 'registered' ||
+    rows[0]?.activation_state !== 'active'
+  ) {
+    throw new DeveloperApiKeyCliError(
+      'The current active PRO room incarnation could not be verified',
+    );
+  }
+  return rows[0].room_generation;
+}
+
 export async function runDeveloperApiKeyCli({
   argv = process.argv.slice(2),
   env = process.env,
@@ -168,6 +198,7 @@ export async function runDeveloperApiKeyCli({
   now = () => Date.now(),
   randomBytes = nodeRandomBytes,
   execute = executeDeveloperApiD1,
+  resolveRoomGeneration = resolveCurrentProRoomGeneration,
 } = {}) {
   const command = parseDeveloperApiKeyCommand(argv);
   if (command.command === 'issue') {
@@ -175,6 +206,12 @@ export async function runDeveloperApiKeyCli({
     if (typeof pepper !== 'string' || pepper.length < 32) {
       throw new DeveloperApiKeyCliError(
         'MXQR_DEVELOPER_API_KEY_PEPPER must be supplied through the environment',
+      );
+    }
+    const roomGeneration = await resolveRoomGeneration(command.roomCode);
+    if (!isProRoomGeneration(roomGeneration)) {
+      throw new DeveloperApiKeyCliError(
+        'The current active PRO room incarnation could not be verified',
       );
     }
     const keyId = randomBytes(12).toString('base64url');
@@ -188,15 +225,32 @@ export async function runDeveloperApiKeyCli({
     const scopeMask = command.scopes.reduce((mask, scope) => mask | developerApiScopes[scope], 0);
     const inserted = execute(
       `INSERT INTO mxqr_developer_api_keys (` +
-        `key_id, room_code, label, secret_digest, digest_version, scope_mask, status, ` +
+        `key_id, room_code, room_generation, label, secret_digest, digest_version, scope_mask, status, ` +
         `created_at, updated_at, expires_at, revoked_at, last_used_hour` +
         `) VALUES (` +
-        `${sqlString(keyId)}, ${sqlString(command.roomCode)}, ${sqlString(command.label)}, ` +
-        `${sqlString(digest)}, 1, ${scopeMask}, 'active', ${createdAt}, ${createdAt}, ` +
+        `${sqlString(keyId)}, ${sqlString(command.roomCode)}, ${roomGeneration}, ` +
+        `${sqlString(command.label)}, ${sqlString(digest)}, 1, ${scopeMask}, 'active', ${createdAt}, ${createdAt}, ` +
         `${expiresAt}, NULL, NULL) RETURNING key_id;`,
     );
     if (!inserted.some((row) => row?.key_id === keyId)) {
       throw new DeveloperApiKeyCliError('Developer API key creation was not confirmed');
+    }
+    let confirmedGeneration = null;
+    try {
+      confirmedGeneration = await resolveRoomGeneration(command.roomCode);
+    } catch {
+      // The cleanup below runs before the error is surfaced, so a registry
+      // transition can never leave an unreported credential behind.
+    }
+    if (confirmedGeneration !== roomGeneration) {
+      execute(
+        `DELETE FROM mxqr_developer_api_keys WHERE key_id = ${sqlString(keyId)} ` +
+          `AND room_code = ${sqlString(command.roomCode)} ` +
+          `AND room_generation = ${roomGeneration} AND secret_digest = ${sqlString(digest)};`,
+      );
+      throw new DeveloperApiKeyCliError(
+        'The PRO room incarnation changed while the key was being issued',
+      );
     }
     const apiKey = `mxqr_live_${keyId}.${secret}`;
     stdout.write(
@@ -205,6 +259,7 @@ export async function runDeveloperApiKeyCli({
           apiKey,
           keyId,
           roomCode: command.roomCode,
+          roomGeneration,
           label: command.label,
           scopes: command.scopes,
           expiresAt: new Date(expiresAt).toISOString(),
@@ -231,7 +286,7 @@ export async function runDeveloperApiKeyCli({
   }
   const where = command.roomCode ? ` WHERE room_code = ${sqlString(command.roomCode)}` : '';
   const rows = execute(
-    `SELECT key_id, room_code, label, scope_mask, status, created_at, updated_at, ` +
+    `SELECT key_id, room_code, room_generation, label, scope_mask, status, created_at, updated_at, ` +
       `expires_at, revoked_at, last_used_hour FROM mxqr_developer_api_keys${where} ` +
       `ORDER BY created_at DESC;`,
   );

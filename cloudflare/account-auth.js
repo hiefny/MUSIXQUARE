@@ -7,6 +7,7 @@ import {
   normalizeAccountNickname,
   normalizeNewAccountNickname,
 } from './account-nickname.js';
+import { LEGACY_PRO_ROOM_GENERATION, isProRoomGeneration } from './pro-room-generation.js';
 
 const AUTH_ROUTE_PREFIX = '/api/auth/';
 const AUTH_SESSION_COOKIE = '__Host-mxqr_account';
@@ -52,6 +53,7 @@ const SESSION_TABLE = 'mxqr_account_sessions';
 const DELETED_SESSION_TABLE = 'mxqr_account_deleted_sessions';
 const ACCOUNT_DELETION_TABLE = 'mxqr_account_deletions';
 const PRO_ROOM_LINK_TABLE = 'mxqr_account_pro_rooms';
+const PRO_ROOM_GENERATION_LINK_TABLE = 'mxqr_account_pro_room_generations';
 const OAUTH_FLOW_TABLE = 'mxqr_oauth_flows';
 const FLOW_TOKEN_AAD = new TextEncoder().encode('mxqr-oauth-flow:v1');
 const SESSION_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
@@ -78,6 +80,21 @@ function authJson(body, status = 200, headers = {}) {
 
 function methodNotAllowed(allow) {
   return authJson({ error: 'METHOD_NOT_ALLOWED' }, 405, { Allow: allow });
+}
+
+function isMissingProRoomGenerationLinkSchemaError(error) {
+  let current = error;
+  for (let depth = 0; current && depth < 4; depth += 1) {
+    if (
+      /no such table:\s*mxqr_account_pro_room_generations/i.test(
+        String(current?.message || current),
+      )
+    ) {
+      return true;
+    }
+    current = current?.cause;
+  }
+  return false;
 }
 
 function appendSetCookies(response, cookies) {
@@ -1169,26 +1186,65 @@ async function handleAccountDelete(request, config, integrations = {}) {
       return authJson({ error: 'ACCOUNT_DELETE_IN_PROGRESS' }, 409);
     }
     fencedAccountId = accountId;
-    const linkedRooms = await d1All(
-      config.db,
-      `SELECT room_code FROM ${PRO_ROOM_LINK_TABLE}
-        WHERE account_id = ?1
-        ORDER BY room_code ASC
-        LIMIT 1001`,
-      [accountId],
-    );
+    const legacyLinks = (
+      await d1All(
+        config.db,
+        `SELECT room_code FROM ${PRO_ROOM_LINK_TABLE}
+          WHERE account_id = ?1
+          ORDER BY room_code ASC
+          LIMIT 1001`,
+        [accountId],
+      )
+    ).map((row) => ({ ...row, room_generation: LEGACY_PRO_ROOM_GENERATION }));
+    let generationLinksConfigured = true;
+    let generationLinks = [];
+    try {
+      generationLinks = await d1All(
+        config.db,
+        `SELECT room_code, room_generation
+           FROM ${PRO_ROOM_GENERATION_LINK_TABLE}
+          WHERE account_id = ?1
+            AND room_generation > 0
+          ORDER BY room_code ASC, room_generation ASC
+          LIMIT 1001`,
+        [accountId],
+      );
+    } catch (error) {
+      // Additive rollout compatibility. A later generation is never created
+      // until the v2 reverse-index schema exists, so falling back is safe only
+      // for the legacy table and its implicit generation zero.
+      if (!isMissingProRoomGenerationLinkSchemaError(error)) throw error;
+      generationLinksConfigured = false;
+      generationLinks = [];
+    }
+    const linkedRooms = [...legacyLinks, ...generationLinks]
+      .sort(
+        (left, right) =>
+          String(left?.room_code || '').localeCompare(String(right?.room_code || '')) ||
+          Number(left?.room_generation) - Number(right?.room_generation),
+      )
+      .slice(0, 1001);
     if (linkedRooms.length > 1000) {
       throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
     }
     const purgeProRoomAccountAuthority = integrations?.purgeProRoomAccountAuthority;
     for (const row of linkedRooms) {
       const roomCode = typeof row?.room_code === 'string' ? row.room_code : '';
-      if (!/^0\d{5}$/.test(roomCode) || typeof purgeProRoomAccountAuthority !== 'function') {
+      const roomGeneration = Number(row?.room_generation);
+      if (
+        !/^0\d{5}$/.test(roomCode) ||
+        !isProRoomGeneration(roomGeneration) ||
+        typeof purgeProRoomAccountAuthority !== 'function'
+      ) {
         throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
       }
       // Purging a room is idempotent. If a later room fails, the account and
       // reverse index remain intact so retrying safely completes the cleanup.
-      const purged = await purgeProRoomAccountAuthority({ accountId, roomCode });
+      const purged = await purgeProRoomAccountAuthority({
+        accountId,
+        roomCode,
+        roomGeneration,
+      });
       if (purged !== true) {
         throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
       }
@@ -1217,6 +1273,14 @@ async function handleAccountDelete(request, config, integrations = {}) {
         sql: `DELETE FROM ${PRO_ROOM_LINK_TABLE} WHERE account_id = ?1`,
         values: [accountId],
       },
+      ...(generationLinksConfigured
+        ? [
+            {
+              sql: `DELETE FROM ${PRO_ROOM_GENERATION_LINK_TABLE} WHERE account_id = ?1`,
+              values: [accountId],
+            },
+          ]
+        : []),
       {
         sql: `DELETE FROM ${ACCOUNT_DELETION_TABLE} WHERE account_id = ?1`,
         values: [accountId],
@@ -1384,23 +1448,108 @@ export async function handleAccountAuthRequest(
  * in a PRO room. Call this before forwarding the signed account assertion so
  * no persistent authority can be created without a deletion cleanup path.
  */
-export async function recordAccountProRoomLink(env, accountId, roomCode, nowMs = Date.now()) {
+export async function recordAccountProRoomLink(
+  env,
+  accountId,
+  roomCode,
+  nowMs = Date.now(),
+  roomGeneration = LEGACY_PRO_ROOM_GENERATION,
+) {
   const db = env?.MUSIXQUARE_AUTH_DB;
   if (
     !db ||
     typeof db.prepare !== 'function' ||
     !ACCOUNT_ID_RE.test(accountId || '') ||
     !/^0\d{5}$/.test(roomCode || '') ||
+    !isProRoomGeneration(roomGeneration) ||
     !Number.isSafeInteger(nowMs) ||
     nowMs <= 0
   ) {
     return false;
   }
+  if (roomGeneration === LEGACY_PRO_ROOM_GENERATION) {
+    // Keep the original generation-zero destination during the additive
+    // rollout, but enforce one shared cleanup-edge cap across both schemas.
+    // The exact missing-table fallback below is the only pre-migration path.
+    let result;
+    try {
+      result = await d1Run(
+        db,
+        `INSERT INTO ${PRO_ROOM_LINK_TABLE}
+         (account_id, room_code, first_linked_at, last_seen_at)
+       SELECT ?1, ?2, ?3, ?3
+         FROM ${ACCOUNT_TABLE} account
+        WHERE account.account_id = ?1
+          AND account.status = 'active'
+          AND NOT EXISTS (
+            SELECT 1 FROM ${ACCOUNT_DELETION_TABLE} deletion
+             WHERE deletion.account_id = account.account_id
+          )
+          AND (
+            EXISTS (
+              SELECT 1 FROM ${PRO_ROOM_LINK_TABLE} existing
+               WHERE existing.account_id = ?1
+                 AND existing.room_code = ?2
+            )
+            OR EXISTS (
+              SELECT 1 FROM ${PRO_ROOM_GENERATION_LINK_TABLE} existing_generation
+               WHERE existing_generation.account_id = ?1
+                 AND existing_generation.room_code = ?2
+                 AND existing_generation.room_generation = 0
+            )
+            OR (
+              SELECT COUNT(*) FROM (
+                SELECT room_code, 0 AS room_generation
+                  FROM ${PRO_ROOM_LINK_TABLE} linked_legacy
+                 WHERE linked_legacy.account_id = ?1
+                UNION
+                SELECT room_code, room_generation
+                  FROM ${PRO_ROOM_GENERATION_LINK_TABLE} linked_generation
+                 WHERE linked_generation.account_id = ?1
+              )
+            ) < ?4
+          )
+       ON CONFLICT(account_id, room_code)
+       DO UPDATE SET last_seen_at = excluded.last_seen_at`,
+        [accountId, roomCode, nowMs, ACCOUNT_PRO_ROOM_LINK_MAX_PER_ACCOUNT],
+      );
+    } catch (error) {
+      if (!isMissingProRoomGenerationLinkSchemaError(error)) throw error;
+      result = await d1Run(
+        db,
+        `INSERT INTO ${PRO_ROOM_LINK_TABLE}
+           (account_id, room_code, first_linked_at, last_seen_at)
+         SELECT ?1, ?2, ?3, ?3
+           FROM ${ACCOUNT_TABLE} account
+          WHERE account.account_id = ?1
+            AND account.status = 'active'
+            AND NOT EXISTS (
+              SELECT 1 FROM ${ACCOUNT_DELETION_TABLE} deletion
+               WHERE deletion.account_id = account.account_id
+            )
+            AND (
+              EXISTS (
+                SELECT 1 FROM ${PRO_ROOM_LINK_TABLE} existing
+                 WHERE existing.account_id = ?1
+                   AND existing.room_code = ?2
+              )
+              OR (
+                SELECT COUNT(*) FROM ${PRO_ROOM_LINK_TABLE} linked
+                 WHERE linked.account_id = ?1
+              ) < ?4
+            )
+         ON CONFLICT(account_id, room_code)
+         DO UPDATE SET last_seen_at = excluded.last_seen_at`,
+        [accountId, roomCode, nowMs, ACCOUNT_PRO_ROOM_LINK_MAX_PER_ACCOUNT],
+      );
+    }
+    return d1ChangeCount(result) === 1;
+  }
   const result = await d1Run(
     db,
-    `INSERT INTO ${PRO_ROOM_LINK_TABLE}
-       (account_id, room_code, first_linked_at, last_seen_at)
-     SELECT ?1, ?2, ?3, ?3
+    `INSERT INTO ${PRO_ROOM_GENERATION_LINK_TABLE}
+       (account_id, room_code, room_generation, first_linked_at, last_seen_at)
+     SELECT ?1, ?2, ?3, ?4, ?4
        FROM ${ACCOUNT_TABLE} account
       WHERE account.account_id = ?1
         AND account.status = 'active'
@@ -1410,18 +1559,26 @@ export async function recordAccountProRoomLink(env, accountId, roomCode, nowMs =
         )
         AND (
           EXISTS (
-            SELECT 1 FROM ${PRO_ROOM_LINK_TABLE} existing
+            SELECT 1 FROM ${PRO_ROOM_GENERATION_LINK_TABLE} existing
              WHERE existing.account_id = ?1
                AND existing.room_code = ?2
+               AND existing.room_generation = ?3
           )
           OR (
-            SELECT COUNT(*) FROM ${PRO_ROOM_LINK_TABLE} linked
-             WHERE linked.account_id = ?1
-          ) < ?4
+            SELECT COUNT(*) FROM (
+              SELECT room_code, 0 AS room_generation
+                FROM ${PRO_ROOM_LINK_TABLE} linked_legacy
+               WHERE linked_legacy.account_id = ?1
+              UNION
+              SELECT room_code, room_generation
+                FROM ${PRO_ROOM_GENERATION_LINK_TABLE} linked_generation
+               WHERE linked_generation.account_id = ?1
+            )
+          ) < ?5
         )
-     ON CONFLICT(account_id, room_code)
+     ON CONFLICT(account_id, room_code, room_generation)
      DO UPDATE SET last_seen_at = excluded.last_seen_at`,
-    [accountId, roomCode, nowMs, ACCOUNT_PRO_ROOM_LINK_MAX_PER_ACCOUNT],
+    [accountId, roomCode, roomGeneration, nowMs, ACCOUNT_PRO_ROOM_LINK_MAX_PER_ACCOUNT],
   );
   return d1ChangeCount(result) === 1;
 }

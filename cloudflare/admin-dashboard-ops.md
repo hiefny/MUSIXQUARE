@@ -13,10 +13,21 @@ last reconciled with Wrangler and both Workers on 2026-07-16.
 
 Ordinary room codes, peer IDs, IP addresses, raw Access identities, and user
 agents are not stored. The PRO registry necessarily stores its explicitly
-registered `0xxxxx` room codes and operator labels. Its audit stores a
-session-scoped HMAC actor pseudonym, action/result, PRO room code, and timestamp
-only. It must never store a PIN, activation or owner-recovery claim, bearer URL,
-admin cookie, account identifier, or Access token.
+registered `0xxxxx` room codes, current immutable `room_generation`, and
+operator labels. A six-digit room code is a reusable public address; the
+authorization identity is `(room_code, room_generation)`. Existing rooms are
+generation `0`. `mxqr_pro_room_generation_history` keeps one immutable
+decommission-completion row per deleted incarnation so an administrator can
+verify a completed deletion before manually advancing the public address.
+`mxqr_pro_room_generation_allocations` is a separate immutable ledger for
+every allocated incarnation, including the current active or in-progress one;
+losing or corrupting a mutable registry pointer must never make generation `0`
+available again.
+
+The audit stores a session-scoped HMAC actor pseudonym, action/result, PRO room
+code, immutable room generation, and timestamp only. It must never store a PIN,
+activation or owner-recovery claim, bearer URL, admin cookie, account
+identifier, or Access token.
 
 Events:
 
@@ -96,6 +107,29 @@ Apply or re-apply the schema:
 npx wrangler d1 execute musixquare-admin-metrics --remote --file cloudflare/admin-metrics.schema.sql
 ```
 
+For an existing database that predates reusable room codes, do not apply the
+new baseline as a substitute for migration. First export the database or
+confirm D1 Time Travel. The routine production path is the `Production Release`
+workflow with target `all` and its dedicated PRO generation migration input;
+it probes all three databases, applies a legacy schema or safely completes a
+recognized partial forward migration, and then verifies the exact
+post-migration contract. An unknown shape fails closed. The following direct
+command is an
+emergency/operator recovery primitive only, not a parallel routine path:
+
+```powershell
+npm run wrangler -- d1 execute musixquare-admin-metrics --remote --config cloudflare/wrangler.app.toml --file cloudflare/admin-metrics.pro-room-generation.migration.sql
+```
+
+Verify that every registry row reads as generation `0`, every current and
+historical incarnation has an allocation-ledger row, every already
+`decommissioned` row has a matching generation-history row, and all allocation,
+history, registry-pointer, and cutover immutability triggers exist. The singleton
+`mxqr_pro_room_generation_cutover` must exist with status `disabled`, a null
+release SHA, `ever_enabled=0`, a null `floor_release_sha`, and timestamp `0`;
+migration success alone must not enable reuse. Do not delete a tombstone or
+decrement a generation to recover from an operator error.
+
 Set or rotate the admin secrets on the app Worker:
 
 ```powershell
@@ -108,13 +142,70 @@ HttpOnly admin session cookie.
 
 After the schema and D1 bindings are committed, push the reviewed commit to
 `main` and run the `Production Release` GitHub workflow with target `all`. The
-workflow deploys signaling, PRO, and App in dependency order, reuses the
+generation release also requires the auth and Developer API forward migrations
+documented in `docs/account-auth-operations.md` and
+`docs/design/pro-room-architecture-and-operations.md`. Enable the dedicated
+generation migration input so the workflow applies and verifies all three
+before the Worker release, but do not re-register a code until every
+generation-aware Worker and smoke is complete. The workflow deploys PRO,
+signaling, both Developer API Workers, and App in dependency order, reuses the
 validated immutable Static Assets artifact, runs live smokes, records every
-version ID, and owns rollback. Do not deploy the Wrangler configs directly or
-use the local `deploy:*` primitives for routine releases; the exceptional
-operator path is documented in `docs/hotfix-procedure.md`.
+version ID, and owns rollback. Only after those gates and a separate exact
+external-cleanup confirmation may that workflow set the cutover singleton to
+`ready` with the exact reviewed 40-character release SHA.
+On the first enable, the workflow also read-only verifies `000002` and `000003`
+registry/history/allocation state, a generation-zero `room.delete` /
+`authorized` admin audit no later than immutable deletion completion, a
+non-stale registry completion timestamp, zero Developer API credentials with
+both retained tombstones, the minimum completion age, and public bootstrap
+rejection. Those automated checks do not see R2, signaling, or the limiter and
+therefore do not replace the operator's direct evidence for those bindings.
+That first successful `ready` transition permanently raises the rollback floor
+to the matched generation-aware Worker set and records it in `ever_enabled` and
+`floor_release_sha`; the database requires that first floor SHA to equal the
+then-current `release_sha`. A later generation can be created concurrently
+from that moment even if none is yet visible. A later full release temporarily
+fences an already-ready cutover as `disabled` while dependencies roll, then
+restores `ready` only after its own smokes and ownership checks. A failed
+release leaves the status disabled without clearing the permanent floor.
+Do not hand-edit it merely to unblock an operator action. Do not deploy the
+Wrangler configs directly or use the local `deploy:*` primitives for routine
+releases; the exceptional operator path is documented in
+`docs/hotfix-procedure.md`.
 
-Then open:
+## Manual Re-registration of a Decommissioned Code
+
+There is no automatic room-code recycling. Before an administrator selects
+**Register** for a previously deleted code:
+
+1. Read the registry and require `status='decommissioned'` for its current
+   generation. A `decommissioning` or unknown state is a hard stop.
+2. Read the cutover singleton and require `status='ready'` with the exact SHA of
+   the generation-aware production release. A missing/malformed row or a SHA
+   mismatch is a hard stop.
+3. Confirm the generation-history and allocation-ledger rows both exist for
+   that exact pair and the history records the same completed deletion. Do not
+   infer completion from elapsed wall-clock time.
+4. Directly inspect the old generation's PRO and signaling tombstones, zero
+   Developer API keys, Developer API tombstone, limiter tombstone, and empty R2
+   prefix after the presigned-URL fence and one-hour continuous-empty window.
+   The terminal registry status is necessary but not a substitute for this
+   read-only evidence. If any binding cannot be inspected, stop rather than
+   deleting a tombstone to force registration.
+5. Register through the Access-protected dashboard. The D1 transaction inserts
+   the next immutable allocation and increments `room_generation` exactly once
+   before provisioning the distinct Durable Object. Retry a failed
+   provisioning row; do not submit another allocation.
+6. Verify public bootstrap exposes only the new generation, an old browser
+   session/claim/ticket/API key is rejected, and a new activation link works.
+
+The registry capacity limit counts rows whose status is not
+`decommissioned`; completed generations live in the separate history table and
+do not consume one of the 1,000 active/in-progress slots. Registration uses a
+single conditional D1 write so concurrent operators cannot both bypass the
+limit or allocate two generations.
+
+The dashboard remains at:
 
 ```text
 https://musixquare.com/admin
@@ -148,13 +239,17 @@ npm run wrangler -- d1 execute musixquare-admin-metrics --remote --json --comman
 ```
 
 The tracked application tables are `mxqr_metric_buckets`,
-`mxqr_pro_room_registry`, and `mxqr_pro_room_admin_audit`; `_cf_KV` is managed
-by Cloudflare. Applying `admin-metrics.schema.sql` also removes the retired
-`mxqr_api_rate_limits` table, which has no current Worker reader or writer. The
-PRO registry is capped by application policy and the audit contains metadata,
-never credentials. For any other unexpected table, first search the deployed
-Worker source, take a D1 export or confirm Time Travel coverage, and record the
-maintenance decision.
+`mxqr_pro_room_registry`, `mxqr_pro_room_generation_history`,
+`mxqr_pro_room_generation_allocations`,
+`mxqr_pro_room_generation_cutover`, and `mxqr_pro_room_admin_audit`; `_cf_KV`
+is managed by Cloudflare. Applying `admin-metrics.schema.sql` also removes the
+retired `mxqr_api_rate_limits` table, which has no current Worker reader or
+writer. The current registry is capped by application policy; generation
+history and the allocation ledger are immutable and unbounded by that
+active-room cap; the cutover row is a singleton release fence; and the audit
+contains metadata, never credentials. For any other unexpected table, first
+search the deployed Worker source, take a D1 export or confirm Time Travel
+coverage, and record the maintenance decision.
 
 The runtime retention cutoff is 90 days. To audit what the next scheduled
 cleanup would remove, preview the affected row count with:

@@ -16,6 +16,10 @@ export interface EffectsScopeMigrationResult {
 
 export function parseD1Rows(output: string): EffectsScopeD1Row[];
 export function scopeMaskLimitFromSchema(sql: unknown): number | null;
+export function developerApiKeySchemaStateFromSql(sql: unknown): {
+  scopeMaskLimit: number | null;
+  hasRoomGeneration: boolean;
+};
 export function migrationDisposition(
   currentLimit: number,
   operation: EffectsScopeMigrationOperation,

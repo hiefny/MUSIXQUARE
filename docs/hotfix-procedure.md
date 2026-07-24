@@ -43,6 +43,57 @@ releases never contact the D1 control plane, so a code-only deploy cannot fail
 or make the database briefly unavailable because of an unnecessary schema
 import.
 
+The reusable PRO-room-code cutover is not an ordinary code-only release. First
+take or confirm provider recovery points. Run the `Production Release` workflow
+with target `all` and enable
+`Apply the forward-only admin/auth/Developer PRO generation migrations`. The
+workflow probes each database, applies a legacy schema or safely completes a
+recognized partial forward migration, verifies the exact generation objects,
+and requires the new global cutover marker to remain `disabled` before any
+Worker changes. An unknown schema shape fails closed. Keep admin
+re-registration unused until every Worker, final deployment-ownership check,
+and live smoke passes.
+
+Enabling same-code reuse is a separate explicit input. Use it only after direct
+external evidence for `000002` and `000003` proves the old R2 prefixes empty,
+Developer API keys absent, and all PRO/signaling/limiter/registry tombstones
+complete; type the workflow's exact confirmation phrase. That attestation
+cannot be inferred from the registry status. The first-enable run also checks
+exact admin/Developer D1 evidence, including a generation-zero authorized
+delete audit dated no later than immutable completion and a non-stale registry
+timestamp, plus application-level bootstrap rejection for both codes; it still
+cannot inspect R2, signaling, or limiter storage, so the manual direct-evidence
+requirement remains. Only then may the workflow write `ready` together with its
+exact 40-character release SHA. Leave the ordinary
+Developer API schema option disabled unless the same release independently
+requires its base/effects-scope path; the generation option already authorizes
+the reviewed generation migration.
+
+The legacy effects-scope migration and rollback rebuild the Developer API key
+table and therefore may run only before `room_generation` exists. The migration
+runner detects that column and refuses either rebuild before writing a journal
+or mutating D1. After the generation migration, any scope-constraint change
+must be a new forward migration that explicitly preserves
+`(room_code, room_generation)`, key tombstones, and their triggers; never force
+the legacy effects-scope rollback during release recovery.
+
+Once the reuse cutover has ever been marked `ready`, a later generation may be
+created concurrently at any moment and automatic rollback to any
+generation-blind Worker is prohibited. The generation columns, history, and
+tombstones are permanent authorization fences and have no down migration. On
+failure, keep PRO entry fail-closed and forward-fix, or restore a matched
+provider data/code checkpoint. Do not delete a tombstone or immutable
+allocation/history row, decrement a generation, or authorize by room code alone
+to make an older Worker run.
+If a full release fails, recovery first returns the global cutover marker to
+`disabled`; it preserves `ever_enabled` and the first
+`floor_release_sha`. If that fence cannot be proven, or if the permanent floor
+or any generation above zero exists, it withholds rollback of every
+generation-sensitive Worker. A later full release may temporarily fence and
+then automatically restore a marker that was already `ready`; restoring a
+marker left disabled by a failed release requires the explicit enable input and
+confirmation again.
+
 The complete serial Playwright suite is intentionally not a production deploy
 gate or a scheduled job. Start it manually from the `Full E2E` workflow when a
 change warrants the extra coverage. Review failures there as regression
@@ -114,7 +165,8 @@ that commit is an ancestor of the candidate, and checks that Worker's mapped
 runtime inputs for undeployed changes. The app mapping covers client source,
 CSS, public and workshop pages, static-header generation, and production npm
 dependency resolutions. Worker mappings include their transitive local helper
-modules and deployment configuration. A deleted runtime file is a change too.
+modules, generation migration contracts, and deployment configuration. A
+deleted runtime file is a change too.
 If the proof is unavailable or a counterpart changed, use target `all` rather
 than guessing that the contracts remain compatible.
 

@@ -29,6 +29,7 @@ export interface DeveloperApiKeyCliDependencies {
   now?: () => number;
   randomBytes?: (size: number) => Buffer;
   execute?: (statement: string) => DeveloperApiD1Row[];
+  resolveRoomGeneration?: (roomCode: string) => number | Promise<number>;
 }
 export interface IssuedDeveloperApiKey {
   apiKey: string;
@@ -42,6 +43,10 @@ export interface RevokedDeveloperApiKey {
 export class DeveloperApiKeyCliError extends Error {}
 export function parseDeveloperApiKeyCommand(argv: readonly string[]): DeveloperApiKeyCommand;
 export function executeDeveloperApiD1(sql: string): DeveloperApiD1Row[];
+export function resolveCurrentProRoomGeneration(
+  roomCode: string,
+  execute?: (statement: string) => DeveloperApiD1Row[],
+): number;
 export function runDeveloperApiKeyCli(
   dependencies: DeveloperApiKeyCliDependencies & {
     argv: readonly ['issue', ...string[]];

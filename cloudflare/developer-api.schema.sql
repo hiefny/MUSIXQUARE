@@ -2,10 +2,10 @@
 -- tables into the admin metrics database: key revocation and audit retention
 -- are a separate security boundary.
 
--- Permanent authorization fence for deleted PRO room numbers. The room code
--- is intentionally never reusable, so this tiny tombstone outlives API keys
--- and audit detail while preventing a late in-flight write from recreating
--- either.
+-- Legacy generation-zero authorization fence. Keep this table permanently for
+-- compatibility with already deleted rooms and credentials issued before room
+-- numbers became reusable. New incarnations use the generation tombstone
+-- below, so a deleted generation never blocks a later generation.
 CREATE TABLE IF NOT EXISTS mxqr_developer_api_room_tombstones (
   room_code TEXT PRIMARY KEY NOT NULL
     CHECK (length(room_code) = 6 AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'),
@@ -13,11 +13,55 @@ CREATE TABLE IF NOT EXISTS mxqr_developer_api_room_tombstones (
   decommissioned_at INTEGER NOT NULL CHECK (decommissioned_at >= 0)
 );
 
+CREATE TABLE IF NOT EXISTS mxqr_developer_api_room_generation_tombstones (
+  room_code TEXT NOT NULL
+    CHECK (length(room_code) = 6 AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'),
+  room_generation INTEGER NOT NULL DEFAULT 0 CHECK (room_generation >= 0),
+  request_id TEXT NOT NULL,
+  decommissioned_at INTEGER NOT NULL CHECK (decommissioned_at >= 0),
+  PRIMARY KEY (room_code, room_generation)
+);
+
+-- Decommission fences are permanent. Idempotent repair may move the observed
+-- deletion time earlier, but it may never rename an incarnation, replace the
+-- originating request, postpone its fence, or remove the row.
+CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_room_tombstones_monotonic
+BEFORE UPDATE ON mxqr_developer_api_room_tombstones
+WHEN NEW.room_code <> OLD.room_code
+  OR NEW.request_id <> OLD.request_id
+  OR NEW.decommissioned_at > OLD.decommissioned_at
+BEGIN
+  SELECT RAISE(ABORT, 'developer_api_room_tombstone_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_room_tombstones_no_delete
+BEFORE DELETE ON mxqr_developer_api_room_tombstones
+BEGIN
+  SELECT RAISE(ABORT, 'developer_api_room_tombstone_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_room_generation_tombstones_monotonic
+BEFORE UPDATE ON mxqr_developer_api_room_generation_tombstones
+WHEN NEW.room_code <> OLD.room_code
+  OR NEW.room_generation <> OLD.room_generation
+  OR NEW.request_id <> OLD.request_id
+  OR NEW.decommissioned_at > OLD.decommissioned_at
+BEGIN
+  SELECT RAISE(ABORT, 'developer_api_room_generation_tombstone_immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_room_generation_tombstones_no_delete
+BEFORE DELETE ON mxqr_developer_api_room_generation_tombstones
+BEGIN
+  SELECT RAISE(ABORT, 'developer_api_room_generation_tombstone_immutable');
+END;
+
 CREATE TABLE IF NOT EXISTS mxqr_developer_api_keys (
   key_id TEXT PRIMARY KEY NOT NULL
     CHECK (length(key_id) = 16 AND key_id NOT GLOB '*[^A-Za-z0-9_-]*'),
   room_code TEXT NOT NULL
     CHECK (length(room_code) = 6 AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'),
+  room_generation INTEGER NOT NULL DEFAULT 0 CHECK (room_generation >= 0),
   label TEXT NOT NULL CHECK (length(label) BETWEEN 1 AND 64),
   secret_digest TEXT NOT NULL UNIQUE
     CHECK (length(secret_digest) = 43 AND secret_digest NOT GLOB '*[^A-Za-z0-9_-]*'),
@@ -35,8 +79,16 @@ CREATE TABLE IF NOT EXISTS mxqr_developer_api_keys (
   )
 );
 
+CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_incarnation_immutable
+BEFORE UPDATE OF room_code, room_generation ON mxqr_developer_api_keys
+WHEN NEW.room_code <> OLD.room_code
+  OR NEW.room_generation <> OLD.room_generation
+BEGIN
+  SELECT RAISE(ABORT, 'developer_api_key_incarnation_immutable');
+END;
+
 CREATE INDEX IF NOT EXISTS idx_mxqr_developer_api_keys_room_status_expiry
-  ON mxqr_developer_api_keys (room_code, status, expires_at);
+  ON mxqr_developer_api_keys (room_code, room_generation, status, expires_at);
 
 -- The scheduled global expiry sweep cannot use the room-prefixed operator
 -- index above. Keep its active-and-expired lookup bounded as key volume grows.
@@ -46,8 +98,14 @@ CREATE INDEX IF NOT EXISTS idx_mxqr_developer_api_keys_status_expiry
 CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_decommissioned_room
 BEFORE INSERT ON mxqr_developer_api_keys
 WHEN EXISTS (
-  SELECT 1 FROM mxqr_developer_api_room_tombstones
-  WHERE room_code = NEW.room_code
+  SELECT 1 FROM mxqr_developer_api_room_generation_tombstones
+  WHERE room_code = NEW.room_code AND room_generation = NEW.room_generation
+)
+OR (
+  NEW.room_generation = 0 AND EXISTS (
+    SELECT 1 FROM mxqr_developer_api_room_tombstones
+    WHERE room_code = NEW.room_code
+  )
 )
 BEGIN
   SELECT RAISE(ABORT, 'PRO_ROOM_DECOMMISSIONED');
@@ -59,17 +117,28 @@ CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_active_insert
 BEFORE INSERT ON mxqr_developer_api_keys
 WHEN NEW.status = 'active' AND (
   SELECT count(*) FROM mxqr_developer_api_keys
-  WHERE room_code = NEW.room_code AND status = 'active'
+  WHERE room_code = NEW.room_code
+    AND room_generation = NEW.room_generation
+    AND status = 'active'
 ) >= 3
 BEGIN
   SELECT RAISE(ABORT, 'developer_api_active_key_limit');
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_active_update
-BEFORE UPDATE OF status, room_code ON mxqr_developer_api_keys
-WHEN NEW.status = 'active' AND OLD.status <> 'active' AND (
+BEFORE UPDATE OF status, room_code, room_generation ON mxqr_developer_api_keys
+WHEN NEW.status = 'active'
+  AND (
+    OLD.status <> 'active'
+    OR OLD.room_code <> NEW.room_code
+    OR OLD.room_generation <> NEW.room_generation
+  )
+  AND (
   SELECT count(*) FROM mxqr_developer_api_keys
-  WHERE room_code = NEW.room_code AND status = 'active' AND key_id <> NEW.key_id
+  WHERE room_code = NEW.room_code
+    AND room_generation = NEW.room_generation
+    AND status = 'active'
+    AND key_id <> NEW.key_id
 ) >= 3
 BEGIN
   SELECT RAISE(ABORT, 'developer_api_active_key_limit');
@@ -82,6 +151,7 @@ CREATE TABLE IF NOT EXISTS mxqr_developer_api_audit (
   request_id TEXT NOT NULL,
   key_id TEXT NOT NULL,
   room_code TEXT NOT NULL,
+  room_generation INTEGER NOT NULL DEFAULT 0 CHECK (room_generation >= 0),
   action TEXT NOT NULL,
   result TEXT NOT NULL,
   status_code INTEGER NOT NULL,
@@ -94,8 +164,14 @@ CREATE INDEX IF NOT EXISTS idx_mxqr_developer_api_audit_created_at
 CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_audit_decommissioned_room
 BEFORE INSERT ON mxqr_developer_api_audit
 WHEN EXISTS (
-  SELECT 1 FROM mxqr_developer_api_room_tombstones
-  WHERE room_code = NEW.room_code
+  SELECT 1 FROM mxqr_developer_api_room_generation_tombstones
+  WHERE room_code = NEW.room_code AND room_generation = NEW.room_generation
+)
+OR (
+  NEW.room_generation = 0 AND EXISTS (
+    SELECT 1 FROM mxqr_developer_api_room_tombstones
+    WHERE room_code = NEW.room_code
+  )
 )
 BEGIN
   SELECT RAISE(IGNORE);
@@ -110,6 +186,7 @@ CREATE TABLE IF NOT EXISTS mxqr_developer_api_admin_audit (
   result TEXT NOT NULL,
   key_id TEXT NOT NULL,
   room_code TEXT NOT NULL,
+  room_generation INTEGER NOT NULL DEFAULT 0 CHECK (room_generation >= 0),
   created_at INTEGER NOT NULL
 );
 
@@ -119,8 +196,14 @@ CREATE INDEX IF NOT EXISTS idx_mxqr_developer_api_admin_audit_created_at
 CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_admin_audit_decommissioned_room
 BEFORE INSERT ON mxqr_developer_api_admin_audit
 WHEN EXISTS (
-  SELECT 1 FROM mxqr_developer_api_room_tombstones
-  WHERE room_code = NEW.room_code
+  SELECT 1 FROM mxqr_developer_api_room_generation_tombstones
+  WHERE room_code = NEW.room_code AND room_generation = NEW.room_generation
+)
+OR (
+  NEW.room_generation = 0 AND EXISTS (
+    SELECT 1 FROM mxqr_developer_api_room_tombstones
+    WHERE room_code = NEW.room_code
+  )
 )
 BEGIN
   SELECT RAISE(IGNORE);
@@ -152,7 +235,15 @@ WHEN OLD.status = 'active'
   END
 BEGIN
   INSERT OR IGNORE INTO mxqr_developer_api_admin_audit
-    (actor_id, action, result, key_id, room_code, created_at)
+    (actor_id, action, result, key_id, room_code, room_generation, created_at)
   VALUES
-    ('system:expiry', 'key.expire', 'expired', NEW.key_id, NEW.room_code, NEW.expires_at);
+    (
+      'system:expiry',
+      'key.expire',
+      'expired',
+      NEW.key_id,
+      NEW.room_code,
+      NEW.room_generation,
+      NEW.expires_at
+    );
 END;

@@ -135,6 +135,53 @@ describe('private Developer API facade', () => {
     await expect(forwarded.json()).resolves.toEqual({ keyId: KEY_ID, projection: 'room' });
   });
 
+  it('routes later generations to a distinct room object and rejects body/header mismatches', async () => {
+    const rooms = namespace(() =>
+      Response.json({
+        schemaVersion: 1,
+        view: 'room',
+        roomCode: ROOM_CODE,
+        status: 'active',
+        runtime: 'awake',
+        revision: 1,
+        participantCount: 0,
+        controlAvailable: false,
+        quota: {
+          limitBytes: 1_073_741_824,
+          perAssetLimitBytes: 209_715_200,
+          usedBytes: 0,
+          reservedBytes: 0,
+        },
+      }),
+    );
+    const accepted = await facadeWorker.fetch(
+      request(
+        { roomCode: ROOM_CODE, roomGeneration: 7, keyId: KEY_ID, projection: 'room' },
+        { headers: { 'x-mxqr-pro-room-generation': '7' } },
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+
+    expect(accepted.status).toBe(200);
+    expect(rooms.idFromName).toHaveBeenCalledWith(`${ROOM_CODE}:generation:7`);
+    expect(rooms.seen[0]?.headers.get('x-mxqr-pro-room-generation')).toBe('7');
+    await expect(rooms.seen[0]?.json()).resolves.toEqual({
+      roomGeneration: 7,
+      keyId: KEY_ID,
+      projection: 'room',
+    });
+
+    const rejected = await facadeWorker.fetch(
+      request(
+        { roomCode: ROOM_CODE, roomGeneration: 7, keyId: KEY_ID, projection: 'room' },
+        { headers: { 'x-mxqr-pro-room-generation': '8' } },
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+    expect(rejected.status).toBe(400);
+    expect(rooms.get).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps read forwarding compatible while the public API rolls out caller-relative provenance', async () => {
     const rooms = namespace(() =>
       Response.json({
@@ -1246,6 +1293,64 @@ describe('private Developer API facade', () => {
       '/internal/developer/v1/media/uploads/create',
       '/internal/developer/v1/media/uploads/complete',
     ]);
+  });
+
+  it('requires later-generation upload metadata to match the routed incarnation', async () => {
+    const reservation = (metadataGeneration: string) =>
+      Response.json(
+        {
+          schemaVersion: 1,
+          roomCode: ROOM_CODE,
+          assetId: ASSET_ID,
+          queueItemId: QUEUE_ITEM_ID,
+          byteLength: 4_096,
+          uploadExpiresAtMs: 1_784_263_810_000,
+          completionExpiresAtMs: 1_784_263_990_000,
+          upload: {
+            method: 'PUT',
+            url: UPLOAD_URL,
+            headers: {
+              'content-length': '4096',
+              'content-type': 'audio/flac',
+              'x-amz-meta-mxqr-room': ROOM_CODE,
+              'x-amz-meta-mxqr-generation': metadataGeneration,
+              'x-amz-meta-mxqr-asset': ASSET_ID,
+              'x-amz-meta-mxqr-version': '1',
+              'x-amz-meta-mxqr-bytes': '4096',
+            },
+          },
+          quota: {
+            limitBytes: 1_073_741_824,
+            perAssetLimitBytes: 209_715_200,
+            usedBytes: 0,
+            reservedBytes: 4_096,
+          },
+        },
+        { status: 201 },
+      );
+    const body = {
+      roomCode: ROOM_CODE,
+      roomGeneration: 7,
+      keyId: KEY_ID,
+      idempotencyKey: IDEMPOTENCY_KEY,
+      media: { name: 'Orchestra.flac', byteLength: 4_096, mime: 'audio/flac' },
+    };
+    const headers = { 'x-mxqr-pro-room-generation': '7' };
+    const matchingRooms = namespace(() => reservation('7'));
+    const accepted = await facadeWorker.fetch(
+      request(body, { headers }, '/internal/v1/media/uploads/create'),
+      { PRO_ROOM_DEVELOPER_ROOMS: matchingRooms },
+    );
+    expect(accepted.status).toBe(201);
+    expect(matchingRooms.idFromName).toHaveBeenCalledWith(`${ROOM_CODE}:generation:7`);
+
+    const mismatchedRooms = namespace(() => reservation('6'));
+    const rejected = await facadeWorker.fetch(
+      request(body, { headers }, '/internal/v1/media/uploads/create'),
+      { PRO_ROOM_DEVELOPER_ROOMS: mismatchedRooms },
+    );
+    expect(rejected.status).toBe(503);
+    await expect(rejected.json()).resolves.toEqual({ error: 'INVALID_BACKEND_RESPONSE' });
   });
 
   it('fails closed when an upload reservation contains a non-R2 URL or unsigned headers', async () => {

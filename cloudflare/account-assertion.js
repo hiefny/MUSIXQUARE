@@ -1,4 +1,5 @@
 import { normalizeAccountNickname } from './account-nickname.js';
+import { LEGACY_PRO_ROOM_GENERATION, isProRoomGeneration } from './pro-room-generation.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -58,7 +59,18 @@ async function hmac(secret, value) {
 function validPayload(value, options = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const keys = Object.keys(value).sort();
-  const expected = ['accountId', 'aud', 'exp', 'iat', 'nickname', 'roomCode', 'v'];
+  const expectedLegacy = ['accountId', 'aud', 'exp', 'iat', 'nickname', 'roomCode', 'v'];
+  const expectedCurrent = [
+    'accountId',
+    'aud',
+    'exp',
+    'iat',
+    'nickname',
+    'roomCode',
+    'roomGeneration',
+    'v',
+  ];
+  const expected = keys.includes('roomGeneration') ? expectedCurrent : expectedLegacy;
   if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index])) {
     return null;
   }
@@ -74,6 +86,9 @@ function validPayload(value, options = {}) {
     !ACCOUNT_ID_RE.test(value.accountId || '') ||
     !PRO_ROOM_CODE_RE.test(value.roomCode || '') ||
     (expectedRoomCode !== undefined && value.roomCode !== expectedRoomCode) ||
+    (value.roomGeneration !== undefined && !isProRoomGeneration(value.roomGeneration)) ||
+    (options.roomGeneration !== undefined &&
+      (value.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION) !== options.roomGeneration) ||
     !nickname ||
     !Number.isSafeInteger(value.iat) ||
     !Number.isSafeInteger(value.exp) ||
@@ -88,6 +103,7 @@ function validPayload(value, options = {}) {
     accountId: value.accountId,
     nickname,
     roomCode: value.roomCode,
+    roomGeneration: value.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION,
     audience: value.aud,
     issuedAt: value.iat,
     expiresAt: value.exp,
@@ -98,22 +114,32 @@ function validPayload(value, options = {}) {
  * Create a short-lived service assertion. The account session itself remains
  * in the App Worker; downstream room services see only this bounded proof.
  */
-export async function createAccountAssertion(input, secret, nowSeconds = Math.floor(Date.now() / 1000)) {
+export async function createAccountAssertion(
+  input,
+  secret,
+  nowSeconds = Math.floor(Date.now() / 1000),
+) {
   if (typeof secret !== 'string' || secret.length < 32) return null;
   const nickname = normalizeAccountNickname(input?.nickname);
   if (
     !ACCOUNT_ID_RE.test(input?.accountId || '') ||
     !PRO_ROOM_CODE_RE.test(input?.roomCode || '') ||
     input?.audience !== ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM ||
+    !isProRoomGeneration(input?.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION) ||
     !nickname ||
     !Number.isSafeInteger(nowSeconds)
   ) {
     return null;
   }
+  const roomGeneration = input.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION;
   const payload = {
     v: ASSERTION_VERSION,
     aud: input.audience,
     roomCode: input.roomCode,
+    // Generation zero predates reusable room codes. Keep its signed payload
+    // byte-shape compatible with an older PRO Worker during additive rollout;
+    // the current verifier treats an omitted generation as exactly zero.
+    ...(roomGeneration === LEGACY_PRO_ROOM_GENERATION ? {} : { roomGeneration }),
     accountId: input.accountId,
     nickname,
     iat: nowSeconds,

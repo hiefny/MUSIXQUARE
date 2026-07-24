@@ -1,0 +1,670 @@
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import type { DatabaseSync } from 'node:sqlite';
+import { describe, expect, it } from 'vitest';
+
+const ADMIN_SCHEMA = readFileSync(
+  new URL('../../../cloudflare/admin-metrics.schema.sql', import.meta.url),
+  'utf8',
+);
+const ADMIN_GENERATION_MIGRATION = readFileSync(
+  new URL('../../../cloudflare/admin-metrics.pro-room-generation.migration.sql', import.meta.url),
+  'utf8',
+);
+const ADMIN_GENERATION_READINESS = readFileSync(
+  new URL('../../../scripts/sql/pro-room-generation-admin-readiness.sql', import.meta.url),
+  'utf8',
+);
+const ADMIN_DELETION_EVIDENCE = readFileSync(
+  new URL('../../../scripts/sql/pro-room-generation-admin-deletion-evidence.sql', import.meta.url),
+  'utf8',
+);
+const RELEASE_SHA = '1234567890abcdef1234567890abcdef12345678';
+
+const sqlite = (() => {
+  try {
+    return createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
+  } catch {
+    // Node 20 remains supported even though node:sqlite starts in Node 22.
+    return null;
+  }
+})();
+
+function openDatabase(): DatabaseSync {
+  if (!sqlite) throw new Error('node:sqlite is unavailable');
+  return new sqlite.DatabaseSync(':memory:');
+}
+
+function insertRegistry(
+  db: DatabaseSync,
+  roomCode: string,
+  status = 'registered',
+  generation = 0,
+): void {
+  db.prepare(
+    `INSERT INTO mxqr_pro_room_registry
+       (
+         room_code,
+         label,
+         status,
+         activation_state,
+         room_generation,
+         created_at,
+         updated_at
+       )
+     VALUES (?, ?, ?, 'unactivated', ?, 100, 100)`,
+  ).run(roomCode, `Room ${roomCode}`, status, generation);
+}
+
+function enableCutover(db: DatabaseSync): void {
+  db.prepare(
+    `UPDATE mxqr_pro_room_generation_cutover
+     SET status = 'ready',
+         release_sha = ?,
+         ever_enabled = 1,
+         floor_release_sha = COALESCE(floor_release_sha, ?),
+         updated_at = 200
+     WHERE contract_version = 1`,
+  ).run(RELEASE_SHA, RELEASE_SHA);
+}
+
+function conditionalInitialRegistration(
+  db: DatabaseSync,
+  roomCode: string,
+  label: string,
+  timestamp: number,
+): number {
+  const result = db
+    .prepare(
+      `INSERT OR IGNORE INTO mxqr_pro_room_registry
+         (
+           room_code,
+           label,
+           status,
+           activation_state,
+           room_generation,
+           created_at,
+           updated_at
+         )
+       SELECT ?, ?, 'provisioning', 'unactivated', 0, ?, ?
+       WHERE (
+         SELECT COUNT(*)
+         FROM mxqr_pro_room_registry
+         WHERE status <> 'decommissioned'
+       ) < 1000
+         AND NOT EXISTS (
+           SELECT 1
+           FROM mxqr_pro_room_generation_allocations
+           WHERE room_code = ?
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM mxqr_pro_room_generation_history
+           WHERE room_code = ?
+         )`,
+    )
+    .run(roomCode, label, timestamp, timestamp, roomCode, roomCode);
+  return Number(result.changes);
+}
+
+(sqlite ? describe : describe.skip)(
+  'PRO room generation registry against tracked SQLite/D1 schemas',
+  () => {
+    it('allocates each incarnation once and enforces pointer, history, and floor immutability', () => {
+      const db = openDatabase();
+      try {
+        db.exec(ADMIN_SCHEMA);
+        insertRegistry(db, '000010');
+
+        expect(
+          db
+            .prepare(
+              `SELECT room_generation, allocated_at
+               FROM mxqr_pro_room_generation_allocations
+               WHERE room_code = '000010'`,
+            )
+            .all(),
+        ).toEqual([{ room_generation: 0, allocated_at: 100 }]);
+
+        expect(() =>
+          db.exec(`DELETE FROM mxqr_pro_room_registry WHERE room_code = '000010'`),
+        ).toThrow(/registry pointers are immutable/i);
+        expect(() =>
+          db.exec(
+            `UPDATE mxqr_pro_room_registry
+             SET room_code = '000011'
+             WHERE room_code = '000010'`,
+          ),
+        ).toThrow(/registry code is immutable/i);
+        expect(() =>
+          db.exec(
+            `UPDATE mxqr_pro_room_generation_allocations
+             SET allocated_at = 101
+             WHERE room_code = '000010' AND room_generation = 0`,
+          ),
+        ).toThrow(/generation allocation is immutable/i);
+        expect(() =>
+          db.exec(
+            `DELETE FROM mxqr_pro_room_generation_allocations
+             WHERE room_code = '000010' AND room_generation = 0`,
+          ),
+        ).toThrow(/generation allocation is immutable/i);
+        expect(() =>
+          db.exec(
+            `INSERT INTO mxqr_pro_room_generation_history
+               (room_code, room_generation, status, decommissioned_at)
+             VALUES ('000010', 7, 'decommissioned', 101)`,
+          ),
+        ).toThrow(/generation allocation is missing/i);
+        expect(() => insertRegistry(db, '000011', 'unknown-status')).toThrow(
+          /invalid pro room registry status/i,
+        );
+
+        expect(() =>
+          db.exec(
+            `UPDATE mxqr_pro_room_registry
+             SET status = 'provisioning', room_generation = 1
+             WHERE room_code = '000010'`,
+          ),
+        ).toThrow(/invalid pro room generation transition/i);
+
+        db.exec(
+          `INSERT INTO mxqr_pro_room_generation_history
+             (room_code, room_generation, status, decommissioned_at)
+           VALUES ('000010', 0, 'decommissioned', 150);
+           UPDATE mxqr_pro_room_registry
+           SET status = 'decommissioned', updated_at = 150
+           WHERE room_code = '000010';`,
+        );
+        expect(() =>
+          db.exec(
+            `UPDATE mxqr_pro_room_registry
+             SET status = 'registered'
+             WHERE room_code = '000010'`,
+          ),
+        ).toThrow(/terminal evidence transition/i);
+
+        expect(() =>
+          db.exec(
+            `UPDATE mxqr_pro_room_registry
+             SET status = 'provisioning',
+                 room_generation = room_generation + 1,
+                 created_at = 201,
+                 updated_at = 201
+             WHERE room_code = '000010'`,
+          ),
+        ).toThrow(/generation cutover is not ready/i);
+
+        expect(() =>
+          db
+            .prepare(
+              `UPDATE mxqr_pro_room_generation_cutover
+               SET status = 'ready',
+                   release_sha = ?,
+                   ever_enabled = 1,
+                   floor_release_sha = ?,
+                   updated_at = 199
+               WHERE contract_version = 1`,
+            )
+            .run(RELEASE_SHA, 'abcdefabcdefabcdefabcdefabcdefabcdefabcd'),
+        ).toThrow(/rollback floor is immutable/i);
+
+        enableCutover(db);
+        const first = db
+          .prepare(
+            `UPDATE mxqr_pro_room_registry
+             SET status = 'provisioning',
+                 room_generation = room_generation + 1,
+                 created_at = 201,
+                 updated_at = 201
+             WHERE room_code = '000010'
+               AND room_generation = 0
+               AND status = 'decommissioned'`,
+          )
+          .run();
+        const competing = db
+          .prepare(
+            `UPDATE mxqr_pro_room_registry
+             SET status = 'provisioning',
+                 room_generation = room_generation + 1,
+                 created_at = 202,
+                 updated_at = 202
+             WHERE room_code = '000010'
+               AND room_generation = 0
+               AND status = 'decommissioned'`,
+          )
+          .run();
+
+        expect(Number(first.changes)).toBe(1);
+        expect(Number(competing.changes)).toBe(0);
+        expect(
+          db
+            .prepare(
+              `SELECT room_generation
+               FROM mxqr_pro_room_generation_allocations
+               WHERE room_code = '000010'
+               ORDER BY room_generation`,
+            )
+            .all(),
+        ).toEqual([{ room_generation: 0 }, { room_generation: 1 }]);
+        expect(
+          db
+            .prepare(
+              `SELECT status, room_generation
+               FROM mxqr_pro_room_registry
+               WHERE room_code = '000010'`,
+            )
+            .get(),
+        ).toMatchObject({ status: 'provisioning', room_generation: 1 });
+
+        expect(() =>
+          db.exec(
+            `UPDATE mxqr_pro_room_generation_cutover
+             SET ever_enabled = 0, floor_release_sha = NULL
+             WHERE contract_version = 1`,
+          ),
+        ).toThrow(/rollback floor is immutable/i);
+        expect(() =>
+          db.exec(
+            `DELETE FROM mxqr_pro_room_generation_cutover
+             WHERE contract_version = 1`,
+          ),
+        ).toThrow(/generation cutover is permanent/i);
+
+        db.exec(
+          `UPDATE mxqr_pro_room_generation_cutover
+           SET status = 'disabled', release_sha = NULL, updated_at = 203
+           WHERE contract_version = 1`,
+        );
+        expect(
+          db
+            .prepare(
+              `SELECT status, release_sha, ever_enabled, floor_release_sha
+               FROM mxqr_pro_room_generation_cutover
+               WHERE contract_version = 1`,
+            )
+            .get(),
+        ).toMatchObject({
+          status: 'disabled',
+          release_sha: null,
+          ever_enabled: 1,
+          floor_release_sha: RELEASE_SHA,
+        });
+      } finally {
+        db.close();
+      }
+    });
+
+    it('keeps deletion states terminal and recovers a rolling-window completion only after evidence exists', () => {
+      const db = openDatabase();
+      try {
+        db.exec(ADMIN_SCHEMA);
+        insertRegistry(db, '000012');
+        db.exec(
+          `UPDATE mxqr_pro_room_registry
+           SET status = 'decommissioning'
+           WHERE room_code = '000012'`,
+        );
+
+        expect(() =>
+          db.exec(
+            `UPDATE mxqr_pro_room_registry
+             SET status = 'registered'
+             WHERE room_code = '000012'`,
+          ),
+        ).toThrow(/terminal evidence transition/i);
+        // An old Worker completing during the additive migration has not yet
+        // written generation history, so the pointer remains access-blocked.
+        expect(() =>
+          db.exec(
+            `UPDATE mxqr_pro_room_registry
+             SET status = 'decommissioned'
+             WHERE room_code = '000012'`,
+          ),
+        ).toThrow(/terminal evidence transition/i);
+        expect(
+          db.prepare(`SELECT status FROM mxqr_pro_room_registry WHERE room_code = '000012'`).get(),
+        ).toEqual({ status: 'decommissioning' });
+
+        // The generation-aware repair/alarm writes immutable evidence first,
+        // then the exact same transition succeeds.
+        db.exec(
+          `INSERT INTO mxqr_pro_room_generation_history
+             (room_code, room_generation, status, decommissioned_at)
+           VALUES ('000012', 0, 'decommissioned', 200);
+           UPDATE mxqr_pro_room_registry
+           SET status = 'decommissioned', updated_at = 200
+           WHERE room_code = '000012';`,
+        );
+        expect(() =>
+          db.exec(
+            `UPDATE mxqr_pro_room_registry
+             SET status = 'suspended'
+             WHERE room_code = '000012'`,
+          ),
+        ).toThrow(/terminal evidence transition/i);
+      } finally {
+        db.close();
+      }
+    });
+
+    it('excludes lifetime tombstones from the cap and serializes same-code and cross-code races', () => {
+      const db = openDatabase();
+      try {
+        db.exec(ADMIN_SCHEMA);
+        for (let index = 0; index < 1_000; index += 1) {
+          insertRegistry(db, `03${String(index).padStart(4, '0')}`, 'decommissioned');
+        }
+        for (let index = 0; index < 999; index += 1) {
+          insertRegistry(db, `04${String(index).padStart(4, '0')}`);
+        }
+
+        expect(
+          db
+            .prepare(
+              `SELECT
+                 SUM(status = 'decommissioned') AS tombstones,
+                 SUM(status <> 'decommissioned') AS active
+               FROM mxqr_pro_room_registry`,
+            )
+            .get(),
+        ).toEqual({ tombstones: 1_000, active: 999 });
+
+        // These model two different registration requests linearized by D1.
+        // The COUNT predicate is part of each INSERT, so only one can consume
+        // the final slot even if both callers observed 999 beforehand.
+        expect(conditionalInitialRegistration(db, '050000', 'Winner', 200)).toBe(1);
+        expect(conditionalInitialRegistration(db, '050001', 'Capacity loser', 201)).toBe(0);
+        expect(
+          db
+            .prepare(
+              `SELECT COUNT(*) AS count
+               FROM mxqr_pro_room_registry
+               WHERE status <> 'decommissioned'`,
+            )
+            .get(),
+        ).toEqual({ count: 1_000 });
+        expect(
+          db
+            .prepare(
+              `SELECT COUNT(*) AS count
+               FROM mxqr_pro_room_generation_allocations
+               WHERE room_code IN ('050000', '050001')`,
+            )
+            .get(),
+        ).toEqual({ count: 1 });
+
+        const sameCodeDb = openDatabase();
+        try {
+          sameCodeDb.exec(ADMIN_SCHEMA);
+          expect(conditionalInitialRegistration(sameCodeDb, '060000', 'First', 300)).toBe(1);
+          expect(conditionalInitialRegistration(sameCodeDb, '060000', 'Competing', 301)).toBe(0);
+          expect(
+            sameCodeDb
+              .prepare(
+                `SELECT room_generation
+                 FROM mxqr_pro_room_generation_allocations
+                 WHERE room_code = '060000'`,
+              )
+              .all(),
+          ).toEqual([{ room_generation: 0 }]);
+        } finally {
+          sameCodeDb.close();
+        }
+      } finally {
+        db.close();
+      }
+    });
+
+    it('queries exact registry, history, allocation, and authorized-delete cutover evidence', () => {
+      const db = openDatabase();
+      try {
+        db.exec(ADMIN_SCHEMA);
+        for (const roomCode of ['000002', '000003']) {
+          insertRegistry(db, roomCode, 'decommissioned');
+          db.prepare(
+            `INSERT INTO mxqr_pro_room_generation_history
+               (room_code, room_generation, status, decommissioned_at, request_id)
+             VALUES (?, 0, 'decommissioned', 100, ?)`,
+          ).run(roomCode, `delete-${roomCode}`);
+          db.prepare(
+            `INSERT INTO mxqr_pro_room_admin_audit
+               (actor_id, action, result, room_code, room_generation, created_at)
+             VALUES ('operator', 'room.delete', 'authorized', ?, 0, 90)`,
+          ).run(roomCode);
+        }
+
+        expect(db.prepare(ADMIN_DELETION_EVIDENCE).all()).toEqual([
+          expect.objectContaining({
+            room_code: '000002',
+            registry_status: 'decommissioned',
+            registry_generation: 0,
+            history_count: 1,
+            history_decommissioned_at: 100,
+            allocation_count: 1,
+            other_allocation_count: 0,
+            authorized_delete_audit_count: 1,
+            authorized_delete_audit_latest_at: 90,
+          }),
+          expect.objectContaining({
+            room_code: '000003',
+            registry_status: 'decommissioned',
+            registry_generation: 0,
+            history_count: 1,
+            history_decommissioned_at: 100,
+            allocation_count: 1,
+            other_allocation_count: 0,
+            authorized_delete_audit_count: 1,
+            authorized_delete_audit_latest_at: 90,
+          }),
+        ]);
+      } finally {
+        db.close();
+      }
+    });
+
+    it('fails closed when a pointer is missing but immutable incarnation evidence remains', () => {
+      const db = openDatabase();
+      try {
+        db.exec(ADMIN_SCHEMA);
+        insertRegistry(db, '000020');
+        db.exec(
+          `INSERT INTO mxqr_pro_room_generation_history
+             (room_code, room_generation, status, decommissioned_at)
+           VALUES ('000020', 0, 'decommissioned', 150);
+           UPDATE mxqr_pro_room_registry
+           SET status = 'decommissioned', updated_at = 150
+           WHERE room_code = '000020';`,
+        );
+
+        // Ordinary pointer deletion is impossible. Dropping just that guard
+        // simulates a preexisting/out-of-band corruption while preserving the
+        // independent allocation and history fences.
+        db.exec(
+          `DROP TRIGGER mxqr_pro_room_registry_no_delete;
+           DELETE FROM mxqr_pro_room_registry WHERE room_code = '000020';`,
+        );
+        expect(
+          db
+            .prepare(
+              `SELECT COUNT(*) AS count
+               FROM mxqr_pro_room_generation_allocations
+               WHERE room_code = '000020'`,
+            )
+            .get(),
+        ).toMatchObject({ count: 1 });
+        expect(
+          db
+            .prepare(
+              `SELECT COUNT(*) AS count
+               FROM mxqr_pro_room_generation_history
+               WHERE room_code = '000020'`,
+            )
+            .get(),
+        ).toMatchObject({ count: 1 });
+
+        expect(() => insertRegistry(db, '000020')).toThrow(/registry repair required/i);
+        expect(
+          db
+            .prepare(
+              `SELECT COUNT(*) AS count
+               FROM mxqr_pro_room_registry
+               WHERE room_code = '000020'`,
+            )
+            .get(),
+        ).toMatchObject({ count: 0 });
+      } finally {
+        db.close();
+      }
+    });
+
+    it('backfills every legacy current and terminal generation before installing guards', () => {
+      const db = openDatabase();
+      try {
+        db.exec(
+          `CREATE TABLE mxqr_pro_room_registry (
+             room_code TEXT PRIMARY KEY NOT NULL,
+             label TEXT NOT NULL,
+             status TEXT NOT NULL DEFAULT 'registered',
+             activation_state TEXT NOT NULL DEFAULT 'unactivated',
+             created_at INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL
+           );
+           CREATE TABLE mxqr_pro_room_admin_audit (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             actor_id TEXT NOT NULL,
+             action TEXT NOT NULL,
+             result TEXT NOT NULL,
+             room_code TEXT NOT NULL,
+             created_at INTEGER NOT NULL
+           );
+           INSERT INTO mxqr_pro_room_registry
+             (room_code, label, status, activation_state, created_at, updated_at)
+           VALUES
+             ('000030', 'Active legacy', 'registered', 'active', 30, 31),
+             ('000031', 'Deleted legacy', 'decommissioned', 'unactivated', 40, 41);`,
+        );
+        db.exec(ADMIN_GENERATION_MIGRATION);
+
+        expect(
+          db
+            .prepare(
+              `SELECT room_code, room_generation
+               FROM mxqr_pro_room_generation_allocations
+               ORDER BY room_code`,
+            )
+            .all(),
+        ).toEqual([
+          { room_code: '000030', room_generation: 0 },
+          { room_code: '000031', room_generation: 0 },
+        ]);
+        expect(
+          db
+            .prepare(
+              `SELECT room_code, room_generation, status
+               FROM mxqr_pro_room_generation_history`,
+            )
+            .all(),
+        ).toEqual([
+          {
+            room_code: '000031',
+            room_generation: 0,
+            status: 'decommissioned',
+          },
+        ]);
+        expect(() =>
+          db.exec(`DELETE FROM mxqr_pro_room_registry WHERE room_code = '000030'`),
+        ).toThrow(/registry pointers are immutable/i);
+        expect(() =>
+          db.exec(
+            `UPDATE mxqr_pro_room_registry
+             SET room_code = '000032'
+             WHERE room_code = '000030'`,
+          ),
+        ).toThrow(/registry code is immutable/i);
+      } finally {
+        db.close();
+      }
+    });
+
+    it('fails schema readiness when immutable allocation or terminal history data is missing', () => {
+      const db = openDatabase();
+      try {
+        db.exec(ADMIN_SCHEMA);
+        insertRegistry(db, '000040');
+        expect(db.prepare(ADMIN_GENERATION_READINESS).get()).toMatchObject({ schema_ready: 1 });
+
+        db.exec(
+          `DROP TRIGGER mxqr_pro_room_generation_allocations_no_delete;
+           DELETE FROM mxqr_pro_room_generation_allocations
+           WHERE room_code = '000040' AND room_generation = 0;
+           CREATE TRIGGER mxqr_pro_room_generation_allocations_no_delete
+           BEFORE DELETE ON mxqr_pro_room_generation_allocations
+           BEGIN
+             SELECT RAISE(ABORT, 'PRO room generation allocation is immutable');
+           END;`,
+        );
+        expect(db.prepare(ADMIN_GENERATION_READINESS).get()).toMatchObject({ schema_ready: 0 });
+
+        db.exec(
+          `INSERT INTO mxqr_pro_room_generation_allocations
+             (room_code, room_generation, allocated_at)
+           VALUES ('000040', 0, 100);
+           DROP TRIGGER mxqr_pro_room_registry_status_transition_guard;
+           UPDATE mxqr_pro_room_registry
+           SET status = 'decommissioned', updated_at = 200
+           WHERE room_code = '000040';`,
+        );
+        db.exec(ADMIN_SCHEMA);
+        expect(db.prepare(ADMIN_GENERATION_READINESS).get()).toMatchObject({ schema_ready: 0 });
+
+        db.exec(
+          `INSERT INTO mxqr_pro_room_generation_history
+             (room_code, room_generation, status, decommissioned_at)
+           VALUES ('000040', 0, 'decommissioned', 200);`,
+        );
+        expect(db.prepare(ADMIN_GENERATION_READINESS).get()).toMatchObject({ schema_ready: 1 });
+      } finally {
+        db.close();
+      }
+    });
+
+    it('fails readiness on a legacy malformed status until an explicit repair', () => {
+      const db = openDatabase();
+      try {
+        db.exec(
+          `CREATE TABLE mxqr_pro_room_registry (
+             room_code TEXT PRIMARY KEY NOT NULL,
+             label TEXT NOT NULL,
+             status TEXT NOT NULL DEFAULT 'registered',
+             activation_state TEXT NOT NULL DEFAULT 'unactivated',
+             created_at INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL
+           );
+           CREATE TABLE mxqr_pro_room_admin_audit (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             actor_id TEXT NOT NULL,
+             action TEXT NOT NULL,
+             result TEXT NOT NULL,
+             room_code TEXT NOT NULL,
+             created_at INTEGER NOT NULL
+           );
+           INSERT INTO mxqr_pro_room_registry
+             (room_code, label, status, activation_state, created_at, updated_at)
+           VALUES ('000041', 'Malformed legacy', 'mystery', 'unactivated', 40, 41);`,
+        );
+        db.exec(ADMIN_GENERATION_MIGRATION);
+
+        expect(db.prepare(ADMIN_GENERATION_READINESS).get()).toMatchObject({ schema_ready: 0 });
+        db.exec(
+          `UPDATE mxqr_pro_room_registry
+           SET status = 'registered', updated_at = 42
+           WHERE room_code = '000041'`,
+        );
+        expect(db.prepare(ADMIN_GENERATION_READINESS).get()).toMatchObject({ schema_ready: 1 });
+      } finally {
+        db.close();
+      }
+    });
+  },
+);

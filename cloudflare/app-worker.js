@@ -10,6 +10,13 @@ import {
   ACCOUNT_ASSERTION_HEADER,
   createAccountAssertion,
 } from './account-assertion.js';
+import {
+  LEGACY_PRO_ROOM_GENERATION,
+  MAX_PRO_ROOM_GENERATION,
+  isProRoomGeneration,
+  proRoomGenerationHeaderValue,
+  proRoomObjectName,
+} from './pro-room-generation.js';
 
 const YOUTUBE_SEARCH_API = 'https://www.googleapis.com/youtube/v3/search';
 const YOUTUBE_PLAYLIST_ITEMS_API = 'https://www.googleapis.com/youtube/v3/playlistItems';
@@ -88,7 +95,12 @@ const ADMIN_DEVELOPER_API_KEY_PATH_RE =
   /^\/api\/admin\/pro-rooms\/(0\d{5})\/api-keys(?:\/([A-Za-z0-9_-]{16}))?$/;
 const ADMIN_PRO_ROOM_CODE_RE = /^0\d{5}$/;
 const ADMIN_PRO_ROOM_REGISTRY_TABLE = 'mxqr_pro_room_registry';
+const ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE = 'mxqr_pro_room_generation_history';
+const ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE = 'mxqr_pro_room_generation_allocations';
+const ADMIN_PRO_ROOM_GENERATION_CUTOVER_TABLE = 'mxqr_pro_room_generation_cutover';
 const ADMIN_PRO_ROOM_AUDIT_TABLE = 'mxqr_pro_room_admin_audit';
+const ADMIN_PRO_ROOM_GENERATION_CONTRACT_VERSION = 1;
+const RELEASE_SHA_RE = /^[0-9a-f]{40}$/;
 const ADMIN_PRO_ROOM_REGISTRY_LIMIT = 1000;
 const ADMIN_PRO_ROOM_LABEL_MAX_LENGTH = 64;
 const ADMIN_PRO_ROOM_ACTIVATION_CLAIM_MAX_TTL_MS = 15 * 60 * 1000;
@@ -254,7 +266,7 @@ async function preflightRegisteredProBotRoom(env, roomCode) {
   try {
     const statement = db
       .prepare(
-        `SELECT status FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+        `SELECT status, room_generation FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
          WHERE room_code = ?1 LIMIT 1`,
       )
       .bind(roomCode);
@@ -262,7 +274,9 @@ async function preflightRegisteredProBotRoom(env, roomCode) {
       typeof statement.first === 'function'
         ? await statement.first()
         : (await statement.all())?.results?.[0] || null;
-    return row?.status === 'registered' ? null : 'BOT_ROOM_ONLY';
+    if (row?.status !== 'registered') return 'BOT_ROOM_ONLY';
+    const roomGeneration = Number(row.room_generation ?? LEGACY_PRO_ROOM_GENERATION);
+    return isProRoomGeneration(roomGeneration) ? { roomGeneration } : 'BOT_UNAVAILABLE';
   } catch {
     return 'BOT_UNAVAILABLE';
   }
@@ -270,10 +284,10 @@ async function preflightRegisteredProBotRoom(env, roomCode) {
 
 async function preflightRegisteredProRoomAccountLink(env, roomCode) {
   const db = getAdminDb(env);
-  if (!db?.prepare) return false;
+  if (!db?.prepare) return null;
   const statement = db
     .prepare(
-      `SELECT status FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+      `SELECT status, room_generation FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
        WHERE room_code = ?1 LIMIT 1`,
     )
     .bind(roomCode);
@@ -285,7 +299,9 @@ async function preflightRegisteredProRoomAccountLink(env, roomCode) {
   // its first owner/account cleanup edge can be created. Provisioning,
   // suspended and permanently decommissioned rooms must never grow the
   // account reverse index.
-  return row?.status === 'registered';
+  if (row?.status !== 'registered') return null;
+  const roomGeneration = Number(row.room_generation ?? LEGACY_PRO_ROOM_GENERATION);
+  return isProRoomGeneration(roomGeneration) ? { roomGeneration } : null;
 }
 
 async function handleProRoomFacade(request, env, url) {
@@ -382,6 +398,7 @@ async function handleProRoomFacade(request, env, url) {
     headers.set('Origin', url.origin);
   }
   headers.delete('X-MXQR-Pro-Room-Code');
+  headers.delete('X-MXQR-Pro-Room-Generation');
   headers.delete('X-MXQR-Pro-IP-Hash');
   // A browser can name this header but can never supply its value. Account
   // identity is resolved from the App Worker's host-only session cookie and
@@ -399,20 +416,18 @@ async function handleProRoomFacade(request, env, url) {
       const account = await resolveAccountSession(request, env);
       const assertionSecret = String(env.MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET || '');
       if (account?.profileComplete && account.nickname && assertionSecret.length >= 32) {
-        // A lease renewal is accepted downstream only when this exact physical
-        // room session is already linked to the same asserted account. It can
-        // therefore skip the registry/reverse-index writes that protect an
-        // initial attachment. At a 40-second client cadence those writes would
-        // otherwise turn one bounded identity lease into persistent D1 churn.
-        const mayAssert =
-          upstreamPath === accountLeaseAssertionPath ||
-          (await preflightRegisteredProRoomAccountLink(env, roomCode));
-        if (mayAssert) {
+        // A lease renewal skips the reverse-index write because the exact
+        // physical session is already linked downstream, but it still resolves
+        // the current immutable room generation so a recycled public code can
+        // never turn an old account assertion into authority in its successor.
+        const roomLink = await preflightRegisteredProRoomAccountLink(env, roomCode);
+        if (roomLink) {
           const assertion = await createAccountAssertion(
             {
               accountId: account.accountId,
               nickname: account.nickname,
               roomCode,
+              roomGeneration: roomLink.roomGeneration,
               audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
             },
             assertionSecret,
@@ -422,7 +437,13 @@ async function handleProRoomFacade(request, env, url) {
             // Worker can persist this account as an owner/administrator. The
             // registry preflight bounds rejected-join edges to real rooms;
             // a missing edge would be unsafe for account deletion.
-            const linked = await recordAccountProRoomLink(env, account.accountId, roomCode);
+            const linked = await recordAccountProRoomLink(
+              env,
+              account.accountId,
+              roomCode,
+              Date.now(),
+              roomLink.roomGeneration,
+            );
             if (!linked) throw new Error('PRO_ACCOUNT_LINK_UNAVAILABLE');
           }
           if (assertion) headers.set(ACCOUNT_ASSERTION_HEADER, assertion);
@@ -1291,9 +1312,392 @@ async function ensureAdminProRoomRegistry(db) {
           label TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'registered',
           activation_state TEXT NOT NULL DEFAULT 'unactivated',
+          room_generation INTEGER NOT NULL DEFAULT 0 CHECK (room_generation >= 0),
           created_at INTEGER NOT NULL,
           updated_at INTEGER NOT NULL
         )`,
+      )
+      .run();
+    const registryColumnStatement = db.prepare(
+      `PRAGMA table_info(${ADMIN_PRO_ROOM_REGISTRY_TABLE})`,
+    );
+    const registryColumns =
+      typeof registryColumnStatement.all === 'function'
+        ? await registryColumnStatement.all()
+        : { results: [] };
+    if (
+      !(registryColumns?.results || []).some(
+        (column) => String(column?.name || '') === 'room_generation',
+      )
+    ) {
+      try {
+        await db
+          .prepare(
+            `ALTER TABLE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+             ADD COLUMN room_generation INTEGER NOT NULL DEFAULT 0
+               CHECK (room_generation >= 0)`,
+          )
+          .run();
+      } catch (error) {
+        // Two freshly deployed isolates can observe the old schema before
+        // either migration commits. The second ALTER is safe only when the
+        // exact additive column already won that race.
+        if (!/duplicate column name:\s*room_generation/i.test(String(error?.message || error))) {
+          throw error;
+        }
+      }
+    }
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE} (
+          room_code TEXT NOT NULL,
+          room_generation INTEGER NOT NULL CHECK (room_generation >= 0),
+          status TEXT NOT NULL CHECK (status = 'decommissioned'),
+          decommissioned_at INTEGER NOT NULL,
+          request_id TEXT,
+          PRIMARY KEY (room_code, room_generation)
+        )`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE} (
+          room_code TEXT NOT NULL,
+          room_generation INTEGER NOT NULL CHECK (room_generation >= 0),
+          allocated_at INTEGER NOT NULL CHECK (allocated_at >= 0),
+          PRIMARY KEY (room_code, room_generation)
+        )`,
+      )
+      .run();
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE}
+          (room_code, room_generation, allocated_at)
+         SELECT room_code, room_generation, created_at
+         FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}`,
+      )
+      .run();
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE}
+          (room_code, room_generation, allocated_at)
+         SELECT room_code, room_generation, decommissioned_at
+         FROM ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_generation_allocations_no_update
+         BEFORE UPDATE ON ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE}
+         BEGIN
+           SELECT RAISE(ABORT, 'PRO room generation allocation is immutable');
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_generation_allocations_no_delete
+         BEFORE DELETE ON ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE}
+         BEGIN
+           SELECT RAISE(ABORT, 'PRO room generation allocation is immutable');
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_generation_history_no_update
+         BEFORE UPDATE ON ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}
+         BEGIN
+           SELECT RAISE(ABORT, 'PRO room generation history is immutable');
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_generation_history_requires_allocation
+         BEFORE INSERT ON ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}
+         WHEN NOT EXISTS (
+           SELECT 1
+           FROM ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE}
+           WHERE room_code = NEW.room_code
+             AND room_generation = NEW.room_generation
+         )
+         BEGIN
+           SELECT RAISE(ABORT, 'PRO room generation allocation is missing');
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_no_delete
+         BEFORE DELETE ON ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+         BEGIN
+           SELECT RAISE(ABORT, 'PRO room registry pointers are immutable');
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_room_code_immutable
+         BEFORE UPDATE OF room_code ON ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+         WHEN NEW.room_code <> OLD.room_code
+         BEGIN
+           SELECT RAISE(ABORT, 'PRO room registry code is immutable');
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_status_insert_guard
+         BEFORE INSERT ON ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+         WHEN NEW.status NOT IN (
+           'registered',
+           'provisioning',
+           'suspended',
+           'decommissioning',
+           'decommissioned'
+         )
+         BEGIN
+           SELECT RAISE(ABORT, 'Invalid PRO room registry status');
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_status_transition_guard
+         BEFORE UPDATE OF status, room_generation ON ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+         WHEN NEW.status NOT IN (
+             'registered',
+             'provisioning',
+             'suspended',
+             'decommissioning',
+             'decommissioned'
+           )
+           OR (
+             NEW.room_generation = OLD.room_generation
+             AND (
+               (
+                 OLD.status = 'decommissioning'
+                 AND NEW.status NOT IN ('decommissioning', 'decommissioned')
+               )
+               OR (
+                 OLD.status = 'decommissioned'
+                 AND NEW.status <> 'decommissioned'
+               )
+             )
+           )
+           OR (
+             NEW.room_generation = OLD.room_generation
+             AND OLD.status <> 'decommissioned'
+             AND NEW.status = 'decommissioned'
+             AND (
+               NOT EXISTS (
+                 SELECT 1
+                 FROM ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE}
+                 WHERE room_code = NEW.room_code
+                   AND room_generation = NEW.room_generation
+               )
+               OR NOT EXISTS (
+                 SELECT 1
+                 FROM ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}
+                 WHERE room_code = NEW.room_code
+                   AND room_generation = NEW.room_generation
+                   AND status = 'decommissioned'
+               )
+             )
+           )
+         BEGIN
+           SELECT RAISE(
+             ABORT,
+             'Invalid PRO room registry status or terminal evidence transition'
+           );
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_initial_generation_guard
+         BEFORE INSERT ON ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+         WHEN NOT EXISTS (
+             SELECT 1
+             FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+             WHERE room_code = NEW.room_code
+           )
+           AND (
+             NEW.room_generation <> ${LEGACY_PRO_ROOM_GENERATION}
+             OR EXISTS (
+               SELECT 1
+               FROM ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE}
+               WHERE room_code = NEW.room_code
+             )
+             OR EXISTS (
+               SELECT 1
+               FROM ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}
+               WHERE room_code = NEW.room_code
+             )
+           )
+         BEGIN
+           SELECT RAISE(ABORT, 'PRO room registry repair required');
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_allocate_initial_generation
+         AFTER INSERT ON ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+         BEGIN
+           INSERT INTO ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE}
+             (room_code, room_generation, allocated_at)
+           VALUES (NEW.room_code, NEW.room_generation, NEW.created_at);
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS ${ADMIN_PRO_ROOM_GENERATION_CUTOVER_TABLE} (
+          contract_version INTEGER PRIMARY KEY CHECK (contract_version = 1),
+          status TEXT NOT NULL CHECK (status IN ('disabled', 'ready')),
+          release_sha TEXT,
+          ever_enabled INTEGER NOT NULL DEFAULT 0 CHECK (ever_enabled IN (0, 1)),
+          floor_release_sha TEXT,
+          updated_at INTEGER NOT NULL CHECK (updated_at >= 0),
+          CHECK (
+            (status = 'disabled' AND release_sha IS NULL)
+            OR (
+              status = 'ready'
+              AND ever_enabled = 1
+              AND length(release_sha) = 40
+              AND release_sha NOT GLOB '*[^0-9a-f]*'
+            )
+          ),
+          CHECK (
+            (ever_enabled = 0 AND floor_release_sha IS NULL)
+            OR (
+              ever_enabled = 1
+              AND length(floor_release_sha) = 40
+              AND floor_release_sha NOT GLOB '*[^0-9a-f]*'
+            )
+          )
+        )`,
+      )
+      .run();
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_GENERATION_CUTOVER_TABLE}
+          (
+            contract_version,
+            status,
+            release_sha,
+            ever_enabled,
+            floor_release_sha,
+            updated_at
+          )
+         VALUES (
+           ${ADMIN_PRO_ROOM_GENERATION_CONTRACT_VERSION},
+           'disabled',
+           NULL,
+           0,
+           NULL,
+           0
+         )`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_generation_cutover_floor_immutable
+         BEFORE UPDATE OF status, release_sha, ever_enabled, floor_release_sha
+         ON ${ADMIN_PRO_ROOM_GENERATION_CUTOVER_TABLE}
+         WHEN (
+             OLD.ever_enabled = 1
+             AND (
+               NEW.ever_enabled <> 1
+               OR NEW.floor_release_sha IS NOT OLD.floor_release_sha
+             )
+           )
+           OR (
+             OLD.ever_enabled = 0
+             AND NEW.ever_enabled = 1
+             AND (
+               NEW.status <> 'ready'
+               OR NEW.release_sha IS NULL
+               OR NEW.floor_release_sha IS NOT NEW.release_sha
+               OR length(NEW.release_sha) <> 40
+               OR NEW.release_sha GLOB '*[^0-9a-f]*'
+             )
+           )
+         BEGIN
+           SELECT RAISE(ABORT, 'PRO room generation rollback floor is immutable');
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_generation_cutover_no_delete
+         BEFORE DELETE ON ${ADMIN_PRO_ROOM_GENERATION_CUTOVER_TABLE}
+         BEGIN
+           SELECT RAISE(ABORT, 'PRO room generation cutover is permanent');
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_allocate_next_generation
+         BEFORE UPDATE OF room_generation ON ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+         WHEN NEW.room_generation <> OLD.room_generation
+         BEGIN
+           SELECT CASE
+             WHEN OLD.status <> 'decommissioned'
+               OR NEW.status <> 'provisioning'
+               OR NEW.room_generation <> OLD.room_generation + 1
+               OR NEW.room_generation > ${MAX_PRO_ROOM_GENERATION}
+             THEN RAISE(ABORT, 'Invalid PRO room generation transition')
+           END;
+           SELECT CASE
+             WHEN NOT EXISTS (
+               SELECT 1
+               FROM ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE}
+               WHERE room_code = OLD.room_code
+                 AND room_generation = OLD.room_generation
+             )
+             THEN RAISE(ABORT, 'PRO room current generation allocation is missing')
+           END;
+           SELECT CASE
+             WHEN NOT EXISTS (
+               SELECT 1
+               FROM ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}
+               WHERE room_code = OLD.room_code
+                 AND room_generation = OLD.room_generation
+                 AND status = 'decommissioned'
+             )
+             THEN RAISE(ABORT, 'PRO room generation history is missing')
+           END;
+           SELECT CASE
+             WHEN NOT EXISTS (
+               SELECT 1
+               FROM ${ADMIN_PRO_ROOM_GENERATION_CUTOVER_TABLE}
+               WHERE contract_version = ${ADMIN_PRO_ROOM_GENERATION_CONTRACT_VERSION}
+                 AND status = 'ready'
+                 AND ever_enabled = 1
+                 AND length(release_sha) = 40
+                 AND release_sha NOT GLOB '*[^0-9a-f]*'
+                 AND length(floor_release_sha) = 40
+                 AND floor_release_sha NOT GLOB '*[^0-9a-f]*'
+             )
+             THEN RAISE(ABORT, 'PRO room generation cutover is not ready')
+           END;
+           INSERT INTO ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE}
+             (room_code, room_generation, allocated_at)
+           VALUES (NEW.room_code, NEW.room_generation, NEW.created_at);
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_generation_history_no_delete
+         BEFORE DELETE ON ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}
+         BEGIN
+           SELECT RAISE(ABORT, 'PRO room generation history is immutable');
+         END`,
       )
       .run();
     await db
@@ -1304,8 +1708,39 @@ async function ensureAdminProRoomRegistry(db) {
           action TEXT NOT NULL,
           result TEXT NOT NULL,
           room_code TEXT NOT NULL,
+          room_generation INTEGER NOT NULL DEFAULT 0 CHECK (room_generation >= 0),
           created_at INTEGER NOT NULL
         )`,
+      )
+      .run();
+    const auditColumnStatement = db.prepare(`PRAGMA table_info(${ADMIN_PRO_ROOM_AUDIT_TABLE})`);
+    const auditColumns =
+      typeof auditColumnStatement.all === 'function'
+        ? await auditColumnStatement.all()
+        : { results: [] };
+    if (
+      !(auditColumns?.results || []).some(
+        (column) => String(column?.name || '') === 'room_generation',
+      )
+    ) {
+      try {
+        await db
+          .prepare(
+            `ALTER TABLE ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+             ADD COLUMN room_generation INTEGER NOT NULL DEFAULT 0
+               CHECK (room_generation >= 0)`,
+          )
+          .run();
+      } catch (error) {
+        if (!/duplicate column name:\s*room_generation/i.test(String(error?.message || error))) {
+          throw error;
+        }
+      }
+    }
+    await db
+      .prepare(
+        `CREATE INDEX IF NOT EXISTS idx_mxqr_pro_room_admin_audit_incarnation_created
+         ON ${ADMIN_PRO_ROOM_AUDIT_TABLE}(room_code, room_generation, created_at)`,
       )
       .run();
     const nowMs = Date.now();
@@ -1313,8 +1748,8 @@ async function ensureAdminProRoomRegistry(db) {
       await db
         .prepare(
           `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-            (room_code, label, status, activation_state, created_at, updated_at)
-           VALUES (?1, ?2, 'registered', 'unactivated', ?3, ?3)`,
+            (room_code, label, status, activation_state, room_generation, created_at, updated_at)
+           VALUES (?1, ?2, 'registered', 'unactivated', ${LEGACY_PRO_ROOM_GENERATION}, ?3, ?3)`,
         )
         .bind(room.roomCode, room.label, nowMs)
         .run();
@@ -1333,20 +1768,22 @@ async function ensureAdminProRoomRegistry(db) {
 function normalizeAdminProRoomRow(row) {
   if (!row || !ADMIN_PRO_ROOM_CODE_RE.test(row.room_code)) return null;
   const label = String(row.label || '').trim();
+  const roomGeneration = Number(row.room_generation ?? LEGACY_PRO_ROOM_GENERATION);
+  const status = String(row.status || '');
   if (!label || label.length > ADMIN_PRO_ROOM_LABEL_MAX_LENGTH) return null;
+  if (!isProRoomGeneration(roomGeneration)) return null;
+  if (
+    !['registered', 'provisioning', 'suspended', 'decommissioning', 'decommissioned'].includes(
+      status,
+    )
+  ) {
+    return null;
+  }
   return {
     roomCode: row.room_code,
+    roomGeneration,
     label,
-    status:
-      row.status === 'decommissioned'
-        ? 'decommissioned'
-        : row.status === 'decommissioning'
-          ? 'decommissioning'
-          : row.status === 'suspended'
-            ? 'suspended'
-            : row.status === 'provisioning'
-              ? 'provisioning'
-              : 'registered',
+    status,
     // Display-only index. Every privileged decision is re-authorized against
     // the cross-script Durable Object, which owns the canonical room status.
     activationState: row.activation_state === 'active' ? 'active' : 'unactivated',
@@ -1360,6 +1797,7 @@ async function readAdminProRoom(db, roomCode) {
   const statement = db
     .prepare(
       `SELECT room_code, label, status, activation_state, created_at, updated_at
+              , room_generation
        FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
        WHERE room_code = ?1 LIMIT 1`,
     )
@@ -1371,13 +1809,75 @@ async function readAdminProRoom(db, roomCode) {
   return normalizeAdminProRoomRow(row);
 }
 
+async function isAdminProRoomGenerationReuseReady(db) {
+  if (!db?.prepare) return false;
+  try {
+    const statement = db
+      .prepare(
+        `SELECT status, release_sha, ever_enabled, floor_release_sha
+         FROM ${ADMIN_PRO_ROOM_GENERATION_CUTOVER_TABLE}
+         WHERE contract_version = ?1
+         LIMIT 1`,
+      )
+      .bind(ADMIN_PRO_ROOM_GENERATION_CONTRACT_VERSION);
+    const row =
+      typeof statement.first === 'function'
+        ? await statement.first()
+        : (await statement.all())?.results?.[0] || null;
+    return (
+      row?.status === 'ready' &&
+      Number(row.ever_enabled) === 1 &&
+      RELEASE_SHA_RE.test(String(row.release_sha || '')) &&
+      RELEASE_SHA_RE.test(String(row.floor_release_sha || ''))
+    );
+  } catch {
+    // This row is written only after all three D1 migrations and every
+    // generation-aware dependency Worker have been verified. Missing schema,
+    // an unavailable database, or malformed evidence must never permit reuse.
+    return false;
+  }
+}
+
+async function readAdminProRoomAllocationEvidence(db, roomCode, roomGeneration = null) {
+  if (!db?.prepare || !ADMIN_PRO_ROOM_CODE_RE.test(roomCode || '')) {
+    throw new Error('INVALID_PRO_ROOM_ALLOCATION_LOOKUP');
+  }
+  const generationPredicate = roomGeneration === null ? '' : ' AND room_generation = ?2';
+  const statement = db
+    .prepare(
+      `SELECT
+         EXISTS (
+           SELECT 1
+           FROM ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE}
+           WHERE room_code = ?1${generationPredicate}
+         ) AS has_allocation,
+         EXISTS (
+           SELECT 1
+           FROM ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}
+           WHERE room_code = ?1${generationPredicate}
+         ) AS has_history`,
+    )
+    .bind(...(roomGeneration === null ? [roomCode] : [roomCode, roomGeneration]));
+  const row =
+    typeof statement.first === 'function'
+      ? await statement.first()
+      : (await statement.all())?.results?.[0] || null;
+  return {
+    hasAllocation: Number(row?.has_allocation) === 1,
+    hasHistory: Number(row?.has_history) === 1,
+  };
+}
+
 async function listAdminProRooms(db) {
   await ensureAdminProRoomRegistry(db);
   const result = await db
     .prepare(
       `SELECT room_code, label, status, activation_state, created_at, updated_at
+              , room_generation
        FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-       ORDER BY room_code ASC LIMIT ?1`,
+       ORDER BY CASE WHEN status = 'decommissioned' THEN 1 ELSE 0 END ASC,
+                room_code ASC
+       LIMIT ?1`,
     )
     .bind(ADMIN_PRO_ROOM_REGISTRY_LIMIT)
     .all();
@@ -1386,55 +1886,230 @@ async function listAdminProRooms(db) {
 
 async function registerAdminProRoom(db, roomCode, label, nowMs = Date.now()) {
   await ensureAdminProRoomRegistry(db);
-  const result = await db
-    .prepare(
-      `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-        (room_code, label, status, activation_state, created_at, updated_at)
-       SELECT ?1, ?2, 'provisioning', 'unactivated', ?3, ?3
-       WHERE (SELECT COUNT(*) FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}) < ?4`,
-    )
-    .bind(roomCode, label, nowMs, ADMIN_PRO_ROOM_REGISTRY_LIMIT)
-    .run();
+  const before = await readAdminProRoom(db, roomCode);
+  let created = false;
+  let reused = false;
+  let generationExhausted = false;
+  let generationCutoverNotReady = false;
+  let repairRequired = false;
+
+  if (!before) {
+    const inserted = await db
+      .prepare(
+        `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+          (room_code, label, status, activation_state, room_generation, created_at, updated_at)
+         SELECT ?1, ?2, 'provisioning', 'unactivated',
+                ${LEGACY_PRO_ROOM_GENERATION}, ?3, ?3
+         WHERE (
+           SELECT COUNT(*)
+           FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+           WHERE status <> 'decommissioned'
+         ) < ?4
+           AND NOT EXISTS (
+             SELECT 1
+             FROM ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE}
+             WHERE room_code = ?1
+           )
+           AND NOT EXISTS (
+             SELECT 1
+             FROM ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}
+             WHERE room_code = ?1
+           )`,
+      )
+      .bind(roomCode, label, nowMs, ADMIN_PRO_ROOM_REGISTRY_LIMIT)
+      .run();
+    created = Number(inserted?.meta?.changes || 0) === 1;
+  } else if (before.status === 'decommissioned') {
+    if (!(await isAdminProRoomGenerationReuseReady(db))) {
+      generationCutoverNotReady = true;
+    } else if (before.roomGeneration >= MAX_PRO_ROOM_GENERATION) {
+      generationExhausted = true;
+    } else {
+      // Older deployments only kept the terminal row in the registry. Copy
+      // that already-completed incarnation into the immutable history before
+      // replacing the public room-code pointer. Newer room workers insert the
+      // same row (including request_id) when their deletion saga completes.
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}
+            (room_code, room_generation, status, decommissioned_at, request_id)
+           SELECT room_code, room_generation, 'decommissioned', updated_at, NULL
+           FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+           WHERE room_code = ?1
+             AND room_generation = ?2
+             AND status = 'decommissioned'`,
+        )
+        .bind(roomCode, before.roomGeneration)
+        .run();
+      const replaced = await db
+        .prepare(
+          `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+           SET label = ?2,
+               status = 'provisioning',
+               activation_state = 'unactivated',
+               room_generation = room_generation + 1,
+               created_at = ?3,
+               updated_at = ?3
+           WHERE room_code = ?1
+             AND room_generation = ?4
+             AND status = 'decommissioned'
+             AND room_generation < ?5
+             AND (
+               SELECT COUNT(*)
+               FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+               WHERE status <> 'decommissioned'
+             ) < ?6
+             AND EXISTS (
+                SELECT 1
+                FROM ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE} AS history
+                WHERE history.room_code = ?1
+                  AND history.room_generation = ?4
+                  AND history.status = 'decommissioned'
+              )
+              AND EXISTS (
+                SELECT 1
+                FROM ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE} AS current_allocation
+                WHERE current_allocation.room_code = ?1
+                  AND current_allocation.room_generation = ?4
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE} AS next_allocation
+                WHERE next_allocation.room_code = ?1
+                  AND next_allocation.room_generation = ?4 + 1
+              )
+              AND EXISTS (
+                SELECT 1
+                FROM ${ADMIN_PRO_ROOM_GENERATION_CUTOVER_TABLE} AS cutover
+                WHERE cutover.contract_version = ${ADMIN_PRO_ROOM_GENERATION_CONTRACT_VERSION}
+                  AND cutover.status = 'ready'
+                  AND cutover.ever_enabled = 1
+                  AND length(cutover.release_sha) = 40
+                  AND cutover.release_sha NOT GLOB '*[^0-9a-f]*'
+                  AND length(cutover.floor_release_sha) = 40
+                  AND cutover.floor_release_sha NOT GLOB '*[^0-9a-f]*'
+              )`,
+        )
+        .bind(
+          roomCode,
+          label,
+          nowMs,
+          before.roomGeneration,
+          MAX_PRO_ROOM_GENERATION,
+          ADMIN_PRO_ROOM_REGISTRY_LIMIT,
+        )
+        .run();
+      reused = Number(replaced?.meta?.changes || 0) === 1;
+      if (!reused && !(await isAdminProRoomGenerationReuseReady(db))) {
+        generationCutoverNotReady = true;
+      }
+      created = reused;
+    }
+  }
   const room = await readAdminProRoom(db, roomCode);
+  if (!room) {
+    const evidence = await readAdminProRoomAllocationEvidence(db, roomCode);
+    repairRequired = evidence.hasAllocation || evidence.hasHistory;
+  } else if (
+    before?.status === 'decommissioned' &&
+    !reused &&
+    !generationCutoverNotReady &&
+    !generationExhausted &&
+    room.roomGeneration === before.roomGeneration
+  ) {
+    const currentEvidence = await readAdminProRoomAllocationEvidence(
+      db,
+      roomCode,
+      before.roomGeneration,
+    );
+    const nextEvidence = await readAdminProRoomAllocationEvidence(
+      db,
+      roomCode,
+      before.roomGeneration + 1,
+    );
+    repairRequired =
+      !currentEvidence.hasAllocation ||
+      !currentEvidence.hasHistory ||
+      nextEvidence.hasAllocation ||
+      nextEvidence.hasHistory;
+  }
   return {
-    created: Number(result?.meta?.changes || 0) > 0,
-    capacityExceeded: !room,
+    created,
+    reused,
+    generationExhausted,
+    generationCutoverNotReady,
+    repairRequired,
+    capacityExceeded:
+      (!room && !repairRequired) ||
+      (before?.status === 'decommissioned' &&
+        !reused &&
+        !generationCutoverNotReady &&
+        !generationExhausted &&
+        !repairRequired &&
+        room?.status === 'decommissioned' &&
+        room?.roomGeneration === before.roomGeneration),
     room,
   };
 }
 
-async function markAdminProRoomRegistered(db, roomCode, activationState, nowMs = Date.now()) {
+async function markAdminProRoomRegistered(
+  db,
+  roomCode,
+  roomGeneration,
+  activationState,
+  nowMs = Date.now(),
+) {
   await ensureAdminProRoomRegistry(db);
-  await db
+  const result = await db
     .prepare(
       `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-       SET status = 'registered', activation_state = ?2, updated_at = ?3
+       SET status = 'registered', activation_state = ?3, updated_at = ?4
        WHERE room_code = ?1
+         AND room_generation = ?2
          AND status NOT IN ('suspended', 'decommissioning', 'decommissioned')`,
     )
-    .bind(roomCode, activationState === 'active' ? 'active' : 'unactivated', nowMs)
+    .bind(roomCode, roomGeneration, activationState === 'active' ? 'active' : 'unactivated', nowMs)
     .run();
+  return Number(result?.meta?.changes || 0) === 1;
 }
 
-async function markAdminProRoomOperationalState(db, roomCode, status, nowMs = Date.now()) {
+async function markAdminProRoomOperationalState(
+  db,
+  roomCode,
+  roomGeneration,
+  status,
+  nowMs = Date.now(),
+) {
   await ensureAdminProRoomRegistry(db);
-  await db
+  const result = await db
     .prepare(
       `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-       SET status = ?2, activation_state = 'active', updated_at = ?3
-       WHERE room_code = ?1 AND status NOT IN ('decommissioning', 'decommissioned')`,
+       SET status = ?3, activation_state = 'active', updated_at = ?4
+       WHERE room_code = ?1
+         AND room_generation = ?2
+         AND status NOT IN ('decommissioning', 'decommissioned')`,
     )
-    .bind(roomCode, status === 'suspended' ? 'suspended' : 'registered', nowMs)
+    .bind(roomCode, roomGeneration, status === 'suspended' ? 'suspended' : 'registered', nowMs)
     .run();
+  return Number(result?.meta?.changes || 0) === 1;
 }
 
-async function reconcileAdminProRoomStatus(env, db, roomCode) {
-  const statusResult = await callProRoomAdminObject(env, roomCode, '/internal/admin/status', 'GET');
+async function reconcileAdminProRoomStatus(env, db, roomOrCode) {
+  const room = typeof roomOrCode === 'string' ? await readAdminProRoom(db, roomOrCode) : roomOrCode;
+  if (!room) return null;
+  const { roomCode, roomGeneration } = room;
+  const statusResult = await callProRoomAdminObject(
+    env,
+    roomCode,
+    roomGeneration,
+    '/internal/admin/status',
+    'GET',
+  );
   const payload = statusResult.payload;
   if (
     !statusResult.response?.ok ||
     !payload ||
-    payload.roomCode !== roomCode ||
+    !proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) ||
     payload.provisioned !== true ||
     !['unactivated', 'active', 'suspended'].includes(payload.status)
   ) {
@@ -1445,13 +2120,15 @@ async function reconcileAdminProRoomStatus(env, db, roomCode) {
     await db
       .prepare(
         `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-         SET status = 'suspended', activation_state = 'active', updated_at = ?2
-         WHERE room_code = ?1 AND status NOT IN ('decommissioning', 'decommissioned')`,
+         SET status = 'suspended', activation_state = 'active', updated_at = ?3
+         WHERE room_code = ?1
+           AND room_generation = ?2
+           AND status NOT IN ('decommissioning', 'decommissioned')`,
       )
-      .bind(roomCode, Date.now())
+      .bind(roomCode, roomGeneration, Date.now())
       .run();
   } else {
-    await markAdminProRoomRegistered(db, roomCode, payload.status);
+    await markAdminProRoomRegistered(db, roomCode, roomGeneration, payload.status);
   }
   return payload.status;
 }
@@ -1470,32 +2147,61 @@ async function adminProRoomAuditActor(request, env) {
   ).slice(0, 32)}`;
 }
 
-async function appendAdminProRoomAudit(db, request, env, action, result, roomCode) {
+async function appendAdminProRoomAudit(db, request, env, action, result, roomCode, roomGeneration) {
+  if (!isProRoomGeneration(roomGeneration)) {
+    throw new Error('Invalid PRO room generation for admin audit');
+  }
   await ensureAdminProRoomRegistry(db);
   const actorId = await adminProRoomAuditActor(request, env);
   await db
     .prepare(
       `INSERT INTO ${ADMIN_PRO_ROOM_AUDIT_TABLE}
-        (actor_id, action, result, room_code, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5)`,
+        (actor_id, action, result, room_code, room_generation, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
     )
-    .bind(actorId, action, result, roomCode, Date.now())
+    .bind(actorId, action, result, roomCode, roomGeneration, Date.now())
     .run();
 }
 
-async function writeAdminProRoomAuditOrFail(db, request, env, action, result, roomCode) {
+async function writeAdminProRoomAuditOrFail(
+  db,
+  request,
+  env,
+  action,
+  result,
+  roomCode,
+  roomGeneration,
+) {
   try {
-    await appendAdminProRoomAudit(db, request, env, action, result, roomCode);
+    await appendAdminProRoomAudit(db, request, env, action, result, roomCode, roomGeneration);
     return null;
   } catch {
     return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
   }
 }
 
-async function callProRoomAdminObject(env, roomCode, pathname, method = 'POST', body = undefined) {
+async function callProRoomAdminObject(
+  env,
+  roomCode,
+  roomGeneration,
+  pathname,
+  method = 'POST',
+  body = undefined,
+) {
   const namespace = getProRoomAdminNamespace(env);
-  if (!namespace) return { response: null, payload: null };
-  const stub = namespace.get(namespace.idFromName(roomCode));
+  if (!namespace || !isProRoomGeneration(roomGeneration)) {
+    return { response: null, payload: null };
+  }
+  const stub = namespace.get(namespace.idFromName(proRoomObjectName(roomCode, roomGeneration)));
+  const wireBody =
+    body !== undefined &&
+    roomGeneration === LEGACY_PRO_ROOM_GENERATION &&
+    body &&
+    typeof body === 'object' &&
+    !Array.isArray(body) &&
+    Object.prototype.hasOwnProperty.call(body, 'roomGeneration')
+      ? (({ roomGeneration: _legacyGeneration, ...legacyBody }) => legacyBody)(body)
+      : body;
   let response;
   try {
     response = await stub.fetch(
@@ -1503,9 +2209,12 @@ async function callProRoomAdminObject(env, roomCode, pathname, method = 'POST', 
         method,
         headers: {
           'x-mxqr-pro-room-code': roomCode,
-          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+          ...(roomGeneration === LEGACY_PRO_ROOM_GENERATION
+            ? {}
+            : { 'x-mxqr-pro-room-generation': proRoomGenerationHeaderValue(roomGeneration) }),
+          ...(wireBody === undefined ? {} : { 'content-type': 'application/json' }),
         },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        ...(wireBody === undefined ? {} : { body: JSON.stringify(wireBody) }),
       }),
     );
   } catch {
@@ -1518,15 +2227,42 @@ async function callProRoomAdminObject(env, roomCode, pathname, method = 'POST', 
   return { response, payload };
 }
 
-async function purgeProRoomAccountAuthority({ accountId, roomCode }, env) {
+function proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) {
+  if (
+    !payload ||
+    typeof payload !== 'object' ||
+    Array.isArray(payload) ||
+    !isProRoomGeneration(roomGeneration)
+  ) {
+    return false;
+  }
+  const hasGeneration = Object.prototype.hasOwnProperty.call(payload, 'roomGeneration');
+  if (roomGeneration === LEGACY_PRO_ROOM_GENERATION) {
+    return (
+      (payload.roomCode === undefined || payload.roomCode === roomCode) &&
+      (!hasGeneration || payload.roomGeneration === LEGACY_PRO_ROOM_GENERATION)
+    );
+  }
+  return (
+    payload.roomCode === roomCode && hasGeneration && payload.roomGeneration === roomGeneration
+  );
+}
+
+async function purgeProRoomAccountAuthority({ accountId, roomCode, roomGeneration }, env) {
+  if (!isProRoomGeneration(roomGeneration)) return false;
   const result = await callProRoomAdminObject(
     env,
     roomCode,
+    roomGeneration,
     '/internal/admin/account-authority/purge',
     'POST',
     { accountId },
   );
-  return result.response?.ok === true && result.payload?.ok === true;
+  return (
+    result.response?.ok === true &&
+    result.payload?.ok === true &&
+    proRoomAdminResponseIdentityMatches(result.payload, roomCode, roomGeneration)
+  );
 }
 
 function proRoomObjectError(result) {
@@ -1537,36 +2273,54 @@ function proRoomObjectError(result) {
   return json(result.payload, result.response.status);
 }
 
-async function markAdminProRoomDecommissioning(db, roomCode, nowMs = Date.now()) {
+async function markAdminProRoomDecommissioning(db, roomCode, roomGeneration, nowMs = Date.now()) {
+  await ensureAdminProRoomRegistry(db);
+  const result = await db
+    .prepare(
+      `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+       SET status = 'decommissioning', activation_state = 'unactivated', updated_at = ?3
+       WHERE room_code = ?1
+         AND room_generation = ?2
+         AND status NOT IN ('decommissioning', 'decommissioned')`,
+    )
+    .bind(roomCode, roomGeneration, nowMs)
+    .run();
+  return Number(result?.meta?.changes || 0) === 1;
+}
+
+async function markAdminProRoomDecommissioned(
+  db,
+  roomCode,
+  roomGeneration,
+  requestId,
+  nowMs = Date.now(),
+) {
   await ensureAdminProRoomRegistry(db);
   await db
     .prepare(
-      `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-       SET status = 'decommissioning', activation_state = 'unactivated', updated_at = ?2
-       WHERE room_code = ?1 AND status NOT IN ('decommissioning', 'decommissioned')`,
+      `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}
+        (room_code, room_generation, status, decommissioned_at, request_id)
+       VALUES (?1, ?2, 'decommissioned', ?4, ?3)`,
     )
-    .bind(roomCode, nowMs)
+    .bind(roomCode, roomGeneration, requestId || null, nowMs)
     .run();
-}
-
-async function markAdminProRoomDecommissioned(db, roomCode, nowMs = Date.now()) {
-  await ensureAdminProRoomRegistry(db);
-  await db
+  const result = await db
     .prepare(
       `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
        SET label = 'Decommissioned PRO room', status = 'decommissioned',
-           activation_state = 'unactivated', updated_at = ?2
-       WHERE room_code = ?1`,
+           activation_state = 'unactivated', updated_at = ?3
+       WHERE room_code = ?1 AND room_generation = ?2`,
     )
-    .bind(roomCode, nowMs)
+    .bind(roomCode, roomGeneration, nowMs)
     .run();
+  return Number(result?.meta?.changes || 0) === 1;
 }
 
-function isValidAdminActivationLink(payload, roomCode) {
+function isValidAdminActivationLink(payload, roomCode, roomGeneration) {
   const nowMs = Date.now();
   if (
     !payload ||
-    payload.roomCode !== roomCode ||
+    !proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) ||
     typeof payload.activationUrl !== 'string' ||
     !Number.isSafeInteger(payload.expiresAt) ||
     payload.expiresAt <= nowMs ||
@@ -1590,11 +2344,11 @@ function isValidAdminActivationLink(payload, roomCode) {
   }
 }
 
-function isValidAdminOwnerRecoveryLink(payload, roomCode) {
+function isValidAdminOwnerRecoveryLink(payload, roomCode, roomGeneration) {
   const nowMs = Date.now();
   if (
     !payload ||
-    payload.roomCode !== roomCode ||
+    !proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) ||
     typeof payload.recoveryUrl !== 'string' ||
     typeof payload.ownerAccountLinked !== 'boolean' ||
     !Number.isSafeInteger(payload.expiresAt) ||
@@ -1648,13 +2402,16 @@ function developerApiKeyStatus(row, nowMs) {
   return row.revoked_at === row.expires_at ? 'expired' : 'revoked';
 }
 
-function normalizeAdminDeveloperApiKeyRow(row, nowMs = Date.now()) {
+function normalizeAdminDeveloperApiKeyRow(row, nowMs = Date.now(), expectedRoomGeneration = null) {
   const scopes = developerApiScopeNames(row?.scope_mask);
   const label = typeof row?.label === 'string' ? row.label : '';
+  const roomGeneration = Number(row?.room_generation ?? LEGACY_PRO_ROOM_GENERATION);
   if (
     !row ||
     !ADMIN_DEVELOPER_API_KEY_ID_RE.test(String(row.key_id || '')) ||
     !ADMIN_PRO_ROOM_CODE_RE.test(String(row.room_code || '')) ||
+    !isProRoomGeneration(roomGeneration) ||
+    (expectedRoomGeneration !== null && roomGeneration !== expectedRoomGeneration) ||
     !label ||
     label.length > 64 ||
     !scopes ||
@@ -1675,6 +2432,7 @@ function normalizeAdminDeveloperApiKeyRow(row, nowMs = Date.now()) {
   }
   return {
     keyId: row.key_id,
+    roomGeneration,
     label,
     scopes,
     status: developerApiKeyStatus(row, nowMs),
@@ -1686,37 +2444,40 @@ function normalizeAdminDeveloperApiKeyRow(row, nowMs = Date.now()) {
   };
 }
 
-async function cleanupExpiredAdminDeveloperApiKeys(db, roomCode, nowMs) {
+async function cleanupExpiredAdminDeveloperApiKeys(db, roomCode, roomGeneration, nowMs) {
   await db
     .prepare(
       `UPDATE mxqr_developer_api_keys
-       SET status = 'revoked', revoked_at = expires_at, updated_at = ?2
-       WHERE room_code = ?1 AND status = 'active' AND expires_at <= ?2`,
+       SET status = 'revoked', revoked_at = expires_at, updated_at = ?3
+       WHERE room_code = ?1 AND room_generation = ?2
+         AND status = 'active' AND expires_at <= ?3`,
     )
-    .bind(roomCode, nowMs)
+    .bind(roomCode, roomGeneration, nowMs)
     .run();
 }
 
-async function listAdminDeveloperApiKeys(db, roomCode, nowMs) {
+async function listAdminDeveloperApiKeys(db, roomCode, roomGeneration, nowMs) {
   const result = await db
     .prepare(
-      `SELECT key_id, room_code, label, scope_mask, status, created_at, updated_at,
+      `SELECT key_id, room_code, room_generation, label, scope_mask, status,
+              created_at, updated_at,
               expires_at, revoked_at, last_used_hour
        FROM mxqr_developer_api_keys
-       WHERE room_code = ?1
+       WHERE room_code = ?1 AND room_generation = ?2
        ORDER BY created_at DESC
-       LIMIT ?2`,
+       LIMIT ?3`,
     )
-    .bind(roomCode, ADMIN_DEVELOPER_API_KEY_LIST_LIMIT)
+    .bind(roomCode, roomGeneration, ADMIN_DEVELOPER_API_KEY_LIST_LIMIT)
     .all();
   return (result?.results || [])
-    .map((row) => normalizeAdminDeveloperApiKeyRow(row, nowMs))
+    .map((row) => normalizeAdminDeveloperApiKeyRow(row, nowMs, roomGeneration))
     .filter(Boolean);
 }
 
-function adminDeveloperApiKeyListPayload(roomCode, keys) {
+function adminDeveloperApiKeyListPayload(roomCode, roomGeneration, keys) {
   return {
     roomCode,
+    roomGeneration,
     maxActiveKeys: ADMIN_DEVELOPER_API_KEY_MAX_ACTIVE,
     keys,
   };
@@ -1729,7 +2490,8 @@ function parseAdminDeveloperApiKeyIssueBody(body) {
     !keys.includes('label') ||
     !keys.includes('scopes') ||
     !keys.includes('requestId') ||
-    keys.some((key) => !['label', 'days', 'scopes', 'requestId'].includes(key))
+    !keys.includes('roomGeneration') ||
+    keys.some((key) => !['label', 'days', 'scopes', 'requestId', 'roomGeneration'].includes(key))
   ) {
     return null;
   }
@@ -1753,7 +2515,8 @@ function parseAdminDeveloperApiKeyIssueBody(body) {
         typeof scope !== 'string' ||
         !Object.prototype.hasOwnProperty.call(ADMIN_DEVELOPER_API_KEY_SCOPES, scope),
     ) ||
-    !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(requestId)
+    !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(requestId) ||
+    !isProRoomGeneration(body.roomGeneration)
   ) {
     return null;
   }
@@ -1762,40 +2525,45 @@ function parseAdminDeveloperApiKeyIssueBody(body) {
     days,
     scopes,
     requestId,
+    roomGeneration: body.roomGeneration,
     scopeMask: scopes.reduce((mask, scope) => mask | ADMIN_DEVELOPER_API_KEY_SCOPES[scope], 0),
   };
 }
 
-async function deriveAdminDeveloperApiKeyMaterial(env, roomCode, requestId) {
+async function deriveAdminDeveloperApiKeyMaterial(env, roomCode, roomGeneration, requestId) {
   const pepper = developerApiAdminPepper(env);
+  const generationDomain =
+    roomGeneration === LEGACY_PRO_ROOM_GENERATION ? roomCode : `${roomCode}\u0000${roomGeneration}`;
+  const version = roomGeneration === LEGACY_PRO_ROOM_GENERATION ? 'v1' : 'v2';
   const keyIdMaterial = await hmacSha256(
     pepper,
-    `mxqr-developer-api-admin-issue-id:v1\u0000${roomCode}\u0000${requestId}`,
+    `mxqr-developer-api-admin-issue-id:${version}\u0000${generationDomain}\u0000${requestId}`,
   );
   const secret = await hmacSha256(
     pepper,
-    `mxqr-developer-api-admin-issue-secret:v1\u0000${roomCode}\u0000${requestId}`,
+    `mxqr-developer-api-admin-issue-secret:${version}\u0000${generationDomain}\u0000${requestId}`,
   );
   return { keyId: keyIdMaterial.slice(0, 16), secret };
 }
 
-async function readAdminDeveloperApiKey(db, roomCode, keyId) {
+async function readAdminDeveloperApiKey(db, roomCode, roomGeneration, keyId) {
   const statement = db
     .prepare(
-      `SELECT key_id, room_code, label, secret_digest, digest_version, scope_mask, status,
+      `SELECT key_id, room_code, room_generation, label, secret_digest,
+              digest_version, scope_mask, status,
               created_at, updated_at, expires_at, revoked_at, last_used_hour
        FROM mxqr_developer_api_keys
-       WHERE room_code = ?1 AND key_id = ?2
+       WHERE room_code = ?1 AND room_generation = ?2 AND key_id = ?3
        LIMIT 1`,
     )
-    .bind(roomCode, keyId);
+    .bind(roomCode, roomGeneration, keyId);
   return typeof statement.first === 'function'
     ? await statement.first()
     : (await statement.all())?.results?.[0] || null;
 }
 
-function recoverAdminDeveloperApiKeyReplay(row, issue, digest, nowMs) {
-  const key = normalizeAdminDeveloperApiKeyRow(row, nowMs);
+function recoverAdminDeveloperApiKeyReplay(row, issue, digest, nowMs, roomGeneration) {
+  const key = normalizeAdminDeveloperApiKeyRow(row, nowMs, roomGeneration);
   if (
     !key ||
     key.status !== 'active' ||
@@ -1831,16 +2599,17 @@ function developerApiAdminAuditStatement(
   result,
   keyId,
   roomCode,
+  roomGeneration,
   nowMs,
   { ignoreDuplicate = false } = {},
 ) {
   return db
     .prepare(
       `INSERT${ignoreDuplicate ? ' OR IGNORE' : ''} INTO mxqr_developer_api_admin_audit
-        (actor_id, action, result, key_id, room_code, created_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+        (actor_id, action, result, key_id, room_code, room_generation, created_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
     )
-    .bind(actorId, action, result, keyId, roomCode, nowMs);
+    .bind(actorId, action, result, keyId, roomCode, roomGeneration, nowMs);
 }
 
 function d1MutationChanged(result) {
@@ -1932,7 +2701,7 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
 
   const nowMs = Date.now();
   try {
-    await cleanupExpiredAdminDeveloperApiKeys(developerDb, roomCode, nowMs);
+    await cleanupExpiredAdminDeveloperApiKeys(developerDb, roomCode, room.roomGeneration, nowMs);
   } catch {
     return json({ error: 'DEVELOPER_API_ADMIN_UNAVAILABLE' }, 503);
   }
@@ -1944,8 +2713,13 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
           'Cache-Control': 'no-store, max-age=0',
         });
       }
-      const keys = await listAdminDeveloperApiKeys(developerDb, roomCode, nowMs);
-      return json(adminDeveloperApiKeyListPayload(roomCode, keys));
+      const keys = await listAdminDeveloperApiKeys(
+        developerDb,
+        roomCode,
+        room.roomGeneration,
+        nowMs,
+      );
+      return json(adminDeveloperApiKeyListPayload(roomCode, room.roomGeneration, keys));
     } catch {
       return json({ error: 'DEVELOPER_API_ADMIN_UNAVAILABLE' }, 503);
     }
@@ -1959,10 +2733,14 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
     if (parsedBody.error) return jsonBodyError(parsedBody);
     const issue = parseAdminDeveloperApiKeyIssueBody(parsedBody.value);
     if (!issue) return json({ error: 'INVALID_REQUEST' }, 400);
+    if (issue.roomGeneration !== room.roomGeneration) {
+      return json({ error: 'PRO_ROOM_GENERATION_CONFLICT' }, 409);
+    }
 
     const { keyId: newKeyId, secret } = await deriveAdminDeveloperApiKeyMaterial(
       env,
       roomCode,
+      room.roomGeneration,
       issue.requestId,
     );
     if (
@@ -1977,25 +2755,35 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
     );
     let replayed;
     try {
-      replayed = await readAdminDeveloperApiKey(developerDb, roomCode, newKeyId);
+      replayed = await readAdminDeveloperApiKey(
+        developerDb,
+        roomCode,
+        room.roomGeneration,
+        newKeyId,
+      );
     } catch {
       return json({ error: 'DEVELOPER_API_ADMIN_UNAVAILABLE' }, 503);
     }
     if (replayed) {
-      const replayedKey = recoverAdminDeveloperApiKeyReplay(replayed, issue, digest, nowMs);
+      const replayedKey = recoverAdminDeveloperApiKeyReplay(
+        replayed,
+        issue,
+        digest,
+        nowMs,
+        room.roomGeneration,
+      );
       if (!replayedKey) {
         return json({ error: 'DEVELOPER_API_IDEMPOTENCY_CONFLICT' }, 409);
       }
       return json({
         roomCode,
+        roomGeneration: room.roomGeneration,
         apiKey: `mxqr_live_${newKeyId}.${secret}`,
         key: replayedKey,
       });
     }
 
-    const canonicalStatus = await reconcileAdminProRoomStatus(env, adminDb, roomCode).catch(
-      () => null,
-    );
+    const canonicalStatus = await reconcileAdminProRoomStatus(env, adminDb, room).catch(() => null);
     if (!canonicalStatus) {
       return json({ error: 'PRO_ROOM_ADMIN_UNAVAILABLE' }, 502);
     }
@@ -2012,11 +2800,21 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
     const mutation = developerDb
       .prepare(
         `INSERT INTO mxqr_developer_api_keys
-          (key_id, room_code, label, secret_digest, digest_version, scope_mask, status,
-           created_at, updated_at, expires_at, revoked_at, last_used_hour)
-         VALUES (?1, ?2, ?3, ?4, 1, ?5, 'active', ?6, ?6, ?7, NULL, NULL)`,
+          (key_id, room_code, room_generation, label, secret_digest,
+           digest_version, scope_mask, status, created_at, updated_at,
+           expires_at, revoked_at, last_used_hour)
+         VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, 'active', ?7, ?7, ?8, NULL, NULL)`,
       )
-      .bind(newKeyId, roomCode, issue.label, digest, issue.scopeMask, nowMs, expiresAt);
+      .bind(
+        newKeyId,
+        roomCode,
+        room.roomGeneration,
+        issue.label,
+        digest,
+        issue.scopeMask,
+        nowMs,
+        expiresAt,
+      );
     const actorId = await adminDeveloperApiAuditActor(request, env);
     const audit = developerApiAdminAuditStatement(
       developerDb,
@@ -2025,6 +2823,7 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
       'issued',
       newKeyId,
       roomCode,
+      room.roomGeneration,
       nowMs,
     );
     try {
@@ -2032,26 +2831,34 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
         await developerDb
           .prepare(
             `DELETE FROM mxqr_developer_api_keys
-             WHERE key_id = ?1 AND room_code = ?2 AND secret_digest = ?3`,
+             WHERE key_id = ?1 AND room_code = ?2 AND room_generation = ?3
+               AND secret_digest = ?4`,
           )
-          .bind(newKeyId, roomCode, digest)
+          .bind(newKeyId, roomCode, room.roomGeneration, digest)
           .run();
       });
     } catch (error) {
       try {
-        const concurrent = await readAdminDeveloperApiKey(developerDb, roomCode, newKeyId);
+        const concurrent = await readAdminDeveloperApiKey(
+          developerDb,
+          roomCode,
+          room.roomGeneration,
+          newKeyId,
+        );
         if (concurrent) {
           const concurrentKey = recoverAdminDeveloperApiKeyReplay(
             concurrent,
             issue,
             digest,
             Date.now(),
+            room.roomGeneration,
           );
           if (!concurrentKey) {
             return json({ error: 'DEVELOPER_API_IDEMPOTENCY_CONFLICT' }, 409);
           }
           return json({
             roomCode,
+            roomGeneration: room.roomGeneration,
             apiKey: `mxqr_live_${newKeyId}.${secret}`,
             key: concurrentKey,
           });
@@ -2076,6 +2883,7 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
       {
         key_id: newKeyId,
         room_code: roomCode,
+        room_generation: room.roomGeneration,
         label: issue.label,
         scope_mask: issue.scopeMask,
         status: 'active',
@@ -2086,10 +2894,12 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
         last_used_hour: null,
       },
       nowMs,
+      room.roomGeneration,
     );
     return json(
       {
         roomCode,
+        roomGeneration: room.roomGeneration,
         apiKey: `mxqr_live_${newKeyId}.${secret}`,
         key,
       },
@@ -2097,24 +2907,45 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
     );
   }
 
+  const parsedDeleteBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedDeleteBody.error) return jsonBodyError(parsedDeleteBody);
+  if (
+    !parsedDeleteBody.value ||
+    typeof parsedDeleteBody.value !== 'object' ||
+    Array.isArray(parsedDeleteBody.value) ||
+    Object.keys(parsedDeleteBody.value).length !== 1 ||
+    !isProRoomGeneration(parsedDeleteBody.value.roomGeneration)
+  ) {
+    return json({ error: 'INVALID_REQUEST' }, 400);
+  }
+  if (parsedDeleteBody.value.roomGeneration !== room.roomGeneration) {
+    return json({ error: 'PRO_ROOM_GENERATION_CONFLICT' }, 409);
+  }
+
   let existing;
   try {
-    existing = await readAdminDeveloperApiKey(developerDb, roomCode, keyId);
+    existing = await readAdminDeveloperApiKey(developerDb, roomCode, room.roomGeneration, keyId);
   } catch {
     return json({ error: 'DEVELOPER_API_ADMIN_UNAVAILABLE' }, 503);
   }
   if (!existing) return json({ error: 'DEVELOPER_API_KEY_NOT_FOUND' }, 404);
   if (existing.status !== 'active' || existing.expires_at <= nowMs) {
-    return json({ ok: true, roomCode, keyId });
+    return json({
+      ok: true,
+      roomCode,
+      roomGeneration: room.roomGeneration,
+      keyId,
+    });
   }
 
   const mutation = developerDb
     .prepare(
       `UPDATE mxqr_developer_api_keys
-       SET status = 'revoked', revoked_at = ?3, updated_at = ?3
-       WHERE room_code = ?1 AND key_id = ?2 AND status = 'active' AND expires_at > ?3`,
+       SET status = 'revoked', revoked_at = ?4, updated_at = ?4
+       WHERE room_code = ?1 AND room_generation = ?2 AND key_id = ?3
+         AND status = 'active' AND expires_at > ?4`,
     )
-    .bind(roomCode, keyId, nowMs);
+    .bind(roomCode, room.roomGeneration, keyId, nowMs);
   const actorId = await adminDeveloperApiAuditActor(request, env);
   const audit = developerApiAdminAuditStatement(
     developerDb,
@@ -2123,6 +2954,7 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
     'revoked',
     keyId,
     roomCode,
+    room.roomGeneration,
     nowMs,
     { ignoreDuplicate: true },
   );
@@ -2131,17 +2963,28 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
       await developerDb
         .prepare(
           `UPDATE mxqr_developer_api_keys
-           SET status = 'active', revoked_at = NULL, updated_at = ?3
-           WHERE room_code = ?1 AND key_id = ?2 AND status = 'revoked' AND revoked_at = ?3`,
+           SET status = 'active', revoked_at = NULL, updated_at = ?4
+           WHERE room_code = ?1 AND room_generation = ?2 AND key_id = ?3
+             AND status = 'revoked' AND revoked_at = ?4`,
         )
-        .bind(roomCode, keyId, nowMs)
+        .bind(roomCode, room.roomGeneration, keyId, nowMs)
         .run();
     });
   } catch (error) {
     try {
-      const current = await readAdminDeveloperApiKey(developerDb, roomCode, keyId);
+      const current = await readAdminDeveloperApiKey(
+        developerDb,
+        roomCode,
+        room.roomGeneration,
+        keyId,
+      );
       if (current && (current.status !== 'active' || current.expires_at <= nowMs)) {
-        return json({ ok: true, roomCode, keyId });
+        return json({
+          ok: true,
+          roomCode,
+          roomGeneration: room.roomGeneration,
+          keyId,
+        });
       }
     } catch {
       // Preserve the original failure below when reconciliation is unavailable.
@@ -2155,7 +2998,12 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
       503,
     );
   }
-  return json({ ok: true, roomCode, keyId });
+  return json({
+    ok: true,
+    roomCode,
+    roomGeneration: room.roomGeneration,
+    keyId,
+  });
 }
 
 async function handleAdminProRooms(request, env, pathname) {
@@ -2214,6 +3062,32 @@ async function handleAdminProRooms(request, env, pathname) {
 
     try {
       const registered = await registerAdminProRoom(db, roomCode, label);
+      if (registered.generationCutoverNotReady) {
+        const auditError = await writeAdminProRoomAuditOrFail(
+          db,
+          request,
+          env,
+          'room.register',
+          'generation_cutover_not_ready',
+          roomCode,
+          registered.room?.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION,
+        );
+        if (auditError) return auditError;
+        return json({ error: 'PRO_ROOM_GENERATION_CUTOVER_NOT_READY' }, 503);
+      }
+      if (registered.repairRequired) {
+        const auditError = await writeAdminProRoomAuditOrFail(
+          db,
+          request,
+          env,
+          'room.register',
+          'registry_repair_required',
+          roomCode,
+          registered.room?.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION,
+        );
+        if (auditError) return auditError;
+        return json({ error: 'PRO_ROOM_REGISTRY_REPAIR_REQUIRED' }, 409);
+      }
       if (registered.capacityExceeded) {
         const auditError = await writeAdminProRoomAuditOrFail(
           db,
@@ -2222,19 +3096,33 @@ async function handleAdminProRooms(request, env, pathname) {
           'room.register',
           'registry_capacity_reached',
           roomCode,
+          registered.room?.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION,
         );
         if (auditError) return auditError;
         return json({ error: 'PRO_ROOM_REGISTRY_CAPACITY_REACHED' }, 409);
       }
-      if (
-        registered.room?.status === 'decommissioning' ||
-        registered.room?.status === 'decommissioned'
-      ) {
-        return json({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' }, 410);
+      if (registered.generationExhausted) {
+        return json({ error: 'PRO_ROOM_GENERATION_EXHAUSTED' }, 409);
+      }
+      if (registered.room?.status === 'decommissioning') {
+        return json({ error: 'PRO_ROOM_DECOMMISSION_IN_PROGRESS' }, 409);
+      }
+      if (!registered.room || registered.room.status === 'decommissioned') {
+        return json({ error: 'PRO_ROOM_REGISTRATION_CONFLICT' }, 409);
       }
       const previousStatus = registered.room?.status || 'provisioning';
-      const provisioned = await callProRoomAdminObject(env, roomCode, '/internal/admin/provision');
-      if (!provisioned.response?.ok || !provisioned.payload?.ok) {
+      const roomGeneration = registered.room.roomGeneration;
+      const provisioned = await callProRoomAdminObject(
+        env,
+        roomCode,
+        roomGeneration,
+        '/internal/admin/provision',
+      );
+      const validProvisionResponse =
+        provisioned.payload?.ok === true &&
+        proRoomAdminResponseIdentityMatches(provisioned.payload, roomCode, roomGeneration) &&
+        ['unactivated', 'active', 'suspended'].includes(provisioned.payload?.status);
+      if (!provisioned.response?.ok || !validProvisionResponse) {
         const auditError = await writeAdminProRoomAuditOrFail(
           db,
           request,
@@ -2242,23 +3130,36 @@ async function handleAdminProRooms(request, env, pathname) {
           'room.register',
           'provision_failed',
           roomCode,
+          roomGeneration,
         );
         if (auditError) return auditError;
-        return proRoomObjectError(provisioned);
+        return provisioned.response?.ok
+          ? json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502)
+          : proRoomObjectError(provisioned);
       }
-      await markAdminProRoomRegistered(db, roomCode, provisioned.payload.status);
+      await markAdminProRoomRegistered(db, roomCode, roomGeneration, provisioned.payload.status);
       const room = (await readAdminProRoom(db, roomCode)) || registered.room;
+      if (
+        room.roomGeneration !== roomGeneration ||
+        room.status === 'decommissioning' ||
+        room.status === 'decommissioned'
+      ) {
+        return json({ error: 'PRO_ROOM_REGISTRATION_CONFLICT' }, 409);
+      }
       const auditError = await writeAdminProRoomAuditOrFail(
         db,
         request,
         env,
         'room.register',
         registered.created
-          ? 'created'
+          ? registered.reused
+            ? 'recreated'
+            : 'created'
           : previousStatus === 'provisioning'
             ? 'provisioning_recovered'
             : 'already_registered',
         roomCode,
+        roomGeneration,
       );
       if (auditError) return auditError;
       return json({ room }, registered.created ? 201 : 200);
@@ -2267,7 +3168,13 @@ async function handleAdminProRooms(request, env, pathname) {
     }
   }
 
-  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 0) {
+  if (
+    !body ||
+    typeof body !== 'object' ||
+    Array.isArray(body) ||
+    Object.keys(body).length !== 1 ||
+    !isProRoomGeneration(body.roomGeneration)
+  ) {
     const auditError = await writeAdminProRoomAuditOrFail(
       db,
       request,
@@ -2275,6 +3182,7 @@ async function handleAdminProRooms(request, env, pathname) {
       'activation_claim.issue',
       'invalid_request',
       activationClaimRoomCode,
+      isProRoomGeneration(body?.roomGeneration) ? body.roomGeneration : LEGACY_PRO_ROOM_GENERATION,
     );
     if (auditError) return auditError;
     return json({ error: 'INVALID_REQUEST' }, 400);
@@ -2293,9 +3201,23 @@ async function handleAdminProRooms(request, env, pathname) {
       'activation_claim.issue',
       'room_not_found',
       activationClaimRoomCode,
+      body.roomGeneration,
     );
     if (auditError) return auditError;
     return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  }
+  if (room.roomGeneration !== body.roomGeneration) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'activation_claim.issue',
+      'generation_mismatch',
+      activationClaimRoomCode,
+      body.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
   }
   if (room.status === 'decommissioning' || room.status === 'decommissioned') {
     return json({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' }, 410);
@@ -2308,6 +3230,7 @@ async function handleAdminProRooms(request, env, pathname) {
       'activation_claim.issue',
       'provisioning_incomplete',
       activationClaimRoomCode,
+      room.roomGeneration,
     );
     if (auditError) return auditError;
     return json({ error: 'PRO_ROOM_PROVISIONING_INCOMPLETE' }, 409);
@@ -2320,6 +3243,7 @@ async function handleAdminProRooms(request, env, pathname) {
       'activation_claim.issue',
       'room_suspended',
       activationClaimRoomCode,
+      room.roomGeneration,
     );
     if (auditError) return auditError;
     return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
@@ -2328,10 +3252,11 @@ async function handleAdminProRooms(request, env, pathname) {
   const issued = await callProRoomAdminObject(
     env,
     activationClaimRoomCode,
+    room.roomGeneration,
     '/internal/admin/activation-claim',
   );
   if (!issued.response?.ok) {
-    await reconcileAdminProRoomStatus(env, db, activationClaimRoomCode).catch(() => {});
+    await reconcileAdminProRoomStatus(env, db, room).catch(() => {});
     const auditError = await writeAdminProRoomAuditOrFail(
       db,
       request,
@@ -2339,11 +3264,12 @@ async function handleAdminProRooms(request, env, pathname) {
       'activation_claim.issue',
       issued.response ? 'service_rejected' : 'service_unavailable',
       activationClaimRoomCode,
+      room.roomGeneration,
     );
     if (auditError) return auditError;
     return proRoomObjectError(issued);
   }
-  if (!isValidAdminActivationLink(issued.payload, activationClaimRoomCode)) {
+  if (!isValidAdminActivationLink(issued.payload, activationClaimRoomCode, room.roomGeneration)) {
     const auditError = await writeAdminProRoomAuditOrFail(
       db,
       request,
@@ -2351,6 +3277,7 @@ async function handleAdminProRooms(request, env, pathname) {
       'activation_claim.issue',
       'invalid_service_response',
       activationClaimRoomCode,
+      room.roomGeneration,
     );
     if (auditError) return auditError;
     return json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
@@ -2362,12 +3289,17 @@ async function handleAdminProRooms(request, env, pathname) {
     'activation_claim.issue',
     'issued',
     activationClaimRoomCode,
+    room.roomGeneration,
   );
   // The DO has already rotated and persisted the claim generation. If D1
   // auditing fails, discard this credential; the next retry rotates again so
   // no unaudited link can subsequently be used.
   if (auditError) return auditError;
-  return json(issued.payload);
+  return json({
+    ...issued.payload,
+    roomCode: activationClaimRoomCode,
+    roomGeneration: room.roomGeneration,
+  });
 }
 
 async function handleAdminProRoomOwnerRecoveryClaim(request, env, pathname) {
@@ -2386,7 +3318,13 @@ async function handleAdminProRoomOwnerRecoveryClaim(request, env, pathname) {
   const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
   if (parsedBody.error) return jsonBodyError(parsedBody);
   const body = parsedBody.value;
-  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length !== 0) {
+  if (
+    !body ||
+    typeof body !== 'object' ||
+    Array.isArray(body) ||
+    Object.keys(body).length !== 1 ||
+    !isProRoomGeneration(body.roomGeneration)
+  ) {
     const auditError = await writeAdminProRoomAuditOrFail(
       db,
       request,
@@ -2394,6 +3332,7 @@ async function handleAdminProRoomOwnerRecoveryClaim(request, env, pathname) {
       'owner_recovery_claim.issue',
       'invalid_request',
       roomCode,
+      isProRoomGeneration(body?.roomGeneration) ? body.roomGeneration : LEGACY_PRO_ROOM_GENERATION,
     );
     if (auditError) return auditError;
     return json({ error: 'INVALID_REQUEST' }, 400);
@@ -2413,9 +3352,23 @@ async function handleAdminProRoomOwnerRecoveryClaim(request, env, pathname) {
       'owner_recovery_claim.issue',
       'room_not_found',
       roomCode,
+      body.roomGeneration,
     );
     if (auditError) return auditError;
     return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  }
+  if (room.roomGeneration !== body.roomGeneration) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_recovery_claim.issue',
+      'generation_mismatch',
+      roomCode,
+      body.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
   }
   if (room.status === 'decommissioning' || room.status === 'decommissioned') {
     return json({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' }, 410);
@@ -2428,6 +3381,7 @@ async function handleAdminProRoomOwnerRecoveryClaim(request, env, pathname) {
       'owner_recovery_claim.issue',
       room.status === 'suspended' ? 'room_suspended' : 'room_not_active',
       roomCode,
+      room.roomGeneration,
     );
     if (auditError) return auditError;
     return json({ error: 'PRO_ROOM_OWNER_RECOVERY_UNAVAILABLE' }, 409);
@@ -2436,10 +3390,11 @@ async function handleAdminProRoomOwnerRecoveryClaim(request, env, pathname) {
   const issued = await callProRoomAdminObject(
     env,
     roomCode,
+    room.roomGeneration,
     '/internal/admin/owner-recovery-claim',
   );
   if (!issued.response?.ok) {
-    await reconcileAdminProRoomStatus(env, db, roomCode).catch(() => {});
+    await reconcileAdminProRoomStatus(env, db, room).catch(() => {});
     const auditError = await writeAdminProRoomAuditOrFail(
       db,
       request,
@@ -2447,11 +3402,12 @@ async function handleAdminProRoomOwnerRecoveryClaim(request, env, pathname) {
       'owner_recovery_claim.issue',
       issued.response ? 'service_rejected' : 'service_unavailable',
       roomCode,
+      room.roomGeneration,
     );
     if (auditError) return auditError;
     return proRoomObjectError(issued);
   }
-  if (!isValidAdminOwnerRecoveryLink(issued.payload, roomCode)) {
+  if (!isValidAdminOwnerRecoveryLink(issued.payload, roomCode, room.roomGeneration)) {
     const auditError = await writeAdminProRoomAuditOrFail(
       db,
       request,
@@ -2459,6 +3415,7 @@ async function handleAdminProRoomOwnerRecoveryClaim(request, env, pathname) {
       'owner_recovery_claim.issue',
       'invalid_service_response',
       roomCode,
+      room.roomGeneration,
     );
     if (auditError) return auditError;
     return json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
@@ -2470,12 +3427,14 @@ async function handleAdminProRoomOwnerRecoveryClaim(request, env, pathname) {
     'owner_recovery_claim.issue',
     'issued',
     roomCode,
+    room.roomGeneration,
   );
   // Recovery URLs are bearer credentials. If the audit write cannot be
   // confirmed, discard the response and never expose the URL to the browser.
   if (auditError) return auditError;
   return json({
     roomCode,
+    roomGeneration: room.roomGeneration,
     recoveryUrl: issued.payload.recoveryUrl,
     expiresAt: issued.payload.expiresAt,
     ownerAccountLinked: issued.payload.ownerAccountLinked,
@@ -2501,8 +3460,10 @@ async function handleAdminProRoomState(request, env, pathname) {
   const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : [];
   const targetStatus = body?.status;
   if (
-    keys.length !== 1 ||
-    keys[0] !== 'status' ||
+    keys.length !== 2 ||
+    !keys.includes('roomGeneration') ||
+    !keys.includes('status') ||
+    !isProRoomGeneration(body.roomGeneration) ||
     (targetStatus !== 'active' && targetStatus !== 'suspended')
   ) {
     return json({ error: 'INVALID_REQUEST' }, 400);
@@ -2522,9 +3483,24 @@ async function handleAdminProRoomState(request, env, pathname) {
       targetStatus === 'suspended' ? 'room.suspend' : 'room.resume',
       'room_not_found',
       roomCode,
+      body.roomGeneration,
     );
     if (auditError) return auditError;
     return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  }
+  if (room.roomGeneration !== body.roomGeneration) {
+    const action = targetStatus === 'suspended' ? 'room.suspend' : 'room.resume';
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      action,
+      'generation_mismatch',
+      roomCode,
+      body.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
   }
   if (room.status === 'decommissioning' || room.status === 'decommissioned') {
     return json({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' }, 410);
@@ -2537,6 +3513,7 @@ async function handleAdminProRoomState(request, env, pathname) {
       targetStatus === 'suspended' ? 'room.suspend' : 'room.resume',
       'provisioning_incomplete',
       roomCode,
+      room.roomGeneration,
     );
     if (auditError) return auditError;
     return json({ error: 'PRO_ROOM_PROVISIONING_INCOMPLETE' }, 409);
@@ -2545,10 +3522,10 @@ async function handleAdminProRoomState(request, env, pathname) {
   const action = targetStatus === 'suspended' ? 'room.suspend' : 'room.resume';
   const internalPath =
     targetStatus === 'suspended' ? '/internal/admin/suspend' : '/internal/admin/resume';
-  const changed = await callProRoomAdminObject(env, roomCode, internalPath);
+  const changed = await callProRoomAdminObject(env, roomCode, room.roomGeneration, internalPath);
   const payload = changed.payload;
   if (!changed.response?.ok) {
-    await reconcileAdminProRoomStatus(env, db, roomCode).catch(() => {});
+    await reconcileAdminProRoomStatus(env, db, room).catch(() => {});
     const auditError = await writeAdminProRoomAuditOrFail(
       db,
       request,
@@ -2556,6 +3533,7 @@ async function handleAdminProRoomState(request, env, pathname) {
       action,
       changed.response ? 'service_rejected' : 'service_unavailable',
       roomCode,
+      room.roomGeneration,
     );
     if (auditError) return auditError;
     return proRoomObjectError(changed);
@@ -2563,7 +3541,7 @@ async function handleAdminProRoomState(request, env, pathname) {
   if (
     !payload ||
     payload.ok !== true ||
-    payload.roomCode !== roomCode ||
+    !proRoomAdminResponseIdentityMatches(payload, roomCode, room.roomGeneration) ||
     payload.status !== targetStatus ||
     typeof payload.changed !== 'boolean'
   ) {
@@ -2574,13 +3552,20 @@ async function handleAdminProRoomState(request, env, pathname) {
       action,
       'invalid_service_response',
       roomCode,
+      room.roomGeneration,
     );
     if (auditError) return auditError;
     return json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
   }
 
   try {
-    await markAdminProRoomOperationalState(db, roomCode, targetStatus);
+    const updated = await markAdminProRoomOperationalState(
+      db,
+      roomCode,
+      room.roomGeneration,
+      targetStatus,
+    );
+    if (!updated) return json({ error: 'PRO_ROOM_STATE_CONFLICT' }, 409);
   } catch {
     return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
   }
@@ -2591,9 +3576,16 @@ async function handleAdminProRoomState(request, env, pathname) {
     action,
     payload.changed ? 'changed' : 'already_applied',
     roomCode,
+    room.roomGeneration,
   );
   if (auditError) return auditError;
-  return json({ ok: true, roomCode, status: targetStatus, changed: payload.changed });
+  return json({
+    ok: true,
+    roomCode,
+    roomGeneration: room.roomGeneration,
+    status: targetStatus,
+    changed: payload.changed,
+  });
 }
 
 async function handleAdminProRoomDelete(request, env, pathname) {
@@ -2616,8 +3608,9 @@ async function handleAdminProRoomDelete(request, env, pathname) {
     !body ||
     typeof body !== 'object' ||
     Array.isArray(body) ||
-    Object.keys(body).length !== 2 ||
+    Object.keys(body).length !== 3 ||
     body.confirmRoomCode !== roomCode ||
+    !isProRoomGeneration(body.roomGeneration) ||
     !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(body.requestId || '')
   ) {
     return json({ error: 'PRO_ROOM_DELETE_CONFIRMATION_MISMATCH' }, 400);
@@ -2630,6 +3623,19 @@ async function handleAdminProRoomDelete(request, env, pathname) {
     return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
   }
   if (!room) return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  if (room.roomGeneration !== body.roomGeneration) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'room.delete',
+      'generation_mismatch',
+      roomCode,
+      body.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
+  }
 
   if (room.status !== 'decommissioning' && room.status !== 'decommissioned') {
     const auditError = await writeAdminProRoomAuditOrFail(
@@ -2639,22 +3645,24 @@ async function handleAdminProRoomDelete(request, env, pathname) {
       'room.delete',
       'authorized',
       roomCode,
+      room.roomGeneration,
     );
     if (auditError) return auditError;
   }
   const decommissioned = await callProRoomAdminObject(
     env,
     roomCode,
+    room.roomGeneration,
     '/internal/admin/decommission',
     'POST',
-    { roomCode, requestId: body.requestId },
+    { roomCode, roomGeneration: room.roomGeneration, requestId: body.requestId },
   );
   const payload = decommissioned.payload;
   if (
     !decommissioned.response?.ok ||
     !payload ||
     payload.ok !== true ||
-    payload.roomCode !== roomCode ||
+    !proRoomAdminResponseIdentityMatches(payload, roomCode, room.roomGeneration) ||
     !['decommissioning', 'decommissioned'].includes(payload.status)
   ) {
     return proRoomObjectError(decommissioned);
@@ -2662,12 +3670,12 @@ async function handleAdminProRoomDelete(request, env, pathname) {
 
   try {
     if (payload.status === 'decommissioned') {
-      await markAdminProRoomDecommissioned(db, roomCode);
+      await markAdminProRoomDecommissioned(db, roomCode, room.roomGeneration, body.requestId);
     } else {
       // The room Durable Object owns the retry alarm. Move the display index
       // only after that durable saga exists; otherwise a lost cross-script
       // call could leave an inert D1 fence with no worker scheduled to purge.
-      await markAdminProRoomDecommissioning(db, roomCode);
+      await markAdminProRoomDecommissioning(db, roomCode, room.roomGeneration);
     }
   } catch {
     return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
@@ -2676,6 +3684,7 @@ async function handleAdminProRoomDelete(request, env, pathname) {
     {
       ok: true,
       roomCode,
+      roomGeneration: room.roomGeneration,
       status: payload.status,
       purgeAfterMs: Number.isSafeInteger(payload.purgeAfterMs) ? payload.purgeAfterMs : null,
       completedAtMs: Number.isSafeInteger(payload.completedAtMs) ? payload.completedAtMs : null,
@@ -3233,7 +4242,7 @@ function renderAdminPage(request, env) {
             <div class="panel-head">
               <div>
                 <h2>Register a PRO room</h2>
-                <p>Reserve a permanent room number and issue its one-time owner activation link.</p>
+                <p>Register an available room number. Reusing a deleted number creates a new, isolated room.</p>
               </div>
               <span>1 GiB per room</span>
             </div>

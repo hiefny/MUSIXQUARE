@@ -1,3 +1,10 @@
+import {
+  LEGACY_PRO_ROOM_GENERATION,
+  isProRoomGeneration,
+  proRoomGenerationHeaderValue,
+  proRoomObjectName,
+} from './pro-room-generation.js';
+
 const PRO_ROOM_CODE_RE = /^0\d{5}$/;
 const BOT_MODEL_EFFICIENT = 'gemini-3.5-flash-lite';
 const BOT_MODEL_FALLBACK = 'gemini-3.5-flash';
@@ -987,9 +994,9 @@ function normalizePlanForExecution(prompt, plan) {
               ? korean
                 ? '가상 트레블 설정을 업데이트했어요.'
                 : 'Virtual treble updated.'
-            : korean
-              ? '재생 상태를 업데이트했어요.'
-              : 'Playback updated.';
+              : korean
+                ? '재생 상태를 업데이트했어요.'
+                : 'Playback updated.';
   return { ...plan, answer };
 }
 
@@ -1222,11 +1229,14 @@ async function resolveTracks(plan, env, signal) {
   };
 }
 
-function forwardedHeaders(request, roomCode, forwardedCookies) {
+function forwardedHeaders(request, roomCode, roomGeneration, forwardedCookies) {
   const headers = new Headers({
     'content-type': 'application/json',
     'x-mxqr-pro-room-code': roomCode,
   });
+  if (roomGeneration !== LEGACY_PRO_ROOM_GENERATION) {
+    headers.set('x-mxqr-pro-room-generation', proRoomGenerationHeaderValue(roomGeneration));
+  }
   if (forwardedCookies) headers.set('cookie', forwardedCookies);
   for (const name of ['x-mxqr-pro-participant-id', 'x-mxqr-pro-presence-incarnation']) {
     const value = request.headers.get(name);
@@ -1235,19 +1245,31 @@ function forwardedHeaders(request, roomCode, forwardedCookies) {
   return headers;
 }
 
-async function callRoomInternal(env, roomCode, path, request, forwardedCookies, body) {
+async function callRoomInternal(
+  env,
+  roomCode,
+  roomGeneration,
+  path,
+  request,
+  forwardedCookies,
+  body,
+) {
   const namespace = env.PRO_ROOM_ADMIN_ROOMS;
   if (!namespace?.idFromName || !namespace?.get) {
     throw new BotUpstreamError('BOT_NOT_CONFIGURED', 503);
   }
-  const stub = namespace.get(namespace.idFromName(roomCode));
+  const stub = namespace.get(namespace.idFromName(proRoomObjectName(roomCode, roomGeneration)));
+  const wireBody =
+    roomGeneration === LEGACY_PRO_ROOM_GENERATION && Object.hasOwn(body, 'roomGeneration')
+      ? Object.fromEntries(Object.entries(body).filter(([key]) => key !== 'roomGeneration'))
+      : body;
   let response;
   try {
     response = await stub.fetch(
       new Request(`https://pro-room.internal${path}`, {
         method: 'POST',
-        headers: forwardedHeaders(request, roomCode, forwardedCookies),
-        body: JSON.stringify(body),
+        headers: forwardedHeaders(request, roomCode, roomGeneration, forwardedCookies),
+        body: JSON.stringify(wireBody),
       }),
     );
   } catch {
@@ -1324,14 +1346,27 @@ export async function handleProBotRequest(request, env, options) {
   ) {
     return publicError('INVALID_REQUEST');
   }
+  let roomGeneration = LEGACY_PRO_ROOM_GENERATION;
   if (typeof options?.preflightRoom === 'function') {
-    let preflightError = null;
+    let preflightResult = null;
     try {
-      preflightError = await options.preflightRoom();
+      preflightResult = await options.preflightRoom();
     } catch {
-      preflightError = 'BOT_UNAVAILABLE';
+      preflightResult = 'BOT_UNAVAILABLE';
     }
-    if (preflightError) return publicError(preflightError);
+    if (typeof preflightResult === 'string') return publicError(preflightResult);
+    // A null result is the rolling-deployment contract used before reusable
+    // room codes existed. It remains generation zero so existing rooms keep
+    // their original Durable Object identity.
+    if (preflightResult !== null && preflightResult !== undefined) {
+      if (
+        typeof preflightResult !== 'object' ||
+        !isProRoomGeneration(preflightResult.roomGeneration)
+      ) {
+        return publicError('BOT_UNAVAILABLE');
+      }
+      roomGeneration = preflightResult.roomGeneration;
+    }
   }
 
   const total = timeoutSignal(BOT_TOTAL_TIMEOUT_MS, request.signal);
@@ -1339,10 +1374,11 @@ export async function handleProBotRequest(request, env, options) {
     const contextCall = await callRoomInternal(
       env,
       roomCode,
+      roomGeneration,
       '/internal/bot/context',
       request,
       options.forwardedCookies,
-      { roomCode, requestId: body.requestId, prompt },
+      { roomCode, roomGeneration, requestId: body.requestId, prompt },
     );
     if (!contextCall.response.ok) {
       const retryAfter = Number(contextCall.response.headers.get('retry-after')) || null;
@@ -1385,10 +1421,11 @@ export async function handleProBotRequest(request, env, options) {
     const executeCall = await callRoomInternal(
       env,
       roomCode,
+      roomGeneration,
       '/internal/bot/execute',
       request,
       options.forwardedCookies,
-      { roomCode, requestId: body.requestId, leaseToken, plan, tracks },
+      { roomCode, roomGeneration, requestId: body.requestId, leaseToken, plan, tracks },
     );
     if (!executeCall.response.ok) {
       const retryAfter = Number(executeCall.response.headers.get('retry-after')) || null;

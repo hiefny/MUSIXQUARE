@@ -52,6 +52,7 @@ const proRoomApiSecrets = new Map();
 const proRoomApiRequestGenerations = new Map();
 let proRoomDestroyDialogElements = null;
 let proRoomDestroyTarget = null;
+let visibleProRoomClaimIncarnation = null;
 const developerApiScopeLabels = Object.freeze({
   'room:read': 'Room',
   'playback:read': 'Playback read',
@@ -235,6 +236,12 @@ function adminErrorMessage(error, fallback) {
   if (message === 'PRO_ROOM_REGISTRY_CAPACITY_REACHED') {
     return 'The PRO room registry has reached its current capacity.';
   }
+  if (message === 'PRO_ROOM_GENERATION_MISMATCH') {
+    return 'This room number now refers to a different room. Refresh before making changes.';
+  }
+  if (message === 'PRO_ROOM_GENERATION_CUTOVER_NOT_READY') {
+    return 'Room-number reuse is temporarily unavailable until the generation safety rollout is verified.';
+  }
   if (message === 'DEVELOPER_API_ADMIN_NOT_CONFIGURED') {
     return 'Developer API key management is not configured.';
   }
@@ -285,6 +292,21 @@ function normalizeProRoomCode(value) {
   return /^0\d{5}$/.test(digits) ? digits : null;
 }
 
+function normalizeProRoomGeneration(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function proRoomIncarnationKey(roomCode, roomGeneration) {
+  const normalizedRoomCode = normalizeProRoomCode(roomCode);
+  const normalizedGeneration = normalizeProRoomGeneration(roomGeneration);
+  if (!normalizedRoomCode || normalizedGeneration === null) return null;
+  return `${normalizedRoomCode}:${normalizedGeneration}`;
+}
+
+function isProRoomGenerationMismatchError(error) {
+  return error?.message === 'PRO_ROOM_GENERATION_MISMATCH';
+}
+
 function setProRoomStatus(message, isError = false) {
   if (!proRoomStatusEl) return;
   proRoomStatusEl.textContent = message || '';
@@ -302,6 +324,7 @@ function formatProRoomStatus(status) {
 }
 
 function dismissProRoomClaim() {
+  visibleProRoomClaimIncarnation = null;
   if (!proRoomClaimEl) return;
   proRoomClaimEl.hidden = true;
   if (proRoomClaimUrlEl) proRoomClaimUrlEl.value = '';
@@ -316,16 +339,26 @@ function clearProRoomClaimState() {
   issuedOwnerRecoveryLinks.clear();
 }
 
-function showProRoomClaim(payload, kind = 'activation') {
+function showProRoomClaim(payload, kind = 'activation', expectedRoomGeneration = null) {
   if (!proRoomClaimEl || !proRoomClaimUrlEl) return;
   const roomCode = normalizeProRoomCode(payload.roomCode);
+  const roomGeneration = normalizeProRoomGeneration(payload.roomGeneration);
+  const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
   const isRecovery = kind === 'recovery';
   const claimUrl = isRecovery ? payload.recoveryUrl : payload.activationUrl;
-  if (!roomCode || typeof claimUrl !== 'string' || !claimUrl) {
+  if (
+    !roomCode ||
+    roomGeneration === null ||
+    roomGeneration !== expectedRoomGeneration ||
+    !incarnationKey ||
+    typeof claimUrl !== 'string' ||
+    !claimUrl
+  ) {
     throw new Error(isRecovery ? 'INVALID_OWNER_RECOVERY_LINK' : 'INVALID_ACTIVATION_LINK');
   }
-  if (isRecovery) issuedOwnerRecoveryLinks.add(roomCode);
-  else issuedActivationLinks.add(roomCode);
+  if (isRecovery) issuedOwnerRecoveryLinks.add(incarnationKey);
+  else issuedActivationLinks.add(incarnationKey);
+  visibleProRoomClaimIncarnation = incarnationKey;
   if (proRoomClaimTitleEl) {
     proRoomClaimTitleEl.textContent = `${roomCode} owner ${isRecovery ? 'recovery' : 'activation'} link`;
   }
@@ -372,16 +405,21 @@ function proRoomRawStatus(room) {
   return 'registered';
 }
 
-function clearProRoomApiSecret(roomCode) {
-  proRoomApiSecrets.delete(roomCode);
-  document
-    .querySelector(`[data-pro-room-api-secret="${roomCode}"]`)
-    ?.replaceChildren();
+function clearProRoomApiSecret(roomCode, roomGeneration) {
+  const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
+  if (!incarnationKey) return;
+  proRoomApiSecrets.delete(incarnationKey);
+  const panel = document.querySelector(
+    `[data-pro-room-api-panel="${roomCode}"][data-pro-room-generation="${roomGeneration}"]`,
+  );
+  panel?.querySelector('[data-pro-room-api-secret]')?.replaceChildren();
 }
 
 function clearAllProRoomApiSecrets() {
-  for (const roomCode of proRoomApiSecrets.keys()) clearProRoomApiSecret(roomCode);
   proRoomApiSecrets.clear();
+  for (const host of document.querySelectorAll('[data-pro-room-api-secret]')) {
+    host.replaceChildren();
+  }
 }
 
 function resetProRoomDestroyDialog() {
@@ -453,13 +491,18 @@ function focusProRoomListAfterDestroy() {
   return proRoomListStatusEl;
 }
 
-function clearDestroyedProRoomState(roomCode) {
+function clearDestroyedProRoomState(roomCode, roomGeneration) {
+  const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
+  if (!incarnationKey) return;
   expandedProRooms.delete(roomCode);
-  issuedActivationLinks.delete(roomCode);
-  issuedOwnerRecoveryLinks.delete(roomCode);
-  proRoomApiCache.delete(roomCode);
-  proRoomApiRequestGenerations.set(roomCode, (proRoomApiRequestGenerations.get(roomCode) || 0) + 1);
-  clearProRoomApiSecret(roomCode);
+  issuedActivationLinks.delete(incarnationKey);
+  issuedOwnerRecoveryLinks.delete(incarnationKey);
+  proRoomApiCache.delete(incarnationKey);
+  proRoomApiRequestGenerations.set(
+    incarnationKey,
+    (proRoomApiRequestGenerations.get(incarnationKey) || 0) + 1,
+  );
+  clearProRoomApiSecret(roomCode, roomGeneration);
   const claimRoomCode = normalizeProRoomCode(
     String(proRoomClaimTitleEl?.textContent || '').slice(0, 6),
   );
@@ -471,6 +514,7 @@ async function permanentlyDeleteProRoom() {
   const { input, error } = proRoomDestroyDialogElements;
   const target = proRoomDestroyTarget;
   const roomCode = target.roomCode;
+  const roomGeneration = target.roomGeneration;
   if (input.value !== roomCode || target.busy) return;
 
   setProRoomDestroyBusy(true);
@@ -480,10 +524,17 @@ async function permanentlyDeleteProRoom() {
       method: 'DELETE',
       body: JSON.stringify({
         confirmRoomCode: roomCode,
+        roomGeneration,
         requestId: target.requestId,
       }),
     });
-    clearDestroyedProRoomState(roomCode);
+    if (
+      result?.roomCode !== roomCode ||
+      normalizeProRoomGeneration(result?.roomGeneration) !== roomGeneration
+    ) {
+      throw new Error('PRO_ROOM_GENERATION_MISMATCH');
+    }
+    clearDestroyedProRoomState(roomCode, roomGeneration);
     document.querySelector(`[data-pro-room-item="${roomCode}"]`)?.remove();
     const deletionPending = result?.status === 'decommissioning';
     setProRoomStatus(
@@ -540,7 +591,7 @@ function ensureProRoomDestroyDialog() {
   const description = document.createElement('p');
   description.id = 'pro-room-destroy-description';
   description.textContent =
-    'The room, playlist, uploaded media, active sessions, owner access, and API keys will be permanently removed. Connected participants will be signed out. This cannot be undone.';
+    'This room incarnation, playlist, uploaded media, active sessions, owner access, and API keys will be permanently removed. Connected participants will be signed out. This deletion cannot be undone; after cleanup completes, an administrator may register the room number as a new room.';
   copy.append(eyebrow, title, description);
 
   const field = document.createElement('label');
@@ -607,11 +658,16 @@ function ensureProRoomDestroyDialog() {
   return proRoomDestroyDialogElements;
 }
 
-function openProRoomDestroyDialog(roomCode, trigger) {
+function openProRoomDestroyDialog(roomCode, roomGeneration, trigger) {
+  if (normalizeProRoomGeneration(roomGeneration) === null) {
+    setProRoomStatus('Room generation is unavailable. Refresh before making changes.', true);
+    return;
+  }
   const elements = ensureProRoomDestroyDialog();
   const { dialog, form, title, fieldLabel, input, error, cancelButton, confirmButton } = elements;
   proRoomDestroyTarget = {
     roomCode,
+    roomGeneration,
     restoreFocus: trigger,
     busy: false,
     requestId: createAdminRequestId(),
@@ -653,12 +709,13 @@ async function copySensitiveValue(value, input, button) {
   }, 1600);
 }
 
-function renderProRoomApiSecret(roomCode) {
+function renderProRoomApiSecret(roomCode, roomGeneration) {
   const host = document.createElement('div');
   host.className = 'pro-room-api-secret';
   host.dataset.proRoomApiSecret = roomCode;
   host.setAttribute('aria-live', 'polite');
-  const issued = proRoomApiSecrets.get(roomCode);
+  const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
+  const issued = incarnationKey ? proRoomApiSecrets.get(incarnationKey) : null;
   if (!issued?.apiKey) return host;
 
   const copy = document.createElement('div');
@@ -690,13 +747,13 @@ function renderProRoomApiSecret(roomCode) {
   dismiss.type = 'button';
   dismiss.className = 'is-secondary';
   dismiss.textContent = 'Dismiss';
-  dismiss.addEventListener('click', () => clearProRoomApiSecret(roomCode));
+  dismiss.addEventListener('click', () => clearProRoomApiSecret(roomCode, roomGeneration));
   row.append(input, copyButton, dismiss);
   host.append(copy, row);
   return host;
 }
 
-function renderProRoomApiKey(roomCode, key, refresh) {
+function renderProRoomApiKey(roomCode, roomGeneration, roomStatus, panel, key, refresh) {
   const item = document.createElement('article');
   item.className = 'pro-room-api-key';
   const identity = document.createElement('div');
@@ -710,9 +767,7 @@ function renderProRoomApiKey(roomCode, key, refresh) {
   const metadata = document.createElement('div');
   metadata.className = 'pro-room-api-key-meta';
   const state = document.createElement('span');
-  const keyStatus = ['active', 'expired', 'revoked'].includes(key?.status)
-    ? key.status
-    : 'revoked';
+  const keyStatus = ['active', 'expired', 'revoked'].includes(key?.status) ? key.status : 'revoked';
   state.className = `pro-room-api-key-state is-${keyStatus}`;
   state.textContent = keyStatus[0].toUpperCase() + keyStatus.slice(1);
   const expiry = document.createElement('small');
@@ -733,7 +788,7 @@ function renderProRoomApiKey(roomCode, key, refresh) {
 
   const actions = document.createElement('div');
   actions.className = 'pro-room-api-key-actions';
-  if (keyStatus === 'active' && key?.keyId) {
+  if (keyStatus === 'active' && key?.keyId && normalizeProRoomGeneration(roomGeneration) !== null) {
     const revoke = document.createElement('button');
     revoke.type = 'button';
     revoke.textContent = 'Revoke';
@@ -743,16 +798,40 @@ function renderProRoomApiKey(roomCode, key, refresh) {
       revoke.disabled = true;
       revoke.textContent = 'Revoking...';
       try {
-        await fetchJson(`/api/admin/pro-rooms/${roomCode}/api-keys/${key.keyId}`, {
+        const revoked = await fetchJson(`/api/admin/pro-rooms/${roomCode}/api-keys/${key.keyId}`, {
           method: 'DELETE',
+          body: JSON.stringify({ roomGeneration }),
         });
-        if (proRoomApiSecrets.get(roomCode)?.keyId === key.keyId) {
-          clearProRoomApiSecret(roomCode);
+        if (
+          revoked?.roomCode !== roomCode ||
+          normalizeProRoomGeneration(revoked?.roomGeneration) !== roomGeneration
+        ) {
+          throw new Error('PRO_ROOM_GENERATION_MISMATCH');
+        }
+        const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
+        if (incarnationKey && proRoomApiSecrets.get(incarnationKey)?.keyId === key.keyId) {
+          clearProRoomApiSecret(roomCode, roomGeneration);
         }
         await refresh('API key revoked.');
       } catch (error) {
         revoke.disabled = false;
         revoke.textContent = 'Revoke';
+        if (isProRoomGenerationMismatchError(error)) {
+          const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
+          if (incarnationKey) proRoomApiCache.delete(incarnationKey);
+          clearProRoomApiSecret(roomCode, roomGeneration);
+          renderProRoomApiPanel(
+            roomCode,
+            null,
+            roomStatus,
+            panel,
+            { keys: [], maxActiveKeys: 3 },
+            adminErrorMessage(error, 'API key revocation failed.'),
+            true,
+          );
+          loadProRooms({ updateTimestamp: false }).catch(() => {});
+          return;
+        }
         await refresh(adminErrorMessage(error, 'API key revocation failed.'), true, false);
       }
     });
@@ -819,7 +898,16 @@ function renderProRoomApiShell(roomCode, panel) {
   panel.append(head, form, status, list);
 }
 
-function renderProRoomApiPanel(roomCode, roomStatus, panel, payload, message = '', isError = false) {
+function renderProRoomApiPanel(
+  roomCode,
+  roomGeneration,
+  roomStatus,
+  panel,
+  payload,
+  message = '',
+  isError = false,
+) {
+  const validRoomGeneration = normalizeProRoomGeneration(roomGeneration) !== null;
   const keys = Array.isArray(payload?.keys) ? payload.keys : [];
   const activeCount = keys.filter((key) => key?.status === 'active').length;
   const maxActiveKeys = Number.isSafeInteger(payload?.maxActiveKeys) ? payload.maxActiveKeys : 3;
@@ -898,13 +986,19 @@ function renderProRoomApiPanel(roomCode, roomStatus, panel, payload, message = '
   const issue = document.createElement('button');
   issue.type = 'submit';
   issue.textContent = 'Issue API key';
-  issue.disabled = activeCount >= maxActiveKeys || roomStatus !== 'active';
-  if (roomStatus !== 'active') issue.title = 'Activate or resume this room before issuing a key.';
+  issue.disabled = !validRoomGeneration || activeCount >= maxActiveKeys || roomStatus !== 'active';
+  if (!validRoomGeneration) {
+    issue.title = 'Refresh the room list before issuing a key.';
+  } else if (roomStatus !== 'active') {
+    issue.title = 'Activate or resume this room before issuing a key.';
+  }
   form.append(labelField, accessField, expiryField, issue);
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
+    if (!validRoomGeneration) return;
     const preset = developerApiPresets[accessSelect.value] || developerApiPresets.read;
     const requestBody = JSON.stringify({
+      roomGeneration,
       label: labelInput.value.trim(),
       days: Number(expirySelect.value),
       scopes: preset,
@@ -928,18 +1022,49 @@ function renderProRoomApiPanel(roomCode, roomStatus, panel, payload, message = '
       if (typeof issued?.apiKey !== 'string' || !issued.apiKey.startsWith('mxqr_live_')) {
         throw new Error('INVALID_DEVELOPER_API_KEY_RESPONSE');
       }
-      proRoomApiSecrets.set(roomCode, {
+      const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
+      if (!incarnationKey) throw new Error('PRO_ROOM_GENERATION_MISMATCH');
+      if (
+        issued?.roomCode !== roomCode ||
+        normalizeProRoomGeneration(issued?.roomGeneration) !== roomGeneration
+      ) {
+        throw new Error('PRO_ROOM_GENERATION_MISMATCH');
+      }
+      proRoomApiSecrets.set(incarnationKey, {
         apiKey: issued.apiKey,
         keyId: typeof issued?.key?.keyId === 'string' ? issued.key.keyId : '',
       });
       form.reset();
-      await loadProRoomApiKeys(roomCode, roomStatus, panel, 'API key issued. Copy it now.');
+      await loadProRoomApiKeys(
+        roomCode,
+        roomGeneration,
+        roomStatus,
+        panel,
+        'API key issued. Copy it now.',
+      );
       panel
         .querySelector(`[aria-label="${roomCode} Developer API key"]`)
         ?.focus({ preventScroll: true });
     } catch (error) {
+      if (isProRoomGenerationMismatchError(error)) {
+        const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
+        if (incarnationKey) proRoomApiCache.delete(incarnationKey);
+        clearProRoomApiSecret(roomCode, roomGeneration);
+        renderProRoomApiPanel(
+          roomCode,
+          null,
+          roomStatus,
+          panel,
+          { keys: [], maxActiveKeys: 3 },
+          adminErrorMessage(error, 'API key issuance failed.'),
+          true,
+        );
+        loadProRooms({ updateTimestamp: false }).catch(() => {});
+        return;
+      }
       await loadProRoomApiKeys(
         roomCode,
+        roomGeneration,
         roomStatus,
         panel,
         adminErrorMessage(error, 'API key issuance failed.'),
@@ -952,12 +1077,29 @@ function renderProRoomApiPanel(roomCode, roomStatus, panel, payload, message = '
   list.className = 'pro-room-api-key-list';
   const refresh = async (nextMessage = '', nextIsError = false, reload = true) => {
     if (reload) {
-      await loadProRoomApiKeys(roomCode, roomStatus, panel, nextMessage, nextIsError);
+      await loadProRoomApiKeys(
+        roomCode,
+        roomGeneration,
+        roomStatus,
+        panel,
+        nextMessage,
+        nextIsError,
+      );
       return;
     }
-    renderProRoomApiPanel(roomCode, roomStatus, panel, payload, nextMessage, nextIsError);
+    renderProRoomApiPanel(
+      roomCode,
+      roomGeneration,
+      roomStatus,
+      panel,
+      payload,
+      nextMessage,
+      nextIsError,
+    );
   };
-  const rows = keys.map((key) => renderProRoomApiKey(roomCode, key, refresh));
+  const rows = keys.map((key) =>
+    renderProRoomApiKey(roomCode, roomGeneration, roomStatus, panel, key, refresh),
+  );
   if (rows.length) list.append(...rows);
   else {
     const empty = document.createElement('p');
@@ -966,36 +1108,61 @@ function renderProRoomApiPanel(roomCode, roomStatus, panel, payload, message = '
     list.append(empty);
   }
 
-  panel.append(head, renderProRoomApiSecret(roomCode), form, status, list);
+  panel.append(head, renderProRoomApiSecret(roomCode, roomGeneration), form, status, list);
 }
 
 async function loadProRoomApiKeys(
   roomCode,
+  roomGeneration,
   roomStatus,
   panel,
   message = '',
   isError = false,
 ) {
   if (!panel?.isConnected) return;
-  const requestGeneration = (proRoomApiRequestGenerations.get(roomCode) || 0) + 1;
-  proRoomApiRequestGenerations.set(roomCode, requestGeneration);
+  const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
+  if (!incarnationKey) {
+    renderProRoomApiPanel(
+      roomCode,
+      roomGeneration,
+      roomStatus,
+      panel,
+      { keys: [], maxActiveKeys: 3 },
+      'Room generation is unavailable. Refresh before making changes.',
+      true,
+    );
+    return;
+  }
+  const requestGeneration = (proRoomApiRequestGenerations.get(incarnationKey) || 0) + 1;
+  proRoomApiRequestGenerations.set(incarnationKey, requestGeneration);
   if (!message) {
     const status = panel.querySelector('[data-pro-room-api-status]');
     if (status) status.textContent = 'Loading API keys...';
   }
   try {
     const payload = await fetchJson(`/api/admin/pro-rooms/${roomCode}/api-keys`);
-    if (proRoomApiRequestGenerations.get(roomCode) !== requestGeneration) return;
-    proRoomApiCache.set(roomCode, payload);
+    if (proRoomApiRequestGenerations.get(incarnationKey) !== requestGeneration) return;
+    if (normalizeProRoomGeneration(payload?.roomGeneration) !== roomGeneration) {
+      throw new Error('PRO_ROOM_GENERATION_MISMATCH');
+    }
+    proRoomApiCache.set(incarnationKey, payload);
     if (panel.isConnected) {
-      renderProRoomApiPanel(roomCode, roomStatus, panel, payload, message, isError);
+      renderProRoomApiPanel(roomCode, roomGeneration, roomStatus, panel, payload, message, isError);
     }
   } catch (error) {
-    if (proRoomApiRequestGenerations.get(roomCode) !== requestGeneration) return;
-    const cached = proRoomApiCache.get(roomCode) || { keys: [], maxActiveKeys: 3 };
+    if (proRoomApiRequestGenerations.get(incarnationKey) !== requestGeneration) return;
+    const generationMismatch = isProRoomGenerationMismatchError(error);
+    if (generationMismatch) {
+      proRoomApiCache.delete(incarnationKey);
+      clearProRoomApiSecret(roomCode, roomGeneration);
+    }
+    const cached = generationMismatch
+      ? { keys: [], maxActiveKeys: 3 }
+      : proRoomApiCache.get(incarnationKey) || { keys: [], maxActiveKeys: 3 };
     if (panel.isConnected) {
       renderProRoomApiPanel(
         roomCode,
+        generationMismatch ? null : roomGeneration,
         roomStatus,
         panel,
         cached,
@@ -1003,16 +1170,26 @@ async function loadProRoomApiKeys(
         true,
       );
     }
+    if (generationMismatch) loadProRooms({ updateTimestamp: false }).catch(() => {});
   }
 }
 
-function renderProRoomActions(room, roomCode, rawStatus) {
+function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
   const section = document.createElement('section');
   section.className = 'pro-room-controls';
   const heading = document.createElement('strong');
   heading.textContent = 'Room controls';
   const actions = document.createElement('div');
   actions.className = 'pro-room-actions';
+  const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
+  if (!incarnationKey) {
+    const message = document.createElement('p');
+    message.className = 'pro-room-terminal-copy';
+    message.textContent =
+      'Room generation is unavailable. Refresh before making administrative changes.';
+    section.append(heading, message);
+    return section;
+  }
 
   if (rawStatus === 'decommissioning' || rawStatus === 'decommissioned') {
     const message = document.createElement('p');
@@ -1020,7 +1197,7 @@ function renderProRoomActions(room, roomCode, rawStatus) {
     message.textContent =
       rawStatus === 'decommissioning'
         ? 'The room is closed while the final storage sweep completes.'
-        : 'This room number cannot be reused.';
+        : 'This room incarnation is permanently deleted. An administrator may register the room number as a new room.';
     section.append(heading, message);
     return section;
   }
@@ -1056,7 +1233,7 @@ function renderProRoomActions(room, roomCode, rawStatus) {
       }
     });
   } else if (rawStatus === 'active') {
-    activation.textContent = issuedOwnerRecoveryLinks.has(roomCode)
+    activation.textContent = issuedOwnerRecoveryLinks.has(incarnationKey)
       ? 'Issue another owner recovery link'
       : 'Issue owner recovery link';
     activation.title =
@@ -1066,14 +1243,11 @@ function renderProRoomActions(room, roomCode, rawStatus) {
       activation.textContent = 'Issuing...';
       setProRoomStatus('');
       try {
-        const payload = await fetchJson(
-          `/api/admin/pro-rooms/${roomCode}/owner-recovery-claim`,
-          {
-            method: 'POST',
-            body: '{}',
-          },
-        );
-        showProRoomClaim(payload, 'recovery');
+        const payload = await fetchJson(`/api/admin/pro-rooms/${roomCode}/owner-recovery-claim`, {
+          method: 'POST',
+          body: JSON.stringify({ roomGeneration }),
+        });
+        showProRoomClaim(payload, 'recovery', roomGeneration);
         activation.textContent = 'Issue another owner recovery link';
         activation.disabled = false;
       } catch (error) {
@@ -1084,7 +1258,7 @@ function renderProRoomActions(room, roomCode, rawStatus) {
       }
     });
   } else {
-    activation.textContent = issuedActivationLinks.has(roomCode)
+    activation.textContent = issuedActivationLinks.has(incarnationKey)
       ? 'Reissue activation link'
       : 'Issue activation link';
     activation.disabled = rawStatus === 'suspended';
@@ -1096,9 +1270,9 @@ function renderProRoomActions(room, roomCode, rawStatus) {
       try {
         const payload = await fetchJson(`/api/admin/pro-rooms/${roomCode}/activation-claim`, {
           method: 'POST',
-          body: '{}',
+          body: JSON.stringify({ roomGeneration }),
         });
-        showProRoomClaim(payload);
+        showProRoomClaim(payload, 'activation', roomGeneration);
         activation.textContent = 'Reissue activation link';
         activation.disabled = false;
       } catch (error) {
@@ -1127,10 +1301,17 @@ function renderProRoomActions(room, roomCode, rawStatus) {
       stateButton.disabled = true;
       stateButton.textContent = targetStatus === 'suspended' ? 'Suspending...' : 'Resuming...';
       try {
-        await fetchJson(`/api/admin/pro-rooms/${roomCode}/state`, {
+        const result = await fetchJson(`/api/admin/pro-rooms/${roomCode}/state`, {
           method: 'POST',
-          body: JSON.stringify({ status: targetStatus }),
+          body: JSON.stringify({ roomGeneration, status: targetStatus }),
         });
+        if (
+          result?.roomCode !== roomCode ||
+          normalizeProRoomGeneration(result?.roomGeneration) !== roomGeneration ||
+          result?.status !== targetStatus
+        ) {
+          throw new Error('PRO_ROOM_GENERATION_MISMATCH');
+        }
         setProRoomStatus(
           targetStatus === 'suspended' ? `${roomCode} suspended.` : `${roomCode} resumed.`,
         );
@@ -1148,7 +1329,7 @@ function renderProRoomActions(room, roomCode, rawStatus) {
   return section;
 }
 
-function renderProRoomDangerZone(roomCode, rawStatus) {
+function renderProRoomDangerZone(roomCode, roomGeneration, rawStatus) {
   const section = document.createElement('section');
   section.className = 'pro-room-danger-zone';
   const copy = document.createElement('div');
@@ -1159,7 +1340,7 @@ function renderProRoomDangerZone(roomCode, rawStatus) {
     rawStatus === 'decommissioning'
       ? 'Access is blocked. Uploaded media is being swept after old upload links expire.'
       : rawStatus === 'decommissioned'
-        ? 'Room data and API access were permanently removed.'
+        ? 'This room incarnation and its API access were permanently removed. The room number may be registered as a new room.'
         : 'Permanently remove this room, its uploaded media, access, and API keys.';
   copy.append(heading, description);
   if (rawStatus === 'decommissioning' || rawStatus === 'decommissioned') {
@@ -1171,7 +1352,9 @@ function renderProRoomDangerZone(roomCode, rawStatus) {
   button.className = 'is-danger';
   button.textContent = 'Delete room permanently';
   button.dataset.proRoomDestroy = roomCode;
-  button.addEventListener('click', () => openProRoomDestroyDialog(roomCode, button));
+  button.addEventListener('click', () =>
+    openProRoomDestroyDialog(roomCode, roomGeneration, button),
+  );
   section.append(copy, button);
   return section;
 }
@@ -1179,10 +1362,13 @@ function renderProRoomDangerZone(roomCode, rawStatus) {
 function renderProRoomRow(room) {
   const roomCode = normalizeProRoomCode(room?.roomCode);
   if (!roomCode) return null;
+  const roomGeneration = normalizeProRoomGeneration(room?.roomGeneration);
+  const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
   const rawStatus = proRoomRawStatus(room);
   const item = document.createElement('details');
   item.className = 'pro-room-item';
   item.dataset.proRoomItem = roomCode;
+  if (roomGeneration !== null) item.dataset.proRoomGeneration = String(roomGeneration);
   item.open = expandedProRooms.has(roomCode);
 
   const summary = document.createElement('summary');
@@ -1212,36 +1398,50 @@ function renderProRoomRow(room) {
 
   const expanded = document.createElement('div');
   expanded.className = 'pro-room-expanded';
-  const controls = renderProRoomActions(room, roomCode, rawStatus);
+  const controls = renderProRoomActions(room, roomCode, roomGeneration, rawStatus);
   const apiPanel = document.createElement('section');
   apiPanel.className = 'pro-room-api-panel';
   apiPanel.dataset.proRoomApiPanel = roomCode;
+  if (roomGeneration !== null) apiPanel.dataset.proRoomGeneration = String(roomGeneration);
   apiPanel.setAttribute('aria-label', `${roomCode} Developer API`);
   const isTerminal = rawStatus === 'decommissioning' || rawStatus === 'decommissioned';
-  const cached = proRoomApiCache.get(roomCode);
-  if (isTerminal) {
+  const cached = incarnationKey ? proRoomApiCache.get(incarnationKey) : null;
+  if (!incarnationKey) {
+    const unavailable = document.createElement('p');
+    unavailable.className = 'pro-room-api-status is-error';
+    unavailable.textContent =
+      'Room generation is unavailable. Refresh before managing Developer API keys.';
+    apiPanel.append(unavailable);
+  } else if (isTerminal) {
     const unavailable = document.createElement('p');
     unavailable.className = 'pro-room-api-status';
     unavailable.textContent = 'Developer API access has been removed.';
     apiPanel.append(unavailable);
-  } else if (cached) renderProRoomApiPanel(roomCode, rawStatus, apiPanel, cached);
-  else {
+  } else if (cached) {
+    renderProRoomApiPanel(roomCode, roomGeneration, rawStatus, apiPanel, cached);
+  } else {
     renderProRoomApiShell(roomCode, apiPanel);
   }
-  const dangerZone = renderProRoomDangerZone(roomCode, rawStatus);
+  const dangerZone = incarnationKey
+    ? renderProRoomDangerZone(roomCode, roomGeneration, rawStatus)
+    : document.createDocumentFragment();
   expanded.append(controls, apiPanel, dangerZone);
   item.append(summary, expanded);
   item.addEventListener('toggle', () => {
     if (item.open) {
       expandedProRooms.add(roomCode);
-      if (!isTerminal) loadProRoomApiKeys(roomCode, rawStatus, apiPanel).catch(() => {});
+      if (!isTerminal && incarnationKey) {
+        loadProRoomApiKeys(roomCode, roomGeneration, rawStatus, apiPanel).catch(() => {});
+      }
     } else {
       expandedProRooms.delete(roomCode);
-      proRoomApiRequestGenerations.set(
-        roomCode,
-        (proRoomApiRequestGenerations.get(roomCode) || 0) + 1,
-      );
-      clearProRoomApiSecret(roomCode);
+      if (incarnationKey) {
+        proRoomApiRequestGenerations.set(
+          incarnationKey,
+          (proRoomApiRequestGenerations.get(incarnationKey) || 0) + 1,
+        );
+        clearProRoomApiSecret(roomCode, roomGeneration);
+      }
     }
   });
   return item;
@@ -1249,6 +1449,25 @@ function renderProRoomRow(room) {
 
 function renderProRooms(payload) {
   const rooms = Array.isArray(payload?.rooms) ? payload.rooms : [];
+  const currentIncarnations = new Set(
+    rooms
+      .map((room) => proRoomIncarnationKey(room?.roomCode, room?.roomGeneration))
+      .filter(Boolean),
+  );
+  for (const collection of [
+    issuedActivationLinks,
+    issuedOwnerRecoveryLinks,
+    proRoomApiCache,
+    proRoomApiSecrets,
+    proRoomApiRequestGenerations,
+  ]) {
+    for (const incarnationKey of collection.keys()) {
+      if (!currentIncarnations.has(incarnationKey)) collection.delete(incarnationKey);
+    }
+  }
+  if (visibleProRoomClaimIncarnation && !currentIncarnations.has(visibleProRoomClaimIncarnation)) {
+    dismissProRoomClaim();
+  }
   if (proRoomListStatusEl) {
     proRoomListStatusEl.textContent = `${formatter.format(rooms.length)} rooms`;
   }
@@ -1262,8 +1481,15 @@ function renderProRooms(payload) {
       const room = rooms.find((candidate) => candidate?.roomCode === roomCode);
       const panel = row.querySelector('[data-pro-room-api-panel]');
       const rawStatus = proRoomRawStatus(room);
-      if (roomCode && panel && rawStatus !== 'decommissioning' && rawStatus !== 'decommissioned') {
-        loadProRoomApiKeys(roomCode, rawStatus, panel).catch(() => {});
+      const roomGeneration = normalizeProRoomGeneration(room?.roomGeneration);
+      if (
+        roomCode &&
+        roomGeneration !== null &&
+        panel &&
+        rawStatus !== 'decommissioning' &&
+        rawStatus !== 'decommissioned'
+      ) {
+        loadProRoomApiKeys(roomCode, roomGeneration, rawStatus, panel).catch(() => {});
       }
     }
     return;

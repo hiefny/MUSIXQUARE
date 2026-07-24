@@ -78,7 +78,15 @@ export function scopeMaskLimitFromSchema(sql) {
   return match ? Number(match[1]) : null;
 }
 
-function readScopeMaskLimit(runner = runWrangler) {
+export function developerApiKeySchemaStateFromSql(sql) {
+  return {
+    scopeMaskLimit: scopeMaskLimitFromSchema(sql),
+    hasRoomGeneration:
+      typeof sql === 'string' && /\broom_generation\b/i.test(sql),
+  };
+}
+
+function readDeveloperApiKeySchemaState(runner = runWrangler) {
   const output = runner(
     [
       '--command',
@@ -88,9 +96,18 @@ function readScopeMaskLimit(runner = runWrangler) {
   );
   const rows = parseD1Rows(output);
   if (rows.length !== 1) throw new Error('Developer API key table is missing or ambiguous.');
-  const limit = scopeMaskLimitFromSchema(rows[0]?.sql);
-  if (limit === null) throw new Error('Developer API key scope constraint could not be verified.');
-  return limit;
+  const state = developerApiKeySchemaStateFromSql(rows[0]?.sql);
+  if (state.scopeMaskLimit === null) {
+    throw new Error('Developer API key scope constraint could not be verified.');
+  }
+  return state;
+}
+
+function assertGenerationSafeSchemaRewrite(operation, disposition, schemaState) {
+  if (disposition !== 'apply' || !schemaState.hasRoomGeneration) return;
+  throw new Error(
+    `Refusing Developer API effects-scope ${operation}: the legacy table rebuild does not preserve room_generation.`,
+  );
 }
 
 function writeGithubOutput(name, value, outputPath = process.env.GITHUB_OUTPUT) {
@@ -158,9 +175,11 @@ export function runEffectsScopeMigration(
   if (operation !== 'apply' && operation !== 'rollback') {
     throw new Error('Usage: developer-api-effects-scope-migration.mjs <apply|rollback>');
   }
-  const before = readScopeMaskLimit(runner);
-  if (operation === 'apply') writeReleaseJournal(journalPath, before);
+  const beforeState = readDeveloperApiKeySchemaState(runner);
+  const before = beforeState.scopeMaskLimit;
   const disposition = migrationDisposition(before, operation);
+  assertGenerationSafeSchemaRewrite(operation, disposition, beforeState);
+  if (operation === 'apply') writeReleaseJournal(journalPath, before);
   if (disposition === 'skip') {
     writeGithubOutput('applied', 'false', outputPath);
     stdout.write(
@@ -181,7 +200,7 @@ export function runEffectsScopeMigration(
   // Re-read even after a failed Wrangler process. If D1 committed the batch
   // but the response was lost, the release rollback must know that the schema
   // changed before it considers restoring the previous Worker version.
-  const after = readScopeMaskLimit(runner);
+  const after = readDeveloperApiKeySchemaState(runner).scopeMaskLimit;
   const changed = after === expected;
   writeGithubOutput('applied', String(changed), outputPath);
   if (executionError) {
@@ -214,7 +233,8 @@ export function runEffectsScopeReleaseRollback(
     stdout.write(`${JSON.stringify({ ok: true, operation: 'release-rollback', applied: false })}\n`);
     return { applied: false, scopeMaskLimit: null };
   }
-  const current = readScopeMaskLimit(runner);
+  const currentState = readDeveloperApiKeySchemaState(runner);
+  const current = currentState.scopeMaskLimit;
   if (journal.beforeScopeMaskLimit === current) {
     stdout.write(
       `${JSON.stringify({ ok: true, operation: 'release-rollback', applied: false, scopeMaskLimit: current })}\n`,
@@ -229,6 +249,7 @@ export function runEffectsScopeReleaseRollback(
       `Refusing Developer API release rollback: journal ${journal.beforeScopeMaskLimit}, current ${current}.`,
     );
   }
+  assertGenerationSafeSchemaRewrite('rollback', 'apply', currentState);
   return runEffectsScopeMigration('rollback', { runner, outputPath, stdout });
 }
 

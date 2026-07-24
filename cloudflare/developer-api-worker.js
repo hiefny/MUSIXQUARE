@@ -7,6 +7,14 @@
  * intent to the private Developer API Facade service binding.
  */
 
+import {
+  LEGACY_PRO_ROOM_GENERATION,
+  isProRoomGeneration,
+  proRoomGenerationHeaderValue,
+  proRoomObjectName,
+} from './pro-room-generation.js';
+
+const PRO_ROOM_GENERATION_HEADER = 'x-mxqr-pro-room-generation';
 const API_KEY_RE = /^mxqr_live_([A-Za-z0-9_-]{16})\.([A-Za-z0-9_-]{43})$/;
 const ROOM_CODE_RE = /^0\d{5}$/;
 const REQUEST_ID_RE = /^req_[A-Za-z0-9_-]{22}$/;
@@ -106,6 +114,11 @@ const ERROR_MESSAGES = Object.freeze({
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
+
+function proRoomGenerationWireFields(roomGeneration) {
+  if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
+  return roomGeneration === LEGACY_PRO_ROOM_GENERATION ? {} : { roomGeneration };
+}
 
 function hasExactKeys(value, required, optional = []) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -276,6 +289,7 @@ function normalizeKeyRow(value) {
     typeof value !== 'object' ||
     !/^[A-Za-z0-9_-]{16}$/.test(String(value.key_id || '')) ||
     !ROOM_CODE_RE.test(String(value.room_code || '')) ||
+    !isProRoomGeneration(value.room_generation ?? LEGACY_PRO_ROOM_GENERATION) ||
     label === null ||
     !DIGEST_RE.test(String(value.secret_digest || '')) ||
     value.digest_version !== 1 ||
@@ -296,6 +310,7 @@ function normalizeKeyRow(value) {
   return {
     keyId: value.key_id,
     roomCode: value.room_code,
+    roomGeneration: value.room_generation ?? LEGACY_PRO_ROOM_GENERATION,
     label,
     digest: value.secret_digest,
     scopeMask: value.scope_mask,
@@ -308,7 +323,7 @@ function normalizeKeyRow(value) {
 async function lookupKey(env, keyId) {
   if (!env.DEVELOPER_API_DB?.prepare) throw new Error('Developer API D1 binding unavailable');
   return env.DEVELOPER_API_DB.prepare(
-    `SELECT key_id, room_code, label, secret_digest, digest_version, scope_mask,
+    `SELECT key_id, room_code, room_generation, label, secret_digest, digest_version, scope_mask,
             status, created_at, updated_at, expires_at, revoked_at, last_used_hour
      FROM mxqr_developer_api_keys
      WHERE key_id = ?1
@@ -1071,7 +1086,14 @@ function validQuota(value) {
   );
 }
 
-function validateUploadPayload(value, roomCode, expectedMedia) {
+function validUploadGenerationMetadata(headers, roomGeneration) {
+  const value = headers['x-amz-meta-mxqr-generation'];
+  return roomGeneration === LEGACY_PRO_ROOM_GENERATION
+    ? value === undefined || value === String(LEGACY_PRO_ROOM_GENERATION)
+    : value === String(roomGeneration);
+}
+
+function validateUploadPayload(value, roomCode, roomGeneration, expectedMedia) {
   if (
     !hasExactKeys(value, [
       'schemaVersion',
@@ -1122,6 +1144,7 @@ function validateUploadPayload(value, roomCode, expectedMedia) {
     'content-length',
     'content-type',
     'x-amz-meta-mxqr-room',
+    'x-amz-meta-mxqr-generation',
     'x-amz-meta-mxqr-asset',
     'x-amz-meta-mxqr-version',
     'x-amz-meta-mxqr-bytes',
@@ -1134,6 +1157,7 @@ function validateUploadPayload(value, roomCode, expectedMedia) {
     Object.keys(headers).some((key) => !allowedHeaders.has(key)) ||
     headers['content-length'] !== String(value.byteLength) ||
     headers['x-amz-meta-mxqr-room'] !== roomCode ||
+    !validUploadGenerationMetadata(headers, roomGeneration) ||
     headers['x-amz-meta-mxqr-asset'] !== value.assetId ||
     headers['x-amz-meta-mxqr-version'] !== '1' ||
     headers['x-amz-meta-mxqr-bytes'] !== String(value.byteLength) ||
@@ -1321,7 +1345,7 @@ function parseRoute(method, url) {
   return null;
 }
 
-async function callLimiter(env, objectName, operation, keyId = null) {
+async function callLimiter(env, objectName, operation, keyId = null, roomGeneration = null) {
   const namespace = env.DEVELOPER_API_LIMITERS;
   if (!namespace?.idFromName || !namespace?.get) return null;
   try {
@@ -1329,7 +1353,11 @@ async function callLimiter(env, objectName, operation, keyId = null) {
     const response = await stub.fetch('https://developer-api-rate.internal/check', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ operation, ...(keyId === null ? {} : { keyId }) }),
+      body: JSON.stringify({
+        operation,
+        ...(keyId === null ? {} : { keyId }),
+        ...(roomGeneration === null ? {} : proRoomGenerationWireFields(roomGeneration)),
+      }),
     });
     const value = await readJsonLimited(response, RATE_REQUEST_MAX_BYTES);
     if (
@@ -1366,41 +1394,69 @@ async function ingressLimit(request, env) {
 }
 
 async function authenticatedReadLimit(env, principal) {
-  return callLimiter(env, `room:${principal.roomCode}`, 'authenticated-read', principal.keyId);
+  return callLimiter(
+    env,
+    `room:${proRoomObjectName(principal.roomCode, principal.roomGeneration)}`,
+    'authenticated-read',
+    principal.keyId,
+    principal.roomGeneration,
+  );
 }
 
 async function authenticatedCommandLimit(env, principal) {
-  return callLimiter(env, `room:${principal.roomCode}`, 'authenticated-command', principal.keyId);
+  return callLimiter(
+    env,
+    `room:${proRoomObjectName(principal.roomCode, principal.roomGeneration)}`,
+    'authenticated-command',
+    principal.keyId,
+    principal.roomGeneration,
+  );
 }
 
 async function authenticatedQueueWriteLimit(env, principal) {
   return callLimiter(
     env,
-    `room:${principal.roomCode}`,
+    `room:${proRoomObjectName(principal.roomCode, principal.roomGeneration)}`,
     'authenticated-queue-write',
     principal.keyId,
+    principal.roomGeneration,
   );
 }
 
 async function authenticatedMediaUploadCreateLimit(env, principal) {
   return callLimiter(
     env,
-    `room:${principal.roomCode}`,
+    `room:${proRoomObjectName(principal.roomCode, principal.roomGeneration)}`,
     'authenticated-media-upload-create',
     principal.keyId,
+    principal.roomGeneration,
   );
 }
 
 async function authenticatedMediaUploadCompleteLimit(env, principal) {
   return callLimiter(
     env,
-    `room:${principal.roomCode}`,
+    `room:${proRoomObjectName(principal.roomCode, principal.roomGeneration)}`,
     'authenticated-media-upload-complete',
     principal.keyId,
+    principal.roomGeneration,
   );
 }
 
-async function facadeRead(env, route, keyId, effectsVersion = 1) {
+function facadeGenerationHeaders(roomGeneration) {
+  return {
+    'content-type': 'application/json',
+    ...(roomGeneration === LEGACY_PRO_ROOM_GENERATION
+      ? {}
+      : { [PRO_ROOM_GENERATION_HEADER]: proRoomGenerationHeaderValue(roomGeneration) }),
+  };
+}
+
+function facadeGenerationBody(roomGeneration) {
+  return roomGeneration === LEGACY_PRO_ROOM_GENERATION ? {} : { roomGeneration };
+}
+
+async function facadeRead(env, route, principal, effectsVersion = 1) {
   if (!env.DEVELOPER_API_FACADE?.fetch) return { configurationError: true };
   let response;
   try {
@@ -1408,10 +1464,11 @@ async function facadeRead(env, route, keyId, effectsVersion = 1) {
       'https://developer-api-facade.internal/internal/v1/read',
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: facadeGenerationHeaders(principal.roomGeneration),
         body: JSON.stringify({
           roomCode: route.roomCode,
-          keyId,
+          ...facadeGenerationBody(principal.roomGeneration),
+          keyId: principal.keyId,
           projection: route.view,
           ...(route.view === 'effects' && effectsVersion !== 1 ? { effectsVersion } : {}),
         }),
@@ -1449,7 +1506,7 @@ const COMMAND_ERROR_STATUSES = Object.freeze({
   UPLOAD_MISMATCH: 409,
 });
 
-async function facadeCommand(env, path, body, roomCode) {
+async function facadeCommand(env, path, body, roomCode, roomGeneration) {
   if (!env.DEVELOPER_API_FACADE?.fetch) return { configurationError: true };
   let response;
   try {
@@ -1457,8 +1514,8 @@ async function facadeCommand(env, path, body, roomCode) {
       `https://developer-api-facade.internal${path}`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
+        headers: facadeGenerationHeaders(roomGeneration),
+        body: JSON.stringify({ ...body, ...facadeGenerationBody(roomGeneration) }),
       },
     );
   } catch {
@@ -1479,7 +1536,15 @@ async function facadeCommand(env, path, body, roomCode) {
   return payload ? { payload, status: response.status } : { invalidResponse: true };
 }
 
-async function facadeMutation(env, path, body, roomCode, expectedStatus, validator) {
+async function facadeMutation(
+  env,
+  path,
+  body,
+  roomCode,
+  roomGeneration,
+  expectedStatus,
+  validator,
+) {
   if (!env.DEVELOPER_API_FACADE?.fetch) return { configurationError: true };
   let response;
   try {
@@ -1487,8 +1552,8 @@ async function facadeMutation(env, path, body, roomCode, expectedStatus, validat
       `https://developer-api-facade.internal${path}`,
       {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
+        headers: facadeGenerationHeaders(roomGeneration),
+        body: JSON.stringify({ ...body, ...facadeGenerationBody(roomGeneration) }),
       },
     );
   } catch {
@@ -1546,10 +1611,19 @@ function auditWriteBestEffort(
   if (!context?.waitUntil || !env.DEVELOPER_API_DB?.prepare) return;
   const audit = env.DEVELOPER_API_DB.prepare(
     `INSERT INTO mxqr_developer_api_audit
-       (request_id, key_id, room_code, action, result, status_code, created_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+       (request_id, key_id, room_code, room_generation, action, result, status_code, created_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
   )
-    .bind(requestId, principal.keyId, principal.roomCode, action, result, statusCode, nowMs)
+    .bind(
+      requestId,
+      principal.keyId,
+      principal.roomCode,
+      principal.roomGeneration,
+      action,
+      result,
+      statusCode,
+      nowMs,
+    )
     .run()
     .catch(() => {});
   context.waitUntil(audit);
@@ -1622,10 +1696,7 @@ async function handleApiRequest(request, env, context, requestId) {
   const route = parseRoute(request.method, url);
   if (!route) return errorResponse('NOT_FOUND', 404, requestId);
   const effectsVersionHeader = request.headers.get('x-mxqr-effects-version');
-  if (
-    effectsVersionHeader !== null &&
-    (route.kind !== 'read' || route.view !== 'effects')
-  ) {
+  if (effectsVersionHeader !== null && (route.kind !== 'read' || route.view !== 'effects')) {
     return errorResponse('INVALID_REQUEST', 400, requestId);
   }
   const effectsVersion =
@@ -1840,7 +1911,8 @@ async function handleApiRequest(request, env, context, requestId) {
       path = '/internal/v1/media/uploads/create';
       body = { keyId: principal.keyId, roomCode: route.roomCode, idempotencyKey, media };
       expectedStatus = 201;
-      validator = (value, roomCode) => validateUploadPayload(value, roomCode, media);
+      validator = (value, roomCode) =>
+        validateUploadPayload(value, roomCode, principal.roomGeneration, media);
       auditAction = 'media.upload.reserve';
     } else {
       path = '/internal/v1/media/uploads/complete';
@@ -1857,7 +1929,15 @@ async function handleApiRequest(request, env, context, requestId) {
       auditAction = 'media.upload.complete';
     }
 
-    const facade = await facadeMutation(env, path, body, route.roomCode, expectedStatus, validator);
+    const facade = await facadeMutation(
+      env,
+      path,
+      body,
+      route.roomCode,
+      principal.roomGeneration,
+      expectedStatus,
+      validator,
+    );
     const auditAtMs = Date.now();
     if (facade.configurationError) {
       auditWriteBestEffort(
@@ -1950,6 +2030,7 @@ async function handleApiRequest(request, env, context, requestId) {
         command,
       },
       route.roomCode,
+      principal.roomGeneration,
     );
     const auditAtMs = Date.now();
     if (facade.configurationError) {
@@ -2019,6 +2100,7 @@ async function handleApiRequest(request, env, context, requestId) {
       '/internal/v1/commands/status',
       { roomCode: route.roomCode, keyId: principal.keyId, commandId: route.commandId },
       route.roomCode,
+      principal.roomGeneration,
     );
     if (facade.configurationError) {
       return errorResponse('API_NOT_CONFIGURED', 503, requestId, { retryable: true });
@@ -2039,7 +2121,7 @@ async function handleApiRequest(request, env, context, requestId) {
     return jsonResponse(facade.payload, 200, requestId, limiterHeaders, 'private, no-cache');
   }
 
-  const facade = await facadeRead(env, route, principal.keyId, effectsVersion);
+  const facade = await facadeRead(env, route, principal, effectsVersion);
   if (facade.configurationError) {
     return errorResponse('API_NOT_CONFIGURED', 503, requestId, { retryable: true });
   }
@@ -2052,8 +2134,7 @@ async function handleApiRequest(request, env, context, requestId) {
   }
 
   const etag = await etagFor(route.view, facade.payload);
-  const representationHeaders =
-    route.view === 'effects' ? { vary: 'X-MXQR-Effects-Version' } : {};
+  const representationHeaders = route.view === 'effects' ? { vary: 'X-MXQR-Effects-Version' } : {};
   const ifNoneMatch = request.headers.get('if-none-match');
   if (ifNoneMatch !== null && encoder.encode(ifNoneMatch).byteLength > ETAG_HEADER_MAX_BYTES) {
     return errorResponse('NOT_FOUND', 404, requestId);
@@ -2155,8 +2236,9 @@ function rateBucketsForRequest(value) {
     return [{ id: 'ingress', limit: INGRESS_LIMIT_PER_MINUTE, windowMs: 60_000, cost: 1 }];
   }
   if (
-    hasExactKeys(value, ['operation', 'keyId']) &&
+    hasExactKeys(value, ['operation', 'keyId'], ['roomGeneration']) &&
     value.operation === 'authenticated-read' &&
+    isProRoomGeneration(value.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION) &&
     typeof value.keyId === 'string' &&
     /^[A-Za-z0-9_-]{16}$/.test(value.keyId)
   ) {
@@ -2171,8 +2253,9 @@ function rateBucketsForRequest(value) {
     ];
   }
   if (
-    hasExactKeys(value, ['operation', 'keyId']) &&
+    hasExactKeys(value, ['operation', 'keyId'], ['roomGeneration']) &&
     value.operation === 'authenticated-command' &&
+    isProRoomGeneration(value.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION) &&
     typeof value.keyId === 'string' &&
     /^[A-Za-z0-9_-]{16}$/.test(value.keyId)
   ) {
@@ -2192,8 +2275,9 @@ function rateBucketsForRequest(value) {
     ];
   }
   if (
-    hasExactKeys(value, ['operation', 'keyId']) &&
+    hasExactKeys(value, ['operation', 'keyId'], ['roomGeneration']) &&
     value.operation === 'authenticated-queue-write' &&
+    isProRoomGeneration(value.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION) &&
     typeof value.keyId === 'string' &&
     /^[A-Za-z0-9_-]{16}$/.test(value.keyId)
   ) {
@@ -2213,8 +2297,9 @@ function rateBucketsForRequest(value) {
     ];
   }
   if (
-    hasExactKeys(value, ['operation', 'keyId']) &&
+    hasExactKeys(value, ['operation', 'keyId'], ['roomGeneration']) &&
     value.operation === 'authenticated-media-upload-create' &&
+    isProRoomGeneration(value.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION) &&
     typeof value.keyId === 'string' &&
     /^[A-Za-z0-9_-]{16}$/.test(value.keyId)
   ) {
@@ -2234,8 +2319,9 @@ function rateBucketsForRequest(value) {
     ];
   }
   if (
-    hasExactKeys(value, ['operation', 'keyId']) &&
+    hasExactKeys(value, ['operation', 'keyId'], ['roomGeneration']) &&
     value.operation === 'authenticated-media-upload-complete' &&
+    isProRoomGeneration(value.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION) &&
     typeof value.keyId === 'string' &&
     /^[A-Za-z0-9_-]{16}$/.test(value.keyId)
   ) {
@@ -2255,6 +2341,22 @@ function rateBucketsForRequest(value) {
     ];
   }
   return null;
+}
+
+function exactInternalRoomGeneration(request, value) {
+  const hasBodyGeneration = Object.prototype.hasOwnProperty.call(value || {}, 'roomGeneration');
+  const header = request.headers.get(PRO_ROOM_GENERATION_HEADER);
+  if (!hasBodyGeneration && header === null) {
+    return { valid: true, roomGeneration: LEGACY_PRO_ROOM_GENERATION };
+  }
+  const roomGeneration = value?.roomGeneration;
+  return {
+    valid:
+      hasBodyGeneration &&
+      isProRoomGeneration(roomGeneration) &&
+      header === proRoomGenerationHeaderValue(roomGeneration),
+    roomGeneration,
+  };
 }
 
 export class DeveloperApiRateLimiter {
@@ -2277,22 +2379,33 @@ export class DeveloperApiRateLimiter {
     const url = new URL(request.url);
     if (url.pathname === '/internal/admin/v1/decommission') {
       const value = await readRequestJsonLimited(request, 1024);
+      const generation = exactInternalRoomGeneration(request, value);
       if (
         request.method !== 'POST' ||
-        !hasExactKeys(value, ['roomCode', 'requestId']) ||
+        !hasExactKeys(value, ['roomCode', 'requestId'], ['roomGeneration']) ||
         !ROOM_CODE_RE.test(value.roomCode) ||
         request.headers.get('x-mxqr-pro-room-code') !== value.roomCode ||
+        !generation.valid ||
         !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
           value.requestId,
         )
       ) {
         return Response.json({ error: 'INVALID_REQUEST' }, { status: 400 });
       }
+      const storedIdentity = await this.storage.get('roomIdentity');
+      const storedGeneration = storedIdentity?.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION;
+      if (
+        storedIdentity &&
+        (!isProRoomGeneration(storedGeneration) || storedGeneration !== generation.roomGeneration)
+      ) {
+        return Response.json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, { status: 410 });
+      }
       if (typeof this.storage.deleteAll === 'function') await this.storage.deleteAll();
       else if (typeof this.storage.delete === 'function') await this.storage.delete('buckets');
       await this.storage.put('decommissioned', {
         v: 1,
         roomCode: value.roomCode,
+        ...proRoomGenerationWireFields(generation.roomGeneration),
         requestId: value.requestId,
         decommissionedAtMs: Date.now(),
       });
@@ -2300,6 +2413,7 @@ export class DeveloperApiRateLimiter {
       return Response.json({
         ok: true,
         roomCode: value.roomCode,
+        ...proRoomGenerationWireFields(generation.roomGeneration),
         status: 'decommissioned',
       });
     }
@@ -2309,6 +2423,26 @@ export class DeveloperApiRateLimiter {
     const body = await readRateRequest(request);
     const requested = rateBucketsForRequest(body);
     if (!requested) return Response.json({ error: 'INVALID_REQUEST' }, { status: 400 });
+    const authenticatedRoomGeneration =
+      body.operation === 'ingress-read'
+        ? null
+        : (body.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION);
+    if (authenticatedRoomGeneration !== null) {
+      const storedIdentity = await this.storage.get('roomIdentity');
+      const storedGeneration = storedIdentity?.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION;
+      if (
+        storedIdentity &&
+        (!isProRoomGeneration(storedGeneration) || storedGeneration !== authenticatedRoomGeneration)
+      ) {
+        return Response.json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, { status: 410 });
+      }
+      if (!storedIdentity) {
+        await this.storage.put('roomIdentity', {
+          v: 1,
+          ...proRoomGenerationWireFields(authenticatedRoomGeneration),
+        });
+      }
+    }
     const nowMs = Date.now();
     const stored = (await this.storage.get('buckets')) || {};
     for (const [id, bucket] of Object.entries(stored)) {
@@ -2382,8 +2516,15 @@ export class DeveloperApiRateLimiter {
     }
     const remaining = Object.values(stored);
     if (remaining.length === 0) {
-      if (typeof this.storage.deleteAll === 'function') await this.storage.deleteAll();
-      if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
+      const roomIdentity = await this.storage.get('roomIdentity');
+      if (roomIdentity && typeof this.storage.delete === 'function') {
+        await this.storage.delete('buckets');
+      } else if (typeof this.storage.deleteAll === 'function') {
+        await this.storage.deleteAll();
+      }
+      if (typeof this.storage.deleteAlarm === 'function') {
+        await this.storage.deleteAlarm();
+      }
       return;
     }
     await this.storage.put('buckets', stored);

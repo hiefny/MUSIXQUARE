@@ -2104,6 +2104,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       label: string;
       status: string;
       activation_state: string;
+      room_generation: number;
       created_at: number;
       updated_at: number;
     };
@@ -2114,15 +2115,19 @@ describe('Cloudflare app worker admin dashboard', () => {
       action: string;
       result: string;
       roomCode: string;
+      roomGeneration: number;
       createdAt: number;
     }> = [];
     const db = {
       prepare: vi.fn((sql: string) => {
         const executeRun = (...values: unknown[]) => {
-          if (/INSERT OR IGNORE/i.test(sql)) {
+          if (/INSERT OR IGNORE INTO mxqr_pro_room_registry/i.test(sql)) {
             const [roomCode, label, timestamp, limit] = values as [string, string, number, number?];
             if (rows.has(roomCode)) return { meta: { changes: 0 } };
-            if (/SELECT COUNT\(\*\)/i.test(sql) && rows.size >= Number(limit)) {
+            const activeCount = [...rows.values()].filter(
+              (row) => row.status !== 'decommissioned',
+            ).length;
+            if (/SELECT COUNT\(\*\)/i.test(sql) && activeCount >= Number(limit)) {
               return { meta: { changes: 0 } };
             }
             rows.set(roomCode, {
@@ -2130,6 +2135,7 @@ describe('Cloudflare app worker admin dashboard', () => {
               label,
               status: /'provisioning'/i.test(sql) ? 'provisioning' : 'registered',
               activation_state: 'unactivated',
+              room_generation: 0,
               created_at: timestamp,
               updated_at: timestamp,
             });
@@ -2137,32 +2143,37 @@ describe('Cloudflare app worker admin dashboard', () => {
           }
           if (/INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
             if (failAudit) throw new Error('audit unavailable');
-            const [actorId, action, result, roomCode, createdAt] = values as [
+            const [actorId, action, result, roomCode, roomGeneration, createdAt] = values as [
               string,
               string,
               string,
               string,
               number,
+              number,
             ];
-            audits.push({ actorId, action, result, roomCode, createdAt });
+            audits.push({ actorId, action, result, roomCode, roomGeneration, createdAt });
             return { meta: { changes: 1 } };
           }
           if (/UPDATE/i.test(sql)) {
             const roomCode = String(values[0]);
             const row = rows.get(roomCode);
-            if (row) {
+            if (
+              row &&
+              (!/room_generation = \?2/i.test(sql) || row.room_generation === Number(values[1]))
+            ) {
               if (/SET status = 'registered'/i.test(sql)) {
                 row.status = 'registered';
-                row.activation_state = String(values[1]);
-                row.updated_at = Number(values[2]);
-              } else if (/SET status = \?2/i.test(sql)) {
-                row.status = String(values[1]);
+                row.activation_state = String(values[2]);
+                row.updated_at = Number(values[3]);
+              } else if (/SET status = \?3/i.test(sql)) {
+                row.status = String(values[2]);
                 row.activation_state = 'active';
-                row.updated_at = Number(values[2]);
+                row.updated_at = Number(values[3]);
               } else {
                 row.activation_state = 'active';
-                row.updated_at = Number(values[1]);
+                row.updated_at = Number(values[2]);
               }
+              return { meta: { changes: 1 } };
             }
           }
           return { meta: { changes: 0 } };
@@ -2184,15 +2195,25 @@ describe('Cloudflare app worker admin dashboard', () => {
         return statement;
       }),
     };
-    const seen: Array<{ roomCode: string; url: string; authorization: string }> = [];
+    const seen: Array<{
+      roomCode: string;
+      roomGeneration: string;
+      url: string;
+      authorization: string;
+    }> = [];
     const provisionAttempts = new Map<string, number>();
     const namespace = {
       idFromName: vi.fn((roomCode: string) => roomCode),
-      get: vi.fn((roomCode: string) => ({
+      get: vi.fn((objectName: string) => ({
         fetch: vi.fn(async (request: Request) => {
           const url = new URL(request.url);
+          const roomCode = request.headers.get('x-mxqr-pro-room-code') || '';
+          const generationHeader = request.headers.get('x-mxqr-pro-room-generation');
+          const roomGeneration = Number(generationHeader ?? '0');
+          expect(generationHeader).toBeNull();
           seen.push({
-            roomCode,
+            roomCode: objectName,
+            roomGeneration: String(roomGeneration),
             url: url.pathname,
             authorization: request.headers.get('Authorization') || '',
           });
@@ -2202,16 +2223,34 @@ describe('Cloudflare app worker admin dashboard', () => {
             if (roomCode === '000003' && attempt === 1) {
               return Response.json({ error: 'PROVISION_FAILED' }, { status: 503 });
             }
-            return Response.json({ ok: true, roomCode, status: 'unactivated' });
+            return Response.json({
+              ok: true,
+              roomCode,
+              status: 'unactivated',
+            });
           }
           if (url.pathname === '/internal/admin/status') {
-            return Response.json({ roomCode, provisioned: true, status: 'active' });
+            return Response.json({
+              roomCode,
+              provisioned: true,
+              status: 'active',
+            });
           }
           if (url.pathname === '/internal/admin/suspend') {
-            return Response.json({ ok: true, roomCode, status: 'suspended', changed: true });
+            return Response.json({
+              ok: true,
+              roomCode,
+              status: 'suspended',
+              changed: true,
+            });
           }
           if (url.pathname === '/internal/admin/resume') {
-            return Response.json({ ok: true, roomCode, status: 'active', changed: true });
+            return Response.json({
+              ok: true,
+              roomCode,
+              status: 'active',
+              changed: true,
+            });
           }
           if (url.pathname === '/internal/admin/owner-recovery-claim') {
             return Response.json({
@@ -2253,7 +2292,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/pro-rooms/000001/owner-recovery-claim', {
         method: 'POST',
         headers: adminMutationHeaders(),
-        body: '{}',
+        body: JSON.stringify({ roomGeneration: 0 }),
       }),
       env,
     );
@@ -2299,7 +2338,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/pro-rooms/000002/activation-claim', {
         method: 'POST',
         headers: adminHeaders,
-        body: '{}',
+        body: JSON.stringify({ roomGeneration: 0 }),
       }),
       env,
     );
@@ -2312,7 +2351,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/pro-rooms/000002/owner-recovery-claim', {
         method: 'POST',
         headers: adminHeaders,
-        body: '{}',
+        body: JSON.stringify({ roomGeneration: 0 }),
       }),
       env,
     );
@@ -2328,7 +2367,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/pro-rooms/000002/state', {
         method: 'POST',
         headers: adminHeaders,
-        body: JSON.stringify({ status: 'suspended' }),
+        body: JSON.stringify({ roomGeneration: 0, status: 'suspended' }),
       }),
       env,
     );
@@ -2336,6 +2375,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(await suspended.json()).toEqual({
       ok: true,
       roomCode: '000002',
+      roomGeneration: 0,
       status: 'suspended',
       changed: true,
     });
@@ -2345,7 +2385,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/pro-rooms/000002/state', {
         method: 'POST',
         headers: adminHeaders,
-        body: JSON.stringify({ status: 'active' }),
+        body: JSON.stringify({ roomGeneration: 0, status: 'active' }),
       }),
       env,
     );
@@ -2353,6 +2393,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(await resumed.json()).toEqual({
       ok: true,
       roomCode: '000002',
+      roomGeneration: 0,
       status: 'active',
       changed: true,
     });
@@ -2363,7 +2404,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/pro-rooms/000002/owner-recovery-claim', {
         method: 'POST',
         headers: adminHeaders,
-        body: '{}',
+        body: JSON.stringify({ roomGeneration: 0 }),
       }),
       env,
     );
@@ -2411,6 +2452,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       label: 'Already active room',
       status: 'registered',
       activation_state: 'unactivated',
+      room_generation: 0,
       created_at: Date.now(),
       updated_at: Date.now(),
     });
@@ -2418,7 +2460,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/pro-rooms/000004/activation-claim', {
         method: 'POST',
         headers: adminHeaders,
-        body: '{}',
+        body: JSON.stringify({ roomGeneration: 0 }),
       }),
       env,
     );
@@ -2430,6 +2472,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       label: 'Invalid recovery response room',
       status: 'registered',
       activation_state: 'active',
+      room_generation: 0,
       created_at: Date.now(),
       updated_at: Date.now(),
     });
@@ -2437,7 +2480,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/pro-rooms/000005/owner-recovery-claim', {
         method: 'POST',
         headers: adminHeaders,
-        body: '{}',
+        body: JSON.stringify({ roomGeneration: 0 }),
       }),
       env,
     );
@@ -2451,6 +2494,7 @@ describe('Cloudflare app worker admin dashboard', () => {
         label: `Room ${roomCode}`,
         status: 'registered',
         activation_state: 'unactivated',
+        room_generation: 0,
         created_at: Date.now(),
         updated_at: Date.now(),
       });
@@ -2468,34 +2512,120 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(await capacityReached.json()).toEqual({ error: 'PRO_ROOM_REGISTRY_CAPACITY_REACHED' });
 
     expect(seen).toEqual([
-      { roomCode: '000002', url: '/internal/admin/provision', authorization: '' },
-      { roomCode: '000002', url: '/internal/admin/activation-claim', authorization: '' },
-      { roomCode: '000002', url: '/internal/admin/owner-recovery-claim', authorization: '' },
-      { roomCode: '000002', url: '/internal/admin/suspend', authorization: '' },
-      { roomCode: '000002', url: '/internal/admin/resume', authorization: '' },
-      { roomCode: '000002', url: '/internal/admin/owner-recovery-claim', authorization: '' },
-      { roomCode: '000003', url: '/internal/admin/provision', authorization: '' },
-      { roomCode: '000003', url: '/internal/admin/provision', authorization: '' },
-      { roomCode: '000004', url: '/internal/admin/activation-claim', authorization: '' },
-      { roomCode: '000004', url: '/internal/admin/status', authorization: '' },
-      { roomCode: '000005', url: '/internal/admin/owner-recovery-claim', authorization: '' },
+      {
+        roomCode: '000002',
+        roomGeneration: '0',
+        url: '/internal/admin/provision',
+        authorization: '',
+      },
+      {
+        roomCode: '000002',
+        roomGeneration: '0',
+        url: '/internal/admin/activation-claim',
+        authorization: '',
+      },
+      {
+        roomCode: '000002',
+        roomGeneration: '0',
+        url: '/internal/admin/owner-recovery-claim',
+        authorization: '',
+      },
+      {
+        roomCode: '000002',
+        roomGeneration: '0',
+        url: '/internal/admin/suspend',
+        authorization: '',
+      },
+      {
+        roomCode: '000002',
+        roomGeneration: '0',
+        url: '/internal/admin/resume',
+        authorization: '',
+      },
+      {
+        roomCode: '000002',
+        roomGeneration: '0',
+        url: '/internal/admin/owner-recovery-claim',
+        authorization: '',
+      },
+      {
+        roomCode: '000003',
+        roomGeneration: '0',
+        url: '/internal/admin/provision',
+        authorization: '',
+      },
+      {
+        roomCode: '000003',
+        roomGeneration: '0',
+        url: '/internal/admin/provision',
+        authorization: '',
+      },
+      {
+        roomCode: '000004',
+        roomGeneration: '0',
+        url: '/internal/admin/activation-claim',
+        authorization: '',
+      },
+      {
+        roomCode: '000004',
+        roomGeneration: '0',
+        url: '/internal/admin/status',
+        authorization: '',
+      },
+      {
+        roomCode: '000005',
+        roomGeneration: '0',
+        url: '/internal/admin/owner-recovery-claim',
+        authorization: '',
+      },
     ]);
     expect(claim.headers.has('Authorization')).toBe(false);
     expect(audits).toMatchObject([
-      { action: 'room.register', result: 'created', roomCode: '000002' },
-      { action: 'activation_claim.issue', result: 'issued', roomCode: '000002' },
-      { action: 'owner_recovery_claim.issue', result: 'issued', roomCode: '000002' },
-      { action: 'room.suspend', result: 'changed', roomCode: '000002' },
-      { action: 'room.resume', result: 'changed', roomCode: '000002' },
-      { action: 'room.register', result: 'provision_failed', roomCode: '000003' },
-      { action: 'room.register', result: 'provisioning_recovered', roomCode: '000003' },
-      { action: 'activation_claim.issue', result: 'service_rejected', roomCode: '000004' },
+      { action: 'room.register', result: 'created', roomCode: '000002', roomGeneration: 0 },
+      {
+        action: 'activation_claim.issue',
+        result: 'issued',
+        roomCode: '000002',
+        roomGeneration: 0,
+      },
+      {
+        action: 'owner_recovery_claim.issue',
+        result: 'issued',
+        roomCode: '000002',
+        roomGeneration: 0,
+      },
+      { action: 'room.suspend', result: 'changed', roomCode: '000002', roomGeneration: 0 },
+      { action: 'room.resume', result: 'changed', roomCode: '000002', roomGeneration: 0 },
+      {
+        action: 'room.register',
+        result: 'provision_failed',
+        roomCode: '000003',
+        roomGeneration: 0,
+      },
+      {
+        action: 'room.register',
+        result: 'provisioning_recovered',
+        roomCode: '000003',
+        roomGeneration: 0,
+      },
+      {
+        action: 'activation_claim.issue',
+        result: 'service_rejected',
+        roomCode: '000004',
+        roomGeneration: 0,
+      },
       {
         action: 'owner_recovery_claim.issue',
         result: 'invalid_service_response',
         roomCode: '000005',
+        roomGeneration: 0,
       },
-      { action: 'room.register', result: 'registry_capacity_reached', roomCode: '001000' },
+      {
+        action: 'room.register',
+        result: 'registry_capacity_reached',
+        roomCode: '001000',
+        roomGeneration: 0,
+      },
     ]);
     expect(audits.every((entry) => /^admin_[A-Za-z0-9_-]{32}$/.test(entry.actorId))).toBe(true);
     expect(JSON.stringify(audits)).not.toContain('secret-claim');
@@ -2509,6 +2639,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       label: string;
       status: string;
       activation_state: string;
+      room_generation: number;
       created_at: number;
       updated_at: number;
     };
@@ -2522,38 +2653,121 @@ describe('Cloudflare app worker admin dashboard', () => {
           label: 'Friends & Family',
           status: 'registered',
           activation_state: 'active',
+          room_generation: 0,
           created_at: Date.now() - 10_000,
           updated_at: Date.now() - 1_000,
         },
       ],
     ]);
-    const proAudits: Array<{ action: string; result: string; roomCode: string }> = [];
+    const generationHistory = new Map<
+      string,
+      {
+        room_code: string;
+        room_generation: number;
+        status: string;
+        decommissioned_at: number;
+        request_id: string | null;
+      }
+    >();
+    const generationAllocations = new Set<string>([`${roomCode}:0`]);
+    const proAudits: Array<{
+      action: string;
+      result: string;
+      roomCode: string;
+      roomGeneration: number;
+    }> = [];
+    let generationCutoverStatus: 'disabled' | 'ready' = 'disabled';
+    let generationCutoverEverEnabled = false;
+    let disableCutoverAfterNextRead = false;
     const adminDb = {
       prepare: vi.fn((sql: string) => {
         const executeRun = (...values: unknown[]) => {
           if (/CREATE TABLE IF NOT EXISTS/i.test(sql)) return { meta: { changes: 0 } };
+          if (/INSERT OR IGNORE INTO mxqr_pro_room_generation_allocations/i.test(sql)) {
+            if (/FROM mxqr_pro_room_registry/i.test(sql)) {
+              for (const row of registryRows.values()) {
+                generationAllocations.add(`${row.room_code}:${row.room_generation}`);
+              }
+            } else if (/FROM mxqr_pro_room_generation_history/i.test(sql)) {
+              for (const row of generationHistory.values()) {
+                generationAllocations.add(`${row.room_code}:${row.room_generation}`);
+              }
+            }
+            return { meta: { changes: 0 } };
+          }
           if (/INSERT OR IGNORE INTO mxqr_pro_room_registry/i.test(sql)) {
             const [code, label, timestamp] = values as [string, string, number];
             if (registryRows.has(code)) return { meta: { changes: 0 } };
+            if (
+              /mxqr_pro_room_generation_allocations/i.test(sql) &&
+              ([...generationAllocations].some((entry) => entry.startsWith(`${code}:`)) ||
+                [...generationHistory.keys()].some((entry) => entry.startsWith(`${code}:`)))
+            ) {
+              return { meta: { changes: 0 } };
+            }
             registryRows.set(code, {
               room_code: code,
               label,
               status: /'provisioning'/i.test(sql) ? 'provisioning' : 'registered',
               activation_state: 'unactivated',
+              room_generation: 0,
               created_at: timestamp,
               updated_at: timestamp,
+            });
+            generationAllocations.add(`${code}:0`);
+            return { meta: { changes: 1 } };
+          }
+          if (/INSERT OR IGNORE INTO mxqr_pro_room_generation_history/i.test(sql)) {
+            if (/SELECT room_code, room_generation/i.test(sql)) {
+              const [code, generation] = values as [string, number];
+              const row = registryRows.get(code);
+              if (!row || row.status !== 'decommissioned' || row.room_generation !== generation) {
+                return { meta: { changes: 0 } };
+              }
+              const key = `${code}:${generation}`;
+              if (generationHistory.has(key)) return { meta: { changes: 0 } };
+              generationHistory.set(key, {
+                room_code: code,
+                room_generation: generation,
+                status: 'decommissioned',
+                decommissioned_at: row.updated_at,
+                request_id: null,
+              });
+              return { meta: { changes: 1 } };
+            }
+            const [code, generation, historyRequestId, timestamp] = values as [
+              string,
+              number,
+              string | null,
+              number,
+            ];
+            const key = `${code}:${generation}`;
+            if (generationHistory.has(key)) return { meta: { changes: 0 } };
+            generationHistory.set(key, {
+              room_code: code,
+              room_generation: generation,
+              status: 'decommissioned',
+              decommissioned_at: timestamp,
+              request_id: historyRequestId,
             });
             return { meta: { changes: 1 } };
           }
           if (/INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
-            const [, action, result, code] = values as [string, string, string, string, number];
-            proAudits.push({ action, result, roomCode: code });
+            const [, action, result, code, roomGeneration] = values as [
+              string,
+              string,
+              string,
+              string,
+              number,
+              number,
+            ];
+            proAudits.push({ action, result, roomCode: code, roomGeneration });
             return { meta: { changes: 1 } };
           }
           if (/SET label = 'Decommissioned PRO room', status = 'decommissioned'/i.test(sql)) {
-            const [code, timestamp] = values as [string, number];
+            const [code, generation, timestamp] = values as [string, number, number];
             const row = registryRows.get(code);
-            if (!row) return { meta: { changes: 0 } };
+            if (!row || row.room_generation !== generation) return { meta: { changes: 0 } };
             row.label = 'Decommissioned PRO room';
             row.status = 'decommissioned';
             row.activation_state = 'unactivated';
@@ -2561,11 +2775,65 @@ describe('Cloudflare app worker admin dashboard', () => {
             return { meta: { changes: 1 } };
           }
           if (/SET status = 'decommissioning'/i.test(sql)) {
-            const [code, timestamp] = values as [string, number];
+            const [code, generation, timestamp] = values as [string, number, number];
             const row = registryRows.get(code);
-            if (!row || row.status === 'decommissioned') return { meta: { changes: 0 } };
+            if (!row || row.room_generation !== generation || row.status === 'decommissioned') {
+              return { meta: { changes: 0 } };
+            }
             row.status = 'decommissioning';
             row.activation_state = 'unactivated';
+            row.updated_at = timestamp;
+            return { meta: { changes: 1 } };
+          }
+          if (/room_generation = room_generation \+ 1/i.test(sql)) {
+            const [code, label, timestamp, generation, , limit] = values as [
+              string,
+              string,
+              number,
+              number,
+              number,
+              number,
+            ];
+            const row = registryRows.get(code);
+            const activeCount = [...registryRows.values()].filter(
+              (candidate) => candidate.status !== 'decommissioned',
+            ).length;
+            if (
+              !row ||
+              row.status !== 'decommissioned' ||
+              row.room_generation !== generation ||
+              activeCount >= limit ||
+              !generationHistory.has(`${code}:${generation}`) ||
+              generationCutoverStatus !== 'ready'
+            ) {
+              return { meta: { changes: 0 } };
+            }
+            row.label = label;
+            row.status = 'provisioning';
+            row.activation_state = 'unactivated';
+            row.room_generation += 1;
+            generationAllocations.add(`${code}:${row.room_generation}`);
+            row.created_at = timestamp;
+            row.updated_at = timestamp;
+            return { meta: { changes: 1 } };
+          }
+          if (/SET status = 'registered'/i.test(sql)) {
+            const [code, generation, activationState, timestamp] = values as [
+              string,
+              number,
+              string,
+              number,
+            ];
+            const row = registryRows.get(code);
+            if (
+              !row ||
+              row.room_generation !== generation ||
+              ['suspended', 'decommissioning', 'decommissioned'].includes(row.status)
+            ) {
+              return { meta: { changes: 0 } };
+            }
+            row.status = 'registered';
+            row.activation_state = activationState;
             row.updated_at = timestamp;
             return { meta: { changes: 1 } };
           }
@@ -2575,7 +2843,45 @@ describe('Cloudflare app worker admin dashboard', () => {
           run: vi.fn(async () => executeRun()),
           bind: vi.fn((...values: unknown[]) => ({
             run: vi.fn(async () => executeRun(...values)),
-            first: vi.fn(async () => registryRows.get(String(values[0])) || null),
+            first: vi.fn(async () => {
+              if (/FROM mxqr_pro_room_generation_cutover/i.test(sql)) {
+                if (generationCutoverStatus === 'ready') {
+                  generationCutoverEverEnabled = true;
+                }
+                const cutover = {
+                  status: generationCutoverStatus,
+                  release_sha:
+                    generationCutoverStatus === 'ready'
+                      ? '1234567890abcdef1234567890abcdef12345678'
+                      : null,
+                  ever_enabled: generationCutoverEverEnabled ? 1 : 0,
+                  floor_release_sha: generationCutoverEverEnabled
+                    ? '1234567890abcdef1234567890abcdef12345678'
+                    : null,
+                };
+                if (disableCutoverAfterNextRead) {
+                  disableCutoverAfterNextRead = false;
+                  generationCutoverStatus = 'disabled';
+                }
+                return cutover;
+              }
+              if (/AS has_allocation/i.test(sql) && /AS has_history/i.test(sql)) {
+                const code = String(values[0]);
+                const generation =
+                  values.length > 1 && Number.isSafeInteger(Number(values[1]))
+                    ? Number(values[1])
+                    : null;
+                const matches = (entry: string) =>
+                  generation === null
+                    ? entry.startsWith(`${code}:`)
+                    : entry === `${code}:${generation}`;
+                return {
+                  has_allocation: [...generationAllocations].some(matches) ? 1 : 0,
+                  has_history: [...generationHistory.keys()].some(matches) ? 1 : 0,
+                };
+              }
+              return registryRows.get(String(values[0])) || null;
+            }),
             all: vi.fn(async () => ({ results: [...registryRows.values()] })),
           })),
         };
@@ -2584,14 +2890,38 @@ describe('Cloudflare app worker admin dashboard', () => {
 
     let proRoomStatus: 'decommissioning' | 'decommissioned' = 'decommissioning';
     let rejectNextDecommission = true;
-    const proRoomCalls: Array<{ pathname: string; roomCodeHeader: string; body: unknown }> = [];
+    const proRoomCalls: Array<{
+      objectName: string;
+      pathname: string;
+      roomCodeHeader: string;
+      roomGenerationHeader: string;
+      body: unknown;
+    }> = [];
+    let activeObjectName = '';
     const proRoomFetch = vi.fn(async (request: Request) => {
       const pathname = new URL(request.url).pathname;
+      const roomGeneration = Number(request.headers.get('x-mxqr-pro-room-generation') ?? '0');
       proRoomCalls.push({
+        objectName: activeObjectName,
         pathname,
         roomCodeHeader: request.headers.get('x-mxqr-pro-room-code') || '',
-        body: await request.clone().json(),
+        roomGenerationHeader: String(roomGeneration),
+        body: await request
+          .clone()
+          .json()
+          .catch(() => null),
       });
+      if (pathname === '/internal/admin/provision') {
+        return Response.json({
+          ok: true,
+          roomCode,
+          ...(roomGeneration === 0 ? {} : { roomGeneration }),
+          status: 'unactivated',
+        });
+      }
+      if (pathname !== '/internal/admin/decommission') {
+        return Response.json({ error: 'NOT_FOUND' }, { status: 404 });
+      }
       if (rejectNextDecommission) {
         rejectNextDecommission = false;
         return Response.json({ error: 'PRO_ROOM_ADMIN_UNAVAILABLE' }, { status: 503 });
@@ -2600,6 +2930,7 @@ describe('Cloudflare app worker admin dashboard', () => {
         {
           ok: true,
           roomCode,
+          ...(roomGeneration === 0 ? {} : { roomGeneration }),
           status: proRoomStatus,
           purgeAfterMs: Date.now() + 600_000,
           completedAtMs: proRoomStatus === 'decommissioned' ? Date.now() : null,
@@ -2613,13 +2944,16 @@ describe('Cloudflare app worker admin dashboard', () => {
       MUSIXQUARE_ADMIN_DB: adminDb,
       PRO_ROOM_ADMIN_ROOMS: {
         idFromName: vi.fn((code: string) => code),
-        get: vi.fn(() => ({ fetch: proRoomFetch })),
+        get: vi.fn((objectName: string) => {
+          activeObjectName = objectName;
+          return { fetch: proRoomFetch };
+        }),
       },
     };
 
     const deleteRequest = (
       headers: Record<string, string>,
-      body: unknown = { confirmRoomCode: roomCode, requestId },
+      body: unknown = { confirmRoomCode: roomCode, roomGeneration: 0, requestId },
     ) =>
       new Request(`https://musixquare.com/api/admin/pro-rooms/${roomCode}`, {
         method: 'DELETE',
@@ -2665,9 +2999,14 @@ describe('Cloudflare app worker admin dashboard', () => {
 
     const adminHeaders = adminMutationHeaders({ Cookie: cookie });
     for (const invalidBody of [
-      { confirmRoomCode: '000002', requestId },
-      { confirmRoomCode: roomCode, requestId: '123e4567-e89b-12d3-a456-426614174000' },
-      { confirmRoomCode: roomCode, requestId, extra: true },
+      { confirmRoomCode: '000002', roomGeneration: 0, requestId },
+      {
+        confirmRoomCode: roomCode,
+        roomGeneration: 0,
+        requestId: '123e4567-e89b-12d3-a456-426614174000',
+      },
+      { confirmRoomCode: roomCode, roomGeneration: 0, requestId, extra: true },
+      { confirmRoomCode: roomCode, requestId },
     ]) {
       const invalid = await appWorker.fetch(deleteRequest(adminHeaders, invalidBody), env);
       expect(invalid.status).toBe(400);
@@ -2687,6 +3026,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(await accepted.json()).toMatchObject({
       ok: true,
       roomCode,
+      roomGeneration: 0,
       status: 'decommissioning',
       purgeAfterMs: expect.any(Number),
       completedAtMs: null,
@@ -2697,13 +3037,17 @@ describe('Cloudflare app worker admin dashboard', () => {
     });
     expect(proRoomCalls).toEqual([
       {
+        objectName: roomCode,
         pathname: '/internal/admin/decommission',
         roomCodeHeader: roomCode,
+        roomGenerationHeader: '0',
         body: { roomCode, requestId },
       },
       {
+        objectName: roomCode,
         pathname: '/internal/admin/decommission',
         roomCodeHeader: roomCode,
+        roomGenerationHeader: '0',
         body: { roomCode, requestId },
       },
     ]);
@@ -2711,6 +3055,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       action: 'room.delete',
       result: 'authorized',
       roomCode,
+      roomGeneration: 0,
     });
 
     proRoomStatus = 'decommissioned';
@@ -2719,6 +3064,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(await completed.json()).toMatchObject({
       ok: true,
       roomCode,
+      roomGeneration: 0,
       status: 'decommissioned',
       completedAtMs: expect.any(Number),
     });
@@ -2726,6 +3072,13 @@ describe('Cloudflare app worker admin dashboard', () => {
       label: 'Decommissioned PRO room',
       status: 'decommissioned',
       activation_state: 'unactivated',
+      room_generation: 0,
+    });
+    expect(generationHistory.get(`${roomCode}:0`)).toMatchObject({
+      room_code: roomCode,
+      room_generation: 0,
+      status: 'decommissioned',
+      request_id: requestId,
     });
 
     const completedReplay = await appWorker.fetch(deleteRequest(adminHeaders), env);
@@ -2737,6 +3090,52 @@ describe('Cloudflare app worker admin dashboard', () => {
     const provisionCallCount = proRoomCalls.filter(
       (call) => call.pathname === '/internal/admin/provision',
     ).length;
+    const blockedReregister = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms', {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({ roomCode, label: 'Recreated room' }),
+      }),
+      env,
+    );
+    expect(blockedReregister.status).toBe(503);
+    expect(await blockedReregister.json()).toEqual({
+      error: 'PRO_ROOM_GENERATION_CUTOVER_NOT_READY',
+    });
+    expect(registryRows.get(roomCode)).toMatchObject({
+      status: 'decommissioned',
+      room_generation: 0,
+    });
+    expect(
+      proRoomCalls.filter((call) => call.pathname === '/internal/admin/provision'),
+    ).toHaveLength(provisionCallCount);
+    expect(proAudits).toContainEqual({
+      action: 'room.register',
+      result: 'generation_cutover_not_ready',
+      roomCode,
+      roomGeneration: 0,
+    });
+
+    generationCutoverStatus = 'ready';
+    disableCutoverAfterNextRead = true;
+    const cutoverRace = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms', {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({ roomCode, label: 'Recreated room' }),
+      }),
+      env,
+    );
+    expect(cutoverRace.status).toBe(503);
+    expect(await cutoverRace.json()).toEqual({
+      error: 'PRO_ROOM_GENERATION_CUTOVER_NOT_READY',
+    });
+    expect(registryRows.get(roomCode)).toMatchObject({
+      status: 'decommissioned',
+      room_generation: 0,
+    });
+
+    generationCutoverStatus = 'ready';
     const reregister = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/pro-rooms', {
         method: 'POST',
@@ -2745,11 +3144,97 @@ describe('Cloudflare app worker admin dashboard', () => {
       }),
       env,
     );
-    expect(reregister.status).toBe(410);
-    expect(await reregister.json()).toEqual({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' });
+    expect(reregister.status).toBe(201);
+    expect(await reregister.json()).toMatchObject({
+      room: {
+        roomCode,
+        roomGeneration: 1,
+        label: 'Recreated room',
+        status: 'registered',
+        activationState: 'unactivated',
+      },
+    });
+    expect(registryRows.get(roomCode)).toMatchObject({
+      label: 'Recreated room',
+      status: 'registered',
+      activation_state: 'unactivated',
+      room_generation: 1,
+    });
     expect(
       proRoomCalls.filter((call) => call.pathname === '/internal/admin/provision'),
-    ).toHaveLength(provisionCallCount);
+    ).toHaveLength(provisionCallCount + 1);
+    expect(proRoomCalls.at(-1)).toEqual({
+      objectName: `${roomCode}:generation:1`,
+      pathname: '/internal/admin/provision',
+      roomCodeHeader: roomCode,
+      roomGenerationHeader: '1',
+      body: null,
+    });
+    expect(proAudits).toContainEqual({
+      action: 'room.register',
+      result: 'recreated',
+      roomCode,
+      roomGeneration: 1,
+    });
+
+    const callCountAfterReuse = proRoomCalls.length;
+    const staleAdminRequests = [
+      new Request(`https://musixquare.com/api/admin/pro-rooms/${roomCode}/activation-claim`, {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({ roomGeneration: 0 }),
+      }),
+      new Request(`https://musixquare.com/api/admin/pro-rooms/${roomCode}/owner-recovery-claim`, {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({ roomGeneration: 0 }),
+      }),
+      new Request(`https://musixquare.com/api/admin/pro-rooms/${roomCode}/state`, {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({ roomGeneration: 0, status: 'suspended' }),
+      }),
+      deleteRequest(adminHeaders),
+    ];
+    for (const staleRequest of staleAdminRequests) {
+      const staleResponse = await appWorker.fetch(staleRequest, env);
+      expect(staleResponse.status).toBe(409);
+      expect(await staleResponse.json()).toEqual({
+        error: 'PRO_ROOM_GENERATION_MISMATCH',
+      });
+    }
+    expect(proRoomCalls).toHaveLength(callCountAfterReuse);
+    expect(registryRows.get(roomCode)).toMatchObject({
+      room_generation: 1,
+      status: 'registered',
+    });
+
+    // Simulate out-of-band pointer loss while immutable allocation/history
+    // evidence survives. Registration must not silently mint generation zero
+    // (or infer max(history)+1); the operator gets an explicit repair fence and
+    // no Durable Object provisioning request is made.
+    registryRows.delete(roomCode);
+    const callCountBeforeRepairFence = proRoomCalls.length;
+    const missingPointer = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms', {
+        method: 'POST',
+        headers: adminHeaders,
+        body: JSON.stringify({ roomCode, label: 'Must not auto-repair' }),
+      }),
+      env,
+    );
+    expect(missingPointer.status).toBe(409);
+    expect(await missingPointer.json()).toEqual({
+      error: 'PRO_ROOM_REGISTRY_REPAIR_REQUIRED',
+    });
+    expect(registryRows.has(roomCode)).toBe(false);
+    expect(proRoomCalls).toHaveLength(callCountBeforeRepairFence);
+    expect(proAudits).toContainEqual({
+      action: 'room.register',
+      result: 'registry_repair_required',
+      roomCode,
+      roomGeneration: 0,
+    });
   });
 
   it('keeps /admin unindexed and no-store cached', async () => {
@@ -2766,6 +3251,8 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(html).toContain('/admin.js');
     expect(html).toContain('data-admin-tab="pro-rooms"');
     expect(html).toContain('data-pro-room-form');
+    expect(html).toContain('Reusing a deleted number creates a new, isolated room.');
+    expect(html).not.toContain('Reserve a permanent room number');
   });
 });
 
@@ -2773,6 +3260,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
   type DeveloperKeyRow = {
     key_id: string;
     room_code: string;
+    room_generation: number;
     label: string;
     secret_digest: string;
     digest_version: number;
@@ -2786,7 +3274,11 @@ describe('Cloudflare app worker Developer API key administration', () => {
   };
 
   function createDeveloperApiAdminEnv(
-    options: { roomStatus?: string; simulateConcurrentIssue?: boolean } = {},
+    options: {
+      roomStatus?: string;
+      roomGeneration?: number;
+      simulateConcurrentIssue?: boolean;
+    } = {},
   ) {
     const now = Date.now();
     const registryRows = new Map([
@@ -2797,6 +3289,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
           label: 'Friends & Family',
           status: options.roomStatus || 'registered',
           activation_state: 'active',
+          room_generation: options.roomGeneration ?? 0,
           created_at: now - 1_000,
           updated_at: now - 1_000,
         },
@@ -2813,6 +3306,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
                 label,
                 status: 'registered',
                 activation_state: 'unactivated',
+                room_generation: 0,
                 created_at: createdAt,
                 updated_at: createdAt,
               });
@@ -2822,15 +3316,18 @@ describe('Cloudflare app worker Developer API key administration', () => {
           if (/UPDATE mxqr_pro_room_registry/i.test(sql)) {
             const roomCode = String(values[0]);
             const row = registryRows.get(roomCode);
-            if (row) {
+            if (
+              row &&
+              (!/room_generation = \?2/i.test(sql) || row.room_generation === Number(values[1]))
+            ) {
               if (/SET status = 'suspended'/i.test(sql)) {
                 row.status = 'suspended';
                 row.activation_state = 'active';
-                row.updated_at = Number(values[1]);
+                row.updated_at = Number(values[2]);
               } else if (/SET status = 'registered'/i.test(sql)) {
                 row.status = 'registered';
-                row.activation_state = String(values[1]);
-                row.updated_at = Number(values[2]);
+                row.activation_state = String(values[2]);
+                row.updated_at = Number(values[3]);
               }
               return { meta: { changes: 1 } };
             }
@@ -2855,6 +3352,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
       result: string;
       keyId: string;
       roomCode: string;
+      roomGeneration: number;
       createdAt: number;
     }> = [];
     let failAudit = false;
@@ -2864,11 +3362,12 @@ describe('Cloudflare app worker Developer API key administration', () => {
       prepare: vi.fn((sql: string) => {
         const executeRun = (...values: unknown[]) => {
           if (/SET status = 'revoked', revoked_at = expires_at/i.test(sql)) {
-            const [roomCode, timestamp] = values as [string, number];
+            const [roomCode, roomGeneration, timestamp] = values as [string, number, number];
             let changes = 0;
             for (const row of keyRows.values()) {
               if (
                 row.room_code === roomCode &&
+                row.room_generation === roomGeneration &&
                 row.status === 'active' &&
                 row.expires_at <= timestamp
               ) {
@@ -2881,18 +3380,20 @@ describe('Cloudflare app worker Developer API key administration', () => {
             return { meta: { changes } };
           }
           if (/INSERT INTO mxqr_developer_api_keys/i.test(sql)) {
-            const [keyId, roomCode, label, digest, scopeMask, createdAt, expiresAt] = values as [
-              string,
-              string,
-              string,
-              string,
-              number,
-              number,
-              number,
-            ];
+            const [
+              keyId,
+              roomCode,
+              roomGeneration,
+              label,
+              digest,
+              scopeMask,
+              createdAt,
+              expiresAt,
+            ] = values as [string, string, number, string, string, number, number, number];
             const concurrentRow: DeveloperKeyRow = {
               key_id: keyId,
               room_code: roomCode,
+              room_generation: roomGeneration,
               label,
               secret_digest: digest,
               digest_version: 1,
@@ -2913,7 +3414,10 @@ describe('Cloudflare app worker Developer API key administration', () => {
               throw error;
             }
             const activeCount = [...keyRows.values()].filter(
-              (row) => row.room_code === roomCode && row.status === 'active',
+              (row) =>
+                row.room_code === roomCode &&
+                row.room_generation === roomGeneration &&
+                row.status === 'active',
             ).length;
             if (activeCount >= 3) throw new Error('developer_api_active_key_limit');
             if (keyRows.has(keyId)) throw new Error('duplicate key id');
@@ -2922,34 +3426,51 @@ describe('Cloudflare app worker Developer API key administration', () => {
           }
           if (/INSERT(?: OR IGNORE)? INTO mxqr_developer_api_admin_audit/i.test(sql)) {
             if (failAudit) throw new Error('audit unavailable');
-            const [actorId, action, result, keyId, roomCode, createdAt] = values as [
-              string,
-              string,
-              string,
-              string,
-              string,
-              number,
-            ];
-            audits.push({ actorId, action, result, keyId, roomCode, createdAt });
+            const [actorId, action, result, keyId, roomCode, roomGeneration, createdAt] =
+              values as [string, string, string, string, string, number, number];
+            audits.push({
+              actorId,
+              action,
+              result,
+              keyId,
+              roomCode,
+              roomGeneration,
+              createdAt,
+            });
             return { meta: { changes: 1 } };
           }
           if (/DELETE FROM mxqr_developer_api_keys/i.test(sql)) {
-            const [keyId, roomCode, digest] = values as [string, string, string];
+            const [keyId, roomCode, roomGeneration, digest] = values as [
+              string,
+              string,
+              number,
+              string,
+            ];
             const row = keyRows.get(keyId);
-            if (row?.room_code === roomCode && row.secret_digest === digest) {
+            if (
+              row?.room_code === roomCode &&
+              row.room_generation === roomGeneration &&
+              row.secret_digest === digest
+            ) {
               keyRows.delete(keyId);
               return { meta: { changes: 1 } };
             }
             return { meta: { changes: 0 } };
           }
           if (
-            /SET status = 'revoked', revoked_at = \?3/i.test(sql) &&
-            /expires_at > \?3/i.test(sql)
+            /SET status = 'revoked', revoked_at = \?4/i.test(sql) &&
+            /expires_at > \?4/i.test(sql)
           ) {
-            const [roomCode, keyId, timestamp] = values as [string, string, number];
+            const [roomCode, roomGeneration, keyId, timestamp] = values as [
+              string,
+              number,
+              string,
+              number,
+            ];
             const row = keyRows.get(keyId);
             if (
               row?.room_code === roomCode &&
+              row.room_generation === roomGeneration &&
               row.status === 'active' &&
               row.expires_at > timestamp
             ) {
@@ -2961,10 +3482,16 @@ describe('Cloudflare app worker Developer API key administration', () => {
             return { meta: { changes: 0 } };
           }
           if (/SET status = 'active', revoked_at = NULL/i.test(sql)) {
-            const [roomCode, keyId, timestamp] = values as [string, string, number];
+            const [roomCode, roomGeneration, keyId, timestamp] = values as [
+              string,
+              number,
+              string,
+              number,
+            ];
             const row = keyRows.get(keyId);
             if (
               row?.room_code === roomCode &&
+              row.room_generation === roomGeneration &&
               row.status === 'revoked' &&
               row.revoked_at === timestamp
             ) {
@@ -2980,15 +3507,20 @@ describe('Cloudflare app worker Developer API key administration', () => {
         const bound = (...values: unknown[]) => ({
           run: vi.fn(async () => executeRun(...values)),
           first: vi.fn(async () => {
-            const [roomCode, keyId] = values as [string, string];
+            const [roomCode, roomGeneration, keyId] = values as [string, number, string];
             const row = keyRows.get(keyId);
-            return row?.room_code === roomCode ? { ...row } : null;
+            return row?.room_code === roomCode && row.room_generation === roomGeneration
+              ? { ...row }
+              : null;
           }),
           all: vi.fn(async () => {
             const roomCode = String(values[0]);
+            const roomGeneration = Number(values[1]);
             return {
               results: [...keyRows.values()]
-                .filter((row) => row.room_code === roomCode)
+                .filter(
+                  (row) => row.room_code === roomCode && row.room_generation === roomGeneration,
+                )
                 .sort((left, right) => right.created_at - left.created_at)
                 .map((row) => ({ ...row })),
             };
@@ -3026,9 +3558,16 @@ describe('Cloudflare app worker Developer API key administration', () => {
         DEVELOPER_API_DB: developerDb,
         PRO_ROOM_ADMIN_ROOMS: {
           idFromName: vi.fn((roomCode: string) => roomCode),
-          get: vi.fn((roomCode: string) => ({
+          get: vi.fn((objectName: string) => ({
             fetch: vi.fn(async (request: Request) => {
               expect(new URL(request.url).pathname).toBe('/internal/admin/status');
+              const roomCode = request.headers.get('x-mxqr-pro-room-code') || '';
+              const roomGeneration = Number(
+                request.headers.get('x-mxqr-pro-room-generation') ?? '0',
+              );
+              expect(objectName).toBe(
+                roomGeneration === 0 ? roomCode : `${roomCode}:generation:${roomGeneration}`,
+              );
               const row = registryRows.get(roomCode);
               if (!row) return Response.json({ error: 'ROOM_NOT_FOUND' }, { status: 404 });
               const status =
@@ -3037,7 +3576,12 @@ describe('Cloudflare app worker Developer API key administration', () => {
                   : row.activation_state === 'active'
                     ? 'active'
                     : 'unactivated';
-              return Response.json({ roomCode, provisioned: true, status });
+              return Response.json({
+                roomCode,
+                ...(roomGeneration === 0 ? {} : { roomGeneration }),
+                provisioned: true,
+                status,
+              });
             }),
           })),
         },
@@ -3068,9 +3612,12 @@ describe('Cloudflare app worker Developer API key administration', () => {
     cookie: string,
     body: unknown,
     requestId = crypto.randomUUID(),
+    roomGeneration = 0,
   ) {
     const requestBody =
-      body && typeof body === 'object' && !Array.isArray(body) ? { ...body, requestId } : body;
+      body && typeof body === 'object' && !Array.isArray(body)
+        ? { ...body, roomGeneration, requestId }
+        : body;
     return new Request('https://musixquare.com/api/admin/pro-rooms/000001/api-keys', {
       method: 'POST',
       headers: adminMutationHeaders({
@@ -3078,6 +3625,19 @@ describe('Cloudflare app worker Developer API key administration', () => {
         'Cf-Access-Authenticated-User-Email': 'operator@example.com',
       }),
       body: JSON.stringify(requestBody),
+    });
+  }
+
+  function revokeDeveloperApiKeyRequest(
+    cookie: string,
+    roomCode: string,
+    keyId: string,
+    roomGeneration = 0,
+  ) {
+    return new Request(`https://musixquare.com/api/admin/pro-rooms/${roomCode}/api-keys/${keyId}`, {
+      method: 'DELETE',
+      headers: adminMutationHeaders({ Cookie: cookie }),
+      body: JSON.stringify({ roomGeneration }),
     });
   }
 
@@ -3138,15 +3698,24 @@ describe('Cloudflare app worker Developer API key administration', () => {
     );
     const payload = (await response.json()) as {
       roomCode: string;
+      roomGeneration: number;
       apiKey: string;
-      key: { keyId: string; scopes: string[]; status: string; expiresAt: number };
+      key: {
+        keyId: string;
+        roomGeneration: number;
+        scopes: string[];
+        status: string;
+        expiresAt: number;
+      };
     };
     expect(response.status).toBe(201);
     expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0');
     expect(payload.roomCode).toBe('000001');
+    expect(payload.roomGeneration).toBe(0);
     expect(payload.apiKey).toMatch(/^mxqr_live_[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{43}$/);
     expect(payload.key).toMatchObject({
       keyId: expect.stringMatching(/^[A-Za-z0-9_-]{16}$/),
+      roomGeneration: 0,
       scopes: ['room:read', 'queue:write', 'effects:control'],
       status: 'active',
       expiresAt: Date.now() + 90 * 86_400_000,
@@ -3166,6 +3735,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
       result: 'issued',
       keyId,
       roomCode: '000001',
+      roomGeneration: 0,
     });
     expect(audits[0].actorId).toMatch(/^admin_[A-Za-z0-9_-]{32}$/);
     expect(JSON.stringify(audits)).not.toContain('operator@example.com');
@@ -3225,6 +3795,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
     expect(list.status).toBe(200);
     expect(listed).toMatchObject({
       roomCode: '000001',
+      roomGeneration: 0,
       maxActiveKeys: 3,
       keys: [{ keyId, scopes: ['room:read', 'queue:write', 'effects:control'], status: 'active' }],
     });
@@ -3253,6 +3824,97 @@ describe('Cloudflare app worker Developer API key administration', () => {
     expect(keyRows.size).toBe(1);
   });
 
+  it('isolates recycled-room key administration from every earlier generation', async () => {
+    const fixture = createDeveloperApiAdminEnv({ roomGeneration: 1 });
+    const cookie = await loginDeveloperApiAdmin(fixture.env);
+    const now = Date.now();
+    fixture.keyRows.set('LegacyKeyId00001', {
+      key_id: 'LegacyKeyId00001',
+      room_code: '000001',
+      room_generation: 0,
+      label: 'Retired integration',
+      secret_digest: 'L'.repeat(43),
+      digest_version: 1,
+      scope_mask: 1,
+      status: 'active',
+      created_at: now - 2_000,
+      updated_at: now - 2_000,
+      expires_at: now + 86_400_000,
+      revoked_at: null,
+      last_used_hour: null,
+    });
+
+    const list = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/pro-rooms/000001/api-keys', {
+        headers: { Cookie: cookie },
+      }),
+      fixture.env,
+    );
+    expect(list.status).toBe(200);
+    await expect(list.json()).resolves.toMatchObject({
+      roomCode: '000001',
+      roomGeneration: 1,
+      keys: [],
+    });
+
+    const staleIssue = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(
+        cookie,
+        { label: 'Stale tab', scopes: ['room:read'] },
+        crypto.randomUUID(),
+        0,
+      ),
+      fixture.env,
+    );
+    expect(staleIssue.status).toBe(409);
+    await expect(staleIssue.json()).resolves.toEqual({
+      error: 'PRO_ROOM_GENERATION_CONFLICT',
+    });
+
+    const issued = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(
+        cookie,
+        { label: 'Current integration', scopes: ['room:read'] },
+        crypto.randomUUID(),
+        1,
+      ),
+      fixture.env,
+    );
+    const issuedPayload = (await issued.json()) as {
+      roomGeneration?: number;
+      key?: { keyId?: string };
+    };
+    expect(issued.status).toBe(201);
+    expect(issuedPayload.roomGeneration).toBe(1);
+    const currentKeyId = issuedPayload.key?.keyId || '';
+    expect(fixture.keyRows.get(currentKeyId)).toMatchObject({
+      room_code: '000001',
+      room_generation: 1,
+      status: 'active',
+    });
+
+    const staleRevoke = await appWorker.fetch(
+      revokeDeveloperApiKeyRequest(cookie, '000001', currentKeyId, 0),
+      fixture.env,
+    );
+    expect(staleRevoke.status).toBe(409);
+    expect(fixture.keyRows.get(currentKeyId)?.status).toBe('active');
+
+    const revoked = await appWorker.fetch(
+      revokeDeveloperApiKeyRequest(cookie, '000001', currentKeyId, 1),
+      fixture.env,
+    );
+    expect(revoked.status).toBe(200);
+    await expect(revoked.json()).resolves.toMatchObject({
+      ok: true,
+      roomCode: '000001',
+      roomGeneration: 1,
+      keyId: currentKeyId,
+    });
+    expect(fixture.keyRows.get(currentKeyId)?.status).toBe('revoked');
+    expect(fixture.keyRows.get('LegacyKeyId00001')?.status).toBe('active');
+  });
+
   it('cleans expired keys, distinguishes list statuses, revokes idempotently, and binds IDs to rooms', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-18T12:00:00.000Z'));
@@ -3262,6 +3924,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
     keyRows.set('ExpiredKeyId0001', {
       key_id: 'ExpiredKeyId0001',
       room_code: '000001',
+      room_generation: 0,
       label: 'Expired bot',
       secret_digest: 'A'.repeat(43),
       digest_version: 1,
@@ -3276,6 +3939,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
     keyRows.set('RevokedKeyId0001', {
       key_id: 'RevokedKeyId0001',
       room_code: '000001',
+      room_generation: 0,
       label: 'Revoked bot',
       secret_digest: 'B'.repeat(43),
       digest_version: 1,
@@ -3290,6 +3954,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
     keyRows.set('ActiveKeyId00001', {
       key_id: 'ActiveKeyId00001',
       room_code: '000001',
+      room_generation: 0,
       label: 'Active bot',
       secret_digest: 'C'.repeat(43),
       digest_version: 1,
@@ -3337,26 +4002,21 @@ describe('Cloudflare app worker Developer API key administration', () => {
     });
 
     const wrongRoom = await appWorker.fetch(
-      new Request('https://musixquare.com/api/admin/pro-rooms/000000/api-keys/ActiveKeyId00001', {
-        method: 'DELETE',
-        headers: adminMutationHeaders({ Cookie: cookie }),
-      }),
+      revokeDeveloperApiKeyRequest(cookie, '000000', 'ActiveKeyId00001'),
       env,
     );
     expect(wrongRoom.status).toBe(404);
     expect(await wrongRoom.json()).toEqual({ error: 'DEVELOPER_API_KEY_NOT_FOUND' });
 
     const revoke = await appWorker.fetch(
-      new Request('https://musixquare.com/api/admin/pro-rooms/000001/api-keys/ActiveKeyId00001', {
-        method: 'DELETE',
-        headers: adminMutationHeaders({ Cookie: cookie }),
-      }),
+      revokeDeveloperApiKeyRequest(cookie, '000001', 'ActiveKeyId00001'),
       env,
     );
     expect(revoke.status).toBe(200);
     expect(await revoke.json()).toEqual({
       ok: true,
       roomCode: '000001',
+      roomGeneration: 0,
       keyId: 'ActiveKeyId00001',
     });
     expect(keyRows.get('ActiveKeyId00001')?.status).toBe('revoked');
@@ -3367,10 +4027,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
     });
 
     const repeat = await appWorker.fetch(
-      new Request('https://musixquare.com/api/admin/pro-rooms/000001/api-keys/ActiveKeyId00001', {
-        method: 'DELETE',
-        headers: adminMutationHeaders({ Cookie: cookie }),
-      }),
+      revokeDeveloperApiKeyRequest(cookie, '000001', 'ActiveKeyId00001'),
       env,
     );
     expect(repeat.status).toBe(200);
@@ -3383,6 +4040,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
     const makeRow = (index: number): DeveloperKeyRow => ({
       key_id: `ExistingKey0000${index}`,
       room_code: '000001',
+      room_generation: 0,
       label: `Existing ${index}`,
       secret_digest: String(index).repeat(43),
       digest_version: 1,
@@ -3419,10 +4077,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
 
     const before = { ...fixture.keyRows.get('ExistingKey00001')! };
     const failedRevoke = await appWorker.fetch(
-      new Request('https://musixquare.com/api/admin/pro-rooms/000001/api-keys/ExistingKey00001', {
-        method: 'DELETE',
-        headers: adminMutationHeaders({ Cookie: cookie }),
-      }),
+      revokeDeveloperApiKeyRequest(cookie, '000001', 'ExistingKey00001'),
       fixture.env,
     );
     expect(failedRevoke.status).toBe(503);

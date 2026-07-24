@@ -4,22 +4,36 @@
     {
       "database": "musixquare-admin-metrics",
       "baseline": "cloudflare/admin-metrics.schema.sql",
-      "baselineRevision": 1,
-      "baselineSha256": "9e48c6712c534148bb9933a3576d362cb4fc86167431ad532f0c7ddb6478ce08",
-      "baselineMigration": null,
+      "baselineRevision": 2,
+      "baselineSha256": "1143796202947e9e2101d86c37a71e4a3b8032dfb2f2fdfdcdbe24b869ea9904",
+      "baselineMigration": "admin-pro-room-generation-v1",
       "baselineRecovery": {
         "strategy": "roll-forward-or-provider-restore",
         "runbook": "cloudflare/admin-dashboard-ops.md",
         "note": "The declarative baseline is idempotent, but arbitrary future DDL still requires an explicit recovery decision."
       },
-      "migrations": []
+      "migrations": [
+        {
+          "id": "admin-pro-room-generation-v1",
+          "forward": "cloudflare/admin-metrics.pro-room-generation.migration.sql",
+          "forwardSha256": "39aba609be7ea703b148dfcb8908d952b47648609ea3cfa2e20f0d59b292eb72",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
+            "runbook": "cloudflare/admin-dashboard-ops.md",
+            "note": "Once the reuse cutover is enabled, every control-plane and data-plane Worker must remain generation-aware; recovery rolls forward or restores the provider database with the matched Worker floor."
+          }
+        }
+      ]
     },
     {
       "database": "musixquare-auth",
       "baseline": "cloudflare/auth.schema.sql",
-      "baselineRevision": 2,
-      "baselineSha256": "09744b78daad009e85ec8c2f176cf1a4aed5c22c66607d1ad6ab65bb10574651",
-      "baselineMigration": "auth-nickname-key-v1",
+      "baselineRevision": 3,
+      "baselineSha256": "51f95596346292b644248b5b1c6fd55a9fc31b2b54fbb1d24bb11d15fe6817af",
+      "baselineMigration": "auth-pro-room-generation-v1",
       "baselineRecovery": {
         "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
         "runbook": "docs/account-auth-operations.md",
@@ -38,15 +52,28 @@
             "runbook": "docs/account-auth-operations.md",
             "note": "The normalized nickname key becomes part of the write contract, so recovery preserves the matched account-aware Worker floor instead of dropping the column."
           }
+        },
+        {
+          "id": "auth-pro-room-generation-v1",
+          "forward": "cloudflare/auth.pro-room-generation.migration.sql",
+          "forwardSha256": "93638ce5dbdf6d8cab7e2d3d2e401c09f35bea40ee6236e35fbf9bd9e07ed4b3",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
+            "runbook": "docs/account-auth-operations.md",
+            "note": "Account cleanup authority is bound to an immutable PRO room generation; after the reuse cutover is enabled, recovery never collapses composite reverse edges back to room-code-only authority."
+          }
         }
       ]
     },
     {
       "database": "musixquare-developer-api",
       "baseline": "cloudflare/developer-api.schema.sql",
-      "baselineRevision": 2,
-      "baselineSha256": "68a3f28d07b07efe4cd775c3cf9a10b62ce78babf220461769689154b1d26fba",
-      "baselineMigration": "developer-api-effects-scopes-v1",
+      "baselineRevision": 3,
+      "baselineSha256": "7cedf812c6729279fc506df22a157e65f5a3274e773918cfbf3a99241ceda1a1",
+      "baselineMigration": "developer-api-room-generation-v1",
       "baselineRecovery": {
         "strategy": "roll-forward-or-provider-restore",
         "runbook": "cloudflare/config-drift-ops.md",
@@ -64,6 +91,19 @@
             "strategy": "paired-sql-before-worker-rollback",
             "runbook": "docs/hotfix-procedure.md",
             "note": "The rollback narrows stored scope masks before an older Developer API Worker is restored."
+          }
+        },
+        {
+          "id": "developer-api-room-generation-v1",
+          "forward": "cloudflare/developer-api-room-generation.migration.sql",
+          "forwardSha256": "9c21a8b1ec1b633e69e919fb3554f9578049f6c8916c189d395d1c8dea07f5ea",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
+            "runbook": "docs/hotfix-procedure.md",
+            "note": "Generation-bound credentials and tombstones are a permanent authorization boundary; recovery keeps the matched Worker floor and never collapses later incarnations back into room-code-only authority."
           }
         }
       ]

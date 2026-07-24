@@ -1,34 +1,19 @@
--- Retire the pre-aggregate API limiter table. Runtime rate limiting no longer
--- reads or writes this table, so keeping it only creates schema drift.
-DROP TABLE IF EXISTS mxqr_api_rate_limits;
+-- Add an immutable incarnation identity behind each reusable six-digit PRO
+-- room address. Apply this once before deploying Workers that can register a
+-- new generation for a previously decommissioned room code.
 
-CREATE TABLE IF NOT EXISTS mxqr_metric_buckets (
-  bucket_minute INTEGER NOT NULL,
-  event TEXT NOT NULL,
-  count INTEGER NOT NULL DEFAULT 0 CHECK (count >= 0),
-  PRIMARY KEY (bucket_minute, event)
-);
+ALTER TABLE mxqr_pro_room_registry
+  ADD COLUMN room_generation INTEGER NOT NULL DEFAULT 0
+    CHECK (room_generation >= 0);
 
-CREATE INDEX IF NOT EXISTS idx_mxqr_metric_buckets_event_minute
-  ON mxqr_metric_buckets (event, bucket_minute);
+ALTER TABLE mxqr_pro_room_admin_audit
+  ADD COLUMN room_generation INTEGER NOT NULL DEFAULT 0
+    CHECK (room_generation >= 0);
 
--- Access-gated PRO room registry. Playback state and media metadata remain in
--- each room's Durable Object; raw activation claims are never stored here.
-CREATE TABLE IF NOT EXISTS mxqr_pro_room_registry (
-  room_code TEXT PRIMARY KEY NOT NULL,
-  label TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'registered',
-  activation_state TEXT NOT NULL DEFAULT 'unactivated',
-  room_generation INTEGER NOT NULL DEFAULT 0 CHECK (room_generation >= 0),
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
-);
+CREATE INDEX idx_mxqr_pro_room_admin_audit_incarnation_created
+ON mxqr_pro_room_admin_audit(room_code, room_generation, created_at);
 
--- Immutable incarnation tombstones. room_code is reusable only after the
--- preceding generation has reached the terminal decommissioned state. The
--- room Durable Object keeps the destructive-saga tombstone; this table keeps
--- the control-plane history after the public room-code pointer advances.
-CREATE TABLE IF NOT EXISTS mxqr_pro_room_generation_history (
+CREATE TABLE mxqr_pro_room_generation_history (
   room_code TEXT NOT NULL,
   room_generation INTEGER NOT NULL CHECK (room_generation >= 0),
   status TEXT NOT NULL CHECK (status = 'decommissioned'),
@@ -37,22 +22,37 @@ CREATE TABLE IF NOT EXISTS mxqr_pro_room_generation_history (
   PRIMARY KEY (room_code, room_generation)
 );
 
--- Append-only allocation ledger for every incarnation, including the active
--- generation. The registry is only a mutable public-code pointer; this ledger
--- is the permanent proof that a (room_code, room_generation) identity was
--- already issued and therefore can never be issued again after corruption or
--- pointer loss.
-CREATE TABLE IF NOT EXISTS mxqr_pro_room_generation_allocations (
+-- Rows that reached decommissioned under the legacy single-incarnation
+-- control plane are authoritative completed deletions. Preserve them as
+-- generation zero before any room code can be reassigned.
+INSERT OR IGNORE INTO mxqr_pro_room_generation_history (
+  room_code,
+  room_generation,
+  status,
+  decommissioned_at,
+  request_id
+)
+SELECT
+  room_code,
+  room_generation,
+  'decommissioned',
+  updated_at,
+  NULL
+FROM mxqr_pro_room_registry
+WHERE status = 'decommissioned';
+
+-- Every incarnation allocation is permanent, including the current active or
+-- in-progress pointer. History alone is insufficient because it only contains
+-- completed deletions; losing an active pointer must not make generation zero
+-- available again.
+CREATE TABLE mxqr_pro_room_generation_allocations (
   room_code TEXT NOT NULL,
   room_generation INTEGER NOT NULL CHECK (room_generation >= 0),
   allocated_at INTEGER NOT NULL CHECK (allocated_at >= 0),
   PRIMARY KEY (room_code, room_generation)
 );
 
--- Keep schema application idempotent on an existing database. Current pointer
--- rows are the best allocation-time source; immutable history fills any older
--- generation that is no longer current.
-INSERT OR IGNORE INTO mxqr_pro_room_generation_allocations (
+INSERT INTO mxqr_pro_room_generation_allocations (
   room_code,
   room_generation,
   allocated_at
@@ -68,31 +68,31 @@ INSERT OR IGNORE INTO mxqr_pro_room_generation_allocations (
 SELECT room_code, room_generation, decommissioned_at
 FROM mxqr_pro_room_generation_history;
 
-CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_generation_allocations_no_update
+CREATE TRIGGER mxqr_pro_room_generation_allocations_no_update
 BEFORE UPDATE ON mxqr_pro_room_generation_allocations
 BEGIN
   SELECT RAISE(ABORT, 'PRO room generation allocation is immutable');
 END;
 
-CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_generation_allocations_no_delete
+CREATE TRIGGER mxqr_pro_room_generation_allocations_no_delete
 BEFORE DELETE ON mxqr_pro_room_generation_allocations
 BEGIN
   SELECT RAISE(ABORT, 'PRO room generation allocation is immutable');
 END;
 
-CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_generation_history_no_update
+CREATE TRIGGER mxqr_pro_room_generation_history_no_update
 BEFORE UPDATE ON mxqr_pro_room_generation_history
 BEGIN
   SELECT RAISE(ABORT, 'PRO room generation history is immutable');
 END;
 
-CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_generation_history_no_delete
+CREATE TRIGGER mxqr_pro_room_generation_history_no_delete
 BEFORE DELETE ON mxqr_pro_room_generation_history
 BEGIN
   SELECT RAISE(ABORT, 'PRO room generation history is immutable');
 END;
 
-CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_generation_history_requires_allocation
+CREATE TRIGGER mxqr_pro_room_generation_history_requires_allocation
 BEFORE INSERT ON mxqr_pro_room_generation_history
 WHEN NOT EXISTS (
   SELECT 1
@@ -104,24 +104,20 @@ BEGIN
   SELECT RAISE(ABORT, 'PRO room generation allocation is missing');
 END;
 
-CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_no_delete
+CREATE TRIGGER mxqr_pro_room_registry_no_delete
 BEFORE DELETE ON mxqr_pro_room_registry
 BEGIN
   SELECT RAISE(ABORT, 'PRO room registry pointers are immutable');
 END;
 
-CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_room_code_immutable
+CREATE TRIGGER mxqr_pro_room_registry_room_code_immutable
 BEFORE UPDATE OF room_code ON mxqr_pro_room_registry
 WHEN NEW.room_code <> OLD.room_code
 BEGIN
   SELECT RAISE(ABORT, 'PRO room registry code is immutable');
 END;
 
--- The legacy registry table predates a status CHECK constraint. Additive
--- triggers reject malformed future writes and make deletion states terminal
--- for the current incarnation. Only the separately guarded generation + 1
--- transition may move a decommissioned public-code pointer to provisioning.
-CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_status_insert_guard
+CREATE TRIGGER mxqr_pro_room_registry_status_insert_guard
 BEFORE INSERT ON mxqr_pro_room_registry
 WHEN NEW.status NOT IN (
   'registered',
@@ -134,7 +130,7 @@ BEGIN
   SELECT RAISE(ABORT, 'Invalid PRO room registry status');
 END;
 
-CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_status_transition_guard
+CREATE TRIGGER mxqr_pro_room_registry_status_transition_guard
 BEFORE UPDATE OF status, room_generation ON mxqr_pro_room_registry
 WHEN NEW.status NOT IN (
     'registered',
@@ -180,10 +176,7 @@ BEGIN
   SELECT RAISE(ABORT, 'Invalid PRO room registry status or terminal evidence transition');
 END;
 
--- A missing pointer may never recreate generation zero when any immutable
--- evidence for that code remains. Repairing a lost pointer is an explicit
--- operator procedure, never an automatic registration path.
-CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_initial_generation_guard
+CREATE TRIGGER mxqr_pro_room_registry_initial_generation_guard
 BEFORE INSERT ON mxqr_pro_room_registry
 WHEN NOT EXISTS (
     SELECT 1
@@ -207,7 +200,7 @@ BEGIN
   SELECT RAISE(ABORT, 'PRO room registry repair required');
 END;
 
-CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_allocate_initial_generation
+CREATE TRIGGER mxqr_pro_room_registry_allocate_initial_generation
 AFTER INSERT ON mxqr_pro_room_registry
 BEGIN
   INSERT INTO mxqr_pro_room_generation_allocations (
@@ -221,11 +214,11 @@ BEGIN
   );
 END;
 
--- A decommissioned public room code can advance to its next immutable
--- generation only after the approved release workflow has verified every D1
--- migration and generation-aware dependency Worker. Runtime code reads this
--- singleton fail-closed; creating the schema alone never enables reuse.
-CREATE TABLE IF NOT EXISTS mxqr_pro_room_generation_cutover (
+-- This singleton remains disabled until the approved release workflow has
+-- verified the admin/auth/Developer schemas, deployed every generation-aware
+-- dependency Worker, and completed their live smokes. Merely applying the
+-- migration must never make a decommissioned room code reusable.
+CREATE TABLE mxqr_pro_room_generation_cutover (
   contract_version INTEGER PRIMARY KEY CHECK (contract_version = 1),
   status TEXT NOT NULL CHECK (status IN ('disabled', 'ready')),
   release_sha TEXT,
@@ -251,7 +244,7 @@ CREATE TABLE IF NOT EXISTS mxqr_pro_room_generation_cutover (
   )
 );
 
-INSERT OR IGNORE INTO mxqr_pro_room_generation_cutover (
+INSERT INTO mxqr_pro_room_generation_cutover (
   contract_version,
   status,
   release_sha,
@@ -260,7 +253,7 @@ INSERT OR IGNORE INTO mxqr_pro_room_generation_cutover (
   updated_at
 ) VALUES (1, 'disabled', NULL, 0, NULL, 0);
 
-CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_generation_cutover_floor_immutable
+CREATE TRIGGER mxqr_pro_room_generation_cutover_floor_immutable
 BEFORE UPDATE OF status, release_sha, ever_enabled, floor_release_sha
 ON mxqr_pro_room_generation_cutover
 WHEN (
@@ -285,17 +278,13 @@ BEGIN
   SELECT RAISE(ABORT, 'PRO room generation rollback floor is immutable');
 END;
 
-CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_generation_cutover_no_delete
+CREATE TRIGGER mxqr_pro_room_generation_cutover_no_delete
 BEFORE DELETE ON mxqr_pro_room_generation_cutover
 BEGIN
   SELECT RAISE(ABORT, 'PRO room generation cutover is permanent');
 END;
 
--- Generation changes are the sole pointer transition that allocates a new
--- immutable identity. SQLite executes this trigger and the registry UPDATE in
--- one transaction, so a competing registration cannot expose a pointer
--- without its allocation or allocate the same identity twice.
-CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_allocate_next_generation
+CREATE TRIGGER mxqr_pro_room_registry_allocate_next_generation
 BEFORE UPDATE OF room_generation ON mxqr_pro_room_registry
 WHEN NEW.room_generation <> OLD.room_generation
 BEGIN
@@ -349,18 +338,3 @@ BEGIN
     NEW.created_at
   );
 END;
-
--- Append-only application audit metadata. actor_id is an HMAC pseudonym; raw
--- Access identity, PINs, claims and activation URLs must never be stored here.
-CREATE TABLE IF NOT EXISTS mxqr_pro_room_admin_audit (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  actor_id TEXT NOT NULL,
-  action TEXT NOT NULL,
-  result TEXT NOT NULL,
-  room_code TEXT NOT NULL,
-  room_generation INTEGER NOT NULL DEFAULT 0 CHECK (room_generation >= 0),
-  created_at INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_mxqr_pro_room_admin_audit_incarnation_created
-ON mxqr_pro_room_admin_audit(room_code, room_generation, created_at);

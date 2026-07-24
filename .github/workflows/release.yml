@@ -20,6 +20,21 @@ on:
         required: true
         default: false
         type: boolean
+      apply_pro_room_generation_d1:
+        description: Apply the forward-only admin/auth/Developer PRO generation migrations
+        required: true
+        default: false
+        type: boolean
+      enable_pro_room_generation_cutover:
+        description: Enable reuse after automated D1/public checks and direct R2/signaling/limiter evidence
+        required: true
+        default: false
+        type: boolean
+      pro_room_generation_cutover_confirmation:
+        description: Type DIRECTLY_VERIFIED_000002_000003 after direct R2/signaling/limiter checks
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -48,10 +63,26 @@ jobs:
           fetch-depth: 0
 
       - name: Validate release options
-        if: inputs.apply_developer_api_d1 && inputs.target != 'all' && inputs.target != 'developer-api'
+        env:
+          PRO_ROOM_GENERATION_CUTOVER_CONFIRMATION: ${{ inputs.pro_room_generation_cutover_confirmation }}
         run: |
-          echo "::error::Developer API D1 changes require target 'developer-api' or 'all'."
-          exit 1
+          if [[ "${{ inputs.apply_developer_api_d1 }}" == "true" &&
+                "${{ inputs.target }}" != "all" &&
+                "${{ inputs.target }}" != "developer-api" ]]; then
+            echo "::error::Developer API D1 changes require target 'developer-api' or 'all'."
+            exit 1
+          fi
+          if [[ "${{ inputs.apply_pro_room_generation_d1 }}" == "true" &&
+                "${{ inputs.target }}" != "all" ]]; then
+            echo "::error::The first PRO room generation migration requires target 'all'."
+            exit 1
+          fi
+          if [[ "${{ inputs.enable_pro_room_generation_cutover }}" == "true" &&
+                ("${{ inputs.target }}" != "all" ||
+                 "$PRO_ROOM_GENERATION_CUTOVER_CONFIRMATION" != "DIRECTLY_VERIFIED_000002_000003") ]]; then
+            echo "::error::Generation cutover requires target 'all' plus direct R2, signaling, and limiter cleanup evidence for 000002/000003."
+            exit 1
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -158,6 +189,163 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npm run --silent wrangler -- whoami
 
+      - name: Probe PRO room generation migration state
+        id: pro_room_generation_migration_plan
+        if: inputs.target != 'remote-share'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::The production environment secret CLOUDFLARE_D1_API_TOKEN is not configured."
+            exit 1
+          fi
+          mkdir -p release-artifacts/deployments
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --file scripts/sql/pro-room-generation-admin-migration-state.sql \
+            > release-artifacts/deployments/pro-room-generation-admin-state.json
+          npm run --silent wrangler -- d1 execute musixquare-auth \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --file scripts/sql/pro-room-generation-auth-migration-state.sql \
+            > release-artifacts/deployments/pro-room-generation-auth-state.json
+          npm run --silent wrangler -- d1 execute musixquare-developer-api \
+            --remote --json --config cloudflare/wrangler.developer-api.toml \
+            --file scripts/sql/pro-room-generation-developer-migration-state.sql \
+            > release-artifacts/deployments/pro-room-generation-developer-state.json
+          node scripts/pro-room-generation-cutover.mjs plan-migrations \
+            release-artifacts/deployments/pro-room-generation-admin-state.json \
+            release-artifacts/deployments/pro-room-generation-auth-state.json \
+            release-artifacts/deployments/pro-room-generation-developer-state.json \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Validate PRO room generation migration intent
+        if: inputs.target != 'remote-share'
+        shell: bash
+        run: |
+          if [[ ("${{ steps.pro_room_generation_migration_plan.outputs.admin }}" != "ready" ||
+                 "${{ steps.pro_room_generation_migration_plan.outputs.auth }}" != "ready" ||
+                 "${{ steps.pro_room_generation_migration_plan.outputs.developer }}" != "ready") &&
+                "${{ inputs.apply_pro_room_generation_d1 }}" != "true" ]]; then
+            echo "::error::PRO room generation schemas need forward completion. Re-run target 'all' with the reviewed generation migration enabled."
+            exit 1
+          fi
+
+      - name: Apply admin PRO room generation migration
+        if: >-
+          inputs.apply_pro_room_generation_d1 &&
+          steps.pro_room_generation_migration_plan.outputs.admin != 'ready'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          node scripts/pro-room-generation-cutover.mjs render-migration admin \
+            release-artifacts/deployments/pro-room-generation-admin-state.json \
+            cloudflare/admin-metrics.pro-room-generation.migration.sql \
+            release-artifacts/deployments/pro-room-generation-admin-apply.sql
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --config cloudflare/wrangler.app.toml \
+            --file release-artifacts/deployments/pro-room-generation-admin-apply.sql
+
+      - name: Apply account PRO room generation migration
+        if: >-
+          inputs.apply_pro_room_generation_d1 &&
+          steps.pro_room_generation_migration_plan.outputs.auth != 'ready'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          node scripts/pro-room-generation-cutover.mjs render-migration auth \
+            release-artifacts/deployments/pro-room-generation-auth-state.json \
+            cloudflare/auth.pro-room-generation.migration.sql \
+            release-artifacts/deployments/pro-room-generation-auth-apply.sql
+          npm run --silent wrangler -- d1 execute musixquare-auth \
+            --remote --config cloudflare/wrangler.app.toml \
+            --file release-artifacts/deployments/pro-room-generation-auth-apply.sql
+
+      - name: Apply Developer API PRO room generation migration
+        if: >-
+          inputs.apply_pro_room_generation_d1 &&
+          steps.pro_room_generation_migration_plan.outputs.developer != 'ready'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          node scripts/pro-room-generation-cutover.mjs render-migration developer \
+            release-artifacts/deployments/pro-room-generation-developer-state.json \
+            cloudflare/developer-api-room-generation.migration.sql \
+            release-artifacts/deployments/pro-room-generation-developer-apply.sql
+          npm run --silent wrangler -- d1 execute musixquare-developer-api \
+            --remote --config cloudflare/wrangler.developer-api.toml \
+            --file release-artifacts/deployments/pro-room-generation-developer-apply.sql
+
+      - name: Verify every PRO room generation schema
+        if: inputs.target != 'remote-share'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --file scripts/sql/pro-room-generation-admin-readiness.sql \
+            > release-artifacts/deployments/pro-room-generation-admin-ready.json
+          npm run --silent wrangler -- d1 execute musixquare-auth \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --file scripts/sql/pro-room-generation-auth-readiness.sql \
+            > release-artifacts/deployments/pro-room-generation-auth-ready.json
+          npm run --silent wrangler -- d1 execute musixquare-developer-api \
+            --remote --json --config cloudflare/wrangler.developer-api.toml \
+            --file scripts/sql/pro-room-generation-developer-readiness.sql \
+            > release-artifacts/deployments/pro-room-generation-developer-ready.json
+          node scripts/pro-room-generation-cutover.mjs verify-schema \
+            release-artifacts/deployments/pro-room-generation-admin-ready.json \
+            release-artifacts/deployments/pro-room-generation-auth-ready.json \
+            release-artifacts/deployments/pro-room-generation-developer-ready.json
+
+      - name: Verify a new generation migration remains disabled
+        if: >-
+          inputs.target != 'remote-share' &&
+          (steps.pro_room_generation_migration_plan.outputs.admin != 'ready' ||
+           steps.pro_room_generation_migration_plan.outputs.auth != 'ready' ||
+           steps.pro_room_generation_migration_plan.outputs.developer != 'ready')
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
+            > release-artifacts/deployments/pro-room-generation-cutover-before-workers.json
+          node scripts/pro-room-generation-cutover.mjs verify-cutover \
+            release-artifacts/deployments/pro-room-generation-cutover-before-workers.json \
+            disabled
+
+      - name: Read PRO room generation cutover before dependency rollout
+        id: pro_room_generation_cutover_before_rollout
+        if: inputs.target == 'all'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
+            > release-artifacts/deployments/pro-room-generation-cutover-before-rollout.json
+          node scripts/pro-room-generation-cutover.mjs cutover-outputs \
+            release-artifacts/deployments/pro-room-generation-cutover-before-rollout.json \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Fence room-code reuse during dependency rollout
+        if: inputs.target == 'all'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "UPDATE mxqr_pro_room_generation_cutover SET status = 'disabled', release_sha = NULL, updated_at = unixepoch() * 1000 WHERE contract_version = 1; SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
+            > release-artifacts/deployments/pro-room-generation-cutover-rollout-fenced.json
+          node scripts/pro-room-generation-cutover.mjs verify-cutover \
+            release-artifacts/deployments/pro-room-generation-cutover-rollout-fenced.json \
+            disabled
+
       - name: Verify partial release dependency compatibility
         if: inputs.target != 'all'
         timeout-minutes: 5
@@ -198,7 +386,7 @@ jobs:
           node scripts/check-developer-api-schema-release.mjs \
             release-artifacts/deployments/developer-api-before.json \
             "${{ github.sha }}" \
-            "${{ inputs.apply_developer_api_d1 }}"
+            "${{ inputs.apply_developer_api_d1 || inputs.apply_pro_room_generation_d1 }}"
 
       - name: Establish rollback-safe remote-share quota migration bridge
         if: inputs.target == 'all' || inputs.target == 'remote-share'
@@ -514,6 +702,72 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node scripts/release-deployment-state.mjs verify-current
 
+      - name: Verify initial 000002 and 000003 deletion evidence
+        if: >-
+          inputs.target == 'all' &&
+          inputs.enable_pro_room_generation_cutover &&
+          steps.pro_room_generation_cutover_before_rollout.outputs.ever_enabled == 'false'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::The production environment secret CLOUDFLARE_D1_API_TOKEN is not configured."
+            exit 1
+          fi
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --file scripts/sql/pro-room-generation-admin-deletion-evidence.sql \
+            > release-artifacts/deployments/pro-room-generation-admin-deletion-evidence.json
+          npm run --silent wrangler -- d1 execute musixquare-developer-api \
+            --remote --json --config cloudflare/wrangler.developer-api.toml \
+            --file scripts/sql/pro-room-generation-developer-deletion-evidence.sql \
+            > release-artifacts/deployments/pro-room-generation-developer-deletion-evidence.json
+          node scripts/pro-room-generation-cutover.mjs probe-public-deletion \
+            release-artifacts/deployments/pro-room-generation-public-deletion-evidence.json
+          node scripts/pro-room-generation-cutover.mjs verify-initial-deletion \
+            release-artifacts/deployments/pro-room-generation-admin-deletion-evidence.json \
+            release-artifacts/deployments/pro-room-generation-developer-deletion-evidence.json \
+            release-artifacts/deployments/pro-room-generation-public-deletion-evidence.json
+
+      - name: Enable immutable PRO room generation cutover
+        id: pro_room_generation_cutover
+        if: >-
+          inputs.target == 'all' &&
+          (inputs.enable_pro_room_generation_cutover ||
+           steps.pro_room_generation_cutover_before_rollout.outputs.was_ready == 'true')
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "UPDATE mxqr_pro_room_generation_cutover SET status = 'ready', release_sha = '${{ github.sha }}', ever_enabled = 1, floor_release_sha = COALESCE(floor_release_sha, '${{ github.sha }}'), updated_at = unixepoch() * 1000 WHERE contract_version = 1 AND (ever_enabled = 1 OR ((SELECT COUNT(*) FROM mxqr_pro_room_registry WHERE room_code IN ('000002', '000003') AND room_generation = 0 AND status = 'decommissioned') = 2 AND (SELECT COUNT(*) FROM mxqr_pro_room_generation_history WHERE room_code IN ('000002', '000003') AND room_generation = 0 AND status = 'decommissioned' AND decommissioned_at <= (unixepoch() * 1000) - 4200000) = 2 AND (SELECT COUNT(*) FROM mxqr_pro_room_generation_allocations WHERE room_code IN ('000002', '000003') AND room_generation = 0) = 2 AND NOT EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_code IN ('000002', '000003') AND room_generation <> 0) AND NOT EXISTS (SELECT 1 FROM mxqr_pro_room_registry AS registry JOIN mxqr_pro_room_generation_history AS history ON history.room_code = registry.room_code AND history.room_generation = registry.room_generation WHERE registry.room_code IN ('000002', '000003') AND (registry.updated_at < history.decommissioned_at OR registry.updated_at > unixepoch() * 1000)) AND (SELECT COUNT(DISTINCT audit.room_code) FROM mxqr_pro_room_admin_audit AS audit WHERE audit.room_code IN ('000002', '000003') AND audit.room_generation = 0 AND audit.action = 'room.delete' AND audit.result = 'authorized' AND EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history AS history WHERE history.room_code = audit.room_code AND history.room_generation = 0 AND audit.created_at <= history.decommissioned_at)) = 2 AND NOT EXISTS (SELECT 1 FROM mxqr_pro_room_admin_audit AS audit JOIN mxqr_pro_room_generation_history AS history ON history.room_code = audit.room_code AND history.room_generation = audit.room_generation WHERE audit.room_code IN ('000002', '000003') AND audit.room_generation = 0 AND audit.action = 'room.delete' AND audit.result = 'authorized' AND audit.created_at > history.decommissioned_at))); SELECT contract_version, status, release_sha, ever_enabled, floor_release_sha, ever_enabled AS generation_floor FROM mxqr_pro_room_generation_cutover WHERE contract_version = 1" \
+            > release-artifacts/deployments/pro-room-generation-cutover-ready.json
+          node scripts/pro-room-generation-cutover.mjs verify-cutover \
+            release-artifacts/deployments/pro-room-generation-cutover-ready.json \
+            ready \
+            "${{ github.sha }}"
+
+      - name: Disable PRO room generation cutover before failed-release rollback
+        id: pro_room_generation_cutover_disable
+        if: (failure() || cancelled()) && inputs.target == 'all'
+        continue-on-error: true
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "UPDATE mxqr_pro_room_generation_cutover SET status = 'disabled', release_sha = NULL, updated_at = unixepoch() * 1000 WHERE contract_version = 1; SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
+            > release-artifacts/deployments/pro-room-generation-cutover-disabled.json
+          node scripts/pro-room-generation-cutover.mjs verify-cutover \
+            release-artifacts/deployments/pro-room-generation-cutover-disabled.json \
+            disabled
+          node scripts/pro-room-generation-cutover.mjs cutover-outputs \
+            release-artifacts/deployments/pro-room-generation-cutover-disabled.json \
+            >> "$GITHUB_OUTPUT"
+
       - name: Restore Developer API schema after a failed release
         id: schema_rollback
         if: (failure() || cancelled()) && inputs.apply_developer_api_d1
@@ -541,6 +795,19 @@ jobs:
             # target in the normal reverse order.
             rollback_skip_targets="developer-api"
           fi
+          if [[ "${{ steps.pro_room_generation_cutover_disable.outcome }}" == "failure" ||
+                "${{ steps.pro_room_generation_cutover_disable.outcome }}" == "cancelled" ]]; then
+            # If the global reuse fence cannot be proven disabled, never restore
+            # a potentially generation-blind dependency while a room code may
+            # still advance. Independent remote-share recovery remains safe.
+            rollback_skip_targets="${rollback_skip_targets},pro-room,signaling,developer-api-facade,developer-api,app"
+          fi
+          if [[ "${{ steps.pro_room_generation_cutover_disable.outputs.generation_floor }}" == "true" ]]; then
+            # Once any later generation may have existed, rolling back to an
+            # unproven generation-blind Worker is permanently forbidden. Keep
+            # the current stack and repair forward.
+            rollback_skip_targets="${rollback_skip_targets},pro-room,signaling,developer-api-facade,developer-api,app"
+          fi
 
           MXQR_ROLLBACK_SKIP_TARGETS="$rollback_skip_targets" \
             node scripts/release-deployment-state.mjs rollback
@@ -564,6 +831,10 @@ jobs:
           echo "- Wrangler: \`${WRANGLER_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Validation: \`${RELEASE_VALIDATION_PROFILE}\` (full E2E runs on manual dispatch)." >> "$GITHUB_STEP_SUMMARY"
           echo "- Developer API D1 changes requested: \`${{ inputs.apply_developer_api_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PRO generation D1 changes requested: \`${{ inputs.apply_pro_room_generation_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PRO generation cutover requested: \`${{ inputs.enable_pro_room_generation_cutover }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- PRO generation cutover: \`${{ steps.pro_room_generation_cutover.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Recovery PRO generation fence: \`${{ steps.pro_room_generation_cutover_disable.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Developer API effects-scope schema changed: \`${{ steps.developer_api_effects_scope_migration.outputs.applied || 'false' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Final production ownership verification: \`${{ steps.final_verification.outcome || 'not-run' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Recovery schema outcome: \`${{ steps.schema_rollback.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
@@ -575,7 +846,9 @@ jobs:
       - name: Fail release when automatic recovery is incomplete
         if: >-
           always() &&
-          (steps.schema_rollback.outcome == 'failure' ||
+          (steps.pro_room_generation_cutover_disable.outcome == 'failure' ||
+           steps.pro_room_generation_cutover_disable.outcome == 'cancelled' ||
+           steps.schema_rollback.outcome == 'failure' ||
            steps.schema_rollback.outcome == 'cancelled' ||
            steps.worker_rollback.outcome == 'failure' ||
            steps.worker_rollback.outcome == 'cancelled')

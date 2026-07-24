@@ -24,6 +24,13 @@ import {
   shuffledQueueItemIds,
 } from './pro-room-queue-mode.js';
 import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.js';
+import {
+  LEGACY_PRO_ROOM_GENERATION,
+  isProRoomGeneration,
+  proRoomGenerationHeaderValue,
+  proRoomMediaPrefix,
+  proRoomObjectName,
+} from './pro-room-generation.js';
 
 /**
  * MUSIXQUARE persistent PRO room service.
@@ -43,6 +50,7 @@ const INITIAL_PRO_ROOM_CODES = new Set(INITIAL_PRO_ROOMS.map((room) => room.room
 const ACTIVATION_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
 const PRO_ROOM_REGISTRY_MAX_ITEMS = 1000;
 const PRO_ROOM_REGISTRY_REFRESH_MS = 5_000;
+const PRO_ROOM_GENERATION_HEADER = 'x-mxqr-pro-room-generation';
 const PIN_RE = /^\d{8}$/;
 const OPAQUE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
@@ -75,6 +83,53 @@ const BOT_REQUEST_ID_RE = IDEMPOTENCY_KEY_RE;
 // `-` or `_`; rejecting those values would make a server-issued BOT lease fail
 // nondeterministically on its next request.
 const BOT_LEASE_TOKEN_RE = /^[A-Za-z0-9_-]{32}$/;
+
+// Generation zero is the pre-incarnation wire/storage shape. Keep emitting
+// that exact shape while old Workers can still be present during a rolling
+// deploy; newer receivers normalize an absent generation to zero. Reusable
+// generations are always explicit and exact.
+function proRoomGenerationWireFields(roomGeneration) {
+  if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
+  return roomGeneration === LEGACY_PRO_ROOM_GENERATION ? {} : { roomGeneration };
+}
+
+function proRoomGenerationWireHeaders(roomGeneration) {
+  if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
+  return roomGeneration === LEGACY_PRO_ROOM_GENERATION
+    ? {}
+    : { [PRO_ROOM_GENERATION_HEADER]: proRoomGenerationHeaderValue(roomGeneration) };
+}
+
+function proRoomGenerationUploadMetadataHeaders(roomGeneration) {
+  if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
+  // The pre-generation Developer facade/API exact allowlists reject unknown
+  // signed headers. Keep generation zero byte-for-byte compatible across both
+  // upload producers while every reusable incarnation remains bound in its
+  // isolated R2 prefix and mandatory signed generation metadata.
+  return roomGeneration === LEGACY_PRO_ROOM_GENERATION
+    ? {}
+    : { 'x-amz-meta-mxqr-generation': proRoomGenerationHeaderValue(roomGeneration) };
+}
+
+function responseRoomGenerationMatches(payload, roomGeneration) {
+  if (!payload || typeof payload !== 'object' || !isProRoomGeneration(roomGeneration)) return false;
+  const hasGeneration = Object.prototype.hasOwnProperty.call(payload, 'roomGeneration');
+  return roomGeneration === LEGACY_PRO_ROOM_GENERATION
+    ? !hasGeneration || payload.roomGeneration === LEGACY_PRO_ROOM_GENERATION
+    : hasGeneration && payload.roomGeneration === roomGeneration;
+}
+
+function exactInternalRoomGeneration(request, payload) {
+  const hasBodyGeneration = Object.prototype.hasOwnProperty.call(payload || {}, 'roomGeneration');
+  const header = request.headers.get(PRO_ROOM_GENERATION_HEADER);
+  if (!hasBodyGeneration && header === null) return LEGACY_PRO_ROOM_GENERATION;
+  const roomGeneration = payload?.roomGeneration;
+  return hasBodyGeneration &&
+    isProRoomGeneration(roomGeneration) &&
+    header === proRoomGenerationHeaderValue(roomGeneration)
+    ? roomGeneration
+    : null;
+}
 
 const SCHEMA_VERSION = 1;
 // `pro-room:v1` remains a rollback shadow for rooms that still fit in the old
@@ -344,6 +399,38 @@ function configuredNumber(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGE
   return Number.isSafeInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
 }
 
+function isMissingDeveloperGenerationSchemaError(error) {
+  let current = error;
+  for (let depth = 0; current && depth < 4; depth += 1) {
+    const message = String(current?.message || current);
+    if (
+      /no such table:\s*mxqr_developer_api_room_generation_tombstones/i.test(message) ||
+      /no such column:\s*room_generation/i.test(message) ||
+      /has no column named room_generation/i.test(message)
+    ) {
+      return true;
+    }
+    current = current?.cause;
+  }
+  return false;
+}
+
+function isMissingAdminGenerationSchemaError(error) {
+  let current = error;
+  for (let depth = 0; current && depth < 4; depth += 1) {
+    const message = String(current?.message || current);
+    if (
+      /no such table:\s*mxqr_pro_room_generation_history/i.test(message) ||
+      /no such column:\s*room_generation/i.test(message) ||
+      /has no column named room_generation/i.test(message)
+    ) {
+      return true;
+    }
+    current = current?.cause;
+  }
+  return false;
+}
+
 function isProRoomCode(value) {
   return typeof value === 'string' && PRO_ROOM_CODE_RE.test(value);
 }
@@ -354,7 +441,7 @@ function registryCacheFor(db) {
   let cache = registryCacheByDb.get(db);
   if (!cache) {
     cache = {
-      registered: new Set(),
+      registered: new Map(),
       refreshedAtMs: 0,
       refreshPromise: null,
     };
@@ -363,33 +450,59 @@ function registryCacheFor(db) {
   return cache;
 }
 
-async function isFrontProvisionedRoom(roomCode, env, nowMs = Date.now()) {
+async function frontProvisionedRoomGeneration(roomCode, env, nowMs = Date.now()) {
   const db = env?.MUSIXQUARE_ADMIN_DB || env?.ADMIN_METRICS_DB || null;
   // Local/test environments without the shared registry keep the two launch
   // rooms. Production always binds D1 so a decommission tombstone can close
   // those launch codes just like every dynamically provisioned room.
-  if (!db?.prepare) return INITIAL_PRO_ROOM_CODES.has(roomCode);
+  if (!db?.prepare) {
+    return INITIAL_PRO_ROOM_CODES.has(roomCode) ? LEGACY_PRO_ROOM_GENERATION : null;
+  }
   const cache = registryCacheFor(db);
   if (nowMs - cache.refreshedAtMs < PRO_ROOM_REGISTRY_REFRESH_MS) {
-    return cache.registered.has(roomCode);
+    return cache.registered.get(roomCode) ?? null;
   }
   if (!cache.refreshPromise) {
     cache.refreshPromise = (async () => {
-      const result = await db
-        .prepare(
-          `SELECT room_code FROM mxqr_pro_room_registry
-           WHERE status = 'registered'
-           ORDER BY room_code ASC LIMIT ?1`,
-        )
-        .bind(PRO_ROOM_REGISTRY_MAX_ITEMS + 1)
-        .all();
+      let result;
+      try {
+        result = await db
+          .prepare(
+            `SELECT room_code, room_generation FROM mxqr_pro_room_registry
+             WHERE status = 'registered'
+             ORDER BY room_code ASC LIMIT ?1`,
+          )
+          .bind(PRO_ROOM_REGISTRY_MAX_ITEMS + 1)
+          .all();
+      } catch (error) {
+        // Rolling-deploy compatibility: the generation-zero registry existed
+        // before the additive D1 migration. Never infer a later generation
+        // when that column is unavailable.
+        if (!isMissingAdminGenerationSchemaError(error)) throw error;
+        result = await db
+          .prepare(
+            `SELECT room_code FROM mxqr_pro_room_registry
+             WHERE status = 'registered'
+             ORDER BY room_code ASC LIMIT ?1`,
+          )
+          .bind(PRO_ROOM_REGISTRY_MAX_ITEMS + 1)
+          .all();
+      }
       const rows = Array.isArray(result?.results) ? result.results : [];
       if (rows.length > PRO_ROOM_REGISTRY_MAX_ITEMS) {
         throw new Error('PRO room registry exceeds its bounded cache capacity');
       }
-      cache.registered = new Set(
-        rows.map((row) => row?.room_code).filter((value) => isProRoomCode(value)),
-      );
+      const registered = new Map();
+      for (const row of rows) {
+        const generation =
+          row?.room_generation === undefined
+            ? LEGACY_PRO_ROOM_GENERATION
+            : Number(row.room_generation);
+        if (isProRoomCode(row?.room_code) && isProRoomGeneration(generation)) {
+          registered.set(row.room_code, generation);
+        }
+      }
+      cache.registered = registered;
       cache.refreshedAtMs = Date.now();
     })().finally(() => {
       cache.refreshPromise = null;
@@ -401,11 +514,11 @@ async function isFrontProvisionedRoom(roomCode, env, nowMs = Date.now()) {
     // Fail closed once the registry is bound. A stale positive result must not
     // keep a permanently deleted room open during a D1 incident.
     console.warn('[PRO registry] front-door refresh failed', error);
-    cache.registered = new Set();
+    cache.registered = new Map();
     cache.refreshedAtMs = Date.now();
-    return false;
+    return null;
   }
-  return cache.registered.has(roomCode);
+  return cache.registered.get(roomCode) ?? null;
 }
 
 function configuredAllowedOrigins(env) {
@@ -423,7 +536,10 @@ function allowedOrigin(request, env) {
 
 function devicePlatformFromRequest(request) {
   const userAgent = String(request.headers.get('user-agent') || '');
-  if (/iPad|iPhone|iPod/i.test(userAgent) || (/Macintosh/i.test(userAgent) && /Mobile/i.test(userAgent))) {
+  if (
+    /iPad|iPhone|iPod/i.test(userAgent) ||
+    (/Macintosh/i.test(userAgent) && /Mobile/i.test(userAgent))
+  ) {
     return 'ios';
   }
   if (/Android/i.test(userAgent)) return 'android';
@@ -659,6 +775,8 @@ export async function issueProRoomActivationClaim(roomCode, secret, options = {}
   }
   const generation = options.generation ?? 0;
   if (!Number.isSafeInteger(generation) || generation < 0) throw new Error('Invalid generation');
+  const roomGeneration = options.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION;
+  if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
   const nonce = options.nonce ?? randomToken(18);
   if (typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) {
     throw new Error('Invalid nonce');
@@ -672,6 +790,7 @@ export async function issueProRoomActivationClaim(roomCode, secret, options = {}
       exp: expiresAtMs,
       nonce,
       generation,
+      ...proRoomGenerationWireFields(roomGeneration),
     },
     secret,
   );
@@ -692,8 +811,12 @@ async function verifyActivationClaim(token, roomCode, secret, nowMs) {
     typeof payload.nonce === 'string' &&
     payload.nonce.length >= 16 &&
     Number.isSafeInteger(payload.generation) &&
-    payload.generation >= 0
-    ? payload
+    payload.generation >= 0 &&
+    (payload.roomGeneration === undefined || isProRoomGeneration(payload.roomGeneration))
+    ? {
+        ...payload,
+        roomGeneration: payload.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION,
+      }
     : null;
 }
 
@@ -711,6 +834,8 @@ export async function issueProRoomOwnerRecoveryClaim(roomCode, secret, options =
     throw new Error('Invalid expiry');
   }
   const nonce = options.nonce ?? randomToken(18);
+  const roomGeneration = options.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION;
+  if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
   if (typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) {
     throw new Error('Invalid nonce');
   }
@@ -722,6 +847,7 @@ export async function issueProRoomOwnerRecoveryClaim(roomCode, secret, options =
       iat: nowMs,
       exp: expiresAtMs,
       nonce,
+      ...proRoomGenerationWireFields(roomGeneration),
     },
     secret,
   );
@@ -740,12 +866,16 @@ async function verifyOwnerRecoveryClaim(token, roomCode, secret, nowMs) {
     !Number.isSafeInteger(payload.exp) ||
     payload.exp <= nowMs ||
     payload.exp - payload.iat > RECOVERY_CLAIM_MAX_LIFETIME_MS ||
+    (payload.roomGeneration !== undefined && !isProRoomGeneration(payload.roomGeneration)) ||
     typeof payload.nonce !== 'string' ||
     !/^[A-Za-z0-9_-]{16,128}$/.test(payload.nonce)
   ) {
     return null;
   }
-  return payload;
+  return {
+    ...payload,
+    roomGeneration: payload.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION,
+  };
 }
 
 async function derivePinHash(pin, salt, pepper, iterations = PBKDF2_ITERATIONS) {
@@ -955,10 +1085,15 @@ function ownerCookie(roomCode, token) {
   return `${ownerCookieName(roomCode)}=${token}; Path=/; Max-Age=${OWNER_COOKIE_MAX_AGE_SECONDS}; HttpOnly; Secure; SameSite=Strict`;
 }
 
-function initialRoomState(roomCode, provisioned = INITIAL_PRO_ROOM_CODES.has(roomCode)) {
+function initialRoomState(
+  roomCode,
+  provisioned = INITIAL_PRO_ROOM_CODES.has(roomCode),
+  roomGeneration = LEGACY_PRO_ROOM_GENERATION,
+) {
   return {
     v: 1,
     roomCode,
+    roomGeneration,
     provisioned,
     activationClaimGeneration: 0,
     status: 'unactivated',
@@ -1351,9 +1486,7 @@ function publicSnapshot(room, session = null, includeDevicePlatform = false) {
             }
           : {}),
         displayName: participant.displayName,
-        ...(includeDevicePlatform
-          ? { devicePlatform: participant.devicePlatform || 'other' }
-          : {}),
+        ...(includeDevicePlatform ? { devicePlatform: participant.devicePlatform || 'other' } : {}),
         role: participant.role,
         ...(memberAuthorityEnabled && participantSession
           ? {
@@ -2762,7 +2895,8 @@ export default {
     if (url.pathname.startsWith(`/v1/rooms/${match[1]}/internal/`)) {
       return withPublicHeaders(errorResponse('ROOM_NOT_FOUND', 404), origin);
     }
-    if (!(await isFrontProvisionedRoom(match[1], env))) {
+    const roomGeneration = await frontProvisionedRoomGeneration(match[1], env);
+    if (roomGeneration === null) {
       return withPublicHeaders(errorResponse('ROOM_NOT_FOUND', 404), origin);
     }
     if (!env.PRO_ROOMS || typeof env.PRO_ROOMS.idFromName !== 'function') {
@@ -2786,6 +2920,7 @@ export default {
     const ipHash = await hmacBase64Url(rateSecret, `pro-room-rate:${rawIp}`);
     const headers = new Headers(request.headers);
     headers.set('x-mxqr-pro-room-code', match[1]);
+    headers.set(PRO_ROOM_GENERATION_HEADER, proRoomGenerationHeaderValue(roomGeneration));
     headers.set('x-mxqr-pro-ip-hash', ipHash);
     headers.delete('cf-connecting-ip');
     headers.delete('x-forwarded-for');
@@ -2803,7 +2938,9 @@ export default {
       }
       body = buffered.body;
     }
-    const stub = env.PRO_ROOMS.get(env.PRO_ROOMS.idFromName(match[1]));
+    const stub = env.PRO_ROOMS.get(
+      env.PRO_ROOMS.idFromName(proRoomObjectName(match[1], roomGeneration)),
+    );
     const upstreamInit = { method: request.method, headers, signal: request.signal };
     if (body !== null) upstreamInit.body = body;
     const response = await stub.fetch(new Request(request.url, upstreamInit));
@@ -2862,7 +2999,22 @@ export class MusixquareProRoom {
       new URL(request.url).pathname.split('/')[3] ||
       '';
     if (!isProRoomCode(roomCode)) return false;
-    if (!this.room) this.room = initialRoomState(roomCode);
+    const generationHeader = request.headers.get(PRO_ROOM_GENERATION_HEADER);
+    const roomGeneration =
+      generationHeader === null || generationHeader === ''
+        ? LEGACY_PRO_ROOM_GENERATION
+        : Number(generationHeader);
+    if (!isProRoomGeneration(roomGeneration)) return false;
+    if (!this.room) {
+      this.room = initialRoomState(
+        roomCode,
+        roomGeneration === LEGACY_PRO_ROOM_GENERATION && INITIAL_PRO_ROOM_CODES.has(roomCode),
+        roomGeneration,
+      );
+    }
+    if (!Object.prototype.hasOwnProperty.call(this.room, 'roomGeneration')) {
+      this.room.roomGeneration = LEGACY_PRO_ROOM_GENERATION;
+    }
     if (!Object.prototype.hasOwnProperty.call(this.room, 'provisioned')) {
       // v1 launch rooms predate the dynamic registry. No other room could have
       // persisted state before this field existed.
@@ -2901,11 +3053,14 @@ export class MusixquareProRoom {
       this.room.playback.youtubeSubIndex = null;
     }
     for (const session of Object.values(this.room.sessions)) {
+      if (!Object.prototype.hasOwnProperty.call(session, 'roomGeneration')) {
+        session.roomGeneration = LEGACY_PRO_ROOM_GENERATION;
+      }
       if (!Number.isSafeInteger(session.signalingTicketSequence)) {
         session.signalingTicketSequence = 0;
       }
     }
-    return this.room.roomCode === roomCode;
+    return this.room.roomCode === roomCode && this.room.roomGeneration === roomGeneration;
   }
 
   normalizeLoadedSystemAudio() {
@@ -3908,6 +4063,7 @@ export class MusixquareProRoom {
       if (request.method === 'GET' && url.pathname === '/internal/admin/status') {
         return jsonResponse({
           roomCode: this.room.roomCode,
+          roomGeneration: this.room.roomGeneration,
           provisioned: this.room.provisioned,
           status: this.room.status,
           ownerAccountLinked: typeof this.room.ownerAccountId === 'string',
@@ -3927,6 +4083,7 @@ export class MusixquareProRoom {
               return jsonResponse({
                 ok: true,
                 roomCode: this.room.roomCode,
+                roomGeneration: this.room.roomGeneration,
                 status: this.room.status,
               });
             },
@@ -4209,8 +4366,11 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request, 2 * 1024);
     if (
       parsed.response ||
-      !hasExactKeys(parsed.value, ['roomCode', 'requestId', 'prompt']) ||
+      !hasExactKeys(parsed.value, ['roomCode', 'requestId', 'prompt'], ['roomGeneration']) ||
       parsed.value.roomCode !== this.room.roomCode ||
+      (this.room.roomGeneration !== LEGACY_PRO_ROOM_GENERATION &&
+        parsed.value.roomGeneration === undefined) ||
+      (parsed.value.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION) !== this.room.roomGeneration ||
       !BOT_REQUEST_ID_RE.test(parsed.value.requestId || '') ||
       boundedString(parsed.value.prompt, 500) === null
     ) {
@@ -4279,9 +4439,13 @@ export class MusixquareProRoom {
     const response = await this.handleInternalDeveloperCommandCreate(
       new Request('https://pro-room.internal/internal/developer/v1/commands/create', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...proRoomGenerationWireHeaders(this.room.roomGeneration),
+        },
         body: JSON.stringify({
           roomCode: this.room.roomCode,
+          ...proRoomGenerationWireFields(this.room.roomGeneration),
           keyId: BOT_DEVELOPER_KEY_ID,
           idempotencyKey,
           command,
@@ -4317,8 +4481,15 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request, 64 * 1024);
     if (
       parsed.response ||
-      !hasExactKeys(parsed.value, ['roomCode', 'requestId', 'leaseToken', 'plan', 'tracks']) ||
+      !hasExactKeys(
+        parsed.value,
+        ['roomCode', 'requestId', 'leaseToken', 'plan', 'tracks'],
+        ['roomGeneration'],
+      ) ||
       parsed.value.roomCode !== this.room.roomCode ||
+      (this.room.roomGeneration !== LEGACY_PRO_ROOM_GENERATION &&
+        parsed.value.roomGeneration === undefined) ||
+      (parsed.value.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION) !== this.room.roomGeneration ||
       !BOT_REQUEST_ID_RE.test(parsed.value.requestId || '') ||
       !BOT_LEASE_TOKEN_RE.test(parsed.value.leaseToken || '') ||
       !Array.isArray(parsed.value.tracks)
@@ -4537,7 +4708,8 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
     if (
-      !hasExactKeys(parsed.value, ['projection'], ['keyId', 'effectsVersion']) ||
+      !hasExactKeys(parsed.value, ['projection'], ['keyId', 'effectsVersion', 'roomGeneration']) ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       (parsed.value.keyId !== undefined &&
         !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '')) ||
       (parsed.value.effectsVersion !== undefined &&
@@ -4564,7 +4736,12 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request, 1024);
     if (parsed.response) return parsed.response;
     if (
-      !hasExactKeys(parsed.value, ['roomCode', 'keyId', 'idempotencyKey', 'command']) ||
+      !hasExactKeys(
+        parsed.value,
+        ['roomCode', 'keyId', 'idempotencyKey', 'command'],
+        ['roomGeneration'],
+      ) ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       parsed.value.roomCode !== this.room.roomCode ||
       !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '') ||
       !IDEMPOTENCY_KEY_RE.test(parsed.value.idempotencyKey || '')
@@ -4699,7 +4876,8 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request, 1024);
     if (parsed.response) return parsed.response;
     if (
-      !hasExactKeys(parsed.value, ['roomCode', 'keyId', 'commandId']) ||
+      !hasExactKeys(parsed.value, ['roomCode', 'keyId', 'commandId'], ['roomGeneration']) ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       parsed.value.roomCode !== this.room.roomCode ||
       !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '') ||
       !DEVELOPER_COMMAND_ID_RE.test(parsed.value.commandId || '')
@@ -4742,8 +4920,9 @@ export class MusixquareProRoom {
       !hasExactKeys(
         parsed.value,
         ['roomCode', 'keyId', 'idempotencyKey', 'mutation'],
-        ['actorName'],
+        ['actorName', 'roomGeneration'],
       ) ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       parsed.value.roomCode !== this.room.roomCode ||
       !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '') ||
       !IDEMPOTENCY_KEY_RE.test(parsed.value.idempotencyKey || '') ||
@@ -5082,7 +5261,12 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request, 4 * 1024);
     if (parsed.response) return parsed.response;
     if (
-      !hasExactKeys(parsed.value, ['roomCode', 'keyId', 'idempotencyKey', 'queueMode']) ||
+      !hasExactKeys(
+        parsed.value,
+        ['roomCode', 'keyId', 'idempotencyKey', 'queueMode'],
+        ['roomGeneration'],
+      ) ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       parsed.value.roomCode !== this.room.roomCode ||
       !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '') ||
       !IDEMPOTENCY_KEY_RE.test(parsed.value.idempotencyKey || '') ||
@@ -5153,7 +5337,12 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request, 16 * 1024);
     if (parsed.response) return parsed.response;
     if (
-      !hasExactKeys(parsed.value, ['roomCode', 'keyId', 'idempotencyKey', 'media']) ||
+      !hasExactKeys(
+        parsed.value,
+        ['roomCode', 'keyId', 'idempotencyKey', 'media'],
+        ['roomGeneration'],
+      ) ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       parsed.value.roomCode !== this.room.roomCode ||
       !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '') ||
       !IDEMPOTENCY_KEY_RE.test(parsed.value.idempotencyKey || '')
@@ -5197,13 +5386,17 @@ export class MusixquareProRoom {
     const assetId = `asset_${randomToken(24)}`;
     const queueItemId = randomQueueItemId();
     const version = 1;
-    const objectPrefix = `rooms/${this.room.roomCode}/assets/${assetId}/v${version}`;
+    const objectPrefix = `${proRoomMediaPrefix(
+      this.room.roomCode,
+      this.room.roomGeneration,
+    )}/assets/${assetId}/v${version}`;
     const stagingObjectKey = `${objectPrefix}/staging_${randomToken(18)}`;
     const objectKey = `${objectPrefix}/object_${randomToken(24)}`;
     const uploadHeaders = {
       'content-length': String(media.byteLength),
       'content-type': media.mime,
       'x-amz-meta-mxqr-room': this.room.roomCode,
+      ...proRoomGenerationUploadMetadataHeaders(this.room.roomGeneration),
       'x-amz-meta-mxqr-asset': assetId,
       'x-amz-meta-mxqr-version': String(version),
       'x-amz-meta-mxqr-bytes': String(media.byteLength),
@@ -5230,6 +5423,7 @@ export class MusixquareProRoom {
     this.room.assets[assetId] = {
       status: 'reserved',
       assetId,
+      roomGeneration: this.room.roomGeneration,
       version,
       objectKey,
       stagingObjectKey,
@@ -5287,8 +5481,9 @@ export class MusixquareProRoom {
       !hasExactKeys(
         parsed.value,
         ['roomCode', 'keyId', 'idempotencyKey', 'assetId'],
-        ['actorName'],
+        ['actorName', 'roomGeneration'],
       ) ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       parsed.value.roomCode !== this.room.roomCode ||
       !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '') ||
       !IDEMPOTENCY_KEY_RE.test(parsed.value.idempotencyKey || '') ||
@@ -5320,8 +5515,16 @@ export class MusixquareProRoom {
     if (serializedCoreStateByteLength(this.room) > STATE_MAX_BYTES - 32 * 1024) {
       return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
     }
+    const assetRoomGeneration =
+      asset.roomGeneration === undefined ? LEGACY_PRO_ROOM_GENERATION : asset.roomGeneration;
+    if (assetRoomGeneration !== this.room.roomGeneration) {
+      return errorResponse('ROOM_STATE_INVALID', 503);
+    }
     const expectedObjectMetadata = {
       'mxqr-room': this.room.roomCode,
+      ...(assetRoomGeneration === LEGACY_PRO_ROOM_GENERATION
+        ? {}
+        : { 'mxqr-generation': String(assetRoomGeneration) }),
       'mxqr-asset': asset.assetId,
       'mxqr-version': String(asset.version),
       'mxqr-bytes': String(asset.byteLength),
@@ -5611,9 +5814,11 @@ export class MusixquareProRoom {
       nowMs,
       expiresAtMs: expiresAt,
       generation: this.room.activationClaimGeneration,
+      roomGeneration: this.room.roomGeneration,
     });
     return jsonResponse({
       roomCode: this.room.roomCode,
+      roomGeneration: this.room.roomGeneration,
       activationUrl: `https://musixquare.com/${this.room.roomCode}#pro-claim=${encodeURIComponent(claim)}`,
       expiresAt,
     });
@@ -5635,10 +5840,12 @@ export class MusixquareProRoom {
     const claim = await issueProRoomOwnerRecoveryClaim(this.room.roomCode, secret, {
       nowMs,
       expiresAtMs: expiresAt,
+      roomGeneration: this.room.roomGeneration,
     });
     return jsonResponse(
       {
         roomCode: this.room.roomCode,
+        roomGeneration: this.room.roomGeneration,
         recoveryUrl: `https://musixquare.com/${this.room.roomCode}#pro-recovery=${encodeURIComponent(claim)}`,
         expiresAt,
         ownerAccountLinked: typeof this.room.ownerAccountId === 'string',
@@ -5651,17 +5858,35 @@ export class MusixquareProRoom {
   markRegistryActivationActive() {
     const db = this.env?.MUSIXQUARE_ADMIN_DB || this.env?.ADMIN_METRICS_DB || null;
     if (!db?.prepare) return;
-    const update = db
-      .prepare(
-        `UPDATE mxqr_pro_room_registry
-         SET activation_state = 'active', updated_at = ?2
-         WHERE room_code = ?1 AND status = 'registered'`,
-      )
-      .bind(this.room.roomCode, Date.now())
-      .run()
-      .catch((error) => {
-        console.warn('[PRO registry] activation-state update failed', error);
-      });
+    const update = (async () => {
+      try {
+        await db
+          .prepare(
+            `UPDATE mxqr_pro_room_registry
+             SET activation_state = 'active', updated_at = ?3
+             WHERE room_code = ?1 AND room_generation = ?2 AND status = 'registered'`,
+          )
+          .bind(this.room.roomCode, this.room.roomGeneration, Date.now())
+          .run();
+      } catch (error) {
+        if (
+          this.room.roomGeneration !== LEGACY_PRO_ROOM_GENERATION ||
+          !isMissingAdminGenerationSchemaError(error)
+        ) {
+          throw error;
+        }
+        await db
+          .prepare(
+            `UPDATE mxqr_pro_room_registry
+             SET activation_state = 'active', updated_at = ?2
+             WHERE room_code = ?1 AND status = 'registered'`,
+          )
+          .bind(this.room.roomCode, Date.now())
+          .run();
+      }
+    })().catch((error) => {
+      console.warn('[PRO registry] activation-state update failed', error);
+    });
     if (typeof this.state.waitUntil === 'function') this.state.waitUntil(update);
   }
 
@@ -5759,6 +5984,7 @@ export class MusixquareProRoom {
     const account = await verifyAccountAssertion(token, secret, {
       audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
       roomCode: this.room.roomCode,
+      roomGeneration: this.room.roomGeneration,
     });
     return account && !this.isAccountDeletionTombstoned(account.accountId)
       ? { account }
@@ -6406,7 +6632,10 @@ export class MusixquareProRoom {
           : ['participantId', 'presenceIncarnationId', 'permission'];
     if (
       parsed.response ||
-      !hasExactKeys(parsed.value, expectedKeys) ||
+      !hasExactKeys(parsed.value, expectedKeys, ['roomGeneration']) ||
+      (this.room.roomGeneration !== LEGACY_PRO_ROOM_GENERATION &&
+        parsed.value?.roomGeneration === undefined) ||
+      (parsed.value?.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION) !== this.room.roomGeneration ||
       !OPAQUE_ID_RE.test(parsed.value.participantId || '') ||
       !OPAQUE_ID_RE.test(parsed.value.presenceIncarnationId || '') ||
       !PRO_INTERNAL_AUTHORITY_PERMISSIONS.has(permission)
@@ -6470,6 +6699,8 @@ export class MusixquareProRoom {
     return allowed
       ? jsonResponse({
           allowed: true,
+          roomCode: this.room.roomCode,
+          ...proRoomGenerationWireFields(this.room.roomGeneration),
           memberId: session.memberId,
           role: session.role,
           permission,
@@ -6513,7 +6744,12 @@ export class MusixquareProRoom {
       await this.persist();
       if (result.authorityChanged) this.scheduleServerEvent(this.presenceEvent());
     }
-    return jsonResponse({ ok: true, removedSessions: result?.removedSessions || 0 });
+    return jsonResponse({
+      ok: true,
+      roomCode: this.room.roomCode,
+      roomGeneration: this.room.roomGeneration,
+      removedSessions: result?.removedSessions || 0,
+    });
   }
 
   async createSessionRecord(role, displayName, nowMs, memberId = null, accountMember = null) {
@@ -6561,6 +6797,7 @@ export class MusixquareProRoom {
     const token = await createOpaqueCredential(secret);
     const tokenHash = await sha256Base64Url(token);
     const session = {
+      roomGeneration: this.room.roomGeneration,
       memberId:
         memberId || (role === 'owner' ? `owner_${randomToken(18)}` : `member_${randomToken(18)}`),
       participantId: `participant_${randomToken(18)}`,
@@ -6743,7 +6980,8 @@ export class MusixquareProRoom {
     if (
       !session ||
       session.expiresAtMs <= Date.now() ||
-      session.authEpoch !== this.room.authEpoch
+      session.authEpoch !== this.room.authEpoch ||
+      session.roomGeneration !== this.room.roomGeneration
     ) {
       if (session) this.removeSessionRecord(tokenHash);
       return null;
@@ -7344,14 +7582,21 @@ export class MusixquareProRoom {
     const namespace = this.env.PRO_SIGNALING_ROOMS;
     if (!namespace || typeof namespace.idFromName !== 'function') return false;
     try {
-      const stub = namespace.get(namespace.idFromName(this.room.roomCode));
+      const stub = namespace.get(
+        namespace.idFromName(proRoomObjectName(this.room.roomCode, this.room.roomGeneration)),
+      );
       const response = await fetchWithDeadline(
         (boundedRequest) => stub.fetch(boundedRequest),
         new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': this.room.roomCode,
+            ...proRoomGenerationWireHeaders(this.room.roomGeneration),
+          },
           body: JSON.stringify({
             roomCode: this.room.roomCode,
+            ...proRoomGenerationWireFields(this.room.roomGeneration),
             coordinatorEpoch,
             targets,
             event,
@@ -7502,14 +7747,21 @@ export class MusixquareProRoom {
     const namespace = this.env.PRO_SIGNALING_ROOMS;
     if (!namespace || typeof namespace.idFromName !== 'function') return false;
     try {
-      const stub = namespace.get(namespace.idFromName(this.room.roomCode));
+      const stub = namespace.get(
+        namespace.idFromName(proRoomObjectName(this.room.roomCode, this.room.roomGeneration)),
+      );
       const response = await fetchWithDeadline(
         (boundedRequest) => stub.fetch(boundedRequest),
         new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': this.room.roomCode,
+            ...proRoomGenerationWireHeaders(this.room.roomGeneration),
+          },
           body: JSON.stringify({
             roomCode: this.room.roomCode,
+            ...proRoomGenerationWireFields(this.room.roomGeneration),
             coordinatorEpoch: record.coordinatorEpoch,
             targets: record.targets,
             event: record.event,
@@ -8250,7 +8502,7 @@ export class MusixquareProRoom {
     if (!bucket || typeof bucket.list !== 'function' || typeof bucket.delete !== 'function') {
       return { ok: false, deletedAny: false };
     }
-    const prefix = `rooms/${this.room.roomCode}/`;
+    const prefix = `${proRoomMediaPrefix(this.room.roomCode, this.room.roomGeneration)}/`;
     let deletedAny = false;
     try {
       // Re-read the first page after every batch. Deleting while following an
@@ -8274,15 +8526,22 @@ export class MusixquareProRoom {
     const namespace = this.env.PRO_SIGNALING_ROOMS;
     if (!namespace || typeof namespace.idFromName !== 'function') return false;
     try {
-      const stub = namespace.get(namespace.idFromName(this.room.roomCode));
+      const stub = namespace.get(
+        namespace.idFromName(proRoomObjectName(this.room.roomCode, this.room.roomGeneration)),
+      );
       const response = await stub.fetch(
         new Request('https://signaling.internal/internal/admin/v1/decommission', {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
             'x-mxqr-pro-room-code': this.room.roomCode,
+            ...proRoomGenerationWireHeaders(this.room.roomGeneration),
           },
-          body: JSON.stringify({ roomCode: this.room.roomCode, requestId }),
+          body: JSON.stringify({
+            roomCode: this.room.roomCode,
+            ...proRoomGenerationWireFields(this.room.roomGeneration),
+            requestId,
+          }),
         }),
       );
       const payload = await response
@@ -8293,6 +8552,7 @@ export class MusixquareProRoom {
         response.ok &&
         payload?.ok === true &&
         payload.roomCode === this.room.roomCode &&
+        responseRoomGenerationMatches(payload, this.room.roomGeneration) &&
         payload.status === 'decommissioned'
       );
     } catch {
@@ -8304,36 +8564,92 @@ export class MusixquareProRoom {
     const db = this.env.DEVELOPER_API_DB;
     if (!db?.prepare) return false;
     try {
-      // Fence new credentials and audit writes before deleting existing rows.
-      // The tombstone is permanent because a decommissioned room code is never
-      // reused.
+      // Generation-scoped authorization fences allow a public room number to
+      // be reused without ever reviving credentials from this incarnation.
       await db
         .prepare(
-          `INSERT INTO mxqr_developer_api_room_tombstones
-            (room_code, request_id, decommissioned_at)
-           VALUES (?1, ?2, ?3)
-           ON CONFLICT(room_code) DO UPDATE SET
+          `INSERT INTO mxqr_developer_api_room_generation_tombstones
+            (room_code, room_generation, request_id, decommissioned_at)
+           VALUES (?1, ?2, ?3, ?4)
+           ON CONFLICT(room_code, room_generation) DO UPDATE SET
              request_id = excluded.request_id,
              decommissioned_at = MIN(
-               mxqr_developer_api_room_tombstones.decommissioned_at,
+               mxqr_developer_api_room_generation_tombstones.decommissioned_at,
                excluded.decommissioned_at
              )`,
         )
-        .bind(this.room.roomCode, requestId, nowMs)
+        .bind(this.room.roomCode, this.room.roomGeneration, requestId, nowMs)
         .run();
+      if (this.room.roomGeneration === LEGACY_PRO_ROOM_GENERATION) {
+        // Retain the legacy code-level fence while generation-zero consumers
+        // still exist during the additive migration.
+        await db
+          .prepare(
+            `INSERT INTO mxqr_developer_api_room_tombstones
+              (room_code, request_id, decommissioned_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(room_code) DO UPDATE SET
+               request_id = excluded.request_id,
+               decommissioned_at = MIN(
+                 mxqr_developer_api_room_tombstones.decommissioned_at,
+                 excluded.decommissioned_at
+               )`,
+          )
+          .bind(this.room.roomCode, requestId, nowMs)
+          .run();
+      }
       for (const table of [
         'mxqr_developer_api_keys',
         'mxqr_developer_api_audit',
         'mxqr_developer_api_admin_audit',
       ]) {
         await db
-          .prepare(`DELETE FROM ${table} WHERE room_code = ?1`)
-          .bind(this.room.roomCode)
+          .prepare(
+            `DELETE FROM ${table}
+             WHERE room_code = ?1 AND room_generation = ?2`,
+          )
+          .bind(this.room.roomCode, this.room.roomGeneration)
           .run();
       }
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      if (
+        this.room.roomGeneration !== LEGACY_PRO_ROOM_GENERATION ||
+        !isMissingDeveloperGenerationSchemaError(error)
+      ) {
+        return false;
+      }
+      try {
+        // Compatibility with the pre-generation schema during a staged
+        // rollout. This branch is forbidden for reusable generations.
+        await db
+          .prepare(
+            `INSERT INTO mxqr_developer_api_room_tombstones
+              (room_code, request_id, decommissioned_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(room_code) DO UPDATE SET
+               request_id = excluded.request_id,
+               decommissioned_at = MIN(
+                 mxqr_developer_api_room_tombstones.decommissioned_at,
+                 excluded.decommissioned_at
+               )`,
+          )
+          .bind(this.room.roomCode, requestId, nowMs)
+          .run();
+        for (const table of [
+          'mxqr_developer_api_keys',
+          'mxqr_developer_api_audit',
+          'mxqr_developer_api_admin_audit',
+        ]) {
+          await db
+            .prepare(`DELETE FROM ${table} WHERE room_code = ?1`)
+            .bind(this.room.roomCode)
+            .run();
+        }
+        return true;
+      } catch {
+        return false;
+      }
     }
   }
 
@@ -8341,22 +8657,36 @@ export class MusixquareProRoom {
     const namespace = this.env.DEVELOPER_API_LIMITERS;
     if (!namespace || typeof namespace.idFromName !== 'function') return false;
     try {
-      const stub = namespace.get(namespace.idFromName(`room:${this.room.roomCode}`));
+      const limiterName =
+        this.room.roomGeneration === LEGACY_PRO_ROOM_GENERATION
+          ? `room:${this.room.roomCode}`
+          : `room:${proRoomObjectName(this.room.roomCode, this.room.roomGeneration)}`;
+      const stub = namespace.get(namespace.idFromName(limiterName));
       const response = await stub.fetch(
         new Request('https://developer-api.internal/internal/admin/v1/decommission', {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
             'x-mxqr-pro-room-code': this.room.roomCode,
+            ...proRoomGenerationWireHeaders(this.room.roomGeneration),
           },
-          body: JSON.stringify({ roomCode: this.room.roomCode, requestId }),
+          body: JSON.stringify({
+            roomCode: this.room.roomCode,
+            ...proRoomGenerationWireFields(this.room.roomGeneration),
+            requestId,
+          }),
         }),
       );
       const payload = await response
         .clone()
         .json()
         .catch(() => null);
-      return response.ok && payload?.ok === true && payload.roomCode === this.room.roomCode;
+      return (
+        response.ok &&
+        payload?.ok === true &&
+        payload.roomCode === this.room.roomCode &&
+        responseRoomGenerationMatches(payload, this.room.roomGeneration)
+      );
     } catch {
       return false;
     }
@@ -8368,20 +8698,31 @@ export class MusixquareProRoom {
     try {
       await db
         .prepare(
-          `INSERT INTO mxqr_pro_room_registry
-            (room_code, label, status, activation_state, created_at, updated_at)
-           VALUES (?1, 'Decommissioned PRO room', 'decommissioned', 'unactivated', ?2, ?2)
-           ON CONFLICT(room_code) DO UPDATE SET
-             label = 'Decommissioned PRO room',
-             status = 'decommissioned',
-             activation_state = 'unactivated',
-             updated_at = excluded.updated_at`,
+          `INSERT OR IGNORE INTO mxqr_pro_room_generation_history
+            (room_code, room_generation, status, decommissioned_at, request_id)
+           VALUES (?1, ?2, 'decommissioned', ?3, ?4)`,
         )
-        .bind(this.room.roomCode, nowMs)
+        .bind(
+          this.room.roomCode,
+          this.room.roomGeneration,
+          nowMs,
+          this.room.decommission?.requestId || null,
+        )
+        .run();
+      await db
+        .prepare(
+          `UPDATE mxqr_pro_room_registry
+           SET label = 'Decommissioned PRO room',
+               status = 'decommissioned',
+               activation_state = 'unactivated',
+               updated_at = ?3
+           WHERE room_code = ?1 AND room_generation = ?2`,
+        )
+        .bind(this.room.roomCode, this.room.roomGeneration, nowMs)
         .run();
       const statement = db
         .prepare(
-          `SELECT status FROM mxqr_pro_room_registry
+          `SELECT status, room_generation FROM mxqr_pro_room_registry
            WHERE room_code = ?1 LIMIT 1`,
         )
         .bind(this.room.roomCode);
@@ -8389,9 +8730,42 @@ export class MusixquareProRoom {
         typeof statement.first === 'function'
           ? await statement.first()
           : (await statement.all())?.results?.[0] || null;
-      return row?.status === 'decommissioned';
-    } catch {
-      return false;
+      const currentGeneration = Number(row?.room_generation);
+      return (
+        (currentGeneration === this.room.roomGeneration && row?.status === 'decommissioned') ||
+        (isProRoomGeneration(currentGeneration) && currentGeneration > this.room.roomGeneration)
+      );
+    } catch (error) {
+      if (
+        this.room.roomGeneration !== LEGACY_PRO_ROOM_GENERATION ||
+        !isMissingAdminGenerationSchemaError(error)
+      ) {
+        return false;
+      }
+      try {
+        // Pre-migration fallback for generation zero only.
+        await db
+          .prepare(
+            `UPDATE mxqr_pro_room_registry
+             SET label = 'Decommissioned PRO room',
+                 status = 'decommissioned',
+                 activation_state = 'unactivated',
+                 updated_at = ?2
+             WHERE room_code = ?1`,
+          )
+          .bind(this.room.roomCode, nowMs)
+          .run();
+        const row = await db
+          .prepare(
+            `SELECT status FROM mxqr_pro_room_registry
+             WHERE room_code = ?1 LIMIT 1`,
+          )
+          .bind(this.room.roomCode)
+          .first();
+        return row?.status === 'decommissioned';
+      } catch {
+        return false;
+      }
     }
   }
 
@@ -8489,8 +8863,9 @@ export class MusixquareProRoom {
     const parsed = await readJsonBody(request, SMALL_REQUEST_MAX_BYTES);
     if (
       parsed.error ||
-      !hasExactKeys(parsed.value, ['roomCode', 'requestId']) ||
+      !hasExactKeys(parsed.value, ['roomCode', 'requestId'], ['roomGeneration']) ||
       parsed.value.roomCode !== this.room.roomCode ||
+      (parsed.value.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION) !== this.room.roomGeneration ||
       !ADMIN_REQUEST_ID_RE.test(parsed.value.requestId)
     ) {
       return errorResponse(parsed.error || 'INVALID_REQUEST', parsed.status || 400);
@@ -8499,6 +8874,7 @@ export class MusixquareProRoom {
       return jsonResponse({
         ok: true,
         roomCode: this.room.roomCode,
+        roomGeneration: this.room.roomGeneration,
         status: 'decommissioned',
         changed: false,
         completedAtMs: this.room.decommission?.completedAtMs || null,
@@ -8510,6 +8886,7 @@ export class MusixquareProRoom {
         {
           ok: true,
           roomCode: this.room.roomCode,
+          roomGeneration: this.room.roomGeneration,
           status: this.room.status,
           changed: false,
           purgeAfterMs: this.room.decommission?.purgeAfterMs || null,
@@ -8535,7 +8912,7 @@ export class MusixquareProRoom {
       ? this.room.activationClaimGeneration
       : 0;
     const previousAuthEpoch = Number.isSafeInteger(this.room.authEpoch) ? this.room.authEpoch : 0;
-    const tombstone = initialRoomState(this.room.roomCode, false);
+    const tombstone = initialRoomState(this.room.roomCode, false, this.room.roomGeneration);
     tombstone.status = 'decommissioning';
     tombstone.activationClaimGeneration = Math.min(
       Number.MAX_SAFE_INTEGER,
@@ -8572,6 +8949,7 @@ export class MusixquareProRoom {
       {
         ok: true,
         roomCode: this.room.roomCode,
+        roomGeneration: this.room.roomGeneration,
         status: this.room.status,
         changed: true,
         purgeAfterMs: this.room.decommission?.purgeAfterMs || null,
@@ -8585,6 +8963,7 @@ export class MusixquareProRoom {
     return jsonResponse({
       ok: true,
       roomCode: this.room.roomCode,
+      roomGeneration: this.room.roomGeneration,
       status: this.room.status,
       changed,
     });
@@ -8745,6 +9124,7 @@ export class MusixquareProRoom {
     if (
       !claimValid ||
       claimValid.generation !== this.room.activationClaimGeneration ||
+      claimValid.roomGeneration !== this.room.roomGeneration ||
       !temporaryPinValid
     ) {
       return errorResponse('ACTIVATION_INVALID', 401);
@@ -8769,18 +9149,27 @@ export class MusixquareProRoom {
     if (!created || !ownerCredential) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
     this.room.ownerCredentialHash = ownerCredential.hash;
     this.room.ownerDisplayName = created.session.displayName;
-    this.joinPresence(created.session, created.tokenHash, nowMs, devicePlatformFromRequest(request));
+    this.joinPresence(
+      created.session,
+      created.tokenHash,
+      nowMs,
+      devicePlatformFromRequest(request),
+    );
     await this.persist();
     this.markRegistryActivationActive();
-    const response = jsonResponse({
-      snapshot: publicSnapshot(
-        this.room,
-        created.session,
-        requestSupportsDevicePlatformProjection(request),
-      ),
-    }, 200, {
-      'set-cookie': sessionCookie(this.room.roomCode, created.token, this.sessionTtlSeconds()),
-    });
+    const response = jsonResponse(
+      {
+        snapshot: publicSnapshot(
+          this.room,
+          created.session,
+          requestSupportsDevicePlatformProjection(request),
+        ),
+      },
+      200,
+      {
+        'set-cookie': sessionCookie(this.room.roomCode, created.token, this.sessionTtlSeconds()),
+      },
+    );
     response.headers.append('set-cookie', ownerCookie(this.room.roomCode, ownerCredential.token));
     return response;
   }
@@ -8814,7 +9203,9 @@ export class MusixquareProRoom {
       activationSecret,
       nowMs,
     );
-    if (!claim) return errorResponse('RECOVERY_INVALID', 401);
+    if (!claim || claim.roomGeneration !== this.room.roomGeneration) {
+      return errorResponse('RECOVERY_INVALID', 401);
+    }
     const nonceHash = await sha256Base64Url(`owner-recovery:${claim.nonce}`);
     if (this.room.consumedRecoveryNonces[nonceHash]) {
       return errorResponse('RECOVERY_CLAIM_USED', 409);
@@ -8862,17 +9253,26 @@ export class MusixquareProRoom {
     this.room.ownerCredentialHash = ownerCredential.hash;
     this.room.ownerDisplayName = created.session.displayName;
     this.room.consumedRecoveryNonces[nonceHash] = claim.exp;
-    this.joinPresence(created.session, created.tokenHash, nowMs, devicePlatformFromRequest(request));
+    this.joinPresence(
+      created.session,
+      created.tokenHash,
+      nowMs,
+      devicePlatformFromRequest(request),
+    );
     await this.persist();
-    const response = jsonResponse({
-      snapshot: publicSnapshot(
-        this.room,
-        created.session,
-        requestSupportsDevicePlatformProjection(request),
-      ),
-    }, 200, {
-      'set-cookie': sessionCookie(this.room.roomCode, created.token, this.sessionTtlSeconds()),
-    });
+    const response = jsonResponse(
+      {
+        snapshot: publicSnapshot(
+          this.room,
+          created.session,
+          requestSupportsDevicePlatformProjection(request),
+        ),
+      },
+      200,
+      {
+        'set-cookie': sessionCookie(this.room.roomCode, created.token, this.sessionTtlSeconds()),
+      },
+    );
     response.headers.append('set-cookie', ownerCookie(this.room.roomCode, ownerCredential.token));
     return response;
   }
@@ -9013,15 +9413,19 @@ export class MusixquareProRoom {
         auth.session.accountLeaseExpiresAtMs = this.accountIdentityLeaseExpiresAt(nowMs);
         await this.persist({ writeLegacyShadow: false, retainEarlierAlarm: true });
       }
-      return jsonResponse({
-        snapshot: publicSnapshot(
-          this.room,
-          auth.session,
-          requestSupportsDevicePlatformProjection(request),
-        ),
-      }, 200, {
-        'x-mxqr-account-linked': '1',
-      });
+      return jsonResponse(
+        {
+          snapshot: publicSnapshot(
+            this.room,
+            auth.session,
+            requestSupportsDevicePlatformProjection(request),
+          ),
+        },
+        200,
+        {
+          'x-mxqr-account-linked': '1',
+        },
+      );
     }
     const role =
       auth.session.role === 'owner' || this.room.ownerAccountId === asserted.account.accountId
@@ -9049,15 +9453,19 @@ export class MusixquareProRoom {
     this.room.revision += 1;
     await this.persist();
     this.scheduleServerEvent(this.presenceEvent());
-    return jsonResponse({
-      snapshot: publicSnapshot(
-        this.room,
-        auth.session,
-        requestSupportsDevicePlatformProjection(request),
-      ),
-    }, 200, {
-      'x-mxqr-account-linked': '1',
-    });
+    return jsonResponse(
+      {
+        snapshot: publicSnapshot(
+          this.room,
+          auth.session,
+          requestSupportsDevicePlatformProjection(request),
+        ),
+      },
+      200,
+      {
+        'x-mxqr-account-linked': '1',
+      },
+    );
   }
 
   async handleRenewCurrentAccountLease(request) {
@@ -9673,6 +10081,7 @@ export class MusixquareProRoom {
         v: 1,
         kind: 'pro-signaling',
         roomCode: this.room.roomCode,
+        ...proRoomGenerationWireFields(this.room.roomGeneration),
         participantId: auth.session.participantId,
         memberId: auth.session.memberId,
         displayName: signalingDisplayName(auth.session.displayName),
@@ -10282,13 +10691,17 @@ export class MusixquareProRoom {
     const nowMs = Date.now();
     const assetId = `asset_${randomToken(24)}`;
     const version = 1;
-    const objectPrefix = `rooms/${this.room.roomCode}/assets/${assetId}/v${version}`;
+    const objectPrefix = `${proRoomMediaPrefix(
+      this.room.roomCode,
+      this.room.roomGeneration,
+    )}/assets/${assetId}/v${version}`;
     const stagingObjectKey = `${objectPrefix}/staging_${randomToken(18)}`;
     const objectKey = `${objectPrefix}/object_${randomToken(24)}`;
     const expiresAtMs = nowMs + this.reservationTtlSeconds() * 1000;
     const uploadHeaders = {
       'content-type': body.mime,
       'x-amz-meta-mxqr-room': this.room.roomCode,
+      ...proRoomGenerationUploadMetadataHeaders(this.room.roomGeneration),
       'x-amz-meta-mxqr-asset': assetId,
       'x-amz-meta-mxqr-version': String(version),
       'x-amz-meta-mxqr-bytes': String(body.byteLength),
@@ -10311,6 +10724,7 @@ export class MusixquareProRoom {
     this.room.assets[assetId] = {
       status: 'reserved',
       assetId,
+      roomGeneration: this.room.roomGeneration,
       version,
       objectKey,
       stagingObjectKey,
@@ -10367,8 +10781,16 @@ export class MusixquareProRoom {
     if (serializedCoreStateByteLength(this.room) > STATE_MAX_BYTES - 8 * 1024) {
       return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
     }
+    const assetRoomGeneration =
+      asset.roomGeneration === undefined ? LEGACY_PRO_ROOM_GENERATION : asset.roomGeneration;
+    if (assetRoomGeneration !== this.room.roomGeneration) {
+      return errorResponse('ROOM_STATE_INVALID', 503);
+    }
     const finalMetadata = {
       'mxqr-room': this.room.roomCode,
+      ...(assetRoomGeneration === LEGACY_PRO_ROOM_GENERATION
+        ? {}
+        : { 'mxqr-generation': String(assetRoomGeneration) }),
       'mxqr-asset': asset.assetId,
       'mxqr-version': String(asset.version),
       'mxqr-bytes': String(asset.byteLength),
@@ -10563,7 +10985,11 @@ export class MusixquareProRoom {
     changed = this.reconcileAssetGarbageCollection(nowMs) || changed;
     let accountLeasePresenceChanged = false;
     for (const [tokenHash, session] of Object.entries(this.room.sessions)) {
-      if (session.expiresAtMs <= nowMs || session.authEpoch !== this.room.authEpoch) {
+      if (
+        session.expiresAtMs <= nowMs ||
+        session.authEpoch !== this.room.authEpoch ||
+        session.roomGeneration !== this.room.roomGeneration
+      ) {
         changed = this.removePresence(session.participantId, nowMs) || changed;
         changed = this.removeSessionRecord(tokenHash) || changed;
         changed = true;

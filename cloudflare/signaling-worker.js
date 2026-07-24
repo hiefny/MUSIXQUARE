@@ -7,6 +7,7 @@ import {
   LEGACY_PRO_ROOM_GENERATION,
   isProRoomGeneration,
   proRoomGenerationHeaderValue,
+  proRoomMediaPrefix,
   proRoomObjectName,
 } from './pro-room-generation.js';
 
@@ -48,6 +49,14 @@ const PRO_PRESENCE_AUTHORITY_KEY = 'proSignalingPresenceAuthority';
 const PRO_CHAT_CONTROL_STATE_KEY = 'proChatControlState';
 const PRO_BOT_REQUEST_PROOFS_KEY = 'proBotRequestProofs';
 const PRO_DECOMMISSIONED_KEY = 'proRoomDecommissioned';
+const DECOMMISSION_EVIDENCE_OBSERVER_CONTRACT = 2;
+const DECOMMISSION_EVIDENCE_DO_PATH = '/internal/ops/v1/decommission-evidence';
+const DECOMMISSION_EVIDENCE_PATH_RE =
+  /^\/internal\/ops\/v1\/decommission-evidence\/(000002|000003|099999)$/;
+const DECOMMISSION_EVIDENCE_LEGACY_REQUEST_IDS = Object.freeze({
+  '000002': '3756542c-9112-48ac-a672-7de17a71adb5',
+  '000003': '200455f7-9666-4ded-8e65-c24322f06fb3',
+});
 const PRO_SIGNALING_TICKET_KIND = 'pro-signaling';
 const PRO_SIGNALING_TICKET_VERSION = 1;
 const PRO_ROOM_GENERATION_HEADER = 'x-mxqr-pro-room-generation';
@@ -181,6 +190,18 @@ function internalProRoomGeneration(request, value) {
   return isProRoomGeneration(headerGeneration) && headerGeneration === bodyGeneration
     ? bodyGeneration
     : null;
+}
+
+function decommissionEvidenceRoomGeneration(request) {
+  const header = request.headers.get(PRO_ROOM_GENERATION_HEADER);
+  if (header === null) return LEGACY_PRO_ROOM_GENERATION;
+  if (!/^(?:0|[1-9]\d*)$/.test(header)) return null;
+  const roomGeneration = Number(header);
+  return isProRoomGeneration(roomGeneration) ? roomGeneration : null;
+}
+
+function proRoomInstanceId(roomCode, roomGeneration) {
+  return `${roomCode}:generation:${roomGeneration}`;
 }
 
 function proRoomGenerationWireFields(roomGeneration) {
@@ -2792,6 +2813,21 @@ export class MusixquareRoom {
   async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/internal/')) {
+      if (url.pathname === DECOMMISSION_EVIDENCE_DO_PATH) {
+        const roomCode = request.headers.get('x-mxqr-pro-room-code') || '';
+        const roomGeneration = decommissionEvidenceRoomGeneration(request);
+        if (
+          request.method !== 'GET' ||
+          url.search ||
+          url.hash ||
+          request.body !== null ||
+          !isProNamespaceRoomCode(roomCode) ||
+          roomGeneration === null
+        ) {
+          return json({ error: 'NOT_FOUND' }, 404);
+        }
+        return this.readDecommissionEvidence(roomCode, roomGeneration);
+      }
       if (request.method !== 'POST' || url.search || url.hash) {
         return json({ error: 'NOT_FOUND' }, 404);
       }
@@ -2887,6 +2923,55 @@ export class MusixquareRoom {
     }
 
     return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async readDecommissionEvidence(roomCode, roomGeneration) {
+    const tombstoneValue = await this.state.storage.get(PRO_DECOMMISSIONED_KEY);
+    const tombstone = normalizeProDecommissioned(tombstoneValue);
+    const stored =
+      typeof this.state.storage.list === 'function' ? await this.state.storage.list() : undefined;
+    const remainingKeys =
+      stored instanceof Map
+        ? [...stored.keys()].filter((key) => typeof key === 'string').sort()
+        : [];
+    const alarmValue =
+      typeof this.state.storage.getAlarm === 'function'
+        ? await this.state.storage.getAlarm()
+        : undefined;
+    const alarmAtMs =
+      alarmValue === null || (Number.isSafeInteger(alarmValue) && alarmValue >= 0)
+        ? alarmValue
+        : null;
+    const sockets =
+      typeof this.state.getWebSockets === 'function' ? this.state.getWebSockets() : undefined;
+    const activeSocketCount = Array.isArray(sockets) ? sockets.length : null;
+    const storageReadable =
+      stored instanceof Map && alarmValue !== undefined && activeSocketCount !== null;
+    const durableObjectName = proRoomObjectName(roomCode, roomGeneration);
+    const clean =
+      storageReadable &&
+      tombstone !== null &&
+      tombstone.roomCode === roomCode &&
+      tombstone.roomGeneration === roomGeneration &&
+      remainingKeys.length === 1 &&
+      remainingKeys[0] === PRO_DECOMMISSIONED_KEY &&
+      alarmValue === null &&
+      activeSocketCount === 0;
+    return json({
+      observerContract: DECOMMISSION_EVIDENCE_OBSERVER_CONTRACT,
+      component: 'signaling-room',
+      ...workerVersionFields(this.env),
+      roomCode,
+      roomGeneration,
+      roomInstanceId: proRoomInstanceId(roomCode, roomGeneration),
+      durableObjectName,
+      tombstone,
+      remainingKeys,
+      alarmAtMs,
+      activeSocketCount,
+      storageReadable,
+      clean,
+    });
   }
 
   async handleInternalAdminDecommission(request) {
@@ -4343,9 +4428,628 @@ export class MusixquareRoom {
   }
 }
 
+async function readEvidenceJson(response) {
+  if (!response || response.status !== 200 || typeof response.json !== 'function') return null;
+  try {
+    const value = await response.json();
+    return isRecord(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readDurableObjectEvidence(namespace, objectName, path, roomCode, roomGeneration) {
+  if (
+    !namespace ||
+    typeof namespace.idFromName !== 'function' ||
+    typeof namespace.get !== 'function' ||
+    !isProNamespaceRoomCode(roomCode) ||
+    !isProRoomGeneration(roomGeneration)
+  ) {
+    return null;
+  }
+  const stub = namespace.get(namespace.idFromName(objectName));
+  if (!stub || typeof stub.fetch !== 'function') return null;
+  const response = await stub.fetch(
+    new Request(`https://decommission-evidence.internal${path}`, {
+      method: 'GET',
+      headers: {
+        'x-mxqr-pro-room-code': roomCode,
+        [PRO_ROOM_GENERATION_HEADER]: proRoomGenerationHeaderValue(roomGeneration),
+      },
+    }),
+  );
+  return readEvidenceJson(response);
+}
+
+async function d1First(db, sql, bindings) {
+  if (!db || typeof db.prepare !== 'function') throw new Error('D1_UNAVAILABLE');
+  const prepared = db.prepare(sql);
+  const statement =
+    bindings.length > 0 && typeof prepared?.bind === 'function'
+      ? prepared.bind(...bindings)
+      : prepared;
+  if (statement && typeof statement.first === 'function') {
+    return (await statement.first()) || null;
+  }
+  if (statement && typeof statement.all === 'function') {
+    const result = await statement.all();
+    return Array.isArray(result?.results) ? result.results[0] || null : null;
+  }
+  throw new Error('D1_STATEMENT_UNAVAILABLE');
+}
+
+function d1Count(row) {
+  return isRecord(row) && Number.isSafeInteger(row.count) && row.count >= 0 ? row.count : null;
+}
+
+function normalizeRegistryPointer(row, roomCode) {
+  const roomGeneration = Number(row?.room_generation);
+  if (
+    !isRecord(row) ||
+    row.room_code !== roomCode ||
+    !isProRoomGeneration(roomGeneration) ||
+    typeof row.status !== 'string' ||
+    typeof row.activation_state !== 'string' ||
+    !Number.isSafeInteger(row.created_at) ||
+    row.created_at < 0 ||
+    !Number.isSafeInteger(row.updated_at) ||
+    row.updated_at < 0
+  ) {
+    return null;
+  }
+  return {
+    roomCode: row.room_code,
+    roomGeneration,
+    roomInstanceId: proRoomInstanceId(roomCode, roomGeneration),
+    status: row.status,
+    activationState: row.activation_state,
+    createdAtMs: row.created_at,
+    updatedAtMs: row.updated_at,
+  };
+}
+
+async function readAdminRegistryPointer(env, roomCode) {
+  try {
+    const db = env?.MUSIXQUARE_ADMIN_DB || env?.ADMIN_METRICS_DB;
+    return normalizeRegistryPointer(
+      await d1First(
+        db,
+        `SELECT room_code, room_generation, status, activation_state, created_at, updated_at
+         FROM mxqr_pro_room_registry
+         WHERE room_code = ?1
+         LIMIT 1`,
+        [roomCode],
+      ),
+      roomCode,
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function readAdminDecommissionEvidence(env, roomCode, roomGeneration, registryPointer) {
+  try {
+    const db = env?.MUSIXQUARE_ADMIN_DB || env?.ADMIN_METRICS_DB;
+    const [historyRow, allocationRow, authorizedDeleteAuditRow] = await Promise.all([
+      d1First(
+        db,
+        `SELECT room_code, room_generation, status, decommissioned_at, request_id
+         FROM mxqr_pro_room_generation_history
+         WHERE room_code = ?1 AND room_generation = ?2
+         LIMIT 1`,
+        [roomCode, roomGeneration],
+      ),
+      d1First(
+        db,
+        `SELECT room_code, room_generation, allocated_at
+         FROM mxqr_pro_room_generation_allocations
+         WHERE room_code = ?1 AND room_generation = ?2
+         LIMIT 1`,
+        [roomCode, roomGeneration],
+      ),
+      d1First(
+        db,
+        `SELECT COUNT(*) AS count, MAX(created_at) AS latest_authorized_at
+         FROM mxqr_pro_room_admin_audit
+         WHERE room_code = ?1
+           AND room_generation = ?2
+           AND action = 'room.delete'
+           AND result = 'authorized'`,
+        [roomCode, roomGeneration],
+      ),
+    ]);
+    const historyGeneration = Number(historyRow?.room_generation);
+    const history =
+      isRecord(historyRow) &&
+      historyRow.room_code === roomCode &&
+      historyGeneration === roomGeneration &&
+      historyRow.status === 'decommissioned' &&
+      Number.isSafeInteger(historyRow.decommissioned_at) &&
+      historyRow.decommissioned_at >= 0 &&
+      (historyRow.request_id === null || ADMIN_REQUEST_ID_RE.test(historyRow.request_id))
+        ? {
+            roomCode: historyRow.room_code,
+            roomGeneration: historyGeneration,
+            roomInstanceId: proRoomInstanceId(roomCode, historyGeneration),
+            status: historyRow.status,
+            decommissionedAtMs: historyRow.decommissioned_at,
+            requestId: historyRow.request_id,
+          }
+        : null;
+    const allocationGeneration = Number(allocationRow?.room_generation);
+    const allocation =
+      isRecord(allocationRow) &&
+      allocationRow.room_code === roomCode &&
+      allocationGeneration === roomGeneration &&
+      Number.isSafeInteger(allocationRow.allocated_at) &&
+      allocationRow.allocated_at >= 0
+        ? {
+            roomCode: allocationRow.room_code,
+            roomGeneration: allocationGeneration,
+            roomInstanceId: proRoomInstanceId(roomCode, allocationGeneration),
+            allocatedAtMs: allocationRow.allocated_at,
+          }
+        : null;
+    const authorizedDeleteAuditCount = d1Count(authorizedDeleteAuditRow);
+    const latestAuthorizedDeleteAtMs =
+      isRecord(authorizedDeleteAuditRow) &&
+      Number.isSafeInteger(authorizedDeleteAuditRow.latest_authorized_at) &&
+      authorizedDeleteAuditRow.latest_authorized_at >= 0
+        ? authorizedDeleteAuditRow.latest_authorized_at
+        : null;
+    return {
+      readable:
+        registryPointer !== null &&
+        history !== null &&
+        allocation !== null &&
+        authorizedDeleteAuditCount !== null &&
+        latestAuthorizedDeleteAtMs !== null,
+      registry: registryPointer,
+      history,
+      allocation,
+      authorizedDeleteAuditCount,
+      latestAuthorizedDeleteAtMs,
+    };
+  } catch {
+    return {
+      readable: false,
+      registry: registryPointer,
+      history: null,
+      allocation: null,
+      authorizedDeleteAuditCount: null,
+      latestAuthorizedDeleteAtMs: null,
+    };
+  }
+}
+
+function normalizeDeveloperTombstone(row, roomCode, roomGeneration, generationAware) {
+  const observedGeneration = generationAware
+    ? Number(row?.room_generation)
+    : LEGACY_PRO_ROOM_GENERATION;
+  if (
+    !isRecord(row) ||
+    row.room_code !== roomCode ||
+    observedGeneration !== roomGeneration ||
+    !ADMIN_REQUEST_ID_RE.test(row.request_id) ||
+    !Number.isSafeInteger(row.decommissioned_at) ||
+    row.decommissioned_at < 0
+  ) {
+    return null;
+  }
+  return {
+    roomCode: row.room_code,
+    roomGeneration: observedGeneration,
+    roomInstanceId: proRoomInstanceId(roomCode, observedGeneration),
+    requestId: row.request_id,
+    decommissionedAtMs: row.decommissioned_at,
+  };
+}
+
+async function readDeveloperDecommissionEvidence(env, roomCode, roomGeneration) {
+  try {
+    const db = env?.DEVELOPER_API_DB;
+    const [generationTombstoneRow, legacyTombstoneRow, keyRow, auditRow, adminAuditRow] =
+      await Promise.all([
+        d1First(
+          db,
+          `SELECT room_code, room_generation, request_id, decommissioned_at
+           FROM mxqr_developer_api_room_generation_tombstones
+           WHERE room_code = ?1 AND room_generation = ?2
+           LIMIT 1`,
+          [roomCode, roomGeneration],
+        ),
+        roomGeneration === LEGACY_PRO_ROOM_GENERATION
+          ? d1First(
+              db,
+              `SELECT room_code, request_id, decommissioned_at
+               FROM mxqr_developer_api_room_tombstones
+               WHERE room_code = ?1
+               LIMIT 1`,
+              [roomCode],
+            )
+          : Promise.resolve(null),
+        d1First(
+          db,
+          `SELECT COUNT(*) AS count
+           FROM mxqr_developer_api_keys
+           WHERE room_code = ?1 AND room_generation = ?2`,
+          [roomCode, roomGeneration],
+        ),
+        d1First(
+          db,
+          `SELECT COUNT(*) AS count
+           FROM mxqr_developer_api_audit
+           WHERE room_code = ?1 AND room_generation = ?2`,
+          [roomCode, roomGeneration],
+        ),
+        d1First(
+          db,
+          `SELECT COUNT(*) AS count
+           FROM mxqr_developer_api_admin_audit
+           WHERE room_code = ?1 AND room_generation = ?2`,
+          [roomCode, roomGeneration],
+        ),
+      ]);
+    const tombstone = normalizeDeveloperTombstone(
+      generationTombstoneRow,
+      roomCode,
+      roomGeneration,
+      true,
+    );
+    const legacyTombstone =
+      roomGeneration === LEGACY_PRO_ROOM_GENERATION
+        ? normalizeDeveloperTombstone(
+            legacyTombstoneRow,
+            roomCode,
+            LEGACY_PRO_ROOM_GENERATION,
+            false,
+          )
+        : null;
+    const keyCount = d1Count(keyRow);
+    const auditCount = d1Count(auditRow);
+    const adminAuditCount = d1Count(adminAuditRow);
+    return {
+      readable:
+        tombstone !== null &&
+        (roomGeneration !== LEGACY_PRO_ROOM_GENERATION || legacyTombstone !== null) &&
+        keyCount !== null &&
+        auditCount !== null &&
+        adminAuditCount !== null,
+      tombstone,
+      legacyTombstone,
+      keyCount,
+      auditCount,
+      adminAuditCount,
+    };
+  } catch {
+    return {
+      readable: false,
+      tombstone: null,
+      legacyTombstone: null,
+      keyCount: null,
+      auditCount: null,
+      adminAuditCount: null,
+    };
+  }
+}
+
+async function readR2DecommissionEvidence(env, roomCode, roomGeneration) {
+  const prefix = `${proRoomMediaPrefix(roomCode, roomGeneration)}/`;
+  try {
+    if (!env?.PRO_MEDIA_BUCKET || typeof env.PRO_MEDIA_BUCKET.list !== 'function') {
+      throw new Error('R2_UNAVAILABLE');
+    }
+    const page = await env.PRO_MEDIA_BUCKET.list({ prefix, limit: 1 });
+    if (!page || !Array.isArray(page.objects)) throw new Error('R2_RESPONSE_INVALID');
+    return {
+      readable: true,
+      prefix,
+      objectCount: page.objects.length,
+      empty: page.objects.length === 0,
+    };
+  } catch {
+    return { readable: false, prefix, objectCount: null, empty: false };
+  }
+}
+
+function validObserverVersion(value) {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function signalingEvidenceVerified(evidence, identity, requestId) {
+  return (
+    isRecord(evidence) &&
+    evidence.observerContract === DECOMMISSION_EVIDENCE_OBSERVER_CONTRACT &&
+    evidence.component === 'signaling-room' &&
+    validObserverVersion(evidence.workerVersionId) &&
+    evidence.roomCode === identity.roomCode &&
+    evidence.roomGeneration === identity.roomGeneration &&
+    evidence.roomInstanceId === identity.roomInstanceId &&
+    evidence.durableObjectName === identity.durableObjectName &&
+    evidence.storageReadable === true &&
+    evidence.clean === true &&
+    evidence.alarmAtMs === null &&
+    evidence.activeSocketCount === 0 &&
+    Array.isArray(evidence.remainingKeys) &&
+    evidence.remainingKeys.length === 1 &&
+    evidence.remainingKeys[0] === PRO_DECOMMISSIONED_KEY &&
+    isRecord(evidence.tombstone) &&
+    evidence.tombstone.roomCode === identity.roomCode &&
+    evidence.tombstone.roomGeneration === identity.roomGeneration &&
+    evidence.tombstone.requestId === requestId
+  );
+}
+
+function limiterEvidenceVerified(evidence, identity, requestId) {
+  return (
+    isRecord(evidence) &&
+    evidence.observerContract === DECOMMISSION_EVIDENCE_OBSERVER_CONTRACT &&
+    evidence.component === 'developer-api-rate-limiter' &&
+    validObserverVersion(evidence.workerVersionId) &&
+    evidence.roomCode === identity.roomCode &&
+    evidence.roomGeneration === identity.roomGeneration &&
+    evidence.roomInstanceId === identity.roomInstanceId &&
+    evidence.durableObjectName === identity.limiterIdentity &&
+    evidence.storageReadable === true &&
+    evidence.clean === true &&
+    evidence.alarmAtMs === null &&
+    Array.isArray(evidence.remainingKeys) &&
+    evidence.remainingKeys.length === 1 &&
+    evidence.remainingKeys[0] === 'decommissioned' &&
+    isRecord(evidence.tombstone) &&
+    evidence.tombstone.roomCode === identity.roomCode &&
+    evidence.tombstone.roomGeneration === identity.roomGeneration &&
+    evidence.tombstone.requestId === requestId
+  );
+}
+
+function opsEvidenceAuthorized(request, env) {
+  const secret =
+    typeof env?.PRO_ROOM_DECOMMISSION_VERIFY_SECRET === 'string'
+      ? env.PRO_ROOM_DECOMMISSION_VERIFY_SECRET
+      : '';
+  if (secret.length < 32) return false;
+  const authorization = request.headers.get('authorization') || '';
+  if (!authorization.startsWith('Bearer ')) return false;
+  return constantTimeStringEqual(authorization.slice('Bearer '.length), secret);
+}
+
+function exactDecommissionIdentity(roomCode, roomGeneration) {
+  if (!isProNamespaceRoomCode(roomCode) || !isProRoomGeneration(roomGeneration)) return null;
+  const durableObjectName = proRoomObjectName(roomCode, roomGeneration);
+  return {
+    roomCode,
+    roomGeneration,
+    roomInstanceId: proRoomInstanceId(roomCode, roomGeneration),
+    durableObjectName,
+    limiterIdentity: `room:${durableObjectName}`,
+    r2Prefix: `${proRoomMediaPrefix(roomCode, roomGeneration)}/`,
+  };
+}
+
+async function handleDecommissionEvidence(env, roomCode) {
+  const observe = async (operation) => {
+    try {
+      return await operation;
+    } catch {
+      return null;
+    }
+  };
+  const registryPointer = await readAdminRegistryPointer(env, roomCode);
+  const forcedLegacyGeneration = Object.prototype.hasOwnProperty.call(
+    DECOMMISSION_EVIDENCE_LEGACY_REQUEST_IDS,
+    roomCode,
+  );
+  const targetGeneration = forcedLegacyGeneration
+    ? LEGACY_PRO_ROOM_GENERATION
+    : registryPointer?.roomGeneration;
+  const identity = exactDecommissionIdentity(roomCode, targetGeneration);
+  const registryIdentityMatches =
+    identity !== null &&
+    registryPointer?.roomCode === identity.roomCode &&
+    registryPointer?.roomGeneration === identity.roomGeneration &&
+    registryPointer?.roomInstanceId === identity.roomInstanceId;
+
+  let proRoom = null;
+  let signaling = null;
+  let developerRateLimiter = null;
+  let adminDatabase = {
+    readable: false,
+    registry: registryPointer,
+    history: null,
+    allocation: null,
+    authorizedDeleteAuditCount: null,
+    latestAuthorizedDeleteAtMs: null,
+  };
+  let developerDatabase = {
+    readable: false,
+    tombstone: null,
+    legacyTombstone: null,
+    keyCount: null,
+    auditCount: null,
+    adminAuditCount: null,
+  };
+  let r2 = {
+    readable: false,
+    prefix: identity?.r2Prefix ?? null,
+    objectCount: null,
+    empty: false,
+  };
+
+  if (identity) {
+    [proRoom, signaling, developerRateLimiter, adminDatabase, developerDatabase, r2] =
+      await Promise.all([
+        observe(
+          readDurableObjectEvidence(
+            env?.PRO_ROOM_AUTHORITY_ROOMS,
+            identity.durableObjectName,
+            '/internal/admin/status',
+            identity.roomCode,
+            identity.roomGeneration,
+          ),
+        ),
+        observe(
+          readDurableObjectEvidence(
+            env?.MUSIXQUARE_ROOMS,
+            identity.durableObjectName,
+            DECOMMISSION_EVIDENCE_DO_PATH,
+            identity.roomCode,
+            identity.roomGeneration,
+          ),
+        ),
+        observe(
+          readDurableObjectEvidence(
+            env?.DEVELOPER_API_LIMITERS,
+            identity.limiterIdentity,
+            DECOMMISSION_EVIDENCE_DO_PATH,
+            identity.roomCode,
+            identity.roomGeneration,
+          ),
+        ),
+        readAdminDecommissionEvidence(
+          env,
+          identity.roomCode,
+          identity.roomGeneration,
+          registryPointer,
+        ),
+        readDeveloperDecommissionEvidence(env, identity.roomCode, identity.roomGeneration),
+        readR2DecommissionEvidence(env, identity.roomCode, identity.roomGeneration),
+      ]);
+  }
+
+  const fixedRequestId = DECOMMISSION_EVIDENCE_LEGACY_REQUEST_IDS[roomCode];
+  const historyRequestId = adminDatabase?.history?.requestId;
+  const developerRequestId = developerDatabase?.tombstone?.requestId;
+  const expectedRequestId =
+    typeof fixedRequestId === 'string'
+      ? fixedRequestId
+      : ADMIN_REQUEST_ID_RE.test(historyRequestId || '')
+        ? historyRequestId
+        : ADMIN_REQUEST_ID_RE.test(developerRequestId || '')
+          ? developerRequestId
+          : null;
+  const generationZeroHistoryRequestCompatible =
+    identity?.roomGeneration === LEGACY_PRO_ROOM_GENERATION && historyRequestId === null;
+  const historyRequestMatches =
+    expectedRequestId !== null &&
+    (historyRequestId === expectedRequestId || generationZeroHistoryRequestCompatible);
+  const generationZeroDeveloperCompatibility =
+    identity?.roomGeneration !== LEGACY_PRO_ROOM_GENERATION ||
+    (developerDatabase?.legacyTombstone?.roomCode === identity?.roomCode &&
+      developerDatabase?.legacyTombstone?.roomGeneration === LEGACY_PRO_ROOM_GENERATION &&
+      developerDatabase?.legacyTombstone?.requestId === expectedRequestId);
+  const checks = {
+    identity: registryIdentityMatches,
+    observerVersion:
+      identity !== null &&
+      validObserverVersion(env?.CF_VERSION_METADATA?.id) &&
+      signaling?.workerVersionId === env.CF_VERSION_METADATA.id &&
+      signalingEvidenceVerified(signaling, identity, expectedRequestId) &&
+      limiterEvidenceVerified(developerRateLimiter, identity, expectedRequestId),
+    proRoom:
+      identity !== null &&
+      isRecord(proRoom) &&
+      proRoom.roomCode === identity.roomCode &&
+      proRoom.roomGeneration === identity.roomGeneration &&
+      proRoom.status === 'decommissioned' &&
+      proRoom.provisioned === false &&
+      proRoom.ownerAccountLinked === false,
+    signaling:
+      identity !== null && signalingEvidenceVerified(signaling, identity, expectedRequestId),
+    developerRateLimiter:
+      identity !== null &&
+      limiterEvidenceVerified(developerRateLimiter, identity, expectedRequestId),
+    registry:
+      identity !== null &&
+      adminDatabase?.readable === true &&
+      adminDatabase.registry?.roomCode === identity.roomCode &&
+      adminDatabase.registry?.roomGeneration === identity.roomGeneration &&
+      adminDatabase.registry?.roomInstanceId === identity.roomInstanceId &&
+      adminDatabase.registry?.status === 'decommissioned' &&
+      adminDatabase.registry?.activationState === 'unactivated' &&
+      adminDatabase.history?.roomCode === identity.roomCode &&
+      adminDatabase.history?.roomGeneration === identity.roomGeneration &&
+      adminDatabase.history?.roomInstanceId === identity.roomInstanceId &&
+      adminDatabase.history?.status === 'decommissioned' &&
+      historyRequestMatches &&
+      adminDatabase.allocation?.roomCode === identity.roomCode &&
+      adminDatabase.allocation?.roomGeneration === identity.roomGeneration &&
+      adminDatabase.allocation?.roomInstanceId === identity.roomInstanceId &&
+      Number.isSafeInteger(adminDatabase.authorizedDeleteAuditCount) &&
+      adminDatabase.authorizedDeleteAuditCount >= 1 &&
+      Number.isSafeInteger(adminDatabase.latestAuthorizedDeleteAtMs) &&
+      adminDatabase.latestAuthorizedDeleteAtMs <= adminDatabase.history.decommissionedAtMs &&
+      adminDatabase.history.decommissionedAtMs <= adminDatabase.registry.updatedAtMs &&
+      adminDatabase.allocation.allocatedAtMs <= adminDatabase.history.decommissionedAtMs,
+    developerDatabase:
+      identity !== null &&
+      expectedRequestId !== null &&
+      developerDatabase?.readable === true &&
+      developerDatabase.tombstone?.roomCode === identity.roomCode &&
+      developerDatabase.tombstone?.roomGeneration === identity.roomGeneration &&
+      developerDatabase.tombstone?.roomInstanceId === identity.roomInstanceId &&
+      developerDatabase.tombstone?.requestId === expectedRequestId &&
+      generationZeroDeveloperCompatibility &&
+      developerDatabase.keyCount === 0 &&
+      developerDatabase.auditCount === 0 &&
+      developerDatabase.adminAuditCount === 0,
+    r2:
+      identity !== null &&
+      r2?.readable === true &&
+      r2.prefix === identity.r2Prefix &&
+      r2.empty === true &&
+      r2.objectCount === 0,
+  };
+
+  return json({
+    observerContract: DECOMMISSION_EVIDENCE_OBSERVER_CONTRACT,
+    service: 'musixquare-decommission-evidence',
+    ...workerVersionFields(env),
+    roomCode,
+    roomGeneration: identity?.roomGeneration ?? null,
+    roomInstanceId: identity?.roomInstanceId ?? null,
+    expectedRequestId,
+    identity,
+    observedVersions: {
+      signaling:
+        typeof env?.CF_VERSION_METADATA?.id === 'string' ? env.CF_VERSION_METADATA.id : null,
+      signalingRoom:
+        typeof signaling?.workerVersionId === 'string' ? signaling.workerVersionId : null,
+      developerApiRateLimiter:
+        typeof developerRateLimiter?.workerVersionId === 'string'
+          ? developerRateLimiter.workerVersionId
+          : null,
+    },
+    verified: Object.values(checks).every((check) => check === true),
+    checks,
+    evidence: {
+      proRoom,
+      signaling,
+      developerRateLimiter,
+      adminDatabase,
+      developerDatabase,
+      r2,
+    },
+  });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const evidenceMatch = url.pathname.match(DECOMMISSION_EVIDENCE_PATH_RE);
+    if (evidenceMatch) {
+      if (
+        request.method !== 'GET' ||
+        url.search ||
+        url.hash ||
+        request.body !== null ||
+        !opsEvidenceAuthorized(request, env)
+      ) {
+        return json({ error: 'NOT_FOUND' }, 404);
+      }
+      return handleDecommissionEvidence(env, evidenceMatch[1]);
+    }
     if (url.pathname.startsWith('/internal/')) {
       return json({ error: 'NOT_FOUND' }, 404);
     }

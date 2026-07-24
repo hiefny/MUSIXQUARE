@@ -19,6 +19,8 @@ const API_KEY_RE = /^mxqr_live_([A-Za-z0-9_-]{16})\.([A-Za-z0-9_-]{43})$/;
 const ROOM_CODE_RE = /^0\d{5}$/;
 const REQUEST_ID_RE = /^req_[A-Za-z0-9_-]{22}$/;
 const DIGEST_RE = /^[A-Za-z0-9_-]{43}$/;
+const DECOMMISSION_REQUEST_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const AUTHORIZATION_MAX_BYTES = 128;
 const URL_MAX_BYTES = 2_048;
 const ETAG_HEADER_MAX_BYTES = 128;
@@ -57,6 +59,8 @@ const KEY_QUEUE_WRITE_LIMIT_PER_MINUTE = 10;
 const ROOM_QUEUE_WRITE_LIMIT_PER_MINUTE = 30;
 const KEY_MEDIA_UPLOAD_LIMIT_PER_HOUR = 10;
 const ROOM_MEDIA_UPLOAD_LIMIT_PER_HOUR = 30;
+const DECOMMISSION_EVIDENCE_OBSERVER_CONTRACT = 2;
+const DECOMMISSION_EVIDENCE_PATH = '/internal/ops/v1/decommission-evidence';
 const SCOPE_ROOM_READ = 1;
 const SCOPE_PLAYBACK_READ = 2;
 const SCOPE_PLAYBACK_CONTROL = 4;
@@ -2359,9 +2363,22 @@ function exactInternalRoomGeneration(request, value) {
   };
 }
 
+function decommissionEvidenceRoomGeneration(request) {
+  const header = request.headers.get(PRO_ROOM_GENERATION_HEADER);
+  if (header === null) return LEGACY_PRO_ROOM_GENERATION;
+  if (!/^(?:0|[1-9]\d*)$/.test(header)) return null;
+  const roomGeneration = Number(header);
+  return isProRoomGeneration(roomGeneration) ? roomGeneration : null;
+}
+
+function proRoomInstanceId(roomCode, roomGeneration) {
+  return `${roomCode}:generation:${roomGeneration}`;
+}
+
 export class DeveloperApiRateLimiter {
-  constructor(state) {
+  constructor(state, env = {}) {
     this.storage = state.storage;
+    this.env = env;
     this.mutationTail = Promise.resolve();
   }
 
@@ -2377,6 +2394,21 @@ export class DeveloperApiRateLimiter {
 
   async handleFetch(request) {
     const url = new URL(request.url);
+    if (url.pathname === DECOMMISSION_EVIDENCE_PATH) {
+      const roomCode = request.headers.get('x-mxqr-pro-room-code') || '';
+      const roomGeneration = decommissionEvidenceRoomGeneration(request);
+      if (
+        request.method !== 'GET' ||
+        url.search ||
+        url.hash ||
+        request.body !== null ||
+        !ROOM_CODE_RE.test(roomCode) ||
+        roomGeneration === null
+      ) {
+        return Response.json({ error: 'NOT_FOUND' }, { status: 404 });
+      }
+      return this.readDecommissionEvidence(roomCode, roomGeneration);
+    }
     if (url.pathname === '/internal/admin/v1/decommission') {
       const value = await readRequestJsonLimited(request, 1024);
       const generation = exactInternalRoomGeneration(request, value);
@@ -2386,9 +2418,7 @@ export class DeveloperApiRateLimiter {
         !ROOM_CODE_RE.test(value.roomCode) ||
         request.headers.get('x-mxqr-pro-room-code') !== value.roomCode ||
         !generation.valid ||
-        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
-          value.requestId,
-        )
+        !DECOMMISSION_REQUEST_ID_RE.test(value.requestId)
       ) {
         return Response.json({ error: 'INVALID_REQUEST' }, { status: 400 });
       }
@@ -2495,6 +2525,69 @@ export class DeveloperApiRateLimiter {
       resetAtMs: narrowest.resetAtMs,
       retryAfterSeconds: 0,
     });
+  }
+
+  async readDecommissionEvidence(roomCode, roomGeneration) {
+    const tombstoneValue = await this.storage.get('decommissioned');
+    const tombstoneGeneration = tombstoneValue?.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION;
+    const tombstone =
+      tombstoneValue &&
+      tombstoneValue.v === 1 &&
+      tombstoneValue.roomCode === roomCode &&
+      tombstoneGeneration === roomGeneration &&
+      DECOMMISSION_REQUEST_ID_RE.test(tombstoneValue.requestId) &&
+      Number.isSafeInteger(tombstoneValue.decommissionedAtMs) &&
+      tombstoneValue.decommissionedAtMs >= 0
+        ? {
+            v: 1,
+            roomCode: tombstoneValue.roomCode,
+            roomGeneration: tombstoneGeneration,
+            requestId: tombstoneValue.requestId,
+            decommissionedAtMs: tombstoneValue.decommissionedAtMs,
+          }
+        : null;
+    const stored = typeof this.storage.list === 'function' ? await this.storage.list() : undefined;
+    const remainingKeys =
+      stored instanceof Map
+        ? [...stored.keys()].filter((key) => typeof key === 'string').sort()
+        : [];
+    const alarmValue =
+      typeof this.storage.getAlarm === 'function' ? await this.storage.getAlarm() : undefined;
+    const alarmAtMs =
+      alarmValue === null || (Number.isSafeInteger(alarmValue) && alarmValue >= 0)
+        ? alarmValue
+        : null;
+    const storageReadable = stored instanceof Map && alarmValue !== undefined;
+    const workerVersionId = this.env?.CF_VERSION_METADATA?.id;
+    const durableObjectName = `room:${proRoomObjectName(roomCode, roomGeneration)}`;
+    const clean =
+      storageReadable &&
+      tombstone !== null &&
+      remainingKeys.length === 1 &&
+      remainingKeys[0] === 'decommissioned' &&
+      alarmValue === null;
+    return Response.json(
+      {
+        observerContract: DECOMMISSION_EVIDENCE_OBSERVER_CONTRACT,
+        component: 'developer-api-rate-limiter',
+        ...(typeof workerVersionId === 'string' && workerVersionId ? { workerVersionId } : {}),
+        roomCode,
+        roomGeneration,
+        roomInstanceId: proRoomInstanceId(roomCode, roomGeneration),
+        durableObjectName,
+        tombstone,
+        remainingKeys,
+        alarmAtMs,
+        storageReadable,
+        clean,
+      },
+      {
+        headers: {
+          'cache-control': 'no-store',
+          'content-type': 'application/json; charset=utf-8',
+        },
+      },
+    );
   }
 
   alarm() {

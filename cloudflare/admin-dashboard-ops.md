@@ -164,10 +164,13 @@ That first successful `ready` transition permanently raises the rollback floor
 to the matched generation-aware Worker set and records it in `ever_enabled` and
 `floor_release_sha`; the database requires that first floor SHA to equal the
 then-current `release_sha`. A later generation can be created concurrently
-from that moment even if none is yet visible. A later full release temporarily
-fences an already-ready cutover as `disabled` while dependencies roll, then
-restores `ready` only after its own smokes and ownership checks. A failed
-release leaves the status disabled without clearing the permanent floor.
+from that moment even if none is yet visible. Before a later full release
+changes the fence, the workflow requires `floor_release_sha` to be an ancestor
+of the exact candidate commit; missing or divergent history aborts the release.
+The release then temporarily fences an already-ready cutover as `disabled`
+while dependencies roll and restores `ready` only after its own smokes and
+ownership checks. A failed release leaves the status disabled without clearing
+the permanent floor.
 Do not hand-edit it merely to unblock an operator action. Do not deploy the
 Wrangler configs directly or use the local `deploy:*` primitives for routine
 releases; the exceptional operator path is documented in

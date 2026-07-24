@@ -96,5 +96,7 @@ MXQR_TURNSTILE_DISABLED = "true"
 # - MXQR_AUTH_SESSION_PEPPER / MXQR_AUTH_SUBJECT_PEPPER / MXQR_OAUTH_STATE_SECRET
 # - MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET (same independent >=32-character value as PRO Worker)
 # - MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET (same independent >=32-character value as Signaling Worker)
+# Temporary lifecycle canary only; remove after the room-incarnation cutover:
+# npm run wrangler -- secret put MXQR_PRO_ROOM_REUSE_CANARY_OPS_SECRET --config cloudflare/wrangler.app.toml
 # Local/emergency only; production guards reject these:
 # - MXQR_ALLOW_UNGUARDED_PAID_APIS = "true"

@@ -36,6 +36,7 @@ export function generationCutoverWorkflowOutputs(payload: unknown): {
   wasReady: boolean;
   everEnabled: boolean;
   generationFloor: boolean;
+  floorReleaseSha: string | null;
 };
 
 export function assertInitialDeletionEvidence(

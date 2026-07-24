@@ -128,6 +128,25 @@ const ADMIN_DEVELOPER_API_KEY_ALL_SCOPE_BITS = Object.values(ADMIN_DEVELOPER_API
   (mask, bit) => mask | bit,
   0,
 );
+// Temporary, production-only lifecycle canary. The literal route and room code
+// deliberately cannot be widened through configuration. Remove the route,
+// handler, and secret after generation reuse has been verified end to end.
+const PRO_ROOM_REUSE_CANARY_OPS_ROUTE_PREFIX = '/_mxqr-ops/v1/pro-room-reuse-canary/';
+const PRO_ROOM_REUSE_CANARY_OPS_PATH_RE =
+  /^\/_mxqr-ops\/v1\/pro-room-reuse-canary\/099999\/(status|register|activation-claim|api-key|decommission)$/;
+const PRO_ROOM_REUSE_CANARY_CODE = '099999';
+const PRO_ROOM_REUSE_CANARY_LABEL = 'MXQR generation reuse canary';
+const PRO_ROOM_REUSE_CANARY_API_KEY_LABEL = 'MXQR reuse canary';
+const PRO_ROOM_REUSE_CANARY_SECRET_MIN_LENGTH = 32;
+const PRO_ROOM_REUSE_CANARY_SECRET_MAX_LENGTH = 512;
+const PRO_ROOM_REUSE_CANARY_RESPONSE_HEADERS = Object.freeze({
+  'Cache-Control': 'no-store, max-age=0, must-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+  'Referrer-Policy': 'no-referrer',
+  'Surrogate-Control': 'no-store',
+  'X-Robots-Tag': 'noindex, nofollow',
+});
 const PRO_ROOM_FACADE_PREFIX = '/api/pro-room';
 const PRO_ROOM_FACADE_HEALTH_PATH = `${PRO_ROOM_FACADE_PREFIX}/health`;
 const PRO_ROOM_FACADE_PATH_RE = /^\/api\/pro-room(\/v1\/rooms\/(0\d{5})(?:\/|$).*)$/;
@@ -3693,6 +3712,286 @@ async function handleAdminProRoomDelete(request, env, pathname) {
   );
 }
 
+function proRoomReuseCanaryResponse(response) {
+  return withSecurityHeaders(
+    new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        ...PRO_ROOM_REUSE_CANARY_RESPONSE_HEADERS,
+      },
+    }),
+    PRO_ROOM_REUSE_CANARY_RESPONSE_HEADERS,
+  );
+}
+
+function proRoomReuseCanaryJson(body, status = 200) {
+  return withSecurityHeaders(
+    new Response(JSON.stringify(body), {
+      status,
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        ...PRO_ROOM_REUSE_CANARY_RESPONSE_HEADERS,
+      },
+    }),
+    PRO_ROOM_REUSE_CANARY_RESPONSE_HEADERS,
+  );
+}
+
+function proRoomReuseCanaryNotFound() {
+  return proRoomReuseCanaryJson({ error: 'NOT_FOUND' }, 404);
+}
+
+function isExactObjectShape(value, keys) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const actualKeys = Object.keys(value).sort();
+  const expectedKeys = [...keys].sort();
+  return (
+    actualKeys.length === expectedKeys.length &&
+    actualKeys.every((key, index) => key === expectedKeys[index])
+  );
+}
+
+function verifyProRoomReuseCanaryAuthorization(request, env) {
+  const configuredSecret =
+    typeof env.MXQR_PRO_ROOM_REUSE_CANARY_OPS_SECRET === 'string'
+      ? env.MXQR_PRO_ROOM_REUSE_CANARY_OPS_SECRET
+      : '';
+  const authorization = request.headers.get('Authorization') || '';
+  if (
+    configuredSecret.length < PRO_ROOM_REUSE_CANARY_SECRET_MIN_LENGTH ||
+    configuredSecret.length > PRO_ROOM_REUSE_CANARY_SECRET_MAX_LENGTH ||
+    configuredSecret.trim() !== configuredSecret ||
+    /\s/.test(configuredSecret) ||
+    !authorization.startsWith('Bearer ')
+  ) {
+    return false;
+  }
+  const presentedSecret = authorization.slice('Bearer '.length);
+  return (
+    presentedSecret.length >= PRO_ROOM_REUSE_CANARY_SECRET_MIN_LENGTH &&
+    presentedSecret.length <= PRO_ROOM_REUSE_CANARY_SECRET_MAX_LENGTH &&
+    presentedSecret.trim() === presentedSecret &&
+    !/\s/.test(presentedSecret) &&
+    constantTimeEqual(configuredSecret, presentedSecret)
+  );
+}
+
+async function createProRoomReuseCanaryAdminRequest(env, pathname, method, body) {
+  if (!isAdminConfigured(env)) return null;
+  const token = await createAdminSessionToken(env);
+  const headers = new Headers({
+    Accept: 'application/json',
+    Cookie: `${ADMIN_SESSION_COOKIE}=${token}`,
+  });
+  if (body !== undefined) {
+    headers.set('Content-Type', 'application/json');
+    headers.set('Origin', 'https://musixquare.com');
+    headers.set('Sec-Fetch-Site', 'same-origin');
+    headers.set('X-MXQR-Admin-CSRF', '1');
+  }
+  return new Request(`https://musixquare.com${pathname}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    redirect: 'manual',
+  });
+}
+
+function proRoomReuseCanaryRegisterGeneration(room) {
+  if (!room) return LEGACY_PRO_ROOM_GENERATION;
+  if (
+    room.status === 'decommissioned' &&
+    isProRoomGeneration(room.roomGeneration) &&
+    room.roomGeneration < MAX_PRO_ROOM_GENERATION
+  ) {
+    return room.roomGeneration + 1;
+  }
+  return room.roomGeneration;
+}
+
+function proRoomReuseCanaryResponseMatchesGeneration(action, payload, roomGeneration) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+  if (action === 'register') {
+    return (
+      payload.room?.roomCode === PRO_ROOM_REUSE_CANARY_CODE &&
+      payload.room?.roomGeneration === roomGeneration
+    );
+  }
+  return (
+    payload.roomCode === PRO_ROOM_REUSE_CANARY_CODE && payload.roomGeneration === roomGeneration
+  );
+}
+
+async function handleProRoomReuseCanaryOps(request, env, url) {
+  const route = url.pathname.match(PRO_ROOM_REUSE_CANARY_OPS_PATH_RE);
+  if (
+    url.protocol !== 'https:' ||
+    url.hostname !== 'musixquare.com' ||
+    url.port !== '' ||
+    url.username !== '' ||
+    url.password !== '' ||
+    url.search !== '' ||
+    url.hash !== '' ||
+    !route ||
+    request.headers.has('Origin') ||
+    !verifyProRoomReuseCanaryAuthorization(request, env)
+  ) {
+    return proRoomReuseCanaryNotFound();
+  }
+
+  const action = route[1];
+  const expectedMethod = action === 'status' ? 'GET' : 'POST';
+  if (request.method !== expectedMethod) return proRoomReuseCanaryNotFound();
+
+  let externalBody;
+  if (action !== 'status') {
+    const contentType = String(request.headers.get('Content-Type') || '').toLowerCase();
+    if (!/^application\/json(?:\s*;|$)/.test(contentType)) {
+      return proRoomReuseCanaryJson({ error: 'CANARY_JSON_REQUIRED' }, 415);
+    }
+    const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+    if (parsedBody.error) {
+      return proRoomReuseCanaryResponse(
+        jsonBodyError(parsedBody, PRO_ROOM_REUSE_CANARY_RESPONSE_HEADERS),
+      );
+    }
+    externalBody = parsedBody.value;
+  }
+
+  let pathname;
+  let method;
+  let body;
+  let delegate;
+  let expectedRoomGeneration = null;
+  if (action === 'status') {
+    pathname = '/api/admin/pro-rooms';
+    method = 'GET';
+    delegate = handleAdminProRooms;
+  } else if (action === 'register') {
+    if (
+      !isExactObjectShape(externalBody, ['roomGeneration']) ||
+      !isProRoomGeneration(externalBody.roomGeneration)
+    ) {
+      return proRoomReuseCanaryJson({ error: 'INVALID_REQUEST' }, 400);
+    }
+    const db = getAdminDb(env);
+    if (!db?.prepare || !getProRoomAdminNamespace(env)) {
+      return proRoomReuseCanaryJson({ error: 'CANARY_ADMIN_NOT_CONFIGURED' }, 503);
+    }
+    let currentRoom;
+    try {
+      currentRoom = await readAdminProRoom(db, PRO_ROOM_REUSE_CANARY_CODE);
+    } catch {
+      return proRoomReuseCanaryJson({ error: 'CANARY_REGISTRY_UNAVAILABLE' }, 503);
+    }
+    expectedRoomGeneration = proRoomReuseCanaryRegisterGeneration(currentRoom);
+    if (externalBody.roomGeneration !== expectedRoomGeneration) {
+      return proRoomReuseCanaryJson(
+        {
+          error: 'PRO_ROOM_GENERATION_MISMATCH',
+          roomCode: PRO_ROOM_REUSE_CANARY_CODE,
+          roomGeneration: currentRoom?.roomGeneration ?? null,
+          registerRoomGeneration: expectedRoomGeneration,
+        },
+        409,
+      );
+    }
+    pathname = '/api/admin/pro-rooms';
+    method = 'POST';
+    body = {
+      roomCode: PRO_ROOM_REUSE_CANARY_CODE,
+      label: PRO_ROOM_REUSE_CANARY_LABEL,
+    };
+    delegate = handleAdminProRooms;
+  } else if (action === 'activation-claim') {
+    if (
+      !isExactObjectShape(externalBody, ['roomGeneration']) ||
+      !isProRoomGeneration(externalBody.roomGeneration)
+    ) {
+      return proRoomReuseCanaryJson({ error: 'INVALID_REQUEST' }, 400);
+    }
+    expectedRoomGeneration = externalBody.roomGeneration;
+    pathname = `/api/admin/pro-rooms/${PRO_ROOM_REUSE_CANARY_CODE}/activation-claim`;
+    method = 'POST';
+    body = { roomGeneration: expectedRoomGeneration };
+    delegate = handleAdminProRooms;
+  } else if (action === 'api-key') {
+    if (
+      !isExactObjectShape(externalBody, ['requestId', 'roomGeneration']) ||
+      !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(externalBody.requestId || '') ||
+      !isProRoomGeneration(externalBody.roomGeneration)
+    ) {
+      return proRoomReuseCanaryJson({ error: 'INVALID_REQUEST' }, 400);
+    }
+    expectedRoomGeneration = externalBody.roomGeneration;
+    pathname = `/api/admin/pro-rooms/${PRO_ROOM_REUSE_CANARY_CODE}/api-keys`;
+    method = 'POST';
+    body = {
+      label: PRO_ROOM_REUSE_CANARY_API_KEY_LABEL,
+      days: 1,
+      scopes: ['room:read', 'media:upload', 'queue:write'],
+      requestId: externalBody.requestId,
+      roomGeneration: expectedRoomGeneration,
+    };
+    delegate = handleAdminDeveloperApiKeys;
+  } else {
+    if (
+      !isExactObjectShape(externalBody, ['confirmRoomCode', 'requestId', 'roomGeneration']) ||
+      externalBody.confirmRoomCode !== PRO_ROOM_REUSE_CANARY_CODE ||
+      !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(externalBody.requestId || '') ||
+      !isProRoomGeneration(externalBody.roomGeneration)
+    ) {
+      return proRoomReuseCanaryJson({ error: 'INVALID_REQUEST' }, 400);
+    }
+    expectedRoomGeneration = externalBody.roomGeneration;
+    pathname = `/api/admin/pro-rooms/${PRO_ROOM_REUSE_CANARY_CODE}`;
+    method = 'DELETE';
+    body = {
+      confirmRoomCode: PRO_ROOM_REUSE_CANARY_CODE,
+      requestId: externalBody.requestId,
+      roomGeneration: expectedRoomGeneration,
+    };
+    delegate = handleAdminProRoomDelete;
+  }
+
+  const adminRequest = await createProRoomReuseCanaryAdminRequest(env, pathname, method, body);
+  if (!adminRequest) {
+    return proRoomReuseCanaryJson({ error: 'CANARY_ADMIN_NOT_CONFIGURED' }, 503);
+  }
+  const response = await delegate(adminRequest, env, pathname);
+
+  if (action === 'status' && response.ok) {
+    const payload = await response.json().catch(() => null);
+    if (!payload || !Array.isArray(payload.rooms) || typeof payload.generatedAt !== 'string') {
+      return proRoomReuseCanaryJson({ error: 'CANARY_ADMIN_INVALID_RESPONSE' }, 502);
+    }
+    const room =
+      payload.rooms.find((candidate) => candidate?.roomCode === PRO_ROOM_REUSE_CANARY_CODE) || null;
+    return proRoomReuseCanaryJson({
+      generatedAt: payload.generatedAt,
+      roomCode: PRO_ROOM_REUSE_CANARY_CODE,
+      roomGeneration: room?.roomGeneration ?? null,
+      registerRoomGeneration: proRoomReuseCanaryRegisterGeneration(room),
+      room,
+    });
+  }
+  if (!response.ok) return proRoomReuseCanaryResponse(response);
+
+  const responsePayload = await response
+    .clone()
+    .json()
+    .catch(() => null);
+  if (
+    !isProRoomGeneration(expectedRoomGeneration) ||
+    !proRoomReuseCanaryResponseMatchesGeneration(action, responsePayload, expectedRoomGeneration)
+  ) {
+    return proRoomReuseCanaryJson({ error: 'CANARY_ADMIN_INVALID_RESPONSE' }, 502);
+  }
+  return proRoomReuseCanaryResponse(response);
+}
+
 function emptyAdminCounters() {
   return Object.fromEntries(ADMIN_METRIC_EVENTS.map((event) => [event.key, 0]));
 }
@@ -6797,6 +7096,11 @@ export default {
 
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    // Handle this before canonical redirects so an Authorization credential is
+    // never replayed across hosts or protocols.
+    if (url.pathname.startsWith(PRO_ROOM_REUSE_CANARY_OPS_ROUTE_PREFIX)) {
+      return handleProRoomReuseCanaryOps(request, env, url);
+    }
     const mustUpgradeProtocol = url.protocol === 'http:' && !isLocalHttpRequest(request, url);
     const mustUseCanonicalHost = url.hostname === 'www.musixquare.com';
     if (mustUpgradeProtocol || mustUseCanonicalHost) {

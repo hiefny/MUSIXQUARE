@@ -332,6 +332,26 @@ jobs:
             release-artifacts/deployments/pro-room-generation-cutover-before-rollout.json \
             >> "$GITHUB_OUTPUT"
 
+      - name: Verify full release honors immutable PRO generation floor
+        if: >-
+          inputs.target == 'all' &&
+          steps.pro_room_generation_cutover_before_rollout.outputs.generation_floor == 'true'
+        shell: bash
+        run: |
+          floor_release_sha="${{ steps.pro_room_generation_cutover_before_rollout.outputs.floor_release_sha }}"
+          if [[ ! "$floor_release_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The immutable PRO generation floor is missing or malformed."
+            exit 1
+          fi
+          if ! git cat-file -e "${floor_release_sha}^{commit}" 2>/dev/null; then
+            echo "::error::The immutable PRO generation floor commit is unavailable in this checkout."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$floor_release_sha" "${{ github.sha }}"; then
+            echo "::error::This full release predates or diverges from the immutable PRO generation floor."
+            exit 1
+          fi
+
       - name: Fence room-code reuse during dependency rollout
         if: inputs.target == 'all'
         shell: bash

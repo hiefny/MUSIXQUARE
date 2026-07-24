@@ -6,6 +6,7 @@ import {
   assertGenerationCutoverStatus,
   assertGenerationSchemaVerification,
   assertInitialDeletionEvidence,
+  generationCutoverWorkflowOutputs,
   generationMigrationState,
   probePublicDeletionEvidence,
   renderForwardCompletionSql,
@@ -180,6 +181,51 @@ describe('PRO room generation release cutover', () => {
     ).toThrow(/irreversible floor/);
   });
 
+  it('exports the immutable release floor and rejects malformed workflow evidence', () => {
+    const floorReleaseSha = '1234567890abcdef1234567890abcdef12345678';
+    expect(
+      generationCutoverWorkflowOutputs(
+        d1([
+          {
+            status: 'disabled',
+            floor_release_sha: floorReleaseSha,
+            ever_enabled: 1,
+            generation_floor: 1,
+          },
+        ]),
+      ),
+    ).toEqual({
+      wasReady: false,
+      everEnabled: true,
+      generationFloor: true,
+      floorReleaseSha,
+    });
+    expect(() =>
+      generationCutoverWorkflowOutputs(
+        d1([
+          {
+            status: 'disabled',
+            floor_release_sha: 'not-a-release-sha',
+            ever_enabled: 1,
+            generation_floor: 1,
+          },
+        ]),
+      ),
+    ).toThrow(/invalid rollback floor/);
+    expect(() =>
+      generationCutoverWorkflowOutputs(
+        d1([
+          {
+            status: 'disabled',
+            floor_release_sha: floorReleaseSha,
+            ever_enabled: 0,
+            generation_floor: 0,
+          },
+        ]),
+      ),
+    ).toThrow(/invalid rollback floor/);
+  });
+
   it('requires complete immutable and public evidence before the first cutover', () => {
     const evidence = initialDeletionEvidence();
     expect(
@@ -327,6 +373,16 @@ describe('PRO room generation release cutover', () => {
       /Enable immutable PRO room generation cutover[\s\S]*inputs\.enable_pro_room_generation_cutover/,
     );
     expect(workflow).toContain('Fence room-code reuse during dependency rollout');
+    expect(workflow).toContain('Verify full release honors immutable PRO generation floor');
+    expect(workflow).toContain(
+      'steps.pro_room_generation_cutover_before_rollout.outputs.floor_release_sha',
+    );
+    expect(workflow).toContain(
+      'git merge-base --is-ancestor "$floor_release_sha" "${{ github.sha }}"',
+    );
+    expect(
+      workflow.indexOf('Verify full release honors immutable PRO generation floor'),
+    ).toBeLessThan(workflow.indexOf('Fence room-code reuse during dependency rollout'));
     expect(workflow).toContain(
       'steps.pro_room_generation_cutover_disable.outputs.generation_floor',
     );

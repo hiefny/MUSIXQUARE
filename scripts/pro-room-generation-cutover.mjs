@@ -226,10 +226,14 @@ export function generationCutoverWorkflowOutputs(payload) {
   const everEnabled = Number(row?.ever_enabled);
   const generationFloor =
     row?.generation_floor === undefined ? everEnabled : Number(row.generation_floor);
+  const floorReleaseSha =
+    row?.floor_release_sha === null ? null : String(row?.floor_release_sha || '');
   if (
     ![0, 1].includes(everEnabled) ||
     ![0, 1].includes(generationFloor) ||
-    generationFloor !== everEnabled
+    generationFloor !== everEnabled ||
+    (everEnabled === 1 && !RELEASE_SHA_RE.test(floorReleaseSha || '')) ||
+    (everEnabled === 0 && floorReleaseSha !== null)
   ) {
     throw new Error('PRO room generation cutover returned an invalid rollback floor.');
   }
@@ -237,6 +241,7 @@ export function generationCutoverWorkflowOutputs(payload) {
     wasReady: status === 'ready',
     everEnabled: everEnabled === 1,
     generationFloor: generationFloor === 1,
+    floorReleaseSha,
   };
 }
 
@@ -467,6 +472,7 @@ async function main(args = process.argv.slice(2)) {
     process.stdout.write(`was_ready=${outputs.wasReady}\n`);
     process.stdout.write(`ever_enabled=${outputs.everEnabled}\n`);
     process.stdout.write(`generation_floor=${outputs.generationFloor}\n`);
+    process.stdout.write(`floor_release_sha=${outputs.floorReleaseSha || ''}\n`);
     return;
   }
   if (

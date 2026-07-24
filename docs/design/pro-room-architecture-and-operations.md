@@ -656,13 +656,16 @@ bindings are not covered by the D1/public probe.
 
 The first successful `ready` transition sets permanent
 `ever_enabled`/`floor_release_sha` evidence, and the first floor SHA must equal
-that transition's `release_sha`. Subsequent full releases fence an already-ready
-marker as `disabled` before the dependency rollout and restore `ready` with the
-new exact SHA only after final smoke and deployment-ownership checks. A failed
-release leaves the marker disabled but never erases that rollback floor; if the
-workflow cannot prove the fence or observes the floor or any generation above
-zero, it withholds every generation-sensitive Worker rollback and requires a
-forward fix.
+that transition's `release_sha`. Before changing the fence, every subsequent
+full release must prove that immutable floor commit is available and is an
+ancestor of the candidate commit; a missing, older, or divergent candidate
+fails closed. Subsequent full releases then fence an already-ready marker as
+`disabled` before the dependency rollout and restore `ready` with the new exact
+SHA only after final smoke and deployment-ownership checks. A failed release
+leaves the marker disabled but never erases that rollback floor; if the workflow
+cannot prove the fence or observes the floor or any generation above zero, it
+withholds every generation-sensitive Worker rollback and requires a forward
+fix.
 
 ### Stage 1: compatibility baseline
 

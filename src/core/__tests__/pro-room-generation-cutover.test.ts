@@ -11,6 +11,7 @@ import {
   probePublicDeletionEvidence,
   renderForwardCompletionSql,
 } from '../../../scripts/pro-room-generation-cutover.mjs';
+import { parseWranglerD1JsonOutput } from '../../../scripts/capture-wrangler-d1-json.mjs';
 
 function d1(results: Array<Record<string, unknown>>, success = true) {
   return [{ success, results }];
@@ -60,6 +61,38 @@ function initialDeletionEvidence() {
 }
 
 describe('PRO room generation release cutover', () => {
+  it('captures one successful Wrangler D1 JSON envelope despite its known non-TTY prefix', () => {
+    const payload = d1([{ features_present: 20, features_expected: 20 }]);
+    expect(parseWranglerD1JsonOutput(JSON.stringify(payload))).toEqual(payload);
+    expect(parseWranglerD1JsonOutput(`\uFEFF${JSON.stringify(payload)}`)).toEqual(payload);
+    expect(
+      parseWranglerD1JsonOutput(
+        `\u001b[90m\u251c\u001b[39m Checking if file needs uploading\n\u001b[90m\u2502\u001b[39m\n${JSON.stringify(payload, null, 2)}\n`,
+      ),
+    ).toEqual(payload);
+    expect(
+      parseWranglerD1JsonOutput(
+        `\u251c Checking if file needs uploading\n\u2502\n\u251c \u{1f300} Uploading release-probe.sql\n\u2502 \u{1f300} Uploading complete.\n\u2502\n${JSON.stringify(payload, null, 2)}\n`,
+      ),
+    ).toEqual(payload);
+  });
+
+  it('fails closed on contaminated, trailing, or unsuccessful Wrangler D1 output', () => {
+    const payload = d1([{ schema_ready: 1 }]);
+    expect(() =>
+      parseWranglerD1JsonOutput(`unrecognized progress\n${JSON.stringify(payload)}`),
+    ).toThrow(/did not contain one valid JSON envelope/);
+    expect(() => parseWranglerD1JsonOutput(`${JSON.stringify(payload)}\ntrailing output`)).toThrow(
+      /did not contain one valid JSON envelope/,
+    );
+    expect(() =>
+      parseWranglerD1JsonOutput(JSON.stringify(d1([{ schema_ready: 1 }], false))),
+    ).toThrow(/did not contain one valid JSON envelope/);
+    expect(() => parseWranglerD1JsonOutput('{"error":"query failed"}')).toThrow(
+      /did not contain one valid JSON envelope/,
+    );
+  });
+
   it('classifies only untouched and fully applied migrations', () => {
     expect(
       generationMigrationState('admin', d1([{ features_present: 0, features_expected: 20 }])),
@@ -352,6 +385,37 @@ describe('PRO room generation release cutover', () => {
       const next = workflow.indexOf(needle);
       expect(next, `missing workflow step: ${needle}`).toBeGreaterThan(previous);
       previous = next;
+    }
+  });
+
+  it('captures every release D1 JSON probe through the strict envelope helper', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const d1JsonExecutions = workflow.match(
+      /npm run --silent wrangler -- d1 execute[\s\S]*?--remote --json[\s\S]*?(?=\n {10}npm run|\n {10}node|\n {6}- name:)/gu,
+    );
+    const strictCaptures = workflow.match(/\| node scripts\/capture-wrangler-d1-json\.mjs/gu);
+    const d1JsonExecutionCount = d1JsonExecutions?.length ?? 0;
+    expect(d1JsonExecutionCount).toBe(13);
+    expect(strictCaptures).toHaveLength(d1JsonExecutionCount);
+    for (const execution of d1JsonExecutions ?? []) {
+      expect(execution).toContain('| node scripts/capture-wrangler-d1-json.mjs');
+    }
+    expect(workflow).not.toMatch(
+      /--remote --json[\s\S]{0,1000}?> release-artifacts\/deployments\/[^ \n]+\.json/gu,
+    );
+    for (const sqlFile of [
+      'pro-room-generation-admin-migration-state.sql',
+      'pro-room-generation-auth-migration-state.sql',
+      'pro-room-generation-developer-migration-state.sql',
+      'pro-room-generation-admin-readiness.sql',
+      'pro-room-generation-auth-readiness.sql',
+      'pro-room-generation-developer-readiness.sql',
+      'pro-room-generation-admin-deletion-evidence.sql',
+      'pro-room-generation-developer-deletion-evidence.sql',
+    ]) {
+      expect(workflow).toContain(`--command="$(cat scripts/sql/${sqlFile})"`);
+      expect(workflow).not.toContain(`--command "$(cat scripts/sql/${sqlFile})"`);
+      expect(workflow).not.toContain(`--file scripts/sql/${sqlFile}`);
     }
   });
 

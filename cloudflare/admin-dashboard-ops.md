@@ -114,8 +114,13 @@ workflow with target `all` and its dedicated PRO generation migration input;
 it probes all three databases, applies a legacy schema or safely completes a
 recognized partial forward migration, and then verifies the exact
 post-migration contract. An unknown shape fails closed. The following direct
-command is an
-emergency/operator recovery primitive only, not a parallel routine path:
+command is an emergency/operator recovery primitive only, not a parallel
+routine path. Release probes send read-only SQL with Wrangler `--command` so
+the returned envelope contains the query rows (remote `--file` uses D1's import
+path instead). Every `--json` result is piped through
+`scripts/capture-wrangler-d1-json.mjs`, which accepts one successful D1
+execution envelope and only Wrangler's known non-TTY progress prefix; do not
+replace it with raw stdout redirection.
 
 ```powershell
 npm run wrangler -- d1 execute musixquare-admin-metrics --remote --config cloudflare/wrangler.app.toml --file cloudflare/admin-metrics.pro-room-generation.migration.sql

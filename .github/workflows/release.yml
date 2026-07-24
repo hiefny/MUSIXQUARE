@@ -203,16 +203,19 @@ jobs:
           mkdir -p release-artifacts/deployments
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
-            --file scripts/sql/pro-room-generation-admin-migration-state.sql \
-            > release-artifacts/deployments/pro-room-generation-admin-state.json
+            --command="$(cat scripts/sql/pro-room-generation-admin-migration-state.sql)" \
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/deployments/pro-room-generation-admin-state.json
           npm run --silent wrangler -- d1 execute musixquare-auth \
             --remote --json --config cloudflare/wrangler.app.toml \
-            --file scripts/sql/pro-room-generation-auth-migration-state.sql \
-            > release-artifacts/deployments/pro-room-generation-auth-state.json
+            --command="$(cat scripts/sql/pro-room-generation-auth-migration-state.sql)" \
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/deployments/pro-room-generation-auth-state.json
           npm run --silent wrangler -- d1 execute musixquare-developer-api \
             --remote --json --config cloudflare/wrangler.developer-api.toml \
-            --file scripts/sql/pro-room-generation-developer-migration-state.sql \
-            > release-artifacts/deployments/pro-room-generation-developer-state.json
+            --command="$(cat scripts/sql/pro-room-generation-developer-migration-state.sql)" \
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/deployments/pro-room-generation-developer-state.json
           node scripts/pro-room-generation-cutover.mjs plan-migrations \
             release-artifacts/deployments/pro-room-generation-admin-state.json \
             release-artifacts/deployments/pro-room-generation-auth-state.json \
@@ -284,16 +287,19 @@ jobs:
         run: |
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
-            --file scripts/sql/pro-room-generation-admin-readiness.sql \
-            > release-artifacts/deployments/pro-room-generation-admin-ready.json
+            --command="$(cat scripts/sql/pro-room-generation-admin-readiness.sql)" \
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/deployments/pro-room-generation-admin-ready.json
           npm run --silent wrangler -- d1 execute musixquare-auth \
             --remote --json --config cloudflare/wrangler.app.toml \
-            --file scripts/sql/pro-room-generation-auth-readiness.sql \
-            > release-artifacts/deployments/pro-room-generation-auth-ready.json
+            --command="$(cat scripts/sql/pro-room-generation-auth-readiness.sql)" \
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/deployments/pro-room-generation-auth-ready.json
           npm run --silent wrangler -- d1 execute musixquare-developer-api \
             --remote --json --config cloudflare/wrangler.developer-api.toml \
-            --file scripts/sql/pro-room-generation-developer-readiness.sql \
-            > release-artifacts/deployments/pro-room-generation-developer-ready.json
+            --command="$(cat scripts/sql/pro-room-generation-developer-readiness.sql)" \
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/deployments/pro-room-generation-developer-ready.json
           node scripts/pro-room-generation-cutover.mjs verify-schema \
             release-artifacts/deployments/pro-room-generation-admin-ready.json \
             release-artifacts/deployments/pro-room-generation-auth-ready.json \
@@ -312,7 +318,8 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
-            > release-artifacts/deployments/pro-room-generation-cutover-before-workers.json
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/deployments/pro-room-generation-cutover-before-workers.json
           node scripts/pro-room-generation-cutover.mjs verify-cutover \
             release-artifacts/deployments/pro-room-generation-cutover-before-workers.json \
             disabled
@@ -327,7 +334,8 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
-            > release-artifacts/deployments/pro-room-generation-cutover-before-rollout.json
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/deployments/pro-room-generation-cutover-before-rollout.json
           node scripts/pro-room-generation-cutover.mjs cutover-outputs \
             release-artifacts/deployments/pro-room-generation-cutover-before-rollout.json \
             >> "$GITHUB_OUTPUT"
@@ -361,7 +369,8 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "UPDATE mxqr_pro_room_generation_cutover SET status = 'disabled', release_sha = NULL, updated_at = unixepoch() * 1000 WHERE contract_version = 1; SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
-            > release-artifacts/deployments/pro-room-generation-cutover-rollout-fenced.json
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/deployments/pro-room-generation-cutover-rollout-fenced.json
           node scripts/pro-room-generation-cutover.mjs verify-cutover \
             release-artifacts/deployments/pro-room-generation-cutover-rollout-fenced.json \
             disabled
@@ -737,12 +746,14 @@ jobs:
           fi
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
-            --file scripts/sql/pro-room-generation-admin-deletion-evidence.sql \
-            > release-artifacts/deployments/pro-room-generation-admin-deletion-evidence.json
+            --command="$(cat scripts/sql/pro-room-generation-admin-deletion-evidence.sql)" \
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/deployments/pro-room-generation-admin-deletion-evidence.json
           npm run --silent wrangler -- d1 execute musixquare-developer-api \
             --remote --json --config cloudflare/wrangler.developer-api.toml \
-            --file scripts/sql/pro-room-generation-developer-deletion-evidence.sql \
-            > release-artifacts/deployments/pro-room-generation-developer-deletion-evidence.json
+            --command="$(cat scripts/sql/pro-room-generation-developer-deletion-evidence.sql)" \
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/deployments/pro-room-generation-developer-deletion-evidence.json
           node scripts/pro-room-generation-cutover.mjs probe-public-deletion \
             release-artifacts/deployments/pro-room-generation-public-deletion-evidence.json
           node scripts/pro-room-generation-cutover.mjs verify-initial-deletion \
@@ -763,7 +774,8 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "UPDATE mxqr_pro_room_generation_cutover SET status = 'ready', release_sha = '${{ github.sha }}', ever_enabled = 1, floor_release_sha = COALESCE(floor_release_sha, '${{ github.sha }}'), updated_at = unixepoch() * 1000 WHERE contract_version = 1 AND (ever_enabled = 1 OR ((SELECT COUNT(*) FROM mxqr_pro_room_registry WHERE room_code IN ('000002', '000003') AND room_generation = 0 AND status = 'decommissioned') = 2 AND (SELECT COUNT(*) FROM mxqr_pro_room_generation_history WHERE room_code IN ('000002', '000003') AND room_generation = 0 AND status = 'decommissioned' AND decommissioned_at <= (unixepoch() * 1000) - 4200000) = 2 AND (SELECT COUNT(*) FROM mxqr_pro_room_generation_allocations WHERE room_code IN ('000002', '000003') AND room_generation = 0) = 2 AND NOT EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_code IN ('000002', '000003') AND room_generation <> 0) AND NOT EXISTS (SELECT 1 FROM mxqr_pro_room_registry AS registry JOIN mxqr_pro_room_generation_history AS history ON history.room_code = registry.room_code AND history.room_generation = registry.room_generation WHERE registry.room_code IN ('000002', '000003') AND (registry.updated_at < history.decommissioned_at OR registry.updated_at > unixepoch() * 1000)) AND (SELECT COUNT(DISTINCT audit.room_code) FROM mxqr_pro_room_admin_audit AS audit WHERE audit.room_code IN ('000002', '000003') AND audit.room_generation = 0 AND audit.action = 'room.delete' AND audit.result = 'authorized' AND EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history AS history WHERE history.room_code = audit.room_code AND history.room_generation = 0 AND audit.created_at <= history.decommissioned_at)) = 2 AND NOT EXISTS (SELECT 1 FROM mxqr_pro_room_admin_audit AS audit JOIN mxqr_pro_room_generation_history AS history ON history.room_code = audit.room_code AND history.room_generation = audit.room_generation WHERE audit.room_code IN ('000002', '000003') AND audit.room_generation = 0 AND audit.action = 'room.delete' AND audit.result = 'authorized' AND audit.created_at > history.decommissioned_at))); SELECT contract_version, status, release_sha, ever_enabled, floor_release_sha, ever_enabled AS generation_floor FROM mxqr_pro_room_generation_cutover WHERE contract_version = 1" \
-            > release-artifacts/deployments/pro-room-generation-cutover-ready.json
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/deployments/pro-room-generation-cutover-ready.json
           node scripts/pro-room-generation-cutover.mjs verify-cutover \
             release-artifacts/deployments/pro-room-generation-cutover-ready.json \
             ready \
@@ -780,7 +792,8 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "UPDATE mxqr_pro_room_generation_cutover SET status = 'disabled', release_sha = NULL, updated_at = unixepoch() * 1000 WHERE contract_version = 1; SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
-            > release-artifacts/deployments/pro-room-generation-cutover-disabled.json
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/deployments/pro-room-generation-cutover-disabled.json
           node scripts/pro-room-generation-cutover.mjs verify-cutover \
             release-artifacts/deployments/pro-room-generation-cutover-disabled.json \
             disabled

@@ -79,7 +79,7 @@ function createButton(panel: HTMLElement): HTMLButtonElement {
  * Shows a chat-style locator only while the active queue occurrence is outside
  * the playlist viewport. The actual centering remains owned by
  * PlaylistFollowController so both automatic follow and explicit follow use the
- * same scaled-coordinate, reduced-motion, and WebKit retry policy.
+ * same scaled-coordinate and reduced-motion policy.
  */
 export function createPlaylistCurrentJumpController(
   options: PlaylistCurrentJumpOptions,
@@ -91,7 +91,10 @@ export function createPlaylistCurrentJumpController(
   let destroyed = false;
 
   function hideButton(): void {
-    button.classList.remove('show', 'is-above');
+    // Keep the current direction until the opacity/translate transition ends.
+    // Removing `is-above` here would teleport an exiting top button to its
+    // bottom anchor before the user can see the exit animation.
+    button.classList.remove('show');
     button.setAttribute('aria-hidden', 'true');
     button.tabIndex = -1;
     if (document.activeElement === button) {
@@ -100,7 +103,15 @@ export function createPlaylistCurrentJumpController(
   }
 
   function showButton(direction: 'above' | 'below'): void {
-    button.classList.toggle('is-above', direction === 'above');
+    const shouldBeAbove = direction === 'above';
+    const directionChanged = button.classList.contains('is-above') !== shouldBeAbove;
+    button.classList.toggle('is-above', shouldBeAbove);
+    if (!button.classList.contains('show') && directionChanged) {
+      // Establish the new hidden anchor before starting its entrance. Without
+      // this flush, a top-to-bottom direction change can collapse into one
+      // style update and skip the translate portion of the entrance.
+      void button.offsetWidth;
+    }
     button.classList.add('show');
     button.setAttribute('aria-hidden', 'false');
     button.tabIndex = 0;

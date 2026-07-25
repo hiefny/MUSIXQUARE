@@ -94,16 +94,16 @@ afterEach(() => {
   document.body.style.removeProperty('--desktop-ui-scale');
 });
 
+function finishFollow(): void {
+  vi.advanceTimersByTime(400);
+}
+
 describe('playlist active-track follow', () => {
   it('centers inside the mobile viewport above its bottom navigation clearance', () => {
     const { panel, scroller, list } = setupScroller();
     renderEntries(list, [QUEUE_A, QUEUE_B]);
     scroller.style.scrollPaddingBottom = '80px';
     scroller.scrollTop = 120;
-    const scrollTo = vi.fn((options: ScrollToOptions) => {
-      scroller.scrollTop = options.top as number;
-    });
-    Object.defineProperty(scroller, 'scrollTo', { configurable: true, value: scrollTo });
 
     const controller = createPlaylistFollowController({
       list,
@@ -113,11 +113,11 @@ describe('playlist active-track follow', () => {
     try {
       controller.updateSelection(QUEUE_B, -1);
       controller.afterRender();
-      vi.advanceTimersByTime(16);
+      finishFollow();
 
       // The usable viewport is 120px tall, so its logical center is 60px
       // below the top rather than the raw scrollbox's 100px center.
-      expect(scrollTo).toHaveBeenCalledWith({ top: 580, behavior: 'smooth' });
+      expect(scroller.scrollTop).toBe(580);
     } finally {
       controller.destroy();
     }
@@ -133,10 +133,6 @@ describe('playlist active-track follow', () => {
       `[data-queue-item-id="${QUEUE_B}"] .track-item`,
     )!;
     target.getBoundingClientRect = () => domRect(150 + (620 - scroller.scrollTop) * 1.5, 60);
-    const scrollTo = vi.fn((options: ScrollToOptions) => {
-      scroller.scrollTop = options.top as number;
-    });
-    Object.defineProperty(scroller, 'scrollTo', { configurable: true, value: scrollTo });
 
     const controller = createPlaylistFollowController({
       list,
@@ -146,8 +142,8 @@ describe('playlist active-track follow', () => {
     try {
       controller.updateSelection(QUEUE_B, -1);
       controller.afterRender();
-      vi.advanceTimersByTime(16);
-      expect(scrollTo).toHaveBeenCalledWith({ top: 540, behavior: 'smooth' });
+      finishFollow();
+      expect(scroller.scrollTop).toBe(540);
     } finally {
       controller.destroy();
     }
@@ -157,10 +153,6 @@ describe('playlist active-track follow', () => {
     const { panel, scroller, list } = setupScroller();
     renderEntries(list, [QUEUE_A, QUEUE_B]);
     scroller.scrollTop = 120;
-    const scrollTo = vi.fn((options: ScrollToOptions) => {
-      scroller.scrollTop = options.top as number;
-    });
-    Object.defineProperty(scroller, 'scrollTo', { configurable: true, value: scrollTo });
 
     const controller = createPlaylistFollowController({
       list,
@@ -170,34 +162,31 @@ describe('playlist active-track follow', () => {
     try {
       controller.updateSelection(QUEUE_B, -1);
       controller.afterRender();
-      vi.advanceTimersByTime(16);
+      finishFollow();
 
-      expect(scrollTo).toHaveBeenLastCalledWith({ top: 540, behavior: 'smooth' });
-      vi.advanceTimersByTime(440);
+      expect(scroller.scrollTop).toBe(540);
 
       // A manual browse away from the active row is respected until playback
       // actually selects another queue occurrence.
       scroller.scrollTop = 80;
       controller.updateSelection(QUEUE_B, -1);
       controller.afterRender();
-      vi.advanceTimersByTime(16);
-      expect(scrollTo).toHaveBeenCalledTimes(1);
+      finishFollow();
+      expect(scroller.scrollTop).toBe(80);
 
       controller.updateSelection(QUEUE_A, -1);
       controller.afterRender();
-      vi.advanceTimersByTime(16);
-      expect(scrollTo).toHaveBeenLastCalledWith({ top: 0, behavior: 'smooth' });
+      finishFollow();
+      expect(scroller.scrollTop).toBe(0);
     } finally {
       controller.destroy();
     }
   });
 
-  it('reissues the same pending follow when a render replaces its target row', () => {
+  it('continues toward the latest target when a render replaces its row mid-animation', () => {
     const { panel, scroller, list } = setupScroller();
     renderEntries(list, [QUEUE_A, QUEUE_B]);
     scroller.scrollTop = 40;
-    const scrollTo = vi.fn();
-    Object.defineProperty(scroller, 'scrollTo', { configurable: true, value: scrollTo });
 
     const controller = createPlaylistFollowController({
       list,
@@ -207,31 +196,40 @@ describe('playlist active-track follow', () => {
     try {
       controller.updateSelection(QUEUE_B, -1);
       controller.afterRender();
-      vi.advanceTimersByTime(16);
-      expect(scrollTo).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(80);
+      expect(scroller.scrollTop).toBeGreaterThan(40);
+      expect(scroller.scrollTop).toBeLessThan(540);
 
       renderEntries(list, [QUEUE_A, QUEUE_B]);
-      controller.updateSelection(QUEUE_B, -1);
       controller.afterRender();
-      vi.advanceTimersByTime(16);
-
-      // The original settle check owns the retry deadline even if a render
-      // replaces the target DOM in the meantime.
-      expect(scrollTo).toHaveBeenCalledTimes(1);
-      vi.advanceTimersByTime(440);
-      expect(scrollTo).toHaveBeenCalledTimes(2);
-      expect(scrollTo).toHaveBeenLastCalledWith({ top: 540, behavior: 'smooth' });
+      finishFollow();
+      expect(scroller.scrollTop).toBe(540);
     } finally {
       controller.destroy();
     }
   });
 
-  it('retries an ignored smooth scroll and finishes with a deterministic fallback', () => {
+  it('finishes a very long jump quickly, monotonically, and without a native fallback', () => {
     const { panel, scroller, list } = setupScroller();
     renderEntries(list, [QUEUE_A, QUEUE_B]);
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 50_000 });
     scroller.scrollTop = 40;
     const scrollTo = vi.fn();
     Object.defineProperty(scroller, 'scrollTo', { configurable: true, value: scrollTo });
+    const target = list.querySelector<HTMLElement>(
+      `[data-queue-item-id="${QUEUE_B}"] .track-item`,
+    )!;
+    target.getBoundingClientRect = () => domRect(100 + 40_000 - scroller.scrollTop, 40);
+    const positions: number[] = [];
+    let scrollTop = 40;
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (next: number) => {
+        scrollTop = next;
+        positions.push(next);
+      },
+    });
 
     const controller = createPlaylistFollowController({
       list,
@@ -241,14 +239,17 @@ describe('playlist active-track follow', () => {
     try {
       controller.updateSelection(QUEUE_B, -1);
       controller.afterRender();
-      vi.advanceTimersByTime(16 + 440 + 16 + 440);
+      finishFollow();
 
-      expect(scrollTo.mock.calls.map(([options]) => options.behavior)).toEqual([
-        'smooth',
-        'smooth',
-        'auto',
-      ]);
-      expect(scroller.scrollTop).toBe(540);
+      expect(scrollTo).not.toHaveBeenCalled();
+      expect(scroller.scrollTop).toBe(39_920);
+      expect(positions.length).toBeGreaterThan(2);
+      expect(positions.every((value, index) => index === 0 || value >= positions[index - 1]!)).toBe(
+        true,
+      );
+      const finalStep = positions.at(-1)! - positions.at(-2)!;
+      const firstStep = positions[0]! - 40;
+      expect(finalStep).toBeLessThan(firstStep);
     } finally {
       controller.destroy();
     }
@@ -257,10 +258,6 @@ describe('playlist active-track follow', () => {
   it('keeps a missing target pending until a later render supplies it', () => {
     const { panel, scroller, list } = setupScroller();
     renderEntries(list, [QUEUE_A]);
-    const scrollTo = vi.fn((options: ScrollToOptions) => {
-      scroller.scrollTop = options.top as number;
-    });
-    Object.defineProperty(scroller, 'scrollTo', { configurable: true, value: scrollTo });
 
     const controller = createPlaylistFollowController({
       list,
@@ -271,14 +268,14 @@ describe('playlist active-track follow', () => {
       controller.updateSelection(QUEUE_B, -1);
       controller.afterRender();
       vi.advanceTimersByTime(16);
-      expect(scrollTo).not.toHaveBeenCalled();
+      expect(scroller.scrollTop).toBe(0);
 
       renderEntries(list, [QUEUE_A, QUEUE_B]);
       controller.updateSelection(QUEUE_B, -1);
       controller.afterRender();
-      vi.advanceTimersByTime(16);
+      finishFollow();
 
-      expect(scrollTo).toHaveBeenCalledWith({ top: 540, behavior: 'smooth' });
+      expect(scroller.scrollTop).toBe(540);
     } finally {
       controller.destroy();
     }
@@ -292,10 +289,6 @@ describe('playlist active-track follow', () => {
     subPlaylist.className = 'sub-playlist';
     subPlaylist.innerHTML = '<li class="sub-track-item loading">Loading</li>';
     entry.appendChild(subPlaylist);
-    const scrollTo = vi.fn((options: ScrollToOptions) => {
-      scroller.scrollTop = options.top as number;
-    });
-    Object.defineProperty(scroller, 'scrollTo', { configurable: true, value: scrollTo });
 
     const controller = createPlaylistFollowController({
       list,
@@ -306,13 +299,13 @@ describe('playlist active-track follow', () => {
       controller.updateSelection(QUEUE_B, 3);
       controller.afterRender();
       vi.advanceTimersByTime(16);
-      expect(scrollTo).not.toHaveBeenCalled();
+      expect(scroller.scrollTop).toBe(0);
 
       subPlaylist.innerHTML = '<li class="sub-track-item" data-sub-index="3">Track 4</li>';
       controller.afterRender();
-      vi.advanceTimersByTime(16);
+      finishFollow();
 
-      expect(scrollTo).toHaveBeenCalledWith({ top: 620, behavior: 'smooth' });
+      expect(scroller.scrollTop).toBe(620);
     } finally {
       controller.destroy();
     }
@@ -321,8 +314,6 @@ describe('playlist active-track follow', () => {
   it('does not start a pending follow while another playlist interaction owns the view', () => {
     const { panel, scroller, list } = setupScroller();
     renderEntries(list, [QUEUE_A, QUEUE_B]);
-    const scrollTo = vi.fn();
-    Object.defineProperty(scroller, 'scrollTo', { configurable: true, value: scrollTo });
     let blocked = true;
 
     const controller = createPlaylistFollowController({
@@ -335,22 +326,157 @@ describe('playlist active-track follow', () => {
       controller.updateSelection(QUEUE_B, -1);
       controller.afterRender();
       vi.advanceTimersByTime(16);
-      expect(scrollTo).not.toHaveBeenCalled();
+      expect(scroller.scrollTop).toBe(0);
 
       blocked = false;
       controller.afterRender();
-      vi.advanceTimersByTime(16);
-      expect(scrollTo).toHaveBeenCalledOnce();
+      finishFollow();
+      expect(scroller.scrollTop).toBe(540);
     } finally {
       controller.destroy();
     }
   });
 
-  it('cancels retries when the user manually takes over scrolling', () => {
+  it('cancels an in-flight animation when the user manually takes over scrolling', () => {
     const { panel, scroller, list } = setupScroller();
     renderEntries(list, [QUEUE_A, QUEUE_B]);
-    const scrollTo = vi.fn();
-    Object.defineProperty(scroller, 'scrollTo', { configurable: true, value: scrollTo });
+
+    const controller = createPlaylistFollowController({
+      list,
+      scrollContainer: scroller,
+      isVisible: () => panel.classList.contains('active'),
+    });
+    try {
+      controller.updateSelection(QUEUE_B, -1);
+      controller.afterRender();
+      vi.advanceTimersByTime(80);
+      expect(scroller.scrollTop).toBeGreaterThan(0);
+      expect(scroller.scrollTop).toBeLessThan(540);
+
+      scroller.scrollTop = 180;
+      scroller.dispatchEvent(new Event('wheel'));
+      vi.advanceTimersByTime(2_000);
+
+      expect(scroller.scrollTop).toBe(180);
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  it('cancels an in-flight animation when the sibling custom scrollbar takes over', () => {
+    const { panel, scroller, list } = setupScroller();
+    renderEntries(list, [QUEUE_A, QUEUE_B]);
+    const track = document.createElement('div');
+    track.className = 'cscroll-track';
+    const thumb = document.createElement('div');
+    thumb.className = 'cscroll-thumb';
+    track.appendChild(thumb);
+    panel.appendChild(track);
+
+    const controller = createPlaylistFollowController({
+      list,
+      scrollContainer: scroller,
+      isVisible: () => panel.classList.contains('active'),
+    });
+    try {
+      controller.updateSelection(QUEUE_B, -1);
+      controller.afterRender();
+      vi.advanceTimersByTime(80);
+      expect(scroller.scrollTop).toBeGreaterThan(0);
+
+      scroller.scrollTop = 210;
+      thumb.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      vi.advanceTimersByTime(2_000);
+
+      expect(scroller.scrollTop).toBe(210);
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  it('cancels an in-flight animation for keyboard interaction in the playlist', () => {
+    const { panel, scroller, list } = setupScroller();
+    renderEntries(list, [QUEUE_A, QUEUE_B]);
+
+    const controller = createPlaylistFollowController({
+      list,
+      scrollContainer: scroller,
+      isVisible: () => panel.classList.contains('active'),
+    });
+    try {
+      controller.updateSelection(QUEUE_B, -1);
+      controller.afterRender();
+      vi.advanceTimersByTime(80);
+      expect(scroller.scrollTop).toBeGreaterThan(0);
+
+      scroller.scrollTop = 230;
+      list.dispatchEvent(new KeyboardEvent('keydown', { key: 'PageDown', bubbles: true }));
+      vi.advanceTimersByTime(2_000);
+
+      expect(scroller.scrollTop).toBe(230);
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  it('keeps following when playlist controls consume a keyboard command', () => {
+    const { panel, scroller, list } = setupScroller();
+    renderEntries(list, [QUEUE_A, QUEUE_B]);
+    list.addEventListener('keydown', (event) => event.preventDefault());
+
+    const controller = createPlaylistFollowController({
+      list,
+      scrollContainer: scroller,
+      isVisible: () => panel.classList.contains('active'),
+    });
+    try {
+      controller.updateSelection(QUEUE_B, -1);
+      controller.afterRender();
+      vi.advanceTimersByTime(80);
+      expect(scroller.scrollTop).toBeGreaterThan(0);
+
+      list.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }),
+      );
+      finishFollow();
+
+      expect(scroller.scrollTop).toBe(540);
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  it('replaces an in-flight destination when playback selects another occurrence', () => {
+    const { panel, scroller, list } = setupScroller();
+    renderEntries(list, [QUEUE_A, QUEUE_B]);
+
+    const controller = createPlaylistFollowController({
+      list,
+      scrollContainer: scroller,
+      isVisible: () => panel.classList.contains('active'),
+    });
+    try {
+      controller.updateSelection(QUEUE_B, -1);
+      controller.afterRender();
+      vi.advanceTimersByTime(80);
+      expect(scroller.scrollTop).toBeGreaterThan(0);
+
+      controller.updateSelection(QUEUE_A, -1);
+      controller.afterRender();
+      finishFollow();
+      expect(scroller.scrollTop).toBe(0);
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  it('moves immediately when reduced motion is requested', () => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: true })),
+    );
+    const { panel, scroller, list } = setupScroller();
+    renderEntries(list, [QUEUE_A, QUEUE_B]);
 
     const controller = createPlaylistFollowController({
       list,
@@ -361,14 +487,7 @@ describe('playlist active-track follow', () => {
       controller.updateSelection(QUEUE_B, -1);
       controller.afterRender();
       vi.advanceTimersByTime(16);
-      expect(scrollTo).toHaveBeenCalledOnce();
-
-      scroller.scrollTop = 180;
-      scroller.dispatchEvent(new Event('wheel'));
-      vi.advanceTimersByTime(2_000);
-
-      expect(scrollTo).toHaveBeenCalledOnce();
-      expect(scroller.scrollTop).toBe(180);
+      expect(scroller.scrollTop).toBe(540);
     } finally {
       controller.destroy();
     }

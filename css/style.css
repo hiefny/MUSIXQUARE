@@ -6455,7 +6455,7 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+    box-shadow: none;
     z-index: 20;
     opacity: 0;
     pointer-events: none;
@@ -6463,8 +6463,7 @@
     transition:
       opacity 0.2s,
       transform 0.2s,
-      background-color 0.2s,
-      box-shadow 0.2s;
+      background-color 0.2s;
     padding: 0;
   }
 
@@ -6477,7 +6476,7 @@
   @media (hover: hover) {
     .chat-scroll-down-btn:hover {
       background-color: var(--text-main);
-      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+      box-shadow: none;
     }
   }
 

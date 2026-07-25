@@ -741,8 +741,11 @@ describe('playlist queue identity rendering and actions', () => {
     document.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!.click();
     await Promise.resolve();
     await nextAnimationFrame();
+    await nextAnimationFrame();
 
-    expect(scrollTo).toHaveBeenCalledWith({ top: 170, behavior: 'smooth' });
+    const scroller = document.querySelector<HTMLElement>('.tab-body')!;
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(scroller.scrollTop).toBeGreaterThan(0);
   });
 
   it('keeps deletion survivor focus without starting an unrelated current-track follow', async () => {

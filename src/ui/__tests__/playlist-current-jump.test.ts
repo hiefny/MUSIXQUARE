@@ -120,9 +120,16 @@ describe('playlist current-track jump affordance', () => {
       scroller.dispatchEvent(new Event('scroll'));
       vi.advanceTimersByTime(16);
       expect(button.classList).not.toContain('show');
+      expect(button.classList).toContain('is-above');
       expect(document.activeElement).toBe(panel);
       expect(button.tabIndex).toBe(-1);
       expect(button.getAttribute('aria-hidden')).toBe('true');
+
+      scroller.scrollTop = 0;
+      scroller.dispatchEvent(new Event('scroll'));
+      vi.advanceTimersByTime(16);
+      expect(button.classList).toContain('show');
+      expect(button.classList).not.toContain('is-above');
     } finally {
       controller.destroy();
     }

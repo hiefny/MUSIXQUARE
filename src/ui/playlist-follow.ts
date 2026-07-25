@@ -1,15 +1,23 @@
 import type { QueueItemId } from '../types/index.ts';
 import { getEffectiveScrollViewport } from './scroll-viewport.ts';
 
-const FOLLOW_SETTLE_MS = 440;
 const FOLLOW_TOLERANCE_PX = 2;
-const MAX_SMOOTH_RETRIES = 1;
+const FOLLOW_MIN_DURATION_MS = 180;
+const FOLLOW_MAX_DURATION_MS = 320;
+const FOLLOW_DURATION_STEP_MS = 44;
+const KEYBOARD_SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End']);
 
 interface FollowRequest {
   queueItemId: QueueItemId;
   subIndex: number;
   token: number;
-  retries: number;
+}
+
+interface FollowAnimation {
+  token: number;
+  startedAt: number;
+  startTop: number;
+  durationMs: number;
 }
 
 interface PlaylistFollowOptions {
@@ -76,28 +84,28 @@ function desiredScrollTop(scrollContainer: HTMLElement, target: HTMLElement): nu
   return Math.min(maxScrollTop, Math.max(0, unclampedTop));
 }
 
-function scrollContainerTo(
-  scrollContainer: HTMLElement,
-  top: number,
-  behavior: ScrollBehavior,
-): void {
-  if (typeof scrollContainer.scrollTo === 'function') {
-    try {
-      scrollContainer.scrollTo({ top, behavior });
-      return;
-    } catch {
-      // Older WebKit builds can reject the options object. The assignment is
-      // intentionally kept as a compatibility fallback.
-    }
-  }
-  scrollContainer.scrollTop = top;
+function followDurationMs(scrollContainer: HTMLElement, distance: number): number {
+  const viewportHeight = Math.max(1, getEffectiveScrollViewport(scrollContainer).heightCss);
+  const viewportCount = distance / viewportHeight;
+  return Math.min(
+    FOLLOW_MAX_DURATION_MS,
+    FOLLOW_MIN_DURATION_MS + Math.log2(1 + viewportCount) * FOLLOW_DURATION_STEP_MS,
+  );
+}
+
+function easeOutQuint(progress: number): number {
+  return 1 - Math.pow(1 - progress, 5);
 }
 
 /**
  * Keeps one active queue occurrence centered without coupling scroll success
- * to a particular DOM render. A pending request survives list replacement and
- * retries once if native smooth scrolling is interrupted by momentum scrolling
- * or a browser compositor handoff.
+ * to a particular DOM render. A pending request survives list replacement.
+ *
+ * The controller owns the animation instead of relying on native smooth
+ * scrolling. Chromium can stretch a long native scroll beyond 1.5 seconds,
+ * while a fixed watchdog interrupts that scroll and visibly snaps the final
+ * distance. A short, distance-capped animation keeps every jump responsive and
+ * also avoids stale compositor momentum in WebKit.
  */
 export function createPlaylistFollowController(
   options: PlaylistFollowOptions,
@@ -108,14 +116,13 @@ export function createPlaylistFollowController(
   let request: FollowRequest | null = null;
   let nextToken = 0;
   let frame = 0;
-  let settleTimer = 0;
+  let animation: FollowAnimation | null = null;
   let destroyed = false;
 
   function cancelScheduledWork(): void {
     if (frame) window.cancelAnimationFrame(frame);
-    if (settleTimer) window.clearTimeout(settleTimer);
     frame = 0;
-    settleTimer = 0;
+    animation = null;
   }
 
   function replaceRequest(queueItemId: QueueItemId | null, subIndex: number): void {
@@ -125,13 +132,11 @@ export function createPlaylistFollowController(
           queueItemId,
           subIndex: normalizeSubIndex(subIndex),
           token: ++nextToken,
-          retries: 0,
         }
       : null;
   }
 
-  function performFollow(token: number): void {
-    frame = 0;
+  function canContinue(token: number): FollowRequest | null {
     const current = request;
     if (
       destroyed ||
@@ -140,55 +145,74 @@ export function createPlaylistFollowController(
       !options.isVisible() ||
       options.isBlocked?.()
     ) {
+      animation = null;
+      return null;
+    }
+    return current;
+  }
+
+  function animateFollow(token: number, timestamp: number): void {
+    frame = 0;
+    const current = canContinue(token);
+    const activeAnimation = animation;
+    if (!current || !activeAnimation || activeAnimation.token !== token) return;
+
+    const target = targetForRequest(options.list, current);
+    if (!target) {
+      animation = null;
       return;
     }
+    const top = desiredScrollTop(options.scrollContainer, target);
+    if (top === null) {
+      animation = null;
+      return;
+    }
+
+    const elapsed = Math.max(0, timestamp - activeAnimation.startedAt);
+    const progress = Math.min(1, elapsed / activeAnimation.durationMs);
+    const easedProgress = easeOutQuint(progress);
+    options.scrollContainer.scrollTop =
+      activeAnimation.startTop + (top - activeAnimation.startTop) * easedProgress;
+
+    if (progress >= 1 || Math.abs(options.scrollContainer.scrollTop - top) <= FOLLOW_TOLERANCE_PX) {
+      options.scrollContainer.scrollTop = top;
+      request = null;
+      animation = null;
+      return;
+    }
+
+    frame = window.requestAnimationFrame((nextTimestamp) => animateFollow(token, nextTimestamp));
+  }
+
+  function performFollow(token: number, timestamp: number): void {
+    frame = 0;
+    const current = canContinue(token);
+    if (!current) return;
 
     const target = targetForRequest(options.list, current);
     if (!target) return;
     const top = desiredScrollTop(options.scrollContainer, target);
     if (top === null) return;
 
-    if (Math.abs(options.scrollContainer.scrollTop - top) <= FOLLOW_TOLERANCE_PX) {
+    const distance = Math.abs(options.scrollContainer.scrollTop - top);
+    if (distance <= FOLLOW_TOLERANCE_PX) {
       request = null;
       return;
     }
 
     if (prefersReducedMotion()) {
-      scrollContainerTo(options.scrollContainer, top, 'auto');
       options.scrollContainer.scrollTop = top;
       request = null;
       return;
     }
 
-    scrollContainerTo(options.scrollContainer, top, 'smooth');
-    settleTimer = window.setTimeout(() => {
-      settleTimer = 0;
-      const pending = request;
-      if (destroyed || !pending || pending.token !== token) return;
-
-      const latestTarget = targetForRequest(options.list, pending);
-      const latestTop = latestTarget
-        ? desiredScrollTop(options.scrollContainer, latestTarget)
-        : null;
-      if (latestTop === null) return;
-      if (Math.abs(options.scrollContainer.scrollTop - latestTop) <= FOLLOW_TOLERANCE_PX) {
-        request = null;
-        return;
-      }
-
-      if (pending.retries < MAX_SMOOTH_RETRIES) {
-        pending.retries += 1;
-        scheduleFollow();
-        return;
-      }
-
-      // A second ignored smooth scroll usually means WebKit still owns an old
-      // momentum transaction. Finish deterministically instead of permanently
-      // recording a follow that never reached its row.
-      scrollContainerTo(options.scrollContainer, latestTop, 'auto');
-      options.scrollContainer.scrollTop = latestTop;
-      request = null;
-    }, FOLLOW_SETTLE_MS);
+    animation = {
+      token,
+      startedAt: timestamp,
+      startTop: options.scrollContainer.scrollTop,
+      durationMs: followDurationMs(options.scrollContainer, distance),
+    };
+    frame = window.requestAnimationFrame((nextTimestamp) => animateFollow(token, nextTimestamp));
   }
 
   function scheduleFollow(): void {
@@ -199,12 +223,12 @@ export function createPlaylistFollowController(
       !options.isVisible() ||
       options.isBlocked?.() ||
       frame ||
-      settleTimer
+      animation
     ) {
       return;
     }
     const token = current.token;
-    frame = window.requestAnimationFrame(() => performFollow(token));
+    frame = window.requestAnimationFrame((timestamp) => performFollow(token, timestamp));
   }
 
   function reset(): void {
@@ -219,18 +243,56 @@ export function createPlaylistFollowController(
     cancelScheduledWork();
     request = null;
   };
-  const interactionOptions = { passive: true, signal: interactionController.signal };
-  options.scrollContainer.addEventListener('wheel', cancelForUserInteraction, interactionOptions);
-  options.scrollContainer.addEventListener(
+  const interactionRoot = options.scrollContainer.parentElement ?? options.scrollContainer;
+  const isScrollSurfaceTarget = (target: EventTarget | null): boolean => {
+    if (!(target instanceof Node)) return false;
+    if (target === interactionRoot || options.scrollContainer.contains(target)) return true;
+    const track = target instanceof Element ? target.closest('.cscroll-track') : null;
+    return track?.parentElement === interactionRoot;
+  };
+  const cancelForScopedUserInteraction = (event: Event): void => {
+    if (isScrollSurfaceTarget(event.target)) cancelForUserInteraction();
+  };
+  const cancelForKeyboardScroll = (event: KeyboardEvent): void => {
+    if (
+      !event.defaultPrevented &&
+      KEYBOARD_SCROLL_KEYS.has(event.key) &&
+      isScrollSurfaceTarget(event.target)
+    ) {
+      cancelForUserInteraction();
+    }
+  };
+  const pointerInteractionOptions = {
+    capture: true,
+    passive: true,
+    signal: interactionController.signal,
+  };
+  // The custom scrollbar is a sibling of the scroll container. Listen on their
+  // shared parent in capture phase so thumb/track handlers that stop bubbling
+  // still cancel an in-flight follow before changing scrollTop.
+  interactionRoot.addEventListener(
+    'wheel',
+    cancelForScopedUserInteraction,
+    pointerInteractionOptions,
+  );
+  interactionRoot.addEventListener(
     'touchstart',
-    cancelForUserInteraction,
-    interactionOptions,
+    cancelForScopedUserInteraction,
+    pointerInteractionOptions,
   );
-  options.scrollContainer.addEventListener(
+  interactionRoot.addEventListener(
     'pointerdown',
-    cancelForUserInteraction,
-    interactionOptions,
+    cancelForScopedUserInteraction,
+    pointerInteractionOptions,
   );
+  interactionRoot.addEventListener(
+    'mousedown',
+    cancelForScopedUserInteraction,
+    pointerInteractionOptions,
+  );
+  interactionRoot.addEventListener('keydown', cancelForKeyboardScroll, {
+    signal: interactionController.signal,
+  });
 
   return {
     updateSelection(queueItemId, subIndex) {

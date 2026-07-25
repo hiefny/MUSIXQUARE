@@ -32,7 +32,7 @@ jobs:
         run: npm ci
 
       - name: Apply focused v277 patch
-        run: npm run --silent env -- python scripts/apply-native-youtube-control-v277.py
+        run: python scripts/apply-native-youtube-control-v277.py
 
       - name: Normalize generated authority types
         shell: bash

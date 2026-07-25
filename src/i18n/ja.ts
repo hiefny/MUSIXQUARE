@@ -179,6 +179,7 @@ const ja: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'プレイリストを開閉',
+  'playlist.jump_to_current': '再生中の曲へ移動',
   'playlist.reorder_handle': '{{title}}の順序を変更、現在{{position}}番目',
   'playlist.reorder_position': '{{title}}、全{{total}}件中{{position}}番目',
   'playlist.repeat_all': '全曲リピートが有効です',

@@ -181,6 +181,7 @@ const id: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'Perluas/ciutkan playlist',
+  'playlist.jump_to_current': 'Buka lagu yang sedang diputar',
   'playlist.reorder_handle': 'Urutkan ulang {{title}}, posisi {{position}}',
   'playlist.reorder_position': '{{title}}, posisi {{position}} dari {{total}}',
   'playlist.repeat_all': 'Ulangi semua track aktif',

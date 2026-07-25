@@ -180,6 +180,7 @@ const ptBr: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'Expandir/recolher playlist',
+  'playlist.jump_to_current': 'Ir para a faixa em reprodução',
   'playlist.reorder_handle': 'Reordenar {{title}}, posição {{position}}',
   'playlist.reorder_position': '{{title}}, posição {{position}} de {{total}}',
   'playlist.repeat_all': 'Repetir todas as faixas ativado',

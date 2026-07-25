@@ -1,175 +1,45 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: musixquare-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  materialize-current-track-jump-v280:
-    if: github.head_ref == 'agent/add-current-track-jump-v280'
+  ci:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+
+    strategy:
+      matrix:
+        node-version: [22]
 
     steps:
-      - name: Checkout feature branch
+      - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          ref: agent/add-current-track-jump-v280
+          # build:checked locates the latest committed CACHE_VERSION bump.
           fetch-depth: 0
 
-      - name: Setup Node.js
+      - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Apply focused v280 patch
-        run: python scripts/apply-current-track-jump-v280.py
-
-      - name: Complete locale and test contracts
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          translations = {
-              'de': 'Zum aktuell gespielten Titel springen',
-              'es': 'Ir a la pista en reproducción',
-              'fr': 'Aller au titre en cours de lecture',
-              'id': 'Buka lagu yang sedang diputar',
-              'it': 'Vai al brano in riproduzione',
-              'ja': '再生中の曲へ移動',
-              'nl': 'Naar het nummer dat nu speelt',
-              'pl': 'Przejdź do aktualnie odtwarzanego utworu',
-              'pt-br': 'Ir para a faixa em reprodução',
-              'ru': 'Перейти к текущему треку',
-              'th': 'ไปยังเพลงที่กำลังเล่น',
-              'tr': 'Çalan parçaya git',
-              'vi': 'Đi tới bài đang phát',
-              'zh-hans': '跳转到当前播放曲目',
-              'zh-hant': '跳至目前播放的曲目',
-          }
-          marker = "  'playlist.toggle':"
-          key = "'playlist.jump_to_current'"
-          for locale, translation in translations.items():
-              path = Path(f'src/i18n/{locale}.ts')
-              source = path.read_text(encoding='utf-8')
-              if key in source:
-                  continue
-              lines = source.splitlines(keepends=True)
-              index = next((i for i, line in enumerate(lines) if line.startswith(marker)), None)
-              if index is None:
-                  raise SystemExit(f'{path}: playlist.toggle marker not found')
-              newline = '\r\n' if lines[index].endswith('\r\n') else '\n'
-              escaped = translation.replace('\\', '\\\\').replace("'", "\\'")
-              lines.insert(index + 1, f"  {key}: '{escaped}',{newline}")
-              path.write_text(''.join(lines), encoding='utf-8')
-
-          test_path = Path('src/ui/__tests__/playlist-current-jump.test.ts')
-          test_source = test_path.read_text(encoding='utf-8')
-          replacements = {
-              "  onActivate: ReturnType<typeof vi.fn>;":
-                  "  onActivate: (selection: Readonly<PlaylistCurrentSelection>) => void;",
-              "  const onActivate = vi.fn();":
-                  "  const onActivate = vi.fn<(selection: Readonly<PlaylistCurrentSelection>) => void>();",
-          }
-          for old, new in replacements.items():
-              count = test_source.count(old)
-              if count != 1:
-                  raise SystemExit(f'{test_path}: expected one {old!r}, found {count}')
-              test_source = test_source.replace(old, new, 1)
-          test_path.write_text(test_source, encoding='utf-8')
-          PY
-
-      - name: Remove temporary materializer and restore standard CI
-        shell: bash
-        run: |
-          rm scripts/apply-current-track-jump-v280.py
-          git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
-
-      - name: Format changed source
-        run: >-
-          npx prettier --write
-          src/ui/playlist-current-jump.ts
-          src/ui/playlist-view.ts
-          src/ui/__tests__/playlist-current-jump.test.ts
-          src/i18n/*.ts
-          css/style.css
-
-      - name: Verify focused source scope
-        shell: bash
-        run: |
-          expected="$(printf '%s\n' \
-            .github/workflows/ci.yml \
-            css/style.css \
-            public/service-worker.js \
-            scripts/apply-current-track-jump-v280.py \
-            src/core/__tests__/service-worker-cache.test.ts \
-            src/i18n/de.ts \
-            src/i18n/en.ts \
-            src/i18n/es.ts \
-            src/i18n/fr.ts \
-            src/i18n/id.ts \
-            src/i18n/it.ts \
-            src/i18n/ja.ts \
-            src/i18n/ko.ts \
-            src/i18n/nl.ts \
-            src/i18n/pl.ts \
-            src/i18n/pt-br.ts \
-            src/i18n/ru.ts \
-            src/i18n/th.ts \
-            src/i18n/tr.ts \
-            src/i18n/vi.ts \
-            src/i18n/zh-hans.ts \
-            src/i18n/zh-hant.ts \
-            src/ui/__tests__/playlist-current-jump.test.ts \
-            src/ui/playlist-current-jump.ts \
-            src/ui/playlist-view.ts | sort)"
-          actual="$(git status --short | sed -E 's/^.. //' | sort)"
-          if [[ "$actual" != "$expected" ]]; then
-            echo '::error::Unexpected working-tree scope'
-            echo 'Expected:'
-            printf '%s\n' "$expected"
-            echo 'Actual:'
-            printf '%s\n' "$actual"
-            exit 1
-          fi
-          git diff --check
-
       - name: Typecheck
-        id: typecheck
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          npm run typecheck 2>&1 | tee /tmp/v280-typecheck.log
-
-      - name: Report typecheck diagnostics
-        if: steps.typecheck.outcome == 'failure'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          {
-            echo 'v280 materialization typecheck failed:'
-            echo
-            echo '```text'
-            tail -n 100 /tmp/v280-typecheck.log
-            echo '```'
-          } > /tmp/v280-typecheck-comment.md
-          gh pr comment 42 --body-file /tmp/v280-typecheck-comment.md
-          exit 1
+        run: npm run typecheck
 
       - name: Lint
         run: npm run lint
@@ -180,20 +50,15 @@ jobs:
       - name: Playback and storage static invariants
         run: npm run guard:chunk-pump && npm run guard:lifecycle-writes
 
-      - name: Unit tests
+      - name: Test
         run: npm test
 
       - name: Critical runtime coverage
         run: npm run test:coverage:critical
 
-      - name: Production build
+      - name: Build and verify production bundle
         run: npm run build:checked
 
-      - name: Commit and push clean v280 source
-        shell: bash
-        run: |
-          git config user.name 'MUSIXQUARE Release Bot'
-          git config user.email 'actions@users.noreply.github.com'
-          git add -A
-          git commit -m 'feat(playlist): add current-track locator'
-          git push origin HEAD:agent/add-current-track-jump-v280
+      # E2E suite lives in its own manually dispatched workflow (e2e.yml).
+      # The serial suite is intentionally long-running; keep fast CI gating
+      # to typecheck + lint + unit tests + build, and run E2E on demand.

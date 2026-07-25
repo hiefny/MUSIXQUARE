@@ -110,6 +110,7 @@ const ko = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': '플레이리스트 펼치기/접기',
+  'playlist.jump_to_current': '현재 재생 중인 곡으로 이동',
   'playlist.reorder_handle': '{{title}} 순서 변경, 현재 {{position}}번',
   'playlist.reorder_position': '{{title}}, 전체 {{total}}개 중 {{position}}번',
   'playlist.repeat_all': '전체 반복 재생이 켜졌어요',

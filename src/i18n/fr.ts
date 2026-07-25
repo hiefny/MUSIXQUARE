@@ -181,6 +181,7 @@ const fr: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'Développer/réduire la playlist',
+  'playlist.jump_to_current': 'Aller au titre en cours de lecture',
   'playlist.reorder_handle': 'Réorganiser {{title}}, position {{position}}',
   'playlist.reorder_position': '{{title}}, position {{position}} sur {{total}}',
   'playlist.repeat_all': 'Répétition de toutes les pistes activée',

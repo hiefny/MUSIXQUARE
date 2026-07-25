@@ -4686,7 +4686,13 @@
 
   .language-option-native:lang(ru) {
     font-family:
-      'Noto Sans', 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      'Noto Sans',
+      'Pretendard',
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      'Roboto',
+      sans-serif;
   }
 
   .language-option-english {
@@ -6482,6 +6488,25 @@
     width: 20px;
     height: 20px;
     fill: currentColor;
+  }
+
+  /* Playlist uses the exact chat locator surface, lifted above mobile nav. */
+  .playlist-current-jump-btn {
+    bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 16px);
+  }
+
+  .playlist-current-jump-btn svg {
+    transition: transform 0.2s ease;
+  }
+
+  .playlist-current-jump-btn.is-above svg {
+    transform: rotate(180deg);
+  }
+
+  @media (min-width: 1280px) {
+    .playlist-current-jump-btn {
+      bottom: 16px;
+    }
   }
 
   /* ── Universal Custom Scrollbar ── */

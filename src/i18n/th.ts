@@ -109,6 +109,7 @@ const th: Record<I18nKey, string> = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'เปิด/ปิดเพลย์ลิสต์',
+  'playlist.jump_to_current': 'ไปยังเพลงที่กำลังเล่น',
   'playlist.reorder_handle': 'จัดลำดับ {{title}} ใหม่ ตำแหน่ง {{position}}',
   'playlist.reorder_position': '{{title}} ตำแหน่ง {{position}} จาก {{total}}',
   'playlist.repeat_all': 'เปิดเล่นซ้ำทุกเพลงแล้ว',

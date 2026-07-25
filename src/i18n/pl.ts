@@ -109,6 +109,7 @@ const pl: Record<I18nKey, string> = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Pokaż/ukryj playlistę',
+  'playlist.jump_to_current': 'Przejdź do aktualnie odtwarzanego utworu',
   'playlist.reorder_handle': 'Zmień kolejność {{title}}, pozycja {{position}}',
   'playlist.reorder_position': '{{title}}, pozycja {{position}} z {{total}}',
   'playlist.repeat_all': 'Powtarzanie wszystkich utworów włączone',

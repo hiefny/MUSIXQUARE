@@ -179,6 +179,7 @@ const zhHant: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': '展開/收合播放清單',
+  'playlist.jump_to_current': '跳至目前播放的曲目',
   'playlist.reorder_handle': '調整 {{title}} 的順序，目前位置 {{position}}',
   'playlist.reorder_position': '{{title}}，第 {{position}} 項，共 {{total}} 項',
   'playlist.repeat_all': '已啟用全部循環',

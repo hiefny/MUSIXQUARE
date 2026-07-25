@@ -110,6 +110,7 @@ const it: Record<I18nKey, string> = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Mostra/nascondi playlist',
+  'playlist.jump_to_current': 'Vai al brano in riproduzione',
   'playlist.reorder_handle': 'Riordina {{title}}, posizione {{position}}',
   'playlist.reorder_position': '{{title}}, posizione {{position}} di {{total}}',
   'playlist.repeat_all': 'Ripetizione di tutti i brani attiva',

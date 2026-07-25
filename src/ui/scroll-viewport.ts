@@ -1,6 +1,6 @@
 import { getBodyRenderedScale } from '../core/platform.ts';
 
-export interface EffectiveScrollViewport {
+interface EffectiveScrollViewport {
   renderedScale: number;
   rawTop: number;
   top: number;

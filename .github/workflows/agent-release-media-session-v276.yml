@@ -1,5 +1,6 @@
 name: One-shot production app release v276
 
+# The first commit installs this branch-only helper; this follow-up push triggers it.
 on:
   push:
     branches:

@@ -1,9 +1,10 @@
 name: One-shot Materialize PRO Native YouTube PLAY v279
 
 on:
-  issue_comment:
-    types:
-      - created
+  push:
+    branches: [main]
+    paths:
+      - .github/agent-materialize-pro-native-play-v279
 
 permissions:
   contents: write
@@ -15,10 +16,7 @@ concurrency:
 
 jobs:
   materialize:
-    if: >-
-      github.actor == 'hiefny' &&
-      github.event.issue.number == 39 &&
-      github.event.comment.body == '/materialize-pro-native-play-v279'
+    if: github.event.head_commit.message == 'chore: trigger v279 materializer'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 

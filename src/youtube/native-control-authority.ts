@@ -26,6 +26,7 @@ import {
   isYtPrimeBouncePending,
   isYtPriming,
   setLocalYouTubePaused,
+  setYtAutoplayIntent,
   type YouTubePlayerInstance,
 } from './_state.ts';
 import { toCanonicalYouTubeTime } from './local-offset.ts';
@@ -115,6 +116,40 @@ function playerMatchesCurrentOccurrence(
   }
   const intendedVideoId = resolveIntendedVideoId(queueItemId);
   return !(liveVideoId && intendedVideoId && liveVideoId !== intendedVideoId);
+}
+
+/**
+ * Preserve a trusted OS/headset PLAY long enough for PRO room authority
+ * to observe and promote it. PRO pause commits deliberately leave
+ * `ytAutoplayIntent=false`; without this pre-guard seam the iframe's
+ * PLAYING callback immediately pauses back before playback activity can
+ * reach the native-control authority listener.
+ *
+ * Only an unmatched native transition from the exact current iframe and
+ * queue occurrence may cross the guard. Application-owned play/load/cue
+ * transitions retain the existing pause-back behaviour.
+ */
+export function preserveNativeProControllerPlayBeforeAutoplayGuard(
+  player: YouTubePlayerInstance,
+): boolean {
+  if (
+    getYtAutoplayIntent() ||
+    getState('playback.mode') !== 'youtube' ||
+    getRoomContext().kind !== 'pro' ||
+    !hasRoomCapability('playback.control') ||
+    getYouTubePlayer() !== player ||
+    hasProtectedTransitionOwner()
+  ) {
+    return false;
+  }
+
+  const queueItemId = getCurrentQueueItemId();
+  if (!queueItemId || !playerMatchesCurrentOccurrence(player, queueItemId)) return false;
+  if (classifyYouTubeStableStateOrigin(player, 'playing') !== 'native') return false;
+
+  setYtAutoplayIntent(true);
+  log.info('[YouTube Native Control] Preserved native PRO PLAY through autoplay guard');
+  return true;
 }
 
 function readCanonicalPosition(player: YouTubePlayerInstance): number {

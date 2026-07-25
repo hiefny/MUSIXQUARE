@@ -1,89 +1,42 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: musixquare-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  materialize-pro-native-play-v279:
-    if: github.head_ref == 'agent/fix-pro-native-play-autoplay-guard-v279'
+  ci:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+
+    strategy:
+      matrix:
+        node-version: [22]
 
     steps:
-      - name: Checkout feature branch
+      - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          ref: agent/fix-pro-native-play-autoplay-guard-v279
+          # build:checked locates the latest committed CACHE_VERSION bump.
           fetch-depth: 0
 
-      - name: Setup Node.js
+      - name: Setup Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Apply focused v279 patch
-        run: python scripts/apply-pro-native-youtube-play-v279.py
-
-      - name: Normalize generated test types
-        shell: bash
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('src/youtube/__tests__/native-control-pro-autoplay-guard.test.ts')
-          source = path.read_text(encoding='utf-8')
-          source = source.replace(
-              "import type { PlaylistItem, QueueItemId } from '../../types/index.ts';",
-              "import type { PlaylistItem, QueueItemId, RoomCapability } from '../../types/index.ts';",
-          )
-          source = source.replace(
-              'function installPausedYouTube(player: FakePlayer, capabilities: string[]): void {',
-              'function installPausedYouTube(player: FakePlayer, capabilities: RoomCapability[]): void {',
-          )
-          path.write_text(source, encoding='utf-8')
-          PY
-
-      - name: Remove temporary materializer and restore standard CI
-        shell: bash
-        run: |
-          rm scripts/apply-pro-native-youtube-play-v279.py
-          git show origin/main:.github/workflows/ci.yml > .github/workflows/ci.yml
-
-      - name: Format changed TypeScript
-        run: npx prettier --write src/youtube/native-control-authority.ts src/youtube/iframe.ts src/youtube/__tests__/native-control-pro-autoplay-guard.test.ts
-
-      - name: Verify focused source scope
-        shell: bash
-        run: |
-          expected="$(printf '%s\n' \
-            .github/workflows/ci.yml \
-            public/service-worker.js \
-            scripts/apply-pro-native-youtube-play-v279.py \
-            src/core/__tests__/service-worker-cache.test.ts \
-            src/youtube/__tests__/native-control-pro-autoplay-guard.test.ts \
-            src/youtube/iframe.ts \
-            src/youtube/native-control-authority.ts | sort)"
-          actual="$(git status --short | sed -E 's/^.. //' | sort)"
-          if [[ "$actual" != "$expected" ]]; then
-            echo '::error::Unexpected working-tree scope'
-            echo 'Expected:'
-            printf '%s\n' "$expected"
-            echo 'Actual:'
-            printf '%s\n' "$actual"
-            exit 1
-          fi
-          git diff --check
 
       - name: Typecheck
         run: npm run typecheck
@@ -97,20 +50,15 @@ jobs:
       - name: Playback and storage static invariants
         run: npm run guard:chunk-pump && npm run guard:lifecycle-writes
 
-      - name: Unit tests
+      - name: Test
         run: npm test
 
       - name: Critical runtime coverage
         run: npm run test:coverage:critical
 
-      - name: Production build
+      - name: Build and verify production bundle
         run: npm run build:checked
 
-      - name: Commit and push clean v279 source
-        shell: bash
-        run: |
-          git config user.name 'MUSIXQUARE Release Bot'
-          git config user.email 'actions@users.noreply.github.com'
-          git add -A
-          git commit -m 'fix(youtube): let PRO OS play cross autoplay guard'
-          git push origin HEAD:agent/fix-pro-native-play-autoplay-guard-v279
+      # E2E suite lives in its own manually dispatched workflow (e2e.yml).
+      # The serial suite is intentionally long-running; keep fast CI gating
+      # to typecheck + lint + unit tests + build, and run E2E on demand.

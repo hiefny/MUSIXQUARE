@@ -1,9 +1,10 @@
 name: One-shot Materialize Current Track Jump v280
 
 on:
-  issue_comment:
-    types:
-      - created
+  push:
+    branches: [main]
+    paths:
+      - .github/agent-current-track-jump-v280
 
 permissions:
   contents: write
@@ -15,10 +16,7 @@ concurrency:
 
 jobs:
   materialize:
-    if: >-
-      github.actor == 'hiefny' &&
-      github.event.issue.number == 41 &&
-      github.event.comment.body == '/materialize-current-track-jump-v280'
+    if: github.event.head_commit.message == 'chore: trigger v280 current-track jump materializer'
     runs-on: ubuntu-latest
     timeout-minutes: 30
 

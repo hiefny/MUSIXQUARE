@@ -113,3 +113,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ steps.commit.outputs.sha }}
         run: gh issue comment 41 --body "Validated clean v280 source committed at \`$SOURCE_SHA\`."
+
+      - name: Report materializer outcome
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: gh issue comment 41 --body "Materializer run \`${{ github.run_id }}\` finished with \`$JOB_STATUS\`."

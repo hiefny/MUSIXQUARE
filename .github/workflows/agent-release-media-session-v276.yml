@@ -1,0 +1,70 @@
+name: One-shot production app release v276
+
+on:
+  push:
+    branches:
+      - agent/release-media-session-v276
+    paths:
+      - .github/workflows/agent-release-media-session-v276.yml
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  dispatch:
+    if: github.event.head_commit.message == 'ops: dispatch production app release v276'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout helper branch
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: agent/release-media-session-v276
+
+      - name: Dispatch approved production workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: 589023dc6d8805fd13945ffd2c0235f0c5a108ca
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml \
+            --ref main \
+            -f target=app \
+            -f apply_developer_api_d1=false \
+            -f apply_pro_room_generation_d1=false \
+            -f enable_pro_room_generation_cutover=false
+
+          run_id=''
+          for _ in $(seq 1 30); do
+            gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?event=workflow_dispatch&branch=main&per_page=20" > /tmp/release-runs.json
+            run_id="$(jq -r --arg sha "$RELEASE_SHA" '[.workflow_runs[] | select(.head_sha == $sha)][0].id // empty' /tmp/release-runs.json)"
+            if [[ -n "$run_id" ]]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [[ -z "$run_id" ]]; then
+            echo '::error::Production release was dispatched but its run ID was not observed.'
+            exit 1
+          fi
+
+          jq -n \
+            --argjson run_id "$run_id" \
+            --arg head_sha "$RELEASE_SHA" \
+            --arg dispatched_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{run_id: $run_id, head_sha: $head_sha, target: "app", dispatched_at: $dispatched_at}' \
+            > .github/release-media-session-v276.json
+
+      - name: Record release run ID on helper branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'MUSIXQUARE Release Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add .github/release-media-session-v276.json
+          git commit -m 'ops: record production app release v276 run'
+          git push origin HEAD:agent/release-media-session-v276

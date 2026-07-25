@@ -32,7 +32,45 @@ jobs:
         run: npm ci
 
       - name: Apply focused v277 patch
-        run: python scripts/apply-native-youtube-control-v277.py
+        run: npm run --silent env -- python scripts/apply-native-youtube-control-v277.py
+
+      - name: Normalize generated authority types
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/youtube/native-control-authority.ts')
+          source = path.read_text(encoding='utf-8')
+
+          def replace_once(old: str, new: str, label: str) -> None:
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              source = source.replace(old, new, 1)
+
+          replace_once(
+              "import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';\n",
+              "import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';\n"
+              "import { isPlaybackActivityValue } from '../player/ownership.ts';\n",
+              'ownership import',
+          )
+          replace_once(
+              "bus.emit('youtube:set-local-paused', false, 'iframe-native-play');",
+              "bus.emit('youtube:set-local-paused', false, 'media-session-play');",
+              'local rejoin reason',
+          )
+          replace_once(
+              "function handlePlaybackActivity(nextActivity: PlaybackActivityValue): void {\n"
+              "  const previous = stableActivity(previousActivity);\n",
+              "function handlePlaybackActivity(nextActivity: unknown): void {\n"
+              "  if (!isPlaybackActivityValue(nextActivity)) return;\n"
+              "  const previous = stableActivity(previousActivity);\n",
+              'activity runtime guard',
+          )
+          path.write_text(source, encoding='utf-8')
+          PY
 
       - name: Remove temporary branch machinery
         run: |

@@ -36,6 +36,46 @@ jobs:
       - name: Apply focused v280 patch
         run: python scripts/apply-current-track-jump-v280.py
 
+      - name: Complete locale contract
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          translations = {
+              'de': 'Zum aktuell gespielten Titel springen',
+              'es': 'Ir a la pista en reproducción',
+              'fr': 'Aller au titre en cours de lecture',
+              'id': 'Buka lagu yang sedang diputar',
+              'it': 'Vai al brano in riproduzione',
+              'ja': '再生中の曲へ移動',
+              'nl': 'Naar het nummer dat nu speelt',
+              'pl': 'Przejdź do aktualnie odtwarzanego utworu',
+              'pt-br': 'Ir para a faixa em reprodução',
+              'ru': 'Перейти к текущему треку',
+              'th': 'ไปยังเพลงที่กำลังเล่น',
+              'tr': 'Çalan parçaya git',
+              'vi': 'Đi tới bài đang phát',
+              'zh-hans': '跳转到当前播放曲目',
+              'zh-hant': '跳至目前播放的曲目',
+          }
+          marker = "  'playlist.toggle':"
+          key = "'playlist.jump_to_current'"
+          for locale, translation in translations.items():
+              path = Path(f'src/i18n/{locale}.ts')
+              source = path.read_text(encoding='utf-8')
+              if key in source:
+                  continue
+              lines = source.splitlines(keepends=True)
+              index = next((i for i, line in enumerate(lines) if line.startswith(marker)), None)
+              if index is None:
+                  raise SystemExit(f'{path}: playlist.toggle marker not found')
+              newline = '\r\n' if lines[index].endswith('\r\n') else '\n'
+              escaped = translation.replace('\\', '\\\\').replace("'", "\\'")
+              lines.insert(index + 1, f"  {key}: '{escaped}',{newline}")
+              path.write_text(''.join(lines), encoding='utf-8')
+          PY
+
       - name: Remove temporary materializer and restore standard CI
         shell: bash
         run: |
@@ -48,8 +88,7 @@ jobs:
           src/ui/playlist-current-jump.ts
           src/ui/playlist-view.ts
           src/ui/__tests__/playlist-current-jump.test.ts
-          src/i18n/ko.ts
-          src/i18n/en.ts
+          src/i18n/*.ts
           css/style.css
 
       - name: Verify focused source scope
@@ -61,8 +100,23 @@ jobs:
             public/service-worker.js \
             scripts/apply-current-track-jump-v280.py \
             src/core/__tests__/service-worker-cache.test.ts \
+            src/i18n/de.ts \
             src/i18n/en.ts \
+            src/i18n/es.ts \
+            src/i18n/fr.ts \
+            src/i18n/id.ts \
+            src/i18n/it.ts \
+            src/i18n/ja.ts \
             src/i18n/ko.ts \
+            src/i18n/nl.ts \
+            src/i18n/pl.ts \
+            src/i18n/pt-br.ts \
+            src/i18n/ru.ts \
+            src/i18n/th.ts \
+            src/i18n/tr.ts \
+            src/i18n/vi.ts \
+            src/i18n/zh-hans.ts \
+            src/i18n/zh-hant.ts \
             src/ui/__tests__/playlist-current-jump.test.ts \
             src/ui/playlist-current-jump.ts \
             src/ui/playlist-view.ts | sort)"

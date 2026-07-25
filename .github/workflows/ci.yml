@@ -40,28 +40,28 @@ jobs:
           python - <<'PY'
           from pathlib import Path
 
-          path = Path('src/youtube/native-control-authority.ts')
-          source = path.read_text(encoding='utf-8')
+          authority_path = Path('src/youtube/native-control-authority.ts')
+          authority = authority_path.read_text(encoding='utf-8')
 
-          def replace_once(old: str, new: str, label: str) -> None:
-              global source
-              count = source.count(old)
+          def replace_authority_once(old: str, new: str, label: str) -> None:
+              global authority
+              count = authority.count(old)
               if count != 1:
                   raise SystemExit(f'{label}: expected one match, found {count}')
-              source = source.replace(old, new, 1)
+              authority = authority.replace(old, new, 1)
 
-          replace_once(
+          replace_authority_once(
               "import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';\n",
               "import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';\n"
               "import { isPlaybackActivityValue } from '../player/ownership.ts';\n",
               'ownership import',
           )
-          replace_once(
+          replace_authority_once(
               "bus.emit('youtube:set-local-paused', false, 'iframe-native-play');",
               "bus.emit('youtube:set-local-paused', false, 'media-session-play');",
               'local rejoin reason',
           )
-          replace_once(
+          replace_authority_once(
               "function handlePlaybackActivity(nextActivity: PlaybackActivityValue): void {\n"
               "  const previous = stableActivity(previousActivity);\n",
               "function handlePlaybackActivity(nextActivity: unknown): void {\n"
@@ -69,7 +69,49 @@ jobs:
               "  const previous = stableActivity(previousActivity);\n",
               'activity runtime guard',
           )
-          path.write_text(source, encoding='utf-8')
+          authority_path.write_text(authority, encoding='utf-8')
+
+          test_path = Path('src/youtube/__tests__/native-control-origin.test.ts')
+          test_source = test_path.read_text(encoding='utf-8')
+          old_block = """function createPlayer(initialState: number): YouTubePlayerInstance & { state: number } {
+            const player = {
+              state: initialState,
+              playVideo() {
+                this.state = 1;
+              },
+              pauseVideo() {
+                this.state = 2;
+              },
+              getPlayerState() {
+                return this.state;
+              },
+            } as unknown as YouTubePlayerInstance & { state: number };
+            return player;
+          }
+          """.replace('\n          ', '\n').lstrip()
+          new_block = """function createPlayer(initialState: number): YouTubePlayerInstance & { state: number } {
+            let state = initialState;
+            const player = {
+              get state() {
+                return state;
+              },
+              set state(value: number) {
+                state = value;
+              },
+              playVideo: () => {
+                state = 1;
+              },
+              pauseVideo: () => {
+                state = 2;
+              },
+              getPlayerState: () => state,
+            } as unknown as YouTubePlayerInstance & { state: number };
+            return player;
+          }
+          """.replace('\n          ', '\n').lstrip()
+          if test_source.count(old_block) != 1:
+              raise SystemExit('origin test player: expected one match')
+          test_path.write_text(test_source.replace(old_block, new_block, 1), encoding='utf-8')
           PY
 
       - name: Remove temporary branch machinery

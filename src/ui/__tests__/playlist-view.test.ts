@@ -744,8 +744,9 @@ describe('playlist queue identity rendering and actions', () => {
     await nextAnimationFrame();
 
     const scroller = document.querySelector<HTMLElement>('.tab-body')!;
-    expect(scrollTo).not.toHaveBeenCalled();
-    expect(scroller.scrollTop).toBeGreaterThan(0);
+    expect(scrollTo).toHaveBeenCalledOnce();
+    expect(scrollTo).toHaveBeenCalledWith({ top: 170, behavior: 'smooth' });
+    expect(scroller.scrollTop).toBe(170);
   });
 
   it('keeps deletion survivor focus without starting an unrelated current-track follow', async () => {

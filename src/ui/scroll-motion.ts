@@ -1,4 +1,4 @@
-export function prefersReducedScrollMotion(): boolean {
+function prefersReducedScrollMotion(): boolean {
   try {
     return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
   } catch {

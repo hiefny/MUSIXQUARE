@@ -37,7 +37,7 @@ jobs:
       - name: Apply focused v280 patch
         run: python scripts/apply-current-track-jump-v280.py
 
-      - name: Complete locale contract
+      - name: Complete locale and test contracts
         shell: bash
         run: |
           python - <<'PY'
@@ -75,6 +75,21 @@ jobs:
               escaped = translation.replace('\\', '\\\\').replace("'", "\\'")
               lines.insert(index + 1, f"  {key}: '{escaped}',{newline}")
               path.write_text(''.join(lines), encoding='utf-8')
+
+          test_path = Path('src/ui/__tests__/playlist-current-jump.test.ts')
+          test_source = test_path.read_text(encoding='utf-8')
+          replacements = {
+              "  onActivate: ReturnType<typeof vi.fn>;":
+                  "  onActivate: (selection: Readonly<PlaylistCurrentSelection>) => void;",
+              "  const onActivate = vi.fn();":
+                  "  const onActivate = vi.fn<(selection: Readonly<PlaylistCurrentSelection>) => void>();",
+          }
+          for old, new in replacements.items():
+              count = test_source.count(old)
+              if count != 1:
+                  raise SystemExit(f'{test_path}: expected one {old!r}, found {count}')
+              test_source = test_source.replace(old, new, 1)
+          test_path.write_text(test_source, encoding='utf-8')
           PY
 
       - name: Remove temporary materializer and restore standard CI

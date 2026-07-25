@@ -34,34 +34,35 @@ jobs:
       - name: Apply focused v277 patch
         run: python scripts/apply-native-youtube-control-v277.py
 
-      - name: Normalize generated authority types
+      - name: Normalize generated source
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
 
-          authority_path = Path('src/youtube/native-control-authority.ts')
-          authority = authority_path.read_text(encoding='utf-8')
-
-          def replace_authority_once(old: str, new: str, label: str) -> None:
-              global authority
-              count = authority.count(old)
+          def replace_once(path: Path, old: str, new: str, label: str) -> None:
+              source = path.read_text(encoding='utf-8')
+              count = source.count(old)
               if count != 1:
                   raise SystemExit(f'{label}: expected one match, found {count}')
-              authority = authority.replace(old, new, 1)
+              path.write_text(source.replace(old, new, 1), encoding='utf-8')
 
-          replace_authority_once(
+          authority_path = Path('src/youtube/native-control-authority.ts')
+          replace_once(
+              authority_path,
               "import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';\n",
               "import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';\n"
               "import { isPlaybackActivityValue } from '../player/ownership.ts';\n",
               'ownership import',
           )
-          replace_authority_once(
+          replace_once(
+              authority_path,
               "bus.emit('youtube:set-local-paused', false, 'iframe-native-play');",
               "bus.emit('youtube:set-local-paused', false, 'media-session-play');",
               'local rejoin reason',
           )
-          replace_authority_once(
+          replace_once(
+              authority_path,
               "function handlePlaybackActivity(nextActivity: PlaybackActivityValue): void {\n"
               "  const previous = stableActivity(previousActivity);\n",
               "function handlePlaybackActivity(nextActivity: unknown): void {\n"
@@ -69,7 +70,24 @@ jobs:
               "  const previous = stableActivity(previousActivity);\n",
               'activity runtime guard',
           )
-          authority_path.write_text(authority, encoding='utf-8')
+          replace_once(
+              authority_path,
+              "  let liveVideoId = '';\n",
+              "  let liveVideoId: string;\n",
+              'live video assignment',
+          )
+          replace_once(
+              Path('src/youtube/native-control-origin.ts'),
+              "export type YouTubeStableStateOrigin = 'programmatic' | 'native' | 'unsupported';",
+              "type YouTubeStableStateOrigin = 'programmatic' | 'native' | 'unsupported';",
+              'origin internal type',
+          )
+          replace_once(
+              Path('src/youtube/native-control-policy.ts'),
+              "export type NativeYouTubeControlRoute =",
+              "type NativeYouTubeControlRoute =",
+              'route internal type',
+          )
 
           test_path = Path('src/youtube/__tests__/native-control-origin.test.ts')
           test_source = test_path.read_text(encoding='utf-8')

@@ -1316,7 +1316,7 @@ export function initYouTube(): void {
       clearManagedTimer('yt-zero-start-host-fallback');
       setYtAutoplayIntent(false);
       log.warn('[YouTube ZeroStart] Legacy recovery timed out:', lastError ?? reason);
-      bus.emit('youtube:sync-loading', false);
+      bus.emit('youtube:sync-loading', false, 'zero-start');
 
       // Keep transient pause/seek/audio events fenced until the exact player
       // we owned has actually accepted the user's audio intent. WebKit can
@@ -1600,7 +1600,7 @@ export function initYouTube(): void {
         updateYouTubeZeroStartDesiredAudioState(pendingTransferredPrepareAudioIntent);
         pendingTransferredPrepareAudioIntent = null;
       }
-      bus.emit('youtube:sync-loading', busy);
+      bus.emit('youtube:sync-loading', busy, 'zero-start');
     },
     onPlaybackStarted: () => {
       setLocalYouTubePaused(false);

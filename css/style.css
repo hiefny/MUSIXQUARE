@@ -1421,6 +1421,35 @@
     pointer-events: auto;
   }
 
+  /* A short-lived interaction shield while app-owned YouTube
+     synchronization is in flight. It deliberately sits above the iframe
+     and fullscreen control, but below the actionable iOS play gate (z: 100). */
+  .youtube-sync-loading-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    box-sizing: border-box;
+    background: rgba(0, 0, 0, 0.62);
+    color: #fff;
+    pointer-events: auto;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+
+  .youtube-sync-loading-overlay[hidden] {
+    display: none;
+  }
+
+  .youtube-sync-loading-overlay span {
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.5;
+    text-align: center;
+  }
+
   /* Mobile portrait: let the 16:9 YouTube frame span the viewport width.
        Landscape and desktop keep the rounded, constrained presentation. */
   @media (orientation: portrait) and (max-width: 1279px) {

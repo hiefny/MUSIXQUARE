@@ -245,7 +245,18 @@
         </div>
 
         <!-- Runtime insertion point; its id and class are part of the YouTube wiring contract. -->
-        <div class="video-wrapper">
+        <div class="video-wrapper" aria-busy="false">
+          <div
+            id="youtube-sync-loading-overlay"
+            class="youtube-sync-loading-overlay"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            aria-hidden="true"
+            hidden
+          >
+            <span data-i18n="toast.yt_sync_start">Syncing...</span>
+          </div>
           <button
             class="fullscreen-btn"
             id="btn-fullscreen"

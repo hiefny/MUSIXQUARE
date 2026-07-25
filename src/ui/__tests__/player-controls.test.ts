@@ -701,7 +701,28 @@ describe('initPlayerControls playback mode rendering', () => {
     document.body.innerHTML = `
       <button id="play-btn"><svg><path d=""></path></svg></button>
       <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+      <div class="video-wrapper" aria-busy="false">
+        <div id="youtube-player-container"></div>
+        <div
+          id="youtube-sync-loading-overlay"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          aria-hidden="true"
+          hidden
+        ></div>
+      </div>
     `;
+  }
+
+  function expectYouTubeSyncOverlay(showing: boolean): void {
+    const wrapper = document.querySelector('.video-wrapper');
+    const youtubeContainer = document.getElementById('youtube-player-container');
+    const overlay = document.getElementById('youtube-sync-loading-overlay') as HTMLElement | null;
+    expect(wrapper?.getAttribute('aria-busy')).toBe(String(showing));
+    expect(youtubeContainer?.hasAttribute('inert')).toBe(showing);
+    expect(overlay?.hidden).toBe(!showing);
+    expect(overlay?.getAttribute('aria-hidden')).toBe(String(!showing));
   }
 
   it('renders the current playback mode immediately and stays reactive afterward', () => {
@@ -736,6 +757,115 @@ describe('initPlayerControls playback mode rendering', () => {
 
     bus.emit('ui:update-play-state', true);
     expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
+  });
+
+  it('blocks only the YouTube frame for the complete sync-loading lifecycle', () => {
+    renderPlaybackControls();
+    setState('playback.mode', 'youtube');
+    initPlayerControls();
+
+    expectYouTubeSyncOverlay(false);
+    bus.emit('youtube:sync-loading', true);
+    expectYouTubeSyncOverlay(true);
+
+    bus.emit('youtube:sync-loading', false);
+    expectYouTubeSyncOverlay(false);
+  });
+
+  it('keeps the shield while any independently owned YouTube sync remains pending', () => {
+    renderPlaybackControls();
+    setState('playback.mode', 'youtube');
+    initPlayerControls();
+
+    bus.emit('youtube:sync-loading', true, 'rendezvous');
+    bus.emit('youtube:sync-loading', true, 'clock-action');
+    expectYouTubeSyncOverlay(true);
+
+    bus.emit('youtube:sync-loading', false, 'rendezvous');
+    expectYouTubeSyncOverlay(true);
+
+    bus.emit('youtube:sync-loading', false, 'clock-action');
+    expectYouTubeSyncOverlay(false);
+  });
+
+  it('never exposes the YouTube shield for non-YouTube loading', () => {
+    renderPlaybackControls();
+    setState('playback.mode', 'file');
+    setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
+    initPlayerControls();
+
+    expect(document.getElementById('play-btn')?.classList).toContain('yt-syncing');
+    expectYouTubeSyncOverlay(false);
+
+    bus.emit('youtube:sync-loading', true);
+    expectYouTubeSyncOverlay(false);
+  });
+
+  it('removes the shield on mode exit even while a PRO transition remains pending', () => {
+    renderPlaybackControls();
+    setState('playback.mode', 'youtube');
+    initPlayerControls();
+
+    bus.emit('pro-playback:transition-loading', true);
+    expectYouTubeSyncOverlay(true);
+
+    setState('playback.mode', 'file');
+    expect(document.getElementById('play-btn')?.classList).toContain('yt-syncing');
+    expectYouTubeSyncOverlay(false);
+  });
+
+  it('clears a stale shield when player controls are re-initialized', () => {
+    renderPlaybackControls();
+    setState('playback.mode', 'youtube');
+    initPlayerControls();
+    bus.emit('youtube:sync-loading', true);
+    expectYouTubeSyncOverlay(true);
+
+    initPlayerControls();
+    expect(document.getElementById('play-btn')?.classList).not.toContain('yt-syncing');
+    expectYouTubeSyncOverlay(false);
+  });
+
+  it('shows the shield for pending PRO YouTube play and playing-seek controls', () => {
+    renderPlaybackControls();
+    setState('playback.mode', 'youtube');
+    initPlayerControls();
+
+    bus.emit('pro-playback:ui-control-pending', {
+      token: 30,
+      kind: 'play',
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      targetSeconds: 12,
+      wasPlaying: false,
+    });
+    expectYouTubeSyncOverlay(true);
+
+    bus.emit('pro-playback:ui-control-settled', {
+      token: 30,
+      kind: 'play',
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      status: 'applied',
+      positionSeconds: 12,
+    });
+    expectYouTubeSyncOverlay(false);
+
+    bus.emit('pro-playback:ui-control-pending', {
+      token: 31,
+      kind: 'seek',
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      targetSeconds: 30,
+      wasPlaying: true,
+    });
+    expectYouTubeSyncOverlay(true);
+
+    bus.emit('pro-playback:ui-control-settled', {
+      token: 31,
+      kind: 'seek',
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      status: 'applied',
+      positionSeconds: 30,
+    });
+    expectYouTubeSyncOverlay(false);
   });
 
   it('updates a ready PRO play button immediately when playback authority is revoked or granted', () => {

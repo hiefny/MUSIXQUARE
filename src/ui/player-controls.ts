@@ -40,7 +40,7 @@ import { initSeekBar } from './seekbar.ts';
 import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
-import type { ProPlaybackUiControlKind } from '../types/index.ts';
+import type { ProPlaybackUiControlKind, YouTubeSyncLoadingOwner } from '../types/index.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { navigateToAppHome } from '../core/navigation.ts';
 import { scopePlaybackModeActivity } from './_state-hooks.ts';
@@ -84,6 +84,7 @@ const ROLE_CLOCK_PULSE_TIMER = 'role-clock-pulse';
 const ROLE_CLOCK_PULSE_RESET_TIMER = 'role-clock-pulse-reset';
 const LOCAL_FILE_SYNC_SCHEDULE_AHEAD_MS = 200;
 let _ytPlayButtonLoading = false;
+const _ytSyncLoadingOwners = new Set<YouTubeSyncLoadingOwner | 'legacy'>();
 let _filePlayButtonLoading = false;
 let _proPlaybackControlLoading = false;
 let _proPlaybackTransitionLoading = false;
@@ -104,14 +105,28 @@ function isFilePlayButtonLoading(): boolean {
 
 function syncPlayButtonLoadingClass(): void {
   const btn = document.getElementById('play-btn');
-  if (!btn) return;
   const loading =
     _ytPlayButtonLoading ||
     _filePlayButtonLoading ||
     _proPlaybackControlLoading ||
     _proPlaybackTransitionLoading;
-  btn.classList.toggle('yt-syncing', loading);
-  btn.setAttribute('aria-busy', String(loading));
+  if (btn) {
+    btn.classList.toggle('yt-syncing', loading);
+    btn.setAttribute('aria-busy', String(loading));
+  }
+
+  const videoWrapper = document.querySelector<HTMLElement>('.video-wrapper');
+  const youtubeContainer = document.getElementById('youtube-player-container');
+  const overlay = document.getElementById('youtube-sync-loading-overlay');
+  const showYouTubeOverlay = loading && getState('playback.mode') === 'youtube';
+  if (videoWrapper) videoWrapper.setAttribute('aria-busy', String(showYouTubeOverlay));
+  if (youtubeContainer instanceof HTMLElement) {
+    youtubeContainer.toggleAttribute('inert', showYouTubeOverlay);
+  }
+  if (overlay) {
+    overlay.hidden = !showYouTubeOverlay;
+    overlay.setAttribute('aria-hidden', String(!showYouTubeOverlay));
+  }
 }
 
 function syncPlayButtonAuthority(): void {
@@ -924,6 +939,7 @@ export function initPlayerControls(): void {
   // don't stack duplicate handlers. Matches the pattern in connect.ts
   // and playlist-view.ts.
   _busScope.dispose();
+  _ytSyncLoadingOwners.clear();
   _ytPlayButtonLoading = false;
   _filePlayButtonLoading = false;
   _proPlaybackControlLoading = false;
@@ -932,6 +948,9 @@ export function initPlayerControls(): void {
   _proPlaybackControlKind = null;
   _playButtonMediaEnabled =
     document.getElementById('play-btn')?.getAttribute('aria-disabled') === 'false';
+  // Re-initialization must never inherit an interaction shield owned by a
+  // disposed subscription scope.
+  syncPlayButtonLoadingClass();
   initTabTitleMarquee(getTabTitleSnapshot);
 
   const $on = (id: string, evt: string, fn: EventListener) => {
@@ -1343,9 +1362,13 @@ export function initPlayerControls(): void {
 
       // Clear YouTube sync spinner when leaving YouTube mode
       if (playback.mode !== 'youtube') {
+        _ytSyncLoadingOwners.clear();
         _ytPlayButtonLoading = false;
-        syncPlayButtonLoadingClass();
       }
+      // The composite loading state may outlive a mode boundary (notably a
+      // PRO transition). Reconcile the iframe shield on every mode change so
+      // it appears only while the active engine is YouTube.
+      syncPlayButtonLoadingClass();
 
       // System audio: host gets "공유 중지", guest keeps "미디어 재생" (dimmed)
       const mediaBtn = document.getElementById('btn-media-source');
@@ -1389,8 +1412,18 @@ export function initPlayerControls(): void {
   });
 
   // YouTube auto-sync loading spinner on play button
-  _busScope.on('youtube:sync-loading', (loading) => {
-    _ytPlayButtonLoading = !!loading;
+  _busScope.on('youtube:sync-loading', (loading, owner) => {
+    if (owner) {
+      if (loading) _ytSyncLoadingOwners.add(owner);
+      else _ytSyncLoadingOwners.delete(owner);
+    } else if (loading) {
+      _ytSyncLoadingOwners.add('legacy');
+    } else {
+      // An unscoped false is the teardown hard reset used by mode/session
+      // owners that invalidate every outstanding synchronization operation.
+      _ytSyncLoadingOwners.clear();
+    }
+    _ytPlayButtonLoading = _ytSyncLoadingOwners.size > 0;
     syncPlayButtonLoadingClass();
   });
 

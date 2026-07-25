@@ -83,8 +83,19 @@ import { isYouTubeZeroStartProtocolActive } from './zero-start.ts';
  * broadcasts briefly after a manual one to let the player settle.
  */
 const MANUAL_BROADCAST_DEDUP_MS = 500;
+const RENDEZVOUS_LOADING_OWNER = 'rendezvous' as const;
+const CLOCK_ACTION_LOADING_OWNER = 'clock-action' as const;
 let _lastManualBroadcastAt = 0;
 let _wasProCoordinatorYouTubeEndpoint = false;
+
+/**
+ * A scheduled host-clock action owns only its own loading projection. Releasing
+ * it must not hide an overlapping manual rendezvous or zero-start barrier.
+ */
+function cancelClockAction(): void {
+  clearManagedTimer('yt-clock-action');
+  bus.emit('youtube:sync-loading', false, CLOCK_ACTION_LOADING_OWNER);
+}
 
 /** Effective playVideo-to-audible latency for guest rendezvous calibration. */
 function getEffectiveGuestPlayLatencyMs(): number {
@@ -836,7 +847,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   _rt.lastRendezvousAt = Date.now();
   // Suppress drift fighter for MARGIN + RENDEZVOUS_DRIFT_SUPPRESS_MS
   _rt.autoSyncUntil = Date.now() + RENDEZVOUS_MARGIN_SEC * 1000 + RENDEZVOUS_DRIFT_SUPPRESS_MS;
-  bus.emit('youtube:sync-loading', true);
+  bus.emit('youtube:sync-loading', true, RENDEZVOUS_LOADING_OWNER);
   notifyProgress(t('toast.yt_rendezvous_start'));
 
   // Step 1: seek to target + pause (stays paused while buffer fills)
@@ -941,7 +952,7 @@ function scheduleRendezvousPlay(
         finishRendezvous();
         return;
       }
-      bus.emit('youtube:sync-loading', false);
+      bus.emit('youtube:sync-loading', false, RENDEZVOUS_LOADING_OWNER);
       notifyProgress(t('toast.yt_rendezvous_done'));
       opts.onComplete?.();
 
@@ -1049,7 +1060,7 @@ function finishRendezvous(): void {
   clearManagedTimer('yt-rendezvous-buffer');
   clearManagedTimer('yt-rendezvous-play');
   clearManagedTimer('yt-rendezvous-calibrate');
-  bus.emit('youtube:sync-loading', false);
+  bus.emit('youtube:sync-loading', false, RENDEZVOUS_LOADING_OWNER);
 }
 
 /**
@@ -1151,7 +1162,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   if (state === 2 || state === 0 || state === -1) {
     _rt.autoSyncUntil = 0;
     clearPendingManualRendezvous();
-    clearManagedTimer('yt-clock-action');
+    cancelClockAction();
     bus.emit('youtube:sync-loading', false);
     cancelGuestRendezvous(); // Host paused/stopped while guest was rendezvousing
   }
@@ -1167,7 +1178,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   // periodic drift-correction broadcast) — its intent was to prevent drift
   // correction from fighting a scheduled play, not to block explicit host
   // actions. Explicit host actions (YOUTUBE_STATE) should always override.
-  clearManagedTimer('yt-clock-action');
+  cancelClockAction();
   clearManagedTimer('yt-seek-play');
 
   // Cancel any in-progress guest rendezvous when a new host PLAY arrives.
@@ -1217,7 +1228,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         if (mismatchHostPlayAt > 0 && isClockCalibrated()) {
           const waitForPlay = Math.max(MISMATCH_MIN_WAIT_MS, mismatchHostPlayAt - getHostNow());
           _rt.autoSyncUntil = Date.now() + waitForPlay + IMMEDIATE_ACTION_COOLDOWN_MS;
-          bus.emit('youtube:sync-loading', true);
+          bus.emit('youtube:sync-loading', true, CLOCK_ACTION_LOADING_OWNER);
           setManagedTimer(
             'yt-clock-action',
             () => {
@@ -1226,7 +1237,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
                 setYtAutoplayIntent(true);
                 p.playVideo();
               }
-              bus.emit('youtube:sync-loading', false);
+              bus.emit('youtube:sync-loading', false, CLOCK_ACTION_LOADING_OWNER);
             },
             waitForPlay,
           );
@@ -1288,7 +1299,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         _rt.autoSyncUntil = Date.now() + waitMs + POST_SCHEDULED_ACTION_COOLDOWN_MS;
 
         // 5. Show sync loading state on guest
-        bus.emit('youtube:sync-loading', true);
+        bus.emit('youtube:sync-loading', true, CLOCK_ACTION_LOADING_OWNER);
         showToast(t('toast.yt_sync_start'));
 
         // 6. Play at scheduled time
@@ -1300,7 +1311,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
               setYtAutoplayIntent(true); // authorize this play past pause-back guard
               p.playVideo();
             }
-            bus.emit('youtube:sync-loading', false);
+            bus.emit('youtube:sync-loading', false, CLOCK_ACTION_LOADING_OWNER);
             showToast(t('toast.yt_sync_done'));
           },
           waitMs,
@@ -1389,7 +1400,7 @@ function executeImmediate(
   subIndexChanged: boolean,
 ): void {
   // Clear any orphaned scheduled action — this immediate command supersedes it
-  clearManagedTimer('yt-clock-action');
+  cancelClockAction();
   clearManagedTimer('yt-seek-play');
   const manualTargetTime = applyYouTubeManualOffset(time, duration);
   if (manualTargetTime >= 0 && duration >= 0) {
@@ -1505,7 +1516,7 @@ function handleYouTubeStop(data: Record<string, unknown>, conn?: DataConnection)
   clearPendingManualRendezvous();
   log.debug('[Guest] Received youtube-stop, switching to local mode');
   resetAdDetection();
-  clearManagedTimer('yt-clock-action');
+  cancelClockAction();
   clearManagedTimer('yt-guest-ended-fallback');
   bus.emit('youtube:sync-loading', false);
   if (isPlaybackModeYouTube()) {

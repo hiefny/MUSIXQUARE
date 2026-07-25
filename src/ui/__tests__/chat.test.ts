@@ -305,6 +305,27 @@ describe('Chat Module', () => {
       expect(scrollTo).toHaveBeenCalledWith({ top: 1_000, behavior: 'smooth' });
     });
 
+    it('uses the shared reduced-motion scroll path for the chat jump control', async () => {
+      renderChatShell();
+      const messages = document.getElementById('chat-messages') as HTMLElement;
+      Object.defineProperties(messages, {
+        scrollHeight: { configurable: true, value: 1_000 },
+        clientHeight: { configurable: true, value: 400 },
+        scrollTop: { configurable: true, writable: true, value: 100 },
+      });
+      const scrollTo = vi.fn();
+      Object.defineProperty(messages, 'scrollTo', { configurable: true, value: scrollTo });
+      vi.spyOn(window, 'matchMedia').mockReturnValue({
+        matches: true,
+      } as MediaQueryList);
+
+      const { initChat } = await import('../chat.ts');
+      initChat();
+      document.getElementById('btn-chat-scroll-down')?.click();
+
+      expect(scrollTo).toHaveBeenCalledWith({ top: 1_000, behavior: 'auto' });
+    });
+
     it('clears unread badge when chat is cleared remotely', async () => {
       renderChatShell();
       const { initChat } = await import('../chat.ts');

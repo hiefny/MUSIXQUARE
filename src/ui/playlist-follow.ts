@@ -1,10 +1,9 @@
 import type { QueueItemId } from '../types/index.ts';
 import { getEffectiveScrollViewport } from './scroll-viewport.ts';
+import { cancelNativeSmoothScroll, scrollToWithPreferredMotion } from './scroll-motion.ts';
 
 const FOLLOW_TOLERANCE_PX = 2;
-const FOLLOW_MIN_DURATION_MS = 180;
-const FOLLOW_MAX_DURATION_MS = 320;
-const FOLLOW_DURATION_STEP_MS = 44;
+const FOLLOW_SCROLL_IDLE_MS = 160;
 const KEYBOARD_SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End']);
 
 interface FollowRequest {
@@ -13,11 +12,9 @@ interface FollowRequest {
   token: number;
 }
 
-interface FollowAnimation {
+interface ActiveFollow {
   token: number;
-  startedAt: number;
-  startTop: number;
-  durationMs: number;
+  targetTop: number;
 }
 
 interface PlaylistFollowOptions {
@@ -37,14 +34,6 @@ export interface PlaylistFollowController {
 
 function normalizeSubIndex(subIndex: number): number {
   return Number.isSafeInteger(subIndex) && subIndex >= 0 ? subIndex : -1;
-}
-
-function prefersReducedMotion(): boolean {
-  try {
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  } catch {
-    return false;
-  }
 }
 
 function entryForQueueItem(list: HTMLElement, queueItemId: QueueItemId): HTMLElement | null {
@@ -84,28 +73,14 @@ function desiredScrollTop(scrollContainer: HTMLElement, target: HTMLElement): nu
   return Math.min(maxScrollTop, Math.max(0, unclampedTop));
 }
 
-function followDurationMs(scrollContainer: HTMLElement, distance: number): number {
-  const viewportHeight = Math.max(1, getEffectiveScrollViewport(scrollContainer).heightCss);
-  const viewportCount = distance / viewportHeight;
-  return Math.min(
-    FOLLOW_MAX_DURATION_MS,
-    FOLLOW_MIN_DURATION_MS + Math.log2(1 + viewportCount) * FOLLOW_DURATION_STEP_MS,
-  );
-}
-
-function easeOutQuint(progress: number): number {
-  return 1 - Math.pow(1 - progress, 5);
-}
-
 /**
  * Keeps one active queue occurrence centered without coupling scroll success
  * to a particular DOM render. A pending request survives list replacement.
  *
- * The controller owns the animation instead of relying on native smooth
- * scrolling. Chromium can stretch a long native scroll beyond 1.5 seconds,
- * while a fixed watchdog interrupts that scroll and visibly snaps the final
- * distance. A short, distance-capped animation keeps every jump responsive and
- * also avoids stale compositor momentum in WebKit.
+ * Playlist follows intentionally use the same native smooth-scroll path as the
+ * chat jump control. No watchdog or forced final assignment is allowed here:
+ * long compositor animations may take longer, but they must never end in a
+ * visible JavaScript snap.
  */
 export function createPlaylistFollowController(
   options: PlaylistFollowOptions,
@@ -116,17 +91,41 @@ export function createPlaylistFollowController(
   let request: FollowRequest | null = null;
   let nextToken = 0;
   let frame = 0;
-  let animation: FollowAnimation | null = null;
+  let activeFollow: ActiveFollow | null = null;
+  let scrollIdleTimer = 0;
   let destroyed = false;
 
-  function cancelScheduledWork(): void {
+  function cancelScheduledFrame(): void {
     if (frame) window.cancelAnimationFrame(frame);
     frame = 0;
-    animation = null;
+  }
+
+  function clearScrollIdleTimer(): void {
+    if (scrollIdleTimer) window.clearTimeout(scrollIdleTimer);
+    scrollIdleTimer = 0;
+  }
+
+  function clearActiveFollow(): void {
+    clearScrollIdleTimer();
+    activeFollow = null;
+  }
+
+  function interruptActiveFollow(): void {
+    if (!activeFollow) return;
+    clearActiveFollow();
+    cancelNativeSmoothScroll(options.scrollContainer);
+  }
+
+  function completeActiveFollow(): void {
+    const active = activeFollow;
+    if (!active) return;
+    if (request?.token === active.token) request = null;
+    clearActiveFollow();
   }
 
   function replaceRequest(queueItemId: QueueItemId | null, subIndex: number): void {
-    cancelScheduledWork();
+    cancelScheduledFrame();
+    interruptActiveFollow();
     request = queueItemId
       ? {
           queueItemId,
@@ -145,94 +144,71 @@ export function createPlaylistFollowController(
       !options.isVisible() ||
       options.isBlocked?.()
     ) {
-      animation = null;
       return null;
     }
     return current;
   }
 
-  function animateFollow(token: number, timestamp: number): void {
+  function performFollow(token: number): void {
     frame = 0;
     const current = canContinue(token);
-    const activeAnimation = animation;
-    if (!current || !activeAnimation || activeAnimation.token !== token) return;
+    if (!current) {
+      interruptActiveFollow();
+      return;
+    }
 
     const target = targetForRequest(options.list, current);
     if (!target) {
-      animation = null;
+      interruptActiveFollow();
       return;
     }
     const top = desiredScrollTop(options.scrollContainer, target);
     if (top === null) {
-      animation = null;
+      interruptActiveFollow();
       return;
     }
-
-    const elapsed = Math.max(0, timestamp - activeAnimation.startedAt);
-    const progress = Math.min(1, elapsed / activeAnimation.durationMs);
-    const easedProgress = easeOutQuint(progress);
-    options.scrollContainer.scrollTop =
-      activeAnimation.startTop + (top - activeAnimation.startTop) * easedProgress;
-
-    if (progress >= 1 || Math.abs(options.scrollContainer.scrollTop - top) <= FOLLOW_TOLERANCE_PX) {
-      options.scrollContainer.scrollTop = top;
-      request = null;
-      animation = null;
-      return;
-    }
-
-    frame = window.requestAnimationFrame((nextTimestamp) => animateFollow(token, nextTimestamp));
-  }
-
-  function performFollow(token: number, timestamp: number): void {
-    frame = 0;
-    const current = canContinue(token);
-    if (!current) return;
-
-    const target = targetForRequest(options.list, current);
-    if (!target) return;
-    const top = desiredScrollTop(options.scrollContainer, target);
-    if (top === null) return;
 
     const distance = Math.abs(options.scrollContainer.scrollTop - top);
     if (distance <= FOLLOW_TOLERANCE_PX) {
       request = null;
+      clearActiveFollow();
       return;
     }
 
-    if (prefersReducedMotion()) {
-      options.scrollContainer.scrollTop = top;
+    if (
+      activeFollow?.token === token &&
+      Math.abs(activeFollow.targetTop - top) <= FOLLOW_TOLERANCE_PX
+    ) {
+      return;
+    }
+
+    interruptActiveFollow();
+    const behavior = scrollToWithPreferredMotion(options.scrollContainer, top);
+    if (behavior === 'auto') {
       request = null;
       return;
     }
-
-    animation = {
-      token,
-      startedAt: timestamp,
-      startTop: options.scrollContainer.scrollTop,
-      durationMs: followDurationMs(options.scrollContainer, distance),
-    };
-    frame = window.requestAnimationFrame((nextTimestamp) => animateFollow(token, nextTimestamp));
+    activeFollow = { token, targetTop: top };
   }
 
   function scheduleFollow(): void {
     const current = request;
-    if (
-      destroyed ||
-      !current ||
-      !options.isVisible() ||
-      options.isBlocked?.() ||
-      frame ||
-      animation
-    ) {
+    if (destroyed || !current) {
       return;
     }
+    if (!options.isVisible() || options.isBlocked?.()) {
+      cancelScheduledFrame();
+      interruptActiveFollow();
+      return;
+    }
+    if (frame) return;
     const token = current.token;
-    frame = window.requestAnimationFrame((timestamp) => performFollow(token, timestamp));
+    frame = window.requestAnimationFrame(() => performFollow(token));
   }
 
   function reset(): void {
-    cancelScheduledWork();
+    cancelScheduledFrame();
+    interruptActiveFollow();
     observedQueueItemId = undefined;
     observedSubIndex = undefined;
     request = null;
@@ -240,7 +216,8 @@ export function createPlaylistFollowController(
 
   const cancelForUserInteraction = (): void => {
     if (!request) return;
-    cancelScheduledWork();
+    cancelScheduledFrame();
+    interruptActiveFollow();
     request = null;
   };
   const interactionRoot = options.scrollContainer.parentElement ?? options.scrollContainer;
@@ -291,6 +268,21 @@ export function createPlaylistFollowController(
     pointerInteractionOptions,
   );
   interactionRoot.addEventListener('keydown', cancelForKeyboardScroll, {
+    signal: interactionController.signal,
+  });
+  options.scrollContainer.addEventListener(
+    'scroll',
+    () => {
+      if (!activeFollow) return;
+      clearScrollIdleTimer();
+      scrollIdleTimer = window.setTimeout(completeActiveFollow, FOLLOW_SCROLL_IDLE_MS);
+    },
+    {
+      passive: true,
+      signal: interactionController.signal,
+    },
+  );
+  options.scrollContainer.addEventListener('scrollend', completeActiveFollow, {
     signal: interactionController.signal,
   });
 

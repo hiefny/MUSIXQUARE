@@ -117,6 +117,9 @@ export interface StandardOperatorFileUplinkProgress {
 
 // ─── Playlist ──────────────────────────────────────────────────────
 export type QueueItemId = string;
+
+/** Independent producers that can keep YouTube synchronization UI busy. */
+export type YouTubeSyncLoadingOwner = 'rendezvous' | 'clock-action' | 'zero-start';
 /** Guest-local correlation token for one concrete file request. */
 export type FileRequestId = number;
 export type PlaylistRevision = number;
@@ -1267,7 +1270,13 @@ interface BaseEventMap {
   'chat:message-rendered': [sender: string, text: string, isMine: boolean];
 
   // ── YouTube ───────────────────────────────────────────────────────
-  'youtube:sync-loading': [loading: boolean];
+  /**
+   * Projects independently owned YouTube synchronization work into the UI.
+   * An owner-scoped `false` only releases that owner; an unscoped `false`
+   * remains the hard-reset signal used when YouTube mode/session teardown
+   * invalidates every pending operation.
+   */
+  'youtube:sync-loading': [loading: boolean, owner?: YouTubeSyncLoadingOwner];
   'youtube:load': [
     videoId: string | null,
     playlistId: string | null,

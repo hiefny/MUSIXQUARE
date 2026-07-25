@@ -1957,6 +1957,89 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(seeks.length).toBeGreaterThanOrEqual(2);
       expect(seeks[seeks.length - 1].args).toEqual([8, true]);
     });
+
+    it('releases a superseded clock-action loading owner before an immediate command', () => {
+      installPlayer({
+        __state: 2,
+        __duration: 300,
+        __currentTime: 0,
+        __videoId: 'FAKE_VIDEO',
+      });
+      const handler = capturedHandlers[MSG.YOUTUBE_STATE];
+      const loadingEvents: Array<[boolean, string | undefined]> = [];
+      bus.on('youtube:sync-loading', (loading, owner) => loadingEvents.push([loading, owner]));
+      setState('network.hostConn', mockHostConn as never);
+
+      handler(
+        {
+          state: 1,
+          time: 5,
+          hostPlayAt: Date.now() + 1_000,
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+        },
+        mockHostConn,
+      );
+      expect(loadingEvents.at(-1)).toEqual([true, 'clock-action']);
+      expect(getManagedTimer('yt-clock-action')).not.toBeNull();
+
+      handler(
+        {
+          state: 1,
+          time: 8,
+          hostPlayAt: 0,
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+        },
+        mockHostConn,
+      );
+
+      expect(getManagedTimer('yt-clock-action')).toBeNull();
+      expect(loadingEvents.at(-1)).toEqual([false, 'clock-action']);
+    });
+
+    it('keeps the replacement clock-action owner busy until its own countdown completes', () => {
+      installPlayer({
+        __state: 2,
+        __duration: 300,
+        __currentTime: 0,
+        __videoId: 'FAKE_VIDEO',
+      });
+      const handler = capturedHandlers[MSG.YOUTUBE_STATE];
+      const loadingEvents: Array<[boolean, string | undefined]> = [];
+      bus.on('youtube:sync-loading', (loading, owner) => loadingEvents.push([loading, owner]));
+      setState('network.hostConn', mockHostConn as never);
+
+      handler(
+        {
+          state: 1,
+          time: 5,
+          hostPlayAt: Date.now() + 1_000,
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+        },
+        mockHostConn,
+      );
+      vi.advanceTimersByTime(200);
+      handler(
+        {
+          state: 1,
+          time: 8,
+          hostPlayAt: Date.now() + 1_000,
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+        },
+        mockHostConn,
+      );
+
+      expect(loadingEvents.slice(-2)).toEqual([
+        [false, 'clock-action'],
+        [true, 'clock-action'],
+      ]);
+
+      vi.advanceTimersByTime(1_000);
+      expect(loadingEvents.at(-1)).toEqual([false, 'clock-action']);
+    });
   });
 
   // 6. handleYouTubeSync drift > 3s calls seekTo

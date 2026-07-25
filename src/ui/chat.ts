@@ -50,6 +50,7 @@ import {
   type ChatDrawerDetent,
   type ChatDrawerViewportContext,
 } from './chat-drawer-detents.ts';
+import { scrollToWithPreferredMotion } from './scroll-motion.ts';
 
 // ─── Chat State ──────────────────────────────────────────────────
 
@@ -1095,11 +1096,7 @@ export function initChat(): void {
     scrollDownBtn.addEventListener(
       'click',
       () => {
-        const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-        chatMessages.scrollTo({
-          top: chatMessages.scrollHeight,
-          behavior: reduceMotion ? 'auto' : 'smooth',
-        });
+        scrollToWithPreferredMotion(chatMessages, chatMessages.scrollHeight);
       },
       { signal: uiSignal },
     );

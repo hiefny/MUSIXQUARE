@@ -112,6 +112,7 @@ const en: Record<I18nKey, string> = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Expand/collapse playlist',
+  'playlist.jump_to_current': 'Jump to currently playing track',
   'playlist.reorder_handle': 'Reorder {{title}}, position {{position}}',
   'playlist.reorder_position': '{{title}}, position {{position}} of {{total}}',
   'playlist.repeat_all': 'Repeat all tracks enabled',

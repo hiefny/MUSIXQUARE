@@ -180,6 +180,7 @@ const es: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'Expandir/contraer lista',
+  'playlist.jump_to_current': 'Ir a la pista en reproducción',
   'playlist.reorder_handle': 'Reordenar {{title}}, posición {{position}}',
   'playlist.reorder_position': '{{title}}, posición {{position}} de {{total}}',
   'playlist.repeat_all': 'Repetición de todas las pistas activada',

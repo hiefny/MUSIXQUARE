@@ -109,6 +109,7 @@ const ru: Record<I18nKey, string> = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Показать/скрыть плейлист',
+  'playlist.jump_to_current': 'Перейти к текущему треку',
   'playlist.reorder_handle': 'Изменить порядок {{title}}, позиция {{position}}',
   'playlist.reorder_position': '{{title}}, позиция {{position}} из {{total}}',
   'playlist.repeat_all': 'Повтор всех треков включен',

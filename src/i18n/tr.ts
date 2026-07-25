@@ -110,6 +110,7 @@ const tr: Record<I18nKey, string> = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Çalma Listesini Göster/Gizle',
+  'playlist.jump_to_current': 'Çalan parçaya git',
   'playlist.reorder_handle': '{{title}} sırasını değiştir, konum {{position}}',
   'playlist.reorder_position': '{{title}}, {{total}} içinde {{position}}. konum',
   'playlist.repeat_all': 'Tümünü tekrarla aktif',

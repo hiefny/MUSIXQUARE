@@ -180,6 +180,7 @@ const vi: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'Mở/thu gọn danh sách phát',
+  'playlist.jump_to_current': 'Đi tới bài đang phát',
   'playlist.reorder_handle': 'Sắp xếp lại {{title}}, vị trí {{position}}',
   'playlist.reorder_position': '{{title}}, vị trí {{position}} trên {{total}}',
   'playlist.repeat_all': 'Đã bật lặp tất cả bài',

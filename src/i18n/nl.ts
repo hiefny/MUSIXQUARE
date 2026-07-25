@@ -113,6 +113,7 @@ const nl: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'Afspeellijst openen/sluiten',
+  'playlist.jump_to_current': 'Naar het nummer dat nu speelt',
   'playlist.reorder_handle': '{{title}} verplaatsen, positie {{position}}',
   'playlist.reorder_position': '{{title}}, positie {{position}} van {{total}}',
   'playlist.repeat_all': 'Alle nummers herhalen aan',

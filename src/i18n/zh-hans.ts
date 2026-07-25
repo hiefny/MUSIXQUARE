@@ -179,6 +179,7 @@ const zhHans: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': '展开/收起播放列表',
+  'playlist.jump_to_current': '跳转到当前播放曲目',
   'playlist.reorder_handle': '调整 {{title}} 的顺序，当前位置 {{position}}',
   'playlist.reorder_position': '{{title}}，第 {{position}} 项，共 {{total}} 项',
   'playlist.repeat_all': '已开启全部循环',

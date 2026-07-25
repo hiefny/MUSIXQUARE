@@ -181,6 +181,7 @@ const de: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'Playlist ein-/ausklappen',
+  'playlist.jump_to_current': 'Zum aktuell gespielten Titel springen',
   'playlist.reorder_handle': '{{title}} neu anordnen, Position {{position}}',
   'playlist.reorder_position': '{{title}}, Position {{position}} von {{total}}',
   'playlist.repeat_all': 'Alle Titel wiederholen aktiviert',

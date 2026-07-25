@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: musixquare-ci-${{ github.workflow }}-${{ github.ref }}
@@ -132,7 +133,28 @@ jobs:
           git diff --check
 
       - name: Typecheck
-        run: npm run typecheck
+        id: typecheck
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee /tmp/v280-typecheck.log
+
+      - name: Report typecheck diagnostics
+        if: steps.typecheck.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          {
+            echo 'v280 materialization typecheck failed:'
+            echo
+            echo '```text'
+            tail -n 100 /tmp/v280-typecheck.log
+            echo '```'
+          } > /tmp/v280-typecheck-comment.md
+          gh pr comment 42 --body-file /tmp/v280-typecheck-comment.md
+          exit 1
 
       - name: Lint
         run: npm run lint

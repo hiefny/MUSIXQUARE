@@ -1,6 +1,6 @@
-import { getBodyRenderedScale } from '../core/platform.ts';
 import { t } from '../i18n/index.ts';
 import type { QueueItemId } from '../types/index.ts';
+import { getEffectiveScrollViewport } from './scroll-viewport.ts';
 
 const VISIBILITY_TOLERANCE_PX = 2;
 
@@ -66,6 +66,7 @@ function createButton(panel: HTMLElement): HTMLButtonElement {
   button.setAttribute('title', t('playlist.jump_to_current'));
   button.setAttribute('data-i18n-aria-label', 'playlist.jump_to_current');
   button.setAttribute('data-i18n-title', 'playlist.jump_to_current');
+  button.setAttribute('aria-controls', 'playlist-ui');
   button.setAttribute('aria-hidden', 'true');
   button.tabIndex = -1;
   button.innerHTML =
@@ -93,6 +94,9 @@ export function createPlaylistCurrentJumpController(
     button.classList.remove('show', 'is-above');
     button.setAttribute('aria-hidden', 'true');
     button.tabIndex = -1;
+    if (document.activeElement === button) {
+      options.panel.focus({ preventScroll: true });
+    }
   }
 
   function showButton(direction: 'above' | 'below'): void {
@@ -128,23 +132,24 @@ export function createPlaylistCurrentJumpController(
     }
 
     const targetRect = target.getBoundingClientRect();
-    const containerRect = options.scrollContainer.getBoundingClientRect();
-    const renderedScale = getBodyRenderedScale();
-    const viewportTop = containerRect.top + options.scrollContainer.clientTop * renderedScale;
-    const viewportBottom = viewportTop + options.scrollContainer.clientHeight * renderedScale;
+    const viewport = getEffectiveScrollViewport(options.scrollContainer);
 
     if (
       targetRect.height <= 0 ||
-      options.scrollContainer.clientHeight <= 0 ||
-      !Number.isFinite(viewportTop) ||
-      !Number.isFinite(viewportBottom)
+      viewport.heightCss <= 0 ||
+      !Number.isFinite(viewport.top) ||
+      !Number.isFinite(viewport.bottom)
     ) {
       hideButton();
       return;
     }
 
-    const clippedAbove = targetRect.top < viewportTop - VISIBILITY_TOLERANCE_PX;
-    const clippedBelow = targetRect.bottom > viewportBottom + VISIBILITY_TOLERANCE_PX;
+    const panelRect = options.panel.getBoundingClientRect();
+    const topWithinPanel = (viewport.top - panelRect.top) / viewport.renderedScale + 16;
+    button.style.setProperty('--playlist-current-jump-top', `${Math.max(16, topWithinPanel)}px`);
+
+    const clippedAbove = targetRect.top < viewport.top - VISIBILITY_TOLERANCE_PX;
+    const clippedBelow = targetRect.bottom > viewport.bottom + VISIBILITY_TOLERANCE_PX;
     if (!clippedAbove && !clippedBelow) {
       hideButton();
       return;

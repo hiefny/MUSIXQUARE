@@ -6440,6 +6440,7 @@
   /* ── Chat Scroll Down Button ── */
   .chat-scroll-down-btn {
     position: absolute;
+    top: auto;
     bottom: 16px;
     left: 50%;
     width: 36px;
@@ -6447,14 +6448,14 @@
     min-height: 36px;
     min-width: 36px;
     border-radius: 50%;
-    background-color: var(--surface-1);
-    color: var(--text-main);
+    background-color: var(--text-main);
+    color: var(--bg);
     border: none;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    box-shadow: none;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
     z-index: 20;
     opacity: 0;
     pointer-events: none;
@@ -6475,9 +6476,14 @@
 
   @media (hover: hover) {
     .chat-scroll-down-btn:hover {
-      background-color: var(--surface-2);
-      box-shadow: none;
+      background-color: var(--text-main);
+      box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
     }
+  }
+
+  .chat-scroll-down-btn:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
   }
 
   .chat-scroll-down-btn:active {
@@ -6503,7 +6509,21 @@
     transform: rotate(180deg);
   }
 
-  @media (min-width: 1280px) {
+  .playlist-current-jump-btn.is-above {
+    top: var(--playlist-current-jump-top, 16px);
+    bottom: auto;
+    transform: translate(-50%, -10px);
+  }
+
+  .playlist-current-jump-btn.is-above.show {
+    transform: translate(-50%, 0);
+  }
+
+  .playlist-current-jump-btn.is-above:active {
+    transform: translate(-50%, 0) scale(0.92);
+  }
+
+  @media (min-width: 720px) {
     .playlist-current-jump-btn {
       bottom: 16px;
     }
@@ -8294,6 +8314,7 @@
       min-height: 0 !important;
       height: auto !important;
       overflow-y: auto !important;
+      scroll-padding-bottom: 0 !important;
     }
 
     #tab-playlist > .playlist-selection-pill {

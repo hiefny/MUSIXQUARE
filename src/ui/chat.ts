@@ -1074,24 +1074,36 @@ export function initChat(): void {
   const scrollDownBtn = document.getElementById('btn-chat-scroll-down');
 
   if (chatMessages && scrollDownBtn) {
+    const refreshScrollDownButton = (): void => {
+      const show = !isContainerAtBottom(chatMessages);
+      scrollDownBtn.classList.toggle('show', show);
+      scrollDownBtn.setAttribute('aria-hidden', show ? 'false' : 'true');
+      scrollDownBtn.tabIndex = show ? 0 : -1;
+      if (!show && document.activeElement === scrollDownBtn) {
+        chatMessages.focus({ preventScroll: true });
+      }
+    };
+
     // `passive: true` is the modern default for scroll listeners but we
     // mark it explicitly — Safari ≤ 11 still required the hint, and the
     // browsers that don't need it ignore the option harmlessly.
-    chatMessages.addEventListener(
-      'scroll',
-      () => {
-        scrollDownBtn.classList.toggle('show', !isContainerAtBottom(chatMessages));
-      },
-      { passive: true, signal: uiSignal },
-    );
+    chatMessages.addEventListener('scroll', refreshScrollDownButton, {
+      passive: true,
+      signal: uiSignal,
+    });
 
     scrollDownBtn.addEventListener(
       'click',
       () => {
-        chatMessages.scrollTo({ top: chatMessages.scrollHeight, behavior: 'smooth' });
+        const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        chatMessages.scrollTo({
+          top: chatMessages.scrollHeight,
+          behavior: reduceMotion ? 'auto' : 'smooth',
+        });
       },
       { signal: uiSignal },
     );
+    refreshScrollDownButton();
   }
 
   // Wire up UI buttons

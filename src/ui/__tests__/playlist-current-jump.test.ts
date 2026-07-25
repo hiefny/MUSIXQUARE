@@ -33,7 +33,7 @@ function setup(): {
   onActivate: (selection: Readonly<PlaylistCurrentSelection>) => void;
 } {
   document.body.innerHTML = `
-    <section id="tab-playlist" class="tab-content active">
+    <section id="tab-playlist" class="tab-content active" tabindex="-1">
       <div class="tab-body"><ul id="playlist-ui"></ul></div>
     </section>`;
   const panel = document.getElementById('tab-playlist')!;
@@ -113,13 +113,46 @@ describe('playlist current-track jump affordance', () => {
       vi.advanceTimersByTime(16);
       expect(button.classList).toContain('show');
       expect(button.classList).toContain('is-above');
+      expect(button.style.getPropertyValue('--playlist-current-jump-top')).toBe('116px');
 
+      button.focus();
       scroller.scrollTop = 540;
       scroller.dispatchEvent(new Event('scroll'));
       vi.advanceTimersByTime(16);
       expect(button.classList).not.toContain('show');
+      expect(document.activeElement).toBe(panel);
       expect(button.tabIndex).toBe(-1);
       expect(button.getAttribute('aria-hidden')).toBe('true');
+    } finally {
+      controller.destroy();
+    }
+  });
+
+  it('treats the mobile navigation clearance as outside the visible playlist viewport', () => {
+    const { panel, scroller, list, selection, onActivate } = setup();
+    scroller.style.scrollPaddingBottom = '80px';
+    scroller.scrollTop = 500;
+    const controller = createPlaylistCurrentJumpController({
+      panel,
+      list,
+      scrollContainer: scroller,
+      getSelection: () => selection,
+      isVisible: () => true,
+      onActivate,
+    });
+    try {
+      vi.advanceTimersByTime(16);
+      const button = document.getElementById('btn-playlist-current-track')!;
+
+      // The row is inside the raw 200px scrollbox but behind its 80px bottom
+      // clearance, so the below locator must remain available.
+      expect(button.classList).toContain('show');
+      expect(button.classList).not.toContain('is-above');
+
+      scroller.scrollTop = 580;
+      scroller.dispatchEvent(new Event('scroll'));
+      vi.advanceTimersByTime(16);
+      expect(button.classList).not.toContain('show');
     } finally {
       controller.destroy();
     }

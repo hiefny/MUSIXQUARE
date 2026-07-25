@@ -95,6 +95,34 @@ afterEach(() => {
 });
 
 describe('playlist active-track follow', () => {
+  it('centers inside the mobile viewport above its bottom navigation clearance', () => {
+    const { panel, scroller, list } = setupScroller();
+    renderEntries(list, [QUEUE_A, QUEUE_B]);
+    scroller.style.scrollPaddingBottom = '80px';
+    scroller.scrollTop = 120;
+    const scrollTo = vi.fn((options: ScrollToOptions) => {
+      scroller.scrollTop = options.top as number;
+    });
+    Object.defineProperty(scroller, 'scrollTo', { configurable: true, value: scrollTo });
+
+    const controller = createPlaylistFollowController({
+      list,
+      scrollContainer: scroller,
+      isVisible: () => panel.classList.contains('active'),
+    });
+    try {
+      controller.updateSelection(QUEUE_B, -1);
+      controller.afterRender();
+      vi.advanceTimersByTime(16);
+
+      // The usable viewport is 120px tall, so its logical center is 60px
+      // below the top rather than the raw scrollbox's 100px center.
+      expect(scrollTo).toHaveBeenCalledWith({ top: 580, behavior: 'smooth' });
+    } finally {
+      controller.destroy();
+    }
+  });
+
   it('centers a physically scaled target using logical scroll coordinates', () => {
     document.body.style.setProperty('--desktop-ui-scale', '1.5');
     const { panel, scroller, list } = setupScroller();

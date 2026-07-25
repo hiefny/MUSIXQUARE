@@ -1,5 +1,5 @@
 import type { QueueItemId } from '../types/index.ts';
-import { getBodyRenderedScale } from '../core/platform.ts';
+import { getEffectiveScrollViewport } from './scroll-viewport.ts';
 
 const FOLLOW_SETTLE_MS = 440;
 const FOLLOW_TOLERANCE_PX = 2;
@@ -64,18 +64,15 @@ function targetForRequest(list: HTMLElement, request: FollowRequest): HTMLElemen
 }
 
 function desiredScrollTop(scrollContainer: HTMLElement, target: HTMLElement): number | null {
-  const viewportHeight = scrollContainer.clientHeight;
   const targetRect = target.getBoundingClientRect();
-  if (viewportHeight <= 0 || targetRect.height <= 0) return null;
+  const viewport = getEffectiveScrollViewport(scrollContainer);
+  if (viewport.heightCss <= 0 || targetRect.height <= 0) return null;
 
-  const containerRect = scrollContainer.getBoundingClientRect();
-  const renderedScale = getBodyRenderedScale();
-  const viewportTop = containerRect.top + scrollContainer.clientTop * renderedScale;
   const targetCenterInContent =
     scrollContainer.scrollTop +
-    (targetRect.top - viewportTop + targetRect.height / 2) / renderedScale;
-  const unclampedTop = targetCenterInContent - viewportHeight / 2;
-  const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - viewportHeight);
+    (targetRect.top - viewport.rawTop + targetRect.height / 2) / viewport.renderedScale;
+  const unclampedTop = targetCenterInContent - viewport.centerOffsetCss;
+  const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
   return Math.min(maxScrollTop, Math.max(0, unclampedTop));
 }
 

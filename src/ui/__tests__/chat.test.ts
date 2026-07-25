@@ -260,7 +260,7 @@ describe('Chat Module', () => {
         <div id="chat-drawer" data-chat-snap="half">
           <div class="chat-drawer-header"></div>
         </div>
-        <div id="chat-messages"></div>
+        <div id="chat-messages" tabindex="-1"></div>
         <button id="btn-chat-scroll-down"></button>
         <button id="btn-chat-send"></button>
         <button id="btn-chat-close"></button>
@@ -268,6 +268,42 @@ describe('Chat Module', () => {
         <div id="chat-pinned-notice"></div>
       `;
     }
+
+    it('keeps the hidden scroll control out of tab order and exposes it when needed', async () => {
+      renderChatShell();
+      const messages = document.getElementById('chat-messages') as HTMLElement;
+      Object.defineProperties(messages, {
+        scrollHeight: { configurable: true, value: 1_000 },
+        clientHeight: { configurable: true, value: 400 },
+        scrollTop: { configurable: true, writable: true, value: 600 },
+      });
+      const scrollTo = vi.fn();
+      Object.defineProperty(messages, 'scrollTo', { configurable: true, value: scrollTo });
+
+      const { initChat } = await import('../chat.ts');
+      initChat();
+
+      const button = document.getElementById('btn-chat-scroll-down') as HTMLButtonElement;
+      expect(button.classList).not.toContain('show');
+      expect(button.getAttribute('aria-hidden')).toBe('true');
+      expect(button.tabIndex).toBe(-1);
+
+      messages.scrollTop = 100;
+      messages.dispatchEvent(new Event('scroll'));
+      expect(button.classList).toContain('show');
+      expect(button.getAttribute('aria-hidden')).toBe('false');
+      expect(button.tabIndex).toBe(0);
+
+      button.focus();
+      messages.scrollTop = 600;
+      messages.dispatchEvent(new Event('scroll'));
+      expect(document.activeElement).toBe(messages);
+
+      messages.scrollTop = 100;
+      messages.dispatchEvent(new Event('scroll'));
+      button.click();
+      expect(scrollTo).toHaveBeenCalledWith({ top: 1_000, behavior: 'smooth' });
+    });
 
     it('clears unread badge when chat is cleared remotely', async () => {
       renderChatShell();

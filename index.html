@@ -1551,6 +1551,7 @@
           id="chat-messages"
           role="log"
           aria-live="polite"
+          tabindex="-1"
           data-custom-scroll
         >
           <div class="chat-empty" data-i18n-html="chat.empty_html"></div>
@@ -1558,7 +1559,11 @@
         <button
           class="chat-scroll-down-btn"
           id="btn-chat-scroll-down"
+          type="button"
           aria-label=""
+          aria-controls="chat-messages"
+          aria-hidden="true"
+          tabindex="-1"
           data-i18n-aria-label="chat.scroll_to_bottom"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">

@@ -1,0 +1,86 @@
+name: One-shot Release - Current Track Jump v280
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: musixquare-one-shot-release-current-track-jump-v280
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: >-
+      github.actor == 'hiefny' &&
+      github.event.issue.number == 42 &&
+      github.event.issue.pull_request &&
+      github.event.comment.body == '/release-current-track-jump-v280'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      FIX_COMMIT: 6dd2a07c92970425c036ccf81ccdd52e5f4f8c45
+      CACHE_VERSION: v280
+      RELEASE_PR: '42'
+
+    steps:
+      - name: Checkout exact current main commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate one-shot release identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor "$FIX_COMMIT" HEAD
+          grep -F "const CACHE_VERSION = '$CACHE_VERSION';" public/service-worker.js
+          grep -F "const ACTIVE_CACHE_VERSION = '$CACHE_VERSION';" src/core/__tests__/service-worker-cache.test.ts
+          test -f src/ui/playlist-current-jump.ts
+          test -f src/ui/__tests__/playlist-current-jump.test.ts
+          grep -F "createPlaylistCurrentJumpController" src/ui/playlist-view.ts
+
+      - name: Dispatch production app release
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_sha="$(git rev-parse HEAD)"
+          dispatched_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          gh workflow run release.yml \
+            --ref main \
+            -f target=app \
+            -f apply_developer_api_d1=false \
+            -f apply_pro_room_generation_d1=false \
+            -f enable_pro_room_generation_cutover=false
+
+          run_id=''
+          for _ in $(seq 1 45); do
+            gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?event=workflow_dispatch&branch=main&per_page=30" > /tmp/release-runs.json
+            run_id="$(jq -r --arg sha "$release_sha" --arg since "$dispatched_at" '
+              [.workflow_runs[] |
+                select(.head_sha == $sha and .event == "workflow_dispatch" and .created_at >= $since)] |
+              sort_by(.created_at) | last | .id // empty
+            ' /tmp/release-runs.json)"
+            if [[ -n "$run_id" ]]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [[ -z "$run_id" ]]; then
+            echo '::error::The production workflow was dispatched but its run ID was not observed.'
+            exit 1
+          fi
+
+          gh pr comment "$RELEASE_PR" --body "Production app release dispatched for \`$release_sha\` (service-worker \`$CACHE_VERSION\`). Actions run ID: \`$run_id\`."

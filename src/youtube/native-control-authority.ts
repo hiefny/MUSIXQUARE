@@ -158,14 +158,6 @@ function queueLocalRejoin(player: YouTubePlayerInstance, queueItemId: QueueItemI
   setManagedTimer(LOCAL_REJOIN_TIMER, flushPendingLocalRejoin, LOCAL_REJOIN_FALLBACK_MS);
 }
 
-function pauseUntilAuthority(player: YouTubePlayerInstance): void {
-  try {
-    player.pauseVideo?.();
-  } catch (error) {
-    log.debug('[YouTube Native Control] Corrective authority pause failed', error);
-  }
-}
-
 function routeNativeAction(
   player: YouTubePlayerInstance,
   action: NativeYouTubeMediaAction,
@@ -195,23 +187,39 @@ function routeNativeAction(
   }
 
   setLocalYouTubePaused(false);
-  if (action === 'play' && route !== 'standard-host') pauseUntilAuthority(player);
 
   if (route === 'pro-controller') {
-    routeProPlaybackCommand(
-      { kind: action, queueItemId, positionSeconds },
-      { wasPlaying: previous === 'playing' },
-    );
+    if (action === 'play') {
+      // The iframe is already playing under a trusted OS media gesture.
+      // Keep it alive while the server establishes the canonical timeline;
+      // pausing first makes iOS reject the later asynchronous playVideo().
+      routeProPlaybackCommand({ kind: 'play', queueItemId, positionSeconds });
+    } else {
+      routeProPlaybackCommand(
+        { kind: 'pause', queueItemId, positionSeconds },
+        { wasPlaying: previous === 'playing' },
+      );
+    }
     log.info(`[YouTube Native Control] Routed ${action} through PRO authority`);
     return;
   }
 
   if (route === 'standard-controller') {
     if (!hostConn?.open) return;
-    safeSend(hostConn, {
+    const sent = safeSend(hostConn, {
       type: action === 'play' ? MSG.REQUEST_YOUTUBE_PLAY : MSG.REQUEST_YOUTUBE_PAUSE,
       queueItemId,
     });
+    if (!sent && action === 'play') {
+      // Fail closed only when the request could not leave this endpoint. A
+      // successfully sent OS PLAY must remain audible so iOS keeps the trusted
+      // media gesture alive until the host's synchronized command arrives.
+      try {
+        player.pauseVideo?.();
+      } catch (error) {
+        log.debug('[YouTube Native Control] Failed to restore pause after send failure', error);
+      }
+    }
     log.info(`[YouTube Native Control] Requested standard-room ${action}`);
     return;
   }

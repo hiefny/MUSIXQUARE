@@ -1,0 +1,409 @@
+--- src/youtube/native-control-origin.ts
++++ src/youtube/native-control-origin.ts
+@@ -1,19 +1,26 @@
+ /**
+  * Tracks whether a stable YouTube iframe state came from a MUSIXQUARE API call.
+  *
+- * OS/headphone controls can operate the iframe's own media session without
+- * invoking the top-level page Media Session handler. Every application-owned
+- * playVideo()/pauseVideo() call is wrapped after player readiness; a later
+- * stable state with no matching expectation is therefore an iframe-native
+- * observation rather than an application command.
++ * iOS can route AirPods and lock-screen controls to the iframe's own media
++ * session without invoking the top-level page handler. Application-owned player
++ * methods are instrumented once; a later stable state with no matching expected
++ * transition is therefore an iframe-native observation.
+  */
+ 
+ import type { YouTubePlayerInstance } from './_state.ts';
+ 
+ export type YouTubeStableActivity = 'playing' | 'paused';
+ type YouTubeStableStateOrigin = 'programmatic' | 'native' | 'unsupported';
++type StableMethodName =
++  | 'playVideo'
++  | 'pauseVideo'
++  | 'loadVideoById'
++  | 'loadPlaylist'
++  | 'cueVideoById'
++  | 'cuePlaylist';
+ 
+-type StableMethodName = 'playVideo' | 'pauseVideo';
++type PlayerMethod = (...args: unknown[]) => unknown;
++type WrappedPlayerMethod = PlayerMethod & { [WRAPPED_METHOD]?: true };
+ 
+ interface ExpectedStableState {
+   token: number;
+@@ -23,24 +30,32 @@
+ 
+ interface PlayerInstrumentation {
+   expected: ExpectedStableState[];
+-  playSupported: boolean;
+-  pauseSupported: boolean;
++  supported: boolean;
++}
++
++interface StableMethodSpec {
++  name: StableMethodName;
++  activity: YouTubeStableActivity;
++  required: boolean;
++  alwaysExpect?: boolean;
+ }
+ 
+ const WRAPPED_METHOD = Symbol('musixquare.youtube.stable-control-wrapper');
+ const EXPECTED_STATE_TTL_MS = 4_000;
+ const MAX_EXPECTED_STATES = 12;
++const STABLE_METHODS: readonly StableMethodSpec[] = [
++  { name: 'playVideo', activity: 'playing', required: true },
++  { name: 'pauseVideo', activity: 'paused', required: true },
++  { name: 'loadVideoById', activity: 'playing', required: true, alwaysExpect: true },
++  { name: 'loadPlaylist', activity: 'playing', required: true, alwaysExpect: true },
++  { name: 'cueVideoById', activity: 'paused', required: false, alwaysExpect: true },
++  { name: 'cuePlaylist', activity: 'paused', required: true, alwaysExpect: true },
++];
+ const instrumentationByPlayer = new WeakMap<YouTubePlayerInstance, PlayerInstrumentation>();
+ let expectedStateSequence = 0;
+ 
+-type WrappedStableMethod = (() => void) & { [WRAPPED_METHOD]?: true };
+-
+-function targetActivity(method: StableMethodName): YouTubeStableActivity {
+-  return method === 'playVideo' ? 'playing' : 'paused';
+-}
+-
+-function targetPlayerState(activity: YouTubeStableActivity): number {
+-  return activity === 'playing' ? 1 : 2;
++function asMethodRecord(player: YouTubePlayerInstance): Record<StableMethodName, PlayerMethod | undefined> {
++  return player as unknown as Record<StableMethodName, PlayerMethod | undefined>;
+ }
+ 
+ function isTestMock(fn: unknown): boolean {
+@@ -67,41 +82,54 @@
+   activity: YouTubeStableActivity,
+ ): boolean {
+   try {
+-    return player.getPlayerState?.() !== targetPlayerState(activity);
++    const targetState = activity === 'playing' ? 1 : 2;
++    return player.getPlayerState?.() !== targetState;
+   } catch {
+     return true;
+   }
+ }
+ 
++function armExpectedState(
++  player: YouTubePlayerInstance,
++  instrumentation: PlayerInstrumentation,
++  activity: YouTubeStableActivity,
++  alwaysExpect = false,
++): number | null {
++  if (!alwaysExpect && !shouldArmExpectation(player, activity)) return null;
++  const token = ++expectedStateSequence;
++  pruneExpected(instrumentation);
++  instrumentation.expected.push({
++    token,
++    activity,
++    expiresAt: Date.now() + EXPECTED_STATE_TTL_MS,
++  });
++  return token;
++}
++
+ function installStableMethod(
+   player: YouTubePlayerInstance,
+   instrumentation: PlayerInstrumentation,
+-  method: StableMethodName,
++  spec: StableMethodSpec,
+ ): boolean {
+-  const current = player[method] as WrappedStableMethod | undefined;
+-  if (typeof current !== 'function') return false;
++  const methods = asMethodRecord(player);
++  const current = methods[spec.name] as WrappedPlayerMethod | undefined;
++  if (typeof current !== 'function') return !spec.required;
+   if (current[WRAPPED_METHOD] === true) return true;
+ 
+-  // Existing unit tests commonly use vi.fn() and inspect the method property
+-  // directly. Skip those synthetic players; production fails closed to the old
+-  // behaviour if a real player method cannot be instrumented.
++  // Existing tests often expose vi.fn() methods and assert against the exact
++  // function object. Skip those synthetic players. A real player that cannot
++  // be instrumented fails closed and leaves the old behaviour untouched.
+   if (isTestMock(current)) return false;
+ 
+-  const activity = targetActivity(method);
+-  const wrapped: WrappedStableMethod = () => {
+-    let token: number | null = null;
+-    if (shouldArmExpectation(player, activity)) {
+-      token = ++expectedStateSequence;
+-      pruneExpected(instrumentation);
+-      instrumentation.expected.push({
+-        token,
+-        activity,
+-        expiresAt: Date.now() + EXPECTED_STATE_TTL_MS,
+-      });
+-    }
+-
++  const wrapped: WrappedPlayerMethod = (...args) => {
++    const token = armExpectedState(
++      player,
++      instrumentation,
++      spec.activity,
++      spec.alwaysExpect === true,
++    );
+     try {
+-      current.call(player);
++      return current.apply(player, args);
+     } catch (error) {
+       if (token !== null) removeExpectedToken(instrumentation, token);
+       throw error;
+@@ -109,9 +137,9 @@
+   };
+   Object.defineProperty(wrapped, WRAPPED_METHOD, { value: true });
+ 
+-  const descriptor = Object.getOwnPropertyDescriptor(player, method);
++  const descriptor = Object.getOwnPropertyDescriptor(player, spec.name);
+   try {
+-    Object.defineProperty(player, method, {
++    Object.defineProperty(player, spec.name, {
+       value: wrapped,
+       configurable: descriptor?.configurable ?? true,
+       enumerable: descriptor?.enumerable ?? false,
+@@ -119,46 +147,54 @@
+     });
+   } catch {
+     try {
+-      player[method] = wrapped;
++      methods[spec.name] = wrapped;
+     } catch {
+       return false;
+     }
+   }
+-  return player[method] === wrapped;
++  return methods[spec.name] === wrapped;
+ }
+ 
+ export function instrumentYouTubeStableControls(player: YouTubePlayerInstance): boolean {
+   let instrumentation = instrumentationByPlayer.get(player);
+   if (!instrumentation) {
+-    instrumentation = {
+-      expected: [],
+-      playSupported: false,
+-      pauseSupported: false,
+-    };
++    instrumentation = { expected: [], supported: false };
+     instrumentationByPlayer.set(player, instrumentation);
+   }
+ 
+-  instrumentation.playSupported = installStableMethod(player, instrumentation, 'playVideo');
+-  instrumentation.pauseSupported = installStableMethod(player, instrumentation, 'pauseVideo');
+-  return instrumentation.playSupported && instrumentation.pauseSupported;
++  instrumentation.supported = STABLE_METHODS.every((spec) =>
++    installStableMethod(player, instrumentation, spec),
++  );
++  return instrumentation.supported;
++}
++
++/** Arm the initial state expected from a newly-ready iframe instance. */
++export function expectYouTubeStableActivity(
++  player: YouTubePlayerInstance,
++  activity: YouTubeStableActivity,
++): boolean {
++  if (!instrumentYouTubeStableControls(player)) return false;
++  const instrumentation = instrumentationByPlayer.get(player);
++  if (!instrumentation) return false;
++  armExpectedState(player, instrumentation, activity);
++  return true;
+ }
+ 
+ export function classifyYouTubeStableStateOrigin(
+   player: YouTubePlayerInstance,
+   activity: YouTubeStableActivity,
+ ): YouTubeStableStateOrigin {
+-  instrumentYouTubeStableControls(player);
++  if (!instrumentYouTubeStableControls(player)) return 'unsupported';
+   const instrumentation = instrumentationByPlayer.get(player);
+-  const supported =
+-    activity === 'playing'
+-      ? instrumentation?.playSupported === true
+-      : instrumentation?.pauseSupported === true;
+-  if (!instrumentation || !supported) return 'unsupported';
++  if (!instrumentation?.supported) return 'unsupported';
+ 
+   pruneExpected(instrumentation);
+   const index = instrumentation.expected.findIndex((entry) => entry.activity === activity);
+   if (index === -1) return 'native';
+-  instrumentation.expected.splice(index, 1);
++
++  // Consuming through the matched entry removes superseded expectations that
++  // preceded it (for example cue→play where CUED never produced PAUSED).
++  instrumentation.expected.splice(0, index + 1);
+   return 'programmatic';
+ }
+ 
+--- src/youtube/native-control-authority.ts
++++ src/youtube/native-control-authority.ts
+@@ -11,7 +11,7 @@
+ import { bus, createBusScope, type BusScope } from '../core/events.ts';
+ import { log } from '../core/log.ts';
+ import { getState } from '../core/state.ts';
+-import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
++import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+ import { safeSend } from '../network/peer.ts';
+ import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
+ import { isPlaybackActivityValue } from '../player/ownership.ts';
+@@ -20,6 +20,7 @@
+ import type { QueueItemId } from '../types/index.ts';
+ import {
+   getYouTubePlayer,
++  getYtAutoplayIntent,
+   isYtIndexing,
+   isYtLoadInProgress,
+   isYtPrimeBouncePending,
+@@ -27,10 +28,11 @@
+   setLocalYouTubePaused,
+   type YouTubePlayerInstance,
+ } from './_state.ts';
+-import { PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER, toCanonicalYouTubeTime } from './local-offset.ts';
++import { toCanonicalYouTubeTime } from './local-offset.ts';
+ import {
+   classifyYouTubeStableStateOrigin,
+   clearYouTubeStableControlExpectations,
++  expectYouTubeStableActivity,
+   instrumentYouTubeStableControls,
+   type YouTubeStableActivity,
+ } from './native-control-origin.ts';
+@@ -42,14 +44,6 @@
+ const RECENT_NATIVE_ACTION_MS = 2_500;
+ const LOCAL_REJOIN_FALLBACK_MS = 250;
+ const LOCAL_REJOIN_TIMER = 'yt-native-control-local-rejoin';
+-const PROTECTED_TIMER_NAMES = [
+-  'yt-auto-sync',
+-  'yt-clock-action',
+-  'yt-seek-play',
+-  'yt-rendezvous-buffer',
+-  'yt-rendezvous-play',
+-  'yt-same-video-occurrence-handoff',
+-] as const;
+ 
+ interface RecentNativeAction {
+   action: NativeYouTubeMediaAction;
+@@ -76,20 +70,24 @@
+   return activity === 'playing' ? 'play' : 'pause';
+ }
+ 
+-function ensureCurrentPlayerInstrumented(): void {
++function ensureCurrentPlayerInstrumented(): boolean {
+   const player = getYouTubePlayer();
+-  if (!player) return;
+-  if (!instrumentYouTubeStableControls(player)) {
++  if (!player) return false;
++  const supported = instrumentYouTubeStableControls(player);
++  if (!supported) {
+     log.debug('[YouTube Native Control] Stable player methods are not instrumentable');
+   }
++  return supported;
++}
++
++function handlePlayerReady(): void {
++  const player = getYouTubePlayer();
++  if (!player || !ensureCurrentPlayerInstrumented()) return;
++  expectYouTubeStableActivity(player, getYtAutoplayIntent() ? 'playing' : 'paused');
+ }
+ 
+ function hasProtectedTransitionOwner(): boolean {
+-  if (isYtLoadInProgress() || isYtIndexing() || isYtPriming() || isYtPrimeBouncePending()) {
+-    return true;
+-  }
+-  if (getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)) return true;
+-  return PROTECTED_TIMER_NAMES.some((name) => !!getManagedTimer(name));
++  return isYtLoadInProgress() || isYtIndexing() || isYtPriming() || isYtPrimeBouncePending();
+ }
+ 
+ function resolveIntendedVideoId(queueItemId: QueueItemId): string | null {
+@@ -257,7 +255,7 @@
+   pendingLocalRejoin = null;
+   clearManagedTimer(LOCAL_REJOIN_TIMER);
+ 
+-  scope.on('youtube:player-ready', ensureCurrentPlayerInstrumented);
++  scope.on('youtube:player-ready', handlePlayerReady);
+   scope.on('state:playback.mode', () => {
+     const player = getYouTubePlayer();
+     if (getState('playback.mode') !== 'youtube') {
+--- src/youtube/__tests__/native-control-origin.test.ts
++++ src/youtube/__tests__/native-control-origin.test.ts
+@@ -3,6 +3,7 @@
+ import type { YouTubePlayerInstance } from '../_state.ts';
+ import {
+   classifyYouTubeStableStateOrigin,
++  expectYouTubeStableActivity,
+   instrumentYouTubeStableControls,
+ } from '../native-control-origin.ts';
+ 
+@@ -21,6 +22,18 @@
+     pauseVideo: () => {
+       state = 2;
+     },
++    loadVideoById: () => {
++      state = 1;
++    },
++    loadPlaylist: () => {
++      state = 1;
++    },
++    cueVideoById: () => {
++      state = 2;
++    },
++    cuePlaylist: () => {
++      state = 2;
++    },
+     getPlayerState: () => state,
+   } as unknown as YouTubePlayerInstance & { state: number };
+   return player;
+@@ -38,6 +51,25 @@
+     expect(classifyYouTubeStableStateOrigin(player, 'paused')).toBe('programmatic');
+   });
+ 
++  it('classifies application load and cue calls as programmatic', () => {
++    const player = createPlayer(2);
++    expect(instrumentYouTubeStableControls(player)).toBe(true);
++
++    player.loadVideoById('video');
++    expect(classifyYouTubeStableStateOrigin(player, 'playing')).toBe('programmatic');
++
++    player.cueVideoById?.('video');
++    expect(classifyYouTubeStableStateOrigin(player, 'paused')).toBe('programmatic');
++  });
++
++  it('arms load commands even when the outgoing iframe is already playing', () => {
++    const player = createPlayer(1);
++    expect(instrumentYouTubeStableControls(player)).toBe(true);
++
++    player.loadVideoById('next-video');
++    expect(classifyYouTubeStableStateOrigin(player, 'playing')).toBe('programmatic');
++  });
++
+   it('classifies an iframe-only stable transition as native', () => {
+     const player = createPlayer(1);
+     expect(instrumentYouTubeStableControls(player)).toBe(true);
+@@ -46,6 +78,26 @@
+     expect(classifyYouTubeStableStateOrigin(player, 'paused')).toBe('native');
+   });
+ 
++  it('arms the initial state expected from a newly-ready iframe', () => {
++    const player = createPlayer(-1);
++    expect(expectYouTubeStableActivity(player, 'playing')).toBe(true);
++
++    player.state = 1;
++    expect(classifyYouTubeStableStateOrigin(player, 'playing')).toBe('programmatic');
++  });
++
++  it('drops superseded cue expectations when a later play is observed', () => {
++    const player = createPlayer(1);
++    expect(instrumentYouTubeStableControls(player)).toBe(true);
++
++    player.cueVideoById?.('video');
++    player.playVideo();
++    expect(classifyYouTubeStableStateOrigin(player, 'playing')).toBe('programmatic');
++
++    player.state = 2;
++    expect(classifyYouTubeStableStateOrigin(player, 'paused')).toBe('native');
++  });
++
+   it('does not leave an expectation behind when a wrapped command throws', () => {
+     const player = createPlayer(2);
+     player.playVideo = () => {

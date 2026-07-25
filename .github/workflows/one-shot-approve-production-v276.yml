@@ -1,0 +1,62 @@
+name: One-shot Approve Production v276
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  actions: read
+  contents: read
+  deployments: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  approve:
+    if: >-
+      github.actor == 'hiefny' &&
+      github.event.issue.number == 29 &&
+      github.event.issue.pull_request &&
+      github.event.comment.body == '/approve-production-v276 30144404437'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      RUN_ID: '30144404437'
+      RELEASE_PR: '29'
+
+    steps:
+      - name: Review pending production deployment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          pending="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/pending_deployments")"
+          environment_ids="$(jq -c '[.[].environment.id]' <<< "$pending")"
+
+          if [[ "$(jq 'length' <<< "$environment_ids")" -eq 0 ]]; then
+            gh pr comment "$RELEASE_PR" --body "No pending deployment environment was found for production run \`$RUN_ID\`."
+            exit 0
+          fi
+
+          payload="$(jq -n \
+            --argjson environment_ids "$environment_ids" \
+            --arg comment 'Approved by repository owner command for the validated MUSIXQUARE media-session v276 release.' \
+            '{environment_ids: $environment_ids, state: "approved", comment: $comment}')"
+
+          response_file="$(mktemp)"
+          if gh api \
+            --method POST \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/pending_deployments" \
+            --input - \
+            > "$response_file" \
+            <<< "$payload"; then
+            gh pr comment "$RELEASE_PR" --body "Approved the pending production environment for Actions run \`$RUN_ID\`."
+            exit 0
+          fi
+
+          detail="$(tr '\n' ' ' < "$response_file" | head -c 800)"
+          gh pr comment "$RELEASE_PR" --body "Automatic production approval for run \`$RUN_ID\` was rejected by GitHub. Detail: \`$detail\`"
+          exit 1

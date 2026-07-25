@@ -51,7 +51,25 @@ jobs:
             src/youtube/__tests__/native-control-policy.test.ts
 
       - name: Typecheck
-        run: npm run typecheck
+        id: typecheck
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee typecheck-v277.log
+
+      - name: Upload typecheck diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-youtube-control-v277-typecheck
+          path: typecheck-v277.log
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Stop after typecheck failure
+        if: steps.typecheck.outcome != 'success'
+        run: exit 1
 
       - name: Lint
         run: npm run lint

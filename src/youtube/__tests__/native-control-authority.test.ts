@@ -20,10 +20,7 @@ vi.mock('../../network/peer.ts', () => ({
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
-import {
-  setPlaybackYouTubePaused,
-  setPlaybackYouTubePlaying,
-} from '../../player/ownership.ts';
+import { setPlaybackYouTubePaused, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { PlaylistItem, QueueItemId } from '../../types/index.ts';
 import {
   markYtPlayerReady,

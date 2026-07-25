@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { MSG, type PlaybackActivityValue } from '../core/constants.ts';
+import type { PlaybackActivityValue } from '../core/constants.ts';
 import { togglePlay, stopPlayback, skipTime, pause } from './transport.ts';
 import { setLocalFilePaused } from './_state.ts';
 import {
@@ -22,12 +22,15 @@ import { getCurrentQueueItemId } from './queue-model.ts';
 import type { PlaylistItem } from '../types/index.ts';
 import { getTrackDisplayTitle } from './track-display.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
-import { routeProPlaybackCommand } from '../pro-room/playback-authority-hooks.ts';
 import { isLocalYouTubePaused } from '../youtube/_state.ts';
 import {
   hasPendingAudioContextInterruption,
   resumePendingAudioContextInterruptionFromGesture,
 } from '../audio/context-recovery.ts';
+import {
+  initYouTubeNativeControlAuthority,
+  shouldIgnoreRecentNativeYouTubeMediaAction,
+} from '../youtube/native-control-authority.ts';
 
 function mediaSessionStateFromActivity(activity: PlaybackActivityValue): MediaSessionPlaybackState {
   if (activity === 'playing') return 'playing';
@@ -87,6 +90,7 @@ export function updateMediaSessionMetadata(item: Partial<PlaylistItem> | null): 
 // ─── Init ──────────────────────────────────────────────────────────
 
 export function initMediaSession(): void {
+  initYouTubeNativeControlAuthority();
   if (!('mediaSession' in navigator)) return;
   log.debug('[MediaSession] Initializing action handlers...');
 
@@ -100,147 +104,6 @@ export function initMediaSession(): void {
     return !!(hostConn && !hasRoomCapability('playback.control'));
   };
   const isNonOperatorGuest = isPlaybackBlocked;
-
-  type YouTubeMediaSessionAction = 'play' | 'pause';
-  type YouTubeStableActivity = 'playing' | 'paused';
-
-  // Some OS/headphone controls are applied to the YouTube iframe before the
-  // top-level Media Session callback runs. Preserve that exact paused<->playing
-  // edge briefly so the callback can still promote it to room authority.
-  const PREAPPLIED_YOUTUBE_ACTION_WINDOW_MS = 2_500;
-  let observedPlaybackMode = getState('playback.mode');
-  let observedPlaybackActivity = getState('playback.activity');
-  let recentYouTubeTransition: {
-    from: YouTubeStableActivity;
-    to: YouTubeStableActivity;
-    at: number;
-    consumed: boolean;
-  } | null = null;
-  let lastRoutedYouTubeAction: {
-    action: YouTubeMediaSessionAction;
-    at: number;
-  } | null = null;
-
-  bus.on('state:playback.mode', () => {
-    observedPlaybackMode = getState('playback.mode');
-    if (observedPlaybackMode !== 'youtube') recentYouTubeTransition = null;
-  });
-
-  bus.on('state:playback.activity', () => {
-    const nextMode = getState('playback.mode');
-    const nextActivity = getState('playback.activity');
-    const previousStableActivity =
-      observedPlaybackActivity === 'playing' || observedPlaybackActivity === 'paused'
-        ? observedPlaybackActivity
-        : null;
-    const nextStableActivity =
-      nextActivity === 'playing' || nextActivity === 'paused' ? nextActivity : null;
-
-    if (
-      nextMode === 'youtube' &&
-      observedPlaybackMode === 'youtube' &&
-      previousStableActivity &&
-      nextStableActivity &&
-      previousStableActivity !== nextStableActivity
-    ) {
-      recentYouTubeTransition = {
-        from: previousStableActivity,
-        to: nextStableActivity,
-        at: Date.now(),
-        consumed: false,
-      };
-    }
-
-    observedPlaybackMode = nextMode;
-    observedPlaybackActivity = nextActivity;
-  });
-
-  const markRoutedYouTubeAction = (action: YouTubeMediaSessionAction): void => {
-    lastRoutedYouTubeAction = { action, at: Date.now() };
-  };
-
-  const consumePreappliedYouTubeAction = (action: YouTubeMediaSessionAction): boolean => {
-    const desiredActivity: YouTubeStableActivity = action === 'play' ? 'playing' : 'paused';
-    const priorActivity: YouTubeStableActivity = action === 'play' ? 'paused' : 'playing';
-    if (
-      getState('playback.mode') !== 'youtube' ||
-      getState('playback.activity') !== desiredActivity
-    ) {
-      return false;
-    }
-
-    const transition = recentYouTubeTransition;
-    const now = Date.now();
-    if (
-      !transition ||
-      transition.consumed ||
-      transition.from !== priorActivity ||
-      transition.to !== desiredActivity ||
-      now < transition.at ||
-      now - transition.at > PREAPPLIED_YOUTUBE_ACTION_WINDOW_MS
-    ) {
-      return false;
-    }
-
-    transition.consumed = true;
-    return !(
-      lastRoutedYouTubeAction?.action === action &&
-      now >= lastRoutedYouTubeAction.at &&
-      now - lastRoutedYouTubeAction.at <= PREAPPLIED_YOUTUBE_ACTION_WINDOW_MS
-    );
-  };
-
-  const getYouTubePosition = (): number => {
-    let positionSeconds = 0;
-    bus.emit('youtube:get-position', (position) => {
-      if (Number.isFinite(position)) positionSeconds = Math.max(0, position);
-    });
-    return positionSeconds;
-  };
-
-  const requestAuthoritativeYouTubeAction = (action: YouTubeMediaSessionAction): void => {
-    const queueItemId = getCurrentQueueItemId();
-    if (!queueItemId) return;
-
-    const positionSeconds = getYouTubePosition();
-    const room = getRoomContext();
-    if (room.kind === 'pro') {
-      routeProPlaybackCommand(
-        {
-          kind: action,
-          queueItemId,
-          positionSeconds,
-        },
-        { wasPlaying: action === 'pause' },
-      );
-      return;
-    }
-
-    const hostConn = getState('network.hostConn');
-    if (hostConn) {
-      if (!hasRoomCapability('playback.control') || hostConn.open !== true) return;
-      try {
-        if (action === 'play') {
-          hostConn.send({ type: MSG.REQUEST_YOUTUBE_PLAY, queueItemId });
-        } else {
-          hostConn.send({ type: MSG.REQUEST_YOUTUBE_PAUSE, queueItemId });
-        }
-      } catch (error) {
-        log.warn(`[MediaSession] Failed to relay YouTube ${action} intent`, error);
-      }
-      return;
-    }
-
-    // Standard-room host: reuse the existing scheduled YouTube authority path.
-    // PLAY therefore receives the precision rendezvous that a raw iframe
-    // PLAYING transition cannot provide; PAUSE also cancels any pending PLAY.
-    bus.emit('youtube:auto-play', {
-      targetTime: positionSeconds,
-      skipSeek: false,
-      zeroStart: action === 'play' && positionSeconds <= 0.12,
-      state: action === 'play' ? 1 : 2,
-    });
-  };
 
   const requestLocalPlay = (mode: 'file' | 'youtube'): void => {
     const emitRejoin = (): void => {
@@ -269,6 +132,7 @@ export function initMediaSession(): void {
 
   navigator.mediaSession.setActionHandler('play', () => {
     if (isPlaybackModeYouTube()) {
+      if (shouldIgnoreRecentNativeYouTubeMediaAction('play')) return;
       if (hasPendingAudioContextInterruption() && isPlaybackPlayingYouTube()) {
         requestLocalPlay('youtube');
         return;
@@ -281,13 +145,7 @@ export function initMediaSession(): void {
         requestLocalPlay('youtube');
         return;
       }
-      if (isPlaybackPlayingYouTube()) {
-        if (!consumePreappliedYouTubeAction('play')) return;
-        markRoutedYouTubeAction('play');
-        requestAuthoritativeYouTubeAction('play');
-        return;
-      }
-      markRoutedYouTubeAction('play');
+      if (isPlaybackPlayingYouTube()) return;
       togglePlay();
       return;
     }
@@ -322,18 +180,13 @@ export function initMediaSession(): void {
 
   navigator.mediaSession.setActionHandler('pause', () => {
     if (isPlaybackModeYouTube()) {
+      if (shouldIgnoreRecentNativeYouTubeMediaAction('pause')) return;
       if (isNonOperatorGuest()) {
         if (isLocalYouTubePaused()) return;
         bus.emit('youtube:set-local-paused', true);
         return;
       }
-      if (!isPlaybackPlayingYouTube()) {
-        if (!consumePreappliedYouTubeAction('pause')) return;
-        markRoutedYouTubeAction('pause');
-        requestAuthoritativeYouTubeAction('pause');
-        return;
-      }
-      markRoutedYouTubeAction('pause');
+      if (!isPlaybackPlayingYouTube()) return;
       togglePlay();
       return;
     }

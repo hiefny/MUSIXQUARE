@@ -1,7 +1,7 @@
 name: One-shot production app release v276
 
-# Installed on a helper branch only. A subsequent ordinary trigger-file push
-# starts this workflow without adding release machinery to main.
+# Installed on a helper branch only. A subsequent trigger-file merge starts
+# this workflow without adding release machinery to main.
 on:
   push:
     branches:
@@ -25,48 +25,62 @@ jobs:
         with:
           ref: agent/release-media-session-v276
 
-      - name: Dispatch approved production workflow
+      - name: Dispatch approved production workflow and record outcome
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: 589023dc6d8805fd13945ffd2c0235f0c5a108ca
         shell: bash
         run: |
-          set -euo pipefail
-          gh workflow run release.yml \
+          set -uo pipefail
+          result='failed'
+          error=''
+          run_id=''
+
+          if gh workflow run release.yml \
             --ref main \
             -f target=app \
             -f apply_developer_api_d1=false \
             -f apply_pro_room_generation_d1=false \
-            -f enable_pro_room_generation_cutover=false
-
-          run_id=''
-          for _ in $(seq 1 30); do
-            gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?event=workflow_dispatch&branch=main&per_page=20" > /tmp/release-runs.json
-            run_id="$(jq -r --arg sha "$RELEASE_SHA" '[.workflow_runs[] | select(.head_sha == $sha)][0].id // empty' /tmp/release-runs.json)"
-            if [[ -n "$run_id" ]]; then
-              break
+            -f enable_pro_room_generation_cutover=false; then
+            for _ in $(seq 1 30); do
+              if ! gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?event=workflow_dispatch&branch=main&per_page=20" > /tmp/release-runs.json; then
+                error='workflow run listing failed'
+                break
+              fi
+              run_id="$(jq -r --arg sha "$RELEASE_SHA" '[.workflow_runs[] | select(.head_sha == $sha)][0].id // empty' /tmp/release-runs.json)"
+              if [[ -n "$run_id" ]]; then
+                result='dispatched'
+                break
+              fi
+              sleep 2
+            done
+            if [[ -z "$run_id" && -z "$error" ]]; then
+              error='dispatch accepted but matching run ID was not observed'
             fi
-            sleep 2
-          done
-
-          if [[ -z "$run_id" ]]; then
-            echo '::error::Production release was dispatched but its run ID was not observed.'
-            exit 1
+          else
+            error='gh workflow run was rejected'
           fi
 
           jq -n \
-            --argjson run_id "$run_id" \
+            --arg result "$result" \
+            --arg run_id "$run_id" \
             --arg head_sha "$RELEASE_SHA" \
-            --arg dispatched_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{run_id: $run_id, head_sha: $head_sha, target: "app", dispatched_at: $dispatched_at}' \
+            --arg error "$error" \
+            --arg recorded_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{result: $result, run_id: (if $run_id == "" then null else ($run_id | tonumber) end), head_sha: $head_sha, target: "app", error: (if $error == "" then null else $error end), recorded_at: $recorded_at}' \
             > .github/release-media-session-v276.json
 
-      - name: Record release run ID on helper branch
+      - name: Record dispatcher outcome on helper branch
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'MUSIXQUARE Release Bot'
           git config user.email 'actions@users.noreply.github.com'
           git add .github/release-media-session-v276.json
-          git commit -m 'ops: record production app release v276 run'
+          git commit -m 'ops: record production app release v276 dispatcher outcome'
           git push origin HEAD:agent/release-media-session-v276
+
+      - name: Fail when dispatch did not succeed
+        shell: bash
+        run: |
+          test "$(jq -r '.result' .github/release-media-session-v276.json)" = 'dispatched'

@@ -1,12 +1,13 @@
 name: One-shot production app release v276
 
-# The first commit installs this branch-only helper; this follow-up push triggers it.
+# Installed on a helper branch only. A subsequent ordinary trigger-file push
+# starts this workflow without adding release machinery to main.
 on:
   push:
     branches:
       - agent/release-media-session-v276
     paths:
-      - .github/workflows/agent-release-media-session-v276.yml
+      - .github/agent-release-media-session-v276-trigger
 
 permissions:
   actions: write

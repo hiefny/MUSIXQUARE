@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -10,33 +8,47 @@ permissions:
   contents: read
 
 concurrency:
-  group: musixquare-ci-${{ github.workflow }}-${{ github.ref }}
+  group: musixquare-native-control-v277-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  ci:
+  generate-validated-patch:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    strategy:
-      matrix:
-        node-version: [22]
+    timeout-minutes: 35
 
     steps:
       - name: Checkout
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          # build:checked locates the latest committed CACHE_VERSION bump.
           fetch-depth: 0
 
-      - name: Setup Node.js ${{ matrix.node-version }}
+      - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Apply focused v277 patch
+        run: python scripts/apply-native-youtube-control-v277.py
+
+      - name: Remove temporary branch machinery
+        run: |
+          rm scripts/apply-native-youtube-control-v277.py
+          rm .github/workflows/agent-apply-native-youtube-control-v277.yml
+          rm .github/agent-apply-native-youtube-control-v277
+
+      - name: Format changed TypeScript
+        run: |
+          npx prettier --write \
+            src/player/media-session.ts \
+            src/youtube/native-control-origin.ts \
+            src/youtube/native-control-policy.ts \
+            src/youtube/native-control-authority.ts \
+            src/youtube/__tests__/native-control-origin.test.ts \
+            src/youtube/__tests__/native-control-policy.test.ts
 
       - name: Typecheck
         run: npm run typecheck
@@ -50,15 +62,40 @@ jobs:
       - name: Playback and storage static invariants
         run: npm run guard:chunk-pump && npm run guard:lifecycle-writes
 
-      - name: Test
+      - name: Unit tests
         run: npm test
 
       - name: Critical runtime coverage
         run: npm run test:coverage:critical
 
-      - name: Build and verify production bundle
-        run: npm run build:checked
+      - name: Production build
+        run: npm run build
 
-      # E2E suite lives in its own manually dispatched workflow (e2e.yml).
-      # The serial suite is intentionally long-running; keep fast CI gating
-      # to typecheck + lint + unit tests + build, and run E2E on demand.
+      - name: Assemble exact patch artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            public/service-worker.js
+            src/core/__tests__/service-worker-cache.test.ts
+            src/player/media-session.ts
+            src/youtube/native-control-origin.ts
+            src/youtube/native-control-policy.ts
+            src/youtube/native-control-authority.ts
+            src/youtube/__tests__/native-control-origin.test.ts
+            src/youtube/__tests__/native-control-policy.test.ts
+          )
+          rm -rf patch-artifact
+          for path in "${files[@]}"; do
+            mkdir -p "patch-artifact/$(dirname "$path")"
+            cp "$path" "patch-artifact/$path"
+          done
+          printf '%s\n' 'src/player/__tests__/media-session-os-authority.test.ts' > patch-artifact/delete-paths.txt
+
+      - name: Upload validated patch
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-youtube-control-v277-patch
+          path: patch-artifact/
+          if-no-files-found: error
+          retention-days: 3

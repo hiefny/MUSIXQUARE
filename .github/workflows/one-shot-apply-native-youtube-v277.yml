@@ -1,0 +1,117 @@
+name: One-shot Apply Native YouTube Control v277
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-shot-apply-native-youtube-v277.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: musixquare-one-shot-apply-native-youtube-v277
+  cancel-in-progress: false
+
+jobs:
+  patch-and-validate:
+    if: github.event.head_commit.message == 'ops: apply native YouTube control v277'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: agent/fix-iframe-native-media-control-v277
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply focused v277 source patch
+        run: python scripts/apply-native-youtube-control-v277.py
+
+      - name: Remove branch-only patch machinery
+        run: |
+          rm scripts/apply-native-youtube-control-v277.py
+          rm .github/workflows/agent-apply-native-youtube-control-v277.yml
+          rm .github/agent-apply-native-youtube-control-v277
+
+      - name: Format changed TypeScript
+        run: |
+          npx prettier --write \
+            src/player/media-session.ts \
+            src/youtube/native-control-origin.ts \
+            src/youtube/native-control-policy.ts \
+            src/youtube/native-control-authority.ts \
+            src/youtube/__tests__/native-control-origin.test.ts \
+            src/youtube/__tests__/native-control-policy.test.ts
+
+      - name: Verify change scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          allowed='^(.github/agent-apply-native-youtube-control-v277|.github/workflows/agent-apply-native-youtube-control-v277.yml|scripts/apply-native-youtube-control-v277.py|public/service-worker.js|src/core/__tests__/service-worker-cache.test.ts|src/player/media-session.ts|src/player/__tests__/media-session-os-authority.test.ts|src/youtube/native-control-origin.ts|src/youtube/native-control-policy.ts|src/youtube/native-control-authority.ts|src/youtube/__tests__/native-control-origin.test.ts|src/youtube/__tests__/native-control-policy.test.ts)$'
+          while IFS= read -r path; do
+            [[ "$path" =~ $allowed ]] || { echo "::error::Unexpected changed path: $path"; exit 1; }
+          done < <(git status --short | sed -E 's/^.. //')
+          git diff --check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Playback and storage static invariants
+        run: npm run guard:chunk-pump && npm run guard:lifecycle-writes
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Critical runtime coverage
+        run: npm run test:coverage:critical
+
+      - name: Commit validated source patch
+        shell: bash
+        run: |
+          git config user.name 'MUSIXQUARE Release Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(youtube): promote iframe-native media controls'
+
+      - name: Build and verify committed production bundle
+        run: npm run build:checked
+
+      - name: Push validated feature commit
+        run: git push origin HEAD:agent/fix-iframe-native-media-control-v277
+
+  cleanup:
+    if: always()
+    needs: patch-and-validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Remove one-shot workflow from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'MUSIXQUARE Release Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git rm .github/workflows/one-shot-apply-native-youtube-v277.yml
+          git commit -m 'ops: remove native YouTube v277 patch runner'
+          git push origin HEAD:main

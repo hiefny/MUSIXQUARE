@@ -1,0 +1,117 @@
+name: One-shot Materialize Current Track Jump v280
+
+on:
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: musixquare-one-shot-materialize-current-track-jump-v280
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: >-
+      github.actor == 'hiefny' &&
+      github.event.issue.number == 41 &&
+      github.event.comment.body == '/materialize-current-track-jump-v280'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: agent/add-current-track-jump-v280
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply focused v280 patch
+        run: python scripts/apply-current-track-jump-v280.py
+
+      - name: Remove temporary patch script
+        run: rm scripts/apply-current-track-jump-v280.py
+
+      - name: Format changed source
+        run: >-
+          npx prettier --write
+          src/ui/playlist-current-jump.ts
+          src/ui/playlist-view.ts
+          src/ui/__tests__/playlist-current-jump.test.ts
+          src/i18n/ko.ts
+          src/i18n/en.ts
+          css/style.css
+
+      - name: Verify focused source scope
+        shell: bash
+        run: |
+          expected="$(printf '%s\n' \
+            css/style.css \
+            public/service-worker.js \
+            scripts/apply-current-track-jump-v280.py \
+            src/core/__tests__/service-worker-cache.test.ts \
+            src/i18n/en.ts \
+            src/i18n/ko.ts \
+            src/ui/__tests__/playlist-current-jump.test.ts \
+            src/ui/playlist-current-jump.ts \
+            src/ui/playlist-view.ts | sort)"
+          actual="$(git status --short | sed -E 's/^.. //' | sort)"
+          if [[ "$actual" != "$expected" ]]; then
+            echo '::error::Unexpected working-tree scope'
+            echo 'Expected:'
+            printf '%s\n' "$expected"
+            echo 'Actual:'
+            printf '%s\n' "$actual"
+            exit 1
+          fi
+          git diff --check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Worker syntax check
+        run: npm run check:workers
+
+      - name: Playback and storage static invariants
+        run: npm run guard:chunk-pump && npm run guard:lifecycle-writes
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Critical runtime coverage
+        run: npm run test:coverage:critical
+
+      - name: Production build
+        run: npm run build:checked
+
+      - name: Commit and push clean v280 source
+        id: commit
+        shell: bash
+        run: |
+          git config user.name 'MUSIXQUARE Release Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat(playlist): add current-track locator'
+          git push origin HEAD:agent/add-current-track-jump-v280
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Report materialized source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.commit.outputs.sha }}
+        run: gh issue comment 41 --body "Validated clean v280 source committed at \`$SOURCE_SHA\`."

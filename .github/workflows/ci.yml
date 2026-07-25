@@ -36,6 +36,24 @@ jobs:
       - name: Apply focused v279 patch
         run: python scripts/apply-pro-native-youtube-play-v279.py
 
+      - name: Normalize generated test types
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('src/youtube/__tests__/native-control-pro-autoplay-guard.test.ts')
+          source = path.read_text(encoding='utf-8')
+          source = source.replace(
+              "import type { PlaylistItem, QueueItemId } from '../../types/index.ts';",
+              "import type { PlaylistItem, QueueItemId, RoomCapability } from '../../types/index.ts';",
+          )
+          source = source.replace(
+              'function installPausedYouTube(player: FakePlayer, capabilities: string[]): void {',
+              'function installPausedYouTube(player: FakePlayer, capabilities: RoomCapability[]): void {',
+          )
+          path.write_text(source, encoding='utf-8')
+          PY
+
       - name: Remove temporary materializer and restore standard CI
         shell: bash
         run: |

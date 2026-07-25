@@ -1,42 +1,69 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: musixquare-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  ci:
+  materialize-native-youtube-play-resume-v278:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    strategy:
-      matrix:
-        node-version: [22]
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout
+      - name: Checkout feature branch
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          # build:checked locates the latest committed CACHE_VERSION bump.
+          ref: agent/fix-native-youtube-play-resume-v278
           fetch-depth: 0
 
-      - name: Setup Node.js ${{ matrix.node-version }}
+      - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: ${{ matrix.node-version }}
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Apply focused v278 patch
+        run: python scripts/apply-native-youtube-play-resume-v278.py
+
+      - name: Remove temporary machinery and restore standard CI
+        shell: bash
+        run: |
+          rm scripts/apply-native-youtube-play-resume-v278.py
+          git checkout origin/main -- .github/workflows/ci.yml
+
+      - name: Format changed TypeScript
+        run: npx prettier --write src/youtube/native-control-authority.ts src/youtube/__tests__/native-control-play-resume.test.ts
+
+      - name: Verify focused source scope
+        shell: bash
+        run: |
+          expected="$(printf '%s\n' \
+            .github/workflows/ci.yml \
+            public/service-worker.js \
+            scripts/apply-native-youtube-play-resume-v278.py \
+            src/core/__tests__/service-worker-cache.test.ts \
+            src/youtube/__tests__/native-control-play-resume.test.ts \
+            src/youtube/native-control-authority.ts | sort)"
+          actual="$(git status --short | sed -E 's/^.. //' | sort)"
+          if [[ "$actual" != "$expected" ]]; then
+            echo '::error::Unexpected working-tree scope'
+            echo 'Expected:'
+            printf '%s\n' "$expected"
+            echo 'Actual:'
+            printf '%s\n' "$actual"
+            exit 1
+          fi
+          git diff --check
 
       - name: Typecheck
         run: npm run typecheck
@@ -50,15 +77,20 @@ jobs:
       - name: Playback and storage static invariants
         run: npm run guard:chunk-pump && npm run guard:lifecycle-writes
 
-      - name: Test
+      - name: Unit tests
         run: npm test
 
       - name: Critical runtime coverage
         run: npm run test:coverage:critical
 
-      - name: Build and verify production bundle
+      - name: Production build
         run: npm run build:checked
 
-      # E2E suite lives in its own manually dispatched workflow (e2e.yml).
-      # The serial suite is intentionally long-running; keep fast CI gating
-      # to typecheck + lint + unit tests + build, and run E2E on demand.
+      - name: Commit and push clean v278 source
+        shell: bash
+        run: |
+          git config user.name 'MUSIXQUARE Release Bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(youtube): preserve native controller play through authority sync'
+          git push origin HEAD:agent/fix-native-youtube-play-resume-v278

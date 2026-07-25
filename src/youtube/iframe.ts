@@ -84,6 +84,7 @@ import {
   isYouTubeZeroStartExternalFallbackActive,
   setPendingAutoSyncOnReady,
 } from './player.ts';
+import { preserveNativeProControllerPlayBeforeAutoplayGuard } from './native-control-authority.ts';
 import {
   handleYouTubeZeroStartPlayerState,
   isYouTubeZeroStartInFlight,
@@ -2079,6 +2080,11 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
         _triggerPlaylistSnapshot(pid);
       }
     }
+
+    // A PRO administrator's OS/headset PLAY reaches the iframe before
+    // MUSIXQUARE playback state. Preserve only a proven native PLAY so
+    // the authority listener can promote it instead of pause-backing it.
+    preserveNativeProControllerPlayBeforeAutoplayGuard(player);
 
     // Pause-back if autoplay was not intended (e.g. loadPlaylist async path).
     if (!getYtAutoplayIntent()) {

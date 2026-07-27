@@ -2754,7 +2754,7 @@ function showYouTubeSyncOverlay(show: boolean): void {
       };
       const chip = document.createElement('span');
       chip.style.cssText =
-        'background:var(--primary-filled, #2563eb);color:white;padding:12px 24px;border-radius:100px;font-weight:bold;font-size:14px;box-shadow:0 4px 15px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px;pointer-events:none;';
+        'background:var(--primary-filled, #3b82f6);color:white;padding:12px 24px;border-radius:100px;font-weight:bold;font-size:14px;box-shadow:0 4px 15px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px;pointer-events:none;';
 
       const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       icon.setAttribute('viewBox', '0 0 24 24');

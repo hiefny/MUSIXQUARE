@@ -13,13 +13,14 @@
     --divider: #262626;
     --primary: #3b82f6;
     --primary-rgb: 59, 130, 246;
-    /* Filled controls keep the brighter primary for focus/outline accents,
-       but use AA-safe surfaces underneath normal-size white copy. */
-    --primary-filled: #2563eb;
-    --success-filled: #15803d;
-    --danger-filled: #b91c1c;
-    --warning-filled: #b45309;
-    --youtube-filled: #d0002a;
+    /* Filled controls intentionally preserve MUSIXQUARE's original brand and
+       semantic palette. Do not darken these independently in generic
+       contrast sweeps; non-visual accessibility is handled separately. */
+    --primary-filled: #3b82f6;
+    --success-filled: #20a45a;
+    --danger-filled: #ef4444;
+    --warning-filled: #f59e0b;
+    --youtube-filled: #ff0033;
     --accent: var(--primary);
     --accent-rgb: var(--primary-rgb);
     --text-main: #eeeeee;
@@ -225,7 +226,7 @@
     left: 16px;
     z-index: 99999;
     padding: 12px 24px;
-    background: var(--primary-filled, #2563eb);
+    background: var(--primary-filled, #3b82f6);
     color: #fff;
     border-radius: 0 0 var(--radius-s, 14px) var(--radius-s, 14px);
     font-size: 14px;

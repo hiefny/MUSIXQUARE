@@ -10,6 +10,21 @@ export interface AccountDeletionIntegrations {
     roomCode: string;
     roomGeneration: number;
   }) => Promise<unknown>;
+  deferAccountDeletion?: (accountId: string) => unknown;
+}
+
+export interface AccountProRoomIncarnation {
+  roomCode: string;
+  roomGeneration: number;
+}
+
+export interface AccountDeletionCleanupResult {
+  configured: boolean;
+  processedAccounts: number;
+  purgedEdges: number;
+  failedEdges: number;
+  completedAccounts: number;
+  pendingAccounts: number;
 }
 
 export function resolveAccountSession(
@@ -29,6 +44,20 @@ export function recordAccountProRoomLink(
   nowMs?: number,
   roomGeneration?: number,
 ): Promise<boolean>;
+export function retireAccountProRoomLinks(
+  env: unknown,
+  roomCode: string,
+  roomGeneration: number,
+): Promise<{ configured: boolean; retired: boolean }>;
+export function retireAccountProRoomLinkBatch(
+  env: unknown,
+  incarnations: readonly AccountProRoomIncarnation[],
+): Promise<{ configured: boolean; retired: boolean }>;
+export function cleanupPendingAccountDeletions(
+  env: unknown,
+  integrations?: AccountDeletionIntegrations,
+  options?: { accountId?: string; edgeLimit?: number },
+): Promise<AccountDeletionCleanupResult>;
 export function cleanupExpiredAccountSessions(
   env: unknown,
   nowMs?: number,

@@ -1508,9 +1508,9 @@
       </div>
     </div>
 
-    <div class="chat-backdrop" id="chat-backdrop"></div>
+    <div class="chat-backdrop" id="chat-backdrop" aria-hidden="true"></div>
 
-    <div class="chat-drawer" id="chat-drawer" data-chat-snap="half">
+    <div class="chat-drawer" id="chat-drawer" data-chat-snap="half" tabindex="-1">
       <div class="chat-drawer-header">
         <span class="chat-drawer-title" data-i18n="chat.title"></span>
         <button
@@ -1603,6 +1603,7 @@
             class="chat-input"
             id="chat-input"
             contenteditable="true"
+            tabindex="0"
             role="textbox"
             aria-label=""
             data-i18n-aria-label="chat.input_label"
@@ -3248,6 +3249,9 @@
           <p
             id="youtube-preview-status"
             class="yt-preview-meta"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
             data-i18n="youtube.enter_link_prompt"
           ></p>
         </div>

@@ -3,10 +3,49 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   PRO_ROOM_HEALTH_REQUEST_TIMEOUT_MS,
   PRO_ROOM_READINESS_RETRY_DELAYS_MS,
+  verifyProRoomPublicBoundary,
   waitForProRoomReady,
 } from '../../../scripts/live-pro-room-smoke.mjs';
 
 describe('live PRO room smoke readiness', () => {
+  it('checks a real public bootstrap and keeps anonymous snapshots fail-closed', async () => {
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        payload: { roomCode: '000000', status: 'pin_required' },
+      })
+      .mockResolvedValueOnce({
+        status: 401,
+        payload: { error: 'SESSION_REQUIRED' },
+      });
+
+    await expect(verifyProRoomPublicBoundary({ read })).resolves.toEqual({
+      roomCode: '000000',
+      roomStatus: 'pin_required',
+      anonymousSnapshotRejected: true,
+    });
+    expect(read).toHaveBeenNthCalledWith(1, '/bootstrap');
+    expect(read).toHaveBeenNthCalledWith(2, '/snapshot');
+  });
+
+  it('fails when a public PRO boundary becomes permissive or malformed', async () => {
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        payload: { roomCode: '000000', status: 'activation_required' },
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        payload: { snapshot: {} },
+      });
+
+    await expect(verifyProRoomPublicBoundary({ read })).rejects.toThrow(
+      'did not reject an anonymous credential',
+    );
+  });
+
   it('retries stale edge versions until the expected deployment is visible', async () => {
     const read = vi
       .fn()

@@ -33,11 +33,15 @@ const ACCOUNT_DELETED_SESSION_TTL_SECONDS = 10 * 60;
 // Supports the advertised 100-device room with headroom for a user's other
 // browsers, while bounding D1 growth and logout/delete fan-out per account.
 const ACCOUNT_SESSION_MAX_PER_ACCOUNT = 128;
-// Account deletion synchronously revokes every persistent PRO grant. Keep that
-// fan-out bounded at the write boundary so a polluted reverse index can never
-// make deletion permanently impossible. Existing edges may still be touched at
-// the limit, which preserves access to rooms the account already uses.
+// Keep deletion fan-out bounded at the write boundary so a polluted reverse
+// index can never make deletion permanently impossible. Small deletions finish
+// inline; larger jobs revoke login immediately and drain exact incarnation
+// edges from the scheduled App Worker continuation.
 const ACCOUNT_PRO_ROOM_LINK_MAX_PER_ACCOUNT = 1000;
+const ACCOUNT_DELETE_INLINE_LINK_LIMIT = 32;
+const ACCOUNT_DELETE_JOB_EDGE_LIMIT = 128;
+const ACCOUNT_DELETE_JOB_MAX_ACCOUNTS = 2;
+const ACCOUNT_DELETE_JOB_CONCURRENCY = 16;
 const ACCOUNT_DELETION_FENCE_TTL_MS = 10 * 60 * 1000;
 const AUTH_JSON_BODY_MAX_BYTES = 8 * 1024;
 const GOOGLE_TOKEN_RESPONSE_MAX_BYTES = 64 * 1024;
@@ -1159,6 +1163,195 @@ async function handleLogout(request, config, allSessions) {
   }
 }
 
+async function readAccountProRoomLinks(
+  db,
+  accountId,
+  limit = ACCOUNT_PRO_ROOM_LINK_MAX_PER_ACCOUNT + 1,
+) {
+  const boundedLimit = Math.max(
+    1,
+    Math.min(ACCOUNT_PRO_ROOM_LINK_MAX_PER_ACCOUNT + 1, Number(limit) || 1),
+  );
+  const legacyLinks = (
+    await d1All(
+      db,
+      `SELECT room_code FROM ${PRO_ROOM_LINK_TABLE}
+        WHERE account_id = ?1
+        ORDER BY room_code ASC
+        LIMIT ?2`,
+      [accountId, boundedLimit],
+    )
+  ).map((row) => ({
+    room_code: row?.room_code,
+    room_generation: LEGACY_PRO_ROOM_GENERATION,
+  }));
+  let generationLinksConfigured = true;
+  let generationLinks = [];
+  try {
+    generationLinks = await d1All(
+      db,
+      `SELECT room_code, room_generation
+         FROM ${PRO_ROOM_GENERATION_LINK_TABLE}
+        WHERE account_id = ?1
+          AND room_generation > 0
+        ORDER BY room_code ASC, room_generation ASC
+        LIMIT ?2`,
+      [accountId, boundedLimit],
+    );
+  } catch (error) {
+    // Additive rollout compatibility. A later generation is never created
+    // until the v2 reverse-index schema exists, so falling back is safe only
+    // for the legacy table and its implicit generation zero.
+    if (!isMissingProRoomGenerationLinkSchemaError(error)) throw error;
+    generationLinksConfigured = false;
+    generationLinks = [];
+  }
+  const linksByIncarnation = new Map();
+  for (const row of [...legacyLinks, ...generationLinks]) {
+    const roomCode = typeof row?.room_code === 'string' ? row.room_code : '';
+    const roomGeneration = Number(row?.room_generation);
+    const key = `${roomCode}:${roomGeneration}`;
+    if (!linksByIncarnation.has(key)) {
+      linksByIncarnation.set(key, { roomCode, roomGeneration });
+    }
+  }
+  return {
+    generationLinksConfigured,
+    links: [...linksByIncarnation.values()]
+      .sort(
+        (left, right) =>
+          left.roomCode.localeCompare(right.roomCode) || left.roomGeneration - right.roomGeneration,
+      )
+      .slice(0, boundedLimit),
+  };
+}
+
+function accountDeletionSessionStatements(accountId, deletedAt, expiresAt) {
+  return [
+    {
+      sql: `DELETE FROM ${DELETED_SESSION_TABLE} WHERE expires_at <= ?1`,
+      values: [deletedAt],
+    },
+    {
+      sql: `INSERT OR REPLACE INTO ${DELETED_SESSION_TABLE}
+              (session_hash, account_id, deleted_at, expires_at)
+            SELECT session_hash, account_id, ?2, ?3
+              FROM ${SESSION_TABLE}
+             WHERE account_id = ?1`,
+      values: [accountId, deletedAt, expiresAt],
+    },
+    {
+      sql: `DELETE FROM ${SESSION_TABLE} WHERE account_id = ?1`,
+      values: [accountId],
+    },
+  ];
+}
+
+function accountDeletionFinalStatements(accountId, generationLinksConfigured) {
+  return [
+    {
+      sql: `DELETE FROM ${SESSION_TABLE} WHERE account_id = ?1`,
+      values: [accountId],
+    },
+    {
+      sql: `DELETE FROM ${PRO_ROOM_LINK_TABLE} WHERE account_id = ?1`,
+      values: [accountId],
+    },
+    ...(generationLinksConfigured
+      ? [
+          {
+            sql: `DELETE FROM ${PRO_ROOM_GENERATION_LINK_TABLE} WHERE account_id = ?1`,
+            values: [accountId],
+          },
+        ]
+      : []),
+    {
+      sql: `DELETE FROM ${ACCOUNT_DELETION_TABLE} WHERE account_id = ?1`,
+      values: [accountId],
+    },
+    {
+      sql: `DELETE FROM ${ACCOUNT_TABLE} WHERE account_id = ?1`,
+      values: [accountId],
+    },
+  ];
+}
+
+async function finalizeAccountDeletion(db, accountId, generationLinksConfigured, deletedAt) {
+  const tombstoneExpiresAt = deletedAt + ACCOUNT_DELETED_SESSION_TTL_SECONDS * 1000;
+  await d1Batch(db, [
+    ...accountDeletionSessionStatements(accountId, deletedAt, tombstoneExpiresAt),
+    ...accountDeletionFinalStatements(accountId, generationLinksConfigured),
+  ]);
+}
+
+async function purgeAccountProRoomLinks(
+  db,
+  accountId,
+  links,
+  purgeProRoomAccountAuthority,
+  generationLinksConfigured = true,
+) {
+  let purged = 0;
+  let failed = 0;
+  for (let offset = 0; offset < links.length; offset += ACCOUNT_DELETE_JOB_CONCURRENCY) {
+    const batch = links.slice(offset, offset + ACCOUNT_DELETE_JOB_CONCURRENCY);
+    const outcomes = await Promise.all(
+      batch.map(async (link) => {
+        if (!/^0\d{5}$/.test(link.roomCode) || !isProRoomGeneration(link.roomGeneration)) {
+          return false;
+        }
+        try {
+          return (
+            (await purgeProRoomAccountAuthority({
+              accountId,
+              roomCode: link.roomCode,
+              roomGeneration: link.roomGeneration,
+            })) === true
+          );
+        } catch {
+          return false;
+        }
+      }),
+    );
+    const deletionStatements = [];
+    for (let index = 0; index < batch.length; index += 1) {
+      const link = batch[index];
+      if (!outcomes[index]) {
+        failed += 1;
+        continue;
+      }
+      purged += 1;
+      if (link.roomGeneration === LEGACY_PRO_ROOM_GENERATION) {
+        deletionStatements.push({
+          sql: `DELETE FROM ${PRO_ROOM_LINK_TABLE}
+                 WHERE account_id = ?1 AND room_code = ?2`,
+          values: [accountId, link.roomCode],
+        });
+        // The reusable-code migration backfilled generation zero into the
+        // composite table. Remove both representations only after the exact
+        // legacy incarnation confirms its idempotent purge.
+        if (generationLinksConfigured) {
+          deletionStatements.push({
+            sql: `DELETE FROM ${PRO_ROOM_GENERATION_LINK_TABLE}
+                   WHERE account_id = ?1 AND room_code = ?2 AND room_generation = 0`,
+            values: [accountId, link.roomCode],
+          });
+        }
+      } else {
+        deletionStatements.push({
+          sql: `DELETE FROM ${PRO_ROOM_GENERATION_LINK_TABLE}
+                 WHERE account_id = ?1 AND room_code = ?2 AND room_generation = ?3`,
+          values: [accountId, link.roomCode, link.roomGeneration],
+        });
+      }
+    }
+    if (deletionStatements.length > 0) {
+      await d1Batch(db, deletionStatements);
+    }
+  }
+  return { purged, failed };
+}
+
 async function handleAccountDelete(request, config, integrations = {}) {
   if (request.method !== 'DELETE') return methodNotAllowed('DELETE');
   if (!mutationAuthorized(request)) return authJson({ error: 'CSRF_FAILED' }, 403);
@@ -1186,110 +1379,64 @@ async function handleAccountDelete(request, config, integrations = {}) {
       return authJson({ error: 'ACCOUNT_DELETE_IN_PROGRESS' }, 409);
     }
     fencedAccountId = accountId;
-    const legacyLinks = (
-      await d1All(
-        config.db,
-        `SELECT room_code FROM ${PRO_ROOM_LINK_TABLE}
-          WHERE account_id = ?1
-          ORDER BY room_code ASC
-          LIMIT 1001`,
-        [accountId],
-      )
-    ).map((row) => ({ ...row, room_generation: LEGACY_PRO_ROOM_GENERATION }));
-    let generationLinksConfigured = true;
-    let generationLinks = [];
-    try {
-      generationLinks = await d1All(
-        config.db,
-        `SELECT room_code, room_generation
-           FROM ${PRO_ROOM_GENERATION_LINK_TABLE}
-          WHERE account_id = ?1
-            AND room_generation > 0
-          ORDER BY room_code ASC, room_generation ASC
-          LIMIT 1001`,
-        [accountId],
-      );
-    } catch (error) {
-      // Additive rollout compatibility. A later generation is never created
-      // until the v2 reverse-index schema exists, so falling back is safe only
-      // for the legacy table and its implicit generation zero.
-      if (!isMissingProRoomGenerationLinkSchemaError(error)) throw error;
-      generationLinksConfigured = false;
-      generationLinks = [];
-    }
-    const linkedRooms = [...legacyLinks, ...generationLinks]
-      .sort(
-        (left, right) =>
-          String(left?.room_code || '').localeCompare(String(right?.room_code || '')) ||
-          Number(left?.room_generation) - Number(right?.room_generation),
-      )
-      .slice(0, 1001);
-    if (linkedRooms.length > 1000) {
+    const purgeProRoomAccountAuthority = integrations?.purgeProRoomAccountAuthority;
+    const { generationLinksConfigured, links: linkedRooms } = await readAccountProRoomLinks(
+      config.db,
+      accountId,
+      ACCOUNT_PRO_ROOM_LINK_MAX_PER_ACCOUNT + 1,
+    );
+    if (linkedRooms.length > ACCOUNT_PRO_ROOM_LINK_MAX_PER_ACCOUNT) {
       throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
     }
-    const purgeProRoomAccountAuthority = integrations?.purgeProRoomAccountAuthority;
-    for (const row of linkedRooms) {
-      const roomCode = typeof row?.room_code === 'string' ? row.room_code : '';
-      const roomGeneration = Number(row?.room_generation);
-      if (
-        !/^0\d{5}$/.test(roomCode) ||
-        !isProRoomGeneration(roomGeneration) ||
-        typeof purgeProRoomAccountAuthority !== 'function'
-      ) {
-        throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
-      }
-      // Purging a room is idempotent. If a later room fails, the account and
-      // reverse index remain intact so retrying safely completes the cleanup.
-      const purged = await purgeProRoomAccountAuthority({
-        accountId,
-        roomCode,
-        roomGeneration,
-      });
-      if (purged !== true) {
-        throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
-      }
+    if (linkedRooms.length > 0 && typeof purgeProRoomAccountAuthority !== 'function') {
+      throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
     }
-    const tombstoneExpiresAt = deletionStartedAt + ACCOUNT_DELETED_SESSION_TTL_SECONDS * 1000;
-    await d1Batch(config.db, [
-      {
-        sql: `DELETE FROM ${DELETED_SESSION_TABLE} WHERE expires_at <= ?1`,
-        values: [deletionStartedAt],
-      },
-      {
-        // Sessions are bounded to ACCOUNT_SESSION_MAX_PER_ACCOUNT at creation,
-        // so this atomic copy cannot create unbounded deletion fan-out.
-        sql: `INSERT OR REPLACE INTO ${DELETED_SESSION_TABLE}
-                (session_hash, account_id, deleted_at, expires_at)
-              SELECT session_hash, account_id, ?2, ?3
-                FROM ${SESSION_TABLE}
-               WHERE account_id = ?1`,
-        values: [accountId, deletionStartedAt, tombstoneExpiresAt],
-      },
-      {
-        sql: `DELETE FROM ${SESSION_TABLE} WHERE account_id = ?1`,
-        values: [accountId],
-      },
-      {
-        sql: `DELETE FROM ${PRO_ROOM_LINK_TABLE} WHERE account_id = ?1`,
-        values: [accountId],
-      },
-      ...(generationLinksConfigured
-        ? [
-            {
-              sql: `DELETE FROM ${PRO_ROOM_GENERATION_LINK_TABLE} WHERE account_id = ?1`,
-              values: [accountId],
-            },
-          ]
-        : []),
-      {
-        sql: `DELETE FROM ${ACCOUNT_DELETION_TABLE} WHERE account_id = ?1`,
-        values: [accountId],
-      },
-      {
-        sql: `DELETE FROM ${ACCOUNT_TABLE} WHERE account_id = ?1`,
-        values: [accountId],
-      },
-    ]);
+    if (linkedRooms.length > ACCOUNT_DELETE_INLINE_LINK_LIMIT) {
+      const tombstoneExpiresAt = deletionStartedAt + ACCOUNT_DELETED_SESSION_TTL_SECONDS * 1000;
+      const [disabled] = await d1Batch(config.db, [
+        {
+          sql: `UPDATE ${ACCOUNT_TABLE}
+                   SET status = 'disabled', updated_at = ?2
+                 WHERE account_id = ?1 AND status = 'active'`,
+          values: [accountId, deletionStartedAt],
+        },
+        ...accountDeletionSessionStatements(accountId, deletionStartedAt, tombstoneExpiresAt),
+      ]);
+      if (d1ChangeCount(disabled) !== 1) {
+        throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
+      }
+      // From this point the deletion is committed from the user's perspective:
+      // sessions and attachment authority are revoked. The durable D1 fence
+      // remains until the scheduled continuation has purged every exact room
+      // incarnation and removed the account row.
+      fencedAccountId = null;
+      try {
+        integrations?.deferAccountDeletion?.(accountId);
+      } catch {
+        // The minute cron independently resumes every durable deletion job.
+      }
+      return appendSetCookies(authJson({ ok: true, pending: true }, 202), [
+        deletionSessionToken && SESSION_TOKEN_RE.test(deletionSessionToken)
+          ? deletedSessionCookie(deletionSessionToken)
+          : clearCookie(AUTH_SESSION_COOKIE),
+      ]);
+    }
+    const cleanup = await purgeAccountProRoomLinks(
+      config.db,
+      accountId,
+      linkedRooms,
+      purgeProRoomAccountAuthority,
+      generationLinksConfigured,
+    );
+    if (cleanup.failed !== 0 || cleanup.purged !== linkedRooms.length) {
+      throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
+    }
+    await finalizeAccountDeletion(
+      config.db,
+      accountId,
+      generationLinksConfigured,
+      deletionStartedAt,
+    );
     fencedAccountId = null;
     return appendSetCookies(authJson({ ok: true }), [
       deletionSessionToken && SESSION_TOKEN_RE.test(deletionSessionToken)
@@ -1581,6 +1728,189 @@ export async function recordAccountProRoomLink(
     [accountId, roomCode, roomGeneration, nowMs, ACCOUNT_PRO_ROOM_LINK_MAX_PER_ACCOUNT],
   );
   return d1ChangeCount(result) === 1;
+}
+
+/**
+ * Drop the reverse cleanup edge only after the exact room incarnation has
+ * completed its durable decommission protocol. The room tombstone remains the
+ * authorization fence; this merely prevents terminal history from consuming
+ * a live account's 1,000-edge deletion budget forever.
+ */
+export async function retireAccountProRoomLinks(env, roomCode, roomGeneration) {
+  return retireAccountProRoomLinkBatch(env, [{ roomCode, roomGeneration }]);
+}
+
+export async function retireAccountProRoomLinkBatch(env, incarnations) {
+  const db = env?.MUSIXQUARE_AUTH_DB;
+  if (!db || typeof db.prepare !== 'function') {
+    return { configured: false, retired: false };
+  }
+  if (!Array.isArray(incarnations)) {
+    return { configured: true, retired: false };
+  }
+  const unique = new Map();
+  for (const incarnation of incarnations.slice(0, 5_000)) {
+    const roomCode = incarnation?.roomCode;
+    const roomGeneration = Number(incarnation?.roomGeneration);
+    if (!/^0\d{5}$/.test(roomCode || '') || !isProRoomGeneration(roomGeneration)) continue;
+    unique.set(`${roomCode}:${roomGeneration}`, { roomCode, roomGeneration });
+  }
+  const normalized = [...unique.values()];
+  if (normalized.length === 0) return { configured: true, retired: false };
+  for (let offset = 0; offset < normalized.length; offset += 40) {
+    const chunk = normalized.slice(offset, offset + 40);
+    const statements = [];
+    const legacyCodes = chunk
+      .filter(({ roomGeneration }) => roomGeneration === LEGACY_PRO_ROOM_GENERATION)
+      .map(({ roomCode }) => roomCode);
+    if (legacyCodes.length > 0) {
+      statements.push({
+        sql: `DELETE FROM ${PRO_ROOM_LINK_TABLE}
+               WHERE room_code IN (${legacyCodes.map((_, index) => `?${index + 1}`).join(', ')})`,
+        values: legacyCodes,
+      });
+    }
+    statements.push({
+      sql: `DELETE FROM ${PRO_ROOM_GENERATION_LINK_TABLE}
+             WHERE ${chunk
+               .map(
+                 (_, index) =>
+                   `(room_code = ?${index * 2 + 1} AND room_generation = ?${index * 2 + 2})`,
+               )
+               .join(' OR ')}`,
+      values: chunk.flatMap(({ roomCode, roomGeneration }) => [roomCode, roomGeneration]),
+    });
+    try {
+      await d1Batch(db, statements);
+    } catch (error) {
+      if (
+        chunk.some(({ roomGeneration }) => roomGeneration !== LEGACY_PRO_ROOM_GENERATION) ||
+        !isMissingProRoomGenerationLinkSchemaError(error)
+      ) {
+        throw error;
+      }
+      if (legacyCodes.length > 0) {
+        await d1Run(
+          db,
+          `DELETE FROM ${PRO_ROOM_LINK_TABLE}
+            WHERE room_code IN (${legacyCodes.map((_, index) => `?${index + 1}`).join(', ')})`,
+          legacyCodes,
+        );
+      }
+    }
+  }
+  return { configured: true, retired: true };
+}
+
+/**
+ * Resume durable account-deletion jobs created when the reverse-index fan-out
+ * is too large for a browser's request deadline. Login/session authority is
+ * already revoked before a job is visible here. Every successful PRO purge is
+ * followed by deletion of that exact generation edge; failures remain queued
+ * and are retried by the next minute cron.
+ */
+export async function cleanupPendingAccountDeletions(env, integrations = {}, options = {}) {
+  const db = env?.MUSIXQUARE_AUTH_DB;
+  const purgeProRoomAccountAuthority = integrations?.purgeProRoomAccountAuthority;
+  if (
+    !db ||
+    typeof db.prepare !== 'function' ||
+    typeof purgeProRoomAccountAuthority !== 'function'
+  ) {
+    return {
+      configured: false,
+      processedAccounts: 0,
+      purgedEdges: 0,
+      failedEdges: 0,
+      completedAccounts: 0,
+      pendingAccounts: 0,
+    };
+  }
+  const requestedAccountId =
+    typeof options?.accountId === 'string' && ACCOUNT_ID_RE.test(options.accountId)
+      ? options.accountId
+      : null;
+  const edgeLimit = Math.max(
+    1,
+    Math.min(
+      ACCOUNT_DELETE_JOB_EDGE_LIMIT,
+      Number.isSafeInteger(options?.edgeLimit) ? options.edgeLimit : ACCOUNT_DELETE_JOB_EDGE_LIMIT,
+    ),
+  );
+  const jobs = requestedAccountId
+    ? await d1All(
+        db,
+        `SELECT account_id, started_at
+           FROM ${ACCOUNT_DELETION_TABLE}
+          WHERE account_id = ?1
+          LIMIT 1`,
+        [requestedAccountId],
+      )
+    : await d1All(
+        db,
+        `SELECT account_id, started_at
+           FROM ${ACCOUNT_DELETION_TABLE}
+          ORDER BY started_at ASC, account_id ASC
+          LIMIT ?1`,
+        [ACCOUNT_DELETE_JOB_MAX_ACCOUNTS],
+      );
+  const result = {
+    configured: true,
+    processedAccounts: 0,
+    purgedEdges: 0,
+    failedEdges: 0,
+    completedAccounts: 0,
+    pendingAccounts: 0,
+  };
+  for (const job of jobs) {
+    const accountId = typeof job?.account_id === 'string' ? job.account_id : '';
+    const startedAt = Number(job?.started_at);
+    if (!ACCOUNT_ID_RE.test(accountId) || !Number.isSafeInteger(startedAt) || startedAt <= 0) {
+      result.pendingAccounts += 1;
+      continue;
+    }
+    result.processedAccounts += 1;
+    // Recover a legacy request that crashed after installing its fence but
+    // before revoking sessions. This batch is idempotent for native async jobs.
+    const disabledAt = Date.now();
+    await d1Batch(db, [
+      {
+        sql: `UPDATE ${ACCOUNT_TABLE}
+                 SET status = 'disabled', updated_at = ?2
+               WHERE account_id = ?1 AND status = 'active'`,
+        values: [accountId, disabledAt],
+      },
+      ...accountDeletionSessionStatements(
+        accountId,
+        disabledAt,
+        disabledAt + ACCOUNT_DELETED_SESSION_TTL_SECONDS * 1000,
+      ),
+    ]);
+    const { generationLinksConfigured, links } = await readAccountProRoomLinks(
+      db,
+      accountId,
+      edgeLimit,
+    );
+    if (links.length > 0) {
+      const cleanup = await purgeAccountProRoomLinks(
+        db,
+        accountId,
+        links,
+        purgeProRoomAccountAuthority,
+        generationLinksConfigured,
+      );
+      result.purgedEdges += cleanup.purged;
+      result.failedEdges += cleanup.failed;
+    }
+    const remaining = await readAccountProRoomLinks(db, accountId, 1);
+    if (remaining.links.length > 0) {
+      result.pendingAccounts += 1;
+      continue;
+    }
+    await d1Batch(db, accountDeletionFinalStatements(accountId, generationLinksConfigured));
+    result.completedAccounts += 1;
+  }
+  return result;
 }
 
 export async function cleanupExpiredAccountSessions(env, nowMs = Date.now()) {

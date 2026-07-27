@@ -157,6 +157,9 @@ describe('YouTube input i18n state', () => {
 
     const status = document.getElementById('youtube-preview-status');
     expect(status?.getAttribute('data-i18n')).toBe('youtube.enter_link_prompt');
+    expect(status?.getAttribute('role')).toBe('status');
+    expect(status?.getAttribute('aria-live')).toBe('polite');
+    expect(status?.getAttribute('aria-atomic')).toBe('true');
 
     setLanguageMode('en');
 

@@ -30,7 +30,9 @@ html_handling = "none"
 run_worker_first = ["/*", "!/assets/*.js", "!/assets/*.css", "!/assets/*.woff2"]
 
 [triggers]
-crons = ["0 */6 * * *"]
+# The minute trigger drains large account-deletion jobs after login authority
+# has been revoked. Six-hour maintenance remains isolated in scheduled().
+crons = ["0 */6 * * *", "* * * * *"]
 
 [[r2_buckets]]
 binding = "SORO_IMAGE_BUCKET"

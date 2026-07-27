@@ -1,0 +1,37 @@
+import { defineConfig, devices } from '@playwright/test';
+
+/**
+ * Small real-WebKit lane for the mobile paths that Chromium + an iPhone user
+ * agent cannot validate. Keep it targeted; the full serial suite remains the
+ * manually requested Chromium stress run.
+ */
+export default defineConfig({
+  testDir: './e2e',
+  testMatch: 'webkit-mobile-smoke.test.ts',
+  timeout: 60_000,
+  expect: { timeout: 15_000 },
+  retries: 0,
+  workers: 1,
+  globalSetup: './e2e/global-setup.ts',
+  globalTeardown: './e2e/global-teardown.ts',
+  use: {
+    ...devices['iPhone 13'],
+    baseURL: 'http://localhost:4173',
+    headless: true,
+    // The lane validates the real WebKit UI/runtime surface, not PWA update
+    // orchestration. Blocking registrations prevents an update prompt from a
+    // previous test context from covering the navigation under test.
+    serviceWorkers: 'block',
+  },
+  projects: [
+    {
+      name: 'webkit-iphone',
+      use: { browserName: 'webkit' },
+    },
+  ],
+  webServer: {
+    command: 'npm run preview',
+    port: 4173,
+    reuseExistingServer: !process.env.CI,
+  },
+});

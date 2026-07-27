@@ -148,8 +148,18 @@ async function updateYouTubeChatTitle(elementId: string, url: string): Promise<v
 // ─── DOM Helpers ─────────────────────────────────────────────────
 
 function pruneOldMessages(container: HTMLElement): void {
-  while (container.children.length > MAX_CHAT_MESSAGES) {
-    container.removeChild(container.children[0]);
+  let overflow = container.querySelectorAll('.chat-row').length - MAX_CHAT_MESSAGES;
+  if (overflow <= 0) return;
+
+  for (const group of container.querySelectorAll<HTMLElement>('.chat-group')) {
+    for (const row of group.querySelectorAll<HTMLElement>(':scope > .chat-row')) {
+      if (overflow <= 0) return;
+      row.remove();
+      overflow -= 1;
+    }
+    // A sender label without any message is not useful and would also keep
+    // accumulating as the row cap advances through old groups.
+    if (!group.querySelector(':scope > .chat-row')) group.remove();
   }
 }
 

@@ -10,6 +10,7 @@ import type { DataConnection, PlaylistItem } from '../../types/index.ts';
 import { setLanguageMode, t } from '../../i18n/index.ts';
 import { initPlaylistView, updatePlaylistUI } from '../playlist-view.ts';
 import { safeSend } from '../../network/peer.ts';
+import { updateSubItemTitle } from '../../youtube/_state.ts';
 
 vi.mock('../../network/peer.ts', () => ({
   safeSend: vi.fn(),
@@ -173,6 +174,55 @@ describe('playlist queue identity rendering and actions', () => {
     expect(youtubeEntry?.matches('.playlist-entry')).toBe(true);
     expect(youtubeEntry?.querySelectorAll(':scope > .sub-playlist')).toHaveLength(1);
     expect(youtubeEntry?.querySelectorAll('.sub-track-item[data-sub-index]')).toHaveLength(2);
+  });
+
+  it('exposes each main track action as a native keyboard button', () => {
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+    const play = vi.fn();
+    bus.on('playlist:play-track', play);
+
+    const trackAction = document.querySelector<HTMLButtonElement>(
+      `.track-name[data-queue-item-id="${FILE_A}"]`,
+    );
+    expect(trackAction).toBeInstanceOf(HTMLButtonElement);
+    expect(trackAction?.type).toBe('button');
+    expect(trackAction?.tabIndex).toBe(0);
+
+    trackAction?.click();
+    expect(play).toHaveBeenCalledWith(FILE_A);
+  });
+
+  it('renders a huge sub-playlist progressively and patches title-only updates in place', async () => {
+    const ids = Array.from(
+      { length: 1_000 },
+      (_, index) => `video-${String(index).padStart(4, '0')}`,
+    );
+    setState('playlist.items', sampleItems());
+    setState('youtube.subItemsMap', {
+      PL_TEST: { ids, titles: [] },
+    });
+    initPlaylistView();
+
+    const list = document.getElementById('playlist-ui')!;
+    const replaceChildren = vi.spyOn(list, 'replaceChildren');
+    expect(document.querySelectorAll('.sub-track-item[data-sub-index]')).toHaveLength(240);
+
+    updateSubItemTitle('PL_TEST', 10, 'Resolved title');
+    updateSubItemTitle('PL_TEST', 900, 'Late resolved title');
+    expect(
+      document.querySelector<HTMLElement>('.sub-track-item[data-sub-index="10"] .sub-name')
+        ?.textContent,
+    ).toBe('Resolved title');
+    expect(replaceChildren).not.toHaveBeenCalled();
+
+    for (let frame = 0; frame < 5; frame += 1) await nextAnimationFrame();
+    expect(document.querySelectorAll('.sub-track-item[data-sub-index]')).toHaveLength(1_000);
+    expect(
+      document.querySelector<HTMLElement>('.sub-track-item[data-sub-index="900"] .sub-name')
+        ?.textContent,
+    ).toBe('Late resolved title');
+    expect(document.querySelector('.sub-playlist')?.hasAttribute('aria-busy')).toBe(false);
   });
 
   it('marks multilingual parent and sub-track titles with detected script fonts', () => {

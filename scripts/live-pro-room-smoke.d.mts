@@ -1,5 +1,20 @@
 export const PRO_ROOM_READINESS_RETRY_DELAYS_MS: readonly number[];
 export const PRO_ROOM_HEALTH_REQUEST_TIMEOUT_MS: number;
+export function verifyProRoomPublicBoundary(dependencies?: {
+  read?: (path: string) => Promise<{
+    status: number;
+    payload: {
+      roomCode?: string;
+      status?: string;
+      error?: string;
+      [key: string]: unknown;
+    };
+  }>;
+}): Promise<{
+  roomCode: string;
+  roomStatus: string;
+  anonymousSnapshotRejected: true;
+}>;
 export function main(): Promise<void>;
 export function waitForProRoomReady(
   expectedVersion: string,

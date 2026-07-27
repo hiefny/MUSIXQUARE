@@ -373,6 +373,25 @@ describe('remote-share Worker capability gate', () => {
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
+  it('keeps unexpected internal exception detail out of public 5xx bodies', async () => {
+    const internalDetail = 'provider configuration super-secret detail';
+    const workerEnv = new Proxy(env(), {
+      get(target, property, receiver) {
+        if (property === 'MXQR_CAPABILITY_SECRET') throw new Error(internalDetail);
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await workerModule.default.fetch(request('/security-config'), workerEnv);
+
+    expect(response.status).toBe(500);
+    const body = await response.text();
+    expect(JSON.parse(body)).toEqual({ error: 'internal server error' });
+    expect(body).not.toContain(internalDetail);
+    expect(errorLog).toHaveBeenCalledWith('remote share request failed', 'Error');
+  });
+
   it('fails closed when capability secret is missing in production', async () => {
     // Match the app Worker policy: missing capability configuration blocks the
     // session endpoint unless the explicit unguarded override is enabled.

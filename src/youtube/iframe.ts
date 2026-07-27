@@ -2661,12 +2661,17 @@ function showYouTubeSyncOverlay(show: boolean): void {
 
   if (show) {
     if (!overlay) {
-      overlay = document.createElement('div');
+      const overlayButton = document.createElement('button');
+      overlayButton.type = 'button';
+      overlayButton.setAttribute('aria-label', t('youtube.tap_to_play'));
+      overlay = overlayButton;
       overlay.id = overlayId;
       overlay.style.cssText = `
         position:absolute;top:0;left:0;width:100%;height:100%;
         background:rgba(0,0,0,0.6);display:flex;align-items:center;
         justify-content:center;z-index:100;cursor:pointer;
+        border:0;border-radius:0;padding:0;color:inherit;font:inherit;
+        appearance:none;-webkit-appearance:none;
         animation:fadeIn 0.3s ease-out;
       `;
       overlay.onclick = () => {
@@ -2746,9 +2751,9 @@ function showYouTubeSyncOverlay(show: boolean): void {
           }
         }
       };
-      const chip = document.createElement('div');
+      const chip = document.createElement('span');
       chip.style.cssText =
-        'background:var(--primary);color:white;padding:12px 24px;border-radius:100px;font-weight:bold;font-size:14px;box-shadow:0 4px 15px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px;';
+        'background:var(--primary-filled, #2563eb);color:white;padding:12px 24px;border-radius:100px;font-weight:bold;font-size:14px;box-shadow:0 4px 15px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px;pointer-events:none;';
 
       const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       icon.setAttribute('viewBox', '0 0 24 24');

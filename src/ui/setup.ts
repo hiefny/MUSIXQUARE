@@ -374,7 +374,7 @@ export function initSetup(): void {
     // Clear pending join code & clean URL — connection succeeded
     setPendingAutoJoinCode(null);
     try {
-      if (!isProRoom && /^\/\d{6}$/.test(window.location.pathname)) {
+      if (!isProRoom && /^\/\d{6}\/?$/.test(window.location.pathname)) {
         window.history.replaceState({}, '', '/' + window.location.hash);
       }
     } catch {
@@ -619,7 +619,7 @@ export function initSetup(): void {
       /* noop */
     }
 
-    const pathMatch = window.location.pathname.match(/^\/(\d{6})$/);
+    const pathMatch = window.location.pathname.match(/^\/(\d{6})\/?$/);
     const joinCode = pathMatch?.[1] || '';
 
     if (joinCode && /^\d{6}$/.test(joinCode)) {

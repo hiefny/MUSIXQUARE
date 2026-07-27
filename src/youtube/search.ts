@@ -420,6 +420,12 @@ function bindSearchScrollMask(): void {
 function setStatus(key: I18nKey, color = 'var(--text-sub)'): void {
   const status = getStatusText();
   if (!status) return;
+  // Search completion and failure are asynchronous, so visual text alone is
+  // not enough for screen-reader users. Keep one atomic, polite live region
+  // rather than announcing every result row as it is mounted.
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  status.setAttribute('aria-atomic', 'true');
   status.style.display = 'block';
   status.setAttribute('data-i18n', key);
   status.textContent = t(key);

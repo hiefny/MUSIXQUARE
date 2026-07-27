@@ -106,4 +106,53 @@ describe('initBackgroundResumeGuard', () => {
     expect(recover).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
   });
+
+  it('coalesces a resume that arrives while the previous warning is still open', async () => {
+    let dismissWarning!: () => void;
+    warn.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          dismissWarning = resolve;
+        }),
+    );
+    init();
+
+    await visibilityCycle(DEFAULT_WARN_THRESHOLD_MS);
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    await visibilityCycle(DEFAULT_WARN_THRESHOLD_MS + 5_000);
+    expect(recover).toHaveBeenCalledTimes(1);
+
+    dismissWarning();
+    await flushPromises();
+    await flushPromises();
+
+    expect(recover).toHaveBeenCalledTimes(2);
+    expect(recover).toHaveBeenLastCalledWith({
+      hiddenMs: DEFAULT_WARN_THRESHOLD_MS + 5_000,
+    });
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops a queued follow-up when the guard is disposed', async () => {
+    let dismissWarning!: () => void;
+    warn.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          dismissWarning = resolve;
+        }),
+    );
+    init();
+
+    await visibilityCycle(DEFAULT_WARN_THRESHOLD_MS);
+    await visibilityCycle(DEFAULT_WARN_THRESHOLD_MS);
+    handle?.dispose();
+    dismissWarning();
+    await flushPromises();
+    await flushPromises();
+
+    expect(recover).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
 });

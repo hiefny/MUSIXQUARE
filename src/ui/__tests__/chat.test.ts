@@ -146,6 +146,27 @@ describe('Chat Module', () => {
       }
     });
 
+    it('caps actual message rows even when one sender stays in a single group', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 0, 1, 9, 5));
+
+      try {
+        renderMessageShell();
+        const { addChatMessage } = await import('../chat-render.ts');
+        for (let index = 0; index < 205; index += 1) {
+          addChatMessage('Peer 1', `message-${index}`, false, undefined, 1, 'member-1');
+        }
+
+        const rows = document.querySelectorAll<HTMLElement>('.chat-row');
+        expect(rows).toHaveLength(200);
+        expect(document.querySelectorAll('.chat-group')).toHaveLength(1);
+        expect(rows[0]?.querySelector('.chat-text')?.textContent).toBe('message-5');
+        expect(rows[199]?.querySelector('.chat-text')?.textContent).toBe('message-204');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it('groups by an explicit room-member key instead of a mutable or duplicated nickname', async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date(2026, 0, 1, 9, 5));
@@ -722,6 +743,71 @@ describe('Chat Module', () => {
 
       document.getElementById('chat-backdrop')?.click();
       expect(drawer.classList.contains('open')).toBe(false);
+    });
+
+    it('makes the mobile drawer modal, keyboard-resizable, focus-contained, and escapable', async () => {
+      document.body.innerHTML = `
+        <button id="chat-preview-btn">
+          <span id="chat-preview-badge"></span>
+          <span class="chat-preview-text"></span>
+        </button>
+        <header id="main-header"></header>
+        <section class="tab-content active" id="tab-play"></section>
+        <div id="chat-backdrop"></div>
+        <div id="chat-drawer" data-chat-snap="half" tabindex="-1">
+          <div class="chat-drawer-header">
+            <button class="chat-drawer-close" id="btn-chat-close"></button>
+          </div>
+          <div id="chat-messages" tabindex="-1"></div>
+          <div id="chat-input" contenteditable="true" tabindex="0"></div>
+          <button id="btn-chat-send"></button>
+          <button id="btn-chat-scroll-down" tabindex="-1" aria-hidden="true"></button>
+          <div id="chat-pinned-notice"></div>
+        </div>
+        <nav class="bottom-nav"></nav>
+      `;
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844);
+      document.documentElement.style.setProperty('--app-height', '844px');
+
+      const { initChat, toggleChatDrawer } = await import('../chat.ts');
+      initChat();
+      const trigger = document.getElementById('chat-preview-btn') as HTMLButtonElement;
+      trigger.focus();
+      toggleChatDrawer();
+
+      const drawer = document.getElementById('chat-drawer') as HTMLElement;
+      const header = drawer.querySelector('.chat-drawer-header') as HTMLElement;
+      const input = document.getElementById('chat-input') as HTMLElement;
+      expect(drawer.getAttribute('role')).toBe('dialog');
+      expect(drawer.getAttribute('aria-modal')).toBe('true');
+      expect(document.getElementById('main-header')?.inert).toBe(true);
+      expect(header.getAttribute('role')).toBe('separator');
+      expect(header.getAttribute('aria-valuenow')).toBe('50');
+      expect(document.activeElement).toBe(header);
+
+      header.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+      expect(drawer.dataset.chatSnap).toBe('full');
+      expect(header.getAttribute('aria-valuenow')).toBe('100');
+      header.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      expect(drawer.dataset.chatSnap).toBe('half');
+
+      header.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      expect(document.activeElement).toBe(input);
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      expect(document.activeElement).toBe(document.getElementById('btn-chat-send'));
+      document
+        .getElementById('btn-chat-send')
+        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      expect(document.activeElement).toBe(header);
+
+      header.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await Promise.resolve();
+      expect(drawer.classList.contains('open')).toBe(false);
+      expect(drawer.hasAttribute('aria-modal')).toBe(false);
+      expect(document.getElementById('main-header')?.inert).toBe(false);
+      expect(document.activeElement).toBe(trigger);
+      document.documentElement.style.removeProperty('--app-height');
     });
 
     it('marks the compact preview from the sender and message scripts', async () => {

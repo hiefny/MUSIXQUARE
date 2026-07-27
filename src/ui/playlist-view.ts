@@ -40,10 +40,18 @@ import { applyUserTextFontFallback } from './user-text-font.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
 
 const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
+// A full YouTube playlist can contain 5,000 entries. Building every row in
+// one task blocks touch/scroll input on mobile, so render one useful viewport
+// immediately and yield between the remaining batches.
+const SUB_ITEMS_INITIAL_RENDER_COUNT = 240;
+const SUB_ITEMS_RENDER_BATCH_SIZE = 240;
 
 let _pendingPlaylistUpdate = false;
 let _deferredPlaylistUpdate = false;
 let _playlistRaf = 0;
+let _subPlaylistRenderGeneration = 0;
+const _subPlaylistRenderFrames = new Set<number>();
+const _renderedSubPlaylistIds = new WeakMap<HTMLUListElement, readonly string[]>();
 let _domAbort: AbortController | null = null;
 let _reorderController: PlaylistReorderController | null = null;
 let _removalController: PlaylistRemovalController | null = null;
@@ -205,10 +213,96 @@ function renderLeadingSlot(item: PlaylistItem, idx: number, canReorder: boolean)
 function renderTrackIcon(item: PlaylistItem): string {
   if (item.type === 'youtube') {
     return item.playlistId
-      ? '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#FF0033; transform: scale(1.2);"><path d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z"/></svg>'
-      : '<svg class="type-icon" viewBox="0 0 24 24" style="fill:#FF0033;"><path d="M21.582 6.186a2.5 2.5 0 0 0-1.768-1.768C18.254 4 12 4 12 4s-6.254 0-7.814.418a2.5 2.5 0 0 0-1.768 1.768C2 7.746 2 12 2 12s0 4.254.418 5.814a2.5 2.5 0 0 0 1.768 1.768C5.746 20 12 20 12 20s6.254 0 7.814-.418a2.5 2.5 0 0 0 1.768-1.768C22 16.254 22 12 22 12s0-4.254-.418-5.814ZM10 15.464V8.536L16 12l-6 3.464Z"/></svg>';
+      ? '<svg class="type-icon" viewBox="0 0 24 24" aria-hidden="true" style="fill:#FF0033; transform: scale(1.2);"><path d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z"/></svg>'
+      : '<svg class="type-icon" viewBox="0 0 24 24" aria-hidden="true" style="fill:#FF0033;"><path d="M21.582 6.186a2.5 2.5 0 0 0-1.768-1.768C18.254 4 12 4 12 4s-6.254 0-7.814.418a2.5 2.5 0 0 0-1.768 1.768C2 7.746 2 12 2 12s0 4.254.418 5.814a2.5 2.5 0 0 0 1.768 1.768C5.746 20 12 20 12 20s6.254 0 7.814-.418a2.5 2.5 0 0 0 1.768-1.768C22 16.254 22 12 22 12s0-4.254-.418-5.814ZM10 15.464V8.536L16 12l-6 3.464Z"/></svg>';
   }
-  return '<svg class="type-icon" viewBox="0 0 24 24"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7Z"/></svg>';
+  return '<svg class="type-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7Z"/></svg>';
+}
+
+function cancelSubPlaylistProgressiveRenders(): void {
+  _subPlaylistRenderGeneration += 1;
+  for (const frame of _subPlaylistRenderFrames) cancelAnimationFrame(frame);
+  _subPlaylistRenderFrames.clear();
+}
+
+function createSubTrackItem(
+  item: PlaylistItem,
+  videoId: string,
+  subIndex: number,
+  title: string,
+  isActiveSub: boolean,
+): HTMLLIElement {
+  const subItem = document.createElement('li');
+  subItem.className = `sub-track-item ${isActiveSub ? 'active' : ''}`;
+  subItem.dataset.queueItemId = item.queueItemId;
+  subItem.dataset.subIndex = String(subIndex);
+  subItem.dataset.videoId = videoId;
+  subItem.setAttribute('role', 'button');
+  subItem.tabIndex = 0;
+
+  const subIdx = document.createElement('span');
+  subIdx.className = 'sub-idx';
+  subIdx.textContent = String(subIndex + 1);
+  const subName = document.createElement('span');
+  subName.className = 'sub-name';
+  subName.textContent = title;
+  applyUserTextFontFallback(subName, title);
+  subItem.replaceChildren(subIdx, subName);
+  return subItem;
+}
+
+function scheduleSubPlaylistBatch(
+  subUl: HTMLUListElement,
+  item: PlaylistItem,
+  playlistId: string,
+  ids: readonly string[],
+  startIndex: number,
+  isCurrent: boolean,
+  currentYouTubeSubIndex: number,
+  generation: number,
+): void {
+  let frame = 0;
+  frame = requestAnimationFrame(() => {
+    _subPlaylistRenderFrames.delete(frame);
+    const latest = (getState('youtube.subItemsMap') || {})[playlistId];
+    if (generation !== _subPlaylistRenderGeneration || !subUl.isConnected || latest?.ids !== ids) {
+      return;
+    }
+
+    const endIndex = Math.min(ids.length, startIndex + SUB_ITEMS_RENDER_BATCH_SIZE);
+    const fragment = document.createDocumentFragment();
+    for (let subIndex = startIndex; subIndex < endIndex; subIndex += 1) {
+      const title =
+        latest.titles?.[subIndex] || t('playlist.video_fallback', { idx: subIndex + 1 });
+      fragment.appendChild(
+        createSubTrackItem(
+          item,
+          ids[subIndex] || '',
+          subIndex,
+          title,
+          isCurrent && subIndex === currentYouTubeSubIndex,
+        ),
+      );
+    }
+    subUl.appendChild(fragment);
+    _followController?.afterRender();
+
+    if (endIndex < ids.length) {
+      scheduleSubPlaylistBatch(
+        subUl,
+        item,
+        playlistId,
+        ids,
+        endIndex,
+        isCurrent,
+        currentYouTubeSubIndex,
+        generation,
+      );
+    } else {
+      subUl.removeAttribute('aria-busy');
+    }
+  });
+  _subPlaylistRenderFrames.add(frame);
 }
 
 function appendSubPlaylist(
@@ -222,32 +316,32 @@ function appendSubPlaylist(
 
   const subUl = document.createElement('ul');
   subUl.className = 'sub-playlist';
+  subUl.dataset.playlistId = playlistId;
   const subData = (getState('youtube.subItemsMap') || {})[playlistId];
 
   if (subData?.ids) {
-    subData.ids.forEach((_videoId, subIndex) => {
-      const subItem = document.createElement('li');
-      const isActiveSub = isCurrent && subIndex === currentYouTubeSubIndex;
-      subItem.className = `sub-track-item ${isActiveSub ? 'active' : ''}`;
-      subItem.dataset.queueItemId = item.queueItemId;
-      subItem.dataset.subIndex = String(subIndex);
-      subItem.setAttribute('role', 'button');
-      subItem.tabIndex = 0;
-
+    const ids = subData.ids;
+    subUl.dataset.renderState = 'items';
+    subUl.dataset.itemCount = String(ids.length);
+    _renderedSubPlaylistIds.set(subUl, ids);
+    const initialEnd = Math.min(ids.length, SUB_ITEMS_INITIAL_RENDER_COUNT);
+    const fragment = document.createDocumentFragment();
+    for (let subIndex = 0; subIndex < initialEnd; subIndex += 1) {
       const title =
         subData.titles?.[subIndex] || t('playlist.video_fallback', { idx: subIndex + 1 });
-      const subIdx = document.createElement('span');
-      subIdx.className = 'sub-idx';
-      subIdx.textContent = String(subIndex + 1);
-      const subName = document.createElement('span');
-      subName.className = 'sub-name';
-      subName.textContent = title;
-      applyUserTextFontFallback(subName, title);
-      subItem.replaceChildren(subIdx, subName);
-      subUl.appendChild(subItem);
-    });
+      fragment.appendChild(
+        createSubTrackItem(
+          item,
+          ids[subIndex] || '',
+          subIndex,
+          title,
+          isCurrent && subIndex === currentYouTubeSubIndex,
+        ),
+      );
+    }
+    subUl.appendChild(fragment);
 
-    if (subData.ids.length <= 1) {
+    if (ids.length <= 1) {
       const hintItem = document.createElement('li');
       hintItem.className = 'sub-track-item loading';
       const hint = document.createElement('span');
@@ -255,19 +349,83 @@ function appendSubPlaylist(
       hint.textContent = t('playlist.deferred_load_hint');
       hintItem.replaceChildren(hint);
       subUl.appendChild(hintItem);
+    } else if (initialEnd < ids.length) {
+      subUl.setAttribute('aria-busy', 'true');
+      scheduleSubPlaylistBatch(
+        subUl,
+        item,
+        playlistId,
+        ids,
+        initialEnd,
+        isCurrent,
+        currentYouTubeSubIndex,
+        _subPlaylistRenderGeneration,
+      );
     }
   } else if (subData?.loadError) {
+    subUl.dataset.renderState = 'error';
     const error = document.createElement('li');
     error.className = 'sub-track-item error';
     error.textContent = t('playlist.sub_load_failed');
     subUl.appendChild(error);
   } else {
+    subUl.dataset.renderState = 'loading';
     const loading = document.createElement('li');
     loading.className = 'sub-track-item loading';
     loading.textContent = t('playlist.loading_info');
     subUl.appendChild(loading);
   }
   entry.appendChild(subUl);
+}
+
+/**
+ * Title fetches arrive one or a small batch at a time. Rebuilding a 5,000-row
+ * playlist for each title creates quadratic DOM work. If the ID manifest is
+ * unchanged, patch only mounted labels and let progressive batches read the
+ * latest titles when they are created.
+ */
+function patchRenderedSubPlaylistTitles(list: HTMLElement): boolean {
+  const subMap = getState('youtube.subItemsMap') || {};
+  for (const subUl of list.querySelectorAll<HTMLUListElement>('.sub-playlist[data-playlist-id]')) {
+    const playlistId = subUl.dataset.playlistId;
+    if (!playlistId) return false;
+    const latest = subMap[playlistId];
+    if (!latest?.ids || subUl.dataset.renderState !== 'items') return false;
+
+    const renderedIds = _renderedSubPlaylistIds.get(subUl);
+    if (!renderedIds || renderedIds.length !== latest.ids.length) return false;
+    if (renderedIds !== latest.ids) {
+      if (!renderedIds.every((id, index) => id === latest.ids[index])) return false;
+      // A progressive renderer still owns the old array identity. Restart it
+      // rather than silently stopping the remaining batches on the next
+      // identity guard.
+      if (subUl.querySelectorAll('.sub-track-item[data-sub-index]').length < latest.ids.length) {
+        return false;
+      }
+      _renderedSubPlaylistIds.set(subUl, latest.ids);
+    }
+
+    for (const row of subUl.querySelectorAll<HTMLElement>(
+      '.sub-track-item[data-sub-index][data-video-id]',
+    )) {
+      const subIndex = Number(row.dataset.subIndex);
+      if (
+        !Number.isSafeInteger(subIndex) ||
+        subIndex < 0 ||
+        row.dataset.videoId !== latest.ids[subIndex]
+      ) {
+        return false;
+      }
+      const title =
+        latest.titles?.[subIndex] || t('playlist.video_fallback', { idx: subIndex + 1 });
+      const name = row.querySelector<HTMLElement>('.sub-name');
+      if (name && name.textContent !== title) {
+        name.textContent = title;
+        applyUserTextFontFallback(name, title);
+      }
+    }
+  }
+  return true;
 }
 
 export function updatePlaylistUI(): void {
@@ -280,6 +438,7 @@ export function updatePlaylistUI(): void {
   // A pending touch probe is not exposed as an active drag, but its timer must
   // never retain a row that this full render is about to detach.
   _reorderController?.cancel();
+  cancelSubPlaylistProgressiveRenders();
 
   const playlist = getState('playlist.items');
   if (!Array.isArray(playlist)) {
@@ -346,7 +505,9 @@ export function updatePlaylistUI(): void {
 
     row.innerHTML = `
       ${renderLeadingSlot(item, idx, canReorder)}
-      <div class="track-name">${renderTrackIcon(item)}<span class="track-name-text">${escapeHtml(displayName)}</span></div>
+      <button type="button" class="track-name" data-action="play"
+        data-queue-item-id="${escapeHtml(item.queueItemId)}"
+        ${isCurrent ? 'aria-current="true"' : ''}>${renderTrackIcon(item)}<span class="track-name-text">${escapeHtml(displayName)}</span></button>
       ${expandButton}
       ${removeButton}
     `;
@@ -522,6 +683,17 @@ function schedulePlaylistUpdate(): void {
   });
 }
 
+function updateSubPlaylistUI(): void {
+  if (_reorderController?.isActive) {
+    _deferredPlaylistUpdate = true;
+    return;
+  }
+  const list = document.getElementById('playlist-ui');
+  if (!list || !patchRenderedSubPlaylistTitles(list)) {
+    schedulePlaylistUpdate();
+  }
+}
+
 export function initPlaylistView(): void {
   _busScope.dispose();
   _domAbort?.abort();
@@ -537,6 +709,7 @@ export function initPlaylistView(): void {
   _followList = null;
   _followScrollContainer = null;
   if (_playlistRaf) cancelAnimationFrame(_playlistRaf);
+  cancelSubPlaylistProgressiveRenders();
   _playlistRaf = 0;
   _pendingPlaylistUpdate = false;
   _deferredPlaylistUpdate = false;
@@ -581,7 +754,7 @@ export function initPlaylistView(): void {
   });
   _busScope.on('state:playlist.currentQueueItemId', schedulePlaylistUpdate);
   _busScope.on('state:youtube.currentSubIndex', schedulePlaylistUpdate);
-  _busScope.on('state:youtube.subItemsMap', schedulePlaylistUpdate);
+  _busScope.on('state:youtube.subItemsMap', updateSubPlaylistUI);
   _busScope.on('playlist:refresh-requested', schedulePlaylistUpdate);
   _busScope.on('state:network.hostConn', () => {
     _reorderController?.cancel();

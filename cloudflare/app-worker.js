@@ -1,8 +1,11 @@
 import { handleProBotRequest } from './pro-bot.js';
 import {
+  cleanupPendingAccountDeletions,
   cleanupExpiredAccountSessions,
   handleAccountAuthRequest,
   recordAccountProRoomLink,
+  retireAccountProRoomLinkBatch,
+  retireAccountProRoomLinks,
   resolveAccountSession,
 } from './account-auth.js';
 import {
@@ -423,7 +426,7 @@ async function handleProRoomFacade(request, env, url) {
         // never turn an old account assertion into authority in its successor.
         const roomLink = await preflightRegisteredProRoomAccountLink(env, roomCode);
         if (roomLink) {
-          const assertion = await createAccountAssertion(
+          let assertion = await createAccountAssertion(
             {
               accountId: account.accountId,
               nickname: account.nickname,
@@ -446,6 +449,14 @@ async function handleProRoomFacade(request, env, url) {
               roomLink.roomGeneration,
             );
             if (!linked) throw new Error('PRO_ACCOUNT_LINK_UNAVAILABLE');
+            // Close the registry-preflight/write race. If decommission
+            // completed between those operations, remove the just-written
+            // exact-incarnation edge and forward no account authority.
+            const confirmedRoomLink = await preflightRegisteredProRoomAccountLink(env, roomCode);
+            if (confirmedRoomLink?.roomGeneration !== roomLink.roomGeneration) {
+              await retireAccountProRoomLinks(env, roomCode, roomLink.roomGeneration);
+              assertion = null;
+            }
           }
           if (assertion) headers.set(ACCOUNT_ASSERTION_HEADER, assertion);
         }
@@ -2326,6 +2337,41 @@ async function markAdminProRoomDecommissioned(
   return Number(result?.meta?.changes || 0) === 1;
 }
 
+async function retireDecommissionedAccountProRoomEdges(env, { sinceMs = null } = {}) {
+  const adminDb = getAdminDb(env);
+  if (!adminDb?.prepare || !env.MUSIXQUARE_AUTH_DB?.prepare) {
+    return { configured: false, retired: false };
+  }
+  const hasSince = Number.isSafeInteger(sinceMs) && sinceMs > 0;
+  const statement = adminDb.prepare(
+    `SELECT room_code, room_generation
+         FROM (
+           SELECT room_code, room_generation, decommissioned_at AS completed_at
+             FROM ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}
+            WHERE status = 'decommissioned'
+           UNION
+           SELECT room_code, room_generation, updated_at AS completed_at
+             FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+            WHERE status = 'decommissioned'
+         )
+        ${hasSince ? 'WHERE completed_at >= ?1' : ''}
+        ORDER BY completed_at DESC, room_code ASC, room_generation ASC
+        LIMIT 5000`,
+  );
+  const bound = hasSince ? statement.bind(sinceMs) : statement;
+  const result = await bound.all();
+  const incarnations = (result?.results || [])
+    .map((row) => ({
+      roomCode: typeof row?.room_code === 'string' ? row.room_code : '',
+      roomGeneration: Number(row?.room_generation),
+    }))
+    .filter(
+      ({ roomCode, roomGeneration }) =>
+        /^0\d{5}$/.test(roomCode) && isProRoomGeneration(roomGeneration),
+    );
+  return retireAccountProRoomLinkBatch(env, incarnations);
+}
+
 function isValidAdminActivationLink(payload, roomCode, roomGeneration) {
   const nowMs = Date.now();
   if (
@@ -3839,6 +3885,11 @@ async function handleAdminProRoomDelete(request, env, pathname) {
   try {
     if (payload.status === 'decommissioned') {
       await markAdminProRoomDecommissioned(db, roomCode, room.roomGeneration, body.requestId);
+      // A completed incarnation has no persistent account authority left to
+      // revoke. Retire only this exact generation's reverse edges so terminal
+      // history cannot consume account deletion capacity forever. A later room
+      // reusing the public code remains isolated in its own generation rows.
+      await retireAccountProRoomLinks(env, roomCode, room.roomGeneration);
     } else {
       // The room Durable Object owns the retry alarm. Move the display index
       // only after that durable saga exists; otherwise a lost cross-script
@@ -6888,7 +6939,7 @@ async function serveStatic(request, env, ctx) {
     });
   }
 
-  const inviteMatch = url.pathname.match(/^\/(\d{6})\/?$/);
+  const inviteMatch = url.pathname.match(/^\/(\d{6})$/);
   if (inviteMatch && (request.method === 'GET' || request.method === 'HEAD')) {
     return serveInvitePage(request, env, inviteMatch[1]);
   }
@@ -6956,20 +7007,47 @@ async function serveStatic(request, env, ctx) {
 }
 
 export default {
-  async scheduled(_event, env, ctx) {
-    ctx.waitUntil(loadSoroFeeds(env, { mirrorImages: true }));
-    ctx.waitUntil(cleanupExpiredAdminMetrics(env));
-    ctx.waitUntil(cleanupExpiredProRoomAdminAudit(env));
-    if (env.MUSIXQUARE_AUTH_DB) ctx.waitUntil(cleanupExpiredAccountSessions(env));
+  async scheduled(event, env, ctx) {
+    const cron = typeof event?.cron === 'string' ? event.cron : null;
+    if (cron === null || cron === '0 */6 * * *') {
+      ctx.waitUntil(loadSoroFeeds(env, { mirrorImages: true }));
+      ctx.waitUntil(cleanupExpiredAdminMetrics(env));
+      ctx.waitUntil(cleanupExpiredProRoomAdminAudit(env));
+      if (env.MUSIXQUARE_AUTH_DB) ctx.waitUntil(cleanupExpiredAccountSessions(env));
+      if (env.MUSIXQUARE_AUTH_DB && getAdminDb(env)?.prepare) {
+        // Repair sweep: the room Durable Object can finish decommissioning
+        // through its own alarm without another admin DELETE request.
+        ctx.waitUntil(retireDecommissionedAccountProRoomEdges(env));
+      }
+    }
+    if (env.MUSIXQUARE_AUTH_DB && (cron === null || cron === '* * * * *')) {
+      ctx.waitUntil(
+        cleanupPendingAccountDeletions(env, {
+          purgeProRoomAccountAuthority: (input) => purgeProRoomAccountAuthority(input, env),
+        }),
+      );
+      if (getAdminDb(env)?.prepare) {
+        ctx.waitUntil(
+          retireDecommissionedAccountProRoomEdges(env, {
+            sinceMs: Date.now() - 15 * 60 * 1000,
+          }),
+        );
+      }
+    }
   },
 
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const mustUpgradeProtocol = url.protocol === 'http:' && !isLocalHttpRequest(request, url);
     const mustUseCanonicalHost = url.hostname === 'www.musixquare.com';
-    if (mustUpgradeProtocol || mustUseCanonicalHost) {
+    const trailingInviteMatch =
+      request.method === 'GET' || request.method === 'HEAD'
+        ? url.pathname.match(/^\/(\d{6})\/$/)
+        : null;
+    if (mustUpgradeProtocol || mustUseCanonicalHost || trailingInviteMatch) {
       if (mustUpgradeProtocol) url.protocol = 'https:';
       if (mustUseCanonicalHost) url.hostname = 'musixquare.com';
+      if (trailingInviteMatch) url.pathname = `/${trailingInviteMatch[1]}`;
       return withSecurityHeaders(Response.redirect(url, 308));
     }
 
@@ -7008,6 +7086,21 @@ export default {
       return withSecurityHeaders(
         await handleAccountAuthRequest(request, env, url, {
           purgeProRoomAccountAuthority: (input) => purgeProRoomAccountAuthority(input, env),
+          ...(typeof ctx?.waitUntil === 'function'
+            ? {
+                deferAccountDeletion: (accountId) =>
+                  ctx.waitUntil(
+                    cleanupPendingAccountDeletions(
+                      env,
+                      {
+                        purgeProRoomAccountAuthority: (input) =>
+                          purgeProRoomAccountAuthority(input, env),
+                      },
+                      { accountId },
+                    ),
+                  ),
+              }
+            : {}),
         }),
       );
     }

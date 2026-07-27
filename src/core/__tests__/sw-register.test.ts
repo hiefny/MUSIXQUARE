@@ -129,6 +129,7 @@ async function registerWithHarness(harness: SwHarness): Promise<void> {
   const { registerServiceWorker } = await import('../../sw-register.ts');
   registerServiceWorker();
   await vi.waitFor(() => expect(harness.register).toHaveBeenCalledOnce());
+  expect(harness.register).toHaveBeenCalledWith('/service-worker.js', { scope: '/' });
 }
 
 describe('service-worker cache-retirement client handshake', () => {

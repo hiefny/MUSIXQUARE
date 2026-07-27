@@ -205,7 +205,7 @@ let queueModeCheckpointRetryAttempt = 0;
 let terminalRecoveryInFlight = false;
 let controlChannelRecoveryAttempt = 0;
 let accountAuthorityFailClosed = false;
-let accountLeaseRenewalInFlight = false;
+let accountLeaseRenewalOwner: symbol | null = null;
 /** Invalidates lease responses issued for an older App-account projection. */
 let accountIdentityGeneration = 0;
 const heartbeatSingleFlight = new ProRoomHeartbeatSingleFlight();
@@ -3225,7 +3225,7 @@ function stopLifecycle(): void {
   accountReconciler.stop();
   accountIdentityGeneration += 1;
   accountAuthorityFailClosed = false;
-  accountLeaseRenewalInFlight = false;
+  accountLeaseRenewalOwner = null;
   unregisterPlaybackCommandHandler?.();
   unregisterPlaybackCommandHandler = null;
   if (activeServerPlaybackTransition) {
@@ -3568,7 +3568,7 @@ function scheduleAccountIdentityLeaseRenewal(): void {
 }
 
 async function renewAccountIdentityLease(): Promise<void> {
-  if (!active || accountLeaseRenewalInFlight) return;
+  if (!active || accountLeaseRenewalOwner) return;
   const account = getAccountSnapshot();
   const snapshot = controller.snapshot;
   if (!snapshot) {
@@ -3592,7 +3592,8 @@ async function renewAccountIdentityLease(): Promise<void> {
   const roomCode = snapshot.roomCode;
   const sessionLease = controller.captureSessionLease();
   const identityGeneration = accountIdentityGeneration;
-  accountLeaseRenewalInFlight = true;
+  const renewalOwner = Symbol('account-identity-lease-renewal');
+  accountLeaseRenewalOwner = renewalOwner;
   try {
     await api.renewCurrentAccountLease(roomCode);
   } catch (error) {
@@ -3629,9 +3630,14 @@ async function renewAccountIdentityLease(): Promise<void> {
     // server-side anonymous downgrade after expiry.
     log.warn('[PRO] Account identity lease renewal deferred', error);
   } finally {
-    accountLeaseRenewalInFlight = false;
-    if (controller.isSessionLeaseCurrent(sessionLease, roomCode)) {
-      scheduleAccountIdentityLeaseRenewal();
+    // stopLifecycle() deliberately clears ownership so a new room incarnation
+    // can renew immediately. A late finally from the old request must not
+    // release that new flight or schedule a competing timer.
+    if (accountLeaseRenewalOwner === renewalOwner) {
+      accountLeaseRenewalOwner = null;
+      if (controller.isSessionLeaseCurrent(sessionLease, roomCode)) {
+        scheduleAccountIdentityLeaseRenewal();
+      }
     }
   }
 }

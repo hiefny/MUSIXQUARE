@@ -55,6 +55,7 @@ declare global {
 const SECURITY_CONFIG_CACHE_MS = 5 * 60 * 1000;
 const TOKEN_REFRESH_SKEW_SECONDS = 30;
 const TURNSTILE_EXECUTION_TIMEOUT_MS = 30_000;
+const TURNSTILE_SCRIPT_LOAD_TIMEOUT_MS = 20_000;
 const TURNSTILE_OVERLAY_FADE_MS = 180;
 const SILENT_CAPABILITY_WARM_TIMEOUT_MS = 8_000;
 const CAPABILITY_HTTP_TIMEOUT_MS = 15_000;
@@ -269,11 +270,60 @@ async function loadTurnstile(): Promise<void> {
     const existing = document.querySelector<HTMLScriptElement>(
       `script[src="${TURNSTILE_SCRIPT_SRC}"]`,
     );
-    if (existing) {
-      existing.addEventListener('load', () => resolve(), { once: true });
-      existing.addEventListener('error', () => reject(new Error('Turnstile load failed')), {
-        once: true,
+    let settled = false;
+    let timeoutId: number | null = null;
+    let watchedScript: HTMLScriptElement | null = null;
+    const onLoad = () => {
+      if (watchedScript) finishLoad(watchedScript);
+    };
+    const onError = () => {
+      if (watchedScript) failLoad(watchedScript);
+    };
+    const cleanup = () => {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      watchedScript?.removeEventListener('load', onLoad);
+      watchedScript?.removeEventListener('error', onError);
+    };
+    const settle = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      callback();
+    };
+    const finishLoad = (script: HTMLScriptElement) => {
+      if (window.turnstile) {
+        settle(resolve);
+        return;
+      }
+      // A load event without the public API is just as unusable as a network
+      // error. Remove the poisoned node so a later user action can retry.
+      settle(() => {
+        script.remove();
+        reject(new Error('Turnstile unavailable after script load'));
       });
+    };
+    const failLoad = (script: HTMLScriptElement, reason = 'Turnstile load failed') => {
+      // Keeping a failed script makes the next attempt attach listeners to an
+      // element whose one-shot error event has already fired, hanging forever.
+      settle(() => {
+        script.remove();
+        reject(new Error(reason));
+      });
+    };
+    const watch = (script: HTMLScriptElement) => {
+      watchedScript = script;
+      script.addEventListener('load', onLoad);
+      script.addEventListener('error', onError);
+      timeoutId = window.setTimeout(
+        () => failLoad(script, 'Turnstile script load timed out'),
+        TURNSTILE_SCRIPT_LOAD_TIMEOUT_MS,
+      );
+    };
+    if (existing) {
+      watch(existing);
       return;
     }
 
@@ -281,10 +331,7 @@ async function loadTurnstile(): Promise<void> {
     script.src = TURNSTILE_SCRIPT_SRC;
     script.async = true;
     script.defer = true;
-    script.addEventListener('load', () => resolve(), { once: true });
-    script.addEventListener('error', () => reject(new Error('Turnstile load failed')), {
-      once: true,
-    });
+    watch(script);
     document.head.appendChild(script);
   });
 

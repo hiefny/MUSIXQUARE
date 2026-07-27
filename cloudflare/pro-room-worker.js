@@ -432,6 +432,22 @@ function isMissingAdminGenerationSchemaError(error) {
   return false;
 }
 
+function isMissingAccountGenerationSchemaError(error) {
+  let current = error;
+  for (let depth = 0; current && depth < 4; depth += 1) {
+    const message = String(current?.message || current);
+    if (
+      /no such table:\s*mxqr_account_pro_room_generations/i.test(message) ||
+      /no such column:\s*room_generation/i.test(message) ||
+      /has no column named room_generation/i.test(message)
+    ) {
+      return true;
+    }
+    current = current?.cause;
+  }
+  return false;
+}
+
 function isProRoomCode(value) {
   return typeof value === 'string' && PRO_ROOM_CODE_RE.test(value);
 }
@@ -3984,8 +4000,7 @@ export class MusixquareProRoom {
     );
   }
 
-  reconcileAssetGarbageCollection(nowMs) {
-    const referenced = this.referencedAssetIds();
+  reconcileAssetGarbageCollection(nowMs, referenced = this.referencedAssetIds()) {
     let changed = false;
     for (const asset of Object.values(this.room.assets)) {
       if (asset.status !== 'ready') continue;
@@ -8769,6 +8784,48 @@ export class MusixquareProRoom {
     }
   }
 
+  async retireAccountReverseEdge() {
+    const db = this.env.MUSIXQUARE_AUTH_DB;
+    // This binding is additive so an older/local deployment without optional
+    // account identity can still decommission. Production binds the auth DB,
+    // making the deletion-completion transition itself the primary cleanup.
+    if (!db?.prepare) return true;
+    const roomCode = this.room.roomCode;
+    const roomGeneration = this.room.roomGeneration;
+    try {
+      await db
+        .prepare(
+          `DELETE FROM mxqr_account_pro_room_generations
+            WHERE room_code = ?1 AND room_generation = ?2`,
+        )
+        .bind(roomCode, roomGeneration)
+        .run();
+      if (roomGeneration === LEGACY_PRO_ROOM_GENERATION) {
+        await db
+          .prepare(`DELETE FROM mxqr_account_pro_rooms WHERE room_code = ?1`)
+          .bind(roomCode)
+          .run();
+      }
+      return true;
+    } catch (error) {
+      if (
+        roomGeneration !== LEGACY_PRO_ROOM_GENERATION ||
+        !isMissingAccountGenerationSchemaError(error)
+      ) {
+        return false;
+      }
+      try {
+        await db
+          .prepare(`DELETE FROM mxqr_account_pro_rooms WHERE room_code = ?1`)
+          .bind(roomCode)
+          .run();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
+
   async maintainDecommissionedTombstone(nowMs = Date.now()) {
     if (this.room.status !== 'decommissioned' || !this.room.decommission) return false;
     const requestId = this.room.decommission.requestId;
@@ -8777,7 +8834,12 @@ export class MusixquareProRoom {
     const developerData = await this.deleteDeveloperRoomData(requestId, nowMs);
     const developerLimiter = await this.clearDeveloperRoomLimiter(requestId);
     const registry = await this.markRegistryDecommissioned(nowMs);
-    const repaired = media.ok && signaling && developerData && developerLimiter && registry;
+    // Marking the registry first closes new account-link preflights. The
+    // idempotent exact-edge deletion then drains every request that passed its
+    // preflight just before the status transition.
+    const accountReverseEdge = await this.retireAccountReverseEdge();
+    const repaired =
+      media.ok && signaling && developerData && developerLimiter && accountReverseEdge && registry;
     this.room.decommission.maintenanceAtMs =
       nowMs + (repaired ? DECOMMISSION_TOMBSTONE_MAINTENANCE_MS : DECOMMISSION_RETRY_MS);
     await this.persist();
@@ -8843,6 +8905,11 @@ export class MusixquareProRoom {
       return false;
     }
     if (!(await this.markRegistryDecommissioned(nowMs))) {
+      job.retryAtMs = nowMs + DECOMMISSION_RETRY_MS;
+      await this.persist();
+      return false;
+    }
+    if (!(await this.retireAccountReverseEdge())) {
       job.retryAtMs = nowMs + DECOMMISSION_RETRY_MS;
       await this.persist();
       return false;
@@ -10981,7 +11048,14 @@ export class MusixquareProRoom {
       playbackTransitionOutcome = this.commitPendingPlaybackTransition(nowMs);
       changed = true;
     }
-    changed = this.reconcileAssetGarbageCollection(nowMs) || changed;
+    // YouTube-only rooms have no ready R2 assets and therefore need no
+    // playlist reference scan. Rooms with ready media compute the set once and
+    // reuse it for both marker repair and the due-GC safety check below.
+    const hasReadyAssets = Object.values(this.room.assets).some(
+      (asset) => asset.status === 'ready',
+    );
+    const referencedAssets = hasReadyAssets ? this.referencedAssetIds() : new Set();
+    changed = this.reconcileAssetGarbageCollection(nowMs, referencedAssets) || changed;
     let accountLeasePresenceChanged = false;
     for (const [tokenHash, session] of Object.entries(this.room.sessions)) {
       if (
@@ -11053,7 +11127,6 @@ export class MusixquareProRoom {
         changed = true;
       }
     }
-    const referencedAssets = this.referencedAssetIds();
     for (const [assetId, asset] of Object.entries(this.room.assets)) {
       if (
         asset.stagingObjectKey &&

@@ -3,6 +3,9 @@
 import { pathToFileURL } from 'node:url';
 
 const PRO_ROOM_HEALTH_URL = 'https://musixquare.com/api/pro-room/health';
+const PRO_ROOM_CANARY_CODE = '000000';
+const PRO_ROOM_CANARY_BASE_URL =
+  `https://musixquare.com/api/pro-room/v1/rooms/${PRO_ROOM_CANARY_CODE}`;
 // A newly promoted Worker can become visible through the App Worker service
 // binding later than Cloudflare's control plane reports the 100% deployment.
 // Keep the exact version check, but allow enough time for that private
@@ -45,10 +48,53 @@ async function readHealth() {
   return payload;
 }
 
+async function readJsonBoundary(path) {
+  const response = await fetchWithTimeout(`${PRO_ROOM_CANARY_BASE_URL}${path}`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+  });
+  const text = await response.text();
+  let payload = null;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new Error(`PRO room boundary ${path} returned invalid JSON`);
+  }
+  return { status: response.status, payload };
+}
+
+export async function verifyProRoomPublicBoundary({
+  read = readJsonBoundary,
+} = {}) {
+  const bootstrap = await read('/bootstrap');
+  if (
+    bootstrap?.status !== 200 ||
+    bootstrap.payload?.roomCode !== PRO_ROOM_CANARY_CODE ||
+    !['activation_required', 'pin_required'].includes(bootstrap.payload?.status)
+  ) {
+    throw new Error('PRO room bootstrap boundary returned an invalid public projection');
+  }
+
+  const anonymousSnapshot = await read('/snapshot');
+  if (
+    anonymousSnapshot?.status !== 401 ||
+    anonymousSnapshot.payload?.error !== 'SESSION_REQUIRED'
+  ) {
+    throw new Error('PRO room snapshot boundary did not reject an anonymous credential');
+  }
+
+  return {
+    roomCode: PRO_ROOM_CANARY_CODE,
+    roomStatus: bootstrap.payload.status,
+    anonymousSnapshotRejected: true,
+  };
+}
+
 export async function main() {
   const expectedVersion = process.env.MXQR_EXPECTED_PRO_ROOM_VERSION?.trim() || '';
   const readiness = await waitForProRoomReady(expectedVersion);
-  console.log(JSON.stringify({ ok: true, ...readiness }));
+  const boundary = await verifyProRoomPublicBoundary();
+  console.log(JSON.stringify({ ok: true, ...readiness, boundary }));
 }
 
 export async function waitForProRoomReady(

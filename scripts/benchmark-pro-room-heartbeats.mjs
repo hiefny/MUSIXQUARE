@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -261,24 +261,91 @@ function cookieFrom(response) {
   return setCookie.split(';')[0];
 }
 
-async function loadBenchmarkWorkerModule(source, label) {
-  // Append benchmark-only exports to an in-memory module. The source file on
-  // disk, and therefore the production Worker module surface, stays untouched.
-  const instrumented = `${source}\nexport const __heartbeatBenchmarkInternals = {\n  assertBoundedRoomState,\n  playlistItemSignature,\n  serializedCoreStateByteLength,\n  serializedPlaylistStateByteLength,\n  splitPersistentRoomState,\n};\n//# sourceURL=mxqr-heartbeat-benchmark-${label}.mjs\n`;
-  return import(`data:text/javascript;base64,${Buffer.from(instrumented).toString('base64')}`);
+const STATIC_RELATIVE_IMPORT_RE =
+  /\b(?:import|export)\s+(?:[\s\S]*?\s+from\s+)?['"](\.[^'"]+)['"]/gu;
+
+function instrumentBenchmarkEntry(source, label) {
+  return `${source}\nexport const __heartbeatBenchmarkInternals = {\n  assertBoundedRoomState,\n  playlistItemSignature,\n  serializedCoreStateByteLength,\n  serializedPlaylistStateByteLength,\n  splitPersistentRoomState,\n};\n//# sourceURL=mxqr-heartbeat-benchmark-${label}.mjs\n`;
+}
+
+async function materializeWorkerModuleGraph(label, readSource) {
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), `mxqr-heartbeat-${label}-`));
+  await writeFile(
+    path.join(tempRoot, 'package.json'),
+    `${JSON.stringify({ private: true, type: 'module' })}\n`,
+    'utf8',
+  );
+  const visited = new Set();
+  const visit = async (repoPath) => {
+    const normalizedPath = path.posix.normalize(repoPath.replaceAll('\\', '/'));
+    if (
+      normalizedPath.startsWith('../') ||
+      path.posix.isAbsolute(normalizedPath) ||
+      visited.has(normalizedPath)
+    ) {
+      return;
+    }
+    visited.add(normalizedPath);
+    let source = await readSource(normalizedPath);
+    if (normalizedPath === 'cloudflare/pro-room-worker.js') {
+      source = instrumentBenchmarkEntry(source, label);
+    }
+    const destination = path.join(tempRoot, ...normalizedPath.split('/'));
+    await mkdir(path.dirname(destination), { recursive: true });
+    await writeFile(destination, source, 'utf8');
+    const dependencies = [];
+    for (const match of source.matchAll(STATIC_RELATIVE_IMPORT_RE)) {
+      const specifier = match[1];
+      const dependency = path.posix.normalize(
+        path.posix.join(path.posix.dirname(normalizedPath), specifier),
+      );
+      if (dependency.startsWith('../') || path.posix.isAbsolute(dependency)) {
+        throw new Error(`Benchmark module escaped repository root: ${specifier}`);
+      }
+      dependencies.push(dependency);
+    }
+    await Promise.all(dependencies.map((dependency) => visit(dependency)));
+  };
+  try {
+    await visit('cloudflare/pro-room-worker.js');
+    const entryUrl = pathToFileURL(path.join(tempRoot, 'cloudflare', 'pro-room-worker.js')).href;
+    return { module: await import(entryUrl), tempRoot };
+  } catch (error) {
+    await rm(tempRoot, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 async function loadBenchmarkModules() {
-  const baselineSource = execFileSync(
-    'git',
-    ['show', `${BASELINE_COMMIT}:cloudflare/pro-room-worker.js`],
-    { cwd: ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
-  );
-  const currentSource = await readFile(WORKER_PATH, 'utf8');
-  return {
-    baseline: await loadBenchmarkWorkerModule(baselineSource, 'baseline'),
-    current: await loadBenchmarkWorkerModule(currentSource, 'working-tree'),
-  };
+  const materialized = [];
+  try {
+    const baseline = await materializeWorkerModuleGraph('baseline', async (repoPath) =>
+      execFileSync('git', ['show', `${BASELINE_COMMIT}:${repoPath}`], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        maxBuffer: 16 * 1024 * 1024,
+      }),
+    );
+    materialized.push(baseline.tempRoot);
+    const current = await materializeWorkerModuleGraph('working-tree', (repoPath) =>
+      readFile(path.join(ROOT, ...repoPath.split('/')), 'utf8'),
+    );
+    materialized.push(current.tempRoot);
+    return {
+      baseline: baseline.module,
+      current: current.module,
+      cleanup: async () => {
+        await Promise.all(
+          materialized.map((tempRoot) => rm(tempRoot, { recursive: true, force: true })),
+        );
+      },
+    };
+  } catch (error) {
+    await Promise.all(
+      materialized.map((tempRoot) => rm(tempRoot, { recursive: true, force: true })),
+    );
+    throw error;
+  }
 }
 
 async function createSeed(module) {
@@ -371,6 +438,12 @@ async function workerFromSeed(module, seed) {
   const storage = new FakeStorage(seed.data, seed.alarm);
   const worker = new module.MusixquareProRoom(new FakeState(storage), environment());
   if (worker.ready) await worker.ready;
+  // The baseline seed may be opened by a newer module with additive
+  // normalization work pending. Settle that one-time migration before metrics
+  // are reset so the documented workload remains a warm steady-state
+  // heartbeat comparison rather than counting startup repair as a heartbeat
+  // durability flush.
+  await worker.prune(Date.now());
   worker.lastLegacyShadowPersistedAtMs = Date.now();
   worker.scheduledAlarmMs = storage.alarm;
   storage.resetMetrics();
@@ -611,110 +684,114 @@ function printTable(result) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const modules = await loadBenchmarkModules();
-  const seed = await createSeed(modules.baseline);
-  const baseline = await runImmediateBaseline(modules.baseline, seed);
-  const currentHybrid = await runHybridCurrent(modules.current, seed);
-  if (baseline.durabilityFlushes !== HEARTBEAT_COUNT) {
-    throw new Error(
-      `Baseline wrote ${baseline.durabilityFlushes} times; expected ${HEARTBEAT_COUNT}`,
+  try {
+    const seed = await createSeed(modules.baseline);
+    const baseline = await runImmediateBaseline(modules.baseline, seed);
+    const currentHybrid = await runHybridCurrent(modules.current, seed);
+    if (baseline.durabilityFlushes !== HEARTBEAT_COUNT) {
+      throw new Error(
+        `Baseline wrote ${baseline.durabilityFlushes} times; expected ${HEARTBEAT_COUNT}`,
+      );
+    }
+    if (currentHybrid.durabilityFlushes !== HEARTBEAT_ROUNDS * 2) {
+      throw new Error(
+        `Hybrid wrote ${currentHybrid.durabilityFlushes} times; expected ${HEARTBEAT_ROUNDS * 2}`,
+      );
+    }
+    const isolatedPhases = await measureIsolatedPhases(modules.current, seed);
+    const clusteredTheoreticalFlushes = theoreticalHybridFlushes(
+      (participantIndex) => participantIndex * 5,
     );
-  }
-  if (currentHybrid.durabilityFlushes !== HEARTBEAT_ROUNDS * 2) {
-    throw new Error(
-      `Hybrid wrote ${currentHybrid.durabilityFlushes} times; expected ${HEARTBEAT_ROUNDS * 2}`,
+    const uniformlyStaggeredTheoreticalFlushes = theoreticalHybridFlushes((participantIndex) =>
+      Math.floor((participantIndex * HEARTBEAT_INTERVAL_MS) / PARTICIPANT_COUNT),
     );
-  }
-  const isolatedPhases = await measureIsolatedPhases(modules.current, seed);
-  const clusteredTheoreticalFlushes = theoreticalHybridFlushes(
-    (participantIndex) => participantIndex * 5,
-  );
-  const uniformlyStaggeredTheoreticalFlushes = theoreticalHybridFlushes((participantIndex) =>
-    Math.floor((participantIndex * HEARTBEAT_INTERVAL_MS) / PARTICIPANT_COUNT),
-  );
-  const coreBytesPerFlush = baseline.storage.core.bytes / baseline.storage.core.calls;
+    const coreBytesPerFlush = baseline.storage.core.bytes / baseline.storage.core.calls;
 
-  const result = {
-    schemaVersion: 2,
-    source: {
-      baselineCommit: BASELINE_COMMIT,
-      workingTreeCommit: sourceCommit(),
-      workingTreeDirty: workerSourceDirty(),
-      worker: 'cloudflare/pro-room-worker.js',
-      node: process.version,
-      platform: `${process.platform}-${process.arch}`,
-      cpu: os.cpus()[0]?.model || 'unknown',
-      generatedAt: new Date().toISOString(),
-    },
-    workload: {
-      participants: PARTICIPANT_COUNT,
-      playlistItems: PLAYLIST_COUNT,
-      heartbeatRounds: HEARTBEAT_ROUNDS,
-      heartbeats: HEARTBEAT_COUNT,
-      roundIntervalMs: HEARTBEAT_INTERVAL_MS,
-      delivery: 'four bursts of 100 requests through MusixquareProRoom.fetch',
-      quietGapModel:
-        'The in-memory heartbeat anchor is reset before each round to model a 15-second quiet interval without sleeping for 15 seconds.',
-      warmV2Persistence: true,
-    },
-    measurements: { baseline, currentHybrid },
-    comparison: {
-      flushReductionPercent: round(
-        (1 - currentHybrid.durabilityFlushes / baseline.durabilityFlushes) * 100,
-      ),
-      putByteReductionPercent: round(
-        (1 - currentHybrid.storage.putBytes / baseline.storage.putBytes) * 100,
-      ),
-      persistenceElapsedSpeedup: ratio(
-        baseline.phases.persist.totalMs,
-        currentHybrid.phases.persist.totalMs,
-      ),
-      responsePathHarnessSpeedup: ratio(baseline.elapsedMs, currentHybrid.elapsedMs),
-      hybridOneSecondWindowTheory: {
-        clusteredWithin500ms: {
-          flushes: clusteredTheoreticalFlushes,
-          putBytes: coreBytesPerFlush * clusteredTheoreticalFlushes,
-          reductionPercent: round((1 - clusteredTheoreticalFlushes / HEARTBEAT_COUNT) * 100),
-        },
-        uniformlyStaggeredAcross15s: {
-          flushes: uniformlyStaggeredTheoreticalFlushes,
-          putBytes: coreBytesPerFlush * uniformlyStaggeredTheoreticalFlushes,
-          reductionPercent: round(
-            (1 - uniformlyStaggeredTheoreticalFlushes / HEARTBEAT_COUNT) * 100,
-          ),
+    const result = {
+      schemaVersion: 2,
+      source: {
+        baselineCommit: BASELINE_COMMIT,
+        workingTreeCommit: sourceCommit(),
+        workingTreeDirty: workerSourceDirty(),
+        worker: 'cloudflare/pro-room-worker.js',
+        node: process.version,
+        platform: `${process.platform}-${process.arch}`,
+        cpu: os.cpus()[0]?.model || 'unknown',
+        generatedAt: new Date().toISOString(),
+      },
+      workload: {
+        participants: PARTICIPANT_COUNT,
+        playlistItems: PLAYLIST_COUNT,
+        heartbeatRounds: HEARTBEAT_ROUNDS,
+        heartbeats: HEARTBEAT_COUNT,
+        roundIntervalMs: HEARTBEAT_INTERVAL_MS,
+        delivery: 'four bursts of 100 requests through MusixquareProRoom.fetch',
+        quietGapModel:
+          'The in-memory heartbeat anchor is reset before each round to model a 15-second quiet interval without sleeping for 15 seconds.',
+        warmV2Persistence: true,
+      },
+      measurements: { baseline, currentHybrid },
+      comparison: {
+        flushReductionPercent: round(
+          (1 - currentHybrid.durabilityFlushes / baseline.durabilityFlushes) * 100,
+        ),
+        putByteReductionPercent: round(
+          (1 - currentHybrid.storage.putBytes / baseline.storage.putBytes) * 100,
+        ),
+        persistenceElapsedSpeedup: ratio(
+          baseline.phases.persist.totalMs,
+          currentHybrid.phases.persist.totalMs,
+        ),
+        responsePathHarnessSpeedup: ratio(baseline.elapsedMs, currentHybrid.elapsedMs),
+        hybridOneSecondWindowTheory: {
+          clusteredWithin500ms: {
+            flushes: clusteredTheoreticalFlushes,
+            putBytes: coreBytesPerFlush * clusteredTheoreticalFlushes,
+            reductionPercent: round((1 - clusteredTheoreticalFlushes / HEARTBEAT_COUNT) * 100),
+          },
+          uniformlyStaggeredAcross15s: {
+            flushes: uniformlyStaggeredTheoreticalFlushes,
+            putBytes: coreBytesPerFlush * uniformlyStaggeredTheoreticalFlushes,
+            reductionPercent: round(
+              (1 - uniformlyStaggeredTheoreticalFlushes / HEARTBEAT_COUNT) * 100,
+            ),
+          },
         },
       },
-    },
-    isolatedPhases,
-    commitBoundary: {
-      coalescible: ['presence heartbeat lastSeenAtMs durability only'],
-      immediate: [
-        'join',
-        'leave',
-        'coordinator election or epoch change',
-        'topology or authorization change',
+      isolatedPhases,
+      commitBoundary: {
+        coalescible: ['presence heartbeat lastSeenAtMs durability only'],
+        immediate: [
+          'join',
+          'leave',
+          'coordinator election or epoch change',
+          'topology or authorization change',
+        ],
+        crashWindow:
+          'An interrupted trailing timer can lose only the accepted pure renewal inside that one-second window, returning durable lastSeenAtMs to the prior successful heartbeat. A 17-second guard forces recovery before the next 15-second client heartbeat can race expiry; topology persists immediately.',
+      },
+      caveats: [
+        'This is an in-process Node benchmark, not Cloudflare production latency.',
+        `The baseline executes ${BASELINE_COMMIT}; the candidate executes the current working-tree Worker through its real fetch and timer paths.`,
+        'fakeStorageTransactionSnapshot isolates the test harness full-storage clone, which SQLite Durable Object transactions do not perform in JavaScript.',
+        'Cloudflare SQLite storage billing counts rows written, not these serialized byte totals; each measured pure heartbeat flush writes one v2 core row.',
+        'A pending setTimeout prevents Durable Object hibernation and can add duration charges. The hybrid creates no timer for isolated heartbeats and opens one only after dense second arrivals, so net cost depends on traffic shape.',
+        'Response elapsed excludes the intentional trailing timer wait; timerDrainMs reports that wall-clock wait separately.',
+        'Isolated phase timings overlap and must not be added together.',
       ],
-      crashWindow:
-        'An interrupted trailing timer can lose only the accepted pure renewal inside that one-second window, returning durable lastSeenAtMs to the prior successful heartbeat. A 17-second guard forces recovery before the next 15-second client heartbeat can race expiry; topology persists immediately.',
-    },
-    caveats: [
-      'This is an in-process Node benchmark, not Cloudflare production latency.',
-      `The baseline executes ${BASELINE_COMMIT}; the candidate executes the current working-tree Worker through its real fetch and timer paths.`,
-      'fakeStorageTransactionSnapshot isolates the test harness full-storage clone, which SQLite Durable Object transactions do not perform in JavaScript.',
-      'Cloudflare SQLite storage billing counts rows written, not these serialized byte totals; each measured pure heartbeat flush writes one v2 core row.',
-      'A pending setTimeout prevents Durable Object hibernation and can add duration charges. The hybrid creates no timer for isolated heartbeats and opens one only after dense second arrivals, so net cost depends on traffic shape.',
-      'Response elapsed excludes the intentional trailing timer wait; timerDrainMs reports that wall-clock wait separately.',
-      'Isolated phase timings overlap and must not be added together.',
-    ],
-  };
+    };
 
-  printTable(result);
-  if (args.json) {
-    const outputPath = path.resolve(ROOT, args.json);
-    await mkdir(path.dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
-    console.log(`JSON: ${outputPath}`);
+    printTable(result);
+    if (args.json) {
+      const outputPath = path.resolve(ROOT, args.json);
+      await mkdir(path.dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+      console.log(`JSON: ${outputPath}`);
+    }
+    console.log(JSON.stringify(result));
+  } finally {
+    await modules.cleanup();
   }
-  console.log(JSON.stringify(result));
 }
 
 await main();

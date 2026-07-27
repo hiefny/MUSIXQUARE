@@ -442,9 +442,13 @@ function fmtTime(ms) {
   return m + 'm ' + s + 's';
 }
 
+function isFailedStatus(status) {
+  return status === 'failed' || status === 'timedOut' || status === 'interrupted';
+}
+
 function statusIcon(s) {
   if (s === 'passed') return '<span class="icon pass">✓</span>';
-  if (s === 'failed' || s === 'timedOut') return '<span class="icon fail">✗</span>';
+  if (isFailedStatus(s)) return '<span class="icon fail">✗</span>';
   if (s === 'skipped') return '<span class="icon skip">∘</span>';
   return '<span class="icon pending">·</span>';
 }
@@ -458,14 +462,14 @@ function renderTests() {
   const list = $('test-list');
   const tests = report.tests.filter(t => {
     if (currentFilter === 'all') return true;
-    if (currentFilter === 'failed') return t.status === 'failed' || t.status === 'timedOut';
+    if (currentFilter === 'failed') return isFailedStatus(t.status);
     if (currentFilter === 'passed') return t.status === 'passed';
     if (currentFilter === 'skipped') return t.status === 'skipped';
     return true;
   });
 
   list.innerHTML = tests.map((t, i) => {
-    const isFail = t.status === 'failed' || t.status === 'timedOut';
+    const isFail = isFailedStatus(t.status);
     return `
       <div class="test-item" onclick="toggleError(this)" data-idx="${i}">
         ${statusIcon(t.status)}
@@ -487,16 +491,26 @@ window.toggleError = function(el) {
 
 function update(data) {
   report = data;
-  const { total, passed, failed, skipped, completed, running, finishedAt, durationMs } = data;
+  const {
+    total,
+    passed,
+    failed,
+    skipped,
+    completed,
+    running,
+    finishedAt,
+    finalStatus,
+    durationMs,
+  } = data;
 
   // Badge
   const badge = $('badge');
   if (finishedAt) {
-    if (failed === 0) {
+    if (failed === 0 && finalStatus === 'passed') {
       badge.textContent = 'ALL PASSED';
       badge.className = 'badge passed';
     } else {
-      badge.textContent = failed + ' FAILED';
+      badge.textContent = failed > 0 ? failed + ' FAILED' : 'RUN FAILED';
       badge.className = 'badge failed';
     }
   } else {
@@ -531,7 +545,7 @@ function update(data) {
   }
 
   // Filter counts
-  const failCount = data.tests.filter(t => t.status === 'failed' || t.status === 'timedOut').length;
+  const failCount = data.tests.filter(t => isFailedStatus(t.status)).length;
   $('f-all').textContent = completed;
   $('f-fail').textContent = failCount;
   $('f-pass').textContent = passed;
@@ -571,13 +585,14 @@ poll();
 // Copy report
 $('copy-btn').addEventListener('click', () => {
   if (!report) return;
-  const failedTests = report.tests.filter(t => t.status === 'failed' || t.status === 'timedOut');
+  const failedTests = report.tests.filter(t => isFailedStatus(t.status));
 
   let text = '## E2E Test Report\n';
   text += '- **Total**: ' + report.total + '\n';
   text += '- **Passed**: ' + report.passed + '\n';
   text += '- **Failed**: ' + report.failed + '\n';
   text += '- **Skipped**: ' + report.skipped + '\n';
+  text += '- **Run status**: ' + (report.finalStatus || 'unknown') + '\n';
   text += '- **Duration**: ' + fmtTime(report.durationMs) + '\n\n';
 
   if (failedTests.length > 0) {

@@ -21,7 +21,7 @@ const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_lease_1';
 const PRESENCE_ID = 'presence_lease_1';
 
-function snapshot(): ProRoomSnapshot {
+function snapshot(presenceIncarnationId = PRESENCE_ID): ProRoomSnapshot {
   return {
     schemaVersion: 1,
     memberIdentityVersion: 1,
@@ -72,7 +72,7 @@ function snapshot(): ProRoomSnapshot {
       memberDisplayNumber: 0,
       isAuthenticated: true,
       participantId: PARTICIPANT_ID,
-      presenceIncarnationId: PRESENCE_ID,
+      presenceIncarnationId,
       displayName: 'Minsu',
       role: 'owner',
       capabilities: [...capabilitiesForProRoomRole('owner')],
@@ -81,13 +81,13 @@ function snapshot(): ProRoomSnapshot {
   };
 }
 
-function signalingAccess(): ProRoomSignalingAccess {
+function signalingAccess(presenceIncarnationId = PRESENCE_ID): ProRoomSignalingAccess {
   return {
     ticket: `v1.${'a'.repeat(32)}.${'B'.repeat(43)}` as ProRoomSignalingAccess['ticket'],
     expiresAtMs: Date.now() + 60_000,
     role: 'member',
     coordinatorEpoch: 1,
-    presenceIncarnationId: PRESENCE_ID,
+    presenceIncarnationId,
     ticketSequence: 1,
     pendingPlaybackTransition: null,
   };
@@ -124,6 +124,17 @@ function detachedSnapshot(): ProRoomSnapshot {
       capabilities: ['playback.control'],
     },
   };
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 describe.sequential('PRO runtime account identity lease', () => {
@@ -570,5 +581,44 @@ describe.sequential('PRO runtime account identity lease', () => {
     await Promise.resolve();
 
     expect(getState('room.context').capabilities).toContain('playback.control');
+  });
+
+  it('does not let an old renewal finally release a new incarnation flight', async () => {
+    const oldRenewal = deferred<{ leaseExpiresAtMs: number }>();
+    const newRenewal = deferred<{ leaseExpiresAtMs: number }>();
+    const renew = vi
+      .spyOn(ProRoomApiClient.prototype, 'renewCurrentAccountLease')
+      .mockReturnValueOnce(oldRenewal.promise)
+      .mockReturnValueOnce(newRenewal.promise)
+      .mockResolvedValue({ leaseExpiresAtMs: Date.now() + 120_000 });
+
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(renew).toHaveBeenCalledTimes(1);
+
+    requestProRoomLeave();
+    const nextPresence = 'presence_lease_2';
+    const nextSnapshot = snapshot(nextPresence);
+    vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValueOnce(nextSnapshot);
+    vi.mocked(ProRoomApiClient.prototype.createSignalingTicket).mockResolvedValue(
+      signalingAccess(nextPresence),
+    );
+    vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount).mockResolvedValueOnce(nextSnapshot);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(nextSnapshot);
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(renew).toHaveBeenCalledTimes(2);
+
+    oldRenewal.resolve({ leaseExpiresAtMs: Date.now() + 120_000 });
+    await Promise.resolve();
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(40_000);
+
+    // The second incarnation still owns the unresolved single flight. The old
+    // finally must neither clear it nor schedule a third competing renewal.
+    expect(renew).toHaveBeenCalledTimes(2);
+
+    newRenewal.resolve({ leaseExpiresAtMs: Date.now() + 120_000 });
+    await Promise.resolve();
   });
 });

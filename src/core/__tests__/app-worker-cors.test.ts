@@ -201,12 +201,12 @@ describe('Cloudflare app worker scheduled maintenance', () => {
     };
   }
 
-  async function runScheduled(env: Record<string, unknown>) {
+  async function runScheduled(env: Record<string, unknown>, event: Record<string, unknown> = {}) {
     const pending: Promise<unknown>[] = [];
     const ctx = {
       waitUntil: vi.fn((promise: Promise<unknown>) => pending.push(Promise.resolve(promise))),
     };
-    await appWorker.scheduled({}, env, ctx);
+    await appWorker.scheduled(event, env, ctx);
     return { ctx, pending };
   }
 
@@ -234,6 +234,60 @@ describe('Cloudflare app worker scheduled maintenance', () => {
     expect(bind).toHaveBeenCalledWith(Date.now() - 365 * 24 * 60 * 60 * 1000);
     expect(run).toHaveBeenCalledTimes(2);
     expect(backup.put).toHaveBeenCalledWith('soro-rss-latest-good.xml', rss);
+  });
+
+  it('uses the minute trigger only to resume durable account deletion jobs', async () => {
+    const all = vi.fn(async () => ({ results: [] }));
+    const bind = vi.fn(() => ({ all }));
+    const prepare = vi.fn(() => ({ bind }));
+    const { ctx, pending } = await runScheduled(
+      { MUSIXQUARE_AUTH_DB: { prepare } },
+      { cron: '* * * * *' },
+    );
+
+    expect(ctx.waitUntil).toHaveBeenCalledTimes(1);
+    await Promise.all(pending);
+    expect(prepare).toHaveBeenCalledWith(expect.stringContaining('FROM mxqr_account_deletions'));
+  });
+
+  it('retires reverse edges when a room alarm completed decommissioning without admin polling', async () => {
+    const authRuns: Array<{ sql: string; values: unknown[] }> = [];
+    const authDb = {
+      prepare: (sql: string) => ({
+        bind: (...values: unknown[]) => ({
+          all: async () => ({ results: [] }),
+          run: async () => {
+            authRuns.push({ sql, values });
+            return { success: true, meta: { changes: 1 } };
+          },
+        }),
+      }),
+    };
+    const adminDb = {
+      prepare: (_sql: string) => ({
+        bind: (..._values: unknown[]) => ({
+          all: async () => ({
+            results: [{ room_code: '000123', room_generation: 7 }],
+          }),
+        }),
+      }),
+    };
+    const { ctx, pending } = await runScheduled(
+      {
+        MUSIXQUARE_AUTH_DB: authDb,
+        MUSIXQUARE_ADMIN_DB: adminDb,
+      },
+      { cron: '* * * * *' },
+    );
+
+    expect(ctx.waitUntil).toHaveBeenCalledTimes(2);
+    await Promise.all(pending);
+    expect(authRuns).toEqual([
+      {
+        sql: expect.stringContaining('DELETE FROM mxqr_account_pro_room_generations'),
+        values: ['000123', 7],
+      },
+    ]);
   });
 
   it('does not reject or block the Soro refresh when metric retention cleanup fails', async () => {
@@ -4688,6 +4742,18 @@ describe('Cloudflare app worker invite route', () => {
     expect(env.ASSETS.fetch).not.toHaveBeenCalled();
   });
 
+  it('combines protocol, host, and invite-path canonicalization into one redirect', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(
+      new Request('http://www.musixquare.com/123456/?panel=connect'),
+      env,
+    );
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get('Location')).toBe('https://musixquare.com/123456?panel=connect');
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
   it('keeps localhost HTTP available for worker development', async () => {
     const env = createAssetEnv();
     const response = await appWorker.fetch(new Request('http://localhost:8787/123456'), env);
@@ -4743,6 +4809,19 @@ describe('Cloudflare app worker invite route', () => {
     expect(html).toContain('Session 123456 - MUSIXQUARE');
     expect(html).toContain('https://musixquare.com/123456');
     expect(html).toContain('/assets/main-test.js');
+  });
+
+  it('redirects trailing-slash invite URLs to the canonical room address', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/123456/?panel=connect'),
+      env,
+    );
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get('Location')).toBe('https://musixquare.com/123456?panel=connect');
+    expect(response.headers.get('Content-Security-Policy')).toContain("default-src 'self'");
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
   });
 
   it('serves invite pages for HEAD instead of falling through to static 404', async () => {

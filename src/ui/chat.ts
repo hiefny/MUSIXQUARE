@@ -56,6 +56,7 @@ import { scrollToWithPreferredMotion } from './scroll-motion.ts';
 
 let _unreadCount = 0;
 let _chatDrawerState: 'closed' | ChatDrawerDetent = 'closed';
+let _chatDrawerReturnFocus: HTMLElement | null = null;
 
 function isChatDrawerOpen(): boolean {
   return _chatDrawerState !== 'closed';
@@ -265,6 +266,158 @@ function getChatDrawerViewportContext(): ChatDrawerViewportContext {
   };
 }
 
+const CHAT_DRAWER_BACKGROUND_SELECTOR = [
+  '.skip-link',
+  '#main-header',
+  '.tab-content',
+  '.nav-blur-halo',
+  '.bottom-nav',
+].join(',');
+
+function isMobileChatDrawer(): boolean {
+  return getChatDrawerViewportContext().viewportWidth < 1280;
+}
+
+function setChatDrawerBackgroundInert(makeInert: boolean): void {
+  for (const element of document.querySelectorAll<HTMLElement>(CHAT_DRAWER_BACKGROUND_SELECTOR)) {
+    if (makeInert) {
+      if (element.inert) continue;
+      element.inert = true;
+      element.dataset.chatDrawerInert = 'true';
+    } else if (element.dataset.chatDrawerInert === 'true') {
+      element.inert = false;
+      delete element.dataset.chatDrawerInert;
+    }
+  }
+}
+
+function updateChatDrawerHandleAccessibility(drawer: HTMLElement): void {
+  const header = drawer.querySelector<HTMLElement>('.chat-drawer-header');
+  const closeButton = drawer.querySelector<HTMLButtonElement>('.chat-drawer-close');
+  if (!header) return;
+
+  if (!isMobileChatDrawer() || !isChatDrawerOpen()) {
+    header.removeAttribute('role');
+    header.removeAttribute('aria-label');
+    header.removeAttribute('aria-orientation');
+    header.removeAttribute('aria-valuemin');
+    header.removeAttribute('aria-valuemax');
+    header.removeAttribute('aria-valuenow');
+    header.removeAttribute('aria-keyshortcuts');
+    header.tabIndex = -1;
+    if (closeButton) closeButton.tabIndex = isMobileChatDrawer() ? -1 : 0;
+    return;
+  }
+
+  // A focusable separator is the ARIA pattern for a resize handle. Arrow
+  // keys move between the half/full detents while Enter/Space retains the
+  // existing "tap the handle to close" gesture.
+  header.setAttribute('role', 'separator');
+  header.setAttribute('aria-label', t('chat.title'));
+  header.setAttribute('aria-orientation', 'horizontal');
+  header.setAttribute('aria-valuemin', '50');
+  header.setAttribute('aria-valuemax', '100');
+  header.setAttribute('aria-valuenow', drawer.dataset.chatSnap === 'full' ? '100' : '50');
+  header.setAttribute('aria-keyshortcuts', 'ArrowUp ArrowDown Home End Enter Space Escape');
+  header.tabIndex = 0;
+  if (closeButton) closeButton.tabIndex = -1;
+}
+
+function syncChatDrawerModalAccessibility(
+  drawer: HTMLElement,
+  opening: boolean,
+  focusHandle = false,
+): void {
+  const mobile = isMobileChatDrawer();
+  drawer.setAttribute('aria-label', t('chat.title'));
+  drawer.setAttribute('role', mobile ? 'dialog' : 'region');
+  if (mobile && opening) drawer.setAttribute('aria-modal', 'true');
+  else drawer.removeAttribute('aria-modal');
+
+  setChatDrawerBackgroundInert(mobile && opening);
+  updateChatDrawerHandleAccessibility(drawer);
+
+  if (mobile && opening && focusHandle) {
+    drawer.querySelector<HTMLElement>('.chat-drawer-header')?.focus({ preventScroll: true });
+  }
+}
+
+function getChatDrawerFocusableElements(drawer: HTMLElement): HTMLElement[] {
+  return Array.from(
+    drawer.querySelectorAll<HTMLElement>(
+      'button, input, textarea, select, a[href], [contenteditable="true"], [tabindex]',
+    ),
+  ).filter(
+    (element) =>
+      element.tabIndex >= 0 &&
+      !element.hasAttribute('disabled') &&
+      !element.hidden &&
+      element.getAttribute('aria-hidden') !== 'true',
+  );
+}
+
+function handleChatDrawerKeyboard(event: KeyboardEvent): void {
+  if (!isChatDrawerOpen() || !isMobileChatDrawer()) return;
+  const drawer = document.getElementById('chat-drawer');
+  if (!drawer) return;
+
+  if (event.key === 'Escape') {
+    // Command autocomplete owns its first Escape. Only the unhandled Escape
+    // reaches the modal drawer.
+    if (event.defaultPrevented) return;
+    event.preventDefault();
+    toggleChatDrawer();
+    return;
+  }
+
+  const header = drawer.querySelector<HTMLElement>('.chat-drawer-header');
+  if (event.target === header) {
+    const context = getChatDrawerViewportContext();
+    if (event.key === 'ArrowUp' || event.key === 'Home') {
+      if (canExpandChatDrawer(context)) {
+        event.preventDefault();
+        drawer.dataset.chatSnapSource = 'keyboard';
+        setChatDrawerDetent(drawer, 'full', true);
+      }
+      return;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'End') {
+      event.preventDefault();
+      if (_chatDrawerState === 'full' && canCollapseChatDrawerFullToHalf(context)) {
+        drawer.dataset.chatSnapSource = 'keyboard';
+        setChatDrawerDetent(drawer, 'half', true);
+      } else {
+        toggleChatDrawer();
+      }
+      return;
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      toggleChatDrawer();
+      return;
+    }
+  }
+
+  if (event.key !== 'Tab') return;
+  const focusable = getChatDrawerFocusableElements(drawer);
+  if (focusable.length === 0) {
+    event.preventDefault();
+    drawer.focus({ preventScroll: true });
+    return;
+  }
+
+  const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+  const nextIndex = event.shiftKey
+    ? currentIndex <= 0
+      ? focusable.length - 1
+      : currentIndex - 1
+    : currentIndex < 0 || currentIndex === focusable.length - 1
+      ? 0
+      : currentIndex + 1;
+  event.preventDefault();
+  focusable[nextIndex]?.focus({ preventScroll: true });
+}
+
 function clearChatDrawerLiveGeometry(drawer: HTMLElement): void {
   clearPendingChatDrawerSnap();
   stopChatDrawerBottomAnchor();
@@ -319,6 +472,7 @@ function setChatDrawerDetent(
     drawer.style.removeProperty('--chat-live-height');
     drawer.style.removeProperty('--chat-offset-y');
     _chatDrawerState = detent;
+    updateChatDrawerHandleAccessibility(drawer);
     if (keepMessagesAtBottom && messages) scrollChatMessagesToBottom(messages);
     return;
   }
@@ -329,6 +483,7 @@ function setChatDrawerDetent(
   drawer.classList.add('is-snapping');
   drawer.dataset.chatSnap = detent;
   _chatDrawerState = detent;
+  updateChatDrawerHandleAccessibility(drawer);
   void drawer.offsetHeight;
   drawer.classList.remove('is-dragging');
   void drawer.offsetHeight;
@@ -384,6 +539,9 @@ export function toggleChatDrawer(): void {
 
   const opening = !isChatDrawerOpen();
   if (opening) {
+    const active = document.activeElement;
+    _chatDrawerReturnFocus =
+      active instanceof HTMLElement && active !== document.body ? active : null;
     const context = getChatDrawerViewportContext();
     const detent = _isDesktop.matches ? 'full' : getInitialChatDrawerDetent(context);
     drawer.dataset.chatSnapSource = 'policy';
@@ -397,6 +555,7 @@ export function toggleChatDrawer(): void {
     delete drawer.dataset.chatSnapSource;
   }
   drawer.classList.toggle('open', opening);
+  syncChatDrawerModalAccessibility(drawer, opening, opening);
 
   // Sync backdrop
   const backdrop = document.getElementById('chat-backdrop');
@@ -407,6 +566,18 @@ export function toggleChatDrawer(): void {
     const messages = document.getElementById('chat-messages');
     if (messages) messages.scrollTop = messages.scrollHeight;
     // Do not auto-focus: that would open the keyboard immediately.
+  } else {
+    const returnFocus = _chatDrawerReturnFocus;
+    _chatDrawerReturnFocus = null;
+    queueMicrotask(() => {
+      const active = document.activeElement;
+      if (
+        returnFocus?.isConnected &&
+        (!active || active === document.body || drawer.contains(active))
+      ) {
+        returnFocus.focus({ preventScroll: true });
+      }
+    });
   }
 
   // Custom scrollbars inside the drawer track viewport coordinates via
@@ -703,6 +874,7 @@ function initChatDrawerViewportReconciliation(): void {
         const nextMode = getChatDrawerLayoutMode(context);
         const modeChanged = _chatDrawerLayoutMode !== null && _chatDrawerLayoutMode !== nextMode;
         _chatDrawerLayoutMode = nextMode;
+        syncChatDrawerModalAccessibility(drawer, true);
 
         if (nextMode === 'desktop') {
           clearChatDrawerLiveGeometry(drawer);
@@ -1059,6 +1231,9 @@ export function initChat(): void {
   initChatSwipeToDismiss();
   initChatDrawerViewportReconciliation();
   initChatTouchContainment();
+  const chatDrawer = document.getElementById('chat-drawer');
+  if (chatDrawer) syncChatDrawerModalAccessibility(chatDrawer, isChatDrawerOpen());
+  document.addEventListener('keydown', handleChatDrawerKeyboard, { signal: uiSignal });
 
   // Backdrop tap to close
   const backdrop = document.getElementById('chat-backdrop');

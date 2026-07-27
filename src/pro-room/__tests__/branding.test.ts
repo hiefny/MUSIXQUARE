@@ -195,7 +195,7 @@ describe('PRO room branding', () => {
   it('keeps equal PRO role badges on the primary blue identity treatment', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     expect(stylesheet).toMatch(
-      /\.role-badge\.pro-equal\s*{\s*background:\s*var\(--primary\);\s*color:\s*white;/,
+      /\.role-badge\.pro-equal\s*{\s*background:\s*var\(--primary-filled\);\s*color:\s*white;/,
     );
     expect(stylesheet).toMatch(
       /\.role-badge\.pro-equal \.role-dot\s*{\s*background:\s*white;\s*opacity:\s*1;/,

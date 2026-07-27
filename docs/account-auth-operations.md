@@ -226,13 +226,35 @@ purge a later owner who received the same public code. Cleanup of an already
 decommissioned incarnation is idempotent success; it must not be redirected to
 the current generation.
 
-If any incarnation cannot be purged, deletion returns
-`503 ACCOUNT_DELETE_CLEANUP_UNAVAILABLE` and keeps the account and reverse
-index so the user can retry safely; incarnations already purged remain safe to
-purge again. The reverse index is atomically capped at 1,000 distinct
-incarnations per account; an existing edge may still refresh at that limit, but
-a new account-to-incarnation edge is rejected so the synchronous deletion
-fan-out always remains bounded.
+Once a room incarnation has completed its full decommission protocol and the
+admin registry records `decommissioned`, the App Worker removes only that exact
+generation's account reverse edges. This happens immediately when an admin
+request observes completion, through a recent-completion sweep on the minute
+trigger when the room's own alarm completes without another admin request, and
+through the six-hour full repair sweep over immutable generation history. The
+room's durable generation tombstone remains the authorization fence. Terminal
+room history therefore cannot consume an account's live cleanup budget or
+inflate a future account deletion forever.
+
+Deletion with at most 32 linked incarnations remains synchronous. If any such
+incarnation cannot be purged, deletion returns
+`503 ACCOUNT_DELETE_CLEANUP_UNAVAILABLE` and keeps the account and remaining
+reverse index so the user can retry safely; incarnations already purged remain
+safe to purge again.
+
+For larger fan-out, the delete request atomically disables the account, copies
+at most 128 session digests into the ten-minute deletion-only tombstone table,
+revokes all live sessions, and returns `202 { ok:true, pending:true }`. The App
+Worker immediately starts an exact-generation cleanup continuation and a
+one-minute cron resumes durable jobs after interruption. Each confirmed,
+idempotent room purge deletes only its matching reverse edge. The account row is
+removed after no edge remains; a failed edge stays queued while the account
+remains disabled and cannot log in, attach, or create new authority.
+
+The reverse index is atomically capped at 1,000 distinct incarnations per
+account; an existing edge may still refresh at that limit, but a new
+account-to-incarnation edge is rejected. This bounds both inline and background
+cleanup work.
 
 A PRO room cookie does not carry account authority for its full 30-day life.
 Each physical room session instead holds a 120-second account-identity lease,
@@ -255,7 +277,7 @@ window, closing the race where an already-minted request reaches a sleeping
 room after the deletion purge.
 
 Only after every linked room confirms cleanup does the App Worker remove the
-active account, account sessions, and reverse-index rows. A later Google login
+disabled account and reverse-index rows. A later Google login
 creates a new random account ID, so a stale room record cannot restore the old
 grant. Account deletion does not delete media already shared into a
 collaborative PRO playlist: that media remains governed by the room's playlist

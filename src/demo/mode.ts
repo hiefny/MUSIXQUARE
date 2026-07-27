@@ -131,7 +131,7 @@ function isProRoomDemoBlocked(): boolean {
 function shouldShowFirstRunDemoPrompt(): boolean {
   if (_suppressFirstRunPrompt || hasSeenDemoPrompt()) return false;
   if (isProRoomDemoBlocked()) return false;
-  if (/^\/\d{6}$/.test(window.location.pathname)) return false;
+  if (/^\/\d{6}\/?$/.test(window.location.pathname)) return false;
   if (getState('network.appRole') !== 'host') return false;
   if (!getState('setup.sessionStarted')) return false;
   if (document.getElementById('setup-overlay')?.classList.contains('active')) return false;

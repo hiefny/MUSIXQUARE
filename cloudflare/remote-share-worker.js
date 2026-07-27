@@ -1506,12 +1506,14 @@ export default {
       }
       return json(request, env, { error: 'not found' }, 404);
     } catch (error) {
-      return json(
-        request,
-        env,
-        { error: error instanceof Error ? error.message : String(error) },
-        500,
+      // Public 5xx bodies are a stable protocol surface, not a diagnostic
+      // channel. Internal exception text may contain provider/configuration
+      // detail and must stay in redacted Worker logs.
+      console.error(
+        'remote share request failed',
+        error instanceof Error ? error.name : 'UnknownError',
       );
+      return json(request, env, { error: 'internal server error' }, 500);
     }
   },
 };

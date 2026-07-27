@@ -142,7 +142,7 @@ function stopAccountLoginNavigationGuard(): void {
 /** Prepare an anchor fallback that will replace this browsing context. */
 function prepareSameTabAccountLogin(anchor: HTMLAnchorElement, activationEvent: MouseEvent): void {
   const context = getRoomContext();
-  const pathnameRoomCode = window.location.pathname.match(/^\/(0\d{5})$/)?.[1] ?? null;
+  const pathnameRoomCode = window.location.pathname.match(/^\/(0\d{5})\/?$/)?.[1] ?? null;
   const roomCode =
     context.kind === 'pro' && context.roomId && /^0\d{5}$/.test(context.roomId)
       ? context.roomId

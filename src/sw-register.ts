@@ -67,7 +67,9 @@ export function registerServiceWorker(): void {
   }
 
   const doRegister = async () => {
-    const swUrl = new URL('service-worker.js', window.location.href);
+    // Room invite pages live at /CODE. Keep one origin-wide registration
+    // instead of resolving the worker and scope relative to that invite URL.
+    const swUrl = '/service-worker.js';
     let hadController = Boolean(navigator.serviceWorker.controller);
     // Controller under which the JS currently executing in this tab loaded.
     // If the active controller changes without a reload, this page may still
@@ -141,7 +143,7 @@ export function registerServiceWorker(): void {
     });
 
     try {
-      const reg = await navigator.serviceWorker.register(swUrl, { scope: './' });
+      const reg = await navigator.serviceWorker.register(swUrl, { scope: '/' });
       log.info('[SW] Registered:', reg.scope);
       probeCacheStatus();
 

@@ -59,6 +59,13 @@ binding = "DEVELOPER_API_DB"
 database_name = "musixquare-developer-api"
 database_id = "237d63d2-6eea-4b01-b396-7784b5b8b6f0"
 
+# Exact account-to-incarnation reverse edges are retired by the room Durable
+# Object before it publishes decommission completion.
+[[d1_databases]]
+binding = "MUSIXQUARE_AUTH_DB"
+database_name = "musixquare-auth"
+database_id = "a1284975-2dac-4dbb-b1cb-ff60375833ae"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["MusixquareProRoom"]

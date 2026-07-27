@@ -482,7 +482,10 @@ describe('autoplay-policy recovery', () => {
 
     handle.fireAutoplayBlocked();
 
-    expect(document.getElementById('youtube-ios-sync-overlay')).not.toBeNull();
+    const gate = document.getElementById('youtube-ios-sync-overlay');
+    expect(gate).toBeInstanceOf(HTMLButtonElement);
+    expect((gate as HTMLButtonElement | null)?.type).toBe('button');
+    expect(gate?.getAttribute('aria-label')).toBe('youtube.tap_to_play');
     expect(getState('youtube.currentSubIndex')).toBe(0);
     expect(getState('playlist.currentQueueItemId')).toBe(QUEUE_ITEM_ID);
     expect(tryNext).not.toHaveBeenCalled();

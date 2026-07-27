@@ -50,9 +50,20 @@ export function initBackgroundResumeGuard(
   // (the dialog blocks until tap), so guard against stacking another
   // recover/warn pair on top from a second visibility flip mid-dialog.
   let inFlight = false;
+  let pendingResume: BackgroundResumeEvent | null = null;
+  let disposed = false;
 
   const handleResume = async (event: BackgroundResumeEvent): Promise<void> => {
-    if (inFlight) return;
+    if (disposed) return;
+    if (inFlight) {
+      // Do not drop a second real resume while a warning dialog owns the first
+      // flight. One follow-up is sufficient; retain the longest absence so its
+      // warning policy cannot be weakened by later shorter tab flips.
+      pendingResume = {
+        hiddenMs: Math.max(pendingResume?.hiddenMs ?? 0, event.hiddenMs),
+      };
+      return;
+    }
 
     const shouldRecover = event.hiddenMs >= recoverThresholdMs;
     const shouldWarn = event.hiddenMs >= warnThresholdMs;
@@ -81,6 +92,9 @@ export function initBackgroundResumeGuard(
       }
     } finally {
       inFlight = false;
+      const followUp = pendingResume;
+      pendingResume = null;
+      if (followUp && !disposed) void handleResume(followUp);
     }
   };
 
@@ -106,5 +120,11 @@ export function initBackgroundResumeGuard(
   document.addEventListener('visibilitychange', onVisibilityChange, opts);
   deps.log?.info?.('[BackgroundResume] Guard initialized');
 
-  return { dispose: () => controller.abort() };
+  return {
+    dispose: () => {
+      disposed = true;
+      pendingResume = null;
+      controller.abort();
+    },
+  };
 }

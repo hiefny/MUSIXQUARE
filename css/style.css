@@ -13,6 +13,13 @@
     --divider: #262626;
     --primary: #3b82f6;
     --primary-rgb: 59, 130, 246;
+    /* Filled controls keep the brighter primary for focus/outline accents,
+       but use AA-safe surfaces underneath normal-size white copy. */
+    --primary-filled: #2563eb;
+    --success-filled: #15803d;
+    --danger-filled: #b91c1c;
+    --warning-filled: #b45309;
+    --youtube-filled: #d0002a;
     --accent: var(--primary);
     --accent-rgb: var(--primary-rgb);
     --text-main: #eeeeee;
@@ -218,7 +225,7 @@
     left: 16px;
     z-index: 99999;
     padding: 12px 24px;
-    background: var(--primary, #3b82f6);
+    background: var(--primary-filled, #2563eb);
     color: #fff;
     border-radius: 0 0 var(--radius-s, 14px) var(--radius-s, 14px);
     font-size: 14px;
@@ -975,7 +982,7 @@
   }
 
   .role-badge.connected {
-    background: var(--primary);
+    background: var(--primary-filled);
     color: white;
   }
 
@@ -984,12 +991,12 @@
   }
 
   .role-badge.connected.remote {
-    background: #f59e0b;
+    background: var(--warning-filled);
   }
 
   /* PRO has no browser host/coordinator rank. Keep every endpoint equally blue. */
   .role-badge.pro-equal {
-    background: var(--primary);
+    background: var(--primary-filled);
     color: white;
   }
 
@@ -999,7 +1006,7 @@
   }
 
   .role-badge.account-authenticated {
-    background: var(--primary);
+    background: var(--primary-filled);
     color: white;
   }
 
@@ -2025,7 +2032,15 @@
   }
 
   .track-name {
+    appearance: none;
+    -webkit-appearance: none;
     flex: 1;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    font-family: inherit;
+    line-height: inherit;
     font-size: 15px;
     font-weight: 500;
     color: var(--text-main);
@@ -2033,6 +2048,13 @@
     align-items: center;
     gap: 8px;
     min-width: 0;
+    cursor: pointer;
+    border-radius: 6px;
+  }
+
+  .track-name:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
+    outline-offset: 3px;
   }
 
   .track-name-text {
@@ -2355,7 +2377,7 @@
     gap: 3px;
     padding: 6px;
     color: #fff;
-    background: var(--primary);
+    background: var(--primary-filled);
     border: 0;
     border-radius: 999px;
     box-shadow: none;
@@ -2974,7 +2996,7 @@
   }
 
   .btn-action {
-    background: var(--primary);
+    background: var(--primary-filled);
     color: white;
     border: none;
     padding: 0 24px;
@@ -3248,7 +3270,7 @@
   }
 
   .d-op-btn.active {
-    background: var(--primary);
+    background: var(--primary-filled);
     color: white;
     border-color: rgba(var(--primary-rgb), 0.75);
   }
@@ -4775,7 +4797,7 @@
 
   .dialog-primary {
     border: none;
-    background: var(--primary);
+    background: var(--primary-filled);
     color: #fff;
     border-radius: 18px;
     min-height: 54px;
@@ -5214,7 +5236,7 @@
   }
 
   .btn-ob-primary {
-    background: var(--primary);
+    background: var(--primary-filled);
     color: white;
     box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3);
   }
@@ -5661,7 +5683,7 @@
   }
 
   .chat-bubble.mine {
-    background: var(--primary);
+    background: var(--primary-filled);
     color: white;
     border-bottom-right-radius: 4px;
   }
@@ -5675,9 +5697,9 @@
   /* BOT replies keep one request-owned bubble mounted while its typing
      indicator becomes the final response. */
   .chat-bubble.bot {
-    /* Keep the BOT identity distinctly green, with a brighter emerald tone
-       that sits comfortably beside the primary blue bubble. */
-    background: #20a45a;
+    /* Keep the BOT identity distinctly green while retaining AA contrast
+       for normal-size white response text. */
+    background: var(--success-filled);
     color: #fff;
   }
 
@@ -6178,7 +6200,7 @@
     position: absolute;
     top: -6px;
     right: -8px;
-    background: #ef4444;
+    background: var(--danger-filled);
     color: white;
     font-size: 10px;
     font-weight: 700;
@@ -6626,7 +6648,7 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 7px;
-    background: #ff0033;
+    background: var(--youtube-filled);
     /* Clean YouTube Red */
     border: none;
     color: #ffffff;
@@ -6905,7 +6927,7 @@
   }
 
   .sync-done-btn {
-    background: var(--primary);
+    background: var(--primary-filled);
     color: white;
   }
 
@@ -7480,7 +7502,7 @@
   }
 
   .demo-step-nav .demo-step-next:not(.is-final) {
-    background: var(--primary);
+    background: var(--primary-filled);
     border-color: rgba(var(--primary-rgb), 0.75);
     color: #fff;
   }

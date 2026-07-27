@@ -177,6 +177,155 @@ describe('capability proof-of-work client', () => {
     await Promise.resolve();
   });
 
+  it('removes a failed Turnstile script and retries on the next explicit request', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/security-config')) {
+        return Response.json({
+          capabilityRequired: true,
+          turnstileSiteKey: 'retry-site-key',
+          turnstileRequired: true,
+          proofOfWorkRequired: false,
+          proofOfWorkDifficulty: 0,
+          proofOfWorkTtl: 0,
+          ttl: 600,
+        });
+      }
+      if (url.endsWith('/api/capability-token')) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          turnstileToken: 'recovered-turnstile-token',
+        });
+        return Response.json({
+          token: 'recovered-capability',
+          expiresAt: Date.now() / 1000 + 600,
+        });
+      }
+      return new Response('unexpected', { status: 500 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getCapabilityHeaders } = await import('../capability.ts');
+    const first = getCapabilityHeaders('/api/get-turn-config', ['turn']);
+    const failedScript = await vi.waitFor(() => {
+      const script = document.querySelector<HTMLScriptElement>(
+        'script[src*="challenges.cloudflare.com/turnstile"]',
+      );
+      expect(script).not.toBeNull();
+      return script!;
+    });
+    failedScript.dispatchEvent(new Event('error'));
+    // Capability acquisition deliberately fails open to an empty header; the
+    // important invariant is that this first failure does not poison retries.
+    await expect(first).resolves.toEqual({});
+    expect(failedScript.isConnected).toBe(false);
+
+    const turnstile = {
+      render: vi.fn(
+        (_container: HTMLElement, options: { callback: (token: string) => void }): string => {
+          queueMicrotask(() => options.callback('recovered-turnstile-token'));
+          return 'widget-retry';
+        },
+      ),
+      execute: vi.fn(),
+      reset: vi.fn(),
+      remove: vi.fn(),
+    };
+    const second = getCapabilityHeaders('/api/get-turn-config', ['turn']);
+    const replacementScript = await vi.waitFor(() => {
+      const script = document.querySelector<HTMLScriptElement>(
+        'script[src*="challenges.cloudflare.com/turnstile"]',
+      );
+      expect(script).not.toBeNull();
+      expect(script).not.toBe(failedScript);
+      return script!;
+    });
+    vi.stubGlobal('turnstile', turnstile);
+    replacementScript.dispatchEvent(new Event('load'));
+
+    await expect(second).resolves.toEqual({
+      'X-MXQR-Capability': 'recovered-capability',
+    });
+    expect(turnstile.execute).toHaveBeenCalledWith('widget-retry');
+  });
+
+  it('times out a stalled Turnstile script and leaves the next request retryable', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/security-config')) {
+        return Response.json({
+          capabilityRequired: true,
+          turnstileSiteKey: 'timeout-retry-site-key',
+          turnstileRequired: true,
+          proofOfWorkRequired: false,
+          proofOfWorkDifficulty: 0,
+          proofOfWorkTtl: 0,
+          ttl: 600,
+        });
+      }
+      if (url.endsWith('/api/capability-token')) {
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          turnstileToken: 'timeout-recovered-token',
+        });
+        return Response.json({
+          token: 'timeout-recovered-capability',
+          expiresAt: Date.now() / 1000 + 600,
+        });
+      }
+      return new Response('unexpected', { status: 500 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getCapabilityHeaders } = await import('../capability.ts');
+    const first = getCapabilityHeaders('/api/get-turn-config', ['turn']);
+    await vi.waitFor(() =>
+      expect(
+        document.querySelector<HTMLScriptElement>(
+          'script[src*="challenges.cloudflare.com/turnstile"]',
+        ),
+      ).not.toBeNull(),
+    );
+    const stalledScript = document.querySelector<HTMLScriptElement>(
+      'script[src*="challenges.cloudflare.com/turnstile"]',
+    )!;
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    await expect(first).resolves.toEqual({});
+    expect(stalledScript.isConnected).toBe(false);
+
+    const turnstile = {
+      render: vi.fn(
+        (_container: HTMLElement, options: { callback: (token: string) => void }): string => {
+          queueMicrotask(() => options.callback('timeout-recovered-token'));
+          return 'widget-timeout-retry';
+        },
+      ),
+      execute: vi.fn(),
+      reset: vi.fn(),
+      remove: vi.fn(),
+    };
+    const second = getCapabilityHeaders('/api/get-turn-config', ['turn']);
+    await vi.waitFor(() => {
+      const replacement = document.querySelector<HTMLScriptElement>(
+        'script[src*="challenges.cloudflare.com/turnstile"]',
+      );
+      expect(replacement).not.toBeNull();
+      expect(replacement).not.toBe(stalledScript);
+    });
+    const replacementScript = document.querySelector<HTMLScriptElement>(
+      'script[src*="challenges.cloudflare.com/turnstile"]',
+    )!;
+    vi.stubGlobal('turnstile', turnstile);
+    replacementScript.dispatchEvent(new Event('load'));
+
+    await expect(second).resolves.toEqual({
+      'X-MXQR-Capability': 'timeout-recovered-capability',
+    });
+    expect(turnstile.execute).toHaveBeenCalledWith('widget-timeout-retry');
+    replacementScript.remove();
+    vi.useRealTimers();
+  });
+
   it('refuses silent warmup when Turnstile could become interactive', async () => {
     const existingTurnstileContainer = document.querySelector('#mxqr-turnstile-container');
     const existingTurnstileScripts = document.querySelectorAll(

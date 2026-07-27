@@ -26,4 +26,14 @@ describe('local E2E report contract', () => {
     expect(script).toContain("'RUN FAILED'");
     expect(() => new Function(script)).not.toThrow();
   });
+
+  it('keeps device-specific WebKit tests out of desktop Chromium and preserves timeout artifacts', () => {
+    const playwrightConfig = readFileSync(resolve('playwright.config.ts'), 'utf8');
+    const workflow = readFileSync(resolve('.github/workflows/e2e.yml'), 'utf8');
+
+    expect(playwrightConfig).toContain("testIgnore: ['webkit-mobile-smoke.test.ts']");
+    expect(workflow).toContain('timeout-minutes: 180');
+    expect(workflow).toContain('timeout-minutes: 165');
+    expect(workflow).toContain('if: failure() || cancelled()');
+  });
 });

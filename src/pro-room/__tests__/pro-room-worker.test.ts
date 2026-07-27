@@ -3162,11 +3162,11 @@ describe('PRO room server BOT boundary', () => {
     const { worker, ownerCookie } = await activatedRoom();
     const internal = worker as unknown as { room: Record<string, any> };
     const nowMs = Date.now();
-    internal.room.rateLimits[`bot-day:${ROOM_CODE}`] = {
+    internal.room.botRateLimits[`bot-day:${ROOM_CODE}`] = {
       count: 20,
       resetAtMs: nowMs + 23 * 60 * 60 * 1000,
     };
-    internal.room.rateLimits[`bot-room-hour-v1:${ROOM_CODE}`] = {
+    internal.room.botRateLimits[`bot-room-hour-v1:${ROOM_CODE}`] = {
       count: 99,
       resetAtMs: nowMs + 60 * 60 * 1000,
     };
@@ -3178,11 +3178,11 @@ describe('PRO room server BOT boundary', () => {
       ownerCookie,
     );
     expect(hundredth.status).toBe(200);
-    expect(internal.room.rateLimits[`bot-room-hour-v1:${ROOM_CODE}`]).toMatchObject({
+    expect(internal.room.botRateLimits[`bot-room-hour-v1:${ROOM_CODE}`]).toMatchObject({
       count: 100,
       resetAtMs: nowMs + 60 * 60 * 1000,
     });
-    expect(internal.room.rateLimits[`bot-day:${ROOM_CODE}`]).toBeUndefined();
+    expect(internal.room.botRateLimits[`bot-day:${ROOM_CODE}`]).toBeUndefined();
 
     const limited = await internalBotRequest(
       worker,
@@ -3193,6 +3193,65 @@ describe('PRO room server BOT boundary', () => {
     expect(limited.status).toBe(429);
     expect(Number(limited.headers.get('retry-after'))).toBeGreaterThan(0);
     expect(Number(limited.headers.get('retry-after'))).toBeLessThanOrEqual(3600);
+  });
+
+  it('fails closed instead of evicting live BOT or admission rate-limit buckets at capacity', async () => {
+    const { worker, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const nowMs = Date.now();
+    const botRoomKey = `bot-room-hour-v1:${ROOM_CODE}`;
+    internal.room.botRateLimits[botRoomKey] = {
+      count: 42,
+      resetAtMs: nowMs + 60 * 60 * 1000,
+    };
+    for (let index = 1; index < 512; index += 1) {
+      internal.room.botRateLimits[`bot-minute:protected-${index}`] = {
+        count: 1,
+        resetAtMs: nowMs + 60 * 1000 + index,
+      };
+    }
+
+    const blockedBot = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId: 'bot-context-capacity-0001', prompt: 'capacity' },
+      ownerCookie,
+    );
+    expect(blockedBot.status).toBe(429);
+    expect(internal.room.botRateLimits[botRoomKey]).toMatchObject({
+      count: 42,
+      resetAtMs: nowMs + 60 * 60 * 1000,
+    });
+    expect(Object.keys(internal.room.botRateLimits)).toHaveLength(512);
+
+    const protectedAdmissionKey = 'pin-failure:protected-client';
+    internal.room.rateLimits[protectedAdmissionKey] = {
+      count: 10,
+      resetAtMs: nowMs + 60 * 60 * 1000,
+    };
+    for (let index = 1; Object.keys(internal.room.rateLimits).length < 512; index += 1) {
+      internal.room.rateLimits[`pin-failure:protected-${index}`] = {
+        count: 1,
+        resetAtMs: nowMs + 60 * 60 * 1000 + index,
+      };
+    }
+    const blockedAdmission = await worker.fetch(
+      new Request(`${BASE_URL}/sessions`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-ip-hash': 'new-client-at-capacity',
+        },
+        body: JSON.stringify({ pin: '12345678' }),
+      }),
+    );
+    expect(blockedAdmission.status).toBe(429);
+    expect(internal.room.rateLimits[protectedAdmissionKey]).toMatchObject({
+      count: 10,
+      resetAtMs: nowMs + 60 * 60 * 1000,
+    });
+    expect(Object.keys(internal.room.rateLimits)).toHaveLength(512);
   });
 
   it('adds a bounded YouTube batch exactly once for one executed request', async () => {
@@ -3347,7 +3406,7 @@ describe('PRO room server BOT boundary', () => {
     expect(internal.room.playlist).toHaveLength(1);
     const queueItemId = internal.room.playlist[0].queueItemId;
     expect(
-      Object.keys(internal.room.idempotency).some((key) =>
+      Object.keys(internal.room.developerMutationIdempotency).some((key) =>
         /^developer:MxqrGeminiBot001:queue:add_youtube_batch:bot-queue-[a-f0-9]{64}$/u.test(key),
       ),
     ).toBe(true);
@@ -3456,7 +3515,7 @@ describe('PRO room server BOT boundary', () => {
     ]);
     expect(internal.room.revision).toBe(beforeRemoveRevision + 1);
     expect(
-      internal.room.idempotency[
+      internal.room.developerMutationIdempotency[
         `developer:MxqrGeminiBot001:queue:remove_many:${removeRequestId}.queue`
       ],
     ).toMatchObject({ kind: 'developer-queue', status: 200 });
@@ -3512,7 +3571,9 @@ describe('PRO room server BOT boundary', () => {
     });
     expect(internal.room.playlist).toEqual([]);
     expect(
-      internal.room.idempotency[`developer:MxqrGeminiBot001:queue:clear:${clearRequestId}.queue`],
+      internal.room.developerMutationIdempotency[
+        `developer:MxqrGeminiBot001:queue:clear:${clearRequestId}.queue`
+      ],
     ).toMatchObject({ kind: 'developer-queue', status: 200 });
   });
 
@@ -4147,7 +4208,7 @@ describe('PRO room private Developer API projections', () => {
       videoIds: mutation.videoIds,
     });
     expect(internal.room.playback).toMatchObject({ state: 'idle', queueItemId: null });
-    const queueIdempotencyRecord = Object.values(internal.room.idempotency).find(
+    const queueIdempotencyRecord = Object.values(internal.room.developerMutationIdempotency).find(
       (record: any) => record.kind === 'developer-queue',
     ) as Record<string, unknown> | undefined;
     expect(queueIdempotencyRecord).toMatchObject({ kind: 'developer-queue', status: 201 });
@@ -4171,6 +4232,135 @@ describe('PRO room private Developer API projections', () => {
     expect(conflict.status).toBe(409);
     expect(await responseJson(conflict)).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
     expect(internal.room.playlist).toHaveLength(1);
+  });
+
+  it('never evicts live Developer API add or clear receipts when their ledger is saturated', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as { room: Record<string, any> };
+    const keyId = 'S'.repeat(16);
+    const addMutation = {
+      type: 'add_youtube',
+      videoId: 'dQw4w9WgXcQ',
+      name: 'Exactly once',
+    };
+    const addKey = 'developer-saturation-add-0001';
+    const clearKey = 'developer-saturation-clear-0001';
+
+    expect((await mutateInternalDeveloperQueue(worker, keyId, addKey, addMutation)).status).toBe(
+      201,
+    );
+    const seededItem = structuredClone(internal.room.playlist[0]);
+    expect(
+      (
+        await mutateInternalDeveloperQueue(worker, keyId, clearKey, {
+          type: 'clear',
+        })
+      ).status,
+    ).toBe(200);
+    expect(internal.room.playlist).toEqual([]);
+
+    const nowMs = Date.now();
+    for (
+      let index = Object.keys(internal.room.developerMutationIdempotency).length;
+      index < 256;
+      index += 1
+    ) {
+      internal.room.developerMutationIdempotency[
+        `developer:${keyId}:queue:add_youtube:filler-${String(index).padStart(3, '0')}`
+      ] = {
+        fingerprint: 'f'.repeat(43),
+        kind: 'developer-queue',
+        status: 201,
+        expiresAtMs: nowMs + 60 * 60 * 1000 + index,
+      };
+    }
+
+    const addReplay = await mutateInternalDeveloperQueue(worker, keyId, addKey, addMutation);
+    expect(addReplay.status).toBe(201);
+    expect(internal.room.playlist).toEqual([]);
+    const clearReplay = await mutateInternalDeveloperQueue(worker, keyId, clearKey, {
+      type: 'clear',
+    });
+    expect(clearReplay.status).toBe(200);
+    expect(internal.room.playlist).toEqual([]);
+    expect(Object.keys(internal.room.developerMutationIdempotency)).toHaveLength(256);
+
+    const rejectedAdd = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-saturation-add-0002',
+      { ...addMutation, videoId: 'M7lc1UVf-VE' },
+    );
+    expect(rejectedAdd.status).toBe(409);
+    await expect(rejectedAdd.json()).resolves.toEqual({
+      error: 'ROOM_STATE_CAPACITY_EXCEEDED',
+    });
+    expect(internal.room.playlist).toEqual([]);
+
+    internal.room.playlist = [seededItem];
+    internal.room.playlistRevision += 1;
+    internal.room.revision += 1;
+    const rejectedClear = await mutateInternalDeveloperQueue(
+      worker,
+      keyId,
+      'developer-saturation-clear-0002',
+      { type: 'clear' },
+    );
+    expect(rejectedClear.status).toBe(409);
+    await expect(rejectedClear.json()).resolves.toEqual({
+      error: 'ROOM_STATE_CAPACITY_EXCEEDED',
+    });
+    expect(internal.room.playlist).toEqual([seededItem]);
+    expect(Object.keys(internal.room.developerMutationIdempotency)).toHaveLength(256);
+  });
+
+  it('durably migrates legacy Developer receipts and BOT counters before serving API work', async () => {
+    const { worker, state, bucket } = await activatedRoom();
+    const internal = worker as unknown as {
+      room: Record<string, any>;
+      persist(): Promise<void>;
+    };
+    const keyId = 'M'.repeat(16);
+    const idempotencyKey = 'developer-ledger-migration-0001';
+    const mutation = {
+      type: 'add_youtube',
+      videoId: 'dQw4w9WgXcQ',
+      name: 'Migrated exactly once',
+    };
+    expect(
+      (await mutateInternalDeveloperQueue(worker, keyId, idempotencyKey, mutation)).status,
+    ).toBe(201);
+    const storageKey = `developer:${keyId}:queue:add_youtube:${idempotencyKey}`;
+    internal.room.idempotency[storageKey] = internal.room.developerMutationIdempotency[storageKey];
+    delete internal.room.developerMutationIdempotency[storageKey];
+    const botKey = `bot-room-hour-v1:${ROOM_CODE}`;
+    internal.room.rateLimits[botKey] = {
+      count: 7,
+      resetAtMs: Date.now() + 60 * 60 * 1000,
+    };
+    delete internal.room.botRateLimits[botKey];
+    await internal.persist();
+
+    const restarted = new MusixquareProRoom(state as never, environment(bucket) as never);
+    expect((await internalDeveloperRead(restarted, 'room')).status).toBe(200);
+    const restartedInternal = restarted as unknown as { room: Record<string, any> };
+    expect(restartedInternal.room.idempotency[storageKey]).toBeUndefined();
+    expect(restartedInternal.room.developerMutationIdempotency[storageKey]).toMatchObject({
+      kind: 'developer-queue',
+      status: 201,
+    });
+    expect(restartedInternal.room.rateLimits[botKey]).toBeUndefined();
+    expect(restartedInternal.room.botRateLimits[botKey]).toMatchObject({ count: 7 });
+
+    const persisted = state.storage.data.get('pro-room:v2:core') as Record<string, any>;
+    expect(persisted.core.idempotency[storageKey]).toBeUndefined();
+    expect(persisted.core.developerMutationIdempotency[storageKey]).toBeDefined();
+    expect(persisted.core.rateLimits[botKey]).toBeUndefined();
+    expect(persisted.core.botRateLimits[botKey]).toMatchObject({ count: 7 });
+
+    const replay = await mutateInternalDeveloperQueue(restarted, keyId, idempotencyKey, mutation);
+    expect(replay.status).toBe(201);
+    expect(restartedInternal.room.playlist).toHaveLength(1);
   });
 
   it('atomically appends one ordered YouTube batch with one revision and caller ownership', async () => {
@@ -4596,6 +4786,7 @@ describe('PRO room private Developer API projections', () => {
       revision: internal.room.revision,
       playlistRevision: internal.room.playlistRevision,
       idempotency: structuredClone(internal.room.idempotency),
+      developerMutationIdempotency: structuredClone(internal.room.developerMutationIdempotency),
     };
     const response = await mutateInternalDeveloperQueue(
       worker,
@@ -4629,8 +4820,9 @@ describe('PRO room private Developer API projections', () => {
     expect(internal.room.revision).toBe(before.revision);
     expect(internal.room.playlistRevision).toBe(before.playlistRevision);
     expect(internal.room.idempotency).toEqual(before.idempotency);
+    expect(internal.room.developerMutationIdempotency).toEqual(before.developerMutationIdempotency);
     expect(
-      Object.keys(internal.room.idempotency).some((key) =>
+      Object.keys(internal.room.developerMutationIdempotency).some((key) =>
         key.includes('developer-queue-batch-state-capacity'),
       ),
     ).toBe(false);
@@ -4640,6 +4832,7 @@ describe('PRO room private Developer API projections', () => {
     expect(persisted.revision).toBe(before.revision);
     expect(persisted.playlistRevision).toBe(before.playlistRevision);
     expect(persisted.idempotency).toEqual(before.idempotency);
+    expect(persisted.developerMutationIdempotency).toEqual(before.developerMutationIdempotency);
   });
 
   it('accepts the authenticated envelope around a near-64-KiB public batch', async () => {
@@ -13399,6 +13592,12 @@ describe('persistent PRO room private media accounting', () => {
     expect(reservation.reservation.upload.url).toContain(
       `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com/`,
     );
+    expect(reservation.reservation.upload.headers).not.toHaveProperty('content-length');
+    expect(
+      new URL(reservation.reservation.upload.url).searchParams
+        .get('X-Amz-SignedHeaders')
+        ?.split(';'),
+    ).toContain('content-length');
     expect(reservation.reservation.upload.headers).not.toHaveProperty('x-amz-meta-mxqr-generation');
     expect(JSON.stringify(reservation)).not.toContain('objectKey');
 
@@ -13524,6 +13723,8 @@ describe('persistent PRO room private media accounting', () => {
   });
 
   it('keeps an abort tombstone until a reusable staging URL has expired and is cleaned again', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-27T05:00:00.000Z'));
     const { worker, bucket, ownerCookie } = await activatedRoom();
     const reservation = await responseJson(
       await worker.fetch(
@@ -13539,7 +13740,10 @@ describe('persistent PRO room private media accounting', () => {
     const assetId = reservation.reservation.assetId as string;
     const internal = worker as unknown as {
       room: StoredRoom & {
-        stagingTombstones: Record<string, { objectKey: string; cleanupAfterMs: number }>;
+        stagingTombstones: Record<
+          string,
+          { objectKey: string; cleanupAfterMs: number; emptySinceMs?: number }
+        >;
       };
       alarm(): Promise<void>;
     };
@@ -13564,6 +13768,28 @@ describe('persistent PRO room private media accounting', () => {
     internal.room.stagingTombstones[assetId]!.cleanupAfterMs = Date.now() - 1;
     await internal.alarm();
     expect(bucket.objects.has(stagingObjectKey)).toBe(false);
+    expect(internal.room.stagingTombstones[assetId]).toMatchObject({
+      objectKey: stagingObjectKey,
+      emptySinceMs: Date.now(),
+    });
+
+    // A second slow PUT completing well after the first delete restarts the
+    // continuous-empty proof instead of surviving a one-shot cleanup.
+    vi.setSystemTime(new Date(Date.now() + 30 * 60 * 1000));
+    bucket.objects.set(stagingObjectKey, { staged: 'completed-late' });
+    internal.room.stagingTombstones[assetId]!.cleanupAfterMs = Date.now() - 1;
+    await internal.alarm();
+    expect(bucket.objects.has(stagingObjectKey)).toBe(false);
+    expect(internal.room.stagingTombstones[assetId]?.emptySinceMs).toBe(Date.now());
+
+    vi.setSystemTime(new Date(Date.now() + 60 * 60 * 1000 - 1));
+    internal.room.stagingTombstones[assetId]!.cleanupAfterMs = Date.now() - 1;
+    await internal.alarm();
+    expect(internal.room.stagingTombstones[assetId]).toBeDefined();
+
+    vi.setSystemTime(new Date(Date.now() + 2));
+    internal.room.stagingTombstones[assetId]!.cleanupAfterMs = Date.now() - 1;
+    await internal.alarm();
     expect(internal.room.stagingTombstones[assetId]).toBeUndefined();
   });
 
@@ -13592,6 +13818,19 @@ describe('persistent PRO room private media accounting', () => {
     await internal.alarm();
     expect(context.bucket.objects.has(stagingObjectKey)).toBe(false);
     expect(context.bucket.objects.get(finalObjectKey)?.size).toBe(4096);
+    expect((asset as any).stagingEmptySinceMs).toBeTypeOf('number');
+
+    context.bucket.objects.set(stagingObjectKey, { size: 9 * 1024 * 1024 * 1024 });
+    asset.stagingCleanupAfterMs = Date.now() - 1;
+    await internal.alarm();
+    expect(context.bucket.objects.has(stagingObjectKey)).toBe(false);
+    expect(context.bucket.objects.get(finalObjectKey)?.size).toBe(4096);
+    expect(asset.stagingObjectKey).toBe(stagingObjectKey);
+
+    (asset as any).stagingEmptySinceMs = Date.now() - 60 * 60 * 1000 - 1;
+    asset.stagingCleanupAfterMs = Date.now() - 1;
+    await internal.alarm();
+    expect(asset.stagingObjectKey).toBeUndefined();
   });
 
   it('keeps staged quota reserved when R2 deletion fails so cleanup can be retried', async () => {

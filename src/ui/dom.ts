@@ -143,6 +143,7 @@ function isShown(o: OverlayDef): boolean {
  */
 export function isAnyOverlayShown(): boolean {
   if (OVERLAYS.some(isShown)) return true;
+  if (document.querySelector('#chat-drawer.open[aria-modal="true"]')) return true;
   if (document.getElementById('youtube-ios-sync-overlay')) return true;
   return document.querySelector('.debug-memory-overlay') !== null;
 }
@@ -167,10 +168,65 @@ export function updateOverlayOpenClass(): void {
 const _modalStack: string[] = [];
 const CENTERED_OVERLAY_Z_INDEX_BASE = 6000;
 const CENTERED_OVERLAY_Z_INDEX_STEP = 10;
+const OVERLAY_INERT_OWNER = 'overlay-stack';
+
+interface ManagedInertState {
+  readonly owners: Set<string>;
+  readonly initiallyInert: boolean;
+}
+
+const _managedInert = new WeakMap<HTMLElement, ManagedInertState>();
+
+/**
+ * Own an element's inert state without clearing another surface's lock.
+ *
+ * Mobile chat and the modal stack can overlap. Directly toggling `inert`
+ * from either subsystem lets the first one that closes re-enable the page
+ * behind the other. Owners release only their own claim; a pre-existing
+ * unmanaged inert state is also preserved.
+ */
+export function setElementInertForOwner(
+  element: HTMLElement,
+  owner: string,
+  makeInert: boolean,
+): void {
+  let state = _managedInert.get(element);
+  if (makeInert) {
+    if (!state) {
+      state = {
+        owners: new Set<string>(),
+        initiallyInert: Boolean(element.inert || element.hasAttribute('inert')),
+      };
+      _managedInert.set(element, state);
+    }
+    state.owners.add(owner);
+    element.inert = true;
+    element.setAttribute('inert', '');
+    return;
+  }
+
+  if (!state) return;
+  state.owners.delete(owner);
+  if (state.owners.size > 0) {
+    element.inert = true;
+    element.setAttribute('inert', '');
+    return;
+  }
+
+  element.inert = state.initiallyInert;
+  if (state.initiallyInert) element.setAttribute('inert', '');
+  else element.removeAttribute('inert');
+  _managedInert.delete(element);
+}
 
 /** @internal Test-only helper to reset stack between cases. */
 export function __resetModalStackForTests(): void {
   _modalStack.length = 0;
+  for (const child of Array.from(document.body?.children ?? [])) {
+    if (child instanceof HTMLElement) {
+      setElementInertForOwner(child, OVERLAY_INERT_OWNER, false);
+    }
+  }
 }
 
 function promoteOverlayToTop(id: OverlayId | undefined): void {
@@ -232,11 +288,7 @@ function syncModalStack(preferredTopOverlayId?: OverlayId): void {
   //    the stack empty (no modals open), nothing is inert.
   for (const child of Array.from(document.body.children)) {
     if (!(child instanceof HTMLElement)) continue;
-    if (top !== null && child.id !== top) {
-      child.setAttribute('inert', '');
-    } else {
-      child.removeAttribute('inert');
-    }
+    setElementInertForOwner(child, OVERLAY_INERT_OWNER, top !== null && child.id !== top);
   }
 }
 

@@ -33,7 +33,7 @@ import {
   setLocalYouTubePaused,
 } from './_state.ts';
 import type { YouTubePlayerInstance } from './_state.ts';
-import { invalidateYtDurationCache } from './iframe.ts';
+import { hideYouTubeTapToPlayGate, invalidateYtDurationCache } from './iframe.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { showToast } from '../ui/toast.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -1149,6 +1149,10 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   const time = Number(data.time) || 0;
   const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
   updateHostSnapshot(time, state, hostClock, (data.videoId as string) || '');
+
+  if (state === 2 || state === 0 || state === -1) {
+    hideYouTubeTapToPlayGate();
+  }
 
   if (!player || !isPlaybackModeYouTube()) return;
 

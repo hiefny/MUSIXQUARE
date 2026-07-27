@@ -693,8 +693,7 @@ export function initGuestProtocolHandlers(): void {
     }
 
     const target = getState('network.lastKnownDeviceList')?.find(
-      (device) =>
-        device.id === peerId && !device.isHost && device.status === 'connected',
+      (device) => device.id === peerId && !device.isHost && device.status === 'connected',
     );
     if (!target) return;
 

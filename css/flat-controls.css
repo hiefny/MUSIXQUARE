@@ -94,6 +94,13 @@ html[data-theme='light'] {
   box-shadow: none;
 }
 
+#demo-overlay .demo-step-nav .demo-step-next.is-final {
+  border-color: transparent;
+  background: var(--primary-filled);
+  color: #fff;
+  box-shadow: none;
+}
+
 /* Final demo actions retain informational/danger meaning without a frame. */
 #demo-overlay .demo-large-actions .accent-action-btn {
   border: 0;

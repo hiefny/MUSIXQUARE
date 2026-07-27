@@ -145,6 +145,25 @@ describe('playlist empty state i18n', () => {
 });
 
 describe('playlist queue identity rendering and actions', () => {
+  it('restores focus to the same queue action after a full rerender', () => {
+    setState('playlist.items', sampleItems());
+    updatePlaylistUI();
+
+    const expand = document.querySelector<HTMLButtonElement>(
+      `[data-queue-item-id="${YT_B}"][data-action="expand"]`,
+    )!;
+    expand.focus();
+    expect(document.activeElement).toBe(expand);
+
+    updatePlaylistUI();
+
+    const replacement = document.querySelector<HTMLButtonElement>(
+      `[data-queue-item-id="${YT_B}"][data-action="expand"]`,
+    );
+    expect(replacement).not.toBe(expand);
+    expect(document.activeElement).toBe(replacement);
+  });
+
   it('does not rebuild every row for play/pause activity changes', async () => {
     setState('playlist.items', sampleItems());
     initPlaylistView();

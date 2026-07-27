@@ -2128,6 +2128,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     setPlaybackYouTubePlaying();
     bus.emit('ui:update-play-state', true);
   } else if (state === YT.PlayerState.PAUSED) {
+    showYouTubeSyncOverlay(false);
     showLoader(false);
     setPlaybackYouTubePaused();
     bus.emit('ui:update-play-state', false);
@@ -2777,6 +2778,11 @@ function showYouTubeSyncOverlay(show: boolean): void {
 }
 
 // ─── Refresh Display Workaround ────────────────────────────────────
+
+/** Clear a stale iOS autoplay gate when canonical playback is paused/stopped. */
+export function hideYouTubeTapToPlayGate(): void {
+  showYouTubeSyncOverlay(false);
+}
 
 export function refreshYouTubeDisplay(): void {
   const container = document.getElementById('youtube-player-container');

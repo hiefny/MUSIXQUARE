@@ -78,6 +78,7 @@ export function registerServiceWorker(): void {
     let cacheSafeForCurrentController = true;
     let updateFoundInThisDocument = false;
     let controllerChangedWhilePrompting = false;
+    let handledWaitingWorker: ServiceWorker | null = null;
     let activationState:
       | 'passive'
       | 'prompting'
@@ -181,76 +182,77 @@ export function registerServiceWorker(): void {
         handlePassiveControllerChange();
       });
 
-      reg.addEventListener('updatefound', () => {
+      const handleWaitingWorker = async (worker: ServiceWorker): Promise<void> => {
+        if (!navigator.serviceWorker.controller || handledWaitingWorker === worker) return;
+        if (activationState !== 'passive') return;
+        handledWaitingWorker = worker;
         updateFoundInThisDocument = true;
+
+        const lastUpdate = Number(sessionStorage.getItem(SW_UPDATE_KEY) || '0');
+        const inCooldown = Date.now() - lastUpdate < SW_COOLDOWN_MS;
+        if (inCooldown) {
+          log.debug('[SW] Update found during cooldown — silently activating');
+          worker.postMessage({ type: 'SKIP_WAITING' });
+          return;
+        }
+
+        activationState = 'prompting';
+        controllerChangedWhilePrompting = false;
+        let result: Awaited<ReturnType<typeof showDialog>> | undefined;
+        try {
+          result = await showDialog({
+            title: t('dialog.sw_update_title'),
+            message: t('dialog.sw_update_msg'),
+            buttonText: t('common.refresh'),
+            secondaryText: t('common.later'),
+          });
+        } catch {
+          result = undefined;
+        }
+
+        if (result?.action === 'ok') {
+          if (_swReloading) return;
+          activationState = 'awaiting-local-controller';
+          const requestedAt = Date.now();
+          sessionStorage.setItem(SW_UPDATE_KEY, String(requestedAt));
+          sessionStorage.removeItem(SW_CONTROLLER_CONFIRMED_KEY);
+
+          if (
+            controllerChangedWhilePrompting ||
+            navigator.serviceWorker.controller !== pageController
+          ) {
+            scheduleControllerAlignedReload();
+            return;
+          }
+
+          worker.postMessage({ type: 'SKIP_WAITING' });
+          return;
+        }
+
+        activationState = 'passive';
+        log.debug('[SW] Update dialog dismissed — skipping local activation');
+        if (controllerChangedWhilePrompting) {
+          controllerChangedWhilePrompting = false;
+          handlePassiveControllerChange();
+        }
+      };
+
+      reg.addEventListener('updatefound', () => {
         const newWorker = reg.installing;
         if (!newWorker) return;
 
-        newWorker.addEventListener('statechange', async () => {
+        newWorker.addEventListener('statechange', () => {
           if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            // Evaluate cooldown at event time (not registration time) to avoid stale closure
-            const lastUpdate = Number(sessionStorage.getItem(SW_UPDATE_KEY) || '0');
-            const inCooldown = Date.now() - lastUpdate < SW_COOLDOWN_MS;
-
-            // During cooldown: silently activate, no dialog
-            if (inCooldown) {
-              log.debug('[SW] Update found during cooldown — silently activating');
-              (reg.waiting || newWorker).postMessage({ type: 'SKIP_WAITING' });
-              return;
-            }
-
-            activationState = 'prompting';
-            controllerChangedWhilePrompting = false;
-            let result: Awaited<ReturnType<typeof showDialog>> | undefined;
-            try {
-              result = await showDialog({
-                title: t('dialog.sw_update_title'),
-                message: t('dialog.sw_update_msg'),
-                buttonText: t('common.refresh'),
-                secondaryText: t('common.later'),
-              });
-            } catch {
-              result = undefined;
-            }
-
-            // Activate only if the user clicked Refresh. The reload itself is
-            // owned by controllerchange, which is the proof that skipWaiting
-            // and clients.claim finished. Reloading immediately after
-            // postMessage recreated the same update as a false follow-up toast.
-            if (result?.action === 'ok') {
-              // controllerchange cannot schedule a reload while the state is
-              // prompting; it only records controllerChangedWhilePrompting.
-              // _swReloading still covers an already-started external reset.
-              if (_swReloading) return;
-              activationState = 'awaiting-local-controller';
-              const requestedAt = Date.now();
-              sessionStorage.setItem(SW_UPDATE_KEY, String(requestedAt));
-              sessionStorage.removeItem(SW_CONTROLLER_CONFIRMED_KEY);
-
-              if (
-                controllerChangedWhilePrompting ||
-                navigator.serviceWorker.controller !== pageController
-              ) {
-                scheduleControllerAlignedReload();
-                return;
-              }
-
-              (reg.waiting || newWorker).postMessage({ type: 'SKIP_WAITING' });
-              return;
-            }
-
-            // Dialog dismissed or failed — do not activate this waiting worker.
-            // If another tab already activated it while the dialog was open,
-            // apply the normal cross-tab policy now.
-            activationState = 'passive';
-            log.debug('[SW] Update dialog dismissed — skipping local activation');
-            if (controllerChangedWhilePrompting) {
-              controllerChangedWhilePrompting = false;
-              handlePassiveControllerChange();
-            }
+            void handleWaitingWorker(reg.waiting || newWorker);
           }
         });
       });
+
+      // updatefound only reports future installations. A worker can already
+      // be waiting after a prior "Later" choice or a background-tab update.
+      if (reg.waiting && navigator.serviceWorker.controller) {
+        void handleWaitingWorker(reg.waiting);
+      }
 
       // Check for updates periodically (every 60 minutes)
       setManagedTimer(

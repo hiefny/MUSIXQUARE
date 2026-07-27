@@ -131,12 +131,13 @@ function ensureFollowController(
   _currentJumpController?.destroy();
   _followList = list;
   _followScrollContainer = scrollContainer;
-  const isBlocked = () => !!_reorderController?.isActive || !!_removalController?.isActive;
+  const isInteractionBlocked = () =>
+    !!_reorderController?.isActive || !!_removalController?.isActive;
   _followController = createPlaylistFollowController({
     list,
     scrollContainer,
     isVisible: playlistIsVisible,
-    isBlocked,
+    isBlocked: isInteractionBlocked,
   });
 
   const panel = document.getElementById('tab-playlist');
@@ -147,7 +148,7 @@ function ensureFollowController(
         scrollContainer,
         getSelection: currentFollowSelection,
         isVisible: () => playlistIsVisible() && getState('playback.mode') !== 'system-audio',
-        isBlocked,
+        isBlocked: () => isInteractionBlocked() || !!_followController?.isFollowing,
         onActivate: (selection) => {
           _followController?.forceSelection(selection.queueItemId, selection.subIndex);
           _followController?.afterRender();
@@ -428,6 +429,57 @@ function patchRenderedSubPlaylistTitles(list: HTMLElement): boolean {
   return true;
 }
 
+interface PlaylistFocusSnapshot {
+  queueItemId: QueueItemId;
+  kind: 'action' | 'reorder' | 'sub-track';
+  action?: string;
+  subIndex?: number;
+}
+
+function capturePlaylistFocus(list: HTMLElement): PlaylistFocusSnapshot | null {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement) || !list.contains(active)) return null;
+  const owner = active.closest<HTMLElement>('[data-queue-item-id]');
+  const queueItemId = owner?.dataset.queueItemId as QueueItemId | undefined;
+  if (!queueItemId) return null;
+
+  const subTrack = active.closest<HTMLElement>('.sub-track-item[data-sub-index]');
+  if (subTrack) {
+    const subIndex = Number(subTrack.dataset.subIndex);
+    return Number.isSafeInteger(subIndex) ? { queueItemId, kind: 'sub-track', subIndex } : null;
+  }
+  if (active.closest('.playlist-reorder-handle')) {
+    return { queueItemId, kind: 'reorder' };
+  }
+  const action = active.closest<HTMLElement>('[data-action]')?.dataset.action;
+  return action ? { queueItemId, kind: 'action', action } : null;
+}
+
+function restorePlaylistFocus(list: HTMLElement, snapshot: PlaylistFocusSnapshot | null): void {
+  if (!snapshot) return;
+  const entry = Array.from(list.children).find(
+    (child): child is HTMLElement =>
+      child instanceof HTMLElement && child.dataset.queueItemId === snapshot.queueItemId,
+  );
+  if (!entry) return;
+
+  let target: HTMLElement | null;
+  if (snapshot.kind === 'sub-track') {
+    target =
+      Array.from(entry.querySelectorAll<HTMLElement>('.sub-track-item[data-sub-index]')).find(
+        (candidate) => Number(candidate.dataset.subIndex) === snapshot.subIndex,
+      ) ?? null;
+  } else if (snapshot.kind === 'reorder') {
+    target = entry.querySelector<HTMLElement>('.playlist-reorder-handle');
+  } else {
+    target =
+      Array.from(entry.querySelectorAll<HTMLElement>('[data-action]')).find(
+        (candidate) => candidate.dataset.action === snapshot.action,
+      ) ?? null;
+  }
+  target?.focus({ preventScroll: true });
+}
+
 export function updatePlaylistUI(): void {
   const list = document.getElementById('playlist-ui');
   if (!list) return;
@@ -450,6 +502,7 @@ export function updatePlaylistUI(): void {
   const scrollContainer = list.closest<HTMLElement>('.tab-body') ?? list;
   const followController = ensureFollowController(list, scrollContainer);
   const savedScrollTop = scrollContainer.scrollTop;
+  const focusSnapshot = capturePlaylistFocus(list);
   list.replaceChildren();
 
   if (playlist.length === 0) {
@@ -461,6 +514,9 @@ export function updatePlaylistUI(): void {
     empty.setAttribute('data-i18n', key);
     empty.textContent = t(key);
     list.appendChild(empty);
+    if (focusSnapshot && playlistIsVisible()) {
+      document.getElementById('tab-playlist')?.focus({ preventScroll: true });
+    }
     _reorderController?.afterRender();
     _removalController?.afterRender();
     return;
@@ -517,6 +573,7 @@ export function updatePlaylistUI(): void {
     appendSubPlaylist(entry, item, isCurrent, currentYouTubeSubIndex);
     list.appendChild(entry);
   });
+  if (playlistIsVisible()) restorePlaylistFocus(list, focusSnapshot);
 
   // DOM replacement must not turn an in-flight follow into a false success.
   // Restore the current physical position first; the follow controller then

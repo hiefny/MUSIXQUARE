@@ -38,5 +38,8 @@ export function executeNpm(args, options = {}) {
     encoding: options.encoding,
     stdio: options.stdio || 'inherit',
     env: options.environment || process.env,
+    // A wedged package runner must not hold a release job forever. Callers can
+    // opt into a longer bounded window for an explicitly reviewed operation.
+    timeout: options.timeout ?? 10 * 60 * 1000,
   });
 }

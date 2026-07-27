@@ -5,7 +5,7 @@ import { dirname, relative, resolve, sep } from 'node:path';
 import { readReleaseIdentity } from './release-identity.mjs';
 
 const SCHEMA_VERSION = 2;
-const DEFAULT_WRANGLER_VERSION = '4.111.0';
+const DEFAULT_WRANGLER_VERSION = '4.114.0';
 const mode = process.argv[2];
 const distDirectory = resolve(process.argv[3] || 'dist');
 const manifestPath = resolve(process.argv[4] || 'release-artifacts/release-manifest.json');

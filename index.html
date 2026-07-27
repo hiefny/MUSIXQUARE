@@ -3150,10 +3150,17 @@
     </div>
     <div id="demo-curtain" class="demo-curtain" aria-hidden="true"></div>
 
-    <div id="media-source-overlay" class="onboarding-overlay">
+    <div
+      id="media-source-overlay"
+      class="onboarding-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="media-source-dialog-title"
+      tabindex="-1"
+    >
       <div class="onboarding-card setup-card full-screen">
         <div class="setup-header-text">
-          <h2 data-i18n="player.select_media"></h2>
+          <h2 id="media-source-dialog-title" data-i18n="player.select_media"></h2>
           <p data-i18n="help.media_synced_detail"></p>
         </div>
 
@@ -3201,10 +3208,17 @@
       </div>
     </div>
 
-    <div id="youtube-url-overlay" class="onboarding-overlay">
+    <div
+      id="youtube-url-overlay"
+      class="onboarding-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="youtube-url-dialog-title"
+      tabindex="-1"
+    >
       <div class="onboarding-card setup-card full-screen">
         <div class="setup-header-text">
-          <h2 data-i18n="youtube.watch_together"></h2>
+          <h2 id="youtube-url-dialog-title" data-i18n="youtube.watch_together"></h2>
           <p data-i18n-html="youtube.enter_link_desc_html"></p>
         </div>
 

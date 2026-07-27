@@ -810,6 +810,31 @@ describe('Chat Module', () => {
       document.documentElement.style.removeProperty('--app-height');
     });
 
+    it('does not expose a fake resize range when short landscape has only the full detent', async () => {
+      renderChatShell();
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(844);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(390);
+      document.documentElement.style.setProperty('--app-height', '390px');
+
+      const { initChat, toggleChatDrawer } = await import('../chat.ts');
+      initChat();
+      toggleChatDrawer();
+
+      const drawer = document.getElementById('chat-drawer')!;
+      const header = drawer.querySelector<HTMLElement>('.chat-drawer-header')!;
+      expect(drawer.dataset.chatSnap).toBe('full');
+      expect(header.getAttribute('role')).toBe('button');
+      expect(header.hasAttribute('aria-valuemin')).toBe(false);
+      expect(header.hasAttribute('aria-valuemax')).toBe(false);
+      expect(header.hasAttribute('aria-valuenow')).toBe(false);
+
+      header.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      expect(drawer.classList.contains('open')).toBe(true);
+      header.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      expect(drawer.classList.contains('open')).toBe(false);
+      document.documentElement.style.removeProperty('--app-height');
+    });
+
     it('marks the compact preview from the sender and message scripts', async () => {
       renderChatShell();
       const { initChat } = await import('../chat.ts');

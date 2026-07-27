@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const ACTIVE_CACHE_VERSION = 'v286';
+const ACTIVE_CACHE_VERSION = 'v287';
 const RETIRED_CACHE_VERSION = 'v194';
 
 type FetchListener = (event: {
@@ -451,5 +451,33 @@ describe('service worker cache policy', () => {
     const response = await dispatch(new Request('https://musixquare.com/favicon.svg'));
 
     expect(await response.text()).toBe('current asset');
+  });
+
+  it('uses the network before a retired generation for stable paths', async () => {
+    cacheMatch.mockImplementation(async (_request: Request, options?: { cacheName?: string }) => {
+      if (options?.cacheName) return undefined;
+      return new Response('retired asset', { status: 200 });
+    });
+    fetchMock.mockResolvedValue(new Response('network asset', { status: 200 }));
+
+    const response = await dispatch(new Request('https://musixquare.com/css/style.css'));
+
+    expect(await response.text()).toBe('network asset');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(cacheMatch).toHaveBeenCalledTimes(2);
+  });
+
+  it('falls back to a retired stable asset only when the network fails', async () => {
+    cacheMatch.mockImplementation(async (_request: Request, options?: { cacheName?: string }) => {
+      if (options?.cacheName) return undefined;
+      return new Response('retired offline asset', { status: 200 });
+    });
+    fetchMock.mockRejectedValue(new Error('offline'));
+
+    const response = await dispatch(new Request('https://musixquare.com/css/style.css'));
+
+    expect(await response.text()).toBe('retired offline asset');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(cacheMatch).toHaveBeenNthCalledWith(3, expect.any(Request));
   });
 });

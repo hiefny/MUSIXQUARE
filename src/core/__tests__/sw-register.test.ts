@@ -34,15 +34,20 @@ interface SwHarness {
   };
   register: ReturnType<typeof vi.fn>;
   reload: ReturnType<typeof vi.fn>;
+  waitingWorker: FakeWorker | null;
 }
 
 function installServiceWorkerHarness(
   initialController: FakeWorker | null,
   navigationType: NavigationTimingType = 'navigate',
+  hasWaitingWorker = false,
 ): SwHarness {
   const listeners = new Map<string, Array<(event: any) => void>>();
   const registrationListeners = new Map<string, Array<() => void>>();
   let controller = initialController;
+  const initialWaitingWorker: FakeWorker | null = hasWaitingWorker
+    ? { postMessage: vi.fn() }
+    : null;
   const reload = vi.fn();
   const registration = {
     scope: 'https://musixquare.com/',
@@ -50,7 +55,7 @@ function installServiceWorkerHarness(
       state: ServiceWorkerState;
       addEventListener(type: string, listener: () => void): void;
     },
-    waiting: null as FakeWorker | null,
+    waiting: initialWaitingWorker,
     update: vi.fn(async () => undefined),
     addEventListener(type: string, listener: () => void) {
       const group = registrationListeners.get(type) || [];
@@ -122,6 +127,7 @@ function installServiceWorkerHarness(
     },
     register,
     reload,
+    waitingWorker: initialWaitingWorker,
   };
 }
 
@@ -196,6 +202,15 @@ describe('service-worker cache-retirement client handshake', () => {
     await registerWithHarness(harness);
 
     expect(controller.postMessage).toHaveBeenCalledWith({ type: 'MXQR_CACHE_STATUS_PROBE' });
+  });
+
+  it('prompts for a worker that was already waiting before registration listeners attach', async () => {
+    const controller: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(controller, 'navigate', true);
+    await registerWithHarness(harness);
+
+    await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+    expect(harness.waitingWorker?.postMessage).not.toHaveBeenCalled();
   });
 
   it('routes an idle controlled-tab controller change through the reset coordinator', async () => {

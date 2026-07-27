@@ -314,6 +314,7 @@ import {
   markYtStateBroadcast,
   clearSnapshotRetries,
   showLiveStreamSyncWarning,
+  hideYouTubeTapToPlayGate,
   cancelYouTubeAuthorityPreparation,
   commitYouTubeAuthorityOccurrence,
   getProYouTubeAuthorityPreparationGeneration,
@@ -781,7 +782,11 @@ function scheduleProYouTubeLeadCalibration(input: {
 export async function applyProPlaybackYouTubeCommit(
   request: Readonly<ProPlaybackCommitRequest>,
 ): Promise<boolean> {
-  if (request.state === 'idle' || !request.queueItemId) return false;
+  if (request.state === 'idle') {
+    hideYouTubeTapToPlayGate();
+    return false;
+  }
+  if (!request.queueItemId) return false;
   const generation = ++proAuthorityYouTubeCommitGeneration;
   clearProYouTubeLeadCalibrationTimers();
   cancelYtAutoSync();
@@ -926,6 +931,7 @@ export async function applyProPlaybackYouTubeCommit(
       bus.emit('ui:update-play-state', true);
     } else {
       setYtAutoplayIntent(false);
+      hideYouTubeTapToPlayGate();
       player.pauseVideo?.();
       setPlaybackYouTubePaused();
       bus.emit('ui:update-play-state', false);

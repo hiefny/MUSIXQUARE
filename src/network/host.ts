@@ -46,12 +46,12 @@ import {
   STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES,
   getStandardRoomAdministratorByKey,
   grantStandardRoomAdministrator,
-  removeDepartedAnonymousAdministrator,
   revokeStandardRoomAdministratorByKey,
   standardRoomAuthorityKey,
   standardRoomCapabilities,
   updateStandardRoomAdministratorPermissions,
 } from './standard-room-authority.ts';
+import { detachHostPeerConnection } from './host-peer-departure.ts';
 
 function isStandardRoom(): boolean {
   return getRoomContext().kind === 'standard';
@@ -393,9 +393,20 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
         peer.id === peerId && peer.conn === existingActiveConn && peer.status === 'connected',
     );
   if (existingActiveConn && existingActiveConn !== conn) {
-    const updatedConns = new Map(activeHostConnByPeerId);
-    updatedConns.set(peerId, conn);
-    setState('network.activeHostConnByPeerId', updatedConns);
+    // The old anonymous authority grant belongs to this exact connection and
+    // must not leak into a replacement that happens to reuse the peer ID.
+    // Preserve its presentation slot while the successor is admitted below.
+    const detached = detachHostPeerConnection(peerId, existingActiveConn, {
+      preserveLabel: true,
+      preserveSlot: true,
+    });
+    if (!detached) {
+      const updatedConns = new Map(getState('network.activeHostConnByPeerId'));
+      if (updatedConns.get(peerId) === existingActiveConn) {
+        updatedConns.delete(peerId);
+        setState('network.activeHostConnByPeerId', updatedConns);
+      }
+    }
     try {
       if (existingActiveConn.open) {
         existingActiveConn.send({ type: MSG.FORCE_CLOSE_DUPLICATE });
@@ -411,7 +422,15 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   }
 
   // Remove lingering peer object with same id
-  const filtered = connectedPeers.filter((p) => p.id !== peerId);
+  const peersAfterReplacement = getState('network.connectedPeers');
+  for (const lingering of peersAfterReplacement) {
+    if (lingering.id !== peerId) continue;
+    detachHostPeerConnection(peerId, lingering.conn as DataConnection | null | undefined, {
+      preserveLabel: true,
+      preserveSlot: true,
+    });
+  }
+  const filtered = getState('network.connectedPeers').filter((p) => p.id !== peerId);
   setState('network.connectedPeers', filtered);
   if (connectionReplaced) {
     // Capability advertisements, frozen delivery routes, and in-flight media
@@ -582,19 +601,8 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       );
       if (!stale) return;
       log.warn(`[Host] Connection open timeout for ${deviceName} — cleaning up stale peer`);
-      setState(
-        'network.connectedPeers',
-        peers.filter((p) => p.id !== peerId),
-      );
-      const cleanConns = new Map(getState('network.activeHostConnByPeerId'));
-      cleanConns.delete(peerId);
-      setState('network.activeHostConnByPeerId', cleanConns);
-      releasePeerSlot(peerId);
-      const labels = getState('network.peerLabels');
-      if (labels && labels[peerId]) {
-        const { [peerId]: _, ...rest } = labels;
-        setState('network.peerLabels', rest);
-      }
+      const departure = detachHostPeerConnection(peerId, conn);
+      if (!departure) return;
       try {
         conn.close();
       } catch {
@@ -749,29 +757,9 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     // Ignore stale close events from replaced duplicate connections
     if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) return;
 
-    // Clear ICE fallback timer to prevent firing on disconnected peer
-    clearManagedTimer('ice-fallback-' + peerId);
-
-    // Read current label BEFORE cleanup deletes it from peerLabels.
-    // Captures the latest account identity (e.g. "Alice") instead of a stale slot label.
-    const currentLabel = getState('network.peerLabels')?.[peerId] || deviceName;
-
-    const closeConns = new Map(getState('network.activeHostConnByPeerId'));
-    closeConns.delete(peerId);
-    setState('network.activeHostConnByPeerId', closeConns);
-    releasePeerSlot(peerId);
-
-    const peerLabelsOnClose = getState('network.peerLabels');
-    if (peerLabelsOnClose) {
-      const { [peerId]: _, ...restLabels } = peerLabelsOnClose;
-      setState('network.peerLabels', restLabels);
-    }
-
-    const peers = getState('network.connectedPeers');
-    const departedPeer = peers.find((peer) => peer.id === peerId && peer.conn === conn);
-    if (departedPeer) removeDepartedAnonymousAdministrator(departedPeer);
-    const remainingPeers = peers.filter((p) => p.id !== peerId);
-    setState('network.connectedPeers', remainingPeers);
+    const departure = detachHostPeerConnection(peerId, conn);
+    if (!departure) return;
+    const { peer: departedPeer, remainingPeers, label: currentLabel } = departure;
 
     bus.emit('network:peer-disconnected', peerId);
     broadcastDeviceList();
@@ -781,7 +769,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       showToast(t('toast.device_disconnected', { name: currentLabel }));
       if (!hasRemainingStandardMemberDevice(departedPeer, remainingPeers)) {
         broadcastSystemMessage('chat.peer_disconnected', {
-          name: departedPeer?.label ?? currentLabel,
+          name: departedPeer.label ?? currentLabel,
         });
       }
     }
@@ -800,27 +788,9 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       return;
     }
 
-    // Clear ICE fallback timer to prevent firing on disconnected peer
-    clearManagedTimer('ice-fallback-' + peerId);
-
-    const errLabel = getState('network.peerLabels')?.[peerId] || deviceName;
-
-    const errConns = new Map(getState('network.activeHostConnByPeerId'));
-    errConns.delete(peerId);
-    setState('network.activeHostConnByPeerId', errConns);
-    releasePeerSlot(peerId);
-
-    const peerLabelsOnError = getState('network.peerLabels');
-    if (peerLabelsOnError) {
-      const { [peerId]: _, ...restLabelsErr } = peerLabelsOnError;
-      setState('network.peerLabels', restLabelsErr);
-    }
-
-    const peers = getState('network.connectedPeers');
-    const departedPeer = peers.find((peer) => peer.id === peerId && peer.conn === conn);
-    if (departedPeer) removeDepartedAnonymousAdministrator(departedPeer);
-    const remainingPeers = peers.filter((p) => p.id !== peerId);
-    setState('network.connectedPeers', remainingPeers);
+    const departure = detachHostPeerConnection(peerId, conn);
+    if (!departure) return;
+    const { peer: departedPeer, remainingPeers, label: errLabel } = departure;
 
     bus.emit('network:peer-disconnected', peerId);
     broadcastDeviceList();
@@ -830,7 +800,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       showToast(t('toast.device_conn_error', { name: errLabel }));
       if (!hasRemainingStandardMemberDevice(departedPeer, remainingPeers)) {
         broadcastSystemMessage('chat.peer_disconnected', {
-          name: departedPeer?.label ?? errLabel,
+          name: departedPeer.label ?? errLabel,
         });
       }
     }

@@ -41,10 +41,7 @@ export function validateAccountNickname(value: string): string | null {
   const nickname = normalizeAccountNickname(value);
   if (!nickname) return t('account.nickname_required');
   const nicknameKey = accountNicknameKey(nickname);
-  if (
-    hasDisplayNameWhitespaceOrFiller(nickname) ||
-    hasDisplayNameWhitespaceOrFiller(nicknameKey)
-  ) {
+  if (hasDisplayNameWhitespaceOrFiller(nickname) || hasDisplayNameWhitespaceOrFiller(nicknameKey)) {
     return t('account.nickname_whitespace');
   }
   const sanitizedNickname = sanitizeDisplayNameForValidation(nickname);

@@ -387,12 +387,12 @@ function isBulkPayload(data: unknown): boolean {
   const payload = data as Record<string, unknown>;
   if (toUint8Array(payload.chunk)) return true;
 
-  // OPERATOR_FILE_UPLOAD_CHUNK is carried by the ordered bulk channel. Keep
-  // its terminal fence on that same channel as well: ordering is guaranteed
-  // within one RTCDataChannel, but not between the bulk and control channels.
-  // Without this exception FINISH can overtake the final chunk on a slower
-  // receiver and make an otherwise valid administrator upload look corrupt.
-  return payload.type === MSG.OPERATOR_FILE_UPLOAD_FINISH;
+  // File chunks are carried by the ordered bulk channel. Keep both terminal
+  // fences on that same channel as well: ordering is guaranteed within one
+  // RTCDataChannel, but not between the bulk and control channels. Receivers
+  // continue accepting these messages from either channel, so old senders
+  // remain compatible while upgraded senders cannot overtake their last chunk.
+  return payload.type === MSG.FILE_END || payload.type === MSG.OPERATOR_FILE_UPLOAD_FINISH;
 }
 
 export class CloudflareDataConnection extends TinyEmitter implements TransportDataConnection {

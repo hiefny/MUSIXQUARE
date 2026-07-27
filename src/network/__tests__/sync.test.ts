@@ -35,6 +35,7 @@ import {
   setPlaybackTrackMeta,
   setPlaybackYouTubePlaying,
 } from '../../player/ownership.ts';
+import { grantStandardRoomAdministrator } from '../standard-room-authority.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -415,6 +416,74 @@ describe('host heartbeat cleanup ordering', () => {
     expect(disconnected).toHaveBeenCalledTimes(1);
     expect(disconnected).toHaveBeenCalledWith(peer.id);
     expect(getState('network.peerLabels')[peer.id]).toBeUndefined();
+  });
+
+  it('revokes only anonymous grants when stale connections bypass normal close handlers', () => {
+    vi.useFakeTimers();
+    const anonymousConn = mockDataConnection('anonymous-stale');
+    const authenticatedConn = mockDataConnection('authenticated-stale');
+    const authenticatedMemberId = 'member_abcdefghijklmnopqrstuv';
+    const anonymousPeer = {
+      id: anonymousConn.peer,
+      slot: 1,
+      label: 'Anonymous admin',
+      conn: anonymousConn,
+      isOp: true,
+      isAuthenticated: false,
+      preloadedQueueItemIds: new Set<string>(),
+      status: 'connected',
+      isDataTarget: true,
+      joinOrder: 1,
+      connectionType: 'local',
+      lastHeartbeat: Date.now() - 9000,
+    } as ConnectedPeer;
+    const authenticatedPeer = {
+      ...anonymousPeer,
+      id: authenticatedConn.peer,
+      slot: 2,
+      label: 'Account admin',
+      conn: authenticatedConn,
+      memberId: authenticatedMemberId,
+      memberDisplayNumber: 1,
+      isAuthenticated: true,
+      joinOrder: 2,
+    } as ConnectedPeer;
+    const slots = [...getState('network.peerSlots')];
+    slots[1] = anonymousPeer.id;
+    slots[2] = authenticatedPeer.id;
+    setState('network.peerSlots', slots);
+    setState(
+      'network.peerSlotByPeerId',
+      new Map([
+        [anonymousPeer.id, 1],
+        [authenticatedPeer.id, 2],
+      ]),
+    );
+    setState('network.peerLabels', {
+      [anonymousPeer.id]: anonymousPeer.label,
+      [authenticatedPeer.id]: authenticatedPeer.label,
+    });
+    setState('network.connectedPeers', [anonymousPeer, authenticatedPeer]);
+    setState(
+      'network.activeHostConnByPeerId',
+      new Map([
+        [anonymousPeer.id, anonymousConn],
+        [authenticatedPeer.id, authenticatedConn],
+      ]),
+    );
+    grantStandardRoomAdministrator(anonymousPeer);
+    grantStandardRoomAdministrator(authenticatedPeer);
+    setState('setup.sessionStarted', true);
+
+    initSync();
+    bus.emit('state:setup.sessionStarted', true, 'setup.sessionStarted');
+    vi.advanceTimersByTime(5000);
+
+    expect(getState('network.standardRoomAdministrators').has('peer:anonymous-stale')).toBe(false);
+    expect(getState('network.standardRoomAdministrators').has(authenticatedMemberId)).toBe(true);
+    expect(getState('network.connectedPeers')).toHaveLength(0);
+    expect(anonymousConn.close).toHaveBeenCalledTimes(1);
+    expect(authenticatedConn.close).toHaveBeenCalledTimes(1);
   });
 });
 

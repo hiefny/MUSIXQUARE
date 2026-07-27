@@ -91,6 +91,8 @@ let _proPlaybackTransitionLoading = false;
 let _proPlaybackControlToken: number | null = null;
 let _proPlaybackControlKind: ProPlaybackUiControlKind | null = null;
 let _manualSyncPreviousFocus: HTMLElement | null = null;
+let _mediaSourcePreviousFocus: HTMLElement | null = null;
+let _youtubePopupPreviousFocus: HTMLElement | null = null;
 let _playButtonMediaEnabled = false;
 
 function isFilePlayButtonLoading(): boolean {
@@ -437,6 +439,69 @@ async function copyInviteCode(): Promise<void> {
 
 // ─── Media Source Popup ──────────────────────────────────────────
 
+function rememberOverlayOpener(fallbackId: string): HTMLElement | null {
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && active !== document.body) return active;
+  return document.getElementById(fallbackId);
+}
+
+function restoreOverlayOpener(opener: HTMLElement | null, overlay: HTMLElement): void {
+  queueMicrotask(() => {
+    const active = document.activeElement;
+    if (
+      opener?.isConnected &&
+      (!active || active === document.body || active === overlay || overlay.contains(active))
+    ) {
+      opener.focus({ preventScroll: true });
+    }
+  });
+}
+
+function getOverlayFocusableElements(overlay: HTMLElement): HTMLElement[] {
+  return Array.from(
+    overlay.querySelectorAll<HTMLElement>(
+      'button, input, textarea, select, a[href], [contenteditable="true"], [tabindex]',
+    ),
+  ).filter(
+    (element) =>
+      element.tabIndex >= 0 &&
+      !element.hasAttribute('disabled') &&
+      !element.hidden &&
+      element.getAttribute('aria-hidden') !== 'true',
+  );
+}
+
+function handleFullscreenOverlayKeydown(
+  overlay: HTMLElement,
+  event: KeyboardEvent,
+  onClose: () => void,
+): void {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    onClose();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+
+  const focusable = getOverlayFocusableElements(overlay);
+  if (focusable.length === 0) {
+    event.preventDefault();
+    overlay.focus({ preventScroll: true });
+    return;
+  }
+  const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+  const nextIndex = event.shiftKey
+    ? currentIndex <= 0
+      ? focusable.length - 1
+      : currentIndex - 1
+    : currentIndex < 0 || currentIndex === focusable.length - 1
+      ? 0
+      : currentIndex + 1;
+  event.preventDefault();
+  focusable[nextIndex]?.focus({ preventScroll: true });
+}
+
 function openMediaSourcePopup(): void {
   if (!hasRoomCapability('media.add') && !hasRoomCapability('asset.upload')) {
     showToast(t('toast.media_management_required'));
@@ -448,12 +513,18 @@ function openMediaSourcePopup(): void {
       !hasRoomCapability('system-audio.publish') ||
       !(isCoordinator() || getRoomContext().kind === 'pro');
   }
+  _mediaSourcePreviousFocus = rememberOverlayOpener('btn-media-source');
   syncSystemAudioSourceButton();
   animateTransition(() => {
     const overlay = document.getElementById('media-source-overlay');
     if (overlay) {
       overlay.classList.add('active');
       syncOverlayState('media-source-overlay');
+      setManagedTimer(
+        'media-source-focus',
+        () => getOverlayFocusableElements(overlay)[0]?.focus({ preventScroll: true }),
+        0,
+      );
     }
   });
 }
@@ -508,22 +579,28 @@ function syncQueueModeButtonAuthority(): void {
   }
 }
 
-function closeMediaSourcePopup(): void {
+function closeMediaSourcePopup(restoreFocus = true): void {
+  clearManagedTimer('media-source-focus');
+  const returnFocus = _mediaSourcePreviousFocus;
+  _mediaSourcePreviousFocus = null;
   animateTransition(() => {
     const overlay = document.getElementById('media-source-overlay');
     if (overlay) {
       overlay.classList.remove('active');
       syncOverlayState();
+      if (restoreFocus) restoreOverlayOpener(returnFocus, overlay);
     }
   });
 }
 
-function openYouTubePopup(): void {
+function openYouTubePopup(returnFocus?: HTMLElement | null): void {
   if (!hasRoomCapability('media.add')) {
     showToast(t('toast.media_management_required'));
     return;
   }
   invalidateYouTubeGestureSubmit();
+  _youtubePopupPreviousFocus =
+    returnFocus ?? rememberOverlayOpener('btn-youtube-source') ?? _mediaSourcePreviousFocus;
   // This click is a second explicit iOS gesture after room setup. If the
   // eager primer was not ready for the setup tap (or its first bounce timed
   // out), retry it here before the user spends time entering a URL.
@@ -611,15 +688,19 @@ function submitYouTubeFromGesture(input: HTMLElement): void {
 
 function closeYouTubePopup(): void {
   invalidateYouTubeGestureSubmit();
+  clearManagedTimer('yt-url-focus');
   clearPreviewDebounce();
   clearYouTubeInputState();
   const ytInput = document.getElementById('youtube-url-input');
   if (ytInput) ytInput.textContent = '';
+  const returnFocus = _youtubePopupPreviousFocus;
+  _youtubePopupPreviousFocus = null;
   animateTransition(() => {
     const overlay = document.getElementById('youtube-url-overlay');
     if (overlay) {
       overlay.classList.remove('active');
       syncOverlayState();
+      restoreOverlayOpener(returnFocus, overlay);
     }
   });
 }
@@ -964,6 +1045,22 @@ export function initPlayerControls(): void {
     manualSyncOverlay.addEventListener('keydown', handleManualSyncOverlayKeydown);
   }
 
+  const mediaSourceOverlay = document.getElementById('media-source-overlay');
+  if (mediaSourceOverlay && mediaSourceOverlay.dataset.keyboardBound !== '1') {
+    mediaSourceOverlay.dataset.keyboardBound = '1';
+    mediaSourceOverlay.addEventListener('keydown', (event) => {
+      handleFullscreenOverlayKeydown(mediaSourceOverlay, event, () => closeMediaSourcePopup());
+    });
+  }
+
+  const youtubeUrlOverlay = document.getElementById('youtube-url-overlay');
+  if (youtubeUrlOverlay && youtubeUrlOverlay.dataset.keyboardBound !== '1') {
+    youtubeUrlOverlay.dataset.keyboardBound = '1';
+    youtubeUrlOverlay.addEventListener('keydown', (event) => {
+      handleFullscreenOverlayKeydown(youtubeUrlOverlay, event, () => closeYouTubePopup());
+    });
+  }
+
   // Header
   $on('btn-help', 'click', () => switchTab('guide'));
   $on('btn-fullscreen', 'click', () => {
@@ -1094,8 +1191,9 @@ export function initPlayerControls(): void {
   // Media source popup
   $on('btn-local-file', 'click', () => openFileSelector());
   $on('btn-youtube-source', 'click', () => {
-    closeMediaSourcePopup();
-    openYouTubePopup();
+    const returnFocus = _mediaSourcePreviousFocus;
+    closeMediaSourcePopup(false);
+    openYouTubePopup(returnFocus);
   });
   $on('btn-system-audio', 'click', () => {
     const isProRoom = getRoomContext().kind === 'pro';

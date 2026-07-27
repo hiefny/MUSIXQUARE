@@ -568,11 +568,10 @@ test.describe('Rapid Track Navigation', () => {
       expect(hostQueueItemId).not.toBeNull();
       if (!hostQueueItemId) throw new Error('Host has no current queue occurrence');
 
-      // Rapid navigation can leave a transient mismatch before convergence.
-      await waitForCurrentQueueItemId(setup.guestPages[0], hostQueueItemId).catch(() => {});
-
+      // Rapid navigation may be transiently mismatched, but must converge.
+      await waitForCurrentQueueItemId(setup.guestPages[0], hostQueueItemId);
       const guestQueueItemId = await readCurrentQueueItemId(setup.guestPages[0]);
-      expect(guestQueueItemId === null || typeof guestQueueItemId === 'string').toBe(true);
+      expect(guestQueueItemId).toBe(hostQueueItemId);
     } finally {
       await cleanupChaosSetup(setup);
     }

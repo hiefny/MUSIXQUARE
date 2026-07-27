@@ -40,22 +40,15 @@ describe('account nickname validation', () => {
 
   it('rejects every Unicode whitespace form and combining-only names', () => {
     for (const whitespace of [' ', '\t', '\n', '\u00a0', '\u1680', '\u2007', '\u2028', '\u202f']) {
-      expect(
-        validateAccountNickname(`Min${whitespace}su`),
-        JSON.stringify(whitespace),
-      ).toBe(t('account.nickname_whitespace'));
+      expect(validateAccountNickname(`Min${whitespace}su`), JSON.stringify(whitespace)).toBe(
+        t('account.nickname_whitespace'),
+      );
     }
     expect(validateAccountNickname('\u0301\u0308')).not.toBeNull();
   });
 
   it('rejects blank fillers and hidden format characters without breaking emoji selectors', () => {
-    for (const filler of [
-      '\u115f',
-      '\u1160',
-      '\u2800',
-      '\u3164',
-      '\uffa0',
-    ]) {
+    for (const filler of ['\u115f', '\u1160', '\u2800', '\u3164', '\uffa0']) {
       expect(validateAccountNickname(filler), JSON.stringify(filler)).toBe(
         t('account.nickname_whitespace'),
       );
@@ -63,18 +56,10 @@ describe('account nickname validation', () => {
         t('account.nickname_whitespace'),
       );
     }
-    expect(validateAccountNickname('남춘천\u3164닭갈비')).toBe(
-      t('account.nickname_whitespace'),
-    );
+    expect(validateAccountNickname('남춘천\u3164닭갈비')).toBe(t('account.nickname_whitespace'));
     expect(validateAccountNickname('Min\u200bsu')).toBe(t('account.nickname_whitespace'));
     expect(validateAccountNickname('H\u200bOST')).toBe(t('connect.rename_reserved'));
-    for (const hidden of [
-      '\u00ad',
-      '\u0600',
-      '\u061c',
-      '\u180e',
-      '\ufff9',
-    ]) {
+    for (const hidden of ['\u00ad', '\u0600', '\u061c', '\u180e', '\ufff9']) {
       expect(validateAccountNickname(hidden), JSON.stringify(hidden)).toBe(
         t('account.nickname_whitespace'),
       );

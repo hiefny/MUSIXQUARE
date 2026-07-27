@@ -5,6 +5,7 @@ const ROW_SELECTOR = '.track-item';
 const HANDLE_SELECTOR = '.playlist-reorder-handle';
 const INTERACTIVE_SELECTOR =
   'button, a, input, select, textarea, [contenteditable="true"], .sub-track-item';
+const LONG_PRESS_PLAY_SURFACE_SELECTOR = '.track-name[data-action="play"]';
 
 const PLAYLIST_LONG_PRESS_MS = 700;
 const PLAYLIST_TOUCH_MOVE_TOLERANCE_PX = 8;
@@ -895,7 +896,12 @@ export function createPlaylistReorderController(
     const row = target?.closest<HTMLElement>(ROW_SELECTOR);
     const entry = row?.closest<HTMLElement>(ENTRY_SELECTOR);
     if (!row || !entry || !list.contains(entry)) return;
-    if (target?.closest(INTERACTIVE_SELECTOR)) return;
+    const interactiveTarget = target?.closest<HTMLElement>(INTERACTIVE_SELECTOR);
+    // The title now uses a real button for keyboard/AT semantics, but on touch
+    // it is also the only comfortably sized row-body surface. Keep ordinary
+    // taps as play actions while allowing a stationary hold to enter reorder;
+    // startDrag/finishDrag suppress the synthetic click after a long press.
+    if (interactiveTarget && !interactiveTarget.matches(LONG_PRESS_PLAY_SURFACE_SELECTOR)) return;
 
     const touch = event.touches.item(0);
     const sourceId = getEntryId(entry);

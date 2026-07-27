@@ -408,8 +408,10 @@ describe('playlist active-track follow', () => {
     });
     try {
       controller.updateSelection(QUEUE_B, -1);
+      expect(controller.isFollowing).toBe(true);
       controller.afterRender();
       flushFollowFrame();
+      expect(controller.isFollowing).toBe(true);
 
       scroller.scrollTop = 430;
       scroller.dispatchEvent(new Event('scroll'));
@@ -417,6 +419,7 @@ describe('playlist active-track follow', () => {
 
       expect(scroller.scrollTop).toBe(430);
       expect(scrollTo).toHaveBeenCalledTimes(1);
+      expect(controller.isFollowing).toBe(false);
     } finally {
       controller.destroy();
     }

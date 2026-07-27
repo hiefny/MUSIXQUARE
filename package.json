@@ -1,6 +1,6 @@
 {
   "name": "musixquare",
-  "version": "8.1.0",
+  "version": "8.1.1",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/materialize-app-static-headers.mjs",
-    "build:checked": "npm run guard:release-identity && npm run guard:sw-cache-version && npm run guard:profanity-patterns && npm run build && npm run guard:prod-hooks && npm run guard:prod-security && npm run guard:font-build",
+    "build:checked": "npm run guard:release-identity && npm run guard:sw-cache-version && npm run guard:profanity-patterns && npm run build && npm run guard:prod-hooks && npm run guard:prod-security && npm run guard:font-build && npm run guard:sw-app-shell",
     "build:e2e": "vite build --mode e2e",
     "preview": "vite preview",
     "promo:render": "tsx .workshop/promo/render.ts",
@@ -25,6 +25,7 @@
     "guard:dead-exports": "node scripts/check-dead-exports.mjs",
     "guard:font-assets": "node scripts/check-app-font.mjs",
     "guard:font-build": "node scripts/check-app-font.mjs --dist",
+    "guard:sw-app-shell": "node scripts/check-service-worker-app-shell.mjs",
     "guard:release-identity": "node scripts/release-identity.mjs",
     "guard:sw-cache-version": "node scripts/check-sw-cache-version.mjs",
     "guard:developer-api-boundaries": "node scripts/check-developer-api-boundaries.mjs",
@@ -41,7 +42,7 @@
     "smoke:live:remote-share": "tsx scripts/live-remote-share-smoke.ts",
     "smoke:live:app-session": "tsx scripts/live-app-session-smoke.ts",
     "smoke:live": "npm run smoke:live:remote-share && npm run smoke:live:signaling && npm run smoke:live:pro-room && npm run smoke:live:app-session",
-    "wrangler": "npx --yes wrangler@4.111.0",
+    "wrangler": "wrangler",
     "release:manifest": "node scripts/release-manifest.mjs create",
     "release:verify": "node scripts/release-manifest.mjs verify",
     "version:status": "node scripts/release-identity.mjs",
@@ -114,6 +115,7 @@
     "typescript-eslint": "^8.56.1",
     "vite": "^6.4.3",
     "vitest": "^4.0.18",
+    "wrangler": "4.114.0",
     "ws": "^8.21.0"
   },
   "dependencies": {

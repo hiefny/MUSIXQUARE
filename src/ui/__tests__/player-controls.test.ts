@@ -508,6 +508,36 @@ describe('PRO room media-source capabilities', () => {
     expect(document.getElementById('btn-system-audio')?.hidden).toBe(true);
   });
 
+  it('focuses, traps, escapes, and restores the media picker dialog', async () => {
+    document.body.innerHTML = `
+      <button id="btn-media-source"></button>
+      <div id="media-source-overlay" role="dialog" aria-modal="true" tabindex="-1">
+        <button id="btn-local-file"></button>
+        <button id="btn-close-media-popup"></button>
+      </div>
+      <input id="file-input" type="file" />
+    `;
+    setState('network.appRole', 'host');
+    setState('network.standardRoomCapabilities', ['media.add', 'asset.upload']);
+
+    initPlayerControls();
+    const trigger = document.getElementById('btn-media-source') as HTMLButtonElement;
+    const first = document.getElementById('btn-local-file') as HTMLButtonElement;
+    const close = document.getElementById('btn-close-media-popup') as HTMLButtonElement;
+    trigger.focus();
+    trigger.click();
+
+    await vi.waitFor(() => expect(document.activeElement).toBe(first));
+    first.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }),
+    );
+    expect(document.activeElement).toBe(close);
+
+    close.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await vi.waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(document.getElementById('media-source-overlay')?.classList).not.toContain('active');
+  });
+
   it('updates script-aware fonts while typing a YouTube search query', () => {
     document.body.innerHTML = `<div id="youtube-url-input" contenteditable="true"></div>`;
     const input = document.getElementById('youtube-url-input') as HTMLDivElement;

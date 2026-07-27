@@ -493,6 +493,13 @@ describe('autoplay-policy recovery', () => {
     expect(showToastMock).not.toHaveBeenCalledWith('youtube.video_unavailable');
     expect(broadcastSystemMessageMock).not.toHaveBeenCalledWith('youtube.video_unavailable');
 
+    // A canonical pause must remove the stale shield. If a later scripted
+    // PLAY is blocked again, the same occurrence can recreate the gate.
+    handle.fireStateChange(2);
+    expect(document.getElementById('youtube-ios-sync-overlay')).toBeNull();
+    handle.fireAutoplayBlocked();
+    expect(document.getElementById('youtube-ios-sync-overlay')).not.toBeNull();
+
     vi.mocked(player.playVideo!).mockClear();
     vi.mocked(player.pauseVideo!).mockClear();
     document.getElementById('youtube-ios-sync-overlay')?.click();

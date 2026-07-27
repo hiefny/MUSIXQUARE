@@ -49,25 +49,28 @@ export async function createHostGuestContexts(browser: Browser): Promise<HostGue
     }),
   ]);
 
-  const [hostPage, guestPage] = await Promise.all([
-    hostContext.newPage(),
-    guestContext.newPage(),
-  ]);
+  const [hostPage, guestPage] = await Promise.all([hostContext.newPage(), guestContext.newPage()]);
 
   trackPageErrors(hostPage);
   trackPageErrors(guestPage);
 
-  await Promise.all([
-    injectPeerServer(hostPage),
-    injectPeerServer(guestPage),
-  ]);
+  await Promise.all([injectPeerServer(hostPage), injectPeerServer(guestPage)]);
 
   return { hostContext, guestContext, hostPage, guestPage };
 }
 
 export async function cleanupContexts(pair: HostGuestPair): Promise<void> {
+  const pageErrors = [
+    ...getPageErrors(pair.hostPage).map((error) => `host: ${error.message}`),
+    ...getPageErrors(pair.guestPage).map((error) => `guest: ${error.message}`),
+  ];
+
   await Promise.all([
     pair.hostContext.close().catch(() => {}),
     pair.guestContext.close().catch(() => {}),
   ]);
+
+  if (pageErrors.length > 0) {
+    throw new Error(`Uncaught browser errors:\n${pageErrors.join('\n')}`);
+  }
 }

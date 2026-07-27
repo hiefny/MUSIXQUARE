@@ -821,6 +821,81 @@ describe('standard-room account authority', () => {
     expect(getState('network.standardRoomAdministrators').has('peer:anonymous-admin')).toBe(false);
   });
 
+  it('removes an anonymous grant when the connection never opens and times out', () => {
+    const anonymous = makeIncomingConn('anonymous-timeout');
+    handleHostIncomingConnection(anonymous);
+    bus.emit('network:grant-standard-room-administrator', {
+      memberId: 'peer:anonymous-timeout',
+    });
+
+    vi.advanceTimersByTime(15_000);
+
+    expect(getState('network.standardRoomAdministrators').has('peer:anonymous-timeout')).toBe(
+      false,
+    );
+    expect(getState('network.connectedPeers')).toHaveLength(0);
+    expect(getState('network.activeHostConnByPeerId').has('anonymous-timeout')).toBe(false);
+    expect(anonymous.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not transfer an anonymous grant to a replacement connection with the same peer ID', () => {
+    const original = makeIncomingConn('anonymous-replaced');
+    handleHostIncomingConnection(original);
+    bus.emit('network:grant-standard-room-administrator', {
+      memberId: 'peer:anonymous-replaced',
+    });
+
+    const replacement = makeIncomingConn('anonymous-replaced');
+    handleHostIncomingConnection(replacement);
+
+    expect(getState('network.standardRoomAdministrators').has('peer:anonymous-replaced')).toBe(
+      false,
+    );
+    expect(getState('network.connectedPeers')).toEqual([
+      expect.objectContaining({
+        id: 'anonymous-replaced',
+        conn: replacement,
+        isAuthenticated: false,
+        isOp: false,
+      }),
+    ]);
+    expect(getState('network.activeHostConnByPeerId').get('anonymous-replaced')).toBe(replacement);
+  });
+
+  it('projects a retained account grant onto an authenticated replacement connection', () => {
+    const identity = verifiedIdentity();
+    const original = makeVerifiedIncomingConn('authenticated-replaced', identity);
+    handleHostIncomingConnection(original);
+    bus.emit('network:grant-standard-room-administrator', { memberId: identity.memberId });
+
+    const replacement = makeVerifiedIncomingConn('authenticated-replaced', identity);
+    handleHostIncomingConnection(replacement);
+
+    expect(getState('network.standardRoomAdministrators').has(identity.memberId)).toBe(true);
+    expect(getState('network.connectedPeers')).toEqual([
+      expect.objectContaining({
+        id: 'authenticated-replaced',
+        conn: replacement,
+        memberId: identity.memberId,
+        isAuthenticated: true,
+        isOp: true,
+      }),
+    ]);
+  });
+
+  it('retains an authenticated grant when its pre-open connection times out', () => {
+    const identity = verifiedIdentity();
+    const authenticated = makeVerifiedIncomingConn('authenticated-timeout', identity);
+    handleHostIncomingConnection(authenticated);
+    bus.emit('network:grant-standard-room-administrator', { memberId: identity.memberId });
+
+    vi.advanceTimersByTime(15_000);
+
+    expect(getState('network.standardRoomAdministrators').has(identity.memberId)).toBe(true);
+    expect(getState('network.connectedPeers')).toHaveLength(0);
+    expect(authenticated.close).toHaveBeenCalledTimes(1);
+  });
+
   it('downgrades an expired identity but restores its remembered grant after reassertion', () => {
     const identity = verifiedIdentity();
     const conn = makeVerifiedIncomingConn('expiring-device', identity);

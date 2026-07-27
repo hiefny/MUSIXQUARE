@@ -40,7 +40,7 @@ function setupList(): { list: HTMLElement; scroller: HTMLElement; rows: HTMLElem
             (id, index) => `<li class="playlist-entry" data-queue-item-id="${id}">
               <div class="track-item" data-queue-item-id="${id}">
                 <button class="playlist-reorder-handle" data-queue-item-id="${id}" aria-grabbed="false"><span class="track-idx">${index + 1}</span></button>
-                <span class="track-name-text">${id.slice(-1)}</span>
+                <button class="track-name" data-action="play" data-queue-item-id="${id}"><span class="track-name-text">${id.slice(-1)}</span></button>
               </div>
             </li>`,
           )
@@ -454,6 +454,33 @@ describe('playlist reorder interaction controller', () => {
     rows[0].dispatchEvent(click);
     expect(click.defaultPrevented).toBe(true);
     expect(rowClick).not.toHaveBeenCalled();
+  });
+
+  it('lets the title play button double as the mobile long-press surface', () => {
+    const { list } = create();
+    const title = list.querySelector<HTMLElement>('.track-name')!;
+    const titleText = title.querySelector<HTMLElement>('.track-name-text')!;
+    const rowClick = vi.fn();
+    list.addEventListener('click', rowClick);
+
+    const tap = { identifier: 28, clientX: 140, clientY: 20 };
+    dispatchTouch(titleText, 'touchstart', [tap]);
+    dispatchTouch(titleText, 'touchend', [], [tap]);
+    const ordinaryClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+    titleText.dispatchEvent(ordinaryClick);
+    expect(ordinaryClick.defaultPrevented).toBe(false);
+    expect(rowClick).toHaveBeenCalledTimes(1);
+
+    const hold = { identifier: 29, clientX: 140, clientY: 20 };
+    dispatchTouch(titleText, 'touchstart', [hold]);
+    vi.advanceTimersByTime(PLAYLIST_LONG_PRESS_MS);
+    expect(document.querySelector('.playlist-reorder-ghost')).not.toBeNull();
+    dispatchTouch(titleText, 'touchend', [], [hold]);
+
+    const suppressedClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+    titleText.dispatchEvent(suppressedClick);
+    expect(suppressedClick.defaultPrevented).toBe(true);
+    expect(rowClick).toHaveBeenCalledTimes(1);
   });
 
   it('cancels an armed probe when another touch starts anywhere and waits for all fingers to lift', () => {

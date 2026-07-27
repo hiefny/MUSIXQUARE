@@ -25,6 +25,7 @@ interface PlaylistFollowOptions {
 }
 
 export interface PlaylistFollowController {
+  readonly isFollowing: boolean;
   updateSelection: (queueItemId: QueueItemId | null, subIndex: number) => void;
   forceSelection: (queueItemId: QueueItemId | null, subIndex: number) => void;
   afterRender: () => void;
@@ -287,6 +288,9 @@ export function createPlaylistFollowController(
   });
 
   return {
+    get isFollowing() {
+      return request !== null || activeFollow !== null;
+    },
     updateSelection(queueItemId, subIndex) {
       const normalizedSubIndex = normalizeSubIndex(subIndex);
       if (observedQueueItemId === queueItemId && observedSubIndex === normalizedSubIndex) {

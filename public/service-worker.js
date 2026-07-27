@@ -8,7 +8,7 @@
 
 // Bump this whenever a stable-path app-shell asset changes so existing clients
 // migrate to a fresh cache.
-const CACHE_VERSION = 'v286';
+const CACHE_VERSION = 'v287';
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
@@ -348,7 +348,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Stable same-origin static: cache-first with background update
+  // Stable same-origin static: use only the active generation cache before
+  // revalidating. A retired cache is a last-resort offline fallback, never a
+  // normal cache miss response: otherwise the first request after an update
+  // can combine the new HTML/JS generation with an old stable CSS or icon.
   const networkResponse = fetch(request).catch(() => null);
   const cacheUpdate = networkResponse.then((response) => {
     // Partial responses must never enter the static cache.
@@ -360,20 +363,22 @@ self.addEventListener('fetch', (event) => {
   event.waitUntil(cacheUpdate);
   event.respondWith(
     (async () => {
-      // Prefer the active generation for stable paths. If it misses, keep
-      // searching retired caches so an intentionally non-reloaded tab can
-      // still import its old Vite-hashed lazy chunks.
-      const cached =
+      const activeCached =
         (await caches.match(request, { cacheName: STATIC_CACHE })) ||
-        (await caches.match(request, { cacheName: RUNTIME_CACHE })) ||
-        (await caches.match(request));
+        (await caches.match(request, { cacheName: RUNTIME_CACHE }));
 
-      if (cached) {
-        return cached;
-      }
+      if (activeCached) return activeCached;
 
       const fresh = await networkResponse;
-      return fresh || new Response('Offline', { status: 503, statusText: 'Offline' });
+      if (fresh) return fresh;
+
+      // A live tab that deliberately deferred reload may still need a stable
+      // asset from its retired generation while truly offline. Restrict this
+      // unrestricted lookup to network failure so it cannot win online.
+      return (
+        (await caches.match(request)) ||
+        new Response('Offline', { status: 503, statusText: 'Offline' })
+      );
     })(),
   );
 });

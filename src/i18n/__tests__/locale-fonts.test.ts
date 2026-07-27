@@ -93,7 +93,10 @@ describe('locale font glyph preloading', () => {
     ['zh-hant', '繁體中文', '750 15px "Noto Sans TC"'],
   ] as const)('uses the matching %s family', async (code, sample, font) => {
     const glyphLoader = installFontSet();
-    __setLocaleFontLoaderForTests(code, vi.fn(() => Promise.resolve()));
+    __setLocaleFontLoaderForTests(
+      code,
+      vi.fn(() => Promise.resolve()),
+    );
 
     await expect(preloadLocaleFontGlyphs(code, sample)).resolves.toBe(true);
 
@@ -157,7 +160,10 @@ describe('locale font glyph preloading', () => {
     const glyphLoader = installFontSet()
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{} as FontFace]);
-    __setLocaleFontLoaderForTests('ru', vi.fn(() => Promise.resolve()));
+    __setLocaleFontLoaderForTests(
+      'ru',
+      vi.fn(() => Promise.resolve()),
+    );
 
     await expect(preloadLocaleFontGlyphs('ru', 'Русский')).resolves.toBe(false);
     await expect(preloadLocaleFontGlyphs('ru', 'Русский')).resolves.toBe(true);

@@ -11,9 +11,7 @@ import { initToast, showToast, showLoader, updateLoader } from '../toast.ts';
 let uplinkSequence = 0;
 
 function headerLoaderText(): string {
-  return (
-    document.querySelector<HTMLElement>('.header-loading-text-content')?.textContent ?? ''
-  );
+  return document.querySelector<HTMLElement>('.header-loading-text-content')?.textContent ?? '';
 }
 
 function uplinkProgress(

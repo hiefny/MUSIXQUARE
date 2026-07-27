@@ -3,7 +3,7 @@ import { uploadFixtures } from './helpers/file-upload.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { readQueueSnapshot, waitForCurrentQueueItemId } from './helpers/queue-state.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
-import { navigateToTab, waitForPlaylistCount } from './helpers/wait.ts';
+import { navigateToTab, waitForFilePlaybackReady, waitForPlaylistCount } from './helpers/wait.ts';
 
 interface TouchPoint {
   x: number;
@@ -13,6 +13,10 @@ interface TouchPoint {
 async function centerOf(locator: Locator): Promise<TouchPoint> {
   await locator.scrollIntoViewIfNeeded();
   await locator.waitFor({ state: 'visible' });
+  return visibleCenterOf(locator);
+}
+
+async function visibleCenterOf(locator: Locator): Promise<TouchPoint> {
   const box = await locator.boundingBox();
   if (!box) throw new Error('Touch target has no browser geometry');
   return {
@@ -153,6 +157,11 @@ test.describe('Playlist touch reorder', () => {
     const tapTargetId = originalOrder[2];
     await quickTap(cdp, await centerOf(rows.nth(2).locator('.track-name')));
     await waitForCurrentQueueItemId(page, tapTargetId);
+    // The queue selection commits before the local decode pipeline finishes.
+    // Wait for its final player-tab transition before reopening the playlist;
+    // otherwise that legitimate async transition can hide the long-press target
+    // while the gesture below is still held.
+    await waitForFilePlaybackReady(page);
     const afterTap = await readQueueSnapshot(page);
     expect(afterTap.items.map((item) => item.queueItemId)).toEqual(originalOrder);
 
@@ -160,10 +169,17 @@ test.describe('Playlist touch reorder', () => {
     // exercising the two reorder gestures.
     await navigateToTab(page, 'playlist');
 
-    // A truly stationary row-body contact must not activate early, then must
-    // cross the production 700 ms threshold and create the real drag ghost.
+    // The accessible title play button doubles as the large touch long-press
+    // surface: it must not activate early, then must cross the production
+    // 700 ms threshold and create the real drag ghost.
     await resetPlaylistScroll(page);
-    const longPressPoint = await centerOf(rows.nth(1).locator('.track-name'));
+    const longPressTarget = rows.nth(1).locator('.track-name');
+    await longPressTarget.scrollIntoViewIfNeeded();
+    // scrollIntoViewIfNeeded itself updates the production momentum fence.
+    // Settle after the final geometry-affecting scroll, then read the box
+    // without issuing a second scroll immediately before touchStart.
+    await page.waitForTimeout(200);
+    const longPressPoint = await visibleCenterOf(longPressTarget);
     await touchStart(cdp, longPressPoint);
     try {
       await page.waitForTimeout(600);

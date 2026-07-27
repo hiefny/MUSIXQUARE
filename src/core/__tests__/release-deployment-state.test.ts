@@ -1141,6 +1141,7 @@ describe('release deployment rollback state', () => {
       const workflow = readFileSync(resolve(workflowPath), 'utf8');
       expect(workflow, workflowPath).toContain('npm run guard:chunk-pump');
       expect(workflow, workflowPath).toContain('npm run guard:lifecycle-writes');
+      expect(workflow, workflowPath).toContain('run: npm run format:check');
     }
   });
 
@@ -1217,6 +1218,26 @@ describe('release deployment rollback state', () => {
       expect(stepStart, stepName).toBeGreaterThan(-1);
       expect(step, stepName).toContain('timeout-minutes: 5');
     }
+
+    for (const stepName of [
+      'Probe PRO room generation migration state',
+      'Fence room-code reuse during dependency rollout',
+      'Deploy and record remote-share Worker',
+      'Deploy and record PRO room Worker',
+      'Deploy and record signaling Worker',
+      'Deploy and record Developer API Worker',
+      'Deploy and record app Worker with immutable dist',
+      'Restore Worker deployments after a failed release',
+    ]) {
+      const stepStart = workflow.indexOf(`- name: ${stepName}`);
+      const nextStep = workflow.indexOf('\n      - name:', stepStart + 1);
+      const step = workflow.slice(stepStart, nextStep < 0 ? workflow.length : nextStep);
+      expect(stepStart, stepName).toBeGreaterThan(-1);
+      expect(step, stepName).toMatch(/timeout-minutes: (?:10|15|20)/u);
+    }
+
+    const npmInvocation = readFileSync(resolve('scripts/npm-invocation.mjs'), 'utf8');
+    expect(npmInvocation).toContain('timeout: options.timeout ?? 10 * 60 * 1000');
 
     for (const scriptPath of [
       'scripts/live-developer-api-smoke.mjs',

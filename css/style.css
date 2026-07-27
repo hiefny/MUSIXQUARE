@@ -7507,6 +7507,12 @@
     color: #fff;
   }
 
+  .demo-step-nav .demo-step-next.is-final {
+    background: var(--primary-filled);
+    border-color: var(--primary-filled);
+    color: #fff;
+  }
+
   .demo-step-nav button.active:not(.demo-step-next)::before,
   .demo-step-nav button.is-collapsing:not(.demo-step-next)::before {
     opacity: 0;

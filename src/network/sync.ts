@@ -17,7 +17,7 @@ import {
   type PlaybackActivityValue,
   type PlaybackModeValue,
 } from '../core/constants.ts';
-import type { DataConnection } from '../types/index.ts';
+import type { ConnectedPeer, DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
 import { broadcast, broadcastDeviceList } from './peer.ts';
 import {
@@ -27,7 +27,7 @@ import {
   setLocalManualSyncOffset,
 } from '../player/transport.ts';
 import { getCurrentAudioBuffer, isLocalFilePaused, setLocalFilePaused } from '../player/_state.ts';
-import { releasePeerSlot } from './peer-state.ts';
+import { detachHostPeerConnection } from './host-peer-departure.ts';
 import {
   getHostNow,
   registerPing,
@@ -992,8 +992,7 @@ function startHeartbeatMonitor(): void {
 
       const now = Date.now();
       const connectedPeers = getState('network.connectedPeers');
-      const stalePeerIds: string[] = [];
-      const staleConnections: DataConnection[] = [];
+      const stalePeers: ConnectedPeer[] = [];
 
       for (const p of connectedPeers) {
         if (p.status !== 'connected') continue;
@@ -1006,54 +1005,32 @@ function startHeartbeatMonitor(): void {
           log.warn(
             `[Heartbeat] Peer ${p.label || p.id} stale (${(elapsed / 1000).toFixed(1)}s) — marking disconnected`,
           );
-          stalePeerIds.push(p.id);
-          if (conn) staleConnections.push(conn);
+          stalePeers.push(p);
         }
       }
 
-      if (stalePeerIds.length > 0) {
-        // Remove stale peers entirely and clean up their connection references.
-        // This prevents peer.ts close handler from emitting a duplicate
-        // 'network:peer-disconnected' — the activeHostConnByPeerId guard
-        // (conn !== stored conn) will skip since we delete the entry here.
-        const staleSet = new Set(stalePeerIds);
-        const updatedConns = new Map(getState('network.activeHostConnByPeerId'));
-        for (const id of stalePeerIds) {
-          updatedConns.delete(id);
-        }
-        setState('network.activeHostConnByPeerId', updatedConns);
-        setState(
-          'network.connectedPeers',
-          connectedPeers.filter((p) => !staleSet.has(p.id)),
-        );
-
-        // Clean up peerLabels for stale peers — host.ts close handler won't fire
-        // because activeHostConnByPeerId was already cleared above (guard skips).
-        const currentLabels = getState('network.peerLabels');
-        if (currentLabels && Object.keys(currentLabels).length > 0) {
-          const cleanedLabels = { ...currentLabels };
-          for (const id of stalePeerIds) {
-            delete cleanedLabels[id];
-          }
-          setState('network.peerLabels', cleanedLabels);
-        }
+      if (stalePeers.length > 0) {
+        const departures = stalePeers
+          .map((peer) =>
+            detachHostPeerConnection(peer.id, peer.conn as DataConnection | null | undefined),
+          )
+          .filter((departure) => departure !== null);
 
         // Fence stale connections out of host state before physically closing
         // them. Some Chromium builds emit a synchronous RTCDataChannel error
         // from close(); host.ts must see that connection as stale and ignore it.
-        for (const conn of staleConnections) {
+        for (const departure of departures) {
           try {
-            conn.close();
+            departure.connection?.close();
           } catch {
             /* noop */
           }
         }
 
-        for (const id of stalePeerIds) {
-          releasePeerSlot(id);
-          bus.emit('network:peer-disconnected', id);
+        for (const departure of departures) {
+          bus.emit('network:peer-disconnected', departure.peer.id);
         }
-        broadcastDeviceList();
+        if (departures.length > 0) broadcastDeviceList();
       }
     },
     HEARTBEAT_CHECK_INTERVAL,

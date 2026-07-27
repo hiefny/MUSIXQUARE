@@ -353,6 +353,15 @@ the browser and Developer API 4 MiB response boundary. A v2 core record contains
 only stable row order, so a large YouTube queue cannot prevent an R2 reservation
 or completion record from being committed.
 
+Browser/participant receipts and Developer API mutation receipts use separate
+256-entry ledgers. Each live receipt is retained for its endpoint's full
+idempotency window (normally 24 hours); saturation never evicts an unexpired
+receipt. A new mutation instead fails closed with
+`ROOM_STATE_CAPACITY_EXCEEDED` before its state can commit, while duplicate
+retries of already accepted add, clear, media, and queue-mode operations remain
+replayable. This deliberately favors exactly-once behavior over accepting more
+than 256 distinct Developer API mutations inside one live window.
+
 The first successful mutation of a storage-v1 room writes v2 atomically. While
 the entire room still fits the old single-record budget, ordinary mutations
 refresh an exact `pro-room:v1` storage rollback shadow. This is a data-format

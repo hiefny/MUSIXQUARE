@@ -12,6 +12,7 @@ import {
   syncOverlayState,
   initOverlayObservers,
   __resetModalStackForTests,
+  setElementInertForOwner,
 } from '../dom.ts';
 
 describe('escapeHtml', () => {
@@ -220,6 +221,20 @@ describe('initOverlayObservers — modal stack', () => {
   });
 
   const isInert = (id: string) => document.getElementById(id)!.hasAttribute('inert');
+
+  it('does not release another surface owner when the modal stack drains', () => {
+    const header = document.getElementById('hdr')!;
+    setElementInertForOwner(header, 'chat-drawer', true);
+
+    document.getElementById('dialog-overlay')!.classList.add('show');
+    syncOverlayState('dialog-overlay');
+    document.getElementById('dialog-overlay')!.classList.remove('show');
+    syncOverlayState();
+
+    expect(header.inert).toBe(true);
+    setElementInertForOwner(header, 'chat-drawer', false);
+    expect(header.inert).toBe(false);
+  });
 
   it('inerts nothing when no modal is shown', () => {
     expect(isInert('hdr')).toBe(false);

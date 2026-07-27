@@ -78,7 +78,7 @@ import { initYouTube } from './youtube/player.ts';
 import { guestRendezvousSync, initYouTubeSync } from './youtube/sync.ts';
 
 // ── UI ──
-import { initOverlayObservers } from './ui/dom.ts';
+import { initOverlayObservers, isAnyOverlayShown } from './ui/dom.ts';
 import { initEmailCopyLinks } from './ui/copy-email.ts';
 import { initToast } from './ui/toast.ts';
 import { initDialog, showDialog } from './ui/dialog.ts';
@@ -139,6 +139,11 @@ function initKeyboardShortcuts(): void {
   window.addEventListener('keydown', (e: KeyboardEvent) => {
     // If another handler already claimed this key, don't also treat it as a global shortcut
     if (e.defaultPrevented) return;
+
+    // Modal/fullscreen surfaces own keyboard interaction. Global playback
+    // and chat shortcuts must not fire through a dialog whose focused control
+    // happens not to be an input (for example a confirmation button).
+    if (isAnyOverlayShown()) return;
 
     // Don't intercept when focused on text input elements
     const active = document.activeElement;

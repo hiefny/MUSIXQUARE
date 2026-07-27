@@ -39,9 +39,12 @@ joins a host and guest, and exchanges chat in both directions.
 Leave `Apply Developer API D1 schema and one-time migrations` disabled for an
 ordinary Worker release. Enable it only when the approved commit intentionally
 changes the Developer API database schema or its tracked migration SQL. Normal
-releases never contact the D1 control plane, so a code-only deploy cannot fail
-or make the database briefly unavailable because of an unnecessary schema
-import.
+releases make read-only D1 schema and cutover-state probes and do not apply
+schema or application-data migrations unless the corresponding reviewed input
+is enabled. A full-stack `all` rollout is the deliberate exception for
+cutover-control state: it temporarily writes the room-code reuse fence to
+`disabled` while dependencies change, then restores verified readiness after
+the new stack owns production.
 
 The reusable PRO-room-code cutover is not an ordinary code-only release. First
 take or confirm provider recovery points. Run the `Production Release` workflow

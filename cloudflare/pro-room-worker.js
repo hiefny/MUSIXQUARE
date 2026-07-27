@@ -163,7 +163,13 @@ const RESERVED_ASSET_MAX_ITEMS = 32;
 const RESERVED_ASSET_MAX_ITEMS_PER_PARTICIPANT = 8;
 const RESERVED_ASSET_MAX_ITEMS_PER_DEVELOPER_KEY = 2;
 const IDEMPOTENCY_MAX_ITEMS = 256;
+// Developer mutations receive their own full 24-hour replay budget. Because
+// the complete room core is deliberately bounded to one 1.2 MiB value, this
+// ledger cannot grow without limit; once full, new mutations fail closed while
+// all accepted receipts remain exact.
+const DEVELOPER_MUTATION_IDEMPOTENCY_MAX_ITEMS = 256;
 const RATE_LIMIT_MAX_ITEMS = 512;
+const BOT_RATE_LIMIT_MAX_ITEMS = 512;
 const RECOVERY_NONCE_MAX_ITEMS = 128;
 const STAGING_TOMBSTONE_MAX_ITEMS = ASSET_MAX_ITEMS;
 const DEVELOPER_COMMAND_MAX_ITEMS = 64;
@@ -228,6 +234,11 @@ const RESERVATION_TTL_SECONDS = 15 * 60;
 // an orphan and the Durable Object reclaims it after this grace period.
 const ASSET_GC_GRACE_SECONDS = 15 * 60;
 const ASSET_GC_RETRY_SECONDS = 60;
+// A presigned PUT may have started before its signature expired but become
+// visible in R2 only after the first cleanup pass. Keep checking the staging
+// key until it has remained absent for the same one-hour continuous-empty
+// window used by room decommissioning.
+const STAGING_OBJECT_EMPTY_WINDOW_MS = 60 * 60 * 1000;
 const PRESIGN_TTL_SECONDS = 10 * 60;
 const DECOMMISSION_RETRY_MS = 60 * 1000;
 const DECOMMISSION_FINAL_EMPTY_WINDOW_SECONDS = 60 * 60;
@@ -1153,7 +1164,9 @@ function initialRoomState(
     sessions: {},
     assets: {},
     idempotency: {},
+    developerMutationIdempotency: {},
     rateLimits: {},
+    botRateLimits: {},
     consumedRecoveryNonces: {},
     stagingTombstones: {},
     developerCommands: {},
@@ -2858,7 +2871,10 @@ function assertBoundedRoomState(room) {
     Object.keys(room.assets).length + Object.keys(room.stagingTombstones || {}).length >
       ASSET_MAX_ITEMS ||
     Object.keys(room.idempotency).length > IDEMPOTENCY_MAX_ITEMS ||
+    Object.keys(room.developerMutationIdempotency || {}).length >
+      DEVELOPER_MUTATION_IDEMPOTENCY_MAX_ITEMS ||
     Object.keys(room.rateLimits).length > RATE_LIMIT_MAX_ITEMS ||
+    Object.keys(room.botRateLimits || {}).length > BOT_RATE_LIMIT_MAX_ITEMS ||
     Object.keys(room.consumedRecoveryNonces || {}).length > RECOVERY_NONCE_MAX_ITEMS ||
     Object.keys(room.stagingTombstones || {}).length > STAGING_TOMBSTONE_MAX_ITEMS ||
     Object.keys(room.developerCommands || {}).length > DEVELOPER_COMMAND_MAX_ITEMS ||
@@ -2994,6 +3010,7 @@ export class MusixquareProRoom {
       this.normalizeLoadedQueueMode();
       this.normalizeLoadedAccountIdentity();
       this.normalizeLoadedDeveloperCommands();
+      this.normalizeLoadedSecurityLedgers();
       this.normalizeLoadedPlaybackAuthority();
       this.normalizeLoadedPlaybackBroadcasts();
       this.normalizeLoadedPresenceBroadcast();
@@ -3040,6 +3057,7 @@ export class MusixquareProRoom {
     this.normalizeLoadedQueueMode();
     this.normalizeLoadedAccountIdentity();
     this.normalizeLoadedDeveloperCommands();
+    this.normalizeLoadedSecurityLedgers();
     this.normalizeLoadedPlaybackAuthority();
     this.normalizeLoadedPlaybackBroadcasts();
     this.normalizeLoadedPresenceBroadcast();
@@ -3407,6 +3425,78 @@ export class MusixquareProRoom {
         record.developerControlVersion = requiredVersion;
         this.developerCommandMigrationPending = true;
       }
+    }
+  }
+
+  normalizeLoadedSecurityLedgers() {
+    if (!this.room) return;
+    if (
+      !this.room.developerMutationIdempotency ||
+      typeof this.room.developerMutationIdempotency !== 'object' ||
+      Array.isArray(this.room.developerMutationIdempotency)
+    ) {
+      this.room.developerMutationIdempotency = {};
+      this.developerCommandMigrationPending = true;
+    }
+    if (
+      !this.room.botRateLimits ||
+      typeof this.room.botRateLimits !== 'object' ||
+      Array.isArray(this.room.botRateLimits)
+    ) {
+      this.room.botRateLimits = {};
+      this.developerCommandMigrationPending = true;
+    }
+
+    // Move legacy Developer API receipts out of the participant/browser
+    // ledger without dropping any live record. If a mixed rolling-deploy
+    // state already filled the new ledger, leave the remaining legacy
+    // receipts in place; replay reads both ledgers until their TTL expires.
+    for (const [storageKey, record] of Object.entries(this.room.idempotency || {})) {
+      if (!storageKey.startsWith('developer:')) continue;
+      if (this.room.developerMutationIdempotency[storageKey] !== undefined) {
+        if (
+          JSON.stringify(this.room.developerMutationIdempotency[storageKey]) ===
+          JSON.stringify(record)
+        ) {
+          delete this.room.idempotency[storageKey];
+          this.developerCommandMigrationPending = true;
+        }
+        continue;
+      }
+      if (
+        Object.keys(this.room.developerMutationIdempotency).length >=
+        DEVELOPER_MUTATION_IDEMPOTENCY_MAX_ITEMS
+      ) {
+        continue;
+      }
+      this.room.developerMutationIdempotency[storageKey] = record;
+      delete this.room.idempotency[storageKey];
+      this.developerCommandMigrationPending = true;
+    }
+
+    // BOT context limits are authenticated automation policy, while the
+    // remaining map protects activation, owner recovery, and PIN admission.
+    // Keeping their capacity independent prevents unrelated IP churn from
+    // erasing or crowding out the room-wide BOT counter.
+    for (const [key, record] of Object.entries(this.room.rateLimits || {})) {
+      if (
+        !key.startsWith('bot-minute:') &&
+        !key.startsWith('bot-room-hour-v1:') &&
+        !key.startsWith('bot-day:')
+      ) {
+        continue;
+      }
+      if (this.room.botRateLimits[key] !== undefined) {
+        if (JSON.stringify(this.room.botRateLimits[key]) === JSON.stringify(record)) {
+          delete this.room.rateLimits[key];
+          this.developerCommandMigrationPending = true;
+        }
+        continue;
+      }
+      if (Object.keys(this.room.botRateLimits).length >= BOT_RATE_LIMIT_MAX_ITEMS) continue;
+      this.room.botRateLimits[key] = record;
+      delete this.room.rateLimits[key];
+      this.developerCommandMigrationPending = true;
     }
   }
 
@@ -4031,6 +4121,28 @@ export class MusixquareProRoom {
     };
   }
 
+  async advanceStagingObjectCleanup(
+    record,
+    objectKey,
+    nowMs,
+    cleanupField = 'cleanupAfterMs',
+    emptyField = 'emptySinceMs',
+  ) {
+    const object = await this.env.PRO_MEDIA_BUCKET.head(objectKey);
+    if (object) {
+      await this.env.PRO_MEDIA_BUCKET.delete(objectKey);
+      // A late completion resets the continuous-empty proof even when this
+      // cleanup successfully removed it.
+      record[emptyField] = nowMs;
+    } else if (!Number.isSafeInteger(record[emptyField])) {
+      record[emptyField] = nowMs;
+    } else if (record[emptyField] + STAGING_OBJECT_EMPTY_WINDOW_MS <= nowMs) {
+      return true;
+    }
+    record[cleanupField] = nowMs + ASSET_GC_RETRY_SECONDS * 1000;
+    return false;
+  }
+
   async fetch(request) {
     if (!(await this.ensureReady(request))) return errorResponse('ROOM_NOT_FOUND', 404);
     const url = new URL(request.url);
@@ -4314,23 +4426,43 @@ export class MusixquareProRoom {
   }
 
   botRateLimitResponse(key, limit, nowMs) {
-    const current = this.room.rateLimits[key];
+    const current = this.room.botRateLimits[key];
     if (!current || current.resetAtMs <= nowMs || current.count < limit) return null;
     return errorResponse('RATE_LIMITED', 429, {
       'retry-after': String(Math.max(1, Math.ceil((current.resetAtMs - nowMs) / 1000))),
     });
   }
 
+  pruneRateLimitLedger(records, nowMs) {
+    let changed = false;
+    for (const [key, record] of Object.entries(records)) {
+      if (record.resetAtMs > nowMs) continue;
+      delete records[key];
+      changed = true;
+    }
+    return changed;
+  }
+
+  rateLimitCapacityResponse(records, keys, maxItems, nowMs) {
+    this.pruneRateLimitLedger(records, nowMs);
+    const missing = new Set(keys.filter((key) => records[key] === undefined));
+    if (Object.keys(records).length + missing.size <= maxItems) return null;
+    const retryAtMs = Math.min(
+      ...Object.values(records)
+        .map((record) => record.resetAtMs)
+        .filter((value) => Number.isSafeInteger(value) && value > nowMs),
+    );
+    return errorResponse('RATE_LIMITED', 429, {
+      'retry-after': String(
+        Number.isFinite(retryAtMs) ? Math.max(1, Math.ceil((retryAtMs - nowMs) / 1000)) : 60,
+      ),
+    });
+  }
+
   recordBotRateLimit(key, windowMs, nowMs) {
-    const current = this.room.rateLimits[key];
+    const current = this.room.botRateLimits[key];
     if (!current || current.resetAtMs <= nowMs) {
-      if (!current && Object.keys(this.room.rateLimits).length >= RATE_LIMIT_MAX_ITEMS) {
-        const oldest = Object.entries(this.room.rateLimits).sort(
-          ([, left], [, right]) => left.resetAtMs - right.resetAtMs,
-        )[0]?.[0];
-        if (oldest) delete this.room.rateLimits[oldest];
-      }
-      this.room.rateLimits[key] = { count: 1, resetAtMs: nowMs + windowMs };
+      this.room.botRateLimits[key] = { count: 1, resetAtMs: nowMs + windowMs };
       return;
     }
     current.count += 1;
@@ -4421,11 +4553,18 @@ export class MusixquareProRoom {
       if (minuteLimit) return minuteLimit;
       const hourLimit = this.botRateLimitResponse(hourKey, BOT_ROOM_HOUR_LIMIT, nowMs);
       if (hourLimit) return hourLimit;
+      const capacityError = this.rateLimitCapacityResponse(
+        this.room.botRateLimits,
+        [minuteKey, hourKey],
+        BOT_RATE_LIMIT_MAX_ITEMS,
+        nowMs,
+      );
+      if (capacityError) return capacityError;
       this.recordBotRateLimit(minuteKey, BOT_MEMBER_MINUTE_MS, nowMs);
       this.recordBotRateLimit(hourKey, BOT_ROOM_HOUR_MS, nowMs);
       // The former daily policy used a different key. Remove its inert room
       // state as soon as the new policy records a request.
-      delete this.room.rateLimits[`bot-day:${this.room.roomCode}`];
+      delete this.room.botRateLimits[`bot-day:${this.room.roomCode}`];
       this.storeIdempotency(
         scope,
         parsed.value.requestId,
@@ -5929,6 +6068,13 @@ export class MusixquareProRoom {
 
   readRateLimit(request, kind, limit, now = Date.now()) {
     const key = this.rateLimitKey(request, kind);
+    const capacityError = this.rateLimitCapacityResponse(
+      this.room.rateLimits,
+      [key],
+      RATE_LIMIT_MAX_ITEMS,
+      now,
+    );
+    if (capacityError) return capacityError;
     const current = this.room.rateLimits[key];
     if (current && current.resetAtMs > now && current.count >= limit) {
       const retryAfterSeconds = Math.max(1, Math.ceil((current.resetAtMs - now) / 1000));
@@ -5941,12 +6087,6 @@ export class MusixquareProRoom {
     const key = this.rateLimitKey(request, kind);
     const current = this.room.rateLimits[key];
     if (!current || current.resetAtMs <= now) {
-      if (!current && Object.keys(this.room.rateLimits).length >= RATE_LIMIT_MAX_ITEMS) {
-        const oldest = Object.entries(this.room.rateLimits).sort(
-          ([, left], [, right]) => left.resetAtMs - right.resetAtMs,
-        )[0]?.[0];
-        if (oldest) delete this.room.rateLimits[oldest];
-      }
       this.room.rateLimits[key] = { count: 1, resetAtMs: now + windowMs };
       return;
     }
@@ -10309,6 +10449,43 @@ export class MusixquareProRoom {
     return sha256Base64Url(`${scope}\n${JSON.stringify(body)}`);
   }
 
+  idempotencyLedger(scope) {
+    return scope.startsWith('developer:')
+      ? {
+          records: this.room.developerMutationIdempotency,
+          maxItems: DEVELOPER_MUTATION_IDEMPOTENCY_MAX_ITEMS,
+        }
+      : { records: this.room.idempotency, maxItems: IDEMPOTENCY_MAX_ITEMS };
+  }
+
+  idempotencyRecord(scope, key) {
+    const storageKey = `${scope}:${key}`;
+    const { records } = this.idempotencyLedger(scope);
+    // During the additive ledger migration, a receipt written by the previous
+    // Worker may still live in the shared map. Read it until its ordinary TTL
+    // expires so a retry spanning deployment cannot duplicate a mutation.
+    return (
+      records[storageKey] ||
+      (scope.startsWith('developer:') ? this.room.idempotency[storageKey] : undefined)
+    );
+  }
+
+  reserveIdempotencySlot(scope, key, nowMs = Date.now()) {
+    const storageKey = `${scope}:${key}`;
+    const { records, maxItems } = this.idempotencyLedger(scope);
+    for (const [recordKey, record] of Object.entries(records)) {
+      if (record.expiresAtMs <= nowMs) delete records[recordKey];
+    }
+    if (records[storageKey] !== undefined) return records;
+    if (Object.keys(records).length >= maxItems) {
+      // An unexpired receipt is a durable exactly-once fence. Never trade it
+      // for availability: the outer mutation checkpoint rolls back the new
+      // action and returns a bounded capacity response.
+      throw new RoomStateCapacityError();
+    }
+    return records;
+  }
+
   replayIdempotency(
     scope,
     key,
@@ -10317,7 +10494,7 @@ export class MusixquareProRoom {
     developerRequesterKeyId = null,
     includeDevicePlatform = false,
   ) {
-    const record = this.room.idempotency[`${scope}:${key}`];
+    const record = this.idempotencyRecord(scope, key);
     if (!record) return null;
     if (!constantTimeEqual(record.fingerprint, fingerprint)) {
       return errorResponse('IDEMPOTENCY_CONFLICT', 409);
@@ -10352,19 +10529,12 @@ export class MusixquareProRoom {
     status = 200,
     expiresAtMs = Date.now() + IDEMPOTENCY_TTL_MS,
   ) {
-    const records = this.room.idempotency;
+    const records = this.reserveIdempotencySlot(scope, key);
     records[`${scope}:${key}`] = { fingerprint, body: structuredClone(body), status, expiresAtMs };
-    const keys = Object.keys(records);
-    if (keys.length > IDEMPOTENCY_MAX_ITEMS) {
-      keys
-        .sort((left, right) => records[left].expiresAtMs - records[right].expiresAtMs)
-        .slice(0, keys.length - IDEMPOTENCY_MAX_ITEMS)
-        .forEach((oldKey) => delete records[oldKey]);
-    }
   }
 
   storeSnapshotIdempotency(scope, key, fingerprint, committedRevision) {
-    const records = this.room.idempotency;
+    const records = this.reserveIdempotencySlot(scope, key);
     records[`${scope}:${key}`] = {
       fingerprint,
       kind: 'snapshot',
@@ -10372,30 +10542,16 @@ export class MusixquareProRoom {
       status: 200,
       expiresAtMs: Date.now() + IDEMPOTENCY_TTL_MS,
     };
-    const keys = Object.keys(records);
-    if (keys.length > IDEMPOTENCY_MAX_ITEMS) {
-      keys
-        .sort((left, right) => records[left].expiresAtMs - records[right].expiresAtMs)
-        .slice(0, keys.length - IDEMPOTENCY_MAX_ITEMS)
-        .forEach((oldKey) => delete records[oldKey]);
-    }
   }
 
   storeDeveloperQueueIdempotency(scope, key, fingerprint, status) {
-    const records = this.room.idempotency;
+    const records = this.reserveIdempotencySlot(scope, key);
     records[`${scope}:${key}`] = {
       fingerprint,
       kind: 'developer-queue',
       status,
       expiresAtMs: Date.now() + IDEMPOTENCY_TTL_MS,
     };
-    const keys = Object.keys(records);
-    if (keys.length > IDEMPOTENCY_MAX_ITEMS) {
-      keys
-        .sort((left, right) => records[left].expiresAtMs - records[right].expiresAtMs)
-        .slice(0, keys.length - IDEMPOTENCY_MAX_ITEMS)
-        .forEach((oldKey) => delete records[oldKey]);
-    }
   }
 
   validatePlaylistAssets(playlist) {
@@ -10773,6 +10929,14 @@ export class MusixquareProRoom {
       'x-amz-meta-mxqr-bytes': String(body.byteLength),
       ...(body.sha256 === undefined ? {} : { 'x-amz-meta-mxqr-sha256': body.sha256 }),
     };
+    // Content-Length is a forbidden browser request header: XHR supplies it
+    // from the Blob body and application code cannot set it. Bind that
+    // browser-generated value into SigV4 without returning it in the header
+    // list that the client applies manually.
+    const signedUploadHeaders = {
+      'content-length': String(body.byteLength),
+      ...uploadHeaders,
+    };
     const presignTtl = Math.min(
       this.reservationTtlSeconds(),
       configuredNumber(this.env.PRESIGN_TTL_SECONDS, PRESIGN_TTL_SECONDS, 60, 3600),
@@ -10781,7 +10945,7 @@ export class MusixquareProRoom {
       env: this.env,
       method: 'PUT',
       objectKey: stagingObjectKey,
-      headers: uploadHeaders,
+      headers: signedUploadHeaders,
       expiresInSeconds: presignTtl,
       now: new Date(nowMs),
     });
@@ -11111,6 +11275,12 @@ export class MusixquareProRoom {
         changed = true;
       }
     }
+    for (const [key, record] of Object.entries(this.room.developerMutationIdempotency)) {
+      if (record.expiresAtMs <= nowMs) {
+        delete this.room.developerMutationIdempotency[key];
+        changed = true;
+      }
+    }
     for (const [assetId, tombstone] of Object.entries(this.room.stagingTombstones)) {
       if (tombstone.cleanupAfterMs > nowMs) continue;
       if (!this.env.PRO_MEDIA_BUCKET) {
@@ -11119,10 +11289,15 @@ export class MusixquareProRoom {
         continue;
       }
       try {
-        await this.env.PRO_MEDIA_BUCKET.delete(tombstone.objectKey);
-        delete this.room.stagingTombstones[assetId];
+        const quietWindowComplete = await this.advanceStagingObjectCleanup(
+          tombstone,
+          tombstone.objectKey,
+          nowMs,
+        );
+        if (quietWindowComplete) delete this.room.stagingTombstones[assetId];
         changed = true;
       } catch {
+        delete tombstone.emptySinceMs;
         tombstone.cleanupAfterMs = nowMs + ASSET_GC_RETRY_SECONDS * 1000;
         changed = true;
       }
@@ -11138,12 +11313,22 @@ export class MusixquareProRoom {
           changed = true;
         } else {
           try {
-            await this.env.PRO_MEDIA_BUCKET.delete(asset.stagingObjectKey);
-            delete asset.stagingObjectKey;
-            delete asset.stagingCleanupAfterMs;
-            delete asset.uploadExpiresAtMs;
+            const quietWindowComplete = await this.advanceStagingObjectCleanup(
+              asset,
+              asset.stagingObjectKey,
+              nowMs,
+              'stagingCleanupAfterMs',
+              'stagingEmptySinceMs',
+            );
+            if (quietWindowComplete) {
+              delete asset.stagingObjectKey;
+              delete asset.stagingCleanupAfterMs;
+              delete asset.stagingEmptySinceMs;
+              delete asset.uploadExpiresAtMs;
+            }
             changed = true;
           } catch {
+            delete asset.stagingEmptySinceMs;
             asset.stagingCleanupAfterMs = nowMs + ASSET_GC_RETRY_SECONDS * 1000;
             changed = true;
           }
@@ -11210,6 +11395,12 @@ export class MusixquareProRoom {
         changed = true;
       }
     }
+    for (const [key, value] of Object.entries(this.room.botRateLimits)) {
+      if (value.resetAtMs <= nowMs) {
+        delete this.room.botRateLimits[key];
+        changed = true;
+      }
+    }
     for (const [nonceHash, expiresAtMs] of Object.entries(this.room.consumedRecoveryNonces)) {
       if (expiresAtMs <= nowMs) {
         delete this.room.consumedRecoveryNonces[nonceHash];
@@ -11242,6 +11433,7 @@ export class MusixquareProRoom {
       this.normalizeLoadedEffects();
       this.normalizeLoadedQueueMode();
       this.normalizeLoadedDeveloperCommands();
+      this.normalizeLoadedSecurityLedgers();
       this.normalizeLoadedPlaybackAuthority();
       this.normalizeLoadedPlaybackBroadcasts();
       this.normalizeLoadedPresenceBroadcast();

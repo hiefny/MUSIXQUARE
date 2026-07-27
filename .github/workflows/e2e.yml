@@ -17,9 +17,9 @@ concurrency:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    # Recent serial runs spend close to an hour in the test stage alone.
-    # Keep enough headroom for dependency/browser installation and slow CI hosts.
-    timeout-minutes: 120
+    # The serial suite has exceeded two hours on a throttled Windows host.
+    # Preserve explicit bounds while leaving artifact-upload headroom on slow CI.
+    timeout-minutes: 180
 
     steps:
       - name: Checkout
@@ -41,10 +41,11 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Full E2E tests
+        timeout-minutes: 165
         run: npx playwright test --reporter=line,html
 
       - name: Upload failure artifacts
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: full-e2e-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}

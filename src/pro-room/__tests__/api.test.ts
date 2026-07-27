@@ -1302,9 +1302,7 @@ describe('PRO room administrator API', () => {
       revision: 4,
     });
     ({ url, init } = requestParts(fetchMock));
-    expect(url.pathname).toBe(
-      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/presence/kick-device`,
-    );
+    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/presence/kick-device`);
     expect(init.method).toBe('POST');
     expect(JSON.parse(String(init.body))).toEqual({
       targetParticipantId: 'participant_0000000002',

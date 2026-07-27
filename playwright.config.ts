@@ -2,6 +2,9 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
+  // The iPhone/WebKit smoke has its own device config and workflow job.
+  // Collecting it here runs mobile-only assertions in desktop Chromium.
+  testIgnore: ['webkit-mobile-smoke.test.ts'],
   timeout: 60_000,
   expect: { timeout: 15_000 },
   retries: 0,
@@ -12,10 +15,7 @@ export default defineConfig({
     baseURL: 'http://localhost:4173',
     headless: true,
     launchOptions: {
-      args: [
-        '--use-fake-device-for-media-stream',
-        '--autoplay-policy=no-user-gesture-required',
-      ],
+      args: ['--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
     },
   },
   projects: [

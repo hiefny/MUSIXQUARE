@@ -38,7 +38,7 @@ import {
 } from './chat-render.ts';
 import { seekTo } from '../player/transport.ts';
 import { showToast } from './toast.ts';
-import { normalizeEmptyContentEditable } from './dom.ts';
+import { normalizeEmptyContentEditable, setElementInertForOwner } from './dom.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import {
   canCollapseChatDrawerFullToHalf,
@@ -280,14 +280,7 @@ function isMobileChatDrawer(): boolean {
 
 function setChatDrawerBackgroundInert(makeInert: boolean): void {
   for (const element of document.querySelectorAll<HTMLElement>(CHAT_DRAWER_BACKGROUND_SELECTOR)) {
-    if (makeInert) {
-      if (element.inert) continue;
-      element.inert = true;
-      element.dataset.chatDrawerInert = 'true';
-    } else if (element.dataset.chatDrawerInert === 'true') {
-      element.inert = false;
-      delete element.dataset.chatDrawerInert;
-    }
+    setElementInertForOwner(element, 'chat-drawer', makeInert);
   }
 }
 
@@ -309,16 +302,27 @@ function updateChatDrawerHandleAccessibility(drawer: HTMLElement): void {
     return;
   }
 
-  // A focusable separator is the ARIA pattern for a resize handle. Arrow
-  // keys move between the half/full detents while Enter/Space retains the
-  // existing "tap the handle to close" gesture.
-  header.setAttribute('role', 'separator');
   header.setAttribute('aria-label', t('chat.title'));
-  header.setAttribute('aria-orientation', 'horizontal');
-  header.setAttribute('aria-valuemin', '50');
-  header.setAttribute('aria-valuemax', '100');
-  header.setAttribute('aria-valuenow', drawer.dataset.chatSnap === 'full' ? '100' : '50');
-  header.setAttribute('aria-keyshortcuts', 'ArrowUp ArrowDown Home End Enter Space Escape');
+  const hasMultipleDetents = canUseChatDrawerHalfDetent(getChatDrawerViewportContext());
+  if (hasMultipleDetents) {
+    // A focusable separator is the ARIA pattern for a real resize handle.
+    header.setAttribute('role', 'separator');
+    header.setAttribute('aria-orientation', 'horizontal');
+    header.setAttribute('aria-valuemin', '50');
+    header.setAttribute('aria-valuemax', '100');
+    header.setAttribute('aria-valuenow', drawer.dataset.chatSnap === 'full' ? '100' : '50');
+    header.setAttribute('aria-keyshortcuts', 'ArrowUp ArrowDown Home End Enter Space Escape');
+  } else {
+    // Short landscape phones expose only the full detent. Advertising a
+    // 50..100 separator range there suggests a resize action that cannot
+    // succeed, so present the tappable handle as a close button instead.
+    header.setAttribute('role', 'button');
+    header.removeAttribute('aria-orientation');
+    header.removeAttribute('aria-valuemin');
+    header.removeAttribute('aria-valuemax');
+    header.removeAttribute('aria-valuenow');
+    header.setAttribute('aria-keyshortcuts', 'Enter Space Escape');
+  }
   header.tabIndex = 0;
   if (closeButton) closeButton.tabIndex = -1;
 }
@@ -371,9 +375,10 @@ function handleChatDrawerKeyboard(event: KeyboardEvent): void {
   }
 
   const header = drawer.querySelector<HTMLElement>('.chat-drawer-header');
-  if (event.target === header) {
+  if (header && event.target === header) {
     const context = getChatDrawerViewportContext();
-    if (event.key === 'ArrowUp' || event.key === 'Home') {
+    const isResizeHandle = header.getAttribute('role') === 'separator';
+    if (isResizeHandle && (event.key === 'ArrowUp' || event.key === 'Home')) {
       if (canExpandChatDrawer(context)) {
         event.preventDefault();
         drawer.dataset.chatSnapSource = 'keyboard';
@@ -381,7 +386,7 @@ function handleChatDrawerKeyboard(event: KeyboardEvent): void {
       }
       return;
     }
-    if (event.key === 'ArrowDown' || event.key === 'End') {
+    if (isResizeHandle && (event.key === 'ArrowDown' || event.key === 'End')) {
       event.preventDefault();
       if (_chatDrawerState === 'full' && canCollapseChatDrawerFullToHalf(context)) {
         drawer.dataset.chatSnapSource = 'keyboard';

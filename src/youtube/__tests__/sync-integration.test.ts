@@ -148,6 +148,7 @@ vi.mock('../iframe.ts', () => ({
   refreshYouTubeDisplay: vi.fn(),
   markYtStateBroadcast: vi.fn(),
   invalidateYtDurationCache: vi.fn(),
+  hideYouTubeTapToPlayGate: vi.fn(),
 }));
 
 vi.mock('../zero-start.ts', async (importOriginal) => ({

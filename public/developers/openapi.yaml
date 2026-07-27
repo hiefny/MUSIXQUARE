@@ -487,6 +487,11 @@ components:
       name: Idempotency-Key
       in: header
       required: true
+      description: |
+        Reuse the same value only when retrying the same mutation. MUSIXQUARE retains a bounded
+        24-hour replay receipt and never evicts a live receipt to admit a newer request. If a room
+        exhausts that bounded window, a new mutation fails without being applied with
+        ROOM_STATE_CAPACITY_EXCEEDED; previously accepted keys remain replayable.
       schema:
         type: string
         minLength: 16

@@ -754,6 +754,16 @@ jobs:
         timeout-minutes: 5
         run: npm run smoke:live:app-session
 
+      - name: Smoke anonymous app account boundary
+        if: inputs.target == 'all' || inputs.target == 'app'
+        timeout-minutes: 5
+        run: npm run smoke:live:app-public-boundary
+
+      - name: Smoke current PRO public boundary after app deployment
+        if: inputs.target == 'all' || inputs.target == 'app'
+        timeout-minutes: 5
+        run: npm run smoke:live:pro-room
+
       - name: Verify release still owns current production deployments
         timeout-minutes: 10
         id: final_verification

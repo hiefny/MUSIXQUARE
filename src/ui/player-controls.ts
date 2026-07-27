@@ -868,6 +868,8 @@ function handleMainSyncBtn(): void {
         openManualSyncOverlay();
       })
       .catch((error) => {
+        const currentRoom = getRoomContext();
+        if (currentRoom.kind !== 'pro' || currentRoom.roomId !== roomId) return;
         log.warn('[PRO Playback] Manual synchronization failed', error);
         showToast(t('toast.sync_not_ready'));
       });

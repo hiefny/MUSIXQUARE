@@ -8,4 +8,16 @@ declare const appWorker: {
 };
 
 export function sanitizeSoroArticleHtmlForTests(html: string): string;
+export function reconcileStaleAdminProRoomActivationsForTests(
+  env: Record<string, unknown>,
+  db: unknown,
+  rooms: Array<{
+    roomCode: string;
+    roomGeneration: number;
+    status: string;
+    activationState: string;
+    updatedAt: number;
+  }>,
+  nowMs?: number,
+): Promise<boolean>;
 export default appWorker;

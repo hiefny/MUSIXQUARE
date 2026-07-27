@@ -1352,4 +1352,74 @@ describe('Chat Module', () => {
       ).toBe('chat.cmd_no_permission');
     });
   });
+
+  describe('outbound submission deduplication', () => {
+    function renderSendShell(text: string): HTMLDivElement {
+      document.body.innerHTML = `
+        <div id="chat-drawer"></div>
+        <div id="chat-messages"></div>
+        <div id="chat-input" contenteditable="true">${text}</div>
+      `;
+      return document.getElementById('chat-input') as HTMLDivElement;
+    }
+
+    it('allows an identical retry immediately after chat freeze is lifted', async () => {
+      renderSendShell('freeze retry 7241');
+      setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
+      setState('network.appRole', 'guest');
+      setState('network.chatFrozen', true);
+
+      const { sendChatMessage } = await import('../chat.ts');
+      sendChatMessage();
+
+      expect(sendToHost).not.toHaveBeenCalled();
+      expect(document.getElementById('chat-input')?.textContent).toBe('freeze retry 7241');
+
+      setState('network.chatFrozen', false);
+      sendChatMessage();
+
+      expect(sendToHost).toHaveBeenCalledTimes(1);
+      expect(sendToHost).toHaveBeenCalledWith(
+        expect.objectContaining({ text: 'freeze retry 7241' }),
+      );
+    });
+
+    it('allows an identical retry immediately after slowmode stops blocking it', async () => {
+      const input = renderSendShell('slowmode seed 7242');
+      setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
+      setState('network.appRole', 'guest');
+
+      const { sendChatMessage } = await import('../chat.ts');
+      sendChatMessage();
+      expect(sendToHost).toHaveBeenCalledTimes(1);
+
+      input.textContent = 'slowmode retry 7242';
+      setState('network.slowmodeSeconds', 10);
+      sendChatMessage();
+      expect(sendToHost).toHaveBeenCalledTimes(1);
+      expect(input.textContent).toBe('slowmode retry 7242');
+
+      setState('network.slowmodeSeconds', 0);
+      sendChatMessage();
+
+      expect(sendToHost).toHaveBeenCalledTimes(2);
+      expect(sendToHost).toHaveBeenLastCalledWith(
+        expect.objectContaining({ text: 'slowmode retry 7242' }),
+      );
+    });
+
+    it('still suppresses a genuine accepted double-fire within 500ms', async () => {
+      const input = renderSendShell('accepted double fire 7243');
+      setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
+      setState('network.appRole', 'guest');
+
+      const { sendChatMessage } = await import('../chat.ts');
+      sendChatMessage();
+      input.textContent = 'accepted double fire 7243';
+      sendChatMessage();
+
+      expect(sendToHost).toHaveBeenCalledTimes(1);
+      expect(document.querySelectorAll('#chat-messages .chat-row')).toHaveLength(1);
+    });
+  });
 });

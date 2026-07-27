@@ -35,17 +35,17 @@ registration resolves that address to an immutable non-negative
 `roomGeneration`. Existing rooms are generation `0`; a manually re-registered
 code advances to a fresh generation and never revives the deleted incarnation.
 
-| Component                                | Responsibility                                                                 |
-| ---------------------------------------- | ------------------------------------------------------------------------------ |
-| App route                                | Detect a leading-zero PRO code, collect PIN/activation input, render playback  |
-| PRO Worker                               | Activation, auth, queue, canonical timeline, presence, quota, and signed R2    |
-| One Durable Object per room incarnation  | Sole serialized manager for one `(roomCode, roomGeneration)` and its state      |
-| Signaling Worker PRO path                | Own hibernatable role-neutral sockets, clock replies, chat, and event fan-out  |
-| Private `musixquare-pro-media` R2 bucket | Persistent encoded source files; never a public bucket                         |
-| Browser                                  | RAM-only transfer, decode, preload, and playback working set                   |
-| Admin D1 registry                        | Bounded operator index of registered codes, labels, and activation state       |
-| App-to-PRO cross-script DO binding       | Provision a room and issue a claim without a public admin service endpoint     |
-| App-to-PRO service binding               | Same-origin `/api/pro-room/*` browser facade over the public PRO router        |
+| Component                                | Responsibility                                                                |
+| ---------------------------------------- | ----------------------------------------------------------------------------- |
+| App route                                | Detect a leading-zero PRO code, collect PIN/activation input, render playback |
+| PRO Worker                               | Activation, auth, queue, canonical timeline, presence, quota, and signed R2   |
+| One Durable Object per room incarnation  | Sole serialized manager for one `(roomCode, roomGeneration)` and its state    |
+| Signaling Worker PRO path                | Own hibernatable role-neutral sockets, clock replies, chat, and event fan-out |
+| Private `musixquare-pro-media` R2 bucket | Persistent encoded source files; never a public bucket                        |
+| Browser                                  | RAM-only transfer, decode, preload, and playback working set                  |
+| Admin D1 registry                        | Bounded operator index of registered codes, labels, and activation state      |
+| App-to-PRO cross-script DO binding       | Provision a room and issue a claim without a public admin service endpoint    |
+| App-to-PRO service binding               | Same-origin `/api/pro-room/*` browser facade over the public PRO router       |
 
 The regular signaling path reserves the complete `0xxxxx` namespace before
 Durable Object lookup. `000000` and `000001` are seeded in the admin registry;
@@ -237,17 +237,24 @@ forward-fix or restore a matched provider data/code checkpoint.
   ownership.
 - Under member-authority projection `1`, a PIN-admitted ordinary PRO member has
   no playback or mutation capability. The owner always retains playback
-  control. A delegated administrator receives playback, persistent media
-  addition, member removal, and chat-announcement capabilities only through
-  their respective explicit toggles; disabling the playback toggle removes
-  `playback.control`. Queue deletion/reordering/clear, effects, repeat, shuffle,
-  PIN/recovery, and other room configuration remain owner-only. BOT commands
+  control. A delegated administrator receives playback, media management,
+  member removal, and chat-announcement capabilities only through their
+  respective explicit toggles; disabling the playback toggle removes
+  `playback.control`. Media management is one coherent queue capability: it
+  permits persistent-media addition and deletion, queue reorder and clear, and
+  shuffle/repeat mutations. Effects, PIN/recovery, and other room configuration
+  remain owner-only. BOT commands
   are checked as the initiating room member and cannot bypass those capability
   boundaries. Developer API keys are instead independent room-authoritative
   principals within their issued scopes; integrations own requester identity
   and destructive-intent confirmation. An anonymous delegation is session-lived;
   a verified account delegation is persisted in the room until owner revocation
   or room deletion.
+- Chat freeze is a moderation boundary rather than a fifth permission toggle.
+  While frozen, ordinary members cannot post, but the owner and every current
+  delegated `controller` session may still post regardless of which of the four
+  granular toggles are enabled. This exception is intentionally enforced by
+  the server-authoritative `chat.manage` check.
 - Browser credentials are room-scoped, host-only, Secure, HttpOnly cookies, so
   multiple PRO rooms can stay signed in at the same time. Short-lived
   signaling tickets are bound to room, participant, presence incarnation,
@@ -676,10 +683,24 @@ cannot prove the fence or observes the floor or any generation above zero, it
 withholds every generation-sensitive Worker rollback and requires a forward
 fix.
 
-### Stage 1: compatibility baseline
+### Stage 1: compatibility baseline (historical v203 checkpoint)
 
-1. Deploy the account-aware App, signaling, and PRO code while leaving
-   `MUSIXQUARE_AUTH_DB` unbound and all account projection flags disabled.
+This sequence records how the original account rollout reached its compatibility
+floor; it is not a current rollback procedure. At that historical checkpoint,
+the account-aware App, signaling, and PRO code was deployed with
+`MUSIXQUARE_AUTH_DB` unbound and all account projection flags disabled.
+
+Current releases and rollbacks must keep the migrated auth D1 schema and the
+`MUSIXQUARE_AUTH_DB` binding on both App and PRO Workers, including while both
+projection flags are `0`. PRO permanent deletion always needs that binding to
+retire the exact account-to-room-generation reverse edge. To disable account
+projection or login during recovery, change the reviewed flags/secrets without
+removing the database binding or rolling back its forward-only schema.
+
+The remaining steps below describe the historical checkpoint:
+
+1. Deploy the account-aware App, signaling, and PRO code with all account
+   projection flags disabled.
 2. Publish the compatible static client as service-worker cache `v203`. The
    client accepts both pre-account and account-aware snapshots, but the missing
    auth binding keeps login unavailable and anonymous behavior unchanged.

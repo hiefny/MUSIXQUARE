@@ -257,7 +257,7 @@ describe('Translation key integrity', () => {
     expect(badLegalCopy).toEqual([]);
   });
 
-  it('discloses persistent PRO-room media separately from ordinary remote sharing', () => {
+  it('keeps localized room-mode privacy summaries separate and linked to the full policy', () => {
     const badLegalCopy: string[] = [];
 
     for (const [locale, dict] of Object.entries(locales)) {
@@ -282,11 +282,13 @@ describe('Translation key integrity', () => {
         proStart <= standardEnd ||
         proEnd <= proStart ||
         privacyLinkIndex <= proEnd ||
-        !standardCopy.includes('24') ||
-        standardCopy.includes('Cloudflare R2') ||
-        !proCopy.includes('Cloudflare R2') ||
+        standardCopy.trim().length < 30 ||
+        proCopy.trim().length < 30 ||
+        standardCopy === proCopy ||
+        standardCopy.includes('<') ||
+        proCopy.includes('<') ||
         !proCopy.includes('PRO') ||
-        proCopy.includes('24')
+        standardCopy.includes('PRO')
       ) {
         badLegalCopy.push(locale);
       }
@@ -294,10 +296,16 @@ describe('Translation key integrity', () => {
 
     expect(badLegalCopy).toEqual([]);
     expect(ko['legal.content_html']).toContain(
-      '<span data-legal-standard-storage>같은 네트워크에서는 대부분의 세션 데이터가 기기 간에 직접 전송되며, 연결 수립을 위한 IP 주소와 연결 정보만 시그널링 서버를 경유해요. 원격 참여자와 대규모 세션 참여자에게 전송되는 데이터는 Cloudflare를 경유할 수 있어요. Cloudflare를 경유하는 임시 파일은 암호화되어 최대 24시간 보관되며, 복호화 키는 저장되지 않아요. 뮤직스퀘어는 기능 제공 외의 목적으로 데이터를 열람, 분석, 보관하지 않아요.</span>',
+      '<span data-legal-standard-storage>일반 방의 세션 콘텐츠는 대체로 기기 간에 직접 전송돼요. 서비스 운영과 보안을 위해 제한된 세션·연결 상태와 암호화된 원격 미디어를 일시적으로 처리할 수 있어요. 처리 항목과 보관 기간은 전체 개인정보 처리방침에서 확인해 주세요.</span>',
     );
     expect(ko['legal.content_html']).toContain(
-      '<span data-legal-pro-storage>PRO 방에서는 세션 연결을 위한 IP 주소와 연결 정보가 시그널링 서버를 경유해요. 재생목록에 추가한 원본 파일은 서비스 제공을 위해 비공개 Cloudflare R2에 보관되며, 방에 입장한 사용자만 내려받을 수 있어요. 파일은 더 이상 사용되지 않거나 운영자가 세션 데이터를 삭제하면 정리돼요. 뮤직스퀘어는 기능 제공 외의 목적으로 데이터를 열람하거나 분석하지 않아요.</span>',
+      '<span data-legal-pro-storage>PRO 방은 서버 권위 저장소를 사용하며, 방 운영에 필요한 세션·멤버·재생목록·재생·업로드·미디어 상태를 저장할 수 있어요. 처리 항목과 보관 기간은 전체 개인정보 처리방침에서 확인해 주세요.</span>',
+    );
+    expect(en['legal.content_html']).toContain(
+      '<span data-legal-standard-storage>In ordinary rooms, session content is generally exchanged directly between devices. MUSIXQUARE may temporarily process limited session and connection state and encrypted remote media as needed to operate and secure the service. See the full policy for data categories and retention.</span>',
+    );
+    expect(en['legal.content_html']).toContain(
+      '<span data-legal-pro-storage>PRO rooms use server-authoritative storage and may store session, member, playlist, playback, upload, and media state needed to operate the room. See the full policy for data categories and retention.</span>',
     );
   });
 

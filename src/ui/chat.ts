@@ -1025,13 +1025,17 @@ export function sendChatMessage(): void {
   // duplicate event handlers, network reconnection glitches, or platform-specific quirks)
   const now = Date.now();
   if (text === _lastSentText && now - _lastSentTs < 500) return;
-  _lastSentText = text;
-  _lastSentTs = now;
 
   // ── Command intercept ──
   const initialCommand = parseCommand(text);
   const isVisibleBotCommand = initialCommand ? shouldBroadcastCommand(initialCommand) : false;
   if (initialCommand && !isVisibleBotCommand) {
+    // This submission has passed parsing and is accepted for local
+    // execution. Policy-rejected attempts below deliberately do not update
+    // the stamp, so an immediately permitted retry cannot disappear into the
+    // double-fire guard.
+    _lastSentText = text;
+    _lastSentTs = now;
     input.contentEditable = 'false';
     input.replaceChildren();
     void input.offsetHeight; // Force reflow
@@ -1068,6 +1072,11 @@ export function sendChatMessage(): void {
       return;
     }
   }
+  // Record the double-fire key only after every policy gate accepted the
+  // submission. This preserves duplicate-handler protection without turning
+  // a visible freeze/slowmode rejection into a silent rejection on retry.
+  _lastSentText = text;
+  _lastSentTs = now;
   _lastSentTime = Date.now();
 
   if (text.length > MAX_MSG_LENGTH) {

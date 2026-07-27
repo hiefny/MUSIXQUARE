@@ -1116,7 +1116,7 @@ describe('release deployment rollback state', () => {
       expect(step, stepName).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
     }
 
-    const lastSmoke = workflow.indexOf('Smoke app session endpoint');
+    const lastSmoke = workflow.indexOf('Smoke current PRO public boundary after app deployment');
     const finalVerification = workflow.indexOf(
       'Verify release still owns current production deployments',
     );
@@ -1179,6 +1179,29 @@ describe('release deployment rollback state', () => {
     expect(appPlan[1]).toEqual(['run', '--silent', 'build:checked']);
   });
 
+  it('rechecks anonymous account and PRO public boundaries after an app-only deployment', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const appDeploy = workflow.indexOf('Deploy and record app Worker with immutable dist');
+    const authSmoke = workflow.indexOf('Smoke anonymous app account boundary');
+    const proSmoke = workflow.indexOf('Smoke current PRO public boundary after app deployment');
+    const finalVerification = workflow.indexOf(
+      'Verify release still owns current production deployments',
+    );
+    expect(authSmoke).toBeGreaterThan(appDeploy);
+    expect(proSmoke).toBeGreaterThan(authSmoke);
+    expect(finalVerification).toBeGreaterThan(proSmoke);
+
+    const authStepEnd = workflow.indexOf('\n      - name:', authSmoke + 1);
+    const authStep = workflow.slice(authSmoke, authStepEnd);
+    expect(authStep).toContain("if: inputs.target == 'all' || inputs.target == 'app'");
+    expect(authStep).toContain('run: npm run smoke:live:app-public-boundary');
+
+    const proStepEnd = workflow.indexOf('\n      - name:', proSmoke + 1);
+    const proStep = workflow.slice(proSmoke, proStepEnd);
+    expect(proStep).toContain("if: inputs.target == 'all' || inputs.target == 'app'");
+    expect(proStep).toContain('run: npm run smoke:live:pro-room');
+  });
+
   it('blocks ordinary local deploy scripts and gates every emergency route', () => {
     const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
       scripts: Record<string, string>;
@@ -1211,6 +1234,8 @@ describe('release deployment rollback state', () => {
       'Smoke PRO room Worker',
       'Smoke Developer API Worker',
       'Smoke app session endpoint',
+      'Smoke anonymous app account boundary',
+      'Smoke current PRO public boundary after app deployment',
     ]) {
       const stepStart = workflow.indexOf(`- name: ${stepName}`);
       const nextStep = workflow.indexOf('\n      - name:', stepStart + 1);

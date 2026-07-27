@@ -418,6 +418,58 @@ describe('host heartbeat cleanup ordering', () => {
     expect(getState('network.peerLabels')[peer.id]).toBeUndefined();
   });
 
+  it('does not evict a background-suspended guest while its RTC transport is still live', () => {
+    vi.useFakeTimers();
+    const disconnected = vi.fn();
+    bus.on('network:peer-disconnected', disconnected);
+    const conn = {
+      peer: 'guest-backgrounded',
+      open: true,
+      send: vi.fn(),
+      close: vi.fn(),
+      peerConnection: { connectionState: 'connected' },
+      dataChannel: { readyState: 'open' },
+      controlChannel: { readyState: 'open' },
+    } as unknown as DataConnection;
+    const peer = {
+      id: conn.peer,
+      slot: 1,
+      label: 'Background guest',
+      conn,
+      isOp: false,
+      preloadedQueueItemIds: new Set<string>(),
+      status: 'connected',
+      isDataTarget: true,
+      joinOrder: 1,
+      connectionType: 'local',
+      lastHeartbeat: Date.now() - 9000,
+    } as ConnectedPeer;
+    const slots = [...getState('network.peerSlots')];
+    slots[1] = peer.id;
+    setState('network.peerSlots', slots);
+    setState('network.peerSlotByPeerId', new Map([[peer.id, 1]]));
+    setState('network.peerLabels', { [peer.id]: peer.label });
+    setState('network.connectedPeers', [peer]);
+    setState('network.activeHostConnByPeerId', new Map([[peer.id, conn]]));
+    setState('setup.sessionStarted', true);
+
+    initSync();
+    bus.emit('state:setup.sessionStarted', true, 'setup.sessionStarted');
+    vi.advanceTimersByTime(5000);
+
+    expect(conn.close).not.toHaveBeenCalled();
+    expect(disconnected).not.toHaveBeenCalled();
+    expect(getState('network.connectedPeers')).toHaveLength(1);
+
+    // The grace remains bounded: a permanently silent zombie still releases
+    // its room slot even if the browser never reports a terminal RTC state.
+    vi.advanceTimersByTime(80_000);
+
+    expect(conn.close).toHaveBeenCalledTimes(1);
+    expect(disconnected).toHaveBeenCalledWith(peer.id);
+    expect(getState('network.connectedPeers')).toHaveLength(0);
+  });
+
   it('revokes only anonymous grants when stale connections bypass normal close handlers', () => {
     vi.useFakeTimers();
     const anonymousConn = mockDataConnection('anonymous-stale');

@@ -43,12 +43,257 @@ function installAdminDom(): void {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.replaceChildren();
 });
 
 describe('admin PRO room claim lifecycle', () => {
+  it('fails closed when an admin response exceeds the bounded body size', async () => {
+    installAdminDom();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return new Response('{}', {
+          headers: { 'Content-Length': String(1_048_577) },
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector('[data-login-status]')?.textContent).toContain(
+        'unexpectedly large response',
+      );
+    });
+    expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(true);
+  });
+
+  it('warns that a timed-out mutation may already have completed', async () => {
+    installAdminDom();
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+        if (url.pathname === '/api/admin/session') {
+          return Response.json({ authenticated: false, configured: true });
+        }
+        if (url.pathname === '/api/admin/login') {
+          return new Promise<Response>((_resolve, reject) => {
+            const abort = () => reject(new DOMException('Aborted', 'AbortError'));
+            if (init?.signal?.aborted) abort();
+            else init?.signal?.addEventListener('abort', abort, { once: true });
+          });
+        }
+        return Response.json({ ok: true });
+      },
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    // Let init finish consuming the anonymous session response before the
+    // login mutation starts; otherwise init intentionally invalidates it.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    vi.useFakeTimers();
+    const form = document.querySelector<HTMLFormElement>('[data-login-form]');
+    form
+      ?.querySelector<HTMLInputElement>('input[name="password"]')
+      ?.setAttribute('value', 'secret');
+    form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await vi.advanceTimersByTimeAsync(20_001);
+    expect(document.querySelector('[data-login-status]')?.textContent).toContain(
+      'may have completed',
+    );
+    vi.useRealTimers();
+  });
+
+  it('keeps an in-flight dashboard response from reappearing after logout', async () => {
+    installAdminDom();
+    let metricsReads = 0;
+    let resolveDelayedMetrics: ((response: Response) => void) | undefined;
+    const delayedMetrics = new Promise<Response>((resolve) => {
+      resolveDelayedMetrics = resolve;
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        metricsReads += 1;
+        if (metricsReads > 1) return delayedMetrics;
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+
+    document.querySelector<HTMLButtonElement>('[data-refresh]')?.click();
+    await vi.waitFor(() => expect(metricsReads).toBe(2));
+    document.querySelector<HTMLButtonElement>('[data-logout]')?.click();
+    expect(document.querySelector<HTMLElement>('[data-login-panel]')?.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(true);
+
+    resolveDelayedMetrics?.(
+      Response.json({
+        generatedAt: new Date().toISOString(),
+        cards: [{ label: 'stale-secret-card', value: 1 }],
+        summary: { hourly: [], daily: [], daily30: [], last24: {} },
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(true);
+    expect(document.body.textContent).not.toContain('stale-secret-card');
+  });
+
+  it('does not let a new login race ahead of the pending logout cookie clear', async () => {
+    installAdminDom();
+    let resolveLogout: ((response: Response) => void) | undefined;
+    const pendingLogout = new Promise<Response>((resolve) => {
+      resolveLogout = resolve;
+    });
+    let loginReads = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/logout') return pendingLogout;
+      if (url.pathname === '/api/admin/login') {
+        loginReads += 1;
+        return Response.json({ authenticated: true });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+
+    document.querySelector<HTMLButtonElement>('[data-logout]')?.click();
+    const loginForm = document.querySelector<HTMLFormElement>('[data-login-form]');
+    const loginButton = loginForm?.querySelector<HTMLButtonElement>('button[type="submit"]');
+    expect(loginButton?.disabled).toBe(true);
+    loginForm?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    expect(loginReads).toBe(0);
+
+    resolveLogout?.(Response.json({ ok: true }));
+    await vi.waitFor(() => expect(loginButton?.disabled).toBe(false));
+    loginForm
+      ?.querySelector<HTMLInputElement>('input[name="password"]')
+      ?.setAttribute('value', 'new-password');
+    loginForm?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(loginReads).toBe(1));
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+  });
+
+  it('renders only the latest overlapping PRO-room list response', async () => {
+    installAdminDom();
+    let proRoomReads = 0;
+    let resolveFirst: ((response: Response) => void) | undefined;
+    const first = new Promise<Response>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms') {
+        proRoomReads += 1;
+        if (proRoomReads === 1) return first;
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          rooms: [
+            {
+              roomCode: '000002',
+              roomGeneration: 3,
+              label: 'Latest room',
+              status: 'registered',
+              activationState: 'active',
+              createdAt: Date.now(),
+            },
+          ],
+        });
+      }
+      if (url.pathname === '/api/admin/articles') {
+        return Response.json({ generatedAt: new Date().toISOString(), articles: [] });
+      }
+      if (url.pathname === '/api/admin/announcement') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          announcement: {},
+          history: [],
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+    await vi.waitFor(() => expect(proRoomReads).toBe(1));
+    document.querySelector<HTMLButtonElement>('[data-refresh]')?.click();
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain('Latest room');
+    });
+
+    resolveFirst?.(
+      Response.json({
+        generatedAt: new Date().toISOString(),
+        rooms: [
+          {
+            roomCode: '000001',
+            roomGeneration: 1,
+            label: 'Stale room',
+            status: 'registered',
+            activationState: 'active',
+            createdAt: Date.now(),
+          },
+        ],
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.body.textContent).toContain('Latest room');
+    expect(document.body.textContent).not.toContain('Stale room');
+  });
+
   it('clears the credential and its issuance state immediately when the admin session expires', async () => {
     installAdminDom();
     let expired = false;

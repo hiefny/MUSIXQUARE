@@ -1408,6 +1408,48 @@ describe('initPlayerControls sync button', () => {
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
   });
 
+  it('does not surface a stale PRO reconciliation failure after switching rooms', async () => {
+    renderSyncControls();
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+
+    let rejectReconciliation!: (error: Error) => void;
+    proPlaybackRuntime.reconcile.mockReturnValueOnce(
+      new Promise<boolean>((_resolve, reject) => {
+        rejectReconciliation = reject;
+      }),
+    );
+
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+    await vi.waitFor(() => expect(proPlaybackRuntime.reconcile).toHaveBeenCalledTimes(1));
+
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000002',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 2,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    rejectReconciliation(new Error('old room request failed'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(showToast).not.toHaveBeenCalled();
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+  });
+
   it('keeps the PRO participant nudge panel closed during zero-start', () => {
     renderSyncControls();
     setState('network.appRole', 'host');

@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { validateAccountRolloutConfig } from '../../../scripts/production-security-rollout.mjs';
 
-function proConfig(identity: string | null, authority: string | null): string {
+function proConfig(
+  identity: string | null,
+  authority: string | null,
+  { authBinding = true } = {},
+): string {
   return [
     '[vars]',
     identity === null ? '' : `PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION = ${identity}`,
     authority === null ? '' : `PRO_ROOM_MEMBER_AUTHORITY_PROJECTION = ${authority}`,
+    ...(authBinding ? ['[[d1_databases]]', 'binding = "MUSIXQUARE_AUTH_DB"'] : []),
   ].join('\n');
 }
 
@@ -47,6 +52,23 @@ describe('production account rollout guard matrix', () => {
       ),
     ).toEqual([
       'PRO account projection is enabled without an active MUSIXQUARE_AUTH_DB App binding.',
+    ]);
+  });
+
+  it('requires the account database in the PRO Worker even with identity projection disabled', () => {
+    expect(proConfig('"0"', '"0"', { authBinding: false })).not.toContain('MUSIXQUARE_AUTH_DB');
+    expect(
+      validateAccountRolloutConfig(proConfig('"0"', '"0"', { authBinding: false }), ''),
+    ).toEqual([
+      'PRO room decommissioning is enabled without an active MUSIXQUARE_AUTH_DB Worker binding.',
+    ]);
+    expect(
+      validateAccountRolloutConfig(
+        `${proConfig('"0"', '"0"', { authBinding: false })}\n# binding = "MUSIXQUARE_AUTH_DB"`,
+        '',
+      ),
+    ).toEqual([
+      'PRO room decommissioning is enabled without an active MUSIXQUARE_AUTH_DB Worker binding.',
     ]);
   });
 

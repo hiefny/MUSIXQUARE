@@ -40,10 +40,16 @@ const refreshBtn = document.querySelector('[data-refresh]');
 const logoutBtn = document.querySelector('[data-logout]');
 
 const formatter = new Intl.NumberFormat();
+const ADMIN_REQUEST_TIMEOUT_MS = 20_000;
+const ADMIN_RESPONSE_MAX_BYTES = 1_048_576;
 let currentAdminTab = 'operations';
 let proRoomsLoaded = false;
 let articlesLoaded = false;
 let announcementLoaded = false;
+let adminSessionEpoch = 0;
+let adminLogoutInFlight = null;
+const adminRequestControllers = new Set();
+const adminLatestLoads = new Map();
 const issuedActivationLinks = new Set();
 const issuedOwnerRecoveryLinks = new Set();
 const expandedProRooms = new Set();
@@ -93,32 +99,192 @@ function setStatus(message, isError = false) {
   loginStatus.classList.toggle('is-error', isError);
 }
 
-async function fetchJson(url, options = {}) {
-  const method = String(options.method || 'GET').toUpperCase();
-  const { headers: optionHeaders = {}, ...requestOptions } = options;
-  const response = await fetch(url, {
-    credentials: 'same-origin',
-    ...requestOptions,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(!['GET', 'HEAD'].includes(method) ? { 'X-MXQR-Admin-CSRF': '1' } : {}),
-      ...optionHeaders,
-    },
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    if (response.status === 401 && url !== '/api/admin/login') {
-      showLogin('Admin session expired.');
-    }
-    const error = new Error(body.error || `Request failed: ${response.status}`);
-    error.status = response.status;
-    error.payload = body;
-    throw error;
+function setLoginFormDisabled(disabled) {
+  if (!loginForm) return;
+  for (const control of loginForm.elements) {
+    control.disabled = disabled;
   }
-  return body;
+  if (disabled) loginForm.setAttribute('aria-busy', 'true');
+  else loginForm.removeAttribute('aria-busy');
 }
 
-function showLogin(message = '') {
+function adminRequestError(code, message, cause) {
+  const error = new Error(message);
+  error.code = code;
+  if (cause !== undefined) error.cause = cause;
+  return error;
+}
+
+function invalidateAdminSession() {
+  adminSessionEpoch += 1;
+  for (const controller of adminRequestControllers) controller.abort();
+  adminRequestControllers.clear();
+  for (const controller of adminLatestLoads.values()) controller.abort();
+  adminLatestLoads.clear();
+}
+
+function beginAdminSession() {
+  invalidateAdminSession();
+  return adminSessionEpoch;
+}
+
+function beginLatestAdminLoad(key) {
+  adminLatestLoads.get(key)?.abort();
+  const controller = new AbortController();
+  adminLatestLoads.set(key, controller);
+  return {
+    key,
+    controller,
+    sessionEpoch: adminSessionEpoch,
+  };
+}
+
+function isLatestAdminLoad(load) {
+  return (
+    load?.sessionEpoch === adminSessionEpoch &&
+    adminLatestLoads.get(load.key) === load.controller &&
+    !load.controller.signal.aborted
+  );
+}
+
+function finishLatestAdminLoad(load) {
+  if (adminLatestLoads.get(load.key) === load.controller) {
+    adminLatestLoads.delete(load.key);
+  }
+}
+
+function throwIfAdminLoadStale(load) {
+  if (!isLatestAdminLoad(load)) {
+    throw adminRequestError('ADMIN_REQUEST_CANCELLED', 'Request cancelled.');
+  }
+}
+
+async function readAdminResponseText(response, maxBytes = ADMIN_RESPONSE_MAX_BYTES) {
+  const contentLength = response.headers.get('Content-Length');
+  if (contentLength !== null) {
+    const parsedLength = Number(contentLength);
+    if (Number.isFinite(parsedLength) && parsedLength > maxBytes) {
+      await response.body?.cancel().catch(() => {});
+      throw adminRequestError(
+        'ADMIN_RESPONSE_TOO_LARGE',
+        'The server returned an unexpectedly large response.',
+      );
+    }
+  }
+  if (!response.body?.getReader) {
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > maxBytes) {
+      throw adminRequestError(
+        'ADMIN_RESPONSE_TOO_LARGE',
+        'The server returned an unexpectedly large response.',
+      );
+    }
+    return text;
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let totalBytes = 0;
+  let text = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw adminRequestError(
+          'ADMIN_RESPONSE_TOO_LARGE',
+          'The server returned an unexpectedly large response.',
+        );
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    return text;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function fetchJson(url, options = {}) {
+  const method = String(options.method || 'GET').toUpperCase();
+  const {
+    headers: optionHeaders = {},
+    signal: callerSignal,
+    timeoutMs = ADMIN_REQUEST_TIMEOUT_MS,
+    maxResponseBytes = ADMIN_RESPONSE_MAX_BYTES,
+    sessionBound = url !== '/api/admin/login' && url !== '/api/admin/session',
+    ...requestOptions
+  } = options;
+  const requestEpoch = adminSessionEpoch;
+  const controller = new AbortController();
+  adminRequestControllers.add(controller);
+  const onCallerAbort = () => controller.abort();
+  if (callerSignal?.aborted) controller.abort();
+  else callerSignal?.addEventListener('abort', onCallerAbort, { once: true });
+  let timedOut = false;
+  const timeoutId = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  try {
+    const response = await fetch(url, {
+      credentials: 'same-origin',
+      ...requestOptions,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(!['GET', 'HEAD'].includes(method) ? { 'X-MXQR-Admin-CSRF': '1' } : {}),
+        ...optionHeaders,
+      },
+    });
+    const text = await readAdminResponseText(response, maxResponseBytes);
+    let body = {};
+    if (text) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        throw adminRequestError('ADMIN_RESPONSE_INVALID', 'The server returned invalid JSON.');
+      }
+    }
+    if (sessionBound && requestEpoch !== adminSessionEpoch) {
+      throw adminRequestError('ADMIN_REQUEST_CANCELLED', 'Request cancelled.');
+    }
+    if (!response.ok) {
+      if (response.status === 401 && url !== '/api/admin/login') {
+        showLogin('Admin session expired.');
+      }
+      const error = new Error(body.error || `Request failed: ${response.status}`);
+      error.status = response.status;
+      error.payload = body;
+      throw error;
+    }
+    return body;
+  } catch (error) {
+    if (Number.isInteger(error?.status)) throw error;
+    if (controller.signal.aborted || error?.name === 'AbortError') {
+      if (timedOut) {
+        const isMutation = !['GET', 'HEAD'].includes(method);
+        throw adminRequestError(
+          isMutation ? 'ADMIN_MUTATION_OUTCOME_UNKNOWN' : 'ADMIN_REQUEST_TIMEOUT',
+          isMutation
+            ? 'Request timed out. The change may have completed; refresh before retrying.'
+            : 'Request timed out. Refresh and try again.',
+          error,
+        );
+      }
+      throw adminRequestError('ADMIN_REQUEST_CANCELLED', 'Request cancelled.', error);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+    callerSignal?.removeEventListener('abort', onCallerAbort);
+    adminRequestControllers.delete(controller);
+  }
+}
+
+function showLogin(message = '', { invalidateSession = true } = {}) {
+  if (invalidateSession) invalidateAdminSession();
   closeProRoomDestroyDialog({ restoreFocus: false });
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();
@@ -1236,7 +1402,8 @@ function renderProRoomLabelEditor(room, roomCode, roomGeneration) {
         .closest('[data-pro-room-item]')
         ?.querySelector('[data-pro-room-label-value]');
       if (summaryLabel) summaryLabel.textContent = room.label;
-      status.textContent = payload.changed === false ? 'Label is already up to date.' : 'Label saved.';
+      status.textContent =
+        payload.changed === false ? 'Label is already up to date.' : 'Label saved.';
     } catch (error) {
       status.textContent = adminErrorMessage(error, 'Room label could not be saved.');
       status.classList.add('is-error');
@@ -1283,9 +1450,7 @@ function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
   }
 
   const labelEditor =
-    rawStatus === 'provisioning'
-      ? null
-      : renderProRoomLabelEditor(room, roomCode, roomGeneration);
+    rawStatus === 'provisioning' ? null : renderProRoomLabelEditor(room, roomCode, roomGeneration);
 
   if (rawStatus !== 'provisioning' && rawStatus !== 'suspended') {
     const open = document.createElement('a');
@@ -1590,12 +1755,21 @@ function renderProRooms(payload) {
 }
 
 async function loadProRooms(options = {}) {
+  const load = beginLatestAdminLoad('pro-rooms');
   if (proRoomListStatusEl) proRoomListStatusEl.textContent = 'Refreshing...';
-  const payload = await fetchJson('/api/admin/pro-rooms');
-  renderProRooms(payload);
-  proRoomsLoaded = true;
-  if (options.updateTimestamp !== false) {
-    updatedAtEl.textContent = `Updated ${formatAdminDateTime(payload.generatedAt || Date.now())}`;
+  try {
+    const payload = await fetchJson('/api/admin/pro-rooms', {
+      signal: load.controller.signal,
+    });
+    throwIfAdminLoadStale(load);
+    renderProRooms(payload);
+    proRoomsLoaded = true;
+    if (options.updateTimestamp !== false) {
+      updatedAtEl.textContent = `Updated ${formatAdminDateTime(payload.generatedAt || Date.now())}`;
+    }
+    return payload;
+  } finally {
+    finishLatestAdminLoad(load);
   }
 }
 
@@ -1789,17 +1963,26 @@ function renderSignals(summary) {
 }
 
 async function loadMetrics(options = {}) {
+  const load = beginLatestAdminLoad('metrics');
   updatedAtEl.textContent = 'Refreshing...';
-  const metrics = await fetchJson('/api/admin/metrics');
-  showDashboard();
-  if (options.activateOperations) setActiveTab('operations');
-  renderCards(metrics.cards || []);
-  renderHourlyChart(metrics.summary?.hourly || []);
-  renderDailyList(metrics.summary?.daily || []);
-  renderMonthlyChart(metrics.summary?.daily30 || []);
-  renderSignals(metrics.summary || {});
-  if (options.updateTimestamp !== false) {
-    updatedAtEl.textContent = `Updated ${formatAdminDateTime(metrics.generatedAt)}`;
+  try {
+    const metrics = await fetchJson('/api/admin/metrics', {
+      signal: load.controller.signal,
+    });
+    throwIfAdminLoadStale(load);
+    showDashboard();
+    if (options.activateOperations) setActiveTab('operations');
+    renderCards(metrics.cards || []);
+    renderHourlyChart(metrics.summary?.hourly || []);
+    renderDailyList(metrics.summary?.daily || []);
+    renderMonthlyChart(metrics.summary?.daily30 || []);
+    renderSignals(metrics.summary || {});
+    if (options.updateTimestamp !== false) {
+      updatedAtEl.textContent = `Updated ${formatAdminDateTime(metrics.generatedAt)}`;
+    }
+    return metrics;
+  } finally {
+    finishLatestAdminLoad(load);
   }
 }
 
@@ -1873,12 +2056,21 @@ function renderArticles(payload) {
 }
 
 async function loadArticles(options = {}) {
+  const load = beginLatestAdminLoad('articles');
   if (articleStatusEl) articleStatusEl.textContent = 'Refreshing...';
-  const payload = await fetchJson('/api/admin/articles');
-  renderArticles(payload);
-  articlesLoaded = true;
-  if (options.updateTimestamp !== false) {
-    updatedAtEl.textContent = `Updated ${formatAdminDateTime(payload.generatedAt)}`;
+  try {
+    const payload = await fetchJson('/api/admin/articles', {
+      signal: load.controller.signal,
+    });
+    throwIfAdminLoadStale(load);
+    renderArticles(payload);
+    articlesLoaded = true;
+    if (options.updateTimestamp !== false) {
+      updatedAtEl.textContent = `Updated ${formatAdminDateTime(payload.generatedAt)}`;
+    }
+    return payload;
+  } finally {
+    finishLatestAdminLoad(load);
   }
 }
 
@@ -1961,13 +2153,22 @@ function renderAnnouncementHistory(payload) {
 }
 
 async function loadAnnouncement(options = {}) {
+  const load = beginLatestAdminLoad('announcement');
   if (announcementStatusEl) announcementStatusEl.textContent = 'Refreshing...';
-  const payload = await fetchJson('/api/admin/announcement');
-  renderAnnouncement(payload);
-  renderAnnouncementHistory(payload);
-  announcementLoaded = true;
-  if (options.updateTimestamp !== false) {
-    updatedAtEl.textContent = `Updated ${formatAdminDateTime(payload.generatedAt)}`;
+  try {
+    const payload = await fetchJson('/api/admin/announcement', {
+      signal: load.controller.signal,
+    });
+    throwIfAdminLoadStale(load);
+    renderAnnouncement(payload);
+    renderAnnouncementHistory(payload);
+    announcementLoaded = true;
+    if (options.updateTimestamp !== false) {
+      updatedAtEl.textContent = `Updated ${formatAdminDateTime(payload.generatedAt)}`;
+    }
+    return payload;
+  } finally {
+    finishLatestAdminLoad(load);
   }
 }
 
@@ -1991,6 +2192,7 @@ async function saveAnnouncement({ clear = false } = {}) {
 }
 
 async function refreshAllDashboardData() {
+  const refreshEpoch = adminSessionEpoch;
   const activeTab = currentAdminTab;
   updatedAtEl.textContent = 'Refreshing...';
   await Promise.all([
@@ -2003,6 +2205,7 @@ async function refreshAllDashboardData() {
     loadArticles({ updateTimestamp: false }),
     loadAnnouncement({ updateTimestamp: false }),
   ]);
+  if (refreshEpoch !== adminSessionEpoch || dashboard?.hidden) return;
   setActiveTab(activeTab);
   updatedAtEl.textContent = `Updated ${formatAdminDateTime(Date.now())}`;
 }
@@ -2019,6 +2222,7 @@ async function init() {
       showLogin();
       return;
     }
+    beginAdminSession();
     await loadMetrics({ activateOperations: true });
   } catch (error) {
     showLogin(error.message || 'Failed to load admin session.');
@@ -2027,6 +2231,12 @@ async function init() {
 
 loginForm?.addEventListener('submit', async (event) => {
   event.preventDefault();
+  // The logout response clears the server cookie. Never allow a newer login
+  // to race ahead of that response and then have its fresh cookie removed.
+  if (adminLogoutInFlight) {
+    setStatus('Signing out...');
+    return;
+  }
   const form = new FormData(loginForm);
   const password = String(form.get('password') || '');
   setStatus('Checking...');
@@ -2034,8 +2244,10 @@ loginForm?.addEventListener('submit', async (event) => {
     await fetchJson('/api/admin/login', {
       method: 'POST',
       body: JSON.stringify({ password }),
+      sessionBound: false,
     });
     loginForm.reset();
+    beginAdminSession();
     await loadMetrics({ activateOperations: true });
   } catch (error) {
     setStatus(adminErrorMessage(error, 'Login failed.'), true);
@@ -2125,9 +2337,25 @@ announcementClearBtn?.addEventListener('click', () => {
 });
 
 logoutBtn?.addEventListener('click', async () => {
+  if (adminLogoutInFlight) return;
   clearProRoomClaimState();
-  await fetchJson('/api/admin/logout', { method: 'POST' }).catch(() => {});
-  showLogin();
+  invalidateAdminSession();
+  showLogin('Signing out...', { invalidateSession: false });
+  setLoginFormDisabled(true);
+  const logoutRequest = fetchJson('/api/admin/logout', {
+    method: 'POST',
+    sessionBound: false,
+  }).catch(() => {});
+  adminLogoutInFlight = logoutRequest;
+  try {
+    await logoutRequest;
+  } finally {
+    if (adminLogoutInFlight === logoutRequest) {
+      adminLogoutInFlight = null;
+      setLoginFormDisabled(false);
+      if (dashboard?.hidden) setStatus('');
+    }
+  }
 });
 
 init();

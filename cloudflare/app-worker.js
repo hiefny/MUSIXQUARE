@@ -109,6 +109,8 @@ const ADMIN_PRO_ROOM_REGISTRY_LIMIT = 1000;
 const ADMIN_PRO_ROOM_LABEL_MAX_LENGTH = 64;
 const ADMIN_PRO_ROOM_ACTIVATION_CLAIM_MAX_TTL_MS = 15 * 60 * 1000;
 const ADMIN_PRO_ROOM_OWNER_RECOVERY_CLAIM_MAX_TTL_MS = 10 * 60 * 1000;
+const ADMIN_PRO_ROOM_ACTIVATION_RECONCILE_MIN_AGE_MS = 60 * 1000;
+const ADMIN_PRO_ROOM_ACTIVATION_RECONCILE_BATCH_SIZE = 25;
 const ADMIN_DEVELOPER_API_KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
 const ADMIN_DEVELOPER_API_KEY_SECRET_RE = /^[A-Za-z0-9_-]{43}$/;
 const ADMIN_DEVELOPER_API_KEY_DEFAULT_DAYS = 90;
@@ -308,6 +310,28 @@ async function preflightRegisteredProRoomAccountLink(env, roomCode) {
   return isProRoomGeneration(roomGeneration) ? { roomGeneration } : null;
 }
 
+async function repairUnforwardedAccountProRoomLink(env, roomCode, roomGeneration) {
+  try {
+    const current = await preflightRegisteredProRoomAccountLink(env, roomCode);
+    if (current?.roomGeneration === roomGeneration) {
+      // The room is still a valid incarnation. Keeping its conservative
+      // reverse edge is intentional even though this particular assertion was
+      // not forwarded; a later successful link must retain an account-deletion
+      // cleanup path.
+      return false;
+    }
+    // A missing, terminal, or recycled registry pointer proves that no account
+    // authority can be created in this exact incarnation. Retire all of that
+    // incarnation's now-orphaned cleanup edges, never the successor's.
+    await retireAccountProRoomLinks(env, roomCode, roomGeneration);
+    return true;
+  } catch {
+    // A registry outage is not proof that an edge is orphaned. Leave the
+    // conservative edge for the scheduled decommission repair sweep.
+    return false;
+  }
+}
+
 async function handleProRoomFacade(request, env, url) {
   const isHealth = url.pathname === PRO_ROOM_FACADE_HEALTH_PATH;
   const route = url.pathname.match(PRO_ROOM_FACADE_PATH_RE);
@@ -416,6 +440,7 @@ async function handleProRoomFacade(request, env, url) {
   ]);
   const accountLeaseAssertionPath = `/v1/rooms/${roomCode}/sessions/current/account/lease`;
   if (accountLinkAssertionPaths.has(upstreamPath) || upstreamPath === accountLeaseAssertionPath) {
+    let recordedRoomGeneration = null;
     try {
       const account = await resolveAccountSession(request, env);
       const assertionSecret = String(env.MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET || '');
@@ -449,6 +474,7 @@ async function handleProRoomFacade(request, env, url) {
               roomLink.roomGeneration,
             );
             if (!linked) throw new Error('PRO_ACCOUNT_LINK_UNAVAILABLE');
+            recordedRoomGeneration = roomLink.roomGeneration;
             // Close the registry-preflight/write race. If decommission
             // completed between those operations, remove the just-written
             // exact-incarnation edge and forward no account authority.
@@ -462,6 +488,9 @@ async function handleProRoomFacade(request, env, url) {
         }
       }
     } catch (error) {
+      if (isProRoomGeneration(recordedRoomGeneration)) {
+        await repairUnforwardedAccountProRoomLink(env, roomCode, recordedRoomGeneration);
+      }
       // Login is optional. An identity-store outage must not turn a valid room
       // PIN into a playback outage; the PRO service will treat this request as
       // anonymous and never trusts a client-claimed account.
@@ -2154,6 +2183,35 @@ async function reconcileAdminProRoomStatus(env, db, roomOrCode) {
   return payload.status;
 }
 
+async function reconcileStaleAdminProRoomActivations(env, db, rooms, nowMs = Date.now()) {
+  if (!Array.isArray(rooms) || !getProRoomAdminNamespace(env)) return false;
+  const candidates = rooms
+    .filter(
+      (room) =>
+        room?.status === 'registered' &&
+        room.activationState === 'unactivated' &&
+        Number.isSafeInteger(room.updatedAt) &&
+        room.updatedAt > 0 &&
+        room.updatedAt <= nowMs - ADMIN_PRO_ROOM_ACTIVATION_RECONCILE_MIN_AGE_MS,
+    )
+    .sort(
+      (left, right) =>
+        left.updatedAt - right.updatedAt ||
+        String(left.roomCode).localeCompare(String(right.roomCode)),
+    )
+    .slice(0, ADMIN_PRO_ROOM_ACTIVATION_RECONCILE_BATCH_SIZE);
+  if (candidates.length === 0) return false;
+  const results = await Promise.allSettled(
+    candidates.map((room) => reconcileAdminProRoomStatus(env, db, room)),
+  );
+  return results.some(
+    (result) =>
+      result.status === 'fulfilled' && (result.value === 'active' || result.value === 'suspended'),
+  );
+}
+
+export const reconcileStaleAdminProRoomActivationsForTests = reconcileStaleAdminProRoomActivations;
+
 async function adminProRoomAuditActor(request, env) {
   const sessionToken = readCookies(request).get(ADMIN_SESSION_COOKIE) || '';
   const accessIdentity =
@@ -3078,7 +3136,15 @@ async function handleAdminProRooms(request, env, pathname) {
 
   if (!activationClaimRoomCode && (request.method === 'GET' || request.method === 'HEAD')) {
     try {
-      const rooms = await listAdminProRooms(db);
+      let rooms = await listAdminProRooms(db);
+      // HEAD is a non-mutating availability probe. Only an operator's full
+      // list read may repair the D1 projection from canonical room state.
+      if (
+        request.method === 'GET' &&
+        (await reconcileStaleAdminProRoomActivations(env, db, rooms))
+      ) {
+        rooms = await listAdminProRooms(db);
+      }
       if (request.method === 'HEAD') {
         return withSecurityHeaders(new Response(null, { status: 200 }), {
           'Cache-Control': 'no-store, max-age=0',
@@ -3425,6 +3491,13 @@ async function handleAdminProRoomOwnerRecoveryClaim(request, env, pathname) {
   if (room.status === 'decommissioning' || room.status === 'decommissioned') {
     return json({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' }, 410);
   }
+  if (
+    room.status === 'registered' &&
+    room.activationState !== 'active' &&
+    (await reconcileAdminProRoomStatus(env, db, room).catch(() => null)) === 'active'
+  ) {
+    room = (await readAdminProRoom(db, roomCode).catch(() => null)) || room;
+  }
   if (room.status !== 'registered' || room.activationState !== 'active') {
     const auditError = await writeAdminProRoomAuditOrFail(
       db,
@@ -3471,6 +3544,25 @@ async function handleAdminProRoomOwnerRecoveryClaim(request, env, pathname) {
     );
     if (auditError) return auditError;
     return json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
+  }
+  const currentRoom = await readAdminProRoom(db, roomCode).catch(() => null);
+  if (
+    !currentRoom ||
+    currentRoom.roomGeneration !== room.roomGeneration ||
+    currentRoom.status !== 'registered' ||
+    currentRoom.activationState !== 'active'
+  ) {
+    const staleAuditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_recovery_claim.issue',
+      'registry_changed',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (staleAuditError) return staleAuditError;
+    return json({ error: 'PRO_ROOM_OWNER_RECOVERY_UNAVAILABLE' }, 409);
   }
   const auditError = await writeAdminProRoomAuditOrFail(
     db,
@@ -7018,6 +7110,23 @@ export default {
         // Repair sweep: the room Durable Object can finish decommissioning
         // through its own alarm without another admin DELETE request.
         ctx.waitUntil(retireDecommissionedAccountProRoomEdges(env));
+      }
+      if (getAdminDb(env)?.prepare && getProRoomAdminNamespace(env)) {
+        // Repair the display/index mirror after a successful canonical room
+        // activation whose best-effort D1 write was interrupted. Exact
+        // generation and terminal-state predicates remain enforced by the
+        // reconciliation update.
+        ctx.waitUntil(
+          (async () => {
+            try {
+              const db = getAdminDb(env);
+              const rooms = await listAdminProRooms(db);
+              await reconcileStaleAdminProRoomActivations(env, db, rooms);
+            } catch (error) {
+              console.warn('[PRO registry] activation-state reconciliation failed', error);
+            }
+          })(),
+        );
       }
     }
     if (env.MUSIXQUARE_AUTH_DB && (cron === null || cron === '* * * * *')) {

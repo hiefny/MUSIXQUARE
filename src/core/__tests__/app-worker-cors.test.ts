@@ -1,10 +1,60 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import appWorker, { sanitizeSoroArticleHtmlForTests } from '../../../cloudflare/app-worker.js';
+import appWorker, {
+  reconcileStaleAdminProRoomActivationsForTests,
+  sanitizeSoroArticleHtmlForTests,
+} from '../../../cloudflare/app-worker.js';
 import { deriveDeveloperApiKeyDigest } from '../../../cloudflare/developer-api-worker.js';
 
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe('Cloudflare app Worker PRO activation projection repair', () => {
+  it('selects the oldest 25 stale projections instead of starving later room codes', async () => {
+    const statusReads: string[] = [];
+    const db = {
+      prepare: vi.fn(() => ({
+        run: vi.fn(async () => ({ meta: { changes: 0 } })),
+        bind: vi.fn(() => ({
+          run: vi.fn(async () => ({ meta: { changes: 1 } })),
+        })),
+      })),
+    };
+    const env = {
+      PRO_ROOM_ADMIN_ROOMS: {
+        idFromName: vi.fn((roomCode: string) => roomCode),
+        get: vi.fn(() => ({
+          fetch: vi.fn(async (request: Request) => {
+            const roomCode = request.headers.get('x-mxqr-pro-room-code') || '';
+            statusReads.push(roomCode);
+            return Response.json({
+              roomCode,
+              provisioned: true,
+              status: 'active',
+            });
+          }),
+        })),
+      },
+    };
+    const rooms = Array.from({ length: 26 }, (_, index) => ({
+      roomCode: String(index).padStart(6, '0'),
+      roomGeneration: 0,
+      status: 'registered',
+      activationState: 'unactivated',
+      updatedAt: 200 + index,
+    }));
+    // The final room code is oldest. A room-code-first slice would never
+    // inspect it while the lower 25 remain canonically unactivated.
+    rooms[25].updatedAt = 100;
+
+    await expect(
+      reconcileStaleAdminProRoomActivationsForTests(env, db, rooms, 100_000),
+    ).resolves.toBe(true);
+    expect(statusReads).toHaveLength(25);
+    expect(statusReads).toContain('000025');
+    expect(statusReads).not.toContain('000024');
+  });
 });
 
 function requestWithOrigin(origin: string): Request {

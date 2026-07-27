@@ -2221,6 +2221,13 @@ function environment(bucket = new FakeR2Bucket()) {
     R2_SECRET_ACCESS_KEY: 'test-secret-key'.padEnd(40, 'k'),
     R2_BUCKET_NAME: 'musixquare-pro-media',
     PRO_MEDIA_BUCKET: bucket,
+    MUSIXQUARE_AUTH_DB: {
+      prepare: vi.fn(() => ({
+        bind: vi.fn(() => ({
+          run: vi.fn(async () => ({ meta: { changes: 1 } })),
+        })),
+      })),
+    },
   };
 }
 
@@ -6673,6 +6680,91 @@ describe('persistent PRO room bootstrap and activation', () => {
     });
   });
 
+  it('fails closed before decommission when the account reverse-edge store is unbound', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+    };
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: vi.fn() })),
+    };
+    internal.env.DEVELOPER_API_DB = { prepare: vi.fn() };
+    internal.env.DEVELOPER_API_LIMITERS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: vi.fn() })),
+    };
+    internal.env.MUSIXQUARE_ADMIN_DB = { prepare: vi.fn() };
+    delete internal.env.MUSIXQUARE_AUTH_DB;
+
+    const response = await context.worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/decommission', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+        },
+        body: JSON.stringify({
+          roomCode: ROOM_CODE,
+          requestId: '018f977e-5df5-4c8f-bb80-55d847ddec9d',
+        }),
+      }),
+    );
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: 'PRO_ROOM_DECOMMISSION_NOT_CONFIGURED',
+    });
+    expect(internal.room.status).toBe('active');
+  });
+
+  it('keeps an in-progress decommission retryable when its account store binding disappears', async () => {
+    const context = await activatedRoom();
+    const nowMs = Date.parse('2026-07-28T00:00:00.000Z');
+    const internal = context.worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+      continueDecommission(nowMs: number): Promise<boolean>;
+      purgeDecommissionedMediaPrefix(): Promise<{ ok: boolean; deletedAny: boolean }>;
+      decommissionSignaling(requestId: string): Promise<boolean>;
+      deleteDeveloperRoomData(requestId: string, nowMs: number): Promise<boolean>;
+      clearDeveloperRoomLimiter(requestId: string): Promise<boolean>;
+      markRegistryDecommissioned(nowMs: number): Promise<boolean>;
+    };
+    internal.room.status = 'decommissioning';
+    internal.room.decommission = {
+      requestId: '018f977e-5df5-4c8f-bb80-55d847ddec9a',
+      startedAtMs: nowMs - 10 * 60 * 1000,
+      purgeAfterMs: nowMs - 2 * 60 * 1000,
+      retryAtMs: nowMs,
+      finalEmptySinceMs: nowMs - 2 * 60 * 1000,
+      signalingCleared: true,
+      initialSweepCompleted: true,
+      developerDataCleared: true,
+      developerLimiterCleared: true,
+    };
+    vi.spyOn(internal, 'purgeDecommissionedMediaPrefix').mockResolvedValue({
+      ok: true,
+      deletedAny: false,
+    });
+    vi.spyOn(internal, 'decommissionSignaling').mockResolvedValue(true);
+    vi.spyOn(internal, 'deleteDeveloperRoomData').mockResolvedValue(true);
+    vi.spyOn(internal, 'clearDeveloperRoomLimiter').mockResolvedValue(true);
+    const markRegistryDecommissioned = vi
+      .spyOn(internal, 'markRegistryDecommissioned')
+      .mockResolvedValue(true);
+    internal.env.DECOMMISSION_FINAL_EMPTY_WINDOW_SECONDS = 60;
+    delete internal.env.MUSIXQUARE_AUTH_DB;
+
+    await expect(internal.continueDecommission(nowMs)).resolves.toBe(false);
+    expect(markRegistryDecommissioned).toHaveBeenCalledOnce();
+    expect(internal.room.status).toBe('decommissioning');
+    expect(internal.room.decommission).toMatchObject({
+      requestId: '018f977e-5df5-4c8f-bb80-55d847ddec9a',
+      retryAtMs: expect.any(Number),
+    });
+  });
+
   it('restores the active room when the initial decommission tombstone commit fails', async () => {
     const context = await activatedRoom();
     const externalCalls = {
@@ -7269,6 +7361,45 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(recoveryUrl.origin).toBe('https://musixquare.com');
     expect(recoveryUrl.pathname).toBe(`/${ROOM_CODE}`);
     expect(recoveryUrl.hash).toMatch(/^#pro-recovery=v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+  });
+
+  it('serializes owner recovery issuance against an admin state transition', async () => {
+    const { worker } = await activatedRoom();
+    const internal = worker as unknown as {
+      handleInternalOwnerRecoveryClaim(): Promise<Response>;
+      handleInternalSuspend(): Promise<Response>;
+    };
+    let releaseRecovery: ((response: Response) => void) | undefined;
+    const recoveryGate = new Promise<Response>((resolve) => {
+      releaseRecovery = resolve;
+    });
+    const recovery = vi
+      .spyOn(internal, 'handleInternalOwnerRecoveryClaim')
+      .mockImplementation(() => recoveryGate);
+    const suspend = vi
+      .spyOn(internal, 'handleInternalSuspend')
+      .mockResolvedValue(Response.json({ ok: true }));
+
+    const recoveryResponse = worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/owner-recovery-claim', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+      }),
+    );
+    await vi.waitFor(() => expect(recovery).toHaveBeenCalledOnce());
+    const suspendResponse = worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/suspend', {
+        method: 'POST',
+        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+      }),
+    );
+    await Promise.resolve();
+    expect(suspend).not.toHaveBeenCalled();
+
+    releaseRecovery?.(Response.json({ ok: true }));
+    await expect(recoveryResponse).resolves.toMatchObject({ status: 200 });
+    await expect(suspendResponse).resolves.toMatchObject({ status: 200 });
+    expect(suspend).toHaveBeenCalledOnce();
   });
 
   it('refuses owner recovery link issuance before activation and while suspended', async () => {

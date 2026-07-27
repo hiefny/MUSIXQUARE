@@ -30,6 +30,9 @@ const mocks = vi.hoisted(() => ({
   broadcast: vi.fn(),
   safeSend: vi.fn(),
   loadDemoFile: vi.fn(),
+  showLoader: vi.fn(),
+  showToast: vi.fn(),
+  updateLoader: vi.fn(),
 }));
 
 vi.mock('../../player/transport.ts', () => ({
@@ -65,9 +68,9 @@ vi.mock('../../ui/setup-shared.ts', () => ({
 }));
 
 vi.mock('../../ui/toast.ts', () => ({
-  showLoader: vi.fn(),
-  showToast: vi.fn(),
-  updateLoader: vi.fn(),
+  showLoader: mocks.showLoader,
+  showToast: mocks.showToast,
+  updateLoader: mocks.updateLoader,
 }));
 
 vi.mock('../../ui/dom.ts', () => ({
@@ -203,6 +206,121 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     expect(getState('demo.loading')).toBe(false);
     expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
     expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('keeps a superseded decode success from mutating a re-entered demo generation', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+
+    let resolveFirstDecode!: () => void;
+    mocks.loadDemoFile
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirstDecode = resolve;
+          }),
+      )
+      .mockImplementationOnce(async (_file: File, meta: { name?: string }) => {
+        setCurrentAudioBuffer({ duration: 222 } as AudioBuffer);
+        setState('transfer.meta', { name: meta?.name || 'demo-b.m4a', indexHint: 0 });
+      });
+
+    bus.emit('demo:enter');
+    await flush();
+    FakeXHR.pending[0]?.resolveOk();
+    await flush(20);
+    expect(mocks.loadDemoFile).toHaveBeenCalledTimes(1);
+
+    // Exit A while decodeAudioData is still outstanding, then immediately
+    // create B. The browser may settle A only after B is fully interactive.
+    bus.emit('demo:request-exit');
+    bus.emit('demo:enter');
+    await flush(20);
+    FakeXHR.pending.at(-1)?.resolveOk();
+    await flush(50);
+
+    expect(mocks.loadDemoFile).toHaveBeenCalledTimes(2);
+    expect(getState('demo.active')).toBe(true);
+    expect(getState('demo.loading')).toBe(false);
+    expect(getCurrentAudioBuffer()?.duration).toBe(222);
+    expect(mocks.play).toHaveBeenCalledTimes(1);
+
+    const toastCountAfterB = mocks.showToast.mock.calls.length;
+    const loaderHideCountAfterB = mocks.showLoader.mock.calls.filter(
+      ([visible]) => !visible,
+    ).length;
+    const broadcastCountAfterB = mocks.broadcast.mock.calls.length;
+
+    resolveFirstDecode();
+    await flush(50);
+
+    expect(getState('demo.active')).toBe(true);
+    expect(getState('demo.loading')).toBe(false);
+    expect(getCurrentAudioBuffer()?.duration).toBe(222);
+    expect(mocks.play).toHaveBeenCalledTimes(1);
+    expect(mocks.showToast).toHaveBeenCalledTimes(toastCountAfterB);
+    expect(mocks.showLoader.mock.calls.filter(([visible]) => !visible)).toHaveLength(
+      loaderHideCountAfterB,
+    );
+    expect(mocks.broadcast).toHaveBeenCalledTimes(broadcastCountAfterB);
+    bus.emit('demo:request-exit');
+    await flush(50);
+  });
+
+  it('keeps a superseded decode failure from exiting or alarming a re-entered demo', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+
+    let rejectFirstDecode!: (error: Error) => void;
+    mocks.loadDemoFile
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectFirstDecode = reject;
+          }),
+      )
+      .mockImplementationOnce(async (_file: File, meta: { name?: string }) => {
+        setCurrentAudioBuffer({ duration: 333 } as AudioBuffer);
+        setState('transfer.meta', { name: meta?.name || 'demo-b.m4a', indexHint: 0 });
+      });
+
+    bus.emit('demo:enter');
+    await flush();
+    FakeXHR.pending[0]?.resolveOk();
+    await flush(20);
+    expect(mocks.loadDemoFile).toHaveBeenCalledTimes(1);
+
+    bus.emit('demo:request-exit');
+    bus.emit('demo:enter');
+    await flush(20);
+    FakeXHR.pending.at(-1)?.resolveOk();
+    await flush(50);
+
+    expect(mocks.loadDemoFile).toHaveBeenCalledTimes(2);
+    expect(getState('demo.active')).toBe(true);
+    expect(getCurrentAudioBuffer()?.duration).toBe(333);
+    expect(mocks.play).toHaveBeenCalledTimes(1);
+
+    const toastCountAfterB = mocks.showToast.mock.calls.length;
+    const loaderHideCountAfterB = mocks.showLoader.mock.calls.filter(
+      ([visible]) => !visible,
+    ).length;
+    const broadcastCountAfterB = mocks.broadcast.mock.calls.length;
+
+    rejectFirstDecode(new Error('late decode failure from generation A'));
+    await flush(50);
+
+    expect(getState('demo.active')).toBe(true);
+    expect(getState('demo.loading')).toBe(false);
+    expect(getCurrentAudioBuffer()?.duration).toBe(333);
+    expect(mocks.play).toHaveBeenCalledTimes(1);
+    expect(mocks.showToast).toHaveBeenCalledTimes(toastCountAfterB);
+    expect(mocks.showLoader.mock.calls.filter(([visible]) => !visible)).toHaveLength(
+      loaderHideCountAfterB,
+    );
+    expect(mocks.broadcast).toHaveBeenCalledTimes(broadcastCountAfterB);
+    bus.emit('demo:request-exit');
+    await flush(50);
   });
 
   it('restores transfer.meta with the file blob on demo exit (DEMO-4 pair invariant)', async () => {

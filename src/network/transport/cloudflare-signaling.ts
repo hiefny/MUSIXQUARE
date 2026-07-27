@@ -1,6 +1,6 @@
 import { log } from '../../core/log.ts';
 import { MSG } from '../../core/constants.ts';
-import { clearManagedTimer, delay, setManagedTimer } from '../../core/timers.ts';
+import { clearManagedTimer, delay, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { TinyEmitter } from './emitter.ts';
 import type {
   DeveloperCommandFrame,
@@ -395,6 +395,8 @@ function isBulkPayload(data: unknown): boolean {
   return payload.type === MSG.FILE_END || payload.type === MSG.OPERATOR_FILE_UPLOAD_FINISH;
 }
 
+let cloudflareDataConnectionSequence = 0;
+
 export class CloudflareDataConnection extends TinyEmitter implements TransportDataConnection {
   open = false;
   peerConnection?: RTCPeerConnection;
@@ -403,6 +405,8 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   private closed = false;
   private intentionalClosing = false;
   private pcListenersAttached = false;
+  private resourcesDisposed = false;
+  private readonly disconnectedGraceTimerKey = `cloudflare-data-disconnected-grace-${++cloudflareDataConnectionSequence}`;
 
   constructor(
     readonly peer: string,
@@ -436,7 +440,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
         .catch((error) => this.emit('error', error));
     });
     channel.addEventListener('close', () => {
-      this.markClosed();
+      this.terminate();
     });
     channel.addEventListener('error', (event) => {
       // Chromium can synchronously report `OperationError: ... Close called`
@@ -449,12 +453,16 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     if (!this.pcListenersAttached) {
       this.pcListenersAttached = true;
       pc.addEventListener('connectionstatechange', () => {
-        if (
-          pc.connectionState === 'closed' ||
-          pc.connectionState === 'failed' ||
-          pc.connectionState === 'disconnected'
-        ) {
-          this.markClosed();
+        if (pc.connectionState === 'connected') {
+          this.cancelDisconnectedGrace();
+          return;
+        }
+        if (pc.connectionState === 'disconnected') {
+          this.scheduleDisconnectedGrace(pc);
+          return;
+        }
+        if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
+          this.terminate();
         }
       });
     }
@@ -479,8 +487,19 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   }
 
   close(): void {
-    if (this.closed || this.intentionalClosing) return;
-    this.intentionalClosing = true;
+    if (!this.intentionalClosing) this.intentionalClosing = true;
+    this.terminate();
+  }
+
+  private terminate(): void {
+    this.cancelDisconnectedGrace();
+    this.disposeResources();
+    this.markClosed();
+  }
+
+  private disposeResources(): void {
+    if (this.resourcesDisposed) return;
+    this.resourcesDisposed = true;
     try {
       this.dataChannel?.close();
     } catch {
@@ -496,7 +515,22 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     } catch {
       /* noop */
     }
-    this.markClosed();
+  }
+
+  private scheduleDisconnectedGrace(pc: RTCPeerConnection): void {
+    if (this.closed || getManagedTimer(this.disconnectedGraceTimerKey) !== null) return;
+    setManagedTimer(
+      this.disconnectedGraceTimerKey,
+      () => {
+        if (pc !== this.peerConnection || pc.connectionState !== 'disconnected') return;
+        this.terminate();
+      },
+      15_000,
+    );
+  }
+
+  private cancelDisconnectedGrace(): void {
+    clearManagedTimer(this.disconnectedGraceTimerKey);
   }
 
   private markOpenIfReady(): void {
@@ -694,6 +728,32 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private roomPassword: string | null = null;
   private readonly standardRoomIdentityRefreshTimerKey = 'standard-room-identity-refresh';
   private readonly standardRoomIdentityDeletionProofs = new Map<string, string>();
+  private hostMessageSequence = 0;
+  private readonly peerDepartureSequences = new Map<string, number>();
+  private readonly peerIdentityProjections = new Map<
+    string,
+    {
+      sequence: number;
+      identity: StandardRoomMemberIdentity | null;
+      clearReason?: StandardRoomIdentityClearReason;
+    }
+  >();
+
+  private nextHostMessageSequence(): number {
+    this.hostMessageSequence += 1;
+    return this.hostMessageSequence;
+  }
+
+  private rememberPeerIdentityProjection(
+    peerId: string,
+    sequence: number,
+    identity: StandardRoomMemberIdentity | null,
+    clearReason?: StandardRoomIdentityClearReason,
+  ): void {
+    const current = this.peerIdentityProjections.get(peerId);
+    if (current && current.sequence > sequence) return;
+    this.peerIdentityProjections.set(peerId, { sequence, identity, clearReason });
+  }
 
   private standardRoomIdentityProofKey(roomCode: string, role: 'host' | 'guest'): string {
     return `${role}:${roomCode}`;
@@ -811,6 +871,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     // the new snapshot/epoch and constructs a fresh transport.
     for (const conn of this.connections.values()) conn.close();
     this.connections.clear();
+    this.peerIdentityProjections.clear();
+    this.peerDepartureSequences.clear();
     this.guestRooms.clear();
     for (const mediaConn of this.mediaCalls.values()) mediaConn.closeFromRemote();
     this.mediaCalls.clear();
@@ -990,6 +1052,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.disconnected = false;
     this.scheduleStandardRoomIdentityRefresh(null);
     this.standardRoomIdentityDeletionProofs.clear();
+    this.peerIdentityProjections.clear();
+    this.peerDepartureSequences.clear();
     for (const socket of this.roomSockets.values()) {
       try {
         socket.close();
@@ -1123,7 +1187,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       }
     });
     socket.addEventListener('message', (event) => {
-      this.handleHostMessage(event.data).catch((error) => this.emit('error', error));
+      const sequence = this.nextHostMessageSequence();
+      this.handleHostMessage(event.data, sequence).catch((error) => this.emit('error', error));
     });
     socket.addEventListener('close', (event) => {
       if (this.destroyed) return;
@@ -1269,7 +1334,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     return value as SignalingMessage;
   }
 
-  private async handleHostMessage(raw: unknown): Promise<void> {
+  private async handleHostMessage(
+    raw: unknown,
+    sequence = this.nextHostMessageSequence(),
+  ): Promise<void> {
     const message = await this.parseSignal(raw);
     if (message.type === 'developer-command') {
       if (this.proSignalingAccess?.role !== 'coordinator') {
@@ -1330,12 +1398,22 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (message.type === 'signal-offer') {
       const negotiationId = parseIceNegotiationId(message.negotiationId);
       if (!negotiationId.valid) return;
+      if (sequence > (this.peerDepartureSequences.get(message.from) ?? -1)) {
+        this.peerDepartureSequences.delete(message.from);
+      }
+      const offerIdentity = normalizeStandardRoomMemberIdentity(message.memberIdentity);
+      // An omitted identity is an authoritative anonymous projection for this
+      // offer. Recording only explicit fields would let a replacement that
+      // reuses the peer ID inherit the previous authenticated connection's
+      // identity from peerIdentityProjections.
+      this.rememberPeerIdentityProjection(message.from, sequence, offerIdentity);
       await this.handleHostOffer(
         message.from,
         message.sdp,
         negotiationId.value,
         message.metadata,
-        normalizeStandardRoomMemberIdentity(message.memberIdentity),
+        offerIdentity,
+        sequence,
       );
       return;
     }
@@ -1349,6 +1427,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           ? null
           : normalizeStandardRoomMemberIdentity(message.memberIdentity);
       if (message.memberIdentity !== null && !identity) return;
+      this.rememberPeerIdentityProjection(message.peerId, sequence, identity, message.clearReason);
       this.connections.get(message.peerId)?.updateRoomIdentity(identity, message.clearReason);
       return;
     }
@@ -1378,7 +1457,17 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (message.type === 'peer-left') {
       // Signaling departure ends trickle for this socket identity even when an
       // already-established data channel is deliberately kept alive.
+      this.peerDepartureSequences.set(message.peerId, sequence);
+      const inFlightNegotiation = this.iceNegotiations.get(message.peerId);
       this.clearIcePeerState(message.peerId);
+      this.peerIdentityProjections.delete(message.peerId);
+      if (inFlightNegotiation && !inFlightNegotiation.settled) {
+        try {
+          inFlightNegotiation.pc.close();
+        } catch {
+          /* noop */
+        }
+      }
       const conn = this.connections.get(message.peerId);
       if (this.isDataConnectionAlive(conn)) {
         log.info(
@@ -1522,6 +1611,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     negotiationId: string | null,
     metadata: unknown,
     roomIdentity: StandardRoomMemberIdentity | null,
+    offerSequence: number,
   ): Promise<void> {
     const socket = this.hostSocket;
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
@@ -1545,16 +1635,24 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     });
 
     pc.addEventListener('datachannel', (event) => {
-      if (!this.isIceNegotiationCurrent(negotiation)) {
+      if (
+        !this.isIceNegotiationCurrent(negotiation) ||
+        (this.peerDepartureSequences.get(peerId) ?? -1) >= offerSequence
+      ) {
         try {
           event.channel.close();
         } catch {
           /* noop */
         }
+        conn.close();
         return;
       }
       const shouldEmitConnection = conn.attach(pc, event.channel);
       if (shouldEmitConnection) {
+        const latestIdentity = this.peerIdentityProjections.get(peerId);
+        if (latestIdentity) {
+          conn.roomIdentity = latestIdentity.identity;
+        }
         this.connections.set(peerId, conn);
         negotiation.settled = true;
         this.emit('connection', conn);

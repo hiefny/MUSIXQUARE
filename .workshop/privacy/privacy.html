@@ -58,7 +58,7 @@
     <main class="policy-shell">
       <section class="policy-hero">
         <h1>Privacy Policy</h1>
-        <p class="policy-date">Effective date: July 23, 2026</p>
+        <p class="policy-date">Effective date: July 28, 2026</p>
       </section>
 
       <article class="policy-doc">
@@ -90,11 +90,27 @@
               </dd>
             </div>
             <div>
-              <dt>Session content</dt>
+              <dt>Ordinary-room session content</dt>
               <dd>
-                Device names, playback commands, chat messages, and local session data are normally
-                exchanged directly between participating devices and are not stored in a MUSIXQUARE
-                application database.
+                In ordinary rooms, device names, chat messages, playback commands, playlist state,
+                and local session content are ordinarily transmitted over peer-to-peer WebRTC
+                connections and are not retained as chat or playback history in a central MUSIXQUARE
+                database. Where a direct connection is unavailable, WebRTC traffic may pass through
+                Cloudflare TURN relay infrastructure, but MUSIXQUARE still does not retain that
+                relayed chat or playback content as room history. MUSIXQUARE's signaling service
+                temporarily stores limited room, membership, authentication, and reconnection state
+                needed to operate and secure the live room.
+              </dd>
+            </div>
+            <div>
+              <dt>PRO-room session state</dt>
+              <dd>
+                PRO rooms use server-authoritative Cloudflare storage and may persist room-session
+                identifiers, nicknames and roles, coarse device-platform data, playlist metadata,
+                playback and queue state, upload metadata, and short-lived command, idempotency, and
+                rate-limit records. PRO-room chat messages and notices pass through MUSIXQUARE
+                signaling but are not retained as room chat history. Moderation state and
+                short-lived AI BOT correlation records may be stored.
               </dd>
             </div>
             <div>
@@ -162,7 +178,18 @@
                 In a PRO room, original media uploaded by an authorized room participant is stored
                 persistently in a private Cloudflare R2 bucket for the room playlist. This storage
                 is not covered by the ordinary remote-share client-encryption or 24-hour-retention
-                statements. Downloads are issued only through short-lived authorized URLs.
+                statements. File name, title, artist, thumbnail, media type, size, content hash,
+                uploader relationship, and upload state may also be stored as room metadata.
+                Downloads are issued only through short-lived authorized URLs.
+              </dd>
+            </div>
+            <div>
+              <dt>Operational and security records</dt>
+              <dd>
+                MUSIXQUARE may store PRO-room registry data and operator labels, administrator audit
+                records, aggregate reliability metrics, Developer API key digests, scopes and usage
+                timestamps, and deletion-security records. Operator labels should not be used to
+                enter personal or sensitive information.
               </dd>
             </div>
             <div>
@@ -205,9 +232,9 @@
         <section>
           <h2>4. Retention and Deletion</h2>
           <p>
-            Active room and connection state is kept only as needed to operate the room. Closing a
-            room or ending a connection removes the corresponding live session state from the
-            application.
+            Ordinary-room live state is kept only as needed to operate and secure the room, subject
+            to short authentication, security, and reconnection windows. Disconnecting a device does
+            not necessarily delete that temporary state immediately.
           </p>
           <p>
             Access to encrypted remote-file objects normally expires after one hour. A bucket-level
@@ -218,6 +245,14 @@
             PRO-room media remains stored until its last playlist reference is removed and cleanup
             succeeds, or until the operator deletes the room data. If cleanup fails, deletion may be
             delayed until a retry succeeds.
+          </p>
+          <p>
+            PRO-room state and reconnectable room sessions may remain after a device disconnects so
+            that the persistent room can continue operating. Administrator audit records and
+            aggregate metrics follow their operational retention schedules. When a PRO-room
+            incarnation is permanently deleted, minimal generation, allocation, and deletion
+            tombstone records may be retained as permanent security boundaries so credentials from
+            the deleted room cannot become valid in a later room that reuses the same public code.
           </p>
           <p>
             An account record remains until the account is deleted. Each account session expires no

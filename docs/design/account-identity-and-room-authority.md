@@ -281,10 +281,24 @@ PRO snapshots and signaling tickets use strict schemas. A Worker that emits new
 fields before a compatible client exists can make an old app reject the entire
 room. The production rollout therefore has two explicit stages.
 
-### Stage 1: compatibility baseline
+### Stage 1: compatibility baseline (historical v203 checkpoint)
 
-- Deploy account-aware App, signaling, and PRO code with `MUSIXQUARE_AUTH_DB`
-  unbound, login unconfigured, and both
+This is a record of the original rollout floor, not an executable rollback
+recipe. At that historical checkpoint, account-aware App, signaling, and PRO
+code ran with `MUSIXQUARE_AUTH_DB` unbound, login unconfigured, and both
+projection flags disabled.
+
+Every current release and rollback must preserve the migrated auth D1 schema and
+keep `MUSIXQUARE_AUTH_DB` bound to both App and PRO Workers, even when both
+projection flags are `0`. The PRO Worker needs the binding independently of
+identity projection so permanent decommission can retire the exact
+account-to-room-generation reverse edge. Recovery may disable login or
+projection through reviewed flags and secrets; it must not remove the binding
+or reverse the forward-only schema.
+
+The remaining bullets describe the historical checkpoint:
+
+- Deploy account-aware App, signaling, and PRO code with login unconfigured and both
   `PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION=0` and
   `PRO_ROOM_MEMBER_AUTHORITY_PROJECTION=0`.
 - Publish the dual-schema client under service-worker cache `v203`.

@@ -106,7 +106,14 @@ let _promptInFlight = false;
 let _suppressFirstRunPrompt = false;
 let _demoStep = 1;
 let _demoTrackIndex = 0;
-let _demoLoadToken = 0;
+type DemoLoadOwner = Readonly<{ generation: number }>;
+type DemoAsyncResult = Readonly<{
+  status: 'applied' | 'superseded';
+  generation: number;
+}>;
+
+let _demoLoadGeneration = 0;
+let _activeDemoLoadOwner: DemoLoadOwner | null = null;
 let _pendingDemoPlay: PendingDemoPlay | null = null;
 // Hold DEMO_ENTER/PLAY received during a demo track load. Dropping them would
 // leave guests on the prior track while SYNC_PONG follows the host's timeline.
@@ -429,9 +436,55 @@ function preloadDemoTrack(index: number): void {
   _demoPreloadInFlight.set(track.id, request);
 }
 
-async function loadDemoTrack(index: number, options: { autoplay: boolean }): Promise<void> {
+function beginDemoLoad(): DemoLoadOwner {
+  const owner = { generation: ++_demoLoadGeneration } as const;
+  _activeDemoLoadOwner = owner;
+  return owner;
+}
+
+function isCurrentDemoLoadOwner(owner: DemoLoadOwner): boolean {
+  return _activeDemoLoadOwner === owner && getState('demo.active');
+}
+
+function getDemoLoadResult(
+  owner: DemoLoadOwner,
+  status: DemoAsyncResult['status'],
+): DemoAsyncResult {
+  return { status, generation: owner.generation };
+}
+
+function getSupersededDemoResult(): DemoAsyncResult {
+  return { status: 'superseded', generation: _demoLoadGeneration };
+}
+
+function isCurrentDemoResult(result: DemoAsyncResult): boolean {
+  return (
+    result.status === 'applied' &&
+    result.generation === _demoLoadGeneration &&
+    getState('demo.active')
+  );
+}
+
+function finishDemoLoad(owner: DemoLoadOwner): boolean {
+  if (_activeDemoLoadOwner !== owner) return false;
+  _activeDemoLoadOwner = null;
+  setState('demo.loading', false);
+  showLoader(false);
+  return true;
+}
+
+function supersedeDemoLoad(): void {
+  _demoLoadGeneration += 1;
+  _activeDemoLoadOwner = null;
+}
+
+async function loadDemoTrack(
+  index: number,
+  options: { autoplay: boolean },
+  owner: DemoLoadOwner,
+): Promise<DemoAsyncResult> {
+  if (!isCurrentDemoLoadOwner(owner)) return getDemoLoadResult(owner, 'superseded');
   const track = getDemoTrackByIndex(index);
-  const token = ++_demoLoadToken;
   _demoTrackIndex = index;
   setState('demo.currentTrackIndex', index);
   setCurrentAudioBuffer(null);
@@ -440,15 +493,27 @@ async function loadDemoTrack(index: number, options: { autoplay: boolean }): Pro
 
   showLoader(true, t('transfer.demo_loading_short'));
   updateLoader(0);
-  const blob = await fetchDemoBlob(track, true);
-  if (token !== _demoLoadToken || !getState('demo.active')) return;
+  try {
+    const blob = await fetchDemoBlob(track, true);
+    if (!isCurrentDemoLoadOwner(owner)) return getDemoLoadResult(owner, 'superseded');
 
-  const file = new File([blob], track.fileName, { type: track.mime });
-  await loadDemoFile(file, createDemoTrackMeta(track), newLoadEpoch());
-  if (token !== _demoLoadToken || !getState('demo.active')) return;
+    const file = new File([blob], track.fileName, { type: track.mime });
+    await loadDemoFile(file, createDemoTrackMeta(track), newLoadEpoch());
+    if (!isCurrentDemoLoadOwner(owner)) return getDemoLoadResult(owner, 'superseded');
 
-  preloadDemoTrack(getNextDemoTrackIndex(index));
-  if (options.autoplay) await play(0);
+    preloadDemoTrack(getNextDemoTrackIndex(index));
+    if (options.autoplay) {
+      await play(0);
+      if (!isCurrentDemoLoadOwner(owner)) return getDemoLoadResult(owner, 'superseded');
+    }
+    return getDemoLoadResult(owner, 'applied');
+  } catch (error) {
+    // Fetch/decode cannot always be cancelled by the browser. Once a newer
+    // demo incarnation owns the UI, a late rejection is ordinary
+    // supersession rather than a failure of the current demo.
+    if (!isCurrentDemoLoadOwner(owner)) return getDemoLoadResult(owner, 'superseded');
+    throw error;
+  }
 }
 
 function mountVisualizerForMobile(): void {
@@ -1021,14 +1086,14 @@ function drainQueuedDemoEnter(): void {
   applyPendingDemoPlay();
 }
 
-async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
+async function enterDemoMode(options: EnterDemoOptions = {}): Promise<DemoAsyncResult> {
   // The guided demo is a standard-room host/guest protocol. PRO rooms use a
   // server-owned timeline and deliberately expose no coordinator, so entering
   // this legacy local overlay would pause only this device while the room kept
   // advancing. Keep the guard here as well as in CSS so synthetic events and
   // stale markup cannot split a PRO participant from the canonical session.
-  if (isProRoomDemoBlocked()) return;
-  if (getState('demo.loading')) return;
+  if (isProRoomDemoBlocked()) return getSupersededDemoResult();
+  if (getState('demo.loading')) return getSupersededDemoResult();
   if (getState('demo.active')) {
     const nextIndex = normalizeDemoTrackIndex(options.index ?? _demoTrackIndex);
     // Reload also when the buffer is missing: a guest whose own fetch failed
@@ -1036,22 +1101,24 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
     // applyPendingDemoPlay's null-buffer abort leave nothing to re-trigger
     // the load.
     if (nextIndex !== _demoTrackIndex || !getCurrentAudioBuffer()) {
+      const owner = beginDemoLoad();
       setState('demo.loading', true);
+      let result: DemoAsyncResult;
       try {
-        await loadDemoTrack(nextIndex, { autoplay: !!options.autoplay });
+        result = await loadDemoTrack(nextIndex, { autoplay: !!options.autoplay }, owner);
       } finally {
-        setState('demo.loading', false);
-        showLoader(false);
+        finishDemoLoad(owner);
       }
+      if (!isCurrentDemoResult(result)) return getDemoLoadResult(owner, 'superseded');
     }
     // Re-check after the await because the listener exits demo if hostConn drops
     // mid-load. Without this guard, setDemoDomActive(true) would force the
     // DOM back into demo state while state.demo.active is already false.
-    if (!getState('demo.active')) return;
+    if (!getState('demo.active')) return getSupersededDemoResult();
     setDemoDomActive(true);
     applyPendingDemoPlay();
     drainQueuedDemoEnter();
-    return;
+    return { status: 'applied', generation: _demoLoadGeneration };
   }
 
   markDemoPromptSeen();
@@ -1063,10 +1130,10 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
   setCurrentAudioBuffer(null);
   _demoStep = 1;
   _demoTrackIndex = normalizeDemoTrackIndex(options.index ?? 0);
-  _demoLoadToken++;
   setVisualizerMode('spectrum');
 
   setState('demo.active', true);
+  const owner = beginDemoLoad();
   setState('demo.loading', true);
   applyDemoEffectState(initialEffectState);
   setState('demo.currentTrackIndex', _demoTrackIndex);
@@ -1078,29 +1145,32 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<void> {
   syncEffectButtons();
   if (options.broadcastEntry ?? true) broadcastDemoEnter(_demoTrackIndex);
 
+  let result: DemoAsyncResult;
   try {
-    await loadDemoTrack(_demoTrackIndex, { autoplay: !!options.autoplay });
+    result = await loadDemoTrack(_demoTrackIndex, { autoplay: !!options.autoplay }, owner);
+    if (!isCurrentDemoResult(result)) return result;
     applyPendingDemoPlay();
     showToast(t('transfer.demo_loaded'));
   } catch (error: unknown) {
-    if (!getState('demo.active') && !getState('demo.loading')) return;
+    if (!isCurrentDemoLoadOwner(owner)) return getDemoLoadResult(owner, 'superseded');
     log.error('[Demo] Enter failed:', error);
     showToast(`${t('transfer.demo_load_fail')} ${(error as Error).message || ''}`.trim());
     exitDemoMode({ restoreAudioSettings: true });
+    return getDemoLoadResult(owner, 'superseded');
   } finally {
-    setState('demo.loading', false);
-    showLoader(false);
+    finishDemoLoad(owner);
   }
   // A host advance that landed during the load above was dropped by the
   // demo.loading guard — re-dispatch it now (no-op if nothing queued or the
   // catch path exited demo, which also clears the queue).
-  drainQueuedDemoEnter();
+  if (isCurrentDemoResult(result)) drainQueuedDemoEnter();
+  return result;
 }
 
 function exitDemoMode(options: ExitDemoOptions = {}): void {
   if (!getState('demo.active') && !getState('demo.loading')) return;
   if (options.broadcastExit ?? true) broadcastDemoExit();
-  _demoLoadToken++;
+  supersedeDemoLoad();
   _pendingDemoPlay = null;
   _queuedDemoEnterIndex = null;
   _lastDemoStateBroadcastKey = '';
@@ -1108,6 +1178,7 @@ function exitDemoMode(options: ExitDemoOptions = {}): void {
   setCurrentAudioBuffer(null);
   setState('demo.active', false);
   setState('demo.loading', false);
+  showLoader(false);
   setState('demo.currentTrackIndex', -1);
   setState('demo.reverbOn', false);
   setState('demo.bassBoostOn', false);
@@ -1232,20 +1303,20 @@ function toggleDemoPlay(): void {
   // misleading "add media" toast while guests whose fetch succeeded start
   // playing — splitting the room.
   if (!getCurrentAudioBuffer()) {
+    const owner = beginDemoLoad();
     setState('demo.loading', true);
-    void loadDemoTrack(_demoTrackIndex, { autoplay: false })
-      .then(() => {
-        if (!getState('demo.active')) return;
+    void loadDemoTrack(_demoTrackIndex, { autoplay: false }, owner)
+      .then((result) => {
+        if (!isCurrentDemoResult(result)) return;
         startDemoPlayback(0);
       })
       .catch((error: unknown) => {
-        if (!getState('demo.active') && !getState('demo.loading')) return;
+        if (!isCurrentDemoLoadOwner(owner)) return;
         log.warn('[Demo] Failed to reload demo track on play tap', error);
         showToast(`${t('transfer.demo_load_fail')} ${(error as Error).message || ''}`.trim());
       })
       .finally(() => {
-        setState('demo.loading', false);
-        showLoader(false);
+        finishDemoLoad(owner);
       });
     return;
   }
@@ -1256,23 +1327,23 @@ function toggleDemoPlay(): void {
 function playNextDemoTrack(): void {
   if (!isDemoHost() || !getState('demo.active') || getState('demo.loading')) return;
   const nextIndex = getNextDemoTrackIndex(_demoTrackIndex);
+  const owner = beginDemoLoad();
   setState('demo.loading', true);
   broadcastDemoEnter(nextIndex);
-  void loadDemoTrack(nextIndex, { autoplay: false })
-    .then(() => {
+  void loadDemoTrack(nextIndex, { autoplay: false }, owner)
+    .then((result) => {
       // Exit-during-load: a late DEMO_PLAY broadcast would re-enter guests
       // into demo after the host already left.
-      if (!getState('demo.active')) return;
+      if (!isCurrentDemoResult(result)) return;
       startDemoPlayback(0);
     })
     .catch((error: unknown) => {
-      if (!getState('demo.active') && !getState('demo.loading')) return;
+      if (!isCurrentDemoLoadOwner(owner)) return;
       log.warn('[Demo] Failed to advance demo track', error);
       showToast(`${t('transfer.demo_load_fail')} ${(error as Error).message || ''}`.trim());
     })
     .finally(() => {
-      setState('demo.loading', false);
-      showLoader(false);
+      finishDemoLoad(owner);
     });
 }
 
@@ -1307,7 +1378,9 @@ function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnec
   }
 
   void enterDemoMode({ index, autoplay: false, broadcastEntry: false })
-    .then(applyEffectFlags)
+    .then((result) => {
+      if (isCurrentDemoResult(result)) applyEffectFlags();
+    })
     .catch((error: unknown) => log.warn('[Demo] Guest demo enter failed:', error));
 }
 
@@ -1424,8 +1497,8 @@ export function initDemoMode(): void {
   _suppressFirstRunPrompt = hasAppUseRecord();
 
   _busScope.on('demo:enter', () => {
-    void enterDemoMode({ index: 0, autoplay: false, broadcastEntry: true }).then(() => {
-      if (!getState('demo.active')) return;
+    void enterDemoMode({ index: 0, autoplay: false, broadcastEntry: true }).then((result) => {
+      if (!isCurrentDemoResult(result)) return;
       if (getState('network.hostConn')) {
         void play(0);
       } else {

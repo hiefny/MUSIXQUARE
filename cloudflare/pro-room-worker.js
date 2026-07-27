@@ -4220,7 +4220,10 @@ export class MusixquareProRoom {
         );
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/owner-recovery-claim') {
-        return this.handleInternalOwnerRecoveryClaim();
+        // Serialize issuance with suspend/decommission and other room
+        // mutations. A recovery URL must reflect one stable canonical status,
+        // never an in-flight pre-mutation snapshot.
+        return this.withMutation(() => this.handleInternalOwnerRecoveryClaim());
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/suspend') {
         return this.withMutation(() =>
@@ -8926,10 +8929,9 @@ export class MusixquareProRoom {
 
   async retireAccountReverseEdge() {
     const db = this.env.MUSIXQUARE_AUTH_DB;
-    // This binding is additive so an older/local deployment without optional
-    // account identity can still decommission. Production binds the auth DB,
-    // making the deletion-completion transition itself the primary cleanup.
-    if (!db?.prepare) return true;
+    // Decommission admission requires this production binding. Keep the guard
+    // here as a fail-closed defense for rolling or malformed deployments.
+    if (!db?.prepare) return false;
     const roomCode = this.room.roomCode;
     const roomGeneration = this.room.roomGeneration;
     try {
@@ -9108,7 +9110,8 @@ export class MusixquareProRoom {
       !this.env.PRO_SIGNALING_ROOMS?.idFromName ||
       !this.env.DEVELOPER_API_DB?.prepare ||
       !this.env.DEVELOPER_API_LIMITERS?.idFromName ||
-      !(this.env.MUSIXQUARE_ADMIN_DB || this.env.ADMIN_METRICS_DB)?.prepare
+      !(this.env.MUSIXQUARE_ADMIN_DB || this.env.ADMIN_METRICS_DB)?.prepare ||
+      !this.env.MUSIXQUARE_AUTH_DB?.prepare
     ) {
       return errorResponse('PRO_ROOM_DECOMMISSION_NOT_CONFIGURED', 503);
     }

@@ -24,6 +24,10 @@ function activeAssignment(text, flag) {
  */
 export function validateAccountRolloutConfig(proConfig, appConfig) {
   const errors = [];
+  const activeProConfig = proConfig
+    .split(/\r?\n/)
+    .filter((line) => !line.trimStart().startsWith('#'))
+    .join('\n');
   const accountIdentityProjection = activeAssignment(
     proConfig,
     'PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION',
@@ -41,6 +45,11 @@ export function validateAccountRolloutConfig(proConfig, appConfig) {
   if (accountIdentityProjection !== memberAuthorityProjection) {
     errors.push('PRO account identity and member authority projections must change together.');
     return errors;
+  }
+  if (!/^\s*binding\s*=\s*["']MUSIXQUARE_AUTH_DB["']\s*$/m.test(activeProConfig)) {
+    errors.push(
+      'PRO room decommissioning is enabled without an active MUSIXQUARE_AUTH_DB Worker binding.',
+    );
   }
   if (accountIdentityProjection !== '1') return errors;
 

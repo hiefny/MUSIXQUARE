@@ -93,6 +93,7 @@ class FakeDataChannel {
 
 class FakePeerConnection {
   connectionState: RTCPeerConnectionState = 'connected';
+  closeCount = 0;
   private listeners = new Map<string, Set<FakeChannelListener>>();
 
   addEventListener(event: string, listener: FakeChannelListener): void {
@@ -102,6 +103,8 @@ class FakePeerConnection {
   }
 
   close(): void {
+    if (this.connectionState === 'closed') return;
+    this.closeCount++;
     this.connectionState = 'closed';
     this.dispatch('connectionstatechange');
   }
@@ -1335,6 +1338,86 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     expect(conn.open).toBe(false);
   });
 
+  it('keeps a transiently disconnected connection alive when RTC recovers within the grace', async () => {
+    vi.useFakeTimers();
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await vi.advanceTimersByTimeAsync(0);
+
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange');
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(conn.open).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+
+    pc.connectionState = 'connected';
+    pc.dispatch('connectionstatechange');
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(conn.open).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(bulk.readyState).toBe('open');
+    expect(control.readyState).toBe('open');
+    expect(pc.closeCount).toBe(0);
+    conn.close();
+  });
+
+  it('closes and disposes every RTC resource exactly once after disconnected grace expires', async () => {
+    vi.useFakeTimers();
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await vi.advanceTimersByTimeAsync(0);
+
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange');
+    await vi.advanceTimersByTimeAsync(15_000);
+    conn.close();
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(conn.open).toBe(false);
+    expect(bulk.readyState).toBe('closed');
+    expect(control.readyState).toBe('closed');
+    expect(pc.connectionState).toBe('closed');
+    expect(pc.closeCount).toBe(1);
+  });
+
+  it('closes a failed RTC connection immediately and cancels its disconnected grace', async () => {
+    vi.useFakeTimers();
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await vi.advanceTimersByTimeAsync(0);
+
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange');
+    pc.connectionState = 'failed';
+    pc.dispatch('connectionstatechange');
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(bulk.readyState).toBe('closed');
+    expect(control.readyState).toBe('closed');
+    expect(pc.connectionState).toBe('closed');
+    expect(pc.closeCount).toBe(1);
+  });
+
   it('opens only after both channels are ready and keeps file tails on their ordered bulk stream', async () => {
     const conn = new CloudflareDataConnection('guest-1');
     const pc = new FakePeerConnection();
@@ -1485,6 +1568,221 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     expect(replacementConnection.open).toBe(true);
     expect(privateMaps(peer).connections.get('guest-reconnect')).toBe(replacementConnection);
 
+    peer.destroy();
+  });
+
+  it.each([
+    {
+      label: 'explicit identity clear',
+      updates: [
+        {
+          type: 'account-member-updated',
+          peerId: 'guest-identity-race',
+          memberIdentity: null,
+          clearReason: 'explicit',
+        },
+      ],
+      expectedIdentity: null,
+    },
+    {
+      label: 'newer authenticated identity',
+      updates: [
+        {
+          type: 'account-member-updated',
+          peerId: 'guest-identity-race',
+          memberIdentity: null,
+          clearReason: 'explicit',
+        },
+        {
+          type: 'account-member-updated',
+          peerId: 'guest-identity-race',
+          memberIdentity: {
+            memberId: 'member_bcdefghijklmnopqrstuvw',
+            memberDisplayNumber: 2,
+            nickname: 'Latest member',
+            isAuthenticated: true,
+          },
+        },
+      ],
+      expectedIdentity: {
+        memberId: 'member_bcdefghijklmnopqrstuvw',
+        memberDisplayNumber: 2,
+        nickname: 'Latest member',
+        isAuthenticated: true,
+      },
+    },
+  ])('publishes $label received while a host offer is still in flight', async (scenario) => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    let releaseRemoteDescription: (() => void) | undefined;
+    vi.spyOn(FakeRTCPeerConnection.prototype, 'setRemoteDescription').mockImplementationOnce(
+      (description) =>
+        new Promise<void>((resolve) => {
+          const pc = FakeRTCPeerConnection.instances.at(-1);
+          if (pc) pc.remoteDescription = description;
+          releaseRemoteDescription = resolve;
+        }),
+    );
+    const peer = createHostPeer();
+    const onConnection = vi.fn();
+    peer.on('connection', onConnection);
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-identity-race',
+        sdp: { type: 'offer', sdp: 'guest-offer' },
+        memberIdentity: {
+          memberId: 'member_abcdefghijklmnopqrstuv',
+          memberDisplayNumber: 1,
+          nickname: 'Stale member',
+          isAuthenticated: true,
+        },
+      }),
+    );
+    await vi.waitFor(() => expect(releaseRemoteDescription).toBeTypeOf('function'));
+    for (const update of scenario.updates) {
+      socket.dispatch('message', JSON.stringify(update));
+    }
+    await flushAsync();
+
+    releaseRemoteDescription?.();
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(1));
+    const pc = FakeRTCPeerConnection.instances[0];
+    pc.dispatch('datachannel', { channel: new FakeDataChannel('musixquare-data') });
+    pc.dispatch('datachannel', { channel: new FakeDataChannel('musixquare-control') });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const conn = onConnection.mock.calls[0]?.[0] as CloudflareDataConnection;
+    expect(onConnection).toHaveBeenCalledTimes(1);
+    expect(conn.roomIdentity).toEqual(scenario.expectedIdentity);
+    peer.destroy();
+  });
+
+  it('does not carry an authenticated identity into a newer anonymous offer for the same peer', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createHostPeer();
+    const onConnection = vi.fn();
+    peer.on('connection', onConnection);
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    const authenticatedOffer = {
+      type: 'signal-offer',
+      from: 'guest-identity-replacement',
+      sdp: { type: 'offer', sdp: 'authenticated-offer' },
+      memberIdentity: {
+        memberId: 'member_abcdefghijklmnopqrstuv',
+        memberDisplayNumber: 1,
+        nickname: 'Authenticated member',
+        isAuthenticated: true,
+      },
+    };
+    socket.dispatch('message', JSON.stringify(authenticatedOffer));
+    await flushAsync();
+    const authenticatedPc = FakeRTCPeerConnection.instances[0];
+    authenticatedPc.dispatch('datachannel', {
+      channel: new FakeDataChannel('musixquare-data'),
+    });
+    authenticatedPc.dispatch('datachannel', {
+      channel: new FakeDataChannel('musixquare-control'),
+    });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const authenticatedConnection = onConnection.mock.calls[0]?.[0] as CloudflareDataConnection;
+    expect(authenticatedConnection.roomIdentity).toEqual(authenticatedOffer.memberIdentity);
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-identity-replacement',
+        sdp: { type: 'offer', sdp: 'anonymous-replacement-offer' },
+      }),
+    );
+    await flushAsync();
+    const anonymousPc = FakeRTCPeerConnection.instances[1];
+    anonymousPc.dispatch('datachannel', {
+      channel: new FakeDataChannel('musixquare-data'),
+    });
+    anonymousPc.dispatch('datachannel', {
+      channel: new FakeDataChannel('musixquare-control'),
+    });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const anonymousConnection = onConnection.mock.calls[1]?.[0] as CloudflareDataConnection;
+    expect(onConnection).toHaveBeenCalledTimes(2);
+    expect(anonymousConnection.roomIdentity).toBeNull();
+    expect(authenticatedConnection.open).toBe(false);
+    peer.destroy();
+  });
+
+  it('does not publish an in-flight host offer after a newer peer-left frame', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    let releaseRemoteDescription: (() => void) | undefined;
+    vi.spyOn(FakeRTCPeerConnection.prototype, 'setRemoteDescription').mockImplementationOnce(
+      (description) =>
+        new Promise<void>((resolve) => {
+          const pc = FakeRTCPeerConnection.instances.at(-1);
+          if (pc) pc.remoteDescription = description;
+          releaseRemoteDescription = resolve;
+        }),
+    );
+    const peer = createHostPeer();
+    const onConnection = vi.fn();
+    peer.on('connection', onConnection);
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-departed-in-flight',
+        sdp: { type: 'offer', sdp: 'guest-offer' },
+      }),
+    );
+    await vi.waitFor(() => expect(releaseRemoteDescription).toBeTypeOf('function'));
+    const pc = FakeRTCPeerConnection.instances[0];
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-left', peerId: 'guest-departed-in-flight' }),
+    );
+    await flushAsync();
+    releaseRemoteDescription?.();
+    await flushAsync();
+
+    const bulk = new FakeDataChannel('musixquare-data');
+    pc.dispatch('datachannel', { channel: bulk });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    expect(pc.connectionState).toBe('closed');
+    expect(bulk.readyState).toBe('closed');
+    expect(onConnection).not.toHaveBeenCalled();
+    expect(privateMaps(peer).connections.has('guest-departed-in-flight')).toBe(false);
     peer.destroy();
   });
 

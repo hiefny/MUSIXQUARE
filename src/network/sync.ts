@@ -975,6 +975,43 @@ export function initSync(): void {
 
 const HEARTBEAT_STALE_THRESHOLD = 8000; // 8s without heartbeat = stale
 const HEARTBEAT_CHECK_INTERVAL = 5000; // check every 5s
+// Browser/worker timers may be suspended while a mobile guest is backgrounded.
+// A still-open RTC transport is stronger liveness evidence than the absence of
+// an application heartbeat, so retain it through a bounded background grace.
+// Truly dead/unknown transports keep the short stale threshold so abandoned
+// slots cannot consume room capacity indefinitely.
+const HEARTBEAT_LIVE_TRANSPORT_GRACE = 90_000;
+const HEARTBEAT_RECOVERING_TRANSPORT_GRACE = 30_000;
+
+function heartbeatTransportGrace(conn: DataConnection | undefined): number {
+  if (!conn?.open) return HEARTBEAT_STALE_THRESHOLD;
+
+  const pcState = conn.peerConnection?.connectionState;
+  const dataState = conn.dataChannel?.readyState;
+  const controlState = conn.controlChannel?.readyState;
+  if (
+    pcState === 'closed' ||
+    pcState === 'failed' ||
+    dataState === 'closed' ||
+    controlState === 'closed'
+  ) {
+    return HEARTBEAT_STALE_THRESHOLD;
+  }
+
+  if (
+    pcState === 'connected' &&
+    (dataState === undefined || dataState === 'open') &&
+    (controlState === undefined || controlState === 'open')
+  ) {
+    return HEARTBEAT_LIVE_TRANSPORT_GRACE;
+  }
+
+  if (pcState === 'disconnected' || pcState === 'connecting' || pcState === 'new') {
+    return HEARTBEAT_RECOVERING_TRANSPORT_GRACE;
+  }
+
+  return HEARTBEAT_STALE_THRESHOLD;
+}
 
 function startHeartbeatMonitor(): void {
   stopHeartbeatMonitor();
@@ -1001,9 +1038,10 @@ function startHeartbeatMonitor(): void {
           (conn ? _lastHeartbeatByConnection.get(conn) : undefined) ??
           ((p.lastHeartbeat as number) || 0);
         const elapsed = now - lastHeartbeat;
-        if (elapsed > HEARTBEAT_STALE_THRESHOLD) {
+        const staleThreshold = heartbeatTransportGrace(conn);
+        if (elapsed > staleThreshold) {
           log.warn(
-            `[Heartbeat] Peer ${p.label || p.id} stale (${(elapsed / 1000).toFixed(1)}s) — marking disconnected`,
+            `[Heartbeat] Peer ${p.label || p.id} stale (${(elapsed / 1000).toFixed(1)}s; transport=${conn?.peerConnection?.connectionState ?? 'unknown'}) — marking disconnected`,
           );
           stalePeers.push(p);
         }

@@ -15,8 +15,13 @@ const PEER_CONFIG = {
 export async function injectPeerServer(page: Page): Promise<void> {
   await page.addInitScript((config) => {
     (window as unknown as Record<string, unknown>).__MUSIXQUARE_PEER_SERVER__ = config;
-    localStorage.setItem('musixquare-demo-prompt-seen-v1', '1');
-    localStorage.setItem('musixquare-app-used-v1', '1');
+    try {
+      localStorage.setItem('musixquare-demo-prompt-seen-v1', '1');
+      localStorage.setItem('musixquare-app-used-v1', '1');
+    } catch {
+      // Init scripts also run on opaque documents such as about:blank, where
+      // localStorage is intentionally unavailable.
+    }
 
     type Getter = (path: string) => unknown;
     const stateHook = '__MUSIXQUARE_GET_STATE__';

@@ -278,7 +278,7 @@ describe('Chat Module', () => {
           <span class="chat-preview-text"></span>
         </button>
         <div id="chat-backdrop"></div>
-        <div id="chat-drawer" data-chat-snap="half">
+        <div id="chat-drawer" data-chat-snap="half" tabindex="-1">
           <div class="chat-drawer-header"></div>
         </div>
         <div id="chat-messages" tabindex="-1"></div>
@@ -743,6 +743,25 @@ describe('Chat Module', () => {
 
       document.getElementById('chat-backdrop')?.click();
       expect(drawer.classList.contains('open')).toBe(false);
+    });
+
+    it('focuses the drawer surface instead of visually selecting its handle for pointer opens', async () => {
+      renderChatShell();
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844);
+      document.documentElement.style.setProperty('--app-height', '844px');
+
+      const { initChat, toggleChatDrawer } = await import('../chat.ts');
+      initChat();
+      document
+        .getElementById('chat-preview-btn')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+
+      const drawer = document.getElementById('chat-drawer') as HTMLElement;
+      expect(drawer.classList.contains('open')).toBe(true);
+      expect(document.activeElement).toBe(drawer);
+      toggleChatDrawer();
+      document.documentElement.style.removeProperty('--app-height');
     });
 
     it('makes the mobile drawer modal, keyboard-resizable, focus-contained, and escapable', async () => {

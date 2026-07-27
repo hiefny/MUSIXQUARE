@@ -4843,6 +4843,11 @@
     padding-top: calc(var(--safe-top) + 16px);
   }
 
+  /* Full-screen dialog roots are pointer-focus sentinels, not visible actions. */
+  #media-source-overlay:focus {
+    outline: none;
+  }
+
   /* Hide header behind fullscreen overlays */
   body:has(#setup-overlay.active) header,
   body:has(#media-source-overlay.active) header,
@@ -6317,6 +6322,11 @@
     border-bottom: none;
   }
 
+  /* Pointer opening focuses the modal surface; the keyboard path focuses its handle. */
+  .chat-drawer:focus {
+    outline: none;
+  }
+
   @media (max-width: 1279px) {
     .chat-drawer-header {
       justify-content: center;
@@ -7505,12 +7515,6 @@
   .demo-step-nav .demo-step-next:not(.is-final) {
     background: var(--primary-filled);
     border-color: rgba(var(--primary-rgb), 0.75);
-    color: #fff;
-  }
-
-  .demo-step-nav .demo-step-next.is-final {
-    background: var(--primary-filled);
-    border-color: var(--primary-filled);
     color: #fff;
   }
 

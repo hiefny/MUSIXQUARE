@@ -330,7 +330,7 @@ function updateChatDrawerHandleAccessibility(drawer: HTMLElement): void {
 function syncChatDrawerModalAccessibility(
   drawer: HTMLElement,
   opening: boolean,
-  focusHandle = false,
+  focusTarget: 'handle' | 'dialog' | null = null,
 ): void {
   const mobile = isMobileChatDrawer();
   drawer.setAttribute('aria-label', t('chat.title'));
@@ -341,8 +341,10 @@ function syncChatDrawerModalAccessibility(
   setChatDrawerBackgroundInert(mobile && opening);
   updateChatDrawerHandleAccessibility(drawer);
 
-  if (mobile && opening && focusHandle) {
-    drawer.querySelector<HTMLElement>('.chat-drawer-header')?.focus({ preventScroll: true });
+  if (mobile && opening && focusTarget) {
+    const target =
+      focusTarget === 'handle' ? drawer.querySelector<HTMLElement>('.chat-drawer-header') : drawer;
+    target?.focus({ preventScroll: true });
   }
 }
 
@@ -538,7 +540,7 @@ function blurChatDrawerInput(drawer: HTMLElement): void {
   if (active instanceof HTMLElement && drawer.contains(active)) active.blur();
 }
 
-export function toggleChatDrawer(): void {
+export function toggleChatDrawer(openFocus: 'handle' | 'dialog' = 'handle'): void {
   const drawer = document.getElementById('chat-drawer');
   if (!drawer) return;
 
@@ -560,7 +562,7 @@ export function toggleChatDrawer(): void {
     delete drawer.dataset.chatSnapSource;
   }
   drawer.classList.toggle('open', opening);
-  syncChatDrawerModalAccessibility(drawer, opening, opening);
+  syncChatDrawerModalAccessibility(drawer, opening, opening ? openFocus : null);
 
   // Sync backdrop
   const backdrop = document.getElementById('chat-backdrop');
@@ -1305,10 +1307,22 @@ export function initChat(): void {
   }
 
   const closeBtn = document.getElementById('btn-chat-close');
-  if (closeBtn) closeBtn.addEventListener('click', toggleChatDrawer, { signal: uiSignal });
+  if (closeBtn) closeBtn.addEventListener('click', () => toggleChatDrawer(), { signal: uiSignal });
 
   const previewBtn = document.getElementById('chat-preview-btn');
-  if (previewBtn) previewBtn.addEventListener('click', toggleChatDrawer, { signal: uiSignal });
+  if (previewBtn) {
+    previewBtn.addEventListener(
+      'click',
+      (event) => {
+        // Pointer/touch users should not see the full-width drag handle rendered
+        // as a selected control. Keyboard and AT activation keep the visible,
+        // actionable handle focus.
+        const openFocus = event instanceof MouseEvent && event.detail > 0 ? 'dialog' : 'handle';
+        toggleChatDrawer(openFocus);
+      },
+      { signal: uiSignal },
+    );
+  }
 
   // Chat input: send on Enter + command autocomplete
   const chatInput = document.getElementById('chat-input') as HTMLDivElement | null;

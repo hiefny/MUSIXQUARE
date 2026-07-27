@@ -538,6 +538,28 @@ describe('PRO room media-source capabilities', () => {
     expect(document.getElementById('media-source-overlay')?.classList).not.toContain('active');
   });
 
+  it('focuses the media picker surface instead of visually selecting an action for pointer opens', async () => {
+    document.body.innerHTML = `
+      <button id="btn-media-source"></button>
+      <div id="media-source-overlay" role="dialog" aria-modal="true" tabindex="-1">
+        <button id="btn-local-file"></button>
+        <button id="btn-close-media-popup"></button>
+      </div>
+      <input id="file-input" type="file" />
+    `;
+    setState('network.appRole', 'host');
+    setState('network.standardRoomCapabilities', ['media.add', 'asset.upload']);
+
+    initPlayerControls();
+    document
+      .getElementById('btn-media-source')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+
+    const overlay = document.getElementById('media-source-overlay') as HTMLElement;
+    await vi.waitFor(() => expect(document.activeElement).toBe(overlay));
+    expect(overlay.classList.contains('active')).toBe(true);
+  });
+
   it('updates script-aware fonts while typing a YouTube search query', () => {
     document.body.innerHTML = `<div id="youtube-url-input" contenteditable="true"></div>`;
     const input = document.getElementById('youtube-url-input') as HTMLDivElement;

@@ -502,7 +502,11 @@ function handleFullscreenOverlayKeydown(
   focusable[nextIndex]?.focus({ preventScroll: true });
 }
 
-function openMediaSourcePopup(): void {
+function isKeyboardLikeActivation(event: Event): boolean {
+  return !(event instanceof MouseEvent) || event.detail === 0;
+}
+
+function openMediaSourcePopup(focusFirstAction = true): void {
   if (!hasRoomCapability('media.add') && !hasRoomCapability('asset.upload')) {
     showToast(t('toast.media_management_required'));
     return;
@@ -522,7 +526,12 @@ function openMediaSourcePopup(): void {
       syncOverlayState('media-source-overlay');
       setManagedTimer(
         'media-source-focus',
-        () => getOverlayFocusableElements(overlay)[0]?.focus({ preventScroll: true }),
+        () => {
+          const focusTarget = focusFirstAction
+            ? (getOverlayFocusableElements(overlay)[0] ?? overlay)
+            : overlay;
+          focusTarget.focus({ preventScroll: true });
+        },
         0,
       );
     }
@@ -1154,7 +1163,7 @@ export function initPlayerControls(): void {
     onVolChange(Number(this.value));
   });
   $on('btn-sync', 'click', () => handleMainSyncBtn());
-  $on('btn-media-source', 'click', () => {
+  $on('btn-media-source', 'click', (event) => {
     if (isPlaybackModeSystemAudio()) {
       if (getRoomContext().kind === 'pro') {
         if (!isLocalProSystemAudioOwner()) {
@@ -1167,7 +1176,7 @@ export function initPlayerControls(): void {
       }
       bus.emit('system-audio:stop');
     } else {
-      openMediaSourcePopup();
+      openMediaSourcePopup(isKeyboardLikeActivation(event));
     }
   });
 
@@ -1186,7 +1195,7 @@ export function initPlayerControls(): void {
     }
     bus.emit('playlist:toggle-shuffle');
   });
-  $on('btn-add-media', 'click', () => openMediaSourcePopup());
+  $on('btn-add-media', 'click', (event) => openMediaSourcePopup(isKeyboardLikeActivation(event)));
 
   // Media source popup
   $on('btn-local-file', 'click', () => openFileSelector());

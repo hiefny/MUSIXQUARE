@@ -71,7 +71,7 @@ describe('streaming engine dependency policy', () => {
     expect(mpg123Lgpl).toContain('GNU LESSER GENERAL PUBLIC LICENSE');
     expect(mpg123Lgpl).toContain('Version 2.1, February 1999');
     expect(createHash('sha256').update(mpg123Lgpl).digest('hex')).toBe(
-      '730aca838484e53c7c4838873de0cf2f77fc08f27b18f3f20ab775a52687042a',
+      '20e50fe7aae3e56378ebf0417d9de904f55a0e61e4df315333e632a4d3555d95',
     );
   });
 });

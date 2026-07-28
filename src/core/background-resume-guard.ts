@@ -5,8 +5,15 @@
  * is hidden, so elapsed visibility time is only the trigger, not proof of drift.
  */
 
-/** Default to recovery on every hidden-to-visible transition. */
-const DEFAULT_RECOVER_THRESHOLD_MS = 0;
+/**
+ * Ignore transient visibility bounces (tab previews, DevTools focus changes,
+ * mobile browser chrome) that are too short to suspend timers or audio.
+ *
+ * V2 wake recovery invalidates clock continuation leases before recalibrating.
+ * Running it for a zero-duration bounce can therefore disrupt a healthy
+ * rendezvous even though no sleep/wake actually occurred.
+ */
+export const DEFAULT_RECOVER_THRESHOLD_MS = 1000;
 
 /** Reserve the disruptive warning for absences of at least one minute. */
 export const DEFAULT_WARN_THRESHOLD_MS = 60 * 1000;
@@ -20,7 +27,7 @@ interface BackgroundResumeGuardDeps {
   warn: (event: BackgroundResumeEvent) => void | Promise<void>;
   getNow?: () => number;
   getVisibilityState?: () => DocumentVisibilityState;
-  /** Hidden duration at or above which recover() runs. Default 0. */
+  /** Hidden duration at or above which recover() runs. Default 1s. */
   recoverThresholdMs?: number;
   /** Hidden duration at or above which warn() runs. Should be >= recoverThresholdMs. Default 60s. */
   warnThresholdMs?: number;
@@ -44,7 +51,11 @@ export function initBackgroundResumeGuard(
   const recoverThresholdMs = deps.recoverThresholdMs ?? DEFAULT_RECOVER_THRESHOLD_MS;
   const warnThresholdMs = deps.warnThresholdMs ?? DEFAULT_WARN_THRESHOLD_MS;
 
-  let hiddenAt: number | null = getVisibilityState() === 'hidden' ? getNow() : null;
+  // A page can bootstrap while hidden (opening a background tab, restored PWA
+  // process, file picker hand-off). That first visible event is not a resume
+  // from an established foreground session. Arm only after this guard has
+  // observed an actual hidden transition.
+  let hiddenAt: number | null = null;
 
   // Single-flight gate. `await deps.warn()` can stall on user interaction
   // (the dialog blocks until tap), so guard against stacking another

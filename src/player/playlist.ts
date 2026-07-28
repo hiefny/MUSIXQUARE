@@ -324,6 +324,10 @@ async function playV2HostLocalFile(
         .positionSeconds,
     );
     setPlaybackFilePlaying();
+    // V2 bypasses the legacy decode completion path that used to enable this
+    // affordance. Publish readiness only after the exact renderer commit so
+    // the first local file cannot leave the host button visually disabled.
+    bus.emit('ui:play-btn-state', true);
     bus.emit('visualizer:start');
     bus.emit('ui:loop-start');
     if (navigateToPlay) bus.emit('ui:switch-tab', 'play');

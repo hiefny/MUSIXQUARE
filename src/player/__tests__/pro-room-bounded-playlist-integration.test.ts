@@ -145,8 +145,10 @@ describe('PRO bounded playlist publication boundary', () => {
     const { previous, incoming, resident, buffer } = enterRoomWithPredecessor();
     const durationUpdates = vi.fn();
     const timeUpdates = vi.fn();
+    const playButtonStates: boolean[] = [];
     bus.on('ui:duration-update', durationUpdates);
     bus.on('ui:time-update', timeUpdates);
+    bus.on('ui:play-btn-state', (enabled) => playButtonStates.push(enabled));
     bounded.prepare.mockResolvedValueOnce({ status: 'ready', durationSeconds: 180 });
     bounded.commit.mockResolvedValueOnce({
       status: 'applied',
@@ -210,6 +212,7 @@ describe('PRO bounded playlist publication boundary', () => {
     expect(durationUpdates).toHaveBeenCalledOnce();
     expect(durationUpdates).toHaveBeenLastCalledWith(180);
     expect(timeUpdates).toHaveBeenLastCalledWith('0:42', '3:00', 42, 180);
+    expect(playButtonStates).toEqual([true]);
   });
 
   it('keeps predecessor publication when a bounded PREPARE is cancelled', async () => {

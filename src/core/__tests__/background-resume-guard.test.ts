@@ -5,6 +5,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import {
+  DEFAULT_RECOVER_THRESHOLD_MS,
   DEFAULT_WARN_THRESHOLD_MS,
   initBackgroundResumeGuard,
   type BackgroundResumeGuardHandle,
@@ -71,6 +72,34 @@ describe('initBackgroundResumeGuard', () => {
     await visibilityCycle(5_000);
 
     expect(recover).toHaveBeenCalledWith({ hiddenMs: 5_000 });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('ignores a transient visibility bounce below the default recovery threshold', async () => {
+    init();
+    await visibilityCycle(DEFAULT_RECOVER_THRESHOLD_MS - 1);
+
+    expect(recover).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('recovers exactly at the default recovery threshold', async () => {
+    init();
+    await visibilityCycle(DEFAULT_RECOVER_THRESHOLD_MS);
+
+    expect(recover).toHaveBeenCalledWith({ hiddenMs: DEFAULT_RECOVER_THRESHOLD_MS });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('does not treat an initially hidden bootstrap becoming visible as a resume', async () => {
+    setVisibility('hidden');
+    init();
+    now += DEFAULT_WARN_THRESHOLD_MS;
+    setVisibility('visible');
+    document.dispatchEvent(new Event('visibilitychange'));
+    await flushPromises();
+
+    expect(recover).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
   });
 

@@ -2062,6 +2062,10 @@ export async function applyProPlaybackFileCommit(
     setState('player.startedAt', 0);
     setState('player.pausedAt', bounded.positionSeconds);
     transition({ type: 'PRODUCT_TIMELINE_RENDERED', phase: bounded.phase });
+    // Bounded PRO playback also bypasses legacy decode, so its first exact
+    // COMMIT must publish media readiness explicitly. Room capability remains
+    // an independent gate in player-controls.
+    bus.emit('ui:play-btn-state', true);
     bus.emit('ui:duration-update', bounded.durationSeconds ?? 0);
     bus.emit(
       'ui:time-update',

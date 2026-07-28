@@ -967,6 +967,14 @@ describe('initPlayerControls playback mode rendering', () => {
       const playBtn = document.getElementById('play-btn');
       expect(document.getElementById('file-playback-loading-overlay')).toBeNull();
       expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+      expect(playBtn?.getAttribute('aria-disabled')).toBe('true');
+
+      // Exact renderer publication enables media independently from its
+      // loading token; standard and PRO commits may publish these two events
+      // in either order.
+      bus.emit('ui:play-btn-state', true);
+      expect(playBtn?.getAttribute('aria-disabled')).toBe('false');
+      expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
 
       bus.emit('player:v2-file-loading-settled', {
         owner: 'host-start',
@@ -979,6 +987,8 @@ describe('initPlayerControls playback mode rendering', () => {
         token: 'start:1',
       });
       expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+      expect(playBtn?.getAttribute('aria-busy')).toBe('false');
+      expect(playBtn?.getAttribute('aria-disabled')).toBe('false');
       expect(document.getElementById('file-playback-loading-overlay')).toBeNull();
     } finally {
       vi.useRealTimers();

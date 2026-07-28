@@ -123,8 +123,10 @@ describe('V2 playlist intent ownership', () => {
     const secondStart = installDeferredStart(secondQueueItemId);
     const pending: Array<{ owner: string; token: string | number }> = [];
     const settled: Array<{ owner: string; token: string | number }> = [];
+    const playButtonStates: boolean[] = [];
     bus.on('player:v2-file-loading-pending', (event) => pending.push(event));
     bus.on('player:v2-file-loading-settled', (event) => settled.push(event));
+    bus.on('ui:play-btn-state', (enabled) => playButtonStates.push(enabled));
 
     const firstPlay = playTrack(firstQueueItemId);
     const firstSignal = mocks.runtime.startLocalTrack.mock.calls[0]?.[0].signal;
@@ -145,5 +147,6 @@ describe('V2 playlist intent ownership', () => {
     expect(getState('playlist.currentQueueItemId')).toBe(secondQueueItemId);
     expect(settled).toEqual(expect.arrayContaining(pending));
     expect(new Set(settled.map((event) => event.token)).size).toBe(2);
+    expect(playButtonStates).toEqual([true]);
   });
 });

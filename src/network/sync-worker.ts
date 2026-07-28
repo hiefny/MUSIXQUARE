@@ -14,6 +14,8 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 let _syncWorker: Worker | null = null;
 const _activeTimers = new Map<string, number>();
 const _fallbackTimers = new Set<string>();
+type SyncWorkerFailureObserver = (error?: unknown) => void;
+let _failureObserver: SyncWorkerFailureObserver | null = null;
 
 function fallbackTimerName(id: string): string {
   return `sync-worker-fallback:${id}`;
@@ -31,6 +33,11 @@ export function setSyncWorker(worker: Worker): void {
     if (!postWorkerMessage({ command: 'START_TIMER', id, interval: intervalMs }, id)) break;
     stopFallbackTimer(id);
   }
+}
+
+/** Observe the single fallback boundary without changing its recovery policy. */
+export function setSyncWorkerFailureObserver(observer: SyncWorkerFailureObserver | null): void {
+  _failureObserver = observer;
 }
 
 export function startWorkerTimer(id: string, intervalMs: number): void {
@@ -52,6 +59,12 @@ export function stopWorkerTimer(id: string): void {
 }
 
 export function handleSyncWorkerFailure(error?: unknown): void {
+  try {
+    _failureObserver?.(error);
+  } catch (observerError) {
+    log.warn('[SyncWorker] Failure observer failed:', observerError);
+  }
+
   const worker = _syncWorker;
   _syncWorker = null;
 
@@ -109,6 +122,7 @@ function handleSyncWorkerMessage(e: MessageEvent): void {
 
 export function __resetSyncWorkerForTests(): void {
   _syncWorker = null;
+  _failureObserver = null;
   _activeTimers.clear();
   for (const id of Array.from(_fallbackTimers)) {
     stopFallbackTimer(id);

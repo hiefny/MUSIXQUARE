@@ -3,6 +3,7 @@
  */
 import type { Page } from '@playwright/test';
 import { expect } from '@playwright/test';
+import { BootstrapReadinessError, waitForBootstrapReady } from './bootstrap.ts';
 
 const HOST_CODE_ATTEMPTS = 2;
 const HOST_CODE_TIMEOUT_MS = 15_000;
@@ -15,6 +16,7 @@ async function navigateAndWaitForSetup(page: Page): Promise<void> {
   // The landing page intentionally performs best-effort background network
   // warmup. Readiness must follow the setup UI, not global network silence.
   await page.waitForLoadState('domcontentloaded');
+  await waitForBootstrapReady(page);
   await page.waitForSelector('#btn-setup-host', { state: 'visible', timeout: 15_000 });
 }
 
@@ -62,6 +64,7 @@ export async function setupHost(page: Page): Promise<string> {
       await page.waitForSelector('#setup-code-area', { state: 'visible', timeout: 10_000 });
       return await waitForGeneratedHostCode(page);
     } catch (error) {
+      if (error instanceof BootstrapReadinessError) throw error;
       lastError = error;
       if (attempt === HOST_CODE_ATTEMPTS || page.isClosed()) break;
       await page.goto('/', { waitUntil: 'domcontentloaded' }).catch(() => {});
@@ -117,6 +120,7 @@ export async function setupGuest(page: Page, joinCode: string, channelMode = 0):
       await setChannelModeForTest(page, channelMode);
       return;
     } catch (error) {
+      if (error instanceof BootstrapReadinessError) throw error;
       lastError = error;
       if (attempt === GUEST_JOIN_ATTEMPTS || page.isClosed()) break;
       await page.goto('/', { waitUntil: 'domcontentloaded' }).catch(() => {});

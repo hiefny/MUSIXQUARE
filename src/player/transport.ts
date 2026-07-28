@@ -26,7 +26,6 @@ import {
   setPlaybackFilePaused,
   setPlaybackFilePlaying,
   setPlaybackIdle,
-  setPlaybackLifecycleState,
   isPlaybackPlayingFile,
   isPlaybackPlayingSystemAudio,
   setPlaybackTrackMeta,
@@ -2053,9 +2052,7 @@ export async function applyProPlaybackFileCommit(
     setState('files.current', null);
     setState('player.startedAt', 0);
     setState('player.pausedAt', bounded.positionSeconds);
-    setPlaybackLifecycleState(
-      bounded.phase === 'playing' ? PLAYBACK_STATE.PLAYING : PLAYBACK_STATE.PAUSED,
-    );
+    transition({ type: 'PRODUCT_TIMELINE_RENDERED', phase: bounded.phase });
     bus.emit('ui:duration-update', bounded.durationSeconds ?? 0);
     bus.emit(
       'ui:time-update',

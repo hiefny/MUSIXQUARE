@@ -65,7 +65,7 @@ interface DownloadProRoomMediaInput {
   retainedEncodedBytes?: number;
 }
 
-export interface CreateProRoomMediaRangeSourceInput {
+interface CreateProRoomMediaRangeSourceInput {
   code: string;
   name: string;
   source: ProRoomR2Source;

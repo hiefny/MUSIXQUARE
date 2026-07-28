@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { bus } from '../../core/events.ts';
-import { setState } from '../../core/state.ts';
+import { getState, setState } from '../../core/state.ts';
 import { ProRoomMediaRangeCompatibilityError } from '../../pro-room/media-transfer.ts';
 import {
   createProPlaybackAuthorityToken,
@@ -27,10 +27,8 @@ import {
   UnsupportedOrdinaryEncodedSourceError,
   type BlobFilePlaybackSourceResult,
 } from '../file-playback-source-factory.ts';
-import {
-  ProRoomBoundedPlaybackAdapter,
-  type ProRoomBoundedPlaybackDependencies,
-} from '../pro-room-bounded-playback.ts';
+import { setPlaybackIdle, setPlaybackYouTubePlaying } from '../ownership.ts';
+import { createProRoomBoundedPlaybackAdapterForTests } from '../pro-room-bounded-playback.ts';
 import {
   EncodedSourceIntegrityError,
   type EncodedAudioSource,
@@ -140,6 +138,8 @@ interface FakeCutoverSource {
   readonly encodedSource: EncodedAudioSource;
   readonly primeGate: ReturnType<typeof deferred<void>>;
   gatePrime(): void;
+  gateTransitionEvidence(): void;
+  releaseTransitionEvidence(): void;
   setPhase(phase: FilePlaybackSourcePhase): void;
   fail(errorCode: string): void;
 }
@@ -155,7 +155,9 @@ function makeCutoverSource(
   let positionSeconds = 0;
   let errorCode: string | null = null;
   let primeGated = false;
+  let transitionEvidenceGated = false;
   const primeGate = deferred<void>();
+  const transitionEvidenceGate = deferred<void>();
 
   const snapshot = (): FilePlaybackSourceSnapshot => ({
     schemaVersion: 1,
@@ -185,13 +187,19 @@ function makeCutoverSource(
     if (intent.kind === 'file-playback-seek-transition') {
       positionSeconds = intent.positionSeconds;
     }
+    const evidence = createFilePlaybackTransitionEvidence(
+      intent,
+      'worklet-observed',
+      targetFrame,
+      targetFrame,
+    );
     return createFilePlaybackScheduledTransitionResult(
       intent,
       createFilePlaybackCutoverTarget(context as unknown as AudioContext, targetTime, targetFrame),
       before,
-      Promise.resolve(
-        createFilePlaybackTransitionEvidence(intent, 'worklet-observed', targetFrame, targetFrame),
-      ),
+      transitionEvidenceGated
+        ? transitionEvidenceGate.promise.then(() => evidence)
+        : Promise.resolve(evidence),
     );
   };
 
@@ -266,6 +274,12 @@ function makeCutoverSource(
     gatePrime() {
       primeGated = true;
     },
+    gateTransitionEvidence() {
+      transitionEvidenceGated = true;
+    },
+    releaseTransitionEvidence() {
+      transitionEvidenceGate.resolve();
+    },
     setPhase(nextPhase) {
       phase = nextPhase;
     },
@@ -290,6 +304,11 @@ function encodedSource(identity: string): EncodedAudioSource {
   };
 }
 
+type ProRoomBoundedPlaybackAdapter = ReturnType<typeof createProRoomBoundedPlaybackAdapterForTests>;
+type ProRoomBoundedPlaybackDependencies = NonNullable<
+  Parameters<typeof createProRoomBoundedPlaybackAdapterForTests>[0]
+>;
+
 interface AdapterHarness {
   readonly adapter: ProRoomBoundedPlaybackAdapter;
   readonly context: FakeAudioContext;
@@ -304,6 +323,9 @@ interface AdapterHarness {
   readonly routeEnded: ReturnType<typeof vi.fn>;
   readonly restoreLegacy: ReturnType<typeof vi.fn>;
   readonly getBuildProfile: ReturnType<typeof vi.fn>;
+  readonly getAudioRuntime: ReturnType<
+    typeof vi.fn<ProRoomBoundedPlaybackDependencies['getAudioRuntime']>
+  >;
   readonly nowRoomTimeMs: ReturnType<typeof vi.fn>;
   readonly created: FakeCutoverSource[];
   gateNextPrime(): void;
@@ -345,6 +367,12 @@ function harness(): AdapterHarness {
   const routeEnded = vi.fn(() => true);
   const restoreLegacy = vi.fn(async () => true);
   const nowRoomTimeMs = vi.fn(() => roomTimeMs);
+  const getAudioRuntime = vi.fn<ProRoomBoundedPlaybackDependencies['getAudioRuntime']>(
+    async () => ({
+      audioContext: context as unknown as AudioContext,
+      destination,
+    }),
+  );
   const getBuildProfile = vi.fn<ProRoomBoundedPlaybackDependencies['getBuildProfile']>(() => ({
     id: 'v2-universal-v1',
     engine: 'v2',
@@ -352,13 +380,10 @@ function harness(): AdapterHarness {
     boundedRoutePolicy: FILE_PLAYBACK_UNIVERSAL_V1_BOUNDED_ROUTE_POLICY,
     semanticPlaybackCohortId: 'test-v2-universal-v1',
   }));
-  const adapter = new ProRoomBoundedPlaybackAdapter({
+  const adapter = createProRoomBoundedPlaybackAdapterForTests({
     resolveRangeSource,
     createSource,
-    getAudioRuntime: async () => ({
-      audioContext: context as unknown as AudioContext,
-      destination,
-    }),
+    getAudioRuntime,
     nowRoomTimeMs,
     routeEnded,
     restoreLegacy,
@@ -373,6 +398,7 @@ function harness(): AdapterHarness {
     routeEnded,
     restoreLegacy,
     getBuildProfile,
+    getAudioRuntime,
     nowRoomTimeMs,
     created,
     gateNextPrime() {
@@ -758,6 +784,61 @@ describe('PRO bounded playback adapter', () => {
     expect(h.restoreLegacy).not.toHaveBeenCalled();
   });
 
+  it('closes a pre-factory range source exactly once without letting runtime cleanup extend admission', async () => {
+    const rejected = harness();
+    const rejectedSource = encodedSource('audio-runtime-rejected');
+    const audioFailure = new Error('audio runtime rejected');
+    rejected.resolveRangeSource.mockResolvedValueOnce(rejectedSource);
+    rejected.getAudioRuntime.mockRejectedValueOnce(audioFailure);
+
+    await expect(
+      rejected.adapter.prepare(prepareRequest(authority(0, 'audio-runtime-rejected'))),
+    ).rejects.toBe(audioFailure);
+    expect(rejectedSource.close).toHaveBeenCalledOnce();
+    expect(rejected.createSource).not.toHaveBeenCalled();
+
+    const unavailable = harness();
+    const unavailableSource = encodedSource('audio-runtime-unavailable');
+    unavailable.resolveRangeSource.mockResolvedValueOnce(unavailableSource);
+    unavailable.getAudioRuntime.mockResolvedValueOnce(null);
+
+    await expect(
+      unavailable.adapter.prepare(prepareRequest(authority(0, 'audio-runtime-unavailable'))),
+    ).resolves.toEqual({ status: 'fallback' });
+    expect(unavailableSource.close).toHaveBeenCalledOnce();
+    expect(unavailable.createSource).not.toHaveBeenCalled();
+
+    vi.useFakeTimers();
+    const stalled = harness();
+    const stalledSource = encodedSource('audio-runtime-stalled');
+    const stalledRuntime = deferred<Awaited<ReturnType<typeof stalled.getAudioRuntime>>>();
+    const stalledClose = deferred<void>();
+    stalled.resolveRangeSource.mockResolvedValueOnce(stalledSource);
+    stalled.getAudioRuntime.mockImplementationOnce(() => stalledRuntime.promise);
+    vi.mocked(stalledSource.close).mockImplementationOnce(() => stalledClose.promise);
+
+    const preparing = stalled.adapter.prepare(
+      prepareRequest(authority(0, 'audio-runtime-stalled'), {
+        prepareBudgetMs: 250,
+      }),
+    );
+    const deadlineFailure = expect(preparing).rejects.toMatchObject({
+      name: 'TimeoutError',
+      message: 'PRO bounded preparation deadline',
+    });
+    await vi.advanceTimersByTimeAsync(50);
+    await deadlineFailure;
+    expect(stalledSource.close).toHaveBeenCalledOnce();
+    expect(stalled.createSource).not.toHaveBeenCalled();
+
+    // Cleanup and the shared document-scoped runtime may finish much later;
+    // neither is allowed to reopen or double-close candidate ownership.
+    stalledClose.resolve();
+    stalledRuntime.resolve(null);
+    await Promise.resolve();
+    expect(stalledSource.close).toHaveBeenCalledOnce();
+  });
+
   it('keeps a late integrity failure fail-closed behind the authoritative PREPARE deadline', async () => {
     vi.useFakeTimers();
     const h = harness();
@@ -1061,6 +1142,54 @@ describe('PRO bounded playback adapter', () => {
     expect(h.adapter.hasCurrent()).toBe(false);
   });
 
+  it('does not let a retiring failed observer overwrite a takeover or later clear epoch', async () => {
+    vi.useFakeTimers();
+    setPlaybackIdle();
+    const external = harness();
+    await expect(
+      prepareAndCommit(external, authority(0, 'observer-external-current'), 1, 10),
+    ).resolves.toMatchObject({ status: 'applied', phase: 'playing' });
+    const externalClose = deferred<void>();
+    vi.mocked(external.created[0]!.encodedSource.close).mockImplementationOnce(
+      () => externalClose.promise,
+    );
+    external.created[0]!.fail('decoder-unavailable');
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(external.created[0]!.encodedSource.close).toHaveBeenCalledOnce();
+    setState('player.pausedAt', 777);
+    setPlaybackYouTubePlaying();
+    externalClose.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(getState('playback.mode')).toBe('youtube');
+    expect(getState('playback.activity')).toBe('playing');
+    expect(getState('player.pausedAt')).toBe(777);
+
+    setPlaybackIdle();
+    const cleared = harness();
+    await expect(
+      prepareAndCommit(cleared, authority(0, 'observer-clear-current'), 1, 20),
+    ).resolves.toMatchObject({ status: 'applied', phase: 'playing' });
+    const clearClose = deferred<void>();
+    vi.mocked(cleared.created[0]!.encodedSource.close).mockImplementationOnce(
+      () => clearClose.promise,
+    );
+    cleared.created[0]!.fail('decoder-unavailable');
+
+    await vi.advanceTimersByTimeAsync(100);
+    expect(cleared.created[0]!.encodedSource.close).toHaveBeenCalledOnce();
+    const clearing = cleared.adapter.clear();
+    setState('player.pausedAt', 888);
+    clearClose.resolve();
+    await clearing;
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(getState('player.pausedAt')).toBe(888);
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+  });
+
   it('retires only the stale committed renderer after successor failure and preserves a newer candidate', async () => {
     vi.useFakeTimers();
     const h = harness();
@@ -1109,6 +1238,71 @@ describe('PRO bounded playback adapter', () => {
     expect(outgoing.source.destroy).toHaveBeenCalledOnce();
     expect(newerCandidate.source.destroy).not.toHaveBeenCalled();
     expect(h.restoreLegacy).not.toHaveBeenCalled();
+
+    await expect(
+      h.adapter.commit(
+        commitRequest(newer, 3, {
+          positionSeconds: 30,
+          scheduleDelayMs: 30,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      status: 'applied',
+      phase: 'playing',
+      positionSeconds: 30,
+    });
+    expect(h.adapter.hasCurrent(Q1)).toBe(true);
+    expect(h.adapter.currentSnapshot()).toMatchObject({
+      queueItemId: Q1,
+      revision: 3,
+      positionSeconds: 30,
+    });
+  });
+
+  it('fails silent on invalidation during a pending transition without retiring its successor', async () => {
+    const h = harness();
+    await expect(
+      prepareAndCommit(h, authority(0, 'pending-current-revision-1'), 1, 10),
+    ).resolves.toMatchObject({
+      status: 'applied',
+      phase: 'playing',
+    });
+    const outgoing = h.created[0]!;
+
+    const newer = authority(2, 'pending-newer-revision-3');
+    await expect(
+      h.adapter.prepare(
+        prepareRequest(newer, {
+          positionSeconds: 30,
+        }),
+      ),
+    ).resolves.toEqual({ status: 'ready', durationSeconds: 180 });
+    const newerCandidate = h.created[1]!;
+
+    outgoing.gateTransitionEvidence();
+    const failedCanonical = authority(1, 'pending-failed-revision-2');
+    const pendingPause = h.adapter.commit(
+      commitRequest(failedCanonical, 2, {
+        state: 'paused',
+        positionSeconds: 10,
+      }),
+    );
+    await vi.waitFor(() => expect(outgoing.source.pauseRevisioned).toHaveBeenCalledOnce());
+
+    await h.adapter.invalidateCommitted(
+      commitRequest(failedCanonical, 2, {
+        positionSeconds: 20,
+        scheduleDelayMs: 0,
+      }),
+    );
+
+    expect(h.adapter.hasCurrent()).toBe(false);
+    expect(h.adapter.currentSnapshot()).toBeNull();
+    expect(outgoing.source.destroy).toHaveBeenCalledOnce();
+    expect(newerCandidate.source.destroy).not.toHaveBeenCalled();
+
+    outgoing.releaseTransitionEvidence();
+    await expect(pendingPause).resolves.toEqual({ status: 'failed' });
 
     await expect(
       h.adapter.commit(

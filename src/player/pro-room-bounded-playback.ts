@@ -1,5 +1,4 @@
 import { getPrimedFilePlaybackProductAudio } from '../audio/file-playback-audio-readiness.ts';
-import { PLAYBACK_STATE } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
@@ -23,7 +22,8 @@ import {
   FilePlaybackManager,
   type FilePlaybackCutoverCandidatePort,
 } from './file-playback-manager.ts';
-import { setPlaybackLifecycleState } from './ownership.ts';
+import { transition } from './lifecycle.ts';
+import { isExternalOwner } from './ownership.ts';
 import {
   createEncodedFilePlaybackSource,
   UnsupportedOrdinaryEncodedSourceError,
@@ -49,7 +49,7 @@ const LOCAL_CATCHUP_HORIZON_MS = 750;
 const MIN_TRANSITION_LEAD_MS = 30;
 const OBSERVER_INTERVAL_MS = 100;
 
-export type ProRoomBoundedPrepareOutcome =
+type ProRoomBoundedPrepareOutcome =
   | Readonly<{
       status: 'ready';
       durationSeconds: number | null;
@@ -57,7 +57,7 @@ export type ProRoomBoundedPrepareOutcome =
   | Readonly<{ status: 'fallback' }>
   | Readonly<{ status: 'superseded' }>;
 
-export type ProRoomBoundedCommitOutcome =
+type ProRoomBoundedCommitOutcome =
   | Readonly<{
       status: 'applied';
       phase: 'playing' | 'paused' | 'idle';
@@ -102,7 +102,7 @@ interface CurrentRenderer {
   recovering: boolean;
 }
 
-export interface ProRoomBoundedPlaybackDependencies {
+interface ProRoomBoundedPlaybackDependencies {
   readonly resolveRangeSource: (
     queueItemId: QueueItemId,
     signal: AbortSignal,
@@ -122,7 +122,7 @@ function defaultDependencies(): ProRoomBoundedPlaybackDependencies {
     resolveRangeSource: resolveProRoomPlaylistRangeSource,
     createSource: createEncodedFilePlaybackSource,
     getAudioRuntime: async () => getPrimedFilePlaybackProductAudio().catch(() => null),
-    nowRoomTimeMs: getProRoomServerNow,
+    nowRoomTimeMs: () => getProRoomServerNow(),
     routeEnded: routeProPlaybackCommand,
     restoreLegacy: restoreProRoomLegacyPlayback,
     getBuildProfile: getFilePlaybackBuildProfile,
@@ -241,7 +241,7 @@ function boundedRendezvousId(request: Readonly<ProPlaybackCommitRequest>): strin
  * PRO owns a distinct manager instance. It reuses the renderer primitives but
  * cannot claim the standard-room product singleton or its controller state.
  */
-export class ProRoomBoundedPlaybackAdapter {
+class ProRoomBoundedPlaybackAdapter {
   readonly #manager = new FilePlaybackManager();
   readonly #dependencies: ProRoomBoundedPlaybackDependencies;
   #prepared: PreparedCandidate | null = null;
@@ -320,6 +320,7 @@ export class ProRoomBoundedPlaybackAdapter {
    * port; a newer candidate/current is never broadly cleared.
    */
   async invalidateCommitted(request: Readonly<ProPlaybackCommitRequest>): Promise<void> {
+    const observedEpoch = this.#epoch;
     const current = this.#current;
     const snapshot = current ? this.#manager.currentCutoverSnapshot(current.port) : null;
     if (
@@ -365,13 +366,26 @@ export class ProRoomBoundedPlaybackAdapter {
       }
     } catch (error) {
       log.warn('[PRO Playback] Failed to retire stale bounded renderer', error);
+      // Some stop preflight failures (for example an already-pending current
+      // transition) deliberately preserve the current renderer. Canonical
+      // truth has nevertheless advanced, so fail silent by retiring only this
+      // exact stale port. A successor candidate owns a different opaque port
+      // and remains untouched.
+      await this.#manager.retireExactCutoverPort(current.port).catch((retireError) => {
+        log.warn('[PRO Playback] Failed to fail-silent stale bounded renderer', retireError);
+      });
+    }
+    if (
+      observedEpoch !== this.#epoch ||
+      this.#current !== current ||
+      this.#manager.currentCutoverPort() === current.port
+    ) {
       return;
     }
-    if (this.#current !== current || this.#manager.currentCutoverPort() === current.port) return;
     this.#current = null;
     this.#stopObserver();
     if (request.isCurrent?.() === false) return;
-    setPlaybackLifecycleState(PLAYBACK_STATE.PAUSED);
+    transition({ type: 'PRODUCT_TIMELINE_RENDERED', phase: 'paused' });
     bus.emit('ui:update-play-state', false);
     bus.emit('visualizer:hold-frame');
   }
@@ -486,6 +500,7 @@ export class ProRoomBoundedPlaybackAdapter {
     buildProfile: ReturnType<typeof getFilePlaybackBuildProfile>,
   ): Promise<ProRoomBoundedPrepareOutcome> {
     const controller = candidate.controller;
+    let untransferredEncodedSource: EncodedAudioSource | null = null;
     let deadlineExpired = false;
     const deadlineTimer = globalThis.setTimeout(() => {
       deadlineExpired = true;
@@ -503,6 +518,7 @@ export class ProRoomBoundedPlaybackAdapter {
         await this.#retirePrepared(candidate);
         return request.isCurrent?.() === false ? { status: 'superseded' } : { status: 'fallback' };
       }
+      untransferredEncodedSource = encodedSource;
       // Audio graph initialization can be shared/document-scoped and may not
       // itself observe this candidate signal. The participant admission
       // deadline must nevertheless settle promptly.
@@ -511,12 +527,15 @@ export class ProRoomBoundedPlaybackAdapter {
         controller.signal,
       );
       if (!audio) {
-        await encodedSource.close();
         await this.#retirePrepared(candidate);
         return { status: 'fallback' };
       }
       const { audioContext, destination } = audio;
       candidate.audioContext = audioContext;
+      // Resolver-issued PRO sources are canonical by construction. The source
+      // factory owns that source from invocation onward; until this exact
+      // transfer point the adapter must close it itself.
+      untransferredEncodedSource = null;
       const sourceResult = await this.#dependencies.createSource({
         encodedSource,
         queueItemId: request.queueItemId,
@@ -604,6 +623,19 @@ export class ProRoomBoundedPlaybackAdapter {
       throw error;
     } finally {
       globalThis.clearTimeout(deadlineTimer);
+      if (untransferredEncodedSource) {
+        const source = untransferredEncodedSource;
+        try {
+          // Cleanup starts exactly once, but it must not extend the strict
+          // participant admission deadline if an external range transport
+          // implements a slow or stalled close.
+          void Promise.resolve(source.close()).catch((error) => {
+            log.warn('[PRO Playback] Failed to close untransferred range source', error);
+          });
+        } catch (error) {
+          log.warn('[PRO Playback] Failed to close untransferred range source', error);
+        }
+      }
     }
   }
 
@@ -989,6 +1021,7 @@ export class ProRoomBoundedPlaybackAdapter {
   }
 
   async #observeCurrent(): Promise<void> {
+    const observedEpoch = this.#epoch;
     const current = this.#current;
     if (!current) return;
     const context = getState('room.context');
@@ -1039,11 +1072,13 @@ export class ProRoomBoundedPlaybackAdapter {
     await this.#manager.retireExactCutoverPort(current.port).catch(() => undefined);
     const room = getState('room.context');
     if (
+      observedEpoch !== this.#epoch ||
       room.kind !== 'pro' ||
       room.roomId !== current.roomId ||
       room.epoch !== current.roomEpoch ||
       this.#current !== null ||
-      this.#prepared !== null
+      this.#prepared !== null ||
+      isExternalOwner()
     ) {
       return;
     }
@@ -1054,7 +1089,7 @@ export class ProRoomBoundedPlaybackAdapter {
     // fallback remains available during PREPARE; post-COMMIT failures instead
     // fail closed and wait for an explicit/canonical reconciliation.
     setState('player.pausedAt', clampPosition(position));
-    setPlaybackLifecycleState(PLAYBACK_STATE.PAUSED);
+    transition({ type: 'PRODUCT_TIMELINE_RENDERED', phase: 'paused' });
     bus.emit('ui:update-play-state', false);
     bus.emit('visualizer:hold-frame');
     log.warn('[PRO Playback] Bounded renderer failed after commit; playback was silenced');
@@ -1062,6 +1097,13 @@ export class ProRoomBoundedPlaybackAdapter {
 }
 
 const proRoomBoundedPlayback = new ProRoomBoundedPlaybackAdapter();
+
+/** @internal Test-only constructor seam; production owns the singleton above. */
+export function createProRoomBoundedPlaybackAdapterForTests(
+  dependencies?: ProRoomBoundedPlaybackDependencies,
+): ProRoomBoundedPlaybackAdapter {
+  return new ProRoomBoundedPlaybackAdapter(dependencies);
+}
 
 export function prepareProRoomBoundedFilePlayback(
   request: Readonly<ProPlaybackPrepareRequest>,
@@ -1095,8 +1137,4 @@ export function hasCurrentProRoomBoundedFilePlayback(queueItemId?: QueueItemId):
 
 export function getProRoomBoundedFilePlaybackPosition(): FilePlaybackPosition | null {
   return proRoomBoundedPlayback.currentPosition();
-}
-
-export function getProRoomBoundedFilePlaybackSnapshot(): FilePlaybackSourceSnapshot | null {
-  return proRoomBoundedPlayback.currentSnapshot();
 }

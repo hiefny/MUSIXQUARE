@@ -23,7 +23,6 @@ vi.mock('../pro-room-bounded-playback.ts', async (importOriginal) => {
     clearProRoomBoundedFilePlayback: bounded.clear,
     hasCurrentProRoomBoundedFilePlayback: bounded.hasCurrent,
     getProRoomBoundedFilePlaybackPosition: bounded.position,
-    getProRoomBoundedFilePlaybackSnapshot: bounded.snapshot,
   };
 });
 

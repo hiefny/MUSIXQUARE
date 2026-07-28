@@ -5,6 +5,7 @@ import {
   getPageErrors,
   type HostGuestPair,
 } from './helpers/context-factory.ts';
+import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import {
   openChatDrawer,
@@ -42,6 +43,13 @@ test.describe('Production release smoke', () => {
 
     await sendChat(pair.guestPage, guestMessage);
     await waitForChatMessage(pair.hostPage, guestMessage);
+
+    // Recheck after sustained host/guest activity so a late Worker startup
+    // failure cannot pass on a transient initial `ready` observation.
+    await Promise.all([
+      waitForBootstrapReady(pair.hostPage),
+      waitForBootstrapReady(pair.guestPage),
+    ]);
 
     expect(getPageErrors(pair.hostPage)).toEqual([]);
     expect(getPageErrors(pair.guestPage)).toEqual([]);

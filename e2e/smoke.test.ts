@@ -1,10 +1,12 @@
 import { test, expect } from '@playwright/test';
+import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import { navigateToTab } from './helpers/wait.ts';
 
 /** Wait for the app to fully initialize, then dismiss the setup overlay if present. */
 async function waitForAppReady(page: import('@playwright/test').Page) {
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');
+  await waitForBootstrapReady(page, 5_000);
   // Wait for app bootstrap to finish — setup overlay button is rendered by JS
   await page.waitForSelector('#btn-setup-host', { state: 'visible', timeout: 5_000 });
 
@@ -19,6 +21,7 @@ test.describe('MUSIXQUARE Smoke Test', () => {
   test('page loads and shows main UI', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
+    await waitForBootstrapReady(page, 5_000);
 
     await expect(page.locator('body')).toBeVisible();
 
@@ -47,6 +50,7 @@ test.describe('MUSIXQUARE Smoke Test', () => {
 
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
+    await waitForBootstrapReady(page, 5_000);
     await page.waitForFunction(() => document.readyState === 'complete', { timeout: 5_000 });
 
     // Filter out known non-critical errors (e.g. service worker in preview mode)
@@ -73,6 +77,7 @@ test.describe('MUSIXQUARE Mobile Viewport', () => {
   test('bottom navigation is visible on mobile', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
+    await waitForBootstrapReady(page, 5_000);
 
     await expect(page.locator('.bottom-nav')).toBeVisible();
 

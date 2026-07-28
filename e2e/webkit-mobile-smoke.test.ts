@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 
 async function openReadyApp(page: Page): Promise<void> {
   // Cloudflare Browser Insights accepts the production origin, but its RUM
@@ -10,6 +11,7 @@ async function openReadyApp(page: Page): Promise<void> {
   );
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');
+  await waitForBootstrapReady(page);
   await page.locator('#btn-setup-host').waitFor({ state: 'visible', timeout: 15_000 });
 
   // These checks exercise the initialized application rather than the

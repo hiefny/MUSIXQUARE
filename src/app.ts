@@ -16,6 +16,12 @@
 // ── Core ──
 import { log } from './core/log.ts';
 import { installConsoleCapture } from './core/log-capture.ts';
+import {
+  BootstrapReadinessLedger,
+  formatBootstrapReadinessSummary,
+  runBootstrapStepAsync,
+  type BootstrapReadinessSnapshot,
+} from './core/bootstrap-readiness.ts';
 import { bus } from './core/events.ts';
 import { initPlatform } from './core/platform.ts';
 import { INSTANCE_ID } from './core/session.ts';
@@ -64,7 +70,11 @@ import { initTransfer } from './storage/transfer.ts';
 import { initPreload } from './storage/preload.ts';
 import { initRecovery } from './storage/recovery.ts';
 import { initRemoteShare } from './share/remote-share.ts';
-import { handleSyncWorkerFailure, setSyncWorker } from './network/sync-worker.ts';
+import {
+  handleSyncWorkerFailure,
+  setSyncWorker,
+  setSyncWorkerFailureObserver,
+} from './network/sync-worker.ts';
 
 // ── Player ──
 import { initPlayback } from './player/playback.ts';
@@ -388,24 +398,66 @@ function initBackButtonGuard(): void {
 
 // ── Bootstrap ──
 
+const bootstrapReadiness = new BootstrapReadinessLedger();
+let bootstrapReadinessPublished = false;
+
+type PublishedBootstrapState = BootstrapReadinessSnapshot['state'] | 'bootstrapping' | 'aborted';
+
+function publishBootstrapDataset(
+  state: PublishedBootstrapState,
+  snapshot?: BootstrapReadinessSnapshot,
+): void {
+  try {
+    const root = document.documentElement;
+    root.dataset.bootstrapState = state;
+
+    if (!snapshot) {
+      root.dataset.bootstrapStepCount = '0';
+      root.dataset.bootstrapFailureCount = '0';
+      root.dataset.bootstrapFallbackCount = '0';
+      delete root.dataset.bootstrapFailures;
+      delete root.dataset.bootstrapFallbacks;
+      return;
+    }
+
+    root.dataset.bootstrapStepCount = String(snapshot.total);
+    root.dataset.bootstrapFailureCount = String(snapshot.failures.length);
+    root.dataset.bootstrapFallbackCount = String(snapshot.fallbacks.length);
+    root.dataset.bootstrapFailures = snapshot.failures.map(({ name }) => name).join(',');
+    root.dataset.bootstrapFallbacks = snapshot.fallbacks.map(({ name }) => name).join(',');
+  } catch (e) {
+    // Observability must never become a new bootstrap dependency.
+    log.warn('[App] Bootstrap state publication failed:', e);
+  }
+}
+
+function publishBootstrapReadiness(): void {
+  const snapshot = bootstrapReadiness.snapshot();
+  publishBootstrapDataset(snapshot.state, snapshot);
+
+  const summary = formatBootstrapReadinessSummary(snapshot);
+  if (snapshot.state === 'ready') {
+    log.info(summary);
+  } else {
+    // Production defaults to WARN, so a degraded completion remains visible.
+    log.warn(summary);
+  }
+
+  bootstrapReadinessPublished = true;
+}
+
+function recordSyncWorkerFallback(): void {
+  const changed = bootstrapReadiness.recordFallback('SyncWorker', 'worker');
+  if (changed && bootstrapReadinessPublished) publishBootstrapReadiness();
+}
+
 async function bootstrap(): Promise<void> {
   log.info(`[App] MUSIXQUARE bootstrap (instance: ${INSTANCE_ID})`);
 
   /** Wrap an init call so a single failure doesn't crash the entire bootstrap. */
   function safeInit(name: string, fn: () => void): void {
-    try {
-      fn();
-    } catch (e) {
-      log.error(`[App] ${name} init failed:`, e);
-    }
-  }
-
-  async function safeInitAsync(name: string, fn: () => void | Promise<void>): Promise<void> {
-    try {
-      await fn();
-    } catch (e) {
-      log.error(`[App] ${name} init failed:`, e);
-    }
+    const result = bootstrapReadiness.runSync(name, fn);
+    if (!result.ok) log.error(`[App] ${name} init failed:`, result.error);
   }
 
   // 1. Platform detection & viewport height
@@ -417,7 +469,9 @@ async function bootstrap(): Promise<void> {
   safeInit('EmailCopy', initEmailCopyLinks);
   safeInit('Dialog', initDialog);
   safeInit('Tabs', initTabs);
-  await safeInitAsync('I18n', initI18n);
+  await runBootstrapStepAsync(bootstrapReadiness, 'I18n', initI18n, (e) =>
+    log.error('[App] I18n init failed:', e),
+  );
   safeInit('Account', initAccount);
   safeInit('Account room identity', initAccountRoomIdentity);
 
@@ -447,6 +501,7 @@ async function bootstrap(): Promise<void> {
   safeInit('ProSystemAudio', registerProSystemAudioServiceListeners);
   safeInit('StandardOperatorFileUplink', initStandardOperatorFileUplink);
   // 6. Workers & Storage
+  setSyncWorkerFailureObserver(recordSyncWorkerFallback);
   try {
     const syncW = new Worker(new URL('./workers/sync.worker.ts', import.meta.url), {
       type: 'module',
@@ -457,6 +512,7 @@ async function bootstrap(): Promise<void> {
     };
     setSyncWorker(syncW);
     syncW.postMessage({ command: 'INIT_INSTANCE', instanceId: INSTANCE_ID });
+    bootstrapReadiness.recordSuccess('SyncWorker', 'worker');
     log.info('[App] SyncWorker started');
   } catch (e) {
     log.warn('[App] SyncWorker failed:', e);
@@ -543,12 +599,22 @@ async function bootstrap(): Promise<void> {
     window.__MXQR = debugObj;
   }
 
-  log.info('[App] Bootstrap complete — all modules loaded');
+  publishBootstrapReadiness();
 }
 
 // Run bootstrap
 function runBootstrap(): void {
-  void bootstrap().catch((e) => log.error('[App] Bootstrap failed:', e));
+  publishBootstrapDataset('bootstrapping');
+  void bootstrap().catch((e) => {
+    bootstrapReadiness.recordFailure('BootstrapOrchestrator', 'orchestration');
+    const snapshot = bootstrapReadiness.snapshot();
+    publishBootstrapDataset('aborted', snapshot);
+    const failures = snapshot.failures.map(({ name, phase }) => `${name}[${phase}]`).join(', ');
+    log.error(
+      `[App] Bootstrap wiring aborted after ${snapshot.total} observed steps; failed: ${failures}:`,
+      e,
+    );
+  });
 }
 
 if (document.readyState === 'loading') {

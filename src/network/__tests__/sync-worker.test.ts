@@ -7,6 +7,7 @@ import {
   handleSyncWorkerFailure,
   isSyncWorkerFallbackActive,
   setSyncWorker,
+  setSyncWorkerFailureObserver,
   startWorkerTimer,
   stopWorkerTimer,
 } from '../sync-worker.ts';
@@ -98,8 +99,11 @@ describe('startWorkerTimer / stopWorkerTimer', () => {
   it('falls back if posting to the worker fails', () => {
     vi.useFakeTimers();
     const w = makeFakeWorker();
+    const failure = new Error('post failed');
+    const observer = vi.fn();
+    setSyncWorkerFailureObserver(observer);
     w.postMessage.mockImplementationOnce(() => {
-      throw new Error('post failed');
+      throw failure;
     });
     setFakeSyncWorker(w);
     const cb = vi.fn();
@@ -108,6 +112,7 @@ describe('startWorkerTimer / stopWorkerTimer', () => {
     startWorkerTimer('sync', 1000);
 
     expect(w.terminate).toHaveBeenCalledTimes(1);
+    expect(observer).toHaveBeenCalledWith(failure);
     expect(isSyncWorkerFallbackActive('sync')).toBe(true);
     vi.advanceTimersByTime(1000);
     expect(cb).toHaveBeenCalledWith('sync');
@@ -168,6 +173,8 @@ describe('TICK message handling', () => {
   it('falls back active timers on WORKER_ERROR without emitting an immediate tick', () => {
     vi.useFakeTimers();
     const w = makeFakeWorker();
+    const observer = vi.fn();
+    setSyncWorkerFailureObserver(observer);
     setFakeSyncWorker(w);
     const cb = vi.fn();
     bus.on('worker:timer-tick', cb);
@@ -176,6 +183,7 @@ describe('TICK message handling', () => {
     w.onmessage!({ data: { type: 'WORKER_ERROR', error: 'boom' } } as MessageEvent);
 
     expect(cb).not.toHaveBeenCalled();
+    expect(observer).toHaveBeenCalledWith('boom');
     expect(w.terminate).toHaveBeenCalledTimes(1);
     expect(isSyncWorkerFallbackActive('sync')).toBe(true);
 

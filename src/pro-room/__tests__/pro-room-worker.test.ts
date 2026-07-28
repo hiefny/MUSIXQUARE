@@ -29,14 +29,20 @@ import { parseProRoomSnapshot } from '../snapshot.ts';
 
 interface ProMediaCorsRule {
   allowed: {
+    origins: string[];
     methods: string[];
     headers: string[];
   };
+  exposeHeaders: string[];
 }
 
 const proMediaCorsPolicy = JSON.parse(
   await readFile(new URL('../../../cloudflare/r2-cors.pro-media.json', import.meta.url), 'utf8'),
 ) as { rules: ProMediaCorsRule[] };
+const proMediaCorsSmokeSource = await readFile(
+  new URL('../../../scripts/live-pro-media-cors-smoke.mjs', import.meta.url),
+  'utf8',
+);
 
 function expectProMediaUploadContract(upload: {
   headers: Record<string, string>;
@@ -70,6 +76,49 @@ afterEach(() => {
 });
 
 describe('PRO room server-authoritative playback', () => {
+  it('keeps private media CORS compatible with strict browser byte-range playback', () => {
+    const corsRule = proMediaCorsPolicy.rules.find((rule) =>
+      rule.allowed.methods.some((method) => method.toUpperCase() === 'GET'),
+    );
+    expect(corsRule).toBeDefined();
+
+    const allowedHeaders = new Set(corsRule!.allowed.headers.map((header) => header.toLowerCase()));
+    const exposedHeaders = new Set(corsRule!.exposeHeaders.map((header) => header.toLowerCase()));
+
+    expect(allowedHeaders.has('range')).toBe(true);
+    expect(exposedHeaders.has('accept-ranges')).toBe(true);
+    expect(exposedHeaders.has('content-encoding')).toBe(true);
+    expect(exposedHeaders.has('content-length')).toBe(true);
+    expect(exposedHeaders.has('content-range')).toBe(true);
+    expect(exposedHeaders.has('content-type')).toBe(true);
+    expect(exposedHeaders.has('etag')).toBe(true);
+    expect(corsRule!.allowed.origins).toEqual(
+      expect.arrayContaining([
+        'https://musixquare.com',
+        'https://www.musixquare.com',
+        'http://localhost:3000',
+        'http://127.0.0.1:3000',
+        'http://localhost:4173',
+        'http://127.0.0.1:4173',
+      ]),
+    );
+  });
+
+  it('waits for PRO media Range CORS data-plane propagation before app deployment', () => {
+    expect(proMediaCorsSmokeSource).toContain("APP_ORIGIN = 'https://musixquare.com'");
+    expect(proMediaCorsSmokeSource).toContain('PROPAGATION_TIMEOUT_MS = 45_000');
+    expect(proMediaCorsSmokeSource).toContain('RETRY_INTERVAL_MS = 2_000');
+    expect(proMediaCorsSmokeSource).toContain("'Access-Control-Request-Method': 'GET'");
+    expect(proMediaCorsSmokeSource).toContain("'Access-Control-Request-Headers': 'range'");
+    expect(proMediaCorsSmokeSource).toContain('response.status !== 403 || Date.now() >= deadline');
+    expect(proMediaCorsSmokeSource).toContain(
+      "headerSet(response, 'access-control-allow-methods').has('get')",
+    );
+    expect(proMediaCorsSmokeSource).toContain(
+      "headerSet(response, 'access-control-allow-headers').has('range')",
+    );
+  });
+
   const firstQueueItemId = '11111111-1111-4111-8111-111111111111';
   const secondQueueItemId = '22222222-2222-4222-8222-222222222222';
   const duplicateVideoPlaylist = [

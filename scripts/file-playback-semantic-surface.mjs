@@ -207,6 +207,7 @@ export const FILE_PLAYBACK_SEMANTIC_INTEGRATION_FILES = Object.freeze([
   'src/network/peer.ts',
   'src/network/protocol.ts',
   'src/player/playlist.ts',
+  'src/player/pro-room-bounded-playback.ts',
   'src/player/transport.ts',
   'src/storage/preload.ts',
   'src/ui/setup-start.ts',

@@ -26,9 +26,17 @@ import {
   setPlaybackFilePaused,
   setPlaybackFilePlaying,
   setPlaybackIdle,
+  setPlaybackLifecycleState,
   isPlaybackPlayingFile,
   isPlaybackPlayingSystemAudio,
+  setPlaybackTrackMeta,
 } from './ownership.ts';
+import {
+  clearProRoomBoundedFilePlayback,
+  commitProRoomBoundedFilePlayback,
+  getProRoomBoundedFilePlaybackPosition,
+  hasCurrentProRoomBoundedFilePlayback,
+} from './pro-room-bounded-playback.ts';
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { getHostNow } from '../network/shared-clock.ts';
@@ -38,7 +46,7 @@ import {
   getActiveFilePlaybackSnapshot,
   getManagedFilePlaybackPosition,
 } from './file-playback-runtime.ts';
-import { getCurrentQueueItemId, getQueueItemById } from './queue-model.ts';
+import { getCurrentQueueItemId, getQueueItemById, selectQueueItemById } from './queue-model.ts';
 import { cancelProRoomPlaylistFileResolution } from '../pro-room/legacy-media-hooks.ts';
 import {
   isProPlaybackAuthorityToken,
@@ -950,6 +958,8 @@ type V2HostStopOptions = Readonly<{
   cancelInFlight?: boolean;
   clearBuffer?: boolean;
   preservePlaylistIntent?: boolean;
+  /** Stop legacy owners without retiring a silent PRO cutover candidate. */
+  preserveProBoundedCandidate?: boolean;
 }>;
 
 function publishV2HostStopped(options: V2HostStopOptions = {}): void {
@@ -1375,6 +1385,9 @@ function readTrackPosition(repairOutOfRangeOffset: boolean): number {
     return ytPos;
   }
 
+  const proBoundedPosition = getProRoomBoundedFilePlaybackPosition();
+  if (proBoundedPosition) return proBoundedPosition.positionSeconds;
+
   if (isV2HostFileControlContext()) {
     return readExactV2HostControlState()?.position.positionSeconds ?? 0;
   }
@@ -1487,6 +1500,9 @@ function stopAllMediaLegacy(opts: V2HostStopOptions = {}): void {
   const queueItemId = getCurrentQueueItemId();
   const wasInYouTube = isYouTubeOwner();
   const wasPreparingFile = isFilePipelineBusyForPlay();
+  if (!opts.preserveProBoundedCandidate) {
+    void clearProRoomBoundedFilePlayback();
+  }
 
   if (opts?.cancelInFlight) {
     newLoadEpoch();
@@ -1999,6 +2015,64 @@ let proAuthorityFileCommitGeneration = 0;
 export async function applyProPlaybackFileCommit(
   request: Readonly<ProPlaybackCommitRequest>,
 ): Promise<boolean> {
+  const targetItem = request.queueItemId ? getQueueItemById(request.queueItemId) : null;
+  const hadBoundedCurrent = hasCurrentProRoomBoundedFilePlayback();
+  const bounded = await commitProRoomBoundedFilePlayback(request);
+  if (bounded) {
+    if (bounded.status !== 'applied') return false;
+    if (bounded.phase === 'idle') return true;
+    if (
+      !request.queueItemId ||
+      !targetItem ||
+      targetItem.type !== 'file' ||
+      getQueueItemById(request.queueItemId) !== targetItem ||
+      request.isCurrent?.() === false
+    ) {
+      // A newer authority may already own the adapter's candidate/current.
+      // Broad teardown here would erase that successor. Endpoint/room
+      // generations retire the exact stale renderer; this continuation only
+      // withholds obsolete UI publication.
+      return false;
+    }
+
+    // PREPARE kept the outgoing renderer/UI intact. Native bounded start
+    // evidence is now established, so retire a legacy/YouTube predecessor and
+    // publish the incoming identity as one synchronous UI transaction. The
+    // manager itself already retired a previous bounded renderer atomically.
+    if (!hadBoundedCurrent) {
+      stopAllMediaLegacy({
+        silent: true,
+        cancelInFlight: true,
+        clearBuffer: true,
+        preserveProBoundedCandidate: true,
+      });
+    }
+    selectQueueItemById(request.queueItemId);
+    setPlaybackTrackMeta(targetItem);
+    setCurrentAudioBuffer(null);
+    setState('files.current', null);
+    setState('player.startedAt', 0);
+    setState('player.pausedAt', bounded.positionSeconds);
+    setPlaybackLifecycleState(
+      bounded.phase === 'playing' ? PLAYBACK_STATE.PLAYING : PLAYBACK_STATE.PAUSED,
+    );
+    bus.emit('ui:duration-update', bounded.durationSeconds ?? 0);
+    bus.emit(
+      'ui:time-update',
+      fmtTime(bounded.positionSeconds),
+      fmtTime(bounded.durationSeconds ?? 0),
+      bounded.positionSeconds,
+      bounded.durationSeconds ?? 0,
+    );
+    bus.emit('ui:update-play-state', bounded.phase === 'playing');
+    if (bounded.phase === 'playing') {
+      bus.emit('visualizer:start');
+      bus.emit('ui:loop-start');
+    } else {
+      bus.emit('visualizer:hold-frame');
+    }
+    return true;
+  }
   if (
     !isProPlaybackAuthorityToken(request.authority) ||
     request.state === 'idle' ||

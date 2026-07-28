@@ -1,6 +1,6 @@
 # Streaming Playback Engine V2
 
-- **Status:** Accepted; implementation in progress
+- **Status:** Accepted; production universal route
 - **Decision date:** 2026-07-12
 - **Applies to:** file playback, playback synchronization, remote file sharing,
   participant recovery, and playback-related system messages
@@ -15,21 +15,24 @@
 
 ## Production release status (2026-07-28)
 
-This section records the current deployed route. The header's
-“implementation in progress” label, FLAC-first milestones, and delivery
-sequence below are preserved as historical design evidence.
+This section records the current production route. The FLAC-first milestones
+and delivery sequence below are preserved as historical design evidence.
 
-- The immutable production selection is `v2-current`: the V2 release latch is
-  enabled, and the optional universal bounded MP3/AAC/M4A flag is disabled.
-- The engine is active only in standard rooms; PRO rooms continue to use the
-  legacy playback and transport implementation.
+- The immutable production selection is `v2-universal-v1`: the V2 release
+  latch and universal bounded MP3/AAC/M4A flag are enabled together.
+- Standard rooms use the universal product engine. PRO rooms retain their
+  independent server-authoritative PREPARE/READY/COMMIT protocol and use a
+  PRO-specific bounded renderer over strict immutable R2 byte ranges for
+  admitted formats.
 - Host-only playback reads the local source directly. One or two guests with
   known-local topology use peer-range reads. Each remote or locality-unknown
   guest uses encrypted R2 records; once three or more connected guests are
   known-local, those local guests also use the shared R2 publication.
-- Current V2 formats use bounded decoding. Ordinary current-route media and
-  unsupported extensions retain V1-like behavior while universal compressed
-  routing is disabled.
+- Native FLAC, supported linear PCM, MP3, ADTS AAC, and M4A/MP4 AAC use
+  bounded decoding when the exact codec admission checks pass. Unsupported
+  extensions retain V1-like behavior. Once a bounded route is selected,
+  deadline, identity, or integrity failure is fail-closed rather than a
+  silent engine change.
 - R2 publication establishes record-0 readiness for the rendezvous and
   continues the remaining records in the background. Readers keep only one
   decrypted plaintext record and wait at most 60 seconds for a missing record

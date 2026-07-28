@@ -293,6 +293,14 @@ export interface ProPlaybackPrepareRequest {
   authority: ProPlaybackAuthorityToken;
   queueItemId: QueueItemId;
   positionSeconds: number;
+  /** Canonical target phase carried by the server PREPARE/snapshot. */
+  state?: Exclude<ProPlaybackCanonicalState, 'idle'>;
+  /**
+   * Receipt-relative preparation budget already projected from the server
+   * clock by the PRO runtime. Endpoints consume it only with a local monotonic
+   * timer, so client wall-clock skew cannot extend or collapse the deadline.
+   */
+  prepareBudgetMs?: number;
   youtubeSubIndex?: number | null;
   youtubeVideoId?: string | null;
   /** Participant-local fence injected by the authority layer for async media waits. */
@@ -366,6 +374,14 @@ export interface ProPlaybackMediaEndpoint {
   commit(request: Readonly<ProPlaybackCommitRequest>): Promise<ProPlaybackCommitResult>;
   /** Abort participant-local work for one server-cancelled transition. */
   cancel?(authority: ProPlaybackAuthorityToken): void;
+  /**
+   * Silence an older renderer after a newer canonical COMMIT is known but its
+   * media could not be applied locally. Implementations must retire only the
+   * exact stale renderer and must not clear a successor preparation.
+   */
+  invalidateCommitted?(request: Readonly<ProPlaybackCommitRequest>): Promise<void> | void;
+  /** Synchronously revoke the endpoint's room-scoped renderer ownership. */
+  reset?(): void;
 }
 
 let mediaEndpoint: ProPlaybackMediaEndpoint | null = null;
@@ -645,6 +661,19 @@ export async function commitProPlaybackAuthority(
   return result;
 }
 
+export async function invalidateCommittedProPlaybackMedia(
+  request: Readonly<ProPlaybackCommitRequest>,
+): Promise<void> {
+  if (
+    !isProPlaybackAuthorityToken(request.authority) ||
+    !activeAuthorityRoomMatches(request.authority) ||
+    request.isCurrent?.() === false
+  ) {
+    return;
+  }
+  await mediaEndpoint?.invalidateCommitted?.(request);
+}
+
 /**
  * Re-apply the exact currently committed checkpoint to one participant.
  *
@@ -776,6 +805,7 @@ export function resetProPlaybackAuthorityHooks(): void {
   // warm-up, seek, and scheduled-release timers that could otherwise outlive
   // the PRO room and mutate the iframe after the user has left.
   if (pending) mediaEndpoint?.cancel?.(pending.authority);
+  mediaEndpoint?.reset?.();
   highestSeen = null;
   latestApplied = null;
   highestCommittedPlaybackRevision = 0;

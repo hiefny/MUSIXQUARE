@@ -444,7 +444,36 @@ describe('remote-share Worker capability gate', () => {
     expect(releaseWorkflowSource).toContain('--force');
     expect(releaseWorkflowSource).toContain('npm run smoke:live:remote-share -- --v1-only');
     expect(releaseWorkflowSource).toContain("VITE_MUSIXQUARE_FILE_ENGINE_V2: '1'");
-    expect(releaseWorkflowSource).toContain("VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '0'");
+    expect(releaseWorkflowSource).toContain("VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '1'");
+  });
+
+  it('applies PRO media Range CORS before app or PRO deployment', () => {
+    const corsStep = releaseWorkflowSource.indexOf('- name: Apply PRO media R2 CORS policy');
+    const proRoomDeployStep = releaseWorkflowSource.indexOf(
+      '- name: Deploy and record PRO room Worker',
+    );
+    const appDeployStep = releaseWorkflowSource.indexOf(
+      '- name: Deploy and record app Worker with immutable dist',
+    );
+
+    expect(corsStep).toBeGreaterThan(-1);
+    expect(corsStep).toBeLessThan(proRoomDeployStep);
+    expect(corsStep).toBeLessThan(appDeployStep);
+    expect(releaseWorkflowSource).toContain(
+      "if: inputs.target == 'all' || inputs.target == 'pro-room' || inputs.target == 'app'",
+    );
+    expect(releaseWorkflowSource).toContain('r2 bucket cors set musixquare-pro-media');
+    expect(releaseWorkflowSource).toContain('--file cloudflare/r2-cors.pro-media.json');
+    expect(releaseWorkflowSource).toContain('--config cloudflare/wrangler.pro-room.toml');
+    expect(releaseWorkflowSource).toContain('--force');
+    expect(releaseWorkflowSource).toContain('r2 bucket cors list musixquare-pro-media');
+    expect(releaseWorkflowSource).toContain(
+      'for required_header in range accept-ranges content-encoding content-range etag',
+    );
+    expect(releaseWorkflowSource).toContain(
+      'PRO media R2 CORS read-back is missing ${required_header}.',
+    );
+    expect(releaseWorkflowSource).toContain('npm run smoke:live:pro-media-cors');
   });
 
   it('keeps checked-in R2 CORS aligned with every Worker production origin range', async () => {

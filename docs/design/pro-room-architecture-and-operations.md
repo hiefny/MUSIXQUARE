@@ -478,11 +478,20 @@ path.
 
 - One room has a hard **1 GiB** quota.
 - One file has a hard **200 MiB** limit.
-- The per-file limit is an intentional RAM-only playback bound, not another
-  storage entitlement. The current client downloads an encoded object into
-  memory and then decodes a full `AudioBuffer`; raising the limit to 1 GiB
-  without the postponed bounded-streaming engine would reintroduce predictable
-  iOS tab termination.
+- The per-file limit is an intentional browser playback bound, not another
+  storage entitlement. The private-beta client first attempts the same bounded
+  streaming decoders used by the universal file engine for supported
+  FLAC/WAV/AIFF/CAF, MP3, AAC, and M4A assets. It reads immutable R2 objects
+  through strict byte ranges with a small in-memory window and binds every
+  refreshed signed URL to the exact asset identity. Unsupported formats and
+  explicit pre-admission browser capability incompatibility use the
+  established whole-object fallback. Once the bounded route is selected,
+  deadline expiry and Range, identity, or integrity inconsistencies fail
+  closed and never silently enter that fallback.
+- The **200 MiB** limit remains in force because compatibility fallback can
+  still download an encoded object and decode a full `AudioBuffer`; bounded
+  streaming is not grounds to raise the limit until fallback, device, and soak
+  evidence justify doing so.
 - Every reservation maintains `usedBytes + reservedBytes <= 1 GiB` inside the
   serialized room object.
 - Generation `0` uses the legacy `rooms/{roomCode}/` R2 prefix. Generation `1`
@@ -516,6 +525,13 @@ cache. PRO room playback follows the accepted
 preloads, decoded PCM, and partially received files remain RAM-only. Do not add
 OPFS or IndexedDB media bodies as part of PRO rollout. Any OPFS experiment must
 pass that ADR's separate device, soak, reclamation, and rollback gates.
+
+The PRO bounded path owns a manager separate from the standard-room playback
+controller. PREPARE may resolve and prime an inaudible candidate, while only a
+matching server COMMIT can publish playback ownership or make it audible.
+Pause, resume, seek, stop, natural end, room epoch, and playback revision remain
+server-authoritative. A stale candidate, signed URL, range response, or
+incarnation cannot acquire a newer room's playback authority.
 
 ## Initial Cloudflare Provisioning
 

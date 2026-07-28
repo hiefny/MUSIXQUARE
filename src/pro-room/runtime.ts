@@ -107,6 +107,7 @@ import {
   cancelProPlaybackPreparation,
   commitProPlaybackAuthority,
   createProPlaybackAuthorityToken,
+  invalidateCommittedProPlaybackMedia,
   prepareCurrentProPlaybackRendezvousAuthority,
   prepareProPlaybackAuthority,
   reconcileCurrentProPlaybackAuthority,
@@ -1407,6 +1408,43 @@ function installLegacyMediaHooks(
       if (warm) warm.controller.abort();
       return startProRoomFileDownload(queueItemId, lease, 'foreground')?.promise ?? null;
     },
+    resolveRangeSource(queueItemId, signal) {
+      if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return null;
+      const projection = playlistProjection;
+      const transfer = mediaTransfer;
+      const context = getState('room.context');
+      const item = getState('playlist.items').find(
+        (candidate) => candidate.queueItemId === queueItemId,
+      );
+      if (
+        !projection ||
+        !transfer ||
+        context.kind !== 'pro' ||
+        context.roomId !== lease.roomCode ||
+        !item ||
+        item.type !== 'file'
+      ) {
+        return null;
+      }
+
+      return resolveCanonicalR2Source(queueItemId, lease).then(async (source) => {
+        if (!source || signal.aborted || !isDownloadLeaseCurrent(lease)) return null;
+        const liveSource = projection.sourceFor(queueItemId);
+        if (liveSource?.kind !== 'pro-r2' || !sameR2Source(liveSource, source) || signal.aborted) {
+          return null;
+        }
+        const rangeSource = transfer.createRangeSource({
+          code: lease.roomCode,
+          name: item.name,
+          source,
+        });
+        if (signal.aborted || !isDownloadLeaseCurrent(lease)) {
+          await rangeSource.close();
+          return null;
+        }
+        return rangeSource;
+      });
+    },
     preloadFile(queueItemId) {
       if (!isPlaylistLeaseCurrent(lease)) return null;
       const projection = playlistProjection;
@@ -2105,6 +2143,7 @@ function playbackPrepareRequest(
     authority,
     queueItemId: playback.queueItemId,
     positionSeconds: playback.positionSeconds,
+    state: playback.state === 'paused' ? ('paused' as const) : ('playing' as const),
     youtubeSubIndex: playback.youtubeSubIndex,
     youtubeVideoId: playback.youtubeVideoId,
   } as const;
@@ -2192,8 +2231,16 @@ async function preparePlaybackAfterPlaylistHydration(
   signal: AbortSignal,
   isCurrent: () => boolean,
 ): Promise<ProPlaybackPrepareResult> {
+  const prepareWithRemainingBudget = () =>
+    prepareProPlaybackAuthority({
+      ...request,
+      prepareBudgetMs: Math.max(
+        0,
+        event.deadlineAtMs - serverNowForFrame(event.serverTimeMs, receivedAtMs),
+      ),
+    });
   if (hasProjectedQueueItem(request.queueItemId)) {
-    return prepareProPlaybackAuthority(request);
+    return prepareWithRemainingBudget();
   }
 
   // BOT/developer add+play can legitimately deliver PREPARE before the
@@ -2249,7 +2296,7 @@ async function preparePlaybackAfterPlaylistHydration(
   // If the canonical row is still absent, use the ordinary media endpoint so
   // it reports one bounded missing-track failure through the existing READY
   // protocol. Never spin or extend the server's three-second rendezvous gate.
-  return prepareProPlaybackAuthority(request);
+  return prepareWithRemainingBudget();
 }
 
 function acceptPlaybackPrepare(
@@ -2436,6 +2483,27 @@ async function catchUpExactPlaybackCheckpoint(
   });
 }
 
+async function silenceUnappliedCanonicalRenderer(
+  event: ProRoomPlaybackCommitEvent,
+  receivedAtMs: number,
+  generation: number,
+  authority: ProPlaybackAuthorityToken,
+): Promise<void> {
+  const timing = playbackCommitTiming(event, receivedAtMs);
+  await invalidateCommittedProPlaybackMedia({
+    authority,
+    committedPlaybackRevision: event.playback.revision,
+    queueItemId: event.playback.queueItemId,
+    state: event.playback.state,
+    positionSeconds: timing.positionSeconds,
+    scheduleDelayMs: timing.scheduleDelayMs,
+    timingMode: timing.timingMode,
+    youtubeSubIndex: event.playback.youtubeSubIndex,
+    youtubeVideoId: event.playback.youtubeVideoId,
+    isCurrent: () => playbackCommitStillCurrent(event, generation),
+  });
+}
+
 async function applyPlaybackCommit(
   event: ProRoomPlaybackCommitEvent,
   receivedAtMs: number,
@@ -2507,6 +2575,7 @@ async function applyPlaybackCommit(
         context.epoch,
       );
       if (!playbackCommitStillCurrent(event, generation) || catchup?.status !== 'applied') {
+        await silenceUnappliedCanonicalRenderer(event, receivedAtMs, generation, authority);
         failLocalPlaybackUiControlsForRevision(context.roomId, context.epoch, playback.revision);
         return;
       }
@@ -2562,6 +2631,9 @@ async function applyPlaybackCommit(
   }
 
   if (result.status !== 'applied' || !playbackCommitStillCurrent(event, generation)) {
+    if (playbackCommitStillCurrent(event, generation)) {
+      await silenceUnappliedCanonicalRenderer(event, receivedAtMs, generation, authority);
+    }
     failLocalPlaybackUiControlsForRevision(context.roomId, context.epoch, playback.revision);
     return;
   }

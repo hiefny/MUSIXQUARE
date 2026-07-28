@@ -16,6 +16,7 @@
         "methods": ["GET", "HEAD", "PUT"],
         "headers": [
           "content-type",
+          "range",
           "x-amz-meta-mxqr-asset",
           "x-amz-meta-mxqr-bytes",
           "x-amz-meta-mxqr-generation",
@@ -24,7 +25,14 @@
           "x-amz-meta-mxqr-version"
         ]
       },
-      "exposeHeaders": ["content-length", "content-type", "etag"],
+      "exposeHeaders": [
+        "accept-ranges",
+        "content-encoding",
+        "content-length",
+        "content-range",
+        "content-type",
+        "etag"
+      ],
       "maxAgeSeconds": 3600
     }
   ]

@@ -1,10 +1,15 @@
 # Universal bounded streaming release checklist — 2026-07-14
 
-- **Status:** active pre-release checklist; not yet executed
+- **Status:** retained physical-device checklist; not fully executed
 - **Applies to:** the universal bounded file-playback candidate
 - **Decision parent:** `universal-bounded-streaming-engine.md`
 - **Storage parent:** `browser-media-storage-policy.md`
-- **Production route:** **OFF until every mandatory item in this checklist passes**
+- **Production route:** **ON for the private-beta progressive release approved 2026-07-28**
+
+> The production owner explicitly approved progressive activation after the
+> automated codec, cohort, lifecycle, and build gates passed. This exception
+> does not convert any unexecuted physical-device row into PASS. The matrix
+> below remains the required evidence before a general-availability claim.
 
 ## Gate rule
 
@@ -12,21 +17,24 @@ This is the current physical-device release checklist for the universal
 bounded streaming engine. Historical checklists remain historical evidence and
 do not satisfy this gate.
 
-The production product gate stays off while this checklist is incomplete,
-failed, or blocked. Tests use an isolated candidate build or an explicitly
-identified candidate origin. A passing subset, a supported format on only one
-browser, or a successful desktop-only run cannot enable the production route.
-Production enablement and rollback remain separate commits and deployments.
+For general availability, an incomplete, failed, or blocked checklist remains
+a release blocker. Private-beta tests may use the production progressive
+cohort or an explicitly identified candidate origin. A passing subset, a
+supported format on only one browser, or a successful desktop-only run cannot
+be represented as completion of this checklist. Activation and rollback remain
+separate, auditable releases.
 
 The tracked production latch
-`FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` defaults to `false`. Remote
-environment flags cannot override it: every production flag combination stays
-`legacy-current` while the latch is off. After the latch turns on, the exact V2
-flag selects `v2-current`, and the additional exact universal flag selects
-`v2-universal-v1`. Approval and rollback each change only the latch line
-(`true` to enable, `false` to roll back) and rebuild the static application.
-The exact `e2e-universal` mode is the only latch-off exception, remains
-isolated from production, and still requires both exact flags.
+`FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` is already enabled for the
+deployed `v2-current` engine. Remote environment flags cannot override a
+disabled latch: every production flag combination stays `legacy-current` while
+it is off. With the latch on, the exact V2 flag selects `v2-current`, and the
+additional exact universal flag selects `v2-universal-v1`. This release enables
+the universal workflow flag. Its narrow rollback disables that flag, bumps the
+service-worker cache generation, and rebuilds the static application; disabling
+the tracked latch remains the wider rollback to `legacy-current`. The exact
+`e2e-universal` mode is the only latch-off exception, remains isolated from
+production, and still requires both exact flags.
 
 Attach three-artifact build evidence to every candidate: exact
 `e2e-universal` selecting the universal profile/cohort, production with the

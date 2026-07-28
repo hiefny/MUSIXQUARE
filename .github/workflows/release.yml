@@ -47,7 +47,7 @@ env:
   WRANGLER_VERSION: 4.114.0
   RELEASE_VALIDATION_PROFILE: core-smoke
   VITE_MUSIXQUARE_FILE_ENGINE_V2: '1'
-  VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '0'
+  VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '1'
 
 jobs:
   validate:
@@ -443,6 +443,26 @@ jobs:
             --file cloudflare/r2-cors.remote-share.json \
             --config cloudflare/wrangler.remote-share.toml \
             --force
+
+      - name: Apply PRO media R2 CORS policy
+        timeout-minutes: 10
+        if: inputs.target == 'all' || inputs.target == 'pro-room' || inputs.target == 'app'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          npm run --silent wrangler -- r2 bucket cors set musixquare-pro-media \
+            --file cloudflare/r2-cors.pro-media.json \
+            --config cloudflare/wrangler.pro-room.toml \
+            --force
+          cors_state="$(npm run --silent wrangler -- r2 bucket cors list musixquare-pro-media \
+            --config cloudflare/wrangler.pro-room.toml)"
+          for required_header in range accept-ranges content-encoding content-range etag; do
+            if ! grep -Eiq "(^|[^[:alnum:]-])${required_header}([^[:alnum:]-]|$)" <<<"$cors_state"; then
+              echo "::error::PRO media R2 CORS read-back is missing ${required_header}."
+              exit 1
+            fi
+          done
+          npm run smoke:live:pro-media-cors
 
       - name: Establish rollback-safe remote-share quota migration bridge
         timeout-minutes: 15

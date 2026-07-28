@@ -20,18 +20,28 @@ baseline, local-only deployment rule, and milestone slices retained elsewhere
 in this document describe the historical rollout plan rather than the deployed
 state.
 
-- Production now boots the fixed `v2-current` profile: the V2 build flag and
-  tracked production latch are enabled, while the universal bounded
-  MP3/AAC/M4A flag remains off.
-- V2 routing applies only to standard rooms. PRO rooms remain on the legacy
-  file-playback and transfer path.
+- Production boots the fixed `v2-universal-v1` profile: the V2 build flag,
+  tracked production latch, and exact universal bounded MP3/AAC/M4A flag are
+  enabled together. A service-worker cache generation change prevents an old
+  `v2-current` document from silently joining the new semantic cohort.
+- Standard rooms use the universal product engine. PRO rooms retain their
+  independent server-authoritative PREPARE/READY/COMMIT clock while a
+  PRO-specific renderer adapter uses strict R2 byte ranges for admitted files.
+  Explicitly unsupported formats and pre-admission capability incompatibility
+  retain the existing whole-file renderer without transferring authority to
+  the standard-room V2 session. Once bounded playback is selected, an expired
+  preparation budget or Range, identity, and integrity failure is fail-closed:
+  the outgoing renderer remains authoritative until a later server transition,
+  rather than silently changing engines.
 - A host-only source stays local. One or two guests known to be local use
   bounded peer-range delivery. Each remote or locality-unknown guest selects
   encrypted R2 records; once three or more connected guests are known-local,
   those local guests also select the shared R2 publication.
-- Formats supported by `v2-current` use the bounded engine. Ordinary
-  current-route codecs and unsupported extensions retain V1-like behavior
-  instead of being forced through the optional universal adapters.
+- Native FLAC, supported linear PCM, MP3, ADTS AAC, and M4A/MP4 AAC use the
+  bounded standard-room engine when the exact per-device codec canary passes.
+  Unsupported extensions retain V1-like behavior. AAC/M4A capability failure
+  in an already-selected standard universal cohort is fail-closed rather than
+  silently changing that room's playback semantics.
 - The R2 path makes record 0 ready before playback rendezvous, publishes later
   records in the background, retains at most one decrypted plaintext record,
   and bounds a missing-record wait to 60 seconds before failing or recovering.
@@ -43,14 +53,13 @@ MUSIXQUARE product without allowing the legacy AudioBuffer transport and the
 new cutover manager to own one file at the same time.
 
 The product has one file-playback timeline and one audible file owner. In an
-enabled V2 document, native FLAC and supported WAVE/AIFF/CAF linear PCM use
-bounded streaming. MP3, ADTS, and M4A bounded adapters are also wired into the
-product, but their optional route policy is not installed in the production
-singleton; current-route formats may therefore still use admitted whole-Blob
-decode. Both source classes use the same rendezvous, cutover manager, product
-audio graph, queue identity, and UI projection. MediaElement, OPFS, IndexedDB
-media bodies, and a second playback clock are not fallback paths. This plan
-does not claim that the deployed build enables the separate V2 bootstrap gate.
+enabled standard-room V2 document, native FLAC, supported WAVE/AIFF/CAF linear
+PCM, MP3, ADTS, and M4A use the installed universal bounded-route policy. All
+bounded formats use the same rendezvous, cutover manager, product audio graph,
+queue identity, and UI projection. MediaElement, OPFS, IndexedDB media bodies,
+and a second playback clock are not fallback paths. PRO rooms use their own
+server clock and authority, but reuse the bounded decoder/renderer only behind
+an explicit PRO adapter; they never install the standard application session.
 
 ## Fixed bootstrap gate
 

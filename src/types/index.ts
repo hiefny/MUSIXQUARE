@@ -130,7 +130,8 @@ export type V2FilePlaybackLoadingOwner =
   | 'host-replay'
   | 'host-recover'
   | 'guest-prepare'
-  | 'guest-rendezvous';
+  | 'guest-rendezvous'
+  | 'pro-prepare';
 
 export type V2FilePlaybackLoadingToken = string | number;
 

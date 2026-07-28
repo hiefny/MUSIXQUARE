@@ -20,6 +20,7 @@ import {
   markLocalFileR2Capable,
   resetFileDeliveryPolicies,
 } from '../../share/file-delivery-policy.ts';
+import { getFilePlaybackProductRuntime } from '../../player/file-playback-product-runtime.ts';
 import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
 
 const storageMocks = vi.hoisted(() => ({
@@ -31,6 +32,7 @@ const proRoomMocks = vi.hoisted(() => ({
   hasPreloadedFile: vi.fn(),
   cancelPreload: vi.fn(),
 }));
+const filePlaybackProductRuntime = getFilePlaybackProductRuntime();
 
 const Q0 = '00000000-0000-4000-8000-000000000001';
 const Q1 = '00000000-0000-4000-8000-000000000002';
@@ -97,6 +99,7 @@ beforeEach(() => {
   proRoomMocks.hasPreloadedFile.mockReset();
   proRoomMocks.hasPreloadedFile.mockReturnValue(false);
   proRoomMocks.cancelPreload.mockReset();
+  vi.spyOn(filePlaybackProductRuntime, 'enabled').mockReturnValue(false);
   queueSequence = 10;
 });
 
@@ -119,7 +122,7 @@ describe('schedulePreload', () => {
     expect(() => schedulePreload()).not.toThrow();
   });
 
-  it('self-preloads the coordinator next PRO asset without legacy chunk frames', async () => {
+  it('keeps the V1 coordinator PRO whole-object preload path without legacy chunk frames', async () => {
     vi.useFakeTimers();
     const current = makeFileTrack('current.flac', Q0);
     const next = makeFileTrack('next.flac', Q1);
@@ -156,6 +159,47 @@ describe('schedulePreload', () => {
     expect(messages).toContainEqual(
       expect.objectContaining({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1 }),
     );
+    expect(messages.some((message) => messageType(message) === MSG.PRELOAD_START)).toBe(false);
+    expect(messages.some((message) => messageType(message) === MSG.PRELOAD_CHUNK)).toBe(false);
+    expect(messages.some((message) => messageType(message) === MSG.PRELOAD_END)).toBe(false);
+  });
+
+  it('does not whole-preload or broadcast PRO_FILE_PRELOAD when bounded V2 is enabled', async () => {
+    vi.useFakeTimers();
+    vi.mocked(filePlaybackProductRuntime.enabled).mockReturnValue(true);
+    const current = makeFileTrack('current.m4a', Q0);
+    const next = makeFileTrack('next.m4a', Q1);
+    const conn = {
+      open: true,
+      peer: 'pro-member',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'participant-1',
+      epoch: 2,
+      snapshotRevision: 4,
+      capabilities: ['playback.control'],
+    });
+    setState('playlist.items', [current, { ...next, file: undefined }]);
+    setState('playlist.currentQueueItemId', Q0);
+    setState('network.connectedPeers', [connectedPeer(conn)]);
+    proRoomMocks.preloadFile.mockResolvedValueOnce(
+      new File(['must-not-download'], 'next.m4a', { type: 'audio/mp4' }),
+    );
+
+    schedulePreload(0);
+    await vi.runOnlyPendingTimersAsync();
+    await Promise.resolve();
+
+    expect(proRoomMocks.preloadFile).not.toHaveBeenCalled();
+    expect(getState('preload.isPreloading')).toBe(false);
+    expect(getState('preload.nextQueueItemId')).toBeNull();
+    expect(getState('preload.activeTarget')).toBeNull();
+    const messages = vi.mocked(conn.send).mock.calls.map(([message]) => message);
+    expect(messages.some((message) => messageType(message) === MSG.PRO_FILE_PRELOAD)).toBe(false);
     expect(messages.some((message) => messageType(message) === MSG.PRELOAD_START)).toBe(false);
     expect(messages.some((message) => messageType(message) === MSG.PRELOAD_CHUNK)).toBe(false);
     expect(messages.some((message) => messageType(message) === MSG.PRELOAD_END)).toBe(false);

@@ -140,6 +140,13 @@ import {
   selectQueueItemById,
 } from './queue-model.ts';
 import { getFilePlaybackProductRuntime } from './file-playback-product-runtime.ts';
+import {
+  cancelProRoomBoundedFilePlayback,
+  clearProRoomBoundedFilePlayback,
+  hasCurrentProRoomBoundedFilePlayback,
+  invalidateCommittedProRoomBoundedFilePlayback,
+  prepareProRoomBoundedFilePlayback,
+} from './pro-room-bounded-playback.ts';
 
 const LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS = 200;
 const filePlaybackProductRuntime = getFilePlaybackProductRuntime();
@@ -2692,6 +2699,27 @@ async function prepareAuthoritativePlayback(
   }
 
   try {
+    if (item.type === 'file') {
+      const bounded = await prepareProRoomBoundedFilePlayback(request);
+      if (bounded.status === 'superseded' || request.isCurrent?.() === false) {
+        return supersededAuthorityPrepare(request);
+      }
+      if (bounded.status === 'ready') {
+        // PREPARE is deliberately UI- and audio-inert. The previous renderer,
+        // title, selection, and seekbar remain authoritative until matching
+        // COMMIT produces native start evidence for this silent candidate.
+        return {
+          status: 'ready',
+          authority: request.authority,
+          queueItemId: request.queueItemId,
+          mediaKind: 'file',
+          durationSeconds: bounded.durationSeconds,
+          youtubeSubIndex: null,
+          youtubeVideoId: null,
+        };
+      }
+    }
+
     if (item.type === 'youtube') {
       // A PRO late-join snapshot can arrive while the join gesture's silent
       // iOS prime bounce is still awaiting PLAYING. Let that exact gesture
@@ -2778,10 +2806,18 @@ async function commitAuthoritativePlayback(
   request: Readonly<ProPlaybackCommitRequest>,
 ): Promise<ProPlaybackCommitResult> {
   if (request.state === 'idle') {
-    const delayMs = Number.isFinite(request.scheduleDelayMs)
-      ? Math.max(0, Math.min(30_000, request.scheduleDelayMs))
-      : 0;
-    if (delayMs > 0) await delay(delayMs);
+    const hadBoundedCurrent = hasCurrentProRoomBoundedFilePlayback();
+    if (hadBoundedCurrent) {
+      const applied = await applyProPlaybackFileCommit(request);
+      if (!applied) {
+        return { status: 'failed', authority: request.authority, reason: 'media-unavailable' };
+      }
+    } else {
+      const delayMs = Number.isFinite(request.scheduleDelayMs)
+        ? Math.max(0, Math.min(30_000, request.scheduleDelayMs))
+        : 0;
+      if (delayMs > 0) await delay(delayMs);
+    }
     if (
       request.isCurrent?.() === false ||
       getState('room.context').kind !== 'pro' ||
@@ -2825,9 +2861,14 @@ export function initPlaylist(): void {
       // authority generation in playback-authority-hooks fences any late
       // completion, while these existing cancellation seams release work.
       newLoadEpoch();
+      cancelProRoomBoundedFilePlayback();
       cancelProRoomPlaylistFileResolution();
       clearManagedTimer('decode-fail-advance');
       cancelYouTubeAuthorityPreparation();
+    },
+    invalidateCommitted: invalidateCommittedProRoomBoundedFilePlayback,
+    reset: () => {
+      void clearProRoomBoundedFilePlayback();
     },
   });
   registerProRoomLegacyPlaybackRestoreHandler(restoreProRoomFilePlayback);

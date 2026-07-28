@@ -77,6 +77,10 @@ import { getFilePlaybackProductRuntime } from '../player/file-playback-product-r
 const PRO_ROOM_FILE_PRELOAD_ENABLED = true;
 const filePlaybackProductRuntime = getFilePlaybackProductRuntime();
 
+function proRoomUsesBoundedFilePlayback(): boolean {
+  return getState('room.context').kind === 'pro' && filePlaybackProductRuntime.enabled();
+}
+
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
 const preloadReorderBuffer = new Map<number, Map<number, Uint8Array>>();
@@ -537,6 +541,14 @@ function beginProRoomFilePreload(
   queueItemId: QueueItemId,
   sessionId: number,
 ): Promise<void> | null {
+  if (proRoomUsesBoundedFilePlayback()) {
+    // Universal PRO playback reads immutable R2 objects through bounded Range
+    // sources during server PREPARE. A legacy next-track preload would make
+    // every participant download the entire object up front and defeat that
+    // bandwidth/memory policy. Rollback builds keep the established V1 path.
+    clearPreloadCacheState();
+    return null;
+  }
   if (
     !PRO_ROOM_FILE_PRELOAD_ENABLED ||
     getState('room.context').kind !== 'pro' ||
@@ -638,6 +650,11 @@ function handleProRoomFilePreload(
 ): void {
   const context = getState('room.context');
   if (!PRO_ROOM_FILE_PRELOAD_ENABLED || context.kind !== 'pro' || !context.roomId) return;
+  if (filePlaybackProductRuntime.enabled()) {
+    _pendingProRoomPreloadHint = null;
+    clearPreloadCacheState();
+    return;
+  }
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
@@ -676,6 +693,11 @@ function handleProRoomFilePreload(
 function replayPendingProRoomPreloadHint(): void {
   const pending = _pendingProRoomPreloadHint;
   if (!pending) return;
+  if (proRoomUsesBoundedFilePlayback()) {
+    _pendingProRoomPreloadHint = null;
+    clearPreloadCacheState();
+    return;
+  }
   const context = getState('room.context');
   const hostConn = getState('network.hostConn');
   if (
@@ -743,9 +765,10 @@ async function preloadNextTrack(): Promise<void> {
     !getState('network.hostConn') &&
     filePlaybackProductRuntime.enabled();
   if (roomContext.kind === 'pro') {
-    // Every equal PRO endpoint preloads the same next occurrence from the
-    // immutable room object. The server owns queue order; no browser forwards
-    // the file or acts as a preload coordinator.
+    // The server owns queue order in PRO rooms. V2 endpoints warm through the
+    // bounded server PREPARE path outside this scheduler; rollback/V1
+    // endpoints retain the established whole-object preload without a browser
+    // coordinator.
   } else if (getState('network.hostConn')) {
     return;
   }
@@ -932,6 +955,12 @@ async function preloadNextTrack(): Promise<void> {
   const queueItemId = item.queueItemId;
 
   if (roomContext.kind === 'pro') {
+    if (filePlaybackProductRuntime.enabled()) {
+      // The server PREPARE window is the bounded warm-up boundary for PRO.
+      // Never broadcast a V1 whole-object preload hint in the V2 build.
+      clearPreloadCacheState();
+      return;
+    }
     if (!PRO_ROOM_FILE_PRELOAD_ENABLED) {
       clearPreloadCacheState();
       return;
@@ -2372,6 +2401,11 @@ export function initPreload(): void {
   // exact active preload owner once its data connection becomes eligible;
   // duplicate hints are idempotent on the member.
   const sendProRoomPreloadHintToPeer = (peerId: string): void => {
+    if (proRoomUsesBoundedFilePlayback()) {
+      _pendingProRoomPreloadHint = null;
+      clearPreloadCacheState();
+      return;
+    }
     if (!PRO_ROOM_FILE_PRELOAD_ENABLED || getState('room.context').kind !== 'pro') {
       return;
     }

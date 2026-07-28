@@ -12,6 +12,8 @@ const MAX_SMOKE_BYTES = 1024 * 1024;
 const FILE_NAME = 'live-remote-share-smoke.wav';
 const FILE_MIME = 'audio/wav';
 const REQUEST_TIMEOUT_MS = 30_000;
+const R2_CORS_PROPAGATION_TIMEOUT_MS = 45_000;
+const R2_CORS_RETRY_INTERVAL_MS = 2_000;
 const RECORD_SET_VERSION = 2;
 const RECORD_SIZE = R2RecordCryptoV2.RECORD_PLAINTEXT_BYTES;
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -252,15 +254,31 @@ function assertUploadMetadata(session: RemoteShareSession, sourceFile: File): vo
 
 async function assertUploadCors(target: UploadTarget): Promise<void> {
   const requestedHeaders = Object.keys(target.uploadHeaders).join(',');
-  const response = await fetchWithTimeout(target.uploadUrl, {
-    method: 'OPTIONS',
-    headers: {
-      Origin: APP_ORIGIN,
-      'Access-Control-Request-Method': 'PUT',
-      'Access-Control-Request-Headers': requestedHeaders,
-    },
-  });
-  if (!response.ok) throw new Error(`R2 CORS preflight HTTP ${response.status}`);
+  const deadline = Date.now() + R2_CORS_PROPAGATION_TIMEOUT_MS;
+  let response: Response;
+  for (;;) {
+    response = await fetchWithTimeout(target.uploadUrl, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: APP_ORIGIN,
+        'Access-Control-Request-Method': 'PUT',
+        'Access-Control-Request-Headers': requestedHeaders,
+      },
+    });
+    if (response.ok) break;
+    if (response.status !== 403 || Date.now() >= deadline) {
+      throw new Error(`R2 CORS preflight HTTP ${response.status}`);
+    }
+
+    // R2 documents that an updated bucket CORS policy can take up to 30
+    // seconds to reach the data plane. Retry only the no-matching-rule 403;
+    // every other status and every malformed successful response stays
+    // fail-closed.
+    await response.text();
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(R2_CORS_RETRY_INTERVAL_MS, Math.max(0, deadline - Date.now()))),
+    );
+  }
   assertAllowedOrigin(response, 'R2 CORS preflight');
   const methods = new Set(
     (response.headers.get('access-control-allow-methods') || '')

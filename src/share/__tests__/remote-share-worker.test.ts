@@ -412,6 +412,15 @@ describe('remote-share Worker capability gate', () => {
     expect(liveSmokeSource).toContain('afterDelete.status !== 404');
   });
 
+  it('bounds R2 CORS propagation retries to preflight 403 responses', () => {
+    expect(liveSmokeSource).toContain('R2_CORS_PROPAGATION_TIMEOUT_MS = 45_000');
+    expect(liveSmokeSource).toContain('R2_CORS_RETRY_INTERVAL_MS = 2_000');
+    expect(liveSmokeSource).toContain('response.status !== 403 || Date.now() >= deadline');
+    expect(liveSmokeSource).toContain(
+      'throw new Error(`R2 CORS preflight HTTP ${response.status}`)',
+    );
+  });
+
   it('applies record-aware R2 CORS before remote-share deployment', () => {
     const corsStep = releaseWorkflowSource.indexOf('- name: Apply remote-share R2 CORS policy');
     const bridgeStep = releaseWorkflowSource.indexOf(

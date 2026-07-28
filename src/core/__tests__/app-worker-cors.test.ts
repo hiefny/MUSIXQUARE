@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker, {
+  readResponseBodyLimitedForTests,
   reconcileStaleAdminProRoomActivationsForTests,
   sanitizeSoroArticleHtmlForTests,
 } from '../../../cloudflare/app-worker.js';
@@ -220,6 +221,29 @@ describe('Soro article HTML sanitizer', () => {
   });
 });
 
+describe('Soro bounded response reads', () => {
+  it('counts UTF-8 bytes and cancels as soon as a chunk crosses the cap', async () => {
+    const multibyteChunk = new TextEncoder().encode('한');
+    let cancelled = false;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(multibyteChunk);
+          controller.enqueue(multibyteChunk);
+        },
+        cancel() {
+          cancelled = true;
+        },
+      }),
+    );
+
+    await expect(readResponseBodyLimitedForTests(response, 5)).rejects.toThrow(
+      'Response body exceeds 5 bytes',
+    );
+    expect(cancelled).toBe(true);
+  });
+});
+
 describe('Cloudflare app worker scheduled maintenance', () => {
   const rss = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel><item>
@@ -284,6 +308,88 @@ describe('Cloudflare app worker scheduled maintenance', () => {
     expect(bind).toHaveBeenCalledWith(Date.now() - 365 * 24 * 60 * 60 * 1000);
     expect(run).toHaveBeenCalledTimes(2);
     expect(backup.put).toHaveBeenCalledWith('soro-rss-latest-good.xml', rss);
+  });
+
+  it('keeps the RSS deadline armed until the response body finishes', async () => {
+    vi.useFakeTimers();
+    let observedSignal: AbortSignal | null = null;
+    let bodyCancelled = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_resource: RequestInfo | URL, init?: RequestInit) => {
+        observedSignal = init?.signal as AbortSignal;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('<?xml version="1.0"?><rss>'));
+            },
+            cancel() {
+              bodyCancelled = true;
+            },
+          }),
+          { headers: { 'Content-Type': 'application/rss+xml' } },
+        );
+      }),
+    );
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const { env, backup } = createScheduledEnv(vi.fn(async () => ({ success: true })));
+
+    const { pending } = await runScheduled(env);
+    await vi.advanceTimersByTimeAsync(2_501);
+
+    await expect(Promise.all(pending)).resolves.toHaveLength(3);
+    expect((observedSignal as AbortSignal | null)?.aborted).toBe(true);
+    expect(bodyCancelled).toBe(true);
+    expect(backup.put).not.toHaveBeenCalledWith('soro-rss-latest-good.xml', expect.anything());
+  });
+
+  it('cancels a chunked oversized image before reading the remaining body', async () => {
+    const imageSource = 'https://app.trysoro.com/images/scheduled-article.webp';
+    const rssWithImage = rss.replace(
+      '<content:encoded>',
+      `<enclosure url="${imageSource}" type="image/webp" /><content:encoded>`,
+    );
+    const imageChunk = new Uint8Array(1024 * 1024);
+    let imagePulls = 0;
+    let imageCancelled = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (resource: RequestInfo | URL) => {
+        if (String(resource) !== imageSource) {
+          return new Response(rssWithImage, {
+            headers: { 'Content-Type': 'application/rss+xml' },
+          });
+        }
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              imagePulls += 1;
+              if (imagePulls <= 8) controller.enqueue(imageChunk);
+              else controller.close();
+            },
+            cancel() {
+              imageCancelled = true;
+            },
+          }),
+          { headers: { 'Content-Type': 'image/webp' } },
+        );
+      }),
+    );
+    const imagePut = vi.fn(async () => undefined);
+    const { env } = createScheduledEnv(vi.fn(async () => ({ success: true })));
+    Object.assign(env, {
+      SORO_IMAGE_BUCKET: {
+        head: vi.fn(async () => null),
+        put: imagePut,
+      },
+    });
+
+    const { pending } = await runScheduled(env);
+    await expect(Promise.all(pending)).resolves.toHaveLength(3);
+
+    expect(imageCancelled).toBe(true);
+    expect(imagePulls).toBeLessThan(8);
+    expect(imagePut).not.toHaveBeenCalled();
   });
 
   it('uses the minute trigger only to resume durable account deletion jobs', async () => {
@@ -3697,8 +3803,12 @@ describe('Cloudflare app worker Developer API key administration', () => {
     const developerDb = {
       prepare: vi.fn((sql: string) => {
         const executeRun = (...values: unknown[]) => {
-          if (/SET status = 'revoked', revoked_at = expires_at/i.test(sql)) {
+          if (/SET status = 'revoked',\s+revoked_at = expires_at/i.test(sql)) {
             const [roomCode, roomGeneration, timestamp] = values as [string, number, number];
+            const triggerCompatibleUpdate =
+              /updated_at = CASE\s+WHEN updated_at > expires_at THEN updated_at\s+ELSE expires_at\s+END/i.test(
+                sql,
+              );
             let changes = 0;
             for (const row of keyRows.values()) {
               if (
@@ -3709,7 +3819,25 @@ describe('Cloudflare app worker Developer API key administration', () => {
               ) {
                 row.status = 'revoked';
                 row.revoked_at = row.expires_at;
-                row.updated_at = timestamp;
+                row.updated_at = triggerCompatibleUpdate
+                  ? Math.max(row.updated_at, row.expires_at)
+                  : timestamp;
+                if (
+                  triggerCompatibleUpdate &&
+                  !audits.some(
+                    (entry) => entry.keyId === row.key_id && entry.action === 'key.expire',
+                  )
+                ) {
+                  audits.push({
+                    actorId: 'system:expiry',
+                    action: 'key.expire',
+                    result: 'expired',
+                    keyId: row.key_id,
+                    roomCode: row.room_code,
+                    roomGeneration: row.room_generation,
+                    createdAt: row.expires_at,
+                  });
+                }
                 changes += 1;
               }
             }
@@ -4335,6 +4463,16 @@ describe('Cloudflare app worker Developer API key administration', () => {
     expect(keyRows.get('ExpiredKeyId0001')).toMatchObject({
       status: 'revoked',
       revoked_at: Date.now() - 1,
+      updated_at: Date.now() - 1,
+    });
+    expect(audits).toContainEqual({
+      actorId: 'system:expiry',
+      action: 'key.expire',
+      result: 'expired',
+      keyId: 'ExpiredKeyId0001',
+      roomCode: '000001',
+      roomGeneration: 0,
+      createdAt: Date.now() - 1,
     });
 
     const wrongRoom = await appWorker.fetch(

@@ -18,6 +18,7 @@
           "content-type",
           "x-amz-meta-mxqr-asset",
           "x-amz-meta-mxqr-bytes",
+          "x-amz-meta-mxqr-generation",
           "x-amz-meta-mxqr-room",
           "x-amz-meta-mxqr-sha256",
           "x-amz-meta-mxqr-version"

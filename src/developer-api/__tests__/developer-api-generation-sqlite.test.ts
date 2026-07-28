@@ -180,6 +180,48 @@ function insertKey(db: DatabaseSync): void {
       }
     });
 
+    it('records a natural-expiry audit when the cleanup preserves the trigger timestamp', () => {
+      const db = openDatabase();
+      try {
+        db.exec(DEVELOPER_SCHEMA);
+        insertKey(db);
+
+        db.exec(
+          `UPDATE mxqr_developer_api_keys
+           SET status = 'revoked',
+               revoked_at = expires_at,
+               updated_at = CASE
+                 WHEN updated_at > expires_at THEN updated_at
+                 ELSE expires_at
+               END
+           WHERE room_code = '000010'
+             AND room_generation = 2
+             AND status = 'active'
+             AND expires_at <= 2000`,
+        );
+
+        expect(
+          db
+            .prepare(
+              `SELECT actor_id, action, result, key_id, room_code, room_generation, created_at
+               FROM mxqr_developer_api_admin_audit
+               WHERE key_id = 'ImmutableKey0001'`,
+            )
+            .get(),
+        ).toEqual({
+          actor_id: 'system:expiry',
+          action: 'key.expire',
+          result: 'expired',
+          key_id: 'ImmutableKey0001',
+          room_code: '000010',
+          room_generation: 2,
+          created_at: 1000,
+        });
+      } finally {
+        db.close();
+      }
+    });
+
     it('queries both permanent tombstones and zero remaining credential rows', () => {
       const db = openDatabase();
       try {

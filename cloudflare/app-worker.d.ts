@@ -8,6 +8,10 @@ declare const appWorker: {
 };
 
 export function sanitizeSoroArticleHtmlForTests(html: string): string;
+export function readResponseBodyLimitedForTests(
+  response: Response,
+  maxBytes: number,
+): Promise<Uint8Array>;
 export function reconcileStaleAdminProRoomActivationsForTests(
   env: Record<string, unknown>,
   db: unknown,

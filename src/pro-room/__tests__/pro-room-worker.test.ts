@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import {
   ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
@@ -25,6 +26,44 @@ import {
   type ProRoomPlaylistStateApiForTests,
 } from '../playlist-state-manager.ts';
 import { parseProRoomSnapshot } from '../snapshot.ts';
+
+interface ProMediaCorsRule {
+  allowed: {
+    methods: string[];
+    headers: string[];
+  };
+}
+
+const proMediaCorsPolicy = JSON.parse(
+  await readFile(new URL('../../../cloudflare/r2-cors.pro-media.json', import.meta.url), 'utf8'),
+) as { rules: ProMediaCorsRule[] };
+
+function expectProMediaUploadContract(upload: {
+  headers: Record<string, string>;
+  url: string;
+}): void {
+  const uploadHeaderNames = Object.keys(upload.headers).map((header) => header.toLowerCase());
+  const corsRule = proMediaCorsPolicy.rules.find((rule) =>
+    rule.allowed.methods.some((method) => method.toUpperCase() === 'PUT'),
+  );
+  expect(corsRule).toBeDefined();
+  const corsAllowedHeaders = new Set(
+    corsRule!.allowed.headers.map((header) => header.toLowerCase()),
+  );
+  for (const header of uploadHeaderNames.filter((header) => header !== 'content-length')) {
+    expect(corsAllowedHeaders.has(header)).toBe(true);
+  }
+
+  const signedHeaders = new Set(
+    new URL(upload.url).searchParams
+      .get('X-Amz-SignedHeaders')
+      ?.split(';')
+      .map((header) => header.toLowerCase()) ?? [],
+  );
+  for (const header of [...uploadHeaderNames, 'content-length']) {
+    expect(signedHeaders.has(header)).toBe(true);
+  }
+}
 
 afterEach(() => {
   vi.useRealTimers();
@@ -15706,6 +15745,7 @@ describe('PRO room immutable generation isolation', () => {
     expect(reservation.status).toBe(200);
     const envelope = await responseJson(reservation);
     expect(envelope.reservation.upload.headers['x-amz-meta-mxqr-generation']).toBe('1');
+    expectProMediaUploadContract(envelope.reservation.upload);
     const assetId = envelope.reservation.assetId as string;
     const replacementInternal = replacement.worker as unknown as {
       room: {
@@ -15798,6 +15838,7 @@ describe('PRO room immutable generation isolation', () => {
     expect(developerUpload.status).toBe(201);
     const developerUploadEnvelope = await responseJson(developerUpload);
     expect(developerUploadEnvelope.upload.headers['x-amz-meta-mxqr-generation']).toBe('1');
+    expectProMediaUploadContract(developerUploadEnvelope.upload);
 
     const internal = replacement.worker as unknown as {
       room: { effects: { effects: { virtualTreble: { enabled: boolean } } } };

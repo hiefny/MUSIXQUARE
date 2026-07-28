@@ -2562,7 +2562,12 @@ async function cleanupExpiredAdminDeveloperApiKeys(db, roomCode, roomGeneration,
   await db
     .prepare(
       `UPDATE mxqr_developer_api_keys
-       SET status = 'revoked', revoked_at = expires_at, updated_at = ?3
+       SET status = 'revoked',
+           revoked_at = expires_at,
+           updated_at = CASE
+             WHEN updated_at > expires_at THEN updated_at
+             ELSE expires_at
+           END
        WHERE room_code = ?1 AND room_generation = ?2
          AND status = 'active' AND expires_at <= ?3`,
     )
@@ -5629,6 +5634,90 @@ async function fetchWithTimeout(resource, options = {}, timeoutMs = 5000) {
   }
 }
 
+class ResponseBodyTooLargeError extends Error {
+  constructor(maxBytes) {
+    super(`Response body exceeds ${maxBytes} bytes`);
+    this.name = 'ResponseBodyTooLargeError';
+  }
+}
+
+function responseContentLength(response) {
+  const value = response.headers.get('content-length');
+  if (value === null || !/^\d+$/.test(value.trim())) return null;
+  const bytes = Number(value);
+  return Number.isSafeInteger(bytes) && bytes >= 0 ? bytes : null;
+}
+
+async function cancelResponseBody(response, reason) {
+  if (!response.body) return;
+  await response.body.cancel(reason).catch(() => {});
+}
+
+async function readResponseBodyLimited(response, maxBytes, signal) {
+  const declaredBytes = responseContentLength(response);
+  if (declaredBytes !== null && declaredBytes > maxBytes) {
+    await cancelResponseBody(response, 'RESPONSE_BODY_TOO_LARGE');
+    throw new ResponseBodyTooLargeError(maxBytes);
+  }
+  if (!response.body) return new Uint8Array();
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  const abortReason = () =>
+    signal.reason instanceof Error ? signal.reason : new Error('Response body read aborted');
+  const handleAbort = () => {
+    void reader.cancel(abortReason()).catch(() => {});
+  };
+  signal.addEventListener('abort', handleAbort, { once: true });
+
+  try {
+    while (true) {
+      if (signal.aborted) throw abortReason();
+      const { done, value } = await reader.read();
+      if (signal.aborted) throw abortReason();
+      if (done) break;
+      if (!value) continue;
+      const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+      totalBytes += bytes.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel('RESPONSE_BODY_TOO_LARGE').catch(() => {});
+        throw new ResponseBodyTooLargeError(maxBytes);
+      }
+      chunks.push(bytes);
+    }
+  } finally {
+    signal.removeEventListener('abort', handleAbort);
+    reader.releaseLock();
+  }
+
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+
+async function fetchAndConsumeWithTimeout(resource, options, timeoutMs, consume) {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(new Error('Response body read timed out')),
+    timeoutMs,
+  );
+  try {
+    const response = await fetch(resource, { ...options, signal: controller.signal });
+    return await consume(response, controller.signal);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function readResponseBodyLimitedForTests(response, maxBytes) {
+  return readResponseBodyLimited(response, maxBytes, new AbortController().signal);
+}
+
 function sanitizeSoroImageSource(value) {
   try {
     const url = new URL(value);
@@ -5737,7 +5826,7 @@ async function ensureSoroImageMirror(env, article, options = {}) {
   if (!options.fetchMissing) return 'source';
 
   try {
-    const response = await fetchWithTimeout(
+    const fetched = await fetchAndConsumeWithTimeout(
       sourceUrl,
       {
         headers: {
@@ -5745,21 +5834,35 @@ async function ensureSoroImageMirror(env, article, options = {}) {
         },
       },
       SORO_IMAGE_FETCH_TIMEOUT_MS,
+      async (response, signal) => {
+        if (!response.ok) {
+          await cancelResponseBody(response, 'SORO_IMAGE_HTTP_ERROR');
+          return { status: 'fetch-error' };
+        }
+
+        const contentType = response.headers.get('content-type') || '';
+        if (!isAllowedSoroImageContentType(contentType)) {
+          await cancelResponseBody(response, 'SORO_IMAGE_INVALID_TYPE');
+          return { status: 'invalid-type' };
+        }
+
+        try {
+          return {
+            status: 'ok',
+            contentType,
+            bytes: await readResponseBodyLimited(response, SORO_IMAGE_MAX_BYTES, signal),
+          };
+        } catch (error) {
+          if (error instanceof ResponseBodyTooLargeError) return { status: 'too-large' };
+          throw error;
+        }
+      },
     );
-    if (!response.ok) return existing ? 'cached' : 'fetch-error';
+    if (fetched.status !== 'ok') return existing ? 'cached' : fetched.status;
 
-    const contentType = response.headers.get('content-type') || '';
-    if (!isAllowedSoroImageContentType(contentType)) return existing ? 'cached' : 'invalid-type';
-
-    const contentLength = Number.parseInt(response.headers.get('content-length') || '0', 10);
-    if (contentLength > SORO_IMAGE_MAX_BYTES) return existing ? 'cached' : 'too-large';
-
-    const bytes = await response.arrayBuffer();
-    if (bytes.byteLength > SORO_IMAGE_MAX_BYTES) return existing ? 'cached' : 'too-large';
-
-    await env.SORO_IMAGE_BUCKET.put(key, bytes, {
+    await env.SORO_IMAGE_BUCKET.put(key, fetched.bytes, {
       httpMetadata: {
-        contentType: contentType.split(';')[0].trim().toLowerCase(),
+        contentType: fetched.contentType.split(';')[0].trim().toLowerCase(),
         cacheControl: SORO_IMAGE_CACHE,
       },
       customMetadata: {
@@ -6394,7 +6497,7 @@ async function writeSoroBackup(env, text, articles, previousText, previousArticl
 
 async function fetchLiveSoroRss(env) {
   const rssUrl = String(env.SORO_RSS_URL || SORO_RSS_DEFAULT_URL).trim();
-  const response = await fetchWithTimeout(
+  return fetchAndConsumeWithTimeout(
     rssUrl,
     {
       headers: {
@@ -6402,15 +6505,24 @@ async function fetchLiveSoroRss(env) {
       },
     },
     SORO_RSS_FETCH_TIMEOUT_MS,
+    async (response, signal) => {
+      if (!response.ok) {
+        await cancelResponseBody(response, 'SORO_RSS_HTTP_ERROR');
+        throw new Error(`Soro RSS HTTP ${response.status}`);
+      }
+      let bytes;
+      try {
+        bytes = await readResponseBodyLimited(response, SORO_RSS_MAX_BYTES, signal);
+      } catch (error) {
+        if (error instanceof ResponseBodyTooLargeError) throw new Error('Soro RSS too large');
+        throw error;
+      }
+      const text = new TextDecoder().decode(bytes);
+      const articles = parseSoroRss(text);
+      if (!isLikelyValidSoroFeed(text, articles)) throw new Error('Soro RSS invalid');
+      return { text, articles };
+    },
   );
-  if (!response.ok) throw new Error(`Soro RSS HTTP ${response.status}`);
-  const contentLength = Number.parseInt(response.headers.get('content-length') || '0', 10);
-  if (contentLength > SORO_RSS_MAX_BYTES) throw new Error('Soro RSS too large');
-  const text = await response.text();
-  if (text.length > SORO_RSS_MAX_BYTES) throw new Error('Soro RSS too large');
-  const articles = parseSoroRss(text);
-  if (!isLikelyValidSoroFeed(text, articles)) throw new Error('Soro RSS invalid');
-  return { text, articles };
 }
 
 async function loadSoroFeeds(env, options = {}) {

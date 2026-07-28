@@ -81,16 +81,10 @@ This is accepted as a product-priority tradeoff for the current mobile-first mus
 
 This is accepted (2026-06-13 deep-dive). The window is a sub-300ms sliver: most overlap is already closed by the load's own external-owner abort (`decode.ts` post-decode check), and the strictly larger in-flight variant — a broadcast already pumping when system-audio starts — is itself accepted by design (SA-08: "chunks we discard anyway"). Cancelling only the parked sliver would not change the switch's waste profile. If revisited (system-audio becoming a high-frequency flow, or rooms growing past the current warn thresholds), the verified fix is a single `cancelPendingBroadcast()` after the `stopAllMedia` call in `startSystemAudioCapture` — pending-only, NOT `cancelOutgoingFileTransfers` (which would also abort in-flight transfers that can still finalize on guests before SYSTEM_AUDIO_START processes), and NOT inside `stopAllMedia` (HET-6).
 
-### 11. `startSystemAudioCapture` Mid-Init Failure Leaves The Silent-Stop Shadow Without Restore
+## Retired Risks
 
-Two early-failure points in `src/audio/system-capture.ts` — the `initAudio()` throw and the widener-unavailable return — sit after `stopAllMedia({silent})` (which parks mode/activity as the file/playing shadow) but before `claimPlaybackOwner('system-audio')`, and neither restores from `_preSysAudioState`. The host then shows a playing-shaped UI with no audio until a manual play.
-
-This is accepted (2026-06-13 23차 triage). Reachability is near-zero (the audio graph must fail to initialize on a machine that just granted `getDisplayMedia`), recovery is one tap, and the system-audio restore semantics were deliberately settled in the 21차 SA-02 fix (force-stop = transition, restore only on explicit stop) — adding restore writes to failure paths is not worth re-opening that surface. If revisited: these two paths are provably un-superseded (synchronous within the start flow), so restoring from `_preSysAudioState` there is safe.
-
-## Retired From The Old Draft
-
-A previous untracked workshop draft was written against an older architecture.
-These items should no longer be carried forward as accepted risks:
+These older draft findings and subsequently resolved risks should no longer be
+carried forward as accepted risks:
 
 | Old item | Current status |
 | --- | --- |
@@ -101,6 +95,7 @@ These items should no longer be carried forward as accepted risks:
 | Tone.js cleanup/tree-shaking notes | Retired. The audio layer now uses direct Web Audio helpers. |
 | OPFS browser API coverage | Retired as written. The remaining browser-only test gaps are Media Session, service worker, YouTube iframe, WebRTC, and real mobile audio policy. |
 | System-audio media close handlers keyed only by channel/peer ID | Retired 2026-07-19. Host and guest handlers now require exact `MediaConnection` identity, and a silent same-channel replacement has its own identity-fenced watchdog. |
+| `startSystemAudioCapture` mid-init failure leaves a silent-stop shadow | Retired 2026-07-16. `initAudio()` now completes before the prior playback snapshot is stopped, and a missing widener calls `abortPreparedCapture()` to restore that snapshot. Direct regression tests cover both failure paths. |
 
 ## Rule For Future Audits
 

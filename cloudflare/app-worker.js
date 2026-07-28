@@ -82,6 +82,12 @@ const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
 const SORO_BLOG_HTML_CACHE = 'no-store, max-age=0, must-revalidate';
+const APP_SHELL_FRESH_CACHE_HEADERS = Object.freeze({
+  'Cache-Control': 'no-store, max-age=0, must-revalidate',
+  'CDN-Cache-Control': 'no-store',
+  'Cloudflare-CDN-Cache-Control': 'no-store',
+  Pragma: 'no-cache',
+});
 const SORO_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const SORO_IMAGE_FETCH_TIMEOUT_MS = 5000;
 const SORO_IMAGE_ROUTE_PREFIX = '/soro-images/';
@@ -7030,7 +7036,7 @@ async function serveInvitePage(request, env, code) {
   if (!contentType.includes('text/html')) return withSecurityHeaders(response);
   const inviteHeaders = {
     'Content-Type': 'text/html; charset=utf-8',
-    'Cache-Control': 'no-cache',
+    ...APP_SHELL_FRESH_CACHE_HEADERS,
     // Invite URLs can expose a live or persistent room code when shared in a
     // crawlable context. Keep rich Open Graph previews, but do not let search
     // engines turn private entry points into search results.
@@ -7138,9 +7144,17 @@ async function serveStatic(request, env, ctx) {
   if (redirect) return Response.redirect(new URL(redirect, url), 301);
 
   if (url.pathname === '/' && (request.method === 'GET' || request.method === 'HEAD')) {
-    return withSecurityHeaders(await fetchAsset(env, request, '/index.html'), {
-      'Cache-Control': 'no-cache',
-    });
+    return withSecurityHeaders(
+      await fetchAsset(env, request, '/index.html'),
+      APP_SHELL_FRESH_CACHE_HEADERS,
+    );
+  }
+
+  if (url.pathname === '/index.html' && (request.method === 'GET' || request.method === 'HEAD')) {
+    return withSecurityHeaders(
+      await fetchAsset(env, request, '/index.html'),
+      APP_SHELL_FRESH_CACHE_HEADERS,
+    );
   }
 
   const inviteMatch = url.pathname.match(/^\/(\d{6})$/);
@@ -7200,9 +7214,10 @@ async function serveStatic(request, env, ctx) {
     (request.method === 'GET' || request.method === 'HEAD') &&
     (request.headers.get('Accept') || '').includes('text/html')
   ) {
-    return withSecurityHeaders(await fetchAsset(env, request, '/index.html'), {
-      'Cache-Control': 'no-cache',
-    });
+    return withSecurityHeaders(
+      await fetchAsset(env, request, '/index.html'),
+      APP_SHELL_FRESH_CACHE_HEADERS,
+    );
   }
 
   return withSecurityHeaders(response, {

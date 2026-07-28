@@ -4982,7 +4982,22 @@ describe('Cloudflare app worker invite route', () => {
     const response = await appWorker.fetch(new Request('https://musixquare.com/'), env);
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('Cache-Control')).toBe('no-cache');
+    expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
+    expect(response.headers.get('CDN-Cache-Control')).toBe('no-store');
+    expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
+    expect(response.headers.get('Pragma')).toBe('no-cache');
+    expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+  });
+
+  it('keeps the direct service-worker app shell request out of browser and CDN caches', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(new Request('https://musixquare.com/index.html'), env);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
+    expect(response.headers.get('CDN-Cache-Control')).toBe('no-store');
+    expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
+    expect(response.headers.get('Pragma')).toBe('no-cache');
     expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
   });
 
@@ -5018,7 +5033,10 @@ describe('Cloudflare app worker invite route', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('X-Invite-Rewrite')).toBe('123456');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
-    expect(response.headers.get('Cache-Control')).toBe('no-cache');
+    expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
+    expect(response.headers.get('CDN-Cache-Control')).toBe('no-store');
+    expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
+    expect(response.headers.get('Pragma')).toBe('no-cache');
     expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
     expect(html).toContain('Session 123456 - MUSIXQUARE');
     expect(html).toContain('https://musixquare.com/123456');
@@ -5048,7 +5066,10 @@ describe('Cloudflare app worker invite route', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('X-Invite-Rewrite')).toBe('123456');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
-    expect(response.headers.get('Cache-Control')).toBe('no-cache');
+    expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
+    expect(response.headers.get('CDN-Cache-Control')).toBe('no-store');
+    expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
+    expect(response.headers.get('Pragma')).toBe('no-cache');
     expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
     expect(await response.text()).toBe('');
   });

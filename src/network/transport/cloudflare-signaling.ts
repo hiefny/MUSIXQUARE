@@ -418,6 +418,15 @@ function isBulkPayload(data: unknown): boolean {
   return payload.type === MSG.FILE_END || payload.type === MSG.OPERATOR_FILE_UPLOAD_FINISH;
 }
 
+function isBenignDataChannelCloseError(event: Event): boolean {
+  const error = (event as Event & { error?: { message?: unknown; name?: unknown } }).error;
+  return (
+    error?.name === 'OperationError' &&
+    typeof error.message === 'string' &&
+    /(?:reason\s*=\s*)?Close called/iu.test(error.message)
+  );
+}
+
 let cloudflareDataConnectionSequence = 0;
 
 export class CloudflareDataConnection extends TinyEmitter implements TransportDataConnection {
@@ -467,9 +476,18 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     });
     channel.addEventListener('error', (event) => {
       // Chromium can synchronously report `OperationError: ... Close called`
-      // while an application-requested RTCDataChannel.close() is in progress.
-      // That is a lifecycle notification, not a failed live connection.
-      if (this.closed || this.intentionalClosing) return;
+      // while an application-requested RTCDataChannel.close() is in progress,
+      // including when one remotely closed channel makes us dispose its
+      // still-open sibling. Those are lifecycle notifications, not a second
+      // failed live connection.
+      if (
+        this.closed ||
+        this.intentionalClosing ||
+        this.resourcesDisposed ||
+        isBenignDataChannelCloseError(event)
+      ) {
+        return;
+      }
       this.emit('error', event);
     });
 

@@ -16,7 +16,7 @@ const originalRTCPeerConnection = globalThis.RTCPeerConnection;
 const originalMediaStream = globalThis.MediaStream;
 
 type FakeSocketListener = (event: { data?: unknown; reason?: string }) => void;
-type FakeChannelListener = (event: { data?: unknown }) => void;
+type FakeChannelListener = (event: { data?: unknown; error?: unknown }) => void;
 
 class FakeWebSocket {
   static readonly CONNECTING = 0;
@@ -90,7 +90,7 @@ class FakeDataChannel {
 
   dispatch(event: string, data?: unknown): void {
     for (const listener of this.listeners.get(event) ?? []) {
-      listener({ data });
+      listener(event === 'error' ? { error: data } : { data });
     }
   }
 }
@@ -1376,6 +1376,58 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     conn.close();
 
     expect(onError).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(conn.open).toBe(false);
+  });
+
+  it('suppresses sibling close errors while disposing after a remote channel closes', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    control.emitErrorOnClose = true;
+    const onError = vi.fn();
+    const onClose = vi.fn();
+    conn.on('error', onError);
+    conn.on('close', onClose);
+
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    bulk.readyState = 'closed';
+    bulk.dispatch('close');
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(conn.open).toBe(false);
+    expect(control.readyState).toBe('closed');
+    expect(pc.connectionState).toBe('closed');
+    expect(pc.closeCount).toBe(1);
+  });
+
+  it('suppresses a Chromium close-called error that races ahead of a remote close', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    const onError = vi.fn();
+    const onClose = vi.fn();
+    conn.on('error', onError);
+    conn.on('close', onClose);
+
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    bulk.dispatch(
+      'error',
+      new DOMException('User-Initiated Abort, reason=Close called', 'OperationError'),
+    );
+    bulk.readyState = 'closed';
+    bulk.dispatch('close');
+
+    expect(onError).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(conn.open).toBe(false);
   });

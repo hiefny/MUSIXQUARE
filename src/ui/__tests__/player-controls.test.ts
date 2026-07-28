@@ -860,7 +860,7 @@ describe('initPlayerControls playback mode rendering', () => {
     expectYouTubeSyncOverlay(false);
   });
 
-  it('delays the exact V2 file seek shield and ignores stale settlement', () => {
+  it('keeps the visualizer unobscured while delayed V2 file seek loading ignores stale settlement', () => {
     vi.useFakeTimers();
     try {
       renderPlaybackControls();
@@ -876,18 +876,12 @@ describe('initPlayerControls playback mode rendering', () => {
 
       const playBtn = document.getElementById('play-btn');
       const wrapper = document.querySelector('.vinyl-wrapper');
-      const overlay = document.getElementById(
-        'file-playback-loading-overlay',
-      ) as HTMLElement | null;
       expect(wrapper?.getAttribute('aria-busy')).toBe('true');
-      expect(overlay?.getAttribute('role')).toBe('status');
-      expect(overlay?.getAttribute('aria-live')).toBe('polite');
-      expect(overlay?.hidden).toBe(true);
+      expect(document.getElementById('file-playback-loading-overlay')).toBeNull();
       expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
 
       vi.advanceTimersByTime(FILE_PLAYBACK_LOADING_VISUAL_DELAY_MS);
-      expect(overlay?.hidden).toBe(false);
-      expect(overlay?.getAttribute('aria-hidden')).toBe('false');
+      expect(document.getElementById('file-playback-loading-overlay')).toBeNull();
       expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
 
       bus.emit('player:v2-host-seek-settled', {
@@ -896,7 +890,7 @@ describe('initPlayerControls playback mode rendering', () => {
         status: 'superseded',
         positionSeconds: 8,
       });
-      expect(overlay?.hidden).toBe(false);
+      expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
 
       bus.emit('player:v2-host-seek-settled', {
         token: 401,
@@ -905,7 +899,7 @@ describe('initPlayerControls playback mode rendering', () => {
         positionSeconds: 35,
       });
       expect(wrapper?.getAttribute('aria-busy')).toBe('false');
-      expect(overlay?.hidden).toBe(true);
+      expect(document.getElementById('file-playback-loading-overlay')).toBeNull();
       expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
     } finally {
       vi.useRealTimers();
@@ -927,9 +921,7 @@ describe('initPlayerControls playback mode rendering', () => {
       });
       vi.advanceTimersByTime(FILE_PLAYBACK_LOADING_VISUAL_DELAY_MS);
 
-      expect(
-        (document.getElementById('file-playback-loading-overlay') as HTMLElement | null)?.hidden,
-      ).toBe(true);
+      expect(document.getElementById('file-playback-loading-overlay')).toBeNull();
       expect(document.querySelector('.vinyl-wrapper')?.getAttribute('aria-busy')).toBe('false');
       expect(document.getElementById('play-btn')?.classList.contains('yt-syncing')).toBe(false);
       expectYouTubeSyncOverlay(false);
@@ -952,16 +944,14 @@ describe('initPlayerControls playback mode rendering', () => {
       bus.emit('player:stop-all-media');
       vi.advanceTimersByTime(FILE_PLAYBACK_LOADING_VISUAL_DELAY_MS);
 
-      expect(
-        (document.getElementById('file-playback-loading-overlay') as HTMLElement | null)?.hidden,
-      ).toBe(true);
+      expect(document.getElementById('file-playback-loading-overlay')).toBeNull();
       expect(document.querySelector('.vinyl-wrapper')?.getAttribute('aria-busy')).toBe('false');
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('renders generic V2 start preparation from its exact producer token', () => {
+  it('renders generic V2 start preparation only on the play control for its exact token', () => {
     vi.useFakeTimers();
     try {
       renderPlaybackControls();
@@ -974,23 +964,22 @@ describe('initPlayerControls playback mode rendering', () => {
       });
       vi.advanceTimersByTime(FILE_PLAYBACK_LOADING_VISUAL_DELAY_MS);
 
-      const overlay = document.getElementById(
-        'file-playback-loading-overlay',
-      ) as HTMLElement | null;
-      expect(overlay?.hidden).toBe(false);
-      expect(overlay?.textContent).toBe(t('toast.yt_sync_start'));
+      const playBtn = document.getElementById('play-btn');
+      expect(document.getElementById('file-playback-loading-overlay')).toBeNull();
+      expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
 
       bus.emit('player:v2-file-loading-settled', {
         owner: 'host-start',
         token: 'stale',
       });
-      expect(overlay?.hidden).toBe(false);
+      expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
 
       bus.emit('player:v2-file-loading-settled', {
         owner: 'host-start',
         token: 'start:1',
       });
-      expect(overlay?.hidden).toBe(true);
+      expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+      expect(document.getElementById('file-playback-loading-overlay')).toBeNull();
     } finally {
       vi.useRealTimers();
     }

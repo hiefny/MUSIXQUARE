@@ -1391,6 +1391,15 @@ function readTrackPosition(repairOutOfRangeOffset: boolean): number {
     return readExactV2HostControlState()?.position.positionSeconds ?? 0;
   }
 
+  // A V2 guest renders from its own FilePlaybackManager rather than the
+  // legacy AudioBuffer clock. Project that exact native position while the
+  // product room owns an exact current port; otherwise the legacy startedAt
+  // anchor can alternately pull the seek bar backward and forward around sync
+  // updates. Host, PRO, YouTube, and system-audio owners have already returned
+  // above, and the projection itself fails closed outside an exact V2 room.
+  const guestPosition = getManagedFilePlaybackPosition(getCurrentQueueItemId());
+  if (guestPosition) return guestPosition.positionSeconds;
+
   if (isFileTransportInactive()) return pausedAt;
 
   const _currentAudioBuffer = getCurrentAudioBuffer();

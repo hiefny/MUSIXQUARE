@@ -131,8 +131,8 @@ function syncPlayButtonLoadingClass(): void {
   const videoWrapper = document.querySelector<HTMLElement>('.video-wrapper');
   const youtubeContainer = document.getElementById('youtube-player-container');
   const overlay = document.getElementById('youtube-sync-loading-overlay');
-  // V2 file preparation must never make the YouTube iframe inert. Its loading
-  // shield is owned by the file visualizer and is reconciled independently.
+  // V2 file preparation is projected only on the play control and must never
+  // make the YouTube iframe inert. The iframe shield is YouTube-owned.
   const showYouTubeOverlay = establishedLoading && getState('playback.mode') === 'youtube';
   if (videoWrapper) videoWrapper.setAttribute('aria-busy', String(showYouTubeOverlay));
   if (youtubeContainer instanceof HTMLElement) {
@@ -144,49 +144,16 @@ function syncPlayButtonLoadingClass(): void {
   }
 }
 
-function getFilePlaybackPreparingLabel(): string {
-  // This existing generic phrase is translated in every supported locale and
-  // matches the synchronization shield already used by the YouTube surface.
-  return t('toast.yt_sync_start');
-}
-
-function ensureFilePlaybackLoadingOverlay(): HTMLElement | null {
-  const wrapper = document.querySelector<HTMLElement>('.vinyl-wrapper');
-  if (!wrapper) return null;
-  let overlay = document.getElementById('file-playback-loading-overlay');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.id = 'file-playback-loading-overlay';
-    overlay.className = 'youtube-sync-loading-overlay';
-    overlay.setAttribute('role', 'status');
-    overlay.setAttribute('aria-live', 'polite');
-    overlay.setAttribute('aria-atomic', 'true');
-    overlay.setAttribute('aria-hidden', 'true');
-    overlay.hidden = true;
-    overlay.append(document.createElement('span'));
-  }
-  if (overlay.parentElement !== wrapper) wrapper.append(overlay);
-  const label = overlay.querySelector('span');
-  if (label) label.textContent = getFilePlaybackPreparingLabel();
-  return overlay;
-}
-
 function syncFilePlaybackLoadingUi(
   snapshot: Readonly<FilePlaybackLoadingSnapshot> = getFilePlaybackLoadingSnapshot(),
 ): void {
   const wrapper = document.querySelector<HTMLElement>('.vinyl-wrapper');
-  const overlay = ensureFilePlaybackLoadingOverlay();
   const mode = getState('playback.mode');
   const fileSurfaceActive = mode === null || mode === 'file';
-  const showOverlay = snapshot.visible && fileSurfaceActive;
-  _v2FilePlaybackLoadingVisible = showOverlay;
+  _v2FilePlaybackLoadingVisible = snapshot.visible && fileSurfaceActive;
 
   if (wrapper) {
     wrapper.setAttribute('aria-busy', String(snapshot.active && fileSurfaceActive));
-  }
-  if (overlay) {
-    overlay.hidden = !showOverlay;
-    overlay.setAttribute('aria-hidden', String(!showOverlay));
   }
   syncPlayButtonLoadingClass();
 }
@@ -1107,7 +1074,9 @@ export function initPlayerControls(): void {
   // Re-initialization must never inherit an interaction shield owned by a
   // disposed subscription scope.
   syncPlayButtonLoadingClass();
-  ensureFilePlaybackLoadingOverlay();
+  // File preparation remains visible on the play control, but must not cover
+  // the visualizer. Remove a stale overlay left by HMR or an older runtime.
+  document.getElementById('file-playback-loading-overlay')?.remove();
   _disposeFilePlaybackLoadingSubscription = subscribeFilePlaybackLoading(syncFilePlaybackLoadingUi);
   initTabTitleMarquee(getTabTitleSnapshot);
 
@@ -1432,7 +1401,6 @@ export function initPlayerControls(): void {
   const refreshPlayerText = () => {
     refreshTrackTitle();
     setTabTitleTrack(getTabTitleTrack());
-    ensureFilePlaybackLoadingOverlay();
   };
   _busScope.on('i18n:changed', refreshPlayerText);
   _busScope.on('ui:player-panel-visible', refreshPlayerText);

@@ -273,6 +273,8 @@ function candidateMatchesRemoteUfrag(
 const DATA_CHANNEL_LABEL = 'musixquare-data';
 const CONTROL_CHANNEL_LABEL = 'musixquare-control';
 const BINARY_CHUNK_SENTINEL = '__mxqrBinaryChunk';
+const BINARY_PAYLOAD_SENTINEL = '__mxqrBinaryPayload';
+const PEER_RANGE_PROTOCOL_ID = 'musixquare-peer-range';
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
@@ -342,17 +344,32 @@ function toUint8Array(value: unknown): Uint8Array | null {
   return null;
 }
 
+function peerRangeBinaryPayload(record: Record<string, unknown>): Uint8Array | null {
+  if (
+    record.protocol !== PEER_RANGE_PROTOCOL_ID ||
+    record.lane !== 'bulk' ||
+    record.type !== 'chunk'
+  ) {
+    return null;
+  }
+  return toUint8Array(record.payload);
+}
+
 function encodePayload(data: unknown): string | ArrayBuffer {
   if (data && typeof data === 'object') {
     const record = data as Record<string, unknown>;
     const chunk = toUint8Array(record.chunk);
-    if (chunk) {
-      const header = { ...record, chunk: { [BINARY_CHUNK_SENTINEL]: true } };
+    const payload = peerRangeBinaryPayload(record);
+    const binary = chunk ?? payload;
+    if (binary) {
+      const header = chunk
+        ? { ...record, chunk: { [BINARY_CHUNK_SENTINEL]: true } }
+        : { ...record, payload: { [BINARY_PAYLOAD_SENTINEL]: true } };
       const headerBytes = textEncoder.encode(JSON.stringify(header));
-      const frame = new Uint8Array(4 + headerBytes.byteLength + chunk.byteLength);
+      const frame = new Uint8Array(4 + headerBytes.byteLength + binary.byteLength);
       new DataView(frame.buffer).setUint32(0, headerBytes.byteLength, false);
       frame.set(headerBytes, 4);
-      frame.set(chunk, 4 + headerBytes.byteLength);
+      frame.set(binary, 4 + headerBytes.byteLength);
       return frame.buffer;
     }
   }
@@ -369,9 +386,14 @@ function decodeBinaryPayload(frame: ArrayBuffer): unknown {
   const bytes = new Uint8Array(frame);
   const headerJson = textDecoder.decode(bytes.slice(4, 4 + headerLength));
   const payload = JSON.parse(headerJson) as Record<string, unknown>;
-  const marker = payload.chunk as Record<string, unknown> | undefined;
-  if (!marker?.[BINARY_CHUNK_SENTINEL]) throw new Error('INVALID_BINARY_MARKER');
-  payload.chunk = bytes.slice(4 + headerLength);
+  const chunkMarker = payload.chunk as Record<string, unknown> | undefined;
+  const payloadMarker = payload.payload as Record<string, unknown> | undefined;
+  const isChunk = chunkMarker?.[BINARY_CHUNK_SENTINEL] === true;
+  const isPeerRangePayload = payloadMarker?.[BINARY_PAYLOAD_SENTINEL] === true;
+  if (isChunk === isPeerRangePayload) throw new Error('INVALID_BINARY_MARKER');
+  const body = bytes.slice(4 + headerLength);
+  if (isChunk) payload.chunk = body;
+  else payload.payload = body;
   return payload;
 }
 
@@ -386,6 +408,7 @@ function isBulkPayload(data: unknown): boolean {
   if (!data || typeof data !== 'object') return false;
   const payload = data as Record<string, unknown>;
   if (toUint8Array(payload.chunk)) return true;
+  if (peerRangeBinaryPayload(payload)) return true;
 
   // File chunks are carried by the ordered bulk channel. Keep both terminal
   // fences on that same channel as well: ordering is guaranteed within one

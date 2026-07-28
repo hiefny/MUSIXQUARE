@@ -4,6 +4,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MSG } from '../../../core/constants.ts';
 import { clearAllManagedTimers } from '../../../core/timers.ts';
+import {
+  createPeerRangeChunkFrames,
+  parsePeerRangeBulkFrame,
+} from '../../../player/sources/peer-range-protocol.ts';
 import { CloudflareDataConnection, CloudflareSignalingPeer } from '../cloudflare-signaling.ts';
 import type { TransportDataConnection, TransportMediaConnection } from '../types.ts';
 
@@ -1312,6 +1316,44 @@ describe('Cloudflare client/Worker signaling contract', () => {
 });
 
 describe('Cloudflare signaling/data-channel boundary', () => {
+  it('carries peer-range ArrayBuffer payloads losslessly on the ordered bulk channel', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    const onData = vi.fn();
+    conn.on('data', onData);
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    const frame = createPeerRangeChunkFrames(
+      {
+        connectionId: 'cloudflare-range-connection',
+        sourceIdentity: 'cloudflare-range-source',
+        handleId: 'cloudflare-range-handle',
+        requestId: 'cloudflare-range-request',
+        offset: 0,
+        totalLength: 4,
+      },
+      Uint8Array.of(11, 22, 33, 44),
+    )[0]!;
+    conn.send(frame);
+
+    expect(control.sent).toHaveLength(0);
+    expect(bulk.sent).toHaveLength(1);
+    expect(bulk.sent[0]).toBeInstanceOf(ArrayBuffer);
+
+    bulk.dispatch('message', bulk.sent[0]);
+    await vi.waitFor(() => expect(onData).toHaveBeenCalledOnce());
+    const delivered = onData.mock.calls[0]![0] as Record<string, unknown>;
+    expect(delivered.payload).toBeInstanceOf(Uint8Array);
+    const parsed = parsePeerRangeBulkFrame(delivered);
+    expect(parsed.type).toBe('chunk');
+    if (parsed.type !== 'chunk') throw new Error('expected a peer-range chunk');
+    expect([...new Uint8Array(parsed.payload)]).toEqual([11, 22, 33, 44]);
+  });
+
   it('suppresses synchronous channel errors caused by an intentional close', async () => {
     const conn = new CloudflareDataConnection('guest-1');
     const pc = new FakePeerConnection();

@@ -110,13 +110,19 @@ function productPosition(queueItemId: QueueItemId): FilePlaybackPosition {
 function productPort(
   snapshot: FilePlaybackSourceSnapshot | null,
   position: FilePlaybackPosition | null,
+  guestSnapshot: FilePlaybackSourceSnapshot | null = null,
+  guestPosition: FilePlaybackPosition | null = null,
 ): FilePlaybackProductProjectionPort & {
   readonly currentHostRendererSnapshot: ReturnType<typeof vi.fn>;
+  readonly currentGuestRendererSnapshot: ReturnType<typeof vi.fn>;
   readonly hostPositionAt: ReturnType<typeof vi.fn>;
+  readonly guestPositionAt: ReturnType<typeof vi.fn>;
 } {
   return {
     currentHostRendererSnapshot: vi.fn(() => snapshot),
+    currentGuestRendererSnapshot: vi.fn(() => guestSnapshot),
     hostPositionAt: vi.fn((_localPerformanceTimeMs: number) => position),
+    guestPositionAt: vi.fn((_localPerformanceTimeMs: number) => guestPosition),
   };
 }
 
@@ -249,14 +255,39 @@ describe('FilePlaybackReadProjection', () => {
     expect(legacyPosition).not.toHaveBeenCalled();
   });
 
-  it('fails closed for a V2 guest instead of exposing the legacy shadow', () => {
+  it('projects a V2 guest from its exact product renderer instead of the legacy shadow', () => {
     const legacyView = vi.fn(() => ({ audioBuffer: legacyBuffer(30), queueItemId: Q1 }));
     const legacy = new FilePlaybackRuntime({ legacyView });
-    const product = productPort(null, null);
+    const guestSnapshot = productSnapshot(Q1, 30);
+    const guestPosition = productPosition(Q1);
+    const product = productPort(null, null, guestSnapshot, guestPosition);
     const projection = new FilePlaybackReadProjection({
       v2Enabled: true,
       legacyRuntime: legacy,
       productRuntime: product,
+      monotonicNow: () => 1_000,
+    });
+
+    expect(projection.activeSnapshot()).toEqual(guestSnapshot);
+    expect(projection.hasPlayableSource(Q1)).toBe(true);
+    expect(projection.hasPlayableSource(Q2)).toBe(false);
+    expect(projection.durationSeconds(Q1)).toBe(30);
+    expect(projection.durationSeconds(Q2)).toBeNull();
+    expect(projection.position(Q1)).toEqual(guestPosition);
+    expect(projection.position(Q2)).toBeNull();
+    expect(product.currentHostRendererSnapshot).toHaveBeenCalled();
+    expect(product.currentGuestRendererSnapshot).toHaveBeenCalled();
+    expect(product.hostPositionAt).toHaveBeenCalledWith(1_000);
+    expect(product.guestPositionAt).toHaveBeenCalledWith(1_000);
+    expect(legacyView).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when neither V2 room owns an exact renderer', () => {
+    const legacyView = vi.fn(() => ({ audioBuffer: legacyBuffer(30), queueItemId: Q1 }));
+    const projection = new FilePlaybackReadProjection({
+      v2Enabled: true,
+      legacyRuntime: new FilePlaybackRuntime({ legacyView }),
+      productRuntime: productPort(null, null),
       monotonicNow: () => 1_000,
     });
 
@@ -287,6 +318,30 @@ describe('FilePlaybackReadProjection', () => {
     expect(projection.hasPlayableSource()).toBe(false);
     expect(projection.durationSeconds()).toBeNull();
     expect(projection.position()).toBeNull();
+  });
+
+  it('rejects non-canonical guest objects without falling back to the legacy shadow', () => {
+    const guestSnapshot = {
+      ...productSnapshot(Q1),
+      body: new Blob([new Uint8Array([1])]),
+    } as unknown as FilePlaybackSourceSnapshot;
+    const guestPosition = {
+      ...productPosition(Q1),
+      source: { destroy: vi.fn() },
+    } as unknown as FilePlaybackPosition;
+    const legacyView = vi.fn(() => ({ audioBuffer: legacyBuffer(30), queueItemId: Q1 }));
+    const projection = new FilePlaybackReadProjection({
+      v2Enabled: true,
+      legacyRuntime: new FilePlaybackRuntime({ legacyView }),
+      productRuntime: productPort(null, null, guestSnapshot, guestPosition),
+      monotonicNow: () => 1_000,
+    });
+
+    expect(projection.activeSnapshot()).toBeNull();
+    expect(projection.hasPlayableSource()).toBe(false);
+    expect(projection.durationSeconds()).toBeNull();
+    expect(projection.position()).toBeNull();
+    expect(legacyView).not.toHaveBeenCalled();
   });
 
   it('rejects forged queue identities and positions without an active revisioned run', () => {
@@ -339,7 +394,9 @@ describe('FilePlaybackReadProjection', () => {
     expect(projection.durationSeconds(Q1)).toBe(legacy.durationSeconds(Q1));
     expect(projection.position(Q1)).toEqual(legacy.position(Q1));
     expect(product.currentHostRendererSnapshot).not.toHaveBeenCalled();
+    expect(product.currentGuestRendererSnapshot).not.toHaveBeenCalled();
     expect(product.hostPositionAt).not.toHaveBeenCalled();
+    expect(product.guestPositionAt).not.toHaveBeenCalled();
   });
 
   it('captures its gate once and never invokes migration-only legacy mutations from reads', () => {

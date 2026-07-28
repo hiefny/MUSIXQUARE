@@ -21,7 +21,10 @@ import {
   createPeerRangeFileMediaSourceOfferV2,
   FileMediaOfferRegistry,
 } from '../file-media-source-offer.ts';
-import { FilePlaybackManager } from '../file-playback-manager.ts';
+import {
+  FilePlaybackManager,
+  type FilePlaybackCutoverCandidatePort,
+} from '../file-playback-manager.ts';
 import type {
   HostLocalTrackSourceLease,
   HostPreparedLocalTrack,
@@ -70,6 +73,7 @@ import type {
   FilePlaybackProductSessionRouterSnapshot,
 } from '../file-playback-product-session-router.ts';
 import type { PlaybackTimelineSnapshot } from '../playback-timeline.ts';
+import type { FilePlaybackPosition, FilePlaybackSourceSnapshot } from '../file-playback-source.ts';
 import { createPeerRangeCloseHandleFrame } from '../sources/peer-range-protocol.ts';
 
 type FilePlaybackProductRuntimeMediaFactoriesForTests = NonNullable<
@@ -3837,6 +3841,87 @@ describe('FilePlaybackProductRuntime', () => {
     expect(setup.runtime.hostRoomSnapshot()).toBeNull();
     expect(setup.runtime.currentHostTerminalRendererObservation()).toBeNull();
     expect(setup.createHostRoom).not.toHaveBeenCalled();
+  });
+
+  it('projects only the exact active guest manager port and fences stale or retired rooms', () => {
+    const manager = new FilePlaybackManager();
+    const port = Object.freeze({}) as FilePlaybackCutoverCandidatePort;
+    const stalePort = Object.freeze({}) as FilePlaybackCutoverCandidatePort;
+    const run = freezeCanonical({
+      queueItemId: Q1,
+      runId: 'runtime-guest-projection',
+      revision: 1,
+    });
+    const snapshot: FilePlaybackSourceSnapshot = freezeCanonical({
+      schemaVersion: 1 as const,
+      queueItemId: Q1,
+      backend: 'bounded-stream' as const,
+      phase: 'playing' as const,
+      revision: 1,
+      run,
+      durationSeconds: 120,
+      positionSeconds: 20,
+      bufferedAheadSeconds: 8,
+      outputSampleRateHz: 48_000,
+      channelCount: 2,
+      underrunCount: 0,
+      errorCode: null,
+    });
+    const position: FilePlaybackPosition = freezeCanonical({
+      queueItemId: Q1,
+      run,
+      phase: 'playing' as const,
+      positionSeconds: 20.25,
+      bufferedAheadSeconds: 7.75,
+      underrunCount: 0,
+    });
+    let currentPort: FilePlaybackCutoverCandidatePort | null = port;
+    const currentPortRead = vi
+      .spyOn(manager, 'currentCutoverPort')
+      .mockImplementation(() => currentPort);
+    const snapshotRead = vi
+      .spyOn(manager, 'currentCutoverSnapshot')
+      .mockImplementation(() => snapshot);
+    const positionRead = vi
+      .spyOn(manager, 'currentCutoverPosition')
+      .mockImplementation(() => position);
+    const setup = harness({
+      mediaFactoriesForTests: {
+        createGuestManager: () => manager,
+      },
+    });
+    setup.runtime.initializeBeforeProtocol();
+    setup.runtime.beginGuestRoom();
+
+    expect(setup.runtime.currentGuestRendererSnapshot()).toBe(snapshot);
+    expect(setup.runtime.guestPositionAt(1_234)).toBe(position);
+    expect(snapshotRead).toHaveBeenCalledWith(port);
+    expect(positionRead).toHaveBeenCalledWith(port, 1_234);
+
+    const positionCalls = positionRead.mock.calls.length;
+    expect(setup.runtime.guestPositionAt(Number.NaN)).toBeNull();
+    expect(setup.runtime.guestPositionAt(-1)).toBeNull();
+    expect(positionRead).toHaveBeenCalledTimes(positionCalls);
+
+    snapshotRead.mockImplementationOnce(() => {
+      currentPort = stalePort;
+      return snapshot;
+    });
+    expect(setup.runtime.currentGuestRendererSnapshot()).toBeNull();
+
+    currentPort = port;
+    positionRead.mockImplementationOnce(() => {
+      currentPort = stalePort;
+      return position;
+    });
+    expect(setup.runtime.guestPositionAt(2_000)).toBeNull();
+
+    currentPort = port;
+    setup.runtime.endRoom();
+    const portCalls = currentPortRead.mock.calls.length;
+    expect(setup.runtime.currentGuestRendererSnapshot()).toBeNull();
+    expect(setup.runtime.guestPositionAt(3_000)).toBeNull();
+    expect(currentPortRead).toHaveBeenCalledTimes(portCalls);
   });
 
   it('rejects every host transport operation in a guest room', async () => {

@@ -29,6 +29,7 @@ export const FILE_PLAYBACK_SEMANTIC_SURFACE_FILES = Object.freeze([
   'src/network/file-playback-session-handshake.ts',
   'src/network/file-playback-transport-contract.ts',
   'src/network/queue-authority.ts',
+  'src/network/transport/cloudflare-signaling.ts',
   'src/player/_state.ts',
   'src/player/aac/adts-header.ts',
   'src/player/aac/adts-manifest-structural-reconstruction.ts',
@@ -267,6 +268,22 @@ export const FILE_PLAYBACK_RELATIVE_SUPPORT_ALLOWLIST = Object.freeze([
     importer: 'src/network/file-playback-application-session.ts',
     target: 'src/core/log.ts',
     reason: 'Logging is observational and does not define the application-session contract.',
+  }),
+  Object.freeze({
+    importer: 'src/network/transport/cloudflare-signaling.ts',
+    target: 'src/core/log.ts',
+    reason: 'Logging is observational and does not define the data-channel wire codec.',
+  }),
+  Object.freeze({
+    importer: 'src/network/transport/cloudflare-signaling.ts',
+    target: 'src/network/transport/emitter.ts',
+    reason: 'Event dispatch plumbing does not define the data-channel wire codec.',
+  }),
+  Object.freeze({
+    importer: 'src/network/transport/cloudflare-signaling.ts',
+    target: 'src/network/transport/types.ts',
+    reason:
+      'Signaling command parsing and transport type declarations do not define the data-channel wire codec.',
   }),
   Object.freeze({
     importer: 'src/player/file-playback-engine-gate.ts',

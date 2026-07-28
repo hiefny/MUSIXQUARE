@@ -1240,6 +1240,24 @@ export class FilePlaybackProductRuntime {
     return active.port.currentRendererSnapshot();
   }
 
+  currentGuestRendererSnapshot(): FilePlaybackSourceSnapshot | null {
+    const active = this.#activeGuestRoom;
+    if (!this.#enabled || !active || !this.#ownsExactGuestRoom(active)) return null;
+    try {
+      const port = active.manager.currentCutoverPort();
+      if (!port) return null;
+      const snapshot = active.manager.currentCutoverSnapshot(port);
+      return snapshot &&
+        this.#activeGuestRoom === active &&
+        this.#ownsExactGuestRoom(active) &&
+        active.manager.currentCutoverPort() === port
+        ? snapshot
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
   currentHostTerminalRendererObservation(): FilePlaybackProductHostTerminalObservation | null {
     const active = this.#activeHostRoom;
     if (!this.#enabled || !active || !this.#ownsExactHostRoom(active)) return null;
@@ -1260,6 +1278,25 @@ export class FilePlaybackProductRuntime {
     const active = this.#activeHostRoom;
     if (!this.#enabled || !active || !this.#ownsExactHostRoom(active)) return null;
     return active.port.positionAt(localPerformanceTimeMs);
+  }
+
+  guestPositionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null {
+    if (!Number.isFinite(localPerformanceTimeMs) || localPerformanceTimeMs < 0) return null;
+    const active = this.#activeGuestRoom;
+    if (!this.#enabled || !active || !this.#ownsExactGuestRoom(active)) return null;
+    try {
+      const port = active.manager.currentCutoverPort();
+      if (!port) return null;
+      const position = active.manager.currentCutoverPosition(port, localPerformanceTimeMs);
+      return position &&
+        this.#activeGuestRoom === active &&
+        this.#ownsExactGuestRoom(active) &&
+        active.manager.currentCutoverPort() === port
+        ? position
+        : null;
+    } catch {
+      return null;
+    }
   }
 
   beginHostRoom(hostParticipantId: string): boolean {

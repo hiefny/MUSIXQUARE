@@ -532,6 +532,38 @@ describe('V2 host-local file transport seek boundary', () => {
     expect(getTrackPosition()).toBe(12.5);
   });
 
+  it('projects a playing guest from its native renderer without legacy re-anchoring', () => {
+    setSelectedFile();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true } as DataConnection);
+    setPlaybackFilePlaying();
+    setState('player.startedAt', 1);
+    setState('player.pausedAt', 19);
+    setState('sync.localOffset', -20);
+    v2.state.position = positionProjection('playing', 3, 20.25);
+
+    expect(getTrackPosition()).toBe(20.25);
+    expect(getTrackPosition()).toBe(20.25);
+
+    v2.state.position = positionProjection('playing', 3, 20.75);
+    expect(getTrackPosition()).toBe(20.75);
+    expect(getState('player.pausedAt')).toBe(19);
+    expect(getState('sync.localOffset')).toBe(-20);
+  });
+
+  it('projects a paused guest from its native renderer instead of a stale compatibility anchor', () => {
+    setSelectedFile();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true } as DataConnection);
+    setPlaybackFilePaused();
+    setState('player.startedAt', 1);
+    setState('player.pausedAt', 19);
+    v2.state.position = positionProjection('paused', 4, 20.5);
+
+    expect(getTrackPosition()).toBe(20.5);
+    expect(getTrackPosition()).toBe(20.5);
+  });
+
   it('fails closed when product projection is missing or belongs to another occurrence', async () => {
     setPlaybackFilePlaying();
     setState('player.pausedAt', 77);

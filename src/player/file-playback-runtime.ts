@@ -37,7 +37,9 @@ export interface FilePlaybackAvailability {
 /** Narrow JSON-safe projection capability implemented by the product runtime. */
 export interface FilePlaybackProductProjectionPort {
   currentHostRendererSnapshot(): FilePlaybackSourceSnapshot | null;
+  currentGuestRendererSnapshot(): FilePlaybackSourceSnapshot | null;
   hostPositionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null;
+  guestPositionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null;
 }
 
 export interface FilePlaybackReadProjectionOptions {
@@ -261,7 +263,9 @@ export class FilePlaybackReadProjection {
       !options.productRuntime ||
       typeof options.productRuntime !== 'object' ||
       typeof options.productRuntime.currentHostRendererSnapshot !== 'function' ||
+      typeof options.productRuntime.currentGuestRendererSnapshot !== 'function' ||
       typeof options.productRuntime.hostPositionAt !== 'function' ||
+      typeof options.productRuntime.guestPositionAt !== 'function' ||
       (options.monotonicNow !== undefined && typeof options.monotonicNow !== 'function')
     ) {
       throw new TypeError('File playback read projection options are invalid');
@@ -275,7 +279,9 @@ export class FilePlaybackReadProjection {
   activeSnapshot(): FilePlaybackSourceSnapshot | null {
     if (!this.#v2Enabled) return this.#legacyRuntime.activeSnapshot();
     try {
-      const snapshot = this.#productRuntime.currentHostRendererSnapshot();
+      const snapshot =
+        this.#productRuntime.currentHostRendererSnapshot() ??
+        this.#productRuntime.currentGuestRendererSnapshot();
       if (!snapshot) return null;
       const canonical = createFilePlaybackSourceSnapshot(snapshot);
       return isQueueItemId(canonical.queueItemId) ? canonical : null;
@@ -303,7 +309,9 @@ export class FilePlaybackReadProjection {
     try {
       const now = this.#monotonicNow();
       if (!Number.isFinite(now) || now < 0) return null;
-      const position = canonicalPosition(this.#productRuntime.hostPositionAt(now));
+      const position = canonicalPosition(
+        this.#productRuntime.hostPositionAt(now) ?? this.#productRuntime.guestPositionAt(now),
+      );
       return position && (queueItemId == null || position.queueItemId === queueItemId)
         ? position
         : null;
@@ -316,8 +324,12 @@ export class FilePlaybackReadProjection {
 const filePlaybackRuntime = new FilePlaybackRuntime();
 const productProjectionPort: FilePlaybackProductProjectionPort = Object.freeze({
   currentHostRendererSnapshot: () => getFilePlaybackProductRuntime().currentHostRendererSnapshot(),
+  currentGuestRendererSnapshot: () =>
+    getFilePlaybackProductRuntime().currentGuestRendererSnapshot(),
   hostPositionAt: (localPerformanceTimeMs: number) =>
     getFilePlaybackProductRuntime().hostPositionAt(localPerformanceTimeMs),
+  guestPositionAt: (localPerformanceTimeMs: number) =>
+    getFilePlaybackProductRuntime().guestPositionAt(localPerformanceTimeMs),
 });
 const filePlaybackReadProjection = new FilePlaybackReadProjection({
   v2Enabled: isFilePlaybackEngineV2Enabled(),

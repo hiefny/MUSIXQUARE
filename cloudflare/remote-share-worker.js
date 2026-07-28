@@ -275,6 +275,17 @@ function allowUnguardedRemoteShare(env) {
   return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
+function recordSetAdmissionReady(env) {
+  return Boolean(
+    getSigningSecret(env) &&
+    (isCapabilityRequired(env) || allowUnguardedRemoteShare(env)) &&
+    atomicRoomStorageQuotaEnabled(env) &&
+    env.REMOTE_SHARE_BUCKET &&
+    env.REMOTE_SHARE_QUOTA &&
+    getR2S3Config(env),
+  );
+}
+
 function getR2S3Config(env) {
   const accountId = String(env.R2_ACCOUNT_ID || '').trim();
   const accessKeyId = String(env.R2_ACCESS_KEY_ID || '').trim();
@@ -419,6 +430,8 @@ function handleSecurityConfig(request, env) {
     capabilityRequired: isCapabilityRequired(env),
     scope: CAPABILITY_SCOPE,
     ttl: CAPABILITY_TOKEN_TTL_DEFAULT,
+    workerContractVersion: RECORD_SET_FORMAT_VERSION,
+    ...(recordSetAdmissionReady(env) ? { recordSetVersion: RECORD_SET_FORMAT_VERSION } : {}),
   });
 }
 

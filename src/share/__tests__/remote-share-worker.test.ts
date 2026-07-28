@@ -401,6 +401,12 @@ describe('remote-share Worker capability gate', () => {
   });
 
   it('keeps the live smoke covering both V1 and an exact V2 record lifecycle', () => {
+    const readiness = liveSmokeSource.indexOf('await waitForRemoteShareWorkerReady(!v1Only)');
+    const v1 = liveSmokeSource.indexOf('await runV1Smoke');
+    expect(readiness).toBeGreaterThan(-1);
+    expect(readiness).toBeLessThan(v1);
+    expect(liveSmokeSource).toContain('WORKER_V2_PROPAGATION_TIMEOUT_MS = 30_000');
+    expect(liveSmokeSource).toContain('consecutiveReadyReads >= 2');
     expect(liveSmokeSource).toContain('runV1Smoke');
     expect(liveSmokeSource).toContain('runRecordSetSmoke');
     expect(liveSmokeSource).toContain('`${REMOTE_ORIGIN}/v2/sets`');
@@ -484,8 +490,35 @@ describe('remote-share Worker capability gate', () => {
     expect(await response.json()).toMatchObject({
       capabilityRequired: true,
       scope: 'remote-share',
+      workerContractVersion: 2,
     });
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+  });
+
+  it('advertises record-set readiness only with active atomic storage admission', async () => {
+    const unavailable = await workerModule.default.fetch(
+      request('/security-config'),
+      directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: {},
+        REMOTE_SHARE_ATOMIC_QUOTA_ENABLED: 'false',
+        ROOM_STORAGE_QUOTA_BYTES: '1073741824',
+      }),
+    );
+    const unavailablePayload = await unavailable.json();
+    expect(unavailablePayload).toMatchObject({ workerContractVersion: 2 });
+    expect(unavailablePayload).not.toHaveProperty('recordSetVersion');
+
+    const available = await workerModule.default.fetch(
+      request('/security-config'),
+      directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: {},
+        ROOM_STORAGE_QUOTA_BYTES: '1073741824',
+      }),
+    );
+    expect(await available.json()).toMatchObject({
+      workerContractVersion: 2,
+      recordSetVersion: 2,
+    });
   });
 
   it('keeps unexpected internal exception detail out of public 5xx bodies', async () => {

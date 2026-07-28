@@ -12,6 +12,8 @@ const MAX_SMOKE_BYTES = 1024 * 1024;
 const FILE_NAME = 'live-remote-share-smoke.wav';
 const FILE_MIME = 'audio/wav';
 const REQUEST_TIMEOUT_MS = 30_000;
+const WORKER_V2_PROPAGATION_TIMEOUT_MS = 30_000;
+const WORKER_V2_RETRY_INTERVAL_MS = 1_000;
 const R2_CORS_PROPAGATION_TIMEOUT_MS = 45_000;
 const R2_CORS_RETRY_INTERVAL_MS = 2_000;
 const RECORD_SET_VERSION = 2;
@@ -83,6 +85,51 @@ function assertAllowedOrigin(response: Response, label: string): void {
   const allowedOrigin = response.headers.get('access-control-allow-origin');
   if (allowedOrigin !== APP_ORIGIN) {
     throw new Error(`${label} CORS origin mismatch: ${String(allowedOrigin)}`);
+  }
+}
+
+async function waitForRemoteShareWorkerReady(requireRecordSet: boolean): Promise<void> {
+  const deadline = Date.now() + WORKER_V2_PROPAGATION_TIMEOUT_MS;
+  let consecutiveReadyReads = 0;
+
+  for (;;) {
+    const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/security-config`, {
+      headers: { Accept: 'application/json', Origin: APP_ORIGIN },
+    });
+    assertAllowedOrigin(response, 'remote-share V2 readiness');
+    const config = await readJson(response, 'remote-share V2 readiness');
+    if (
+      typeof config.capabilityRequired !== 'boolean' ||
+      config.scope !== 'remote-share' ||
+      typeof config.ttl !== 'number'
+    ) {
+      throw new Error('remote-share V2 readiness returned invalid security config');
+    }
+
+    const advertisedVersion = requireRecordSet
+      ? config.recordSetVersion
+      : config.workerContractVersion;
+    if (advertisedVersion === RECORD_SET_VERSION) {
+      consecutiveReadyReads += 1;
+      if (consecutiveReadyReads >= 2) return;
+    } else if (advertisedVersion === undefined) {
+      // A just-superseded Worker does not advertise this contract. The
+      // rollback-safe bridge advertises only its Worker contract; the full
+      // deployment additionally advertises active record-set admission.
+      consecutiveReadyReads = 0;
+    } else {
+      throw new Error('remote-share readiness returned an unsupported contract version');
+    }
+
+    if (Date.now() >= deadline) {
+      throw new Error('remote-share V2 readiness did not converge');
+    }
+    await new Promise((resolve) =>
+      setTimeout(
+        resolve,
+        Math.min(WORKER_V2_RETRY_INTERVAL_MS, Math.max(0, deadline - Date.now())),
+      ),
+    );
   }
 }
 
@@ -766,6 +813,7 @@ async function main(): Promise<void> {
   const roomId = String(randomInt(100_000, 1_000_000));
   const sourceBytes = new Uint8Array(randomBytes(byteCount));
   const token = await requestCapabilityToken();
+  await waitForRemoteShareWorkerReady(!v1Only);
   const v1 = await runV1Smoke(token, roomId, sourceBytes);
   const recordSetV2 = v1Only ? undefined : await runRecordSetSmoke(token, roomId, sourceBytes);
 

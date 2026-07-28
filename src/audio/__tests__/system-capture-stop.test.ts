@@ -12,7 +12,7 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../core/constants.ts';
 import { t } from '../../i18n/index.ts';
 import { setPlaybackTrackMeta, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
-import { initAudio } from '../engine.ts';
+import { getWidener, initAudio } from '../engine.ts';
 import {
   isSystemAudioActive,
   registerSystemCaptureListeners,
@@ -192,7 +192,7 @@ function setConnectedGuests(count: number, status = 'connected'): ConnectedPeer[
   return peers;
 }
 
-async function startShareWithPriorYouTube(): Promise<ReturnType<typeof vi.fn>> {
+function preparePriorYouTubePlayback(): ReturnType<typeof vi.fn> {
   const restoreSpy = vi.fn();
   bus.on('youtube:restore-room-playback', restoreSpy);
 
@@ -210,7 +210,11 @@ async function startShareWithPriorYouTube(): Promise<ReturnType<typeof vi.fn>> {
   setState('playlist.currentQueueItemId', YOUTUBE_QUEUE_ITEM_ID);
   setPlaybackTrackMeta(youtubeMeta());
   setPlaybackYouTubePlaying();
+  return restoreSpy;
+}
 
+async function startShareWithPriorYouTube(): Promise<ReturnType<typeof vi.fn>> {
+  const restoreSpy = preparePriorYouTubePlayback();
   stubDisplayMedia();
   await startSystemAudioCapture();
   expect(getState('playback.mode')).toBe('system-audio');
@@ -331,6 +335,42 @@ describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
     expect(commonStopSpy).toHaveBeenCalledTimes(1);
     expect(capture!.track.removeEventListener).toHaveBeenCalledWith('ended', expect.any(Function));
     expect(restoreSpy).toHaveBeenCalledTimes(1);
+    expect(isSystemAudioActive()).toBe(false);
+  });
+});
+
+describe('system audio start failure rollback', () => {
+  it('leaves prior playback untouched when audio initialization fails', async () => {
+    const restoreSpy = preparePriorYouTubePlayback();
+    const error = new Error('audio graph unavailable');
+    vi.mocked(initAudio).mockRejectedValueOnce(error);
+    stubDisplayMedia();
+
+    await expect(startSystemAudioCapture()).rejects.toBe(error);
+
+    expect(getState('playback.mode')).toBe('youtube');
+    expect(getState('playback.activity')).toBe('playing');
+    expect(getState('player.currentTrackMeta')).toEqual(youtubeMeta());
+    expect(restoreSpy).not.toHaveBeenCalled();
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('restores the prior snapshot when the prepared graph has no widener', async () => {
+    const restoreSpy = preparePriorYouTubePlayback();
+    vi.mocked(getWidener).mockReturnValueOnce(null);
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    expect(restoreSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        videoId: 'video-1',
+        queueItemId: YOUTUBE_QUEUE_ITEM_ID,
+        autoplay: true,
+      }),
+    );
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
     expect(isSystemAudioActive()).toBe(false);
   });
 });

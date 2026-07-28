@@ -343,6 +343,7 @@ interface FakeSourceHarness {
   resolveSeek(): void;
   hasPendingPause(): boolean;
   hasPendingSeek(): boolean;
+  markFailed(): void;
   markEnded(): void;
 }
 
@@ -573,6 +574,10 @@ function makeSource(
       );
     },
     hasPendingPause: () => pendingPause !== null,
+    markFailed() {
+      if (phase !== 'playing') throw new Error('Fixture source is not playing');
+      phase = 'failed';
+    },
     hasPendingSeek: () => pendingSeek !== null,
     markEnded() {
       if (phase !== 'playing') throw new Error('Only a playing fixture can end');
@@ -2842,6 +2847,79 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     await harness.engine.close();
   });
 
+  it.each(['audio-buffer', 'bounded-stream'] as const)(
+    'exposes exact current peer publication inside committed pause and seek observers for %s',
+    async (backend) => {
+      let harness!: EngineHarness;
+      const observations: Array<{
+        readonly event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>;
+        readonly publication: Readonly<HostPeerPlaybackPublication> | null;
+      }> = [];
+      harness = makeHarness([{ backend }], {
+        onTimelineCommitted: (event) => {
+          if (event.kind !== 'pause' && event.kind !== 'seek') return;
+          observations.push({
+            event,
+            publication: harness.engine.currentPeerPublication(),
+          });
+        },
+      });
+      const blob = new Blob([new Uint8Array([1, 2, 3])], {
+        type: backend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
+      });
+      const playing = await resolveLatestStart(
+        harness,
+        harness.start(blob, { name: `committed-observer-${backend}` }),
+      );
+
+      harness.setRoomTime(2_000);
+      const pausing = harness.engine.pauseCurrent({ signal: new AbortController().signal });
+      await drainMicrotasks();
+      harness.sources[0]?.resolvePause();
+      const paused = await pausing;
+
+      harness.setRoomTime(3_000);
+      const seeking = harness.engine.seekPaused({
+        positionSeconds: 33,
+        signal: new AbortController().signal,
+      });
+      await drainMicrotasks();
+      harness.sources[0]?.resolveSeek();
+      const sought = await seeking;
+
+      expect(observations).toHaveLength(2);
+      expect(observations[0]?.event.timeline).toBe(paused.timeline);
+      expect(observations[0]?.publication).toMatchObject({
+        roomGeneration: 1,
+        backend,
+        state: {
+          queueItemId: playing.attempt.queueItemId,
+          runId: playing.attempt.runId,
+          revision: paused.timeline.revision,
+        },
+        timeline: paused.timeline,
+      });
+      expect(observations[0]?.publication?.timeline).toBe(paused.timeline);
+      expect(observations[1]?.event.timeline).toBe(sought.timeline);
+      expect(observations[1]?.publication).toMatchObject({
+        roomGeneration: 1,
+        backend,
+        state: {
+          queueItemId: playing.attempt.queueItemId,
+          runId: playing.attempt.runId,
+          revision: sought.timeline.revision,
+        },
+        timeline: sought.timeline,
+      });
+      expect(observations[1]?.publication?.timeline).toBe(sought.timeline);
+      expect(observations[1]?.publication?.asset.binding).toEqual(
+        observations[0]?.publication?.asset.binding,
+      );
+      expect(harness.fatal).not.toHaveBeenCalled();
+      await harness.engine.close();
+    },
+  );
+
   it('prepares an exact body-free silent candidate and resolves only its private source lease', async () => {
     const harness = makeHarness([{ backend: 'audio-buffer' }]);
     const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mpeg' });
@@ -3537,6 +3615,53 @@ describe('FilePlaybackHostFirstFileEngine', () => {
   );
 
   it.each(['audio-buffer', 'bounded-stream'] as const)(
+    'allows a generic track replacement to retire an exact failed %s renderer',
+    async (backend) => {
+      const harness = makeHarness([{ backend }, { backend }]);
+      const firstBlob = new Blob([new Uint8Array([53])], {
+        type: backend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
+      });
+      await resolveLatestStart(harness, harness.start(firstBlob, { name: 'first.flac' }));
+      const failedPort = harness.manager.currentCutoverPort();
+      harness.sources[0]?.markFailed();
+      expect(harness.controller.timelineSnapshot()).toMatchObject({
+        phase: 'playing',
+        revision: 1,
+        run: { queueItemId: Q1, runId: RUN_1 },
+      });
+      expect(harness.engine.currentRendererSnapshot()).toMatchObject({
+        queueItemId: Q1,
+        backend,
+        phase: 'failed',
+        revision: 1,
+      });
+
+      harness.setRoomTime(2_000);
+      const committed = await resolveLatestStart(
+        harness,
+        harness.engine.startLocalTrack(localTrackOptions(harness, Q1, firstBlob, 19)),
+      );
+
+      expect(committed).toMatchObject({
+        backend,
+        attempt: { queueItemId: Q1, runId: RUN_2, revision: 2 },
+        schedule: { positionSeconds: 19 },
+        timeline: { phase: 'playing', revision: 2, positionSeconds: 19 },
+      });
+      expect(harness.manager.currentCutoverPort()).not.toBe(failedPort);
+      expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+      expect(harness.engine.currentRendererSnapshot()).toMatchObject({
+        queueItemId: Q1,
+        backend,
+        phase: 'playing',
+        revision: 2,
+        positionSeconds: 19,
+      });
+      await harness.engine.close();
+    },
+  );
+
+  it.each(['audio-buffer', 'bounded-stream'] as const)(
     'preserves the audible %s current renderer when a replacement candidate fails',
     async (backend) => {
       const harness = makeHarness([{ backend }, { backend, rejectArm: true }]);
@@ -4111,6 +4236,75 @@ describe('FilePlaybackHostFirstFileEngine', () => {
           attempt: { queueItemId: Q2, revision: 3 },
           timeline: { phase: 'playing', revision: 3 },
         });
+        await harness.engine.close();
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each(['audio-buffer', 'bounded-stream'] as const)(
+    'retires a failed %s renderer immediately but commits stopped truth only at the shared STOP room boundary',
+    async (backend) => {
+      vi.useFakeTimers();
+      try {
+        const scheduledEvents: Readonly<HostCurrentPlaybackTransitionScheduledEvent>[] = [];
+        const committedEvents: Readonly<HostCurrentPlaybackTimelineCommittedEvent>[] = [];
+        const harness = makeHarness([{ backend }], {
+          onTransitionScheduled: (event) => scheduledEvents.push(event),
+          onTimelineCommitted: (event) => committedEvents.push(event),
+        });
+        const blob = new Blob([new Uint8Array([65, 1])], {
+          type: backend === 'audio-buffer' ? 'audio/mpeg' : 'audio/flac',
+        });
+        await resolveLatestStart(harness, harness.start(blob, { name: 'failed-before-stop' }));
+        const previous = harness.controller.timelineSnapshot();
+        harness.sources[0]?.markFailed();
+        (harness.context as unknown as { state: AudioContextState }).state = 'suspended';
+        harness.setRoomTime(2_000);
+
+        const stopping = harness.engine.stopCurrent({
+          signal: new AbortController().signal,
+        });
+        await drainMicrotasks();
+
+        expect(scheduledEvents).toHaveLength(1);
+        expect(scheduledEvents[0]).toMatchObject({
+          kind: 'stop',
+          from: { revision: previous.revision },
+          to: { revision: previous.revision + 1 },
+          atRoomTimeMs: 2_450,
+        });
+        expect(harness.manager.currentCutoverPort()).toBeNull();
+        expect(harness.sources[0]?.destroy).toHaveBeenCalledOnce();
+        expect(harness.controller.timelineSnapshot()).toBe(previous);
+        expect(committedEvents).toEqual([]);
+
+        harness.setRoomTime(2_449);
+        await vi.advanceTimersByTimeAsync(50);
+        expect(harness.controller.timelineSnapshot()).toBe(previous);
+        expect(committedEvents).toEqual([]);
+
+        harness.setRoomTime(2_450);
+        await vi.advanceTimersByTimeAsync(4);
+        await expect(stopping).resolves.toMatchObject({
+          kind: 'stop',
+          evidence: {
+            kind: 'failed-stop-applied',
+            observation: 'source-failed-retired',
+            from: { revision: previous.revision },
+            to: { revision: previous.revision + 1 },
+          },
+          timeline: {
+            phase: 'stopped',
+            revision: previous.revision + 1,
+            run: null,
+            anchorMonotonicMs: 2_450,
+          },
+        });
+        expect(committedEvents).toHaveLength(1);
+        expect(harness.engine.currentRendererSnapshot()).toBeNull();
+        expect(harness.fatal).not.toHaveBeenCalled();
         await harness.engine.close();
       } finally {
         vi.useRealTimers();

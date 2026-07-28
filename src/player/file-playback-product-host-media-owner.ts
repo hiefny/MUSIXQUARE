@@ -354,7 +354,17 @@ interface PublicationRecord {
   readonly transferredWarmSource: WarmSourceOfferRecord | null;
   participant: RemoteRendezvousParticipant | null;
   pendingTimelineUpdate: Readonly<FilePlaybackTimelineUpdateV2> | null;
+  /** Exact guest SOURCE_READY proof that this peer handle reached live admission. */
+  sourceReady: boolean;
+  readonly sourceReadyPromise: Promise<void>;
+  readonly resolveSourceReady: () => void;
   status: 'publishing' | 'published';
+}
+
+interface TimelineSettlementFence {
+  readonly publication: PublicationRecord;
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
 }
 
 interface CurrentTransitionRecord {
@@ -385,6 +395,12 @@ interface PreparedPublicationRecord {
   readonly handleId: string | null;
   readonly peerRangeOfferPlan: Readonly<PeerRangeOfferPlan> | null;
   readonly source: CandidateSourceRecord | null;
+  /**
+   * Exact current publication which temporarily lends its peer handle to an
+   * active same-asset replay candidate. The marker, rather than handle string
+   * equality, is the ownership proof used by retirement and activation.
+   */
+  readonly borrowedCurrentPublication: PublicationRecord | null;
   readonly commit: Readonly<FilePlaybackProductHostPreparedPublicationCommit>;
   readonly transferredWarmSource: WarmSourceOfferRecord | null;
   readonly ready: Promise<Readonly<HostPreparedRemoteParticipant>>;
@@ -791,6 +807,7 @@ export class FilePlaybackProductHostMediaOwner {
   #publication: PublicationRecord | null = null;
   #publicationTask: Promise<Readonly<FilePlaybackProductHostPublicationCommit>> | null = null;
   #publicationTaskIdentity: Readonly<HostPeerPlaybackPublication> | null = null;
+  #timelineSettlementFence: TimelineSettlementFence | null = null;
   #currentTransition: CurrentTransitionRecord | null = null;
   #candidateEpoch = 0;
   #candidateController = new AbortController();
@@ -1047,6 +1064,28 @@ export class FilePlaybackProductHostMediaOwner {
     this.#publicationTask = task;
     this.#publicationTaskIdentity = publication;
     return task;
+  }
+
+  /**
+   * Resolves when the exact current publication no longer withholds canonical
+   * timeline truth from this peer. A prepared host commit may finish before
+   * remote renderer-health evidence arrives; successor revisions must wait for
+   * that evidence (or for exact owner retirement) instead of fail-closing an
+   * otherwise healthy ordered connection.
+   */
+  whenCurrentTimelineSettled(): Promise<void> {
+    if (this.#closed) return Promise.resolve();
+    const publication = this.#publication;
+    if (!publication?.pendingTimelineUpdate) return Promise.resolve();
+    const existing = this.#timelineSettlementFence;
+    if (existing?.publication === publication) return existing.promise;
+    existing?.resolve();
+    let resolve!: () => void;
+    const promise = new Promise<void>((settle) => {
+      resolve = settle;
+    });
+    this.#timelineSettlementFence = { publication, promise, resolve };
+    return promise;
   }
 
   /**
@@ -1684,7 +1723,14 @@ export class FilePlaybackProductHostMediaOwner {
     }
 
     Reflect.apply(trustedChannelCommitMedia, this.#context.channel, [stateLease]);
-    this.#revokePublishedHandle(new Error('Host current publication was superseded'));
+    const borrowedCurrent = record.borrowedCurrentPublication;
+    if (borrowedCurrent) {
+      if (!this.#candidateBorrowsExactCurrentHandle(record, borrowedCurrent)) {
+        throw new Error('Host prepared replay lost its borrowed current handle authority');
+      }
+    } else {
+      this.#revokePublishedHandle(new Error('Host current publication was superseded'));
+    }
     this.#publicationEpoch += 1;
     this.#publicationController.abort(new Error('Host current publication was superseded'));
     this.#publicationController = new AbortController();
@@ -1697,6 +1743,10 @@ export class FilePlaybackProductHostMediaOwner {
       offer: record.offer,
       binding: record.binding,
     });
+    const sourceReadyEvidence = deferredEvidence();
+    const sourceReady =
+      record.capability !== null || record.borrowedCurrentPublication?.sourceReady === true;
+    if (sourceReady) sourceReadyEvidence.resolve();
     const publicationRecord: PublicationRecord = {
       epoch: this.#publicationEpoch,
       publication,
@@ -1709,6 +1759,9 @@ export class FilePlaybackProductHostMediaOwner {
       transferredWarmSource: record.transferredWarmSource,
       participant: record.participant,
       pendingTimelineUpdate: update,
+      sourceReady,
+      sourceReadyPromise: sourceReadyEvidence.promise,
+      resolveSourceReady: sourceReadyEvidence.resolve,
       status: 'published',
     };
     if (!record.capability) {
@@ -2206,6 +2259,7 @@ export class FilePlaybackProductHostMediaOwner {
         offer,
         binding,
       });
+      const sourceReadyEvidence = deferredEvidence();
       const record: PublicationRecord = {
         epoch,
         publication,
@@ -2218,6 +2272,9 @@ export class FilePlaybackProductHostMediaOwner {
         transferredWarmSource: null,
         participant: null,
         pendingTimelineUpdate: null,
+        sourceReady: false,
+        sourceReadyPromise: sourceReadyEvidence.promise,
+        resolveSourceReady: sourceReadyEvidence.resolve,
         status: 'publishing',
       };
       this.#publication = record;
@@ -2250,6 +2307,24 @@ export class FilePlaybackProductHostMediaOwner {
     const resolve = this.#resolvePreparedPeerRangeSource;
     if (!resolve) throw new Error('Host prepared source resolver is unavailable');
     const signal = this.#candidateSignal(epoch);
+    const replayCurrent = this.#matchingCurrentPeerPublicationForReplay(
+      prepared,
+      peerRangeOfferPlan,
+    );
+    if (replayCurrent && !replayCurrent.sourceReady) {
+      await awaitWhileOwned(
+        replayCurrent.sourceReadyPromise,
+        AbortSignal.any([signal, this.#publicationSignal(replayCurrent.epoch)]),
+      );
+      this.#assertPreparedCandidateAuthority(prepared, epoch);
+      if (
+        !replayCurrent.sourceReady ||
+        this.#matchingCurrentPeerPublicationForReplay(prepared, peerRangeOfferPlan) !==
+          replayCurrent
+      ) {
+        throw new Error('Host prepared replay current readiness authority raced away');
+      }
+    }
     await this.#awaitPendingWarmSourceForPrepared(prepared, epoch, signal);
     this.#assertPreparedCandidateAuthority(prepared, epoch);
     const warmAtStart = this.#transferableWarmSourceForPrepared(prepared);
@@ -2280,8 +2355,15 @@ export class FilePlaybackProductHostMediaOwner {
       'Host prepared source changed its exact candidate binding',
     );
 
+    const borrowedCurrentPublication = peerRangeOfferPlan
+      ? this.#borrowableCurrentPeerPublication(prepared, peerRangeOfferPlan)
+      : null;
     let exactSourceClosed = false;
-    if (warmAtStart && this.#canTransferWarmSourceToPrepared(prepared, warmAtStart)) {
+    if (
+      !borrowedCurrentPublication &&
+      warmAtStart &&
+      this.#canTransferWarmSourceToPrepared(prepared, warmAtStart)
+    ) {
       if (isEncodedSource(exactSource)) {
         await exactSource.close();
         exactSourceClosed = true;
@@ -2362,6 +2444,13 @@ export class FilePlaybackProductHostMediaOwner {
       });
     }
     this.#assertPreparedCandidateAuthority(prepared, epoch);
+    if (
+      borrowedCurrentPublication &&
+      this.#matchingCurrentPeerPublicationForReplay(prepared, peerRangeOfferPlan) !==
+        borrowedCurrentPublication
+    ) {
+      throw new Error('Host prepared replay current handle authority raced away');
+    }
     const prepareId = this.#freshMediaId([
       prepared.state.queueItemId,
       prepared.state.runId,
@@ -2370,12 +2459,13 @@ export class FilePlaybackProductHostMediaOwner {
     ]);
     const handleId =
       prepared.backend === 'bounded-stream' && !useR2Records
-        ? this.#freshMediaId([
+        ? (borrowedCurrentPublication?.handleId ??
+          this.#freshMediaId([
             prepareId,
             prepared.state.queueItemId,
             prepared.asset.binding.sourceIdentity,
             prepared.asset.binding.transferSessionId,
-          ])
+          ]))
         : null;
     const base = {
       sessionId: this.#context.sessionId,
@@ -2442,6 +2532,7 @@ export class FilePlaybackProductHostMediaOwner {
         handleId,
         peerRangeOfferPlan,
         resolve,
+        borrowedCurrentPublication,
         transferredWarmSource: null,
         offerSent: false,
         status: 'offering',
@@ -2472,6 +2563,7 @@ export class FilePlaybackProductHostMediaOwner {
       resolve: NonNullable<
         FilePlaybackProductHostMediaOwnerOptions['resolvePreparedPeerRangeSource']
       >;
+      borrowedCurrentPublication: PublicationRecord | null;
       transferredWarmSource: WarmSourceOfferRecord | null;
       offerSent: boolean;
       status: 'offering' | 'offered';
@@ -2505,6 +2597,7 @@ export class FilePlaybackProductHostMediaOwner {
       handleId: options.handleId,
       peerRangeOfferPlan: options.peerRangeOfferPlan,
       source: freezeCanonical({ prepared: options.prepared, resolve: options.resolve }),
+      borrowedCurrentPublication: options.borrowedCurrentPublication,
       commit,
       transferredWarmSource: options.transferredWarmSource,
       ready: ready.promise,
@@ -2548,6 +2641,7 @@ export class FilePlaybackProductHostMediaOwner {
       handleId: current.handleId,
       peerRangeOfferPlan: current.peerRangeOfferPlan,
       source: null,
+      borrowedCurrentPublication: null,
       commit,
       transferredWarmSource: null,
       ready: ready.promise,
@@ -2595,6 +2689,93 @@ export class FilePlaybackProductHostMediaOwner {
       return null;
     }
     return current;
+  }
+
+  #borrowableCurrentPeerPublication(
+    prepared: Readonly<HostPreparedLocalTrack>,
+    peerRangeOfferPlan: Readonly<PeerRangeOfferPlan> | null,
+  ): PublicationRecord | null {
+    const current = this.#matchingCurrentPeerPublicationForReplay(prepared, peerRangeOfferPlan);
+    return current?.sourceReady ? current : null;
+  }
+
+  #matchingCurrentPeerPublicationForReplay(
+    prepared: Readonly<HostPreparedLocalTrack>,
+    peerRangeOfferPlan: Readonly<PeerRangeOfferPlan> | null,
+  ): PublicationRecord | null {
+    const current = this.#publication;
+    const publication = current?.publication;
+    const asset = publication?.asset;
+    const preparedAsset = prepared.asset;
+    if (
+      !current ||
+      current.status !== 'published' ||
+      current.pendingTimelineUpdate !== null ||
+      this.#currentTransition !== null ||
+      !publication ||
+      !asset ||
+      !current.handleId ||
+      !isAnyPeerRangeOffer(current.offer) ||
+      prepared.backend !== 'bounded-stream' ||
+      publication.backend !== 'bounded-stream' ||
+      prepared.roomGeneration !== publication.roomGeneration ||
+      prepared.state.queueItemId !== publication.state.queueItemId ||
+      prepared.state.runId === publication.state.runId ||
+      prepared.state.revision !== publication.state.revision + 1 ||
+      preparedAsset.kind !== asset.kind ||
+      preparedAsset.binding.queueItemId !== asset.binding.queueItemId ||
+      preparedAsset.binding.sourceIdentity !== asset.binding.sourceIdentity ||
+      preparedAsset.binding.transferSessionId !== asset.binding.transferSessionId ||
+      preparedAsset.metadata.name !== asset.metadata.name ||
+      preparedAsset.metadata.mime !== asset.metadata.mime ||
+      preparedAsset.encodedSize !== asset.encodedSize ||
+      !samePeerRangeManifestPublication(preparedAsset.peerRangeManifest, asset.peerRangeManifest) ||
+      !peerRangeOfferPlan ||
+      !current.peerRangeOfferPlan ||
+      peerRangeOfferPlan.expectedSourceSize !== current.peerRangeOfferPlan.expectedSourceSize ||
+      !samePeerRangeManifestPublication(
+        peerRangeOfferPlan.peerRangeManifest,
+        current.peerRangeOfferPlan.peerRangeManifest,
+      )
+    ) {
+      return null;
+    }
+    return current;
+  }
+
+  #candidateBorrowsExactCurrentHandle(
+    record: PreparedPublicationRecord,
+    borrowed: PublicationRecord,
+  ): boolean {
+    return (
+      record.mode === 'source' &&
+      record.borrowedCurrentPublication === borrowed &&
+      this.#publication === borrowed &&
+      borrowed.status === 'published' &&
+      borrowed.pendingTimelineUpdate === null &&
+      this.#currentTransition === null &&
+      borrowed.handleId !== null &&
+      record.handleId === borrowed.handleId &&
+      isAnyPeerRangeOffer(record.offer) &&
+      record.offer.handleId === borrowed.handleId &&
+      record.prepared.asset.binding.sourceIdentity ===
+        borrowed.publication.asset.binding.sourceIdentity &&
+      this.#matchingCurrentPeerPublicationForReplay(record.prepared, record.peerRangeOfferPlan) ===
+        borrowed
+    );
+  }
+
+  #currentStillOwnsBorrowedHandle(record: PreparedPublicationRecord): boolean {
+    const borrowed = record.borrowedCurrentPublication;
+    return Boolean(
+      borrowed &&
+      this.#publication === borrowed &&
+      borrowed.status === 'published' &&
+      borrowed.handleId !== null &&
+      borrowed.handleId === record.handleId &&
+      borrowed.publication.asset.binding.sourceIdentity ===
+        record.prepared.asset.binding.sourceIdentity,
+    );
   }
 
   #transferableWarmSourceForPrepared(
@@ -2752,6 +2933,7 @@ export class FilePlaybackProductHostMediaOwner {
       handleId: warm.handleId,
       peerRangeOfferPlan,
       resolve,
+      borrowedCurrentPublication: null,
       transferredWarmSource: warm,
       offerSent: true,
       status: 'offered',
@@ -2944,6 +3126,7 @@ export class FilePlaybackProductHostMediaOwner {
       }
       this.#assertMessagePublication(message, record.publication);
       if (message.kind === 'source-not-ready') {
+        record.sourceReady = false;
         this.#reportHealth({
           dimension: 'media-readiness',
           value: 'unhealthy',
@@ -2962,6 +3145,8 @@ export class FilePlaybackProductHostMediaOwner {
       if (message.backend !== record.publication.backend) {
         throw new Error('Guest SOURCE_READY backend does not match host publication');
       }
+      record.sourceReady = true;
+      record.resolveSourceReady();
       const preparedAttempt = this.#attempt;
       const preparedRecord =
         preparedAttempt?.mode === 'prepared' &&
@@ -3752,6 +3937,7 @@ export class FilePlaybackProductHostMediaOwner {
     if (
       candidate !== null &&
       candidateSource !== null &&
+      candidate.borrowedCurrentPublication === null &&
       hasPreparedSourceAuthority(candidate) &&
       isAnyPeerRangeOffer(candidate.offer) &&
       (handleId === null || handleId === candidate.handleId) &&
@@ -3868,15 +4054,25 @@ export class FilePlaybackProductHostMediaOwner {
     );
   }
 
-  #sendPeerRangeBulk(frame: PeerRangeBulkFrame): Promise<void> {
-    return Promise.resolve().then(() => {
-      if (this.#closed || !this.#canSendPeerRange()) {
-        throw new HostMediaOwnerConnectionError('Peer-range bulk connection is unavailable');
-      }
-      if (!this.#sendRequired(this.#context.connection, frame)) {
-        throw this.#failConnection(new Error('Peer-range bulk send failed'));
-      }
-    });
+  #sendPeerRangeBulk(frame: PeerRangeBulkFrame): void {
+    // BoundedDeliveryTracker owns the bufferedAmount admission immediately
+    // before this callback. Keep the physical send on that same synchronous
+    // stack so another admitted delivery cannot raise the watermark between a
+    // successful gate and a delayed second check. Connection/channel liveness
+    // and the exact required-send fence remain independently fail-closed.
+    if (!this.#hasLivePeerRangeEgress()) {
+      throw new HostMediaOwnerConnectionError('Peer-range bulk connection is unavailable');
+    }
+    if (!this.#sendRequired(this.#context.connection, frame)) {
+      throw this.#failConnection(new Error('Peer-range bulk send failed'));
+    }
+  }
+
+  #hasLivePeerRangeEgress(): boolean {
+    const connection = this.#context.connection;
+    return (
+      !this.#closed && connection.open === true && connection.dataChannel?.readyState === 'open'
+    );
   }
 
   #canSendPeerRange(): boolean {
@@ -3884,9 +4080,7 @@ export class FilePlaybackProductHostMediaOwner {
     const dataChannel = connection.dataChannel;
     const bufferedBytes = dataChannel?.bufferedAmount;
     return (
-      !this.#closed &&
-      connection.open === true &&
-      dataChannel?.readyState === 'open' &&
+      this.#hasLivePeerRangeEgress() &&
       typeof bufferedBytes === 'number' &&
       Number.isFinite(bufferedBytes) &&
       bufferedBytes <= FILE_PLAYBACK_PRODUCT_PEER_RANGE_BUFFERED_AMOUNT_LIMIT
@@ -4064,6 +4258,7 @@ export class FilePlaybackProductHostMediaOwner {
     this.#warmOfferTask = null;
     this.#warmOfferTaskAuthority = null;
     this.#warmOfferTaskController = null;
+    this.#releaseTimelineSettlementFence();
     this.#attemptsById.clear();
     let connectionRetirement = Promise.resolve();
     if (closeConnection) {
@@ -4240,7 +4435,11 @@ export class FilePlaybackProductHostMediaOwner {
     }
     record.rejectReady(reason);
     if (this.#attempt?.preparedRecord === record) this.#retireAttempt(reason);
-    if (record.mode === 'source' && record.handleId) {
+    if (
+      record.mode === 'source' &&
+      record.handleId &&
+      !this.#currentStillOwnsBorrowedHandle(record)
+    ) {
       try {
         this.#responder.revokeHandle(
           this.#context.connectionToken,
@@ -4578,6 +4777,7 @@ export class FilePlaybackProductHostMediaOwner {
       const current = this.#publication;
       if (
         record.source !== null ||
+        record.borrowedCurrentPublication !== null ||
         record.offerSent ||
         record.transferredWarmSource !== null ||
         !current ||
@@ -4592,8 +4792,16 @@ export class FilePlaybackProductHostMediaOwner {
       ) {
         throw new Error('Host same-run prepared publication changed its current authority');
       }
-    } else if (record.source === null) {
-      throw new Error('Host prepared source publication lost its resolver authority');
+    } else {
+      if (record.source === null) {
+        throw new Error('Host prepared source publication lost its resolver authority');
+      }
+      if (
+        record.borrowedCurrentPublication !== null &&
+        !this.#candidateBorrowsExactCurrentHandle(record, record.borrowedCurrentPublication)
+      ) {
+        throw new Error('Host prepared replay changed its borrowed current handle authority');
+      }
     }
     if (isAnyPeerRangeOffer(record.offer)) {
       if (record.handleId !== record.offer.handleId) {
@@ -4739,6 +4947,14 @@ export class FilePlaybackProductHostMediaOwner {
       throw this.#failConnection(new Error('Host timeline publication changed during send'));
     }
     record.pendingTimelineUpdate = null;
+    this.#releaseTimelineSettlementFence(record);
+  }
+
+  #releaseTimelineSettlementFence(publication?: PublicationRecord): void {
+    const fence = this.#timelineSettlementFence;
+    if (!fence || (publication && fence.publication !== publication)) return;
+    this.#timelineSettlementFence = null;
+    fence.resolve();
   }
 
   #nextPrepareRevision(): number {

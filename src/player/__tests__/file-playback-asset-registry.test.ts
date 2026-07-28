@@ -385,6 +385,106 @@ describe('FilePlaybackAssetRegistry', () => {
     expect(setup.fatal).not.toHaveBeenCalled();
   });
 
+  it('quarantines a live replacement until physical close, then re-admits without tombstones', async () => {
+    const setup = registry({ maxLiveAssets: 1, maxRetiredAssets: 1 });
+    const assetBinding = binding(0);
+    const physicalClose = deferred<void>();
+    const firstClose = vi.fn(() => physicalClose.promise);
+    const first = setup.registry.admitEncodedAsset(
+      TOKEN,
+      assetBinding,
+      new TestAsset(assetBinding, { close: firstClose }),
+    );
+
+    const discarding = setup.registry.discardLiveAssetForReplacement(TOKEN, first);
+    expect(setup.registry.discardLiveAssetForReplacement(TOKEN, first)).toBe(discarding);
+    expect(setup.registry.snapshotForLease(TOKEN, first)).toBeNull();
+    expect(setup.registry.leaseForBinding(TOKEN, assetBinding)).toBeNull();
+    expect(() => setup.registry.acquireSource(TOKEN, first)).toThrow(/forged or retired/u);
+    expect(setup.registry.activeAssetCount(TOKEN)).toBe(0);
+    expect(setup.registry.retiredAssetCount(TOKEN)).toBe(0);
+    await expect(
+      Promise.race([discarding.then(() => 'settled'), Promise.resolve().then(() => 'pending')]),
+    ).resolves.toBe('pending');
+    expect(() =>
+      setup.registry.admitEncodedAsset(TOKEN, assetBinding, new TestAsset(assetBinding)),
+    ).toThrow(/cleanup is pending/u);
+
+    physicalClose.resolve();
+    await expect(discarding).resolves.toBe(true);
+    expect(setup.registry.discardLiveAssetForReplacement(TOKEN, first)).toBe(discarding);
+    expect(firstClose).toHaveBeenCalledOnce();
+    expect(setup.registry.retiredAssetCount(TOKEN)).toBe(0);
+
+    const replacementClose = vi.fn(async () => undefined);
+    const replacement = setup.registry.admitEncodedAsset(
+      TOKEN,
+      assetBinding,
+      new TestAsset(assetBinding, { close: replacementClose }),
+    );
+    expect(replacement).not.toBe(first);
+    expect(setup.registry.leaseForBinding(TOKEN, assetBinding)).toBe(replacement);
+    expect(setup.registry.activeAssetCount(TOKEN)).toBe(1);
+    await setup.registry.retire(TOKEN, replacement);
+    expect(replacementClose).toHaveBeenCalledOnce();
+    expect(setup.fatal).not.toHaveBeenCalled();
+  });
+
+  it('discards a promoted provisional lease as the exact live replacement authority', async () => {
+    const setup = registry({ maxLiveAssets: 1, maxRetiredAssets: 1 });
+    const assetBinding = binding(0);
+    const physicalClose = deferred<void>();
+    const close = vi.fn(() => physicalClose.promise);
+    const provisional = setup.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      assetBinding,
+      new TestAsset(assetBinding, { close }),
+    );
+    const live = setup.registry.promoteProvisionalAsset(TOKEN, provisional);
+    expect(live).toBe(provisional);
+    expect(setup.registry.leaseForBinding(TOKEN, assetBinding)).toBe(live);
+
+    const discarding = setup.registry.discardLiveAssetForReplacement(TOKEN, live);
+    expect(setup.registry.discardLiveAssetForReplacement(TOKEN, live)).toBe(discarding);
+    expect(setup.registry.leaseForBinding(TOKEN, assetBinding)).toBeNull();
+    expect(setup.registry.activeAssetCount(TOKEN)).toBe(0);
+    physicalClose.resolve();
+    await expect(discarding).resolves.toBe(true);
+    expect(setup.registry.discardLiveAssetForReplacement(TOKEN, live)).toBe(discarding);
+    expect(close).toHaveBeenCalledOnce();
+    expect(setup.registry.retiredAssetCount(TOKEN)).toBe(0);
+
+    const replacement = setup.registry.admitEncodedAsset(
+      TOKEN,
+      assetBinding,
+      new TestAsset(assetBinding),
+    );
+    expect(replacement).not.toBe(live);
+    await setup.registry.retire(TOKEN, replacement);
+    expect(setup.fatal).not.toHaveBeenCalled();
+  });
+
+  it('rejects provisional and forged live replacement leases', async () => {
+    const setup = registry();
+    const assetBinding = binding(0);
+    const provisional = setup.registry.admitProvisionalEncodedAsset(
+      TOKEN,
+      assetBinding,
+      new TestAsset(assetBinding),
+    );
+    expect(() => setup.registry.discardLiveAssetForReplacement(TOKEN, provisional)).toThrow(
+      /forged/u,
+    );
+    await expect(setup.registry.discardProvisionalAsset(TOKEN, provisional)).resolves.toBe(true);
+
+    const live = setup.registry.admitEncodedAsset(TOKEN, assetBinding, new TestAsset(assetBinding));
+    const copied = Object.freeze({ ...live }) as unknown as FilePlaybackAssetLease;
+    expect(() => setup.registry.discardLiveAssetForReplacement(TOKEN, copied)).toThrow(/forged/u);
+    const discard = setup.registry.discardLiveAssetForReplacement(TOKEN, live);
+    await expect(discard).resolves.toBe(true);
+    expect(setup.registry.discardLiveAssetForReplacement(TOKEN, live)).toBe(discard);
+  });
+
   it('churns more than default capacity through sequential provisional Blob discards', async () => {
     const setup = registry();
     const assetBinding = binding(0);

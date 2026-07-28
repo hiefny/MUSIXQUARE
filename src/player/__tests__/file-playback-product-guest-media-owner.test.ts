@@ -30,6 +30,12 @@ import {
 } from '../file-playback-manager.ts';
 import { createFilePlaybackRemoteEndedTransitionEvidence } from '../file-playback-remote-ended-transition.ts';
 import {
+  createFilePlaybackFailedStopTransitionEvidence,
+  createFilePlaybackFailedStopTransitionResult,
+  createFilePlaybackStopTransitionEvidence,
+  createFilePlaybackStopTransitionResult,
+} from '../file-playback-stop-transition.ts';
+import {
   createPeerRangeFileMediaSourceOfferV2,
   createPeerRangeManifestFileMediaSourceOfferV2,
   createR2RecordFileMediaSourceOfferV2,
@@ -635,7 +641,7 @@ function runtimeHarness(
   state: Readonly<PlaybackStateIdentity>,
 ) {
   let currentState = state;
-  let currentPhase: 'playing' | 'paused' | 'ended' = 'playing';
+  let currentPhase: 'playing' | 'paused' | 'ended' | 'failed' = 'playing';
   let hasCurrentPort = true;
   let physicalRecoveryRequired = false;
   let candidateBackend: 'audio-buffer' | 'bounded-stream' = 'bounded-stream';
@@ -927,28 +933,21 @@ function runtimeHarness(
       }),
     }),
   );
-  const stopCurrent = vi.fn<GuestRuntimeFunction<'stopCurrent'>>(
-    async (_manager, _port, intent) => ({
-      status: 'scheduled' as const,
-      from: intent.from,
-      to: intent.to,
-      target: intent.target,
-      applied: Promise.resolve().then(() => {
+  const stopCurrent = vi.fn<GuestRuntimeFunction<'stopCurrent'>>(async (_manager, _port, intent) =>
+    createFilePlaybackStopTransitionResult(
+      intent,
+      Promise.resolve().then(() => {
         hasCurrentPort = false;
-        return freezeCanonical({
-          kind: 'stop-applied' as const,
-          observation: 'webaudio-schedule-passed' as const,
-          from: intent.from,
-          to: intent.to,
-          targetFrame: intent.target.targetFrame,
-          appliedFrame: intent.target.targetFrame,
-        });
+        return createFilePlaybackStopTransitionEvidence(intent, intent.target.targetFrame);
       }),
-    }),
+    ),
   );
   const remoteEndCurrent = vi.fn<GuestRuntimeFunction<'remoteEndCurrent'>>(
     async (_manager, _port, intent) => {
       const observedPhase = currentPhase;
+      if (observedPhase === 'failed') {
+        throw new Error('Failed guest fixture must use the explicit STOP retirement path');
+      }
       hasCurrentPort = false;
       return createFilePlaybackRemoteEndedTransitionEvidence(intent, observedPhase);
     },
@@ -1057,7 +1056,7 @@ function runtimeHarness(
       hasCurrentPort = true;
       physicalRecoveryRequired = false;
     },
-    setCurrentPhase(next: 'playing' | 'paused' | 'ended') {
+    setCurrentPhase(next: 'playing' | 'paused' | 'ended' | 'failed') {
       currentPhase = next;
     },
     setPhysicalRecoveryRequired(next: boolean) {
@@ -2488,6 +2487,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledOnce());
 
     expect(h.rendered).toHaveBeenCalledWith(baseline.timeline);
+    expect(h.owner.currentRenderedDurationSeconds()).toBe(120);
     expect(h.runtime.arm).not.toHaveBeenCalled();
     expect(h.runtime.finalize).not.toHaveBeenCalled();
     expect(h.runtime.started).not.toHaveBeenCalled();
@@ -2512,6 +2512,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     expect(Object.keys(h.owner)).toEqual([
       'onTimelineAdopted',
       'onTimelineUpdated',
+      'currentRenderedDurationSeconds',
       'adoptAuxiliaryMessage',
       'adoptWireMessage',
       'adoptPeerRangeBulk',
@@ -2752,34 +2753,18 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     await prepare(h);
     await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
     const offer = peerOffer2(h.context);
-    const candidateAsset = new PeerRangeEncodedAudioAsset({
-      size: offer.encodedSize,
-      identity: offer.sourceIdentity,
-      metadata: { name: offer.name, mime: offer.mime },
-      transport: {
-        read: vi.fn(async (request) => new Uint8Array(request.length)),
-        closeHandle: vi.fn(),
-      },
-      handleId: offer.handleId,
-    });
-    h.registry.admitEncodedAsset(
-      ROOM_TOKEN,
-      {
-        queueItemId: offer.queueItemId,
-        sourceIdentity: offer.sourceIdentity,
-        transferSessionId: offer.transferSessionId,
-      },
-      candidateAsset,
-    );
-    const pendingStage = deferred<Readonly<StagedFilePlaybackAssetSource>>();
-    h.runtime.stageAssetSource.mockImplementationOnce(() => pendingStage.promise);
+    const handoffCountBefore = h.runtime.handoffWarmSource.mock.calls.length;
+    const pendingHandoff = deferred<Readonly<StagedFilePlaybackAssetSource>>();
+    h.runtime.handoffWarmSource.mockImplementationOnce(() => pendingHandoff.promise);
 
     h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
     h.owner.adoptAuxiliaryMessage(
       auxiliaryEvent(h.context, runBinding(offer, RUN_ID_2, 2)),
       vi.fn(),
     );
-    await vi.waitFor(() => expect(h.runtime.stageAssetSource).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(h.runtime.handoffWarmSource).toHaveBeenCalledTimes(handoffCountBefore + 1),
+    );
     const healthCountBefore = h.runtime.sent.filter(
       (frame) => (frame as { kind?: string }).kind === 'renderer-health',
     ).length;
@@ -2792,12 +2777,19 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
       ).toHaveLength(healthCountBefore + 1),
     );
     await vi.waitFor(() => expect(h.runtime.pendingTimeouts()).toHaveLength(1));
-    expect(h.runtime.stageAssetSource).toHaveBeenCalledOnce();
+    expect(h.runtime.handoffWarmSource).toHaveBeenCalledTimes(handoffCountBefore + 1);
     expect(h.fatal).not.toHaveBeenCalled();
 
-    const stageOptions = h.runtime.stageAssetSource.mock.calls[0]![0];
+    const candidateLease = h.registry.leaseForBinding(ROOM_TOKEN, {
+      queueItemId: offer.queueItemId,
+      sourceIdentity: offer.sourceIdentity,
+      transferSessionId: offer.transferSessionId,
+    });
+    if (!candidateLease) throw new Error('Missing promoted candidate asset');
     const candidatePort = Object.freeze(Object.create(null)) as FilePlaybackCutoverCandidatePort;
-    pendingStage.resolve(stagedAssetSource(h.registry, stageOptions, candidatePort));
+    pendingHandoff.resolve(
+      stagedAssetSource(h.registry, { assetLease: candidateLease }, candidatePort),
+    );
     await vi.waitFor(() =>
       expect(
         h.runtime.sent.filter(
@@ -4272,6 +4264,56 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     const stoppedProjection = stoppedTimeline(stopped.revision, 500);
     h.owner.onTimelineUpdated(timelineUpdated(h.context, stoppedProjection));
     await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(stoppedProjection));
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('accepts exact failed-renderer retirement as STOP physical authority without closing the guest', async () => {
+    const failedStopCurrent = vi.fn<GuestRuntimeFunction<'stopCurrent'>>(
+      async (_manager, _port, intent) => {
+        const evidence = createFilePlaybackFailedStopTransitionEvidence(intent);
+        return createFilePlaybackFailedStopTransitionResult(intent, Promise.resolve(evidence));
+      },
+    );
+    const h = setup({ runtimeForTests: { stopCurrent: failedStopCurrent } });
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    h.runtime.setCurrentPhase('failed');
+
+    const successor = freezeCanonical({ ...h.state, revision: 2 });
+    const stateLease = h.host.stageMedia({
+      run: successor,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    receiveHostWire(
+      h,
+      h.host.createWire(stateLease, {
+        kind: 'file-playback-stop',
+        expectedQueueItemId: QUEUE_ID,
+        expectedRunId: RUN_ID,
+        expectedRevision: h.state.revision,
+        atRoomTimeMs: 300,
+      }),
+    );
+
+    await vi.waitFor(() => expect(failedStopCurrent).toHaveBeenCalledOnce());
+    expect(failedStopCurrent).toHaveBeenCalledWith(
+      h.manager,
+      CUTOVER_PORT,
+      expect.objectContaining({
+        kind: 'file-playback-stop-transition',
+        from: h.state,
+        to: successor,
+        atRoomTimeMs: 300,
+      }),
+    );
+
+    h.host.commitStop(stateLease, h.state);
+    const stoppedProjection = stoppedTimeline(successor.revision, 300);
+    h.owner.onTimelineUpdated(timelineUpdated(h.context, stoppedProjection));
+    await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(stoppedProjection));
+    expect(h.runtime.peerClose).not.toHaveBeenCalled();
     expect(h.fatal).not.toHaveBeenCalled();
     h.owner.revoke(h.context);
   });

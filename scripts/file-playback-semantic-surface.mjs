@@ -181,6 +181,7 @@ export const FILE_PLAYBACK_SEMANTIC_SURFACE_FILES = Object.freeze([
   'src/player/streaming/pcm-stream-protocol.ts',
   'src/player/streaming/resampler-plan.ts',
   'src/player/track-change-intent.ts',
+  'src/player/v2-host-mutation-lane.ts',
   'src/player/wave/metadata.ts',
   'src/rooms/authority.ts',
   'src/share/r2-record-crypto-v2.ts',

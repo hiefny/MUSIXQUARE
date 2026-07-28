@@ -842,7 +842,13 @@ export class FramedPeerRangeClientTransport implements PeerRangeTransport {
     }
     if (this.#active.get(key) !== state || this.#closed) return await response;
 
-    void this.#deliveries.deliver(descriptor, true).catch(() => undefined);
+    // A READ is ordinary request traffic, not terminal cleanup traffic. Charging
+    // every successful range request against the tiny terminal-credit window
+    // eventually disconnected healthy long-running streams (large MP3 scans can
+    // legitimately issue hundreds of bounded reads). Active-request capacity,
+    // delivery-task capacity, backpressure, and the request deadline already
+    // bound this path. Reserve terminal credits for cancel/close/error churn.
+    void this.#deliveries.deliver(descriptor).catch(() => undefined);
     try {
       return await response;
     } finally {
@@ -1431,7 +1437,11 @@ export class PeerRangeHostResponder {
       for (let index = 0; index < frames.length; index += 1) {
         const frame = frames[index]!;
         if (!this.#isCurrent(state)) return;
-        await this.#deliveries.deliver(frame, index === frames.length - 1);
+        // Successful chunks are correlated with one admitted READ and remain
+        // bounded by the active-request/delivery/backpressure limits. The final
+        // chunk completes a request, but it is not unsolicited terminal egress;
+        // charging it would make connection lifetime depend on file size.
+        await this.#deliveries.deliver(frame);
       }
       this.#settle(state);
     } catch (error) {

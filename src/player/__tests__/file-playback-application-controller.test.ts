@@ -45,6 +45,7 @@ import {
   type FilePlaybackSeekTransitionIntent,
 } from '../file-playback-source.ts';
 import {
+  createFilePlaybackFailedStopTransitionEvidence,
   createFilePlaybackStopTransitionEvidence,
   type FilePlaybackStopTransitionIntent,
 } from '../file-playback-stop-transition.ts';
@@ -409,6 +410,17 @@ function hostStopCommit(
     expectedPrevious: snapshot.timeline,
     intent,
     evidence: createFilePlaybackStopTransitionEvidence(intent, target.targetFrame),
+  });
+}
+
+function hostFailedStopCommit(
+  room: FilePlaybackApplicationController,
+  atRoomTimeMs = room.timelineSnapshot().anchorMonotonicMs + 100,
+): Extract<FilePlaybackHostTransitionCommitInput, { readonly kind: 'stop' }> {
+  const scheduled = hostStopCommit(room, atRoomTimeMs);
+  return Object.freeze({
+    ...scheduled,
+    evidence: createFilePlaybackFailedStopTransitionEvidence(scheduled.intent),
   });
 }
 
@@ -1615,6 +1627,31 @@ describe('FilePlaybackApplicationController', () => {
     expect(timelineAdopted).not.toHaveBeenCalled();
   });
 
+  it('commits stopped truth from exact failed-renderer retirement evidence', () => {
+    const room = controller({ initialTimeline: playingTimeline(4) });
+    room.claimRoomRole('host');
+    const input = hostFailedStopCommit(room, 1_500);
+
+    const committed = room.commitHostPlaybackTransition(input);
+
+    expect(committed.previous).toBe(input.expectedPrevious);
+    expect(committed).toMatchObject({
+      schemaVersion: 1,
+      kind: 'stop',
+      roomGeneration: 1,
+      timeline: {
+        revision: 5,
+        phase: 'stopped',
+        run: null,
+        positionSeconds: 0,
+        anchorMonotonicMs: 1_500,
+        rate: 1,
+      },
+    });
+    expect(room.timelineSnapshot()).toBe(committed.timeline);
+    expect(JSON.stringify(committed)).not.toMatch(/evidence|failed-stop|audioContext/u);
+  });
+
   it('commits natural end only after exact renderer-retirement evidence', () => {
     const sendRequired = vi.fn(() => true);
     const room = controller({ initialTimeline: playingTimeline(9), sendRequired });
@@ -1779,6 +1816,9 @@ describe('FilePlaybackApplicationController', () => {
     expect(room.timelineSnapshot()).toBe(replacement);
 
     const stop = hostStopCommit(room);
+    if (stop.evidence.kind !== 'stop-applied') {
+      throw new Error('Scheduled stop fixture produced non-scheduled evidence');
+    }
     const mismatchedStopEvidence = {
       ...stop.evidence,
       targetFrame: stop.evidence.targetFrame - 1,

@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const applicationSessions = vi.hoisted(() => ({
-  isKnownConnection: vi.fn(() => true),
-  phase: vi.fn(() => 'established' as const),
-}));
+const applicationSessions = vi.hoisted(() => {
+  const channel = Object.freeze({ kind: 'established-test-channel' });
+  return {
+    channel,
+    isKnownConnection: vi.fn(() => true),
+    phase: vi.fn((): 'none' | 'handshaking' | 'established' => 'established'),
+    establishedChannel: vi.fn((): object | null => channel),
+  };
+});
 
 vi.mock('../../player/file-playback-engine-gate.ts', () => ({
   isFilePlaybackEngineV2Enabled: () => true,
@@ -122,6 +127,9 @@ beforeEach(() => {
   resetState();
   bus.clear();
   vi.clearAllMocks();
+  applicationSessions.isKnownConnection.mockReturnValue(true);
+  applicationSessions.phase.mockReturnValue('established');
+  applicationSessions.establishedChannel.mockReturnValue(applicationSessions.channel);
 });
 
 describe('V2 guest legacy file-media fence', () => {
@@ -137,7 +145,79 @@ describe('V2 guest legacy file-media fence', () => {
 
     expect(applicationSessions.isKnownConnection).toHaveBeenCalledWith(conn);
     expect(applicationSessions.phase).toHaveBeenCalledWith(conn);
+    expect(applicationSessions.establishedChannel).toHaveBeenCalledWith(conn);
     expect(handler).not.toHaveBeenCalled();
+    expect(conn.close).not.toHaveBeenCalled();
+  });
+
+  it('keeps PRO/V1 and unsupported non-session fallback on the legacy path', async () => {
+    const conn = guestConnection();
+    const frame = {
+      type: MSG.PLAY,
+      queueItemId: QUEUE_ITEM_ID,
+      time: 0,
+      name: 'legacy-fallback.mp3',
+    } as const;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', conn);
+    markQueueAuthorityReady(conn);
+    applicationSessions.isKnownConnection.mockReturnValue(false);
+    applicationSessions.phase.mockReturnValue('none');
+    applicationSessions.establishedChannel.mockReturnValue(null);
+    const handler = vi.fn();
+    registerHandler(MSG.PLAY, handler);
+
+    await handleData(frame, conn);
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(handler).toHaveBeenCalledWith(frame, conn);
+    expect(conn.close).not.toHaveBeenCalled();
+  });
+
+  it('fails closed while the exact connection is still handshaking', async () => {
+    const conn = guestConnection();
+    const frame = {
+      type: MSG.PLAY,
+      queueItemId: QUEUE_ITEM_ID,
+      time: 0,
+      name: 'premature.mp3',
+    } as const;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', conn);
+    markQueueAuthorityReady(conn);
+    applicationSessions.phase.mockReturnValue('handshaking');
+    applicationSessions.establishedChannel.mockReturnValue(null);
+    const handler = vi.fn();
+    registerHandler(MSG.PLAY, handler);
+
+    await handleData(frame, conn);
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(applicationSessions.establishedChannel).not.toHaveBeenCalled();
+    expect(conn.close).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a known established record has no established channel', async () => {
+    const conn = guestConnection();
+    const frame = {
+      type: MSG.PLAY,
+      queueItemId: QUEUE_ITEM_ID,
+      time: 0,
+      name: 'ambiguous.mp3',
+    } as const;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', conn);
+    markQueueAuthorityReady(conn);
+    applicationSessions.establishedChannel.mockReturnValue(null);
+    const handler = vi.fn();
+    registerHandler(MSG.PLAY, handler);
+
+    await handleData(frame, conn);
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(applicationSessions.isKnownConnection).toHaveBeenCalledWith(conn);
+    expect(applicationSessions.phase).toHaveBeenCalledWith(conn);
+    expect(applicationSessions.establishedChannel).toHaveBeenCalledWith(conn);
     expect(conn.close).not.toHaveBeenCalled();
   });
 

@@ -95,6 +95,7 @@ function inertHostRoom(): FilePlaybackProductRuntimeHostRoomPort {
     seekPlayingWithCohort: unsupported,
     seekPaused: unsupported,
     resumeCurrent: unsupported,
+    resumeCurrentWithCohort: unsupported,
     replayCurrent: unsupported,
     replayCurrentWithCohort: unsupported,
     stopCurrent: unsupported,
@@ -104,6 +105,7 @@ function inertHostRoom(): FilePlaybackProductRuntimeHostRoomPort {
     recoverRemoteParticipant: unsupported,
     close: vi.fn(async () => undefined),
     currentRendererSnapshot: vi.fn(() => null),
+    currentFailedRendererObservation: vi.fn(() => null),
     currentTerminalRendererObservation: vi.fn(() => null),
     positionAt: vi.fn(() => null),
   } satisfies FilePlaybackProductRuntimeHostRoomPort;

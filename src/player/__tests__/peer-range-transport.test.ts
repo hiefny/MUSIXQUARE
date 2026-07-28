@@ -973,6 +973,53 @@ describe('PeerRangeHostResponder', () => {
     });
   });
 
+  it('does not spend terminal cleanup credits on successful sequential reads', async () => {
+    const source = bytes(16);
+    const clientFatal = vi.fn();
+    const hostFatal = vi.fn();
+    let client!: FramedPeerRangeClientTransport;
+    const host = new PeerRangeHostResponder({
+      connection: CONNECTION,
+      onFatalConnection: hostFatal,
+      canSend: allowSend,
+      sources: { resolve: () => new Blob([source]) },
+      sendBulk: (frame) => {
+        client.acceptBulk(CONNECTION_TOKEN, frame);
+      },
+      terminalEgressCredits: 1,
+      terminalEgressRefillMs: 60_000,
+    });
+    client = new FramedPeerRangeClientTransport({
+      connection: CONNECTION,
+      onFatalConnection: clientFatal,
+      canSend: allowSend,
+      sendControl: (frame) => {
+        host.acceptControl(CONNECTION_TOKEN, frame);
+      },
+      terminalEgressCredits: 1,
+      terminalEgressRefillMs: 60_000,
+    });
+
+    for (let index = 0; index < source.byteLength; index += 1) {
+      await expect(
+        client.read(
+          request({
+            requestId: `request:sequential-${index}`,
+            offset: index,
+          }),
+        ),
+      ).resolves.toEqual(Uint8Array.of(source[index]!));
+    }
+
+    expect(clientFatal).not.toHaveBeenCalled();
+    expect(hostFatal).not.toHaveBeenCalled();
+    client.closeHandle('handle:one', SOURCE_ID);
+    client.closeHandle('handle:two', SOURCE_ID);
+    expect(clientFatal).toHaveBeenCalledOnce();
+    await client.close();
+    await host.close();
+  });
+
   it('returns bounded errors for missing, stale-identity, short, and out-of-range sources', async () => {
     const shortSource: EncodedAudioSource = {
       kind: 'peer-range',
@@ -1462,7 +1509,7 @@ describe('PeerRangeHostResponder', () => {
     expect(host.physicalReadTaskCount).toBe(1);
   });
 
-  it('refills successful range terminal credit from local monotonic time', async () => {
+  it('serves successful ranges independently of the terminal-credit refill window', async () => {
     const fatalConnection = vi.fn();
     const output: PeerRangeBulkFrame[] = [];
     const host = new PeerRangeHostResponder({

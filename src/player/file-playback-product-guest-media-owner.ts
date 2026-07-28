@@ -464,6 +464,8 @@ export interface FilePlaybackProductGuestAudioGraph {
 export interface FilePlaybackProductGuestMediaOwnerPort extends FilePlaybackProductSessionRouterGuestMediaOwnerPort {
   readonly onTimelineAdopted: (event: FilePlaybackApplicationTimelineAdoptedEvent) => void;
   readonly onTimelineUpdated: (event: FilePlaybackApplicationTimelineUpdatedEvent) => void;
+  /** Exact prepared/current duration used only for the rendered timeline UI. */
+  readonly currentRenderedDurationSeconds: () => number | null;
 }
 
 interface GuestPreparedRun {
@@ -502,6 +504,7 @@ interface GuestOfferWarmOperation {
   provisionalLease: FilePlaybackProvisionalAssetLease | null;
   authority: Readonly<FilePlaybackWarmSourceAuthority> | null;
   claimedBy: GuestPreparedRun | null;
+  handleLifecycleStarted: boolean;
   promoted: boolean;
   retiring: boolean;
   retirementPromise: Promise<void> | null;
@@ -570,6 +573,8 @@ const registryAdmitProvisionalEncoded =
   FilePlaybackAssetRegistry.prototype.admitProvisionalEncodedAsset;
 const registryPromoteProvisional = FilePlaybackAssetRegistry.prototype.promoteProvisionalAsset;
 const registryDiscardProvisional = FilePlaybackAssetRegistry.prototype.discardProvisionalAsset;
+const registryDiscardLiveForReplacement =
+  FilePlaybackAssetRegistry.prototype.discardLiveAssetForReplacement;
 const registrySnapshot = FilePlaybackAssetRegistry.prototype.snapshotForLease;
 const managerCurrentPort = FilePlaybackManager.prototype.currentCutoverPort;
 const managerCurrentSnapshot = FilePlaybackManager.prototype.currentCutoverSnapshot;
@@ -1191,6 +1196,7 @@ class GuestMediaOwner {
   readonly #peerContext: PeerRangeTrustedConnectionContext;
   readonly #peerTransport: GuestPeerTransportPort;
   readonly #r2Acquirer: GuestR2AcquirerPort;
+  readonly #peerHandleByAssetLease = new WeakMap<FilePlaybackAssetLease, string>();
   readonly #tasks = new Set<Promise<void>>();
   readonly #physicalCleanupTasks = new Set<Promise<void>>();
   readonly #physicalCleanupFailures: unknown[] = [];
@@ -1322,6 +1328,28 @@ class GuestMediaOwner {
       void invokePhysicalCleanup(() => this.#r2Acquirer.close()).catch(() => undefined);
       throw error;
     }
+  }
+
+  currentRenderedDurationSeconds(): number | null {
+    if (this.#closed) return null;
+    const room = this.#room;
+    const prepared = room?.current;
+    const timelineState = room ? stateFromTimeline(room.timeline) : null;
+    if (
+      !room ||
+      !prepared ||
+      !timelineState ||
+      !sameState(timelineState, prepared.state) ||
+      (prepared.status !== 'ready' && prepared.status !== 'current')
+    ) {
+      return null;
+    }
+    const durationSeconds = prepared.staged?.readiness.durationSeconds;
+    return typeof durationSeconds === 'number' &&
+      Number.isFinite(durationSeconds) &&
+      durationSeconds > 0
+      ? durationSeconds
+      : null;
   }
 
   onTimelineAdopted(value: FilePlaybackApplicationTimelineAdoptedEvent): void {
@@ -2008,7 +2036,7 @@ class GuestMediaOwner {
           assetLease = acquired.assetLease;
           prepared.manifestAdmission = acquired.manifestAdmission;
         } else {
-          const acquired = await this.#acquireAsset(operation);
+          const acquired = await this.#acquireAsset(room, prepared);
           this.#assertPrepared(room, prepared);
           assetLease = acquired.assetLease;
         }
@@ -2315,8 +2343,23 @@ class GuestMediaOwner {
 
   #scheduleOfferWarm(preparation: Readonly<FilePlaybackConnectionMediaOfferPreparation>): void {
     if (preparation.offer.transport !== 'peer-range') return;
-    if (this.#registry.leaseForBinding(this.#roomToken, preparationAssetBinding(preparation))) {
-      return;
+    const binding = preparationAssetBinding(preparation);
+    const existingLease = this.#registry.leaseForBinding(this.#roomToken, binding);
+    if (existingLease) {
+      const snapshot = Reflect.apply(registrySnapshot, this.#registry, [
+        this.#roomToken,
+        existingLease,
+      ]);
+      if (!sameOfferedAsset(snapshot, binding, preparation)) {
+        throw new Error('Guest cached asset disagreed with the source offer warm binding');
+      }
+      if (snapshot.kind !== 'peer-range') return;
+      const cachedHandleId = this.#peerHandleByAssetLease.get(existingLease);
+      if (!cachedHandleId) {
+        throw new Error('Guest cached peer-range asset lost its exact handle authority');
+      }
+      if (cachedHandleId === preparation.offer.handleId) return;
+      if (this.#assetLeaseInUse(existingLease)) return;
     }
     const active = this.#offerWarm;
     if (active?.preparation === preparation) return;
@@ -2341,6 +2384,7 @@ class GuestMediaOwner {
       provisionalLease: null,
       authority: null,
       claimedBy: null,
+      handleLifecycleStarted: false,
       promoted: false,
       retiring: false,
       retirementPromise: null,
@@ -2406,6 +2450,27 @@ class GuestMediaOwner {
     if (offer.transport !== 'peer-range') {
       throw new Error('Guest offer warm requires an exact peer-range descriptor');
     }
+    const existingLease = this.#registry.leaseForBinding(this.#roomToken, operation.binding);
+    if (existingLease) {
+      const snapshot = Reflect.apply(registrySnapshot, this.#registry, [
+        this.#roomToken,
+        existingLease,
+      ]);
+      if (!sameOfferedAsset(snapshot, operation.binding, operation.preparation)) {
+        throw new Error('Guest cached asset disagreed with the warmed source offer');
+      }
+      if (snapshot.kind !== 'peer-range') {
+        return 'cold-retained';
+      }
+      const cachedHandleId = this.#peerHandleByAssetLease.get(existingLease);
+      if (!cachedHandleId) {
+        throw new Error('Guest cached peer-range warm asset lost its exact handle authority');
+      }
+      if (cachedHandleId === offer.handleId) return 'cold-retained';
+      if (this.#assetLeaseInUse(existingLease)) return 'cold-retained';
+      await this.#discardPeerAssetForReplacement(existingLease);
+      this.#assertOfferWarm(operation);
+    }
     const asset = new PeerRangeEncodedAudioAsset({
       size: offer.encodedSize,
       identity: offer.sourceIdentity,
@@ -2413,6 +2478,10 @@ class GuestMediaOwner {
       transport: this.#peerTransport,
       handleId: offer.handleId,
     });
+    // From this point onward every cleanup path may emit CLOSE_HANDLE for this
+    // exact offer. A failed/retired warm must never cold-recreate the same
+    // handle; only a fresh host OFFER can authorize another peer asset.
+    operation.handleLifecycleStarted = true;
     const provisionalLease = Reflect.apply(registryAdmitProvisionalEncoded, this.#registry, [
       this.#roomToken,
       operation.binding,
@@ -2426,6 +2495,7 @@ class GuestMediaOwner {
     if (!sameOfferedAsset(snapshot, operation.binding, operation.preparation)) {
       throw new Error('Guest provisional peer-range asset admission was inconsistent');
     }
+    this.#peerHandleByAssetLease.set(provisionalLease, offer.handleId);
     this.#assertOfferWarm(operation);
 
     await this.#awaitOfferWarmAudioGraphRunning(operation, graph);
@@ -2476,12 +2546,23 @@ class GuestMediaOwner {
     }
     this.#assertPrepared(room, prepared);
     if (warm.retiring || warm.retirementPromise) {
-      if (!warm.retirementPromise) return null;
+      if (!warm.retirementPromise) {
+        if (warm.handleLifecycleStarted) {
+          throw new Error('Guest retiring source-offer warm requires a fresh peer handle');
+        }
+        return null;
+      }
       await this.#awaitOwnerTask(warm.retirementPromise, this.#preparedSignal(prepared));
       this.#assertPrepared(room, prepared);
+      if (warm.handleLifecycleStarted) {
+        throw new Error('Guest retired source-offer warm requires a fresh peer handle');
+      }
       return null;
     }
     if (this.#offerWarm !== warm || warm.preparation.offer !== prepared.operation.offer) {
+      if (warm.handleLifecycleStarted) {
+        throw new Error('Guest superseded source-offer warm requires a fresh peer handle');
+      }
       return null;
     }
     await this.#awaitPreparedAudioGraphRunning(room, prepared, graph);
@@ -2491,6 +2572,9 @@ class GuestMediaOwner {
         warm,
         new Error('Guest source-offer warm operation retained no provisional asset'),
       );
+      if (warm.handleLifecycleStarted) {
+        throw new Error('Guest discarded source-offer warm requires a fresh peer handle');
+      }
       return null;
     }
     const snapshot = Reflect.apply(registrySnapshot, this.#registry, [
@@ -2762,9 +2846,36 @@ class GuestMediaOwner {
     }
   }
 
+  #assetLeaseInUse(
+    assetLease: FilePlaybackAssetLease,
+    claimant: GuestPreparedRun | null = null,
+  ): boolean {
+    const room = this.#room;
+    if (!room) return false;
+    return [room.current, room.candidate].some(
+      (prepared) =>
+        prepared !== null &&
+        prepared !== claimant &&
+        prepared.status !== 'retired' &&
+        prepared.assetLease === assetLease,
+    );
+  }
+
+  async #discardPeerAssetForReplacement(assetLease: FilePlaybackAssetLease): Promise<void> {
+    const discarded = Reflect.apply(registryDiscardLiveForReplacement, this.#registry, [
+      this.#roomToken,
+      assetLease,
+    ]);
+    if ((await discarded) !== true) {
+      throw new Error('Guest peer-range asset replacement was not physically discarded');
+    }
+  }
+
   async #acquireAsset(
-    operation: Readonly<FilePlaybackConnectionMediaOperation>,
+    room: GuestRoomState,
+    prepared: GuestPreparedRun,
   ): Promise<Readonly<FilePlaybackR2WholeBlobAcquisition>> {
+    const operation = prepared.operation;
     if (operation.offer.transport === 'peer-range-manifest') {
       throw new Error('FILE_PLAYBACK_PEER_RANGE_MANIFEST_GATED_OFF');
     }
@@ -2778,7 +2889,27 @@ class GuestMediaOwner {
       if (!sameAsset(snapshot, binding, operation)) {
         throw new Error('Guest reusable asset binding disagreed with the source offer');
       }
-      return freezeCanonical({ assetLease: existingLease, asset: snapshot });
+      if (snapshot.kind !== 'peer-range') {
+        return freezeCanonical({ assetLease: existingLease, asset: snapshot });
+      }
+      if (operation.offer.transport !== 'peer-range') {
+        throw new Error('Guest peer-range cache conflicts with a non-peer source offer');
+      }
+      const cachedHandleId = this.#peerHandleByAssetLease.get(existingLease);
+      if (!cachedHandleId) {
+        throw new Error('Guest reusable peer-range asset lost its exact handle authority');
+      }
+      if (cachedHandleId === operation.offer.handleId) {
+        return freezeCanonical({ assetLease: existingLease, asset: snapshot });
+      }
+      if (this.#assetLeaseInUse(existingLease, prepared)) {
+        throw new Error('Guest fresh peer-range offer conflicts with the active source handle');
+      }
+      await this.#discardPeerAssetForReplacement(existingLease);
+      this.#assertPrepared(room, prepared);
+      if (this.#registry.leaseForBinding(this.#roomToken, binding)) {
+        throw new Error('Guest peer-range replacement binding remained quarantined');
+      }
     }
     if (operation.offer.transport === 'r2-whole-blob') {
       return this.#r2Acquirer.acquire(operation);
@@ -2806,6 +2937,7 @@ class GuestMediaOwner {
     if (!sameAsset(snapshot, binding, operation) || snapshot.kind !== 'peer-range') {
       throw new Error('Guest peer-range asset registry admission was inconsistent');
     }
+    this.#peerHandleByAssetLease.set(assetLease, operation.offer.handleId);
     return freezeCanonical({ assetLease, asset: snapshot });
   }
 
@@ -3977,7 +4109,9 @@ class GuestMediaOwner {
       let result: Awaited<ReturnType<RuntimeSnapshot['stopCurrent']>>;
       try {
         result = await this.#runtime.stopCurrent(this.#manager, port, intent);
-        if (result.status !== 'scheduled') throw new Error('Guest native stop was not scheduled');
+        if (result.status !== 'scheduled' && result.status !== 'failed-retired') {
+          throw new Error('Guest native stop did not claim exact physical authority');
+        }
         await result.applied;
       } catch (error) {
         if (
@@ -4740,6 +4874,7 @@ export function createFilePlaybackProductGuestMediaOwner(
       owner.onTimelineAdopted(event),
     onTimelineUpdated: (event: FilePlaybackApplicationTimelineUpdatedEvent) =>
       owner.onTimelineUpdated(event),
+    currentRenderedDurationSeconds: () => owner.currentRenderedDurationSeconds(),
     adoptAuxiliaryMessage: (
       event: Readonly<FilePlaybackAuxiliaryAdoptionEvent>,
       acknowledge: () => void,

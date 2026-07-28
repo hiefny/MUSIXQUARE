@@ -30,6 +30,18 @@ import { isFilePlaybackEngineV2Enabled } from '../player/file-playback-engine-ga
 
 const FILE_PLAYBACK_ENGINE_V2_ENABLED = isFilePlaybackEngineV2Enabled();
 
+/**
+ * Exact per-connection ownership fence for legacy late-join bootstrap.
+ * A peer that already completed the V2 application-session handshake receives
+ * its atomic timeline from that owner and must not also receive legacy PLAY.
+ */
+export function hasEstablishedFilePlaybackApplicationSession(conn: DataConnection): boolean {
+  return (
+    FILE_PLAYBACK_ENGINE_V2_ENABLED &&
+    getFilePlaybackApplicationSessionManager().establishedChannel(conn) !== null
+  );
+}
+
 // ─── Message Validation ─────────────────────────────────────────────
 
 /**
@@ -1147,14 +1159,33 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
     }
   }
 
-  // The V2 application session owns all guest file-media truth. Drop old
-  // transfer/playback frames before queue gates, rate limits, validation, or
-  // generic handlers can mutate legacy state. A stale/non-host connection was
-  // already rejected above, and a known handshaking connection was handled by
-  // the application-session gate immediately before this boundary.
+  // An established V2 application session owns all guest file-media truth.
+  // Drop old transfer/playback frames before queue gates, rate limits,
+  // validation, or generic handlers can mutate legacy state. The build-level
+  // feature gate alone is not an ownership signal: PRO/V1 and unsupported
+  // fallback connections intentionally have no application-session record and
+  // must keep using the legacy path.
+  //
+  // Admit legacy only for the one coherent fallback snapshot. Any known,
+  // handshaking, established, or internally inconsistent session state fails
+  // closed. A known handshaking connection normally returned at the gate above;
+  // keeping the full predicate here makes this boundary safe on its own.
   if (FILE_PLAYBACK_ENGINE_V2_ENABLED && isGuest && V2_GUEST_LEGACY_FILE_MEDIA_TYPES.has(msgType)) {
-    log.debug(`[Protocol] Ignored legacy file-media frame in V2 guest room: ${msgType}`);
-    return;
+    const applicationSessions = getFilePlaybackApplicationSessionManager();
+    const isKnownApplicationConnection = applicationSessions.isKnownConnection(conn);
+    const applicationSessionPhase = applicationSessions.phase(conn);
+    const establishedApplicationChannel = applicationSessions.establishedChannel(conn);
+    const isCoherentLegacyFallback =
+      !isKnownApplicationConnection &&
+      applicationSessionPhase === 'none' &&
+      establishedApplicationChannel === null;
+
+    if (!isCoherentLegacyFallback) {
+      log.debug(
+        `[Protocol] Ignored legacy file-media frame on V2-owned or ambiguous guest connection: ${msgType}`,
+      );
+      return;
+    }
   }
 
   // Ordered channels are not enough across reconnects: a new host may restart

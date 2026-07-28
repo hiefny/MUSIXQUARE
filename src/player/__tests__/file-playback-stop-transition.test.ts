@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import type { QueueItemId } from '../../types/index.ts';
 import { createFilePlaybackCutoverTarget } from '../file-playback-source.ts';
 import {
+  createFilePlaybackFailedStopTransitionEvidence,
+  createFilePlaybackFailedStopTransitionResult,
   createFilePlaybackStopTransitionEvidence,
   createFilePlaybackStopTransitionResult,
   readFilePlaybackStopTransitionEvidence,
@@ -130,5 +132,41 @@ describe('file playback STOP transition contract', () => {
     expect(readFilePlaybackStopTransitionResult({ ...result, applied: hostile }, original)).toBe(
       null,
     );
+  });
+
+  it('keeps exact failed-renderer retirement distinct from scheduled Web Audio evidence', async () => {
+    const audioContext = context();
+    const original = intent(audioContext);
+    const evidence = createFilePlaybackFailedStopTransitionEvidence(original);
+    expect(evidence).toEqual({
+      kind: 'failed-stop-applied',
+      observation: 'source-failed-retired',
+      from: original.from,
+      to: original.to,
+    });
+    expect(readFilePlaybackStopTransitionEvidence(evidence, original)).toEqual(evidence);
+    expect(
+      readFilePlaybackStopTransitionEvidence(
+        { ...evidence, to: { ...evidence.to, revision: 9 } },
+        original,
+      ),
+    ).toBeNull();
+    expect(
+      readFilePlaybackStopTransitionEvidence(
+        { ...evidence, targetFrame: original.target.targetFrame },
+        original,
+      ),
+    ).toBeNull();
+
+    const applied = Promise.resolve(evidence);
+    const result = createFilePlaybackFailedStopTransitionResult(original, applied);
+    const canonical = readFilePlaybackStopTransitionResult(result, original);
+    expect(canonical).toMatchObject({
+      status: 'failed-retired',
+      from: original.from,
+      to: original.to,
+      target: original.target,
+    });
+    await expect(canonical!.applied).resolves.toBe(evidence);
   });
 });

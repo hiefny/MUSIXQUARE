@@ -20,7 +20,7 @@ export interface FilePlaybackStopTransitionIntent {
   readonly target: FilePlaybackCutoverTarget;
 }
 
-export interface FilePlaybackStopTransitionEvidence {
+export interface FilePlaybackScheduledStopTransitionEvidence {
   readonly kind: 'stop-applied';
   readonly observation: 'webaudio-schedule-passed';
   readonly from: RevisionedPlaybackRun;
@@ -29,19 +29,47 @@ export interface FilePlaybackStopTransitionEvidence {
   readonly appliedFrame: number;
 }
 
-export interface FilePlaybackStopTransitionResult {
+/**
+ * Exact source-native failure followed by manager-owned current-port
+ * retirement. This evidence never claims that a future Web Audio frame was
+ * scheduled or observed.
+ */
+export interface FilePlaybackFailedStopTransitionEvidence {
+  readonly kind: 'failed-stop-applied';
+  readonly observation: 'source-failed-retired';
+  readonly from: RevisionedPlaybackRun;
+  readonly to: RevisionedPlaybackRun;
+}
+
+export type FilePlaybackStopTransitionEvidence =
+  | FilePlaybackScheduledStopTransitionEvidence
+  | FilePlaybackFailedStopTransitionEvidence;
+
+interface FilePlaybackScheduledStopTransitionResult {
   readonly status: 'scheduled';
   readonly from: RevisionedPlaybackRun;
   readonly to: RevisionedPlaybackRun;
   readonly target: FilePlaybackCutoverTarget;
-  readonly applied: Promise<FilePlaybackStopTransitionEvidence>;
+  readonly applied: Promise<FilePlaybackScheduledStopTransitionEvidence>;
 }
+
+interface FilePlaybackFailedStopTransitionResult {
+  readonly status: 'failed-retired';
+  readonly from: RevisionedPlaybackRun;
+  readonly to: RevisionedPlaybackRun;
+  readonly target: FilePlaybackCutoverTarget;
+  readonly applied: Promise<FilePlaybackFailedStopTransitionEvidence>;
+}
+
+export type FilePlaybackStopTransitionResult =
+  | FilePlaybackScheduledStopTransitionResult
+  | FilePlaybackFailedStopTransitionResult;
 
 const INTENT_KEYS = Object.freeze(['kind', 'from', 'to', 'atRoomTimeMs', 'target'] as const);
 const INTENT_KEY_SET: ReadonlySet<string> = new Set(INTENT_KEYS);
 const TARGET_KEYS = Object.freeze(['audioContext', 'contextTimeSeconds', 'targetFrame'] as const);
 const TARGET_KEY_SET: ReadonlySet<string> = new Set(TARGET_KEYS);
-const EVIDENCE_KEYS = Object.freeze([
+const SCHEDULED_EVIDENCE_KEYS = Object.freeze([
   'kind',
   'observation',
   'from',
@@ -49,7 +77,9 @@ const EVIDENCE_KEYS = Object.freeze([
   'targetFrame',
   'appliedFrame',
 ] as const);
-const EVIDENCE_KEY_SET: ReadonlySet<string> = new Set(EVIDENCE_KEYS);
+const SCHEDULED_EVIDENCE_KEY_SET: ReadonlySet<string> = new Set(SCHEDULED_EVIDENCE_KEYS);
+const FAILED_EVIDENCE_KEYS = Object.freeze(['kind', 'observation', 'from', 'to'] as const);
+const FAILED_EVIDENCE_KEY_SET: ReadonlySet<string> = new Set(FAILED_EVIDENCE_KEYS);
 const RESULT_KEYS = Object.freeze(['status', 'from', 'to', 'target', 'applied'] as const);
 const RESULT_KEY_SET: ReadonlySet<string> = new Set(RESULT_KEYS);
 const NATIVE_PROMISE_PROTOTYPE = Promise.prototype;
@@ -198,7 +228,7 @@ export function sameFilePlaybackStopTransitionIntent(
 export function createFilePlaybackStopTransitionEvidence(
   intent: FilePlaybackStopTransitionIntent,
   appliedFrame: number,
-): FilePlaybackStopTransitionEvidence {
+): FilePlaybackScheduledStopTransitionEvidence {
   const canonical = readSelfDescribingIntent(intent);
   if (
     !canonical ||
@@ -217,21 +247,60 @@ export function createFilePlaybackStopTransitionEvidence(
   });
 }
 
+export function createFilePlaybackFailedStopTransitionEvidence(
+  intent: FilePlaybackStopTransitionIntent,
+): FilePlaybackFailedStopTransitionEvidence {
+  const canonical = readSelfDescribingIntent(intent);
+  if (!canonical) {
+    throw new TypeError('Failed file playback stop evidence is invalid');
+  }
+  return freezeRecord({
+    kind: 'failed-stop-applied',
+    observation: 'source-failed-retired',
+    from: canonical.from,
+    to: canonical.to,
+  });
+}
+
 export function readFilePlaybackStopTransitionEvidence(
   value: unknown,
   expectedIntent: FilePlaybackStopTransitionIntent,
 ): FilePlaybackStopTransitionEvidence | null {
   const intent = readSelfDescribingIntent(expectedIntent);
-  const candidate = snapshotExactDataRecord(value, EVIDENCE_KEYS, EVIDENCE_KEY_SET);
+  const scheduled = snapshotExactDataRecord(
+    value,
+    SCHEDULED_EVIDENCE_KEYS,
+    SCHEDULED_EVIDENCE_KEY_SET,
+  );
+  const failed = scheduled
+    ? null
+    : snapshotExactDataRecord(value, FAILED_EVIDENCE_KEYS, FAILED_EVIDENCE_KEY_SET);
+  const candidate = scheduled ?? failed;
   const states = candidate ? readStates(candidate) : null;
   if (
     !intent ||
     !candidate ||
     !states ||
+    !sameState(states.from, intent.from) ||
+    !sameState(states.to, intent.to)
+  ) {
+    return null;
+  }
+  if (
+    failed &&
+    candidate.kind === 'failed-stop-applied' &&
+    candidate.observation === 'source-failed-retired'
+  ) {
+    try {
+      return createFilePlaybackFailedStopTransitionEvidence(intent);
+    } catch {
+      return null;
+    }
+  }
+  if (
+    !scheduled ||
     candidate.kind !== 'stop-applied' ||
     candidate.observation !== 'webaudio-schedule-passed' ||
-    !sameState(states.from, intent.from) ||
-    !sameState(states.to, intent.to) ||
     candidate.targetFrame !== intent.target.targetFrame ||
     typeof candidate.appliedFrame !== 'number'
   ) {
@@ -246,15 +315,35 @@ export function readFilePlaybackStopTransitionEvidence(
 
 export function createFilePlaybackStopTransitionResult(
   intent: FilePlaybackStopTransitionIntent,
-  applied: Promise<FilePlaybackStopTransitionEvidence>,
-): FilePlaybackStopTransitionResult {
+  applied: Promise<FilePlaybackScheduledStopTransitionEvidence>,
+): FilePlaybackScheduledStopTransitionResult {
   const canonical = readSelfDescribingIntent(intent);
-  const canonicalApplied = readExactNativePromise<FilePlaybackStopTransitionEvidence>(applied);
+  const canonicalApplied =
+    readExactNativePromise<FilePlaybackScheduledStopTransitionEvidence>(applied);
   if (!canonical || !canonicalApplied) {
     throw new TypeError('Scheduled file playback stop result is invalid');
   }
   return freezeRecord({
     status: 'scheduled',
+    from: canonical.from,
+    to: canonical.to,
+    target: canonical.target,
+    applied: canonicalApplied,
+  });
+}
+
+export function createFilePlaybackFailedStopTransitionResult(
+  intent: FilePlaybackStopTransitionIntent,
+  applied: Promise<FilePlaybackFailedStopTransitionEvidence>,
+): FilePlaybackFailedStopTransitionResult {
+  const canonical = readSelfDescribingIntent(intent);
+  const canonicalApplied =
+    readExactNativePromise<FilePlaybackFailedStopTransitionEvidence>(applied);
+  if (!canonical || !canonicalApplied) {
+    throw new TypeError('Failed file playback stop result is invalid');
+  }
+  return freezeRecord({
+    status: 'failed-retired',
     from: canonical.from,
     to: canonical.to,
     target: canonical.target,
@@ -276,7 +365,7 @@ export function readFilePlaybackStopTransitionResult(
   if (
     !intent ||
     !candidate ||
-    candidate.status !== 'scheduled' ||
+    (candidate.status !== 'scheduled' && candidate.status !== 'failed-retired') ||
     !from ||
     !to ||
     !sameState(from, intent.from) ||
@@ -295,7 +384,15 @@ export function readFilePlaybackStopTransitionResult(
     return null;
   }
   try {
-    return createFilePlaybackStopTransitionResult(intent, applied);
+    return candidate.status === 'scheduled'
+      ? createFilePlaybackStopTransitionResult(
+          intent,
+          applied as Promise<FilePlaybackScheduledStopTransitionEvidence>,
+        )
+      : createFilePlaybackFailedStopTransitionResult(
+          intent,
+          applied as Promise<FilePlaybackFailedStopTransitionEvidence>,
+        );
   } catch {
     return null;
   }

@@ -17,7 +17,7 @@ import { isLocalFilePaused, setLocalFilePaused } from './_state.ts';
 
 const SUCCESS_COOLDOWN_MS = 400;
 const RETRY_TIMER = 'local-output-rejoin-retry';
-const PRO_REJOIN_RETRY_MS = [250, 750, 1_500, 3_000, 5_000] as const;
+const REJOIN_RETRY_MS = [250, 750, 1_500, 3_000, 5_000] as const;
 
 interface RejoinRequestPayload {
   reason: 'media-session-play' | 'audio-context-recovered';
@@ -122,8 +122,8 @@ async function performLocalOutputRejoin(request: RejoinRequest): Promise<RejoinR
       if (!reconciled && wasLocallyPaused) setLocalPause(mode, true);
       return {
         rejoined: reconciled,
-        ...(!reconciled && request.retryAttempt < PRO_REJOIN_RETRY_MS.length
-          ? { retryAfterMs: PRO_REJOIN_RETRY_MS[request.retryAttempt] }
+        ...(!reconciled && request.retryAttempt < REJOIN_RETRY_MS.length
+          ? { retryAfterMs: REJOIN_RETRY_MS[request.retryAttempt] }
           : {}),
       };
     } catch (error) {
@@ -132,11 +132,46 @@ async function performLocalOutputRejoin(request: RejoinRequest): Promise<RejoinR
     }
   }
 
-  // A standard room has an external authoritative timeline only on guests
-  // (including delegated operators). The host keeps its existing room-wide
-  // Media Session semantics and must never seek itself through this seam.
   const hostConnection = getState('network.hostConn');
-  if (!hostConnection?.open) return { rejoined: false };
+  if (!hostConnection?.open) {
+    // Legacy hosts do not have a participant-local authority to query. A V2
+    // host does: its exact product room can rebuild one same-position cohort
+    // rendezvous after a physical output interruption without falling into the
+    // legacy AudioBuffer path. The dynamic import keeps this recovery seam out
+    // of the ordinary guest dependency graph.
+    if (mode !== 'file') return { rejoined: false };
+    const { requestV2HostFileOutputRejoin } = await import('./transport.ts');
+    if (!requestStillCurrent(request)) return { rejoined: false };
+    try {
+      const settlement = requestV2HostFileOutputRejoin(request.reason);
+      // `null` is an explicit ownership miss: this is a legacy host, so there
+      // is no V2 authority to retry and no local pause state to change.
+      if (settlement === null) return { rejoined: false };
+      const committed = await settlement;
+      if (!requestStillCurrent(request)) return { rejoined: false };
+      if (committed) {
+        setLocalPause(mode, false);
+      } else if (wasLocallyPaused) {
+        setLocalPause(mode, true);
+      }
+      return {
+        rejoined: committed,
+        ...(!committed && request.retryAttempt < REJOIN_RETRY_MS.length
+          ? { retryAfterMs: REJOIN_RETRY_MS[request.retryAttempt] }
+          : {}),
+      };
+    } catch (error) {
+      if (!requestStillCurrent(request)) return { rejoined: false };
+      if (wasLocallyPaused) setLocalPause(mode, true);
+      log.warn('[Playback] V2 host output rejoin failed', error);
+      return {
+        rejoined: false,
+        ...(request.retryAttempt < REJOIN_RETRY_MS.length
+          ? { retryAfterMs: REJOIN_RETRY_MS[request.retryAttempt] }
+          : {}),
+      };
+    }
+  }
 
   setLocalPause(mode, false);
   if (mode === 'file') {
@@ -239,9 +274,9 @@ function requestLocalOutputRejoin(request: RejoinRequest): Promise<boolean> {
       if (
         requestStillCurrent(request) &&
         request.identity.roomKind === 'pro' &&
-        request.retryAttempt < PRO_REJOIN_RETRY_MS.length
+        request.retryAttempt < REJOIN_RETRY_MS.length
       ) {
-        scheduleRetry(request, PRO_REJOIN_RETRY_MS[request.retryAttempt]!);
+        scheduleRetry(request, REJOIN_RETRY_MS[request.retryAttempt]!);
       }
       return false;
     })

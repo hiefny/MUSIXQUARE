@@ -381,6 +381,55 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
       return prepared;
     },
   );
+  readonly prepareResumeCurrent = vi.fn(
+    async (
+      input: HostCurrentPlaybackOperationOptions,
+    ): Promise<Readonly<HostPreparedLocalTrack>> => {
+      input.signal.throwIfAborted();
+      const previous = this.options.controller.timelineSnapshot();
+      if (
+        previous.phase !== 'paused' ||
+        !previous.run ||
+        !this.queueItemId ||
+        !this.runId ||
+        !this.backend ||
+        !this.asset ||
+        previous.run.queueItemId !== this.queueItemId ||
+        previous.run.runId !== this.runId
+      ) {
+        throw new Error('Fixture resume has no exact paused run');
+      }
+      const prepared = freezeCanonical({
+        schemaVersion: 1 as const,
+        roomGeneration: this.options.roomGeneration,
+        backend: this.backend,
+        state: freezeCanonical({
+          queueItemId: this.queueItemId,
+          runId: this.runId,
+          revision: previous.revision + 1,
+        }),
+        positionSeconds: previous.positionSeconds,
+        playbackRate: previous.rate,
+        asset: freezeCanonical({
+          kind: this.asset.kind,
+          binding: freezeCanonical({
+            queueItemId: this.asset.queueItemId,
+            sourceIdentity: this.asset.sourceIdentity,
+            transferSessionId: this.asset.transferSessionId,
+          }),
+          metadata: freezeCanonical({
+            name: this.asset.name,
+            mime: this.asset.mime,
+          }),
+          encodedSize: this.asset.size,
+          peerRangeManifest: null,
+        }),
+        sourceLease: null,
+      });
+      this.preparedResumeInputs.set(prepared, input);
+      return prepared;
+    },
+  );
   readonly prepareReplayCurrent = vi.fn(
     async (
       input: HostCurrentPlaybackOperationOptions,
@@ -447,6 +496,14 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
         );
       }
       const replayInput = this.preparedReplayInputs.get(input.prepared);
+      const resumeInput = this.preparedResumeInputs.get(input.prepared);
+      if (resumeInput) {
+        return this.#commitCurrentCandidate(
+          'resume',
+          input.prepared.positionSeconds,
+          resumeInput.signal,
+        );
+      }
       if (replayInput) {
         return this.#commitCurrentCandidate(
           'replay',
@@ -561,6 +618,10 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
   private sequence = 0;
   private readonly preparedInputs = new WeakMap<object, StartHostLocalTrackOptions>();
   private readonly preparedSeekInputs = new WeakMap<object, SeekHostPlayingOptions>();
+  private readonly preparedResumeInputs = new WeakMap<
+    object,
+    HostCurrentPlaybackOperationOptions
+  >();
   private readonly preparedReplayInputs = new WeakMap<
     object,
     HostCurrentPlaybackOperationOptions
@@ -587,6 +648,11 @@ class FixtureEngine implements FilePlaybackProductHostFirstEnginePort {
   observeNaturalEndForTests(): void {
     if (this.phase !== 'playing') throw new Error('Fixture renderer is not playing');
     this.phase = 'ended';
+  }
+
+  failRendererForTests(): void {
+    if (this.phase !== 'playing') throw new Error('Fixture renderer is not playing');
+    this.phase = 'failed';
   }
 
   replaceRendererIdentityForTests(
@@ -2079,6 +2145,89 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
     expect(containsBody(sought)).toBe(false);
   });
 
+  it('starts an exact-next same-run resume with the prepared remote cohort and no new source resolution', async () => {
+    const setup = makeHarness();
+    const started = await first(setup.room, Q1, file('cohort-resume.flac', 'audio/flac'));
+    await setup.room.pauseCurrent(signalOptions());
+    const paused = setup.controller.timelineSnapshot();
+    const prepareRemoteParticipants = vi.fn(
+      async (context: Readonly<FilePlaybackProductHostPreparedCohortContext>) => {
+        expect(Object.isFrozen(context)).toBe(true);
+        expect(Object.isFrozen(context.prepared)).toBe(true);
+        expect(context.prepared).toMatchObject({
+          backend: 'bounded-stream',
+          state: {
+            queueItemId: Q1,
+            runId: started.attempt.runId,
+            revision: paused.revision + 1,
+          },
+          positionSeconds: paused.positionSeconds,
+          playbackRate: paused.rate,
+          sourceLease: null,
+          asset: {
+            binding: {
+              queueItemId: Q1,
+              sourceIdentity: started.asset.sourceIdentity,
+              transferSessionId: started.asset.transferSessionId,
+            },
+          },
+        });
+        expect(containsBody(context.prepared)).toBe(false);
+        const participant = new RemoteRendezvousParticipant({
+          participantId: 'product-resume-cohort-peer',
+          rendererEvidenceScope: Object.freeze({
+            sessionId: 'product-resume-cohort-session',
+            connectionId: 'product-resume-cohort-connection',
+            recipientParticipantId: 'product-resume-cohort-host',
+            sourceIdentity: context.prepared.asset.binding.sourceIdentity,
+            transferSessionId: context.prepared.asset.binding.transferSessionId,
+          }),
+          rttP95Ms: 10,
+          armP95Ms: 10,
+          nowRoomTimeMs: () => 1_000,
+          dispatchArm: vi.fn(),
+          dispatchFinalize: vi.fn(),
+          dispatchCancel: vi.fn(),
+        });
+        return [freezeCanonical({ participant, bindAttempt: vi.fn(async () => undefined) })];
+      },
+    );
+
+    const resumed = await setup.room.resumeCurrentWithCohort({
+      ...signalOptions(),
+      prepareRemoteParticipants,
+    });
+    const engine = setup.engines[0]!;
+    const context = prepareRemoteParticipants.mock.calls[0]?.[0];
+    const preparedStart = engine.startPreparedLocalTrack.mock.calls.at(-1)?.[0];
+
+    expect(engine.prepareResumeCurrent).toHaveBeenCalledOnce();
+    expect(engine.prepareResumeCurrent).toHaveBeenCalledWith({
+      signal: context?.signal,
+    });
+    expect(engine.resumeCurrent).not.toHaveBeenCalled();
+    expect(prepareRemoteParticipants).toHaveBeenCalledOnce();
+    expect(preparedStart?.prepared).toBe(context?.prepared);
+    expect(preparedStart?.remoteParticipants).toBe(
+      await prepareRemoteParticipants.mock.results[0]?.value,
+    );
+    expect(engine.resolvePreparedPeerRangeSource).not.toHaveBeenCalled();
+    expect(resumed).toMatchObject({
+      status: 'committed',
+      backend: 'bounded-stream',
+      attempt: {
+        queueItemId: Q1,
+        runId: started.attempt.runId,
+        revision: paused.revision + 1,
+      },
+      schedule: {
+        positionSeconds: paused.positionSeconds,
+        playbackRate: paused.rate,
+      },
+    });
+    expect(containsBody(resumed)).toBe(false);
+  });
+
   it('prepares and publishes a fresh replay cohort before starting the zero-position run', async () => {
     const setup = makeHarness();
     const media = file('cohort-replay.flac', 'audio/flac');
@@ -2138,6 +2287,90 @@ describe('FilePlaybackProductHostRoom stable facade', () => {
       },
       schedule: { positionSeconds: 0 },
     });
+  });
+
+  it.each([
+    ['ordinary', file('terminal.mp3'), 'audio-buffer'],
+    ['streaming FLAC', file('terminal.flac', 'audio/flac'), 'bounded-stream'],
+  ] as const)(
+    'exposes an exact %s renderer failure only through the failed observation boundary',
+    async (_label, media, backend) => {
+      const setup = makeHarness();
+      const started = await first(setup.room, Q1, media);
+
+      expect(setup.room.currentFailedRendererObservation()).toBeNull();
+      setup.engines[0]?.failRendererForTests();
+
+      expect(setup.room.currentRendererSnapshot()).toBeNull();
+      const observation = setup.room.currentFailedRendererObservation();
+      expect(observation).toMatchObject({
+        queueItemId: Q1,
+        backend,
+        phase: 'failed',
+        revision: started.attempt.revision,
+        run: {
+          queueItemId: Q1,
+          runId: started.attempt.runId,
+          revision: started.attempt.revision,
+        },
+      });
+      expect(Object.isFrozen(observation)).toBe(true);
+      expect(Object.isFrozen(observation?.run)).toBe(true);
+    },
+  );
+
+  it.each(['queueItemId', 'runId', 'revision'] as const)(
+    'rejects a failed renderer with a mismatched %s identity',
+    async (kind) => {
+      const setup = makeHarness();
+      const started = await first(setup.room, Q1, file('failed-identity.mp3'));
+      setup.engines[0]?.failRendererForTests();
+      if (kind === 'queueItemId') {
+        setup.engines[0]?.replaceRendererIdentityForTests({ queueItemId: Q2 });
+      } else if (kind === 'runId') {
+        setup.engines[0]?.replaceRendererIdentityForTests({
+          runId: `${started.attempt.runId}-stale-aba`,
+        });
+      } else {
+        setup.engines[0]?.replaceRendererIdentityForTests({
+          revision: started.attempt.revision + 1,
+        });
+      }
+
+      expect(setup.room.currentFailedRendererObservation()).toBeNull();
+    },
+  );
+
+  it.each(['stale-generation', 'guest-role'] as const)(
+    'fail-closes failed renderer observation under %s authority',
+    async (authority) => {
+      const setup = makeHarness();
+      await first(setup.room, Q1, file('failed-stale-authority.mp3'));
+      setup.engines[0]?.failRendererForTests();
+      expect(setup.room.currentFailedRendererObservation()).not.toBeNull();
+
+      setup.controller.beginRoom(createStoppedPlaybackTimeline(2_000, 0));
+      setup.controller.claimRoomRole(authority === 'guest-role' ? 'guest' : 'host');
+
+      expect(setup.room.currentFailedRendererObservation()).toBeNull();
+    },
+  );
+
+  it('fail-closes failed renderer observation after close or fatal quarantine', async () => {
+    const closed = makeHarness();
+    await first(closed.room, Q1, file('failed-closed.mp3'));
+    closed.engines[0]?.failRendererForTests();
+    expect(closed.room.currentFailedRendererObservation()).not.toBeNull();
+    await closed.room.close();
+    expect(closed.room.currentFailedRendererObservation()).toBeNull();
+
+    const fatal = makeHarness();
+    await first(fatal.room, Q1, file('failed-fatal.flac', 'audio/flac'));
+    fatal.engines[0]?.failRendererForTests();
+    expect(fatal.room.currentFailedRendererObservation()).not.toBeNull();
+    fatal.engines[0]?.fatal(new Error('failed renderer fatal'));
+    expect(fatal.room.currentFailedRendererObservation()).toBeNull();
+    await drainMicrotasks();
   });
 
   it.each([

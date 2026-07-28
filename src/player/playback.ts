@@ -23,7 +23,11 @@ import { sendFileDeliveryUnavailable, unicastFile } from '../storage/transfer.ts
 import { unicastPreload } from '../storage/preload.ts';
 import { broadcast, isRemoteGuest, safeSend } from '../network/peer.ts';
 import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
-import { registerHandlers, verifyOperator } from '../network/protocol.ts';
+import {
+  hasEstablishedFilePlaybackApplicationSession,
+  registerHandlers,
+  verifyOperator,
+} from '../network/protocol.ts';
 import { beginFileRequest, sendFileRequest } from '../network/file-request-authority.ts';
 import type { DataConnection, QueueItemId, ResidentFile } from '../types/index.ts';
 import {
@@ -724,37 +728,47 @@ export function initPlayback(): void {
   // V2 media owners emit this only after exact native playing evidence, or an
   // exact prepared paused baseline, and connection-media authority have
   // committed. It is a UI projection, never a second playback command or clock.
-  bus.on('player:v2-guest-timeline-rendered', (queueItemId, phase, positionSeconds) => {
-    if (
-      !Number.isFinite(positionSeconds) ||
-      positionSeconds < 0 ||
-      (phase !== 'playing' && phase !== 'paused' && phase !== 'stopped')
-    ) {
-      return;
-    }
-    if (phase === 'stopped') {
-      if (queueItemId !== null) return;
-      setPlaybackIdle();
-      setState('player.pausedAt', 0);
-      bus.emit('ui:seek-reset');
-      bus.emit('visualizer:fade-out');
-      return;
-    }
-    if (!queueItemId || !isQueueItemId(queueItemId)) return;
-    const item = getQueueItemById(queueItemId);
-    if (!item || !selectQueueItemById(queueItemId)) return;
-    setPlaybackTrackMeta(item);
-    setState('player.pausedAt', positionSeconds);
-    if (phase === 'playing') {
-      transition({ type: 'PRODUCT_TIMELINE_RENDERED', phase });
-      bus.emit('visualizer:start');
-      bus.emit('ui:loop-start');
-    } else {
-      transition({ type: 'PRODUCT_TIMELINE_RENDERED', phase });
-      bus.emit('visualizer:hold-frame');
-    }
-    bus.emit('ui:switch-tab', 'play');
-  });
+  bus.on(
+    'player:v2-guest-timeline-rendered',
+    (queueItemId, phase, positionSeconds, durationSeconds) => {
+      if (
+        !Number.isFinite(positionSeconds) ||
+        positionSeconds < 0 ||
+        (phase !== 'playing' && phase !== 'paused' && phase !== 'stopped')
+      ) {
+        return;
+      }
+      if (phase === 'stopped') {
+        if (queueItemId !== null) return;
+        setPlaybackIdle();
+        setState('player.pausedAt', 0);
+        bus.emit('ui:seek-reset');
+        bus.emit('visualizer:fade-out');
+        return;
+      }
+      if (!queueItemId || !isQueueItemId(queueItemId)) return;
+      const item = getQueueItemById(queueItemId);
+      if (!item || !selectQueueItemById(queueItemId)) return;
+      setPlaybackTrackMeta(item);
+      setState('player.pausedAt', positionSeconds);
+      if (
+        typeof durationSeconds === 'number' &&
+        Number.isFinite(durationSeconds) &&
+        durationSeconds > 0
+      ) {
+        bus.emit('ui:duration-update', durationSeconds);
+      }
+      if (phase === 'playing') {
+        transition({ type: 'PRODUCT_TIMELINE_RENDERED', phase });
+        bus.emit('visualizer:start');
+        bus.emit('ui:loop-start');
+      } else {
+        transition({ type: 'PRODUCT_TIMELINE_RENDERED', phase });
+        bus.emit('visualizer:hold-frame');
+      }
+      bus.emit('ui:switch-tab', 'play');
+    },
+  );
 
   // Replay current track from start (repeat-one: guest already has file).
   // delayMs lets the host tell the guest "I'm going to start at T+delayMs,
@@ -1056,6 +1070,7 @@ export function initPlayback(): void {
     const isFilePauseLike = isPlaybackPausedOrPendingFile(playback);
     const isSystemAudioPlaying = isPlaybackPlayingSystemAudio(playback);
     const isYouTubeActive = isPlaybackActiveYouTube(playback);
+    const v2SessionOwnsBootstrap = hasEstablishedFilePlaybackApplicationSession(conn);
     const currentQueueItemId = getCurrentQueueItemId();
     const currentItem = getQueueItemById(currentQueueItemId);
     const currentResident = getState('files.current');
@@ -1063,7 +1078,6 @@ export function initPlayback(): void {
     // Send playback state (time-sync for late joiners)
     try {
       const nowPos = getTrackPosition();
-
       // System audio: send start message instead of PLAY/PAUSE (media call handled by system-audio-host)
       if (isSystemAudioPlaying) {
         // The fifth device causes the active share to stop. Do not briefly
@@ -1071,6 +1085,8 @@ export function initPlayback(): void {
         if (hasSystemAudioDeviceCapacity()) {
           conn.send({ type: MSG.SYSTEM_AUDIO_START });
         }
+      } else if (isYouTubeActive || v2SessionOwnsBootstrap) {
+        // Dedicated media owners publish their own atomic late-join state.
       } else if (
         isFilePlaying &&
         currentQueueItemId &&

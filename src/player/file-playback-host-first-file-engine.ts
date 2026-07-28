@@ -93,6 +93,8 @@ import {
 const DEFAULT_MIME = 'application/octet-stream';
 const MAX_APPLICATION_SCOPE_ID_LENGTH = 128;
 const MAX_PARTICIPANT_ID_LENGTH = 256;
+const FAILED_STOP_BOUNDARY_MIN_POLL_MS = 4;
+const FAILED_STOP_BOUNDARY_MAX_POLL_MS = 50;
 const uint8ArrayFill = Uint8Array.prototype.fill;
 const OPTION_KEYS = Object.freeze([
   'controller',
@@ -1382,6 +1384,15 @@ export class FilePlaybackHostFirstFileEngine {
     );
   }
 
+  /** Prepares an exact-next same-run resume without starting its rendezvous. */
+  prepareResumeCurrent(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostPreparedLocalTrack>> {
+    return this.#runSynchronousCandidatePreparation(() =>
+      this.#prepareResumeCurrentCandidate(options),
+    );
+  }
+
   /** Prepares a fresh zero-position run for the current asset without starting its rendezvous. */
   prepareReplayCurrent(
     options: HostCurrentPlaybackOperationOptions,
@@ -1416,27 +1427,11 @@ export class FilePlaybackHostFirstFileEngine {
   resumeCurrent(
     options: HostCurrentPlaybackOperationOptions,
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
-    return this.#runSynchronousCandidateStart(() => {
-      const input = this.#readCurrentOperationInput(options, CURRENT_OPERATION_KEYS);
-      const previousTimeline = this.#captureTimeline('resume');
-      if (previousTimeline.phase !== 'paused' || previousTimeline.run === null) {
-        throw new Error('Host resume requires exact paused timeline truth');
-      }
-      const asset = this.#requireCurrentAsset(previousTimeline);
-      const runtime = this.#requireAudioRuntime();
-      const expectedCurrentPort = this.#assertExpectedRenderer(previousTimeline, 'resume');
-      return this.#beginCandidateOperation({
-        action: 'resume',
-        previousTimeline,
-        expectedCurrentPort,
-        asset,
-        runId: previousTimeline.run.runId,
-        positionSeconds: previousTimeline.positionSeconds,
-        playbackRate: previousTimeline.rate,
-        signal: input.signal,
-        ...runtime,
-      });
-    });
+    return this.#runSynchronousCandidateStart(() =>
+      this.#prepareResumeCurrentCandidate(options).then((prepared) =>
+        this.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
+      ),
+    );
   }
 
   seekPlaying(
@@ -1999,6 +1994,30 @@ export class FilePlaybackHostFirstFileEngine {
     });
   }
 
+  #prepareResumeCurrentCandidate(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostPreparedLocalTrack>> {
+    const input = this.#readCurrentOperationInput(options, CURRENT_OPERATION_KEYS);
+    const previousTimeline = this.#captureTimeline('resume');
+    if (previousTimeline.phase !== 'paused' || previousTimeline.run === null) {
+      throw new Error('Host resume requires exact paused timeline truth');
+    }
+    const asset = this.#requireCurrentAsset(previousTimeline);
+    const runtime = this.#requireAudioRuntime();
+    const expectedCurrentPort = this.#assertExpectedRenderer(previousTimeline, 'resume');
+    return this.#beginCandidatePreparation({
+      action: 'resume',
+      previousTimeline,
+      expectedCurrentPort,
+      asset,
+      runId: previousTimeline.run.runId,
+      positionSeconds: previousTimeline.positionSeconds,
+      playbackRate: previousTimeline.rate,
+      signal: input.signal,
+      ...runtime,
+    });
+  }
+
   #prepareReplayCurrentCandidate(
     options: HostCurrentPlaybackOperationOptions,
   ): Promise<Readonly<HostPreparedLocalTrack>> {
@@ -2147,7 +2166,8 @@ export class FilePlaybackHostFirstFileEngine {
         : action === 'seek'
           ? timeline.phase === 'paused' && snapshot.phase === 'paused'
           : action === 'stop'
-            ? snapshot.phase === timeline.phase
+            ? snapshot.phase === timeline.phase ||
+              (timeline.phase === 'playing' && snapshot.phase === 'failed')
             : timeline.phase === 'playing' && snapshot.phase === 'ended';
     if (!phaseAccepted) throw new Error(`Host ${action} renderer phase is stale`);
     return port;
@@ -2365,6 +2385,12 @@ export class FilePlaybackHostFirstFileEngine {
     operation.physicalBoundaryClaimed = true;
     this.#notifyTransitionScheduled('stop', intent, null);
     const evidence = await result.applied;
+    if (result.status === 'failed-retired') {
+      // The failed local renderer is already fail-silent. Keep the existing
+      // scheduled STOP wire for healthy peers, but do not publish canonical
+      // stopped truth before that shared room-clock boundary.
+      await this.#waitForFailedStopRoomBoundary(operation, intent);
+    }
     this.#assertTransitionCommitFence(operation, intent, false);
     this.#runtime.beforeTransitionControllerCommit?.();
     this.#assertTransitionCommitFence(operation, intent, false);
@@ -2382,6 +2408,42 @@ export class FilePlaybackHostFirstFileEngine {
     this.#retireCurrentSourceAuthority();
     this.#notifyTimelineCommitted('stop', operation.previousTimeline, committed.timeline);
     return this.#transitionResult('stop', evidence, committed.timeline);
+  }
+
+  #waitForFailedStopRoomBoundary(
+    operation: ActiveTransitionOperation,
+    intent: Readonly<FilePlaybackStopTransitionIntent>,
+  ): Promise<void> {
+    const clockBindings = this.#clockBindings;
+    if (!clockBindings) {
+      return Promise.reject(new Error('Host failed STOP has no room clock binding'));
+    }
+    return new Promise<void>((resolve, reject) => {
+      const poll = () => {
+        try {
+          this.#assertTransitionCommitFence(operation, intent, false);
+          const nowRoomTimeMs = clockBindings.nowRoomTimeMs();
+          if (!Number.isFinite(nowRoomTimeMs) || nowRoomTimeMs < 0) {
+            throw new Error('Host failed STOP room clock is unavailable');
+          }
+          const remainingMs = intent.atRoomTimeMs - nowRoomTimeMs;
+          if (remainingMs <= 0) {
+            resolve();
+            return;
+          }
+          globalThis.setTimeout(
+            poll,
+            Math.min(
+              FAILED_STOP_BOUNDARY_MAX_POLL_MS,
+              Math.max(FAILED_STOP_BOUNDARY_MIN_POLL_MS, Math.ceil(remainingMs)),
+            ),
+          );
+        } catch (error) {
+          reject(error);
+        }
+      };
+      poll();
+    });
   }
 
   async #executeEndedTransition(
@@ -3488,17 +3550,11 @@ export class FilePlaybackHostFirstFileEngine {
           : timeline.phase === 'paused'
             ? snapshot.phase === 'paused'
             : timeline.phase === 'playing' &&
-              (snapshot.phase === 'playing' || snapshot.phase === 'ended');
+              (snapshot.phase === 'playing' ||
+                snapshot.phase === 'ended' ||
+                (action === 'track' && snapshot.phase === 'failed'));
     if (!phaseMatches) throw new Error(`Host ${action} renderer phase is stale`);
     return expectedPort;
-  }
-
-  #beginCandidateOperation(
-    input: BeginCandidateOperationInput,
-  ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>> {
-    return this.#beginCandidatePreparation(input).then((prepared) =>
-      this.startPreparedLocalTrack({ prepared, remoteParticipants: [] }),
-    );
   }
 
   #beginCandidatePreparation(
@@ -4552,6 +4608,31 @@ export class FilePlaybackHostFirstFileEngine {
   #allowsCurrentPeerPublicationForTimeline(timeline: PlaybackTimelineSnapshot): boolean {
     const operation = this.#activeOperation;
     if (operation === null) return true;
+    if (operation.kind === 'transition') {
+      const previous = operation.previousTimeline;
+      const previousRun = previous.run;
+      const run = timeline.run;
+      const isExactPausedSuccessor =
+        (operation.action === 'pause' || operation.action === 'seek') &&
+        operation.commitDominant &&
+        operation.physicalBoundaryClaimed &&
+        this.#operationEpoch === operation.epoch &&
+        operation.expectedCurrentPort === this.#committedPort &&
+        currentPort(this.#manager) === operation.expectedCurrentPort &&
+        timeline.phase === 'paused' &&
+        run !== null &&
+        previousRun !== null &&
+        run.queueItemId === previousRun.queueItemId &&
+        run.runId === previousRun.runId &&
+        timeline.revision === previous.revision + 1 &&
+        timeline.rate === previous.rate &&
+        (operation.action === 'pause'
+          ? previous.phase === 'playing'
+          : previous.phase === 'paused' &&
+            operation.positionSeconds !== null &&
+            timeline.positionSeconds === operation.positionSeconds);
+      return isExactPausedSuccessor;
+    }
     return (
       operation.kind === 'candidate' &&
       operation.action === 'playing-seek' &&

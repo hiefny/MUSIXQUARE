@@ -2,6 +2,18 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const applicationSessionMocks = vi.hoisted(() => ({
+  established: vi.fn(() => false),
+}));
+
+vi.mock('../../network/protocol.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../network/protocol.ts')>();
+  return {
+    ...actual,
+    hasEstablishedFilePlaybackApplicationSession: applicationSessionMocks.established,
+  };
+});
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import {
@@ -124,6 +136,7 @@ beforeEach(() => {
   setPlayerNode(null);
   vi.mocked(broadcast).mockClear();
   vi.mocked(sendToHost).mockClear();
+  applicationSessionMocks.established.mockReturnValue(false);
 });
 
 afterEach(() => {
@@ -628,6 +641,18 @@ describe('late-join playback bootstrap', () => {
       }),
     );
     expect(send.mock.calls[0]?.[0]).not.toHaveProperty('state');
+  });
+
+  it('leaves file bootstrap to an exact established V2 application session', () => {
+    initPlayback();
+    setPlaybackFilePlaying();
+    setState('playlist.currentQueueItemId', QID_OLD);
+    setState('playlist.items', [playlistItem(QID_OLD, 'streamed.mp3')]);
+    applicationSessionMocks.established.mockReturnValue(true);
+
+    const send = emitPeerConnected();
+
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('lets demo mode own late-join playback bootstrap', () => {

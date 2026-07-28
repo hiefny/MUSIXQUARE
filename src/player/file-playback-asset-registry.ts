@@ -471,6 +471,10 @@ export class FilePlaybackAssetRegistry {
   readonly #blobEntries = new WeakMap<Blob, AssetEntry>();
   readonly #rejectedClosePromises = new WeakMap<object, Promise<void>>();
   readonly #discardedSourceClosePromises = new WeakMap<object, Promise<void>>();
+  readonly #completedLiveReplacementDiscards = new WeakMap<
+    FilePlaybackAssetLease,
+    Promise<boolean>
+  >();
   readonly #activeCleanupCallbacks = new Set<TrackedCleanup>();
   readonly #retiredQueueItems = new Set<QueueItemId>();
   readonly #retiredSourceIdentities = new Set<string>();
@@ -778,6 +782,36 @@ export class FilePlaybackAssetRegistry {
     });
   }
 
+  /**
+   * Revokes one live asset so an exact binding can be admitted again after
+   * physical cleanup. Unlike retire(), this is a publication replacement
+   * boundary: it creates no permanent queue/source/transfer tombstone.
+   *
+   * Lookup and reads are disabled synchronously. The binding remains
+   * quarantined until the owned asset physically closes, and the returned
+   * promise does not resolve before that quarantine is released.
+   */
+  discardLiveAssetForReplacement(token: object, lease: FilePlaybackAssetLease): Promise<boolean> {
+    if (token !== this.#token) throw new Error('File playback room token is invalid');
+    const entry = lease && typeof lease === 'object' ? this.#leases.get(lease) : undefined;
+    const completed =
+      lease && typeof lease === 'object'
+        ? this.#completedLiveReplacementDiscards.get(lease)
+        : undefined;
+    if (!entry && completed) return completed;
+    if (!entry || (entry.provisionalOrigin && !entry.promoted)) {
+      throw new Error('File playback live replacement asset lease is forged');
+    }
+    if (entry.discardPromise) return entry.discardPromise;
+    return this.#mutate(token, () => {
+      if (entry.discardPromise) return entry.discardPromise;
+      if (entry.status !== 'live') {
+        throw new Error('File playback live replacement asset lease is stale');
+      }
+      return this.#beginLiveReplacementDiscard(entry);
+    });
+  }
+
   snapshotForLease(
     token: object,
     lease: FilePlaybackAssetLease,
@@ -1024,6 +1058,35 @@ export class FilePlaybackAssetRegistry {
     const physicalClosePromise = entry.closeCleanup?.physicalPromise ?? closePromise;
     void physicalClosePromise.then(() => this.#finishProvisionalDiscard(entry));
     void closePromise.then(() => resolveDiscard(true), rejectDiscard);
+    return discardPromise;
+  }
+
+  #beginLiveReplacementDiscard(entry: AssetEntry): Promise<boolean> {
+    if (entry.discardPromise) return entry.discardPromise;
+    let resolveDiscard!: (discarded: boolean) => void;
+    const discardPromise = new Promise<boolean>((resolve) => {
+      resolveDiscard = resolve;
+    });
+    entry.discardPromise = discardPromise;
+    this.#completedLiveReplacementDiscards.set(entry.lease, discardPromise);
+    entry.status = 'discarding';
+    this.#liveAssetCount -= 1;
+    this.#ownedAssets.delete(entry.adapter.asset);
+    if (
+      entry.transferredGeneric &&
+      transferredAssetOwners.get(entry.adapter.asset) === this.#ownerIdentity
+    ) {
+      transferredAssetOwners.delete(entry.adapter.asset);
+      retiredTransferredAssets.add(entry.adapter.asset);
+    }
+    if (entry.blob) this.#blobEntries.delete(entry.blob);
+
+    const closePromise = this.#beginEntryClose(entry);
+    const physicalClosePromise = entry.closeCleanup?.physicalPromise ?? closePromise;
+    void physicalClosePromise.then(() => {
+      this.#finishProvisionalDiscard(entry);
+      resolveDiscard(true);
+    });
     return discardPromise;
   }
 

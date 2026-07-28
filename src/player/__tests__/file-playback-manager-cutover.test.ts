@@ -1742,6 +1742,61 @@ describe('FilePlaybackManager V2 atomic cutover', () => {
     }
   });
 
+  it('retires an exact failed current source while AudioContext is suspended without claiming scheduled evidence', async () => {
+    const context = new FakeAudioContext();
+    const destination = destinationFor(context);
+    const manager = new FilePlaybackManager();
+    const current = makeSource(Q1, context, 1);
+    const { port } = await startFirst(manager, current, destination, context);
+    current.phase('failed');
+    current.gateDestroy();
+    context.state = 'suspended';
+    const intent = currentStopIntent(context, 2);
+
+    const first = manager.stopCurrentCutover(port, intent);
+    const retry = manager.stopCurrentCutover(port, { ...intent });
+    expect(retry).toBe(first);
+    const retired = await first;
+
+    expect(retired).toMatchObject({
+      status: 'failed-retired',
+      from: intent.from,
+      to: intent.to,
+      target: intent.target,
+    });
+    expect(manager.currentCutoverPort()).toBeNull();
+    expect(manager.snapshot().active).toBeNull();
+    expect(manager.cutoverRecoveryRequired()).toBe(false);
+    expect(current.source.pause).not.toHaveBeenCalled();
+    expect(current.source.seek).not.toHaveBeenCalled();
+    expect(current.source.cancel).not.toHaveBeenCalled();
+    expect(current.source.destroy).toHaveBeenCalledOnce();
+    expect(context.gains[0]!.gain.events).not.toContainEqual({ value: 0, time: 2 });
+
+    let appliedSettled = false;
+    void retired.applied.finally(() => {
+      appliedSettled = true;
+    });
+    await Promise.resolve();
+    expect(appliedSettled).toBe(false);
+
+    current.destroyGate.resolve();
+    await expect(retired.applied).resolves.toEqual({
+      kind: 'failed-stop-applied',
+      observation: 'source-failed-retired',
+      from: intent.from,
+      to: intent.to,
+    });
+    expect(appliedSettled).toBe(true);
+
+    const completedRetry = manager.stopCurrentCutover(port, { ...intent });
+    expect(completedRetry).toBe(first);
+    expect(await completedRetry).toBe(retired);
+    await expect(
+      manager.stopCurrentCutover(port, { ...intent, atRoomTimeMs: intent.atRoomTimeMs + 1 }),
+    ).rejects.toThrow('stale');
+  });
+
   it('commits a consecutive paused-to-stopped revision on the same exact gate', async () => {
     vi.useFakeTimers();
     try {

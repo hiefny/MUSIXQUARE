@@ -1244,6 +1244,7 @@ interface BaseEventMap {
     queueItemId: QueueItemId | null,
     phase: 'playing' | 'paused' | 'stopped',
     positionSeconds: number,
+    durationSeconds?: number | null,
   ];
   /** Host-local V2 seek UI projection; this does not change playback lifecycle semantics. */
   'player:v2-host-seek-pending': [event: Readonly<V2HostSeekPendingEvent>];

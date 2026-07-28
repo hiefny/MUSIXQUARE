@@ -55,6 +55,12 @@ import {
 import { isProRoomTrackChangeIntentPending } from './track-change-intent.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import type { FilePlaybackPosition, FilePlaybackSourceSnapshot } from './file-playback-source.ts';
+import type { FilePlaybackProductHostFailureObservation } from './file-playback-product-host-room.ts';
+import {
+  enqueueV2HostMutation,
+  isCurrentV2HostMutationIntent,
+  type V2HostMutationIntent,
+} from './v2-host-mutation-lane.ts';
 import type {
   QueueItemId,
   V2HostSeekPendingEvent,
@@ -65,7 +71,6 @@ import type {
 const SCHEDULE_AHEAD_MS = 200;
 const FILE_PLAYBACK_ENGINE_V2_ENABLED = isFilePlaybackEngineV2Enabled();
 const filePlaybackProductRuntime = getFilePlaybackProductRuntime();
-const trustedAbortControllerAbort = AbortController.prototype.abort;
 
 /** Calibrated output advance for Windows local-file playback. */
 const WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC = 0.02;
@@ -228,12 +233,8 @@ interface V2HostControlState {
   readonly position: FilePlaybackPosition;
 }
 
-interface V2HostControlIntent {
-  readonly sequence: number;
-  readonly controller: AbortController;
-}
-
 type V2HostSeekTargetResolver = (state: V2HostControlState) => number | null;
+type V2HostControlIntent = V2HostMutationIntent;
 type V2HostControlOperation = (intent: V2HostControlIntent) => Promise<void>;
 
 type V2HostTransitionIdentity = Readonly<{
@@ -243,10 +244,30 @@ type V2HostTransitionIdentity = Readonly<{
   revision: number;
 }>;
 
-let v2HostControlSequence = 0;
-let v2HostControlIntent: V2HostControlIntent | null = null;
-let v2HostControlTail: Promise<void> = Promise.resolve();
+type V2HostFailureIdentity = V2HostTransitionIdentity &
+  Readonly<{
+    positionSeconds: number;
+    durationSeconds: number | null;
+    observation: FilePlaybackProductHostFailureObservation;
+  }>;
+
+type V2HostFailedPauseCheckpoint = Readonly<{
+  failure: V2HostFailureIdentity;
+  positionSeconds: number;
+}>;
+
 let lastV2HostEndedObservationKey: string | null = null;
+let lastV2HostFailureObservationKey: string | null = null;
+let explicitV2HostFailureHoldKey: string | null = null;
+let v2HostFailedPauseCheckpoint: V2HostFailedPauseCheckpoint | null = null;
+let pendingV2HostTogglePhase: V2HostControlPhase | null = null;
+let pendingV2HostToggleSequence = 0;
+let activeV2HostFailureRecovery: {
+  key: string;
+  requestedPositionSeconds: number;
+  appliedPositionSeconds: number | null;
+  task: Promise<boolean>;
+} | null = null;
 let v2HostSeekUiSequence = 0;
 let activeV2HostSeekUiIntent: Readonly<V2HostSeekPendingEvent> | null = null;
 
@@ -410,6 +431,135 @@ function readExactV2HostControlState(): V2HostControlState | null {
   }
 }
 
+function sameV2HostFailureIdentity(
+  left: V2HostFailureIdentity,
+  right: V2HostFailureIdentity,
+): boolean {
+  return (
+    sameV2HostRoom(left.room, right.room) &&
+    left.queueItemId === right.queueItemId &&
+    left.runId === right.runId &&
+    left.revision === right.revision
+  );
+}
+
+function readV2HostFailedPauseCheckpoint(): V2HostFailedPauseCheckpoint | null {
+  const checkpoint = v2HostFailedPauseCheckpoint;
+  if (!checkpoint) return null;
+  if (!isV2HostFileControlContext()) {
+    v2HostFailedPauseCheckpoint = null;
+    return null;
+  }
+  try {
+    const currentRoom = filePlaybackProductRuntime.hostRoomSnapshot();
+    const queueItemId = getCurrentQueueItemId();
+    const item = getQueueItemById(queueItemId);
+    if (
+      !isExactV2HostRoom(currentRoom) ||
+      !sameV2HostRoom(currentRoom, checkpoint.failure.room) ||
+      queueItemId !== checkpoint.failure.queueItemId ||
+      !item ||
+      item.type === 'youtube'
+    ) {
+      v2HostFailedPauseCheckpoint = null;
+      return null;
+    }
+
+    const active = readExactV2HostControlState();
+    if (active) {
+      v2HostFailedPauseCheckpoint = null;
+      return null;
+    }
+    const failure = readExactV2HostFailureIdentity();
+    if (failure && !sameV2HostFailureIdentity(failure, checkpoint.failure)) {
+      v2HostFailedPauseCheckpoint = null;
+      return null;
+    }
+    return checkpoint;
+  } catch {
+    v2HostFailedPauseCheckpoint = null;
+    return null;
+  }
+}
+
+function rememberV2HostFailedPause(
+  failure: V2HostFailureIdentity,
+  positionSeconds = failure.positionSeconds,
+): V2HostFailedPauseCheckpoint {
+  const checkpoint = Object.freeze({
+    failure,
+    positionSeconds,
+  });
+  v2HostFailedPauseCheckpoint = checkpoint;
+  return checkpoint;
+}
+
+function readExactV2HostFailureIdentity(): V2HostFailureIdentity | null {
+  if (!isV2HostFileControlContext()) return null;
+  try {
+    const roomBefore = filePlaybackProductRuntime.hostRoomSnapshot();
+    if (!isExactV2HostRoom(roomBefore)) return null;
+    const queueItemId = getCurrentQueueItemId();
+    const item = getQueueItemById(queueItemId);
+    if (!queueItemId || !item || item.type === 'youtube') return null;
+    const observation = filePlaybackProductRuntime.currentHostFailedRendererObservation();
+    if (
+      !observation ||
+      !Object.isFrozen(observation) ||
+      observation.phase !== 'failed' ||
+      observation.queueItemId !== queueItemId ||
+      !observation.run ||
+      !Object.isFrozen(observation.run) ||
+      observation.run.queueItemId !== queueItemId ||
+      observation.run.revision !== observation.revision ||
+      typeof observation.run.runId !== 'string' ||
+      observation.run.runId.length === 0 ||
+      !Number.isSafeInteger(observation.revision) ||
+      observation.revision <= 0
+    ) {
+      return null;
+    }
+    const roomAfter = filePlaybackProductRuntime.hostRoomSnapshot();
+    const observationAfter = filePlaybackProductRuntime.currentHostFailedRendererObservation();
+    if (
+      !isExactV2HostRoom(roomAfter) ||
+      !sameV2HostRoom(roomBefore, roomAfter) ||
+      !observationAfter ||
+      observationAfter.queueItemId !== observation.queueItemId ||
+      observationAfter.revision !== observation.revision ||
+      observationAfter.run?.runId !== observation.run.runId
+    ) {
+      return null;
+    }
+    const durationSeconds =
+      typeof observation.durationSeconds === 'number' &&
+      Number.isFinite(observation.durationSeconds) &&
+      observation.durationSeconds > 0
+        ? observation.durationSeconds
+        : null;
+    const rawPosition =
+      Number.isFinite(observation.positionSeconds) && observation.positionSeconds >= 0
+        ? observation.positionSeconds
+        : getState('player.pausedAt');
+    const positionSeconds =
+      clampV2HostSeekTarget(
+        Number.isFinite(rawPosition) && rawPosition >= 0 ? rawPosition : 0,
+        durationSeconds,
+      ) ?? 0;
+    return Object.freeze({
+      room: roomAfter,
+      queueItemId,
+      runId: observation.run.runId,
+      revision: observation.revision,
+      positionSeconds,
+      durationSeconds,
+      observation,
+    });
+  } catch {
+    return null;
+  }
+}
+
 function clampV2HostSeekTarget(value: number, durationSeconds: number | null): number | null {
   if (!Number.isFinite(value) || value < 0) return null;
   if (durationSeconds === null) return value;
@@ -514,17 +664,6 @@ function sameV2HostSeekAdmission(
     admitted.queueItemId === current.queueItemId &&
     admitted.runId === current.runId
   );
-}
-
-function abortV2HostControlIntent(intent: V2HostControlIntent | null): void {
-  if (!intent || intent.controller.signal.aborted) return;
-  try {
-    Reflect.apply(trustedAbortControllerAbort, intent.controller, [
-      new Error('V2 host control intent was superseded'),
-    ]);
-  } catch (error) {
-    log.debug('[Transport] Failed to abort superseded V2 control:', error);
-  }
 }
 
 function isExactCommittedV2HostSeek(
@@ -724,7 +863,6 @@ function exactV2HostPauseCommitPosition(value: unknown, before: V2HostControlSta
 function exactV2HostResumeCommitPosition(
   value: unknown,
   before: V2HostControlState,
-  expectedPositionSeconds: number,
 ): number | null {
   if (value === null || typeof value !== 'object' || !Object.isFrozen(value)) return null;
   try {
@@ -762,19 +900,24 @@ function exactV2HostResumeCommitPosition(
       commit.attempt.runId !== before.runId ||
       commit.attempt.revision !== before.revision + 1 ||
       !Object.isFrozen(commit.schedule) ||
-      commit.schedule?.positionSeconds !== expectedPositionSeconds ||
+      typeof commit.schedule?.positionSeconds !== 'number' ||
+      !Number.isFinite(commit.schedule.positionSeconds) ||
+      commit.schedule.positionSeconds < 0 ||
       !Object.isFrozen(commit.startEvidence) ||
       !Object.isFrozen(timeline) ||
       !Object.isFrozen(run) ||
       timeline?.phase !== 'playing' ||
       timeline.revision !== before.revision + 1 ||
-      timeline.positionSeconds !== expectedPositionSeconds ||
+      typeof timeline.positionSeconds !== 'number' ||
+      !Number.isFinite(timeline.positionSeconds) ||
+      timeline.positionSeconds < 0 ||
+      timeline.positionSeconds !== commit.schedule.positionSeconds ||
       run?.queueItemId !== before.queueItemId ||
       run.runId !== before.runId
     ) {
       return null;
     }
-    return expectedPositionSeconds;
+    return timeline.positionSeconds;
   } catch {
     return null;
   }
@@ -919,13 +1062,19 @@ function exactV2HostStoppedCommit(
       return false;
     }
     if (kind === 'stop') {
-      if (
-        evidence.kind !== 'stop-applied' ||
-        evidence.observation !== 'webaudio-schedule-passed' ||
-        !Number.isSafeInteger(evidence.targetFrame) ||
-        !Number.isSafeInteger(evidence.appliedFrame) ||
-        (evidence.targetFrame as number) < 0 ||
-        (evidence.appliedFrame as number) < (evidence.targetFrame as number)
+      if (evidence.kind === 'stop-applied') {
+        if (
+          evidence.observation !== 'webaudio-schedule-passed' ||
+          !Number.isSafeInteger(evidence.targetFrame) ||
+          !Number.isSafeInteger(evidence.appliedFrame) ||
+          (evidence.targetFrame as number) < 0 ||
+          (evidence.appliedFrame as number) < (evidence.targetFrame as number)
+        ) {
+          return false;
+        }
+      } else if (
+        evidence.kind !== 'failed-stop-applied' ||
+        evidence.observation !== 'source-failed-retired'
       ) {
         return false;
       }
@@ -973,6 +1122,9 @@ function publishV2HostStopped(options: V2HostStopOptions = {}): void {
   clearManagedTimer('playback-replay-defer');
   setPlaybackIdle();
   setState('player.pausedAt', 0);
+  lastV2HostFailureObservationKey = null;
+  explicitV2HostFailureHoldKey = null;
+  v2HostFailedPauseCheckpoint = null;
   if (options.clearBuffer) setCurrentAudioBuffer(null);
   bus.emit('ui:seek-reset');
   bus.emit('visualizer:fade-out');
@@ -982,66 +1134,231 @@ function publishV2HostPaused(
   positionSeconds: number,
   options: Readonly<{ holdVisualizer: boolean; showToast: boolean }>,
 ): void {
+  explicitV2HostFailureHoldKey = null;
+  v2HostFailedPauseCheckpoint = null;
   setState('player.pausedAt', positionSeconds);
   setPlaybackFilePaused();
+  bus.emit('ui:play-btn-state', true);
   if (options.holdVisualizer) bus.emit('visualizer:hold-frame');
   if (options.showToast) showToast(t('common.pause'));
 }
 
 function publishV2HostPlaying(positionSeconds: number): void {
+  explicitV2HostFailureHoldKey = null;
+  v2HostFailedPauseCheckpoint = null;
   setState('player.pausedAt', positionSeconds);
   setPlaybackFilePlaying();
+  bus.emit('ui:play-btn-state', true);
   bus.emit('visualizer:start');
   bus.emit('ui:loop-start');
 }
 
+function publishV2HostFailedPaused(failure: V2HostFailureIdentity, positionSeconds: number): void {
+  supersedeActiveV2HostSeekUiIntent();
+  setState('player.pausedAt', positionSeconds);
+  setPlaybackFilePaused();
+  bus.emit('ui:update-play-state', false);
+  bus.emit('ui:play-btn-state', true);
+  if (failure.durationSeconds !== null) {
+    bus.emit('ui:duration-update', failure.durationSeconds);
+  }
+  bus.emit(
+    'ui:time-update',
+    fmtTime(positionSeconds),
+    fmtTime(failure.durationSeconds ?? 0),
+    positionSeconds,
+    failure.durationSeconds ?? 0,
+  );
+  bus.emit('visualizer:hold-frame');
+}
+
 function isCurrentV2HostControlIntent(intent: V2HostControlIntent): boolean {
-  return v2HostControlIntent === intent && !intent.controller.signal.aborted;
+  return isCurrentV2HostMutationIntent(intent);
 }
 
 function enqueueV2HostControl(label: string, operation: V2HostControlOperation): Promise<void> {
-  const predecessor = v2HostControlTail;
-  const previousIntent = v2HostControlIntent;
   if (label !== 'seek') supersedeActiveV2HostSeekUiIntent();
-  const intent: V2HostControlIntent = {
-    sequence: ++v2HostControlSequence,
-    controller: new AbortController(),
-  };
-  v2HostControlIntent = intent;
-  abortV2HostControlIntent(previousIntent);
-
-  const task = (async () => {
-    await predecessor;
-    if (!isCurrentV2HostControlIntent(intent)) return;
-    await operation(intent);
-  })().catch((error) => {
-    if (isCurrentV2HostControlIntent(intent)) {
-      log.warn(`[Transport] V2 host ${label} lane ${intent.sequence} failed:`, error);
-    }
-  });
-
-  const settlement = task.finally(() => {
-    if (v2HostControlIntent === intent) v2HostControlIntent = null;
-  });
-  v2HostControlTail = settlement.then(
+  if (label !== 'toggle') {
+    pendingV2HostTogglePhase = null;
+    pendingV2HostToggleSequence += 1;
+  }
+  return enqueueV2HostMutation(label, operation).then(
     () => undefined,
-    () => undefined,
+    (error) => {
+      log.warn(`[Transport] V2 host ${label} lane failed:`, error);
+    },
   );
-  return settlement;
 }
 
-function enqueueV2HostSeek(resolveTarget: V2HostSeekTargetResolver): void {
+function v2HostFailureObservationKey(identity: V2HostFailureIdentity): string {
+  return JSON.stringify([
+    identity.room.roomGeneration,
+    identity.room.applicationSessionId,
+    identity.room.hostParticipantId,
+    identity.queueItemId,
+    identity.runId,
+    identity.revision,
+  ]);
+}
+
+async function recoverV2HostFailureWithinMutation(
+  intent: V2HostControlIntent,
+  observed: V2HostFailureIdentity,
+  active: NonNullable<typeof activeV2HostFailureRecovery>,
+): Promise<boolean> {
+  const key = v2HostFailureObservationKey(observed);
+  const before = readExactV2HostFailureIdentity();
+  if (
+    !before ||
+    !sameV2HostFailureIdentity(before, observed) ||
+    v2HostFailureObservationKey(before) !== key
+  ) {
+    return false;
+  }
+
+  const { recoverV2HostLocalFileOutputWithinMutation } = await import('./playlist.ts');
+  if (!isCurrentV2HostControlIntent(intent)) return false;
+  const recoveryTarget = active.requestedPositionSeconds;
+  let recovered = await recoverV2HostLocalFileOutputWithinMutation(
+    intent,
+    observed.queueItemId,
+    recoveryTarget,
+  );
+  const after = readExactV2HostControlState();
+  recovered =
+    recovered &&
+    !!after &&
+    after.queueItemId === observed.queueItemId &&
+    after.phase === 'playing' &&
+    sameV2HostRoom(after.room, observed.room) &&
+    (after.runId !== observed.runId || after.revision !== observed.revision);
+  if (!recovered || !after) return false;
+  active.appliedPositionSeconds = after.position.positionSeconds;
+  if (!isCurrentV2HostControlIntent(intent)) {
+    // The replacement may have crossed commit-dominant before a newer
+    // control superseded it. Playlist reconciliation already projected the
+    // exact successor; report this request as unsatisfied so output-rejoin
+    // callers do not clear their local pause before the successor control.
+    return false;
+  }
+
+  // A seek can arrive while replacement preparation is already commit
+  // dominant. Preserve that latest intent and correct the freshly committed
+  // renderer before releasing this control lane instead of silently using
+  // the older recovery position.
+  while (
+    isCurrentV2HostControlIntent(intent) &&
+    Math.abs(active.requestedPositionSeconds - active.appliedPositionSeconds) > 1e-6
+  ) {
+    const current = readExactV2HostControlState();
+    if (
+      !current ||
+      current.phase !== 'playing' ||
+      current.queueItemId !== observed.queueItemId ||
+      !sameV2HostRoom(current.room, observed.room)
+    ) {
+      return false;
+    }
+    const latestTarget =
+      clampV2HostSeekTarget(active.requestedPositionSeconds, current.durationSeconds) ??
+      current.position.positionSeconds;
+    const commit = await filePlaybackProductRuntime.seekPlaying({
+      positionSeconds: latestTarget,
+      signal: intent.controller.signal,
+    });
+    if (!remainsExactV2HostSeekCommit(current, commit, latestTarget)) return false;
+    active.appliedPositionSeconds = latestTarget;
+    if (!isCurrentV2HostControlIntent(intent)) return false;
+  }
+  publishV2HostPlaying(active.appliedPositionSeconds);
+  return true;
+}
+
+function beginV2HostFailureRecovery(
+  observed: V2HostFailureIdentity,
+  requestedPositionSeconds: number,
+  options: Readonly<{ force: boolean }>,
+): Promise<boolean> | null {
+  const key = v2HostFailureObservationKey(observed);
+  const target =
+    clampV2HostSeekTarget(requestedPositionSeconds, observed.durationSeconds) ??
+    observed.positionSeconds;
+  if (activeV2HostFailureRecovery?.key === key) {
+    activeV2HostFailureRecovery.requestedPositionSeconds = target;
+    publishV2HostFailedPaused(observed, target);
+    return activeV2HostFailureRecovery.task;
+  }
+  if (!options.force && lastV2HostFailureObservationKey === key) return null;
+
+  lastV2HostFailureObservationKey = key;
+  publishV2HostFailedPaused(observed, target);
+
+  const active = {
+    key,
+    requestedPositionSeconds: target,
+    appliedPositionSeconds: null as number | null,
+    task: Promise.resolve(false),
+  };
+  activeV2HostFailureRecovery = active;
+  let recovered = false;
+  const settlement = enqueueV2HostControl('renderer recovery', async (intent) => {
+    recovered = await recoverV2HostFailureWithinMutation(intent, observed, active);
+  });
+  const task = settlement.then(
+    () => recovered,
+    () => false,
+  );
+  active.task = task;
+  void task.then((didRecover) => {
+    if (activeV2HostFailureRecovery === active) activeV2HostFailureRecovery = null;
+    if (didRecover && lastV2HostFailureObservationKey === key) {
+      lastV2HostFailureObservationKey = null;
+      return;
+    }
+    if (lastV2HostFailureObservationKey === key) {
+      log.warn(
+        '[Transport] V2 host renderer recovery failed closed; explicit Play can retry the exact track',
+      );
+    }
+  });
+  return task;
+}
+
+function requestV2HostFailedRendererRecovery(
+  options: Readonly<{
+    force: boolean;
+    positionSeconds?: number;
+  }>,
+): boolean {
+  const observed = readExactV2HostFailureIdentity();
+  if (!observed) return false;
+  const key = v2HostFailureObservationKey(observed);
+  if (!options.force && explicitV2HostFailureHoldKey === key) {
+    publishV2HostFailedPaused(observed, observed.positionSeconds);
+    return true;
+  }
+  if (options.force) explicitV2HostFailureHoldKey = null;
+  const positionSeconds =
+    options.positionSeconds === undefined ? observed.positionSeconds : options.positionSeconds;
+  void beginV2HostFailureRecovery(observed, positionSeconds, { force: options.force });
+  return true;
+}
+
+function enqueueV2HostSeek(resolveTarget: V2HostSeekTargetResolver): Promise<boolean> {
   const admitted = readExactV2HostControlState();
-  if (!admitted) return;
+  if (!admitted) return Promise.resolve(false);
   let admittedTarget: number | null;
   try {
     admittedTarget = resolveTarget(admitted);
   } catch (error) {
     log.warn('[Transport] V2 host seek admission failed:', error);
-    return;
+    return Promise.resolve(false);
   }
-  if (admittedTarget === null || !Number.isFinite(admittedTarget) || admittedTarget < 0) return;
+  if (admittedTarget === null || !Number.isFinite(admittedTarget) || admittedTarget < 0) {
+    return Promise.resolve(false);
+  }
   const uiIntent = beginV2HostSeekUiIntent(admitted, admittedTarget);
+  let committed = false;
 
   const settlement = enqueueV2HostControl('seek', async (intent) => {
     const before = readExactV2HostControlState();
@@ -1083,12 +1400,12 @@ function enqueueV2HostSeek(resolveTarget: V2HostSeekTargetResolver): void {
       }
       return;
     }
-    if (!isCurrentV2HostControlIntent(intent)) {
-      settleV2HostSeekUiIntent(uiIntent, 'superseded', readV2HostSeekSettlementPosition(target));
-      return;
-    }
     if (!remainsExactV2HostSeekCommit(before, commit, target)) {
-      settleV2HostSeekUiIntent(uiIntent, 'failed', readV2HostSeekSettlementPosition(target));
+      settleV2HostSeekUiIntent(
+        uiIntent,
+        isCurrentV2HostControlIntent(intent) ? 'failed' : 'superseded',
+        readV2HostSeekSettlementPosition(target),
+      );
       return;
     }
     const timeline = (commit as { readonly timeline: { readonly positionSeconds: number } })
@@ -1100,18 +1417,26 @@ function enqueueV2HostSeek(resolveTarget: V2HostSeekTargetResolver): void {
     } else {
       setPlaybackFilePlaying();
     }
-    settleV2HostSeekUiIntent(uiIntent, 'committed', timeline.positionSeconds);
+    const stillCurrent = isCurrentV2HostControlIntent(intent);
+    settleV2HostSeekUiIntent(
+      uiIntent,
+      stillCurrent ? 'committed' : 'superseded',
+      timeline.positionSeconds,
+    );
+    committed = stillCurrent;
   });
 
   // The lane intentionally absorbs operation errors so later controls can
   // continue. Pair that behavior with a terminal UI result in case an
   // unexpected exception escaped one of the explicit seek branches above.
-  void settlement.then(
+  return settlement.then(
     () => {
       settleV2HostSeekUiIntent(uiIntent, 'failed');
+      return committed;
     },
     () => {
       settleV2HostSeekUiIntent(uiIntent, 'failed');
+      return false;
     },
   );
 }
@@ -1120,99 +1445,277 @@ async function applyV2HostPause(
   intent: V2HostControlIntent,
   before: V2HostControlState,
   options: Readonly<{ holdVisualizer: boolean; showToast: boolean }>,
-): Promise<void> {
-  if (before.phase !== 'playing') return;
+): Promise<boolean> {
+  if (before.phase !== 'playing') return false;
   const commit = await filePlaybackProductRuntime.pauseCurrent({
     signal: intent.controller.signal,
   });
-  if (!isCurrentV2HostControlIntent(intent)) return;
   const positionSeconds = exactV2HostPauseCommitPosition(commit, before);
   const after = readExactV2HostAdvancedState(before, 'paused');
-  if (
-    positionSeconds === null ||
-    !after ||
-    Math.abs(after.position.positionSeconds - positionSeconds) > 1e-6
-  ) {
-    return;
-  }
-  publishV2HostPaused(positionSeconds, options);
+  if (positionSeconds === null || !after) return false;
+  // The exact committed revision and the exact physical paused revision are
+  // the phase authority. Their independently sampled positions may straddle
+  // audio frames; a position skew must never leave the UI claiming "playing"
+  // after the renderer has physically paused.
+  publishV2HostPaused(positionSeconds, {
+    holdVisualizer: options.holdVisualizer,
+    showToast: options.showToast && isCurrentV2HostControlIntent(intent),
+  });
+  return true;
 }
 
 async function applyV2HostResume(
   intent: V2HostControlIntent,
   initial: V2HostControlState,
   requestedPositionSeconds?: number,
-): Promise<void> {
-  if (initial.phase !== 'paused') return;
+): Promise<boolean> {
+  if (initial.phase !== 'paused') return false;
   let beforeResume = initial;
   if (requestedPositionSeconds !== undefined) {
     const target = clampV2HostSeekTarget(requestedPositionSeconds, initial.durationSeconds);
-    if (target === null) return;
+    if (target === null) return false;
     if (Math.abs(target - initial.position.positionSeconds) > 1e-6) {
       const seekCommit = await filePlaybackProductRuntime.seekPaused({
         positionSeconds: target,
         signal: intent.controller.signal,
       });
-      if (
-        !isCurrentV2HostControlIntent(intent) ||
-        !remainsExactV2HostSeekCommit(initial, seekCommit, target)
-      ) {
-        return;
+      if (!remainsExactV2HostSeekCommit(initial, seekCommit, target)) {
+        return false;
       }
       const afterSeek = readExactV2HostAdvancedState(initial, 'paused');
-      if (!afterSeek || Math.abs(afterSeek.position.positionSeconds - target) > 1e-6) return;
+      if (!afterSeek) return false;
       setState('player.pausedAt', target);
       setPlaybackFilePaused();
       bus.emit('visualizer:hold-frame');
       beforeResume = afterSeek;
+      if (!isCurrentV2HostControlIntent(intent)) return false;
     }
   }
 
-  const resumePositionSeconds = beforeResume.position.positionSeconds;
   const commit = await filePlaybackProductRuntime.resumeCurrent({
     signal: intent.controller.signal,
   });
-  if (!isCurrentV2HostControlIntent(intent)) return;
-  const committedPosition = exactV2HostResumeCommitPosition(
-    commit,
-    beforeResume,
-    resumePositionSeconds,
-  );
+  const committedPosition = exactV2HostResumeCommitPosition(commit, beforeResume);
   const after = readExactV2HostAdvancedState(beforeResume, 'playing');
-  if (committedPosition === null || !after) return;
+  if (committedPosition === null || !after) return false;
+  const stillCurrent = isCurrentV2HostControlIntent(intent);
+  // A commit-dominant resume must still be projected so its queued successor
+  // can reconcile from exact physical truth. It must not, however, report a
+  // successful output rejoin after a newer PAUSE superseded the request.
   publishV2HostPlaying(committedPosition);
+  return stillCurrent;
+}
+
+async function applyV2HostFailedPause(
+  intent: V2HostControlIntent,
+  failure: V2HostFailureIdentity,
+  options: Readonly<{ showToast: boolean }>,
+): Promise<boolean> {
+  const remembered = readV2HostFailedPauseCheckpoint();
+  const checkpoint =
+    remembered && sameV2HostFailureIdentity(remembered.failure, failure)
+      ? remembered
+      : rememberV2HostFailedPause(failure);
+  let commit: unknown;
+  try {
+    commit = await filePlaybackProductRuntime.stopCurrent({
+      signal: intent.controller.signal,
+    });
+  } catch (error) {
+    if (isCurrentV2HostControlIntent(intent)) {
+      log.warn('[Transport] V2 failed-renderer pause stop failed:', error);
+    }
+    return false;
+  }
+  if (!exactV2HostStoppedCommit(commit, failure, 'stop')) return false;
+
+  // A failed local renderer cannot produce a truthful PAUSE transition. Retire
+  // its exact run through the controller's STOP boundary so healthy guests stop
+  // as well. Preserve only a fenced local checkpoint so a later trusted PLAY
+  // can create a fresh run at the user's position.
+  publishV2HostStopped();
+  v2HostFailedPauseCheckpoint = checkpoint;
+  // STOP is the authoritative room phase, but the host's failed output remains
+  // a resumable local pause affordance. Repaint the exact checkpoint in the
+  // same task so the seekbar/duration never flash to 0 while healthy guests
+  // have already received the canonical stop.
+  publishV2HostFailedPaused(failure, checkpoint.positionSeconds);
+  const stillCurrent = isCurrentV2HostControlIntent(intent);
+  if (options.showToast && stillCurrent) showToast(t('common.pause'));
+  return stillCurrent;
+}
+
+async function resumeV2HostFailedPauseWithinMutation(
+  intent: V2HostControlIntent,
+  checkpoint: V2HostFailedPauseCheckpoint,
+): Promise<boolean> {
+  const currentCheckpoint = readV2HostFailedPauseCheckpoint();
+  if (currentCheckpoint !== checkpoint) return false;
+
+  const currentFailure = readExactV2HostFailureIdentity();
+  if (currentFailure) {
+    const recovery = {
+      key: v2HostFailureObservationKey(currentFailure),
+      requestedPositionSeconds: checkpoint.positionSeconds,
+      appliedPositionSeconds: null as number | null,
+      task: Promise.resolve(false),
+    };
+    const recovered = await recoverV2HostFailureWithinMutation(intent, currentFailure, recovery);
+    const after = readExactV2HostControlState();
+    if (
+      after?.phase === 'playing' &&
+      after.queueItemId === checkpoint.failure.queueItemId &&
+      sameV2HostRoom(after.room, checkpoint.failure.room)
+    ) {
+      v2HostFailedPauseCheckpoint = null;
+    }
+    return recovered;
+  }
+
+  const { recoverV2HostLocalFileOutputWithinMutation } = await import('./playlist.ts');
+  if (!isCurrentV2HostControlIntent(intent)) return false;
+  const recovered = await recoverV2HostLocalFileOutputWithinMutation(
+    intent,
+    checkpoint.failure.queueItemId,
+    checkpoint.positionSeconds,
+  );
+  const after = readExactV2HostControlState();
+  const physicallyRecovered =
+    recovered &&
+    !!after &&
+    after.phase === 'playing' &&
+    after.queueItemId === checkpoint.failure.queueItemId &&
+    sameV2HostRoom(after.room, checkpoint.failure.room);
+  if (!physicallyRecovered || !after) return false;
+  v2HostFailedPauseCheckpoint = null;
+  if (!isCurrentV2HostControlIntent(intent)) return false;
+  publishV2HostPlaying(after.position.positionSeconds);
+  return true;
+}
+
+function enqueueV2HostFailedPauseResume(): Promise<boolean> {
+  let committed = false;
+  const settlement = enqueueV2HostControl('failed pause resume', async (intent) => {
+    const checkpoint = readV2HostFailedPauseCheckpoint();
+    if (!checkpoint) return;
+    committed = await resumeV2HostFailedPauseWithinMutation(intent, checkpoint);
+  });
+  return settlement.then(() => committed);
 }
 
 function enqueueV2HostPause(
   options: Readonly<{ holdVisualizer: boolean; showToast: boolean }>,
-): void {
-  void enqueueV2HostControl('pause', async (intent) => {
+): Promise<boolean> {
+  let committed = false;
+  const settlement = enqueueV2HostControl('pause', async (intent) => {
     const before = readExactV2HostControlState();
-    if (!before) return;
-    await applyV2HostPause(intent, before, options);
+    if (before?.phase === 'playing') {
+      committed = await applyV2HostPause(intent, before, options);
+      return;
+    }
+    if (before?.phase === 'paused') {
+      publishV2HostPaused(before.position.positionSeconds, {
+        holdVisualizer: options.holdVisualizer,
+        showToast: false,
+      });
+      committed = isCurrentV2HostControlIntent(intent);
+      return;
+    }
+    const failed = readExactV2HostFailureIdentity();
+    if (!failed) return;
+    const key = v2HostFailureObservationKey(failed);
+    explicitV2HostFailureHoldKey = key;
+    lastV2HostFailureObservationKey = key;
+    const checkpoint = readV2HostFailedPauseCheckpoint();
+    publishV2HostFailedPaused(
+      failed,
+      checkpoint && sameV2HostFailureIdentity(checkpoint.failure, failed)
+        ? checkpoint.positionSeconds
+        : failed.positionSeconds,
+    );
+    committed = await applyV2HostFailedPause(intent, failed, {
+      showToast: options.showToast,
+    });
   });
+  return settlement.then(() => committed);
 }
 
-function enqueueV2HostResume(requestedPositionSeconds?: number): void {
-  void enqueueV2HostControl('resume', async (intent) => {
+function enqueueV2HostResume(requestedPositionSeconds?: number): Promise<boolean> {
+  let committed = false;
+  const settlement = enqueueV2HostControl('resume', async (intent) => {
     const before = readExactV2HostControlState();
     if (!before) return;
-    await applyV2HostResume(intent, before, requestedPositionSeconds);
+    committed = await applyV2HostResume(intent, before, requestedPositionSeconds);
   });
+  return settlement.then(() => committed);
 }
 
 function enqueueV2HostToggle(): void {
-  void enqueueV2HostControl('toggle', async (intent) => {
+  const projected = readExactV2HostControlState();
+  const failed = projected ? null : readExactV2HostFailureIdentity();
+  const basePhase =
+    pendingV2HostTogglePhase ??
+    projected?.phase ??
+    (failed
+      ? explicitV2HostFailureHoldKey === v2HostFailureObservationKey(failed)
+        ? 'paused'
+        : 'playing'
+      : null);
+  if (!basePhase) return;
+  const desiredPhase: V2HostControlPhase = basePhase === 'playing' ? 'paused' : 'playing';
+  pendingV2HostTogglePhase = desiredPhase;
+  const toggleSequence = ++pendingV2HostToggleSequence;
+
+  const settlement = enqueueV2HostControl('toggle', async (intent) => {
     const before = readExactV2HostControlState();
-    if (!before) return;
-    if (before.phase === 'playing') {
-      await applyV2HostPause(intent, before, {
-        holdVisualizer: true,
-        showToast: true,
-      });
-    } else {
-      await applyV2HostResume(intent, before);
+    if (desiredPhase === 'paused') {
+      if (before?.phase === 'playing') {
+        await applyV2HostPause(intent, before, {
+          holdVisualizer: true,
+          showToast: true,
+        });
+        return;
+      }
+      if (before?.phase === 'paused') {
+        publishV2HostPaused(before.position.positionSeconds, {
+          holdVisualizer: true,
+          showToast: false,
+        });
+        return;
+      }
+      const currentFailure = readExactV2HostFailureIdentity();
+      if (!currentFailure) return;
+      const key = v2HostFailureObservationKey(currentFailure);
+      explicitV2HostFailureHoldKey = key;
+      lastV2HostFailureObservationKey = key;
+      publishV2HostFailedPaused(currentFailure, currentFailure.positionSeconds);
+      await applyV2HostFailedPause(intent, currentFailure, { showToast: true });
+      return;
     }
+
+    explicitV2HostFailureHoldKey = null;
+    if (before?.phase === 'paused') {
+      await applyV2HostResume(intent, before);
+      return;
+    }
+    if (before?.phase === 'playing') {
+      publishV2HostPlaying(before.position.positionSeconds);
+      return;
+    }
+    const currentFailure = readExactV2HostFailureIdentity();
+    if (!currentFailure) return;
+    const key = v2HostFailureObservationKey(currentFailure);
+    lastV2HostFailureObservationKey = key;
+    const recovery = {
+      key,
+      requestedPositionSeconds: currentFailure.positionSeconds,
+      appliedPositionSeconds: null as number | null,
+      task: Promise.resolve(false),
+    };
+    await recoverV2HostFailureWithinMutation(intent, currentFailure, recovery);
+  });
+  void settlement.finally(() => {
+    if (pendingV2HostToggleSequence === toggleSequence) pendingV2HostTogglePhase = null;
   });
 }
 
@@ -1220,25 +1723,27 @@ async function enqueueV2HostStop(options: V2HostStopOptions): Promise<boolean> {
   let committed = false;
   await enqueueV2HostControl('stop', async (intent) => {
     const before = readExactV2HostControlState();
-    const terminal = before ? null : readExactV2HostTerminalIdentity();
-    const identity = before ?? terminal;
+    const failed = before ? null : readExactV2HostFailureIdentity();
+    const terminal = before || failed ? null : readExactV2HostTerminalIdentity();
+    const identity = before ?? failed ?? terminal;
     if (!identity) return;
     let commit: unknown;
     try {
-      commit = before
-        ? await filePlaybackProductRuntime.stopCurrent({
-            signal: intent.controller.signal,
-          })
-        : await filePlaybackProductRuntime.settleEndedCurrent({
-            signal: intent.controller.signal,
-          });
+      commit =
+        before || failed
+          ? await filePlaybackProductRuntime.stopCurrent({
+              signal: intent.controller.signal,
+            })
+          : await filePlaybackProductRuntime.settleEndedCurrent({
+              signal: intent.controller.signal,
+            });
     } catch (error) {
       if (isCurrentV2HostControlIntent(intent)) {
         log.warn('[Transport] V2 host stop failed:', error);
       }
       return;
     }
-    if (!exactV2HostStoppedCommit(commit, identity, before ? 'stop' : 'ended')) return;
+    if (!exactV2HostStoppedCommit(commit, identity, before || failed ? 'stop' : 'ended')) return;
     publishV2HostStopped(options);
     committed = isCurrentV2HostControlIntent(intent);
   });
@@ -1308,6 +1813,79 @@ function isV2HostFileProductControlContext(): boolean {
   return isV2HostFileControlContext() && !isYouTubeOwner() && !isSystemAudioOwner();
 }
 
+interface V2HostFreshLocalFileSelection {
+  readonly queueItemId: QueueItemId;
+  readonly file: File;
+}
+
+/**
+ * A canonical V2 STOP (and a pre-commit preparation failure) deliberately
+ * leaves playlist selection intact while retiring every renderer. That is a
+ * fresh-start state, not a resumable renderer and not legacy ownership.
+ */
+function readV2HostFreshLocalFileSelection(): V2HostFreshLocalFileSelection | null {
+  if (!isV2HostFileProductControlContext()) return null;
+  const playback = getPlaybackModeActivity();
+  if (playback.mode !== null || playback.activity !== 'idle') return null;
+
+  const queueItemId = getCurrentQueueItemId();
+  const item = getQueueItemById(queueItemId);
+  if (
+    !queueItemId ||
+    !item ||
+    item.type === 'youtube' ||
+    typeof File === 'undefined' ||
+    !(item.file instanceof File)
+  ) {
+    return null;
+  }
+
+  try {
+    if (
+      filePlaybackProductRuntime.currentHostRendererSnapshot() !== null ||
+      filePlaybackProductRuntime.currentHostFailedRendererObservation() !== null ||
+      filePlaybackProductRuntime.currentHostTerminalRendererObservation() !== null
+    ) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return Object.freeze({ queueItemId, file: item.file });
+}
+
+/**
+ * Enqueues, but does not await, one fresh product start through playlist's
+ * shared V2 mutation lane. `true` means an exact retry was admitted; `false`
+ * means this state is not a stopped V2 local-file selection.
+ */
+function enqueueV2HostFreshSelectedFileStart(positionSeconds = 0): boolean {
+  const admitted = readV2HostFreshLocalFileSelection();
+  if (!admitted) return false;
+  const requestedPositionSeconds =
+    Number.isFinite(positionSeconds) && positionSeconds >= 0 ? positionSeconds : 0;
+
+  void import('./playlist.ts')
+    .then(async ({ playTrack }) => {
+      const current = readV2HostFreshLocalFileSelection();
+      if (
+        !current ||
+        current.queueItemId !== admitted.queueItemId ||
+        current.file !== admitted.file
+      ) {
+        return;
+      }
+      await playTrack(admitted.queueItemId, undefined, {
+        navigateToPlay: false,
+        v2StartPositionSeconds: requestedPositionSeconds,
+      });
+    })
+    .catch((error) => {
+      log.warn('[Transport] V2 stopped local-file restart failed:', error);
+    });
+  return true;
+}
+
 /**
  * Claims one host-local V2 file seek without exposing the legacy transport.
  * `true` means the selected V2 boundary owns the request even when its exact
@@ -1315,8 +1893,24 @@ function isV2HostFileProductControlContext(): boolean {
  */
 export function requestV2HostFileSeek(time: number): boolean {
   if (!isV2HostFileProductControlContext()) return false;
+  const checkpoint = readV2HostFailedPauseCheckpoint();
+  if (checkpoint) {
+    const target = clampV2HostSeekTarget(time, checkpoint.failure.durationSeconds);
+    if (target !== null) {
+      rememberV2HostFailedPause(checkpoint.failure, target);
+      publishV2HostFailedPaused(checkpoint.failure, target);
+    }
+    return true;
+  }
+  if (
+    Number.isFinite(time) &&
+    time >= 0 &&
+    requestV2HostFailedRendererRecovery({ force: true, positionSeconds: time })
+  ) {
+    return true;
+  }
   if (Number.isFinite(time) && time >= 0) {
-    enqueueV2HostSeek((state) => clampV2HostSeekTarget(time, state.durationSeconds));
+    void enqueueV2HostSeek((state) => clampV2HostSeekTarget(time, state.durationSeconds));
   }
   return true;
 }
@@ -1325,14 +1919,86 @@ export function requestV2HostFilePause(
   options: Readonly<{ holdVisualizer: boolean; showToast: boolean }>,
 ): boolean {
   if (!isV2HostFileProductControlContext()) return false;
-  enqueueV2HostPause(options);
+  const failed = readExactV2HostFailureIdentity();
+  if (failed) {
+    bus.emit('playlist:cancel-v2-playback-intent');
+    const key = v2HostFailureObservationKey(failed);
+    lastV2HostFailureObservationKey = key;
+    explicitV2HostFailureHoldKey = key;
+    rememberV2HostFailedPause(failed);
+    publishV2HostFailedPaused(failed, failed.positionSeconds);
+    void enqueueV2HostPause({
+      holdVisualizer: options.holdVisualizer,
+      showToast: options.showToast,
+    });
+    return true;
+  }
+  void enqueueV2HostPause(options);
   return true;
 }
 
 export function requestV2HostFileResume(positionSeconds?: number): boolean {
   if (!isV2HostFileProductControlContext()) return false;
-  enqueueV2HostResume(positionSeconds);
+  if (readV2HostFailedPauseCheckpoint()) {
+    void enqueueV2HostFailedPauseResume();
+    return true;
+  }
+  if (
+    requestV2HostFailedRendererRecovery({
+      force: true,
+      ...(positionSeconds === undefined ? {} : { positionSeconds }),
+    })
+  ) {
+    return true;
+  }
+  if (!readExactV2HostControlState() && enqueueV2HostFreshSelectedFileStart(positionSeconds)) {
+    return true;
+  }
+  // Once a standard V2 room owns file controls, an incoherent/missing
+  // selection must remain fail-closed instead of exposing a compatibility
+  // AudioBuffer. A valid stopped local-file selection was handled above.
+  void enqueueV2HostResume(positionSeconds);
   return true;
+}
+
+/**
+ * Re-arms a standard-room host's exact V2 renderer after this browser's
+ * AudioContext/output was interrupted. A playing renderer performs a
+ * same-position cohort seek so host and guests rendezvous on one new physical
+ * schedule; an explicit Media Session PLAY resumes canonical paused truth.
+ * Merely recovering a context while the room is paused never starts playback.
+ */
+export function requestV2HostFileOutputRejoin(
+  reason: 'media-session-play' | 'audio-context-recovered',
+): Promise<boolean> | null {
+  if (!isV2HostFileProductControlContext()) return null;
+  if (readV2HostFailedPauseCheckpoint()) {
+    if (reason === 'audio-context-recovered') return Promise.resolve(true);
+    return enqueueV2HostFailedPauseResume();
+  }
+  const failed = readExactV2HostFailureIdentity();
+  if (failed) {
+    const key = v2HostFailureObservationKey(failed);
+    if (reason === 'audio-context-recovered' && explicitV2HostFailureHoldKey === key) {
+      // The user explicitly paused this exact failed incarnation. There is no
+      // audible output to restore until a trusted PLAY clears the hold.
+      return Promise.resolve(true);
+    }
+    explicitV2HostFailureHoldKey = null;
+    return (
+      beginV2HostFailureRecovery(failed, failed.positionSeconds, { force: true }) ??
+      Promise.resolve(false)
+    );
+  }
+  const state = readExactV2HostControlState();
+  if (!state) return Promise.resolve(false);
+  if (state.phase === 'playing') {
+    return enqueueV2HostSeek((current) =>
+      clampV2HostSeekTarget(current.position.positionSeconds, current.durationSeconds),
+    );
+  }
+  if (reason === 'media-session-play') return enqueueV2HostResume();
+  return Promise.resolve(true);
 }
 
 /**
@@ -1344,6 +2010,18 @@ export function requestV2HostFileStop(options: V2HostStopOptions = {}): Promise<
   if (!isV2HostFileProductControlContext()) return null;
   if (!options.preservePlaylistIntent) {
     bus.emit('playlist:cancel-v2-playback-intent');
+  }
+  if (readV2HostFailedPauseCheckpoint() && !readExactV2HostFailureIdentity()) {
+    publishV2HostStopped(options);
+    return Promise.resolve(true);
+  }
+  const failed = readExactV2HostFailureIdentity();
+  if (failed) {
+    // STOP is terminal user intent. The failed current renderer still owns an
+    // exact manager port and outer gate, so retire it directly; never rebuild
+    // audible output merely to stop it again.
+    lastV2HostFailureObservationKey = v2HostFailureObservationKey(failed);
+    return enqueueV2HostStop(options);
   }
   const mode = getPlaybackModeActivity();
   if (
@@ -1360,6 +2038,34 @@ export function requestV2HostFileStop(options: V2HostStopOptions = {}): Promise<
 
 function requestV2HostFileToggle(): boolean {
   if (!isV2HostFileProductControlContext()) return false;
+  if (readV2HostFailedPauseCheckpoint()) {
+    void enqueueV2HostFailedPauseResume();
+    return true;
+  }
+  const failed = readExactV2HostFailureIdentity();
+  if (failed) {
+    const key = v2HostFailureObservationKey(failed);
+    if (explicitV2HostFailureHoldKey === key) {
+      explicitV2HostFailureHoldKey = null;
+      void beginV2HostFailureRecovery(failed, getState('player.pausedAt'), { force: true });
+    } else {
+      bus.emit('playlist:cancel-v2-playback-intent');
+      lastV2HostFailureObservationKey = key;
+      explicitV2HostFailureHoldKey = key;
+      rememberV2HostFailedPause(failed);
+      publishV2HostFailedPaused(failed, failed.positionSeconds);
+      void enqueueV2HostPause({
+        holdVisualizer: true,
+        showToast: true,
+      });
+    }
+    return true;
+  }
+  if (!readExactV2HostControlState() && enqueueV2HostFreshSelectedFileStart()) {
+    return true;
+  }
+  // Preserve the product boundary for incoherent state. enqueueV2HostToggle
+  // re-reads exact physical truth and deliberately does nothing if none exists.
   enqueueV2HostToggle();
   return true;
 }
@@ -1388,7 +2094,13 @@ function readTrackPosition(repairOutOfRangeOffset: boolean): number {
   if (proBoundedPosition) return proBoundedPosition.positionSeconds;
 
   if (isV2HostFileControlContext()) {
-    return readExactV2HostControlState()?.position.positionSeconds ?? 0;
+    const exact = readExactV2HostControlState();
+    if (exact) return exact.position.positionSeconds;
+    return (
+      readExactV2HostFailureIdentity()?.positionSeconds ??
+      readV2HostFailedPauseCheckpoint()?.positionSeconds ??
+      0
+    );
   }
 
   // A V2 guest renders from its own FilePlaybackManager rather than the
@@ -1998,8 +2710,11 @@ export function pause(
   if (opts?.holdVisualizer ?? forcedTime === undefined) {
     bus.emit('visualizer:hold-frame');
   }
-  setPlaybackFilePaused();
+  // Publish the exact pause position before the activity transition. Seekbar
+  // observers run synchronously from that transition and must never repaint a
+  // previous pause position for one frame.
   setState('player.pausedAt', pausePos);
+  setPlaybackFilePaused();
 
   if (!getState('network.hostConn')) {
     transition({
@@ -2153,6 +2868,12 @@ export async function applyProPlaybackFileCommit(
 export function handleEnded(): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Guests don't handle track-end
+
+  // A committed bounded renderer can fail after the room timeline has already
+  // published playing truth (for example after an AudioContext/output loss).
+  // Freeze the compatibility UI immediately and make one exact fresh-track
+  // recovery attempt before the natural-end path sees an absent projection.
+  if (requestV2HostFailedRendererRecovery({ force: false })) return;
 
   // The product source exposes an exact ended renderer observation while the
   // controller still owns the playing run. Settlement, stopped publication,
@@ -2471,9 +3192,14 @@ export function skipTime(sec: number): void {
 
   if (isV2HostFileControlContext()) {
     if (Number.isFinite(sec)) {
-      enqueueV2HostSeek((state) =>
-        clampV2HostSeekTarget(state.position.positionSeconds + sec, state.durationSeconds),
-      );
+      const checkpoint = readV2HostFailedPauseCheckpoint();
+      if (checkpoint) {
+        requestV2HostFileSeek(checkpoint.positionSeconds + sec);
+      } else {
+        void enqueueV2HostSeek((state) =>
+          clampV2HostSeekTarget(state.position.positionSeconds + sec, state.durationSeconds),
+        );
+      }
     }
     return;
   }

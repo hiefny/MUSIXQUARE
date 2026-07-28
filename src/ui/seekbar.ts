@@ -368,6 +368,23 @@ function initSeekBarBusHandlers(): void {
     );
   });
 
+  _busScope.on('state:playback.activity', (activity) => {
+    if (activity !== 'paused' || getPlaybackModeActivitySnapshot().mode !== 'file') return;
+    // Stop interpolation immediately at the exact physical pause evidence.
+    // Waiting for the 250 ms safety poll leaves a visible fractional drift and
+    // can let a quick resume reuse the pre-pause rAF timestamp.
+    clearManagedTimer('time-update-loop');
+    _stopSeekRaf();
+    const projection = getPendingSeekProjection();
+    const exactPosition = getTrackPosition();
+    const pausedAt = getState('player.pausedAt');
+    const positionSeconds =
+      projection?.targetSeconds ?? (exactPosition > 0 || pausedAt <= 0 ? exactPosition : pausedAt);
+    _rafAnchorTime = Number.isFinite(positionSeconds) && positionSeconds >= 0 ? positionSeconds : 0;
+    _rafAnchorTs = performance.now();
+    renderSeekPosition(_rafAnchorTime);
+  });
+
   _busScope.on('player:stop-all-media', () => {
     finishSeekDraft();
     clearManagedTimer('time-update-loop');

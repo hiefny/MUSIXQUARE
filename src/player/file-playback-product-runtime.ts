@@ -77,6 +77,7 @@ import {
   type FilePlaybackProductHostSeekOptions,
   type FilePlaybackProductHostSeekWithCohortOptions,
   type FilePlaybackProductHostTransitionCommit,
+  type FilePlaybackProductHostFailureObservation,
   type FilePlaybackProductHostTerminalObservation,
   type PrepareFilePlaybackProductHostRemoteParticipants,
   type StartFilePlaybackProductHostFirstLocalFileOptions,
@@ -112,6 +113,7 @@ const DEFAULT_ENABLED = isFilePlaybackEngineV2Enabled();
 // its offer policy independent from the temporary 200 MiB whole-Blob R2 cap.
 const FILE_PLAYBACK_PRODUCT_MAX_PEER_ENCODED_BYTES = 5 * 1024 * 1024 * 1024;
 const FILE_PLAYBACK_PRODUCT_COHORT_ADMISSION_MS = 2_500;
+const FILE_PLAYBACK_PRODUCT_SUCCESSOR_FENCE_MS = 2_500;
 
 async function settlePhysicalCleanupStrictly(
   tasks: readonly Promise<unknown>[],
@@ -203,6 +205,12 @@ interface FilePlaybackProductRuntimeSessionRouterPort {
 }
 
 interface FilePlaybackProductRuntimeHostMediaOwnerPort extends FilePlaybackProductSessionRouterHostMediaOwnerPort {
+  /**
+   * Production owners always expose this fence. It is optional only so narrow
+   * structural test doubles which cannot create a pending timeline remain
+   * valid.
+   */
+  readonly whenCurrentTimelineSettled?: () => Promise<void>;
   stageCurrentTransition(event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>): void;
   stageRemoteEnd(event: Readonly<HostRemoteEndRequiredEvent>): void;
   commitCurrentTimeline(event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>): void;
@@ -280,6 +288,9 @@ export interface FilePlaybackProductRuntimeHostRoomPort {
   resumeCurrent(
     options: FilePlaybackProductHostCurrentOptions,
   ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>>;
+  resumeCurrentWithCohort(
+    options: FilePlaybackProductHostCurrentWithCohortOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>>;
   replayCurrent(
     options: FilePlaybackProductHostCurrentOptions,
   ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>>;
@@ -301,6 +312,7 @@ export interface FilePlaybackProductRuntimeHostRoomPort {
   ): Promise<Readonly<HostRemoteRecoveryCommit>>;
   close(): Promise<void>;
   currentRendererSnapshot(): FilePlaybackSourceSnapshot | null;
+  currentFailedRendererObservation(): FilePlaybackProductHostFailureObservation | null;
   currentTerminalRendererObservation(): FilePlaybackProductHostTerminalObservation | null;
   positionAt(localPerformanceTimeMs: number): FilePlaybackPosition | null;
 }
@@ -345,6 +357,14 @@ interface HostPreparedCohortEntry {
   readonly owner: FilePlaybackProductRuntimeHostMediaOwnerPort;
   readonly publicationTask: Promise<Readonly<FilePlaybackProductHostPreparedPublicationCommit>>;
   readonly cancelPublicationTask: (reason: Error) => void;
+  /**
+   * Installed before OFFER begins and released only after late activation has
+   * installed (and settled) any withheld timeline. This closes the microtask
+   * gap between publicationTask resolution and the late activate callback.
+   */
+  readonly successorBarrier: Promise<void>;
+  readonly releaseSuccessorBarrier: () => void;
+  readonly rejectSuccessorBarrier: (reason: Error) => void;
   readinessTask: Promise<void>;
   publication: Readonly<FilePlaybackProductHostPreparedPublicationCommit> | null;
   capability: Readonly<HostPreparedRemoteParticipant> | null;
@@ -374,6 +394,19 @@ interface HostCurrentTransitionFanout {
   readonly owners: ReadonlyMap<
     FilePlaybackProductRuntimeHostMediaOwnerPort,
     Readonly<FilePlaybackProductSessionRouterConnectionContext>
+  >;
+  /**
+   * A connection may become READY after the operation-level successor-fence
+   * snapshot while its previous publication is still settling. Preserve that
+   * exact owner's ordered lane and replay stage+commit after its predecessor
+   * instead of treating the short race as a fatal protocol violation.
+   */
+  readonly deferredOwners: ReadonlyMap<
+    FilePlaybackProductRuntimeHostMediaOwnerPort,
+    Readonly<{
+      context: Readonly<FilePlaybackProductSessionRouterConnectionContext>;
+      stage: () => void;
+    }>
   >;
 }
 
@@ -503,6 +536,7 @@ function defaultHostMediaOwnerFactory(
     stageRemoteEnd: (event: Readonly<HostRemoteEndRequiredEvent>) => owner.stageRemoteEnd(event),
     commitCurrentTimeline: (event: Readonly<HostCurrentPlaybackTimelineCommittedEvent>) =>
       owner.commitCurrentTimeline(event),
+    whenCurrentTimelineSettled: () => owner.whenCurrentTimelineSettled(),
     publishCurrent: () => owner.publishCurrent(),
     publishSourceLease: (authority: Readonly<FilePlaybackProductHostLocalTrackWarmResult>) =>
       owner.publishSourceLease(authority),
@@ -580,6 +614,7 @@ function assertHostRoomPort(
     typeof value.seekPlayingWithCohort !== 'function' ||
     typeof value.seekPaused !== 'function' ||
     typeof value.resumeCurrent !== 'function' ||
+    typeof value.resumeCurrentWithCohort !== 'function' ||
     typeof value.replayCurrent !== 'function' ||
     typeof value.replayCurrentWithCohort !== 'function' ||
     typeof value.stopCurrent !== 'function' ||
@@ -589,6 +624,7 @@ function assertHostRoomPort(
     typeof value.recoverRemoteParticipant !== 'function' ||
     typeof value.close !== 'function' ||
     typeof value.currentRendererSnapshot !== 'function' ||
+    typeof value.currentFailedRendererObservation !== 'function' ||
     typeof value.currentTerminalRendererObservation !== 'function' ||
     typeof value.positionAt !== 'function'
   ) {
@@ -605,6 +641,8 @@ function assertHostMediaOwnerPort(
     typeof value.adoptWireMessage !== 'function' ||
     typeof value.adoptPeerRangeControl !== 'function' ||
     typeof value.revoke !== 'function' ||
+    (value.whenCurrentTimelineSettled !== undefined &&
+      typeof value.whenCurrentTimelineSettled !== 'function') ||
     typeof value.stageCurrentTransition !== 'function' ||
     typeof value.stageRemoteEnd !== 'function' ||
     typeof value.commitCurrentTimeline !== 'function' ||
@@ -1162,7 +1200,9 @@ export class FilePlaybackProductRuntime {
   pauseCurrent(
     options: FilePlaybackProductHostCurrentOptions,
   ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>> {
-    return this.#dispatchExactHostRoom('pause', (port) => port.pauseCurrent(options));
+    return this.#runCurrentTransition('pause', options.signal, (port) =>
+      port.pauseCurrent(options),
+    );
   }
 
   seekPlaying(
@@ -1176,13 +1216,17 @@ export class FilePlaybackProductRuntime {
   seekPaused(
     options: FilePlaybackProductHostSeekOptions,
   ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>> {
-    return this.#dispatchExactHostRoom('paused seek', (port) => port.seekPaused(options));
+    return this.#runCurrentTransition('paused seek', options.signal, (port) =>
+      port.seekPaused(options),
+    );
   }
 
   resumeCurrent(
     options: FilePlaybackProductHostCurrentOptions,
   ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
-    return this.#dispatchExactHostRoom('resume', (port) => port.resumeCurrent(options));
+    return this.#runPreparedCohort('resume', (port, prepareRemoteParticipants) =>
+      port.resumeCurrentWithCohort({ ...options, prepareRemoteParticipants }),
+    );
   }
 
   replayCurrent(
@@ -1196,13 +1240,13 @@ export class FilePlaybackProductRuntime {
   stopCurrent(
     options: FilePlaybackProductHostCurrentOptions,
   ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>> {
-    return this.#dispatchExactHostRoom('stop', (port) => port.stopCurrent(options));
+    return this.#runCurrentTransition('stop', options.signal, (port) => port.stopCurrent(options));
   }
 
   settleEndedCurrent(
     options: FilePlaybackProductHostCurrentOptions,
   ): Promise<Readonly<FilePlaybackProductHostTransitionCommit>> {
-    return this.#dispatchExactHostRoom('ended settlement', (port) =>
+    return this.#runCurrentTransition('ended settlement', options.signal, (port) =>
       port.settleEndedCurrent(options),
     );
   }
@@ -1266,6 +1310,22 @@ export class FilePlaybackProductRuntime {
       return observation &&
         this.#ownsExactHostRoom(active) &&
         this.#matchesCurrentHostTerminalObservation(observation) &&
+        this.#ownsExactHostRoom(active)
+        ? observation
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  currentHostFailedRendererObservation(): FilePlaybackProductHostFailureObservation | null {
+    const active = this.#activeHostRoom;
+    if (!this.#enabled || !active || !this.#ownsExactHostRoom(active)) return null;
+    try {
+      const observation = active.port.currentFailedRendererObservation();
+      return observation &&
+        this.#ownsExactHostRoom(active) &&
+        this.#matchesCurrentHostFailedObservation(observation) &&
         this.#ownsExactHostRoom(active)
         ? observation
         : null;
@@ -1684,6 +1744,11 @@ export class FilePlaybackProductRuntime {
     }
     this.#connectionContexts.add(context);
     try {
+      let exactOwner:
+        | (FilePlaybackProductSessionRouterGuestMediaOwnerPort & {
+            readonly currentRenderedDurationSeconds?: () => number | null;
+          })
+        | null = null;
       const ownerOptions: Readonly<FilePlaybackProductGuestMediaOwnerOptions> = Object.freeze({
         context,
         roomToken: active.roomToken,
@@ -1704,13 +1769,18 @@ export class FilePlaybackProductRuntime {
           ownerContext: Readonly<FilePlaybackProductSessionRouterConnectionContext>,
         ) => {
           const connection = context.connection;
-          const controlChannel = connection.controlChannel;
-          const bufferedBytes = controlChannel?.bufferedAmount;
+          // Cloudflare uses a dedicated control channel, while the localhost
+          // PeerJS transport carries every frame on its single data channel.
+          // Gate the same physical channel that `connection.send()` will use
+          // for this control frame; otherwise PeerJS stays backpressured
+          // forever and the first bounded READ reaches its hard deadline.
+          const controlEgress = connection.controlChannel ?? connection.dataChannel;
+          const bufferedBytes = controlEgress?.bufferedAmount;
           return (
             this.#connectionContexts.has(ownerContext) &&
             ownerContext === context &&
             connection.open === true &&
-            controlChannel?.readyState === 'open' &&
+            controlEgress?.readyState === 'open' &&
             typeof bufferedBytes === 'number' &&
             Number.isFinite(bufferedBytes) &&
             bufferedBytes <= FILE_PLAYBACK_PRODUCT_PEER_RANGE_BUFFERED_AMOUNT_LIMIT
@@ -1732,11 +1802,23 @@ export class FilePlaybackProductRuntime {
           ) {
             return;
           }
+          const preparedDuration = exactOwner?.currentRenderedDurationSeconds?.() ?? null;
+          const renderer = this.currentGuestRendererSnapshot();
+          const durationSeconds =
+            preparedDuration ??
+            (renderer &&
+            renderer.queueItemId === timeline.run?.queueItemId &&
+            typeof renderer.durationSeconds === 'number' &&
+            Number.isFinite(renderer.durationSeconds) &&
+            renderer.durationSeconds > 0
+              ? renderer.durationSeconds
+              : null);
           bus.emit(
             'player:v2-guest-timeline-rendered',
             timeline.run?.queueItemId ?? null,
             timeline.phase,
             timeline.positionSeconds,
+            durationSeconds,
           );
         },
         onLoadingStateChange: (event: Readonly<FilePlaybackProductGuestLoadingStateEvent>) => {
@@ -1763,6 +1845,9 @@ export class FilePlaybackProductRuntime {
         },
       });
       const owner = this.#createGuestMediaOwner(ownerOptions);
+      exactOwner = owner as FilePlaybackProductSessionRouterGuestMediaOwnerPort & {
+        readonly currentRenderedDurationSeconds?: () => number | null;
+      };
       return Object.freeze({
         ...(owner.onTimelineAdopted
           ? {
@@ -1898,6 +1983,7 @@ export class FilePlaybackProductRuntime {
           if (cycle) throw new Error('File playback product host cohort was prepared twice');
           const owners = [...this.#hostMediaOwners.entries()].filter(
             ([ownerContext, owner]) =>
+              this.#readyHostMediaOwners.has(owner) &&
               this.#connectionContexts.has(ownerContext) &&
               this.#hostMediaOwners.get(ownerContext) === owner,
           );
@@ -1914,11 +2000,30 @@ export class FilePlaybackProductRuntime {
           cycle = created;
           this.#hostPreparedCohorts.set(context.prepared, created);
           await this.#fenceSameQueueNextLocalTrackWarmForPrepared(active, context.prepared);
-          const offers = owners.map(([ownerContext, owner]) => ({
-            ownerContext,
-            owner,
-            task: Promise.resolve().then(() => owner.publishPrepared(context.prepared)),
-          }));
+          const offers = owners.map(([ownerContext, owner]) => {
+            const predecessor =
+              this.#hostMediaOwnerPublicationBarriers.get(owner) ?? Promise.resolve();
+            return {
+              ownerContext,
+              owner,
+              task: predecessor.then(async () => {
+                if (owner.whenCurrentTimelineSettled) {
+                  await owner.whenCurrentTimelineSettled();
+                }
+                if (
+                  this.#hostMediaOwners.get(ownerContext) !== owner ||
+                  !this.#connectionContexts.has(ownerContext) ||
+                  context.signal.aborted ||
+                  !this.#ownsExactHostRoom(active)
+                ) {
+                  throw new Error(
+                    'File playback product prepared owner changed behind its successor fence',
+                  );
+                }
+                return owner.publishPrepared(context.prepared);
+              }),
+            };
+          });
           for (const { ownerContext, owner, task: offerTask } of offers) {
             // Connections are independent publication authorities. Each peer
             // needs only its own OFFER before its own RUN; a never-settling
@@ -1963,15 +2068,21 @@ export class FilePlaybackProductRuntime {
               },
             );
             const publicationTask = bounded.promise;
-            this.#setHostMediaOwnerPublicationBarrier(
-              owner,
-              publicationTask.then(() => undefined),
-            );
+            let releaseSuccessorBarrier!: () => void;
+            let rejectSuccessorBarrier!: (reason: Error) => void;
+            const successorBarrier = new Promise<void>((resolve, reject) => {
+              releaseSuccessorBarrier = resolve;
+              rejectSuccessorBarrier = reject;
+            });
+            this.#setHostMediaOwnerPublicationBarrier(owner, successorBarrier);
             const entry: HostPreparedCohortEntry = {
               context: ownerContext,
               owner,
               publicationTask,
               cancelPublicationTask: bounded.cancel,
+              successorBarrier,
+              releaseSuccessorBarrier,
+              rejectSuccessorBarrier,
               readinessTask: Promise.resolve(),
               publication: null,
               capability: null,
@@ -2075,7 +2186,14 @@ export class FilePlaybackProductRuntime {
           initialCohortAdmitted: entry.initialCohortAdmitted,
         });
         entry.activated = true;
+        const settlement = this.#whenHostMediaOwnerTimelineSettled(entry.owner);
+        void settlement.then(entry.releaseSuccessorBarrier, (cause) => {
+          entry.rejectSuccessorBarrier(asError(cause));
+          this.#closeExactHostMediaOwner(entry.context, entry.owner, asError(cause));
+        });
+        pending.push(entry.successorBarrier);
       } catch (cause) {
+        entry.rejectSuccessorBarrier(asError(cause));
         this.#closeExactHostMediaOwner(entry.context, entry.owner, asError(cause));
       }
     };
@@ -2086,6 +2204,7 @@ export class FilePlaybackProductRuntime {
         continue;
       }
       if (entry.publicationFailure) {
+        entry.rejectSuccessorBarrier(entry.publicationFailure);
         this.#closeExactHostMediaOwner(entry.context, entry.owner, entry.publicationFailure);
         continue;
       }
@@ -2099,17 +2218,25 @@ export class FilePlaybackProductRuntime {
               activate(entry);
             }
           },
-          (cause) => this.#closeExactHostMediaOwner(entry.context, entry.owner, asError(cause)),
+          (cause) => {
+            const error = asError(cause);
+            entry.rejectSuccessorBarrier(error);
+            this.#closeExactHostMediaOwner(entry.context, entry.owner, error);
+          },
         ),
       );
     }
     for (const [context, owner] of this.#hostMediaOwners) {
-      if (cycle.contexts.has(context) || !this.#connectionContexts.has(context)) continue;
+      if (cycle.contexts.has(context) || !this.#connectionContexts.has(context)) {
+        continue;
+      }
       // A READY owner may have joined while the cohort was preparing and still
       // be publishing the previous revision. Preserve its per-owner lane: once
       // that exact barrier settles, publish canonical post-commit truth.
       const predecessor = this.#hostMediaOwnerPublicationBarriers.get(owner) ?? Promise.resolve();
-      const currentTask = predecessor.then(() => owner.publishCurrent()).then(() => undefined);
+      const currentTask = predecessor
+        .then(() => owner.publishCurrent())
+        .then(() => this.#whenHostMediaOwnerTimelineSettled(owner));
       this.#setHostMediaOwnerPublicationBarrier(owner, currentTask);
       void currentTask.then(
         () => this.#publishNextLocalTrackWarmToOwner(cycle.active, context, owner),
@@ -2136,6 +2263,7 @@ export class FilePlaybackProductRuntime {
       this.#hostPreparedCohorts.delete(cycle.prepared);
     }
     for (const entry of cycle.entries) entry.cancelPublicationTask(reason);
+    for (const entry of cycle.entries) entry.rejectSuccessorBarrier(reason);
     await Promise.allSettled(
       cycle.entries.map((entry) => entry.owner.retirePrepared(cycle.prepared, reason)),
     );
@@ -2262,6 +2390,12 @@ export class FilePlaybackProductRuntime {
     }
   }
 
+  #whenHostMediaOwnerTimelineSettled(
+    owner: FilePlaybackProductRuntimeHostMediaOwnerPort,
+  ): Promise<void> {
+    return owner.whenCurrentTimelineSettled?.() ?? Promise.resolve();
+  }
+
   #fanOutHostCurrentTransitionScheduled(
     roomToken: object,
     event: Readonly<HostCurrentPlaybackTransitionScheduledEvent>,
@@ -2280,13 +2414,35 @@ export class FilePlaybackProductRuntime {
       FilePlaybackProductRuntimeHostMediaOwnerPort,
       Readonly<FilePlaybackProductSessionRouterConnectionContext>
     >();
-    this.#hostCurrentTransitionFanout = { active, kind: event.kind, owners };
+    const deferredOwners = new Map<
+      FilePlaybackProductRuntimeHostMediaOwnerPort,
+      Readonly<{
+        context: Readonly<FilePlaybackProductSessionRouterConnectionContext>;
+        stage: () => void;
+      }>
+    >();
+    this.#hostCurrentTransitionFanout = {
+      active,
+      kind: event.kind,
+      owners,
+      deferredOwners,
+    };
     for (const [context, owner] of [...this.#hostMediaOwners]) {
       if (
         !this.#readyHostMediaOwners.has(owner) ||
         this.#hostMediaOwners.get(context) !== owner ||
         !this.#connectionContexts.has(context)
       ) {
+        continue;
+      }
+      if (this.#hostMediaOwnerPublicationBarriers.has(owner)) {
+        deferredOwners.set(
+          owner,
+          Object.freeze({
+            context,
+            stage: () => owner.stageCurrentTransition(event),
+          }),
+        );
         continue;
       }
       try {
@@ -2322,13 +2478,35 @@ export class FilePlaybackProductRuntime {
       FilePlaybackProductRuntimeHostMediaOwnerPort,
       Readonly<FilePlaybackProductSessionRouterConnectionContext>
     >();
-    this.#hostCurrentTransitionFanout = { active, kind: 'ended', owners };
+    const deferredOwners = new Map<
+      FilePlaybackProductRuntimeHostMediaOwnerPort,
+      Readonly<{
+        context: Readonly<FilePlaybackProductSessionRouterConnectionContext>;
+        stage: () => void;
+      }>
+    >();
+    this.#hostCurrentTransitionFanout = {
+      active,
+      kind: 'ended',
+      owners,
+      deferredOwners,
+    };
     for (const [context, owner] of [...this.#hostMediaOwners]) {
       if (
         !this.#readyHostMediaOwners.has(owner) ||
         this.#hostMediaOwners.get(context) !== owner ||
         !this.#connectionContexts.has(context)
       ) {
+        continue;
+      }
+      if (this.#hostMediaOwnerPublicationBarriers.has(owner)) {
+        deferredOwners.set(
+          owner,
+          Object.freeze({
+            context,
+            stage: () => owner.stageRemoteEnd(event),
+          }),
+        );
         continue;
       }
       try {
@@ -2376,11 +2554,35 @@ export class FilePlaybackProductRuntime {
       }
     }
 
+    for (const [owner, deferred] of fanout.deferredOwners) {
+      const { context } = deferred;
+      const predecessor = this.#hostMediaOwnerPublicationBarriers.get(owner) ?? Promise.resolve();
+      const task = predecessor.then(async () => {
+        if (
+          this.#hostMediaOwners.get(context) !== owner ||
+          !this.#connectionContexts.has(context) ||
+          !this.#readyHostMediaOwners.has(owner) ||
+          !this.#ownsExactHostRoom(active)
+        ) {
+          throw new Error(
+            'File playback product deferred transition owner changed behind its successor fence',
+          );
+        }
+        deferred.stage();
+        owner.commitCurrentTimeline(event);
+        await this.#whenHostMediaOwnerTimelineSettled(owner);
+      });
+      this.#setHostMediaOwnerPublicationBarrier(owner, task);
+      void task.catch((cause) => this.#closeExactHostMediaOwner(context, owner, asError(cause)));
+    }
+
     // A connection can become READY between native scheduling and canonical
     // commit. It did not receive the successor wire, so publish fresh current
     // truth after commit instead of presenting an orphan timeline update.
     for (const [context, owner] of [...this.#hostMediaOwners]) {
-      if (!fanout.owners.has(owner)) this.#synchronizeReadyHostMediaOwner(active, context, owner);
+      if (!fanout.owners.has(owner) && !fanout.deferredOwners.has(owner)) {
+        this.#synchronizeReadyHostMediaOwner(active, context, owner);
+      }
     }
   }
 
@@ -2398,9 +2600,9 @@ export class FilePlaybackProductRuntime {
       return;
     }
     const currentTask = active.port.currentPeerPublication()
-      ? Promise.resolve()
+      ? (this.#hostMediaOwnerPublicationBarriers.get(owner) ?? Promise.resolve())
           .then(() => owner.publishCurrent())
-          .then(() => undefined)
+          .then(() => this.#whenHostMediaOwnerTimelineSettled(owner))
       : Promise.resolve();
     this.#setHostMediaOwnerPublicationBarrier(owner, currentTask);
     void currentTask.then(
@@ -2691,6 +2893,7 @@ export class FilePlaybackProductRuntime {
       for (const entry of cycle.entries) {
         if (entry.context === context && entry.owner === owner) {
           entry.cancelPublicationTask(reason);
+          entry.rejectSuccessorBarrier(reason);
         }
       }
     }
@@ -2699,9 +2902,150 @@ export class FilePlaybackProductRuntime {
   #cancelAllPreparedCohorts(reason: Error): void {
     for (const cycle of this.#hostPreparedCohorts.values()) {
       cycle.status = 'failed';
-      for (const entry of cycle.entries) entry.cancelPublicationTask(reason);
+      for (const entry of cycle.entries) {
+        entry.cancelPublicationTask(reason);
+        entry.rejectSuccessorBarrier(reason);
+      }
     }
     this.#hostPreparedCohorts.clear();
+  }
+
+  async #runCurrentTransition<T>(
+    label: string,
+    signal: AbortSignal,
+    dispatch: (port: FilePlaybackProductRuntimeHostRoomPort) => Promise<T>,
+  ): Promise<T> {
+    if (!(signal instanceof AbortSignal)) {
+      throw new TypeError(`File playback product ${label} requires an AbortSignal`);
+    }
+    return this.#dispatchExactHostRoom(label, async (port) => {
+      const active = this.#activeHostRoom;
+      if (!active || active.port !== port || !this.#ownsExactHostRoom(active)) {
+        throw new Error(`File playback product host room changed before ${label}`);
+      }
+      await this.#awaitHostMediaOwnerSuccessorFences(active, signal);
+      if (
+        signal.aborted ||
+        this.#activeHostRoom !== active ||
+        active.port !== port ||
+        !this.#ownsExactHostRoom(active)
+      ) {
+        throw signal.reason instanceof Error
+          ? signal.reason
+          : new Error(`File playback product host room changed behind ${label} successor fence`);
+      }
+      return dispatch(port);
+    });
+  }
+
+  /**
+   * A prepared host commit is locally authoritative before remote renderer
+   * evidence necessarily returns. Serialize the next revision behind each
+   * ready peer's withheld timeline so an ordinary fast follow-up control does
+   * not turn that short network window into a connection failure. A peer that
+   * cannot settle within the bounded protocol window is isolated fail-closed;
+   * it never blocks canonical host control indefinitely.
+   */
+  async #awaitHostMediaOwnerSuccessorFences(
+    active: ActiveProductHostRoom,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (!(signal instanceof AbortSignal)) {
+      throw new TypeError('File playback product successor fence requires an AbortSignal');
+    }
+    if (signal.aborted) {
+      throw signal.reason instanceof Error
+        ? signal.reason
+        : new Error('File playback product successor fence was aborted');
+    }
+    const entries = [...this.#hostMediaOwners.entries()]
+      .filter(
+        ([context, owner]) =>
+          this.#readyHostMediaOwners.has(owner) &&
+          this.#hostMediaOwners.get(context) === owner &&
+          this.#connectionContexts.has(context),
+      )
+      .map(([context, owner]) => {
+        const state: {
+          readonly context: Readonly<FilePlaybackProductSessionRouterConnectionContext>;
+          readonly owner: FilePlaybackProductRuntimeHostMediaOwnerPort;
+          settled: boolean;
+          failure: Error | null;
+          task: Promise<void>;
+        } = {
+          context,
+          owner,
+          settled: false,
+          failure: null,
+          task: Promise.resolve(),
+        };
+        state.task = Promise.resolve()
+          .then(() => this.#awaitHostMediaOwnerPublicationBarrier(owner))
+          .then(() => this.#whenHostMediaOwnerTimelineSettled(owner))
+          .then(
+            () => {
+              state.settled = true;
+            },
+            (cause) => {
+              state.failure = asError(cause);
+              state.settled = true;
+            },
+          );
+        return state;
+      });
+    if (entries.length === 0) return;
+
+    const deadline = createFilePlaybackUniversalLifecycleDelay(
+      FILE_PLAYBACK_PRODUCT_SUCCESSOR_FENCE_MS,
+    );
+    let rejectAbort!: (reason: Error) => void;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      rejectAbort = reject;
+    });
+    const onAbort = () =>
+      rejectAbort(
+        signal.reason instanceof Error
+          ? signal.reason
+          : new Error('File playback product successor fence was aborted'),
+      );
+    signal.addEventListener('abort', onAbort, { once: true });
+    try {
+      if (signal.aborted) onAbort();
+      await Promise.race([
+        Promise.allSettled(entries.map((entry) => entry.task)),
+        deadline.promise,
+        aborted,
+      ]);
+    } finally {
+      deadline.cancel();
+      signal.removeEventListener('abort', onAbort);
+    }
+    if (signal.aborted) {
+      throw signal.reason instanceof Error
+        ? signal.reason
+        : new Error('File playback product successor fence was aborted');
+    }
+    if (this.#activeHostRoom !== active || !this.#ownsExactHostRoom(active)) {
+      throw new Error('File playback product successor fence lost its exact host room');
+    }
+
+    for (const entry of entries) {
+      if (
+        this.#hostMediaOwners.get(entry.context) !== entry.owner ||
+        !this.#connectionContexts.has(entry.context)
+      ) {
+        continue;
+      }
+      if (entry.settled && !entry.failure) continue;
+      this.#closeExactHostMediaOwner(
+        entry.context,
+        entry.owner,
+        entry.failure ??
+          new Error(
+            `File playback product peer successor fence exceeded ${FILE_PLAYBACK_PRODUCT_SUCCESSOR_FENCE_MS}ms`,
+          ),
+      );
+    }
   }
 
   /**
@@ -2805,6 +3149,29 @@ export class FilePlaybackProductRuntime {
         timeline.phase === 'playing' &&
         timeline.run !== null &&
         observation.phase === 'ended' &&
+        observation.run !== null &&
+        observation.queueItemId === timeline.run.queueItemId &&
+        observation.run.queueItemId === timeline.run.queueItemId &&
+        observation.run.runId === timeline.run.runId &&
+        observation.revision === timeline.revision &&
+        observation.run.revision === timeline.revision
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  #matchesCurrentHostFailedObservation(
+    observation: FilePlaybackProductHostFailureObservation,
+  ): boolean {
+    try {
+      const controller = this.#controller;
+      if (!controller) return false;
+      const timeline = controller.timelineSnapshot();
+      return (
+        timeline.phase === 'playing' &&
+        timeline.run !== null &&
+        observation.phase === 'failed' &&
         observation.run !== null &&
         observation.queueItemId === timeline.run.queueItemId &&
         observation.run.queueItemId === timeline.run.queueItemId &&

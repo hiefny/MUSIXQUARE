@@ -6,7 +6,7 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { initSeekBar } from '../seekbar.ts';
-import { seekTo } from '../../player/transport.ts';
+import { getTrackPosition, seekTo } from '../../player/transport.ts';
 
 const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
 
@@ -21,6 +21,7 @@ beforeEach(() => {
   bus.clear();
   clearAllManagedTimers();
   vi.mocked(seekTo).mockClear();
+  vi.mocked(getTrackPosition).mockReturnValue(0);
   document.body.innerHTML = `
     <input id="seek-slider" type="range" value="0" max="120" />
     <span id="time-curr"></span>
@@ -60,6 +61,19 @@ describe('initSeekBar playback mode gates', () => {
 
     slider.dispatchEvent(new Event('change'));
     expect(seekTo).toHaveBeenCalledWith(42);
+  });
+
+  it('freezes file interpolation immediately at the exact paused position', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    vi.mocked(getTrackPosition).mockReturnValue(18.25);
+    initSeekBar();
+    bus.emit('ui:loop-start');
+
+    setState('playback.activity', 'paused');
+
+    expect((document.getElementById('seek-slider') as HTMLInputElement).value).toBe('18.25');
+    expect(document.getElementById('time-curr')?.innerText).toBe('fmt:18');
   });
 
   it('pins a PRO seek target through stale time updates and the internal prepare reset', () => {

@@ -128,6 +128,9 @@ export interface FilePlaybackProductHostFirstEnginePort {
   ): Promise<Readonly<HostFirstLocalFilePlaybackCommit>>;
   prepareLocalTrack(options: StartHostLocalTrackOptions): Promise<Readonly<HostPreparedLocalTrack>>;
   preparePlayingSeek(options: SeekHostPlayingOptions): Promise<Readonly<HostPreparedLocalTrack>>;
+  prepareResumeCurrent(
+    options: HostCurrentPlaybackOperationOptions,
+  ): Promise<Readonly<HostPreparedLocalTrack>>;
   prepareReplayCurrent(
     options: HostCurrentPlaybackOperationOptions,
   ): Promise<Readonly<HostPreparedLocalTrack>>;
@@ -178,6 +181,18 @@ export interface FilePlaybackProductHostFirstEnginePort {
  */
 export interface FilePlaybackProductHostTerminalObservation extends FilePlaybackSourceSnapshot {
   readonly phase: 'ended';
+  readonly run: NonNullable<FilePlaybackSourceSnapshot['run']>;
+}
+
+/**
+ * Exact source-native renderer failure for the still-playing host truth.
+ *
+ * Like the natural-end observation, this is intentionally kept out of the
+ * ordinary renderer projection. Consumers may use it only to recover the exact
+ * playing incarnation; stale renderer failures remain fail-closed.
+ */
+export interface FilePlaybackProductHostFailureObservation extends FilePlaybackSourceSnapshot {
+  readonly phase: 'failed';
   readonly run: NonNullable<FilePlaybackSourceSnapshot['run']>;
 }
 
@@ -633,6 +648,7 @@ function isEnginePort(
     typeof candidate.startLocalTrack === 'function' &&
     typeof candidate.prepareLocalTrack === 'function' &&
     typeof candidate.preparePlayingSeek === 'function' &&
+    typeof candidate.prepareResumeCurrent === 'function' &&
     typeof candidate.prepareReplayCurrent === 'function' &&
     typeof candidate.startPreparedLocalTrack === 'function' &&
     typeof candidate.resolvePreparedPeerRangeSource === 'function' &&
@@ -1117,6 +1133,39 @@ export class FilePlaybackProductHostRoom {
     );
   }
 
+  resumeCurrentWithCohort(
+    options: FilePlaybackProductHostCurrentWithCohortOptions,
+  ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
+    const input = snapshotExactRecord(options, COHORT_CURRENT_KEYS);
+    let signal: AbortSignal;
+    if (!input || typeof input.prepareRemoteParticipants !== 'function') {
+      return Promise.reject(new TypeError('Product resume cohort options are invalid'));
+    }
+    try {
+      signal = readSignalOptions(options, COHORT_CURRENT_KEYS, 'resume cohort');
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const prepareRemoteParticipants =
+      input.prepareRemoteParticipants as PrepareFilePlaybackProductHostRemoteParticipants;
+    return this.#enqueueCandidate(signal, async (operation) => {
+      const record = this.#requireEngine(operation);
+      return this.#startPreparedCandidateWithCohort({
+        operation,
+        record,
+        expectedQueueItemId: null,
+        prepare: () =>
+          record.engine.prepareResumeCurrent({
+            signal: operation.controller.signal,
+          }),
+        prepareRemoteParticipants,
+        resolveSource: async () => {
+          throw new Error('Same-run resume must reuse its current source binding');
+        },
+      });
+    });
+  }
+
   replayCurrent(
     options: FilePlaybackProductHostCurrentOptions,
   ): Promise<Readonly<FilePlaybackProductHostLocalTrackCommit>> {
@@ -1337,6 +1386,22 @@ export class FilePlaybackProductHostRoom {
         this.#matchesTerminalTimeline(snapshot) &&
         this.#hasProjectionAuthority() &&
         this.#matchesTerminalTimeline(snapshot)
+        ? snapshot
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  currentFailedRendererObservation(): FilePlaybackProductHostFailureObservation | null {
+    try {
+      const record = this.#engineRecord;
+      if (!record || !this.#hasProjectionAuthority()) return null;
+      const snapshot = record.engine.currentRendererSnapshot();
+      return snapshot &&
+        this.#matchesFailedTimeline(snapshot) &&
+        this.#hasProjectionAuthority() &&
+        this.#matchesFailedTimeline(snapshot)
         ? snapshot
         : null;
     } catch {
@@ -2048,6 +2113,23 @@ export class FilePlaybackProductHostRoom {
       timeline.phase === 'playing' &&
       timeline.run !== null &&
       snapshot.phase === 'ended' &&
+      snapshot.run !== null &&
+      snapshot.queueItemId === timeline.run.queueItemId &&
+      snapshot.run.queueItemId === timeline.run.queueItemId &&
+      snapshot.run.runId === timeline.run.runId &&
+      snapshot.revision === timeline.revision &&
+      snapshot.run.revision === timeline.revision
+    );
+  }
+
+  #matchesFailedTimeline(
+    snapshot: FilePlaybackSourceSnapshot,
+  ): snapshot is FilePlaybackProductHostFailureObservation {
+    const timeline = Reflect.apply(trustedControllerTimeline, this.#controller, []);
+    return (
+      timeline.phase === 'playing' &&
+      timeline.run !== null &&
+      snapshot.phase === 'failed' &&
       snapshot.run !== null &&
       snapshot.queueItemId === timeline.run.queueItemId &&
       snapshot.run.queueItemId === timeline.run.queueItemId &&

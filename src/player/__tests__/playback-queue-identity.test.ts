@@ -185,12 +185,14 @@ describe('V2 guest renderer projection', () => {
   it('projects only an exact queue occurrence after physical timeline commit', () => {
     const visualizer = vi.fn();
     const uiLoop = vi.fn();
+    const duration = vi.fn();
     bus.on('visualizer:start', visualizer);
     bus.on('ui:loop-start', uiLoop);
+    bus.on('ui:duration-update', duration);
     setState('playlist.items', [item(QID_A, 'a.flac'), item(QID_B, 'b.flac')]);
     initPlayback();
 
-    bus.emit('player:v2-guest-timeline-rendered', QID_B, 'playing', 12.5);
+    bus.emit('player:v2-guest-timeline-rendered', QID_B, 'playing', 12.5, 245);
 
     expect(getState('playlist.currentQueueItemId')).toBe(QID_B);
     expect(getState('player.currentTrackMeta')).toMatchObject({
@@ -203,6 +205,7 @@ describe('V2 guest renderer projection', () => {
     expect(getState('playback.mode')).toBe('file');
     expect(visualizer).toHaveBeenCalledOnce();
     expect(uiLoop).toHaveBeenCalledOnce();
+    expect(duration).toHaveBeenCalledWith(245);
 
     bus.emit('player:v2-guest-timeline-rendered', QID_B, 'paused', 18);
     expect(getState('player.pausedAt')).toBe(18);

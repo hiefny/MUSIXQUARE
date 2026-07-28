@@ -38,10 +38,14 @@ import {
   type FilePlaybackRemoteEndedTransitionIntent,
 } from './file-playback-remote-ended-transition.ts';
 import {
+  createFilePlaybackFailedStopTransitionEvidence,
+  createFilePlaybackFailedStopTransitionResult,
   createFilePlaybackStopTransitionEvidence,
   createFilePlaybackStopTransitionResult,
   readFilePlaybackStopTransitionIntent,
   sameFilePlaybackStopTransitionIntent,
+  type FilePlaybackFailedStopTransitionEvidence,
+  type FilePlaybackScheduledStopTransitionEvidence,
   type FilePlaybackStopTransitionEvidence,
   type FilePlaybackStopTransitionIntent,
   type FilePlaybackStopTransitionResult,
@@ -142,7 +146,7 @@ interface CutoverRecord {
   currentStopIntent: Readonly<FilePlaybackStopTransitionIntent> | null;
   currentStopPromise: Promise<FilePlaybackStopTransitionResult> | null;
   currentStopApplied: ReturnType<
-    typeof createDeferredPromise<FilePlaybackStopTransitionEvidence>
+    typeof createDeferredPromise<FilePlaybackScheduledStopTransitionEvidence>
   > | null;
   currentStopTimer: ReturnType<typeof globalThis.setTimeout> | null;
   currentStopDeadlineMonotonicMs: number | null;
@@ -2066,7 +2070,9 @@ export class FilePlaybackManager {
     }
     if (
       !this.transitionSnapshotMatches(record, currentSnapshot, intent.from) ||
-      (currentSnapshot.phase !== 'playing' && currentSnapshot.phase !== 'paused')
+      (currentSnapshot.phase !== 'playing' &&
+        currentSnapshot.phase !== 'paused' &&
+        currentSnapshot.phase !== 'failed')
     ) {
       return Promise.reject(cutoverError('stop from state is not current'));
     }
@@ -2074,6 +2080,9 @@ export class FilePlaybackManager {
     if (!this.currentAuthorityAllows(record)) {
       void this.enterFailSilent(record, 'current-stop-authority-expired');
       return this.rejectedAuthorityPromise(record);
+    }
+    if (currentSnapshot.phase === 'failed') {
+      return this.retireFailedCurrentStop(record, intent, observedEpoch);
     }
 
     const gate = record.gate;
@@ -2122,7 +2131,7 @@ export class FilePlaybackManager {
     }
 
     const resultDeferred = createDeferredPromise<FilePlaybackStopTransitionResult>();
-    const appliedDeferred = createDeferredPromise<FilePlaybackStopTransitionEvidence>();
+    const appliedDeferred = createDeferredPromise<FilePlaybackScheduledStopTransitionEvidence>();
     void appliedDeferred.promise.then(
       () => undefined,
       () => undefined,
@@ -2151,6 +2160,78 @@ export class FilePlaybackManager {
       resultDeferred.reject(error);
     }
     return resultDeferred.promise;
+  }
+
+  private retireFailedCurrentStop(
+    record: CutoverRecord,
+    intent: Readonly<FilePlaybackStopTransitionIntent>,
+    observedEpoch: number,
+  ): Promise<FilePlaybackStopTransitionResult> {
+    if (
+      observedEpoch !== this.cutoverEpoch ||
+      !this.ownsLiveCurrent(record) ||
+      record.currentTransitionPending ||
+      record.currentStopPending
+    ) {
+      return Promise.reject(cutoverError('failed current renderer changed before retirement'));
+    }
+    if (!this.currentAuthorityAllows(record)) {
+      void this.enterFailSilent(record, 'failed-current-stop-authority-expired');
+      return this.rejectedAuthorityPromise(record);
+    }
+
+    let snapshot: FilePlaybackSourceSnapshot;
+    try {
+      snapshot = createFilePlaybackSourceSnapshot(record.source.getSnapshot());
+    } catch (error) {
+      if (this.ownsLiveCurrent(record)) {
+        void this.enterFailSilent(record, 'failed-current-stop-snapshot-unavailable');
+      }
+      return Promise.reject(error);
+    }
+    if (
+      observedEpoch !== this.cutoverEpoch ||
+      !this.ownsLiveCurrent(record) ||
+      !this.transitionSnapshotMatches(record, snapshot, intent.from) ||
+      snapshot.phase !== 'failed'
+    ) {
+      if (this.ownsLiveCurrent(record)) {
+        void this.enterFailSilent(record, 'failed-current-stop-snapshot-changed');
+      }
+      return Promise.reject(cutoverError('failed current renderer is not exact'));
+    }
+    record.state.lastSnapshot = snapshot;
+
+    const evidence = createFilePlaybackFailedStopTransitionEvidence(intent);
+    const appliedDeferred =
+      createDeferredPromise<Readonly<FilePlaybackFailedStopTransitionEvidence>>();
+    void appliedDeferred.promise.then(
+      () => undefined,
+      () => undefined,
+    );
+    const result = createFilePlaybackFailedStopTransitionResult(intent, appliedDeferred.promise);
+    const resultPromise = Promise.resolve<FilePlaybackStopTransitionResult>(result);
+
+    // Publish both retry authorities before the first native gate mutation.
+    // A GainNode or source cleanup test double may synchronously re-enter STOP.
+    record.currentStopIntent = intent;
+    record.currentStopPromise = resultPromise;
+    this.completedCutoverStops.set(record.port, {
+      audioContext: new WeakRef(record.audioContext),
+      from: intent.from,
+      to: intent.to,
+      atRoomTimeMs: intent.atRoomTimeMs,
+      contextTimeSeconds: intent.target.contextTimeSeconds,
+      targetFrame: intent.target.targetFrame,
+      promise: new WeakRef(resultPromise),
+    });
+
+    const cleanup = this.retireCurrentRecord(record);
+    void cleanup.then(
+      () => appliedDeferred.resolve(evidence),
+      (error: unknown) => appliedDeferred.reject(error),
+    );
+    return resultPromise;
   }
 
   private scheduleCurrentStopGate(

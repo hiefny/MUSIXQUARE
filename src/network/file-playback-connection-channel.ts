@@ -1,0 +1,1189 @@
+import type { ClockQuality, MonotonicNow } from './clock-estimator.ts';
+import {
+  FILE_PLAYBACK_CLOCK_PING_TYPE,
+  FILE_PLAYBACK_CLOCK_PONG_TYPE,
+  MAX_FILE_PLAYBACK_CLOCK_TEMPORAL_CONTINUATION_LEASE_MS,
+  FilePlaybackClockExchange,
+  parseFilePlaybackClockPingV2,
+  parseFilePlaybackClockPongV2,
+  type FilePlaybackClockTemporalContinuationLease,
+  type FilePlaybackClockExchangeRejectionReason,
+  type FilePlaybackClockPingV2,
+  type FilePlaybackClockPongResult,
+  type FilePlaybackClockPongV2,
+  type FilePlaybackClockRole,
+} from './file-playback-clock-exchange.ts';
+import {
+  FilePlaybackGuestSessionHandshake,
+  FilePlaybackHostSessionHandshake,
+  type FilePlaybackSessionBindingV2,
+} from './file-playback-session-handshake.ts';
+import type { FilePlaybackClockBindings } from '../player/file-playback-clock.ts';
+import type { PlaybackRevisionWatermark } from '../player/playback-identity.ts';
+import {
+  FILE_PLAYBACK_WIRE_DEFAULT_MAX_CLOCK_SKEW_MS,
+  FILE_PLAYBACK_WIRE_KINDS,
+  FILE_PLAYBACK_WIRE_MAX_PAYLOAD_BYTES,
+  FilePlaybackWireReceiver,
+  createFilePlaybackWireMessage,
+  type FilePlaybackWireKind,
+  type FilePlaybackWireMessage,
+  type FilePlaybackWireReceiverResult,
+} from '../player/file-playback-wire.ts';
+import {
+  FilePlaybackWireBindingRegistry,
+  type FilePlaybackWireAttemptLease,
+  type FilePlaybackWireExpectedStateIdentity,
+  type FilePlaybackWireLease,
+  type FilePlaybackWireMediaBinding,
+  type FilePlaybackWireStateLease,
+} from '../player/file-playback-wire-binding.ts';
+import {
+  FilePlaybackWireSender,
+  type FilePlaybackWireMessageForKind,
+  type FilePlaybackWirePayloadByKind,
+} from '../player/file-playback-wire-sender.ts';
+
+/**
+ * Upper bound for one already-materialized file-playback connection frame.
+ *
+ * The transport adapter remains responsible for rejecting raw strings,
+ * ArrayBuffers, Blobs, and decoded JSON above this limit *before* parsing or
+ * object materialization. receive() deliberately accepts data objects only.
+ * It independently measures their detached primitive representation without
+ * invoking JSON.stringify or any source accessor.
+ */
+export const FILE_PLAYBACK_CONNECTION_CHANNEL_MAX_FRAME_BYTES =
+  FILE_PLAYBACK_WIRE_MAX_PAYLOAD_BYTES;
+
+const MAX_FRAME_KEYS = 32;
+const MAX_FRAME_KEY_CODE_UNITS = 64;
+const MAX_ATTEMPT_TEMPORAL_CORRIDORS = 8;
+const CHANNEL_OPTION_KEYS = Object.freeze([
+  'clockExchange',
+  'guestAppliedSendConfirmed',
+  'maxClockSkewMs',
+  'now',
+] as const);
+/** Exhaustive, fail-closed ownership table for every control kind. */
+const WIRE_KIND_SENDER_ROLE: Readonly<Record<FilePlaybackWireKind, FilePlaybackClockRole>> =
+  Object.freeze({
+    'source-ready': 'guest',
+    'source-not-ready': 'guest',
+    'file-playback-prepare': 'host',
+    'rendezvous-arm': 'host',
+    'rendezvous-armed': 'guest',
+    'rendezvous-finalize': 'host',
+    'rendezvous-finalized': 'guest',
+    'file-playback-pause': 'host',
+    'file-playback-seek': 'host',
+    'file-playback-cancel': 'host',
+    'file-playback-stop': 'host',
+    'file-playback-ended': 'host',
+    'renderer-health': 'guest',
+  });
+
+/**
+ * APPLIED is a one-shot authority, not a reusable description. Claims never
+ * expire for this document lifetime, including after channel close.
+ */
+const CLAIMED_HANDSHAKES = new WeakMap<EstablishedHandshake, object>();
+const CONSTRUCTING_HANDSHAKES = new WeakSet<EstablishedHandshake>();
+
+type EstablishedHandshake = FilePlaybackHostSessionHandshake | FilePlaybackGuestSessionHandshake;
+
+type PrimitiveFrameValue = string | number | boolean | null;
+type DetachedFrame = Readonly<Record<string, PrimitiveFrameValue>>;
+type AcceptedClockSample = Extract<FilePlaybackClockPongResult, { readonly accepted: true }>;
+
+export interface FilePlaybackConnectionChannelOptions {
+  /** Shared monotonic source for tests/platform integration. */
+  readonly now?: MonotonicNow;
+  readonly maxClockSkewMs?: number;
+  /** Exact provisional exchange for this same role/session/connection epoch. */
+  readonly clockExchange?: FilePlaybackClockExchange;
+  /**
+   * Guest adapters set this only after APPLIED was successfully handed to the
+   * exact live transport. A boolean cannot prove delivery: send failure still
+   * requires immediate connection teardown and handshake discard by the
+   * product adapter.
+   */
+  readonly guestAppliedSendConfirmed?: true;
+}
+
+export type FilePlaybackConnectionChannelRejectionReason =
+  | 'closed'
+  | 'wrong-connection-token'
+  | 'reentrant-call'
+  | 'malformed-frame'
+  | 'wrong-direction'
+  | 'wrong-role-kind'
+  | 'clock-uncalibrated'
+  | 'clock-rejected'
+  | 'wire-rejected';
+
+export type FilePlaybackConnectionChannelReceiveResult =
+  | Readonly<{
+      accepted: true;
+      frame: 'clock-ping';
+      /** The caller sends this canonical response on the same ordered lane. */
+      pong: Readonly<FilePlaybackClockPongV2>;
+    }>
+  | Readonly<{
+      accepted: true;
+      frame: 'clock-pong';
+      sample: AcceptedClockSample;
+    }>
+  | Readonly<{
+      accepted: true;
+      frame: 'wire';
+      message: FilePlaybackWireMessage;
+      stateLease: FilePlaybackWireStateLease;
+      attemptLease: FilePlaybackWireAttemptLease | null;
+    }>
+  | Readonly<{
+      accepted: true;
+      frame: 'wire-stale';
+      scope: 'state' | 'attempt';
+      controlSequence: number;
+    }>
+  | Readonly<{
+      accepted: false;
+      reason: Exclude<FilePlaybackConnectionChannelRejectionReason, 'clock-rejected'>;
+    }>
+  | Readonly<{
+      accepted: false;
+      reason: 'clock-rejected';
+      clockReason: FilePlaybackClockExchangeRejectionReason;
+    }>;
+
+function freezeCanonical<T extends object>(value: T): Readonly<T> {
+  return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
+}
+
+function rejected(
+  reason: Exclude<FilePlaybackConnectionChannelRejectionReason, 'clock-rejected'>,
+): FilePlaybackConnectionChannelReceiveResult;
+function rejected(
+  reason: 'clock-rejected',
+  clockReason: FilePlaybackClockExchangeRejectionReason,
+): FilePlaybackConnectionChannelReceiveResult;
+function rejected(
+  reason: FilePlaybackConnectionChannelRejectionReason,
+  clockReason?: FilePlaybackClockExchangeRejectionReason,
+): FilePlaybackConnectionChannelReceiveResult {
+  return freezeCanonical({
+    accepted: false as const,
+    reason,
+    ...(clockReason === undefined ? {} : { clockReason }),
+  }) as FilePlaybackConnectionChannelReceiveResult;
+}
+
+function accepted<T extends object>(value: T): Readonly<T & { accepted: true }> {
+  return freezeCanonical({ accepted: true as const, ...value });
+}
+
+function snapshotAllowedOptions(value: unknown): Readonly<Record<string, unknown>> | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const allowed = new Set<string>(CHANNEL_OPTION_KEYS);
+    const ownKeys = Reflect.ownKeys(value);
+    if (ownKeys.some((key) => typeof key !== 'string' || !allowed.has(key))) return null;
+
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of ownKeys as string[]) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      snapshot[key] = descriptor.value;
+    }
+    return Object.freeze(snapshot);
+  } catch {
+    return null;
+  }
+}
+
+function jsonStringByteLength(value: string, remaining: number): number {
+  let bytes = 2;
+  for (let index = 0; index < value.length; index += 1) {
+    if (bytes > remaining) return bytes;
+    const code = value.charCodeAt(index);
+    if (code === 0x22 || code === 0x5c) {
+      bytes += 2;
+    } else if (code <= 0x1f) {
+      bytes +=
+        code === 0x08 || code === 0x09 || code === 0x0a || code === 0x0c || code === 0x0d ? 2 : 6;
+    } else if (code <= 0x7f) {
+      bytes += 1;
+    } else if (code <= 0x7ff) {
+      bytes += 2;
+    } else if (code >= 0xd800 && code <= 0xdbff) {
+      const low = value.charCodeAt(index + 1);
+      if (low >= 0xdc00 && low <= 0xdfff) {
+        bytes += 4;
+        index += 1;
+      } else {
+        // Well-formed JSON escapes lone UTF-16 surrogates as \udxxx.
+        bytes += 6;
+      }
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      bytes += 6;
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
+}
+
+function primitiveJsonByteLength(value: PrimitiveFrameValue, remaining: number): number {
+  if (typeof value === 'string') return jsonStringByteLength(value, remaining);
+  if (value === null) return 4;
+  if (typeof value === 'boolean') return value ? 4 : 5;
+  if (!Number.isFinite(value)) return Number.POSITIVE_INFINITY;
+  return Object.is(value, -0) ? 1 : String(value).length;
+}
+
+/**
+ * One hostile-object pass: every admitted descriptor is read exactly once,
+ * accessors and nested values are rejected, and the byte budget is computed
+ * directly from primitive values without hostile serialization hooks.
+ */
+function snapshotMaterializedFrame(value: unknown): DetachedFrame | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const ownKeys = Reflect.ownKeys(value);
+    if (
+      ownKeys.length === 0 ||
+      ownKeys.length > MAX_FRAME_KEYS ||
+      ownKeys.some(
+        (key) =>
+          typeof key !== 'string' || key.length === 0 || key.length > MAX_FRAME_KEY_CODE_UNITS,
+      )
+    ) {
+      return null;
+    }
+
+    const snapshot = Object.create(null) as Record<string, PrimitiveFrameValue>;
+    let bytes = 2;
+    for (let index = 0; index < ownKeys.length; index += 1) {
+      const key = ownKeys[index] as string;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      const item = descriptor.value;
+      if (
+        item !== null &&
+        typeof item !== 'string' &&
+        typeof item !== 'number' &&
+        typeof item !== 'boolean'
+      ) {
+        return null;
+      }
+      const separatorBytes = index === 0 ? 1 : 2;
+      bytes +=
+        separatorBytes +
+        jsonStringByteLength(key, FILE_PLAYBACK_CONNECTION_CHANNEL_MAX_FRAME_BYTES - bytes) +
+        primitiveJsonByteLength(item, FILE_PLAYBACK_CONNECTION_CHANNEL_MAX_FRAME_BYTES - bytes);
+      if (bytes > FILE_PLAYBACK_CONNECTION_CHANNEL_MAX_FRAME_BYTES) return null;
+      snapshot[key] = item;
+    }
+    return Object.freeze(snapshot);
+  } catch {
+    return null;
+  }
+}
+
+function inferEstablishedBinding(handshake: EstablishedHandshake): Readonly<{
+  binding: Readonly<FilePlaybackSessionBindingV2>;
+  role: FilePlaybackClockRole;
+}> {
+  try {
+    if (handshake instanceof FilePlaybackHostSessionHandshake) {
+      const state = FilePlaybackHostSessionHandshake.prototype.state.call(handshake);
+      const binding = FilePlaybackHostSessionHandshake.prototype.establishedBinding.call(handshake);
+      if (state !== 'applied' || !binding) {
+        throw new TypeError('Host file playback handshake is not APPLIED');
+      }
+      return freezeCanonical({ binding, role: 'host' as const });
+    }
+    if (handshake instanceof FilePlaybackGuestSessionHandshake) {
+      const state = FilePlaybackGuestSessionHandshake.prototype.state.call(handshake);
+      const binding =
+        FilePlaybackGuestSessionHandshake.prototype.establishedBinding.call(handshake);
+      if (state !== 'applied-issued' || !binding) {
+        throw new TypeError('Guest file playback handshake is not APPLIED');
+      }
+      return freezeCanonical({ binding, role: 'guest' as const });
+    }
+  } catch (error) {
+    if (error instanceof TypeError && /not APPLIED/u.test(error.message)) throw error;
+  }
+  throw new TypeError('File playback channel requires an APPLIED handshake object');
+}
+
+interface ClaimedChannelAuthority {
+  readonly role: FilePlaybackClockRole;
+  readonly binding: Readonly<FilePlaybackSessionBindingV2>;
+  readonly connectionToken: object;
+  readonly clock: FilePlaybackClockExchange;
+  readonly bindings: FilePlaybackWireBindingRegistry;
+  readonly sender: FilePlaybackWireSender;
+  readonly receiver: FilePlaybackWireReceiver;
+  readonly receiverRoomClock: ReceiverRoomClock;
+  readonly maxClockSkewMs: number;
+}
+
+interface ReceiverRoomClock {
+  override: (() => number) | null;
+  readonly read: () => number;
+}
+
+type RendezvousArmMessage = Extract<FilePlaybackWireMessage, { readonly kind: 'rendezvous-arm' }>;
+type ActiveWireReceiverResult = Extract<
+  FilePlaybackWireReceiverResult,
+  { readonly accepted: true; readonly status: 'message' }
+>;
+
+interface AttemptTemporalCorridor {
+  readonly continuationLease: FilePlaybackClockTemporalContinuationLease;
+  readonly attemptLease: FilePlaybackWireAttemptLease;
+  readonly stateLease: FilePlaybackWireStateLease;
+  readonly sessionId: string;
+  readonly connectionId: string;
+  readonly hostParticipantId: string;
+  readonly guestParticipantId: string;
+  readonly queueItemId: string;
+  readonly runId: string;
+  readonly revision: number;
+  readonly sourceIdentity: string;
+  readonly transferSessionId: string | null;
+  readonly rendezvousId: string;
+  readonly startAtRoomTimeMs: number;
+  readonly finalizeByRoomTimeMs: number;
+  readonly admittedAtRoomTimeMs: number;
+  phase: 'admitted' | 'armed-sent' | 'finalize-received';
+  temporalRetired: boolean;
+}
+
+function claimChannelAuthority(
+  handshake: EstablishedHandshake,
+  liveConnectionToken: object,
+  options: FilePlaybackConnectionChannelOptions,
+): ClaimedChannelAuthority {
+  const established = inferEstablishedBinding(handshake);
+  if (liveConnectionToken === null || typeof liveConnectionToken !== 'object') {
+    throw new TypeError('File playback channel requires an opaque live connection token');
+  }
+  if (CLAIMED_HANDSHAKES.has(handshake) || CONSTRUCTING_HANDSHAKES.has(handshake)) {
+    throw new Error('File playback APPLIED handshake authority was already claimed');
+  }
+
+  CONSTRUCTING_HANDSHAKES.add(handshake);
+  try {
+    const optionSnapshot = snapshotAllowedOptions(options);
+    if (
+      !optionSnapshot ||
+      (optionSnapshot.now !== undefined && typeof optionSnapshot.now !== 'function') ||
+      (optionSnapshot.clockExchange !== undefined &&
+        !(optionSnapshot.clockExchange instanceof FilePlaybackClockExchange)) ||
+      (optionSnapshot.guestAppliedSendConfirmed !== undefined &&
+        optionSnapshot.guestAppliedSendConfirmed !== true)
+    ) {
+      throw new TypeError('File playback channel options are invalid');
+    }
+    if (established.role === 'guest' && optionSnapshot.guestAppliedSendConfirmed !== true) {
+      throw new TypeError(
+        'Guest file playback channel requires confirmed APPLIED transport delivery',
+      );
+    }
+
+    const binding = freezeCanonical({ ...established.binding });
+    if (optionSnapshot.clockExchange !== undefined && optionSnapshot.now !== undefined) {
+      throw new TypeError('An adopted clock exchange cannot override its monotonic source');
+    }
+    const adoptedClock = optionSnapshot.clockExchange as FilePlaybackClockExchange | undefined;
+    const adoptedBinding = adoptedClock?.activeBinding();
+    if (
+      adoptedClock &&
+      (!adoptedBinding ||
+        adoptedBinding.role !== established.role ||
+        adoptedBinding.sessionId !== binding.sessionId ||
+        adoptedBinding.connectionId !== binding.connectionId)
+    ) {
+      throw new TypeError('Adopted clock exchange does not match the APPLIED connection scope');
+    }
+    const clock =
+      adoptedClock ??
+      new FilePlaybackClockExchange({
+        role: established.role,
+        sessionId: binding.sessionId,
+        connectionId: binding.connectionId,
+        ...(optionSnapshot.now === undefined ? {} : { now: optionSnapshot.now as MonotonicNow }),
+      });
+    const senderParticipantId =
+      established.role === 'host' ? binding.hostParticipantId : binding.guestParticipantId;
+    const recipientParticipantId =
+      established.role === 'host' ? binding.guestParticipantId : binding.hostParticipantId;
+    const bindings = new FilePlaybackWireBindingRegistry();
+    const sender = new FilePlaybackWireSender(
+      {
+        sessionId: binding.sessionId,
+        connectionId: binding.connectionId,
+        senderParticipantId,
+        recipientParticipantId,
+      },
+      bindings,
+    );
+    const receiverRoomClock: ReceiverRoomClock = {
+      override: null,
+      read: () => {
+        const override = receiverRoomClock.override;
+        return override ? override() : clock.nowRoomTimeMs();
+      },
+    };
+    const maxClockSkewMs =
+      optionSnapshot.maxClockSkewMs === undefined
+        ? FILE_PLAYBACK_WIRE_DEFAULT_MAX_CLOCK_SKEW_MS
+        : (optionSnapshot.maxClockSkewMs as number);
+    const receiver = new FilePlaybackWireReceiver(
+      {
+        sessionId: binding.sessionId,
+        connectionId: binding.connectionId,
+        senderParticipantId: recipientParticipantId,
+        recipientParticipantId: senderParticipantId,
+        nowRoomTimeMs: receiverRoomClock.read,
+        ...(optionSnapshot.maxClockSkewMs === undefined
+          ? {}
+          : { maxClockSkewMs: optionSnapshot.maxClockSkewMs as number }),
+      },
+      bindings,
+    );
+
+    const authority = freezeCanonical({
+      role: established.role,
+      binding,
+      connectionToken: liveConnectionToken,
+      clock,
+      bindings,
+      sender,
+      receiver,
+      receiverRoomClock,
+      maxClockSkewMs,
+    });
+    // This is the one irreversible transition. A later channel close does not
+    // release the APPLIED handshake for another connection object.
+    CLAIMED_HANDSHAKES.set(handshake, liveConnectionToken);
+    return authority;
+  } finally {
+    CONSTRUCTING_HANDSHAKES.delete(handshake);
+  }
+}
+
+/**
+ * Exact live-connection authority after HELLO/WELCOME/SNAPSHOT/APPLIED.
+ *
+ * One instance belongs to one opaque DataConnection object. A peer ID or a
+ * matching connection ID string is never enough to receive a frame. The role,
+ * participant direction, clock scope, sender scope, and receiver scope are all
+ * derived from the established handshake and cannot be overridden by callers.
+ *
+ * Guest adapters MUST construct this class only from the success continuation
+ * of sending APPLIED on this exact live connection. createApplied() alone is
+ * insufficient: if transport send throws or reports failure, close that
+ * DataConnection, discard the handshake, and never activate a channel from it.
+ */
+export class FilePlaybackConnectionChannel {
+  readonly #role: FilePlaybackClockRole;
+  #binding: Readonly<FilePlaybackSessionBindingV2> | null;
+  #connectionToken: object | null;
+  readonly #clock: FilePlaybackClockExchange;
+  readonly #bindings: FilePlaybackWireBindingRegistry;
+  readonly #sender: FilePlaybackWireSender;
+  readonly #receiver: FilePlaybackWireReceiver;
+  readonly #receiverRoomClock: ReceiverRoomClock;
+  readonly #maxClockSkewMs: number;
+  readonly #attemptTemporalCorridors = new Map<
+    FilePlaybackWireAttemptLease,
+    AttemptTemporalCorridor
+  >();
+  #closed = false;
+  #receiving = false;
+
+  constructor(
+    handshake: EstablishedHandshake,
+    liveConnectionToken: object,
+    options: FilePlaybackConnectionChannelOptions = {},
+  ) {
+    const authority = claimChannelAuthority(handshake, liveConnectionToken, options);
+    this.#role = authority.role;
+    this.#binding = authority.binding;
+    this.#connectionToken = authority.connectionToken;
+    this.#clock = authority.clock;
+    this.#bindings = authority.bindings;
+    this.#sender = authority.sender;
+    this.#receiver = authority.receiver;
+    this.#receiverRoomClock = authority.receiverRoomClock;
+    this.#maxClockSkewMs = authority.maxClockSkewMs;
+  }
+
+  role(): FilePlaybackClockRole {
+    return this.#role;
+  }
+
+  establishedBinding(): Readonly<FilePlaybackSessionBindingV2> | null {
+    return this.#closed ? null : this.#binding;
+  }
+
+  liveConnectionToken(): object | null {
+    return this.#closed ? null : this.#connectionToken;
+  }
+
+  isClosed(): boolean {
+    return this.#closed;
+  }
+
+  quality(): Readonly<ClockQuality> {
+    this.#assertOpen();
+    const quality = this.#clock.quality();
+    this.#assertOpen();
+    return quality;
+  }
+
+  /** Host identity clocks are ready immediately; guests require calibration. */
+  clockReady(): boolean {
+    this.#assertOpen();
+    return this.#temporalAuthorityAvailable();
+  }
+
+  nowRoomTimeMs(): number {
+    this.#assertTemporalAuthority();
+    const value = this.#clock.nowRoomTimeMs();
+    this.#assertTemporalAuthority();
+    return value;
+  }
+
+  bindAudioContext(context: AudioContext): FilePlaybackClockBindings {
+    this.#assertTemporalAuthority();
+    const binding = this.#clock.bindAudioContext(context);
+    this.#assertTemporalAuthority();
+    const guarded =
+      <Arguments extends unknown[]>(
+        callback: (...args: Arguments) => number,
+      ): ((...args: Arguments) => number) =>
+      (...args: Arguments): number => {
+        this.#assertTemporalAuthority();
+        const value = callback(...args);
+        this.#assertTemporalAuthority();
+        return value;
+      };
+    return Object.freeze({
+      nowRoomTimeMs: guarded(binding.nowRoomTimeMs),
+      roomTimeMsToContextTime: guarded(binding.roomTimeMsToContextTime),
+      localPerformanceMsToContextTime: guarded(binding.localPerformanceMsToContextTime),
+    });
+  }
+
+  handleWake(): void {
+    this.#assertOpen();
+    this.#clock.handleWake();
+    this.#assertOpen();
+  }
+
+  /** Automatic guest freshness renewal; exact ARM corridors keep their TTL. */
+  resetGuestClockCalibrationForRenewal(): void {
+    this.#assertOpen();
+    if (this.#role !== 'guest') {
+      throw new Error('Only the guest channel can reset clock calibration for renewal');
+    }
+    this.#clock.resetGuestCalibrationForRenewal();
+    this.#assertOpen();
+  }
+
+  createClockPing(): Readonly<FilePlaybackClockPingV2> {
+    this.#assertOpen();
+    if (this.#role !== 'guest') throw new Error('Only the guest channel can create a clock ping');
+    const ping = this.#clock.createPing();
+    this.#assertOpen();
+    return ping;
+  }
+
+  bootstrapCurrentMedia(binding: FilePlaybackWireMediaBinding): FilePlaybackWireStateLease {
+    this.#assertOpen();
+    const lease = this.#sender.bootstrapCurrentMedia(binding);
+    this.#assertOpen();
+    return lease;
+  }
+
+  bootstrapStopped(revisionWatermark: PlaybackRevisionWatermark): void {
+    this.#assertOpen();
+    this.#sender.bootstrapStopped(revisionWatermark);
+    this.#assertOpen();
+  }
+
+  stageMedia(binding: FilePlaybackWireMediaBinding): FilePlaybackWireStateLease {
+    this.#assertOpen();
+    const lease = this.#sender.stageMedia(binding);
+    this.#assertOpen();
+    return lease;
+  }
+
+  stageUnpreparedBaselineMedia(binding: FilePlaybackWireMediaBinding): FilePlaybackWireStateLease {
+    this.#assertOpen();
+    if (this.#role !== 'guest') {
+      throw new Error('Only the guest channel can stage an unprepared baseline');
+    }
+    const lease = this.#bindings.stageUnpreparedBaselineMedia(binding);
+    this.#assertOpen();
+    return lease;
+  }
+
+  commitMedia(lease: FilePlaybackWireStateLease): void {
+    this.#assertOpen();
+    this.#sender.commitMedia(lease);
+    this.#pruneRetiredAttemptCorridors();
+    this.#assertOpen();
+  }
+
+  commitStop(
+    successorLease: FilePlaybackWireStateLease,
+    expected: FilePlaybackWireExpectedStateIdentity,
+  ): void {
+    this.#assertOpen();
+    this.#sender.commitStop(successorLease, expected);
+    this.#pruneRetiredAttemptCorridors();
+    this.#assertOpen();
+  }
+
+  retireMedia(lease: FilePlaybackWireStateLease): void {
+    this.#assertOpen();
+    this.#sender.retireMedia(lease);
+    this.#pruneRetiredAttemptCorridors();
+    this.#assertOpen();
+  }
+
+  stageAttempt(
+    stateLease: FilePlaybackWireStateLease,
+    rendezvousId: string,
+  ): FilePlaybackWireAttemptLease {
+    this.#assertOpen();
+    const lease = this.#sender.stageAttempt(stateLease, rendezvousId);
+    this.#assertOpen();
+    return lease;
+  }
+
+  commitAttempt(lease: FilePlaybackWireAttemptLease): void {
+    this.#assertOpen();
+    this.#sender.commitAttempt(lease);
+    this.#pruneRetiredAttemptCorridors();
+    this.#assertOpen();
+  }
+
+  retireAttempt(lease: FilePlaybackWireAttemptLease): void {
+    this.#assertOpen();
+    this.#sender.retireAttempt(lease);
+    this.#attemptTemporalCorridors.delete(lease);
+    this.#pruneRetiredAttemptCorridors();
+    this.#assertOpen();
+  }
+
+  createWire<const Kind extends keyof FilePlaybackWirePayloadByKind>(
+    lease: FilePlaybackWireLease,
+    payload: FilePlaybackWirePayloadByKind[Kind],
+  ): FilePlaybackWireMessageForKind<Kind> {
+    this.#assertOpen();
+    const hasFreshTemporalAuthority = this.#temporalAuthorityAvailable();
+    if (!hasFreshTemporalAuthority) {
+      const indexed = this.#attemptTemporalCorridors.get(lease as FilePlaybackWireAttemptLease);
+      if (!indexed || !this.#attemptCorridorHasExactLiveAuthority(indexed)) {
+        throw new Error('Guest file playback clock is not calibrated');
+      }
+    }
+    // Role admission must happen before FilePlaybackWireSender allocates its
+    // irreversible sequence. Detach once so hostile kind accessors/re-entry
+    // cannot make the role check and sender observe different payloads.
+    const detached = snapshotMaterializedFrame(payload);
+    if (!detached || !Object.hasOwn(detached, 'kind')) {
+      throw new TypeError('File playback wire payload is invalid');
+    }
+    const kind = detached.kind;
+    if (
+      typeof kind !== 'string' ||
+      !FILE_PLAYBACK_WIRE_KINDS.includes(kind as FilePlaybackWireKind)
+    ) {
+      throw new TypeError('File playback wire payload is invalid');
+    }
+    if (WIRE_KIND_SENDER_ROLE[kind as FilePlaybackWireKind] !== this.#role) {
+      throw new TypeError(`File playback ${this.#role} cannot send ${kind}`);
+    }
+
+    if (!hasFreshTemporalAuthority || !this.#temporalAuthorityAvailable()) {
+      const corridor = this.#outboundAttemptCorridor(lease, detached, kind as FilePlaybackWireKind);
+      if (!corridor) throw new Error('Guest file playback clock is not calibrated');
+
+      // Every corridor condition, including the exact live attempt lease, is
+      // checked before sender.create() can consume a control sequence.
+      const message = this.#sender.create(
+        lease,
+        detached as unknown as FilePlaybackWirePayloadByKind[Kind],
+      );
+      this.#advanceOutboundAttemptCorridor(corridor, kind as FilePlaybackWireKind);
+      return message;
+    }
+
+    const message = this.#sender.create(
+      lease,
+      detached as unknown as FilePlaybackWirePayloadByKind[Kind],
+    );
+    this.#assertTemporalAuthority();
+    this.#advanceFreshOutboundAttemptCorridor(lease, detached, kind as FilePlaybackWireKind);
+    return message;
+  }
+
+  receive(value: unknown, liveConnectionToken: object): FilePlaybackConnectionChannelReceiveResult {
+    if (this.#closed) return rejected('closed');
+    if (liveConnectionToken !== this.#connectionToken) return rejected('wrong-connection-token');
+    if (this.#receiving) return rejected('reentrant-call');
+
+    this.#receiving = true;
+    try {
+      const detached = snapshotMaterializedFrame(value);
+      if (this.#closed) return rejected('closed');
+      if (!detached) return rejected('malformed-frame');
+
+      const hasType = Object.hasOwn(detached, 'type');
+      const hasKind = Object.hasOwn(detached, 'kind');
+      if (hasType === hasKind) return rejected('malformed-frame');
+
+      if (hasType) return this.#receiveClock(detached);
+      return this.#receiveWire(detached);
+    } finally {
+      this.#receiving = false;
+    }
+  }
+
+  /** Idempotent teardown. Previously returned AudioContext bindings fail closed. */
+  close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#connectionToken = null;
+    this.#binding = null;
+    this.#attemptTemporalCorridors.clear();
+    this.#receiverRoomClock.override = null;
+    this.#bindings.revokeAll();
+    this.#clock.clearSession();
+  }
+
+  #receiveClock(frame: DetachedFrame): FilePlaybackConnectionChannelReceiveResult {
+    const binding = this.#binding;
+    if (!binding) return rejected('closed');
+
+    if (frame.type === FILE_PLAYBACK_CLOCK_PING_TYPE) {
+      if (this.#role !== 'host') return rejected('wrong-direction');
+      const ping = parseFilePlaybackClockPingV2(frame);
+      if (!ping) return rejected('malformed-frame');
+      if (ping.sessionId !== binding.sessionId || ping.connectionId !== binding.connectionId) {
+        return rejected(
+          'clock-rejected',
+          ping.sessionId !== binding.sessionId ? 'wrong-session' : 'wrong-connection',
+        );
+      }
+      const result = this.#clock.handlePing(ping);
+      if (this.#closed) return rejected('closed');
+      if (!result.accepted) return rejected('clock-rejected', result.reason);
+      return accepted({ frame: 'clock-ping' as const, pong: result.pong });
+    }
+
+    if (frame.type === FILE_PLAYBACK_CLOCK_PONG_TYPE) {
+      if (this.#role !== 'guest') return rejected('wrong-direction');
+      const pong = parseFilePlaybackClockPongV2(frame);
+      if (!pong) return rejected('malformed-frame');
+      if (pong.sessionId !== binding.sessionId || pong.connectionId !== binding.connectionId) {
+        return rejected(
+          'clock-rejected',
+          pong.sessionId !== binding.sessionId ? 'wrong-session' : 'wrong-connection',
+        );
+      }
+      const result = this.#clock.handlePong(pong);
+      if (this.#closed) return rejected('closed');
+      if (!result.accepted) return rejected('clock-rejected', result.reason);
+      return accepted({ frame: 'clock-pong' as const, sample: result });
+    }
+
+    return rejected('malformed-frame');
+  }
+
+  #receiveWire(frame: DetachedFrame): FilePlaybackConnectionChannelReceiveResult {
+    const binding = this.#binding;
+    if (!binding) return rejected('closed');
+    const hasFreshTemporalAuthority = this.#temporalAuthorityAvailable();
+    let canonical: FilePlaybackWireMessage;
+    try {
+      canonical = createFilePlaybackWireMessage(frame as unknown as FilePlaybackWireMessage);
+    } catch {
+      return rejected('malformed-frame');
+    }
+
+    const expectedSender =
+      this.#role === 'host' ? binding.guestParticipantId : binding.hostParticipantId;
+    const expectedRecipient =
+      this.#role === 'host' ? binding.hostParticipantId : binding.guestParticipantId;
+    if (
+      canonical.senderParticipantId !== expectedSender ||
+      canonical.recipientParticipantId !== expectedRecipient
+    ) {
+      return rejected('wrong-direction');
+    }
+    if (
+      canonical.sessionId !== binding.sessionId ||
+      canonical.connectionId !== binding.connectionId
+    ) {
+      return rejected('wire-rejected');
+    }
+    const remoteRole: FilePlaybackClockRole = this.#role === 'host' ? 'guest' : 'host';
+    if (WIRE_KIND_SENDER_ROLE[canonical.kind] !== remoteRole) {
+      return rejected('wrong-role-kind');
+    }
+
+    if (!hasFreshTemporalAuthority || !this.#temporalAuthorityAvailable()) {
+      return this.#receiveWireThroughAttemptCorridor(canonical);
+    }
+
+    let armAdmission: Readonly<{
+      continuationLease: FilePlaybackClockTemporalContinuationLease;
+      admittedAtRoomTimeMs: number;
+    }> | null = null;
+    if (this.#role === 'guest' && canonical.kind === 'rendezvous-arm') {
+      try {
+        const continuationLease = this.#clock.mintCalibratedTemporalContinuationLease(
+          MAX_FILE_PLAYBACK_CLOCK_TEMPORAL_CONTINUATION_LEASE_MS,
+        );
+        const admittedAtRoomTimeMs =
+          this.#clock.roomTimeMsForTemporalContinuationLease(continuationLease);
+        if (admittedAtRoomTimeMs === null) return rejected('clock-uncalibrated');
+        armAdmission = freezeCanonical({ continuationLease, admittedAtRoomTimeMs });
+      } catch {
+        return this.#closed ? rejected('closed') : rejected('clock-uncalibrated');
+      }
+    }
+
+    const received = armAdmission
+      ? this.#receiveWithRoomTimeOverride(canonical, armAdmission.admittedAtRoomTimeMs)
+      : this.#receiver.receive(canonical);
+    if (this.#closed) return rejected('closed');
+    if (!received.accepted) return rejected('wire-rejected');
+    if (received.status === 'stale') {
+      return accepted({
+        frame: 'wire-stale' as const,
+        scope: received.scope,
+        controlSequence: received.controlSequence,
+      });
+    }
+    if (armAdmission && canonical.kind === 'rendezvous-arm') {
+      if (!received.attemptLease) return rejected('wire-rejected');
+      this.#registerAttemptCorridor(
+        canonical,
+        received.stateLease,
+        received.attemptLease,
+        armAdmission.continuationLease,
+        armAdmission.admittedAtRoomTimeMs,
+      );
+    } else {
+      this.#advanceFreshInboundAttemptCorridor(canonical, received);
+    }
+    return accepted({
+      frame: 'wire' as const,
+      message: received.message,
+      stateLease: received.stateLease,
+      attemptLease: received.attemptLease,
+    });
+  }
+
+  #receiveWireThroughAttemptCorridor(
+    canonical: FilePlaybackWireMessage,
+  ): FilePlaybackConnectionChannelReceiveResult {
+    if (
+      this.#role !== 'guest' ||
+      (canonical.kind !== 'rendezvous-finalize' && canonical.kind !== 'file-playback-cancel')
+    ) {
+      return this.#closed ? rejected('closed') : rejected('clock-uncalibrated');
+    }
+
+    const corridor = this.#findInboundAttemptCorridor(canonical);
+    if (!corridor || !this.#attemptCorridorHasExactLiveAuthority(corridor)) {
+      return this.#closed ? rejected('closed') : rejected('clock-uncalibrated');
+    }
+
+    let receivedAtRoomTimeMs: number;
+    if (canonical.kind === 'file-playback-cancel') {
+      try {
+        this.#bindings.assertCandidateAttemptLease(corridor.attemptLease);
+      } catch {
+        return rejected('wire-rejected');
+      }
+      // CANCEL is reducing cleanup authority. It remains available after the
+      // temporal token expires, but only for the exact still-candidate lease
+      // captured from a fresh ARM. The stored finite admission time exists
+      // solely inside this channel-private receiver provider.
+      receivedAtRoomTimeMs = corridor.admittedAtRoomTimeMs;
+    } else {
+      if (
+        corridor.temporalRetired ||
+        corridor.phase !== 'armed-sent' ||
+        canonical.startAtRoomTimeMs !== corridor.startAtRoomTimeMs ||
+        canonical.finalizedAtRoomTimeMs > corridor.finalizeByRoomTimeMs + this.#maxClockSkewMs
+      ) {
+        return rejected('clock-uncalibrated');
+      }
+      const continuedRoomTimeMs = this.#attemptCorridorRoomTimeMs(corridor);
+      if (continuedRoomTimeMs === null) return rejected('clock-uncalibrated');
+      receivedAtRoomTimeMs = continuedRoomTimeMs;
+    }
+
+    const received = this.#receiveWithRoomTimeOverride(canonical, receivedAtRoomTimeMs);
+    if (this.#closed) return rejected('closed');
+    if (
+      !received.accepted ||
+      received.status !== 'message' ||
+      received.attemptLease !== corridor.attemptLease ||
+      received.stateLease !== corridor.stateLease
+    ) {
+      return rejected('wire-rejected');
+    }
+
+    if (canonical.kind === 'file-playback-cancel') {
+      corridor.temporalRetired = true;
+    } else {
+      corridor.phase = 'finalize-received';
+    }
+    return accepted({
+      frame: 'wire' as const,
+      message: received.message,
+      stateLease: received.stateLease,
+      attemptLease: received.attemptLease,
+    });
+  }
+
+  #receiveWithRoomTimeOverride(
+    canonical: FilePlaybackWireMessage,
+    roomTimeMs: number,
+  ): FilePlaybackWireReceiverResult {
+    const previous = this.#receiverRoomClock.override;
+    this.#receiverRoomClock.override = () => roomTimeMs;
+    try {
+      return this.#receiver.receive(canonical);
+    } finally {
+      this.#receiverRoomClock.override = previous;
+    }
+  }
+
+  #registerAttemptCorridor(
+    arm: RendezvousArmMessage,
+    stateLease: FilePlaybackWireStateLease,
+    attemptLease: FilePlaybackWireAttemptLease,
+    continuationLease: FilePlaybackClockTemporalContinuationLease,
+    admittedAtRoomTimeMs: number,
+  ): void {
+    const binding = this.#binding;
+    if (!binding || this.#role !== 'guest') return;
+    const corridor: AttemptTemporalCorridor = {
+      continuationLease,
+      attemptLease,
+      stateLease,
+      sessionId: arm.sessionId,
+      connectionId: arm.connectionId,
+      hostParticipantId: binding.hostParticipantId,
+      guestParticipantId: binding.guestParticipantId,
+      queueItemId: arm.queueItemId,
+      runId: arm.runId,
+      revision: arm.revision,
+      sourceIdentity: arm.sourceIdentity,
+      transferSessionId: arm.transferSessionId,
+      rendezvousId: arm.rendezvousId,
+      startAtRoomTimeMs: arm.startAtRoomTimeMs,
+      finalizeByRoomTimeMs: arm.finalizeByRoomTimeMs,
+      admittedAtRoomTimeMs,
+      phase: 'admitted',
+      temporalRetired: false,
+    };
+    this.#attemptTemporalCorridors.delete(attemptLease);
+    this.#attemptTemporalCorridors.set(attemptLease, corridor);
+    while (this.#attemptTemporalCorridors.size > MAX_ATTEMPT_TEMPORAL_CORRIDORS) {
+      const oldest = this.#attemptTemporalCorridors.keys().next().value as
+        | FilePlaybackWireAttemptLease
+        | undefined;
+      if (!oldest) break;
+      this.#attemptTemporalCorridors.delete(oldest);
+    }
+  }
+
+  #findInboundAttemptCorridor(
+    message: Extract<
+      FilePlaybackWireMessage,
+      { readonly kind: 'rendezvous-finalize' | 'file-playback-cancel' }
+    >,
+  ): AttemptTemporalCorridor | null {
+    for (const corridor of this.#attemptTemporalCorridors.values()) {
+      if (this.#messageMatchesAttemptCorridor(message, corridor)) return corridor;
+    }
+    return null;
+  }
+
+  #messageMatchesAttemptCorridor(
+    message: Extract<FilePlaybackWireMessage, { readonly rendezvousId: string }>,
+    corridor: AttemptTemporalCorridor,
+  ): boolean {
+    return (
+      message.sessionId === corridor.sessionId &&
+      message.connectionId === corridor.connectionId &&
+      message.senderParticipantId === corridor.hostParticipantId &&
+      message.recipientParticipantId === corridor.guestParticipantId &&
+      message.queueItemId === corridor.queueItemId &&
+      message.runId === corridor.runId &&
+      message.revision === corridor.revision &&
+      message.sourceIdentity === corridor.sourceIdentity &&
+      message.transferSessionId === corridor.transferSessionId &&
+      message.rendezvousId === corridor.rendezvousId
+    );
+  }
+
+  #attemptCorridorHasExactLiveAuthority(corridor: AttemptTemporalCorridor): boolean {
+    try {
+      const authority = this.#bindings.authorityForAttemptLease(corridor.attemptLease);
+      if (authority.stateLease !== corridor.stateLease) return false;
+      const media = this.#bindings.bindingForStateLease(corridor.stateLease);
+      const binding = this.#binding;
+      return (
+        !!binding &&
+        binding.sessionId === corridor.sessionId &&
+        binding.connectionId === corridor.connectionId &&
+        binding.hostParticipantId === corridor.hostParticipantId &&
+        binding.guestParticipantId === corridor.guestParticipantId &&
+        authority.rendezvousId === corridor.rendezvousId &&
+        media.run.queueItemId === corridor.queueItemId &&
+        media.run.runId === corridor.runId &&
+        media.run.revision === corridor.revision &&
+        media.sourceIdentity === corridor.sourceIdentity &&
+        media.transferSessionId === corridor.transferSessionId
+      );
+    } catch {
+      this.#attemptTemporalCorridors.delete(corridor.attemptLease);
+      return false;
+    }
+  }
+
+  #attemptCorridorRoomTimeMs(corridor: AttemptTemporalCorridor): number | null {
+    if (corridor.temporalRetired) return null;
+    const roomTimeMs = this.#clock.roomTimeMsForTemporalContinuationLease(
+      corridor.continuationLease,
+    );
+    if (roomTimeMs === null || roomTimeMs >= corridor.startAtRoomTimeMs + this.#maxClockSkewMs) {
+      return null;
+    }
+    return roomTimeMs;
+  }
+
+  #outboundAttemptCorridor(
+    lease: FilePlaybackWireLease,
+    payload: DetachedFrame,
+    kind: FilePlaybackWireKind,
+  ): AttemptTemporalCorridor | null {
+    if (
+      this.#role !== 'guest' ||
+      (kind !== 'rendezvous-armed' && kind !== 'rendezvous-finalized') ||
+      !Object.hasOwn(payload, 'rendezvousId')
+    ) {
+      return null;
+    }
+    const corridor = this.#attemptTemporalCorridors.get(lease as FilePlaybackWireAttemptLease);
+    if (
+      !corridor ||
+      payload.rendezvousId !== corridor.rendezvousId ||
+      !this.#attemptCorridorHasExactLiveAuthority(corridor) ||
+      this.#attemptCorridorRoomTimeMs(corridor) === null ||
+      (kind === 'rendezvous-armed'
+        ? corridor.phase !== 'admitted'
+        : corridor.phase !== 'finalize-received')
+    ) {
+      return null;
+    }
+    return corridor;
+  }
+
+  #advanceOutboundAttemptCorridor(
+    corridor: AttemptTemporalCorridor,
+    kind: FilePlaybackWireKind,
+  ): void {
+    if (kind === 'rendezvous-armed') corridor.phase = 'armed-sent';
+    else if (kind === 'rendezvous-finalized') corridor.temporalRetired = true;
+  }
+
+  #advanceFreshOutboundAttemptCorridor(
+    lease: FilePlaybackWireLease,
+    payload: DetachedFrame,
+    kind: FilePlaybackWireKind,
+  ): void {
+    if (kind !== 'rendezvous-armed' && kind !== 'rendezvous-finalized') return;
+    const corridor = this.#attemptTemporalCorridors.get(lease as FilePlaybackWireAttemptLease);
+    if (
+      !corridor ||
+      payload.rendezvousId !== corridor.rendezvousId ||
+      !this.#attemptCorridorHasExactLiveAuthority(corridor)
+    ) {
+      return;
+    }
+    this.#advanceOutboundAttemptCorridor(corridor, kind);
+  }
+
+  #advanceFreshInboundAttemptCorridor(
+    message: FilePlaybackWireMessage,
+    received: ActiveWireReceiverResult,
+  ): void {
+    const attemptLease = received.attemptLease;
+    if (!attemptLease) return;
+    const corridor = this.#attemptTemporalCorridors.get(attemptLease);
+    if (!corridor) return;
+    if (!('rendezvousId' in message) || !this.#messageMatchesAttemptCorridor(message, corridor)) {
+      corridor.temporalRetired = true;
+      return;
+    }
+    if (message.kind === 'rendezvous-finalize') {
+      if (
+        corridor.phase === 'armed-sent' &&
+        message.startAtRoomTimeMs === corridor.startAtRoomTimeMs
+      ) {
+        corridor.phase = 'finalize-received';
+      } else {
+        corridor.temporalRetired = true;
+      }
+    } else if (message.kind === 'file-playback-cancel') {
+      corridor.temporalRetired = true;
+    }
+  }
+
+  #pruneRetiredAttemptCorridors(): void {
+    for (const corridor of this.#attemptTemporalCorridors.values()) {
+      this.#attemptCorridorHasExactLiveAuthority(corridor);
+    }
+  }
+
+  #assertOpen(): void {
+    if (this.#closed) throw new Error('File playback connection channel is closed');
+  }
+
+  #temporalAuthorityAvailable(): boolean {
+    if (this.#closed) return false;
+    if (this.#role === 'host') return true;
+    try {
+      const calibrated = this.#clock.quality().calibrated;
+      return !this.#closed && calibrated;
+    } catch {
+      return false;
+    }
+  }
+
+  #assertTemporalAuthority(): void {
+    this.#assertOpen();
+    if (!this.#temporalAuthorityAvailable()) {
+      this.#assertOpen();
+      throw new Error('Guest file playback clock is not calibrated');
+    }
+  }
+}

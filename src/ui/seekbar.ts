@@ -14,7 +14,11 @@ import { fmtTime, getTrackPosition, seekTo } from '../player/transport.ts';
 import { getPlaybackModeActivitySnapshot } from '../player/ownership.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { getCurrentQueueItemId } from '../player/queue-model.ts';
-import type { ProPlaybackUiControlPendingEvent } from '../types/index.ts';
+import type {
+  ProPlaybackUiControlPendingEvent,
+  QueueItemId,
+  V2HostSeekPendingEvent,
+} from '../types/index.ts';
 import { syncRangeProgress } from './range-drag.ts';
 
 function isSeekUnavailable(): boolean {
@@ -143,8 +147,50 @@ let _rafAnchorTime = 0;
 let _rafAnchorTs = 0;
 let _rafLastFmtSec = -1;
 let _systemAudioZerosApplied = false;
-let _pendingProSeek: Readonly<ProPlaybackUiControlPendingEvent> | null = null;
+interface PendingSeekProjection {
+  readonly owner: 'pro' | 'v2';
+  readonly token: number;
+  readonly queueItemId: QueueItemId | null;
+  readonly targetSeconds: number;
+  readonly order: number;
+}
+
+let _pendingSeekOrder = 0;
+let _pendingProSeek: PendingSeekProjection | null = null;
+let _pendingV2Seek: PendingSeekProjection | null = null;
 const SYSTEM_AUDIO_POLL_MS = 1000;
+
+function getPendingSeekProjection(): PendingSeekProjection | null {
+  if (!_pendingProSeek) return _pendingV2Seek;
+  if (!_pendingV2Seek) return _pendingProSeek;
+  return _pendingProSeek.order > _pendingV2Seek.order ? _pendingProSeek : _pendingV2Seek;
+}
+
+function createPendingSeekProjection(
+  owner: PendingSeekProjection['owner'],
+  event: Readonly<ProPlaybackUiControlPendingEvent | V2HostSeekPendingEvent>,
+): PendingSeekProjection {
+  _pendingSeekOrder += 1;
+  return {
+    owner,
+    token: event.token,
+    queueItemId: event.queueItemId,
+    targetSeconds: event.targetSeconds,
+    order: _pendingSeekOrder,
+  };
+}
+
+function clearPendingSeekProjections(): void {
+  _pendingProSeek = null;
+  _pendingV2Seek = null;
+}
+
+function keepOnlyCurrentQueueProjections(): PendingSeekProjection | null {
+  const queueItemId = getCurrentQueueItemId();
+  if (_pendingProSeek?.queueItemId !== queueItemId) _pendingProSeek = null;
+  if (_pendingV2Seek?.queueItemId !== queueItemId) _pendingV2Seek = null;
+  return getPendingSeekProjection();
+}
 
 function renderSeekPosition(positionSeconds: number): void {
   const safePosition = Number.isFinite(positionSeconds) ? Math.max(0, positionSeconds) : 0;
@@ -195,7 +241,7 @@ function _seekRafLoop(now: number): void {
   // interpolation is correct. PAUSED / IDLE / DECODING leave the thumb
   // wherever it last was, which matches user expectation.
   const isPlaying = isFileActivelyPlaying();
-  if (!isSeeking && !_pendingProSeek && isPlaying) {
+  if (!isSeeking && !getPendingSeekProjection() && isPlaying) {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     if (slider) {
@@ -217,7 +263,7 @@ function _seekRafLoop(now: number): void {
 
 function _startSeekRaf(): void {
   if (_rafId) return;
-  _rafAnchorTime = _pendingProSeek?.targetSeconds ?? getTrackPosition();
+  _rafAnchorTime = getPendingSeekProjection()?.targetSeconds ?? getTrackPosition();
   _rafAnchorTs = performance.now();
   _rafLastFmtSec = -1;
   _rafId = requestAnimationFrame(_seekRafLoop);
@@ -241,7 +287,7 @@ const _busScope = createBusScope();
 function initSeekBarBusHandlers(): void {
   _busScope.dispose();
   finishSeekDraft();
-  _pendingProSeek = null;
+  clearPendingSeekProjections();
 
   _busScope.on('ui:duration-update', (duration) => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
@@ -256,14 +302,14 @@ function initSeekBarBusHandlers(): void {
     finishSeekDraft();
     clearManagedTimer('time-update-loop');
     _stopSeekRaf();
-    // A PRO playing seek intentionally tears down and re-prepares the same
-    // resident media. Its internal stop emits seek-reset, but the initiating
-    // browser should keep showing the requested target until canonical apply.
-    if (_pendingProSeek?.queueItemId === getCurrentQueueItemId()) {
-      renderSeekPosition(_pendingProSeek.targetSeconds);
+    // PRO and V2 playing seeks may intentionally tear down and re-prepare the
+    // same resident media. Their internal stop emits seek-reset, but the
+    // initiating browser keeps the requested target until canonical apply.
+    const projection = keepOnlyCurrentQueueProjections();
+    if (projection) {
+      renderSeekPosition(projection.targetSeconds);
       return;
     }
-    _pendingProSeek = null;
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     if (slider) {
@@ -303,7 +349,7 @@ function initSeekBarBusHandlers(): void {
         //    until the next 250ms tick collapses it again. Treat 0 as
         //    transient and let the existing anchor (set by _startSeekRaf
         //    or by the previous valid tick) keep advancing via dt.
-        if (!_pendingProSeek && isFileActivelyPlaying()) {
+        if (!getPendingSeekProjection() && isFileActivelyPlaying()) {
           const pos = getTrackPosition();
           if (pos > 0 && Number.isFinite(pos)) {
             _rafAnchorTime = pos;
@@ -326,16 +372,16 @@ function initSeekBarBusHandlers(): void {
     finishSeekDraft();
     clearManagedTimer('time-update-loop');
     _stopSeekRaf();
-    if (_pendingProSeek?.queueItemId === getCurrentQueueItemId()) {
-      renderSeekPosition(_pendingProSeek.targetSeconds);
+    const projection = keepOnlyCurrentQueueProjections();
+    if (projection) {
+      renderSeekPosition(projection.targetSeconds);
       return;
     }
-    _pendingProSeek = null;
   });
 
   _busScope.on('pro-playback:ui-control-pending', (event) => {
     if (event.kind !== 'seek') return;
-    _pendingProSeek = event;
+    _pendingProSeek = createPendingSeekProjection('pro', event);
     _rafAnchorTime = event.targetSeconds;
     _rafAnchorTs = performance.now();
     renderSeekPosition(event.targetSeconds);
@@ -345,6 +391,13 @@ function initSeekBarBusHandlers(): void {
     if (event.kind !== 'seek' || _pendingProSeek?.token !== event.token) return;
     const projectedPosition = _pendingProSeek.targetSeconds;
     _pendingProSeek = null;
+    const remainingProjection = getPendingSeekProjection();
+    if (remainingProjection) {
+      _rafAnchorTime = remainingProjection.targetSeconds;
+      _rafAnchorTs = performance.now();
+      renderSeekPosition(remainingProjection.targetSeconds);
+      return;
+    }
     const livePosition = getTrackPosition();
     const canonicalPosition = Number.isFinite(event.positionSeconds)
       ? event.positionSeconds
@@ -361,9 +414,40 @@ function initSeekBarBusHandlers(): void {
     renderSeekPosition(position);
   });
 
+  _busScope.on('player:v2-host-seek-pending', (event) => {
+    _pendingV2Seek = createPendingSeekProjection('v2', event);
+    _rafAnchorTime = event.targetSeconds;
+    _rafAnchorTs = performance.now();
+    renderSeekPosition(event.targetSeconds);
+  });
+
+  _busScope.on('player:v2-host-seek-settled', (event) => {
+    if (_pendingV2Seek?.token !== event.token || _pendingV2Seek.queueItemId !== event.queueItemId) {
+      return;
+    }
+    _pendingV2Seek = null;
+    const remainingProjection = getPendingSeekProjection();
+    if (remainingProjection) {
+      _rafAnchorTime = remainingProjection.targetSeconds;
+      _rafAnchorTs = performance.now();
+      renderSeekPosition(remainingProjection.targetSeconds);
+      return;
+    }
+    const positionSeconds =
+      Number.isFinite(event.positionSeconds) && event.positionSeconds >= 0
+        ? event.positionSeconds
+        : 0;
+    _rafAnchorTime = positionSeconds;
+    _rafAnchorTs = performance.now();
+    renderSeekPosition(positionSeconds);
+  });
+
   _busScope.on('state:playlist.currentQueueItemId', (queueItemId) => {
     if (_pendingProSeek && _pendingProSeek.queueItemId !== queueItemId) {
       _pendingProSeek = null;
+    }
+    if (_pendingV2Seek && _pendingV2Seek.queueItemId !== queueItemId) {
+      _pendingV2Seek = null;
     }
   });
 
@@ -406,14 +490,14 @@ function initSeekBarBusHandlers(): void {
       if (duration > 0) {
         setSeekSliderMax(slider, String(duration));
       }
-      if (!isSeeking && !_pendingProSeek && duration > 0) {
+      if (!isSeeking && !getPendingSeekProjection() && duration > 0) {
         setSeekSliderValue(slider, String(currentTime));
         slider.setAttribute('aria-valuetext', currentFormatted);
       }
     }
     // Always update time text — even during duration=0 (new video loading),
     // so the user sees "0:03" ticking instead of a frozen display.
-    if (tc && !isSeeking && !_pendingProSeek) tc.innerText = currentFormatted;
+    if (tc && !isSeeking && !getPendingSeekProjection()) tc.innerText = currentFormatted;
     if (tt && duration > 0) tt.innerText = totalFormatted;
   });
 }

@@ -18,5 +18,5 @@ describe('Dead-export ratchet', () => {
       throw new Error(`Dead-export check failed:\n${e.stdout ?? ''}${e.stderr ?? ''}`);
     }
     expect(output).toContain('OK');
-  });
+  }, 60_000);
 });

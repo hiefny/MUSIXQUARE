@@ -5,7 +5,7 @@
 import type { Page } from '@playwright/test';
 
 const PEER_CONFIG = {
-  host: 'localhost',
+  host: '127.0.0.1',
   port: 9000,
   path: '/',
   secure: false,

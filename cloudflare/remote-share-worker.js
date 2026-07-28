@@ -48,10 +48,60 @@ const CAPABILITY_TOKEN_TTL_DEFAULT = 600;
 const SESSION_JSON_BODY_MAX_BYTES = 8 * 1024;
 const COMPLETE_JSON_BODY_MAX_BYTES = 8 * 1024;
 const QUOTA_JSON_BODY_MAX_BYTES = 4 * 1024;
+const QUOTA_BATCH_JSON_BODY_MAX_BYTES = 32 * 1024;
 const QUOTA_STATE_KEY = 'quota-state';
 const QUOTA_STATE_VERSION = 1;
 const QUOTA_STATE_MAX_ENTRIES = ROOM_STORAGE_SCAN_MAX_OBJECTS;
 const QUOTA_ALARM_RETRY_MS = 60 * 1000;
+const RECORD_SET_FORMAT_VERSION = 2;
+const RECORD_SET_PLAINTEXT_BYTES = 8 * 1024 * 1024;
+const RECORD_SET_MAX_RECORDS = Math.ceil(REMOTE_SHARE_MAX_BYTES / RECORD_SET_PLAINTEXT_BYTES);
+const RECORD_SET_MAX_IDENTIFIER_LENGTH = 256;
+const RECORD_SET_MAX_NAME_LENGTH = 512;
+const RECORD_SET_MAX_MIME_LENGTH = 128;
+const RECORD_SET_TOKEN_KEYS = Object.freeze([
+  'cleanupToken',
+  'exp',
+  'expiresAt',
+  'iat',
+  'kind',
+  'mime',
+  'name',
+  'nonce',
+  'queueItemId',
+  'recordCount',
+  'recordSize',
+  'roomId',
+  'sessionId',
+  'setId',
+  'size',
+  'sourceIdentity',
+  'v',
+]);
+const RECORD_SET_CREATE_KEYS = Object.freeze([
+  'mime',
+  'name',
+  'queueItemId',
+  'recordCount',
+  'recordSize',
+  'roomId',
+  'sessionId',
+  'size',
+  'sourceIdentity',
+]);
+const RECORD_SET_AUTHORITY_KEYS = Object.freeze(['setToken']);
+const RECORD_SET_RESERVATION_KEYS = Object.freeze([
+  'cleanupToken',
+  'encryptedSize',
+  'expiresAt',
+  'objectId',
+  'objectKey',
+  'recordCount',
+  'recordIndex',
+  'roomId',
+  'setId',
+]);
+const RECORD_SET_MIME_RE = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u;
 // Standard ephemeral rooms are generated only in the 100000-999999 range.
 // The complete 0xxxxx namespace belongs to persistent PRO rooms and must never
 // share this temporary encrypted-object bucket or its per-room quota keys.
@@ -116,6 +166,7 @@ function requiresAllowedOrigin(path) {
     path === '/session' ||
     path === '/security-config' ||
     path === '/complete' ||
+    /^\/v2\/sets(?:\/|$)/.test(path) ||
     /^\/download\/[^/]+\/[^/]+$/.test(path) ||
     /^\/object\/[^/]+\/[^/]+$/.test(path)
   );
@@ -473,8 +524,9 @@ async function createSignedToken(payload, secret) {
 
 async function verifySignedToken(token, secret) {
   try {
-    const [encodedPayload, encodedSignature] = String(token || '').split('.');
-    if (!encodedPayload || !encodedSignature) return null;
+    const parts = String(token || '').split('.');
+    if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+    const [encodedPayload, encodedSignature] = parts;
 
     const key = await importSigningKey(secret);
     const valid = await crypto.subtle.verify(
@@ -493,6 +545,163 @@ async function verifySignedToken(token, secret) {
 
 function standardRoomId(value) {
   return typeof value === 'string' && STANDARD_ROOM_CODE_RE.test(value) ? value : null;
+}
+
+function hasExactOwnKeys(value, expectedKeys) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  return keys.length === expectedKeys.length && keys.every((key) => expectedKeys.includes(key));
+}
+
+function containsControlCharacter(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
+  }
+  return false;
+}
+
+function hasUnpairedSurrogate(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
+      index += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function safeRecordSetIdentifier(value) {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= RECORD_SET_MAX_IDENTIFIER_LENGTH &&
+    value === value.trim() &&
+    !containsControlCharacter(value) &&
+    !hasUnpairedSurrogate(value)
+  );
+}
+
+function safeRecordSetName(value) {
+  return (
+    typeof value === 'string' &&
+    value.trim().length > 0 &&
+    value.length <= RECORD_SET_MAX_NAME_LENGTH &&
+    !containsControlCharacter(value) &&
+    !hasUnpairedSurrogate(value)
+  );
+}
+
+function safeRecordSetMime(value) {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= RECORD_SET_MAX_MIME_LENGTH &&
+    value === value.trim() &&
+    RECORD_SET_MIME_RE.test(value)
+  );
+}
+
+const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_V8_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function validRecordSetId(value) {
+  return typeof value === 'string' && UUID_V4_RE.test(value);
+}
+
+function formatUuid(bytes) {
+  const value = hex(bytes);
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(
+    16,
+    20,
+  )}-${value.slice(20, 32)}`;
+}
+
+async function recordObjectId(setId, recordIndex) {
+  if (!validRecordSetId(setId) || !Number.isSafeInteger(recordIndex) || recordIndex < 0) {
+    return null;
+  }
+  const digest = new Uint8Array(
+    await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(`MXQR\0R2-RECORD-OBJECT\0${setId}\0${recordIndex}`),
+    ),
+  ).slice(0, 16);
+  digest[6] = (digest[6] & 0x0f) | 0x80;
+  digest[8] = (digest[8] & 0x3f) | 0x80;
+  return formatUuid(digest);
+}
+
+function recordSetCount(size, recordSize = RECORD_SET_PLAINTEXT_BYTES) {
+  if (
+    !Number.isSafeInteger(size) ||
+    size <= 0 ||
+    size > REMOTE_SHARE_MAX_BYTES ||
+    recordSize !== RECORD_SET_PLAINTEXT_BYTES
+  ) {
+    return null;
+  }
+  const count = Math.ceil(size / recordSize);
+  return count > 0 && count <= RECORD_SET_MAX_RECORDS ? count : null;
+}
+
+function recordSetLayout(size, recordSize, recordCount, recordIndex) {
+  if (
+    recordSize !== RECORD_SET_PLAINTEXT_BYTES ||
+    recordSetCount(size, recordSize) !== recordCount ||
+    !Number.isSafeInteger(recordIndex) ||
+    recordIndex < 0 ||
+    recordIndex >= recordCount
+  ) {
+    return null;
+  }
+  const plaintextSize =
+    recordIndex === recordCount - 1 ? size - recordIndex * recordSize : recordSize;
+  if (!Number.isSafeInteger(plaintextSize) || plaintextSize <= 0) return null;
+  return {
+    encryptedSize: plaintextSize + AES_GCM_TAG_BYTES,
+    plaintextSize,
+  };
+}
+
+function parseRecordSetCreate(body) {
+  if (!hasExactOwnKeys(body, RECORD_SET_CREATE_KEYS)) return null;
+  const roomId = standardRoomId(body.roomId);
+  const size = body.size;
+  const recordSize = body.recordSize;
+  const recordCount = body.recordCount;
+  if (
+    !roomId ||
+    !safeRecordSetIdentifier(body.sessionId) ||
+    !safeQueueItemId(body.queueItemId) ||
+    !safeRecordSetIdentifier(body.sourceIdentity) ||
+    !safeRecordSetName(body.name) ||
+    !safeRecordSetMime(body.mime) ||
+    typeof size !== 'number' ||
+    !Number.isSafeInteger(size) ||
+    typeof recordSize !== 'number' ||
+    recordSize !== RECORD_SET_PLAINTEXT_BYTES ||
+    typeof recordCount !== 'number' ||
+    !Number.isSafeInteger(recordCount) ||
+    recordSetCount(size, recordSize) !== recordCount
+  ) {
+    return null;
+  }
+  return {
+    mime: body.mime,
+    name: body.name,
+    queueItemId: body.queueItemId,
+    recordCount,
+    recordSize,
+    roomId,
+    sessionId: body.sessionId,
+    size,
+    sourceIdentity: body.sourceIdentity,
+  };
 }
 
 function metadataString(value, fallback = '') {
@@ -665,6 +874,99 @@ async function reserveRoomStorage(env, reservation) {
   throw new Error('room storage quota unavailable');
 }
 
+async function reserveRecordSetStorage(env, roomId, setId, reservations) {
+  const result = await callRoomQuota(env, roomId, 'reserve-batch', {
+    reservations,
+    setId,
+  });
+  if (result.status === 200 && result.payload?.reserved === true) return true;
+  if (result.status === 409 && result.payload?.code === 'ROOM_STORAGE_QUOTA_EXCEEDED') {
+    return false;
+  }
+  throw new Error('room storage quota unavailable');
+}
+
+async function authorizeRecordSetUpload(env, reservation) {
+  const result = await callRoomQuota(env, reservation.roomId, 'authorize-record', reservation);
+  if (result.status === 200 && result.payload?.authorized === true) return 'authorized';
+  if (result.status === 410 && result.payload?.code === 'RECORD_SET_REVOKED') return 'revoked';
+  if (result.status === 404) return 'missing';
+  throw new Error('room storage quota unavailable');
+}
+
+async function completeRecordSetStorageReservation(env, reservation) {
+  const result = await callRoomQuota(env, reservation.roomId, 'complete', reservation);
+  if (result.status === 200 && result.payload?.completed === true) {
+    const readyRecordCount = Number(result.payload.readyRecordCount);
+    const recordCount = Number(result.payload.recordCount);
+    if (
+      !Number.isSafeInteger(readyRecordCount) ||
+      readyRecordCount < 0 ||
+      !Number.isSafeInteger(recordCount) ||
+      recordCount <= 0 ||
+      readyRecordCount > recordCount
+    ) {
+      throw new Error('invalid room storage quota response');
+    }
+    return {
+      complete: readyRecordCount === recordCount,
+      readyRecordCount,
+      recordCount,
+    };
+  }
+  if (result.status === 409 && result.payload?.code === 'ROOM_STORAGE_QUOTA_EXCEEDED') {
+    return 'quota-exceeded';
+  }
+  if (result.status === 404) return 'missing';
+  if (result.status === 410 && result.payload?.code === 'RECORD_SET_REVOKED') return 'revoked';
+  throw new Error('room storage quota unavailable');
+}
+
+async function releaseRecordSetStorageBestEffort(env, roomId, setId, reservations) {
+  try {
+    const result = await callRoomQuota(env, roomId, 'release-batch', {
+      reservations,
+      setId,
+    });
+    if (
+      result.status !== 200 ||
+      (result.payload?.released !== true && result.payload?.released !== false)
+    ) {
+      throw new Error('room storage quota unavailable');
+    }
+  } catch (error) {
+    // Creation has not exposed a PUT URL yet. A failed release remains a
+    // conservative all-record reservation until fixed expiry.
+    console.warn('remote share record-set reservation release failed', error);
+  }
+}
+
+async function revokeRecordSetStorage(env, roomId, setId, cleanupToken) {
+  const result = await callRoomQuota(env, roomId, 'revoke-set', {
+    cleanupToken,
+    setId,
+  });
+  if (result.status === 200 && result.payload?.revoked === true) {
+    const objectIds = result.payload.objectIds;
+    if (
+      !Array.isArray(objectIds) ||
+      objectIds.length === 0 ||
+      objectIds.length > RECORD_SET_MAX_RECORDS ||
+      objectIds.some((objectId) => typeof objectId !== 'string' || !UUID_V8_RE.test(objectId))
+    ) {
+      throw new Error('invalid room storage quota response');
+    }
+    for (let index = 0; index < objectIds.length; index += 1) {
+      if (objectIds[index] !== (await recordObjectId(setId, index))) {
+        throw new Error('invalid room storage quota response');
+      }
+    }
+    return objectIds;
+  }
+  if (result.status === 404) return null;
+  throw new Error('room storage quota unavailable');
+}
+
 async function completeRoomStorageReservation(env, reservation) {
   const result = await callRoomQuota(env, reservation.roomId, 'complete', reservation);
   if (result.status === 200 && result.payload?.completed === true) return 'completed';
@@ -701,6 +1003,508 @@ function rateLimited(request, env, message, retryAfterSeconds) {
   return json(request, env, { error: message, retryAfterSeconds }, 429, {
     'retry-after': String(retryAfterSeconds),
   });
+}
+
+async function consumeUploadSessionRateLimits(request, env, secret, roomId) {
+  const rateWindowSeconds = parseLimit(
+    env.RATE_LIMIT_WINDOW_SECONDS,
+    DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
+  );
+  const ipUploadLimit = parseLimit(env.IP_UPLOADS_PER_WINDOW, DEFAULT_IP_UPLOADS_PER_WINDOW);
+  const roomUploadLimit = parseOptionalLimit(
+    env.ROOM_UPLOADS_PER_WINDOW,
+    DEFAULT_ROOM_UPLOADS_PER_WINDOW,
+  );
+  const ipAllowed = await consumeLimit(
+    env,
+    await rateLimitIpKey(secret, request),
+    ipUploadLimit,
+    rateWindowSeconds,
+  );
+  if (!ipAllowed) {
+    return rateLimited(request, env, 'rate limited', rateWindowSeconds);
+  }
+  if (roomUploadLimit > 0) {
+    const roomAllowed = await consumeLimit(
+      env,
+      `session-room:${roomId}`,
+      roomUploadLimit,
+      rateWindowSeconds,
+    );
+    if (!roomAllowed) {
+      return rateLimited(request, env, 'room rate limited', rateWindowSeconds);
+    }
+  }
+  return null;
+}
+
+async function recordSetReservation(payload, recordIndex) {
+  const layout = recordSetLayout(
+    Number(payload.size),
+    Number(payload.recordSize),
+    Number(payload.recordCount),
+    recordIndex,
+  );
+  const objectId = await recordObjectId(payload.setId, recordIndex);
+  const key = objectId ? objectKey(payload.roomId, objectId) : null;
+  if (!layout || !objectId || !key) return null;
+  return {
+    cleanupToken: payload.cleanupToken,
+    encryptedSize: layout.encryptedSize,
+    expiresAt: payload.expiresAt,
+    objectId,
+    objectKey: key,
+    recordCount: payload.recordCount,
+    recordIndex,
+    roomId: payload.roomId,
+    setId: payload.setId,
+  };
+}
+
+async function recordSetReservations(payload) {
+  const reservations = await Promise.all(
+    Array.from({ length: payload.recordCount }, (_, recordIndex) =>
+      recordSetReservation(payload, recordIndex),
+    ),
+  );
+  return reservations.every(Boolean) ? reservations : null;
+}
+
+async function verifyRecordSetToken(token, secret, expectedRoomId, expectedSetId) {
+  const payload = await verifySignedToken(token, secret);
+  const now = Date.now();
+  if (
+    !hasExactOwnKeys(payload, RECORD_SET_TOKEN_KEYS) ||
+    payload.v !== RECORD_SET_FORMAT_VERSION ||
+    payload.kind !== 'record-set' ||
+    payload.roomId !== standardRoomId(expectedRoomId) ||
+    payload.setId !== expectedSetId ||
+    !validRecordSetId(payload.setId) ||
+    !safeRecordSetIdentifier(payload.sessionId) ||
+    !safeQueueItemId(payload.queueItemId) ||
+    !safeRecordSetIdentifier(payload.sourceIdentity) ||
+    !safeRecordSetName(payload.name) ||
+    !safeRecordSetMime(payload.mime) ||
+    !Number.isSafeInteger(payload.size) ||
+    payload.recordSize !== RECORD_SET_PLAINTEXT_BYTES ||
+    !Number.isSafeInteger(payload.recordCount) ||
+    recordSetCount(payload.size, payload.recordSize) !== payload.recordCount ||
+    !UUID_V4_RE.test(String(payload.cleanupToken || '')) ||
+    !UUID_V4_RE.test(String(payload.nonce || '')) ||
+    !Number.isSafeInteger(payload.iat) ||
+    !Number.isSafeInteger(payload.exp) ||
+    !Number.isSafeInteger(payload.expiresAt) ||
+    payload.iat > payload.exp ||
+    payload.iat > now + 60_000 ||
+    payload.exp !== payload.expiresAt ||
+    payload.exp <= now
+  ) {
+    return null;
+  }
+  return payload;
+}
+
+async function handleRecordSetCreate(request, env) {
+  const secret = getSigningSecret(env);
+  if (!secret) return json(request, env, { error: 'signing secret missing' }, 500);
+  const capabilityError = await requireSessionCapability(request, env);
+  if (capabilityError) return capabilityError;
+
+  const parsedBody = await readJsonBodyLimited(request, SESSION_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(request, env, parsedBody);
+  const create = parseRecordSetCreate(parsedBody.value);
+  if (!create) {
+    return json(request, env, { error: 'invalid record set request' }, 400);
+  }
+  if (!atomicRoomStorageQuotaEnabled(env) || !env.REMOTE_SHARE_BUCKET || !getR2S3Config(env)) {
+    return json(request, env, { error: 'record set storage unavailable' }, 503);
+  }
+
+  const rateError = await consumeUploadSessionRateLimits(request, env, secret, create.roomId);
+  if (rateError) return rateError;
+
+  const now = Date.now();
+  const objectTtlSeconds = parseLimit(env.OBJECT_TTL_SECONDS, DEFAULT_TTL_SECONDS);
+  const expiresAt = now + objectTtlSeconds * 1000;
+  const setId = crypto.randomUUID();
+  const cleanupToken = crypto.randomUUID();
+  const tokenPayload = {
+    v: RECORD_SET_FORMAT_VERSION,
+    kind: 'record-set',
+    roomId: create.roomId,
+    setId,
+    sessionId: create.sessionId,
+    queueItemId: create.queueItemId,
+    sourceIdentity: create.sourceIdentity,
+    name: create.name,
+    mime: create.mime,
+    size: create.size,
+    recordSize: create.recordSize,
+    recordCount: create.recordCount,
+    expiresAt,
+    cleanupToken,
+    iat: now,
+    exp: expiresAt,
+    nonce: crypto.randomUUID(),
+  };
+  const reservations = await recordSetReservations(tokenPayload);
+  if (!reservations) {
+    return json(request, env, { error: 'invalid record set request' }, 400);
+  }
+
+  let quotaReserved = false;
+  try {
+    let reserved;
+    try {
+      reserved = await reserveRecordSetStorage(env, create.roomId, setId, reservations);
+    } catch (error) {
+      console.warn('remote share record-set quota unavailable', error);
+      await releaseRecordSetStorageBestEffort(env, create.roomId, setId, reservations);
+      return json(request, env, { error: 'room storage quota unavailable' }, 503);
+    }
+    if (!reserved) return roomStorageQuotaExceeded(request, env);
+    quotaReserved = true;
+
+    const setToken = await createSignedToken(tokenPayload, secret);
+    const url = new URL(request.url);
+    const records = reservations.map((reservation) => {
+      const layout = recordSetLayout(
+        create.size,
+        create.recordSize,
+        create.recordCount,
+        reservation.recordIndex,
+      );
+      return {
+        index: reservation.recordIndex,
+        objectId: reservation.objectId,
+        plaintextSize: layout.plaintextSize,
+        encryptedSize: layout.encryptedSize,
+        downloadUrl: `${url.origin}/download/${create.roomId}/${reservation.objectId}`,
+      };
+    });
+    quotaReserved = false;
+    return json(request, env, {
+      v: RECORD_SET_FORMAT_VERSION,
+      setId,
+      recordSize: create.recordSize,
+      recordCount: create.recordCount,
+      expiresAt,
+      setToken,
+      cleanupToken,
+      records,
+    });
+  } catch (error) {
+    if (quotaReserved) {
+      await releaseRecordSetStorageBestEffort(env, create.roomId, setId, reservations);
+    }
+    throw error;
+  }
+}
+
+async function parseRecordSetAuthority(request, env, roomId, setId) {
+  const secret = getSigningSecret(env);
+  if (!secret) {
+    return { response: json(request, env, { error: 'signing secret missing' }, 500) };
+  }
+  const parsedBody = await readJsonBodyLimited(request, COMPLETE_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return { response: jsonBodyError(request, env, parsedBody) };
+  if (!hasExactOwnKeys(parsedBody.value, RECORD_SET_AUTHORITY_KEYS)) {
+    return {
+      response: json(request, env, { error: 'invalid record set authority' }, 400),
+    };
+  }
+  if (typeof parsedBody.value.setToken !== 'string') {
+    return {
+      response: json(request, env, { error: 'invalid record set authority' }, 400),
+    };
+  }
+  const payload = await verifyRecordSetToken(parsedBody.value.setToken, secret, roomId, setId);
+  if (!payload) {
+    return {
+      response: json(request, env, { error: 'invalid record set authority' }, 403),
+    };
+  }
+  return { payload };
+}
+
+function recordSetUploadMetadata(payload, reservation, layout, identityHashes) {
+  return {
+    'content-type': 'application/octet-stream',
+    'x-amz-meta-cleanup-token': payload.cleanupToken,
+    'x-amz-meta-encrypted-size': String(layout.encryptedSize),
+    'x-amz-meta-expires-at': String(payload.expiresAt),
+    'x-amz-meta-format-version': String(RECORD_SET_FORMAT_VERSION),
+    'x-amz-meta-mime': metadataString(payload.mime, 'application/octet-stream'),
+    'x-amz-meta-name': metadataString(payload.name, 'track'),
+    'x-amz-meta-object-id': reservation.objectId,
+    'x-amz-meta-queue-item-id': payload.queueItemId,
+    'x-amz-meta-record-count': String(payload.recordCount),
+    'x-amz-meta-record-index': String(reservation.recordIndex),
+    'x-amz-meta-record-size': String(payload.recordSize),
+    'x-amz-meta-room-id': payload.roomId,
+    'x-amz-meta-session-id-sha256': identityHashes.sessionId,
+    'x-amz-meta-set-id': payload.setId,
+    'x-amz-meta-size-bytes': String(layout.plaintextSize),
+    'x-amz-meta-source-identity-sha256': identityHashes.sourceIdentity,
+    'x-amz-meta-total-size-bytes': String(payload.size),
+  };
+}
+
+async function handleRecordUploadUrl(request, env, roomId, setId, recordIndex) {
+  if (!getR2S3Config(env)) {
+    return json(request, env, { error: 'r2 s3 config missing' }, 500);
+  }
+  const authority = await parseRecordSetAuthority(request, env, roomId, setId);
+  if (authority.response) return authority.response;
+  const payload = authority.payload;
+  const reservation = await recordSetReservation(payload, recordIndex);
+  const layout = recordSetLayout(
+    payload.size,
+    payload.recordSize,
+    payload.recordCount,
+    recordIndex,
+  );
+  if (!reservation || !layout) return json(request, env, { error: 'not found' }, 404);
+
+  let authorization;
+  try {
+    authorization = await authorizeRecordSetUpload(env, reservation);
+  } catch (error) {
+    console.warn('remote share record-set authorization unavailable', error);
+    return json(request, env, { error: 'room storage quota unavailable' }, 503);
+  }
+  if (authorization === 'revoked') {
+    return json(request, env, { error: 'record set revoked', code: 'RECORD_SET_REVOKED' }, 410);
+  }
+  if (authorization !== 'authorized') {
+    return json(request, env, { error: 'record set unavailable' }, 404);
+  }
+
+  const now = Date.now();
+  const remainingSeconds = Math.floor((payload.expiresAt - now) / 1000);
+  if (remainingSeconds < 1) {
+    return json(request, env, { error: 'record set unavailable' }, 404);
+  }
+  const configuredTtlSeconds = parseLimit(
+    env.UPLOAD_TOKEN_TTL_SECONDS,
+    DEFAULT_UPLOAD_TOKEN_TTL_SECONDS,
+  );
+  const ttlSeconds = Math.min(configuredTtlSeconds, remainingSeconds);
+  const identityHashes = {
+    sessionId: await sha256Hex(payload.sessionId),
+    sourceIdentity: await sha256Hex(payload.sourceIdentity),
+  };
+  const uploadHeaders = recordSetUploadMetadata(payload, reservation, layout, identityHashes);
+  const uploadUrl = await createR2PresignedPutUrl({
+    env,
+    objectKey: reservation.objectKey,
+    headers: {
+      ...uploadHeaders,
+      'content-length': String(layout.encryptedSize),
+    },
+    expiresInSeconds: ttlSeconds,
+    now: new Date(now),
+  });
+  if (!uploadUrl) return json(request, env, { error: 'r2 s3 config missing' }, 500);
+  // Re-check after the asynchronous signer. Durable Object mutation order now
+  // establishes a clean boundary: a cleanup that committed first suppresses
+  // this URL; a cleanup that commits later is revoking already-issued
+  // authority, whose bytes remain reserved until expiry.
+  try {
+    authorization = await authorizeRecordSetUpload(env, reservation);
+  } catch (error) {
+    console.warn('remote share record-set authorization unavailable', error);
+    return json(request, env, { error: 'room storage quota unavailable' }, 503);
+  }
+  if (authorization === 'revoked') {
+    return json(request, env, { error: 'record set revoked', code: 'RECORD_SET_REVOKED' }, 410);
+  }
+  if (authorization !== 'authorized') {
+    return json(request, env, { error: 'record set unavailable' }, 404);
+  }
+
+  const url = new URL(request.url);
+  return json(request, env, {
+    v: RECORD_SET_FORMAT_VERSION,
+    setId,
+    index: recordIndex,
+    objectId: reservation.objectId,
+    plaintextSize: layout.plaintextSize,
+    encryptedSize: layout.encryptedSize,
+    uploadUrl,
+    uploadHeaders,
+    uploadUrlExpiresAt: now + ttlSeconds * 1000,
+    expiresAt: payload.expiresAt,
+    downloadUrl: `${url.origin}/download/${roomId}/${reservation.objectId}`,
+  });
+}
+
+async function recordSetObjectMetadataMatches(object, payload, reservation, layout) {
+  const sessionIdHash = await sha256Hex(payload.sessionId);
+  const sourceIdentityHash = await sha256Hex(payload.sourceIdentity);
+  return (
+    object.size === layout.encryptedSize &&
+    Number(readMetadata(object, 'sizeBytes', 'size-bytes', 'sizebytes')) === layout.plaintextSize &&
+    Number(readMetadata(object, 'encryptedSize', 'encrypted-size', 'encryptedsize')) ===
+      layout.encryptedSize &&
+    Number(readMetadata(object, 'totalSizeBytes', 'total-size-bytes', 'totalsizebytes')) ===
+      payload.size &&
+    Number(readMetadata(object, 'formatVersion', 'format-version', 'formatversion')) ===
+      RECORD_SET_FORMAT_VERSION &&
+    Number(readMetadata(object, 'recordSize', 'record-size', 'recordsize')) ===
+      payload.recordSize &&
+    Number(readMetadata(object, 'recordCount', 'record-count', 'recordcount')) ===
+      payload.recordCount &&
+    Number(readMetadata(object, 'recordIndex', 'record-index', 'recordindex')) ===
+      reservation.recordIndex &&
+    String(readMetadata(object, 'roomId', 'room-id', 'roomid') || '') === payload.roomId &&
+    String(readMetadata(object, 'setId', 'set-id', 'setid') || '') === payload.setId &&
+    String(readMetadata(object, 'objectId', 'object-id', 'objectid') || '') ===
+      reservation.objectId &&
+    String(readMetadata(object, 'queueItemId', 'queue-item-id', 'queueitemid') || '') ===
+      payload.queueItemId &&
+    constantTimeEqual(
+      String(readMetadata(object, 'cleanupToken', 'cleanup-token', 'cleanuptoken') || ''),
+      payload.cleanupToken,
+    ) &&
+    Number(readMetadata(object, 'expiresAt', 'expires-at', 'expiresat')) === payload.expiresAt &&
+    constantTimeEqual(
+      String(readMetadata(object, 'sessionIdSha256', 'session-id-sha256', 'sessionidsha256') || ''),
+      sessionIdHash,
+    ) &&
+    constantTimeEqual(
+      String(
+        readMetadata(
+          object,
+          'sourceIdentitySha256',
+          'source-identity-sha256',
+          'sourceidentitysha256',
+        ) || '',
+      ),
+      sourceIdentityHash,
+    ) &&
+    String(readMetadata(object, 'name') || '') === metadataString(payload.name, 'track') &&
+    String(readMetadata(object, 'mime') || '') ===
+      metadataString(payload.mime, 'application/octet-stream')
+  );
+}
+
+async function handleRecordComplete(request, env, roomId, setId, recordIndex) {
+  if (!env.REMOTE_SHARE_BUCKET) return json(request, env, { error: 'bucket missing' }, 500);
+  const authority = await parseRecordSetAuthority(request, env, roomId, setId);
+  if (authority.response) return authority.response;
+  const payload = authority.payload;
+  const reservation = await recordSetReservation(payload, recordIndex);
+  const layout = recordSetLayout(
+    payload.size,
+    payload.recordSize,
+    payload.recordCount,
+    recordIndex,
+  );
+  if (!reservation || !layout) return json(request, env, { error: 'not found' }, 404);
+
+  const object = await env.REMOTE_SHARE_BUCKET.head(reservation.objectKey);
+  if (!object) return json(request, env, { error: 'not found' }, 404);
+  if (!(await recordSetObjectMetadataMatches(object, payload, reservation, layout))) {
+    await deleteObjectAndRetainReservation(
+      env,
+      roomId,
+      reservation.objectId,
+      reservation.objectKey,
+      payload.cleanupToken,
+    );
+    return json(request, env, { error: 'invalid uploaded record' }, 403);
+  }
+  if (payload.expiresAt <= Date.now()) {
+    await deleteObjectAndRetainReservation(
+      env,
+      roomId,
+      reservation.objectId,
+      reservation.objectKey,
+      payload.cleanupToken,
+    );
+    return json(request, env, { error: 'expired' }, 404);
+  }
+
+  let completion;
+  try {
+    completion = await completeRecordSetStorageReservation(env, reservation);
+  } catch (error) {
+    console.warn('remote share record-set completion unavailable', error);
+    return json(request, env, { error: 'room storage quota unavailable' }, 503);
+  }
+  if (completion === 'quota-exceeded') {
+    await deleteObjectAndRetainReservation(
+      env,
+      roomId,
+      reservation.objectId,
+      reservation.objectKey,
+      payload.cleanupToken,
+    );
+    return roomStorageQuotaExceeded(request, env);
+  }
+  if (completion === 'revoked') {
+    await deleteObjectAndRetainReservation(
+      env,
+      roomId,
+      reservation.objectId,
+      reservation.objectKey,
+      payload.cleanupToken,
+    );
+    return json(request, env, { error: 'record set revoked', code: 'RECORD_SET_REVOKED' }, 410);
+  }
+  if (!completion || completion === 'missing') {
+    return json(request, env, { error: 'record set unavailable' }, 404);
+  }
+  if (payload.expiresAt <= Date.now()) {
+    await deleteObjectAndRetainReservation(
+      env,
+      roomId,
+      reservation.objectId,
+      reservation.objectKey,
+      payload.cleanupToken,
+    );
+    return json(request, env, { error: 'expired' }, 404);
+  }
+
+  const url = new URL(request.url);
+  return json(request, env, {
+    v: RECORD_SET_FORMAT_VERSION,
+    setId,
+    index: recordIndex,
+    objectId: reservation.objectId,
+    expiresAt: payload.expiresAt,
+    readyRecordCount: completion.readyRecordCount,
+    recordCount: completion.recordCount,
+    complete: completion.complete,
+    downloadUrl: `${url.origin}/download/${roomId}/${reservation.objectId}`,
+  });
+}
+
+async function handleRecordSetDelete(request, env, roomId, setId) {
+  if (!env.REMOTE_SHARE_BUCKET) return json(request, env, { error: 'bucket missing' }, 500);
+  const room = standardRoomId(roomId);
+  if (!room || !validRecordSetId(setId)) return json(request, env, { error: 'not found' }, 404);
+  const cleanupToken = request.headers.get('x-mxqr-cleanup-token') || '';
+  if (!UUID_V4_RE.test(cleanupToken)) {
+    return json(request, env, { error: 'forbidden' }, 403);
+  }
+
+  let objectIds;
+  try {
+    objectIds = await revokeRecordSetStorage(env, room, setId, cleanupToken);
+  } catch (error) {
+    console.warn('remote share record-set cleanup unavailable', error);
+    return json(request, env, { error: 'room storage quota unavailable' }, 503);
+  }
+  // Match V1 cleanup's idempotent, non-enumerating response. A missing or
+  // unauthorized set is not mutated.
+  if (!objectIds) return json(request, env, { ok: true });
+  const keys = objectIds.map((objectId) => objectKey(room, objectId)).filter(Boolean);
+  await deleteBucketKeysInChunks(env.REMOTE_SHARE_BUCKET, keys);
+  // Reservations remain charged and revoked until fixed expiry. Any already
+  // issued direct PUT that lands late is then removed by the existing alarm.
+  return json(request, env, { ok: true });
 }
 
 async function handleSession(request, env) {
@@ -1100,6 +1904,53 @@ async function handleDownload(request, env, roomId, objectId) {
     return json(request, env, { error: 'invalid stored object' }, 404);
   }
 
+  const storedFormatVersion = readMetadata(
+    object,
+    'formatVersion',
+    'format-version',
+    'formatversion',
+  );
+  if (storedFormatVersion !== undefined) {
+    const setId = String(readMetadata(object, 'setId', 'set-id', 'setid') || '');
+    const totalSize = Number(
+      readMetadata(object, 'totalSizeBytes', 'total-size-bytes', 'totalsizebytes'),
+    );
+    const recordSize = Number(readMetadata(object, 'recordSize', 'record-size', 'recordsize'));
+    const recordCount = Number(readMetadata(object, 'recordCount', 'record-count', 'recordcount'));
+    const recordIndex = Number(readMetadata(object, 'recordIndex', 'record-index', 'recordindex'));
+    const layout = recordSetLayout(totalSize, recordSize, recordCount, recordIndex);
+    const derivedObjectId = await recordObjectId(setId, recordIndex);
+    const queueItemId = String(
+      readMetadata(object, 'queueItemId', 'queue-item-id', 'queueitemid') || '',
+    );
+    const sessionIdHash = String(
+      readMetadata(object, 'sessionIdSha256', 'session-id-sha256', 'sessionidsha256') || '',
+    );
+    const sourceIdentityHash = String(
+      readMetadata(
+        object,
+        'sourceIdentitySha256',
+        'source-identity-sha256',
+        'sourceidentitysha256',
+      ) || '',
+    );
+    if (
+      Number(storedFormatVersion) !== RECORD_SET_FORMAT_VERSION ||
+      !validRecordSetId(setId) ||
+      !layout ||
+      layout.plaintextSize !== plaintextSize ||
+      layout.encryptedSize !== encryptedSize ||
+      derivedObjectId !== objectId ||
+      !safeQueueItemId(queueItemId) ||
+      !/^[0-9a-f]{64}$/i.test(sessionIdHash) ||
+      !/^[0-9a-f]{64}$/i.test(sourceIdentityHash) ||
+      !UUID_V4_RE.test(storedCleanupToken)
+    ) {
+      await deleteObjectAndRetainReservation(env, roomId, objectId, key, storedCleanupToken);
+      return json(request, env, { error: 'invalid stored object' }, 404);
+    }
+  }
+
   const expiresAt = Number(readMetadata(object, 'expiresAt', 'expires-at', 'expiresat') || '0');
   if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) {
     await deleteObjectAndRetainReservation(env, roomId, objectId, key, storedCleanupToken);
@@ -1163,6 +2014,24 @@ function emptyQuotaState(roomId) {
 }
 
 function validQuotaReservation(objectId, value, roomId) {
+  const hasRecordSetFields =
+    value?.setId !== undefined ||
+    value?.recordIndex !== undefined ||
+    value?.recordCount !== undefined ||
+    value?.revokedAt !== undefined;
+  const validRecordSetFields =
+    !hasRecordSetFields ||
+    (validRecordSetId(value?.setId) &&
+      Number.isSafeInteger(value?.recordIndex) &&
+      value.recordIndex >= 0 &&
+      Number.isSafeInteger(value?.recordCount) &&
+      value.recordCount > 0 &&
+      value.recordCount <= RECORD_SET_MAX_RECORDS &&
+      value.recordIndex < value.recordCount &&
+      (value.revokedAt === undefined ||
+        (Number.isSafeInteger(value.revokedAt) &&
+          value.revokedAt > 0 &&
+          value.revokedAt <= value.expiresAt)));
   return (
     value &&
     typeof value === 'object' &&
@@ -1174,7 +2043,8 @@ function validQuotaReservation(objectId, value, roomId) {
     Number.isSafeInteger(value.expiresAt) &&
     typeof value.cleanupToken === 'string' &&
     value.cleanupToken.length >= 16 &&
-    (value.status === 'reserved' || value.status === 'completed')
+    (value.status === 'reserved' || value.status === 'completed') &&
+    validRecordSetFields
   );
 }
 
@@ -1185,6 +2055,16 @@ function parseQuotaReservation(body) {
   const encryptedSize = Number(body?.encryptedSize);
   const expiresAt = Number(body?.expiresAt);
   const cleanupToken = String(body?.cleanupToken || '');
+  const hasRecordSetFields =
+    body?.setId !== undefined ||
+    body?.recordIndex !== undefined ||
+    body?.recordCount !== undefined ||
+    body?.revokedAt !== undefined;
+  const setId = hasRecordSetFields ? String(body?.setId || '') : undefined;
+  const recordIndex = hasRecordSetFields ? Number(body?.recordIndex) : undefined;
+  const recordCount = hasRecordSetFields ? Number(body?.recordCount) : undefined;
+  const revokedAt =
+    hasRecordSetFields && body?.revokedAt !== undefined ? Number(body.revokedAt) : undefined;
   if (
     !roomId ||
     !key ||
@@ -1193,7 +2073,17 @@ function parseQuotaReservation(body) {
     encryptedSize <= AES_GCM_TAG_BYTES ||
     encryptedSize > REMOTE_SHARE_MAX_ENCRYPTED_BYTES ||
     !Number.isSafeInteger(expiresAt) ||
-    cleanupToken.length < 16
+    cleanupToken.length < 16 ||
+    (hasRecordSetFields &&
+      (!validRecordSetId(setId) ||
+        !Number.isSafeInteger(recordIndex) ||
+        recordIndex < 0 ||
+        !Number.isSafeInteger(recordCount) ||
+        recordCount <= 0 ||
+        recordCount > RECORD_SET_MAX_RECORDS ||
+        recordIndex >= recordCount ||
+        (revokedAt !== undefined &&
+          (!Number.isSafeInteger(revokedAt) || revokedAt <= 0 || revokedAt > expiresAt))))
   ) {
     return null;
   }
@@ -1204,6 +2094,14 @@ function parseQuotaReservation(body) {
     objectId,
     objectKey: key,
     roomId,
+    ...(hasRecordSetFields
+      ? {
+          recordCount,
+          recordIndex,
+          setId,
+          ...(revokedAt === undefined ? {} : { revokedAt }),
+        }
+      : {}),
   };
 }
 
@@ -1213,8 +2111,55 @@ function reservationsMatch(left, right) {
     left.objectKey === right.objectKey &&
     left.encryptedSize === right.encryptedSize &&
     left.expiresAt === right.expiresAt &&
-    constantTimeEqual(left.cleanupToken, right.cleanupToken)
+    constantTimeEqual(left.cleanupToken, right.cleanupToken) &&
+    (left.setId ?? null) === (right.setId ?? null) &&
+    (left.recordIndex ?? null) === (right.recordIndex ?? null) &&
+    (left.recordCount ?? null) === (right.recordCount ?? null)
   );
+}
+
+async function parseRecordSetQuotaBatch(body) {
+  if (
+    !hasExactOwnKeys(body, ['roomId', 'reservations', 'setId']) ||
+    !standardRoomId(body.roomId) ||
+    !validRecordSetId(body.setId) ||
+    !Array.isArray(body.reservations) ||
+    body.reservations.length === 0 ||
+    body.reservations.length > RECORD_SET_MAX_RECORDS
+  ) {
+    return null;
+  }
+  const reservations = [];
+  for (const raw of body.reservations) {
+    if (!hasExactOwnKeys(raw, RECORD_SET_RESERVATION_KEYS)) return null;
+    const reservation = parseQuotaReservation(raw);
+    if (
+      !reservation ||
+      reservation.roomId !== body.roomId ||
+      reservation.setId !== body.setId ||
+      reservation.recordCount !== body.reservations.length
+    ) {
+      return null;
+    }
+    const expectedObjectId = await recordObjectId(body.setId, reservation.recordIndex);
+    if (reservation.objectId !== expectedObjectId) return null;
+    reservations.push(reservation);
+  }
+  reservations.sort((left, right) => left.recordIndex - right.recordIndex);
+  for (let index = 0; index < reservations.length; index += 1) {
+    if (reservations[index].recordIndex !== index) return null;
+    if (
+      reservations[index].expiresAt !== reservations[0].expiresAt ||
+      !constantTimeEqual(reservations[index].cleanupToken, reservations[0].cleanupToken)
+    ) {
+      return null;
+    }
+  }
+  return {
+    reservations,
+    roomId: body.roomId,
+    setId: body.setId,
+  };
 }
 
 export class RemoteShareQuota {
@@ -1258,6 +2203,12 @@ export class RemoteShareQuota {
     const reservations = {};
     for (const [objectId, reservation] of Object.entries(stored.reservations)) {
       if (!validQuotaReservation(objectId, reservation, roomId)) {
+        throw new Error('invalid room storage reservation state');
+      }
+      if (
+        reservation.setId !== undefined &&
+        (await recordObjectId(reservation.setId, reservation.recordIndex)) !== objectId
+      ) {
         throw new Error('invalid room storage reservation state');
       }
       reservations[objectId] = { ...reservation };
@@ -1322,12 +2273,42 @@ export class RemoteShareQuota {
   async handleFetch(request) {
     if (request.method !== 'POST') return quotaJson({ error: 'NOT_FOUND' }, 404);
     const url = new URL(request.url);
-    const parsedBody = await readJsonBodyLimited(request, QUOTA_JSON_BODY_MAX_BYTES);
+    const isBatchOperation = url.pathname === '/reserve-batch' || url.pathname === '/release-batch';
+    const parsedBody = await readJsonBodyLimited(
+      request,
+      isBatchOperation ? QUOTA_BATCH_JSON_BODY_MAX_BYTES : QUOTA_JSON_BODY_MAX_BYTES,
+    );
     if (parsedBody.error) return quotaJson({ error: 'INVALID_REQUEST' }, 400);
     const body = parsedBody.value;
     const roomId = standardRoomId(body?.roomId);
     if (!roomId) return quotaJson({ error: 'INVALID_REQUEST' }, 400);
 
+    if (isBatchOperation) {
+      const batch = await parseRecordSetQuotaBatch(body);
+      if (!batch || batch.roomId !== roomId) {
+        return quotaJson({ error: 'INVALID_REQUEST' }, 400);
+      }
+      return url.pathname === '/reserve-batch'
+        ? this.handleReserveBatch(batch)
+        : this.handleReleaseBatch(batch);
+    }
+    if (url.pathname === '/authorize-record') {
+      const reservation = parseQuotaReservation(body);
+      if (!reservation || !reservation.setId || reservation.roomId !== roomId) {
+        return quotaJson({ error: 'INVALID_REQUEST' }, 400);
+      }
+      return this.handleAuthorizeRecord(reservation);
+    }
+    if (url.pathname === '/revoke-set') {
+      if (
+        !hasExactOwnKeys(body, ['cleanupToken', 'roomId', 'setId']) ||
+        !validRecordSetId(body.setId) ||
+        !UUID_V4_RE.test(String(body.cleanupToken || ''))
+      ) {
+        return quotaJson({ error: 'INVALID_REQUEST' }, 400);
+      }
+      return this.handleRevokeSet(roomId, body.setId, body.cleanupToken);
+    }
     if (url.pathname === '/release') return this.handleRelease(roomId, body);
     if (url.pathname !== '/reserve' && url.pathname !== '/complete') {
       return quotaJson({ error: 'NOT_FOUND' }, 404);
@@ -1339,6 +2320,152 @@ export class RemoteShareQuota {
     return url.pathname === '/reserve'
       ? this.handleReserve(reservation)
       : this.handleComplete(reservation);
+  }
+
+  async handleReserveBatch(batch) {
+    const quotaBytes = roomStorageQuotaBytes(this.env);
+    if (quotaBytes <= 0) return quotaJson({ error: 'QUOTA_UNAVAILABLE' }, 503);
+    const now = Date.now();
+    if (batch.reservations[0].expiresAt <= now) {
+      return quotaJson({ error: 'INVALID_REQUEST' }, 400);
+    }
+
+    const state = await this.readState(batch.roomId);
+    const { changed, snapshot } = await this.reconcile(state, now);
+    const missing = [];
+    for (const reservation of batch.reservations) {
+      const existing = state.reservations[reservation.objectId];
+      if (existing) {
+        if (!reservationsMatch(existing, reservation) || existing.revokedAt !== undefined) {
+          await this.maintainState(state, changed);
+          return quotaJson({ error: 'RESERVATION_CONFLICT' }, 409);
+        }
+        continue;
+      }
+      // A deterministic record identifier is never shared by two sets. An
+      // untracked physical object at this exact key is therefore an ambiguous
+      // stale write, not capacity that a new reservation may adopt.
+      if (snapshot.activeKeys.has(reservation.objectKey)) {
+        await this.maintainState(state, changed);
+        return quotaJson({ error: 'RESERVATION_CONFLICT' }, 409);
+      }
+      missing.push(reservation);
+    }
+
+    if (Object.keys(state.reservations).length + missing.length > QUOTA_STATE_MAX_ENTRIES) {
+      await this.maintainState(state, changed);
+      return quotaJson({ error: 'QUOTA_UNAVAILABLE' }, 503);
+    }
+    const additionalBytes = missing.reduce(
+      (total, reservation) => total + reservation.encryptedSize,
+      0,
+    );
+    const accountedBytes = this.accountedBytes(state, snapshot);
+    if (!Number.isSafeInteger(additionalBytes) || accountedBytes + additionalBytes > quotaBytes) {
+      await this.maintainState(state, changed);
+      return quotaJson(
+        {
+          code: 'ROOM_STORAGE_QUOTA_EXCEEDED',
+          maxBytes: quotaBytes,
+        },
+        409,
+      );
+    }
+
+    if (missing.length === 0) {
+      await this.maintainState(state, changed);
+      return quotaJson({ reserved: true });
+    }
+    for (const reservation of missing) {
+      state.reservations[reservation.objectId] = {
+        ...reservation,
+        status: 'reserved',
+      };
+    }
+    await this.persistState(state);
+    return quotaJson({ reserved: true });
+  }
+
+  async handleReleaseBatch(batch) {
+    const state = await this.readState(batch.roomId);
+    const existing = batch.reservations.map(
+      (reservation) => state.reservations[reservation.objectId],
+    );
+    if (existing.every((reservation) => !reservation)) {
+      await this.scheduleAlarm(state);
+      return quotaJson({ released: false });
+    }
+    if (
+      existing.some(
+        (reservation, index) =>
+          !reservation ||
+          reservation.revokedAt !== undefined ||
+          !reservationsMatch(reservation, batch.reservations[index]),
+      )
+    ) {
+      await this.scheduleAlarm(state);
+      return quotaJson({ error: 'RESERVATION_CONFLICT' }, 409);
+    }
+    for (const reservation of batch.reservations) {
+      delete state.reservations[reservation.objectId];
+    }
+    await this.persistState(state);
+    return quotaJson({ released: true });
+  }
+
+  async handleAuthorizeRecord(reservation) {
+    if (reservation.expiresAt <= Date.now()) {
+      return quotaJson({ error: 'RESERVATION_MISSING' }, 404);
+    }
+    const state = await this.readState(reservation.roomId);
+    const existing = state.reservations[reservation.objectId];
+    if (!existing || !reservationsMatch(existing, reservation)) {
+      await this.scheduleAlarm(state);
+      return quotaJson({ error: 'RESERVATION_MISSING' }, 404);
+    }
+    if (existing.revokedAt !== undefined) {
+      await this.scheduleAlarm(state);
+      return quotaJson({ code: 'RECORD_SET_REVOKED' }, 410);
+    }
+    await this.scheduleAlarm(state);
+    return quotaJson({ authorized: true });
+  }
+
+  async handleRevokeSet(roomId, setId, cleanupToken) {
+    const state = await this.readState(roomId);
+    const records = Object.values(state.reservations)
+      .filter((reservation) => reservation.setId === setId)
+      .sort((left, right) => left.recordIndex - right.recordIndex);
+    if (
+      records.length === 0 ||
+      records.length !== records[0].recordCount ||
+      records.some(
+        (reservation, index) =>
+          reservation.recordIndex !== index ||
+          reservation.recordCount !== records.length ||
+          reservation.expiresAt <= Date.now() ||
+          !constantTimeEqual(reservation.cleanupToken, cleanupToken),
+      )
+    ) {
+      await this.scheduleAlarm(state);
+      return quotaJson({ error: 'RESERVATION_MISSING' }, 404);
+    }
+    const revokedAt = Date.now();
+    let changed = false;
+    for (const reservation of records) {
+      if (reservation.revokedAt === undefined) {
+        state.reservations[reservation.objectId] = {
+          ...reservation,
+          revokedAt,
+        };
+        changed = true;
+      }
+    }
+    await this.maintainState(state, changed);
+    return quotaJson({
+      revoked: true,
+      objectIds: records.map((reservation) => reservation.objectId),
+    });
   }
 
   async handleReserve(reservation) {
@@ -1399,6 +2526,10 @@ export class RemoteShareQuota {
       await this.maintainState(state, changed);
       return quotaJson({ error: 'RESERVATION_MISSING' }, 404);
     }
+    if (existing.revokedAt !== undefined) {
+      await this.maintainState(state, changed);
+      return quotaJson({ code: 'RECORD_SET_REVOKED' }, 410);
+    }
 
     // Disabling new quota admission must not strand reservations already
     // issued by the previous configuration. They still settle through this
@@ -1414,12 +2545,44 @@ export class RemoteShareQuota {
       );
     }
 
+    if (!reservation.setId) {
+      state.reservations[reservation.objectId] = {
+        ...existing,
+        status: 'completed',
+      };
+      await this.persistState(state);
+      return quotaJson({ completed: true });
+    }
+    const records = Object.values(state.reservations)
+      .filter((candidate) => candidate.setId === reservation.setId)
+      .sort((left, right) => left.recordIndex - right.recordIndex);
+    if (
+      records.length !== reservation.recordCount ||
+      records.some(
+        (candidate, index) =>
+          candidate.recordIndex !== index ||
+          candidate.recordCount !== reservation.recordCount ||
+          candidate.revokedAt !== undefined,
+      )
+    ) {
+      await this.maintainState(state, changed);
+      return quotaJson({ error: 'RESERVATION_MISSING' }, 404);
+    }
     state.reservations[reservation.objectId] = {
       ...existing,
       status: 'completed',
     };
+    const readyRecordCount = records.findIndex(
+      (candidate) =>
+        candidate.objectId !== reservation.objectId && candidate.status !== 'completed',
+    );
+    const contiguousReadyRecordCount = readyRecordCount === -1 ? records.length : readyRecordCount;
     await this.persistState(state);
-    return quotaJson({ completed: true });
+    return quotaJson({
+      completed: true,
+      readyRecordCount: contiguousReadyRecordCount,
+      recordCount: reservation.recordCount,
+    });
   }
 
   async handleRelease(roomId, body) {
@@ -1495,6 +2658,22 @@ export default {
       }
       if (request.method === 'POST' && path === '/complete') {
         return handleComplete(request, env);
+      }
+      if (request.method === 'POST' && path === '/v2/sets') {
+        return handleRecordSetCreate(request, env);
+      }
+      const recordOperation = path.match(
+        /^\/v2\/sets\/([^/]+)\/([^/]+)\/records\/(\d+)\/(upload|complete)$/,
+      );
+      if (request.method === 'POST' && recordOperation) {
+        const recordIndex = Number(recordOperation[3]);
+        return recordOperation[4] === 'upload'
+          ? handleRecordUploadUrl(request, env, recordOperation[1], recordOperation[2], recordIndex)
+          : handleRecordComplete(request, env, recordOperation[1], recordOperation[2], recordIndex);
+      }
+      const recordSet = path.match(/^\/v2\/sets\/([^/]+)\/([^/]+)$/);
+      if (request.method === 'DELETE' && recordSet) {
+        return handleRecordSetDelete(request, env, recordSet[1], recordSet[2]);
       }
       const download = path.match(/^\/download\/([^/]+)\/([^/]+)$/);
       if (request.method === 'GET' && download) {

@@ -12,7 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { MANUAL_SYNC_OFFSET_LIMIT_SEC, MSG, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearManagedTimer, delay, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { IS_WINDOWS } from '../core/platform.ts';
-import { initAudio, getWidener } from '../audio/engine.ts';
+import { getFilePlaybackDestination, initAudio } from '../audio/engine.ts';
 import { isSystemAudioActive } from '../audio/system-capture.ts';
 import {
   getPlaybackOwnership,
@@ -32,7 +32,13 @@ import {
 import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { getHostNow } from '../network/shared-clock.ts';
-import { getCurrentQueueItemId } from './queue-model.ts';
+import { isFilePlaybackEngineV2Enabled } from './file-playback-engine-gate.ts';
+import { getFilePlaybackProductRuntime } from './file-playback-product-runtime.ts';
+import {
+  getActiveFilePlaybackSnapshot,
+  getManagedFilePlaybackPosition,
+} from './file-playback-runtime.ts';
+import { getCurrentQueueItemId, getQueueItemById } from './queue-model.ts';
 import { cancelProRoomPlaylistFileResolution } from '../pro-room/legacy-media-hooks.ts';
 import {
   isProPlaybackAuthorityToken,
@@ -40,10 +46,19 @@ import {
   type ProPlaybackCommitRequest,
 } from '../pro-room/playback-authority-hooks.ts';
 import { isProRoomTrackChangeIntentPending } from './track-change-intent.ts';
-import { hasRoomCapability } from '../rooms/authority.ts';
+import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
+import type { FilePlaybackPosition, FilePlaybackSourceSnapshot } from './file-playback-source.ts';
+import type {
+  QueueItemId,
+  V2HostSeekPendingEvent,
+  V2HostSeekSettlementStatus,
+} from '../types/index.ts';
 
 /** Lead time for a host command to reach guests before the shared start. */
 const SCHEDULE_AHEAD_MS = 200;
+const FILE_PLAYBACK_ENGINE_V2_ENABLED = isFilePlaybackEngineV2Enabled();
+const filePlaybackProductRuntime = getFilePlaybackProductRuntime();
+const trustedAbortControllerAbort = AbortController.prototype.abort;
 
 /** Calibrated output advance for Windows local-file playback. */
 const WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC = 0.02;
@@ -189,6 +204,1157 @@ function isSystemAudioPlaying(): boolean {
   return isPlaybackPlayingSystemAudio(getPlaybackModeActivity());
 }
 
+type V2HostControlPhase = 'playing' | 'paused';
+
+interface V2HostControlState {
+  readonly room: Readonly<{
+    readonly schemaVersion: 1;
+    readonly roomGeneration: number;
+    readonly applicationSessionId: string;
+    readonly hostParticipantId: string;
+  }>;
+  readonly queueItemId: QueueItemId;
+  readonly runId: string;
+  readonly revision: number;
+  readonly phase: V2HostControlPhase;
+  readonly durationSeconds: number | null;
+  readonly position: FilePlaybackPosition;
+}
+
+interface V2HostControlIntent {
+  readonly sequence: number;
+  readonly controller: AbortController;
+}
+
+type V2HostSeekTargetResolver = (state: V2HostControlState) => number | null;
+type V2HostControlOperation = (intent: V2HostControlIntent) => Promise<void>;
+
+type V2HostTransitionIdentity = Readonly<{
+  room: V2HostControlState['room'];
+  queueItemId: QueueItemId;
+  runId: string;
+  revision: number;
+}>;
+
+let v2HostControlSequence = 0;
+let v2HostControlIntent: V2HostControlIntent | null = null;
+let v2HostControlTail: Promise<void> = Promise.resolve();
+let lastV2HostEndedObservationKey: string | null = null;
+let v2HostSeekUiSequence = 0;
+let activeV2HostSeekUiIntent: Readonly<V2HostSeekPendingEvent> | null = null;
+
+function isV2HostFileControlContext(): boolean {
+  if (
+    !FILE_PLAYBACK_ENGINE_V2_ENABLED ||
+    getRoomContext().kind !== 'standard' ||
+    getState('network.appRole') !== 'host' ||
+    getState('network.hostConn') ||
+    getState('demo.active')
+  ) {
+    return false;
+  }
+
+  const hostParticipantId = getState('network.myId');
+  if (!hostParticipantId) return false;
+
+  try {
+    const room = filePlaybackProductRuntime.hostRoomSnapshot();
+    return isExactV2HostRoom(room) && room.hostParticipantId === hostParticipantId;
+  } catch {
+    // A missing, stale, or failed product runtime must not capture legacy,
+    // PRO, guest, or teardown controls.
+    return false;
+  }
+}
+
+function isExactV2HostRoom(value: unknown): value is V2HostControlState['room'] {
+  if (value === null || typeof value !== 'object' || !Object.isFrozen(value)) return false;
+  const room = value as Partial<V2HostControlState['room']>;
+  return (
+    room.schemaVersion === 1 &&
+    Number.isSafeInteger(room.roomGeneration) &&
+    (room.roomGeneration ?? 0) > 0 &&
+    typeof room.applicationSessionId === 'string' &&
+    room.applicationSessionId.length > 0 &&
+    typeof room.hostParticipantId === 'string' &&
+    room.hostParticipantId.length > 0
+  );
+}
+
+function sameV2HostRoom(
+  left: V2HostControlState['room'],
+  right: V2HostControlState['room'],
+): boolean {
+  return (
+    left.schemaVersion === right.schemaVersion &&
+    left.roomGeneration === right.roomGeneration &&
+    left.applicationSessionId === right.applicationSessionId &&
+    left.hostParticipantId === right.hostParticipantId
+  );
+}
+
+function exactV2RendererIdentity(
+  snapshot: FilePlaybackSourceSnapshot | null,
+  queueItemId: QueueItemId,
+): snapshot is FilePlaybackSourceSnapshot & {
+  readonly phase: V2HostControlPhase;
+  readonly run: NonNullable<FilePlaybackSourceSnapshot['run']>;
+} {
+  if (!snapshot || !Object.isFrozen(snapshot) || !Object.isFrozen(snapshot.run)) return false;
+  return (
+    (snapshot.phase === 'playing' || snapshot.phase === 'paused') &&
+    snapshot.queueItemId === queueItemId &&
+    snapshot.run !== null &&
+    snapshot.run.queueItemId === queueItemId &&
+    typeof snapshot.run.runId === 'string' &&
+    snapshot.run.runId.length > 0 &&
+    Number.isSafeInteger(snapshot.revision) &&
+    snapshot.revision > 0 &&
+    snapshot.run.revision === snapshot.revision
+  );
+}
+
+function sameV2RendererState(
+  left: FilePlaybackSourceSnapshot & {
+    readonly phase: V2HostControlPhase;
+    readonly run: NonNullable<FilePlaybackSourceSnapshot['run']>;
+  },
+  right: FilePlaybackSourceSnapshot & {
+    readonly phase: V2HostControlPhase;
+    readonly run: NonNullable<FilePlaybackSourceSnapshot['run']>;
+  },
+): boolean {
+  return (
+    left.queueItemId === right.queueItemId &&
+    left.phase === right.phase &&
+    left.revision === right.revision &&
+    left.run.runId === right.run.runId &&
+    left.run.revision === right.run.revision
+  );
+}
+
+function exactV2Position(
+  position: FilePlaybackPosition | null,
+  snapshot: FilePlaybackSourceSnapshot & {
+    readonly phase: V2HostControlPhase;
+    readonly run: NonNullable<FilePlaybackSourceSnapshot['run']>;
+  },
+): position is FilePlaybackPosition & {
+  readonly run: NonNullable<FilePlaybackPosition['run']>;
+} {
+  return !!(
+    position &&
+    Object.isFrozen(position) &&
+    Object.isFrozen(position.run) &&
+    position.run &&
+    position.queueItemId === snapshot.queueItemId &&
+    position.phase === snapshot.phase &&
+    position.run.queueItemId === snapshot.queueItemId &&
+    position.run.runId === snapshot.run.runId &&
+    position.run.revision === snapshot.revision &&
+    Number.isFinite(position.positionSeconds) &&
+    position.positionSeconds >= 0
+  );
+}
+
+function readExactV2HostControlState(): V2HostControlState | null {
+  if (!isV2HostFileControlContext()) return null;
+  try {
+    const roomBefore = filePlaybackProductRuntime.hostRoomSnapshot();
+    if (!isExactV2HostRoom(roomBefore)) return null;
+    const queueItemId = getCurrentQueueItemId();
+    const item = getQueueItemById(queueItemId);
+    if (!queueItemId || !item || item.type === 'youtube') return null;
+    const mode = getPlaybackModeActivity();
+    const renderer = getActiveFilePlaybackSnapshot();
+    if (!exactV2RendererIdentity(renderer, queueItemId)) return null;
+    if (mode.mode !== 'file' || (mode.activity !== 'playing' && mode.activity !== 'paused')) {
+      return null;
+    }
+    const position = getManagedFilePlaybackPosition(queueItemId);
+    if (!exactV2Position(position, renderer)) return null;
+    const rendererAfter = getActiveFilePlaybackSnapshot();
+    const roomAfter = filePlaybackProductRuntime.hostRoomSnapshot();
+    if (
+      !exactV2RendererIdentity(rendererAfter, queueItemId) ||
+      !sameV2RendererState(renderer, rendererAfter) ||
+      !isExactV2HostRoom(roomAfter) ||
+      !sameV2HostRoom(roomBefore, roomAfter)
+    ) {
+      return null;
+    }
+    const durationSeconds =
+      typeof rendererAfter.durationSeconds === 'number' &&
+      Number.isFinite(rendererAfter.durationSeconds) &&
+      rendererAfter.durationSeconds > 0
+        ? rendererAfter.durationSeconds
+        : null;
+    return Object.freeze({
+      room: roomAfter,
+      queueItemId,
+      runId: rendererAfter.run.runId,
+      revision: rendererAfter.revision,
+      phase: rendererAfter.phase,
+      durationSeconds,
+      position,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function clampV2HostSeekTarget(value: number, durationSeconds: number | null): number | null {
+  if (!Number.isFinite(value) || value < 0) return null;
+  if (durationSeconds === null) return value;
+  return Math.min(value, Math.max(0, durationSeconds - 0.1));
+}
+
+function readV2HostSeekSettlementPosition(fallback: number): number {
+  const exact = readExactV2HostControlState();
+  const exactPosition = exact?.position.positionSeconds;
+  if (typeof exactPosition === 'number' && Number.isFinite(exactPosition) && exactPosition >= 0) {
+    return exactPosition;
+  }
+  const compatibilityPosition = getState('player.pausedAt');
+  if (Number.isFinite(compatibilityPosition) && compatibilityPosition >= 0) {
+    return compatibilityPosition;
+  }
+  return Number.isFinite(fallback) && fallback >= 0 ? fallback : 0;
+}
+
+function emitV2HostSeekSettled(
+  intent: Readonly<V2HostSeekPendingEvent>,
+  status: V2HostSeekSettlementStatus,
+  positionSeconds: number,
+): void {
+  bus.emit(
+    'player:v2-host-seek-settled',
+    Object.freeze({
+      token: intent.token,
+      queueItemId: intent.queueItemId,
+      status,
+      positionSeconds,
+    }),
+  );
+}
+
+function beginV2HostSeekUiIntent(
+  state: V2HostControlState,
+  targetSeconds: number,
+): Readonly<V2HostSeekPendingEvent> {
+  const previous = activeV2HostSeekUiIntent;
+  const intent = Object.freeze({
+    token: ++v2HostSeekUiSequence,
+    queueItemId: state.queueItemId,
+    targetSeconds,
+  });
+  activeV2HostSeekUiIntent = intent;
+  bus.emit('player:v2-host-seek-pending', intent);
+  if (previous) {
+    emitV2HostSeekSettled(
+      previous,
+      'superseded',
+      readV2HostSeekSettlementPosition(previous.targetSeconds),
+    );
+  }
+  return intent;
+}
+
+function refreshV2HostSeekUiTarget(
+  intent: Readonly<V2HostSeekPendingEvent>,
+  targetSeconds: number,
+): Readonly<V2HostSeekPendingEvent> | null {
+  if (activeV2HostSeekUiIntent?.token !== intent.token) return null;
+  if (activeV2HostSeekUiIntent.targetSeconds === targetSeconds) return activeV2HostSeekUiIntent;
+  const refreshed = Object.freeze({
+    token: intent.token,
+    queueItemId: intent.queueItemId,
+    targetSeconds,
+  });
+  activeV2HostSeekUiIntent = refreshed;
+  bus.emit('player:v2-host-seek-pending', refreshed);
+  return refreshed;
+}
+
+function settleV2HostSeekUiIntent(
+  intent: Readonly<V2HostSeekPendingEvent>,
+  status: V2HostSeekSettlementStatus,
+  positionSeconds = readV2HostSeekSettlementPosition(intent.targetSeconds),
+): boolean {
+  if (activeV2HostSeekUiIntent?.token !== intent.token) return false;
+  activeV2HostSeekUiIntent = null;
+  emitV2HostSeekSettled(intent, status, positionSeconds);
+  return true;
+}
+
+function supersedeActiveV2HostSeekUiIntent(): void {
+  const intent = activeV2HostSeekUiIntent;
+  if (!intent) return;
+  activeV2HostSeekUiIntent = null;
+  emitV2HostSeekSettled(
+    intent,
+    'superseded',
+    readV2HostSeekSettlementPosition(intent.targetSeconds),
+  );
+}
+
+function sameV2HostSeekAdmission(
+  admitted: V2HostControlState,
+  current: V2HostControlState,
+): boolean {
+  return (
+    sameV2HostRoom(admitted.room, current.room) &&
+    admitted.queueItemId === current.queueItemId &&
+    admitted.runId === current.runId
+  );
+}
+
+function abortV2HostControlIntent(intent: V2HostControlIntent | null): void {
+  if (!intent || intent.controller.signal.aborted) return;
+  try {
+    Reflect.apply(trustedAbortControllerAbort, intent.controller, [
+      new Error('V2 host control intent was superseded'),
+    ]);
+  } catch (error) {
+    log.debug('[Transport] Failed to abort superseded V2 control:', error);
+  }
+}
+
+function isExactCommittedV2HostSeek(
+  value: unknown,
+  before: V2HostControlState,
+  target: number,
+): boolean {
+  if (value === null || typeof value !== 'object' || !Object.isFrozen(value)) return false;
+  try {
+    const commit = value as {
+      readonly status?: unknown;
+      readonly kind?: unknown;
+      readonly roomGeneration?: unknown;
+      readonly applicationSessionId?: unknown;
+      readonly hostParticipantId?: unknown;
+      readonly attempt?: {
+        readonly queueItemId?: unknown;
+        readonly runId?: unknown;
+        readonly revision?: unknown;
+      };
+      readonly schedule?: { readonly positionSeconds?: unknown };
+      readonly asset?: { readonly queueItemId?: unknown };
+      readonly startEvidence?: unknown;
+      readonly evidence?: {
+        readonly kind?: unknown;
+        readonly from?: {
+          readonly queueItemId?: unknown;
+          readonly runId?: unknown;
+          readonly revision?: unknown;
+        };
+        readonly to?: {
+          readonly queueItemId?: unknown;
+          readonly runId?: unknown;
+          readonly revision?: unknown;
+        };
+        readonly positionSeconds?: unknown;
+      };
+      readonly timeline?: {
+        readonly phase?: unknown;
+        readonly revision?: unknown;
+        readonly positionSeconds?: unknown;
+        readonly run?: { readonly queueItemId?: unknown; readonly runId?: unknown } | null;
+      };
+    };
+    const timeline = commit.timeline;
+    const run = timeline?.run;
+    if (
+      commit.status !== 'committed' ||
+      commit.roomGeneration !== before.room.roomGeneration ||
+      commit.applicationSessionId !== before.room.applicationSessionId ||
+      commit.hostParticipantId !== before.room.hostParticipantId ||
+      !Object.isFrozen(timeline) ||
+      !Object.isFrozen(run) ||
+      timeline?.phase !== before.phase ||
+      timeline.positionSeconds !== target ||
+      timeline.revision !== before.revision + 1 ||
+      run?.queueItemId !== before.queueItemId ||
+      run.runId !== before.runId
+    ) {
+      return false;
+    }
+    if (before.phase === 'playing') {
+      return (
+        Object.isFrozen(commit.asset) &&
+        Object.isFrozen(commit.attempt) &&
+        Object.isFrozen(commit.schedule) &&
+        Object.isFrozen(commit.startEvidence) &&
+        commit.asset?.queueItemId === before.queueItemId &&
+        commit.attempt?.queueItemId === before.queueItemId &&
+        commit.attempt.runId === before.runId &&
+        commit.attempt.revision === timeline.revision &&
+        commit.schedule?.positionSeconds === target
+      );
+    }
+    const evidence = commit.evidence;
+    return (
+      commit.kind === 'seek' &&
+      Object.isFrozen(evidence) &&
+      Object.isFrozen(evidence?.from) &&
+      Object.isFrozen(evidence?.to) &&
+      evidence?.kind === 'seek-applied' &&
+      evidence.from?.queueItemId === before.queueItemId &&
+      evidence.from.runId === before.runId &&
+      evidence.from.revision === before.revision &&
+      evidence.to?.queueItemId === before.queueItemId &&
+      evidence.to.runId === before.runId &&
+      evidence.to.revision === before.revision + 1 &&
+      evidence.positionSeconds === target
+    );
+  } catch {
+    return false;
+  }
+}
+
+function remainsExactV2HostSeekCommit(
+  before: V2HostControlState,
+  committed: unknown,
+  target: number,
+): boolean {
+  if (!isExactCommittedV2HostSeek(committed, before, target)) return false;
+  const after = readExactV2HostControlState();
+  return !!(
+    after &&
+    sameV2HostRoom(after.room, before.room) &&
+    after.queueItemId === before.queueItemId &&
+    after.runId === before.runId &&
+    after.revision === before.revision + 1 &&
+    after.phase === before.phase &&
+    getCurrentQueueItemId() === before.queueItemId &&
+    getQueueItemById(before.queueItemId)
+  );
+}
+
+function readExactV2HostAdvancedState(
+  before: V2HostControlState,
+  phase: V2HostControlPhase,
+): V2HostControlState | null {
+  const after = readExactV2HostControlState();
+  return after &&
+    sameV2HostRoom(after.room, before.room) &&
+    after.queueItemId === before.queueItemId &&
+    after.runId === before.runId &&
+    after.revision === before.revision + 1 &&
+    after.phase === phase &&
+    getCurrentQueueItemId() === before.queueItemId &&
+    getQueueItemById(before.queueItemId)
+    ? after
+    : null;
+}
+
+function exactV2HostPauseCommitPosition(value: unknown, before: V2HostControlState): number | null {
+  if (value === null || typeof value !== 'object' || !Object.isFrozen(value)) return null;
+  try {
+    const commit = value as {
+      readonly status?: unknown;
+      readonly kind?: unknown;
+      readonly roomGeneration?: unknown;
+      readonly applicationSessionId?: unknown;
+      readonly hostParticipantId?: unknown;
+      readonly evidence?: {
+        readonly kind?: unknown;
+        readonly from?: {
+          readonly queueItemId?: unknown;
+          readonly runId?: unknown;
+          readonly revision?: unknown;
+        };
+        readonly to?: {
+          readonly queueItemId?: unknown;
+          readonly runId?: unknown;
+          readonly revision?: unknown;
+        };
+      };
+      readonly timeline?: {
+        readonly phase?: unknown;
+        readonly revision?: unknown;
+        readonly positionSeconds?: unknown;
+        readonly run?: { readonly queueItemId?: unknown; readonly runId?: unknown } | null;
+      };
+    };
+    const evidence = commit.evidence;
+    const timeline = commit.timeline;
+    const run = timeline?.run;
+    if (
+      commit.status !== 'committed' ||
+      commit.kind !== 'pause' ||
+      commit.roomGeneration !== before.room.roomGeneration ||
+      commit.applicationSessionId !== before.room.applicationSessionId ||
+      commit.hostParticipantId !== before.room.hostParticipantId ||
+      !Object.isFrozen(evidence) ||
+      !Object.isFrozen(evidence?.from) ||
+      !Object.isFrozen(evidence?.to) ||
+      evidence?.kind !== 'pause-applied' ||
+      evidence.from?.queueItemId !== before.queueItemId ||
+      evidence.from.runId !== before.runId ||
+      evidence.from.revision !== before.revision ||
+      evidence.to?.queueItemId !== before.queueItemId ||
+      evidence.to.runId !== before.runId ||
+      evidence.to.revision !== before.revision + 1 ||
+      !Object.isFrozen(timeline) ||
+      !Object.isFrozen(run) ||
+      timeline?.phase !== 'paused' ||
+      timeline.revision !== before.revision + 1 ||
+      run?.queueItemId !== before.queueItemId ||
+      run.runId !== before.runId ||
+      typeof timeline.positionSeconds !== 'number' ||
+      !Number.isFinite(timeline.positionSeconds) ||
+      timeline.positionSeconds < 0
+    ) {
+      return null;
+    }
+    return timeline.positionSeconds;
+  } catch {
+    return null;
+  }
+}
+
+function exactV2HostResumeCommitPosition(
+  value: unknown,
+  before: V2HostControlState,
+  expectedPositionSeconds: number,
+): number | null {
+  if (value === null || typeof value !== 'object' || !Object.isFrozen(value)) return null;
+  try {
+    const commit = value as {
+      readonly status?: unknown;
+      readonly roomGeneration?: unknown;
+      readonly applicationSessionId?: unknown;
+      readonly hostParticipantId?: unknown;
+      readonly asset?: { readonly queueItemId?: unknown };
+      readonly attempt?: {
+        readonly queueItemId?: unknown;
+        readonly runId?: unknown;
+        readonly revision?: unknown;
+      };
+      readonly schedule?: { readonly positionSeconds?: unknown };
+      readonly startEvidence?: unknown;
+      readonly timeline?: {
+        readonly phase?: unknown;
+        readonly revision?: unknown;
+        readonly positionSeconds?: unknown;
+        readonly run?: { readonly queueItemId?: unknown; readonly runId?: unknown } | null;
+      };
+    };
+    const timeline = commit.timeline;
+    const run = timeline?.run;
+    if (
+      commit.status !== 'committed' ||
+      commit.roomGeneration !== before.room.roomGeneration ||
+      commit.applicationSessionId !== before.room.applicationSessionId ||
+      commit.hostParticipantId !== before.room.hostParticipantId ||
+      !Object.isFrozen(commit.asset) ||
+      commit.asset?.queueItemId !== before.queueItemId ||
+      !Object.isFrozen(commit.attempt) ||
+      commit.attempt?.queueItemId !== before.queueItemId ||
+      commit.attempt.runId !== before.runId ||
+      commit.attempt.revision !== before.revision + 1 ||
+      !Object.isFrozen(commit.schedule) ||
+      commit.schedule?.positionSeconds !== expectedPositionSeconds ||
+      !Object.isFrozen(commit.startEvidence) ||
+      !Object.isFrozen(timeline) ||
+      !Object.isFrozen(run) ||
+      timeline?.phase !== 'playing' ||
+      timeline.revision !== before.revision + 1 ||
+      timeline.positionSeconds !== expectedPositionSeconds ||
+      run?.queueItemId !== before.queueItemId ||
+      run.runId !== before.runId
+    ) {
+      return null;
+    }
+    return expectedPositionSeconds;
+  } catch {
+    return null;
+  }
+}
+
+function sameV2HostTransitionIdentity(
+  left: V2HostTransitionIdentity,
+  right: V2HostTransitionIdentity,
+): boolean {
+  return (
+    sameV2HostRoom(left.room, right.room) &&
+    left.queueItemId === right.queueItemId &&
+    left.runId === right.runId &&
+    left.revision === right.revision
+  );
+}
+
+function readExactV2HostTerminalIdentity(): V2HostTransitionIdentity | null {
+  if (!isV2HostFileProductControlContext()) return null;
+  try {
+    const roomBefore = filePlaybackProductRuntime.hostRoomSnapshot();
+    if (!isExactV2HostRoom(roomBefore)) return null;
+    const queueItemId = getCurrentQueueItemId();
+    const item = getQueueItemById(queueItemId);
+    const mode = getPlaybackModeActivity();
+    if (
+      !queueItemId ||
+      !item ||
+      item.type === 'youtube' ||
+      mode.mode !== 'file' ||
+      mode.activity !== 'playing'
+    ) {
+      return null;
+    }
+    const observation = filePlaybackProductRuntime.currentHostTerminalRendererObservation();
+    if (
+      !observation ||
+      !Object.isFrozen(observation) ||
+      observation.phase !== 'ended' ||
+      observation.queueItemId !== queueItemId ||
+      !Object.isFrozen(observation.run) ||
+      !observation.run ||
+      observation.run.queueItemId !== queueItemId ||
+      typeof observation.run.runId !== 'string' ||
+      observation.run.runId.length === 0 ||
+      !Number.isSafeInteger(observation.revision) ||
+      observation.revision <= 0 ||
+      observation.run.revision !== observation.revision
+    ) {
+      return null;
+    }
+    const observationAfter = filePlaybackProductRuntime.currentHostTerminalRendererObservation();
+    const roomAfter = filePlaybackProductRuntime.hostRoomSnapshot();
+    if (
+      !observationAfter ||
+      !Object.isFrozen(observationAfter) ||
+      observationAfter.phase !== 'ended' ||
+      observationAfter.queueItemId !== queueItemId ||
+      !Object.isFrozen(observationAfter.run) ||
+      !observationAfter.run ||
+      observationAfter.run.queueItemId !== queueItemId ||
+      observationAfter.run.runId !== observation.run.runId ||
+      observationAfter.revision !== observation.revision ||
+      observationAfter.run.revision !== observation.revision ||
+      !isExactV2HostRoom(roomAfter) ||
+      !sameV2HostRoom(roomBefore, roomAfter)
+    ) {
+      return null;
+    }
+    return Object.freeze({
+      room: roomAfter,
+      queueItemId,
+      runId: observationAfter.run.runId,
+      revision: observationAfter.revision,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function exactV2HostStoppedCommit(
+  value: unknown,
+  before: V2HostTransitionIdentity,
+  kind: 'stop' | 'ended',
+): boolean {
+  if (value === null || typeof value !== 'object' || !Object.isFrozen(value)) return false;
+  try {
+    const commit = value as {
+      readonly status?: unknown;
+      readonly kind?: unknown;
+      readonly roomGeneration?: unknown;
+      readonly applicationSessionId?: unknown;
+      readonly hostParticipantId?: unknown;
+      readonly evidence?: {
+        readonly kind?: unknown;
+        readonly observation?: unknown;
+        readonly from?: {
+          readonly queueItemId?: unknown;
+          readonly runId?: unknown;
+          readonly revision?: unknown;
+        };
+        readonly to?: {
+          readonly queueItemId?: unknown;
+          readonly runId?: unknown;
+          readonly revision?: unknown;
+        };
+        readonly targetFrame?: unknown;
+        readonly appliedFrame?: unknown;
+        readonly observedAtRoomTimeMs?: unknown;
+      };
+      readonly timeline?: {
+        readonly phase?: unknown;
+        readonly revision?: unknown;
+        readonly positionSeconds?: unknown;
+        readonly run?: unknown;
+      };
+    };
+    const evidence = commit.evidence;
+    const timeline = commit.timeline;
+    if (!evidence || !timeline) return false;
+    if (
+      commit.status !== 'committed' ||
+      commit.kind !== kind ||
+      commit.roomGeneration !== before.room.roomGeneration ||
+      commit.applicationSessionId !== before.room.applicationSessionId ||
+      commit.hostParticipantId !== before.room.hostParticipantId ||
+      !Object.isFrozen(evidence) ||
+      !Object.isFrozen(evidence?.from) ||
+      !Object.isFrozen(evidence?.to) ||
+      evidence.from?.queueItemId !== before.queueItemId ||
+      evidence.from.runId !== before.runId ||
+      evidence.from.revision !== before.revision ||
+      evidence.to?.queueItemId !== before.queueItemId ||
+      evidence.to.runId !== before.runId ||
+      evidence.to.revision !== before.revision + 1 ||
+      !Object.isFrozen(timeline) ||
+      timeline?.phase !== 'stopped' ||
+      timeline.revision !== before.revision + 1 ||
+      timeline.run !== null ||
+      timeline.positionSeconds !== 0
+    ) {
+      return false;
+    }
+    if (kind === 'stop') {
+      if (
+        evidence.kind !== 'stop-applied' ||
+        evidence.observation !== 'webaudio-schedule-passed' ||
+        !Number.isSafeInteger(evidence.targetFrame) ||
+        !Number.isSafeInteger(evidence.appliedFrame) ||
+        (evidence.targetFrame as number) < 0 ||
+        (evidence.appliedFrame as number) < (evidence.targetFrame as number)
+      ) {
+        return false;
+      }
+    } else if (
+      evidence.kind !== 'ended-renderer-retired' ||
+      typeof evidence.observedAtRoomTimeMs !== 'number' ||
+      !Number.isFinite(evidence.observedAtRoomTimeMs) ||
+      evidence.observedAtRoomTimeMs < 0
+    ) {
+      return false;
+    }
+
+    const roomAfter = filePlaybackProductRuntime.hostRoomSnapshot();
+    return !!(
+      isExactV2HostRoom(roomAfter) &&
+      sameV2HostRoom(roomAfter, before.room) &&
+      filePlaybackProductRuntime.currentHostRendererSnapshot() === null &&
+      filePlaybackProductRuntime.currentHostTerminalRendererObservation() === null &&
+      getCurrentQueueItemId() === before.queueItemId &&
+      getQueueItemById(before.queueItemId)
+    );
+  } catch {
+    return false;
+  }
+}
+
+type V2HostStopOptions = Readonly<{
+  silent?: boolean;
+  cancelInFlight?: boolean;
+  clearBuffer?: boolean;
+  preservePlaylistIntent?: boolean;
+}>;
+
+function publishV2HostStopped(options: V2HostStopOptions = {}): void {
+  if (options.cancelInFlight) {
+    newLoadEpoch();
+    incrementLoadSessionId();
+  }
+  clearManagedTimer('preloadScheduleTimer');
+  clearManagedTimer('autoPlayTimer');
+  clearManagedTimer('ended-advance-retry');
+  clearManagedTimer('ended-advance-next');
+  clearManagedTimer('playback-replay-defer');
+  setPlaybackIdle();
+  setState('player.pausedAt', 0);
+  if (options.clearBuffer) setCurrentAudioBuffer(null);
+  bus.emit('ui:seek-reset');
+  bus.emit('visualizer:fade-out');
+}
+
+function publishV2HostPaused(
+  positionSeconds: number,
+  options: Readonly<{ holdVisualizer: boolean; showToast: boolean }>,
+): void {
+  setState('player.pausedAt', positionSeconds);
+  setPlaybackFilePaused();
+  if (options.holdVisualizer) bus.emit('visualizer:hold-frame');
+  if (options.showToast) showToast(t('common.pause'));
+}
+
+function publishV2HostPlaying(positionSeconds: number): void {
+  setState('player.pausedAt', positionSeconds);
+  setPlaybackFilePlaying();
+  bus.emit('visualizer:start');
+  bus.emit('ui:loop-start');
+}
+
+function isCurrentV2HostControlIntent(intent: V2HostControlIntent): boolean {
+  return v2HostControlIntent === intent && !intent.controller.signal.aborted;
+}
+
+function enqueueV2HostControl(label: string, operation: V2HostControlOperation): Promise<void> {
+  const predecessor = v2HostControlTail;
+  const previousIntent = v2HostControlIntent;
+  if (label !== 'seek') supersedeActiveV2HostSeekUiIntent();
+  const intent: V2HostControlIntent = {
+    sequence: ++v2HostControlSequence,
+    controller: new AbortController(),
+  };
+  v2HostControlIntent = intent;
+  abortV2HostControlIntent(previousIntent);
+
+  const task = (async () => {
+    await predecessor;
+    if (!isCurrentV2HostControlIntent(intent)) return;
+    await operation(intent);
+  })().catch((error) => {
+    if (isCurrentV2HostControlIntent(intent)) {
+      log.warn(`[Transport] V2 host ${label} lane ${intent.sequence} failed:`, error);
+    }
+  });
+
+  const settlement = task.finally(() => {
+    if (v2HostControlIntent === intent) v2HostControlIntent = null;
+  });
+  v2HostControlTail = settlement.then(
+    () => undefined,
+    () => undefined,
+  );
+  return settlement;
+}
+
+function enqueueV2HostSeek(resolveTarget: V2HostSeekTargetResolver): void {
+  const admitted = readExactV2HostControlState();
+  if (!admitted) return;
+  let admittedTarget: number | null;
+  try {
+    admittedTarget = resolveTarget(admitted);
+  } catch (error) {
+    log.warn('[Transport] V2 host seek admission failed:', error);
+    return;
+  }
+  if (admittedTarget === null || !Number.isFinite(admittedTarget) || admittedTarget < 0) return;
+  const uiIntent = beginV2HostSeekUiIntent(admitted, admittedTarget);
+
+  const settlement = enqueueV2HostControl('seek', async (intent) => {
+    const before = readExactV2HostControlState();
+    if (!before || !sameV2HostSeekAdmission(admitted, before)) {
+      settleV2HostSeekUiIntent(uiIntent, 'failed');
+      return;
+    }
+    let target: number | null;
+    try {
+      target = resolveTarget(before);
+    } catch (error) {
+      if (isCurrentV2HostControlIntent(intent)) {
+        log.warn('[Transport] V2 host seek target resolution failed:', error);
+        settleV2HostSeekUiIntent(uiIntent, 'failed');
+      }
+      return;
+    }
+    if (target === null || !Number.isFinite(target) || target < 0) {
+      settleV2HostSeekUiIntent(uiIntent, 'failed');
+      return;
+    }
+    if (!refreshV2HostSeekUiTarget(uiIntent, target)) return;
+    let commit: unknown;
+    try {
+      commit =
+        before.phase === 'playing'
+          ? await filePlaybackProductRuntime.seekPlaying({
+              positionSeconds: target,
+              signal: intent.controller.signal,
+            })
+          : await filePlaybackProductRuntime.seekPaused({
+              positionSeconds: target,
+              signal: intent.controller.signal,
+            });
+    } catch (error) {
+      if (isCurrentV2HostControlIntent(intent)) {
+        log.warn('[Transport] V2 host seek failed:', error);
+        settleV2HostSeekUiIntent(uiIntent, 'failed', readV2HostSeekSettlementPosition(target));
+      }
+      return;
+    }
+    if (!isCurrentV2HostControlIntent(intent)) {
+      settleV2HostSeekUiIntent(uiIntent, 'superseded', readV2HostSeekSettlementPosition(target));
+      return;
+    }
+    if (!remainsExactV2HostSeekCommit(before, commit, target)) {
+      settleV2HostSeekUiIntent(uiIntent, 'failed', readV2HostSeekSettlementPosition(target));
+      return;
+    }
+    const timeline = (commit as { readonly timeline: { readonly positionSeconds: number } })
+      .timeline;
+    setState('player.pausedAt', timeline.positionSeconds);
+    if (before.phase === 'paused') {
+      setPlaybackFilePaused();
+      bus.emit('visualizer:hold-frame');
+    } else {
+      setPlaybackFilePlaying();
+    }
+    settleV2HostSeekUiIntent(uiIntent, 'committed', timeline.positionSeconds);
+  });
+
+  // The lane intentionally absorbs operation errors so later controls can
+  // continue. Pair that behavior with a terminal UI result in case an
+  // unexpected exception escaped one of the explicit seek branches above.
+  void settlement.then(
+    () => {
+      settleV2HostSeekUiIntent(uiIntent, 'failed');
+    },
+    () => {
+      settleV2HostSeekUiIntent(uiIntent, 'failed');
+    },
+  );
+}
+
+async function applyV2HostPause(
+  intent: V2HostControlIntent,
+  before: V2HostControlState,
+  options: Readonly<{ holdVisualizer: boolean; showToast: boolean }>,
+): Promise<void> {
+  if (before.phase !== 'playing') return;
+  const commit = await filePlaybackProductRuntime.pauseCurrent({
+    signal: intent.controller.signal,
+  });
+  if (!isCurrentV2HostControlIntent(intent)) return;
+  const positionSeconds = exactV2HostPauseCommitPosition(commit, before);
+  const after = readExactV2HostAdvancedState(before, 'paused');
+  if (
+    positionSeconds === null ||
+    !after ||
+    Math.abs(after.position.positionSeconds - positionSeconds) > 1e-6
+  ) {
+    return;
+  }
+  publishV2HostPaused(positionSeconds, options);
+}
+
+async function applyV2HostResume(
+  intent: V2HostControlIntent,
+  initial: V2HostControlState,
+  requestedPositionSeconds?: number,
+): Promise<void> {
+  if (initial.phase !== 'paused') return;
+  let beforeResume = initial;
+  if (requestedPositionSeconds !== undefined) {
+    const target = clampV2HostSeekTarget(requestedPositionSeconds, initial.durationSeconds);
+    if (target === null) return;
+    if (Math.abs(target - initial.position.positionSeconds) > 1e-6) {
+      const seekCommit = await filePlaybackProductRuntime.seekPaused({
+        positionSeconds: target,
+        signal: intent.controller.signal,
+      });
+      if (
+        !isCurrentV2HostControlIntent(intent) ||
+        !remainsExactV2HostSeekCommit(initial, seekCommit, target)
+      ) {
+        return;
+      }
+      const afterSeek = readExactV2HostAdvancedState(initial, 'paused');
+      if (!afterSeek || Math.abs(afterSeek.position.positionSeconds - target) > 1e-6) return;
+      setState('player.pausedAt', target);
+      setPlaybackFilePaused();
+      bus.emit('visualizer:hold-frame');
+      beforeResume = afterSeek;
+    }
+  }
+
+  const resumePositionSeconds = beforeResume.position.positionSeconds;
+  const commit = await filePlaybackProductRuntime.resumeCurrent({
+    signal: intent.controller.signal,
+  });
+  if (!isCurrentV2HostControlIntent(intent)) return;
+  const committedPosition = exactV2HostResumeCommitPosition(
+    commit,
+    beforeResume,
+    resumePositionSeconds,
+  );
+  const after = readExactV2HostAdvancedState(beforeResume, 'playing');
+  if (committedPosition === null || !after) return;
+  publishV2HostPlaying(committedPosition);
+}
+
+function enqueueV2HostPause(
+  options: Readonly<{ holdVisualizer: boolean; showToast: boolean }>,
+): void {
+  void enqueueV2HostControl('pause', async (intent) => {
+    const before = readExactV2HostControlState();
+    if (!before) return;
+    await applyV2HostPause(intent, before, options);
+  });
+}
+
+function enqueueV2HostResume(requestedPositionSeconds?: number): void {
+  void enqueueV2HostControl('resume', async (intent) => {
+    const before = readExactV2HostControlState();
+    if (!before) return;
+    await applyV2HostResume(intent, before, requestedPositionSeconds);
+  });
+}
+
+function enqueueV2HostToggle(): void {
+  void enqueueV2HostControl('toggle', async (intent) => {
+    const before = readExactV2HostControlState();
+    if (!before) return;
+    if (before.phase === 'playing') {
+      await applyV2HostPause(intent, before, {
+        holdVisualizer: true,
+        showToast: true,
+      });
+    } else {
+      await applyV2HostResume(intent, before);
+    }
+  });
+}
+
+async function enqueueV2HostStop(options: V2HostStopOptions): Promise<boolean> {
+  let committed = false;
+  await enqueueV2HostControl('stop', async (intent) => {
+    const before = readExactV2HostControlState();
+    const terminal = before ? null : readExactV2HostTerminalIdentity();
+    const identity = before ?? terminal;
+    if (!identity) return;
+    let commit: unknown;
+    try {
+      commit = before
+        ? await filePlaybackProductRuntime.stopCurrent({
+            signal: intent.controller.signal,
+          })
+        : await filePlaybackProductRuntime.settleEndedCurrent({
+            signal: intent.controller.signal,
+          });
+    } catch (error) {
+      if (isCurrentV2HostControlIntent(intent)) {
+        log.warn('[Transport] V2 host stop failed:', error);
+      }
+      return;
+    }
+    if (!exactV2HostStoppedCommit(commit, identity, before ? 'stop' : 'ended')) return;
+    publishV2HostStopped(options);
+    committed = isCurrentV2HostControlIntent(intent);
+  });
+  return committed;
+}
+
+function v2HostEndedObservationKey(identity: V2HostTransitionIdentity): string {
+  return JSON.stringify([
+    identity.room.roomGeneration,
+    identity.room.applicationSessionId,
+    identity.room.hostParticipantId,
+    identity.queueItemId,
+    identity.runId,
+    identity.revision,
+  ]);
+}
+
+function requestV2HostEndedSettlement(): boolean {
+  if (!isV2HostFileProductControlContext()) return false;
+  const observed = readExactV2HostTerminalIdentity();
+  if (!observed) return true;
+  const observationKey = v2HostEndedObservationKey(observed);
+  if (lastV2HostEndedObservationKey === observationKey) return true;
+  lastV2HostEndedObservationKey = observationKey;
+
+  const settlement = enqueueV2HostControl('ended', async (intent) => {
+    const before = readExactV2HostTerminalIdentity();
+    if (
+      !before ||
+      !sameV2HostTransitionIdentity(before, observed) ||
+      v2HostEndedObservationKey(before) !== observationKey
+    ) {
+      return;
+    }
+    let commit: unknown;
+    try {
+      commit = await filePlaybackProductRuntime.settleEndedCurrent({
+        signal: intent.controller.signal,
+      });
+    } catch (error) {
+      if (isCurrentV2HostControlIntent(intent)) {
+        log.warn('[Transport] V2 host ended settlement failed:', error);
+      }
+      return;
+    }
+    if (!exactV2HostStoppedCommit(commit, before, 'ended')) return;
+    publishV2HostStopped();
+    if (isCurrentV2HostControlIntent(intent)) bus.emit('player:ended');
+  });
+  void settlement.then(() => {
+    if (lastV2HostEndedObservationKey !== observationKey) return;
+    const stillTerminal = readExactV2HostTerminalIdentity();
+    if (
+      stillTerminal &&
+      sameV2HostTransitionIdentity(stillTerminal, observed) &&
+      v2HostEndedObservationKey(stillTerminal) === observationKey
+    ) {
+      // A failed or pre-dispatch-superseded settlement may be retried by the
+      // next safety poll. Successful settlement has no terminal observation.
+      lastV2HostEndedObservationKey = null;
+    }
+  });
+  return true;
+}
+
+function isV2HostFileProductControlContext(): boolean {
+  return isV2HostFileControlContext() && !isYouTubeOwner() && !isSystemAudioOwner();
+}
+
+/**
+ * Claims one host-local V2 file seek without exposing the legacy transport.
+ * `true` means the selected V2 boundary owns the request even when its exact
+ * projection is unavailable and the request therefore fails closed.
+ */
+export function requestV2HostFileSeek(time: number): boolean {
+  if (!isV2HostFileProductControlContext()) return false;
+  if (Number.isFinite(time) && time >= 0) {
+    enqueueV2HostSeek((state) => clampV2HostSeekTarget(time, state.durationSeconds));
+  }
+  return true;
+}
+
+export function requestV2HostFilePause(
+  options: Readonly<{ holdVisualizer: boolean; showToast: boolean }>,
+): boolean {
+  if (!isV2HostFileProductControlContext()) return false;
+  enqueueV2HostPause(options);
+  return true;
+}
+
+export function requestV2HostFileResume(positionSeconds?: number): boolean {
+  if (!isV2HostFileProductControlContext()) return false;
+  enqueueV2HostResume(positionSeconds);
+  return true;
+}
+
+/**
+ * Claims an exact host-local V2 stop. `null` leaves non-V2 owners on their
+ * existing transport; a Promise means the V2 boundary owns the request and
+ * resolves true only after its stopped room truth has been verified.
+ */
+export function requestV2HostFileStop(options: V2HostStopOptions = {}): Promise<boolean> | null {
+  if (!isV2HostFileProductControlContext()) return null;
+  if (!options.preservePlaylistIntent) {
+    bus.emit('playlist:cancel-v2-playback-intent');
+  }
+  const mode = getPlaybackModeActivity();
+  if (
+    mode.mode === null &&
+    mode.activity === 'idle' &&
+    isExactV2HostRoom(filePlaybackProductRuntime.hostRoomSnapshot()) &&
+    filePlaybackProductRuntime.currentHostRendererSnapshot() === null &&
+    filePlaybackProductRuntime.currentHostTerminalRendererObservation() === null
+  ) {
+    return Promise.resolve(true);
+  }
+  return enqueueV2HostStop(options);
+}
+
+function requestV2HostFileToggle(): boolean {
+  if (!isV2HostFileProductControlContext()) return false;
+  enqueueV2HostToggle();
+  return true;
+}
+
 // ─── Track Position ────────────────────────────────────────────────
 
 let _offsetResetQueued = false;
@@ -207,6 +1373,10 @@ function readTrackPosition(repairOutOfRangeOffset: boolean): number {
       ytPos = pos;
     });
     return ytPos;
+  }
+
+  if (isV2HostFileControlContext()) {
+    return readExactV2HostControlState()?.position.positionSeconds ?? 0;
   }
 
   if (isFileTransportInactive()) return pausedAt;
@@ -313,11 +1483,7 @@ export function stopPlayerNode(): void {
 
 // ─── Stop All Media ────────────────────────────────────────────────
 
-export function stopAllMedia(opts?: {
-  silent?: boolean;
-  cancelInFlight?: boolean;
-  clearBuffer?: boolean;
-}): void {
+function stopAllMediaLegacy(opts: V2HostStopOptions = {}): void {
   const queueItemId = getCurrentQueueItemId();
   const wasInYouTube = isYouTubeOwner();
   const wasPreparingFile = isFilePipelineBusyForPlay();
@@ -404,6 +1570,26 @@ export function stopAllMedia(opts?: {
   bus.emit('visualizer:fade-out');
 }
 
+export function stopAllMedia(opts: V2HostStopOptions = {}): void {
+  const v2Stop = requestV2HostFileStop(opts);
+  if (v2Stop) {
+    void v2Stop;
+    return;
+  }
+  stopAllMediaLegacy(opts);
+}
+
+/**
+ * Ordered variant for cross-mode transitions. Legacy teardown still executes
+ * synchronously; V2 callers resume only after exact stopped room truth.
+ */
+export async function stopAllMediaAsync(options: V2HostStopOptions = {}): Promise<boolean> {
+  const v2Stop = requestV2HostFileStop(options);
+  if (v2Stop) return v2Stop;
+  stopAllMediaLegacy(options);
+  return true;
+}
+
 // ─── Seek ──────────────────────────────────────────────────────────
 
 /**
@@ -452,6 +1638,8 @@ export function seekTo(time: number): void {
   // System audio: no seek (live stream)
   if (isSystemAudioOwner()) return;
 
+  if (requestV2HostFileSeek(time)) return;
+
   // A busy file pipeline still holds the previous track's buffer. Ignore seek;
   // decode completion owns playback for the newly selected track.
   if (isFilePipelineBusyForPlay()) {
@@ -485,6 +1673,7 @@ export async function play(
   shouldApply?: () => boolean,
 ): Promise<void> {
   if (shouldApply?.() === false) return;
+  if (requestV2HostFileResume(offset)) return;
   if (isPlayLocked()) {
     log.warn('[Play] Blocked: queuing play request');
     queuePendingPlayIntent({ offset, scheduleDelay, scheduleDeadlineMs, shouldApply });
@@ -692,13 +1881,19 @@ async function _internalPlay(
     const surroundChannelIndex = getState('audio.surroundChannelIndex');
 
     if (isSurroundMode) {
-      bus.emit('audio:connect-surround', newNode, surroundChannelIndex);
+      // The V2 audio graph owns a stable route, so the source node itself
+      // never changes routing ownership when the selected channel changes.
+      bus.emit('audio:connect-surround', surroundChannelIndex);
       log.debug(`[BufferMode] Playing in 7.1 Surround (Ch: ${surroundChannelIndex})`);
     } else {
-      const widener = getWidener();
-      if (widener) newNode.connect(widener.input);
       log.debug('[BufferMode] Playing in Stereo');
     }
+
+    // Every backend connects exactly once to the stable route input. Surround
+    // changes only rewire nodes downstream of that input, so toggling a role
+    // never recreates or restarts this source.
+    const destination = getFilePlaybackDestination();
+    if (destination) newNode.connect(destination);
 
     // Use the onended slot because stopPlayerNode clears that exact callback.
     // addEventListener + `onended = null` would leave the closure (and its
@@ -757,6 +1952,14 @@ export function pause(
   // unlock cannot resurrect audio after an authoritative pause.
   clearPendingPlayIntent();
   revokeInFlightPlayStart();
+  if (
+    requestV2HostFilePause({
+      holdVisualizer: opts?.holdVisualizer ?? forcedTime === undefined,
+      showToast: opts?.showToast ?? true,
+    })
+  ) {
+    return;
+  }
   if (isFileTransportInactive()) return;
 
   let pausePos: number;
@@ -866,6 +2069,11 @@ export async function applyProPlaybackFileCommit(
 export function handleEnded(): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Guests don't handle track-end
+
+  // The product source exposes an exact ended renderer observation while the
+  // controller still owns the playing run. Settlement, stopped publication,
+  // and playlist advance stay serialized with every other V2 host control.
+  if (requestV2HostEndedSettlement()) return;
 
   const _currentAudioBuffer = getCurrentAudioBuffer();
 
@@ -981,6 +2189,16 @@ export function togglePlay(): void {
     return;
   }
 
+  if (requestV2HostFileToggle()) {
+    if (getManagedTimer('autoPlayTimer')) {
+      clearManagedTimer('autoPlayTimer');
+      showToast(t('toast.auto_play_canceled'));
+    }
+    clearManagedTimer('ended-advance-retry');
+    clearManagedTimer('ended-advance-next');
+    return;
+  }
+
   // A failed/purged file fetch must never broadcast PLAY for a queue ID whose
   // resident PCM is missing (the previous buffer may have belonged to another
   // row). On the coordinator, treat Play as an explicit retry of the selected
@@ -1070,14 +2288,15 @@ export function stopPlayback(): void {
     return;
   }
 
-  if (isCompatIdle()) return; // Nothing to stop
+  const wasCompatIdle = isCompatIdle();
 
-  if (isSystemAudioPlaying()) {
+  if (!wasCompatIdle && isSystemAudioPlaying()) {
     bus.emit('system-audio:stop');
     return;
   }
 
   if (
+    !wasCompatIdle &&
     routeProPlaybackCommand({
       kind: 'stop',
       queueItemId: getCurrentQueueItemId(),
@@ -1086,6 +2305,16 @@ export function stopPlayback(): void {
   ) {
     return;
   }
+
+  const v2Stop = requestV2HostFileStop({ cancelInFlight: true });
+  if (v2Stop) {
+    void v2Stop.then((committed) => {
+      if (committed && !wasCompatIdle) showToast(t('common.stop'));
+    });
+    return;
+  }
+
+  if (wasCompatIdle) return; // Nothing to stop
 
   if (isYouTubeOwner()) {
     // Broadcast before clearing local ownership; stopYouTubeMode cannot infer
@@ -1153,6 +2382,15 @@ export function skipTime(sec: number): void {
   }
   if (isYouTubeOwner()) {
     bus.emit('youtube:skip-time', sec);
+    return;
+  }
+
+  if (isV2HostFileControlContext()) {
+    if (Number.isFinite(sec)) {
+      enqueueV2HostSeek((state) =>
+        clampV2HostSeekTarget(state.position.positionSeconds + sec, state.durationSeconds),
+      );
+    }
     return;
   }
 
@@ -1227,6 +2465,10 @@ export function setLocalManualSyncOffset(nextOffset: number): number {
 }
 
 export function adjustSync(val: number): void {
+  if (isV2HostFileControlContext() && !isYouTubeOwner() && !isSystemAudioOwner()) {
+    log.debug('[Sync] Local file nudge is unavailable on the V2 host transport');
+    return;
+  }
   const localOffset = getState('sync.localOffset') || 0;
   setLocalManualSyncOffset(localOffset + val);
   bus.emit('sync:display-update');

@@ -9,10 +9,16 @@
   },
   "scripts": {
     "dev": "vite",
+    "prebuild": "npm run guard:file-playback-cohort",
     "build": "vite build && node scripts/materialize-app-static-headers.mjs",
     "build:checked": "npm run guard:release-identity && npm run guard:sw-cache-version && npm run guard:profanity-patterns && npm run build && npm run guard:prod-hooks && npm run guard:prod-security && npm run guard:font-build && npm run guard:sw-app-shell",
     "build:e2e": "vite build --mode e2e",
+    "prebuild:e2e:universal": "npm run guard:file-playback-cohort",
+    "build:e2e:universal": "vite build --mode e2e-universal --config e2e/vite.universal.config.ts && vite build --mode production --config e2e/vite.current-isolation.config.ts && vite build --mode production --config e2e/vite.production-latch-isolation.config.ts && tsx e2e/universal-bounded/verify-build-isolation.ts",
     "preview": "vite preview",
+    "preview:e2e:universal": "vite preview --mode e2e-universal --config e2e/vite.universal.config.ts",
+    "preview:e2e:current": "vite preview --mode production --config e2e/vite.current-isolation.config.ts",
+    "preview:e2e:production-latch": "vite preview --mode production --config e2e/vite.production-latch-isolation.config.ts",
     "promo:render": "tsx .workshop/promo/render.ts",
     "guard:prod-hooks": "node scripts/assert-production-build-clean.mjs",
     "guard:prod-security": "node scripts/assert-production-security-config.mjs",
@@ -22,6 +28,7 @@
     "generate:profanity-patterns": "node scripts/generate-profanity-patterns.mjs",
     "guard:profanity-patterns": "node scripts/generate-profanity-patterns.mjs --check",
     "guard:lifecycle-writes": "node scripts/check-lifecycle-writes.mjs",
+    "guard:file-playback-cohort": "node scripts/check-file-playback-semantic-cohort.mjs",
     "guard:dead-exports": "node scripts/check-dead-exports.mjs",
     "guard:font-assets": "node scripts/check-app-font.mjs",
     "guard:font-build": "node scripts/check-app-font.mjs --dist",
@@ -84,6 +91,9 @@
     "test:coverage:critical": "vitest run --coverage --config vitest.critical.config.ts",
     "pretest:e2e": "npm run build:e2e",
     "test:e2e": "playwright test",
+    "fixtures:e2e:universal": "tsx e2e/universal-bounded/generate-fixtures.ts",
+    "pretest:e2e:universal": "npm run fixtures:e2e:universal && npm run build:e2e:universal",
+    "test:e2e:universal": "playwright test --config playwright.universal.config.ts",
     "pretest:e2e:release": "npm run build:e2e",
     "test:e2e:release": "playwright test e2e/release-smoke.test.ts --project=chromium --reporter=line",
     "pretest:e2e:report": "npm run build:e2e",
@@ -120,7 +130,11 @@
     "ws": "^8.21.0"
   },
   "dependencies": {
+    "@wasm-audio-decoders/flac": "0.2.10",
+    "codec-parser": "2.5.0",
     "content-shield": "^0.1.1",
+    "lanczos-resampler": "0.4.1",
+    "mpg123-decoder": "1.0.3",
     "peerjs": "^1.5.5",
     "qrcode": "^1.5.4"
   }

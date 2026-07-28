@@ -22,6 +22,7 @@ const SIGNING_SECRET = 'remote-share-signing-secret-for-tests';
 const CAPABILITY_SECRET = 'remote-share-capability-secret-for-tests';
 const CLIENT_IP = '203.0.113.7';
 const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
+const RECORD_SIZE = 8 * 1024 * 1024;
 
 interface R2CorsRule {
   allowed: {
@@ -36,6 +37,10 @@ const r2CorsPolicy = JSON.parse(
 ) as { rules: R2CorsRule[] };
 const liveSmokeSource = await readFile(
   new URL('../../../scripts/live-remote-share-smoke.ts', import.meta.url),
+  'utf8',
+);
+const releaseWorkflowSource = await readFile(
+  new URL('../../../.github/workflows/release.yml', import.meta.url),
   'utf8',
 );
 
@@ -267,6 +272,74 @@ function sessionRequestBody(overrides: Record<string, unknown> = {}): string {
   });
 }
 
+function recordSetRequestBody(overrides: Record<string, unknown> = {}): string {
+  const size = Number(overrides.size ?? RECORD_SIZE + 4);
+  const recordSize = Number(overrides.recordSize ?? RECORD_SIZE);
+  return JSON.stringify({
+    roomId: '123456',
+    sessionId: 'file-playback-session:test',
+    queueItemId: QUEUE_ITEM_ID,
+    sourceIdentity: 'source:r2-record-set:test',
+    name: 'song.flac',
+    mime: 'audio/flac',
+    size,
+    recordSize,
+    recordCount: Math.ceil(size / recordSize),
+    ...overrides,
+  });
+}
+
+interface RecordSetResponse {
+  v: 2;
+  setId: string;
+  recordSize: number;
+  recordCount: number;
+  expiresAt: number;
+  setToken: string;
+  cleanupToken: string;
+  records: Array<{
+    index: number;
+    objectId: string;
+    plaintextSize: number;
+    encryptedSize: number;
+    downloadUrl: string;
+  }>;
+}
+
+async function createRecordSet(
+  workerEnv: Record<string, unknown>,
+  overrides: Record<string, unknown> = {},
+): Promise<{ response: Response; payload: RecordSetResponse }> {
+  const token = await createCapabilityToken();
+  const response = await workerModule.default.fetch(
+    request('/v2/sets', {
+      method: 'POST',
+      headers: {
+        'cf-connecting-ip': CLIENT_IP,
+        'content-type': 'application/json',
+        'x-mxqr-capability': token,
+      },
+      body: recordSetRequestBody(overrides),
+    }),
+    workerEnv,
+  );
+  return {
+    response,
+    payload: (await response.json()) as RecordSetResponse,
+  };
+}
+
+function customMetadataFromUploadHeaders(
+  uploadHeaders: Record<string, string>,
+): Record<string, string> {
+  const metadata: Record<string, string> = {};
+  for (const [name, value] of Object.entries(uploadHeaders)) {
+    const prefix = 'x-amz-meta-';
+    if (name.startsWith(prefix)) metadata[name.slice(prefix.length)] = value;
+  }
+  return metadata;
+}
+
 interface QuotaObject {
   key: string;
   size: number;
@@ -327,6 +400,38 @@ describe('remote-share Worker capability gate', () => {
     expect(liveSmokeSource).not.toContain('`live-smoke-${');
   });
 
+  it('keeps the live smoke covering both V1 and an exact V2 record lifecycle', () => {
+    expect(liveSmokeSource).toContain('runV1Smoke');
+    expect(liveSmokeSource).toContain('runRecordSetSmoke');
+    expect(liveSmokeSource).toContain('`${REMOTE_ORIGIN}/v2/sets`');
+    expect(liveSmokeSource).toContain('/records/0/upload');
+    expect(liveSmokeSource).toContain('/records/0/complete');
+    expect(liveSmokeSource).toContain('Buffer.compare(Buffer.from(downloadedCiphertext)');
+    expect(liveSmokeSource).toContain('R2RecordCryptoV2.createDecryptor');
+    expect(liveSmokeSource).toContain('cleanupRecordSet');
+    expect(liveSmokeSource).toContain('afterDelete.status !== 404');
+  });
+
+  it('applies record-aware R2 CORS before remote-share deployment', () => {
+    const corsStep = releaseWorkflowSource.indexOf('- name: Apply remote-share R2 CORS policy');
+    const bridgeStep = releaseWorkflowSource.indexOf(
+      '- name: Establish rollback-safe remote-share quota migration bridge',
+    );
+    const deployStep = releaseWorkflowSource.indexOf(
+      '- name: Deploy and record remote-share Worker',
+    );
+
+    expect(corsStep).toBeGreaterThan(-1);
+    expect(corsStep).toBeLessThan(bridgeStep);
+    expect(corsStep).toBeLessThan(deployStep);
+    expect(releaseWorkflowSource).toContain('r2 bucket cors set musixquare-remote-share');
+    expect(releaseWorkflowSource).toContain('--file cloudflare/r2-cors.remote-share.json');
+    expect(releaseWorkflowSource).toContain('--force');
+    expect(releaseWorkflowSource).toContain('npm run smoke:live:remote-share -- --v1-only');
+    expect(releaseWorkflowSource).toContain("VITE_MUSIXQUARE_FILE_ENGINE_V2: '1'");
+    expect(releaseWorkflowSource).toContain("VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '0'");
+  });
+
   it('keeps checked-in R2 CORS aligned with every Worker production origin range', async () => {
     const corsRule = directPutCorsRule();
     expect(corsRule).toBeDefined();
@@ -334,6 +439,7 @@ describe('remote-share Worker capability gate', () => {
     const originContract = [
       ['https://musixquare.com', 'https://musixquare.com'],
       ['https://www.musixquare.com', 'https://www.musixquare.com'],
+      ['https://musixquare.apps.tossmini.com', 'https://musixquare.apps.tossmini.com'],
       ['https://tossmini.com', 'https://tossmini.com'],
       ['https://*.tossmini.com', 'https://music.tossmini.com'],
       ['https://toss.im', 'https://toss.im'],
@@ -1754,5 +1860,528 @@ describe('remote-share Worker capability gate', () => {
     expect(response.headers.get('content-length')).toBe('20');
     expect((await response.arrayBuffer()).byteLength).toBe(20);
     expect(bucket.delete).not.toHaveBeenCalled();
+  });
+
+  describe('record-encrypted V2 sets', () => {
+    it('creates one atomically reserved set and presigns deterministic record objects', async () => {
+      const bucket = createQuotaBucket();
+      const rateStore = new Map<string, string>();
+      const rateLimit = {
+        get: vi.fn(async (key: string) => rateStore.get(key) ?? null),
+        put: vi.fn(async (key: string, value: string) => {
+          rateStore.set(key, value);
+        }),
+      };
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: bucket,
+        REMOTE_SHARE_RATE_LIMIT: rateLimit,
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 2),
+      });
+
+      const { response, payload } = await createRecordSet(workerEnv);
+
+      expect(response.status).toBe(200);
+      expect(payload).toMatchObject({
+        v: 2,
+        setId: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+        ),
+        recordSize: RECORD_SIZE,
+        recordCount: 2,
+        setToken: expect.any(String),
+        cleanupToken: expect.any(String),
+      });
+      expect(payload.records).toHaveLength(2);
+      expect(payload.records).toEqual([
+        expect.objectContaining({
+          index: 0,
+          objectId: expect.stringMatching(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+          ),
+          plaintextSize: RECORD_SIZE,
+          encryptedSize: RECORD_SIZE + 16,
+        }),
+        expect.objectContaining({
+          index: 1,
+          objectId: expect.stringMatching(
+            /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+          ),
+          plaintextSize: 4,
+          encryptedSize: 20,
+        }),
+      ]);
+      expect(new Set(payload.records.map((record) => record.objectId)).size).toBe(2);
+      expect(decodeSignedTokenPayload(payload.setToken)).toEqual({
+        v: 2,
+        kind: 'record-set',
+        roomId: '123456',
+        setId: payload.setId,
+        sessionId: 'file-playback-session:test',
+        queueItemId: QUEUE_ITEM_ID,
+        sourceIdentity: 'source:r2-record-set:test',
+        name: 'song.flac',
+        mime: 'audio/flac',
+        size: RECORD_SIZE + 4,
+        recordSize: RECORD_SIZE,
+        recordCount: 2,
+        expiresAt: payload.expiresAt,
+        cleanupToken: payload.cleanupToken,
+        iat: expect.any(Number),
+        exp: payload.expiresAt,
+        nonce: expect.any(String),
+      });
+
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      const stored = namespace.instance('123456').storage.values.get('quota-state') as {
+        v: number;
+        reservations: Record<
+          string,
+          { setId: string; recordIndex: number; recordCount: number; status: string }
+        >;
+      };
+      expect(stored.v).toBe(1);
+      expect(Object.values(stored.reservations)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            setId: payload.setId,
+            recordIndex: 0,
+            recordCount: 2,
+            status: 'reserved',
+          }),
+          expect.objectContaining({
+            setId: payload.setId,
+            recordIndex: 1,
+            recordCount: 2,
+            status: 'reserved',
+          }),
+        ]),
+      );
+      expect(rateLimit.put).toHaveBeenCalledTimes(1);
+
+      const upload = await workerModule.default.fetch(
+        request(`/v2/sets/123456/${payload.setId}/records/0/upload`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ setToken: payload.setToken }),
+        }),
+        workerEnv,
+      );
+      const uploadPayload = (await upload.json()) as {
+        objectId: string;
+        uploadHeaders: Record<string, string>;
+        uploadUrl: string;
+      };
+      expect(upload.status).toBe(200);
+      expect(uploadPayload.objectId).toBe(payload.records[0].objectId);
+      expect(new URL(uploadPayload.uploadUrl).pathname).toContain(payload.records[0].objectId);
+      expect(rateLimit.put).toHaveBeenCalledTimes(1);
+
+      const corsHeaders = directPutCorsRule()!.allowed.headers.map((header) =>
+        header.toLowerCase(),
+      );
+      for (const header of Object.keys(uploadPayload.uploadHeaders)) {
+        expect(corsHeaders).toContain(header.toLowerCase());
+      }
+    });
+
+    it('rejects PRO codes, non-exact schemas, invalid geometry, and mismatched authority', async () => {
+      const bucket = createQuotaBucket();
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: bucket,
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 4),
+      });
+      const token = await createCapabilityToken();
+      const create = (overrides: Record<string, unknown>): Promise<Response> =>
+        workerModule.default.fetch(
+          request('/v2/sets', {
+            method: 'POST',
+            headers: {
+              'cf-connecting-ip': CLIENT_IP,
+              'content-type': 'application/json',
+              'x-mxqr-capability': token,
+            },
+            body: recordSetRequestBody(overrides),
+          }),
+          workerEnv,
+        );
+
+      for (const overrides of [
+        { roomId: '000002' },
+        { recordCount: 1 },
+        { recordSize: RECORD_SIZE / 2, recordCount: 3 },
+        { size: String(RECORD_SIZE + 4), recordCount: 2 },
+        { sourceIdentity: ' source ' },
+        { mime: 'not-a-mime' },
+        { unexpected: true },
+      ]) {
+        const response = await create(overrides);
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({ error: 'invalid record set request' });
+      }
+      expect(bucket.list).not.toHaveBeenCalled();
+
+      const { response, payload } = await createRecordSet(workerEnv);
+      expect(response.status).toBe(200);
+      const extraAuthority = await workerModule.default.fetch(
+        request(`/v2/sets/123456/${payload.setId}/records/0/upload`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ setToken: payload.setToken, extra: true }),
+        }),
+        workerEnv,
+      );
+      expect(extraAuthority.status).toBe(400);
+
+      const suffixedToken = await workerModule.default.fetch(
+        request(`/v2/sets/123456/${payload.setId}/records/0/upload`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ setToken: `${payload.setToken}.unexpected` }),
+        }),
+        workerEnv,
+      );
+      expect(suffixedToken.status).toBe(403);
+
+      const wrongSet = await workerModule.default.fetch(
+        request(`/v2/sets/123456/00000000-0000-4000-8000-000000000002/records/0/upload`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ setToken: payload.setToken }),
+        }),
+        workerEnv,
+      );
+      expect(wrongSet.status).toBe(403);
+
+      const outOfRange = await workerModule.default.fetch(
+        request(`/v2/sets/123456/${payload.setId}/records/2/upload`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ setToken: payload.setToken }),
+        }),
+        workerEnv,
+      );
+      expect(outOfRange.status).toBe(404);
+    });
+
+    it('accepts the 200 MiB boundary as exactly 25 independently reserved records', async () => {
+      const maxBytes = 200 * 1024 * 1024;
+      const totalCiphertextBytes = maxBytes + 25 * 16;
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: createQuotaBucket(),
+        ROOM_STORAGE_QUOTA_BYTES: String(totalCiphertextBytes),
+      });
+
+      const { response, payload } = await createRecordSet(workerEnv, {
+        size: maxBytes,
+        recordCount: 25,
+      });
+
+      expect(response.status).toBe(200);
+      expect(payload.records).toHaveLength(25);
+      expect(payload.records.at(-1)).toMatchObject({
+        index: 24,
+        plaintextSize: RECORD_SIZE,
+        encryptedSize: RECORD_SIZE + 16,
+      });
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      const stored = namespace.instance('123456').storage.values.get('quota-state') as {
+        reservations: Record<string, unknown>;
+      };
+      expect(Object.keys(stored.reservations)).toHaveLength(25);
+    });
+
+    it('serializes concurrent batch reservations all-or-none at the room quota boundary', async () => {
+      const perSetBytes = RECORD_SIZE + 16 + 20;
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: createQuotaBucket(),
+        ROOM_STORAGE_QUOTA_BYTES: String(perSetBytes),
+      });
+
+      const results = await Promise.all([createRecordSet(workerEnv), createRecordSet(workerEnv)]);
+      expect(results.map(({ response }) => response.status).sort()).toEqual([200, 409]);
+
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      const stored = namespace.instance('123456').storage.values.get('quota-state') as {
+        reservations: Record<string, { setId: string }>;
+      };
+      expect(Object.keys(stored.reservations)).toHaveLength(2);
+      expect(new Set(Object.values(stored.reservations).map(({ setId }) => setId)).size).toBe(1);
+    });
+
+    it('atomically releases an ambiguously acknowledged batch before exposing authority', async () => {
+      const bucket = createQuotaBucket();
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: bucket,
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 2),
+      });
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      vi.spyOn(namespace.instance('123456').storage, 'setAlarm').mockRejectedValueOnce(
+        new Error('alarm unavailable after batch put'),
+      );
+      const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const { response } = await createRecordSet(workerEnv);
+
+      expect(response.status).toBe(503);
+      expect(namespace.instance('123456').storage.values.size).toBe(0);
+      expect(namespace.instance('123456').storage.alarmAt).toBeNull();
+      expect(warning).toHaveBeenCalled();
+      expect((await createRecordSet(workerEnv)).response.status).toBe(200);
+    });
+
+    it('validates every signed metadata field before settling progressive readiness', async () => {
+      const bucket = createQuotaBucket();
+      Object.assign(bucket, {
+        get: vi.fn(async (key: string) => {
+          const object = bucket.objects.get(key);
+          return object ? { ...object, body: new Uint8Array(object.size) } : null;
+        }),
+      });
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: bucket,
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 2),
+      });
+      const { response, payload } = await createRecordSet(workerEnv);
+      expect(response.status).toBe(200);
+
+      for (const record of payload.records) {
+        const upload = await workerModule.default.fetch(
+          request(`/v2/sets/123456/${payload.setId}/records/${record.index}/upload`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ setToken: payload.setToken }),
+          }),
+          workerEnv,
+        );
+        const uploadPayload = (await upload.json()) as {
+          uploadHeaders: Record<string, string>;
+        };
+        expect(upload.status).toBe(200);
+        bucket.objects.set(`room/123456/${record.objectId}`, {
+          key: `room/123456/${record.objectId}`,
+          size: record.encryptedSize,
+          customMetadata: customMetadataFromUploadHeaders(uploadPayload.uploadHeaders),
+        });
+
+        const complete = await workerModule.default.fetch(
+          request(`/v2/sets/123456/${payload.setId}/records/${record.index}/complete`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ setToken: payload.setToken }),
+          }),
+          workerEnv,
+        );
+        expect(complete.status).toBe(200);
+        expect(await complete.json()).toMatchObject({
+          v: 2,
+          setId: payload.setId,
+          index: record.index,
+          objectId: record.objectId,
+          readyRecordCount: record.index + 1,
+          recordCount: 2,
+          complete: record.index === 1,
+        });
+      }
+
+      const download = await workerModule.default.fetch(
+        request(`/download/123456/${payload.records[0].objectId}`),
+        workerEnv,
+      );
+      expect(download.status).toBe(200);
+      expect((await download.arrayBuffer()).byteLength).toBe(RECORD_SIZE + 16);
+    });
+
+    it('deletes a record with tampered set geometry and retains its reservation', async () => {
+      const bucket = createQuotaBucket();
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: bucket,
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 2),
+      });
+      const { payload } = await createRecordSet(workerEnv);
+      const upload = await workerModule.default.fetch(
+        request(`/v2/sets/123456/${payload.setId}/records/0/upload`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ setToken: payload.setToken }),
+        }),
+        workerEnv,
+      );
+      const uploadPayload = (await upload.json()) as {
+        uploadHeaders: Record<string, string>;
+      };
+      const metadata = customMetadataFromUploadHeaders(uploadPayload.uploadHeaders);
+      metadata['record-index'] = '1';
+      const key = `room/123456/${payload.records[0].objectId}`;
+      bucket.objects.set(key, {
+        key,
+        size: payload.records[0].encryptedSize,
+        customMetadata: metadata,
+      });
+
+      const complete = await workerModule.default.fetch(
+        request(`/v2/sets/123456/${payload.setId}/records/0/complete`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ setToken: payload.setToken }),
+        }),
+        workerEnv,
+      );
+      expect(complete.status).toBe(403);
+      expect(await complete.json()).toEqual({ error: 'invalid uploaded record' });
+      expect(bucket.objects.has(key)).toBe(false);
+
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      const stored = namespace.instance('123456').storage.values.get('quota-state') as {
+        reservations: Record<string, { status: string }>;
+      };
+      expect(stored.reservations[payload.records[0].objectId]?.status).toBe('reserved');
+    });
+
+    it('revokes future presigns but retains all charged bytes until expiry sweeps a late PUT', async () => {
+      vi.useFakeTimers();
+      const startedAt = new Date('2026-07-28T00:00:00.000Z');
+      vi.setSystemTime(startedAt);
+      const bucket = createQuotaBucket();
+      const perSetBytes = RECORD_SIZE + 16 + 20;
+      const workerEnv = directUploadQuotaEnv({
+        OBJECT_TTL_SECONDS: '1',
+        REMOTE_SHARE_BUCKET: bucket,
+        ROOM_STORAGE_QUOTA_BYTES: String(perSetBytes),
+      });
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      const { payload } = await createRecordSet(workerEnv);
+      const upload = await workerModule.default.fetch(
+        request(`/v2/sets/123456/${payload.setId}/records/0/upload`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ setToken: payload.setToken }),
+        }),
+        workerEnv,
+      );
+      const uploadPayload = (await upload.json()) as {
+        uploadHeaders: Record<string, string>;
+      };
+      expect(upload.status).toBe(200);
+
+      const unauthorizedCleanup = await workerModule.default.fetch(
+        request(`/v2/sets/123456/${payload.setId}`, {
+          method: 'DELETE',
+          headers: { 'x-mxqr-cleanup-token': crypto.randomUUID() },
+        }),
+        workerEnv,
+      );
+      expect(unauthorizedCleanup.status).toBe(200);
+      expect(await unauthorizedCleanup.json()).toEqual({ ok: true });
+      const stillAuthorized = await workerModule.default.fetch(
+        request(`/v2/sets/123456/${payload.setId}/records/1/upload`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ setToken: payload.setToken }),
+        }),
+        workerEnv,
+      );
+      expect(stillAuthorized.status).toBe(200);
+
+      const cleanup = await workerModule.default.fetch(
+        request(`/v2/sets/123456/${payload.setId}`, {
+          method: 'DELETE',
+          headers: { 'x-mxqr-cleanup-token': payload.cleanupToken },
+        }),
+        workerEnv,
+      );
+      expect(cleanup.status).toBe(200);
+      expect(await cleanup.json()).toEqual({ ok: true });
+
+      const presignAfterCleanup = await workerModule.default.fetch(
+        request(`/v2/sets/123456/${payload.setId}/records/1/upload`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ setToken: payload.setToken }),
+        }),
+        workerEnv,
+      );
+      expect(presignAfterCleanup.status).toBe(410);
+      expect(await presignAfterCleanup.json()).toMatchObject({ code: 'RECORD_SET_REVOKED' });
+
+      const lateKey = `room/123456/${payload.records[0].objectId}`;
+      bucket.objects.set(lateKey, {
+        key: lateKey,
+        size: payload.records[0].encryptedSize,
+        customMetadata: customMetadataFromUploadHeaders(uploadPayload.uploadHeaders),
+      });
+      expect((await createRecordSet(workerEnv)).response.status).toBe(409);
+
+      vi.setSystemTime(startedAt.getTime() + 1_001);
+      await namespace.instance('123456').object.alarm();
+      expect(bucket.objects.size).toBe(0);
+      expect(namespace.instance('123456').storage.values.size).toBe(0);
+      expect((await createRecordSet(workerEnv)).response.status).toBe(200);
+    });
+
+    it('expires signed set authority before any R2 or quota mutation', async () => {
+      vi.useFakeTimers();
+      const startedAt = new Date('2026-07-28T00:00:00.000Z');
+      vi.setSystemTime(startedAt);
+      const bucket = createQuotaBucket();
+      const workerEnv = directUploadQuotaEnv({
+        OBJECT_TTL_SECONDS: '1',
+        REMOTE_SHARE_BUCKET: bucket,
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 2),
+      });
+      const { payload } = await createRecordSet(workerEnv);
+
+      vi.setSystemTime(startedAt.getTime() + 1_001);
+      const expired = await workerModule.default.fetch(
+        request(`/v2/sets/123456/${payload.setId}/records/0/upload`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ setToken: payload.setToken }),
+        }),
+        workerEnv,
+      );
+      expect(expired.status).toBe(403);
+      expect(bucket.head).not.toHaveBeenCalled();
+      expect(bucket.delete).not.toHaveBeenCalled();
+    });
+
+    it('keeps V2 reservation extras readable beside an unchanged V1 reservation', async () => {
+      const bucket = createQuotaBucket();
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: bucket,
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 2 + 20),
+      });
+      const { response, payload } = await createRecordSet(workerEnv);
+      expect(response.status).toBe(200);
+      const token = await createCapabilityToken();
+
+      const v1 = await workerModule.default.fetch(
+        request('/session', {
+          method: 'POST',
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-capability': token,
+          },
+          body: sessionRequestBody(),
+        }),
+        workerEnv,
+      );
+      expect(v1.status).toBe(200);
+
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      const stored = namespace.instance('123456').storage.values.get('quota-state') as {
+        v: number;
+        reservations: Record<string, { setId?: string; recordIndex?: number }>;
+      };
+      expect(stored.v).toBe(1);
+      expect(Object.keys(stored.reservations)).toHaveLength(3);
+      expect(stored.reservations[payload.records[0].objectId]).toMatchObject({
+        setId: payload.setId,
+        recordIndex: 0,
+      });
+      expect(
+        Object.values(stored.reservations).some((reservation) => reservation.setId === undefined),
+      ).toBe(true);
+    });
   });
 });

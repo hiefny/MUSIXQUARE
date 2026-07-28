@@ -579,6 +579,12 @@ const tr: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Ses motoru başlatılamadı',
   'error.session_create_fail': 'Oda oluşturulamadı',
   'error.network_generic': 'Bir ağ hatası oluştu',
+  'error.peer_app_version_mismatch':
+    '{{name}}, uygulama sürümleri eşleşmediği için katılamıyor. Her iki cihazdaki sayfayı da yenileyin.',
+  'error.app_version_mismatch':
+    'Uygulama sürümleri eşleşmiyor. Her iki cihazdaki sayfayı yenileyip tekrar deneyin.',
+  'error.session_handshake_failed':
+    'Oturum bağlantısı tamamlanamadı. Her iki cihazdaki sayfayı yenileyip tekrar deneyin.',
   'error.host_unreachable': 'Oda sahibine şu anda ulaşılamıyor',
   'error.host_disconnected': 'Oda sahibiyle bağlantı koptu',
   'error.host_conn_error': 'Oda sahibine bağlanırken hata oluştu',
@@ -679,6 +685,8 @@ const tr: Record<I18nKey, string> = {
   'chat.track_added_named': '{{name}} 1 parça ekledi: {{title}}',
   'chat.tracks_added_named': '{{name}} {{count}} parça ekledi; bunlardan biri {{title}}',
   'chat.peer_disconnected': '{{name}} odadan ayrıldı',
+  'chat.participant_connection_unstable_recovering':
+    '{{name}} adlı katılımcının bağlantısı kararsız. Kurtarılmaya çalışılıyor.',
   'chat.empty_html': 'Henüz mesaj yok.<br>İlk mesajı gönderin!',
   'chat.msg_truncated': 'Mesaj {{max}} karakter sınırı nedeniyle kısaltıldı',
   'chat.scroll_to_bottom': 'Aşağı kaydır',

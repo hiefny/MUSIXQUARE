@@ -169,6 +169,102 @@ describe('initSeekBar playback mode gates', () => {
     expect(document.getElementById('time-curr')?.innerText).toBe('fmt:48');
   });
 
+  it('pins the newest V2 seek through stale samples, reset, and stale settlement', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    initSeekBar();
+
+    bus.emit('player:v2-host-seek-pending', {
+      token: 101,
+      queueItemId: QUEUE_ITEM_ID,
+      targetSeconds: 37,
+    });
+    bus.emit('player:v2-host-seek-pending', {
+      token: 102,
+      queueItemId: QUEUE_ITEM_ID,
+      targetSeconds: 64,
+    });
+    bus.emit('ui:time-update', 'fmt:8', 'fmt:120', 8, 120);
+    bus.emit('ui:seek-reset');
+    bus.emit('player:v2-host-seek-settled', {
+      token: 101,
+      queueItemId: QUEUE_ITEM_ID,
+      status: 'superseded',
+      positionSeconds: 8,
+    });
+
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    expect(slider.value).toBe('64');
+    expect(document.getElementById('time-curr')?.innerText).toBe('fmt:64');
+
+    bus.emit('player:v2-host-seek-settled', {
+      token: 102,
+      queueItemId: QUEUE_ITEM_ID,
+      status: 'committed',
+      positionSeconds: 64.25,
+    });
+
+    expect(slider.value).toBe('64.25');
+    expect(document.getElementById('time-curr')?.innerText).toBe('fmt:64');
+  });
+
+  it('settles PRO and V2 projections independently without repainting an older target', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    initSeekBar();
+
+    bus.emit('pro-playback:ui-control-pending', {
+      token: 201,
+      kind: 'seek',
+      queueItemId: QUEUE_ITEM_ID,
+      targetSeconds: 21,
+      wasPlaying: true,
+    });
+    bus.emit('player:v2-host-seek-pending', {
+      token: 202,
+      queueItemId: QUEUE_ITEM_ID,
+      targetSeconds: 52,
+    });
+    bus.emit('pro-playback:ui-control-settled', {
+      token: 201,
+      kind: 'seek',
+      queueItemId: QUEUE_ITEM_ID,
+      status: 'applied',
+      positionSeconds: 21,
+    });
+
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    expect(slider.value).toBe('52');
+
+    bus.emit('player:v2-host-seek-settled', {
+      token: 202,
+      queueItemId: QUEUE_ITEM_ID,
+      status: 'committed',
+      positionSeconds: 52.5,
+    });
+
+    expect(slider.value).toBe('52.5');
+  });
+
+  it('releases a pending V2 projection when the queue occurrence changes', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    initSeekBar();
+    bus.emit('player:v2-host-seek-pending', {
+      token: 301,
+      queueItemId: QUEUE_ITEM_ID,
+      targetSeconds: 75,
+    });
+
+    setState('playlist.currentQueueItemId', '20000000-0000-4000-8000-000000000002');
+    bus.emit('ui:time-update', 'fmt:4', 'fmt:100', 4, 100);
+
+    expect((document.getElementById('seek-slider') as HTMLInputElement).value).toBe('4');
+  });
+
   it('blocks seek interaction while playback is idle', () => {
     setState('playback.mode', null);
     setState('playback.activity', 'idle');

@@ -583,6 +583,12 @@ const pl: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Nie można uruchomić silnika audio',
   'error.session_create_fail': 'Nie udało się utworzyć pokoju',
   'error.network_generic': 'Wykryto błąd sieci',
+  'error.peer_app_version_mismatch':
+    '{{name}} nie może dołączyć, ponieważ wersje aplikacji są różne. Odśwież stronę na obu urządzeniach.',
+  'error.app_version_mismatch':
+    'Wersje aplikacji są różne. Odśwież stronę na obu urządzeniach i spróbuj ponownie.',
+  'error.session_handshake_failed':
+    'Nie udało się nawiązać połączenia z sesją. Odśwież stronę na obu urządzeniach i spróbuj ponownie.',
   'error.host_unreachable': 'Wygląda na to, że host opuścił pokój',
   'error.host_disconnected': 'Połączenie z hostem pokoju przerwane',
   'error.host_conn_error': 'Błąd połączenia z hostem pokoju',
@@ -682,6 +688,8 @@ const pl: Record<I18nKey, string> = {
   'chat.track_added_named': '{{name}} dodał(a) 1 utwór: {{title}}',
   'chat.tracks_added_named': '{{name}} dodał(a) {{count}} utworów, w tym {{title}}',
   'chat.peer_disconnected': '{{name}} wyszedł z pokoju',
+  'chat.participant_connection_unstable_recovering':
+    'Połączenie użytkownika {{name}} jest niestabilne. Trwa próba przywrócenia.',
   'chat.empty_html': 'Brak wiadomości.<br>Napisz pierwszą wiadomość!',
   'chat.msg_truncated': 'Wiadomość została skrócona do {{max}} znaków',
   'chat.scroll_to_bottom': 'Przewiń na dół',

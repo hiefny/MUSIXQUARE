@@ -487,6 +487,10 @@ const zhHans: Record<I18nKey, string> = {
   'error.audio_engine_prepare': '无法准备音频引擎',
   'error.session_create_fail': '无法创建房间',
   'error.network_generic': '发生网络错误',
+  'error.peer_app_version_mismatch':
+    '{{name}} 因应用版本不一致而无法加入。请在两台设备上刷新页面。',
+  'error.app_version_mismatch': '应用版本不一致。请在两台设备上刷新页面后重试。',
+  'error.session_handshake_failed': '未能完成会话连接。请在两台设备上刷新页面后重试。',
   'error.host_unreachable': '主持人似乎已离开房间',
   'error.host_disconnected': '已与主持人断开连接',
   'error.host_conn_error': '连接主持人时发生错误',
@@ -658,6 +662,7 @@ const zhHans: Record<I18nKey, string> = {
   'chat.track_added_named': '{{name}} 添加了 1 首歌曲：{{title}}',
   'chat.tracks_added_named': '{{name}} 添加了 {{count}} 首歌曲，包括 {{title}}',
   'chat.peer_disconnected': '{{name}} 已离开',
+  'chat.participant_connection_unstable_recovering': '{{name}} 的连接不稳定，正在尝试恢复。',
   'chat.empty_html': '还没有消息。<br>发送第一条消息吧！',
   'chat.msg_truncated': '消息已截断为 {{max}} 个字符',
   'chat.scroll_to_bottom': '滚动到底部',

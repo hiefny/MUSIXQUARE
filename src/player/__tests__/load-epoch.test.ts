@@ -56,6 +56,7 @@ vi.mock('../../audio/context.ts', () => ({
   getAudioContext: vi.fn(() => ({
     state: 'running',
     currentTime: 0,
+    sampleRate: 48_000,
     decodeAudioData: mocks.decodeAudioData,
     createBufferSource: mocks.createBufferSource,
   })),
@@ -63,7 +64,7 @@ vi.mock('../../audio/context.ts', () => ({
 
 vi.mock('../../audio/engine.ts', () => ({
   initAudio: mocks.initAudio,
-  getWidener: vi.fn(() => null),
+  getFilePlaybackDestination: vi.fn(() => null),
   getSurroundSplitter: vi.fn(() => null),
 }));
 

@@ -501,6 +501,12 @@ const ja: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'オーディオエンジンを準備できませんでした',
   'error.session_create_fail': 'ルームを作成できませんでした',
   'error.network_generic': 'ネットワークエラーが発生しました',
+  'error.peer_app_version_mismatch':
+    '{{name}} さんはアプリのバージョンが異なるため参加できません。両方の端末でページを再読み込みしてください。',
+  'error.app_version_mismatch':
+    'アプリのバージョンが一致しません。両方の端末でページを再読み込みして、もう一度お試しください。',
+  'error.session_handshake_failed':
+    'セッションへの接続を完了できませんでした。両方の端末でページを再読み込みして、もう一度お試しください。',
   'error.host_unreachable': 'ホストがルームを退出したようです',
   'error.host_disconnected': 'ホストとの接続が切れました',
   'error.host_conn_error': 'ホストへの接続中にエラーが発生しました',
@@ -685,6 +691,8 @@ const ja: Record<I18nKey, string> = {
   'chat.track_added_named': '{{name}} が1曲追加しました：{{title}}',
   'chat.tracks_added_named': '{{name}} が{{count}}曲追加しました（{{title}} ほか）',
   'chat.peer_disconnected': '{{name}} が退出しました',
+  'chat.participant_connection_unstable_recovering':
+    '{{name}} の接続が不安定です。復旧を試みています。',
   'chat.empty_html': 'まだメッセージはありません。<br>最初のメッセージを送ってみましょう！',
   'chat.msg_truncated': 'メッセージは {{max}} 文字に切り詰められました',
   'chat.scroll_to_bottom': '一番下へスクロール',

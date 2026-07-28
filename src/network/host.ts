@@ -52,6 +52,16 @@ import {
   updateStandardRoomAdministratorPermissions,
 } from './standard-room-authority.ts';
 import { detachHostPeerConnection } from './host-peer-departure.ts';
+import { getFilePlaybackApplicationSessionManager } from './file-playback-application-session.ts';
+import {
+  isFilePlaybackSessionSemanticCohortMismatchV2,
+  snapshotFilePlaybackSessionHelloCandidateV2,
+} from './file-playback-session-handshake.ts';
+import { getFilePlaybackBuildProfile } from '../player/file-playback-build-profile.ts';
+import { isFilePlaybackEngineV2Enabled } from '../player/file-playback-engine-gate.ts';
+
+const FILE_PLAYBACK_ENGINE_V2_ENABLED = isFilePlaybackEngineV2Enabled();
+const FILE_PLAYBACK_SEMANTIC_COHORT_ID = getFilePlaybackBuildProfile().semanticPlaybackCohortId;
 
 function isStandardRoom(): boolean {
   return getRoomContext().kind === 'standard';
@@ -380,6 +390,18 @@ function updateStandardConnectionIdentity(
 export function handleHostIncomingConnection(conn: DataConnection): void {
   const peerId = conn.peer;
   const isProRoom = getRoomContext().kind === 'pro';
+  const usesV2ApplicationSession = FILE_PLAYBACK_ENGINE_V2_ENABLED && !isProRoom;
+  const applicationSessions = usesV2ApplicationSession
+    ? getFilePlaybackApplicationSessionManager()
+    : null;
+  let applicationEstablished = false;
+  let dataChannelOpened = false;
+  let preOpenHello: ReturnType<typeof snapshotFilePlaybackSessionHelloCandidateV2> = null;
+  let preOpenRejected = false;
+  let semanticCohortMismatch = false;
+  let semanticCohortMismatchUiPublished = false;
+  let detectedConnectionType: 'local' | 'remote' | null = null;
+  let connectionTypePublished = false;
   const connectedPeers = getState('network.connectedPeers');
   const activeHostConnByPeerId = getState('network.activeHostConnByPeerId');
 
@@ -419,6 +441,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     } catch {
       /* noop */
     }
+    applicationSessions?.closeConnection(existingActiveConn, false);
   }
 
   // Remove lingering peer object with same id
@@ -589,6 +612,94 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     updateStandardConnectionIdentity(conn, fallbackDeviceName, identity, clearReason);
   });
 
+  const welcomeFrame = () => ({
+    type: MSG.WELCOME as typeof MSG.WELCOME,
+    lockChannel: false,
+    label: deviceName,
+    chatFrozen: getState('network.chatFrozen') || false,
+    slowmodeSeconds: getState('network.slowmodeSeconds') || 0,
+    filterEnabled: getState('network.filterEnabled') || false,
+  });
+
+  const recordSemanticCohortMismatch = (): void => {
+    semanticCohortMismatch = true;
+    if (
+      semanticCohortMismatchUiPublished ||
+      getState('network.activeHostConnByPeerId').get(peerId) !== conn
+    ) {
+      return;
+    }
+    semanticCohortMismatchUiPublished = true;
+    const message = t('error.peer_app_version_mismatch', { name: deviceName });
+    showToast(message);
+    bus.emit('chat:system-message', message);
+  };
+
+  const publishDetectedConnectionType = (isInitial: boolean): void => {
+    if (
+      !applicationEstablished ||
+      !detectedConnectionType ||
+      !conn.open ||
+      getState('network.activeHostConnByPeerId').get(peerId) !== conn
+    ) {
+      return;
+    }
+    if (isInitial && connectionTypePublished) return;
+    broadcastDeviceList();
+    bus.emit('orchestrator:peer-type-detected', peerId, isInitial);
+    connectionTypePublished = true;
+  };
+
+  const completeApplicationSession = (): void => {
+    if (
+      applicationEstablished ||
+      !conn.open ||
+      getState('network.activeHostConnByPeerId').get(peerId) !== conn ||
+      (usesV2ApplicationSession && !applicationSessions?.establishedChannel(conn))
+    ) {
+      return;
+    }
+    applicationEstablished = true;
+
+    const peers = getState('network.connectedPeers');
+    setState(
+      'network.connectedPeers',
+      peers.map((peer) =>
+        peer.id === peerId && peer.conn === conn
+          ? { ...peer, status: 'connected', lastHeartbeat: Date.now() }
+          : peer,
+      ),
+    );
+
+    const connected = getState('network.connectedPeers').find(
+      (peer) => peer.id === peerId && peer.conn === conn,
+    );
+    if (!isProRoom && connected?.isOp) {
+      // Identity projection may settle before APPLIED. Re-send only after the
+      // application boundary so no grant disappears behind the handshake gate.
+      sendStandardAuthorityProjection(connected, true);
+    }
+
+    const openedLabel = connected?.label ?? deviceName;
+    const systemAudioDeviceLimitReached =
+      getState('playback.mode') === 'system-audio' && !hasSystemAudioDeviceCapacity();
+    if (!systemAudioDeviceLimitReached) {
+      showToast(t('toast.device_connected', { name: openedLabel }));
+    }
+    if (
+      !replacedConnectionWasVisible &&
+      (!connected || isOnlyLiveStandardMemberDevice(connected, getState('network.connectedPeers')))
+    ) {
+      broadcastSystemMessage('chat.peer_connected', { name: openedLabel });
+    }
+    sendLatestPinnedNotice(conn);
+    bus.emit('network:peer-connected', conn);
+    broadcastDeviceList();
+    bus.emit('network:role-badge-update');
+    publishDetectedConnectionType(true);
+    log.info(`[Host] ${openedLabel} application session established (peer: ${peerId})`);
+  };
+
   // Timeout: clean up peer if WebRTC open never fires (ICE stall)
   const openTimerName = 'conn-open-timeout-' + peerId;
   setManagedTimer(
@@ -614,6 +725,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   );
 
   conn.on('open', () => {
+    dataChannelOpened = true;
     if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) {
       log.debug(`[Host] Ignored late open from replaced connection: ${peerId}`);
       try {
@@ -624,66 +736,61 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       return;
     }
     clearManagedTimer(openTimerName);
-    // Immutable update: replace peer object with updated status/heartbeat
-    const peers = getState('network.connectedPeers');
-    setState(
-      'network.connectedPeers',
-      peers.map((p) =>
-        p.id === peerId ? { ...p, status: 'connected', lastHeartbeat: Date.now() } : p,
-      ),
-    );
-
-    // Welcome message with host-assigned label
-    try {
-      conn.send({
-        type: MSG.WELCOME,
-        lockChannel: false,
-        label: deviceName,
-        chatFrozen: getState('network.chatFrozen') || false,
-        slowmodeSeconds: getState('network.slowmodeSeconds') || 0,
-        filterEnabled: getState('network.filterEnabled') || false,
-      });
-    } catch {
-      /* noop */
-    }
-
-    if (!isProRoom) {
-      const connected = getState('network.connectedPeers').find(
-        (peer) => peer.id === peerId && peer.conn === conn,
-      );
-      if (connected?.isOp) {
-        // Reconnecting with an existing grant is a bootstrap projection, not
-        // a new administrator promotion.
-        sendStandardAuthorityProjection(connected, true);
+    if (preOpenRejected) {
+      try {
+        conn.close();
+      } catch {
+        /* noop */
       }
+      return;
     }
 
-    // Ordered authority phase: the queue baseline is the first application
-    // frame after WELCOME. All qid/media frames on the guest remain gated
-    // until this phase completes.
-    bus.emit('network:peer-bootstrap', conn);
-
-    const openedPeer = getState('network.connectedPeers').find(
-      (peer) => peer.id === peerId && peer.conn === conn,
-    );
-    const openedLabel = openedPeer?.label ?? deviceName;
-    const systemAudioDeviceLimitReached =
-      getState('playback.mode') === 'system-audio' && !hasSystemAudioDeviceCapacity();
-    if (!systemAudioDeviceLimitReached) {
-      showToast(t('toast.device_connected', { name: openedLabel }));
+    if (usesV2ApplicationSession) {
+      setState(
+        'network.connectedPeers',
+        getState('network.connectedPeers').map((peer) =>
+          peer.id === peerId && peer.conn === conn
+            ? { ...peer, status: 'handshaking', lastHeartbeat: Date.now() }
+            : peer,
+        ),
+      );
+      if (!applicationSessions?.beginHostConnection(conn, peerId)) return;
+      if (
+        preOpenHello &&
+        isFilePlaybackSessionSemanticCohortMismatchV2(
+          preOpenHello,
+          FILE_PLAYBACK_SEMANTIC_COHORT_ID,
+        )
+      ) {
+        const queuedHello = preOpenHello;
+        preOpenHello = null;
+        recordSemanticCohortMismatch();
+        const application = applicationSessions.receive(queuedHello, conn);
+        if (application.updateRequired) recordSemanticCohortMismatch();
+        return;
+      }
+      if (!applicationSessions.sendRequired(conn, welcomeFrame())) return;
+      if (preOpenHello) {
+        const queuedHello = preOpenHello;
+        preOpenHello = null;
+        const application = applicationSessions.receive(queuedHello, conn);
+        if (application.updateRequired) recordSemanticCohortMismatch();
+        if (!application.handled || applicationSessions.phase(conn) === 'none') return;
+      }
+    } else {
+      safeSend(conn, welcomeFrame());
+      // Legacy remains RTC-open authoritative. Its bootstrap is best-effort
+      // and must not inherit V2's APPLIED fail-close behavior.
+      bus.emit(
+        'network:peer-bootstrap',
+        conn,
+        (frame) => safeSend(conn, frame as Parameters<typeof safeSend>[1]),
+        () => {
+          /* legacy acknowledgement is intentionally non-fatal */
+        },
+      );
+      completeApplicationSession();
     }
-    if (
-      !replacedConnectionWasVisible &&
-      (!openedPeer ||
-        isOnlyLiveStandardMemberDevice(openedPeer, getState('network.connectedPeers')))
-    ) {
-      broadcastSystemMessage('chat.peer_connected', { name: openedLabel });
-    }
-
-    sendLatestPinnedNotice(conn);
-
-    // Emit event for other modules to send late-join bootstrap data.
-    bus.emit('network:peer-connected', conn);
 
     // Poll for up to 10 seconds while ICE stabilizes, then classify this guest
     // as local or remote.
@@ -699,9 +806,9 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
             peers.map((p) => (p.id === peerId ? { ...p, connectionType: type } : p)),
           );
         }
+        detectedConnectionType = type;
         log.info(`[Host] ${deviceName} connection type: ${type}`);
-        broadcastDeviceList();
-        bus.emit('orchestrator:peer-type-detected', peerId);
+        publishDetectedConnectionType(true);
         // Worst-case fallback: detectConnectionType returns 'remote' both for
         // genuine WAN peers and for LAN peers whose ICE never produced a
         // succeeded candidate-pair within the 10s polling window. Recheck once
@@ -724,9 +831,9 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
                   'network.connectedPeers',
                   ps.map((x) => (x.id === peerId ? { ...x, connectionType: 'local' as const } : x)),
                 );
+                detectedConnectionType = 'local';
                 log.info(`[Host] ${deviceName} reclassified as local on fallback`);
-                broadcastDeviceList();
-                bus.emit('orchestrator:peer-type-detected', peerId, false);
+                publishDetectedConnectionType(false);
               }
             },
             30000,
@@ -737,14 +844,44 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
         log.warn('[Host] ICE detection error:', e);
       });
 
-    // Broadcast updated device list to all peers
-    broadcastDeviceList();
-    bus.emit('network:role-badge-update');
-    log.info(`[Host] ${deviceName} connected (peer: ${peerId})`);
+    if (usesV2ApplicationSession) {
+      log.info(`[Host] ${deviceName} transport open; awaiting application APPLIED`);
+    }
   });
 
   conn.on('data', (data: unknown) => {
+    if (usesV2ApplicationSession && !dataChannelOpened) {
+      const hello = snapshotFilePlaybackSessionHelloCandidateV2(data);
+      if (!hello || preOpenHello || preOpenRejected) {
+        preOpenRejected = true;
+        preOpenHello = null;
+        clearManagedTimer(openTimerName);
+        try {
+          conn.close();
+        } catch {
+          /* noop */
+        }
+        return;
+      }
+      preOpenHello = hello;
+      return;
+    }
     try {
+      if (usesV2ApplicationSession) {
+        if (!applicationSessions) {
+          conn.close();
+          return;
+        }
+        if (isFilePlaybackSessionSemanticCohortMismatchV2(data, FILE_PLAYBACK_SEMANTIC_COHORT_ID)) {
+          recordSemanticCohortMismatch();
+        }
+        const application = applicationSessions.receive(data, conn);
+        if (application.updateRequired) recordSemanticCohortMismatch();
+        if (application.handled) {
+          if (application.established) completeApplicationSession();
+          return;
+        }
+      }
       bus.emit('network:data', data, conn);
     } catch (e) {
       log.error('[Host] Error in handleData', e);
@@ -753,6 +890,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
   conn.on('close', () => {
     log.info(`[Host] Connection closed: ${peerId}`);
+    applicationSessions?.closeConnection(conn, false);
 
     // Ignore stale close events from replaced duplicate connections
     if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) return;
@@ -765,7 +903,11 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     broadcastDeviceList();
 
     const sessionStarted = getState('setup.sessionStarted');
-    if (sessionStarted) {
+    if (
+      sessionStarted &&
+      (!usesV2ApplicationSession || applicationEstablished) &&
+      !semanticCohortMismatch
+    ) {
       showToast(t('toast.device_disconnected', { name: currentLabel }));
       if (!hasRemainingStandardMemberDevice(departedPeer, remainingPeers)) {
         broadcastSystemMessage('chat.peer_disconnected', {
@@ -778,6 +920,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
   conn.on('error', (err: unknown) => {
     log.error('[Host] Connection error:', err);
+    applicationSessions?.closeConnection(conn, false);
 
     if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) {
       try {
@@ -796,7 +939,11 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     broadcastDeviceList();
 
     const sessionStarted = getState('setup.sessionStarted');
-    if (sessionStarted) {
+    if (
+      sessionStarted &&
+      (!usesV2ApplicationSession || applicationEstablished) &&
+      !semanticCohortMismatch
+    ) {
       showToast(t('toast.device_conn_error', { name: errLabel }));
       if (!hasRemainingStandardMemberDevice(departedPeer, remainingPeers)) {
         broadcastSystemMessage('chat.peer_disconnected', {

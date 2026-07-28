@@ -20,6 +20,10 @@ import {
   initPlayerControls,
   updateRoleBadge,
 } from '../player-controls.ts';
+import {
+  clearFilePlaybackLoading,
+  FILE_PLAYBACK_LOADING_VISUAL_DELAY_MS,
+} from '../file-playback-loading-state.ts';
 
 const PLAY_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 const PAUSE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
@@ -102,6 +106,7 @@ beforeEach(() => {
   resetState();
   bus.clear();
   clearAllManagedTimers();
+  clearFilePlaybackLoading();
   setCurrentAudioBuffer(null);
   vi.clearAllMocks();
   Object.assign(proSystemAudio.view, {
@@ -129,6 +134,7 @@ beforeEach(() => {
 
 afterEach(() => {
   clearAllManagedTimers();
+  clearFilePlaybackLoading();
   setCurrentAudioBuffer(null);
   bus.clear();
 });
@@ -753,6 +759,7 @@ describe('initPlayerControls playback mode rendering', () => {
     document.body.innerHTML = `
       <button id="play-btn"><svg><path d=""></path></svg></button>
       <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+      <div class="vinyl-wrapper" aria-busy="false"><canvas id="visualizerCanvas"></canvas></div>
       <div class="video-wrapper" aria-busy="false">
         <div id="youtube-player-container"></div>
         <div
@@ -851,6 +858,142 @@ describe('initPlayerControls playback mode rendering', () => {
 
     bus.emit('youtube:sync-loading', true);
     expectYouTubeSyncOverlay(false);
+  });
+
+  it('delays the exact V2 file seek shield and ignores stale settlement', () => {
+    vi.useFakeTimers();
+    try {
+      renderPlaybackControls();
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+      initPlayerControls();
+
+      bus.emit('player:v2-host-seek-pending', {
+        token: 401,
+        queueItemId: PLAY_QUEUE_ITEM_ID,
+        targetSeconds: 35,
+      });
+
+      const playBtn = document.getElementById('play-btn');
+      const wrapper = document.querySelector('.vinyl-wrapper');
+      const overlay = document.getElementById(
+        'file-playback-loading-overlay',
+      ) as HTMLElement | null;
+      expect(wrapper?.getAttribute('aria-busy')).toBe('true');
+      expect(overlay?.getAttribute('role')).toBe('status');
+      expect(overlay?.getAttribute('aria-live')).toBe('polite');
+      expect(overlay?.hidden).toBe(true);
+      expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+
+      vi.advanceTimersByTime(FILE_PLAYBACK_LOADING_VISUAL_DELAY_MS);
+      expect(overlay?.hidden).toBe(false);
+      expect(overlay?.getAttribute('aria-hidden')).toBe('false');
+      expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+
+      bus.emit('player:v2-host-seek-settled', {
+        token: 400,
+        queueItemId: PLAY_QUEUE_ITEM_ID,
+        status: 'superseded',
+        positionSeconds: 8,
+      });
+      expect(overlay?.hidden).toBe(false);
+
+      bus.emit('player:v2-host-seek-settled', {
+        token: 401,
+        queueItemId: PLAY_QUEUE_ITEM_ID,
+        status: 'committed',
+        positionSeconds: 35,
+      });
+      expect(wrapper?.getAttribute('aria-busy')).toBe('false');
+      expect(overlay?.hidden).toBe(true);
+      expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not let V2 file preparation shield or busy the YouTube iframe', () => {
+    vi.useFakeTimers();
+    try {
+      renderPlaybackControls();
+      setState('playback.mode', 'youtube');
+      setState('playback.activity', 'playing');
+      initPlayerControls();
+
+      bus.emit('player:v2-host-seek-pending', {
+        token: 402,
+        queueItemId: PLAY_QUEUE_ITEM_ID,
+        targetSeconds: 19,
+      });
+      vi.advanceTimersByTime(FILE_PLAYBACK_LOADING_VISUAL_DELAY_MS);
+
+      expect(
+        (document.getElementById('file-playback-loading-overlay') as HTMLElement | null)?.hidden,
+      ).toBe(true);
+      expect(document.querySelector('.vinyl-wrapper')?.getAttribute('aria-busy')).toBe('false');
+      expect(document.getElementById('play-btn')?.classList.contains('yt-syncing')).toBe(false);
+      expectYouTubeSyncOverlay(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears delayed V2 file loading synchronously on stop', () => {
+    vi.useFakeTimers();
+    try {
+      renderPlaybackControls();
+      setState('playback.mode', 'file');
+      initPlayerControls();
+      bus.emit('player:v2-host-seek-pending', {
+        token: 403,
+        queueItemId: PLAY_QUEUE_ITEM_ID,
+        targetSeconds: 23,
+      });
+      bus.emit('player:stop-all-media');
+      vi.advanceTimersByTime(FILE_PLAYBACK_LOADING_VISUAL_DELAY_MS);
+
+      expect(
+        (document.getElementById('file-playback-loading-overlay') as HTMLElement | null)?.hidden,
+      ).toBe(true);
+      expect(document.querySelector('.vinyl-wrapper')?.getAttribute('aria-busy')).toBe('false');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('renders generic V2 start preparation from its exact producer token', () => {
+    vi.useFakeTimers();
+    try {
+      renderPlaybackControls();
+      setState('playback.mode', null);
+      initPlayerControls();
+
+      bus.emit('player:v2-file-loading-pending', {
+        owner: 'host-start',
+        token: 'start:1',
+      });
+      vi.advanceTimersByTime(FILE_PLAYBACK_LOADING_VISUAL_DELAY_MS);
+
+      const overlay = document.getElementById(
+        'file-playback-loading-overlay',
+      ) as HTMLElement | null;
+      expect(overlay?.hidden).toBe(false);
+      expect(overlay?.textContent).toBe(t('toast.yt_sync_start'));
+
+      bus.emit('player:v2-file-loading-settled', {
+        owner: 'host-start',
+        token: 'stale',
+      });
+      expect(overlay?.hidden).toBe(false);
+
+      bus.emit('player:v2-file-loading-settled', {
+        owner: 'host-start',
+        token: 'start:1',
+      });
+      expect(overlay?.hidden).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('removes the shield on mode exit even while a PRO transition remains pending', () => {

@@ -12,14 +12,19 @@ import {
   invalidateCapabilityToken,
   isCapabilityChallengeCancelled,
 } from '../core/capability.ts';
-import { REMOTE_SHARE_MAX_ENCRYPTED_BYTES } from '../core/constants.ts';
+import {
+  REMOTE_SHARE_AES_GCM_TAG_BYTES,
+  REMOTE_SHARE_MAX_BYTES,
+  REMOTE_SHARE_MAX_ENCRYPTED_BYTES,
+} from '../core/constants.ts';
 import type { QueueItemId } from '../types/index.ts';
 import { withRequestDeadline } from '../core/request-lifetime.ts';
 
-interface RemoteUploadResponse {
+export interface RemoteUploadResponse {
   objectId: string;
   downloadUrl?: string;
   expiresAt: number;
+  cleanupToken?: string;
 }
 
 interface RemoteUploadSessionResponse {
@@ -33,7 +38,7 @@ interface RemoteUploadSessionResponse {
   cleanupToken?: string;
 }
 
-interface RemoteUploadMeta {
+export interface RemoteUploadMeta {
   roomId: string;
   name: string;
   mime: string;
@@ -42,7 +47,85 @@ interface RemoteUploadMeta {
   queueItemId: QueueItemId;
 }
 
-type ProgressHandler = (progress: number) => void;
+export interface R2WholeBlobUploadMeta {
+  readonly storageRoomId: string;
+  readonly queueItemId: QueueItemId;
+  readonly name: string;
+  readonly mime: string;
+  readonly plaintextSize: number;
+}
+
+export interface R2WholeBlobUploadResult {
+  readonly objectId: string;
+  readonly expiresAt: number;
+  readonly cleanupToken: string;
+}
+
+export type R2WholeBlobDeleteResult = 'deleted' | 'not-found';
+
+export interface R2RecordSetCreateMeta {
+  readonly storageRoomId: string;
+  readonly applicationSessionId: string;
+  readonly queueItemId: QueueItemId;
+  readonly sourceIdentity: string;
+  readonly name: string;
+  readonly mime: string;
+  readonly plaintextSize: number;
+  readonly recordSize: number;
+  readonly recordCount: number;
+}
+
+export interface R2RecordSetRecord {
+  readonly index: number;
+  readonly objectId: string;
+  readonly plaintextSize: number;
+  readonly encryptedSize: number;
+  readonly downloadUrl: string;
+}
+
+/**
+ * Upload authority is host-private. Only the public geometry, exact record
+ * URLs and the separate crypto secret descriptor may cross signaling.
+ */
+export interface R2RecordSetUploadSession {
+  readonly v: 2;
+  readonly storageRoomId: string;
+  readonly setId: string;
+  readonly recordSize: number;
+  readonly recordCount: number;
+  readonly expiresAt: number;
+  readonly setToken: string;
+  readonly cleanupToken: string;
+  readonly records: readonly Readonly<R2RecordSetRecord>[];
+}
+
+export interface R2RecordUploadAuthority {
+  readonly v: 2;
+  readonly setId: string;
+  readonly index: number;
+  readonly objectId: string;
+  readonly plaintextSize: number;
+  readonly encryptedSize: number;
+  readonly uploadUrl: string;
+  readonly uploadHeaders: Readonly<Record<string, string>>;
+  readonly uploadUrlExpiresAt: number;
+  readonly expiresAt: number;
+  readonly downloadUrl: string;
+}
+
+export interface R2RecordCompletion {
+  readonly v: 2;
+  readonly setId: string;
+  readonly index: number;
+  readonly objectId: string;
+  readonly expiresAt: number;
+  readonly readyRecordCount: number;
+  readonly recordCount: number;
+  readonly complete: boolean;
+  readonly downloadUrl: string;
+}
+
+export type ProgressHandler = (progress: number) => void;
 
 /** Keep transport liveness byte-accurate while bounding presentation updates. */
 function createDisplayProgressReporter(callback?: ProgressHandler): ProgressHandler {
@@ -77,11 +160,123 @@ const REMOTE_SHARE_CONTROL_REQUEST_TIMEOUT_MS = 15_000;
 const REMOTE_SHARE_CONTROL_RESPONSE_MAX_BYTES = 64 * 1024;
 const REMOTE_OBJECT_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const QUEUE_ITEM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const STORAGE_ROOM_ID_RE = /^[A-Za-z0-9_-]{1,64}$/u;
+const CLEANUP_TOKEN_RE = REMOTE_OBJECT_ID_RE;
+const MIME_PATTERN = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u;
+const MAX_NAME_LENGTH = 512;
+const MAX_MIME_LENGTH = 128;
+const R2_RECORD_SET_VERSION = 2 as const;
+const R2_RECORD_PLAINTEXT_BYTES = 8 * 1024 * 1024;
+const R2_RECORD_MAX_IDENTIFIER_LENGTH = 256;
+const R2_RECORD_CONTROL_TOKEN_MAX_LENGTH = 8 * 1024;
 let remoteShareSecurityConfigCache: {
   endpoint: string;
   expiresAt: number;
   value: RemoteShareSecurityConfig;
 } | null = null;
+
+function freezeCanonical<T extends object>(value: T): Readonly<T> {
+  return Object.freeze(Object.assign(Object.create(null), value)) as Readonly<T>;
+}
+
+function assertV2Signal(signal: AbortSignal | undefined): void {
+  if (signal !== undefined && !(signal instanceof AbortSignal)) {
+    throw new TypeError('REMOTE_SHARE_V2_SIGNAL_INVALID');
+  }
+  if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED');
+}
+
+function assertStorageRoomId(storageRoomId: unknown): asserts storageRoomId is string {
+  if (typeof storageRoomId !== 'string' || !STORAGE_ROOM_ID_RE.test(storageRoomId)) {
+    throw new Error('REMOTE_SHARE_V2_STORAGE_SCOPE_INVALID');
+  }
+}
+
+function assertStorageObjectScope(
+  storageRoomId: unknown,
+  objectId: unknown,
+): asserts objectId is string {
+  assertStorageRoomId(storageRoomId);
+  if (typeof objectId !== 'string' || !REMOTE_OBJECT_ID_RE.test(objectId)) {
+    throw new Error('REMOTE_SHARE_V2_STORAGE_SCOPE_INVALID');
+  }
+}
+
+function containsControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
+  }
+  return false;
+}
+
+function isRecordIdentifier(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= R2_RECORD_MAX_IDENTIFIER_LENGTH &&
+    value === value.trim() &&
+    !containsControlCharacter(value)
+  );
+}
+
+function assertRecordSetMeta(meta: R2RecordSetCreateMeta): void {
+  if (!meta || typeof meta !== 'object') {
+    throw new TypeError('REMOTE_SHARE_RECORD_SET_META_INVALID');
+  }
+  assertStorageRoomId(meta.storageRoomId);
+  if (
+    !/^[1-9]\d{5}$/u.test(meta.storageRoomId) ||
+    !isRecordIdentifier(meta.applicationSessionId) ||
+    !QUEUE_ITEM_ID_RE.test(meta.queueItemId) ||
+    !isRecordIdentifier(meta.sourceIdentity) ||
+    typeof meta.name !== 'string' ||
+    meta.name.trim().length === 0 ||
+    meta.name.length > MAX_NAME_LENGTH ||
+    containsControlCharacter(meta.name) ||
+    typeof meta.mime !== 'string' ||
+    meta.mime.length > MAX_MIME_LENGTH ||
+    !MIME_PATTERN.test(meta.mime) ||
+    !Number.isSafeInteger(meta.plaintextSize) ||
+    meta.plaintextSize <= 0 ||
+    meta.plaintextSize > REMOTE_SHARE_MAX_BYTES ||
+    meta.recordSize !== R2_RECORD_PLAINTEXT_BYTES ||
+    !Number.isSafeInteger(meta.recordCount) ||
+    meta.recordCount !== Math.ceil(meta.plaintextSize / meta.recordSize)
+  ) {
+    throw new Error('REMOTE_SHARE_RECORD_SET_META_INVALID');
+  }
+}
+
+function assertUploadMeta(meta: R2WholeBlobUploadMeta, encryptedBlob: Blob): void {
+  if (!meta || typeof meta !== 'object') throw new TypeError('REMOTE_SHARE_V2_UPLOAD_META_INVALID');
+  assertStorageRoomId(meta.storageRoomId);
+  if (
+    !QUEUE_ITEM_ID_RE.test(meta.queueItemId) ||
+    typeof meta.name !== 'string' ||
+    meta.name.trim().length === 0 ||
+    meta.name.length > MAX_NAME_LENGTH ||
+    containsControlCharacter(meta.name) ||
+    typeof meta.mime !== 'string' ||
+    meta.mime.length > MAX_MIME_LENGTH ||
+    !MIME_PATTERN.test(meta.mime) ||
+    !Number.isSafeInteger(meta.plaintextSize) ||
+    meta.plaintextSize <= 0 ||
+    meta.plaintextSize > REMOTE_SHARE_MAX_BYTES ||
+    encryptedBlob.size !== meta.plaintextSize + REMOTE_SHARE_AES_GCM_TAG_BYTES
+  ) {
+    throw new Error('REMOTE_SHARE_V2_UPLOAD_META_INVALID');
+  }
+}
+
+function createTransportSessionId(): number {
+  const values = crypto.getRandomValues(new Uint32Array(2));
+  const high = (values[0] ?? 0) & 0x1fffff;
+  const low = values[1] ?? 0;
+  const value = high * 0x1_0000_0000 + low;
+  return value > 0 ? value : 1;
+}
 
 function abortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException('Aborted', 'AbortError');
@@ -217,6 +412,14 @@ function expectedDownloadUrl(roomId: string, objectId: string): URL {
   );
 }
 
+function expectedObjectUrl(roomId: string, objectId: string): URL {
+  const endpoint = getRemoteShareEndpoint();
+  if (!endpoint) throw new Error('REMOTE_SHARE_ENDPOINT_MISSING');
+  return new URL(
+    `${endpoint}/object/${encodeURIComponent(roomId)}/${encodeURIComponent(objectId)}`,
+  );
+}
+
 function buildDownloadUrl(roomId: string, objectId: string, downloadUrl?: string): string {
   const expected = expectedDownloadUrl(roomId, objectId);
   if (!downloadUrl) return expected.toString();
@@ -238,6 +441,16 @@ function buildDownloadUrl(roomId: string, objectId: string, downloadUrl?: string
     throw new Error('REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID');
   }
   return candidate.toString();
+}
+
+function hasExactResponseUrl(response: Response, expectedUrl: string): boolean {
+  if (response.redirected) return false;
+  if (response.url === '') return true;
+  try {
+    return new URL(response.url).toString() === expectedUrl;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -364,6 +577,63 @@ async function getRemoteShareSessionHeaders(
     ['remote-share'],
     signal,
   );
+}
+
+async function requestRecordSetControl(
+  endpoint: string,
+  path: string,
+  init: {
+    readonly method: 'POST';
+    readonly body: string;
+    readonly capability?: boolean;
+    readonly timeoutReason: string;
+  },
+  signal?: AbortSignal,
+): Promise<{ readonly response: Response; readonly body: unknown }> {
+  const capabilityTarget = new URL('/api/capability-token', location.origin);
+  const requestOnce = (capabilityHeaders: Record<string, string>) =>
+    withRequestDeadline(
+      async (requestSignal) => {
+        const response = await fetch(`${endpoint}${path}`, {
+          method: init.method,
+          headers: {
+            Accept: 'application/json',
+            'content-type': 'application/json',
+            ...capabilityHeaders,
+          },
+          body: init.body,
+          signal: requestSignal,
+        });
+        let body: unknown = null;
+        try {
+          body = await readBoundedJson(
+            response,
+            REMOTE_SHARE_CONTROL_RESPONSE_MAX_BYTES,
+            requestSignal,
+          );
+        } catch (error) {
+          if (requestSignal.aborted) throw error;
+        }
+        return { response, body };
+      },
+      {
+        signal,
+        timeoutMs: REMOTE_SHARE_CONTROL_REQUEST_TIMEOUT_MS,
+        timeoutReason: init.timeoutReason,
+      },
+    );
+
+  let capabilityHeaders = init.capability
+    ? await getRemoteShareSessionHeaders(endpoint, signal)
+    : {};
+  let result = await requestOnce(capabilityHeaders);
+  if (init.capability && result.response.status === 401) {
+    if (capabilityHeaders['X-MXQR-Capability']) invalidateCapabilityToken(capabilityTarget);
+    invalidateRemoteShareSecurityConfig(endpoint);
+    capabilityHeaders = await getRemoteShareSessionHeaders(endpoint, signal);
+    result = await requestOnce(capabilityHeaders);
+  }
+  return result;
 }
 
 async function requestUploadSession(
@@ -503,7 +773,10 @@ async function completeDirectUpload(
     if (
       typeof body?.objectId !== 'string' ||
       body.objectId !== session.objectId ||
-      typeof body.expiresAt !== 'number'
+      typeof body.expiresAt !== 'number' ||
+      (typeof body.cleanupToken === 'string' &&
+        typeof session.cleanupToken === 'string' &&
+        body.cleanupToken !== session.cleanupToken)
     ) {
       throw new Error('REMOTE_SHARE_BAD_COMPLETE_RESPONSE');
     }
@@ -511,6 +784,8 @@ async function completeDirectUpload(
       objectId: body.objectId,
       downloadUrl: body.downloadUrl,
       expiresAt: body.expiresAt,
+      cleanupToken:
+        typeof body.cleanupToken === 'string' ? body.cleanupToken : session.cleanupToken,
     };
   } catch (error) {
     if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
@@ -646,6 +921,49 @@ export async function uploadEncryptedBlob(
   });
 }
 
+/**
+ * V2 whole-Blob upload wrapper. The Worker-only numeric session identity is
+ * generated internally, and endpoint/cleanup capabilities never enter offers.
+ */
+export async function uploadR2WholeBlobObject(
+  encryptedBlob: Blob,
+  meta: R2WholeBlobUploadMeta,
+  onProgress?: ProgressHandler,
+  signal?: AbortSignal,
+): Promise<Readonly<R2WholeBlobUploadResult>> {
+  if (!(encryptedBlob instanceof Blob)) throw new TypeError('REMOTE_SHARE_V2_BLOB_INVALID');
+  assertV2Signal(signal);
+  assertUploadMeta(meta, encryptedBlob);
+  const uploaded = await uploadEncryptedBlob(
+    encryptedBlob,
+    {
+      roomId: meta.storageRoomId,
+      name: meta.name,
+      mime: meta.mime,
+      size: meta.plaintextSize,
+      sessionId: createTransportSessionId(),
+      queueItemId: meta.queueItemId,
+    },
+    onProgress,
+    signal,
+  );
+  assertV2Signal(signal);
+  if (
+    !REMOTE_OBJECT_ID_RE.test(uploaded.objectId) ||
+    !Number.isSafeInteger(uploaded.expiresAt) ||
+    uploaded.expiresAt <= 0 ||
+    typeof uploaded.cleanupToken !== 'string' ||
+    !CLEANUP_TOKEN_RE.test(uploaded.cleanupToken)
+  ) {
+    throw new Error('REMOTE_SHARE_V2_UPLOAD_RESULT_INVALID');
+  }
+  return freezeCanonical({
+    objectId: uploaded.objectId,
+    expiresAt: uploaded.expiresAt,
+    cleanupToken: uploaded.cleanupToken,
+  });
+}
+
 export function downloadEncryptedObject(
   roomId: string,
   objectId: string,
@@ -769,4 +1087,478 @@ export function downloadEncryptedObject(
       );
     }
   });
+}
+
+/** V2 download entry point that cannot consume a host-supplied URL. */
+export function downloadR2WholeBlobObject(
+  storageRoomId: string,
+  objectId: string,
+  expectedEncryptedSize: number,
+  onProgress?: ProgressHandler,
+  signal?: AbortSignal,
+): Promise<ArrayBuffer> {
+  assertStorageObjectScope(storageRoomId, objectId);
+  assertV2Signal(signal);
+  return downloadEncryptedObject(
+    storageRoomId,
+    objectId,
+    expectedEncryptedSize,
+    undefined,
+    onProgress,
+    signal,
+  );
+}
+
+/** Best-effort exact-origin cleanup capability retained only by the host owner. */
+export async function deleteR2WholeBlobObject(
+  storageRoomId: string,
+  objectId: string,
+  cleanupToken: string,
+  signal?: AbortSignal,
+): Promise<R2WholeBlobDeleteResult> {
+  assertStorageObjectScope(storageRoomId, objectId);
+  if (typeof cleanupToken !== 'string' || !CLEANUP_TOKEN_RE.test(cleanupToken)) {
+    throw new Error('REMOTE_SHARE_V2_CLEANUP_TOKEN_INVALID');
+  }
+  assertV2Signal(signal);
+  const requestUrl = expectedObjectUrl(storageRoomId, objectId).toString();
+  try {
+    const response = await fetch(requestUrl, {
+      method: 'DELETE',
+      headers: {
+        Accept: 'application/json',
+        'x-mxqr-cleanup-token': cleanupToken,
+      },
+      redirect: 'error',
+      signal,
+    });
+    assertV2Signal(signal);
+    if (!hasExactResponseUrl(response, requestUrl)) {
+      throw new Error('REMOTE_SHARE_DELETE_ORIGIN_INVALID');
+    }
+    await response.body?.cancel();
+    if (response.status === 404) return 'not-found';
+    if (response.status >= 200 && response.status < 300) return 'deleted';
+    throw new Error(`REMOTE_SHARE_DELETE_HTTP_${response.status}`);
+  } catch (error) {
+    if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
+    if (error instanceof Error && error.message.startsWith('REMOTE_SHARE_')) throw error;
+    throw new Error('REMOTE_SHARE_DELETE_NETWORK', { cause: error });
+  }
+}
+
+function isRecordControlToken(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length >= 32 &&
+    value.length <= R2_RECORD_CONTROL_TOKEN_MAX_LENGTH &&
+    !containsControlCharacter(value)
+  );
+}
+
+function isExactRecordDownloadUrl(
+  storageRoomId: string,
+  objectId: string,
+  value: unknown,
+): value is string {
+  if (typeof value !== 'string') return false;
+  try {
+    return (
+      buildDownloadUrl(storageRoomId, objectId, value) ===
+      expectedDownloadUrl(storageRoomId, objectId).toString()
+    );
+  } catch {
+    return false;
+  }
+}
+
+export async function createR2RecordSet(
+  meta: R2RecordSetCreateMeta,
+  signal?: AbortSignal,
+): Promise<Readonly<R2RecordSetUploadSession>> {
+  assertV2Signal(signal);
+  assertRecordSetMeta(meta);
+  const endpoint = getRemoteShareEndpoint();
+  if (!endpoint) throw new Error('REMOTE_SHARE_ENDPOINT_MISSING');
+  try {
+    const { response, body } = await requestRecordSetControl(
+      endpoint,
+      '/v2/sets',
+      {
+        method: 'POST',
+        capability: true,
+        timeoutReason: 'REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT',
+        body: JSON.stringify({
+          roomId: meta.storageRoomId,
+          sessionId: meta.applicationSessionId,
+          queueItemId: meta.queueItemId,
+          sourceIdentity: meta.sourceIdentity,
+          name: meta.name,
+          mime: meta.mime,
+          size: meta.plaintextSize,
+          recordSize: meta.recordSize,
+          recordCount: meta.recordCount,
+        }),
+      },
+      signal,
+    );
+    if (!response.ok) throw new Error(`REMOTE_SHARE_RECORD_SET_CREATE_HTTP_${response.status}`);
+    const value = body as Partial<R2RecordSetUploadSession> | null;
+    if (
+      value?.v !== R2_RECORD_SET_VERSION ||
+      !REMOTE_OBJECT_ID_RE.test(String(value.setId ?? '')) ||
+      value.recordSize !== meta.recordSize ||
+      value.recordCount !== meta.recordCount ||
+      !Number.isSafeInteger(value.expiresAt) ||
+      (value.expiresAt ?? 0) <= Date.now() ||
+      !isRecordControlToken(value.setToken) ||
+      !CLEANUP_TOKEN_RE.test(String(value.cleanupToken ?? '')) ||
+      !Array.isArray(value.records) ||
+      value.records.length !== meta.recordCount
+    ) {
+      throw new Error('REMOTE_SHARE_RECORD_SET_CREATE_RESPONSE_INVALID');
+    }
+    const records = value.records.map((record, index) => {
+      const expectedPlaintextSize =
+        index === meta.recordCount - 1
+          ? meta.plaintextSize - index * meta.recordSize
+          : meta.recordSize;
+      if (
+        !record ||
+        record.index !== index ||
+        !REMOTE_OBJECT_ID_RE.test(record.objectId) ||
+        record.plaintextSize !== expectedPlaintextSize ||
+        record.encryptedSize !== expectedPlaintextSize + REMOTE_SHARE_AES_GCM_TAG_BYTES ||
+        !isExactRecordDownloadUrl(meta.storageRoomId, record.objectId, record.downloadUrl)
+      ) {
+        throw new Error('REMOTE_SHARE_RECORD_SET_CREATE_RESPONSE_INVALID');
+      }
+      return freezeCanonical({
+        index,
+        objectId: record.objectId,
+        plaintextSize: record.plaintextSize,
+        encryptedSize: record.encryptedSize,
+        downloadUrl: expectedDownloadUrl(meta.storageRoomId, record.objectId).toString(),
+      });
+    });
+    return freezeCanonical({
+      v: R2_RECORD_SET_VERSION,
+      storageRoomId: meta.storageRoomId,
+      setId: value.setId as string,
+      recordSize: meta.recordSize,
+      recordCount: meta.recordCount,
+      expiresAt: value.expiresAt as number,
+      setToken: value.setToken as string,
+      cleanupToken: value.cleanupToken as string,
+      records: Object.freeze(records),
+    });
+  } catch (error) {
+    if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
+    if (isCapabilityChallengeCancelled(error)) throw error;
+    if (error instanceof Error && error.message.startsWith('REMOTE_SHARE_')) throw error;
+    throw new Error('REMOTE_SHARE_RECORD_SET_CREATE_NETWORK', { cause: error });
+  }
+}
+
+export async function requestR2RecordUploadAuthority(
+  session: Readonly<R2RecordSetUploadSession>,
+  recordIndex: number,
+  signal?: AbortSignal,
+): Promise<Readonly<R2RecordUploadAuthority>> {
+  assertStorageRoomId(session.storageRoomId);
+  if (
+    session.v !== R2_RECORD_SET_VERSION ||
+    !REMOTE_OBJECT_ID_RE.test(session.setId) ||
+    !isRecordControlToken(session.setToken) ||
+    !Number.isSafeInteger(recordIndex) ||
+    recordIndex < 0 ||
+    recordIndex >= session.recordCount
+  ) {
+    throw new Error('REMOTE_SHARE_RECORD_UPLOAD_AUTHORITY_INVALID');
+  }
+  assertV2Signal(signal);
+  const endpoint = getRemoteShareEndpoint();
+  if (!endpoint) throw new Error('REMOTE_SHARE_ENDPOINT_MISSING');
+  const path = `/v2/sets/${encodeURIComponent(session.storageRoomId)}/${encodeURIComponent(session.setId)}/records/${recordIndex}/upload`;
+  try {
+    const { response, body } = await requestRecordSetControl(
+      endpoint,
+      path,
+      {
+        method: 'POST',
+        timeoutReason: 'REMOTE_SHARE_RECORD_UPLOAD_AUTHORITY_TIMEOUT',
+        body: JSON.stringify({ setToken: session.setToken }),
+      },
+      signal,
+    );
+    if (!response.ok) {
+      throw new Error(`REMOTE_SHARE_RECORD_UPLOAD_AUTHORITY_HTTP_${response.status}`);
+    }
+    const value = body as Partial<R2RecordUploadAuthority> | null;
+    const record = session.records[recordIndex];
+    if (
+      !record ||
+      value?.v !== R2_RECORD_SET_VERSION ||
+      value.setId !== session.setId ||
+      value.index !== recordIndex ||
+      value.objectId !== record.objectId ||
+      value.plaintextSize !== record.plaintextSize ||
+      value.encryptedSize !== record.encryptedSize ||
+      typeof value.uploadUrl !== 'string' ||
+      !value.uploadHeaders ||
+      typeof value.uploadHeaders !== 'object' ||
+      !Number.isSafeInteger(value.uploadUrlExpiresAt) ||
+      (value.uploadUrlExpiresAt ?? 0) <= Date.now() ||
+      value.expiresAt !== session.expiresAt ||
+      !isExactRecordDownloadUrl(session.storageRoomId, record.objectId, value.downloadUrl)
+    ) {
+      throw new Error('REMOTE_SHARE_RECORD_UPLOAD_AUTHORITY_RESPONSE_INVALID');
+    }
+    let uploadUrl: URL;
+    try {
+      uploadUrl = new URL(value.uploadUrl);
+    } catch {
+      throw new Error('REMOTE_SHARE_RECORD_UPLOAD_URL_INVALID');
+    }
+    if (
+      uploadUrl.protocol !== 'https:' ||
+      uploadUrl.username !== '' ||
+      uploadUrl.password !== '' ||
+      uploadUrl.hash !== ''
+    ) {
+      throw new Error('REMOTE_SHARE_RECORD_UPLOAD_URL_INVALID');
+    }
+    const uploadHeaders: Record<string, string> = Object.create(null);
+    for (const [key, headerValue] of Object.entries(value.uploadHeaders)) {
+      if (
+        typeof headerValue !== 'string' ||
+        key.length === 0 ||
+        containsControlCharacter(key) ||
+        containsControlCharacter(headerValue)
+      ) {
+        throw new Error('REMOTE_SHARE_RECORD_UPLOAD_AUTHORITY_RESPONSE_INVALID');
+      }
+      uploadHeaders[key] = headerValue;
+    }
+    return freezeCanonical({
+      v: R2_RECORD_SET_VERSION,
+      setId: session.setId,
+      index: recordIndex,
+      objectId: record.objectId,
+      plaintextSize: record.plaintextSize,
+      encryptedSize: record.encryptedSize,
+      uploadUrl: uploadUrl.toString(),
+      uploadHeaders: freezeCanonical(uploadHeaders),
+      uploadUrlExpiresAt: value.uploadUrlExpiresAt as number,
+      expiresAt: session.expiresAt,
+      downloadUrl: expectedDownloadUrl(session.storageRoomId, record.objectId).toString(),
+    });
+  } catch (error) {
+    if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
+    if (error instanceof Error && error.message.startsWith('REMOTE_SHARE_')) throw error;
+    throw new Error('REMOTE_SHARE_RECORD_UPLOAD_AUTHORITY_NETWORK', { cause: error });
+  }
+}
+
+/**
+ * Upload one immutable ciphertext lease. A retry must call this again with
+ * this exact Blob; the crypto layer forbids producing a second ciphertext for
+ * the same record nonce.
+ */
+export function uploadR2RecordCiphertext(
+  authority: Readonly<R2RecordUploadAuthority>,
+  ciphertext: Blob,
+  onProgress?: ProgressHandler,
+  signal?: AbortSignal,
+): Promise<void> {
+  assertV2Signal(signal);
+  if (
+    !(ciphertext instanceof Blob) ||
+    ciphertext.size !== authority.encryptedSize ||
+    typeof authority.uploadUrl !== 'string' ||
+    !authority.uploadHeaders ||
+    typeof authority.uploadHeaders !== 'object'
+  ) {
+    return Promise.reject(new Error('REMOTE_SHARE_RECORD_UPLOAD_INPUT_INVALID'));
+  }
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', authority.uploadUrl, true);
+    for (const [key, value] of Object.entries(authority.uploadHeaders)) {
+      xhr.setRequestHeader(key, value);
+    }
+    const reportProgress = createDisplayProgressReporter(onProgress);
+    let settled = false;
+    let uploadedBytes = 0;
+    // `wireAbort` may synchronously call `finish`, so this must be initialized
+    // before its right-hand side runs rather than declared as a `const`.
+    let detachAbort: (() => void) | null | undefined = undefined;
+    const finish = (error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      watchdog.clear();
+      detachAbort?.();
+      if (error) reject(error);
+      else resolve();
+    };
+    const watchdog = createXhrStallWatchdog(
+      xhr,
+      (error) => finish(error),
+      'REMOTE_SHARE_RECORD_UPLOAD_STALLED',
+    );
+    detachAbort = wireAbort(xhr, (error) => finish(error), signal, watchdog.clear);
+    if (detachAbort === null) {
+      watchdog.clear();
+      return;
+    }
+    xhr.upload.onprogress = (event) => {
+      if (event.loaded > uploadedBytes) {
+        uploadedBytes = event.loaded;
+        watchdog.reset();
+      }
+      if (event.lengthComputable && event.total === ciphertext.size) {
+        reportProgress(event.loaded / event.total);
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        reportProgress(1);
+        finish();
+      } else {
+        finish(new Error(`REMOTE_SHARE_RECORD_UPLOAD_HTTP_${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => finish(new Error('REMOTE_SHARE_RECORD_UPLOAD_NETWORK'));
+    try {
+      xhr.send(ciphertext);
+    } catch (error) {
+      finish(
+        signal?.aborted
+          ? new Error('REMOTE_SHARE_ABORTED', { cause: error })
+          : new Error('REMOTE_SHARE_RECORD_UPLOAD_NETWORK', { cause: error }),
+      );
+    }
+  });
+}
+
+export async function completeR2RecordUpload(
+  session: Readonly<R2RecordSetUploadSession>,
+  recordIndex: number,
+  signal?: AbortSignal,
+): Promise<Readonly<R2RecordCompletion>> {
+  assertV2Signal(signal);
+  const record = session.records[recordIndex];
+  if (!record || !isRecordControlToken(session.setToken)) {
+    throw new Error('REMOTE_SHARE_RECORD_COMPLETE_INPUT_INVALID');
+  }
+  const endpoint = getRemoteShareEndpoint();
+  if (!endpoint) throw new Error('REMOTE_SHARE_ENDPOINT_MISSING');
+  const path = `/v2/sets/${encodeURIComponent(session.storageRoomId)}/${encodeURIComponent(session.setId)}/records/${recordIndex}/complete`;
+  try {
+    const { response, body } = await requestRecordSetControl(
+      endpoint,
+      path,
+      {
+        method: 'POST',
+        timeoutReason: 'REMOTE_SHARE_RECORD_COMPLETE_TIMEOUT',
+        body: JSON.stringify({ setToken: session.setToken }),
+      },
+      signal,
+    );
+    if (!response.ok) throw new Error(`REMOTE_SHARE_RECORD_COMPLETE_HTTP_${response.status}`);
+    const value = body as Partial<R2RecordCompletion> | null;
+    if (
+      value?.v !== R2_RECORD_SET_VERSION ||
+      value.setId !== session.setId ||
+      value.index !== recordIndex ||
+      value.objectId !== record.objectId ||
+      value.expiresAt !== session.expiresAt ||
+      !Number.isSafeInteger(value.readyRecordCount) ||
+      (value.readyRecordCount ?? -1) < 1 ||
+      (value.readyRecordCount ?? 0) > session.recordCount ||
+      value.recordCount !== session.recordCount ||
+      typeof value.complete !== 'boolean' ||
+      value.complete !== (value.readyRecordCount === session.recordCount) ||
+      !isExactRecordDownloadUrl(session.storageRoomId, record.objectId, value.downloadUrl)
+    ) {
+      throw new Error('REMOTE_SHARE_RECORD_COMPLETE_RESPONSE_INVALID');
+    }
+    return freezeCanonical({
+      v: R2_RECORD_SET_VERSION,
+      setId: session.setId,
+      index: recordIndex,
+      objectId: record.objectId,
+      expiresAt: session.expiresAt,
+      readyRecordCount: value.readyRecordCount as number,
+      recordCount: session.recordCount,
+      complete: value.complete,
+      downloadUrl: expectedDownloadUrl(session.storageRoomId, record.objectId).toString(),
+    });
+  } catch (error) {
+    if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
+    if (error instanceof Error && error.message.startsWith('REMOTE_SHARE_')) throw error;
+    throw new Error('REMOTE_SHARE_RECORD_COMPLETE_NETWORK', { cause: error });
+  }
+}
+
+export function downloadR2RecordObject(
+  storageRoomId: string,
+  objectId: string,
+  expectedEncryptedSize: number,
+  signal?: AbortSignal,
+): Promise<ArrayBuffer> {
+  assertStorageObjectScope(storageRoomId, objectId);
+  assertV2Signal(signal);
+  return downloadEncryptedObject(
+    storageRoomId,
+    objectId,
+    expectedEncryptedSize,
+    undefined,
+    undefined,
+    signal,
+  );
+}
+
+export async function deleteR2RecordSet(
+  session: Pick<Readonly<R2RecordSetUploadSession>, 'cleanupToken' | 'setId' | 'storageRoomId'>,
+  signal?: AbortSignal,
+): Promise<void> {
+  assertStorageRoomId(session.storageRoomId);
+  if (!REMOTE_OBJECT_ID_RE.test(session.setId) || !CLEANUP_TOKEN_RE.test(session.cleanupToken)) {
+    throw new Error('REMOTE_SHARE_RECORD_SET_CLEANUP_INPUT_INVALID');
+  }
+  assertV2Signal(signal);
+  const endpoint = getRemoteShareEndpoint();
+  if (!endpoint) throw new Error('REMOTE_SHARE_ENDPOINT_MISSING');
+  const requestUrl = `${endpoint}/v2/sets/${encodeURIComponent(session.storageRoomId)}/${encodeURIComponent(session.setId)}`;
+  try {
+    const response = await withRequestDeadline(
+      (requestSignal) =>
+        fetch(requestUrl, {
+          method: 'DELETE',
+          headers: {
+            Accept: 'application/json',
+            'x-mxqr-cleanup-token': session.cleanupToken,
+          },
+          keepalive: true,
+          signal: requestSignal,
+        }),
+      {
+        signal,
+        timeoutMs: REMOTE_SHARE_CONTROL_REQUEST_TIMEOUT_MS,
+        timeoutReason: 'REMOTE_SHARE_RECORD_SET_CLEANUP_TIMEOUT',
+      },
+    );
+    if (!hasExactResponseUrl(response, requestUrl)) {
+      throw new Error('REMOTE_SHARE_RECORD_SET_CLEANUP_ORIGIN_INVALID');
+    }
+    await response.body?.cancel();
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`REMOTE_SHARE_RECORD_SET_CLEANUP_HTTP_${response.status}`);
+    }
+  } catch (error) {
+    if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
+    if (error instanceof Error && error.message.startsWith('REMOTE_SHARE_')) throw error;
+    throw new Error('REMOTE_SHARE_RECORD_SET_CLEANUP_NETWORK', { cause: error });
+  }
 }

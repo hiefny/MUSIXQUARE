@@ -507,6 +507,12 @@ const id: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Tidak dapat menyiapkan mesin audio',
   'error.session_create_fail': 'Tidak dapat membuat ruang',
   'error.network_generic': 'Terjadi kesalahan jaringan',
+  'error.peer_app_version_mismatch':
+    '{{name}} tidak dapat bergabung karena versi aplikasi berbeda. Muat ulang halaman di kedua perangkat.',
+  'error.app_version_mismatch':
+    'Versi aplikasi tidak cocok. Muat ulang halaman di kedua perangkat lalu coba lagi.',
+  'error.session_handshake_failed':
+    'Koneksi sesi tidak dapat diselesaikan. Muat ulang halaman di kedua perangkat lalu coba lagi.',
   'error.host_unreachable': 'Host sepertinya telah meninggalkan ruang',
   'error.host_disconnected': 'Terputus dari host',
   'error.host_conn_error': 'Terjadi kesalahan saat terhubung ke host',
@@ -686,6 +692,8 @@ const id: Record<I18nKey, string> = {
   'chat.track_added_named': '{{name}} menambahkan 1 lagu: {{title}}',
   'chat.tracks_added_named': '{{name}} menambahkan {{count}} lagu, termasuk {{title}}',
   'chat.peer_disconnected': '{{name}} keluar',
+  'chat.participant_connection_unstable_recovering':
+    'Koneksi {{name}} tidak stabil. Mencoba memulihkannya.',
   'chat.empty_html': 'Belum ada pesan.<br>Kirim pesan pertama!',
   'chat.msg_truncated': 'Pesan dipotong menjadi {{max}} karakter',
   'chat.scroll_to_bottom': 'Gulir ke bawah',

@@ -566,6 +566,12 @@ const ko = {
   'error.audio_engine_prepare': '오디오 엔진을 준비하지 못했어요',
   'error.session_create_fail': '세션을 만들지 못했어요',
   'error.network_generic': '네트워크 오류가 발생했어요',
+  'error.peer_app_version_mismatch':
+    '{{name}} 님과 앱 버전이 달라 입장할 수 없어요. 두 기기를 새로고침해 주세요.',
+  'error.app_version_mismatch':
+    '앱 버전이 맞지 않아요. 두 기기를 새로고침한 뒤 다시 시도해 주세요.',
+  'error.session_handshake_failed':
+    '세션 연결을 완료하지 못했어요. 두 기기를 새로고침한 뒤 다시 시도해 주세요.',
   'error.host_unreachable': '방장이 세션을 종료한 것 같아요',
   'error.host_disconnected': '방장과 연결이 끊어졌어요',
   'error.host_conn_error': '방장과 연결 중 오류가 발생했어요',
@@ -663,6 +669,8 @@ const ko = {
   'chat.track_added_named': '{{name}} 님이 1곡을 추가했어요: {{title}}',
   'chat.tracks_added_named': '{{name}} 님이 {{count}}곡을 추가했어요: {{title}} 외',
   'chat.peer_disconnected': '{{name}} 님이 퇴장했어요',
+  'chat.participant_connection_unstable_recovering':
+    '{{name}} 님의 연결이 불안정해요. 복구를 시도중이에요.',
   'chat.empty_html': '아직 메시지가 없어요.<br>첫 메시지를 보내 보세요!',
   'chat.msg_truncated': '메시지가 {{max}}자로 잘렸어요',
   'chat.scroll_to_bottom': '맨 아래로 스크롤',

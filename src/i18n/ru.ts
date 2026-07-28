@@ -583,6 +583,12 @@ const ru: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Не удалось запустить звуковой движок',
   'error.session_create_fail': 'Не удалось создать комнату',
   'error.network_generic': 'Обнаружена ошибка сети',
+  'error.peer_app_version_mismatch':
+    '{{name}} не может войти, потому что версии приложения не совпадают. Обновите страницу на обоих устройствах.',
+  'error.app_version_mismatch':
+    'Версии приложения не совпадают. Обновите страницу на обоих устройствах и повторите попытку.',
+  'error.session_handshake_failed':
+    'Не удалось завершить подключение к сеансу. Обновите страницу на обоих устройствах и повторите попытку.',
   'error.host_unreachable': 'Хост комнаты, похоже, недоступен',
   'error.host_disconnected': 'Соединение с хостом комнаты прервано',
   'error.host_conn_error': 'Ошибка соединения с хостом комнаты',
@@ -681,6 +687,8 @@ const ru: Record<I18nKey, string> = {
   'chat.track_added_named': '{{name}} добавил(а) 1 трек: {{title}}',
   'chat.tracks_added_named': '{{name}} добавил(а) {{count}} треков, включая {{title}}',
   'chat.peer_disconnected': '{{name}} вышел из комнаты',
+  'chat.participant_connection_unstable_recovering':
+    'Соединение участника {{name}} нестабильно. Пытаемся восстановить.',
   'chat.empty_html': 'Сообщений пока нет.<br>Напишите первое сообщение!',
   'chat.msg_truncated': 'Сообщение сокращено до {{max}} символов',
   'chat.scroll_to_bottom': 'Прокрутить вниз',

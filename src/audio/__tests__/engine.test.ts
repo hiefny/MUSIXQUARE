@@ -12,6 +12,7 @@ import {
   getGainR,
   getPreamp,
   getWidener,
+  getFilePlaybackDestination,
   getReverb,
   getRvbLowCut,
   getRvbHighCut,
@@ -42,6 +43,12 @@ describe('getMasterGain', () => {
 describe('getWidener', () => {
   it('returns null before init', () => {
     expect(getWidener()).toBeNull();
+  });
+});
+
+describe('getFilePlaybackDestination', () => {
+  it('returns null before init', () => {
+    expect(getFilePlaybackDestination()).toBeNull();
   });
 });
 

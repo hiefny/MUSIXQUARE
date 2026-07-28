@@ -566,6 +566,12 @@ const th: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'เตรียมเอนจินเสียงไม่ได้',
   'error.session_create_fail': 'สร้างห้องไม่ได้',
   'error.network_generic': 'เกิดข้อผิดพลาดเครือข่าย',
+  'error.peer_app_version_mismatch':
+    '{{name}} เข้าร่วมไม่ได้เนื่องจากเวอร์ชันแอปไม่ตรงกัน โปรดโหลดหน้าใหม่บนอุปกรณ์ทั้งสองเครื่อง',
+  'error.app_version_mismatch':
+    'เวอร์ชันแอปไม่ตรงกัน โปรดโหลดหน้าใหม่บนอุปกรณ์ทั้งสองเครื่องแล้วลองอีกครั้ง',
+  'error.session_handshake_failed':
+    'เชื่อมต่อเซสชันไม่สำเร็จ โปรดโหลดหน้าใหม่บนอุปกรณ์ทั้งสองเครื่องแล้วลองอีกครั้ง',
   'error.host_unreachable': 'ดูเหมือนโฮสต์ออกจากห้องแล้ว',
   'error.host_disconnected': 'ตัดการเชื่อมต่อจากโฮสต์แล้ว',
   'error.host_conn_error': 'เกิดข้อผิดพลาดขณะเชื่อมต่อกับโฮสต์',
@@ -662,6 +668,8 @@ const th: Record<I18nKey, string> = {
   'chat.track_added_named': '{{name}} เพิ่ม 1 เพลง: {{title}}',
   'chat.tracks_added_named': '{{name}} เพิ่ม {{count}} เพลง รวมถึง {{title}}',
   'chat.peer_disconnected': '{{name}} ออกแล้ว',
+  'chat.participant_connection_unstable_recovering':
+    'การเชื่อมต่อของ {{name}} ไม่เสถียร กำลังพยายามกู้คืน',
   'chat.empty_html': 'ยังไม่มีข้อความ<br>ส่งข้อความแรกเลย!',
   'chat.msg_truncated': 'ข้อความถูกตัดเหลือ {{max}} ตัวอักษร',
   'chat.scroll_to_bottom': 'เลื่อนไปด้านล่าง',

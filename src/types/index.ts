@@ -124,6 +124,36 @@ export type YouTubeSyncLoadingOwner = 'rendezvous' | 'clock-action' | 'zero-star
 export type FileRequestId = number;
 export type PlaylistRevision = number;
 
+export type V2FilePlaybackLoadingOwner =
+  | 'host-start'
+  | 'host-seek'
+  | 'host-replay'
+  | 'host-recover'
+  | 'guest-prepare'
+  | 'guest-rendezvous';
+
+export type V2FilePlaybackLoadingToken = string | number;
+
+export interface V2FilePlaybackLoadingEvent {
+  readonly owner: V2FilePlaybackLoadingOwner;
+  readonly token: V2FilePlaybackLoadingToken;
+}
+
+export interface V2HostSeekPendingEvent {
+  readonly token: number;
+  readonly queueItemId: QueueItemId;
+  readonly targetSeconds: number;
+}
+
+export type V2HostSeekSettlementStatus = 'committed' | 'failed' | 'superseded';
+
+export interface V2HostSeekSettledEvent {
+  readonly token: number;
+  readonly queueItemId: QueueItemId;
+  readonly status: V2HostSeekSettlementStatus;
+  readonly positionSeconds: number;
+}
+
 export type ProPlaybackUiControlKind = 'play' | 'pause' | 'seek';
 
 /**
@@ -1164,7 +1194,7 @@ interface BaseEventMap {
   'audio:set-volume': [volume: number];
   'audio:volume-changed': [volume: number];
   'audio:apply-youtube-volume': [];
-  'audio:connect-surround': [playerNode: unknown, channelIdx: number];
+  'audio:connect-surround': [channelIdx: number];
   'audio:disconnect-surround': [];
   'audio:set-channel-mode': [mode: number];
   'audio:update-effect': [type: string, param: string, value: number, isPreview?: boolean];
@@ -1208,6 +1238,20 @@ interface BaseEventMap {
   ];
   'player:check-ended': [];
   'player:buffer-changed': [];
+  /** Exact V2 guest renderer state after physical evidence and metadata commit. */
+  'player:v2-guest-timeline-rendered': [
+    queueItemId: QueueItemId | null,
+    phase: 'playing' | 'paused' | 'stopped',
+    positionSeconds: number,
+  ];
+  /** Host-local V2 seek UI projection; this does not change playback lifecycle semantics. */
+  'player:v2-host-seek-pending': [event: Readonly<V2HostSeekPendingEvent>];
+  /** Exact terminal result for one admitted host-local V2 seek token. */
+  'player:v2-host-seek-settled': [event: Readonly<V2HostSeekSettledEvent>];
+  /** Delayed participant-local projection for one exact V2 file preparation. */
+  'player:v2-file-loading-pending': [event: Readonly<V2FilePlaybackLoadingEvent>];
+  /** Exact terminal settlement; stale owner/token pairs are ignored by the UI. */
+  'player:v2-file-loading-settled': [event: Readonly<V2FilePlaybackLoadingEvent>];
   /** Local-only feedback while a PRO playback command awaits canonical media application. */
   'pro-playback:ui-control-pending': [event: Readonly<ProPlaybackUiControlPendingEvent>];
   /** Exact terminal result for the matching local PRO UI control token. */
@@ -1222,6 +1266,7 @@ interface BaseEventMap {
   'playlist:toggle-shuffle': [];
   'playlist:shuffle-order-changed': [];
   'playlist:play-track': [queueItemId: QueueItemId, subIndex?: number];
+  'playlist:cancel-v2-playback-intent': [];
 
   // ── UI ────────────────────────────────────────────────────────────
   'ui:sync-reverb-preset': [type: string];
@@ -1355,8 +1400,18 @@ interface BaseEventMap {
 
   // ── Network ───────────────────────────────────────────────────────
   'network:peer-ready': [peerId: string];
-  /** Host-only ordered phase for authority snapshots before playback bootstrap. */
-  'network:peer-bootstrap': [conn: DataConnection];
+  /** Host-only ordered phase with synchronous send acknowledgement. */
+  'network:peer-bootstrap': [
+    conn: DataConnection,
+    send: (frame: unknown) => boolean,
+    acknowledge: (success: boolean) => void,
+  ];
+  /** Guest-only synchronous application of one ordered bootstrap frame. */
+  'network:peer-bootstrap-apply': [
+    frame: unknown,
+    conn: DataConnection,
+    acknowledge: (success: boolean) => void,
+  ];
   'network:peer-connected': [conn: DataConnection];
   'network:peer-disconnected': [peerId: string];
   /** Same logical peerId, but a new exact authenticated DataConnection. */

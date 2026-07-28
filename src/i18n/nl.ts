@@ -414,6 +414,8 @@ const nl: Record<I18nKey, string> = {
   'chat.track_added_named': '{{name}} heeft 1 nummer toegevoegd: {{title}}',
   'chat.tracks_added_named': '{{name}} heeft {{count}} nummers toegevoegd, waaronder {{title}}',
   'chat.peer_disconnected': '{{name}} is vertrokken',
+  'chat.participant_connection_unstable_recovering':
+    'De verbinding van {{name}} is instabiel. Herstel wordt geprobeerd.',
   'chat.empty_html': 'Nog geen berichten.<br>Stuur het eerste bericht!',
   'chat.msg_truncated': 'Bericht ingekort tot {{max}} tekens',
   'chat.scroll_to_bottom': 'Naar onderen scrollen',
@@ -575,6 +577,12 @@ const nl: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Audio-engine kon niet worden voorbereid',
   'error.session_create_fail': 'Sessie kon niet worden gemaakt',
   'error.network_generic': 'Er is een netwerkfout opgetreden',
+  'error.peer_app_version_mismatch':
+    '{{name}} kan niet deelnemen omdat de appversies niet overeenkomen. Vernieuw de pagina op beide apparaten.',
+  'error.app_version_mismatch':
+    'De appversies komen niet overeen. Vernieuw de pagina op beide apparaten en probeer het opnieuw.',
+  'error.session_handshake_failed':
+    'De sessieverbinding kon niet worden voltooid. Vernieuw de pagina op beide apparaten en probeer het opnieuw.',
   'error.host_unreachable': 'De host lijkt de sessie te hebben verlaten',
   'error.host_disconnected': 'Verbinding met host verbroken',
   'error.host_conn_error': 'Er is een fout opgetreden bij verbinden met de host',

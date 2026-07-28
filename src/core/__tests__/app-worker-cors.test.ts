@@ -529,6 +529,32 @@ describe('Cloudflare app worker CORS gate', () => {
   });
 });
 
+describe('Cloudflare app worker WebAssembly CSP', () => {
+  function directive(csp: string, name: string): string[] {
+    const match = csp
+      .split(';')
+      .map((value) => value.trim().split(/\s+/))
+      .find(([directiveName]) => directiveName === name);
+    return match ?? [];
+  }
+
+  it('allows WebAssembly compilation without enabling JavaScript eval or broadening workers', async () => {
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/security-config'),
+      {},
+    );
+    const csp = response.headers.get('Content-Security-Policy') || '';
+    const scriptSrc = directive(csp, 'script-src');
+    const workerSrc = directive(csp, 'worker-src');
+
+    expect(scriptSrc).toContain("'wasm-unsafe-eval'");
+    expect(scriptSrc).not.toContain("'unsafe-eval'");
+    expect(workerSrc).toEqual(['worker-src', "'self'", 'blob:']);
+    expect(response.headers.get('Cross-Origin-Opener-Policy')).toBeNull();
+    expect(response.headers.get('Cross-Origin-Embedder-Policy')).toBeNull();
+  });
+});
+
 describe('Cloudflare app worker sensitive endpoint rate limit', () => {
   function installRateLimitCache() {
     const store = new Map<string, string>();

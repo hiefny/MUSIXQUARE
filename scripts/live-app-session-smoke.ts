@@ -126,6 +126,8 @@ async function main(): Promise<void> {
         roomId,
         productionApp: APP_ORIGIN,
         actualHostGuestJoin: true,
+        appliedApplicationSession: true,
+        orderedBootstrapBeforeJoin: true,
         cloudflareTransport: true,
         bidirectionalFirstChat: true,
       }),

@@ -17,15 +17,19 @@ than a hard account storage cap.
 - Cap each standard room's active encrypted R2 objects at 1 GiB
   (`ROOM_STORAGE_QUOTA_BYTES`) through a per-room SQLite Durable Object.
 - Upgrade to Workers Paid only when real usage starts hitting Free-plan limits.
-- Keep the active Cloudflare WAF burst guard on `POST /session`.
+- Keep the active Cloudflare WAF burst guard on the top-level allocation
+  routes: `POST /session` and `POST /v2/sets`.
 
 WAF Rate Limiting is not expected to reduce normal KV writes. It blocks abusive
-or bursty `/session` requests before they reach the Worker. Normal successful
-remote uploads still consume one KV write for the upload-session rate counter.
+or bursty top-level allocation requests before they reach the Worker. Normal
+successful remote uploads still consume one KV write for the upload-session
+rate counter. Per-record V2 upload-authority and completion requests are
+intentionally excluded: one valid set can contain up to 25 records, and those
+requests reuse the set's already-admitted allocation.
 
 ## Remote Upload Cost Shape
 
-One remote file upload attempt roughly means:
+One V1 remote file upload attempt roughly means:
 
 - `POST /session`: Worker request, KV read/write, one room Durable Object
   request, a room-prefix R2 usage check, and a presigned R2 PUT URL issued
@@ -40,6 +44,11 @@ One remote file upload attempt roughly means:
 - `GET /download/...`: one Worker request and one R2 read per remote guest.
 
 Downloads do not write to KV.
+
+One V2 record-set upload still performs only one rate-limited allocation at
+`POST /v2/sets`. Each encrypted record then requests one short-lived direct R2
+PUT authority and reports one completion. These per-record control requests
+must not be counted by the outer WAF allocation-burst rule.
 
 ## Current Guardrails
 
@@ -104,13 +113,17 @@ Downloads do not write to KV.
 - The Worker rejects missing, malformed, and `0xxxxx` room IDs before issuing a
   presigned URL. The complete `0xxxxx` namespace is reserved for PRO rooms,
   whose persistent media uses the separate PRO bucket and control plane.
-- App-issued capability token required on `POST /session` in production. With
-  Turnstile disabled, the app Worker issues it only after a signed,
-  IP/scope-bound proof-of-work challenge; Origin/Host headers are not proof.
-- R2 bucket CORS allows every production origin accepted by the Workers
-  (musixquare and Toss apex/wildcard origins) plus local development origins.
-  Keeping these lists aligned prevents an authorized session from failing only
-  when the browser performs the direct R2 PUT preflight.
+- App-issued capability token required on `POST /session` and `POST /v2/sets`
+  in production. With Turnstile disabled, the app Worker issues it only after
+  a signed, IP/scope-bound proof-of-work challenge; Origin/Host headers are not
+  proof.
+- R2 bucket CORS includes exact MUSIXQUARE web origins, the canonical
+  `https://musixquare.apps.tossmini.com` production origin, the existing Toss
+  apex/pattern entries, and local development origins. R2 documents Origin
+  matching as exact, so every additional concrete production Toss origin must
+  also be added explicitly; a Worker-side wildcard allowlist alone is not
+  sufficient. Keeping these lists aligned prevents an authorized session from
+  failing only when the browser performs the direct R2 PUT preflight.
 - App worker CSP allows direct R2 upload connections via
   `https://*.r2.cloudflarestorage.com`.
 
@@ -132,24 +145,30 @@ References: [Workers limits](https://developers.cloudflare.com/workers/platform/
 [R2 pricing](https://developers.cloudflare.com/r2/pricing/),
 and [WAF rate-limiting availability](https://developers.cloudflare.com/waf/rate-limiting-rules/).
 
-## Active WAF Rate Limit
+## Required WAF Rate Limit
 
-The production zone currently has the `Remote share session burst guard` rule
-enabled:
+The production zone's `Remote share session burst guard` rule must remain
+enabled with this allocation-route scope:
 
 - Match host: `share.musixquare.com`
-- Match path: `/session`
+- Match path: `/session` or `/v2/sets` (exact paths)
 - Match method: `POST`
 - Characteristic: IP
 - Threshold: 20 requests
 - Period: 10 seconds
 - Action: block for 10 seconds after the threshold is exceeded
 
-This outer guard stops automated session-creation bursts before they consume a
-Worker request or KV operation. The short window and short block keep normal
+This outer guard stops automated V1 session and V2 set-creation bursts before
+they consume a Worker request or KV operation. Do not broaden the match to
+`/v2/sets/*`: record upload-authority and completion calls are normal traffic
+inside one already-admitted set. The short window and short block keep normal
 multi-file use below the threshold and minimize user-visible impact. Revisit
 the threshold only with production 429 evidence; on higher Cloudflare plans, a
 longer, more ergonomic per-minute window can replace it.
+
+Before enabling V2 record sets, inspect the live rule. If its exact-path
+expression still matches only `/session`, add the exact `/v2/sets` alternative
+without changing the threshold or matching any descendant record route.
 
 ## Notes
 

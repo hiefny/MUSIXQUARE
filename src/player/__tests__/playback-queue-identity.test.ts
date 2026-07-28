@@ -14,7 +14,9 @@ import type {
   ResidentFile,
 } from '../../types/index.ts';
 import { setCurrentAudioBuffer } from '../_state.ts';
+import { clearFilePlaybackRuntime } from '../file-playback-runtime.ts';
 import { setPlaybackFilePlaying } from '../ownership.ts';
+import { publishManagedFilePlaybackSource } from './managed-file-playback-fixture.ts';
 
 const QID_A = '00000000-0000-4000-8000-000000000001';
 const QID_B = '00000000-0000-4000-8000-000000000002';
@@ -113,6 +115,42 @@ beforeEach(() => {
 describe('PLAY/PAUSE queue identity guards', () => {
   const hostConn = { open: true, peer: 'host-1' } as DataConnection;
 
+  it('accepts an exact managed source without requiring a legacy AudioBuffer', async () => {
+    await publishManagedFilePlaybackSource(QID_B);
+    try {
+      setState('network.hostConn', hostConn);
+      setState('playlist.items', [item(QID_A, 'a.flac'), item(QID_B, 'b.flac')]);
+      setState('playlist.currentQueueItemId', QID_B);
+      setState('files.current', resident(QID_B, 1, 'b.flac', 2));
+      setState('playback.lifecycle', PLAYBACK_STATE.READY);
+      initPlayback();
+
+      await handleData({ type: 'play', time: 12, queueItemId: QID_B, name: 'b.flac' }, hostConn);
+
+      expect(mocks.play).toHaveBeenCalled();
+    } finally {
+      await clearFilePlaybackRuntime();
+    }
+  });
+
+  it('does not accept a managed source owned by another queue occurrence', async () => {
+    await publishManagedFilePlaybackSource(QID_A);
+    try {
+      setState('network.hostConn', hostConn);
+      setState('playlist.items', [item(QID_A, 'a.flac'), item(QID_B, 'b.flac')]);
+      setState('playlist.currentQueueItemId', QID_B);
+      setState('files.current', resident(QID_B, 1, 'b.flac', 2));
+      setState('playback.lifecycle', PLAYBACK_STATE.READY);
+      initPlayback();
+
+      await handleData({ type: 'play', time: 12, queueItemId: QID_B, name: 'b.flac' }, hostConn);
+
+      expect(mocks.play).not.toHaveBeenCalled();
+    } finally {
+      await clearFilePlaybackRuntime();
+    }
+  });
+
   it('does not replay a decoded buffer owned by another queue occurrence', async () => {
     setState('network.hostConn', hostConn);
     setState('playlist.items', [item(QID_A, 'a.mp3'), item(QID_B, 'b.mp3')]);
@@ -140,6 +178,54 @@ describe('PLAY/PAUSE queue identity guards', () => {
     expect(mocks.pause).not.toHaveBeenCalled();
     expect(getState('playlist.currentQueueItemId')).toBe(QID_B);
     expect(getState('player.pausedAt')).toBe(0);
+  });
+});
+
+describe('V2 guest renderer projection', () => {
+  it('projects only an exact queue occurrence after physical timeline commit', () => {
+    const visualizer = vi.fn();
+    const uiLoop = vi.fn();
+    bus.on('visualizer:start', visualizer);
+    bus.on('ui:loop-start', uiLoop);
+    setState('playlist.items', [item(QID_A, 'a.flac'), item(QID_B, 'b.flac')]);
+    initPlayback();
+
+    bus.emit('player:v2-guest-timeline-rendered', QID_B, 'playing', 12.5);
+
+    expect(getState('playlist.currentQueueItemId')).toBe(QID_B);
+    expect(getState('player.currentTrackMeta')).toMatchObject({
+      queueItemId: QID_B,
+      name: 'b.flac',
+      title: 'b.flac',
+    });
+    expect(getState('player.pausedAt')).toBe(12.5);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.PLAYING);
+    expect(getState('playback.mode')).toBe('file');
+    expect(visualizer).toHaveBeenCalledOnce();
+    expect(uiLoop).toHaveBeenCalledOnce();
+
+    bus.emit('player:v2-guest-timeline-rendered', QID_B, 'paused', 18);
+    expect(getState('player.pausedAt')).toBe(18);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.PAUSED);
+
+    bus.emit('player:v2-guest-timeline-rendered', null, 'stopped', 0);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('player.pausedAt')).toBe(0);
+    // Selection is playlist navigation state, not renderer ownership.
+    expect(getState('playlist.currentQueueItemId')).toBe(QID_B);
+  });
+
+  it('ignores unknown queue IDs and malformed positions', () => {
+    setState('playlist.items', [item(QID_A, 'a.flac')]);
+    setState('playlist.currentQueueItemId', QID_A);
+    initPlayback();
+
+    bus.emit('player:v2-guest-timeline-rendered', QID_B, 'playing', 4);
+    bus.emit('player:v2-guest-timeline-rendered', QID_A, 'playing', Number.NaN);
+
+    expect(getState('playlist.currentQueueItemId')).toBe(QID_A);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
   });
 });
 

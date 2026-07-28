@@ -46,6 +46,8 @@ concurrency:
 env:
   WRANGLER_VERSION: 4.114.0
   RELEASE_VALIDATION_PROFILE: core-smoke
+  VITE_MUSIXQUARE_FILE_ENGINE_V2: '1'
+  VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '0'
 
 jobs:
   validate:
@@ -431,6 +433,17 @@ jobs:
             "${{ github.sha }}" \
             "${{ inputs.apply_developer_api_d1 || inputs.apply_pro_room_generation_d1 }}"
 
+      - name: Apply remote-share R2 CORS policy
+        timeout-minutes: 10
+        if: inputs.target == 'all' || inputs.target == 'remote-share'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          npm run --silent wrangler -- r2 bucket cors set musixquare-remote-share \
+            --file cloudflare/r2-cors.remote-share.json \
+            --config cloudflare/wrangler.remote-share.toml \
+            --force
+
       - name: Establish rollback-safe remote-share quota migration bridge
         timeout-minutes: 15
         if: inputs.target == 'all' || inputs.target == 'remote-share'
@@ -453,7 +466,10 @@ jobs:
               --config cloudflare/wrangler.remote-share.toml \
               --var REMOTE_SHARE_ATOMIC_QUOTA_ENABLED:false \
               --message "$RELEASE_MESSAGE bridge:remote-share-quota-v3"
-            npm run smoke:live:remote-share
+            # The bridge intentionally has record-set admission disabled. Prove
+            # the still-supported V1 path here; the post-deploy smoke below
+            # exercises V1 and V2 after active quota admission is enabled.
+            npm run smoke:live:remote-share -- --v1-only
           fi
 
       - name: Record current remote-share deployment

@@ -570,6 +570,12 @@ const en: Record<I18nKey, string> = {
   'error.audio_engine_prepare': "Couldn't prepare the audio engine",
   'error.session_create_fail': "Couldn't create session",
   'error.network_generic': 'A network error occurred',
+  'error.peer_app_version_mismatch':
+    '{{name}} cannot join because the app versions do not match. Refresh both devices.',
+  'error.app_version_mismatch':
+    'The app versions do not match. Refresh both devices and try again.',
+  'error.session_handshake_failed':
+    'Could not complete the session connection. Refresh both devices and try again.',
   'error.host_unreachable': 'The host appears to have left the session',
   'error.host_disconnected': 'Disconnected from the host',
   'error.host_conn_error': 'An error occurred while connecting to the host',
@@ -668,6 +674,8 @@ const en: Record<I18nKey, string> = {
   'chat.track_added_named': '{{name}} added 1 track: {{title}}',
   'chat.tracks_added_named': '{{name}} added {{count}} tracks, including {{title}}',
   'chat.peer_disconnected': '{{name}} left',
+  'chat.participant_connection_unstable_recovering':
+    "{{name}}'s connection is unstable. Trying to recover.",
   'chat.empty_html': 'No messages yet.<br>Send the first message!',
   'chat.msg_truncated': 'Message truncated to {{max}} characters',
   'chat.scroll_to_bottom': 'Scroll to bottom',

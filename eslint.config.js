@@ -48,6 +48,42 @@ export default tseslint.config(
     rules: { 'no-restricted-globals': 'off' },
   },
   {
-    ignores: ['dist/', 'node_modules/', '_legacy/', 'src/workers/', 'src/**/__tests__/'],
+    // AudioWorklet assets run in AudioWorkletGlobalScope rather than the DOM
+    // or the TypeScript project. Keep them linted as plain modules with only
+    // the platform globals the processor is allowed to use.
+    files: ['src/audio/worklets/**/*.js'],
+    languageOptions: {
+      parserOptions: { project: false },
+      globals: {
+        AudioWorkletProcessor: 'readonly',
+        currentFrame: 'readonly',
+        registerProcessor: 'readonly',
+        sampleRate: 'readonly',
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-unused-vars': 'off',
+      'no-restricted-globals': 'off',
+    },
+  },
+  {
+    // Dedicated workers use their own WebWorker-only TypeScript project.
+    // Keeping them in the normal lint run is important because decoder and
+    // transport workers are production code, not generated assets.
+    files: ['src/workers/**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        project: './src/workers/tsconfig.json',
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      // Worker lifetimes are owned by their parent and do not use the window
+      // timer registry.
+      'no-restricted-globals': 'off',
+    },
+  },
+  {
+    ignores: ['dist/', 'node_modules/', '_legacy/', 'src/**/__tests__/'],
   },
 );

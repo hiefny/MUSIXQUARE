@@ -25,6 +25,10 @@ import type {
 import { hasQueueAuthority } from './queue-authority.ts';
 import { verifyPeerCapability } from '../rooms/authority.ts';
 import { isFileRequestId } from './file-request-authority.ts';
+import { getFilePlaybackApplicationSessionManager } from './file-playback-application-session.ts';
+import { isFilePlaybackEngineV2Enabled } from '../player/file-playback-engine-gate.ts';
+
+const FILE_PLAYBACK_ENGINE_V2_ENABLED = isFilePlaybackEngineV2Enabled();
 
 // ─── Message Validation ─────────────────────────────────────────────
 
@@ -182,6 +186,37 @@ const PRE_AUTHORITY_MEDIA_TYPES: ReadonlySet<string> = new Set([
   MSG.DEMO_EXIT,
   MSG.YOUTUBE_PLAYLIST_INFO,
   MSG.YOUTUBE_SUB_TITLE_UPDATE,
+]);
+
+/**
+ * V2 guests receive file bytes, renderer commands, and canonical timeline
+ * truth only through the authenticated product media session. These legacy
+ * frames must never reach RAM-store, preload, recovery, or playback handlers
+ * after the exact host-connection and application-session boundaries above.
+ *
+ * Operator requests are intentionally absent: the host still accepts the
+ * existing bounded REQUEST_PLAY/PAUSE/SEEK/SKIP_TIME application controls.
+ */
+const V2_GUEST_LEGACY_FILE_MEDIA_TYPES: ReadonlySet<string> = new Set([
+  MSG.PLAY,
+  MSG.PAUSE,
+  MSG.PLAY_PRELOADED,
+  MSG.FILE_PREPARE,
+  MSG.FILE_START,
+  MSG.FILE_RESUME,
+  MSG.FILE_CHUNK,
+  MSG.FILE_END,
+  MSG.FILE_WAIT,
+  MSG.PRELOAD_START,
+  MSG.PRELOAD_CHUNK,
+  MSG.PRELOAD_END,
+  MSG.PRELOAD_ABORT,
+  MSG.PRELOAD_ACK,
+  MSG.REMOTE_FILE_SHARE,
+  MSG.REMOTE_FILE_UNAVAILABLE,
+  MSG.REQUEST_CURRENT_FILE,
+  MSG.REQUEST_DATA_RECOVERY,
+  MSG.GUEST_DECODE_FAILED,
 ]);
 
 function requiresQueueAuthority(msgType: MsgType, msg: Record<string, unknown>): boolean {
@@ -1082,6 +1117,43 @@ export async function handleData(data: unknown, conn: DataConnection): Promise<v
     (!conn?.peer || getState('network.activeHostConnByPeerId').get(conn.peer) !== conn)
   ) {
     log.debug(`[Protocol] Ignored frame from stale guest connection: ${msgType}`);
+    return;
+  }
+
+  // Product connections are application-session gated. Before APPLIED the
+  // host accepts no guest application commands. A guest admits only the
+  // legacy label/moderation WELCOME plus transport rejection/duplicate
+  // lifecycle frames; ordered queue bootstrap and V2 session/clock frames are
+  // consumed synchronously by the dedicated session manager before reaching
+  // this generic dispatcher.
+  if (FILE_PLAYBACK_ENGINE_V2_ENABLED) {
+    const applicationSessions = getFilePlaybackApplicationSessionManager();
+    if (
+      applicationSessions.isKnownConnection(conn) &&
+      applicationSessions.phase(conn) === 'handshaking'
+    ) {
+      if (!isGuest) {
+        log.debug(`[Protocol] Ignored guest command before APPLIED: ${msgType}`);
+        return;
+      }
+      const allowedGuestSetupFrame =
+        msgType === MSG.WELCOME ||
+        msgType === MSG.SESSION_FULL ||
+        msgType === MSG.FORCE_CLOSE_DUPLICATE;
+      if (!allowedGuestSetupFrame) {
+        log.debug(`[Protocol] Ignored host frame before APPLIED: ${msgType}`);
+        return;
+      }
+    }
+  }
+
+  // The V2 application session owns all guest file-media truth. Drop old
+  // transfer/playback frames before queue gates, rate limits, validation, or
+  // generic handlers can mutate legacy state. A stale/non-host connection was
+  // already rejected above, and a known handshaking connection was handled by
+  // the application-session gate immediately before this boundary.
+  if (FILE_PLAYBACK_ENGINE_V2_ENABLED && isGuest && V2_GUEST_LEGACY_FILE_MEDIA_TYPES.has(msgType)) {
+    log.debug(`[Protocol] Ignored legacy file-media frame in V2 guest room: ${msgType}`);
     return;
   }
 

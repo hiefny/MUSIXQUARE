@@ -33,6 +33,7 @@ import { requestStandardRoomAccountAssertion } from '../account/room-identity.ts
 import { clearCurrentAccountLoginReturn } from '../account/login-return.ts';
 import { getRoomContext } from '../rooms/authority.ts';
 import { getStandardRoomTurnCredentials } from './standard-room-prerequisites.ts';
+import { getFilePlaybackProductRuntime } from '../player/file-playback-product-runtime.ts';
 
 // ─── Sub-module imports (only names used locally in this file) ───────
 
@@ -283,6 +284,12 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
   // the room code or peer IDs happen to be reused.
   resetLocalSystemAudioSfuCapabilities();
   resetGuestSystemAudioShareRoute();
+  // A standard-room transport generation and its V2 application authority
+  // share one lifetime. Retire it before replacing PeerJS; PRO signaling has
+  // independent server authority and must never enter this product runtime.
+  if (getRoomContext().kind === 'standard') {
+    getFilePlaybackProductRuntime().endRoom();
+  }
   const owner = beginNetworkInit(requestedId);
   let ownedPeer: PeerInstance | null = null;
 
@@ -348,11 +355,24 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
 
     assertNetworkInitStillActive(owner);
     setState('network.myId', id);
+    if (requestedId && getRoomContext().kind === 'standard') {
+      const begun = getFilePlaybackProductRuntime().beginHostRoom(id);
+      if (getFilePlaybackProductRuntime().enabled() && !begun) {
+        throw new Error('FILE_PLAYBACK_HOST_ROOM_START_FAILED');
+      }
+    }
     log.info('[Network] Peer opened:', id);
     bus.emit('network:peer-ready', id);
     return id;
   } catch (error) {
     if (ownedPeer && getPeer() === ownedPeer) setPeer(null);
+    if (getRoomContext().kind === 'standard') {
+      try {
+        getFilePlaybackProductRuntime().endRoom();
+      } catch {
+        // Preserve the initiating network/runtime failure.
+      }
+    }
     try {
       ownedPeer?.destroy();
     } catch {
@@ -705,6 +725,9 @@ export function cancelPendingSessionSetup(): void {
   if (getState('setup.sessionStarted')) return;
   resetLocalSystemAudioSfuCapabilities();
   resetGuestSystemAudioShareRoute();
+  if (getRoomContext().kind === 'standard') {
+    getFilePlaybackProductRuntime().endRoom();
+  }
   if (getState('room.context').kind === 'pro' || isProRoomCode(getState('network.lastJoinCode'))) {
     requestProRoomLeave();
   }
@@ -794,6 +817,9 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
   if (!options.preserveAccountLoginReturn) clearCurrentAccountLoginReturn();
   resetLocalSystemAudioSfuCapabilities();
   resetGuestSystemAudioShareRoute();
+  if (getRoomContext().kind === 'standard') {
+    getFilePlaybackProductRuntime().endRoom();
+  }
   if (getState('room.context').kind === 'pro' || isProRoomCode(getState('network.sessionCode'))) {
     requestProRoomLeave();
   }

@@ -25,7 +25,6 @@ import { broadcast, isRemoteGuest, safeSend } from '../network/peer.ts';
 import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { beginFileRequest, sendFileRequest } from '../network/file-request-authority.ts';
-import { getSurroundSplitter } from '../audio/engine.ts';
 import type { DataConnection, QueueItemId, ResidentFile } from '../types/index.ts';
 import {
   isGuestR2FileDelivery,
@@ -34,8 +33,6 @@ import {
 } from '../share/file-delivery-policy.ts';
 
 import {
-  getCurrentAudioBuffer,
-  getPlayerNode,
   isCurrentLoadEpoch,
   newLoadEpoch,
   setPendingRecoveryTarget,
@@ -44,6 +41,7 @@ import {
   setLastClearedQueueItemId,
   setLocalFilePaused,
 } from './_state.ts';
+import { hasPlayableFileSource } from './file-playback-runtime.ts';
 
 import {
   play,
@@ -52,6 +50,9 @@ import {
   getTrackPosition,
   handleEnded,
   isFilePipelineBusyForPlay,
+  requestV2HostFilePause,
+  requestV2HostFileResume,
+  requestV2HostFileSeek,
   skipTime,
 } from './transport.ts';
 
@@ -70,6 +71,7 @@ import {
   isPlaybackPlayingSystemAudio,
   isSystemAudioOwner,
   isYouTubeOwner,
+  setPlaybackIdle,
   setPlaybackTrackMeta,
   setPlaybackTransferState,
 } from './ownership.ts';
@@ -325,14 +327,15 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     return;
   }
 
-  // A decoded AudioBuffer is playable only together with the atomic resident
-  // identity that owns it. A leftover buffer from another occurrence must
+  // A prepared file source is playable only together with the atomic resident
+  // identity that owns it. A leftover source from another occurrence must
   // never be replayed under the selected queue item.
   const resident = getState('files.current');
-  const hasOwnedBuffer = !!getCurrentAudioBuffer() && resident?.queueItemId === incomingQueueItemId;
+  const hasOwnedSource =
+    hasPlayableFileSource(incomingQueueItemId) && resident?.queueItemId === incomingQueueItemId;
 
-  if (hasOwnedBuffer) {
-    // Lifecycle: we have a decoded buffer → we're in
+  if (hasOwnedSource) {
+    // Lifecycle: we have a prepared source → we're in
     // READY (or PLAYING/PAUSED already if this is a seek). Drive the machine.
     // transition() handles same-track seek, resume from PAUSED, and restart
     // from READY under the tested lifecycle contract.
@@ -551,6 +554,8 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
   }
   if (!currentQueueItemId) return;
 
+  if (requestV2HostFileResume(time)) return;
+
   // A busy pipeline still holds the previous track's AudioBuffer. Ignore the
   // request; decode completion owns playback of the newly selected track.
   if (isFilePipelineBusyForPlay()) {
@@ -560,7 +565,7 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
 
   const currentResident = getState('files.current');
   if (
-    !getCurrentAudioBuffer() ||
+    !hasPlayableFileSource(currentQueueItemId) ||
     !currentResident ||
     currentResident.queueItemId !== currentQueueItemId
   ) {
@@ -594,6 +599,14 @@ function handleRequestPause(data: Record<string, unknown>, conn: DataConnection)
   clearManagedTimer('autoPlayTimer');
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
+  if (
+    requestV2HostFilePause({
+      holdVisualizer: true,
+      showToast: true,
+    })
+  ) {
+    return;
+  }
   const currentQueueItemId = getCurrentQueueItemId();
   pause();
   broadcast({
@@ -632,6 +645,11 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
     bus.emit('youtube:seek-to', time);
     return;
   }
+
+  // V2 publication belongs to the product coordinator and occurs only after
+  // physical commit. A missing exact projection still belongs to this boundary
+  // and must fail closed instead of reaching the resident AudioBuffer below.
+  if (requestV2HostFileSeek(time)) return;
 
   // A busy file pipeline still holds the previous track's AudioBuffer. Keep
   // this guard after YouTube handling because file lifecycle state must not
@@ -703,14 +721,54 @@ export function initPlayback(): void {
     stopAllMedia(options);
   });
 
+  // V2 media owners emit this only after exact native playing evidence, or an
+  // exact prepared paused baseline, and connection-media authority have
+  // committed. It is a UI projection, never a second playback command or clock.
+  bus.on('player:v2-guest-timeline-rendered', (queueItemId, phase, positionSeconds) => {
+    if (
+      !Number.isFinite(positionSeconds) ||
+      positionSeconds < 0 ||
+      (phase !== 'playing' && phase !== 'paused' && phase !== 'stopped')
+    ) {
+      return;
+    }
+    if (phase === 'stopped') {
+      if (queueItemId !== null) return;
+      setPlaybackIdle();
+      setState('player.pausedAt', 0);
+      bus.emit('ui:seek-reset');
+      bus.emit('visualizer:fade-out');
+      return;
+    }
+    if (!queueItemId || !isQueueItemId(queueItemId)) return;
+    const item = getQueueItemById(queueItemId);
+    if (!item || !selectQueueItemById(queueItemId)) return;
+    setPlaybackTrackMeta(item);
+    setState('player.pausedAt', positionSeconds);
+    if (phase === 'playing') {
+      transition({ type: 'PRODUCT_TIMELINE_RENDERED', phase });
+      bus.emit('visualizer:start');
+      bus.emit('ui:loop-start');
+    } else {
+      transition({ type: 'PRODUCT_TIMELINE_RENDERED', phase });
+      bus.emit('visualizer:hold-frame');
+    }
+    bus.emit('ui:switch-tab', 'play');
+  });
+
   // Replay current track from start (repeat-one: guest already has file).
   // delayMs lets the host tell the guest "I'm going to start at T+delayMs,
   // so don't start playing until then" — prevents the 3-second drift
   // window when host re-clicks a currently-playing track.
   bus.on('playback:replay-current', (delayMs?: number) => {
-    if (!getCurrentAudioBuffer()) return;
     const queueItemId = getCurrentQueueItemId();
-    if (!queueItemId || getState('files.current')?.queueItemId !== queueItemId) return;
+    if (
+      !queueItemId ||
+      !hasPlayableFileSource(queueItemId) ||
+      getState('files.current')?.queueItemId !== queueItemId
+    ) {
+      return;
+    }
 
     const doReplay = () => {
       log.debug('[Guest] Replaying current track from start');
@@ -733,41 +791,22 @@ export function initPlayback(): void {
     }
   });
 
-  // Long background resume recovery: rebuild the current AudioBufferSourceNode
-  // at the current logical position without surfacing a manual-sync toast.
+  // Long background resume recovery: rebuild/re-arm the current file source at
+  // the logical position without surfacing a manual-sync toast.
   bus.on('playback:refresh-current-position', () => {
-    if (!getCurrentAudioBuffer()) return;
     if (!isPlaybackPlayingFile()) return;
     const queueItemId = getCurrentQueueItemId();
-    if (!queueItemId || getState('files.current')?.queueItemId !== queueItemId) return;
+    if (
+      !queueItemId ||
+      !hasPlayableFileSource(queueItemId) ||
+      getState('files.current')?.queueItemId !== queueItemId
+    ) {
+      return;
+    }
     // A background resume may occur during a track change, while the resident
     // buffer still belongs to the previous track. Decode completion owns restart.
     if (isFilePipelineBusyForPlay()) return;
     play(getTrackPosition());
-  });
-
-  // Disconnect playerNode from surround splitter (called when surround mode turns off)
-  bus.on('audio:disconnect-surround', () => {
-    const _playerNode = getPlayerNode();
-    if (_playerNode) {
-      try {
-        _playerNode.disconnect(getSurroundSplitter()!);
-      } catch {
-        /* may not be connected */
-      }
-    }
-  });
-
-  // Surround mode toggled during playback: restart at current position
-  bus.on('audio:surround-toggled', () => {
-    const queueItemId = getCurrentQueueItemId();
-    if (
-      isPlaybackPlayingFile() &&
-      queueItemId &&
-      getState('files.current')?.queueItemId === queueItemId
-    ) {
-      play(getTrackPosition());
-    }
   });
 
   // Safety polling: periodically check if track ended (called from UI loop)

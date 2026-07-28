@@ -2048,7 +2048,15 @@ describe('late-join playlist bootstrap', () => {
     setState('playlist.items', [a, b]);
     selectIndex(1);
 
-    bus.emit('network:peer-bootstrap', conn);
+    bus.emit(
+      'network:peer-bootstrap',
+      conn,
+      (frame) => {
+        send(frame);
+        return true;
+      },
+      vi.fn(),
+    );
 
     expect(send.mock.calls.slice(0, 3).map(([message]) => message.type)).toEqual([
       MSG.PLAYLIST_UPDATE,

@@ -66,8 +66,8 @@ describe('Translation key integrity', () => {
     }
   });
 
-  it('describes the first setup choice as creating or joining a room', () => {
-    expect(ko['setup.hello_select_role']).toBe('방을 만들거나 참여해 주세요.');
+  it('greets Korean users while describing the first room choice', () => {
+    expect(ko['setup.hello_select_role']).toBe('안녕하세요! 방을 만들거나 참여해 주세요.');
     expect(ko['setup.host_button']).toBe('방 만들기');
     expect(ko['setup.guest_button']).toBe('방 참여하기');
     expect(en['setup.hello_select_role']).toBe('Create a room or join one.');
@@ -87,6 +87,12 @@ describe('Translation key integrity', () => {
         expect(dict[key], `${locale}.${key}`).toBeTruthy();
       }
     }
+  });
+
+  it('uses one consistent Korean honorific form for presence messages', () => {
+    expect(ko['toast.device_connected']).toBe('{{name}}님이 연결됐어요');
+    expect(ko['chat.peer_connected']).toBe('{{name}}님이 입장했어요');
+    expect(ko['chat.peer_disconnected']).toBe('{{name}}님이 퇴장했어요');
   });
 
   it('{{param}} placeholders match between ko and every locale', () => {

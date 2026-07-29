@@ -300,7 +300,7 @@ const ko = {
   'setup.join_session_subtitle': '{{code}}번 세션에 입장하려고 해요',
   'setup.select_role': '역할을 선택해주세요',
   'setup.select_role_alt': '역할을 선택해 주세요',
-  'setup.hello_select_role': '방을 만들거나 참여해 주세요.',
+  'setup.hello_select_role': '안녕하세요! 방을 만들거나 참여해 주세요.',
   'setup.enter_code': '연결 코드 6자리 입력',
   'setup.enter_host_code': '방장이 알려준 6자리 코드를 입력해주세요',
   'setup.enter_host_code_alt': '방장의 코드를 입력해주세요.',
@@ -457,7 +457,7 @@ const ko = {
   'network.op_revoked': '관리자 권한이 해제되었어요.',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
-  'toast.device_connected': '{{name}}가 연결됐어요',
+  'toast.device_connected': '{{name}}님이 연결됐어요',
   'toast.device_disconnected': '{{name}} 연결이 끊겼어요',
   'toast.device_conn_error': '{{name}} 연결 오류',
   'toast.device_kicked': '{{name}}을(를) 내보냈어요',
@@ -694,11 +694,11 @@ const ko = {
     '방장에게는 3가지 선택지가 나와요.<ul class="help-list"><li><strong>로컬파일 불러오기:</strong> 기기에서 직접 음악파일을 선택. 정밀 동기화 가능</li><li><strong>유튜브 같이보기:</strong> 영상 또는 플레이리스트 지원. 채널 분리와 음향 효과 사용 불가</li><li><strong>시스템 오디오 공유:</strong> 방장이 컴퓨터에서 Chrome 계열 브라우저를 사용하는 경우 이용 가능</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>코드를 입력했는데 연결이 안 돼요:</strong> 코드를 다시 확인하고 잠시 후 다시 시도해주세요. 회사/학교망이나 VPN에서는 연결이 제한될 수 있어요.</li><li><strong>연결이 불안정해요:</strong> 로컬 참여자는 공유기 가까이에서, 원격 참여자는 안정적인 인터넷 환경에서 시도해주세요.</li><li><strong>기타 문제:</strong> 네트워크 상태를 확인하고 모든 기기의 앱을 다시 시작해주세요. 문의사항이 있으시다면 <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>를 참고해주시거나 맨 하단의 이메일로 연락해주세요.</li></ul>',
-  'chat.peer_connected': '{{name}} 님이 입장했어요',
+  'chat.peer_connected': '{{name}}님이 입장했어요',
   'chat.tracks_added': '{{name}} 님이 {{count}}곡을 추가했어요',
   'chat.track_added_named': '{{name}} 님이 1곡을 추가했어요: {{title}}',
   'chat.tracks_added_named': '{{name}} 님이 {{count}}곡을 추가했어요: {{title}} 외',
-  'chat.peer_disconnected': '{{name}} 님이 퇴장했어요',
+  'chat.peer_disconnected': '{{name}}님이 퇴장했어요',
   'chat.participant_connection_unstable_recovering':
     '{{name}} 님의 연결이 불안정해요. 복구를 시도중이에요.',
   'chat.empty_html': '아직 메시지가 없어요.<br>첫 메시지를 보내 보세요!',

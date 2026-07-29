@@ -212,7 +212,7 @@ describe('duplicate guest connection handoff', () => {
     expect(connected).toEqual([replacement]);
   });
 
-  it('does not announce a duplicate join when one live connection is replaced', () => {
+  it('announces a join once in chat without a duplicate toast when a connection is replaced', () => {
     setState('setup.sessionStarted', true);
     const systemMessages: string[] = [];
     const stop = bus.on('chat:system-message', (text) => systemMessages.push(text));
@@ -229,6 +229,7 @@ describe('duplicate guest connection handoff', () => {
     }
 
     expect(systemMessages).toHaveLength(1);
+    expect(mocks.showToast).not.toHaveBeenCalled();
   });
 
   it('still announces the first join when a stalled pre-open connection is replaced', () => {

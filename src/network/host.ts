@@ -40,7 +40,6 @@ import {
 import { showToast } from '../ui/toast.ts';
 import { getRoomContext } from '../rooms/authority.ts';
 import { capabilitiesForProRoomRole } from '../pro-room/contracts.ts';
-import { hasSystemAudioDeviceCapacity } from '../audio/system-audio-policy.ts';
 import {
   STANDARD_ROOM_FULL_PERMISSIONS,
   STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES,
@@ -681,11 +680,6 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     }
 
     const openedLabel = connected?.label ?? deviceName;
-    const systemAudioDeviceLimitReached =
-      getState('playback.mode') === 'system-audio' && !hasSystemAudioDeviceCapacity();
-    if (!systemAudioDeviceLimitReached) {
-      showToast(t('toast.device_connected', { name: openedLabel }));
-    }
     if (
       !replacedConnectionWasVisible &&
       (!connected || isOnlyLiveStandardMemberDevice(connected, getState('network.connectedPeers')))

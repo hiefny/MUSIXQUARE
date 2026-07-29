@@ -405,7 +405,7 @@ describe('Chat Module', () => {
       toggleChatDrawer();
     });
 
-    it('moves through half, full, half, and closed one detent per drag', async () => {
+    it('uses adjacent detents normally and supports a deliberate full-height dismiss', async () => {
       renderChatShell();
       vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
       vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844);
@@ -466,6 +466,15 @@ describe('Chat Module', () => {
 
       drag(500, 620);
       expect(drawer.classList.contains('open')).toBe(false);
+      expect(drawer.style.getPropertyValue('--chat-offset-y')).toBe('120px');
+      const childSettled = new Event('transitionend', { bubbles: true });
+      Object.defineProperty(childSettled, 'propertyName', { value: 'transform' });
+      header.dispatchEvent(childSettled);
+      expect(drawer.style.getPropertyValue('--chat-offset-y')).toBe('120px');
+      const closeSettled = new Event('transitionend');
+      Object.defineProperty(closeSettled, 'propertyName', { value: 'transform' });
+      drawer.dispatchEvent(closeSettled);
+      expect(drawer.style.getPropertyValue('--chat-offset-y')).toBe('');
 
       toggleChatDrawer();
       header.dispatchEvent(
@@ -488,6 +497,15 @@ describe('Chat Module', () => {
       drag(600, 510);
       expect(drawer.dataset.chatSnap).toBe('full');
       drag(100, 450);
+      expect(drawer.dataset.chatSnap).toBe('half');
+      expect(drawer.classList.contains('open')).toBe(true);
+      drag(500, 620);
+      expect(drawer.classList.contains('open')).toBe(false);
+
+      toggleChatDrawer();
+      drag(600, 510);
+      expect(drawer.dataset.chatSnap).toBe('full');
+      drag(100, 700);
       expect(drawer.classList.contains('open')).toBe(false);
 
       document.documentElement.style.removeProperty('--app-height');
@@ -628,7 +646,7 @@ describe('Chat Module', () => {
       document.documentElement.style.removeProperty('--app-height');
     });
 
-    it('expands on a short portrait screen but closes full without the half detent', async () => {
+    it('supports both half settling and deliberate direct dismiss on short portrait', async () => {
       renderChatShell();
       vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(370);
       vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(558);
@@ -684,11 +702,18 @@ describe('Chat Module', () => {
       expect(drawer.classList.contains('open')).toBe(true);
 
       drag(80, 170);
-      expect(drawer.dataset.chatSnap).toBe('full');
+      expect(drawer.dataset.chatSnap).toBe('half');
       expect(drawer.classList.contains('open')).toBe(true);
 
-      drag(80, 200);
+      drag(350, 470);
       expect(drawer.classList.contains('open')).toBe(false);
+
+      toggleChatDrawer();
+      drag(400, 320);
+      expect(drawer.dataset.chatSnap).toBe('full');
+      drag(40, 450);
+      expect(drawer.classList.contains('open')).toBe(false);
+
       document.documentElement.style.removeProperty('--app-height');
     });
 

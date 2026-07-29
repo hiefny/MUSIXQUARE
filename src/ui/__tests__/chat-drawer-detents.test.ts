@@ -26,11 +26,11 @@ describe('chat drawer detent policy', () => {
     expect(canExpandChatDrawer(context)).toBe(true);
   });
 
-  it('lets short portrait phones expand but closes full without collapsing to half', () => {
+  it('lets short portrait phones expand and return to their initial half detent', () => {
     const context = viewport({ viewportWidth: 370, viewportHeight: 558 });
     expect(getInitialChatDrawerDetent(context)).toBe('half');
     expect(canExpandChatDrawer(context)).toBe(true);
-    expect(canCollapseChatDrawerFullToHalf(context)).toBe(false);
+    expect(canCollapseChatDrawerFullToHalf(context)).toBe(true);
 
     expect(
       resolveChatDrawerRelease({
@@ -43,11 +43,11 @@ describe('chat drawer detent policy', () => {
     expect(
       resolveChatDrawerRelease({
         startDetent: 'full',
-        deltaY: 100,
+        deltaY: 72,
         canExpand: canExpandChatDrawer(context),
         canCollapseFullToHalf: canCollapseChatDrawerFullToHalf(context),
       }),
-    ).toBe('closed');
+    ).toBe('half');
   });
 
   it('keeps a short landscape phone full-height', () => {
@@ -153,6 +153,7 @@ describe('chat drawer release reducer', () => {
 
   it('settles an ordinary full-height drag at half', () => {
     const fullDismissThreshold = getChatDrawerFullDismissThreshold(844);
+
     expect(
       resolveChatDrawerRelease({
         startDetent: 'full',
@@ -182,9 +183,11 @@ describe('chat drawer release reducer', () => {
     ).toBe('half');
   });
 
-  it('closes directly after a deliberately long full-height drag', () => {
+  it('closes full directly only after a deliberate pull beyond the half detent', () => {
     const fullDismissThreshold = getChatDrawerFullDismissThreshold(844);
-    expect(fullDismissThreshold).toBeCloseTo(295.4);
+
+    expect(fullDismissThreshold).toBeCloseTo(548.6);
+    expect(getChatDrawerFullDismissThreshold(558)).toBe(399);
     expect(
       resolveChatDrawerRelease({
         startDetent: 'full',

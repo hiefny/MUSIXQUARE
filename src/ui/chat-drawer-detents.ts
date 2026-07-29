@@ -4,12 +4,11 @@ type ChatDrawerReleaseTarget = ChatDrawerDetent | 'closed';
 const CHAT_DRAWER_EXPAND_THRESHOLD = 72;
 const CHAT_DRAWER_COLLAPSE_THRESHOLD = 72;
 const CHAT_DRAWER_DISMISS_THRESHOLD = 100;
-const CHAT_DRAWER_FULL_DISMISS_MIN = 220;
-const CHAT_DRAWER_FULL_DISMISS_RATIO = 0.35;
+const CHAT_DRAWER_FULL_DISMISS_EXTRA_MIN = 120;
+const CHAT_DRAWER_FULL_DISMISS_EXTRA_RATIO = 0.15;
 
 const CHAT_DRAWER_DESKTOP_MIN_WIDTH = 1280;
 const CHAT_DRAWER_MIN_HALF_HEIGHT = 300;
-const CHAT_DRAWER_MIN_COLLAPSIBLE_PORTRAIT_HEIGHT = 640;
 const CHAT_DRAWER_STAGE_CLEARANCE = 12;
 const CHAT_DRAWER_FALLBACK_HALF_MIN_VIEWPORT_HEIGHT = 720;
 
@@ -48,23 +47,25 @@ export function canExpandChatDrawer(context: ChatDrawerViewportContext): boolean
   return canUseChatDrawerHalfDetent(context);
 }
 
-/**
- * Short portrait screens may still expand from the familiar half-height entry
- * point, but collapsing full back to half would leave too little useful room.
- * On those screens a downward full-sheet gesture closes it directly.
- */
 export function canCollapseChatDrawerFullToHalf(context: ChatDrawerViewportContext): boolean {
-  if (!canUseChatDrawerHalfDetent(context)) return false;
-  if (!context.isPortrait) return true;
-  return context.viewportHeight >= CHAT_DRAWER_MIN_COLLAPSIBLE_PORTRAIT_HEIGHT;
+  return canUseChatDrawerHalfDetent(context);
 }
 
 export function getInitialChatDrawerDetent(context: ChatDrawerViewportContext): ChatDrawerDetent {
   return canUseChatDrawerHalfDetent(context) ? 'half' : 'full';
 }
 
+/**
+ * A full-height sheet may skip the half detent only after the pointer travels
+ * clearly beyond it. The extra distance keeps a release around the midpoint
+ * anchored at half while still allowing an intentional long pull to dismiss.
+ */
 export function getChatDrawerFullDismissThreshold(viewportHeight: number): number {
-  return Math.max(CHAT_DRAWER_FULL_DISMISS_MIN, viewportHeight * CHAT_DRAWER_FULL_DISMISS_RATIO);
+  const height = Math.max(0, viewportHeight);
+  return (
+    height * 0.5 +
+    Math.max(CHAT_DRAWER_FULL_DISMISS_EXTRA_MIN, height * CHAT_DRAWER_FULL_DISMISS_EXTRA_RATIO)
+  );
 }
 
 interface ChatDrawerReleaseContext {
@@ -77,10 +78,9 @@ interface ChatDrawerReleaseContext {
 }
 
 /**
- * Ordinary drags cross one detent. A deliberately long full-height drag may
- * skip the intermediate detent when the caller supplies a full-dismiss
- * threshold, matching familiar mobile-sheet behavior without making a small
- * downward gesture destructive.
+ * An ordinary drag crosses one detent. A deliberate full-height pull that goes
+ * well past the available half stop may dismiss directly, while releasing near
+ * that stop still settles at half.
  */
 export function resolveChatDrawerRelease(
   context: ChatDrawerReleaseContext,

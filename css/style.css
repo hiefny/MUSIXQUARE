@@ -6266,6 +6266,8 @@
     transition:
       transform 0.2s cubic-bezier(0.4, 0, 0.6, 1),
       height 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+      padding-top 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+      border-radius 0.32s cubic-bezier(0.22, 1, 0.36, 1),
       visibility 0s 0.2s;
     z-index: 1000;
     display: flex;
@@ -6288,6 +6290,8 @@
     transition:
       transform 0.6s cubic-bezier(0.25, 1, 0.5, 1),
       height 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+      padding-top 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+      border-radius 0.32s cubic-bezier(0.22, 1, 0.36, 1),
       visibility 0s 0s;
   }
 

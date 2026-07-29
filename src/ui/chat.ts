@@ -488,12 +488,16 @@ function setChatDrawerDetent(
   drawer.style.setProperty('--chat-offset-y', `${currentOffsetY}px`);
   drawer.classList.add('is-dragging');
   drawer.classList.add('is-snapping');
-  drawer.dataset.chatSnap = detent;
-  _chatDrawerState = detent;
-  updateChatDrawerHandleAccessibility(drawer);
+  // First commit the exact finger-tracked geometry with the source detent's
+  // shape. Only after transitions are restored do we switch to the target
+  // detent, so safe-area padding and corner radius animate with the height
+  // instead of popping at release.
   void drawer.offsetHeight;
   drawer.classList.remove('is-dragging');
   void drawer.offsetHeight;
+  drawer.dataset.chatSnap = detent;
+  _chatDrawerState = detent;
+  updateChatDrawerHandleAccessibility(drawer);
   drawer.style.setProperty('--chat-live-height', `${targetHeight}px`);
   drawer.style.setProperty('--chat-offset-y', '0px');
   if (keepMessagesAtBottom && messages) {
@@ -540,7 +544,10 @@ function blurChatDrawerInput(drawer: HTMLElement): void {
   if (active instanceof HTMLElement && drawer.contains(active)) active.blur();
 }
 
-export function toggleChatDrawer(openFocus: 'handle' | 'dialog' = 'handle'): void {
+export function toggleChatDrawer(
+  openFocus: 'handle' | 'dialog' = 'handle',
+  preserveLiveGeometryOnClose = false,
+): void {
   const drawer = document.getElementById('chat-drawer');
   if (!drawer) return;
 
@@ -557,7 +564,18 @@ export function toggleChatDrawer(openFocus: 'handle' | 'dialog' = 'handle'): voi
   } else {
     _cancelActiveChatDrawerDrag?.(false);
     blurChatDrawerInput(drawer);
-    clearChatDrawerLiveGeometry(drawer);
+    if (preserveLiveGeometryOnClose) {
+      clearPendingChatDrawerSnap();
+      stopChatDrawerBottomAnchor();
+      drawer.classList.remove('is-dragging');
+      drawer.classList.remove('is-snapping');
+      // Commit the finger-tracked position as the transition's start frame.
+      // Removing the live geometry before closing makes the sheet jump back to
+      // its detent and only then animate off-screen.
+      void drawer.offsetHeight;
+    } else {
+      clearChatDrawerLiveGeometry(drawer);
+    }
     _chatDrawerState = 'closed';
     delete drawer.dataset.chatSnapSource;
   }
@@ -606,6 +624,7 @@ export function toggleChatDrawer(openFocus: 'handle' | 'dialog' = 'handle'): voi
     if (isChatDrawerOpen() && drawerEl.classList.contains('open')) {
       bus.emit('ui:scrollbar-reveal', drawerEl);
     } else {
+      if (preserveLiveGeometryOnClose) clearChatDrawerLiveGeometry(drawerEl);
       bus.emit('ui:scrollbar-relayout');
     }
   };
@@ -621,7 +640,7 @@ export function toggleChatDrawer(openFocus: 'handle' | 'dialog' = 'handle'): voi
     settleDrawerScrollbar();
   };
   const onTransitionEnd = (e: TransitionEvent) => {
-    if (e.propertyName !== 'transform') return;
+    if (e.target !== drawerEl || e.propertyName !== 'transform') return;
     settleOnce();
   };
   _pendingChatDrawerTransition = { drawer: drawerEl, listener: onTransitionEnd };
@@ -760,8 +779,7 @@ function initChatSwipeToDismiss(): void {
     });
 
     if (target === 'closed') {
-      clearChatDrawerLiveGeometry(drawer);
-      toggleChatDrawer();
+      toggleChatDrawer('handle', true);
       return;
     }
 

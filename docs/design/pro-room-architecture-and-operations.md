@@ -480,11 +480,11 @@ path.
 - One file has a hard **200 MiB** limit.
 - The per-file limit is an intentional browser playback bound, not another
   storage entitlement. PRO currently retains its established server-authority
-  V1 playback path. The experimental standard-room `beta-bounded` coordinator
-  explicitly rejects PRO room ownership, so a beta flag cannot accidentally
-  move a persistent room onto the MP3/M4A record-set path. The universal
-  decoders remain repository capability for a later separately reviewed PRO
-  cutover.
+  V1 playback path. The bounded V1 coordinator selected by the standard-room
+  production gate explicitly rejects PRO room ownership, so the standard-room
+  release cannot accidentally move a persistent room onto the MP3/M4A
+  record-set path. The universal decoders remain repository capability for a
+  later separately reviewed PRO cutover.
 - The **200 MiB** limit remains in force because compatibility fallback can
   still download an encoded object and decode a full `AudioBuffer`; bounded
   streaming is not grounds to raise the limit until fallback, device, and soak

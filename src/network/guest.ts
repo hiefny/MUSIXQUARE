@@ -693,7 +693,7 @@ export function joinSession(
           ) {
             return;
           }
-          // The bounded beta path is additive. Its initialization failure
+          // The bounded V1 path is additive. Its initialization failure
           // leaves stable V1 as the compatibility owner for this connection.
           log.warn('[Join] Bounded V1 guest room initialization failed; using stable V1');
         });

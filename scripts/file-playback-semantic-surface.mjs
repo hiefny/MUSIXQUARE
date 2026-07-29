@@ -307,6 +307,11 @@ export const FILE_PLAYBACK_RELATIVE_SUPPORT_ALLOWLIST = Object.freeze([
     reason: 'The one-line beta activation latch selects a cohort but does not define it.',
   }),
   Object.freeze({
+    importer: 'src/player/legacy-bounded-file-gate.ts',
+    target: 'src/player/legacy-bounded-file-production-latch.ts',
+    reason: 'The one-line bounded-V1 production latch selects a cohort but does not define it.',
+  }),
+  Object.freeze({
     importer: 'src/player/file-playback-build-profile.ts',
     target: 'src/player/file-playback-production-release-latch.ts',
     reason: 'The one-line production activation latch selects a cohort but does not define it.',

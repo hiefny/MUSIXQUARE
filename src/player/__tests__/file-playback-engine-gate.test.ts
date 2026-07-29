@@ -9,12 +9,14 @@ function installEnvironment(options: {
   readonly mode?: string;
   readonly productionFlag?: string;
   readonly universalV1Flag?: string;
+  readonly legacyBoundedFlag?: string;
 }): void {
   vi.stubEnv('DEV', options.dev);
   vi.stubEnv('PROD', options.prod);
   vi.stubEnv('MODE', options.mode);
   vi.stubEnv('VITE_MUSIXQUARE_FILE_ENGINE_V2', options.productionFlag);
   vi.stubEnv('VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1', options.universalV1Flag);
+  vi.stubEnv('VITE_MUSIXQUARE_LEGACY_BOUNDED', options.legacyBoundedFlag);
 }
 
 function installLocation(search: unknown): void {
@@ -121,6 +123,22 @@ describe('file playback engine bootstrap gate', () => {
 
     expect(gate.getFilePlaybackEngineMode()).toBe('v2');
     expect(gate.isFilePlaybackEngineV2Enabled()).toBe(true);
+  });
+
+  it('keeps V2 off when the separate bounded V1 production flag is exact', async () => {
+    installEnvironment({
+      dev: false,
+      prod: true,
+      mode: 'production',
+      productionFlag: '1',
+      universalV1Flag: '1',
+      legacyBoundedFlag: '1',
+    });
+
+    const gate = await loadGate({ productionLatch: true });
+
+    expect(gate.getFilePlaybackEngineMode()).toBe('legacy');
+    expect(gate.isFilePlaybackEngineV2Enabled()).toBe(false);
   });
 
   it.each([undefined, '0', '1'])(

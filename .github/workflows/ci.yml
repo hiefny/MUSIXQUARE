@@ -15,8 +15,9 @@ concurrency:
 
 env:
   WRANGLER_VERSION: 4.114.0
-  VITE_MUSIXQUARE_FILE_ENGINE_V2: '1'
-  VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '1'
+  VITE_MUSIXQUARE_LEGACY_BOUNDED: '1'
+  VITE_MUSIXQUARE_FILE_ENGINE_V2: '0'
+  VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '0'
 
 jobs:
   static:
@@ -83,7 +84,7 @@ jobs:
   candidate:
     name: Production app candidate
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - name: Checkout full history
@@ -101,8 +102,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Chromium for focused candidate smoke
+        run: npx playwright install --with-deps chromium
+
       - name: Build and verify production bundle
         run: npm run build:checked
+
+      - name: Exercise bounded V1 fallback candidate
+        run: npm run test:e2e:legacy-bounded-production:dist
 
       - name: Record immutable main-CI app candidate
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

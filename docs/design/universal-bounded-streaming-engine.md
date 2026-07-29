@@ -1,6 +1,6 @@
 # Universal bounded streaming engine
 
-- **Status:** accepted; implementation in progress behind the existing V2 gate
+- **Status:** bounded V1-control subset promoted for standard rooms
 - **Date:** 2026-07-13
 - **Supersedes:** the FLAC-only codec scope in `streaming-playback-engine-v2.md`
 - **Storage parent:** `browser-media-storage-policy.md`
@@ -101,26 +101,26 @@ capability exists; they must not silently fall back into an unbounded path.
 ## Implementation status
 
 This table distinguishes repository capability from the currently selected
-beta product route. The full universal engine remains implemented behind its
-isolated build profile, but the tracked production latch is **off**. The active
-`beta-bounded` artifact instead uses the smaller legacy-bounded V1 coordinator
-for standard rooms: native FLAC, supported WAVE/AIFF/CAF linear PCM, MP3, and
-M4A AAC-LC are admitted, while raw ADTS AAC remains on the established
-whole-file V1 route until its authenticated sidecar removes the mandatory
-full-span admission scan. PRO rooms are not admitted by this coordinator.
+product route. The full retired V2 application-session engine remains
+unselected and its tracked production latch is **off**. The production app
+instead uses the smaller legacy-bounded V1 coordinator for standard rooms:
+native FLAC, supported WAVE/AIFF/CAF linear PCM, MP3, and M4A AAC-LC are
+admitted, while raw ADTS AAC remains on the established whole-file V1 route
+until its authenticated sidecar removes the mandatory full-span admission
+scan. PRO rooms are not admitted by this coordinator.
 Device capability checks remain mandatory and cannot be inferred from a
 browser/version label.
 
 | Capability                                                              | Repository status                                                                                              | Product selection in this revision       |
 | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | Codec-neutral bounded source, decoder adapter, PCM ring, and room clock | implemented and regression-tested                                                                              | depends on the independent V2 build gate |
-| Native FLAC                                                             | implemented on the common renderer                                                                             | selected in `beta-bounded` standard rooms |
-| RIFF/RF64/BW64 WAVE linear PCM                                          | implemented on the shared linear-PCM worker                                                                    | selected in `beta-bounded` standard rooms |
-| AIFF/AIFC linear PCM                                                    | implemented on the shared linear-PCM worker                                                                    | selected in `beta-bounded` standard rooms |
-| CAF LPCM                                                                | implemented on the shared linear-PCM worker                                                                    | selected in `beta-bounded` standard rooms |
-| MP3                                                                     | parser, decoder, Worker, factory, direct/manifest peer source, and lifecycle integration implemented           | selected in `beta-bounded` standard rooms |
-| ADTS AAC                                                                | scanner, WebCodecs decoder, factory, authenticated manifest peer source, and lifecycle integration implemented | V1 route in the active beta cohort        |
-| M4A/MP4 AAC                                                             | bounded ISO-BMFF parser, WebCodecs decoder, factory, peer source, and lifecycle integration implemented        | selected in `beta-bounded` standard rooms |
+| Native FLAC                                                             | implemented on the common renderer                                                                             | selected in production standard rooms    |
+| RIFF/RF64/BW64 WAVE linear PCM                                          | implemented on the shared linear-PCM worker                                                                    | selected in production standard rooms    |
+| AIFF/AIFC linear PCM                                                    | implemented on the shared linear-PCM worker                                                                    | selected in production standard rooms    |
+| CAF LPCM                                                                | implemented on the shared linear-PCM worker                                                                    | selected in production standard rooms    |
+| MP3                                                                     | parser, decoder, Worker, factory, direct/manifest peer source, and lifecycle integration implemented           | selected in production standard rooms    |
+| ADTS AAC                                                                | scanner, WebCodecs decoder, factory, authenticated manifest peer source, and lifecycle integration implemented | V1 route in the production cohort        |
+| M4A/MP4 AAC                                                             | bounded ISO-BMFF parser, WebCodecs decoder, factory, peer source, and lifecycle integration implemented        | selected in production standard rooms    |
 
 WAVE, AIFF/AIFC, and CAF do not own container-specific renderers. Their
 metadata readers normalize verified byte geometry into one linear-PCM decoder,
@@ -157,9 +157,9 @@ fresh decoder generations, 256 retired leases whose physical reads ignore
 cancellation, and 3,300 serial bounded PCM demands over a real
 `MessageChannel`. Peer delivery uses direct range reads when frame-count
 metadata makes guest reconstruction bounded, and an authenticated timeline
-manifest otherwise. The MP3 route is currently selected only by the isolated
-`beta-bounded` standard-room artifact. Ordinary production and PRO media retain
-their established route until a later reviewed cutover.
+manifest otherwise. The MP3 route is selected by the bounded-V1 production
+gate in standard rooms. PRO media retains its established route until a
+separately reviewed adapter cutover.
 
 ### ADTS AAC decoder checkpoint
 
@@ -210,7 +210,7 @@ The ADTS factory and host/guest owner path are implemented, including the
 authenticated manifest-prefixed peer-range source used to avoid a mandatory
 guest-side whole-file scan. The only implemented decoder cohort is still the
 strict WebCodecs cohort described above. It is not selected by the current
-legacy-bounded beta product policy: raw ADTS remains on V1 until the sidecar
+legacy-bounded production policy: raw ADTS remains on V1 until the sidecar
 contract and physical-device canary are promoted together.
 
 AAC has two distinct consistency contracts:
@@ -284,8 +284,8 @@ diagnostics, and declared `mdat` ranges are canonicalized but are not reparsed
 during that reopen, so an external or otherwise untrusted manifest requires
 separate authentication before this boundary can accept it. Transferred
 normalized runs are never runtime authority on their own. The factory and
-product owner/stager path are implemented. M4A AAC-LC is selected only in the
-isolated `beta-bounded` standard-room artifact in this revision.
+product owner/stager path are implemented. M4A AAC-LC is selected by the
+bounded-V1 production gate in standard rooms in this revision.
 
 ## Memory model
 
@@ -448,20 +448,24 @@ evidence, but `FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` is currently
 `false`; therefore every ordinary production flag combination resolves to
 `legacy-current`. Remote builder flags are never sufficient authority.
 
-The separately named `beta-bounded` artifact is the current redesign surface.
-It requires its exact build mode, exact beta flag, generated beta-artifact
-marker, and `LEGACY_BOUNDED_FILE_BETA_RELEASE_ENABLED`. Its smaller product
-cohort is standard-room native FLAC, supported linear PCM, MP3, and M4A AAC-LC;
-raw ADTS AAC stays on V1. Any future production cutover must repeat the focused
-unit/build gates and the missing physical-device checklist rather than treating
-the historical approval as current release authority.
+The production app now selects the smaller bounded V1-control redesign surface
+for standard rooms. It requires exact production mode, the exact bounded flag,
+a generated production-artifact marker, and
+`LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED`; the build is rejected if
+either retired V2 flag or latch is active. Its product cohort is native FLAC,
+supported linear PCM, MP3, and M4A AAC-LC; raw ADTS AAC stays on V1. PRO rooms
+remain on their established V1 path.
+
+The separately named `beta-bounded` artifact remains an isolated validation
+surface. It requires its exact build mode, beta artifact marker, and beta latch
+and cannot satisfy the production gate.
 
 The exact Vite mode `e2e-universal` is the only latch exception. It still
 requires both exact build flags and exists solely to exercise the isolated
 candidate artifact; near-match mode names and ordinary production builds do
 not receive the exception.
 
-Every candidate checkpoint builds and verifies three mutually isolated
+Every candidate checkpoint builds and verifies four mutually isolated
 profile/cohort artifacts:
 
 1. exact `e2e-universal`, which must select `v2-universal-v1`;
@@ -469,7 +473,10 @@ profile/cohort artifacts:
    `legacy-current` while the latch is off and `v2-current` after the one-line
    enable; and
 3. production with both flags on, which must select `legacy-current` while the
-   latch is off and `v2-universal-v1` after the one-line enable.
+   retired V2 latch is off and `v2-universal-v1` only after its separate
+   one-line enable; and
+4. exact bounded-V1 production, which requires the bounded flag, generated
+   production identity, production latch, and both retired V2 flags off.
 
 The universal cohort also carries a full SHA-256 semantic revision suffix.
 `npm run guard:file-playback-cohort` hashes a reviewed, exact production core

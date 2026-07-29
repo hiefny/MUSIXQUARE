@@ -21,6 +21,7 @@ const expectedCurrentControlProfile = FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLE
 export default defineConfig(
   mergeConfig(baseConfig, {
     define: {
+      'import.meta.env.VITE_MUSIXQUARE_LEGACY_BOUNDED': JSON.stringify('0'),
       'import.meta.env.VITE_MUSIXQUARE_FILE_ENGINE_V2': JSON.stringify('1'),
       'import.meta.env.VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1': JSON.stringify('0'),
     },

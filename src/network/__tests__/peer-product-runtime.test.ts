@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
-import { resetState, setState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import type { DataConnection } from '../../types/index.ts';
 import type {
   FilePlaybackProductRuntimeHostRoomPort,
@@ -39,6 +39,8 @@ vi.mock('../../core/capability.ts', () => ({
 }));
 
 import { FilePlaybackProductRuntime } from '../../player/file-playback-product-runtime.ts';
+import { legacyBoundedFileV1Product } from '../../player/legacy-bounded-file-v1-product.ts';
+import { getPeer } from '../peer-state.ts';
 import { createHostSessionWithShortCode, leaveSession } from '../peer.ts';
 
 const PEER_SOURCE = readFileSync(resolve(process.cwd(), 'src/network/peer.ts'), 'utf8');
@@ -147,6 +149,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.clearAllTimers();
   vi.useRealTimers();
 });
@@ -204,6 +207,38 @@ describe('peer product runtime lifecycle', () => {
 
     leaveSession();
     expect(sessionSpies.endRoom).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the stable V1 host room when bounded host bootstrap rejects', async () => {
+    const sessionSpies = sessions();
+    runtimeHolder.current = new FilePlaybackProductRuntime({
+      enabled: false,
+      sessions: sessionSpies.adapter,
+    });
+    const boundedBegin = vi
+      .spyOn(legacyBoundedFileV1Product, 'beginHostRoom')
+      .mockRejectedValueOnce(new Error('bounded host bootstrap failed'));
+    const ready = vi.fn();
+    bus.on('network:peer-ready', ready);
+
+    const id = await createHostSessionWithShortCode(1);
+
+    expect(boundedBegin).toHaveBeenCalledOnce();
+    expect(boundedBegin).toHaveBeenCalledWith(id);
+    expect(lastCreatedPeer?.destroy).not.toHaveBeenCalled();
+    expect(getPeer()).toBe(lastCreatedPeer);
+    expect(getState('network.myId')).toBe(id);
+    expect(ready).toHaveBeenCalledOnce();
+    expect(ready).toHaveBeenCalledWith(id);
+
+    // The failed additive bootstrap owns no bounded room. Subsequent media
+    // calls therefore take the stable-V1 bypass instead of rethrowing or
+    // affecting the live network session.
+    expect(legacyBoundedFileV1Product.snapshot().active).toBe(false);
+    await expect(legacyBoundedFileV1Product.prepareHost({} as never)).resolves.toEqual({
+      status: 'bypass',
+    });
+    expect(lastCreatedPeer?.destroy).not.toHaveBeenCalled();
   });
 
   it('delegates wake only for an initialized gate-on runtime', () => {

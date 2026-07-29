@@ -1,6 +1,6 @@
 # File playback control-plane redesign
 
-- **Status:** Beta vertical slice implemented; production promotion in progress
+- **Status:** Bounded V1-control vertical slice promoted for standard rooms
 - **Branch:** merged from `mxqr_beta` into `main`
 - **Stable baseline:** `ca342a324f0ee39c1b948b8938690688eaa441d9`
 - **Production rule:** the tracked V2 production latch is off. The redesigned
@@ -45,16 +45,17 @@ interaction, not as protocol phases leaking into the UI:
 
 ## Current rollout (2026-07-30)
 
-The redesigned bounded data plane is merged into `main`, but the first
-production enablement accidentally selected the retired V2
+The first production enablement accidentally selected the retired V2
 ApplicationSession/ProductRuntime control plane. A field failure confirmed
-that its guest media-owner invariant still closes the room connection.
-Production has therefore returned to the stable `legacy-current` profile.
+that its guest media-owner invariant could still close the room connection,
+so that release was first returned to the stable `legacy-current` profile.
 
-The redesigned `legacyBoundedFileV1` vertical slice remains isolated behind
-its own beta gate. Its production promotion must preserve the V1 room control
-plane, activate only the bounded renderer/data path, and keep every playback
-failure inside a connection-preserving fallback boundary.
+The corrected release promotes `legacyBoundedFileV1` through an independent,
+exact production artifact and tracked latch. Standard rooms retain the V1 room
+control plane while supported files may use the bounded renderer/data path.
+The retired V2 latch and both of its production flags remain off. Capability
+discovery and data-path failures fall back per connection to stable V1 without
+owning room liveness; PRO rooms remain on their established V1 route.
 
 ## Why the current V2 failed
 
@@ -506,7 +507,23 @@ rollout:
 7. physical iOS Safari/PWA and Windows checks pass; and
 8. rollback remains a one-latch static-app release.
 
-## Current beta checkpoint
+### Current production rollback procedure
+
+For the `v315` bounded-V1 promotion, an emergency rollback is an app-only
+release with all of these changes in the same reviewed commit:
+
+1. set `LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED` to `false`;
+2. keep `FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` and both retired V2 build
+   flags off;
+3. bump `public/service-worker.js` from `v315` to `v316`; and
+4. run the focused gates, commit and push the exact SHA, wait for exact-SHA CI,
+   then dispatch the formal app release and post-deployment session smoke.
+
+Changing only an environment flag or only the latch is not an operational
+rollback: production artifacts require the exact gate identity, and the service
+worker version bump is the cache migration boundary for already-open clients.
+
+## Current implementation checkpoint
 
 Phase 1 is implemented as an executable specification under
 `src/player/__tests__/helpers/` rather than as reachable product code. This is
@@ -535,11 +552,15 @@ The checkpoint currently proves:
 - a normalized failure table where delivery, decoder, renderer, state-race,
   media-integrity, and stale-effect failures have no transport-close outcome.
 
-The Phase 2 foundation now exists behind a beta-only build gate:
+The Phase 2 foundation is selected in standard rooms by an exact production
+gate and remains available through a separately isolated beta artifact:
 
-- ordinary production, normal E2E, and universal artifacts fail closed;
-- one separately emitted `beta-bounded` artifact proves the new gate is true
-  while both former V2/universal gates remain false;
+- the production artifact requires its exact mode, bounded flag, generated
+  artifact identity, and tracked production latch;
+- the former V2 and universal production routes remain false, and conflicting
+  build flags are rejected before an artifact can be emitted;
+- one separately emitted `beta-bounded` artifact proves beta/production gate
+  isolation without granting authority to ordinary E2E or universal artifacts;
 - an R2-record descriptor registry keeps keys, nonce material, and object
   records module-private and exposes only a frozen body-free reference;
 - its delivery provider supports exact-scope abort, retirement, sequential
@@ -549,7 +570,8 @@ The Phase 2 foundation now exists behind a beta-only build gate:
   commit-time V1 position, and fences every native transition; and
 - playback/source/renderer failure has no room transport callback.
 
-The narrow V1 bridge is now wired into the isolated beta artifact:
+The narrow V1 bridge is wired into standard-room production and the isolated
+beta artifact:
 
 - the bridge is the sole bounded-file authority in standard rooms; the former
   V2 application session, router, host owner, guest owner, and controller stay
@@ -573,8 +595,8 @@ The narrow V1 bridge is now wired into the isolated beta artifact:
 - decoder, source, renderer, and fallback failures remain playback-local and
   have no room-connection close capability.
 
-The beta source policy currently admits native FLAC and linear PCM plus bounded
-MP3 and M4A AAC-LC. Raw ADTS `.aac` deliberately remains on unchanged V1:
+The promoted standard-room source policy admits native FLAC and linear PCM plus
+bounded MP3 and M4A AAC-LC. Raw ADTS `.aac` deliberately remains on unchanged V1:
 without an authenticated frame-index sidecar, its WebCodecs admission scan must
 read the complete object before readiness and would defeat the early-start and
 multi-device bandwidth goals of this slice. Unsupported content and missing
@@ -587,8 +609,9 @@ persistent media generation, server playback revision, credential lifetime,
 and range-source ownership without reintroducing the rolled-back layered
 controller.
 
-Before this checkpoint can be promoted beyond beta it still requires targeted
-browser and physical-device validation for multi-guest late join, background
-resume, repeated seek/pause/play, mixed bounded/V1 peers, remote R2 delivery,
-and iOS autoplay recovery. Production builds must continue proving the beta
-gate absent.
+The initial production promotion requires targeted candidate and live R2
+smokes. Multi-guest late join, background resume, repeated seek/pause/play,
+mixed bounded/V1 peers, and iOS autoplay recovery remain part of the monitored
+physical-device rollout. Production builds must keep the beta artifact absent,
+prove the exact production artifact identity, and reject every conflicting
+retired-V2 flag or latch combination.

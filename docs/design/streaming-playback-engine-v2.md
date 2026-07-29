@@ -20,10 +20,10 @@ playback defects. The FLAC-first milestones and delivery sequence below are
 preserved as historical design evidence, not as a statement that V2 is
 currently audible in production.
 
-- Ordinary production resolves to `legacy-current`; the tracked V2 latch is
-  off and remote build flags cannot override it.
-- The separately named `beta-bounded` artifact exercises the redesigned,
-  V1-control bounded slice only in standard rooms. Its current admitted cohort
+- Ordinary production keeps the tracked V2 latch off and remote build flags
+  cannot override it. The old V2 application-session stack is not selected.
+- A separate exact production gate now exercises the redesigned, V1-control
+  bounded slice only in standard rooms. Its current admitted cohort
   is native FLAC, supported WAVE/AIFF/CAF linear PCM, MP3, and M4A AAC-LC.
   Raw ADTS AAC deliberately remains on V1, and PRO remains on its established
   server-authoritative V1 path.
@@ -32,8 +32,9 @@ currently audible in production.
   have bounded retries; a permanent failure removes that set from future
   offers without revoking already-issued readers. Existing readers do not yet
   hot-rebind and can still fail when they reach a permanently missing record.
-- Promotion beyond beta still requires the device, multi-guest, background,
-  seek/pause/replay, fallback, and rollback gates in this document.
+- Further format or room-class expansion still requires the device,
+  multi-guest, background, seek/pause/replay, fallback, and rollback gates in
+  this document.
 
 ## Product goal
 

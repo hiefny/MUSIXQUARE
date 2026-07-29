@@ -20,16 +20,16 @@ baseline, local-only deployment rule, and milestone slices retained elsewhere
 in this document describe the historical rollout plan rather than the deployed
 state.
 
-- Production boots the fixed `legacy-current` profile. The tracked V2
-  production latch is OFF, so the retired V2 ApplicationSession,
-  ProductRuntime, and GuestMediaOwner cannot own standard-room playback.
+- Production keeps the retired V2 ApplicationSession, ProductRuntime, and
+  GuestMediaOwner off. Both old V2 production flags and its tracked latch
+  remain OFF.
 - The 2026-07-30 monitored enablement was rolled back after production evidence
   showed that a guest media-owner adoption failure still reached the old
   fail-closed connection teardown. A fresh private tab sometimes avoided the
   timing-dependent race, but did not change the active architecture.
-- The redesigned bounded V1-control vertical slice remains available through
-  its separate beta artifact and gate. Its production promotion must enable
-  that path directly while leaving the old V2 engine latch OFF.
+- The redesigned bounded V1-control vertical slice is enabled for standard
+  rooms through its separate exact production artifact and tracked latch. It
+  preserves the V1 room-control path and cannot activate the old V2 engine.
 - Unsupported sources and any bounded admission or recovery failure retain the
   established V1 renderer and room connection. PRO keeps its independent
   server-authoritative playback path until a separately verified adapter

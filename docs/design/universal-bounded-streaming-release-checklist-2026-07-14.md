@@ -1,10 +1,15 @@
 # Universal bounded streaming release checklist — 2026-07-14
 
-- **Status:** retained physical-device checklist; not fully executed
+- **Status:** **SUPERSEDED production activation; retained physical-device checklist**
 - **Applies to:** the universal bounded file-playback candidate
 - **Decision parent:** `universal-bounded-streaming-engine.md`
 - **Storage parent:** `browser-media-storage-policy.md`
-- **Production route:** **ON for the private-beta progressive release approved 2026-07-28**
+- **Production route:** the 2026-07-28 old-V2 activation was rolled back
+
+> **Do not use this document to enable production.** It records the retired V2
+> rollout and the still-useful physical-device matrix. Current production gate
+> and rollback authority live in `file-playback-control-plane-redesign.md` and
+> `universal-bounded-streaming-engine.md`.
 
 > The production owner explicitly approved progressive activation after the
 > automated codec, cohort, lifecycle, and build gates passed. This exception
@@ -24,17 +29,12 @@ supported format on only one browser, or a successful desktop-only run cannot
 be represented as completion of this checklist. Activation and rollback remain
 separate, auditable releases.
 
-The tracked production latch
-`FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` is already enabled for the
-deployed `v2-current` engine. Remote environment flags cannot override a
-disabled latch: every production flag combination stays `legacy-current` while
-it is off. With the latch on, the exact V2 flag selects `v2-current`, and the
-additional exact universal flag selects `v2-universal-v1`. This release enables
-the universal workflow flag. Its narrow rollback disables that flag, bumps the
-service-worker cache generation, and rebuilds the static application; disabling
-the tracked latch remains the wider rollback to `legacy-current`. The exact
-`e2e-universal` mode is the only latch-off exception, remains isolated from
-production, and still requires both exact flags.
+During the superseded rollout, the tracked production latch
+`FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` was enabled for the deployed
+`v2-current` engine. That activation was later rolled back; the latch and both
+old-V2 production flags are now off. Remote environment flags could not
+override a disabled latch. The exact `e2e-universal` mode remains an isolated
+test artifact and is not production release authority.
 
 Attach three-artifact build evidence to every candidate: exact
 `e2e-universal` selecting the universal profile/cohort, production with the

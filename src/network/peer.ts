@@ -370,9 +370,21 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
       if (getFilePlaybackProductRuntime().enabled() && !begun) {
         throw new Error('FILE_PLAYBACK_HOST_ROOM_START_FAILED');
       }
-      const bounded = await legacyBoundedFileV1Product.beginHostRoom(id);
-      if (bounded.status !== 'active' && bounded.status !== 'bypass') {
-        throw new Error('LEGACY_BOUNDED_V1_HOST_ROOM_START_FAILED');
+      try {
+        const bounded = await legacyBoundedFileV1Product.beginHostRoom(id);
+        if (bounded.status !== 'active' && bounded.status !== 'bypass') {
+          log.warn(
+            '[Network] Bounded V1 host playback did not activate; continuing with stable V1',
+          );
+        }
+      } catch {
+        // Bounded playback is an additive optimization. Its room bootstrap
+        // failure must never revoke an already-open stable-V1 transport or
+        // turn host creation into a retry that destroys the assigned peer.
+        // The product facade clears room ownership before beginning, so all
+        // later bounded operations safely bypass while legacy playback stays
+        // available for this room.
+        log.warn('[Network] Bounded V1 host playback unavailable; continuing with stable V1');
       }
     }
     log.info('[Network] Peer opened:', id);

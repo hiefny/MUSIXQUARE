@@ -1170,8 +1170,9 @@ describe('release deployment rollback state', () => {
     const ciArtifact = ciWorkflow.indexOf('Upload immutable main-CI app candidate');
     expect(ciArtifact).toBeGreaterThan(ciBuild);
     expect(ciWorkflow).toContain('RELEASE_VALIDATION_PROFILE: main-ci');
-    expect(ciWorkflow).toContain("VITE_MUSIXQUARE_FILE_ENGINE_V2: '1'");
-    expect(ciWorkflow).toContain("VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '1'");
+    expect(ciWorkflow).toContain("VITE_MUSIXQUARE_LEGACY_BOUNDED: '1'");
+    expect(ciWorkflow).toContain("VITE_MUSIXQUARE_FILE_ENGINE_V2: '0'");
+    expect(ciWorkflow).toContain("VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '0'");
     expect(ciWorkflow).toContain(
       'app-production-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}',
     );

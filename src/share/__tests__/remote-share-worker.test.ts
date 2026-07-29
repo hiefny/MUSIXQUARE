@@ -443,8 +443,9 @@ describe('remote-share Worker capability gate', () => {
     expect(releaseWorkflowSource).toContain('--file cloudflare/r2-cors.remote-share.json');
     expect(releaseWorkflowSource).toContain('--force');
     expect(releaseWorkflowSource).toContain('npm run smoke:live:remote-share -- --v1-only');
-    expect(releaseWorkflowSource).toContain("VITE_MUSIXQUARE_FILE_ENGINE_V2: '1'");
-    expect(releaseWorkflowSource).toContain("VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '1'");
+    expect(releaseWorkflowSource).toContain("VITE_MUSIXQUARE_LEGACY_BOUNDED: '1'");
+    expect(releaseWorkflowSource).toContain("VITE_MUSIXQUARE_FILE_ENGINE_V2: '0'");
+    expect(releaseWorkflowSource).toContain("VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '0'");
   });
 
   it('applies PRO media Range CORS before app or PRO deployment', () => {

@@ -173,7 +173,7 @@ class LegacyBoundedFileV1Product implements LegacyBoundedFileV1ProductContract {
       onLegacyFallback: (connection, commit) => this.#dispatchLegacyFallback(connection, commit),
       onFailure: (failure) => {
         // Do not include errors here: R2 failures may carry signed request
-        // material. Stage-only diagnostics are enough for the beta boundary.
+        // material. Stage-only diagnostics are enough for the product boundary.
         log.warn(`[LegacyBoundedV1Product] Runtime failure at ${failure.stage}`);
       },
     });

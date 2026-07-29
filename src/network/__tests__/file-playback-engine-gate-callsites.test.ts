@@ -10,6 +10,10 @@ const mocks = vi.hoisted(() => ({
   getPeer: vi.fn(),
   detectConnectionType: vi.fn(() => Promise.resolve('local' as const)),
   startWorkerTimer: vi.fn(),
+  boundedBeginGuestRoom: vi.fn(),
+  boundedAnnounceGuestCapability: vi.fn(),
+  boundedEndRoom: vi.fn(),
+  boundedRetireConnection: vi.fn(),
 }));
 
 vi.mock('../../player/file-playback-engine-gate.ts', () => ({
@@ -23,6 +27,15 @@ vi.mock('../file-playback-application-session.ts', () => ({
 
 vi.mock('../../player/file-playback-product-runtime.ts', () => ({
   getFilePlaybackProductRuntime: mocks.getProductRuntime,
+}));
+
+vi.mock('../../player/legacy-bounded-file-v1-product.ts', () => ({
+  legacyBoundedFileV1Product: {
+    beginGuestRoom: mocks.boundedBeginGuestRoom,
+    announceGuestCapability: mocks.boundedAnnounceGuestCapability,
+    endRoom: mocks.boundedEndRoom,
+    retireConnection: mocks.boundedRetireConnection,
+  },
 }));
 
 vi.mock('../peer-state.ts', async (importOriginal) => {
@@ -123,6 +136,9 @@ beforeEach(() => {
   bus.clear();
   vi.clearAllMocks();
   mocks.detectConnectionType.mockResolvedValue('local');
+  mocks.boundedBeginGuestRoom.mockResolvedValue({ status: 'bypass' });
+  mocks.boundedEndRoom.mockResolvedValue(undefined);
+  mocks.boundedRetireConnection.mockResolvedValue(false);
 });
 
 afterEach(() => {
@@ -299,6 +315,60 @@ describe('fixed gate-off connection callsites', () => {
     conn.fire('close');
     expect(getState('network.hostConn')).toBeNull();
     expect(mocks.getApplicationSessions).not.toHaveBeenCalled();
+  });
+
+  it('keeps chat and playlist transport live when additive bounded guest startup fails', async () => {
+    const conn = makeConnection('HOST01');
+    const connect = vi.fn(() => conn);
+    mocks.getPeer.mockReturnValue({ open: true, connect } as unknown as PeerInstance);
+    mocks.boundedBeginGuestRoom.mockRejectedValueOnce(
+      new Error('bounded room bootstrap unavailable'),
+    );
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'guest-bounded-fallback');
+    const joined = vi.fn();
+    const receivedChat = vi.fn();
+    bus.on('setup:guest-join-success', joined);
+    initProtocol();
+    registerHandler(MSG.PLAYLIST_UPDATE, (data, current) => {
+      if (applyPlaylistSnapshot(data, 'rebase') === 'rebased') {
+        markQueueAuthorityReady(current);
+      }
+    });
+    registerHandler(MSG.CHAT, receivedChat);
+
+    joinSession('HOST01');
+    conn.fire('open');
+
+    // The stable V1 room becomes usable synchronously at RTC open. Bounded
+    // startup is an additive lane and is never allowed to own room liveness.
+    expect(joined).toHaveBeenCalledOnce();
+    expect(getState('network.hostConn')).toBe(conn);
+    expect(conn.close).not.toHaveBeenCalled();
+
+    await vi.waitFor(() => expect(mocks.boundedBeginGuestRoom).toHaveBeenCalledWith(conn));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    conn.fire('data', {
+      type: MSG.PLAYLIST_UPDATE,
+      list: [],
+      currentQueueItemId: null,
+      revision: 11,
+      bootstrap: true,
+    });
+    conn.fire('data', { type: MSG.CHAT, text: 'stable transport survived bounded failure' });
+    await Promise.resolve();
+
+    expect(hasQueueAuthority(conn)).toBe(true);
+    expect(getState('playlist.revision')).toBe(11);
+    expect(receivedChat).toHaveBeenCalledWith(
+      { type: MSG.CHAT, text: 'stable transport survived bounded failure' },
+      conn,
+    );
+    expect(mocks.boundedAnnounceGuestCapability).not.toHaveBeenCalled();
+    expect(conn.close).not.toHaveBeenCalled();
+    expect(getState('network.hostConn')).toBe(conn);
   });
 
   it('keeps generic protocol validation while never consulting the V2 manager', async () => {

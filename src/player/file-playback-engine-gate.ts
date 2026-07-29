@@ -8,6 +8,7 @@ function readBuildEnvironment(): {
   readonly mode: unknown;
   readonly v2ProductionFlag: boolean;
   readonly universalV1ProductionFlag: boolean;
+  readonly legacyBoundedFlag: boolean;
 } {
   try {
     const environment = import.meta.env as Record<string, unknown> | undefined;
@@ -17,6 +18,7 @@ function readBuildEnvironment(): {
       mode: environment?.MODE,
       v2ProductionFlag: environment?.VITE_MUSIXQUARE_FILE_ENGINE_V2 === '1',
       universalV1ProductionFlag: environment?.VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1 === '1',
+      legacyBoundedFlag: environment?.VITE_MUSIXQUARE_LEGACY_BOUNDED === '1',
     };
   } catch {
     return {
@@ -25,6 +27,7 @@ function readBuildEnvironment(): {
       mode: undefined,
       v2ProductionFlag: false,
       universalV1ProductionFlag: false,
+      legacyBoundedFlag: false,
     };
   }
 }
@@ -51,7 +54,7 @@ function resolveFilePlaybackEngineMode(): FilePlaybackEngineMode {
   // exact flags.
   if (environment.dev === environment.prod) return 'legacy';
   if (environment.dev) return hasExactDevelopmentOptIn() ? 'v2' : 'legacy';
-  if (environment.mode === 'beta-bounded') return 'legacy';
+  if (environment.mode === 'beta-bounded' || environment.legacyBoundedFlag) return 'legacy';
   if (!environment.v2ProductionFlag) return 'legacy';
 
   const isolatedUniversalCandidate =

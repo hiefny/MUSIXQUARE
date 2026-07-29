@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const MODULE_PATH = '../legacy-bounded-file-gate.ts';
-const RELEASE_LATCH_MODULE_PATH = '../legacy-bounded-file-beta-latch.ts';
+const BETA_RELEASE_LATCH_MODULE_PATH = '../legacy-bounded-file-beta-latch.ts';
+const PRODUCTION_RELEASE_LATCH_MODULE_PATH = '../legacy-bounded-file-production-latch.ts';
 
 function installEnvironment(options: {
   readonly dev: boolean;
@@ -9,21 +10,31 @@ function installEnvironment(options: {
   readonly mode?: string;
   readonly betaBoundedFlag?: string;
   readonly betaArtifact?: boolean;
+  readonly productionArtifact?: boolean;
 }): void {
   vi.stubEnv('DEV', options.dev);
   vi.stubEnv('PROD', options.prod);
   vi.stubEnv('MODE', options.mode);
   vi.stubEnv('VITE_MUSIXQUARE_LEGACY_BOUNDED', options.betaBoundedFlag);
   vi.stubGlobal('__MXQR_LEGACY_BOUNDED_BETA_ARTIFACT__', options.betaArtifact ?? false);
+  vi.stubGlobal('__MXQR_LEGACY_BOUNDED_PRODUCTION_ARTIFACT__', options.productionArtifact ?? false);
 }
 
 function installLocation(search: unknown): void {
   vi.stubGlobal('location', { search });
 }
 
-async function loadGate(options: { readonly releaseLatch?: boolean } = {}) {
-  vi.doMock(RELEASE_LATCH_MODULE_PATH, () => ({
+async function loadGate(
+  options: {
+    readonly releaseLatch?: boolean;
+    readonly productionReleaseLatch?: boolean;
+  } = {},
+) {
+  vi.doMock(BETA_RELEASE_LATCH_MODULE_PATH, () => ({
     LEGACY_BOUNDED_FILE_BETA_RELEASE_ENABLED: options.releaseLatch ?? true,
+  }));
+  vi.doMock(PRODUCTION_RELEASE_LATCH_MODULE_PATH, () => ({
+    LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED: options.productionReleaseLatch ?? true,
   }));
   return import(MODULE_PATH);
 }
@@ -31,7 +42,8 @@ async function loadGate(options: { readonly releaseLatch?: boolean } = {}) {
 describe('legacy bounded file beta bootstrap gate', () => {
   beforeEach(() => {
     vi.resetModules();
-    vi.doUnmock(RELEASE_LATCH_MODULE_PATH);
+    vi.doUnmock(BETA_RELEASE_LATCH_MODULE_PATH);
+    vi.doUnmock(PRODUCTION_RELEASE_LATCH_MODULE_PATH);
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
@@ -155,6 +167,65 @@ describe('legacy bounded file beta bootstrap gate', () => {
     expect((await loadGate({ releaseLatch: false })).isLegacyBoundedFileEnabled()).toBe(false);
   });
 
+  it('enables the exact normal production artifact through its separate tracked latch', async () => {
+    installEnvironment({
+      dev: false,
+      prod: true,
+      mode: 'production',
+      betaBoundedFlag: '1',
+      productionArtifact: true,
+    });
+    installLocation('?legacyBounded=0&fileEngineV2=1');
+
+    expect(
+      (
+        await loadGate({
+          releaseLatch: false,
+          productionReleaseLatch: true,
+        })
+      ).isLegacyBoundedFileEnabled(),
+    ).toBe(true);
+  });
+
+  it('keeps normal production disabled when its tracked latch is off', async () => {
+    installEnvironment({
+      dev: false,
+      prod: true,
+      mode: 'production',
+      betaBoundedFlag: '1',
+      productionArtifact: true,
+    });
+
+    expect((await loadGate({ productionReleaseLatch: false })).isLegacyBoundedFileEnabled()).toBe(
+      false,
+    );
+  });
+
+  it('does not let beta and production artifact identities overlap', async () => {
+    installEnvironment({
+      dev: false,
+      prod: true,
+      mode: 'production',
+      betaBoundedFlag: '1',
+      betaArtifact: true,
+      productionArtifact: true,
+    });
+
+    expect((await loadGate()).isLegacyBoundedFileEnabled()).toBe(false);
+  });
+
+  it('rejects the production flag outside an exact production artifact', async () => {
+    installEnvironment({
+      dev: false,
+      prod: true,
+      mode: 'production',
+      betaBoundedFlag: '1',
+      productionArtifact: false,
+    });
+
+    expect((await loadGate()).isLegacyBoundedFileEnabled()).toBe(false);
+  });
+
   it('rejects beta mode and flags outside the isolated beta artifact config', async () => {
     installEnvironment({
       dev: false,
@@ -219,9 +290,40 @@ describe('legacy bounded file beta bootstrap gate', () => {
       betaBoundedFlag: '1',
       betaArtifact: true,
     });
-    vi.doUnmock(RELEASE_LATCH_MODULE_PATH);
+    vi.doUnmock(BETA_RELEASE_LATCH_MODULE_PATH);
 
     expect((await import(MODULE_PATH)).isLegacyBoundedFileEnabled()).toBe(true);
+  });
+
+  it('uses the real tracked latch for the exact normal production artifact', async () => {
+    installEnvironment({
+      dev: false,
+      prod: true,
+      mode: 'production',
+      betaBoundedFlag: '1',
+      productionArtifact: true,
+    });
+    vi.doUnmock(BETA_RELEASE_LATCH_MODULE_PATH);
+    vi.doUnmock(PRODUCTION_RELEASE_LATCH_MODULE_PATH);
+
+    expect((await import(MODULE_PATH)).isLegacyBoundedFileEnabled()).toBe(true);
+  });
+
+  it('keeps the old V2 engine disabled in the exact normal production artifact', async () => {
+    installEnvironment({
+      dev: false,
+      prod: true,
+      mode: 'production',
+      betaBoundedFlag: '1',
+      productionArtifact: true,
+    });
+    vi.stubEnv('VITE_MUSIXQUARE_FILE_ENGINE_V2', '1');
+
+    const boundedGate = await loadGate({ productionReleaseLatch: true });
+    const v2Gate = await import('../file-playback-engine-gate.ts');
+
+    expect(boundedGate.isLegacyBoundedFileEnabled()).toBe(true);
+    expect(v2Gate.isFilePlaybackEngineV2Enabled()).toBe(false);
   });
 
   it('keeps the existing V2 engine disabled in the exact beta bounded artifact', async () => {

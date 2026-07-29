@@ -34,6 +34,7 @@ import {
   setupShowRoleArea,
   setupHighlightJoinRole,
   setupSetGuestJoinBusy,
+  setupSetGuestJoinError,
   setupRenderActions,
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
@@ -62,6 +63,7 @@ setOnInviteLinkRoleSelected(() => _renderInviteLinkActions());
 export function startGuestFlow(): void {
   _pendingPasswordJoin = null;
   _roomPasswordPromptOpen = false;
+  setupSetGuestJoinError(null);
 
   // Cancel any in-flight join attempt (back button pressed during connecting)
   if (getState('network.isConnecting')) {
@@ -134,12 +136,13 @@ export function startGuestFlow(): void {
 /** Render actions for invite-link flow: back icon + primary start.
  *  The back icon does a hard navigation to '/' so a user who landed here via /CODE
  *  can start fresh if the host is gone or they want to leave the invite flow. */
-function _renderInviteLinkActions(): void {
+function _renderInviteLinkActions(retry = false): void {
   setupRenderActions(
     [
       {
         id: 'btn-setup-back',
         html: BACK_SVG,
+        ariaLabel: t('dialog.go_back'),
         kind: 'icon-only',
         onClick: () => {
           scheduleSessionReset(t('dialog.leaving_session'), () => {
@@ -149,7 +152,7 @@ function _renderInviteLinkActions(): void {
       },
       {
         id: 'btn-setup-confirm',
-        text: t('common.start'),
+        text: t(retry ? 'common.retry' : 'common.start'),
         kind: 'primary',
         onClick: () => _handleInviteLinkJoin(DEFAULT_SETUP_ROLE),
       },
@@ -160,9 +163,11 @@ function _renderInviteLinkActions(): void {
 
 /** Join directly using the invite code from URL (skip code input step) */
 async function _handleInviteLinkJoin(mode: number): Promise<void> {
+  setupSetGuestJoinError(null);
   const autoCode = getPendingAutoJoinCode();
   if (!autoCode || !/^\d{6}$/.test(autoCode)) {
-    showToast(t('toast.no_invite_code'));
+    setupSetGuestJoinError(t('toast.no_invite_code'), true);
+    _renderInviteLinkActions(true);
     return;
   }
 
@@ -223,8 +228,10 @@ async function _handleProRoomJoin(code: string): Promise<void> {
     if (!getState('setup.sessionStarted')) bus.emit('setup:guest-join-success');
   } catch (error) {
     log.error('[Setup] PRO room join failed', error);
-    showToast(t('pro.connect_failed'));
-    bus.emit('setup:guest-join-failure', error);
+    bus.emit('setup:guest-join-failure', {
+      error,
+      userMessage: t('pro.connect_failed'),
+    });
   }
 }
 
@@ -239,7 +246,13 @@ function proceedToGuestCode(mode: number): void {
 
   setupRenderActions(
     [
-      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => _goBack() },
+      {
+        id: 'btn-setup-back',
+        html: BACK_SVG,
+        ariaLabel: t('dialog.go_back'),
+        kind: 'icon-only',
+        onClick: () => _goBack(),
+      },
       {
         id: 'btn-setup-confirm',
         text: t('common.start'),
@@ -264,6 +277,7 @@ function proceedToGuestCode(mode: number): void {
 }
 
 export async function handleSetupJoinWithRole(mode: number | null): Promise<void> {
+  setupSetGuestJoinError(null);
   if (mode === null || mode === undefined) {
     showToast(t('setup.select_role_alt'));
     return;
@@ -277,7 +291,7 @@ export async function handleSetupJoinWithRole(mode: number | null): Promise<void
   const code = codeRaw.replace(/\s+/g, '');
 
   if (!/^\d{6}$/.test(code)) {
-    showToast(t('setup.six_digit_enter'));
+    setupSetGuestJoinError(t('setup.six_digit_enter'));
     if (input) input.focus();
     return;
   }
@@ -307,6 +321,7 @@ export async function handleSetupJoinWithRole(mode: number | null): Promise<void
       {
         id: 'btn-setup-back',
         html: BACK_SVG,
+        ariaLabel: t('dialog.go_back'),
         kind: 'icon-only',
         onClick: () => _goBack(),
         disabled: true,
@@ -326,6 +341,7 @@ export async function handleSetupJoinWithRole(mode: number | null): Promise<void
 
 function restoreJoinControlsAfterPasswordCancel(): void {
   setupSetGuestJoinBusy(false);
+  setupSetGuestJoinError(null);
 
   if (_pendingPasswordJoin?.inviteLink) {
     _renderInviteLinkActions();
@@ -334,7 +350,13 @@ function restoreJoinControlsAfterPasswordCancel(): void {
 
   setupRenderActions(
     [
-      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => startGuestFlow() },
+      {
+        id: 'btn-setup-back',
+        html: BACK_SVG,
+        ariaLabel: t('dialog.go_back'),
+        kind: 'icon-only',
+        onClick: () => _goBack(),
+      },
       {
         id: 'btn-setup-confirm',
         text: t('common.start'),
@@ -353,13 +375,53 @@ function restoreJoinControlsAfterPasswordCancel(): void {
   }
 }
 
+export function restoreGuestJoinControlsAfterFailure(message: string | null): void {
+  setupSetGuestJoinBusy(false);
+  const inviteLink = _pendingPasswordJoin?.inviteLink ?? !!getPendingAutoJoinCode();
+  setupSetGuestJoinError(message, inviteLink);
+  const retry = !!message;
+
+  if (inviteLink) {
+    _renderInviteLinkActions(retry);
+    return;
+  }
+
+  setupRenderActions(
+    [
+      {
+        id: 'btn-setup-back',
+        html: BACK_SVG,
+        ariaLabel: t('dialog.go_back'),
+        kind: 'icon-only',
+        onClick: () => _goBack(),
+      },
+      {
+        id: 'btn-setup-confirm',
+        text: t(retry ? 'common.retry' : 'common.start'),
+        kind: 'primary',
+        onClick: () => handleSetupJoinWithRole(getPendingGuestRoleMode() ?? null),
+      },
+    ],
+    'horizontal-with-back',
+  );
+
+  const input = setupEl('setup-join-code') as HTMLInputElement | null;
+  if (input) {
+    input.disabled = false;
+    if (_pendingPasswordJoin?.code) input.value = _pendingPasswordJoin.code;
+    input.focus();
+  }
+}
+
 function renderPasswordRetryBusy(inviteLink: boolean): void {
+  setupSetGuestJoinError(null);
   setupSetGuestJoinBusy(true);
   setupRenderActions(
     [
       {
         id: 'btn-setup-back',
         html: BACK_SVG,
+        ariaLabel: t('dialog.go_back'),
         kind: 'icon-only',
         onClick: inviteLink
           ? () => {
@@ -434,4 +496,5 @@ export async function promptForRoomPassword(
 export function clearPendingRoomPasswordJoin(): void {
   _pendingPasswordJoin = null;
   _roomPasswordPromptOpen = false;
+  setupSetGuestJoinError(null);
 }

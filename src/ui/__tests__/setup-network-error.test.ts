@@ -12,6 +12,7 @@ vi.mock('../../core/platform.ts', () => ({
 }));
 
 vi.mock('../../core/timers.ts', () => ({
+  clearManagedTimer: vi.fn(),
   setManagedTimer: vi.fn(),
 }));
 
@@ -63,6 +64,7 @@ vi.mock('../setup-guest.ts', () => ({
   handleSetupJoinWithRole: vi.fn(),
   promptForRoomPassword: vi.fn(() => Promise.resolve()),
   clearPendingRoomPasswordJoin: vi.fn(),
+  restoreGuestJoinControlsAfterFailure: vi.fn(),
 }));
 
 vi.mock('../dom.ts', () => ({
@@ -81,6 +83,7 @@ vi.mock('../setup-shared.ts', () => ({
   setupShowRoleArea: vi.fn(),
   setupShowWelcome: vi.fn(),
   setupSetGuestJoinBusy: vi.fn(),
+  setupSetGuestJoinError: vi.fn(),
   setupRenderActions: vi.fn(),
   startObAutoSlide: vi.fn(),
   updateObSlider: vi.fn(),
@@ -107,12 +110,14 @@ import { markProRoomTransportRecovered } from '../../pro-room/transport-recovery
 import { initSetup } from '../setup.ts';
 import { showDialog } from '../dialog.ts';
 import { setHostGoBack } from '../setup-host.ts';
+import { restoreGuestJoinControlsAfterFailure } from '../setup-guest.ts';
 import { showToast } from '../toast.ts';
 
 function startJoining(): void {
   setState('network.appRole', 'guest');
   setState('network.isConnecting', true);
   vi.mocked(showToast).mockClear();
+  vi.mocked(restoreGuestJoinControlsAfterFailure).mockClear();
 }
 
 beforeEach(() => {
@@ -150,6 +155,7 @@ describe('setup network error messages', () => {
     bus.on('youtube:stop-mode', youtubeStop);
     vi.mocked(isPlaybackModeYouTube).mockReturnValue(true);
     setState('network.isConnecting', false);
+    setState('setup.sessionStarted', true);
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
@@ -163,7 +169,12 @@ describe('setup network error messages', () => {
     bus.emit('network:error', new Error('HOST_DISCONNECTED'));
 
     expect(recover).toHaveBeenCalledOnce();
-    expect(showToast).toHaveBeenCalledWith('pro.reconnecting');
+    expect(showToast).not.toHaveBeenCalled();
+    expect(getState('network.signalingHealth')).toMatchObject({
+      status: 'reconnecting',
+      attempt: 1,
+      maxAttempts: 5,
+    });
     expect(showDialog).not.toHaveBeenCalled();
     expect(youtubeStop).not.toHaveBeenCalled();
   });
@@ -191,8 +202,8 @@ describe('setup network error messages', () => {
     (_label, error) => {
       bus.emit('network:error', error);
 
-      expect(showToast).toHaveBeenCalledTimes(1);
-      expect(showToast).toHaveBeenCalledWith('network.session_full');
+      expect(showToast).not.toHaveBeenCalled();
+      expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledWith('network.session_full');
       expect(getState('network.isConnecting')).toBe(false);
     },
   );
@@ -200,8 +211,8 @@ describe('setup network error messages', () => {
   it('keeps an existing specific join error after the guest UI is restored', () => {
     bus.emit('network:error', new Error('HOST_UNREACHABLE'));
 
-    expect(showToast).toHaveBeenCalledTimes(1);
-    expect(showToast).toHaveBeenCalledWith('error.host_unreachable');
+    expect(showToast).not.toHaveBeenCalled();
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledWith('error.host_unreachable');
     expect(showToast).not.toHaveBeenCalledWith('network.cant_join');
     expect(getState('network.isConnecting')).toBe(false);
   });

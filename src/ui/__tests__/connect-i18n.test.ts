@@ -121,6 +121,112 @@ function makeConnection(peer = 'host-1'): DataConnection {
   return { peer, open: true } as DataConnection;
 }
 
+describe('connect signaling health status', () => {
+  it('renders a polite, atomic reconnect status with the bounded attempt', () => {
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection());
+    initConnect();
+
+    setState('network.signalingHealth', {
+      status: 'reconnecting',
+      attempt: 2,
+      maxAttempts: 5,
+    });
+
+    const statuses = document.querySelectorAll<HTMLElement>('.signaling-health-status');
+    expect(statuses).toHaveLength(2);
+    for (const status of statuses) {
+      expect(status.hidden).toBe(false);
+      expect(status.getAttribute('role')).toBeNull();
+      const message = status.querySelector<HTMLElement>('.signaling-health-message');
+      expect(message?.getAttribute('role')).toBe('status');
+      expect(message?.getAttribute('aria-live')).toBe('polite');
+      expect(message?.getAttribute('aria-atomic')).toBe('true');
+      expect(message?.getAttribute('aria-busy')).toBe('true');
+      expect(status.textContent).toContain('2/5');
+    }
+  });
+
+  it('shows explicit retry and safe guest restart only after exhaustion', () => {
+    setLanguageMode('en');
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.lastJoinCode', '123456');
+    setState('network.hostConn', makeConnection());
+    initConnect();
+
+    setState('network.signalingHealth', {
+      status: 'exhausted',
+      attempt: 0,
+      maxAttempts: 5,
+    });
+
+    const status = document.querySelector<HTMLElement>('.signaling-health-status');
+    const retry = status?.querySelector<HTMLButtonElement>('.signaling-health-retry');
+    const restart = status?.querySelector<HTMLButtonElement>('.signaling-health-restart');
+    const message = status?.querySelector<HTMLElement>('.signaling-health-message');
+    expect(status?.hidden).toBe(false);
+    expect(message?.getAttribute('aria-busy')).toBe('false');
+    expect(retry?.hidden).toBe(false);
+    expect(retry?.type).toBe('button');
+    expect(retry?.textContent).toBe('Retry');
+    expect(restart?.hidden).toBe(false);
+    expect(restart?.type).toBe('button');
+    expect(restart?.textContent).toBe('Restart session');
+  });
+
+  it('offers an exhausted ordinary host a safe path to start a new room', () => {
+    setLanguageMode('en');
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'host');
+    setState('network.connectedPeers', [
+      {
+        id: 'guest-1',
+        slot: 1,
+        label: 'Guest',
+        joinOrder: 1,
+        status: 'connected',
+        isOp: false,
+        preloadedQueueItemIds: new Set(),
+        isDataTarget: true,
+        connectionType: 'local',
+        lastHeartbeat: Date.now(),
+        conn: makeConnection('guest-1'),
+      },
+    ]);
+    initConnect();
+
+    setState('network.signalingHealth', {
+      status: 'exhausted',
+      attempt: 0,
+      maxAttempts: 5,
+    });
+
+    const restart = document.querySelector<HTMLButtonElement>('.signaling-health-restart');
+    expect(restart?.hidden).toBe(false);
+    expect(restart?.textContent).toBe('Start a new room');
+  });
+
+  it('keeps recovery actions after an established partial outage loses its last live surface', () => {
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection());
+    initConnect();
+    setState('network.signalingHealth', {
+      status: 'exhausted',
+      attempt: 0,
+      maxAttempts: 5,
+    });
+
+    expect(document.querySelector<HTMLElement>('.signaling-health-status')?.hidden).toBe(false);
+    setState('network.hostConn', null);
+    const status = document.querySelector<HTMLElement>('.signaling-health-status');
+    expect(status?.hidden).toBe(false);
+    expect(status?.querySelector<HTMLButtonElement>('.signaling-health-retry')?.hidden).toBe(false);
+  });
+});
+
 describe('connect i18n refresh', () => {
   it('keeps generated QR placeholders translatable', () => {
     initConnect();

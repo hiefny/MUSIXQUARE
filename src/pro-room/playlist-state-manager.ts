@@ -122,6 +122,7 @@ interface UpdateProRoomYouTubeManifestInput {
 }
 
 interface AddProRoomLocalFileInput {
+  queueItemId?: QueueItemId;
   file: File;
   sha256?: string;
   title?: string;
@@ -133,6 +134,12 @@ interface AddProRoomLocalFileInput {
 interface ProRoomPlaylistMutationOptions {
   baseRevision?: number;
   signal?: AbortSignal;
+  refreshBeforeUpload?: boolean;
+}
+
+interface AddProRoomLocalFileResult {
+  snapshot: ProRoomSnapshot;
+  queueItemId: QueueItemId;
 }
 
 interface UpdateProRoomPlaybackInput {
@@ -418,40 +425,17 @@ export class ProRoomPlaylistStateManager {
     return this.#enqueue(async () => {
       let accepted = this.#requireSnapshot();
       for (const input of inputs) {
-        assertNotAborted(options.signal);
-        assertMetadata({
-          name: input.file.name,
-          ...(input.title === undefined ? {} : { title: input.title }),
-          ...(input.artist === undefined ? {} : { artist: input.artist }),
-          ...(input.thumbnail === undefined ? {} : { thumbnail: input.thumbnail }),
-        });
-        this.#assertCapacity(accepted, 1);
-        const queueItemId = this.#nextQueueItemId();
-        const upload = await this.#mediaTransfer.upload({
-          code: this.#code,
-          file: input.file,
-          ...(input.sha256 === undefined ? {} : { sha256: input.sha256 }),
-          ...(input.onProgress === undefined ? {} : { onProgress: input.onProgress }),
-          ...(options.signal === undefined ? {} : { signal: options.signal }),
-        });
-        try {
-          assertNotAborted(options.signal);
-          const item = canonicalItem({
-            queueItemId,
-            name: input.file.name,
-            ...(input.title === undefined ? {} : { title: input.title }),
-            ...(input.artist === undefined ? {} : { artist: input.artist }),
-            ...(input.thumbnail === undefined ? {} : { thumbnail: input.thumbnail }),
-            source: upload.asset,
-          });
-          accepted = await this.#appendCanonicalItem(item, options.signal);
-        } catch (error) {
-          await this.#bestEffortDelete(upload.asset.assetId, 'uploaded-orphan');
-          throw error;
-        }
+        accepted = (await this.#addLocalFile(input, options)).snapshot;
       }
       return cloneSnapshot(accepted);
     });
+  }
+
+  addLocalFile(
+    input: AddProRoomLocalFileInput,
+    options: ProRoomPlaylistMutationOptions = {},
+  ): Promise<AddProRoomLocalFileResult> {
+    return this.#enqueue(() => this.#addLocalFile(input, options));
   }
 
   remove(
@@ -774,6 +758,82 @@ export class ProRoomPlaylistStateManager {
       }
     }
     return accepted;
+  }
+
+  async #addLocalFile(
+    input: AddProRoomLocalFileInput,
+    options: ProRoomPlaylistMutationOptions,
+  ): Promise<AddProRoomLocalFileResult> {
+    assertNotAborted(options.signal);
+    assertMetadata({
+      name: input.file.name,
+      ...(input.title === undefined ? {} : { title: input.title }),
+      ...(input.artist === undefined ? {} : { artist: input.artist }),
+      ...(input.thumbnail === undefined ? {} : { thumbnail: input.thumbnail }),
+    });
+    let accepted = this.#requireSnapshot();
+    if (options.refreshBeforeUpload) {
+      const refreshed = await this.#api.getSnapshot(this.#code, options.signal);
+      accepted = await this.#accept(refreshed);
+    }
+    const queueItemId =
+      input.queueItemId === undefined
+        ? this.#nextQueueItemId()
+        : this.#validateQueueItemId(input.queueItemId);
+    const existing = accepted.playlist.find((item) => item.queueItemId === queueItemId);
+    if (existing) {
+      if (existing.name === input.file.name && existing.source.kind === 'pro-r2') {
+        return { snapshot: cloneSnapshot(accepted), queueItemId };
+      }
+      throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_QUEUE_ITEM_COLLISION');
+    }
+    this.#assertCapacity(accepted, 1);
+    const upload = await this.#mediaTransfer.upload({
+      code: this.#code,
+      file: input.file,
+      ...(input.sha256 === undefined ? {} : { sha256: input.sha256 }),
+      ...(input.onProgress === undefined ? {} : { onProgress: input.onProgress }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    });
+    try {
+      assertNotAborted(options.signal);
+      const item = canonicalItem({
+        queueItemId,
+        name: input.file.name,
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.artist === undefined ? {} : { artist: input.artist }),
+        ...(input.thumbnail === undefined ? {} : { thumbnail: input.thumbnail }),
+        source: upload.asset,
+      });
+      accepted = await this.#appendCanonicalItem(item, options.signal);
+      return { snapshot: cloneSnapshot(accepted), queueItemId };
+    } catch (error) {
+      // The snapshot request may have committed on the server even when its
+      // response was lost. Reconcile that exact queue/asset identity before
+      // cleanup so an ambiguous success can never leave a canonical row
+      // pointing at an asset we just deleted.
+      if (!options.signal?.aborted) {
+        try {
+          const refreshed = await this.#api.getSnapshot(this.#code, options.signal);
+          const reconciled = await this.#accept(refreshed);
+          const committed = reconciled.playlist.find(
+            (candidate) => candidate.queueItemId === queueItemId,
+          );
+          if (
+            committed?.source.kind === 'pro-r2' &&
+            committed.source.assetId === upload.asset.assetId
+          ) {
+            return { snapshot: cloneSnapshot(reconciled), queueItemId };
+          }
+          await this.#bestEffortDelete(upload.asset.assetId, 'uploaded-orphan');
+        } catch {
+          // An unreadable authority is still ambiguous. Retaining an
+          // unreferenced object for server-side cleanup is safer than deleting
+          // an asset that may already be referenced by the canonical playlist.
+        }
+      }
+      throw error;
+    }
   }
 
   async #mutate(intent: PlaylistIntent, signal?: AbortSignal): Promise<ProRoomSnapshot> {

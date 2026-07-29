@@ -819,6 +819,86 @@ describe('PRO room playlist state manager', () => {
     });
   });
 
+  it('reconciles an ambiguously committed append without deleting its canonical asset', async () => {
+    const initial = activeSnapshot();
+    let server = initial;
+    const responseLost = new Error('connection-lost-after-commit');
+    const api = {
+      getSnapshot: vi.fn(async () => server),
+      updateSnapshot: vi.fn(async (input: UpdateProRoomSnapshotInput) => {
+        server = activeSnapshot({
+          ...server,
+          revision: server.revision + 1,
+          playlistRevision: server.playlistRevision + 1,
+          playlist: input.playlist,
+          currentQueueItemId: input.currentQueueItemId,
+          playback: input.playback,
+        });
+        throw responseLost;
+      }),
+    } satisfies ProRoomPlaylistStateApi;
+    const media = mediaTransfer();
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: media,
+      sink: vi.fn(),
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+
+    const result = await manager.addLocalFile({
+      queueItemId: A,
+      file: new File(['aaaa'], 'one.flac', { type: 'audio/flac' }),
+    });
+
+    expect(result.queueItemId).toBe(A);
+    expect(result.snapshot.playlist).toEqual([
+      expect.objectContaining({
+        queueItemId: A,
+        name: 'one.flac',
+        source: asset('asset_00000000001'),
+      }),
+    ]);
+    expect(api.getSnapshot).toHaveBeenCalledOnce();
+    expect(media.deleteAsset).not.toHaveBeenCalled();
+  });
+
+  it('refreshes a failed upload retry and reuses an already committed queue identity', async () => {
+    const initial = activeSnapshot();
+    const committed = activeSnapshot({
+      revision: 2,
+      playlistRevision: 1,
+      playlist: [r2(A, 'asset_00000000001', 'one.flac')],
+    });
+    const api = {
+      getSnapshot: vi.fn(async () => committed),
+      updateSnapshot: vi.fn(),
+    } satisfies ProRoomPlaylistStateApi;
+    const media = mediaTransfer();
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: media,
+      sink: vi.fn(),
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+
+    const result = await manager.addLocalFile(
+      {
+        queueItemId: A,
+        file: new File(['aaaa'], 'one.flac', { type: 'audio/flac' }),
+      },
+      { refreshBeforeUpload: true },
+    );
+
+    expect(result.queueItemId).toBe(A);
+    expect(result.snapshot.playlist[0]?.queueItemId).toBe(A);
+    expect(media.upload).not.toHaveBeenCalled();
+    expect(api.updateSnapshot).not.toHaveBeenCalled();
+  });
+
   it('removes multiple rows in one CAS, clears the current checkpoint, and frees unreferenced assets', async () => {
     const assetOne = 'asset_00000000001';
     const assetTwo = 'asset_00000000002';

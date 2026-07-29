@@ -8,6 +8,16 @@ import { announceProRoomTabTakeover } from './tab-handoff.ts';
 import { consumeAccountLoginReturnForRoom } from '../account/login-return.ts';
 
 const PRO_ROOM_ENTRY_OPERATION_TIMEOUT_MS = 20_000;
+const TERMINAL_CLAIM_ERROR_CODES = new Set([
+  'ACTIVATION_INVALID',
+  'ACTIVATION_UNAVAILABLE',
+  'INVALID_CLAIM_TOKEN',
+  'RECOVERY_INVALID',
+  'RECOVERY_CAPACITY_EXCEEDED',
+  'RECOVERY_CLAIM_USED',
+  'RECOVERY_UNAVAILABLE',
+  'INVALID_RECOVERY_CLAIM_TOKEN',
+]);
 
 /**
  * Bound only one network-facing entry operation. Each prompt gets a fresh
@@ -41,6 +51,50 @@ async function runEntryOperation<T>(operation: (signal: AbortSignal) => Promise<
 
 async function showUnavailable(title: string, message: string): Promise<void> {
   await showDialog({ title, message, buttonText: t('common.ok') });
+}
+
+function isTerminalClaimFailure(error: unknown): boolean {
+  return error instanceof ProRoomApiError && TERMINAL_CLAIM_ERROR_CODES.has(error.code);
+}
+
+async function showNewClaimLinkGuidance(): Promise<void> {
+  await showDialog({
+    title: t('pro.claim_unavailable_title'),
+    message: t('pro.new_link_message'),
+    buttonText: t('common.ok'),
+  });
+}
+
+async function runClaimProtectedOperation<T>(
+  operation: () => Promise<T>,
+): Promise<{ ok: true; value: T } | { ok: false }> {
+  while (true) {
+    try {
+      return { ok: true, value: await operation() };
+    } catch (error) {
+      // Expired, used, invalid, and already-consumed claims must never be
+      // replayed. Keep their server details collapsed to one safe message.
+      if (isTerminalClaimFailure(error)) {
+        await showNewClaimLinkGuidance();
+        return { ok: false };
+      }
+
+      // A timeout or transport failure does not prove that the one-time
+      // credential was consumed. Keep it only in this function closure while
+      // the scrubbed setup screen offers an explicit retry.
+      const result = await showDialog({
+        title: t('pro.claim_retry_title'),
+        message: t('pro.claim_retry_message'),
+        buttonText: t('common.retry'),
+        secondaryText: t('pro.request_new_link'),
+        dismissible: false,
+        defaultFocus: 'primary',
+      });
+      if (result.action === 'ok') continue;
+      await showNewClaimLinkGuidance();
+      return { ok: false };
+    }
+  }
 }
 
 async function promptPin(options: {
@@ -95,17 +149,32 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
   // Consume and scrub both one-time credentials before the first dynamic
   // import, network request, or dialog turn can yield back to the browser.
   const fragmentClaims = takeProRoomClaimsFromFragment();
+  const hasClaimCredential =
+    !!fragmentClaims.activationClaimToken || fragmentClaims.ownerRecoveryClaimPresent;
   // Lazy-load the runtime after the setup/guest module graph has initialized;
   // the runtime bridges back into peer.ts and would otherwise form an eager
   // guest -> runtime -> peer -> guest evaluation cycle at app startup.
-  const runtime = await import('./runtime.ts');
+  const runtimeResult = hasClaimCredential
+    ? await runClaimProtectedOperation(() => import('./runtime.ts'))
+    : { ok: true as const, value: await import('./runtime.ts') };
+  if (!runtimeResult.ok) return false;
+  const runtime = runtimeResult.value;
   // Consume this one-time route hint before any network turn. Only a marker
   // retained by this exact browsing context may silently reclaim its
   // pre-OAuth presence; a durable PWA-relaunch hint keeps the normal active-tab
   // confirmation boundary.
   const accountLoginReturn = consumeAccountLoginReturnForRoom(code);
   const returningFromSameTabLogin = accountLoginReturn?.allowSilentTakeover === true;
-  const bootstrap = await runEntryOperation((signal) => runtime.getProRoomBootstrap(code, signal));
+  const bootstrapResult = hasClaimCredential
+    ? await runClaimProtectedOperation(() =>
+        runEntryOperation((signal) => runtime.getProRoomBootstrap(code, signal)),
+      )
+    : {
+        ok: true as const,
+        value: await runEntryOperation((signal) => runtime.getProRoomBootstrap(code, signal)),
+      };
+  if (!bootstrapResult.ok) return false;
+  const bootstrap = bootstrapResult.value;
 
   if (bootstrap.status === 'suspended') {
     await showUnavailable(t('pro.suspended_title'), t('pro.suspended_message'));
@@ -126,29 +195,57 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
       temporaryPin,
     });
     if (!newPin) return false;
-    await runEntryOperation((signal) =>
-      runtime.activateProRoom(
-        {
-          code,
-          claimToken: activationClaimToken,
-          temporaryPin,
-          newPin,
-          ownerName: getState('network.myDeviceLabel') || 'Owner',
-        },
-        signal,
-      ),
-    );
-    return true;
+    let activationAttempts = 0;
+    const activation = await runClaimProtectedOperation(async () => {
+      if (activationAttempts > 0) {
+        const freshBootstrap = await runEntryOperation((signal) =>
+          runtime.getProRoomBootstrap(code, signal),
+        );
+        if (freshBootstrap.status === 'pin_required') {
+          try {
+            return await runEntryOperation((signal) => runtime.resumeProRoom(code, { signal }));
+          } catch (error) {
+            if (isMissingCookieSession(error)) {
+              throw new ProRoomApiError('ACTIVATION_UNAVAILABLE', 409);
+            }
+            throw error;
+          }
+        }
+      }
+      activationAttempts += 1;
+      return runEntryOperation((signal) =>
+        runtime.activateProRoom(
+          {
+            code,
+            claimToken: activationClaimToken,
+            temporaryPin,
+            newPin,
+            ownerName: getState('network.myDeviceLabel') || 'Owner',
+          },
+          signal,
+        ),
+      );
+    });
+    return activation.ok;
   }
 
   if (fragmentClaims.ownerRecoveryClaimPresent) {
     const ownerRecoveryClaimToken = fragmentClaims.ownerRecoveryClaimToken;
     if (!ownerRecoveryClaimToken) {
-      await showUnavailable(t('pro.suspended_title'), t('pro.connect_failed'));
+      await showNewClaimLinkGuidance();
       return false;
     }
-    try {
-      await runEntryOperation((signal) =>
+    let recoveryAttempts = 0;
+    const recovery = await runClaimProtectedOperation(async () => {
+      if (recoveryAttempts > 0) {
+        try {
+          return await runEntryOperation((signal) => runtime.resumeProRoom(code, { signal }));
+        } catch (error) {
+          if (!isMissingCookieSession(error)) throw error;
+        }
+      }
+      recoveryAttempts += 1;
+      return runEntryOperation((signal) =>
         runtime.recoverProRoomOwner(
           {
             code,
@@ -157,14 +254,8 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
           signal,
         ),
       );
-      return true;
-    } catch {
-      // Recovery failures deliberately collapse to one generic UI result. A
-      // used, expired, wrong-room, or invalid claim must not expose server
-      // details or silently fall through to the normal PIN flow.
-      await showUnavailable(t('pro.suspended_title'), t('pro.connect_failed'));
-      return false;
-    }
+    });
+    return recovery.ok;
   }
 
   // A host-only HttpOnly cookie survives a reload. Try it before asking for

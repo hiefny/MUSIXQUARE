@@ -31,6 +31,7 @@ import {
   setupShowWelcome,
   setupShowRoleArea,
   setupHighlightJoinRole,
+  setupSetHostError,
   setupSetCode,
   setupRenderActions,
   hideSetupOverlay,
@@ -51,6 +52,7 @@ export function setHostGoBack(fn: () => void): void {
 
 export function startHostFlow(): void {
   incrementHostCodeFlowId();
+  setupSetHostError(null);
 
   setState('network.appRole', 'host');
   setState('setup.sessionStarted', false);
@@ -91,6 +93,7 @@ async function proceedToHostCode(mode: number): Promise<void> {
   if (appRole !== 'host') return;
 
   const flowId = incrementHostCodeFlowId();
+  setupSetHostError(null);
 
   try {
     selectStandardChannelButton(mode);
@@ -111,7 +114,13 @@ async function proceedToHostCode(mode: number): Promise<void> {
 
   setupRenderActions(
     [
-      { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => _goBack() },
+      {
+        id: 'btn-setup-back',
+        html: BACK_SVG,
+        ariaLabel: t('dialog.go_back'),
+        kind: 'icon-only',
+        onClick: () => _goBack(),
+      },
       { id: 'btn-setup-confirm', text: t('common.wait'), kind: 'secondary', disabled: true },
     ],
     'horizontal-with-back',
@@ -134,7 +143,13 @@ async function proceedToHostCode(mode: number): Promise<void> {
 
     setupRenderActions(
       [
-        { id: 'btn-setup-back', html: BACK_SVG, kind: 'icon-only', onClick: () => _goBack() },
+        {
+          id: 'btn-setup-back',
+          html: BACK_SVG,
+          ariaLabel: t('dialog.go_back'),
+          kind: 'icon-only',
+          onClick: () => _goBack(),
+        },
         {
           id: 'btn-setup-confirm',
           text: t('common.start'),
@@ -149,8 +164,25 @@ async function proceedToHostCode(mode: number): Promise<void> {
     if (flowId !== getHostCodeFlowId()) return;
 
     log.error('[Setup] Host session init failed', e);
-    showToast(t('error.session_create_fail'));
-    startHostFlow();
+    setupSetHostError(t('error.session_create_fail'));
+    setupRenderActions(
+      [
+        {
+          id: 'btn-setup-back',
+          html: BACK_SVG,
+          ariaLabel: t('dialog.go_back'),
+          kind: 'icon-only',
+          onClick: () => _goBack(),
+        },
+        {
+          id: 'btn-setup-confirm',
+          text: t('common.retry'),
+          kind: 'primary',
+          onClick: () => void proceedToHostCode(mode),
+        },
+      ],
+      'horizontal-with-back',
+    );
   }
 }
 

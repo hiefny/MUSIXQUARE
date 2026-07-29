@@ -373,15 +373,12 @@ export function joinSession(
     joinFailureUiPublished = true;
     _handledConnectionErrors.add(conn);
     setState('network.isConnecting', false);
-    showToast(t(key));
-    bus.emit(
-      'setup:guest-join-failure',
-      new Error(
-        key === 'error.app_version_mismatch'
-          ? 'FILE_PLAYBACK_UPDATE_REQUIRED'
-          : 'FILE_PLAYBACK_HANDSHAKE_FAILED',
-      ),
+    const error = new Error(
+      key === 'error.app_version_mismatch'
+        ? 'FILE_PLAYBACK_UPDATE_REQUIRED'
+        : 'FILE_PLAYBACK_HANDSHAKE_FAILED',
     );
+    bus.emit('setup:guest-join-failure', { error, userMessage: t(key) });
   };
 
   const recordSemanticCohortMismatch = (): void => {

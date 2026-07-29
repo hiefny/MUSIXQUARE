@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => {
       handled: true,
       established: applicationState.established,
       clockBecameReady: false,
+      updateRequired: false,
     })),
     establishedChannel: vi.fn(() => (applicationState.established ? Object.freeze({}) : null)),
     phase: vi.fn(() => (applicationState.established ? 'established' : 'handshaking')),
@@ -80,6 +81,7 @@ import { MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
+import { t } from '../../i18n/index.ts';
 import { invalidateGuestJoinAttempt, joinSession } from '../guest.ts';
 import { handleHostIncomingConnection } from '../host.ts';
 
@@ -143,6 +145,7 @@ beforeEach(() => {
     handled: true,
     established: mocks.applicationState.established,
     clockBecameReady: false,
+    updateRequired: false,
   }));
   mocks.applicationSessions.establishedChannel.mockImplementation(() =>
     mocks.applicationState.established ? (Object.freeze({}) as never) : null,
@@ -218,6 +221,58 @@ describe('standard-room V2 application admission', () => {
     expect(connected).toHaveBeenCalledWith(conn);
     expect(joined).toHaveBeenCalledOnce();
     expect(mocks.startWorkerTimer).toHaveBeenCalledWith('sync', 1000);
+  });
+
+  it('publishes a version mismatch as one persistent inline failure without a toast', () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'guest-v2');
+    const conn = makeConnection('HOST01');
+    mocks.getPeer.mockReturnValue({
+      open: true,
+      connect: vi.fn(() => conn),
+    } as unknown as PeerInstance);
+    const failure = vi.fn();
+    bus.on('setup:guest-join-failure', failure);
+    mocks.applicationSessions.receive.mockReturnValueOnce({
+      handled: true,
+      established: false,
+      clockBecameReady: false,
+      updateRequired: true,
+    });
+
+    joinSession('HOST01');
+    conn.fire('open');
+    conn.fire('data', { type: 'file-playback-test-version-mismatch' });
+
+    expect(failure).toHaveBeenCalledOnce();
+    expect(failure).toHaveBeenCalledWith({
+      error: expect.objectContaining({ message: 'FILE_PLAYBACK_UPDATE_REQUIRED' }),
+      userMessage: t('error.app_version_mismatch'),
+    });
+    expect(mocks.showToast).not.toHaveBeenCalled();
+  });
+
+  it('publishes a failed handshake as one persistent inline failure without a toast', () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'guest-v2');
+    const conn = makeConnection('HOST01');
+    mocks.getPeer.mockReturnValue({
+      open: true,
+      connect: vi.fn(() => conn),
+    } as unknown as PeerInstance);
+    const failure = vi.fn();
+    bus.on('setup:guest-join-failure', failure);
+
+    joinSession('HOST01');
+    conn.fire('open');
+    conn.fire('close');
+
+    expect(failure).toHaveBeenCalledOnce();
+    expect(failure).toHaveBeenCalledWith({
+      error: expect.objectContaining({ message: 'FILE_PLAYBACK_HANDSHAKE_FAILED' }),
+      userMessage: t('error.session_handshake_failed'),
+    });
+    expect(mocks.showToast).not.toHaveBeenCalled();
   });
 });
 

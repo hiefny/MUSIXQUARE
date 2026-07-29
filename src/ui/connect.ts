@@ -19,6 +19,7 @@ import { normalizeProRoomPin } from '../pro-room/room-code.ts';
 import { requestAccountNicknameChange } from './account.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { groupConnectedRoomMembers, type ConnectedRoomMember } from '../rooms/member-directory.ts';
+import { canContinueWithoutSignaling } from '../network/signaling-health.ts';
 import type { DeviceInfo, DevicePlatform, StandardRoomPermissionSet } from '../types/index.ts';
 import type {
   ProRoomAdministrator,
@@ -136,6 +137,138 @@ async function generateQR(containerId: string): Promise<void> {
 function refreshAllQR(): void {
   generateQR('qr-container');
   generateQR('desktop-qr-container');
+}
+
+const SIGNALING_HEALTH_QR_IDS = ['qr-container', 'desktop-qr-container'] as const;
+
+function createSignalingHealthStatus(qrContainer: HTMLElement): HTMLElement {
+  const status = document.createElement('div');
+  status.className = 'signaling-health-status';
+  status.id = `${qrContainer.id}-signaling-health`;
+  status.hidden = true;
+
+  const indicator = document.createElement('span');
+  indicator.className = 'signaling-health-indicator';
+  indicator.setAttribute('aria-hidden', 'true');
+
+  const message = document.createElement('span');
+  message.className = 'signaling-health-message';
+  message.setAttribute('role', 'status');
+  message.setAttribute('aria-live', 'polite');
+  message.setAttribute('aria-atomic', 'true');
+
+  const actions = document.createElement('span');
+  actions.className = 'signaling-health-actions';
+
+  const retry = document.createElement('button');
+  retry.type = 'button';
+  retry.className = 'signaling-health-action signaling-health-retry';
+  retry.addEventListener('click', () => {
+    void retrySignalingConnection();
+  });
+
+  const restart = document.createElement('button');
+  restart.type = 'button';
+  restart.className = 'signaling-health-action signaling-health-restart';
+  restart.addEventListener('click', restartRecoverableSession);
+
+  actions.append(retry, restart);
+  status.append(indicator, message, actions);
+  qrContainer.insertAdjacentElement('afterend', status);
+  return status;
+}
+
+function ensureSignalingHealthStatuses(): void {
+  for (const id of SIGNALING_HEALTH_QR_IDS) {
+    const qrContainer = document.getElementById(id);
+    if (!qrContainer) continue;
+    const next = qrContainer.nextElementSibling as HTMLElement | null;
+    if (next?.classList.contains('signaling-health-status')) continue;
+    createSignalingHealthStatus(qrContainer);
+  }
+}
+
+function recoverableSessionPath(): string | null {
+  const room = getRoomContext();
+  const code =
+    room.kind === 'pro'
+      ? room.roomId
+      : getState('network.appRole') === 'guest'
+        ? getState('network.lastJoinCode')
+        : null;
+  if (code && /^\d{6}$/.test(code)) return `/${code}`;
+  return room.kind === 'standard' && getState('network.appRole') === 'host' ? '/' : null;
+}
+
+async function retrySignalingConnection(): Promise<void> {
+  if (getRoomContext().kind === 'pro') {
+    const { restartProRoomTransportRecovery } = await import('../pro-room/transport-recovery.ts');
+    restartProRoomTransportRecovery();
+    return;
+  }
+  const { retryPeerSignalingConnection } = await import('../network/peer.ts');
+  retryPeerSignalingConnection();
+}
+
+function restartRecoverableSession(): void {
+  const path = recoverableSessionPath();
+  if (!path) return;
+  scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.replace(path));
+}
+
+function renderSignalingHealthStatus(): void {
+  ensureSignalingHealthStatuses();
+  const health = getState('network.signalingHealth');
+  // A partial outage can later lose its last surviving data channel or local
+  // playback after the one-shot disconnect grace has already completed. Keep
+  // the recovery surface in that already-published outage instead of stranding
+  // the user between a hidden status and a dialog that will not reopen.
+  const visible =
+    health.status !== 'healthy' &&
+    (canContinueWithoutSignaling() || getState('setup.sessionStarted'));
+  const isProRoom = getRoomContext().kind === 'pro';
+  const restartPath = health.status === 'exhausted' ? recoverableSessionPath() : null;
+
+  document.querySelectorAll<HTMLElement>('.signaling-health-status').forEach((status) => {
+    status.hidden = !visible;
+    status.dataset.status = health.status;
+    const message = status.querySelector<HTMLElement>('.signaling-health-message');
+    message?.setAttribute('aria-busy', health.status === 'reconnecting' ? 'true' : 'false');
+    if (!visible) return;
+
+    const retry = status.querySelector<HTMLButtonElement>('.signaling-health-retry');
+    const restart = status.querySelector<HTMLButtonElement>('.signaling-health-restart');
+    if (health.status === 'reconnecting') {
+      if (message) {
+        message.textContent = t('connect.signaling_reconnecting', {
+          attempt: health.attempt,
+          max: health.maxAttempts,
+        });
+      }
+    } else if (health.status === 'recovered') {
+      if (message) message.textContent = t('connect.signaling_recovered');
+    } else if (health.status === 'exhausted') {
+      if (message) {
+        message.textContent = t(
+          isProRoom ? 'connect.signaling_exhausted_pro' : 'connect.signaling_exhausted',
+        );
+      }
+    }
+
+    const showActions = health.status === 'exhausted';
+    if (retry) {
+      retry.hidden = !showActions;
+      retry.textContent = t('connect.signaling_retry');
+    }
+    if (restart) {
+      restart.hidden = !showActions || restartPath === null;
+      restart.textContent = t(
+        !isProRoom && getState('network.appRole') === 'host'
+          ? 'connect.signaling_new_room'
+          : 'connect.signaling_restart',
+      );
+    }
+  });
 }
 
 // ─── Room Password ───────────────────────────────────────────────
@@ -1388,6 +1521,8 @@ const _busScope = createBusScope();
 export function initConnect(): void {
   _busScope.dispose();
 
+  ensureSignalingHealthStatuses();
+  renderSignalingHealthStatus();
   initRoomPasswordControls();
   initAdministratorPermissionsDialog();
   syncHostOwnedConnectSections();
@@ -1424,6 +1559,7 @@ export function initConnect(): void {
     _updateDeviceTitles();
     syncRoomPasswordControls();
     renderConnectDeviceList(_lastDeviceList);
+    renderSignalingHealthStatus();
   });
 
   _busScope.on('network:device-list-update', (list: unknown[]) => {
@@ -1452,20 +1588,28 @@ export function initConnect(): void {
     refreshAllQR();
     syncRoomPasswordControls();
     syncHostOwnedConnectSections();
+    renderSignalingHealthStatus();
   });
   _busScope.on('state:network.roomPasswordRequired', () => syncRoomPasswordControls());
   _busScope.on('state:network.roomPassword', () => syncRoomPasswordControls());
   _busScope.on('state:network.hostConn', () => {
     syncRoomPasswordControls();
     syncHostOwnedConnectSections();
+    renderSignalingHealthStatus();
   });
   _busScope.on('state:network.appRole', () => {
     syncRoomPasswordControls();
     syncHostOwnedConnectSections();
+    renderSignalingHealthStatus();
   });
+  _busScope.on('state:network.connectedPeers', renderSignalingHealthStatus);
+  _busScope.on('state:network.signalingHealth', renderSignalingHealthStatus);
+  _busScope.on('state:playback.activity', renderSignalingHealthStatus);
+  _busScope.on('state:systemAudio.isReceiving', renderSignalingHealthStatus);
   _busScope.on('state:room.context', () => {
     syncRoomPasswordControls();
     syncHostOwnedConnectSections();
+    renderSignalingHealthStatus();
     const roomContext = getRoomContext();
     const nextAuthorityBoundary = {
       kind: roomContext.kind,

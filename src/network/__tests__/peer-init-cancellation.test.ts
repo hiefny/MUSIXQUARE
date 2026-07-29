@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
-import type { PeerInstance } from '../../types/index.ts';
+import type { DataConnection, PeerInstance } from '../../types/index.ts';
 import { registerProRoomSignalingReconnectHandler } from '../../pro-room/lifecycle-hook.ts';
 
 const mocks = vi.hoisted(() => ({
@@ -144,6 +144,7 @@ describe('network initialization ownership', () => {
     const peer = makePeer('STANDARD-HOST', true);
     mocks.createTransportPeer.mockResolvedValueOnce(peer);
     await createHostSessionWithShortCode(1);
+    setState('setup.sessionStarted', true);
 
     expect(mocks.createTransportPeer).toHaveBeenCalledWith(
       expect.any(String),
@@ -157,10 +158,101 @@ describe('network initialization ownership', () => {
     );
 
     peer.fire('disconnected');
+    expect(getState('network.signalingHealth').status).toBe('healthy');
     await vi.advanceTimersByTimeAsync(5_000);
 
     expect(mocks.showDialog).toHaveBeenCalledOnce();
     expect(mocks.showToast).not.toHaveBeenCalled();
+  });
+
+  it('publishes bounded partial signaling recovery and briefly reports success', async () => {
+    vi.useFakeTimers();
+    const peer = makePeer('STANDARD-HOST', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    await createHostSessionWithShortCode(1);
+    setState('setup.sessionStarted', true);
+    setState('network.connectedPeers', [
+      {
+        id: 'guest-1',
+        slot: 1,
+        label: 'Guest',
+        joinOrder: 1,
+        status: 'connected',
+        isOp: false,
+        preloadedQueueItemIds: new Set(),
+        isDataTarget: true,
+        connectionType: 'local',
+        lastHeartbeat: Date.now(),
+        conn: { open: true } as DataConnection,
+      },
+    ]);
+
+    peer.fire('disconnected');
+    expect(getState('network.signalingHealth')).toMatchObject({
+      status: 'reconnecting',
+      attempt: 1,
+      maxAttempts: 5,
+    });
+
+    peer.disconnected = false;
+    peer.fire('open', peer.id);
+    expect(getState('network.signalingHealth').status).toBe('recovered');
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(getState('network.signalingHealth').status).toBe('healthy');
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+  });
+
+  it('keeps a host-only playing session active while signaling reconnects', async () => {
+    vi.useFakeTimers();
+    const peer = makePeer('STANDARD-HOST', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    await createHostSessionWithShortCode(1);
+    setState('setup.sessionStarted', true);
+    setState('playback.activity', 'playing');
+
+    peer.fire('disconnected');
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(getState('network.signalingHealth')).toMatchObject({
+      status: 'reconnecting',
+      maxAttempts: 5,
+    });
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+  });
+
+  it('publishes exhaustion after the fifth unsuccessful signaling attempt', async () => {
+    vi.useFakeTimers();
+    const peer = makePeer('STANDARD-HOST', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    await createHostSessionWithShortCode(1);
+    setState('setup.sessionStarted', true);
+    setState('network.connectedPeers', [
+      {
+        id: 'guest-1',
+        slot: 1,
+        label: 'Guest',
+        joinOrder: 1,
+        status: 'connected',
+        isOp: false,
+        preloadedQueueItemIds: new Set(),
+        isDataTarget: true,
+        connectionType: 'local',
+        lastHeartbeat: Date.now(),
+        conn: { open: true } as DataConnection,
+      },
+    ]);
+
+    peer.fire('disconnected');
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(peer.reconnect).toHaveBeenCalledTimes(5);
+    expect(getState('network.signalingHealth')).toEqual({
+      status: 'exhausted',
+      attempt: 0,
+      maxAttempts: 5,
+    });
+    expect(mocks.showDialog).not.toHaveBeenCalled();
   });
 
   it('keeps ordinary-room signaling reconnect independent of the PRO ticket hook', async () => {

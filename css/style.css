@@ -1160,6 +1160,11 @@
     pointer-events: none !important;
   }
 
+  #seek-slider[aria-disabled='true'] {
+    opacity: 0.38;
+    cursor: not-allowed;
+  }
+
   /* Guest: keep default button color during system audio */
   body.mode-system-audio #btn-media-source.sys-audio-guest {
     background: inherit !important;
@@ -1759,6 +1764,11 @@
     opacity: 0.5;
   }
 
+  .ctrl-btn[aria-disabled='true'] {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
   .ctrl-btn svg {
     width: 32px;
     height: 32px;
@@ -2065,6 +2075,144 @@
     min-width: 0;
   }
 
+  .pro-upload-row {
+    cursor: default;
+    gap: 12px;
+  }
+
+  .pro-upload-entry.is-failed .pro-upload-row {
+    background: color-mix(in srgb, #ff4d4f 8%, transparent);
+  }
+
+  .pro-upload-leading {
+    width: 24px;
+    height: 24px;
+    flex: 0 0 24px;
+    display: grid;
+    place-items: center;
+    color: var(--primary);
+  }
+
+  .pro-upload-leading svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .pro-upload-entry:is(.is-waiting, .is-uploading, .is-confirming) .pro-upload-leading {
+    animation: pro-upload-pulse 1.4s ease-in-out infinite;
+  }
+
+  .pro-upload-entry.is-failed .pro-upload-leading {
+    color: #ff4d4f;
+  }
+
+  .pro-upload-copy {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .pro-upload-name {
+    color: var(--text-main);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .pro-upload-status {
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.3;
+  }
+
+  .pro-upload-entry.is-failed .pro-upload-status {
+    color: #d9363e;
+  }
+
+  .pro-upload-progress {
+    appearance: none;
+    width: min(180px, 100%);
+    height: 3px;
+    overflow: hidden;
+    border: 0;
+    border-radius: 999px;
+    background: var(--surface-3);
+  }
+
+  .pro-upload-progress::-webkit-progress-bar {
+    border-radius: inherit;
+    background: var(--surface-3);
+  }
+
+  .pro-upload-progress::-webkit-progress-value {
+    border-radius: inherit;
+    background: var(--primary);
+  }
+
+  .pro-upload-progress::-moz-progress-bar {
+    border-radius: inherit;
+    background: var(--primary);
+  }
+
+  .pro-upload-actions {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .pro-upload-action {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--text-sub);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .pro-upload-action:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
+    outline-offset: 2px;
+  }
+
+  .pro-upload-action-retry {
+    color: var(--primary);
+  }
+
+  .pro-upload-action-remove {
+    color: #d9363e;
+  }
+
+  @media (hover: hover) {
+    .pro-upload-action:hover {
+      background: var(--surface-3);
+    }
+  }
+
+  @keyframes pro-upload-pulse {
+    0%,
+    100% {
+      opacity: 0.55;
+      transform: translateY(1px);
+    }
+    50% {
+      opacity: 1;
+      transform: translateY(-1px);
+    }
+  }
+
   .type-icon {
     width: 16px;
     height: 16px;
@@ -2264,8 +2412,10 @@
     .playlist-ul,
     .btn-playlist-remove,
     .btn-playlist-remove svg,
-    .btn-playlist-remove::before {
+    .btn-playlist-remove::before,
+    .pro-upload-leading {
       transition: none !important;
+      animation: none !important;
     }
 
     .playlist-reorder-ghost,
@@ -3534,6 +3684,103 @@
   .btn-copy-invite-link:active {
     background: var(--surface-3);
     transform: scale(0.97);
+  }
+
+  /* Durable partial-outage state below the invite surface. Playback and
+     existing data channels are intentionally left uninterrupted. */
+  .signaling-health-status {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(var(--primary-rgb), 0.18);
+    border-radius: var(--radius-s, 14px);
+    background: rgba(var(--primary-rgb), 0.07);
+    color: var(--text-sub);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .signaling-health-status[hidden] {
+    display: none;
+  }
+
+  .signaling-health-indicator {
+    width: 8px;
+    height: 8px;
+    border: 2px solid currentColor;
+    border-radius: 50%;
+    opacity: 0.8;
+  }
+
+  .signaling-health-status[data-status='reconnecting'] .signaling-health-indicator {
+    border-right-color: transparent;
+    color: var(--primary);
+    animation: signaling-health-spin 0.9s linear infinite;
+  }
+
+  .signaling-health-status[data-status='recovered'] {
+    border-color: rgba(32, 164, 90, 0.22);
+    background: rgba(32, 164, 90, 0.08);
+  }
+
+  .signaling-health-status[data-status='recovered'] .signaling-health-indicator {
+    border-color: var(--success-filled);
+    background: var(--success-filled);
+  }
+
+  .signaling-health-status[data-status='exhausted'] {
+    border-color: rgba(245, 158, 11, 0.25);
+    background: rgba(245, 158, 11, 0.08);
+  }
+
+  .signaling-health-status[data-status='exhausted'] .signaling-health-indicator {
+    border-color: var(--warning-filled);
+    background: var(--warning-filled);
+  }
+
+  .signaling-health-message {
+    min-width: 0;
+  }
+
+  .signaling-health-actions {
+    grid-column: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .signaling-health-action {
+    min-height: 32px;
+    padding: 0 11px;
+    border: 1px solid rgba(var(--primary-rgb), 0.22);
+    border-radius: 999px;
+    background: var(--surface-1);
+    color: var(--primary);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .signaling-health-action:active {
+    transform: scale(0.97);
+  }
+
+  @keyframes signaling-health-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .signaling-health-status[data-status='reconnecting'] .signaling-health-indicator {
+      animation: none;
+      border-right-color: currentColor;
+      background: currentColor;
+    }
   }
 
   /* =============================================
@@ -5387,6 +5634,22 @@
     font-size: 13px;
     margin-bottom: 8px;
     color: var(--text-sub);
+  }
+
+  .setup-inline-error {
+    width: 100%;
+    margin: 12px 0 0;
+    color: #ff4d4f;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.45;
+    text-align: center;
+    white-space: pre-line;
+    word-break: keep-all;
+  }
+
+  .setup-auto-join-area .setup-inline-error {
+    margin-top: 0;
   }
 
   .setup-inner-desc {
@@ -8062,6 +8325,28 @@
     overflow-wrap: anywhere;
   }
 
+  /* Keep explanatory clicks available while making readiness obvious before
+     activation. aria-disabled is intentional here: native disabled controls
+     cannot surface the localized recovery hint. */
+  #btn-sync[aria-disabled='true'] {
+    opacity: 0.42;
+    cursor: not-allowed;
+  }
+
+  #btn-sync[aria-busy='true'] {
+    opacity: 0.72;
+    cursor: progress;
+  }
+
+  #btn-sync[aria-disabled='true']:hover {
+    background: var(--surface-2);
+  }
+
+  #btn-sync[aria-disabled='true']:active {
+    background: var(--surface-2);
+    transform: none;
+  }
+
   #btn-sync:hover,
   #btn-media-source:hover {
     background: var(--surface-3);
@@ -9160,11 +9445,26 @@ html:not(.ios-standalone) body {
 
 /* Stereo / top-of-tab "invite code mini display" cluster (#tab-play, etc) */
 .invite-meta-cluster {
+  appearance: none;
+  -webkit-appearance: none;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
   text-align: right;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.invite-meta-cluster:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: var(--radius-s);
 }
 
 .invite-meta-label {

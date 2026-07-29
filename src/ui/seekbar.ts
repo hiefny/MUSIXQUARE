@@ -10,20 +10,53 @@
 import { bus, createBusScope } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { fmtTime, getTrackPosition, seekTo } from '../player/transport.ts';
+import {
+  fmtTime,
+  getTrackPosition,
+  isFilePipelineBusyForPlay,
+  seekTo,
+} from '../player/transport.ts';
 import { getPlaybackModeActivitySnapshot } from '../player/ownership.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { getCurrentQueueItemId } from '../player/queue-model.ts';
+import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
+import {
+  roomCapabilityRequiredMessage,
+  showRoomCapabilityRequired,
+} from '../rooms/permission-feedback.ts';
+import { t } from '../i18n/index.ts';
+import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
 import type {
   ProPlaybackUiControlPendingEvent,
   QueueItemId,
   V2HostSeekPendingEvent,
 } from '../types/index.ts';
 import { syncRangeProgress } from './range-drag.ts';
+import { showToast } from './toast.ts';
 
-function isSeekUnavailable(): boolean {
+type SeekUnavailableReason = 'no-media' | 'not-ready' | 'permission' | 'system-audio';
+
+function getSeekUnavailableReason(): SeekUnavailableReason | null {
   const playback = getPlaybackModeActivitySnapshot();
-  return playback.activity === 'idle' || playback.mode === 'system-audio';
+  if (playback.activity === 'idle') return 'no-media';
+  if (playback.mode === 'system-audio') return 'system-audio';
+  if (playback.mode === 'file' && isFilePipelineBusyForPlay()) return 'not-ready';
+  if (playback.mode === 'youtube' && isYouTubeZeroStartProtocolActive()) return 'not-ready';
+
+  // Idle/demo playback intentionally remains locally seekable. Once a room
+  // role exists, however, project the same capability that transport.seekTo
+  // uses before the thumb can move, so a denied drag never snaps back later.
+  const roomAuthorityApplies =
+    getRoomContext().kind === 'pro' || getState('network.appRole') !== 'idle';
+  if (roomAuthorityApplies && !hasRoomCapability('playback.control')) return 'permission';
+  return null;
+}
+
+function getSeekUnavailableMessage(reason: SeekUnavailableReason): string {
+  if (reason === 'permission') return roomCapabilityRequiredMessage('playback.control');
+  if (reason === 'system-audio') return t('toast.sync_not_in_system_audio');
+  if (reason === 'not-ready') return t('toast.sync_not_ready');
+  return t('player.no_media');
 }
 
 function isSystemAudioMode(): boolean {
@@ -53,6 +86,7 @@ function setSeekSliderMax(slider: HTMLInputElement, value: string): void {
 const SEEK_DRAFT_RELEASE_TIMER = 'seekbar-draft-release';
 const SEEK_DRAFT_RELEASE_FALLBACK_MS = 350;
 let _seekDraftActive = false;
+let _seekDenialFeedbackActive = false;
 
 function anchorSeekDraft(slider: HTMLInputElement): void {
   const value = Number.parseFloat(slider.value);
@@ -67,6 +101,49 @@ function beginSeekDraft(slider: HTMLInputElement): void {
   if (_seekDraftActive && getState('player.isSeeking')) return;
   _seekDraftActive = true;
   setState('player.isSeeking', true);
+}
+
+function renderCanonicalSeekPosition(slider: HTMLInputElement): void {
+  const projection = getPendingSeekProjection();
+  const livePosition = getTrackPosition();
+  const canonicalPosition =
+    projection?.targetSeconds ??
+    (Number.isFinite(livePosition) && livePosition >= 0 ? livePosition : 0);
+  renderSeekPosition(canonicalPosition);
+  syncRangeProgress(slider);
+}
+
+function showSeekUnavailableFeedback(reason: SeekUnavailableReason): void {
+  if (_seekDenialFeedbackActive) return;
+  _seekDenialFeedbackActive = true;
+  if (reason === 'permission') {
+    showRoomCapabilityRequired('playback.control');
+  } else {
+    showToast(getSeekUnavailableMessage(reason));
+  }
+}
+
+function rejectSeekInteraction(slider: HTMLInputElement, announce = true): boolean {
+  const reason = getSeekUnavailableReason();
+  if (!reason) return false;
+  finishSeekDraft();
+  renderCanonicalSeekPosition(slider);
+  syncSeekAvailability(slider);
+  if (announce) showSeekUnavailableFeedback(reason);
+  return true;
+}
+
+function syncSeekAvailability(
+  slider = document.getElementById('seek-slider') as HTMLInputElement | null,
+): void {
+  if (!slider) return;
+  const reason = getSeekUnavailableReason();
+  slider.setAttribute('aria-disabled', String(reason !== null));
+  if (reason) {
+    slider.title = getSeekUnavailableMessage(reason).replace(/\n/g, ' ');
+  } else {
+    slider.removeAttribute('title');
+  }
 }
 
 function finishSeekDraft(slider?: HTMLInputElement): void {
@@ -95,16 +172,34 @@ function initSeekBarInput(): void {
   const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
   if (!slider) return;
 
-  slider.addEventListener('mousedown', () => beginSeekDraft(slider));
-  slider.addEventListener('pointerdown', () => beginSeekDraft(slider));
-  slider.addEventListener('touchstart', () => beginSeekDraft(slider), {
-    passive: true,
-  });
-  slider.addEventListener('input', () => {
-    if (isSeekUnavailable()) {
-      setSeekSliderValue(slider, '0');
+  const beginPointerDraft = (event: Event) => {
+    _seekDenialFeedbackActive = false;
+    if (rejectSeekInteraction(slider)) {
+      event.preventDefault();
       return;
     }
+    beginSeekDraft(slider);
+  };
+  slider.addEventListener('pointerdown', beginPointerDraft);
+  // Pointer-enabled browsers dispatch compatibility mouse/touch events after
+  // pointerdown. Keep the legacy listeners only as a fallback so one physical
+  // drag cannot open the same permission feedback twice.
+  slider.addEventListener('mousedown', (event) => {
+    if (typeof PointerEvent !== 'undefined') return;
+    beginPointerDraft(event);
+  });
+  slider.addEventListener(
+    'touchstart',
+    (event) => {
+      if (typeof PointerEvent !== 'undefined') return;
+      beginPointerDraft(event);
+    },
+    {
+      passive: false,
+    },
+  );
+  slider.addEventListener('input', () => {
+    if (rejectSeekInteraction(slider)) return;
     // Keyboard seeks do not have a pointerdown/touchstart boundary.
     beginSeekDraft(slider);
     const formatted = fmtTime(parseFloat(slider.value));
@@ -114,12 +209,8 @@ function initSeekBarInput(): void {
   });
 
   slider.addEventListener('change', () => {
+    if (rejectSeekInteraction(slider)) return;
     beginSeekDraft(slider);
-    if (isSeekUnavailable()) {
-      setSeekSliderValue(slider, '0');
-      finishSeekDraft(slider);
-      return;
-    }
     const seekTime = parseFloat(slider.value);
     try {
       // PRO command admission emits its pending token synchronously. Release
@@ -138,6 +229,18 @@ function initSeekBarInput(): void {
   slider.addEventListener('touchcancel', () => finishSeekDraft(slider), { passive: true });
   slider.addEventListener('contextmenu', () => finishSeekDraft(slider));
   slider.addEventListener('blur', () => finishSeekDraft(slider));
+  slider.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {
+      return;
+    }
+    _seekDenialFeedbackActive = false;
+    if (rejectSeekInteraction(slider)) event.preventDefault();
+  });
+  slider.addEventListener('keyup', () => {
+    _seekDenialFeedbackActive = false;
+  });
+
+  syncSeekAvailability(slider);
 }
 
 // ─── rAF Interpolation Loop ─────────────────────────────────────
@@ -288,6 +391,18 @@ function initSeekBarBusHandlers(): void {
   _busScope.dispose();
   finishSeekDraft();
   clearPendingSeekProjections();
+
+  const refreshAvailability = () => syncSeekAvailability();
+  _busScope.on('state:playback.mode', refreshAvailability);
+  _busScope.on('state:playback.activity', refreshAvailability);
+  _busScope.on('state:network.appRole', refreshAvailability);
+  _busScope.on('state:network.hostConn', refreshAvailability);
+  _busScope.on('state:network.isOperator', refreshAvailability);
+  _busScope.on('state:network.standardRoomCapabilities', refreshAvailability);
+  _busScope.on('state:room.context', refreshAvailability);
+  _busScope.on('state:playback.lifecycle', refreshAvailability);
+  _busScope.on('youtube:zero-start-readiness-changed', refreshAvailability);
+  _busScope.on('i18n:changed', refreshAvailability);
 
   _busScope.on('ui:duration-update', (duration) => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;

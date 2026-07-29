@@ -38,6 +38,15 @@ import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { beginProRoomTrackChangeIntent } from '../player/track-change-intent.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
+import {
+  acknowledgeCommittedProRoomUploads,
+  cancelProRoomUpload,
+  getProRoomUploadRows,
+  removeProRoomUpload,
+  retryProRoomUpload,
+  subscribeProRoomUploadRows,
+  type ProRoomUploadRow,
+} from '../pro-room/upload-queue.ts';
 
 const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
 // A full YouTube playlist can contain 5,000 entries. Building every row in
@@ -59,6 +68,7 @@ let _followController: PlaylistFollowController | null = null;
 let _currentJumpController: PlaylistCurrentJumpController | null = null;
 let _followList: HTMLElement | null = null;
 let _followScrollContainer: HTMLElement | null = null;
+let _unsubscribeProRoomUploadRows: (() => void) | null = null;
 
 // Expansion is view-local. It must not increment the authoritative playlist
 // revision or clone a queue item while a drag owns that item's identity.
@@ -429,16 +439,30 @@ function patchRenderedSubPlaylistTitles(list: HTMLElement): boolean {
   return true;
 }
 
-interface PlaylistFocusSnapshot {
-  queueItemId: QueueItemId;
-  kind: 'action' | 'reorder' | 'sub-track';
-  action?: string;
-  subIndex?: number;
-}
+type PlaylistFocusSnapshot =
+  | {
+      owner: 'queue';
+      queueItemId: QueueItemId;
+      kind: 'action' | 'reorder' | 'sub-track';
+      action?: string;
+      subIndex?: number;
+    }
+  | {
+      owner: 'upload';
+      uploadId: string;
+      action: string;
+    };
 
 function capturePlaylistFocus(list: HTMLElement): PlaylistFocusSnapshot | null {
   const active = document.activeElement;
   if (!(active instanceof HTMLElement) || !list.contains(active)) return null;
+  const uploadOwner = active.closest<HTMLElement>('[data-pro-upload-id]');
+  const uploadId = uploadOwner?.dataset.proUploadId;
+  const uploadAction = active.closest<HTMLElement>('[data-pro-upload-action]')?.dataset
+    .proUploadAction;
+  if (uploadId && uploadAction) {
+    return { owner: 'upload', uploadId, action: uploadAction };
+  }
   const owner = active.closest<HTMLElement>('[data-queue-item-id]');
   const queueItemId = owner?.dataset.queueItemId as QueueItemId | undefined;
   if (!queueItemId) return null;
@@ -446,17 +470,29 @@ function capturePlaylistFocus(list: HTMLElement): PlaylistFocusSnapshot | null {
   const subTrack = active.closest<HTMLElement>('.sub-track-item[data-sub-index]');
   if (subTrack) {
     const subIndex = Number(subTrack.dataset.subIndex);
-    return Number.isSafeInteger(subIndex) ? { queueItemId, kind: 'sub-track', subIndex } : null;
+    return Number.isSafeInteger(subIndex)
+      ? { owner: 'queue', queueItemId, kind: 'sub-track', subIndex }
+      : null;
   }
   if (active.closest('.playlist-reorder-handle')) {
-    return { queueItemId, kind: 'reorder' };
+    return { owner: 'queue', queueItemId, kind: 'reorder' };
   }
   const action = active.closest<HTMLElement>('[data-action]')?.dataset.action;
-  return action ? { queueItemId, kind: 'action', action } : null;
+  return action ? { owner: 'queue', queueItemId, kind: 'action', action } : null;
 }
 
 function restorePlaylistFocus(list: HTMLElement, snapshot: PlaylistFocusSnapshot | null): void {
   if (!snapshot) return;
+  if (snapshot.owner === 'upload') {
+    const entry = Array.from(list.querySelectorAll<HTMLElement>('[data-pro-upload-id]')).find(
+      (candidate) => candidate.dataset.proUploadId === snapshot.uploadId,
+    );
+    const target = Array.from(
+      entry?.querySelectorAll<HTMLElement>('[data-pro-upload-action]') ?? [],
+    ).find((candidate) => candidate.dataset.proUploadAction === snapshot.action);
+    target?.focus({ preventScroll: true });
+    return;
+  }
   const entry = Array.from(list.children).find(
     (child): child is HTMLElement =>
       child instanceof HTMLElement && child.dataset.queueItemId === snapshot.queueItemId,
@@ -480,6 +516,104 @@ function restorePlaylistFocus(list: HTMLElement, snapshot: PlaylistFocusSnapshot
   target?.focus({ preventScroll: true });
 }
 
+function proRoomUploadStatus(row: ProRoomUploadRow): string {
+  switch (row.phase) {
+    case 'waiting':
+      return t('pro.upload.waiting');
+    case 'uploading':
+      return t('pro.upload.progress', { percent: row.progressPercent });
+    case 'confirming':
+      return t('pro.upload.confirming');
+    case 'completed':
+      return t('pro.upload.completed');
+    case 'failed':
+      return t('pro.upload.failed');
+  }
+}
+
+function createProRoomUploadAction(
+  row: ProRoomUploadRow,
+  action: 'cancel' | 'retry' | 'remove',
+): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `pro-upload-action pro-upload-action-${action}`;
+  button.dataset.proUploadAction = action;
+  button.dataset.proUploadId = row.id;
+  const visibleKey =
+    action === 'cancel' ? ('common.cancel' as const) : (`pro.upload.${action}` as const);
+  const labelKey = `pro.upload.${action}_file` as
+    | 'pro.upload.cancel_file'
+    | 'pro.upload.retry_file'
+    | 'pro.upload.remove_file';
+  button.textContent = t(visibleKey);
+  button.setAttribute('aria-label', t(labelKey, { name: row.name }));
+  return button;
+}
+
+function appendProRoomUploadRow(list: HTMLElement, upload: ProRoomUploadRow): void {
+  const entry = document.createElement('li');
+  entry.className = `playlist-entry pro-upload-entry is-${upload.phase}`;
+  entry.dataset.proUploadId = upload.id;
+
+  const row = document.createElement('div');
+  row.className = 'track-item pro-upload-row';
+  row.dataset.proUploadId = upload.id;
+  row.setAttribute(
+    'aria-busy',
+    upload.phase === 'waiting' || upload.phase === 'uploading' || upload.phase === 'confirming'
+      ? 'true'
+      : 'false',
+  );
+
+  const leading = document.createElement('span');
+  leading.className = 'pro-upload-leading';
+  leading.setAttribute('aria-hidden', 'true');
+  leading.innerHTML =
+    '<svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 15.5v3A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-3"/></svg>';
+
+  const copy = document.createElement('span');
+  copy.className = 'pro-upload-copy';
+  const name = document.createElement('span');
+  name.className = 'track-name-text pro-upload-name';
+  name.textContent = upload.name;
+  applyUserTextFontFallback(name, upload.name);
+  const status = document.createElement('span');
+  status.className = 'pro-upload-status';
+  if (upload.phase === 'failed') {
+    status.setAttribute('role', 'alert');
+  } else if (upload.phase !== 'uploading') {
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+  }
+  status.textContent = proRoomUploadStatus(upload);
+  copy.append(name, status);
+
+  if (upload.phase === 'uploading') {
+    const progress = document.createElement('progress');
+    progress.className = 'pro-upload-progress';
+    progress.max = 100;
+    progress.value = upload.progressPercent;
+    progress.setAttribute('aria-label', `${upload.name}: ${status.textContent}`);
+    copy.appendChild(progress);
+  }
+
+  const actions = document.createElement('span');
+  actions.className = 'pro-upload-actions';
+  if (upload.phase === 'waiting' || upload.phase === 'uploading') {
+    actions.appendChild(createProRoomUploadAction(upload, 'cancel'));
+  } else if (upload.phase === 'failed') {
+    actions.append(
+      createProRoomUploadAction(upload, 'retry'),
+      createProRoomUploadAction(upload, 'remove'),
+    );
+  }
+
+  row.append(leading, copy, actions);
+  entry.appendChild(row);
+  list.appendChild(entry);
+}
+
 export function updatePlaylistUI(): void {
   const list = document.getElementById('playlist-ui');
   if (!list) return;
@@ -497,6 +631,13 @@ export function updatePlaylistUI(): void {
     log.warn('[Playlist] playlist is not an array; render skipped');
     return;
   }
+  const committedIds = new Set(playlist.map((item) => item.queueItemId));
+  // A server commit may outlive both its append response and the immediate
+  // reconciliation request. A later authoritative playlist snapshot settles
+  // that ambiguous failure and owns the row, so retire the matching temporary
+  // task instead of rendering a stale failed duplicate.
+  acknowledgeCommittedProRoomUploads(committedIds);
+  const uploads = getProRoomUploadRows();
 
   pruneExpansionOverrides(playlist);
   const scrollContainer = list.closest<HTMLElement>('.tab-body') ?? list;
@@ -505,7 +646,7 @@ export function updatePlaylistUI(): void {
   const focusSnapshot = capturePlaylistFocus(list);
   list.replaceChildren();
 
-  if (playlist.length === 0) {
+  if (playlist.length === 0 && uploads.length === 0) {
     followController.reset();
     _currentJumpController?.afterRender();
     const key = 'playlist.empty_hint';
@@ -573,6 +714,7 @@ export function updatePlaylistUI(): void {
     appendSubPlaylist(entry, item, isCurrent, currentYouTubeSubIndex);
     list.appendChild(entry);
   });
+  for (const upload of uploads) appendProRoomUploadRow(list, upload);
   if (playlistIsVisible()) restorePlaylistFocus(list, focusSnapshot);
 
   // DOM replacement must not turn an in-flight follow into a false success.
@@ -636,6 +778,25 @@ function installDomDelegation(list: HTMLElement): void {
       const target = event.target instanceof Element ? event.target : null;
       if (!target || target.closest('.playlist-reorder-handle')) return;
 
+      const uploadAction = target.closest<HTMLElement>('[data-pro-upload-action]');
+      if (uploadAction) {
+        event.preventDefault();
+        event.stopPropagation();
+        const id = uploadAction.dataset.proUploadId;
+        if (!id) return;
+        switch (uploadAction.dataset.proUploadAction) {
+          case 'cancel':
+            cancelProRoomUpload(id);
+            break;
+          case 'retry':
+            retryProRoomUpload(id);
+            break;
+          case 'remove':
+            removeProRoomUpload(id);
+            break;
+        }
+        return;
+      }
       const expand = target.closest<HTMLElement>('[data-action="expand"]');
       if (expand) {
         event.preventDefault();
@@ -763,6 +924,8 @@ export function initPlaylistView(): void {
   _followController = null;
   _currentJumpController?.destroy();
   _currentJumpController = null;
+  _unsubscribeProRoomUploadRows?.();
+  _unsubscribeProRoomUploadRows = null;
   _followList = null;
   _followScrollContainer = null;
   if (_playlistRaf) cancelAnimationFrame(_playlistRaf);
@@ -868,6 +1031,7 @@ export function initPlaylistView(): void {
   });
   _busScope.on('i18n:changed', schedulePlaylistUpdate);
   _busScope.on('playlist:items-added', () => _reorderController?.notifyItemsAdded());
+  _unsubscribeProRoomUploadRows = subscribeProRoomUploadRows(schedulePlaylistUpdate);
 
   _busScope.on('ui:playlist-tab-opened', () => {
     const selection = currentFollowSelection();

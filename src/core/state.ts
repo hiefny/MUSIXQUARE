@@ -188,6 +188,11 @@ function createInitialState(): StateTree {
       chatFrozen: false,
       slowmodeSeconds: 0,
       filterEnabled: false,
+      signalingHealth: {
+        status: 'healthy',
+        attempt: 0,
+        maxAttempts: 5,
+      },
     },
 
     playlist: {

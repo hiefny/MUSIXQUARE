@@ -438,6 +438,26 @@ describe('PRO room media-source capabilities', () => {
     expect(document.getElementById('btn-media-source')?.style.opacity).toBe('');
   });
 
+  it('keeps playlist media addition available while the host shares system audio', () => {
+    document.body.innerHTML = `
+      <button id="btn-add-media"></button>
+      <button id="btn-media-source"></button>
+      <div id="media-source-overlay"></div>
+    `;
+    setState('network.appRole', 'host');
+    setState('network.hostConn', null);
+    setPlaybackSystemAudioPlaying();
+
+    initPlayerControls();
+    const addMedia = document.getElementById('btn-add-media');
+    expect(addMedia?.getAttribute('aria-disabled')).toBe('false');
+
+    addMedia?.click();
+    expect(document.getElementById('media-source-overlay')?.classList.contains('active')).toBe(
+      true,
+    );
+  });
+
   it('lets a delegated media manager control repeat and shuffle independently', () => {
     document.body.innerHTML = `
       <button id="btn-repeat"></button>
@@ -497,6 +517,7 @@ describe('PRO room media-source capabilities', () => {
 
     initPlayerControls();
     expect(document.getElementById('btn-media-source')?.style.opacity).toBe('');
+    expect(document.getElementById('btn-add-media')?.getAttribute('aria-disabled')).toBe('false');
     document.getElementById('btn-add-media')?.click();
     expect(document.getElementById('media-source-overlay')?.classList.contains('active')).toBe(
       true,
@@ -757,7 +778,9 @@ describe('PRO room media-source capabilities', () => {
 describe('initPlayerControls playback mode rendering', () => {
   function renderPlaybackControls(): void {
     document.body.innerHTML = `
+      <button id="btn-prev"></button>
       <button id="play-btn"><svg><path d=""></path></svg></button>
+      <button id="btn-next"></button>
       <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
       <div class="vinyl-wrapper" aria-busy="false"><canvas id="visualizerCanvas"></canvas></div>
       <div class="video-wrapper" aria-busy="false">
@@ -1185,6 +1208,25 @@ describe('initPlayerControls playback mode rendering', () => {
     expect(playBtn?.getAttribute('aria-disabled')).toBe('false');
   });
 
+  it('projects granular standard-room playback authority onto every transport control', () => {
+    renderPlaybackControls();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['media.add', 'queue.mutate']);
+    initPlayerControls();
+    bus.emit('ui:play-btn-state', true);
+
+    for (const id of ['btn-prev', 'play-btn', 'btn-next']) {
+      expect(document.getElementById(id)?.getAttribute('aria-disabled')).toBe('true');
+    }
+
+    setState('network.standardRoomCapabilities', ['media.add', 'queue.mutate', 'playback.control']);
+    for (const id of ['btn-prev', 'play-btn', 'btn-next']) {
+      expect(document.getElementById(id)?.getAttribute('aria-disabled')).toBe('false');
+    }
+  });
+
   it.each([PLAYBACK_STATE.DOWNLOADING, PLAYBACK_STATE.AWAITING_PRELOAD, PLAYBACK_STATE.DECODING])(
     'shows the loading play button while a local file is preparing (%s)',
     (lifecycle) => {
@@ -1487,7 +1529,7 @@ describe('initPlayerControls volume icon', () => {
 describe('initPlayerControls sync button', () => {
   function renderSyncControls(): void {
     document.body.innerHTML = `
-      <button id="btn-sync"></button>
+      <button id="btn-sync"><span data-i18n="common.sync">Sync</span></button>
       <button id="play-btn"><svg><path d=""></path></svg></button>
       <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
       <div id="manual-sync-overlay" aria-hidden="true">
@@ -1509,11 +1551,27 @@ describe('initPlayerControls sync button', () => {
     renderSyncControls();
 
     initPlayerControls();
+    expect(document.getElementById('btn-sync')?.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById('btn-sync')?.title).toContain("There's no media to sync");
     document.getElementById('btn-sync')?.click();
 
     expect(showToast).toHaveBeenCalledWith(
       "There's no media to sync.\nSelect something to play first",
     );
+  });
+
+  it('updates sync readiness before activation when playable media appears', () => {
+    renderSyncControls();
+
+    initPlayerControls();
+    const button = document.getElementById('btn-sync') as HTMLButtonElement;
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+
+    expect(button.getAttribute('aria-disabled')).toBe('false');
+    expect(button.hasAttribute('title')).toBe(false);
   });
 
   it('keeps the transient not-ready message for a guest waiting on the host', () => {
@@ -1622,6 +1680,42 @@ describe('initPlayerControls sync button', () => {
     });
     expect(broadcastYouTubeSync).not.toHaveBeenCalled();
     expect(guestRendezvousSync).not.toHaveBeenCalled();
+  });
+
+  it('shows one PRO synchronization request as pending until reconciliation settles', async () => {
+    renderSyncControls();
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    let resolveReconciliation!: (value: boolean) => void;
+    proPlaybackRuntime.reconcile.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        resolveReconciliation = resolve;
+      }),
+    );
+
+    initPlayerControls();
+    const button = document.getElementById('btn-sync') as HTMLButtonElement;
+    button.click();
+    await vi.waitFor(() => expect(proPlaybackRuntime.reconcile).toHaveBeenCalledTimes(1));
+
+    expect(button.getAttribute('aria-busy')).toBe('true');
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(button.textContent).toBe('Syncing...');
+
+    resolveReconciliation(true);
+    await vi.waitFor(() => expect(button.getAttribute('aria-busy')).toBe('false'));
+
+    expect(button.getAttribute('aria-disabled')).toBe('false');
+    expect(button.textContent).toBe('Sync');
   });
 
   it('keeps the PRO nudge panel closed when server reconciliation cannot realign media', async () => {

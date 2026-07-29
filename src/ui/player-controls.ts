@@ -55,7 +55,10 @@ import {
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
 import { getRoomContext, hasRoomCapability, isCoordinator } from '../rooms/authority.ts';
-import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
+import {
+  roomCapabilityRequiredMessage,
+  showRoomCapabilityRequired,
+} from '../rooms/permission-feedback.ts';
 import {
   clearProRoomTrackChangeIntent,
   isProRoomTrackChangeIntentPending,
@@ -113,6 +116,8 @@ let _manualSyncPreviousFocus: HTMLElement | null = null;
 let _mediaSourcePreviousFocus: HTMLElement | null = null;
 let _youtubePopupPreviousFocus: HTMLElement | null = null;
 let _playButtonMediaEnabled = false;
+let _mainSyncPending = false;
+let _mainSyncRequestToken = 0;
 
 function isFilePlayButtonLoading(): boolean {
   const lifecycle = getState('playback.lifecycle');
@@ -167,10 +172,22 @@ function syncFilePlaybackLoadingUi(
 
 function syncPlayButtonAuthority(): void {
   const btn = document.getElementById('play-btn');
-  if (!btn) return;
   const context = getRoomContext();
-  const hasAuthority = context.kind !== 'pro' || hasRoomCapability('playback.control');
-  btn.setAttribute('aria-disabled', String(!_playButtonMediaEnabled || !hasAuthority));
+  const roomAuthorityApplies = context.kind === 'pro' || getState('network.appRole') !== 'idle';
+  const hasAuthority = !roomAuthorityApplies || hasRoomCapability('playback.control');
+  const authorityMessage = roomCapabilityRequiredMessage('playback.control');
+  if (btn) {
+    btn.setAttribute('aria-disabled', String(!_playButtonMediaEnabled || !hasAuthority));
+    if (!hasAuthority) btn.title = authorityMessage;
+    else btn.removeAttribute('title');
+  }
+  for (const id of ['btn-prev', 'btn-next']) {
+    const transportButton = document.getElementById(id);
+    if (!transportButton) continue;
+    transportButton.setAttribute('aria-disabled', String(!hasAuthority));
+    if (!hasAuthority) transportButton.title = authorityMessage;
+    else transportButton.removeAttribute('title');
+  }
 }
 
 function refreshFilePlayButtonLoading(): void {
@@ -602,10 +619,32 @@ function syncSystemAudioSourceButton(): void {
 }
 
 function syncMediaSourceButtonAuthority(): void {
-  const mediaBtn = document.getElementById('btn-media-source');
-  if (!mediaBtn) return;
   const canSelectMedia = hasRoomCapability('media.add') || hasRoomCapability('asset.upload');
-  mediaBtn.style.opacity = canSelectMedia ? '' : '0.15';
+  for (const id of ['btn-media-source', 'btn-add-media']) {
+    const mediaBtn = document.getElementById(id);
+    if (!mediaBtn) continue;
+    const canStopSystemAudio =
+      id === 'btn-media-source' &&
+      isPlaybackModeSystemAudio() &&
+      (getRoomContext().kind === 'pro'
+        ? isLocalProSystemAudioOwner()
+        : !getState('network.hostConn'));
+    const enabled =
+      id === 'btn-add-media'
+        ? canSelectMedia
+        : isPlaybackModeSystemAudio()
+          ? canStopSystemAudio
+          : canSelectMedia;
+    mediaBtn.setAttribute('aria-disabled', String(!enabled));
+    mediaBtn.style.opacity = enabled ? '' : '0.15';
+    if (enabled) {
+      mediaBtn.removeAttribute('title');
+    } else {
+      mediaBtn.title = isPlaybackModeSystemAudio()
+        ? t('system_audio.sharing')
+        : roomCapabilityRequiredMessage('media.add');
+    }
+  }
 }
 
 function canConfigureQueueMode(): boolean {
@@ -858,7 +897,72 @@ function canUseManualSyncPanel(): boolean {
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
 }
 
+type MainSyncUnavailableReason = 'no-media' | 'not-ready' | 'system-audio';
+
+function getMainSyncUnavailableReason(): MainSyncUnavailableReason | null {
+  if (_mainSyncPending) return 'not-ready';
+  if (isPlaybackModeSystemAudio()) return 'system-audio';
+  if (isPlaybackModeYouTube() && isYouTubeZeroStartProtocolActive()) return 'not-ready';
+
+  const hostConn = getState('network.hostConn');
+  const room = getRoomContext();
+  const isProRoom = room.kind === 'pro';
+  const hasMedia = isPlaybackModeFile() || isPlaybackModeYouTube();
+  if (!hasMedia) return hostConn ? 'not-ready' : 'no-media';
+  if (hostConn && !hostConn.open) return 'not-ready';
+
+  if (isPlaybackModeFile()) {
+    if (isFilePipelineBusyForPlay()) return 'not-ready';
+    if (hostConn && !getCurrentAudioBuffer()) return 'not-ready';
+    if (!hostConn && !isProRoom && !getCurrentQueueItemId()) return 'not-ready';
+  }
+  return null;
+}
+
+function getMainSyncUnavailableMessage(reason: MainSyncUnavailableReason): string {
+  if (reason === 'system-audio') return t('toast.sync_not_in_system_audio');
+  if (reason === 'no-media') return t('toast.sync_no_media');
+  return t('toast.sync_not_ready');
+}
+
+function syncMainSyncButtonState(): void {
+  const button = document.getElementById('btn-sync');
+  if (!button) return;
+  const reason = getMainSyncUnavailableReason();
+  button.setAttribute('aria-disabled', String(reason !== null));
+  button.setAttribute('aria-busy', String(_mainSyncPending));
+  if (reason) {
+    button.title = getMainSyncUnavailableMessage(reason).replace(/\n/g, ' ');
+  } else {
+    button.removeAttribute('title');
+  }
+
+  const label = button.querySelector<HTMLElement>('span');
+  if (!label) return;
+  const key: I18nKey = _mainSyncPending ? 'toast.yt_sync_start' : 'common.sync';
+  label.textContent = t(key);
+  label.setAttribute('data-i18n', key);
+}
+
+function beginMainSyncRequest(): number {
+  _mainSyncRequestToken += 1;
+  _mainSyncPending = true;
+  syncMainSyncButtonState();
+  return _mainSyncRequestToken;
+}
+
+function finishMainSyncRequest(token: number): void {
+  if (token !== _mainSyncRequestToken) return;
+  _mainSyncPending = false;
+  syncMainSyncButtonState();
+}
+
 function handleMainSyncBtn(): void {
+  if (_mainSyncPending) {
+    showToast(t('toast.sync_not_ready'));
+    return;
+  }
+
   // System Audio sharing: nudge sync still not meaningful (WebRTC realtime stream)
   if (isPlaybackModeSystemAudio()) {
     showToast(t('toast.sync_not_in_system_audio'));
@@ -888,6 +992,7 @@ function handleMainSyncBtn(): void {
   // another browser.
   if (isProRoom) {
     const roomId = room.roomId;
+    const requestToken = beginMainSyncRequest();
     void import('../pro-room/runtime.ts')
       .then(({ requestActiveProRoomPlaybackReconciliation }) =>
         requestActiveProRoomPlaybackReconciliation(),
@@ -906,6 +1011,9 @@ function handleMainSyncBtn(): void {
         if (currentRoom.kind !== 'pro' || currentRoom.roomId !== roomId) return;
         log.warn('[PRO Playback] Manual synchronization failed', error);
         showToast(t('toast.sync_not_ready'));
+      })
+      .finally(() => {
+        finishMainSyncRequest(requestToken);
       });
     return;
   }
@@ -1386,32 +1494,43 @@ export function initPlayerControls(): void {
   // Ordinary guests cannot select media, while every authenticated PRO
   // controller can. Derive the visual affordance from the same capability
   // guard as the click handler instead of the legacy host/guest topology.
-  _busScope.on('state:network.hostConn', syncMediaSourceButtonAuthority);
+  _busScope.on('state:network.hostConn', () => {
+    syncMediaSourceButtonAuthority();
+    syncPlayButtonAuthority();
+    syncMainSyncButtonState();
+  });
   _busScope.on('state:network.appRole', () => {
     updateRoleBadge();
     syncMediaSourceButtonAuthority();
     syncQueueModeButtonAuthority();
+    syncPlayButtonAuthority();
+    syncMainSyncButtonState();
   });
   _busScope.on('state:network.standardRoomCapabilities', () => {
     syncMediaSourceButtonAuthority();
     syncQueueModeButtonAuthority();
+    syncPlayButtonAuthority();
   });
   _busScope.on('state:room.context', () => {
     updateRoleBadge();
     syncMediaSourceButtonAuthority();
     syncQueueModeButtonAuthority();
     syncPlayButtonAuthority();
+    syncMainSyncButtonState();
   });
   updateRoleBadge();
   syncMediaSourceButtonAuthority();
   syncQueueModeButtonAuthority();
   syncPlayButtonAuthority();
+  syncMainSyncButtonState();
 
   // Language switch → refresh translated track title + tab title
   // i18n:changed fires after DOM translation, so playback metadata wins over placeholders.
   const refreshPlayerText = () => {
     refreshTrackTitle();
     setTabTitleTrack(getTabTitleTrack());
+    syncMediaSourceButtonAuthority();
+    syncMainSyncButtonState();
   };
   _busScope.on('i18n:changed', refreshPlayerText);
   _busScope.on('ui:player-panel-visible', refreshPlayerText);
@@ -1508,6 +1627,8 @@ export function initPlayerControls(): void {
   scopePlaybackModeActivity(
     _busScope,
     (playback) => {
+      syncMainSyncButtonState();
+      syncMediaSourceButtonAuthority();
       let playing = playback.activity === 'playing' && playback.mode !== null;
       if (playback.mode === 'youtube') {
         // The playback mode transitions to youtube the moment iframe creation
@@ -1700,9 +1821,11 @@ export function initPlayerControls(): void {
   refreshFilePlayButtonLoading();
   _busScope.on('state:playback.lifecycle', () => {
     refreshFilePlayButtonLoading();
+    syncMainSyncButtonState();
   });
   _busScope.on('state:network.pendingTrackChangeQueueItemId', () => {
     refreshFilePlayButtonLoading();
+    syncMainSyncButtonState();
   });
   _busScope.on('state:network.hostConn', (hostConn) => {
     if (!hostConn && isProRoomTrackChangeIntentPending()) {
@@ -1717,6 +1840,7 @@ export function initPlayerControls(): void {
     // without changing hostConn or room.context.
     syncMediaSourceButtonAuthority();
     syncQueueModeButtonAuthority();
+    syncPlayButtonAuthority();
   });
   _busScope.on('state:room.context', () => {
     const context = getState('room.context');
@@ -1729,9 +1853,11 @@ export function initPlayerControls(): void {
     syncSystemAudioSourceButton();
     syncMediaSourceButtonAuthority();
     syncQueueModeButtonAuthority();
+    syncMainSyncButtonState();
   });
   _busScope.on('pro-system-audio:state-changed', () => {
     syncSystemAudioSourceButton();
+    syncMediaSourceButtonAuthority();
   });
   _busScope.on('state:playlist.items', () => {
     const pendingQueueItemId = getState('network.pendingTrackChangeQueueItemId');
@@ -1791,7 +1917,11 @@ export function initPlayerControls(): void {
   _busScope.on('state:playback.activity', closeManualSyncIfInvalid);
   _busScope.on('state:network.hostConn', closeManualSyncIfInvalid);
   _busScope.on('state:network.sessionCode', closeManualSyncIfInvalid);
-  _busScope.on('player:buffer-changed', closeManualSyncIfInvalid);
+  _busScope.on('player:buffer-changed', () => {
+    closeManualSyncIfInvalid();
+    syncMainSyncButtonState();
+  });
+  _busScope.on('youtube:zero-start-readiness-changed', syncMainSyncButtonState);
 
   // YouTube time update — handled by seekbar.ts
 

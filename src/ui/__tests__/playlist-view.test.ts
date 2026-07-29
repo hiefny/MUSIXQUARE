@@ -11,6 +11,7 @@ import { setLanguageMode, t } from '../../i18n/index.ts';
 import { initPlaylistView, updatePlaylistUI } from '../playlist-view.ts';
 import { safeSend } from '../../network/peer.ts';
 import { updateSubItemTitle } from '../../youtube/_state.ts';
+import { ProRoomUploadQueue, setActiveProRoomUploadQueue } from '../../pro-room/upload-queue.ts';
 
 vi.mock('../../network/peer.ts', () => ({
   safeSend: vi.fn(),
@@ -20,7 +21,12 @@ vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+let proRoomUploadQueue: ProRoomUploadQueue | null = null;
+
 beforeEach(() => {
+  proRoomUploadQueue?.reset();
+  proRoomUploadQueue = null;
+  setActiveProRoomUploadQueue(null);
   resetState();
   bus.clear();
   clearAllManagedTimers();
@@ -37,6 +43,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  proRoomUploadQueue?.reset();
+  proRoomUploadQueue = null;
+  setActiveProRoomUploadQueue(null);
   clearAllManagedTimers();
 });
 
@@ -141,6 +150,152 @@ describe('playlist empty state i18n', () => {
 
     const empty = document.querySelector<HTMLElement>('.list-empty-state');
     expect(empty?.textContent).toBe('No media yet.');
+  });
+});
+
+describe('PRO upload rows', () => {
+  it('renders every selected file without projecting temporary rows as playlist items', async () => {
+    const progressReporter: { current?: (fraction: number) => void } = {};
+    proRoomUploadQueue = new ProRoomUploadQueue({
+      createId: vi.fn().mockReturnValueOnce(FILE_A).mockReturnValueOnce(YT_B),
+      run: async (_input, context) => {
+        progressReporter.current ??= context.onProgress;
+        await new Promise<void>((_resolve, reject) => {
+          context.signal.addEventListener('abort', () => reject(context.signal.reason), {
+            once: true,
+          });
+        });
+      },
+    });
+    setActiveProRoomUploadQueue(proRoomUploadQueue);
+    initPlaylistView();
+
+    proRoomUploadQueue.enqueueFiles([new File(['a'], 'one.flac'), new File(['bb'], 'two.flac')]);
+    await nextAnimationFrame();
+
+    const entries = document.querySelectorAll<HTMLElement>('.pro-upload-entry');
+    expect(entries).toHaveLength(2);
+    expect(document.querySelector('.list-empty-state')).toBeNull();
+    expect(entries[0]?.dataset.queueItemId).toBeUndefined();
+    expect(entries[0]?.dataset.proUploadId).toBe(FILE_A);
+    expect(entries[0]?.querySelector('.pro-upload-name')?.textContent).toBe('one.flac');
+    expect(entries[0]?.querySelector('.pro-upload-status')?.textContent).toBe(
+      t('pro.upload.progress', { percent: 0 }),
+    );
+    expect(entries[1]?.querySelector('.pro-upload-status')?.textContent).toBe(
+      t('pro.upload.waiting'),
+    );
+
+    const cancel = entries[0]?.querySelector<HTMLButtonElement>(
+      '[data-pro-upload-action="cancel"]',
+    );
+    expect(cancel?.getAttribute('aria-label')).toBe(
+      t('pro.upload.cancel_file', { name: 'one.flac' }),
+    );
+    cancel?.focus();
+    progressReporter.current?.(0.37);
+    await nextAnimationFrame();
+
+    const replacementCancel = document.querySelector<HTMLButtonElement>(
+      `[data-pro-upload-id="${FILE_A}"] [data-pro-upload-action="cancel"]`,
+    );
+    expect(document.activeElement).toBe(replacementCancel);
+    expect(document.querySelector<HTMLProgressElement>('.pro-upload-progress')?.value).toBe(37);
+  });
+
+  it('exposes failed uploads as accessible retry/remove actions and suppresses duplicate retries', async () => {
+    let attempts = 0;
+    proRoomUploadQueue = new ProRoomUploadQueue({
+      createId: () => FILE_A,
+      run: async () => {
+        attempts += 1;
+        throw new Error('network');
+      },
+    });
+    setActiveProRoomUploadQueue(proRoomUploadQueue);
+    initPlaylistView();
+    proRoomUploadQueue.enqueueFiles([new File(['a'], 'one.flac')]);
+    await proRoomUploadQueue.whenIdle();
+    await nextAnimationFrame();
+
+    const status = document.querySelector<HTMLElement>('.pro-upload-status');
+    expect(status?.getAttribute('role')).toBe('alert');
+    expect(status?.textContent).toBe(t('pro.upload.failed'));
+    const retry = document.querySelector<HTMLButtonElement>('[data-pro-upload-action="retry"]')!;
+    const remove = document.querySelector<HTMLButtonElement>('[data-pro-upload-action="remove"]')!;
+    expect(retry.getAttribute('aria-label')).toBe(t('pro.upload.retry_file', { name: 'one.flac' }));
+    expect(remove.getAttribute('aria-label')).toBe(
+      t('pro.upload.remove_file', { name: 'one.flac' }),
+    );
+
+    retry.click();
+    retry.click();
+    await proRoomUploadQueue.whenIdle();
+    expect(attempts).toBe(2);
+    await nextAnimationFrame();
+
+    document.querySelector<HTMLButtonElement>('[data-pro-upload-action="remove"]')?.click();
+    await nextAnimationFrame();
+    expect(document.querySelector('.pro-upload-entry')).toBeNull();
+  });
+
+  it('never renders a completed temporary row beside its authoritative playlist row', async () => {
+    proRoomUploadQueue = new ProRoomUploadQueue({
+      createId: () => FILE_A,
+      run: async (_input, context) => {
+        context.onProgress(1);
+        setState('playlist.items', [
+          {
+            queueItemId: FILE_A,
+            type: 'file',
+            name: 'one.flac',
+            videoId: null,
+            playlistId: null,
+          },
+        ]);
+      },
+    });
+    setActiveProRoomUploadQueue(proRoomUploadQueue);
+    initPlaylistView();
+    proRoomUploadQueue.enqueueFiles([new File(['a'], 'one.flac')]);
+    await proRoomUploadQueue.whenIdle();
+    await nextAnimationFrame();
+
+    expect(document.querySelectorAll('.playlist-entry')).toHaveLength(1);
+    expect(document.querySelector('.pro-upload-entry')).toBeNull();
+    expect(
+      document.querySelector(`[data-queue-item-id="${FILE_A}"] .track-name-text`)?.textContent,
+    ).toBe('one');
+  });
+
+  it('settles a failed temporary row when a later snapshot confirms the same queue item', async () => {
+    proRoomUploadQueue = new ProRoomUploadQueue({
+      createId: () => FILE_A,
+      run: async () => {
+        throw new Error('ambiguous append');
+      },
+    });
+    setActiveProRoomUploadQueue(proRoomUploadQueue);
+    initPlaylistView();
+    proRoomUploadQueue.enqueueFiles([new File(['a'], 'one.flac')]);
+    await proRoomUploadQueue.whenIdle();
+    await nextAnimationFrame();
+    expect(document.querySelector('.pro-upload-entry.is-failed')).not.toBeNull();
+
+    setState('playlist.items', [
+      {
+        queueItemId: FILE_A,
+        type: 'file',
+        name: 'one.flac',
+        videoId: null,
+        playlistId: null,
+      },
+    ]);
+    await nextAnimationFrame();
+
+    expect(document.querySelectorAll('.playlist-entry')).toHaveLength(1);
+    expect(document.querySelector('.pro-upload-entry')).toBeNull();
+    expect(proRoomUploadQueue.rows).toEqual([]);
   });
 });
 

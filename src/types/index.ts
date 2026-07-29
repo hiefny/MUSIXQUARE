@@ -924,6 +924,23 @@ export interface RoomContext {
   capabilities: RoomCapability[];
 }
 
+type SignalingHealthStatus = 'healthy' | 'reconnecting' | 'recovered' | 'exhausted';
+
+/**
+ * Durable UI-facing health of the room's signaling/control channel.
+ *
+ * This is deliberately separate from peer/data-channel health: an ordinary
+ * room can keep its existing WebRTC channels alive while signaling is down,
+ * and a PRO room can keep local media running while its server control
+ * channel is being rebuilt.
+ */
+export interface SignalingHealthState {
+  status: SignalingHealthStatus;
+  /** One-based reconnect attempt while reconnecting; 0 in every other state. */
+  attempt: number;
+  maxAttempts: number;
+}
+
 export interface StateTree {
   setup: { sessionStarted: boolean };
   room: { context: RoomContext };
@@ -1036,6 +1053,7 @@ export interface StateTree {
     chatFrozen: boolean;
     slowmodeSeconds: number;
     filterEnabled: boolean;
+    signalingHealth: SignalingHealthState;
   };
   playlist: {
     items: PlaylistItem[];
@@ -1212,6 +1230,11 @@ interface ProSystemAudioUiState {
   canStop: boolean;
   claimExpiresAt: number | null;
   liveExpiresAt: number | null;
+}
+
+interface SetupGuestJoinFailure {
+  error: unknown;
+  userMessage: string;
 }
 
 interface BaseEventMap {
@@ -1603,7 +1626,7 @@ interface BaseEventMap {
 
   // ── Setup ─────────────────────────────────────────────────────────
   'setup:guest-join-success': [];
-  'setup:guest-join-failure': [error: unknown];
+  'setup:guest-join-failure': [failure: SetupGuestJoinFailure];
   // User-cancelled the capability/Turnstile challenge mid-join — restore the
   // join UI silently (no red error toast). See guest.ts and setup.ts.
   'setup:guest-join-cancelled': [];

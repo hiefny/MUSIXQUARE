@@ -31,12 +31,12 @@ import {
   handleSetupJoinWithRole,
   promptForRoomPassword,
   clearPendingRoomPasswordJoin,
+  restoreGuestJoinControlsAfterFailure,
 } from './setup-guest.ts';
 import { animateTransition } from './dom.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { cancelPendingSessionSetup } from '../network/peer.ts';
 import {
-  BACK_SVG,
   syncDesktopLeftPanel,
   setupEl,
   showSetupOverlay,
@@ -47,6 +47,7 @@ import {
   setupShowRoleArea,
   setupShowWelcome,
   setupSetGuestJoinBusy,
+  setupSetGuestJoinError,
   setupRenderActions,
   startObAutoSlide,
   updateObSlider,
@@ -61,7 +62,6 @@ import {
   getSetupOverlayAbort,
   setSetupOverlayAbort,
   getPendingGuestRoleMode,
-  getPendingAutoJoinCode,
   setPendingAutoJoinCode,
 } from './setup-shared.ts';
 import { isProRoomCode } from '../pro-room/room-code.ts';
@@ -330,6 +330,7 @@ export function initSetup(): void {
   const joinInput = document.getElementById('setup-join-code') as HTMLInputElement | null;
   if (joinInput) {
     joinInput.addEventListener('input', () => {
+      setupSetGuestJoinError(null);
       const raw = joinInput.value || '';
       const digits = raw.replace(/\D+/g, '').slice(0, 6);
       if (raw !== digits) joinInput.value = digits;
@@ -353,6 +354,7 @@ export function initSetup(): void {
   bus.on('setup:guest-join-success', () => {
     setState('network.isConnecting', false);
     clearPendingRoomPasswordJoin();
+    setupSetGuestJoinError(null);
     try {
       sessionStorage.removeItem('mxqr_reconnect_target');
     } catch {
@@ -382,61 +384,27 @@ export function initSetup(): void {
     }
   });
 
-  // Restore the guest join UI (re-enable the code input / re-show actions, hide
-  // loader, clear busy) after a failed OR cancelled join. The toast is the
-  // caller's responsibility, so a user-initiated cancel can restore silently.
-  const restoreGuestJoinInputUI = () => {
+  // Restore the guest join UI after a failed OR cancelled join. Failures keep
+  // their diagnosis and explicit retry action on the same screen; a
+  // user-initiated cancel restores silently.
+  const restoreGuestJoinInputUI = (message: string | null) => {
     setState('network.isConnecting', false);
     updateRoleBadge();
 
     // Always hide the loader: auto-reconnect shows it before joinSession, so a
     // failure must clear it rather than leave the setup UI permanently busy.
     showLoader(false);
-
-    if (getPendingAutoJoinCode()) {
-      // Invite-link flow: restore the URL-code confirmation screen.
-      startGuestFlow();
-    } else {
-      // Normal flow: re-show code input with editable field
-      setupRenderActions(
-        [
-          {
-            id: 'btn-setup-back',
-            html: BACK_SVG,
-            kind: 'icon-only',
-            onClick: () => startGuestFlow(),
-          },
-          {
-            id: 'btn-setup-confirm',
-            text: t('common.start'),
-            kind: 'primary',
-            onClick: () => handleSetupJoinWithRole(getPendingGuestRoleMode() ?? null),
-          },
-        ],
-        'horizontal-with-back',
-      );
-
-      const input = setupEl('setup-join-code') as HTMLInputElement | null;
-      if (input) {
-        input.disabled = false;
-        input.focus();
-      }
-    }
-    setupSetGuestJoinBusy(false);
+    restoreGuestJoinControlsAfterFailure(message);
   };
 
-  bus.on('setup:guest-join-failure', () => {
-    restoreGuestJoinInputUI();
-    // network:error already selected and displayed the specific failure
-    // (missing room, password, signaling outage, etc.) before emitting this
-    // UI-reset event. Do not replace that diagnosis with a second generic
-    // "session not found" toast.
+  bus.on('setup:guest-join-failure', (failure) => {
+    restoreGuestJoinInputUI(failure.userMessage);
   });
 
   // A user-cancelled capability/Turnstile challenge mid-join restores the
   // join UI WITHOUT a red error toast (the cancel is intentional, not a failure).
   bus.on('setup:guest-join-cancelled', () => {
-    restoreGuestJoinInputUI();
+    restoreGuestJoinInputUI(null);
   });
 
   // App entrance animation trigger
@@ -523,8 +491,7 @@ export function initSetup(): void {
     const isConnecting = getState('network.isConnecting');
     if (isConnecting) {
       // Still trying to join — emit failure for UI reset
-      showToast(userMsg);
-      bus.emit('setup:guest-join-failure', err);
+      bus.emit('setup:guest-join-failure', { error: err, userMessage: userMsg });
     } else if (msg === 'HOST_DISCONNECTED' || msg === 'HOST_CONNECTION_ERROR') {
       // Clean up YouTube mode immediately — host is gone, no YOUTUBE_STOP will arrive
       if (isPlaybackModeYouTube()) {
@@ -572,12 +539,13 @@ export function initSetup(): void {
         })
         .catch((e) => log.warn('[Setup] Reconnect dialog error:', e));
     } else {
-      showToast(userMsg);
       // If guest setup already cleared isConnecting in a race, still reset the
       // UI so the user is not left in a non-interactive state.
       const appRole = getState('network.appRole');
       if (appRole === 'guest' && !getState('setup.sessionStarted')) {
-        bus.emit('setup:guest-join-failure', err);
+        bus.emit('setup:guest-join-failure', { error: err, userMessage: userMsg });
+      } else {
+        showToast(userMsg);
       }
     }
   });

@@ -6,13 +6,14 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { initSeekBar } from '../seekbar.ts';
-import { getTrackPosition, seekTo } from '../../player/transport.ts';
+import { getTrackPosition, isFilePipelineBusyForPlay, seekTo } from '../../player/transport.ts';
 
 const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
 
 vi.mock('../../player/transport.ts', () => ({
   fmtTime: vi.fn((seconds: number) => `fmt:${Math.floor(seconds)}`),
   getTrackPosition: vi.fn(() => 0),
+  isFilePipelineBusyForPlay: vi.fn(() => false),
   seekTo: vi.fn(),
 }));
 
@@ -22,6 +23,7 @@ beforeEach(() => {
   clearAllManagedTimers();
   vi.mocked(seekTo).mockClear();
   vi.mocked(getTrackPosition).mockReturnValue(0);
+  vi.mocked(isFilePipelineBusyForPlay).mockReturnValue(false);
   document.body.innerHTML = `
     <input id="seek-slider" type="range" value="0" max="120" />
     <span id="time-curr"></span>
@@ -61,6 +63,43 @@ describe('initSeekBar playback mode gates', () => {
 
     slider.dispatchEvent(new Event('change'));
     expect(seekTo).toHaveBeenCalledWith(42);
+  });
+
+  it('projects a missing playback-control permission before a guest can drag', () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { peer: 'host-1', open: true } as never);
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'paused');
+    vi.mocked(getTrackPosition).mockReturnValue(21);
+    initSeekBar();
+
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    expect(slider.getAttribute('aria-disabled')).toBe('true');
+
+    slider.value = '42';
+    slider.dispatchEvent(new Event('change'));
+
+    expect(slider.value).toBe('21');
+    expect(seekTo).not.toHaveBeenCalled();
+  });
+
+  it('blocks a seek draft while a replacement file is still preparing', () => {
+    setState('network.appRole', 'host');
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    vi.mocked(isFilePipelineBusyForPlay).mockReturnValue(true);
+    vi.mocked(getTrackPosition).mockReturnValue(14);
+    initSeekBar();
+
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    expect(slider.getAttribute('aria-disabled')).toBe('true');
+
+    slider.value = '55';
+    slider.dispatchEvent(new Event('input'));
+
+    expect(slider.value).toBe('14');
+    expect(getState('player.isSeeking')).toBe(false);
+    expect(seekTo).not.toHaveBeenCalled();
   });
 
   it('freezes file interpolation immediately at the exact paused position', () => {

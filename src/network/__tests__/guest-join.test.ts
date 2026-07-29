@@ -144,7 +144,12 @@ describe('joinSession reconnect racing', () => {
       expect(getState('network.hostConn')).toBeNull();
       expect(errors).not.toHaveBeenCalled();
       expect(recover).toHaveBeenCalledOnce();
-      expect(mocks.showToast).toHaveBeenCalledOnce();
+      expect(mocks.showToast).not.toHaveBeenCalled();
+      expect(getState('network.signalingHealth')).toMatchObject({
+        status: 'reconnecting',
+        attempt: 1,
+        maxAttempts: 5,
+      });
     },
   );
 
@@ -172,7 +177,12 @@ describe('joinSession reconnect racing', () => {
     expect(getState('network.isConnecting')).toBe(false);
     expect(errors).not.toHaveBeenCalled();
     expect(recover).toHaveBeenCalledOnce();
-    expect(mocks.showToast).toHaveBeenCalledOnce();
+    expect(mocks.showToast).not.toHaveBeenCalled();
+    expect(getState('network.signalingHealth')).toMatchObject({
+      status: 'reconnecting',
+      attempt: 1,
+      maxAttempts: 5,
+    });
   });
 
   it('preserves the ordinary-room HOST_DISCONNECTED error contract', () => {

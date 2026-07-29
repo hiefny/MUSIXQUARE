@@ -16,6 +16,7 @@ const fr: Record<I18nKey, string> = {
   'common.close': 'Fermer',
   'common.reset': 'Réinitialiser',
   'common.refresh': 'Actualiser',
+  'common.retry': 'Réessayer',
   'common.later': 'Plus tard',
   'common.next': 'Suivant',
   'common.start': 'Commencer',
@@ -248,6 +249,15 @@ const fr: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Saisissez 8 chiffres',
   'connect.room_password_enabled': 'Les nouveaux participants devront saisir le mot de passe',
   'connect.room_password_disabled': 'Les participants n’ont plus besoin du mot de passe',
+  'connect.signaling_reconnecting': 'Reconnexion au serveur de la salle · {{attempt}}/{{max}}',
+  'connect.signaling_recovered': 'La connexion au serveur de la salle est rétablie.',
+  'connect.signaling_exhausted':
+    'Le serveur de la salle ne répond pas. Les nouveaux participants ne peuvent pas se connecter.',
+  'connect.signaling_exhausted_pro':
+    'Le serveur de la salle ne répond pas. Les nouvelles arrivées et les mises à jour en temps réel sont limitées.',
+  'connect.signaling_retry': 'Réessayer',
+  'connect.signaling_restart': 'Redémarrer la session',
+  'connect.signaling_new_room': 'Créer une nouvelle salle',
 
   // Setup and demo
   'setup.host_button': 'Créer une salle',
@@ -298,7 +308,7 @@ const fr: Record<I18nKey, string> = {
   'setup.join_session_subtitle': 'Vous allez rejoindre la salle {{code}}.',
   'setup.select_role': 'Veuillez sélectionner un rôle',
   'setup.select_role_alt': 'Veuillez sélectionner un rôle',
-  'setup.hello_select_role': 'Bonjour ! Choisissez votre rôle.',
+  'setup.hello_select_role': 'Créez une salle ou rejoignez-en une.',
   'setup.enter_code': 'Saisir le code à 6 chiffres',
   'setup.enter_host_code': 'Saisissez le code à 6 chiffres de l’hôte',
   'setup.enter_host_code_alt': 'Saisissez le code de l’hôte.',
@@ -591,6 +601,13 @@ const fr: Record<I18nKey, string> = {
   'pro.activation_message':
     'Définissez un nouveau mot de passe numérique à 8 chiffres pour cette salle.',
   'pro.activation_pin_same': 'Choisissez un mot de passe différent du temporaire.',
+  'pro.claim_retry_title': 'Réessayer avec le lien PRO ?',
+  'pro.claim_retry_message':
+    'La connexion a été interrompue. Le lien est conservé en sécurité uniquement sur cet écran, vous pouvez donc réessayer.',
+  'pro.request_new_link': 'Demander un nouveau lien',
+  'pro.claim_unavailable_title': 'Ce lien ne peut plus être utilisé',
+  'pro.new_link_message':
+    'Demandez à la personne qui vous a envoyé le lien un nouveau lien d’activation ou de récupération.',
   'pro.not_ready_title': 'Cette salle PRO n’est pas encore prête',
   'pro.not_ready_message': 'Le propriétaire doit d’abord l’activer.',
   'pro.suspended_title': 'Cette salle PRO est indisponible',
@@ -611,6 +628,16 @@ const fr: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Continuer ici déconnectera l’autre onglet.',
   'pro.use_this_tab': 'Remplacer',
   'pro.uploading': 'Enregistrement dans la salle PRO...',
+  'pro.upload.waiting': 'En attente d’envoi...',
+  'pro.upload.progress': 'Envoi en cours · {{percent}} %',
+  'pro.upload.confirming': 'Confirmation dans la salle PRO...',
+  'pro.upload.completed': 'Ajouté à la playlist',
+  'pro.upload.failed': 'Échec de l’envoi',
+  'pro.upload.retry': 'Réessayer',
+  'pro.upload.remove': 'Retirer',
+  'pro.upload.cancel_file': 'Annuler l’envoi de {{name}}',
+  'pro.upload.retry_file': 'Réessayer l’envoi de {{name}}',
+  'pro.upload.remove_file': 'Retirer l’envoi échoué de {{name}}',
   'pro.downloading': 'Chargement du fichier...',
   'pro.quota_exceeded': 'Cette salle PRO a atteint sa limite de stockage de 1 Go.',
   'pro.file_too_large': 'Ce fichier dépasse la limite de 200 Mo par fichier.',

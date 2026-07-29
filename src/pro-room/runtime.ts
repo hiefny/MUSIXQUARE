@@ -42,6 +42,11 @@ import {
   type ProQueueAdditionFrame,
 } from '../network/transport/types.ts';
 import {
+  publishSignalingExhausted,
+  publishSignalingReconnectAttempt,
+  SIGNALING_RECOVERY_MAX_ATTEMPTS,
+} from '../network/signaling-health.ts';
+import {
   ProRoomApiClient,
   ProRoomApiError,
   parseProRoomPlaybackCancelEvent,
@@ -127,12 +132,12 @@ import {
   ProRoomPlaylistStateManager,
   type ProRoomFirstAppendSelectionRequest,
 } from './playlist-state-manager.ts';
+import { ProRoomUploadQueue, setActiveProRoomUploadQueue } from './upload-queue.ts';
 import {
   findRemovedProRoomQueueItemIds,
   resolveProRoomRemovalTransition,
 } from './playlist-transition.ts';
 import { ProRoomSessionController, type ProRoomSessionObserver } from './session-controller.ts';
-import { createByteWeightedProgressEntries } from './transfer-progress.ts';
 import {
   markProRoomTransportRecovered,
   requestProRoomTransportRecovery,
@@ -245,7 +250,7 @@ interface DeferredPreloadRequest {
 }
 let deferredPreloadRequest: DeferredPreloadRequest | null = null;
 let deferredPreloadGeneration = 0;
-let uploadOperationTail: Promise<void> = Promise.resolve();
+let proRoomUploadQueue: ProRoomUploadQueue | null = null;
 let transferLoaderSequence = 0;
 const activeTransferLoaderIds = new Set<string>();
 let unregisterPlaybackCommandHandler: (() => void) | null = null;
@@ -1255,6 +1260,36 @@ function installLegacyMediaHooks(
   const reportCurrentPlaylistError = (error: unknown) => {
     if (isPlaylistLeaseCurrent(lease)) reportPlaylistError(error);
   };
+  const queue = new ProRoomUploadQueue({
+    signal: playlistRuntimeAbort?.signal,
+    run: async ({ id, file }, context) => {
+      if (!isPlaylistLeaseCurrent(lease)) return;
+      const loaderId = openTransferLoader('upload', t('pro.uploading'));
+      let completed = false;
+      try {
+        await manager.addLocalFile(
+          {
+            queueItemId: id,
+            file,
+            onProgress: (fraction) => {
+              context.onProgress(fraction);
+              reportTransferProgress(loaderId, fraction);
+            },
+          },
+          {
+            signal: context.signal,
+            refreshBeforeUpload: context.isRetry,
+          },
+        );
+        completed = isPlaylistLeaseCurrent(lease) && !context.signal.aborted;
+      } finally {
+        closeTransferLoader(loaderId, completed);
+      }
+    },
+    reportFailure: reportCurrentPlaylistError,
+  });
+  proRoomUploadQueue = queue;
+  setActiveProRoomUploadQueue(queue);
   const hooks: ProRoomLegacyMediaHooks = {
     addFiles(files, rejectedCount) {
       if (!isPlaylistLeaseCurrent(lease)) return true;
@@ -1262,33 +1297,7 @@ function installLegacyMediaHooks(
       if (rejectedCount > 0) {
         bus.emit('ui:show-toast', t('toast.unsupported_files_excluded', { count: rejectedCount }));
       }
-
-      // The playlist manager serializes mutations. Mirror that ordering in the
-      // UI so a newly queued batch at 0% cannot cover an upload already making
-      // progress. The authoritative row still appears only after R2 complete
-      // and snapshot acceptance.
-      const operation = uploadOperationTail.then(async () => {
-        if (!isPlaylistLeaseCurrent(lease)) return;
-        const signal = playlistRuntimeAbort?.signal;
-        if (!signal || signal.aborted) return;
-        const loaderId = openTransferLoader('upload', t('pro.uploading'));
-        let completed = false;
-        try {
-          const entries = createByteWeightedProgressEntries(files, (fraction) => {
-            reportTransferProgress(loaderId, fraction);
-          });
-          await manager.addLocalFiles(
-            entries.map(({ value: file, onProgress }) => ({ file, onProgress })),
-            { signal },
-          );
-          completed = isPlaylistLeaseCurrent(lease) && !signal.aborted;
-        } catch (error) {
-          reportCurrentPlaylistError(error);
-        } finally {
-          closeTransferLoader(loaderId, completed);
-        }
-      });
-      uploadOperationTail = operation.catch(() => undefined);
+      queue.enqueueFiles(files);
       return true;
     },
     addYouTube(item, _sourceUrl, completeVideoIds) {
@@ -1512,8 +1521,10 @@ function resetPlaylistRuntime(): void {
   pendingPreloadDownload = null;
   playlistRuntimeAbort?.abort();
   playlistRuntimeAbort = null;
+  setActiveProRoomUploadQueue(null);
+  proRoomUploadQueue?.reset();
+  proRoomUploadQueue = null;
   closeAllTransferLoaders();
-  uploadOperationTail = Promise.resolve();
   youtubeManifestUpgradeTail = Promise.resolve();
   attemptedYouTubeManifestUpgrades.clear();
   registerProRoomLegacyMediaHooks(null);
@@ -3593,17 +3604,34 @@ async function runControlChannelRecovery(): Promise<void> {
     const pendingTransition = bridge.consumePendingPlaybackTransition();
     if (pendingTransition) acceptPlaybackPrepare(pendingTransition);
     controlChannelRecoveryAttempt = 0;
+    if (bridge.connected) markProRoomTransportRecovered();
   } catch {
     if (!active || !isPlaylistLeaseCurrent(lease)) return;
+    controlChannelRecoveryAttempt += 1;
+    if (controlChannelRecoveryAttempt >= SIGNALING_RECOVERY_MAX_ATTEMPTS) {
+      clearManagedTimer(HEARTBEAT_TIMER);
+      publishSignalingExhausted(SIGNALING_RECOVERY_MAX_ATTEMPTS);
+      return;
+    }
     const delay =
       CONTROL_CHANNEL_RECOVERY_RETRY_MS[
-        Math.min(controlChannelRecoveryAttempt, CONTROL_CHANNEL_RECOVERY_RETRY_MS.length - 1)
+        Math.min(controlChannelRecoveryAttempt - 1, CONTROL_CHANNEL_RECOVERY_RETRY_MS.length - 1)
       ] ?? HEARTBEAT_INTERVAL_MS;
-    controlChannelRecoveryAttempt += 1;
     // Every ticket is a one-use server-control-channel credential. Retry via
     // heartbeat to mint a fresh ticket until this participant's channel is
-    // attached again or the authenticated presence expires.
-    setManagedTimer(HEARTBEAT_TIMER, () => void runControlChannelRecovery(), delay);
+    // attached again, the authenticated presence expires, or the bounded
+    // automatic budget is exhausted for an explicit user retry.
+    setManagedTimer(
+      HEARTBEAT_TIMER,
+      () => {
+        publishSignalingReconnectAttempt(
+          controlChannelRecoveryAttempt + 1,
+          SIGNALING_RECOVERY_MAX_ATTEMPTS,
+        );
+        void runControlChannelRecovery();
+      },
+      delay,
+    );
   }
 }
 

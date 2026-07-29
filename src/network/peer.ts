@@ -34,6 +34,14 @@ import { clearCurrentAccountLoginReturn } from '../account/login-return.ts';
 import { getRoomContext } from '../rooms/authority.ts';
 import { getStandardRoomTurnCredentials } from './standard-room-prerequisites.ts';
 import { getFilePlaybackProductRuntime } from '../player/file-playback-product-runtime.ts';
+import {
+  canContinueWithoutSignaling,
+  publishSignalingExhausted,
+  publishSignalingReconnectAttempt,
+  publishSignalingRecovered,
+  resetSignalingHealth,
+  SIGNALING_RECOVERY_MAX_ATTEMPTS,
+} from './signaling-health.ts';
 
 // ─── Sub-module imports (only names used locally in this file) ───────
 
@@ -429,7 +437,7 @@ export async function createHostSessionWithShortCode(maxAttempts = 12): Promise<
 // channels are still alive, we silently degrade: existing playback works,
 // just no new joins.
 let _reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 5;
+const MAX_RECONNECT_ATTEMPTS = SIGNALING_RECOVERY_MAX_ATTEMPTS;
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
 
 async function performScheduledPeerReconnect(expectedPeer: PeerInstance): Promise<void> {
@@ -440,6 +448,7 @@ async function performScheduledPeerReconnect(expectedPeer: PeerInstance): Promis
   }
   if (!peer.disconnected) {
     log.info('[Transport] Already reconnected before scheduled attempt');
+    publishSignalingRecovered();
     _reconnectAttempts = 0;
     return;
   }
@@ -455,6 +464,7 @@ async function performScheduledPeerReconnect(expectedPeer: PeerInstance): Promis
       return;
     }
     if (!peer.disconnected) {
+      publishSignalingRecovered();
       _reconnectAttempts = 0;
       return;
     }
@@ -485,6 +495,7 @@ function attemptPeerReconnect(): void {
   if (!peer.disconnected) {
     if (_reconnectAttempts > 0) {
       log.info('[Transport] Signaling reconnected');
+      publishSignalingRecovered();
     }
     _reconnectAttempts = 0;
     return;
@@ -493,11 +504,13 @@ function attemptPeerReconnect(): void {
     log.warn(
       `[Transport] Gave up on signaling reconnect after ${MAX_RECONNECT_ATTEMPTS} attempts — new peers can't join until session restart`,
     );
+    publishSignalingExhausted(MAX_RECONNECT_ATTEMPTS);
     return;
   }
 
   const delay = RECONNECT_BACKOFF_MS[_reconnectAttempts] ?? 15000;
   _reconnectAttempts++;
+  publishSignalingReconnectAttempt(_reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
   log.info(
     `[Transport] Scheduling signaling reconnect attempt ${_reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS} in ${delay}ms`,
   );
@@ -516,7 +529,41 @@ function attemptPeerReconnect(): void {
   );
 }
 
+/**
+ * Explicit user retry after the automatic signaling budget is exhausted.
+ * Existing data channels and local media remain untouched.
+ */
+export function retryPeerSignalingConnection(): boolean {
+  const peer = getPeer();
+  if (
+    !peer ||
+    peer.destroyed ||
+    !getState('setup.sessionStarted') ||
+    getState('room.context').kind !== 'standard'
+  ) {
+    return false;
+  }
+  if (!peer.disconnected) {
+    publishSignalingRecovered();
+    return true;
+  }
+
+  clearManagedTimer('peer-signaling-reconnect');
+  _reconnectAttempts = 1;
+  publishSignalingReconnectAttempt(_reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
+  void performScheduledPeerReconnect(peer);
+  return true;
+}
+
 function setupPeerEvents(peer: PeerInstance): void {
+  peer.on('open', () => {
+    if (getPeer() !== peer || getState('network.signalingHealth').status === 'healthy') return;
+    clearManagedTimer('peer-signaling-reconnect');
+    clearManagedTimer('peer-disconnect-grace');
+    _reconnectAttempts = 0;
+    publishSignalingRecovered();
+  });
+
   peer.on('room-identity', (identity) => {
     if (getPeer() !== peer || getRoomContext().kind === 'pro') return;
     batchSetState({
@@ -639,11 +686,21 @@ function setupPeerEvents(peer: PeerInstance): void {
           }
         }
 
+        if (getRoomContext().kind === 'standard' && canContinueWithoutSignaling()) {
+          log.info(
+            '[Transport] Signaling disconnected but local media remains active — skipping dialog',
+          );
+          return;
+        }
+
         if (requestProRoomTransportRecovery()) {
           log.info('[Transport] PRO signaling is unavailable; topology recovery requested');
           return;
         }
 
+        // No data channel or local media survived, so this is a full session
+        // loss rather than the partial signaling state shown in Connect.
+        resetSignalingHealth();
         showDialog({
           title: t('network.disconnected'),
           message: t('dialog.session_lost_msg'),
@@ -742,6 +799,7 @@ export function cancelPendingSessionSetup(): void {
   if (hadOpenResources) setState('network.isIntentionalDisconnect', true);
   for (const timerKey of PENDING_SETUP_TIMER_KEYS) clearManagedTimer(timerKey);
   _reconnectAttempts = 0;
+  resetSignalingHealth();
 
   try {
     hostConn?.close();
@@ -790,6 +848,11 @@ export function cancelPendingSessionSetup(): void {
     'network.activeHostConnByPeerId': new Map<string, DataConnection>(),
     'network.standardRoomAdministrators': new Map(),
     'network.standardRoomCapabilities': null,
+    'network.signalingHealth': {
+      status: 'healthy',
+      attempt: 0,
+      maxAttempts: MAX_RECONNECT_ATTEMPTS,
+    },
   });
 
   if (hadOpenResources) {
@@ -839,6 +902,7 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
   // the worker to drop the timer so the noop traffic stops.
   stopWorkerTimer('sync');
   clearAllManagedTimers();
+  resetSignalingHealth();
 
   // ── 2. Stop media playback ──
   // Room teardown must invalidate every async load owner before state resets;
@@ -929,6 +993,11 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
     'network.chatFrozen': false,
     'network.slowmodeSeconds': 0,
     'network.filterEnabled': false,
+    'network.signalingHealth': {
+      status: 'healthy',
+      attempt: 0,
+      maxAttempts: MAX_RECONNECT_ATTEMPTS,
+    },
     // Playlist
     'playlist.items': [],
     'playlist.currentQueueItemId': null,

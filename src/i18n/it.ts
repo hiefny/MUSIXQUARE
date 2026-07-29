@@ -13,6 +13,7 @@ const it: Record<I18nKey, string> = {
   'common.close': 'Chiudi',
   'common.reset': 'Ripristina',
   'common.refresh': 'Aggiorna',
+  'common.retry': 'Riprova',
   'common.later': 'Più tardi',
   'common.next': 'Avanti',
   'common.start': 'Inizia',
@@ -246,6 +247,15 @@ const it: Record<I18nKey, string> = {
   'connect.room_password_enabled': 'Ora è richiesta la password per accedere a questa stanza',
   'connect.room_password_disabled':
     'Ora non è più richiesta la password per accedere a questa stanza',
+  'connect.signaling_reconnecting': 'Riconnessione al server della stanza · {{attempt}}/{{max}}',
+  'connect.signaling_recovered': 'Connessione al server della stanza ripristinata.',
+  'connect.signaling_exhausted':
+    'Il server della stanza non risponde. I nuovi partecipanti non possono connettersi.',
+  'connect.signaling_exhausted_pro':
+    'Il server della stanza non risponde. I nuovi accessi e gli aggiornamenti in tempo reale sono limitati.',
+  'connect.signaling_retry': 'Riprova',
+  'connect.signaling_restart': 'Riavvia la sessione',
+  'connect.signaling_new_room': 'Avvia una nuova stanza',
 
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': 'Crea una stanza',
@@ -295,7 +305,7 @@ const it: Record<I18nKey, string> = {
   'setup.join_session_subtitle': 'Stai per accedere alla stanza {{code}}',
   'setup.select_role': 'Seleziona un ruolo',
   'setup.select_role_alt': 'Seleziona un ruolo',
-  'setup.hello_select_role': 'Ciao! Scegli il tuo ruolo.',
+  'setup.hello_select_role': 'Crea una stanza o entra in una stanza esistente.',
   'setup.enter_code': 'Inserisci il codice di connessione a 6 cifre',
   'setup.enter_host_code': 'Inserisci il codice a 6 cifre fornito dal gestore',
   'setup.enter_host_code_alt': 'Inserisci il codice del gestore.',
@@ -657,6 +667,13 @@ const it: Record<I18nKey, string> = {
   'pro.activation_title': 'Attiva stanza PRO',
   'pro.activation_message': 'Imposta una nuova password numerica di 8 cifre per questa stanza.',
   'pro.activation_pin_same': 'Scegli una password diversa da quella temporanea.',
+  'pro.claim_retry_title': 'Riprovare con il link PRO?',
+  'pro.claim_retry_message':
+    'La connessione si è interrotta. Il link viene conservato in sicurezza solo in questa schermata, quindi puoi riprovare.',
+  'pro.request_new_link': 'Richiedi un nuovo link',
+  'pro.claim_unavailable_title': 'Questo link non può più essere utilizzato',
+  'pro.new_link_message':
+    'Chiedi a chi ti ha inviato il link un nuovo link di attivazione o recupero.',
   'pro.not_ready_title': 'Questa stanza PRO non è ancora pronta',
   'pro.not_ready_message': 'Il proprietario deve prima attivarla.',
   'pro.suspended_title': 'Questa stanza PRO non è disponibile',
@@ -677,6 +694,16 @@ const it: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Continuando qui, la scheda esistente verrà disconnessa.',
   'pro.use_this_tab': 'Sostituisci',
   'pro.uploading': 'Salvataggio nella stanza PRO...',
+  'pro.upload.waiting': 'Caricamento in attesa...',
+  'pro.upload.progress': 'Caricamento · {{percent}}%',
+  'pro.upload.confirming': 'Conferma nella stanza PRO...',
+  'pro.upload.completed': 'Aggiunto alla playlist',
+  'pro.upload.failed': 'Caricamento non riuscito',
+  'pro.upload.retry': 'Riprova',
+  'pro.upload.remove': 'Rimuovi',
+  'pro.upload.cancel_file': 'Annulla il caricamento di {{name}}',
+  'pro.upload.retry_file': 'Riprova il caricamento di {{name}}',
+  'pro.upload.remove_file': 'Rimuovi il caricamento non riuscito di {{name}}',
   'pro.downloading': 'Caricamento del file...',
   'pro.quota_exceeded': 'Questa stanza PRO ha raggiunto il limite di 1 GB.',
   'pro.file_too_large': 'Questo file supera il limite di 200 MB per file.',

@@ -486,14 +486,15 @@
     >
       <div class="tab-header tab-header-spread">
         <span class="tab-title" data-i18n="nav.connect">연결</span>
-        <div
+        <button
+          type="button"
           class="settings-invite-wrapper invite-code-container invite-meta-cluster"
           title=""
           data-i18n-title="toast.click_copy_invite"
         >
-          <div class="invite-meta-label" data-i18n="settings.invite_code"></div>
+          <span class="invite-meta-label" data-i18n="settings.invite_code"></span>
           <span class="invite-code-value invite-meta-value">------</span>
-        </div>
+        </button>
       </div>
       <div class="tab-body" data-custom-scroll>
         <div class="section-group">
@@ -583,14 +584,15 @@
         <div class="flex-row-gap-8">
           <span class="tab-title" data-i18n="nav.help"></span>
         </div>
-        <div
+        <button
+          type="button"
           class="settings-invite-wrapper invite-code-container invite-meta-cluster"
           title=""
           data-i18n-title="toast.click_copy_invite"
         >
-          <div class="invite-meta-label" data-i18n="settings.invite_code"></div>
+          <span class="invite-meta-label" data-i18n="settings.invite_code"></span>
           <span class="invite-code-value invite-meta-value">------</span>
-        </div>
+        </button>
       </div>
 
       <div class="tab-body" data-custom-scroll>
@@ -692,14 +694,15 @@
     >
       <div class="tab-header tab-header-spread">
         <span class="tab-title" data-i18n="nav.settings"></span>
-        <div
+        <button
+          type="button"
           class="settings-invite-wrapper invite-code-container invite-meta-cluster"
           title=""
           data-i18n-title="toast.click_copy_invite"
         >
-          <div class="invite-meta-label" data-i18n="settings.invite_code"></div>
+          <span class="invite-meta-label" data-i18n="settings.invite_code"></span>
           <span class="invite-code-value invite-meta-value">------</span>
-        </div>
+        </button>
       </div>
 
       <div class="settings-subtab-nav">
@@ -2330,6 +2333,13 @@
                 value="------"
                 readonly
               />
+              <p
+                id="setup-host-error"
+                class="setup-inline-error"
+                role="alert"
+                aria-atomic="true"
+                hidden
+              ></p>
             </div>
           </div>
 
@@ -2421,7 +2431,15 @@
                 spellcheck="false"
                 aria-label=""
                 data-i18n-aria-label="setup.enter_code"
+                aria-describedby="setup-guest-error"
               />
+              <p
+                id="setup-guest-error"
+                class="setup-inline-error"
+                role="alert"
+                aria-atomic="true"
+                hidden
+              ></p>
             </div>
           </div>
 
@@ -2436,6 +2454,13 @@
               <h2 data-i18n="setup.welcome_title"></h2>
               <p id="setup-auto-join-subtitle"></p>
             </div>
+            <p
+              id="setup-auto-join-error"
+              class="setup-inline-error"
+              role="alert"
+              aria-atomic="true"
+              hidden
+            ></p>
           </div>
 
           <!-- Reserved for an explicit role picker; the current flow assigns the center role. -->
@@ -2705,11 +2730,7 @@
         <div class="dialog-header administrator-permissions-header">
           <span class="dialog-title" id="administrator-permissions-title"></span>
         </div>
-        <div
-          class="administrator-permissions-list"
-          data-custom-scroll
-          data-custom-scroll-contained
-        >
+        <div class="administrator-permissions-list" data-custom-scroll data-custom-scroll-contained>
           <button
             type="button"
             class="administrator-permission-row"
@@ -3222,11 +3243,7 @@
           <p data-i18n-html="youtube.enter_link_desc_html"></p>
         </div>
 
-        <div
-          class="setup-join-area setup-mt-0"
-          data-custom-scroll
-          data-custom-scroll-contained
-        >
+        <div class="setup-join-area setup-mt-0" data-custom-scroll data-custom-scroll-contained>
           <div
             contenteditable="true"
             id="youtube-url-input"

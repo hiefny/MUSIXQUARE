@@ -310,6 +310,29 @@ export function setupSetGuestJoinBusy(busy: boolean): void {
   }
 }
 
+function setupSetInlineError(id: string, message: string | null): void {
+  const error = setupEl(id);
+  if (!error) return;
+  const normalized = typeof message === 'string' ? message.trim() : '';
+  error.textContent = normalized;
+  error.hidden = normalized.length === 0;
+}
+
+export function setupSetHostError(message: string | null): void {
+  setupSetInlineError('setup-host-error', message);
+}
+
+export function setupSetGuestJoinError(message: string | null, inviteLink = false): void {
+  setupSetInlineError('setup-guest-error', inviteLink ? null : message);
+  setupSetInlineError('setup-auto-join-error', inviteLink ? message : null);
+
+  const input = setupEl('setup-join-code');
+  if (input) {
+    if (message && !inviteLink) input.setAttribute('aria-invalid', 'true');
+    else input.removeAttribute('aria-invalid');
+  }
+}
+
 export function setupHighlightJoinRole(mode: number | null): void {
   const opts = document.querySelectorAll<HTMLElement>('#setup-role-grid .ch-opt[data-join-ch]');
   opts.forEach((o) => o.classList.remove('selected'));
@@ -330,6 +353,7 @@ interface SetupButton {
   id: string;
   text?: string;
   html?: string;
+  ariaLabel?: string;
   kind?: 'primary' | 'secondary' | 'text-link' | 'icon-only';
   disabled?: boolean;
   onClick?: (() => void) | null;
@@ -359,6 +383,7 @@ export function setupRenderActions(
 
     if (btn.html) b.innerHTML = btn.html;
     else if (btn.text) b.textContent = btn.text;
+    if (btn.ariaLabel) b.setAttribute('aria-label', btn.ariaLabel);
 
     if (btn.disabled) b.disabled = true;
     if (btn.onClick) b.addEventListener('click', btn.onClick);
@@ -370,9 +395,14 @@ export function setupRenderActions(
 
 export function startObAutoSlide(): void {
   stopObAutoSlide();
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
   setManagedTimer(
     'obAutoSlideTimer',
     () => {
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+        stopObAutoSlide();
+        return;
+      }
       nextObSlide(true);
     },
     5000,

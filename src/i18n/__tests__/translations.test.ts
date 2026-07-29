@@ -66,6 +66,29 @@ describe('Translation key integrity', () => {
     }
   });
 
+  it('describes the first setup choice as creating or joining a room', () => {
+    expect(ko['setup.hello_select_role']).toBe('방을 만들거나 참여해 주세요.');
+    expect(ko['setup.host_button']).toBe('방 만들기');
+    expect(ko['setup.guest_button']).toBe('방 참여하기');
+    expect(en['setup.hello_select_role']).toBe('Create a room or join one.');
+    expect(en['setup.host_button']).toBe('Create a Room');
+    expect(en['setup.guest_button']).toBe('Join a Room');
+
+    const recoveryKeys = [
+      'common.retry',
+      'pro.claim_retry_title',
+      'pro.claim_retry_message',
+      'pro.request_new_link',
+      'pro.claim_unavailable_title',
+      'pro.new_link_message',
+    ] as const;
+    for (const [locale, dict] of Object.entries(locales)) {
+      for (const key of recoveryKeys) {
+        expect(dict[key], `${locale}.${key}`).toBeTruthy();
+      }
+    }
+  });
+
   it('{{param}} placeholders match between ko and every locale', () => {
     const paramRe = /\{\{(\w+)\}\}/g;
     const mismatched: string[] = [];

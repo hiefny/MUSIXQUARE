@@ -7,6 +7,12 @@ import type {
   FilePlaybackApplicationSessionHooks,
   FilePlaybackHostApplicationSessionAuthority,
 } from '../../network/file-playback-application-session.ts';
+import { FilePlaybackConnectionChannel } from '../../network/file-playback-connection-channel.ts';
+import {
+  FilePlaybackGuestSessionHandshake,
+  FilePlaybackHandshakeIdIssuer,
+  FilePlaybackHostSessionHandshake,
+} from '../../network/file-playback-session-handshake.ts';
 import type { ConnectedPeer, DataConnection, QueueItemId } from '../../types/index.ts';
 import {
   FilePlaybackApplicationController,
@@ -68,11 +74,14 @@ import {
   type FilePlaybackProductRuntimeSessionAdapter,
 } from '../file-playback-product-runtime.ts';
 import { FilePlaybackR2WholeBlobPublisher } from '../file-playback-r2-whole-blob-publisher.ts';
-import type {
-  FilePlaybackProductSessionRouterConnectionContext,
-  FilePlaybackProductSessionRouterOptions,
-  FilePlaybackProductSessionRouterSnapshot,
+import {
+  FilePlaybackProductSessionRouter,
+  type FilePlaybackProductSessionRouterConnectionContext,
+  type FilePlaybackProductSessionRouterGuestMediaOwnerPort,
+  type FilePlaybackProductSessionRouterOptions,
+  type FilePlaybackProductSessionRouterSnapshot,
 } from '../file-playback-product-session-router.ts';
+import { createFilePlaybackTimelineUpdateV2 } from '../file-playback-timeline-update.ts';
 import type { PlaybackTimelineSnapshot } from '../playback-timeline.ts';
 import type { FilePlaybackPosition, FilePlaybackSourceSnapshot } from '../file-playback-source.ts';
 import { createPeerRangeCloseHandleFrame } from '../sources/peer-range-protocol.ts';
@@ -541,6 +550,54 @@ function connection(): DataConnection {
   } as unknown as DataConnection;
 }
 
+function establishedRuntimeGuestChannel(suffix: string): Readonly<{
+  connection: DataConnection;
+  channel: FilePlaybackConnectionChannel;
+}> {
+  const hostIssuer = new FilePlaybackHandshakeIdIssuer({
+    createSessionId: () => `runtime-${suffix}-session`,
+    createConnectionId: () => `runtime-${suffix}-connection`,
+    createHelloId: () => `runtime-${suffix}-host-hello`,
+  });
+  const guestIssuer = new FilePlaybackHandshakeIdIssuer({
+    createSessionId: () => `runtime-${suffix}-guest-session`,
+    createConnectionId: () => `runtime-${suffix}-guest-connection`,
+    createHelloId: () => `runtime-${suffix}-guest-hello`,
+  });
+  const host = new FilePlaybackHostSessionHandshake({
+    idIssuer: hostIssuer,
+    sessionId: hostIssuer.issueSessionId(),
+    connectionId: hostIssuer.issueConnectionId(),
+    hostParticipantId: `runtime-${suffix}-host`,
+    guestParticipantId: `runtime-${suffix}-guest`,
+  });
+  const guest = new FilePlaybackGuestSessionHandshake({
+    idIssuer: guestIssuer,
+    guestParticipantId: `runtime-${suffix}-guest`,
+  });
+  const hello = guest.createHello();
+  if (!hello.accepted) throw new Error(hello.reason);
+  const welcome = host.handleHello(hello.hello);
+  if (!welcome.accepted) throw new Error(welcome.reason);
+  const welcomed = guest.handleWelcome(welcome.welcome);
+  if (!welcomed.accepted) throw new Error(welcomed.reason);
+  const snapshot = host.createSnapshot();
+  if (!snapshot.accepted) throw new Error(snapshot.reason);
+  const accepted = guest.acceptSnapshot(snapshot.snapshot);
+  if (!accepted.accepted) throw new Error(accepted.reason);
+  const applied = guest.createApplied();
+  if (!applied.accepted) throw new Error(applied.reason);
+  const hostApplied = host.handleApplied(applied.applied);
+  if (!hostApplied.accepted) throw new Error(hostApplied.reason);
+  const peer = connection();
+  return Object.freeze({
+    connection: peer,
+    channel: new FilePlaybackConnectionChannel(guest, peer, {
+      guestAppliedSendConfirmed: true,
+    }),
+  });
+}
+
 function localFile(name = 'product-runtime.mp3'): File {
   return new File([new Uint8Array([1, 2, 3])], name, { type: 'audio/mpeg' });
 }
@@ -825,6 +882,112 @@ describe('FilePlaybackProductRuntime', () => {
       'controller:create',
       'sessions:install-hooks',
     ]);
+  });
+
+  it('defers controller fail-closed revocation beyond active router adoption', async () => {
+    const installedHooks = capture<Readonly<FilePlaybackApplicationSessionHooks>>();
+    const exactRouter = capture<FilePlaybackProductSessionRouter>();
+    const pair = establishedRuntimeGuestChannel('deferred-controller-close');
+    const revocationFailures: unknown[] = [];
+    const closeConnection = vi.fn((connectionValue: DataConnection) => {
+      const hooks = requireCapture(installedHooks, 'Runtime hooks are unavailable');
+      try {
+        hooks.onLifecycleEvent?.(
+          Object.freeze({
+            kind: 'revoked' as const,
+            role: 'guest' as const,
+            connection: connectionValue,
+            channel: pair.channel,
+          }),
+        );
+      } catch (error) {
+        revocationFailures.push(error);
+      }
+    });
+    const sessions: FilePlaybackProductRuntimeSessionAdapter = {
+      installHooks: (hooks) => void (installedHooks.value = hooks),
+      beginHostRoom: (hostParticipantId) =>
+        Object.freeze({
+          applicationSessionId: 'runtime-deferred-controller-close-session',
+          hostParticipantId,
+        }),
+      endRoom: vi.fn(),
+      handleWake: vi.fn(() => true),
+      nowRoomTimeMs: vi.fn(() => 1_000),
+      sendRequired: vi.fn(() => true),
+      sendWire: vi.fn(() => Object.freeze({ kind: 'source-ready' }) as never),
+      closeConnection,
+    };
+    const guestOwner = Object.freeze({
+      adoptAuxiliaryMessage: (_event, acknowledge) => acknowledge(),
+      adoptWireMessage: (_event, acknowledge) => acknowledge(),
+      adoptPeerRangeBulk: (_event, acknowledge) => acknowledge(),
+      revoke: vi.fn(),
+    } satisfies FilePlaybackProductSessionRouterGuestMediaOwnerPort);
+    const runtime = new FilePlaybackProductRuntime({
+      enabled: true,
+      sessions,
+      nowMonotonicMs: () => 1_000,
+      mediaFactoriesForTests: {
+        createSessionRouter: (options) => {
+          const router = new FilePlaybackProductSessionRouter(options);
+          exactRouter.value = router;
+          return router;
+        },
+        createGuestMediaOwner: () => guestOwner,
+      },
+    });
+
+    expect(runtime.initializeBeforeProtocol()).toBe(true);
+    expect(runtime.beginGuestRoom()).toBe(true);
+    const hooks = requireCapture(installedHooks, 'Runtime hooks were not installed');
+    hooks.onLifecycleEvent?.(
+      Object.freeze({
+        kind: 'established' as const,
+        role: 'guest' as const,
+        connection: pair.connection,
+        channel: pair.channel,
+      }),
+    );
+    const binding = pair.channel.establishedBinding();
+    const connectionToken = pair.channel.liveConnectionToken();
+    const controller = runtime.controller();
+    if (!binding || !connectionToken || !controller) {
+      throw new Error('Runtime guest authority is unavailable');
+    }
+    const acknowledge = vi.fn();
+    const timelineUpdate = createFilePlaybackTimelineUpdateV2({
+      sessionId: binding.sessionId,
+      connectionId: binding.connectionId,
+      roomGeneration: controller.snapshot().roomGeneration,
+      timeline: controller.timelineSnapshot(),
+    });
+
+    expect(() =>
+      hooks.adoptAuxiliaryMessage?.(
+        Object.freeze({
+          frame: timelineUpdate,
+          connection: pair.connection,
+          channel: pair.channel,
+          connectionToken,
+        }),
+        acknowledge,
+      ),
+    ).toThrow(/APPLIED guest baseline/u);
+    expect(acknowledge).not.toHaveBeenCalled();
+    expect(closeConnection).not.toHaveBeenCalled();
+    expect(revocationFailures).toEqual([]);
+    expect(requireCapture(exactRouter, 'Runtime router is unavailable').snapshot()).toMatchObject({
+      activeConnectionCount: 0,
+    });
+    expect(controller.snapshot().activeConnectionCount).toBe(0);
+
+    await Promise.resolve();
+
+    expect(closeConnection).toHaveBeenCalledOnce();
+    expect(closeConnection).toHaveBeenCalledWith(pair.connection);
+    expect(revocationFailures).toEqual([]);
+    runtime.endRoom();
   });
 
   it.each([
@@ -3732,9 +3895,19 @@ describe('FilePlaybackProductRuntime', () => {
     const projected = vi.fn();
     const loadingPending = vi.fn();
     const loadingSettled = vi.fn();
+    const pauseGatePending = vi.fn();
+    const pauseGateSettled = vi.fn();
     const stopProjectionObservation = bus.on('player:v2-guest-timeline-rendered', projected);
     const stopLoadingPendingObservation = bus.on('player:v2-file-loading-pending', loadingPending);
     const stopLoadingSettledObservation = bus.on('player:v2-file-loading-settled', loadingSettled);
+    const stopPauseGatePendingObservation = bus.on(
+      'player:v2-guest-pause-gate-pending',
+      pauseGatePending,
+    );
+    const stopPauseGateSettledObservation = bus.on(
+      'player:v2-guest-pause-gate-settled',
+      pauseGateSettled,
+    );
     exactGuestOwnerOptions.onLoadingStateChange?.({
       phase: 'pending',
       owner: 'guest-prepare',
@@ -3744,6 +3917,11 @@ describe('FilePlaybackProductRuntime', () => {
       owner: 'guest-prepare',
       token: 'guest-runtime-loading',
     });
+    exactGuestOwnerOptions.onPauseGateStateChange?.({
+      phase: 'pending',
+      token: 73,
+    });
+    expect(pauseGatePending).toHaveBeenCalledWith({ token: 73 });
     const renderedTimeline = freezeCanonical({
       schemaVersion: 1 as const,
       revision: 1,
@@ -3776,6 +3954,11 @@ describe('FilePlaybackProductRuntime', () => {
       token: 'revoked-guest-loading',
     });
     expect(loadingPending).toHaveBeenCalledOnce();
+    exactGuestOwnerOptions.onPauseGateStateChange?.({
+      phase: 'pending',
+      token: 74,
+    });
+    expect(pauseGatePending).toHaveBeenCalledOnce();
     exactGuestOwnerOptions.onLoadingStateChange?.({
       phase: 'settled',
       owner: 'guest-prepare',
@@ -3785,9 +3968,16 @@ describe('FilePlaybackProductRuntime', () => {
       owner: 'guest-prepare',
       token: 'guest-runtime-loading',
     });
+    exactGuestOwnerOptions.onPauseGateStateChange?.({
+      phase: 'settled',
+      token: 73,
+    });
+    expect(pauseGateSettled).toHaveBeenCalledWith({ token: 73 });
     stopProjectionObservation();
     stopLoadingPendingObservation();
     stopLoadingSettledObservation();
+    stopPauseGatePendingObservation();
+    stopPauseGateSettledObservation();
 
     Reflect.apply(
       requireCapture(registryFatal, 'guest registry fatal hook unavailable'),

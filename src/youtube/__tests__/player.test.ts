@@ -1282,7 +1282,7 @@ describe('YouTube Player', () => {
         snapshotRevision: 1,
         capabilities: ['media.add'],
       });
-      setState('network.hostConn', { peer: 'coordinator-1' } as DataConnection);
+      setState('network.hostConn', null);
       const { initYouTube } = await import('../player.ts');
       initYouTube();
 
@@ -1306,6 +1306,70 @@ describe('YouTube Player', () => {
           title: 'Test Title',
         });
       });
+    });
+
+    it('never applies a failed PRO title patch through the legacy local queue path', async () => {
+      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>((item) => {
+        setState('playlist.items', [
+          {
+            ...item,
+            name: 'Projected title',
+            title: 'Projected title',
+          },
+        ]);
+        return true;
+      });
+      const updateTrackMetadata = vi.fn(() => false);
+      registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube, updateTrackMetadata }));
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: 'coordinator-1',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['media.add'],
+      });
+      setState('network.hostConn', null);
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+
+      bus.emit('youtube:load-from-chat', 'https://www.youtube.com/watch?v=VIDEO_ID_01');
+
+      await vi.waitFor(() => expect(updateTrackMetadata).toHaveBeenCalledTimes(1));
+      expect(getState('playlist.items')).toEqual([
+        expect.objectContaining({
+          name: 'Projected title',
+          title: 'Projected title',
+        }),
+      ]);
+    });
+
+    it('fails closed for PRO media adds without media-management authority', async () => {
+      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>(() => true);
+      registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube }));
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: 'coordinator-1',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: [],
+      });
+      setState('network.hostConn', null);
+      const { showToast } = await import('../../ui/toast.ts');
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+
+      bus.emit('youtube:load-from-chat', 'https://www.youtube.com/watch?v=VIDEO_ID_01');
+      bus.emit('youtube:load-from-input');
+
+      expect(showToast).toHaveBeenCalledTimes(2);
+      expect(showToast).toHaveBeenNthCalledWith(1, 'toast.media_management_required');
+      expect(showToast).toHaveBeenNthCalledWith(2, 'toast.media_management_required');
+      expect(addYouTube).not.toHaveBeenCalled();
+      expect(getState('playlist.items')).toEqual([]);
     });
 
     it('consumes a prefetched playlist manifest synchronously on the submit gesture', async () => {

@@ -162,6 +162,8 @@ function createEmptyGraph(): AudioGraph {
 
 let _graph: AudioGraph = createEmptyGraph();
 let _proPlaybackPauseGateToken: number | null = null;
+let _v2HostPauseGateToken: number | null = null;
+let _v2GuestPauseGateToken: number | null = null;
 
 let _initAudioPromise: Promise<void> | null = null;
 let _disposeContextRecovery: (() => void) | null = null;
@@ -322,6 +324,8 @@ async function _doInitAudio(): Promise<void> {
   _graph.preamp = ctx.createGain();
   _graph.widener = createStereoWidener(0.5); // applySettings() overwrites with state default
   _graph.filePlaybackRoute = new FilePlaybackRoute(ctx);
+  _graph.filePlaybackRoute.input.gain.value =
+    _v2HostPauseGateToken === null && _v2GuestPauseGateToken === null ? 1 : 0;
   const initialSurroundChannel = getState('audio.surroundChannelIndex');
   if (
     getState('audio.isSurroundMode') &&
@@ -629,6 +633,51 @@ bus.on('pro-playback:ui-control-settled', (event) => {
   _proPlaybackPauseGateToken = null;
   const volume = Math.max(0, Math.min(1, getState('audio.masterVolume') ?? 1));
   if (_graph.masterGain) rampParam(_graph.masterGain.gain, volume, 0.03);
+});
+
+function syncV2FilePauseGate(rampSeconds: number): void {
+  const route = _graph.filePlaybackRoute;
+  if (!route) return;
+  const open = _v2HostPauseGateToken === null && _v2GuestPauseGateToken === null;
+  rampParam(route.input.gain, open ? 1 : 0, rampSeconds);
+}
+
+// Standard-room V2 keeps its revisioned future PAUSE boundary for exact state
+// convergence, while the local file route becomes silent as soon as the
+// initiating host or an exact guest successor admits that intent.
+bus.on('player:v2-host-ui-control-pending', (event) => {
+  if (event.kind !== 'pause') return;
+  _v2HostPauseGateToken = event.token;
+  syncV2FilePauseGate(0.015);
+});
+
+bus.on('player:v2-host-ui-control-settled', (event) => {
+  if (event.kind !== 'pause' || _v2HostPauseGateToken !== event.token) return;
+  _v2HostPauseGateToken = null;
+  syncV2FilePauseGate(0.03);
+});
+
+bus.on('player:v2-guest-pause-gate-pending', (event) => {
+  _v2GuestPauseGateToken = event.token;
+  syncV2FilePauseGate(0.015);
+});
+
+bus.on('player:v2-guest-pause-gate-settled', (event) => {
+  if (_v2GuestPauseGateToken !== event.token) return;
+  _v2GuestPauseGateToken = null;
+  syncV2FilePauseGate(0.03);
+});
+
+function releaseV2FilePauseGates(): void {
+  if (_v2HostPauseGateToken === null && _v2GuestPauseGateToken === null) return;
+  _v2HostPauseGateToken = null;
+  _v2GuestPauseGateToken = null;
+  syncV2FilePauseGate(0.03);
+}
+
+bus.on('player:stop-all-media', releaseV2FilePauseGates);
+bus.on('state:setup.sessionStarted', (started) => {
+  if (!started) releaseV2FilePauseGates();
 });
 
 /** Apply volume to YouTube player */

@@ -459,6 +459,12 @@ const fr: Record<I18nKey, string> = {
   'toast.host_only': 'Seul l’hôte peut exécuter ceci.',
   'toast.host_only_media': 'Seul l’hôte peut ajouter des médias.',
   'toast.media_management_required': 'L’autorisation de gérer les médias est requise.',
+  'toast.playback_control_required': 'L’autorisation de contrôler la lecture est requise.',
+  'toast.member_management_required': 'L’autorisation d’expulser des membres est requise.',
+  'toast.chat_notice_required': 'L’autorisation de publier des annonces dans le chat est requise.',
+  'toast.room_owner_required': 'Seul le propriétaire du salon peut modifier ceci.',
+  'toast.system_audio_owner_required':
+    'Seul le propriétaire du salon peut partager ou arrêter l’audio système.',
   'toast.host_only_youtube': 'Seul l’hôte peut ajouter des liens YouTube.',
   'toast.host_only_control': 'Seul l’hôte peut contrôler ceci',
   'toast.host_setting_required': 'Seul l’hôte peut modifier ce réglage',

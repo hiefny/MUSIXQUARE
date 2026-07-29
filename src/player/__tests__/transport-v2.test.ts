@@ -79,6 +79,8 @@ import type {
   QueueItemId,
   V2HostSeekPendingEvent,
   V2HostSeekSettledEvent,
+  V2HostUiControlPendingEvent,
+  V2HostUiControlSettledEvent,
 } from '../../types/index.ts';
 import { isPlayLocked, setCurrentAudioBuffer, setPlayerNode } from '../_state.ts';
 import {
@@ -841,6 +843,134 @@ describe('V2 host-local file transport seek boundary', () => {
         token: pending[1]?.token,
         status: 'committed',
         positionSeconds: 30,
+      }),
+    ]);
+  });
+
+  it('publishes pause feedback immediately without advancing canonical truth before commit', async () => {
+    setPlaying(12);
+    const applied = deferred<ReturnType<typeof pauseCommit>>();
+    const pending: V2HostUiControlPendingEvent[] = [];
+    const settled: V2HostUiControlSettledEvent[] = [];
+    bus.on('player:v2-host-ui-control-pending', (event) => pending.push(event));
+    bus.on('player:v2-host-ui-control-settled', (event) => settled.push(event));
+    v2.runtime.pauseCurrent.mockImplementationOnce(() => applied.promise);
+
+    pause(undefined, { showToast: false });
+
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ kind: 'pause', queueItemId: Q1 });
+    expect(Object.isFrozen(pending[0])).toBe(true);
+    expect(settled).toHaveLength(0);
+    expect(getState('playback.activity')).toBe('playing');
+
+    await drainMicrotasks();
+    expect(v2.runtime.pauseCurrent).toHaveBeenCalledOnce();
+    expect(settled).toHaveLength(0);
+    expect(getState('playback.activity')).toBe('playing');
+
+    publishProjection('paused', 2, 12);
+    applied.resolve(pauseCommit(12, 2));
+    await drainMicrotasks();
+
+    expect(getState('playback.activity')).toBe('paused');
+    expect(settled).toEqual([
+      expect.objectContaining({
+        token: pending[0]?.token,
+        kind: 'pause',
+        queueItemId: Q1,
+        status: 'committed',
+      }),
+    ]);
+    expect(Object.isFrozen(settled[0])).toBe(true);
+  });
+
+  it('publishes play feedback synchronously while the paused renderer resumes', async () => {
+    setPaused(18);
+    const applied = deferred<ReturnType<typeof playingCommit>>();
+    const pending: V2HostUiControlPendingEvent[] = [];
+    const settled: V2HostUiControlSettledEvent[] = [];
+    bus.on('player:v2-host-ui-control-pending', (event) => pending.push(event));
+    bus.on('player:v2-host-ui-control-settled', (event) => settled.push(event));
+    v2.runtime.resumeCurrent.mockImplementationOnce(() => applied.promise);
+
+    void play(18);
+
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ kind: 'play', queueItemId: Q1 });
+    expect(Object.isFrozen(pending[0])).toBe(true);
+    expect(settled).toHaveLength(0);
+    expect(getState('playback.activity')).toBe('paused');
+
+    await drainMicrotasks();
+    expect(v2.runtime.resumeCurrent).toHaveBeenCalledOnce();
+    expect(settled).toHaveLength(0);
+
+    publishProjection('playing', 2, 18);
+    applied.resolve(playingCommit(18, 2));
+    await drainMicrotasks();
+
+    expect(getState('playback.activity')).toBe('playing');
+    expect(settled).toEqual([
+      expect.objectContaining({
+        token: pending[0]?.token,
+        kind: 'play',
+        queueItemId: Q1,
+        status: 'committed',
+      }),
+    ]);
+  });
+
+  it('keeps a newer play token active when a superseded pause settles late', async () => {
+    setPlaying(5);
+    const pauseApplied = deferred<ReturnType<typeof pauseCommit>>();
+    const playApplied = deferred<ReturnType<typeof playingCommit>>();
+    const pending: V2HostUiControlPendingEvent[] = [];
+    const settled: V2HostUiControlSettledEvent[] = [];
+    bus.on('player:v2-host-ui-control-pending', (event) => pending.push(event));
+    bus.on('player:v2-host-ui-control-settled', (event) => settled.push(event));
+    v2.runtime.pauseCurrent.mockImplementationOnce(() => pauseApplied.promise);
+    v2.runtime.resumeCurrent.mockImplementationOnce(() => playApplied.promise);
+
+    pause(undefined, { showToast: false });
+    await drainMicrotasks();
+    expect(v2.runtime.pauseCurrent).toHaveBeenCalledOnce();
+
+    void play(5);
+
+    expect(pending).toHaveLength(2);
+    expect(pending[0]).toMatchObject({ kind: 'pause', queueItemId: Q1 });
+    expect(pending[1]).toMatchObject({ kind: 'play', queueItemId: Q1 });
+    expect(pending[1]?.token).not.toBe(pending[0]?.token);
+    expect(settled).toEqual([
+      expect.objectContaining({
+        token: pending[0]?.token,
+        kind: 'pause',
+        status: 'superseded',
+      }),
+    ]);
+
+    publishProjection('paused', 2, 5);
+    pauseApplied.resolve(pauseCommit(5, 2));
+    await drainMicrotasks();
+
+    expect(v2.runtime.resumeCurrent).toHaveBeenCalledOnce();
+    expect(settled).toHaveLength(1);
+
+    publishProjection('playing', 3, 5);
+    playApplied.resolve(playingCommit(5, 3));
+    await drainMicrotasks();
+
+    expect(settled).toEqual([
+      expect.objectContaining({
+        token: pending[0]?.token,
+        kind: 'pause',
+        status: 'superseded',
+      }),
+      expect.objectContaining({
+        token: pending[1]?.token,
+        kind: 'play',
+        status: 'committed',
       }),
     ]);
   });

@@ -100,7 +100,7 @@ describe('locale font glyph preloading', () => {
 
     await expect(preloadLocaleFontGlyphs(code, sample)).resolves.toBe(true);
 
-    expect(glyphLoader).toHaveBeenCalledWith(font, sample);
+    expect(glyphLoader).toHaveBeenCalledWith(font, [...new Set(Array.from(sample))].join(''));
   });
 
   it('deduplicates concurrent and completed glyph requests', async () => {
@@ -133,6 +133,50 @@ describe('locale font glyph preloading', () => {
 
     expect(cssLoader).toHaveBeenCalledOnce();
     expect(glyphLoader).toHaveBeenCalledOnce();
+  });
+
+  it('warms only newly encountered glyphs as an input grows', async () => {
+    const glyphLoader = installFontSet();
+    __setLocaleFontLoaderForTests(
+      'ru',
+      vi.fn(() => Promise.resolve()),
+    );
+
+    await expect(preloadLocaleFontGlyphs('ru', 'При')).resolves.toBe(true);
+    await expect(preloadLocaleFontGlyphs('ru', 'Привет')).resolves.toBe(true);
+    await expect(preloadLocaleFontGlyphs('ru', 'вет')).resolves.toBe(true);
+
+    expect(glyphLoader.mock.calls).toEqual([
+      ['750 15px "Noto Sans"', 'При'],
+      ['750 15px "Noto Sans"', 'вет'],
+    ]);
+  });
+
+  it('shares overlapping in-flight glyph work without duplicating code points', async () => {
+    let resolveFirstGlyphLoad!: (faces: FontFace[]) => void;
+    const firstGlyphLoad = new Promise<FontFace[]>((resolve) => {
+      resolveFirstGlyphLoad = resolve;
+    });
+    const glyphLoader = installFontSet()
+      .mockImplementationOnce(() => firstGlyphLoad)
+      .mockResolvedValueOnce([{} as FontFace]);
+    __setLocaleFontLoaderForTests(
+      'ja',
+      vi.fn(() => Promise.resolve()),
+    );
+
+    const first = preloadLocaleFontGlyphs('ja', 'かな');
+    await vi.waitFor(() => expect(glyphLoader).toHaveBeenCalledOnce());
+    const overlapping = preloadLocaleFontGlyphs('ja', 'なカ');
+    await vi.waitFor(() => expect(glyphLoader).toHaveBeenCalledTimes(2));
+
+    expect(glyphLoader.mock.calls).toEqual([
+      ['750 15px "Noto Sans JP"', 'かな'],
+      ['750 15px "Noto Sans JP"', 'カ'],
+    ]);
+    resolveFirstGlyphLoad([{} as FontFace]);
+    await expect(first).resolves.toBe(true);
+    await expect(overlapping).resolves.toBe(true);
   });
 
   it('keeps CSS and glyph failures retryable without rejecting the caller', async () => {

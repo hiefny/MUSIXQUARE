@@ -52,6 +52,7 @@ import {
   createFilePlaybackProductGuestMediaOwner,
   type FilePlaybackProductGuestLoadingStateEvent,
   type FilePlaybackProductGuestMediaOwnerOptions,
+  type FilePlaybackProductGuestPauseGateStateEvent,
 } from './file-playback-product-guest-media-owner.ts';
 import {
   FILE_PLAYBACK_PRODUCT_OFFER_LIFETIME_MS,
@@ -456,7 +457,7 @@ function defaultControllerFactory(
     initialTimeline: input.initialTimeline,
     idIssuer: new FilePlaybackProductBaselineIdIssuer(),
     sendRequired: (connection, frame) => input.sessions.sendRequired(connection, frame),
-    closeConnection: (connection) => input.sessions.closeConnection(connection),
+    closeConnection: (connection) => deferExactConnectionClose(input.sessions, connection),
     onHostReady: input.onHostReady,
     onTimelineAdopted: input.onTimelineAdopted,
     onTimelineUpdated: input.onTimelineUpdated,
@@ -1840,6 +1841,26 @@ export class FilePlaybackProductRuntime {
           // settle only its own projection even after its context was revoked.
           bus.emit('player:v2-file-loading-settled', {
             owner: event.owner,
+            token: event.token,
+          });
+        },
+        onPauseGateStateChange: (event: Readonly<FilePlaybackProductGuestPauseGateStateEvent>) => {
+          if (event.phase === 'pending') {
+            if (
+              !this.#connectionContexts.has(context) ||
+              this.#activeGuestRoom !== active ||
+              !this.#ownsExactGuestRoom(active)
+            ) {
+              return;
+            }
+            bus.emit('player:v2-guest-pause-gate-pending', {
+              token: event.token,
+            });
+            return;
+          }
+          // A revoked owner must still be able to release only its exact local
+          // gate token. The audio route ignores stale settlements.
+          bus.emit('player:v2-guest-pause-gate-settled', {
             token: event.token,
           });
         },

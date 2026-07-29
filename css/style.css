@@ -5532,6 +5532,11 @@
   #media-source-overlay .setup-slot-list {
     flex: 0 1 auto;
     min-height: 0;
+    /* The choices are their own scrollport on short viewports. Keep enough
+       inset for the first row's hover lift/shadow and keyboard focus ring so
+       neither is clipped by the scrollport edge. */
+    padding-block: 6px;
+    scroll-padding-block: 6px;
     overflow-y: auto;
   }
 
@@ -8139,6 +8144,10 @@
 
   /* ─── Accessibility: Reduced Motion ─────────────────────────── */
   @media (prefers-reduced-motion: reduce) {
+    #media-source-overlay .file-select-btn:hover {
+      transform: none;
+    }
+
     .file-drop-feedback,
     .file-drop-feedback-icon {
       transition: none !important;

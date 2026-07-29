@@ -28,8 +28,10 @@ const FONT_FAMILIES: Record<LocaleFontCode, string> = {
 const fontLoaders: Record<LocaleFontCode, FontCssLoader> = { ...DEFAULT_FONT_LOADERS };
 const loadedFonts = new Set<LocaleFontCode>();
 const inFlightFonts = new Map<LocaleFontCode, Promise<void>>();
-const loadedGlyphSamples = new Set<string>();
+const loadedGlyphCharacters = new Map<LocaleFontCode, Set<string>>();
+const inFlightGlyphCharacters = new Map<LocaleFontCode, Map<string, Promise<boolean>>>();
 const inFlightGlyphSamples = new Map<string, Promise<boolean>>();
+const MAX_TRACKED_GLYPH_CHARACTERS_PER_FONT = 4_096;
 
 export function hasLocaleFont(code: string): code is LocaleFontCode {
   return Object.prototype.hasOwnProperty.call(DEFAULT_FONT_LOADERS, code);
@@ -74,40 +76,79 @@ export function preloadLocaleFontGlyphs(code: LocaleFontCode, text: string): Pro
   if (!sample) return loadLocaleFont(code).then(() => loadedFonts.has(code));
 
   const cacheKey = `${code}\u0000${sample}`;
-  if (loadedGlyphSamples.has(cacheKey)) return Promise.resolve(true);
   const existing = inFlightGlyphSamples.get(cacheKey);
   if (existing) return existing;
 
-  const pending = loadLocaleFont(code)
-    .then(async () => {
-      // loadLocaleFont deliberately resolves after a failed CSS request so UI
-      // rendering is never blocked. Keep this sample retryable in that case.
-      if (!loadedFonts.has(code)) return false;
+  const loaded = loadedGlyphCharacters.get(code) ?? new Set<string>();
+  if (!loadedGlyphCharacters.has(code)) loadedGlyphCharacters.set(code, loaded);
+  const characterTasks = inFlightGlyphCharacters.get(code) ?? new Map<string, Promise<boolean>>();
+  if (!inFlightGlyphCharacters.has(code)) inFlightGlyphCharacters.set(code, characterTasks);
 
-      const fontSet = typeof document === 'undefined' ? undefined : document.fonts;
-      if (!fontSet || typeof fontSet.load !== 'function') {
-        // Older browsers still fetch the shard naturally once the text renders.
-        loadedGlyphSamples.add(cacheKey);
+  const uniqueCharacters = [
+    ...new Set(Array.from(sample).filter((character) => !/\s/u.test(character))),
+  ];
+  const sharedTasks = new Set<Promise<boolean>>();
+  const freshCharacters: string[] = [];
+  for (const character of uniqueCharacters) {
+    if (loaded.has(character)) continue;
+    const characterTask = characterTasks.get(character);
+    if (characterTask) sharedTasks.add(characterTask);
+    else freshCharacters.push(character);
+  }
+
+  if (freshCharacters.length > 0) {
+    const freshSample = freshCharacters.join('');
+    const freshTask = loadLocaleFont(code)
+      .then(async () => {
+        // loadLocaleFont deliberately resolves after a failed CSS request so UI
+        // rendering is never blocked. Keep these characters retryable then.
+        if (!loadedFonts.has(code)) return false;
+
+        const fontSet = typeof document === 'undefined' ? undefined : document.fonts;
+        if (fontSet && typeof fontSet.load === 'function') {
+          const faces = await fontSet.load(`750 15px "${FONT_FAMILIES[code]}"`, freshSample);
+          if (faces.length === 0) return false;
+        }
+
+        // Older browsers fetch the shard naturally once text renders. Track
+        // code points, not whole input prefixes/messages, so typing and chat
+        // rendering cannot create an unbounded full-string cache.
+        for (const character of freshCharacters) {
+          loaded.delete(character);
+          loaded.add(character);
+          while (loaded.size > MAX_TRACKED_GLYPH_CHARACTERS_PER_FONT) {
+            const oldest = loaded.values().next().value;
+            if (oldest === undefined) break;
+            loaded.delete(oldest);
+          }
+        }
         return true;
-      }
+      })
+      .catch((error) => {
+        // Glyph warming is opportunistic and must never delay or reject a
+        // render. Do not cache failures so a later boundary can retry.
+        log.warn(`[i18n] Failed to preload font glyphs for "${code}"`, error);
+        return false;
+      })
+      .finally(() => {
+        for (const character of freshCharacters) {
+          if (characterTasks.get(character) === freshTask) characterTasks.delete(character);
+        }
+      });
+    for (const character of freshCharacters) characterTasks.set(character, freshTask);
+    sharedTasks.add(freshTask);
+  }
 
-      const faces = await fontSet.load(`750 15px "${FONT_FAMILIES[code]}"`, sample);
-      if (faces.length === 0) return false;
-      loadedGlyphSamples.add(cacheKey);
-      return true;
-    })
-    .catch((error) => {
-      // Glyph warming is opportunistic and must never delay or reject a dialog
-      // interaction. Do not cache failures so a later focus/open can retry.
-      log.warn(`[i18n] Failed to preload font glyphs for "${code}"`, error);
-      return false;
-    })
-    .finally(() => {
-      inFlightGlyphSamples.delete(cacheKey);
-    });
+  const pending =
+    sharedTasks.size === 0
+      ? Promise.resolve(true)
+      : Promise.all([...sharedTasks]).then((results) => results.every(Boolean));
+  const tracked = pending.finally(() => {
+    if (inFlightGlyphSamples.get(cacheKey) === tracked) inFlightGlyphSamples.delete(cacheKey);
+  });
 
-  inFlightGlyphSamples.set(cacheKey, pending);
-  return pending;
+  inFlightGlyphSamples.set(cacheKey, tracked);
+  return tracked;
 }
 
 /** Test-only loader injection keeps concurrency/completion caching observable. */
@@ -115,9 +156,8 @@ export function __setLocaleFontLoaderForTests(code: LocaleFontCode, loader: Font
   fontLoaders[code] = loader;
   loadedFonts.delete(code);
   inFlightFonts.delete(code);
-  for (const cacheKey of loadedGlyphSamples) {
-    if (cacheKey.startsWith(`${code}\u0000`)) loadedGlyphSamples.delete(cacheKey);
-  }
+  loadedGlyphCharacters.delete(code);
+  inFlightGlyphCharacters.delete(code);
   for (const cacheKey of inFlightGlyphSamples.keys()) {
     if (cacheKey.startsWith(`${code}\u0000`)) inFlightGlyphSamples.delete(cacheKey);
   }
@@ -126,7 +166,8 @@ export function __setLocaleFontLoaderForTests(code: LocaleFontCode, loader: Font
 export function __resetLocaleFontLoadingForTests(): void {
   loadedFonts.clear();
   inFlightFonts.clear();
-  loadedGlyphSamples.clear();
+  loadedGlyphCharacters.clear();
+  inFlightGlyphCharacters.clear();
   inFlightGlyphSamples.clear();
   for (const code of Object.keys(DEFAULT_FONT_LOADERS) as LocaleFontCode[]) {
     fontLoaders[code] = DEFAULT_FONT_LOADERS[code];

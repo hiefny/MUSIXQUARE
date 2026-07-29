@@ -4,15 +4,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LocaleFontCode } from '../../i18n/locale-fonts.ts';
 
-const { loadLocaleFont } = vi.hoisted(() => ({
-  loadLocaleFont: vi.fn<(code: LocaleFontCode) => Promise<void>>(() => Promise.resolve()),
+const { preloadLocaleFontGlyphs } = vi.hoisted(() => ({
+  preloadLocaleFontGlyphs: vi.fn<(code: LocaleFontCode, text: string) => Promise<boolean>>(() =>
+    Promise.resolve(true),
+  ),
 }));
-vi.mock('../../i18n/locale-fonts.ts', () => ({ loadLocaleFont }));
+vi.mock('../../i18n/locale-fonts.ts', () => ({ preloadLocaleFontGlyphs }));
 
 import { applyUserTextFontFallback, detectUserTextFontCodesForTests } from '../user-text-font.ts';
 
 beforeEach(() => {
-  loadLocaleFont.mockClear();
+  preloadLocaleFontGlyphs.mockClear();
 });
 
 describe('script-aware user text font fallback', () => {
@@ -38,12 +40,13 @@ describe('script-aware user text font fallback', () => {
     const element = document.createElement('span');
 
     expect(applyUserTextFontFallback(element, 'MUSIXQUARE 가나다')).toEqual([]);
-    expect(loadLocaleFont).not.toHaveBeenCalled();
+    expect(preloadLocaleFontGlyphs).not.toHaveBeenCalled();
   });
 
   it('loads and composes every confidently detected shard in mixed text', () => {
     const element = document.createElement('span');
-    const codes = applyUserTextFontFallback(element, 'かな Привет สวัสดี ㄅ');
+    const text = 'かな Привет สวัสดี ㄅ';
+    const codes = applyUserTextFontFallback(element, text);
 
     expect(codes).toEqual(['ja', 'ru', 'th', 'zh-hant']);
     expect(element.dataset.userTextFonts).toBe('ja ru th zh-hant');
@@ -52,7 +55,12 @@ describe('script-aware user text font fallback', () => {
     expect(element.classList).toContain('user-text-font-ru');
     expect(element.classList).toContain('user-text-font-th');
     expect(element.classList).toContain('user-text-font-zh-hant');
-    expect(loadLocaleFont.mock.calls.map(([code]) => code)).toEqual(['ja', 'ru', 'th', 'zh-hant']);
+    expect(preloadLocaleFontGlyphs.mock.calls).toEqual([
+      ['ja', text],
+      ['ru', text],
+      ['th', text],
+      ['zh-hant', text],
+    ]);
   });
 
   it('clears stale classes when a reused element no longer needs a shard', () => {

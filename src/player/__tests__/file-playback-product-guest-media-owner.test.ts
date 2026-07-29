@@ -1071,7 +1071,11 @@ function runtimeHarness(
 function setup(
   overrides: Pick<
     Partial<FilePlaybackProductGuestMediaOwnerOptions>,
-    'getAudioGraph' | 'boundedRoutePolicy' | 'onLoadingStateChange' | 'runtimeForTests'
+    | 'getAudioGraph'
+    | 'boundedRoutePolicy'
+    | 'onLoadingStateChange'
+    | 'onPauseGateStateChange'
+    | 'runtimeForTests'
   > = {},
 ) {
   const pair = channelPair();
@@ -1085,6 +1089,7 @@ function setup(
   const fatal = vi.fn();
   const rendered = vi.fn();
   const loadingStateChanged = overrides.onLoadingStateChange ?? vi.fn();
+  const pauseGateStateChanged = overrides.onPauseGateStateChange ?? vi.fn();
   const graph = audioGraph();
   const options: FilePlaybackProductGuestMediaOwnerOptions = {
     context: pair.context,
@@ -1102,6 +1107,7 @@ function setup(
     canSendPeerControl: vi.fn(() => true),
     onTimelineRendered: rendered,
     ...(overrides.onLoadingStateChange ? { onLoadingStateChange: loadingStateChanged } : {}),
+    ...(overrides.onPauseGateStateChange ? { onPauseGateStateChange: pauseGateStateChanged } : {}),
     onFatalConnection: fatal,
     runtimeForTests: { ...runtime.runtime, ...overrides.runtimeForTests },
   };
@@ -1115,10 +1121,54 @@ function setup(
     fatal,
     rendered,
     loadingStateChanged,
+    pauseGateStateChanged,
     graph,
     options,
     owner,
   };
+}
+
+function deferNextPause(h: ReturnType<typeof setup>) {
+  const applied = deferred<unknown>();
+  let capturedIntent: Parameters<GuestRuntimeFunction<'pauseCurrent'>>[2] | null = null;
+  h.runtime.pauseCurrent.mockImplementationOnce(async (_manager, port, intent) => {
+    capturedIntent = intent;
+    const snapshot = h.runtime.runtime.currentSnapshot?.(h.manager, port);
+    if (!snapshot) throw new Error('Expected an exact current snapshot for deferred PAUSE');
+    const targetFrame = Math.round(intent.atRoomTimeMs * 48);
+    return freezeCanonical({
+      status: 'scheduled' as const,
+      reason: null,
+      from: intent.from,
+      to: intent.to,
+      target: freezeCanonical({
+        audioContext: h.graph.audioContext,
+        contextTimeSeconds: intent.atRoomTimeMs / 1_000,
+        targetFrame,
+      }),
+      snapshot,
+      applied: applied.promise,
+    }) as never;
+  });
+  return Object.freeze({
+    settle(): void {
+      const intent = capturedIntent;
+      if (!intent) throw new Error('Deferred PAUSE was not invoked');
+      const targetFrame = Math.round(intent.atRoomTimeMs * 48);
+      h.runtime.setCurrentState(intent.to);
+      h.runtime.setCurrentPhase('paused');
+      applied.resolve(
+        freezeCanonical({
+          kind: 'pause-applied' as const,
+          observation: 'worklet-observed' as const,
+          from: intent.from,
+          to: intent.to,
+          targetFrame,
+          appliedFrame: targetFrame,
+        }),
+      );
+    },
+  });
 }
 
 function startPreparation(
@@ -1201,6 +1251,7 @@ async function runHostAttempt(
   rendezvousId: string,
   kind: 'bootstrap-current' | 'bootstrap-stopped' | 'successor',
   positionSeconds = 0,
+  startAtRoomTimeMs = 1_000,
 ) {
   const attempt = stageHostAttempt(h, state, sourceIdentity, transferSessionId, rendezvousId, kind);
   const arm = h.host.createWire(attempt.attemptLease, {
@@ -1208,7 +1259,7 @@ async function runHostAttempt(
     rendezvousId,
     positionSeconds,
     playbackRate: 1,
-    startAtRoomTimeMs: 1_000,
+    startAtRoomTimeMs,
     finalizeByRoomTimeMs: 900,
   });
   receiveHostWire(h, arm);
@@ -1221,7 +1272,7 @@ async function runHostAttempt(
   const finalize = h.host.createWire(attempt.attemptLease, {
     kind: 'rendezvous-finalize',
     rendezvousId,
-    startAtRoomTimeMs: 1_000,
+    startAtRoomTimeMs,
     finalizedAtRoomTimeMs: 155,
   });
   receiveHostWire(h, finalize);
@@ -2504,6 +2555,180 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     await Promise.resolve();
     expect(h.rendered).toHaveBeenCalledOnce();
     expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('serializes a re-entrant baseline ARM behind its exact SOURCE_READY publication', async () => {
+    const h = setup();
+    const staged = stageHostAttempt(
+      h,
+      h.state,
+      SOURCE_ID,
+      TRANSFER_ID,
+      RENDEZVOUS_ID,
+      'bootstrap-current',
+    );
+    const arm = h.host.createWire(staged.attemptLease, {
+      kind: 'rendezvous-arm',
+      rendezvousId: RENDEZVOUS_ID,
+      positionSeconds: 0,
+      playbackRate: 1,
+      startAtRoomTimeMs: 1_000,
+      finalizeByRoomTimeMs: 900,
+    });
+    const armAcknowledge = vi.fn();
+    let reentered = false;
+    h.runtime.sendRequired.mockImplementation(async (_context, frame) => {
+      h.runtime.sent.push(frame);
+      if (!reentered && (frame as { kind?: string }).kind === 'source-ready') {
+        reentered = true;
+        const received = h.guest.receive(arm, h.guestConnection);
+        if (!received.accepted || received.frame !== 'wire') {
+          throw new Error('Expected re-entrant baseline ARM wire');
+        }
+        h.owner.adoptWireMessage(wireEvent(h.context, received), armAcknowledge);
+      }
+      return true;
+    });
+
+    startPreparation(h);
+
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'rendezvous-armed'),
+      ).toHaveLength(1),
+    );
+    expect(armAcknowledge).toHaveBeenCalledOnce();
+    expect(h.runtime.arm).toHaveBeenCalledOnce();
+    expect(h.runtime.sent.map((frame) => (frame as { kind?: string }).kind).slice(0, 2)).toEqual([
+      'source-ready',
+      'rendezvous-armed',
+    ]);
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.host.retireAttempt(staged.attemptLease);
+    h.owner.revoke(h.context);
+  });
+
+  it('does not execute a reserved re-entrant ARM when required SOURCE_READY publication fails', async () => {
+    const h = setup();
+    const staged = stageHostAttempt(
+      h,
+      h.state,
+      SOURCE_ID,
+      TRANSFER_ID,
+      RENDEZVOUS_ID,
+      'bootstrap-current',
+    );
+    const arm = h.host.createWire(staged.attemptLease, {
+      kind: 'rendezvous-arm',
+      rendezvousId: RENDEZVOUS_ID,
+      positionSeconds: 0,
+      playbackRate: 1,
+      startAtRoomTimeMs: 1_000,
+      finalizeByRoomTimeMs: 900,
+    });
+    const armAcknowledge = vi.fn();
+    let reentered = false;
+    h.runtime.sendRequired.mockImplementation(async (_context, frame) => {
+      h.runtime.sent.push(frame);
+      if (!reentered && (frame as { kind?: string }).kind === 'source-ready') {
+        reentered = true;
+        const received = h.guest.receive(arm, h.guestConnection);
+        if (!received.accepted || received.frame !== 'wire') {
+          throw new Error('Expected reserved baseline ARM wire');
+        }
+        h.owner.adoptWireMessage(wireEvent(h.context, received), armAcknowledge);
+        return false;
+      }
+      return true;
+    });
+
+    startPreparation(h);
+
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+    expect(armAcknowledge).toHaveBeenCalledOnce();
+    expect(h.runtime.arm).not.toHaveBeenCalled();
+    expect(
+      h.runtime.sent.filter((frame) => (frame as { kind?: string }).kind === 'rendezvous-armed'),
+    ).toHaveLength(0);
+    await vi.waitFor(() => expect(h.runtime.peerClose).toHaveBeenCalledOnce());
+  });
+
+  it('serializes a re-entrant same-run ARM behind PREPARE readiness without flashing stale loading', async () => {
+    const loadingStateChanged = vi.fn();
+    const h = setup({ onLoadingStateChange: loadingStateChanged });
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    loadingStateChanged.mockClear();
+
+    const successor = freezeCanonical({ ...h.state, revision: h.state.revision + 1 });
+    const stateLease = h.host.stageMedia({
+      run: successor,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+    const prepareWire = h.host.createWire(stateLease, {
+      kind: 'file-playback-prepare',
+      expectedQueueItemId: h.state.queueItemId,
+      expectedRunId: h.state.runId,
+      expectedRevision: h.state.revision,
+      positionSeconds: 12,
+      playbackRate: 1,
+    });
+    const attemptLease = h.host.stageAttempt(stateLease, RENDEZVOUS_ID_2);
+    const arm = h.host.createWire(attemptLease, {
+      kind: 'rendezvous-arm',
+      rendezvousId: RENDEZVOUS_ID_2,
+      positionSeconds: 12,
+      playbackRate: 1,
+      startAtRoomTimeMs: 1_000,
+      finalizeByRoomTimeMs: 900,
+    });
+    const armAcknowledge = vi.fn();
+    let reentered = false;
+    h.runtime.sendRequired.mockImplementation(async (_context, frame) => {
+      h.runtime.sent.push(frame);
+      if (
+        !reentered &&
+        (frame as { kind?: string; revision?: number }).kind === 'source-ready' &&
+        (frame as { revision?: number }).revision === successor.revision
+      ) {
+        reentered = true;
+        const received = h.guest.receive(arm, h.guestConnection);
+        if (!received.accepted || received.frame !== 'wire') {
+          throw new Error('Expected re-entrant same-run ARM wire');
+        }
+        h.owner.adoptWireMessage(wireEvent(h.context, received), armAcknowledge);
+      }
+      return true;
+    });
+
+    receiveHostWire(h, prepareWire);
+
+    await vi.waitFor(() =>
+      expect(
+        h.runtime.sent.filter(
+          (frame) =>
+            (frame as { kind?: string; revision?: number }).kind === 'rendezvous-armed' &&
+            (frame as { revision?: number }).revision === successor.revision,
+        ),
+      ).toHaveLength(1),
+    );
+    expect(armAcknowledge).toHaveBeenCalledOnce();
+    expect(h.runtime.arm).toHaveBeenCalledTimes(2);
+    expect(loadingStateChanged.mock.calls.map(([event]) => event.phase)).toEqual([
+      'pending',
+      'pending',
+      'settled',
+    ]);
+    expect(loadingStateChanged.mock.calls.map(([event]) => event.owner)).toEqual([
+      'guest-prepare',
+      'guest-rendezvous',
+      'guest-prepare',
+    ]);
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.host.retireAttempt(attemptLease);
+    h.host.retireMedia(stateLease);
     h.owner.revoke(h.context);
   });
 
@@ -3858,6 +4083,134 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     h.owner.revoke(h.context);
   });
 
+  it('projects an exact PAUSE gate through physical evidence until canonical paused truth renders', async () => {
+    const pauseGateStateChanged = vi.fn();
+    const h = setup({ onPauseGateStateChange: pauseGateStateChanged });
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    const deferredPause = deferNextPause(h);
+    const paused = freezeCanonical({ ...h.state, revision: h.state.revision + 1 });
+    const stateLease = h.host.stageMedia({
+      run: paused,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+
+    receiveHostWire(
+      h,
+      h.host.createWire(stateLease, {
+        kind: 'file-playback-pause',
+        expectedQueueItemId: h.state.queueItemId,
+        expectedRunId: h.state.runId,
+        expectedRevision: h.state.revision,
+        atRoomTimeMs: 300,
+      }),
+    );
+
+    await vi.waitFor(() => expect(h.runtime.pauseCurrent).toHaveBeenCalledOnce());
+    const pending = pauseGateStateChanged.mock.calls[0]?.[0];
+    if (!pending) throw new Error('Expected exact guest PAUSE gate projection');
+    expect(pending).toMatchObject({ phase: 'pending' });
+    expect(typeof pending.token).toBe('number');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(pauseGateStateChanged).toHaveBeenCalledTimes(1);
+
+    deferredPause.settle();
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(pauseGateStateChanged).toHaveBeenCalledTimes(1);
+    h.host.commitMedia(stateLease);
+    const pausedTimeline = activeTimeline(paused, 'paused', 0, 300);
+    h.owner.onTimelineUpdated(timelineUpdated(h.context, pausedTimeline));
+
+    await vi.waitFor(() => expect(pauseGateStateChanged).toHaveBeenCalledTimes(2));
+    expect(pauseGateStateChanged.mock.calls[1]?.[0]).toEqual({
+      phase: 'settled',
+      token: pending.token,
+    });
+    expect(h.rendered).toHaveBeenCalledWith(pausedTimeline);
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it.each(['queue identity', 'revision'] as const)(
+    'does not project a PAUSE gate for a mismatched %s',
+    async (mismatch) => {
+      const pauseGateStateChanged = vi.fn();
+      const h = setup({ onPauseGateStateChange: pauseGateStateChanged });
+      await prepare(h);
+      await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+      const paused = freezeCanonical({ ...h.state, revision: h.state.revision + 1 });
+      const stateLease = h.host.stageMedia({
+        run: paused,
+        sourceIdentity: SOURCE_ID,
+        transferSessionId: TRANSFER_ID,
+      });
+      const exact = h.host.createWire(stateLease, {
+        kind: 'file-playback-pause',
+        expectedQueueItemId: h.state.queueItemId,
+        expectedRunId: h.state.runId,
+        expectedRevision: h.state.revision,
+        atRoomTimeMs: 300,
+      });
+      const mismatched = freezeCanonical({
+        ...exact,
+        ...(mismatch === 'queue identity'
+          ? { expectedQueueItemId: QUEUE_ID_2 }
+          : { expectedRevision: h.state.revision + 7 }),
+      }) as Readonly<FilePlaybackWireMessage>;
+
+      expect(h.guest.receive(mismatched, h.guestConnection)).toMatchObject({
+        accepted: false,
+      });
+      expect(pauseGateStateChanged).not.toHaveBeenCalled();
+      expect(h.runtime.pauseCurrent).not.toHaveBeenCalled();
+      expect(() => h.owner.revoke(h.context)).not.toThrow();
+    },
+  );
+
+  it('settles one exact pending PAUSE gate when revoke wins before physical evidence', async () => {
+    const pauseGateStateChanged = vi.fn();
+    const h = setup({ onPauseGateStateChange: pauseGateStateChanged });
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    const deferredPause = deferNextPause(h);
+    const paused = freezeCanonical({ ...h.state, revision: h.state.revision + 1 });
+    const stateLease = h.host.stageMedia({
+      run: paused,
+      sourceIdentity: SOURCE_ID,
+      transferSessionId: TRANSFER_ID,
+    });
+
+    receiveHostWire(
+      h,
+      h.host.createWire(stateLease, {
+        kind: 'file-playback-pause',
+        expectedQueueItemId: h.state.queueItemId,
+        expectedRunId: h.state.runId,
+        expectedRevision: h.state.revision,
+        atRoomTimeMs: 300,
+      }),
+    );
+    await vi.waitFor(() => expect(h.runtime.pauseCurrent).toHaveBeenCalledOnce());
+    const pending = pauseGateStateChanged.mock.calls[0]?.[0];
+    if (!pending) throw new Error('Expected pending guest PAUSE gate before revoke');
+
+    h.owner.revoke(h.context);
+
+    expect(pauseGateStateChanged.mock.calls.map(([event]) => event)).toEqual([
+      { phase: 'pending', token: pending.token },
+      { phase: 'settled', token: pending.token },
+    ]);
+    deferredPause.settle();
+    await vi.waitFor(() => expect(h.runtime.peerClose).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(h.runtime.r2Close).toHaveBeenCalledOnce());
+    expect(pauseGateStateChanged).toHaveBeenCalledTimes(2);
+    expect(h.fatal).not.toHaveBeenCalled();
+  });
+
   it('prepares and commits an authenticated new-run successor before rendering metadata', async () => {
     const h = setup();
     await prepare(h);
@@ -3906,6 +4259,80 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
     );
     expect(h.fatal).not.toHaveBeenCalled();
     h.owner.revoke(h.context);
+  });
+
+  it('accepts a late-recovery ARM position on the canonical playing trajectory', async () => {
+    const h = setup();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    const offer = peerOffer2(h.context);
+    const successor = freezeCanonical({
+      queueItemId: QUEUE_ID_2,
+      runId: RUN_ID_2,
+      revision: 2,
+    });
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+    h.owner.adoptAuxiliaryMessage(
+      auxiliaryEvent(h.context, runBinding(offer, RUN_ID_2, 2)),
+      vi.fn(),
+    );
+    await vi.waitFor(() => expect(h.runtime.handoffWarmSource).toHaveBeenCalledTimes(2));
+
+    // This peer missed the initial cohort ARM. Its first ARM is the host's
+    // live projection of the canonical 12s @ 1000ms timeline at 1250ms.
+    await runHostAttempt(
+      h,
+      successor,
+      SOURCE_ID_2,
+      TRANSFER_ID_2,
+      RENDEZVOUS_ID_2,
+      'successor',
+      12.25,
+      1_250,
+    );
+    const rendered = activeTimeline(successor, 'playing', 12, 1_000);
+    h.owner.onTimelineUpdated(timelineUpdated(h.context, rendered));
+
+    await vi.waitFor(() => expect(h.rendered).toHaveBeenCalledWith(rendered));
+    expect(h.fatal).not.toHaveBeenCalled();
+    h.owner.revoke(h.context);
+  });
+
+  it('fail-closes a late-recovery ARM position outside the canonical playing trajectory', async () => {
+    const h = setup();
+    await prepare(h);
+    await runHostAttempt(h, h.state, SOURCE_ID, TRANSFER_ID, RENDEZVOUS_ID, 'bootstrap-current');
+    const offer = peerOffer2(h.context);
+    const successor = freezeCanonical({
+      queueItemId: QUEUE_ID_2,
+      runId: RUN_ID_2,
+      revision: 2,
+    });
+    h.owner.adoptAuxiliaryMessage(auxiliaryEvent(h.context, offer), vi.fn());
+    h.owner.adoptAuxiliaryMessage(
+      auxiliaryEvent(h.context, runBinding(offer, RUN_ID_2, 2)),
+      vi.fn(),
+    );
+    await vi.waitFor(() => expect(h.runtime.handoffWarmSource).toHaveBeenCalledTimes(2));
+
+    await runHostAttempt(
+      h,
+      successor,
+      SOURCE_ID_2,
+      TRANSFER_ID_2,
+      RENDEZVOUS_ID_2,
+      'successor',
+      12.25,
+      1_250,
+    );
+    const forged = activeTimeline(successor, 'playing', 12.1, 1_000);
+    h.owner.onTimelineUpdated(timelineUpdated(h.context, forged));
+
+    await vi.waitFor(() => expect(h.fatal).toHaveBeenCalledOnce());
+    expect(h.fatal.mock.calls[0]?.[1].cause).toMatchObject({
+      message: 'Guest timeline trajectory disagreed with native transition',
+    });
+    expect(h.rendered).not.toHaveBeenCalledWith(forged);
   });
 
   it('withholds same-run SOURCE_READY until the exact PREPARE target prime settles', async () => {
@@ -4441,7 +4868,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
         rendezvousId: retryRendezvousId,
         positionSeconds: 12.25,
         playbackRate: 1,
-        startAtRoomTimeMs: 1_000,
+        startAtRoomTimeMs: 1_250,
         finalizeByRoomTimeMs: 900,
       }),
     );
@@ -4468,7 +4895,7 @@ describe('FilePlaybackProductGuestMediaOwner', () => {
       h.host.createWire(retryAttemptLease, {
         kind: 'rendezvous-finalize',
         rendezvousId: retryRendezvousId,
-        startAtRoomTimeMs: 1_000,
+        startAtRoomTimeMs: 1_250,
         finalizedAtRoomTimeMs: 155,
       }),
     );

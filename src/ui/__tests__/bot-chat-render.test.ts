@@ -6,7 +6,7 @@ import { bus } from '../../core/events.ts';
 import { upsertBotChatMessage } from '../chat-render.ts';
 
 const userTextFontMocks = vi.hoisted(() => ({
-  loadLocaleFont: vi.fn(async () => undefined),
+  preloadLocaleFontGlyphs: vi.fn(async () => true),
 }));
 
 vi.mock('../../i18n/index.ts', () => ({
@@ -14,7 +14,7 @@ vi.mock('../../i18n/index.ts', () => ({
 }));
 
 vi.mock('../../i18n/locale-fonts.ts', () => ({
-  loadLocaleFont: userTextFontMocks.loadLocaleFont,
+  preloadLocaleFontGlyphs: userTextFontMocks.preloadLocaleFontGlyphs,
 }));
 
 vi.mock('../../youtube/oembed.ts', () => ({

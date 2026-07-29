@@ -453,6 +453,12 @@ const id: Record<I18nKey, string> = {
   'toast.host_only': 'Hanya host yang dapat menjalankan ini.',
   'toast.host_only_media': 'Hanya host yang dapat menambahkan media.',
   'toast.media_management_required': 'Izin untuk mengelola media diperlukan.',
+  'toast.playback_control_required': 'Izin kontrol pemutaran diperlukan.',
+  'toast.member_management_required': 'Izin mengeluarkan anggota diperlukan.',
+  'toast.chat_notice_required': 'Izin pengumuman chat diperlukan.',
+  'toast.room_owner_required': 'Hanya pemilik ruang yang dapat mengubah ini.',
+  'toast.system_audio_owner_required':
+    'Hanya pemilik ruang yang dapat membagikan atau menghentikan audio sistem.',
   'toast.host_only_youtube': 'Hanya host yang dapat menambahkan tautan YouTube.',
   'toast.host_only_control': 'Hanya host yang dapat mengontrol ini',
   'toast.host_setting_required': 'Hanya host yang dapat mengubah pengaturan ini',

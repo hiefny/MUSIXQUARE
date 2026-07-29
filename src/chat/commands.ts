@@ -11,6 +11,7 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX, BOT_RATE_LIMIT_MAX_RETRY_SECONDS } from '../core/constants.ts';
 import { sendToHost } from '../network/peer.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
+import { roomCapabilityRequiredMessage } from '../rooms/permission-feedback.ts';
 import { createProRoomIdempotencyKey } from '../pro-room/idempotency.ts';
 import { sendProRoomRealtime } from '../pro-room/network-bridge.ts';
 import { t } from '../i18n/index.ts';
@@ -181,6 +182,16 @@ function hasPermission(perm: Permission): boolean {
   if (perm === 'notice') return hasRoomCapability('chat.notice');
   if (perm === 'bot') return canUseBot();
   return false;
+}
+
+function permissionDeniedMessage(permission: Permission): string {
+  if (permission === 'members') return roomCapabilityRequiredMessage('members.manage');
+  if (permission === 'notice') return roomCapabilityRequiredMessage('chat.notice');
+  if (permission === 'host') {
+    return roomCapabilityRequiredMessage('room.configure');
+  }
+  if (permission === 'physical-host') return t('toast.host_setting_required');
+  return t('chat.cmd_no_permission');
 }
 
 // ─── Command Implementations ────────────────────────────────────
@@ -871,7 +882,7 @@ export function executeCommand(cmd: ParsedCommand, context?: CommandExecutionCon
     return;
   }
   if (!hasPermission(def.permission)) {
-    addSystemChatMessage(t('chat.cmd_no_permission'));
+    addSystemChatMessage(permissionDeniedMessage(def.permission));
     return;
   }
   if (context) def.execute(cmd.args, cmd.rawArgs, context);

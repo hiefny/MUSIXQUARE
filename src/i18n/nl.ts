@@ -486,6 +486,12 @@ const nl: Record<I18nKey, string> = {
   'toast.host_only': 'Alleen de host kan dit doen.',
   'toast.host_only_media': 'Alleen de host kan media toevoegen.',
   'toast.media_management_required': 'Toestemming voor mediabeheer vereist.',
+  'toast.playback_control_required': 'Toestemming voor afspeelbediening vereist.',
+  'toast.member_management_required': 'Toestemming voor het verwijderen van leden vereist.',
+  'toast.chat_notice_required': 'Toestemming voor chataankondigingen vereist.',
+  'toast.room_owner_required': 'Alleen de eigenaar van de ruimte kan dit wijzigen.',
+  'toast.system_audio_owner_required':
+    'Alleen de eigenaar van de ruimte kan systeemaudio delen of stoppen.',
   'toast.host_only_youtube': 'Alleen de host kan YouTube-links toevoegen.',
   'toast.host_only_control': 'Alleen de host kan dit bedienen',
   'toast.host_setting_required': 'Alleen de host kan deze instelling wijzigen',

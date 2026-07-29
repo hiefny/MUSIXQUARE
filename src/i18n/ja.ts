@@ -448,6 +448,12 @@ const ja: Record<I18nKey, string> = {
   'toast.host_only': 'ホストだけが実行できます。',
   'toast.host_only_media': 'メディアを追加できるのはホストだけです。',
   'toast.media_management_required': 'メディア管理権限が必要です。',
+  'toast.playback_control_required': '再生操作権限が必要です。',
+  'toast.member_management_required': 'メンバーを退出させる権限が必要です。',
+  'toast.chat_notice_required': 'チャットのお知らせ投稿権限が必要です。',
+  'toast.room_owner_required': '変更できるのはルーム所有者だけです。',
+  'toast.system_audio_owner_required':
+    'システムオーディオを共有または停止できるのはルーム所有者だけです。',
   'toast.host_only_youtube': 'YouTubeリンクを追加できるのはホストだけです。',
   'toast.host_only_control': '操作できるのはホストだけです',
   'toast.host_setting_required': 'この設定を変更できるのはホストだけです',

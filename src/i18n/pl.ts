@@ -483,6 +483,12 @@ const pl: Record<I18nKey, string> = {
   'toast.host_only': 'Tylko host pokoju może wykonać tę operację.',
   'toast.host_only_media': 'Tylko host pokoju może dodawać utwory.',
   'toast.media_management_required': 'Wymagane jest uprawnienie do zarządzania multimediami.',
+  'toast.playback_control_required': 'Wymagane jest uprawnienie do sterowania odtwarzaniem.',
+  'toast.member_management_required': 'Wymagane jest uprawnienie do usuwania członków.',
+  'toast.chat_notice_required': 'Wymagane jest uprawnienie do publikowania ogłoszeń na czacie.',
+  'toast.room_owner_required': 'Tylko właściciel pokoju może to zmienić.',
+  'toast.system_audio_owner_required':
+    'Tylko właściciel pokoju może udostępniać lub zatrzymać dźwięk systemowy.',
   'toast.host_only_youtube': 'Tylko host pokoju może dodawać linki z YouTube.',
   'toast.host_only_control': 'Tylko host pokoju może kontrolować odtwarzanie.',
   'toast.host_setting_required': 'Tylko host pokoju może zmienić to ustawienie',

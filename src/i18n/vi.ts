@@ -448,6 +448,12 @@ const vi: Record<I18nKey, string> = {
   'toast.host_only': 'Chỉ host mới có thể làm việc này.',
   'toast.host_only_media': 'Chỉ host mới có thể thêm nội dung.',
   'toast.media_management_required': 'Cần quyền quản lý nội dung.',
+  'toast.playback_control_required': 'Cần quyền điều khiển phát.',
+  'toast.member_management_required': 'Cần quyền mời thành viên ra.',
+  'toast.chat_notice_required': 'Cần quyền đăng thông báo trò chuyện.',
+  'toast.room_owner_required': 'Chỉ chủ phòng mới có thể thay đổi mục này.',
+  'toast.system_audio_owner_required':
+    'Chỉ chủ phòng mới có thể chia sẻ hoặc dừng âm thanh hệ thống.',
   'toast.host_only_youtube': 'Chỉ host mới có thể thêm liên kết YouTube.',
   'toast.host_only_control': 'Chỉ host mới có thể điều khiển mục này',
   'toast.host_setting_required': 'Chỉ host mới có thể đổi cài đặt này',

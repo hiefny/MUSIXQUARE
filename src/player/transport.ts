@@ -65,6 +65,9 @@ import type {
   QueueItemId,
   V2HostSeekPendingEvent,
   V2HostSeekSettlementStatus,
+  V2HostUiControlKind,
+  V2HostUiControlPendingEvent,
+  V2HostUiControlSettlementStatus,
 } from '../types/index.ts';
 
 /** Lead time for a host command to reach guests before the shared start. */
@@ -270,6 +273,10 @@ let activeV2HostFailureRecovery: {
 } | null = null;
 let v2HostSeekUiSequence = 0;
 let activeV2HostSeekUiIntent: Readonly<V2HostSeekPendingEvent> | null = null;
+const V2_HOST_UI_CONTROL_TIMEOUT_TIMER = 'v2-host-ui-control-timeout';
+const V2_HOST_UI_CONTROL_FAIL_OPEN_MS = 15_000;
+let v2HostUiControlSequence = 0;
+let activeV2HostUiControl: Readonly<V2HostUiControlPendingEvent> | null = null;
 
 function isV2HostFileControlContext(): boolean {
   if (
@@ -1172,11 +1179,75 @@ function publishV2HostFailedPaused(failure: V2HostFailureIdentity, positionSecon
   bus.emit('visualizer:hold-frame');
 }
 
+function emitV2HostUiControlSettlement(
+  event: Readonly<V2HostUiControlPendingEvent>,
+  status: V2HostUiControlSettlementStatus,
+): void {
+  bus.emit(
+    'player:v2-host-ui-control-settled',
+    Object.freeze({
+      token: event.token,
+      kind: event.kind,
+      queueItemId: event.queueItemId,
+      status,
+    }),
+  );
+}
+
+function settleV2HostUiControl(token: number, status: V2HostUiControlSettlementStatus): boolean {
+  const event = activeV2HostUiControl;
+  if (!event || event.token !== token) return false;
+  activeV2HostUiControl = null;
+  clearManagedTimer(V2_HOST_UI_CONTROL_TIMEOUT_TIMER);
+  emitV2HostUiControlSettlement(event, status);
+  return true;
+}
+
+function supersedeActiveV2HostUiControl(): void {
+  const event = activeV2HostUiControl;
+  if (!event) return;
+  settleV2HostUiControl(event.token, 'superseded');
+}
+
+function beginV2HostUiControl(
+  kind: V2HostUiControlKind,
+  queueItemId: QueueItemId | null = getCurrentQueueItemId(),
+): Readonly<V2HostUiControlPendingEvent> {
+  supersedeActiveV2HostUiControl();
+  const event = Object.freeze({
+    token: ++v2HostUiControlSequence,
+    kind,
+    queueItemId,
+  });
+  activeV2HostUiControl = event;
+  bus.emit('player:v2-host-ui-control-pending', event);
+  setManagedTimer(
+    V2_HOST_UI_CONTROL_TIMEOUT_TIMER,
+    () => settleV2HostUiControl(event.token, 'failed'),
+    V2_HOST_UI_CONTROL_FAIL_OPEN_MS,
+  );
+  return event;
+}
+
+function trackV2HostUiControl(
+  event: Readonly<V2HostUiControlPendingEvent>,
+  task: Promise<boolean>,
+): void {
+  void task.then(
+    (committed) => settleV2HostUiControl(event.token, committed ? 'committed' : 'failed'),
+    () => settleV2HostUiControl(event.token, 'failed'),
+  );
+}
+
 function isCurrentV2HostControlIntent(intent: V2HostControlIntent): boolean {
   return isCurrentV2HostMutationIntent(intent);
 }
 
 function enqueueV2HostControl(label: string, operation: V2HostControlOperation): Promise<void> {
+  // Every new mutation supersedes local feedback owned by an older request.
+  // A control that needs feedback begins its replacement token synchronously
+  // after this enqueue call, before the mutation can pass its first await.
+  supersedeActiveV2HostUiControl();
   if (label !== 'seek') supersedeActiveV2HostSeekUiIntent();
   if (label !== 'toggle') {
     pendingV2HostTogglePhase = null;
@@ -1666,11 +1737,12 @@ function enqueueV2HostToggle(): void {
   pendingV2HostTogglePhase = desiredPhase;
   const toggleSequence = ++pendingV2HostToggleSequence;
 
+  let committed = false;
   const settlement = enqueueV2HostControl('toggle', async (intent) => {
     const before = readExactV2HostControlState();
     if (desiredPhase === 'paused') {
       if (before?.phase === 'playing') {
-        await applyV2HostPause(intent, before, {
+        committed = await applyV2HostPause(intent, before, {
           holdVisualizer: true,
           showToast: true,
         });
@@ -1681,6 +1753,7 @@ function enqueueV2HostToggle(): void {
           holdVisualizer: true,
           showToast: false,
         });
+        committed = isCurrentV2HostControlIntent(intent);
         return;
       }
       const currentFailure = readExactV2HostFailureIdentity();
@@ -1689,17 +1762,18 @@ function enqueueV2HostToggle(): void {
       explicitV2HostFailureHoldKey = key;
       lastV2HostFailureObservationKey = key;
       publishV2HostFailedPaused(currentFailure, currentFailure.positionSeconds);
-      await applyV2HostFailedPause(intent, currentFailure, { showToast: true });
+      committed = await applyV2HostFailedPause(intent, currentFailure, { showToast: true });
       return;
     }
 
     explicitV2HostFailureHoldKey = null;
     if (before?.phase === 'paused') {
-      await applyV2HostResume(intent, before);
+      committed = await applyV2HostResume(intent, before);
       return;
     }
     if (before?.phase === 'playing') {
       publishV2HostPlaying(before.position.positionSeconds);
+      committed = isCurrentV2HostControlIntent(intent);
       return;
     }
     const currentFailure = readExactV2HostFailureIdentity();
@@ -1712,8 +1786,16 @@ function enqueueV2HostToggle(): void {
       appliedPositionSeconds: null as number | null,
       task: Promise.resolve(false),
     };
-    await recoverV2HostFailureWithinMutation(intent, currentFailure, recovery);
+    committed = await recoverV2HostFailureWithinMutation(intent, currentFailure, recovery);
   });
+  const uiControl = beginV2HostUiControl(
+    desiredPhase === 'playing' ? 'play' : 'pause',
+    projected?.queueItemId ?? failed?.queueItemId ?? getCurrentQueueItemId(),
+  );
+  trackV2HostUiControl(
+    uiControl,
+    settlement.then(() => committed),
+  );
   void settlement.finally(() => {
     if (pendingV2HostToggleSequence === toggleSequence) pendingV2HostTogglePhase = null;
   });
@@ -1855,17 +1937,17 @@ function readV2HostFreshLocalFileSelection(): V2HostFreshLocalFileSelection | nu
 }
 
 /**
- * Enqueues, but does not await, one fresh product start through playlist's
- * shared V2 mutation lane. `true` means an exact retry was admitted; `false`
- * means this state is not a stopped V2 local-file selection.
+ * Enqueues one fresh product start through playlist's shared V2 mutation lane.
+ * `null` means this state is not a stopped V2 local-file selection; otherwise
+ * the returned task resolves only after exact playing truth is observable.
  */
-function enqueueV2HostFreshSelectedFileStart(positionSeconds = 0): boolean {
+function enqueueV2HostFreshSelectedFileStart(positionSeconds = 0): Promise<boolean> | null {
   const admitted = readV2HostFreshLocalFileSelection();
-  if (!admitted) return false;
+  if (!admitted) return null;
   const requestedPositionSeconds =
     Number.isFinite(positionSeconds) && positionSeconds >= 0 ? positionSeconds : 0;
 
-  void import('./playlist.ts')
+  return import('./playlist.ts')
     .then(async ({ playTrack }) => {
       const current = readV2HostFreshLocalFileSelection();
       if (
@@ -1873,17 +1955,23 @@ function enqueueV2HostFreshSelectedFileStart(positionSeconds = 0): boolean {
         current.queueItemId !== admitted.queueItemId ||
         current.file !== admitted.file
       ) {
-        return;
+        return false;
       }
       await playTrack(admitted.queueItemId, undefined, {
         navigateToPlay: false,
         v2StartPositionSeconds: requestedPositionSeconds,
       });
+      const playing = readExactV2HostControlState();
+      return (
+        playing?.phase === 'playing' &&
+        playing.queueItemId === admitted.queueItemId &&
+        getCurrentQueueItemId() === admitted.queueItemId
+      );
     })
     .catch((error) => {
       log.warn('[Transport] V2 stopped local-file restart failed:', error);
+      return false;
     });
-  return true;
 }
 
 /**
@@ -1927,37 +2015,47 @@ export function requestV2HostFilePause(
     explicitV2HostFailureHoldKey = key;
     rememberV2HostFailedPause(failed);
     publishV2HostFailedPaused(failed, failed.positionSeconds);
-    void enqueueV2HostPause({
+    const task = enqueueV2HostPause({
       holdVisualizer: options.holdVisualizer,
       showToast: options.showToast,
     });
+    trackV2HostUiControl(beginV2HostUiControl('pause', failed.queueItemId), task);
     return true;
   }
-  void enqueueV2HostPause(options);
+  const task = enqueueV2HostPause(options);
+  trackV2HostUiControl(beginV2HostUiControl('pause'), task);
   return true;
 }
 
 export function requestV2HostFileResume(positionSeconds?: number): boolean {
   if (!isV2HostFileProductControlContext()) return false;
-  if (readV2HostFailedPauseCheckpoint()) {
-    void enqueueV2HostFailedPauseResume();
+  const checkpoint = readV2HostFailedPauseCheckpoint();
+  if (checkpoint) {
+    const task = enqueueV2HostFailedPauseResume();
+    trackV2HostUiControl(beginV2HostUiControl('play', checkpoint.failure.queueItemId), task);
     return true;
   }
-  if (
-    requestV2HostFailedRendererRecovery({
-      force: true,
-      ...(positionSeconds === undefined ? {} : { positionSeconds }),
-    })
-  ) {
+  const failed = readExactV2HostFailureIdentity();
+  if (failed) {
+    explicitV2HostFailureHoldKey = null;
+    const target = positionSeconds === undefined ? failed.positionSeconds : positionSeconds;
+    const task =
+      beginV2HostFailureRecovery(failed, target, { force: true }) ?? Promise.resolve(false);
+    trackV2HostUiControl(beginV2HostUiControl('play', failed.queueItemId), task);
     return true;
   }
-  if (!readExactV2HostControlState() && enqueueV2HostFreshSelectedFileStart(positionSeconds)) {
-    return true;
+  if (!readExactV2HostControlState()) {
+    const freshStart = enqueueV2HostFreshSelectedFileStart(positionSeconds);
+    if (freshStart) {
+      trackV2HostUiControl(beginV2HostUiControl('play'), freshStart);
+      return true;
+    }
   }
   // Once a standard V2 room owns file controls, an incoherent/missing
   // selection must remain fail-closed instead of exposing a compatibility
   // AudioBuffer. A valid stopped local-file selection was handled above.
-  void enqueueV2HostResume(positionSeconds);
+  const task = enqueueV2HostResume(positionSeconds);
+  trackV2HostUiControl(beginV2HostUiControl('play'), task);
   return true;
 }
 
@@ -2038,8 +2136,10 @@ export function requestV2HostFileStop(options: V2HostStopOptions = {}): Promise<
 
 function requestV2HostFileToggle(): boolean {
   if (!isV2HostFileProductControlContext()) return false;
-  if (readV2HostFailedPauseCheckpoint()) {
-    void enqueueV2HostFailedPauseResume();
+  const checkpoint = readV2HostFailedPauseCheckpoint();
+  if (checkpoint) {
+    const task = enqueueV2HostFailedPauseResume();
+    trackV2HostUiControl(beginV2HostUiControl('play', checkpoint.failure.queueItemId), task);
     return true;
   }
   const failed = readExactV2HostFailureIdentity();
@@ -2047,22 +2147,30 @@ function requestV2HostFileToggle(): boolean {
     const key = v2HostFailureObservationKey(failed);
     if (explicitV2HostFailureHoldKey === key) {
       explicitV2HostFailureHoldKey = null;
-      void beginV2HostFailureRecovery(failed, getState('player.pausedAt'), { force: true });
+      const task =
+        beginV2HostFailureRecovery(failed, getState('player.pausedAt'), { force: true }) ??
+        Promise.resolve(false);
+      trackV2HostUiControl(beginV2HostUiControl('play', failed.queueItemId), task);
     } else {
       bus.emit('playlist:cancel-v2-playback-intent');
       lastV2HostFailureObservationKey = key;
       explicitV2HostFailureHoldKey = key;
       rememberV2HostFailedPause(failed);
       publishV2HostFailedPaused(failed, failed.positionSeconds);
-      void enqueueV2HostPause({
+      const task = enqueueV2HostPause({
         holdVisualizer: true,
         showToast: true,
       });
+      trackV2HostUiControl(beginV2HostUiControl('pause', failed.queueItemId), task);
     }
     return true;
   }
-  if (!readExactV2HostControlState() && enqueueV2HostFreshSelectedFileStart()) {
-    return true;
+  if (!readExactV2HostControlState()) {
+    const freshStart = enqueueV2HostFreshSelectedFileStart();
+    if (freshStart) {
+      trackV2HostUiControl(beginV2HostUiControl('play'), freshStart);
+      return true;
+    }
   }
   // Preserve the product boundary for incoherent state. enqueueV2HostToggle
   // re-reads exact physical truth and deliberately does nothing if none exists.
@@ -2984,10 +3092,34 @@ export function togglePlay(): void {
   // rather than silently resuming the stale audio buffer with "미디어 없음"
   // still showing in the title.
   if (!isActuallyPlaying && !currentQueueItemId && playlistItems.length > 0) {
-    const firstQueueItemId = playlistItems[0]?.queueItemId;
+    const firstItem = playlistItems[0];
+    const firstQueueItemId = firstItem?.queueItemId;
     if (!firstQueueItemId) return;
     if (!hostConn) {
-      void import('./playlist.ts').then((mod) => mod.playTrack(firstQueueItemId));
+      const start = import('./playlist.ts')
+        .then(async (mod) => {
+          await mod.playTrack(firstQueueItemId);
+          const playing = readExactV2HostControlState();
+          return (
+            playing?.phase === 'playing' &&
+            playing.queueItemId === firstQueueItemId &&
+            getCurrentQueueItemId() === firstQueueItemId
+          );
+        })
+        .catch((error) => {
+          log.warn('[Play] Failed to restart the first playlist item:', error);
+          return false;
+        });
+      if (
+        firstItem?.type !== 'youtube' &&
+        typeof File !== 'undefined' &&
+        firstItem?.file instanceof File &&
+        isV2HostFileProductControlContext()
+      ) {
+        trackV2HostUiControl(beginV2HostUiControl('play', firstQueueItemId), start);
+      } else {
+        void start;
+      }
     } else if (canControlPlayback) {
       sendToHost({ type: MSG.REQUEST_TRACK_CHANGE, queueItemId: firstQueueItemId });
     }

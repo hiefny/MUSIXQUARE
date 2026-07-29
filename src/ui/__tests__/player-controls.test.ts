@@ -750,7 +750,7 @@ describe('PRO room media-source capabilities', () => {
     document.getElementById('btn-system-audio')?.click();
 
     expect(startSpy).not.toHaveBeenCalled();
-    expect(showToast).toHaveBeenCalledWith(t('toast.host_only_media'));
+    expect(showToast).toHaveBeenCalledWith(t('toast.system_audio_owner_required'));
   });
 });
 
@@ -993,6 +993,104 @@ describe('initPlayerControls playback mode rendering', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('shows immediate V2 host PLAY feedback until its exact token settles', () => {
+    renderPlaybackControls();
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'paused');
+    initPlayerControls();
+
+    const playBtn = document.getElementById('play-btn');
+    const icon = playBtn?.querySelector('path');
+    bus.emit('player:v2-host-ui-control-pending', {
+      token: 501,
+      kind: 'play',
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+    });
+
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('true');
+    expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
+    expect(document.getElementById('file-playback-loading-overlay')).toBeNull();
+    expectYouTubeSyncOverlay(false);
+
+    bus.emit('player:v2-host-ui-control-settled', {
+      token: 500,
+      kind: 'play',
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      status: 'failed',
+    });
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('true');
+
+    bus.emit('player:v2-host-ui-control-settled', {
+      token: 501,
+      kind: 'play',
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      status: 'committed',
+    });
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('false');
+  });
+
+  it('projects V2 host PAUSE immediately without a spinner and restores truth on failure', () => {
+    renderPlaybackControls();
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    initPlayerControls();
+
+    const playBtn = document.getElementById('play-btn');
+    const icon = playBtn?.querySelector('path');
+    expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
+
+    bus.emit('player:v2-host-ui-control-pending', {
+      token: 601,
+      kind: 'pause',
+      queueItemId: PAUSE_QUEUE_ITEM_ID,
+    });
+    expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('false');
+
+    bus.emit('player:v2-host-ui-control-settled', {
+      token: 600,
+      kind: 'pause',
+      queueItemId: PAUSE_QUEUE_ITEM_ID,
+      status: 'failed',
+    });
+    expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
+
+    bus.emit('player:v2-host-ui-control-settled', {
+      token: 601,
+      kind: 'pause',
+      queueItemId: PAUSE_QUEUE_ITEM_ID,
+      status: 'failed',
+    });
+    expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('false');
+  });
+
+  it('projects an exact V2 guest PAUSE gate immediately and ignores stale settlement', () => {
+    renderPlaybackControls();
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    initPlayerControls();
+
+    const playBtn = document.getElementById('play-btn');
+    const icon = playBtn?.querySelector('path');
+    expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
+
+    bus.emit('player:v2-guest-pause-gate-pending', { token: 701 });
+    expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
+    expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+
+    bus.emit('player:v2-guest-pause-gate-settled', { token: 700 });
+    expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
+
+    bus.emit('player:v2-guest-pause-gate-settled', { token: 701 });
+    expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
   });
 
   it('removes the shield on mode exit even while a PRO transition remains pending', () => {

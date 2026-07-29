@@ -481,6 +481,12 @@ const tr: Record<I18nKey, string> = {
   'toast.host_only': 'Bunu yalnızca oda sahibi yapabilir.',
   'toast.host_only_media': 'Sadece oda sahibi medya ekleyebilir.',
   'toast.media_management_required': 'Medya yönetimi izni gerekli.',
+  'toast.playback_control_required': 'Oynatma kontrolü izni gerekli.',
+  'toast.member_management_required': 'Üyeleri çıkarma izni gerekli.',
+  'toast.chat_notice_required': 'Sohbet duyurusu izni gerekli.',
+  'toast.room_owner_required': 'Bunu yalnızca oda sahibi değiştirebilir.',
+  'toast.system_audio_owner_required':
+    'Sistem sesini yalnızca oda sahibi paylaşabilir veya durdurabilir.',
   'toast.host_only_youtube': 'Sadece oda sahibi YouTube linki ekleyebilir.',
   'toast.host_only_control': 'Sadece oda sahibi kontrol edebilir',
   'toast.host_setting_required': 'Bu ayarı yalnızca oda sahibi değiştirebilir',

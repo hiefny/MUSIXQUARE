@@ -40,7 +40,11 @@ import { initSeekBar } from './seekbar.ts';
 import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
-import type { ProPlaybackUiControlKind, YouTubeSyncLoadingOwner } from '../types/index.ts';
+import type {
+  ProPlaybackUiControlKind,
+  V2HostUiControlKind,
+  YouTubeSyncLoadingOwner,
+} from '../types/index.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { navigateToAppHome } from '../core/navigation.ts';
 import { scopePlaybackModeActivity } from './_state-hooks.ts';
@@ -51,6 +55,7 @@ import {
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
 import { getRoomContext, hasRoomCapability, isCoordinator } from '../rooms/authority.ts';
+import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import {
   clearProRoomTrackChangeIntent,
   isProRoomTrackChangeIntentPending,
@@ -98,6 +103,10 @@ let _proPlaybackControlLoading = false;
 let _proPlaybackTransitionLoading = false;
 let _proPlaybackControlToken: number | null = null;
 let _proPlaybackControlKind: ProPlaybackUiControlKind | null = null;
+let _v2HostControlLoading = false;
+let _v2HostControlToken: number | null = null;
+let _v2HostControlKind: V2HostUiControlKind | null = null;
+let _v2GuestPauseGateToken: number | null = null;
 let _v2FilePlaybackLoadingVisible = false;
 let _disposeFilePlaybackLoadingSubscription: (() => void) | null = null;
 let _manualSyncPreviousFocus: HTMLElement | null = null;
@@ -117,11 +126,9 @@ function isFilePlayButtonLoading(): boolean {
 
 function syncPlayButtonLoadingClass(): void {
   const btn = document.getElementById('play-btn');
-  const establishedLoading =
-    _ytPlayButtonLoading ||
-    _filePlayButtonLoading ||
-    _proPlaybackControlLoading ||
-    _proPlaybackTransitionLoading;
+  const iframeOwnedLoading =
+    _ytPlayButtonLoading || _proPlaybackControlLoading || _proPlaybackTransitionLoading;
+  const establishedLoading = iframeOwnedLoading || _filePlayButtonLoading || _v2HostControlLoading;
   const loading = establishedLoading || _v2FilePlaybackLoadingVisible;
   if (btn) {
     btn.classList.toggle('yt-syncing', loading);
@@ -133,7 +140,7 @@ function syncPlayButtonLoadingClass(): void {
   const overlay = document.getElementById('youtube-sync-loading-overlay');
   // V2 file preparation is projected only on the play control and must never
   // make the YouTube iframe inert. The iframe shield is YouTube-owned.
-  const showYouTubeOverlay = establishedLoading && getState('playback.mode') === 'youtube';
+  const showYouTubeOverlay = iframeOwnedLoading && getState('playback.mode') === 'youtube';
   if (videoWrapper) videoWrapper.setAttribute('aria-busy', String(showYouTubeOverlay));
   if (youtubeContainer instanceof HTMLElement) {
     youtubeContainer.toggleAttribute('inert', showYouTubeOverlay);
@@ -535,7 +542,7 @@ function isKeyboardLikeActivation(event: Event): boolean {
 
 function openMediaSourcePopup(focusFirstAction = true): void {
   if (!hasRoomCapability('media.add') && !hasRoomCapability('asset.upload')) {
-    showToast(t('toast.media_management_required'));
+    showRoomCapabilityRequired('media.add');
     return;
   }
   const systemAudioButton = document.getElementById('btn-system-audio');
@@ -631,7 +638,7 @@ function closeMediaSourcePopup(restoreFocus = true): void {
 
 function openYouTubePopup(returnFocus?: HTMLElement | null): void {
   if (!hasRoomCapability('media.add')) {
-    showToast(t('toast.media_management_required'));
+    showRoomCapabilityRequired('media.add');
     return;
   }
   invalidateYouTubeGestureSubmit();
@@ -745,7 +752,7 @@ function closeYouTubePopup(): void {
 
 function openFileSelector(): void {
   if (!hasRoomCapability('asset.upload')) {
-    showToast(t('toast.host_only'));
+    showRoomCapabilityRequired('asset.upload');
     return;
   }
   const input = document.getElementById('file-input') as HTMLInputElement | null;
@@ -1068,6 +1075,10 @@ export function initPlayerControls(): void {
   _proPlaybackTransitionLoading = false;
   _proPlaybackControlToken = null;
   _proPlaybackControlKind = null;
+  _v2HostControlLoading = false;
+  _v2HostControlToken = null;
+  _v2HostControlKind = null;
+  _v2GuestPauseGateToken = null;
   _v2FilePlaybackLoadingVisible = false;
   _playButtonMediaEnabled =
     document.getElementById('play-btn')?.getAttribute('aria-disabled') === 'false';
@@ -1208,7 +1219,7 @@ export function initPlayerControls(): void {
           return;
         }
       } else if (getState('network.hostConn')) {
-        showToast(t('toast.host_only_media'));
+        showRoomCapabilityRequired('system-audio.publish');
         return;
       }
       bus.emit('system-audio:stop');
@@ -1220,14 +1231,14 @@ export function initPlayerControls(): void {
   // Playlist tab
   $on('btn-repeat', 'click', () => {
     if (!canConfigureQueueMode()) {
-      showToast(t('toast.media_management_required'));
+      showRoomCapabilityRequired('queue.mutate');
       return;
     }
     bus.emit('playlist:toggle-repeat');
   });
   $on('btn-shuffle', 'click', () => {
     if (!canConfigureQueueMode()) {
-      showToast(t('toast.media_management_required'));
+      showRoomCapabilityRequired('queue.mutate');
       return;
     }
     bus.emit('playlist:toggle-shuffle');
@@ -1244,11 +1255,11 @@ export function initPlayerControls(): void {
   $on('btn-system-audio', 'click', () => {
     const isProRoom = getRoomContext().kind === 'pro';
     if (!hasRoomCapability('system-audio.publish')) {
-      showToast(t('toast.host_only_media'));
+      showRoomCapabilityRequired('system-audio.publish');
       return;
     }
     if (!isProRoom && !isCoordinator()) {
-      showToast(t('toast.host_only_media'));
+      showRoomCapabilityRequired('system-audio.publish');
       return;
     }
     if (isProRoom) {
@@ -1475,7 +1486,13 @@ export function initPlayerControls(): void {
 
   // Play/Pause visual state — derived from playback activity + YouTube play event
   function updatePlayIcon(playing: boolean): void {
-    if (_proPlaybackControlKind === 'pause') playing = false;
+    if (
+      _proPlaybackControlKind === 'pause' ||
+      _v2HostControlKind === 'pause' ||
+      _v2GuestPauseGateToken !== null
+    ) {
+      playing = false;
+    }
     const btn = document.getElementById('play-btn');
     const icon = btn?.querySelector('path');
     if (icon) {
@@ -1608,6 +1625,41 @@ export function initPlayerControls(): void {
     }
   });
 
+  _busScope.on('player:v2-host-ui-control-pending', (event) => {
+    _v2HostControlToken = event.token;
+    _v2HostControlKind = event.kind;
+    _v2HostControlLoading = event.kind === 'play';
+    if (event.kind === 'pause') updatePlayIcon(false);
+    syncPlayButtonLoadingClass();
+  });
+
+  _busScope.on('player:v2-host-ui-control-settled', (event) => {
+    if (_v2HostControlToken !== event.token) return;
+    _v2HostControlToken = null;
+    _v2HostControlKind = null;
+    _v2HostControlLoading = false;
+    syncPlayButtonLoadingClass();
+
+    if (event.status !== 'committed') {
+      const mode = getState('playback.mode');
+      const activity = getState('playback.activity');
+      updatePlayIcon(mode !== null && activity === 'playing');
+    }
+  });
+
+  _busScope.on('player:v2-guest-pause-gate-pending', (event) => {
+    _v2GuestPauseGateToken = event.token;
+    updatePlayIcon(false);
+  });
+
+  _busScope.on('player:v2-guest-pause-gate-settled', (event) => {
+    if (_v2GuestPauseGateToken !== event.token) return;
+    _v2GuestPauseGateToken = null;
+    const mode = getState('playback.mode');
+    const activity = getState('playback.activity');
+    updatePlayIcon(mode !== null && activity === 'playing');
+  });
+
   _busScope.on('player:v2-host-seek-pending', (event) => {
     beginFilePlaybackLoading('host-seek', event.token);
   });
@@ -1624,11 +1676,25 @@ export function initPlayerControls(): void {
     settleFilePlaybackLoading(event.owner, event.token);
   });
 
+  const clearV2ControlUi = () => {
+    _v2HostControlToken = null;
+    _v2HostControlKind = null;
+    _v2GuestPauseGateToken = null;
+    _v2HostControlLoading = false;
+    syncPlayButtonLoadingClass();
+  };
+
   // Hard teardown is intentionally broader than exact-token settlement:
   // stop and room exit invalidate every preparation authority immediately.
-  _busScope.on('player:stop-all-media', clearFilePlaybackLoading);
+  _busScope.on('player:stop-all-media', () => {
+    clearV2ControlUi();
+    clearFilePlaybackLoading();
+  });
   _busScope.on('state:setup.sessionStarted', (started) => {
-    if (!started) clearFilePlaybackLoading();
+    if (!started) {
+      clearV2ControlUi();
+      clearFilePlaybackLoading();
+    }
   });
 
   refreshFilePlayButtonLoading();
@@ -1679,6 +1745,10 @@ export function initPlayerControls(): void {
 
   // Player actions
   _busScope.on('player:toggle-play', () => {
+    // A standard-room V2 PLAY owns a revisioned async transition. Keep the
+    // first intent visible and ignore accidental rapid repeats until its exact
+    // token settles. PAUSE remains reversible through the latest-wins lane.
+    if (_v2HostControlLoading) return;
     togglePlay();
   });
 

@@ -31,6 +31,7 @@ import {
 import { getStandardRolePreset } from './player-controls.ts';
 import { syncRangeProgress } from './range-drag.ts';
 import { showToast } from './toast.ts';
+import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from './theme-chrome.ts';
 import { initCustomScrollbar } from './custom-scrollbar.ts';
 import { syncOverlayState } from './dom.ts';
@@ -52,13 +53,13 @@ const HOST_CTRL_LOCK_IDS = [
 ] as const;
 
 function _isGuestLocked(): boolean {
-  if (getRoomContext().kind === 'pro') return !hasRoomCapability('room.configure');
+  if (getRoomContext().kind === 'pro') return !hasRoomCapability('effects.control');
   const hostConn = getState('network.hostConn');
   return !!hostConn && !hasRoomCapability('effects.control');
 }
 
 function _showHostCtrlLockedToast(): void {
-  showToast(t('toast.host_only'));
+  showRoomCapabilityRequired('effects.control');
 }
 
 function _guardHostCtrl(): boolean {

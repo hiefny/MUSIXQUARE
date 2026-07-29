@@ -482,6 +482,12 @@ const ru: Record<I18nKey, string> = {
   'toast.host_only': 'Только хост комнаты может это запустить.',
   'toast.host_only_media': 'Только хост комнаты может добавлять треки.',
   'toast.media_management_required': 'Требуется право на управление медиа.',
+  'toast.playback_control_required': 'Требуется право на управление воспроизведением.',
+  'toast.member_management_required': 'Требуется право на удаление участников.',
+  'toast.chat_notice_required': 'Требуется право на публикацию объявлений в чате.',
+  'toast.room_owner_required': 'Изменить это может только владелец комнаты.',
+  'toast.system_audio_owner_required':
+    'Только владелец комнаты может транслировать или остановить системный звук.',
   'toast.host_only_youtube': 'Только хост комнаты может добавлять ссылки на YouTube.',
   'toast.host_only_control': 'Только хост комнаты может этим управлять',
   'toast.host_setting_required': 'Изменять эту настройку может только хост комнаты',

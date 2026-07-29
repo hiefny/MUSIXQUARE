@@ -74,6 +74,7 @@ import {
 } from '../youtube/iframe.ts';
 import { isYtLoadInProgress, isYtPlayerReady } from '../youtube/_state.ts';
 import { isGuestBlocked } from '../network/guards.ts';
+import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import {
   isPlaybackIdleCompat,
@@ -895,7 +896,7 @@ export function applyPlaylistQueueModeState(
 
 export function toggleRepeat(): void {
   if (!hasRoomCapability('queue.mutate')) {
-    showToast(t('toast.media_management_required'));
+    showRoomCapabilityRequired('queue.mutate');
     return;
   }
   const hostConn = getState('network.hostConn');
@@ -942,7 +943,7 @@ export function setRepeatMode(mode: number, notify = true): void {
 
 export function toggleShuffle(): void {
   if (!hasRoomCapability('queue.mutate')) {
-    showToast(t('toast.media_management_required'));
+    showRoomCapabilityRequired('queue.mutate');
     return;
   }
   const hostConn = getState('network.hostConn');
@@ -2501,8 +2502,8 @@ async function handleFilesSelected(files: FileList | readonly File[] | null): Pr
   if (!files || files.length === 0) return;
 
   const hostConn = getState('network.hostConn');
-  if (hostConn && !hasRoomCapability('asset.upload')) {
-    showToast(t('toast.host_only_file'));
+  if ((getRoomContext().kind === 'pro' || hostConn) && !hasRoomCapability('asset.upload')) {
+    showRoomCapabilityRequired('asset.upload');
     return;
   }
 
@@ -2520,7 +2521,9 @@ async function handleFilesSelected(files: FileList | readonly File[] | null): Pr
   // A persistent PRO room owns upload, quota accounting, and authoritative
   // playlist publication. Standard rooms have no registered hook and retain
   // the original in-memory path below.
-  if (hasRoomCapability('asset.upload') && handleProRoomFiles(accepted, rejected.length)) {
+  if (getRoomContext().kind === 'pro') {
+    if (handleProRoomFiles(accepted, rejected.length)) return;
+    showToast(t('error.network_generic'));
     return;
   }
 
@@ -2709,7 +2712,12 @@ function handleRequestPlaylistReorder(
 }
 
 function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
-  if (hasRoomCapability('queue.mutate') && handleProRoomTrackRemoval(queueItemIds)) {
+  if (getRoomContext().kind === 'pro') {
+    if (!hasRoomCapability('queue.mutate')) {
+      showRoomCapabilityRequired('queue.mutate');
+      return;
+    }
+    if (!handleProRoomTrackRemoval(queueItemIds)) showToast(t('error.network_generic'));
     return;
   }
   if (getState('network.hostConn')) {
@@ -2867,10 +2875,14 @@ function reorderQueueItem(
   beforeQueueItemId: QueueItemId | null,
   baseRevision: number,
 ): void {
-  if (
-    hasRoomCapability('queue.mutate') &&
-    handleProRoomTrackReorder(queueItemId, beforeQueueItemId, baseRevision)
-  ) {
+  if (getRoomContext().kind === 'pro') {
+    if (!hasRoomCapability('queue.mutate')) {
+      showRoomCapabilityRequired('queue.mutate');
+      return;
+    }
+    if (!handleProRoomTrackReorder(queueItemId, beforeQueueItemId, baseRevision)) {
+      showToast(t('error.network_generic'));
+    }
     return;
   }
   if (getState('network.hostConn')) {

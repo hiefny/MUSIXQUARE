@@ -582,7 +582,7 @@ describe('local file admission', () => {
     const addFiles = vi.fn(() => true);
     registerProRoomLegacyMediaHooks(proMediaHooks({ addFiles }));
     enterProRoom(['asset.upload', 'queue.mutate']);
-    setState('network.hostConn', makeConnection('coordinator-1'));
+    setState('network.hostConn', null);
     initPlaylist();
 
     const audio = new File(['a'], 'track.flac', { type: 'audio/flac' });
@@ -590,6 +590,39 @@ describe('local file admission', () => {
 
     await vi.waitFor(() => expect(addFiles).toHaveBeenCalledWith([audio], 1));
     expect(getState('playlist.items')).toEqual([]);
+  });
+
+  it('fails closed when a PRO file selection outlives media-management authority', async () => {
+    const addFiles = vi.fn(() => true);
+    registerProRoomLegacyMediaHooks(proMediaHooks({ addFiles }));
+    enterProRoom([]);
+    setState('network.hostConn', null);
+    initPlaylist();
+    const toastMessage = mountToastMessage();
+
+    bus.emit('app:files-selected', [new File(['a'], 'track.flac', { type: 'audio/flac' })]);
+
+    await vi.waitFor(() => {
+      expect(toastMessage.innerText).toBe(t('toast.media_management_required'));
+    });
+    expect(addFiles).not.toHaveBeenCalled();
+    expect(getState('playlist.items')).toEqual([]);
+  });
+
+  it('fails closed when the PRO upload bridge is unavailable', async () => {
+    const addFiles = vi.fn(() => false);
+    registerProRoomLegacyMediaHooks(proMediaHooks({ addFiles }));
+    enterProRoom(['asset.upload']);
+    setState('network.hostConn', null);
+    initPlaylist();
+    const toastMessage = mountToastMessage();
+    const audio = new File(['a'], 'track.flac', { type: 'audio/flac' });
+
+    bus.emit('app:files-selected', [audio]);
+
+    await vi.waitFor(() => expect(addFiles).toHaveBeenCalledWith([audio], 0));
+    expect(getState('playlist.items')).toEqual([]);
+    expect(toastMessage.innerText).toBe(t('error.network_generic'));
   });
 });
 
@@ -599,7 +632,7 @@ describe('PRO playlist mutation bridge', () => {
     const reorderTrack = vi.fn(() => true);
     registerProRoomLegacyMediaHooks(proMediaHooks({ removeTracks, reorderTrack }));
     enterProRoom(['queue.mutate']);
-    setState('network.hostConn', makeConnection('coordinator-1'));
+    setState('network.hostConn', null);
     const a = fileItem('a.flac');
     const b = fileItem('b.flac');
     setState('playlist.items', [a, b]);
@@ -613,6 +646,52 @@ describe('PRO playlist mutation bridge', () => {
     expect(reorderTrack).toHaveBeenCalledWith(b.queueItemId, a.queueItemId, 7);
     expect(getState('playlist.items')).toEqual([a, b]);
     expect(getState('playlist.revision')).toBe(7);
+  });
+
+  it('fails closed when revoked PRO queue mutations arrive through stale UI events', () => {
+    const removeTracks = vi.fn(() => true);
+    const reorderTrack = vi.fn(() => true);
+    registerProRoomLegacyMediaHooks(proMediaHooks({ removeTracks, reorderTrack }));
+    enterProRoom([]);
+    setState('network.hostConn', null);
+    const a = fileItem('a.flac');
+    const b = fileItem('b.flac');
+    setState('playlist.items', [a, b]);
+    setState('playlist.revision', 7);
+    initPlaylist();
+    const toastMessage = mountToastMessage();
+
+    bus.emit('playlist:remove-tracks', [a.queueItemId]);
+    bus.emit('playlist:reorder-track', b.queueItemId, a.queueItemId, 7);
+
+    expect(removeTracks).not.toHaveBeenCalled();
+    expect(reorderTrack).not.toHaveBeenCalled();
+    expect(getState('playlist.items')).toEqual([a, b]);
+    expect(getState('playlist.revision')).toBe(7);
+    expect(toastMessage.innerText).toBe(t('toast.media_management_required'));
+  });
+
+  it('fails closed when capable PRO queue mutation bridges are unavailable', () => {
+    const removeTracks = vi.fn(() => false);
+    const reorderTrack = vi.fn(() => false);
+    registerProRoomLegacyMediaHooks(proMediaHooks({ removeTracks, reorderTrack }));
+    enterProRoom(['queue.mutate']);
+    setState('network.hostConn', null);
+    const a = fileItem('a.flac');
+    const b = fileItem('b.flac');
+    setState('playlist.items', [a, b]);
+    setState('playlist.revision', 7);
+    initPlaylist();
+    const toastMessage = mountToastMessage();
+
+    bus.emit('playlist:remove-tracks', [a.queueItemId]);
+    bus.emit('playlist:reorder-track', b.queueItemId, a.queueItemId, 7);
+
+    expect(removeTracks).toHaveBeenCalledWith([a.queueItemId]);
+    expect(reorderTrack).toHaveBeenCalledWith(b.queueItemId, a.queueItemId, 7);
+    expect(getState('playlist.items')).toEqual([a, b]);
+    expect(getState('playlist.revision')).toBe(7);
+    expect(toastMessage.innerText).toBe(t('error.network_generic'));
   });
 
   it('retries a selected unloaded PRO row only after its verified File is published', async () => {

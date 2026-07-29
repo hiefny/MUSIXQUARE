@@ -15,7 +15,6 @@ import { escapeHtml } from './dom.ts';
 import { t } from '../i18n/index.ts';
 import { safeSend } from '../network/peer.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { showToast } from './toast.ts';
 import { setSubItemsLoadError } from '../youtube/_state.ts';
 import {
   createPlaylistReorderController,
@@ -35,6 +34,7 @@ import {
   type PlaylistCurrentSelection,
 } from './playlist-current-jump.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
+import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { beginProRoomTrackChangeIntent } from '../player/track-change-intent.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
@@ -596,7 +596,7 @@ function queueItemIdFromElement(element: Element | null): QueueItemId | null {
 function playQueueItem(queueItemId: QueueItemId): void {
   if (!getQueueItemById(queueItemId)) return;
   if (!hasRoomCapability('playback.control')) {
-    showToast(t('toast.host_only_control'));
+    showRoomCapabilityRequired('playback.control');
     return;
   }
   const hostConn = getState('network.hostConn');
@@ -613,7 +613,7 @@ function playQueueItem(queueItemId: QueueItemId): void {
 function seekSubItem(queueItemId: QueueItemId, subIndex: number): void {
   if (!Number.isSafeInteger(subIndex) || subIndex < 0 || !getQueueItemById(queueItemId)) return;
   if (!hasRoomCapability('playback.control')) {
-    showToast(t('toast.host_only_control'));
+    showRoomCapabilityRequired('playback.control');
     return;
   }
   const hostConn = getState('network.hostConn');

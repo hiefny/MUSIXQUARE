@@ -487,6 +487,13 @@ const it: Record<I18nKey, string> = {
   'toast.host_only': 'Solo il gestore della stanza può eseguire questa operazione.',
   'toast.host_only_media': 'Solo il gestore della stanza può aggiungere brani.',
   'toast.media_management_required': 'È richiesta l’autorizzazione per gestire i contenuti.',
+  'toast.playback_control_required':
+    'È richiesta l’autorizzazione per controllare la riproduzione.',
+  'toast.member_management_required': 'È richiesta l’autorizzazione per espellere i membri.',
+  'toast.chat_notice_required': 'È richiesta l’autorizzazione per pubblicare avvisi in chat.',
+  'toast.room_owner_required': 'Solo il proprietario della stanza può modificare questo.',
+  'toast.system_audio_owner_required':
+    'Solo il proprietario della stanza può condividere o interrompere l’audio di sistema.',
   'toast.host_only_youtube': 'Solo il gestore della stanza può aggiungere link di YouTube.',
   'toast.host_only_control': 'Solo il gestore della stanza può controllare la riproduzione.',
   'toast.host_setting_required': 'Solo il gestore può modificare questa impostazione',

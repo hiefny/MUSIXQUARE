@@ -24,7 +24,7 @@ const botProtocolMocks = vi.hoisted(() => ({
   rememberPinnedNotice: vi.fn(),
 }));
 const userTextFontMocks = vi.hoisted(() => ({
-  loadLocaleFont: vi.fn(async () => undefined),
+  preloadLocaleFontGlyphs: vi.fn(async () => true),
 }));
 
 window.matchMedia =
@@ -42,7 +42,7 @@ vi.mock('../../i18n/index.ts', () => ({
 }));
 
 vi.mock('../../i18n/locale-fonts.ts', () => ({
-  loadLocaleFont: userTextFontMocks.loadLocaleFont,
+  preloadLocaleFontGlyphs: userTextFontMocks.preloadLocaleFontGlyphs,
 }));
 
 vi.mock('../../network/peer.ts', () => ({

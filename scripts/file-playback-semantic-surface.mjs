@@ -242,6 +242,12 @@ export const FILE_PLAYBACK_RELATIVE_SUPPORT_ALLOWLIST = Object.freeze([
   }),
   Object.freeze({
     importer: 'src/audio/effects.ts',
+    target: 'src/rooms/permission-feedback.ts',
+    reason:
+      'Capability-specific denial feedback is observational and does not define bounded playback semantics.',
+  }),
+  Object.freeze({
+    importer: 'src/audio/effects.ts',
     target: 'src/ui/toast.ts',
     reason: 'User notification rendering is observational and does not define playback semantics.',
   }),

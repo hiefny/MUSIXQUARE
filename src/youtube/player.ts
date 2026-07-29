@@ -31,6 +31,7 @@ import { schedulePreload } from '../storage/preload.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { getClockOffset, getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { getRoomContext, hasRoomCapability, verifyPeerCapability } from '../rooms/authority.ts';
+import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import {
   broadcastTracksAdded,
   localQueueActorName,
@@ -2016,7 +2017,7 @@ export function initYouTube(): void {
     // A standard guest must never fall through to the local commit path, even
     // if its operator capability is revoked between opening and submitting.
     if (!hasRoomCapability('media.add')) {
-      showToast(t('toast.media_management_required'));
+      showRoomCapabilityRequired('media.add');
       return true;
     }
     if (sourceUrl.length > 2048) {
@@ -2921,12 +2922,15 @@ export function initYouTube(): void {
 
         // A PRO add and this background lookup are serialized by their stable
         // queue occurrence ID, even if the projected row has not arrived yet.
-        if (
-          handleProRoomTrackMetadata(queueItemId, {
-            name: fetchedTitle,
-            title: fetchedTitle,
-          })
-        ) {
+        if (getRoomContext().kind === 'pro') {
+          if (
+            !handleProRoomTrackMetadata(queueItemId, {
+              name: fetchedTitle,
+              title: fetchedTitle,
+            })
+          ) {
+            log.warn('[YouTube] PRO title metadata bridge unavailable');
+          }
           return;
         }
 
@@ -3015,7 +3019,11 @@ export function initYouTube(): void {
       }
     }
 
-    if (getState('room.context').kind === 'pro' && hasRoomCapability('media.add')) {
+    if (getState('room.context').kind === 'pro') {
+      if (!hasRoomCapability('media.add')) {
+        showRoomCapabilityRequired('media.add');
+        return queueItemId;
+      }
       if (handleProRoomYouTube(newTrack, url, completeManifestVideoIds)) {
         _refreshYouTubeTitle(queueItemId, url, videoId, playlistId);
         return queueItemId;
@@ -3210,8 +3218,12 @@ export function initYouTube(): void {
 
   // YouTube load from input field
   bus.on('youtube:load-from-input', () => {
-    if (getState('network.hostConn') && !hasRoomCapability('media.add')) {
-      showToast(t('toast.media_management_required'));
+    const roomContext = getRoomContext();
+    if (
+      (roomContext.kind === 'pro' || getState('network.hostConn')) &&
+      !hasRoomCapability('media.add')
+    ) {
+      showRoomCapabilityRequired('media.add');
       return;
     }
     const input = document.getElementById('youtube-url-input') as HTMLElement | null;
@@ -3529,10 +3541,11 @@ export function initYouTube(): void {
   bus.on('youtube:load-from-chat', (url) => {
     if (!url) return;
 
-    // Standard guests cannot mutate the queue. Authenticated PRO members can.
+    // Only participants with the explicit media-management capability can
+    // mutate either room kind. PRO endpoints intentionally have no hostConn.
     const hostConn = getState('network.hostConn');
-    if (hostConn && !hasRoomCapability('media.add')) {
-      showToast(t('toast.media_management_required'));
+    if ((getRoomContext().kind === 'pro' || hostConn) && !hasRoomCapability('media.add')) {
+      showRoomCapabilityRequired('media.add');
       return;
     }
 

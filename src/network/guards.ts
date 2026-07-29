@@ -5,13 +5,12 @@
  */
 
 import { getState } from '../core/state.ts';
-import { t } from '../i18n/index.ts';
-import { showToast } from '../ui/toast.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
+import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 
 /**
- * Returns true if the current user is a guest without operator privileges.
- * Shows a toast and returns true if blocked (caller should `return`).
+ * Returns true when the current participant lacks playback-control authority.
+ * Shows the exact delegated-permission requirement before returning.
  *
  * Usage:
  * ```ts
@@ -21,20 +20,20 @@ import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 export function isGuestBlocked(): boolean {
   if (getRoomContext().kind === 'pro') {
     if (hasRoomCapability('playback.control')) return false;
-    showToast(t('toast.host_only_control'));
+    showRoomCapabilityRequired('playback.control');
     return true;
   }
 
   // A delegated standard-room administrator is not an all-powerful legacy
   // operator. Playback is allowed only when the host granted this capability.
   if (!hasRoomCapability('playback.control')) {
-    showToast(t('toast.host_only_control'));
+    showRoomCapabilityRequired('playback.control');
     return true;
   }
 
   const hostConn = getState('network.hostConn');
   if (!hostConn) return false; // Host — always allowed
   if (hasRoomCapability('playback.control')) return false;
-  showToast(t('toast.host_only_control'));
+  showRoomCapabilityRequired('playback.control');
   return true;
 }

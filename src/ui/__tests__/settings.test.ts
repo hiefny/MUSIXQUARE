@@ -598,7 +598,7 @@ describe('initSettings effect slider fill sync', () => {
 
     document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="arena"]')?.click();
 
-    expect(showToast).toHaveBeenCalledWith('Only Host can run this.');
+    expect(showToast).toHaveBeenCalledWith('Only the room owner can change this.');
     expect(
       document
         .querySelector('#grid-reverb .ch-opt[data-rvb-type="arena"]')
@@ -626,9 +626,35 @@ describe('initSettings effect slider fill sync', () => {
 
     document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="arena"]')?.click();
 
-    expect(showToast).toHaveBeenCalledWith('Only Host can run this.');
+    expect(showToast).toHaveBeenCalledWith('Only the room owner can change this.');
     expect(document.getElementById('grid-reverb')?.classList.contains('host-ctrl-locked')).toBe(
       true,
+    );
+  });
+
+  it('honors an explicitly projected PRO effects capability', () => {
+    installEffectSettingsDom();
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'coordinator-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['effects.control'],
+    });
+    initSettings();
+
+    document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="arena"]')?.click();
+
+    expect(showToast).not.toHaveBeenCalledWith('Only the room owner can change this.');
+    expect(
+      document
+        .querySelector('#grid-reverb .ch-opt[data-rvb-type="arena"]')
+        ?.classList.contains('active'),
+    ).toBe(true);
+    expect(document.getElementById('grid-reverb')?.classList.contains('host-ctrl-locked')).toBe(
+      false,
     );
   });
 

@@ -302,7 +302,7 @@ function operatorUplinkLoaderText(progress: StandardOperatorFileUplinkProgress):
 }
 
 function operatorUplinkErrorMessage(code: string | undefined): string {
-  if (code === 'operator-revoked') return t('network.op_revoked');
+  if (code === 'operator-revoked') return t('toast.media_management_required');
   if (code === 'file-too-large') return t('share.remote.too_large');
   if (code === 'invalid-file') return t('toast.no_supported_audio_files');
   if (code === 'host-busy') return t('transfer.host_busy');
@@ -315,7 +315,7 @@ function standardQueueMutationErrorMessage(reason: string, code: string | null):
   if (code === 'queue-full') return t('playlist.queue_full');
   if (code === 'invalid-source') return t('youtube.invalid_link');
   if (code === 'resolution-failed') return t('youtube.fetch_failed');
-  if (code === 'unauthorized') return t('network.op_revoked');
+  if (code === 'unauthorized') return t('toast.media_management_required');
   if (reason === 'settle-timeout' || code === 'conflict' || code === 'invalid-target') {
     return t('playlist.mutation_retry');
   }

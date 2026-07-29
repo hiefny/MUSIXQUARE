@@ -457,6 +457,12 @@ const ptBr: Record<I18nKey, string> = {
   'toast.host_only': 'Só o host pode executar isso.',
   'toast.host_only_media': 'Só o host pode adicionar mídia.',
   'toast.media_management_required': 'É necessária permissão para gerenciar mídia.',
+  'toast.playback_control_required': 'É necessária permissão para controlar a reprodução.',
+  'toast.member_management_required': 'É necessária permissão para remover membros.',
+  'toast.chat_notice_required': 'É necessária permissão para publicar avisos no chat.',
+  'toast.room_owner_required': 'Só o proprietário da sala pode alterar isso.',
+  'toast.system_audio_owner_required':
+    'Só o proprietário da sala pode compartilhar ou interromper o áudio do sistema.',
   'toast.host_only_youtube': 'Só o host pode adicionar links do YouTube.',
   'toast.host_only_control': 'Só o host pode controlar isso',
   'toast.host_setting_required': 'Só o host pode alterar esta configuração',

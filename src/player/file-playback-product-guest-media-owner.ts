@@ -115,7 +115,12 @@ import {
   type RendezvousFinalizeIntent,
   type RendezvousFinalizeReceipt,
 } from './rendezvous-contract.ts';
-import { isPlaybackTimelineSnapshot, type PlaybackTimelineSnapshot } from './playback-timeline.ts';
+import {
+  derivePlaybackPosition,
+  isPlaybackTimelineSnapshot,
+  PLAYBACK_TIMELINE_TRAJECTORY_TOLERANCE_SECONDS,
+  type PlaybackTimelineSnapshot,
+} from './playback-timeline.ts';
 import { SharedEncodedAudioAsset } from './sources/encoded-audio-asset.ts';
 import { PeerRangeEncodedAudioAsset } from './sources/peer-range-encoded-audio-asset.ts';
 import type { PeerRangeControlFrame } from './sources/peer-range-protocol.ts';
@@ -152,6 +157,7 @@ const OPTION_KEYS = Object.freeze([
   'canSendPeerControl',
   'onTimelineRendered',
   'onLoadingStateChange',
+  'onPauseGateStateChange',
   'onFatalConnection',
   'armP95Ms',
   'readyLeaseMs',
@@ -165,6 +171,7 @@ const REQUIRED_OPTION_KEYS = OPTION_KEYS.filter(
     key !== 'rendererHealthLeaseMs' &&
     key !== 'boundedRoutePolicy' &&
     key !== 'onLoadingStateChange' &&
+    key !== 'onPauseGateStateChange' &&
     key !== 'runtimeForTests',
 );
 const RUNTIME_KEYS = Object.freeze([
@@ -444,6 +451,13 @@ export interface FilePlaybackProductGuestMediaOwnerOptions {
   readonly onLoadingStateChange?: (
     event: Readonly<FilePlaybackProductGuestLoadingStateEvent>,
   ) => void;
+  /**
+   * Best-effort local-output signal emitted only after an exact remote PAUSE
+   * successor is admitted. Canonical timeline authority remains unchanged.
+   */
+  readonly onPauseGateStateChange?: (
+    event: Readonly<FilePlaybackProductGuestPauseGateStateEvent>,
+  ) => void;
   readonly armP95Ms?: number;
   readonly readyLeaseMs?: number;
   readonly rendererHealthLeaseMs?: number;
@@ -454,6 +468,11 @@ export interface FilePlaybackProductGuestLoadingStateEvent {
   readonly phase: 'pending' | 'settled';
   readonly owner: Extract<V2FilePlaybackLoadingOwner, 'guest-prepare' | 'guest-rendezvous'>;
   readonly token: V2FilePlaybackLoadingToken;
+}
+
+export interface FilePlaybackProductGuestPauseGateStateEvent {
+  readonly phase: 'pending' | 'settled';
+  readonly token: number;
 }
 
 export interface FilePlaybackProductGuestAudioGraph {
@@ -482,6 +501,7 @@ interface GuestPreparedRun {
   audioGraph: Readonly<FilePlaybackProductGuestAudioGraph> | null;
   staged: Readonly<StagedFilePlaybackAssetSource> | null;
   participant: GuestRendezvousParticipantPort | null;
+  readyPublicationPending: boolean;
   readyPublished: boolean;
   attempt: GuestAttempt | null;
   rendererDegraded: boolean;
@@ -524,11 +544,24 @@ interface GuestRoomState {
   activeBaselineProjected: boolean;
 }
 
-interface GuestPhysicalCommit {
-  readonly state: Readonly<PlaybackStateIdentity>;
-  readonly phase: PlaybackTimelineSnapshot['phase'];
-  readonly positionSeconds: number | null;
-}
+type GuestPhysicalCommit =
+  | Readonly<{
+      state: Readonly<PlaybackStateIdentity>;
+      phase: 'playing';
+      positionSeconds: number;
+      atRoomTimeMs: number;
+      playbackRate: number;
+    }>
+  | Readonly<{
+      state: Readonly<PlaybackStateIdentity>;
+      phase: 'paused';
+      positionSeconds: number | null;
+    }>
+  | Readonly<{
+      state: Readonly<PlaybackStateIdentity>;
+      phase: 'stopped';
+      positionSeconds: 0;
+    }>;
 
 interface GuestAttempt {
   readonly rendezvousId: string;
@@ -1165,10 +1198,16 @@ class GuestCloseFallbackRetirementError extends Error {
 }
 
 let nextGuestLoadingToken = 1;
+let nextGuestPauseGateToken = 1;
 
 interface GuestLoadingProjection {
   readonly owner: Extract<V2FilePlaybackLoadingOwner, 'guest-prepare' | 'guest-rendezvous'>;
   readonly token: V2FilePlaybackLoadingToken;
+  readonly state: Readonly<PlaybackStateIdentity>;
+}
+
+interface GuestPauseGateProjection {
+  readonly token: number;
   readonly state: Readonly<PlaybackStateIdentity>;
 }
 
@@ -1187,6 +1226,7 @@ class GuestMediaOwner {
   readonly #onFatalConnection: FilePlaybackProductGuestMediaOwnerOptions['onFatalConnection'];
   readonly #onTimelineRendered: FilePlaybackProductGuestMediaOwnerOptions['onTimelineRendered'];
   readonly #onLoadingStateChange: FilePlaybackProductGuestMediaOwnerOptions['onLoadingStateChange'];
+  readonly #onPauseGateStateChange: FilePlaybackProductGuestMediaOwnerOptions['onPauseGateStateChange'];
   readonly #runtime: RuntimeSnapshot;
   readonly #armP95Ms: number;
   readonly #readyLeaseMs: number;
@@ -1215,6 +1255,7 @@ class GuestMediaOwner {
   #rendererHealthHeartbeatGeneration = 0;
   #rendererHealthHeartbeat: GuestRendererHealthHeartbeat | null = null;
   #loadingProjection: Readonly<GuestLoadingProjection> | null = null;
+  #pauseGateProjection: Readonly<GuestPauseGateProjection> | null = null;
 
   constructor(options: FilePlaybackProductGuestMediaOwnerOptions) {
     const input = snapshotAllowedOptions(options);
@@ -1249,7 +1290,10 @@ class GuestMediaOwner {
       typeof input.canSendPeerControl !== 'function' ||
       typeof input.onTimelineRendered !== 'function' ||
       typeof input.onFatalConnection !== 'function' ||
-      (input.onLoadingStateChange !== undefined && typeof input.onLoadingStateChange !== 'function')
+      (input.onLoadingStateChange !== undefined &&
+        typeof input.onLoadingStateChange !== 'function') ||
+      (input.onPauseGateStateChange !== undefined &&
+        typeof input.onPauseGateStateChange !== 'function')
     ) {
       throw new TypeError('Guest media owner callbacks are invalid');
     }
@@ -1272,6 +1316,8 @@ class GuestMediaOwner {
       input.onTimelineRendered as FilePlaybackProductGuestMediaOwnerOptions['onTimelineRendered'];
     this.#onLoadingStateChange =
       input.onLoadingStateChange as FilePlaybackProductGuestMediaOwnerOptions['onLoadingStateChange'];
+    this.#onPauseGateStateChange =
+      input.onPauseGateStateChange as FilePlaybackProductGuestMediaOwnerOptions['onPauseGateStateChange'];
     this.#runtime = runtime;
     this.#armP95Ms = configuredDuration(input.armP95Ms, DEFAULT_ARM_P95_MS, 60_000, 'armP95Ms');
     this.#readyLeaseMs = configuredDuration(
@@ -1598,6 +1644,7 @@ class GuestMediaOwner {
           audioGraph: current.audioGraph,
           staged: null,
           participant: null,
+          readyPublicationPending: false,
           readyPublished: false,
           attempt: null,
           rendererDegraded: false,
@@ -1639,6 +1686,7 @@ class GuestMediaOwner {
             audioGraph: prepared.audioGraph,
             staged: null,
             participant: null,
+            readyPublicationPending: false,
             readyPublished: false,
             attempt: null,
             rendererDegraded: false,
@@ -1688,7 +1736,11 @@ class GuestMediaOwner {
           });
           return;
         }
-        if (!prepared || !prepared.readyPublished || !prepared.participant) {
+        if (
+          !prepared ||
+          (!prepared.readyPublished && !prepared.readyPublicationPending) ||
+          !prepared.participant
+        ) {
           throw new Error('Guest rendezvous arm has no exact ready source');
         }
         if (prepared.attempt) throw new Error('Guest prepared run already owns an attempt');
@@ -1744,12 +1796,26 @@ class GuestMediaOwner {
         );
         prepared.recoveryTargetAllowed = false;
         prepared.attempt = attempt;
-        this.#beginLoadingProjection('guest-rendezvous', prepared.state);
-        acknowledge();
+        // Reserve the exact admitted attempt synchronously, but execute it only
+        // after the ordered preparation lane has finished publishing READY.
+        // A remote ARM can re-enter while the local SOURCE_READY send Promise
+        // is still settling; the participant already exists at that boundary,
+        // while `readyPublished` intentionally does not become true until the
+        // required send succeeds.
         this.#enqueue('rendezvous arm', async () => {
+          this.#assertAttempt(room, prepared, attempt);
+          if (
+            !prepared.readyPublished ||
+            !prepared.participant ||
+            prepared.participant !== attempt.participant
+          ) {
+            throw new Error('Guest rendezvous arm has no exact ready source');
+          }
           attempt.armTask = this.#executeArm(room, prepared, attempt);
           await attempt.armTask;
         });
+        this.#beginLoadingProjection('guest-rendezvous', prepared.state);
+        acknowledge();
         return;
       }
       if (message.kind === 'rendezvous-finalize') {
@@ -1900,7 +1966,23 @@ class GuestMediaOwner {
           // this successor. Fence the old heartbeat at the ordered adoption
           // boundary before the native transition can yield.
           this.#stopRendererHealthHeartbeat(current);
-          await this.#applyStateSuccessor(room, current, expected, successor, message, stateLease);
+          const pauseGate =
+            message.kind === 'file-playback-pause'
+              ? this.#beginPauseGateProjection(successor)
+              : null;
+          try {
+            await this.#applyStateSuccessor(
+              room,
+              current,
+              expected,
+              successor,
+              message,
+              stateLease,
+            );
+          } catch (error) {
+            if (pauseGate) this.#settlePauseGateProjection(pauseGate);
+            throw error;
+          }
         } catch (error) {
           if (!current || !this.#preparedCurrent(room, current) || this.#abort.signal.aborted) {
             throw new GuestMediaNotReadyError('Guest state successor lost media authority', {
@@ -2003,6 +2085,7 @@ class GuestMediaOwner {
       audioGraph: null,
       staged: null,
       participant: null,
+      readyPublicationPending: false,
       readyPublished: false,
       attempt: null,
       rendererDegraded: false,
@@ -2101,10 +2184,15 @@ class GuestMediaOwner {
         channelCount: staged.readiness.channelCount,
       });
       this.#assertPrepared(room, prepared);
-      await this.#sendRequired(wire);
-      this.#assertPrepared(room, prepared);
-      prepared.readyPublished = true;
-      prepared.status = 'ready';
+      prepared.readyPublicationPending = true;
+      try {
+        await this.#sendRequired(wire);
+        this.#assertPrepared(room, prepared);
+        prepared.readyPublished = true;
+        prepared.status = 'ready';
+      } finally {
+        prepared.readyPublicationPending = false;
+      }
       if (prepared.kind === 'baseline' && room.timeline.phase === 'paused') {
         this.#publishActiveBaselineTimeline(room, prepared, 'paused');
       }
@@ -2252,9 +2340,14 @@ class GuestMediaOwner {
           ? this.#mediaSession.createCandidateSourceReadyWire(prepared.operation, payload)
           : this.#mediaSession.createPreparedSourceReadyWire(prepared.operation, payload);
     this.#assertPrepared(room, prepared);
-    await this.#sendRequired(wire);
-    this.#assertPrepared(room, prepared);
-    prepared.readyPublished = true;
+    prepared.readyPublicationPending = true;
+    try {
+      await this.#sendRequired(wire);
+      this.#assertPrepared(room, prepared);
+      prepared.readyPublished = true;
+    } finally {
+      prepared.readyPublicationPending = false;
+    }
   }
 
   async #stagePreparedAsset(
@@ -3521,7 +3614,9 @@ class GuestMediaOwner {
       room.physical = freezeCanonical({
         state: prepared.state,
         phase: 'playing' as const,
-        positionSeconds: canonicalRendezvousTarget!.positionSeconds,
+        positionSeconds: attempt.armIntent.positionSeconds,
+        atRoomTimeMs: attempt.armIntent.startAtRoomTimeMs,
+        playbackRate: attempt.armIntent.playbackRate,
       });
     } else if (prepared.kind === 'recovery') {
       const previous = room.current;
@@ -4085,7 +4180,7 @@ class GuestMediaOwner {
       room.physical = freezeCanonical({
         state: successor,
         phase: 'stopped' as const,
-        positionSeconds: 0,
+        positionSeconds: 0 as const,
       });
       return;
     }
@@ -4145,7 +4240,7 @@ class GuestMediaOwner {
       room.physical = freezeCanonical({
         state: successor,
         phase: 'stopped' as const,
-        positionSeconds: 0,
+        positionSeconds: 0 as const,
       });
       return;
     }
@@ -4249,7 +4344,7 @@ class GuestMediaOwner {
     room.physical = freezeCanonical({
       state: stopped,
       phase: 'stopped' as const,
-      positionSeconds: 0,
+      positionSeconds: 0 as const,
     });
   }
 
@@ -4312,7 +4407,7 @@ class GuestMediaOwner {
       room.physical = freezeCanonical({
         state: successor,
         phase: 'stopped' as const,
-        positionSeconds: 0,
+        positionSeconds: 0 as const,
       });
       return;
     }
@@ -4441,6 +4536,45 @@ class GuestMediaOwner {
     }
   }
 
+  #beginPauseGateProjection(
+    state: Readonly<PlaybackStateIdentity>,
+  ): Readonly<GuestPauseGateProjection> {
+    const previous = this.#pauseGateProjection;
+    const next = freezeCanonical({
+      token: nextGuestPauseGateToken++,
+      state,
+    });
+    this.#pauseGateProjection = next;
+    this.#publishPauseGateStateChange('pending', next);
+    if (previous) this.#publishPauseGateStateChange('settled', previous);
+    return next;
+  }
+
+  #settlePauseGateProjection(projection?: Readonly<GuestPauseGateProjection>): void {
+    const current = this.#pauseGateProjection;
+    if (!current || (projection !== undefined && current !== projection)) return;
+    this.#pauseGateProjection = null;
+    this.#publishPauseGateStateChange('settled', current);
+  }
+
+  #publishPauseGateStateChange(
+    phase: FilePlaybackProductGuestPauseGateStateEvent['phase'],
+    projection: Readonly<GuestPauseGateProjection>,
+  ): void {
+    const callback = this.#onPauseGateStateChange;
+    if (!callback) return;
+    try {
+      Reflect.apply(callback, undefined, [
+        freezeCanonical({
+          phase,
+          token: projection.token,
+        }),
+      ]);
+    } catch {
+      // Local output gating is best-effort and cannot affect media authority.
+    }
+  }
+
   async #commitTimelineUpdate(
     room: GuestRoomState,
     timeline: Readonly<PlaybackTimelineSnapshot>,
@@ -4471,7 +4605,17 @@ class GuestMediaOwner {
     ) {
       throw new Error('Guest timeline metadata does not match its current renderer');
     }
-    if (
+    if (physical.phase === 'playing') {
+      if (
+        timeline.phase !== 'playing' ||
+        timeline.rate !== physical.playbackRate ||
+        Math.abs(
+          derivePlaybackPosition(timeline, physical.atRoomTimeMs) - physical.positionSeconds,
+        ) > PLAYBACK_TIMELINE_TRAJECTORY_TOLERANCE_SECONDS
+      ) {
+        throw new Error('Guest timeline trajectory disagreed with native transition');
+      }
+    } else if (
       physical.positionSeconds !== null &&
       timeline.positionSeconds !== physical.positionSeconds
     ) {
@@ -4483,6 +4627,18 @@ class GuestMediaOwner {
     const heartbeat = this.#rendererHealthHeartbeat;
     if (heartbeat) this.#scheduleRendererHealthHeartbeat(heartbeat);
     this.#publishTimelineRendered(room, timeline);
+    const pauseGate = this.#pauseGateProjection;
+    if (
+      pauseGate &&
+      timeline.phase === 'paused' &&
+      timelineState &&
+      sameState(pauseGate.state, timelineState)
+    ) {
+      // Keep the optimistic icon/output gate through the small physical-to-
+      // canonical gap. publishTimelineRendered synchronously projects paused
+      // activity first, so settlement cannot flash stale "playing" UI.
+      this.#settlePauseGateProjection(pauseGate);
+    }
   }
 
   #preparedForMessage(
@@ -4772,6 +4928,7 @@ class GuestMediaOwner {
       try {
         this.#stopRendererHealthHeartbeat();
         this.#settleLoadingProjection();
+        this.#settlePauseGateProjection();
         this.#closed = true;
         const reason = this.#fatalError ?? new Error('Guest media owner revoked');
         const warm = this.#offerWarm;

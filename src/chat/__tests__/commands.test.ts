@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
+import { t } from '../../i18n/index.ts';
 import type { TransportDataConnection } from '../../network/transport/types.ts';
 
 function hostConnection(peer = 'host'): TransportDataConnection {
@@ -98,11 +99,24 @@ describe('parseCommand', () => {
 });
 
 describe('executeCommand permission gating', () => {
-  it('rejects a host-only command from a guest without running its effect', () => {
+  it('names the exact member-management permission required by /kick', () => {
     setState('network.hostConn', hostConnection());
     executeCommand({ name: 'kick', args: ['someone'], rawArgs: 'someone' });
     expect(mocks.sendToHost).not.toHaveBeenCalled();
-    expect(mocks.addSystemChatMessage).toHaveBeenCalledTimes(1);
+    expect(mocks.addSystemChatMessage).toHaveBeenCalledWith(t('toast.member_management_required'));
+  });
+
+  it('names chat-notice and room-owner requirements for manual hidden commands', () => {
+    setState('network.hostConn', hostConnection());
+
+    executeCommand({ name: 'notice', args: ['hello'], rawArgs: 'hello' });
+    expect(mocks.addSystemChatMessage).toHaveBeenLastCalledWith(t('toast.chat_notice_required'));
+
+    executeCommand({ name: 'clear', args: [], rawArgs: '' });
+    expect(mocks.addSystemChatMessage).toHaveBeenLastCalledWith(t('toast.room_owner_required'));
+
+    executeCommand({ name: 'op', args: ['#1'], rawArgs: '#1' });
+    expect(mocks.addSystemChatMessage).toHaveBeenLastCalledWith(t('toast.host_setting_required'));
   });
 
   it('routes /debug (permission "all") to the extracted debug-console entry point', () => {

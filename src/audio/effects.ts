@@ -41,6 +41,7 @@ import {
 } from './helpers.ts';
 import { showToast } from '../ui/toast.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
+import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import {
   RAMP_TIME,
   SUB_FREQ_MIN,
@@ -452,7 +453,7 @@ function canControlRoomEffects(): boolean {
 }
 
 function rejectRoomEffectsControl(): void {
-  showToast(t('toast.operator_required'));
+  showRoomCapabilityRequired('effects.control');
 }
 
 function _broadcastOrRequestSetting(msgType: string, value: number | string): void {
@@ -464,7 +465,7 @@ function _broadcastOrRequestSetting(msgType: string, value: number | string): vo
     if (canRequest && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: msgType, value });
     } else if (!canRequest) {
-      showToast(t('toast.operator_required'));
+      showRoomCapabilityRequired('effects.control');
     } else {
       showToast(t('toast.connection_closing'));
     }
@@ -480,7 +481,7 @@ function _broadcastOrRequestSettingEQ(band: number, value: number): void {
     if (canRequest && hostConn.open) {
       hostConn.send({ type: MSG.REQUEST_SETTING, settingType: 'eq', band, value });
     } else if (!canRequest) {
-      showToast(t('toast.operator_required'));
+      showRoomCapabilityRequired('effects.control');
     } else {
       showToast(t('toast.connection_closing'));
     }

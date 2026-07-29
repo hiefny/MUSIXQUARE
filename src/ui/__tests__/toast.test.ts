@@ -155,7 +155,9 @@ describe('standard operator file uplink feedback', () => {
       phase: 'error',
       code: 'operator-revoked',
     });
-    expect(document.getElementById('toast-msg')!.innerText).toBe('Admin permission revoked.');
+    expect(document.getElementById('toast-msg')!.innerText).toBe(
+      'Media management permission required.',
+    );
 
     const invalid = uplinkProgress();
     bus.emit('standard-room:operator-file-uplink-progress', {
@@ -257,6 +259,11 @@ describe('standard queue mutation feedback', () => {
 
     bus.emit('standard-room:queue-mutation-failed', 'rejected', 'queue-full');
     expect(document.getElementById('toast-msg')!.innerText).toBe('The playlist is full.');
+
+    bus.emit('standard-room:queue-mutation-failed', 'rejected', 'unauthorized');
+    expect(document.getElementById('toast-msg')!.innerText).toBe(
+      'Media management permission required.',
+    );
   });
 });
 

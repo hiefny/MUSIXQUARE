@@ -155,6 +155,34 @@ export interface V2HostSeekSettledEvent {
   readonly positionSeconds: number;
 }
 
+export type V2HostUiControlKind = 'play' | 'pause';
+
+/**
+ * Host-local projection for one standard-room V2 playback control.
+ *
+ * This token never crosses the network and never advances canonical playback
+ * truth. It exists only to make a host click immediately visible and safely
+ * reversible while the revisioned renderer transition remains authoritative.
+ */
+export interface V2HostUiControlPendingEvent {
+  readonly token: number;
+  readonly kind: V2HostUiControlKind;
+  readonly queueItemId: QueueItemId | null;
+}
+
+export type V2HostUiControlSettlementStatus = 'committed' | 'failed' | 'superseded';
+
+export interface V2HostUiControlSettledEvent {
+  readonly token: number;
+  readonly kind: V2HostUiControlKind;
+  readonly queueItemId: QueueItemId | null;
+  readonly status: V2HostUiControlSettlementStatus;
+}
+
+export interface V2GuestPauseGateEvent {
+  readonly token: number;
+}
+
 export type ProPlaybackUiControlKind = 'play' | 'pause' | 'seek';
 
 /**
@@ -1250,6 +1278,14 @@ interface BaseEventMap {
   'player:v2-host-seek-pending': [event: Readonly<V2HostSeekPendingEvent>];
   /** Exact terminal result for one admitted host-local V2 seek token. */
   'player:v2-host-seek-settled': [event: Readonly<V2HostSeekSettledEvent>];
+  /** Immediate host-local feedback while a standard-room V2 control commits. */
+  'player:v2-host-ui-control-pending': [event: Readonly<V2HostUiControlPendingEvent>];
+  /** Exact terminal result for the matching host-local V2 UI control token. */
+  'player:v2-host-ui-control-settled': [event: Readonly<V2HostUiControlSettledEvent>];
+  /** Exact guest PAUSE successor was admitted; silence local file output immediately. */
+  'player:v2-guest-pause-gate-pending': [event: Readonly<V2GuestPauseGateEvent>];
+  /** Matching guest PAUSE reached or abandoned its physical cutover boundary. */
+  'player:v2-guest-pause-gate-settled': [event: Readonly<V2GuestPauseGateEvent>];
   /** Delayed participant-local projection for one exact V2 file preparation. */
   'player:v2-file-loading-pending': [event: Readonly<V2FilePlaybackLoadingEvent>];
   /** Exact terminal settlement; stale owner/token pairs are ignored by the UI. */

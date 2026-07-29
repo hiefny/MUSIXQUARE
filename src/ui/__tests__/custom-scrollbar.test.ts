@@ -452,7 +452,7 @@ describe('compact-landscape scrollbar ownership contract', () => {
       /#media-source-overlay\s+\.setup-slot-list\s*\{[^}]*flex:\s*1(?:\s|;)/s,
     );
     expect(stylesheet).toMatch(
-      /#media-source-overlay\s+\.setup-slot-list\s*\{[^}]*flex:\s*0\s+1\s+auto;[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s,
+      /#media-source-overlay\s+\.setup-slot-list\s*\{[^}]*flex:\s*0\s+1\s+auto;[^}]*min-height:\s*0;[^}]*padding-block:\s*6px;[^}]*scroll-padding-block:\s*6px;[^}]*overflow-y:\s*auto;/s,
     );
     expect(stylesheet).toMatch(
       /#media-source-overlay\s+\.setup-slot-list\s*>\s*\.file-select-btn\s*\{[^}]*flex-shrink:\s*0;[^}]*margin-top:\s*0;/s,
@@ -468,5 +468,16 @@ describe('compact-landscape scrollbar ownership contract', () => {
     );
     expect(youtubeForm?.hasAttribute('data-custom-scroll')).toBe(true);
     expect(youtubeForm?.hasAttribute('data-custom-scroll-contained')).toBe(true);
+  });
+
+  it('keeps media-source hover and focus visuals inside their scrollport', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+
+    expect(stylesheet).toMatch(
+      /#media-source-overlay\s+\.setup-slot-list\s*\{[^}]*padding-block:\s*6px;[^}]*scroll-padding-block:\s*6px;/s,
+    );
+    expect(stylesheet).toMatch(
+      /@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{[^}]*#media-source-overlay\s+\.file-select-btn:hover\s*\{[^}]*transform:\s*none;/s,
+    );
   });
 });

@@ -1,10 +1,11 @@
 # File playback control-plane redesign
 
-- **Status:** Implemented; owner-approved monitored production rollout
+- **Status:** Beta vertical slice implemented; production promotion in progress
 - **Branch:** merged from `mxqr_beta` into `main`
 - **Stable baseline:** `ca342a324f0ee39c1b948b8938690688eaa441d9`
-- **Production rule:** the tracked V2 production latch is on; rollback is a
-  forward app release with the latch off and a newer service-worker cache epoch
+- **Production rule:** the tracked V2 production latch is off. The redesigned
+  bounded V1-control path must use its own production gate and must never
+  activate the retired V2 application-session control plane.
 - **Scope:** replace the distributed V2 control plane while preserving the
   bounded delivery, decoder, renderer, and R2 work
 
@@ -44,17 +45,16 @@ interaction, not as protocol phases leaking into the UI:
 
 ## Current rollout (2026-07-30)
 
-The redesign and bounded data plane are merged into `main`. Production uses
-the immutable `v2-universal-v1` build profile during a monitored rollout.
-Standard-room playback failures reset only playback state and do not close the
-room transport. PRO keeps its independent server authority and may use only
-its dedicated bounded adapter, with compatibility fallback to its established
-renderer.
+The redesigned bounded data plane is merged into `main`, but the first
+production enablement accidentally selected the retired V2
+ApplicationSession/ProductRuntime control plane. A field failure confirmed
+that its guest media-owner invariant still closes the room connection.
+Production has therefore returned to the stable `legacy-current` profile.
 
-The original phase plan below is retained as implementation history. Turning
-the rollout off requires a new static-app build with the tracked latch set to
-false and a monotonically newer service-worker cache epoch; already-open
-documents switch only after update/reload.
+The redesigned `legacyBoundedFileV1` vertical slice remains isolated behind
+its own beta gate. Its production promotion must preserve the V1 room control
+plane, activate only the bounded renderer/data path, and keep every playback
+failure inside a connection-preserving fallback boundary.
 
 ## Why the current V2 failed
 

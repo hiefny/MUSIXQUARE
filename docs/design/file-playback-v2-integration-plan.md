@@ -20,25 +20,20 @@ baseline, local-only deployment rule, and milestone slices retained elsewhere
 in this document describe the historical rollout plan rather than the deployed
 state.
 
-- Production is in an owner-approved monitored rollout of the fixed
-  `v2-universal-v1` profile. The tracked production latch and both exact build
-  flags are ON; URL parameters cannot change that document-lifetime decision.
-- Standard rooms install the V2 application session, exact semantic-cohort
-  handshake, bounded peer/R2 delivery, serialized playback authority, and
-  renderer ownership. Unsupported sources are selected onto the unchanged V1
-  path before bounded ownership transfers.
-- PRO rooms never install the standard-room application session. Their
-  server-clock authority may use the separate bounded PRO adapter and falls
-  back to the existing PRO V1 renderer when source compatibility cannot be
-  established before commit.
-- Playback adoption and recovery failures are isolated from the room
-  connection. Focused adversarial tests and release/live smoke passed before
-  activation; physical-device and multi-guest observation continues during
-  the monitored rollout.
-- Rapid rollback is a forward static-app release: set the tracked latch back
-  to OFF and advance the service-worker cache epoch again. Existing documents
-  keep their immutable bootstrap choice until they accept the update and
-  reload.
+- Production boots the fixed `legacy-current` profile. The tracked V2
+  production latch is OFF, so the retired V2 ApplicationSession,
+  ProductRuntime, and GuestMediaOwner cannot own standard-room playback.
+- The 2026-07-30 monitored enablement was rolled back after production evidence
+  showed that a guest media-owner adoption failure still reached the old
+  fail-closed connection teardown. A fresh private tab sometimes avoided the
+  timing-dependent race, but did not change the active architecture.
+- The redesigned bounded V1-control vertical slice remains available through
+  its separate beta artifact and gate. Its production promotion must enable
+  that path directly while leaving the old V2 engine latch OFF.
+- Unsupported sources and any bounded admission or recovery failure retain the
+  established V1 renderer and room connection. PRO keeps its independent
+  server-authoritative playback path until a separately verified adapter
+  promotion is complete.
 
 ## Purpose
 

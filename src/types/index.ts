@@ -179,7 +179,7 @@ export interface V2HostUiControlSettledEvent {
   readonly status: V2HostUiControlSettlementStatus;
 }
 
-export interface V2GuestPauseGateEvent {
+interface V2GuestPauseGateEvent {
   readonly token: number;
 }
 

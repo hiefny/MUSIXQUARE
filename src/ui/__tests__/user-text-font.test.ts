@@ -26,6 +26,8 @@ describe('script-aware user text font fallback', () => {
     ['这本书', ['zh-hans']],
     ['這本書', ['zh-hant']],
     ['习近平', ['zh-hans']],
+    ['山东省金寨岭锅包肉', ['zh-hans']],
+    ['岭', []],
     ['练习 練習', ['zh-hans', 'zh-hant']],
   ])('detects confident script evidence in %s', (text, expected) => {
     expect(detectUserTextFontCodesForTests(text)).toEqual(expected);
@@ -61,6 +63,16 @@ describe('script-aware user text font fallback', () => {
       ['th', text],
       ['zh-hant', text],
     ]);
+  });
+
+  it('warms the exact Simplified Chinese glyphs used by an external label', () => {
+    const element = document.createElement('span');
+    const text = '山东省金寨岭锅包肉';
+
+    expect(applyUserTextFontFallback(element, text)).toEqual(['zh-hans']);
+    expect(element.dataset.userTextFonts).toBe('zh-hans');
+    expect(element.classList).toContain('user-text-font-zh-hans');
+    expect(preloadLocaleFontGlyphs).toHaveBeenCalledWith('zh-hans', text);
   });
 
   it('clears stale classes when a reused element no longer needs a shard', () => {

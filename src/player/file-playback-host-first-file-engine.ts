@@ -2104,8 +2104,6 @@ export class FilePlaybackHostFirstFileEngine {
       task: null,
     };
     this.#activeOperation = operation;
-    this.#peerPublicationAuthority = null;
-    this.#cancelAllRemoteRecoveries(`remote-recovery-${action}-transition`);
     if (signal.aborted) forwardExternalAbort();
     const task = this.#executeCurrentTransition(operation);
     operation.task = task;
@@ -2283,6 +2281,7 @@ export class FilePlaybackHostFirstFileEngine {
       throw new Error(`Host pause was rejected before scheduling: ${result.reason}`);
     }
     operation.physicalBoundaryClaimed = true;
+    await this.#retireRemoteRecoveriesForScheduledTransition(operation);
     this.#notifyTransitionScheduled('pause', intent, null);
     const evidence = (await result.applied) as Readonly<FilePlaybackPauseTransitionEvidence>;
     this.#assertTransitionCommitFence(operation, intent, true);
@@ -2328,6 +2327,7 @@ export class FilePlaybackHostFirstFileEngine {
       throw new Error(`Host paused seek was rejected before scheduling: ${result.reason}`);
     }
     operation.physicalBoundaryClaimed = true;
+    await this.#retireRemoteRecoveriesForScheduledTransition(operation);
     this.#notifyTransitionScheduled('seek', intent, positionSeconds);
     const evidence = (await result.applied) as Readonly<FilePlaybackSeekTransitionEvidence>;
     this.#assertTransitionCommitFence(operation, intent, true);
@@ -2383,6 +2383,7 @@ export class FilePlaybackHostFirstFileEngine {
     operation.commitDominant = true;
     const result = await pending;
     operation.physicalBoundaryClaimed = true;
+    await this.#retireRemoteRecoveriesForScheduledTransition(operation);
     this.#notifyTransitionScheduled('stop', intent, null);
     const evidence = await result.applied;
     if (result.status === 'failed-retired') {
@@ -2463,6 +2464,7 @@ export class FilePlaybackHostFirstFileEngine {
     ]) as Promise<Readonly<FilePlaybackEndedTransitionEvidence>>;
     operation.commitDominant = true;
     operation.physicalBoundaryClaimed = true;
+    await this.#retireRemoteRecoveriesForScheduledTransition(operation);
     const evidence = await pending;
     this.#assertTransitionCommitFence(operation, intent, false);
     this.#notifyRemoteEndRequired(intent);
@@ -4562,6 +4564,23 @@ export class FilePlaybackHostFirstFileEngine {
     this.#assertPeerPublicationStateAuthority(authority);
   }
 
+  #assertRemoteRecoveryPublicationAuthority(authority: PeerPublicationAuthority): void {
+    const active = this.#activeOperation;
+    if (active !== null) {
+      const preservesExactPreviousPublication =
+        active.kind === 'transition' &&
+        !active.physicalBoundaryClaimed &&
+        active.previousTimeline === authority.timeline &&
+        this.#operationEpoch === active.epoch &&
+        this.#committedPort === active.expectedCurrentPort &&
+        currentPort(this.#manager) === active.expectedCurrentPort;
+      if (!preservesExactPreviousPublication) {
+        throw new Error('Host peer publication authority is stale');
+      }
+    }
+    this.#assertPeerPublicationStateAuthority(authority);
+  }
+
   #assertCurrentPeerPublicationAuthority(authority: PeerPublicationAuthority): void {
     if (!this.#allowsCurrentPeerPublicationForTimeline(authority.timeline)) {
       throw new Error('Host peer publication authority is stale');
@@ -4778,7 +4797,7 @@ export class FilePlaybackHostFirstFileEngine {
         throw new Error('Host remote recovery attempt is stale');
       }
     }
-    this.#assertPeerPublicationAuthority(authority);
+    this.#assertRemoteRecoveryPublicationAuthority(authority);
   }
 
   #abortRemoteRecovery(operation: ActiveRemoteRecovery, reason: string): void {
@@ -4795,6 +4814,29 @@ export class FilePlaybackHostFirstFileEngine {
     const operations = [...this.#remoteRecoveries.values()];
     this.#remoteRecoveries.clear();
     for (const operation of operations) this.#abortRemoteRecovery(operation, reason);
+  }
+
+  async #retireRemoteRecoveriesForScheduledTransition(
+    operation: ActiveTransitionOperation,
+  ): Promise<void> {
+    this.#peerPublicationAuthority = null;
+    this.#cancelAllRemoteRecoveries(`remote-recovery-${operation.action}-transition`);
+    // A connection-owned recovery releases its deferred participant through a
+    // Promise gate. Let that exact CANCEL enter the ordered transport before
+    // publishing the state-successor wire for the scheduled transition.
+    await Promise.resolve();
+    if (
+      !operation.commitDominant ||
+      !operation.physicalBoundaryClaimed ||
+      this.#activeOperation !== operation ||
+      this.#operationEpoch !== operation.epoch ||
+      this.#peerPublicationAuthority !== null ||
+      this.#remoteRecoveries.size !== 0
+    ) {
+      throw new Error(
+        `Host ${operation.action} recovery retirement lost scheduled transition authority`,
+      );
+    }
   }
 
   #hasLiveProjectionAuthority(): boolean {

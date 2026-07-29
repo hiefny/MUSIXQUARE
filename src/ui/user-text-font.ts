@@ -17,7 +17,7 @@ const BOPOMOFO_RE = /\p{Script=Bopomofo}/u;
 // Deliberately conservative, asymmetric markers. Common/ambiguous Han is not
 // included, and Japanese shinjitai shared with Simplified Chinese is avoided.
 const SIMPLIFIED_HAN_MARKER_RE =
-  /[这们说话语书车门网网页电脑脑乐听边过还进远发达实应开关时么吗习练]/u;
+  /[这们说话语书车门网网页电脑脑乐听边过还进远发达实应开关时么吗习练东锅]/u;
 const TRADITIONAL_HAN_MARKER_RE = /[這們說腦樂聽邊發實應關體裡麼嗎]/u;
 
 // A traditional form such as `練` or `習` is also ordinary Japanese kanji,

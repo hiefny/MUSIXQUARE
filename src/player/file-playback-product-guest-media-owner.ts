@@ -505,6 +505,7 @@ interface GuestPreparedRun {
   readyPublished: boolean;
   attempt: GuestAttempt | null;
   rendererDegraded: boolean;
+  renderedDurationSeconds: number | null;
   status: 'preparing' | 'ready' | 'current' | 'retired';
 }
 
@@ -1390,7 +1391,7 @@ class GuestMediaOwner {
     ) {
       return null;
     }
-    const durationSeconds = prepared.staged?.readiness.durationSeconds;
+    const durationSeconds = prepared.renderedDurationSeconds;
     return typeof durationSeconds === 'number' &&
       Number.isFinite(durationSeconds) &&
       durationSeconds > 0
@@ -1648,6 +1649,7 @@ class GuestMediaOwner {
           readyPublished: false,
           attempt: null,
           rendererDegraded: false,
+          renderedDurationSeconds: current.renderedDurationSeconds,
           status: 'preparing',
         };
         room.candidate = candidate;
@@ -1690,6 +1692,7 @@ class GuestMediaOwner {
             readyPublished: false,
             attempt: null,
             rendererDegraded: false,
+            renderedDurationSeconds: prepared.renderedDurationSeconds,
             status: 'preparing',
           };
           room.candidate = recovery;
@@ -1848,7 +1851,7 @@ class GuestMediaOwner {
       if (message.kind === 'file-playback-cancel') {
         const prepared = this.#preparedForMessage(room, message);
         const attempt = prepared?.attempt;
-        const terminalRecoveryCancel = isTerminalRemoteRecoveryCancelReason(message.reasonCode);
+        const terminalTransitionCancel = isTerminalRemoteRecoveryCancelReason(message.reasonCode);
         if (
           !prepared ||
           !attempt ||
@@ -1860,12 +1863,12 @@ class GuestMediaOwner {
         ) {
           throw new Error('Guest rendezvous cancel has no exact uncommitted attempt');
         }
-        if (
-          terminalRecoveryCancel &&
-          (prepared.kind !== 'recovery' || room.candidate !== prepared)
-        ) {
+        const exactRecoveryCandidate = prepared.kind === 'recovery' && room.candidate === prepared;
+        const exactUncommittedBaseline =
+          prepared.kind === 'baseline' && room.current === prepared && room.candidate === null;
+        if (terminalTransitionCancel && !exactRecoveryCandidate && !exactUncommittedBaseline) {
           throw new Error(
-            'Guest terminal recovery cancel did not own the exact recovery candidate',
+            'Guest terminal recovery cancel did not own an exact transition candidate',
           );
         }
         const intent: Readonly<FilePlaybackCancelIntent> = freezeCanonical({
@@ -1881,7 +1884,11 @@ class GuestMediaOwner {
           prepared,
           attempt,
           intent,
-          terminalRecoveryCancel ? 'terminal' : 'retry',
+          terminalTransitionCancel
+            ? exactRecoveryCandidate
+              ? 'terminal-recovery'
+              : 'terminal-uncommitted-baseline'
+            : 'retry',
         );
         this.#settleLoadingProjection('guest-rendezvous', prepared.state);
         acknowledge();
@@ -2089,6 +2096,7 @@ class GuestMediaOwner {
       readyPublished: false,
       attempt: null,
       rendererDegraded: false,
+      renderedDurationSeconds: null,
       status: 'preparing',
     };
     if (kind === 'baseline') room.current = prepared;
@@ -2138,6 +2146,7 @@ class GuestMediaOwner {
         // late revocation can still retire that exact port during close.
         prepared.staged = staged;
       }
+      prepared.renderedDurationSeconds = staged.readiness.durationSeconds;
       this.#assertPrepared(room, prepared);
       if (
         staged.asset.queueItemId !== prepared.state.queueItemId ||
@@ -2242,6 +2251,7 @@ class GuestMediaOwner {
     // Recovery handoff has the same ownership boundary as initial staging:
     // close must see the manager-owned port even if authority flips now.
     prepared.staged = staged;
+    prepared.renderedDurationSeconds = staged.readiness.durationSeconds;
     this.#assertPrepared(room, prepared);
     if (
       staged.asset.queueItemId !== prepared.state.queueItemId ||
@@ -3987,9 +3997,10 @@ class GuestMediaOwner {
     prepared: GuestPreparedRun,
     attempt: GuestAttempt,
     intent: Readonly<FilePlaybackCancelIntent>,
-    disposition: 'retry' | 'terminal',
+    disposition: 'retry' | 'terminal-recovery' | 'terminal-uncommitted-baseline',
   ): void {
     attempt.controller.abort(new GuestRendezvousAttemptCancelledError());
+    const retainedStatus = prepared.status;
     const retiringStaged = prepared.staged;
     const participant = attempt.participant;
     if (!retiringStaged || !participant) {
@@ -4022,10 +4033,10 @@ class GuestMediaOwner {
       room.candidate = null;
       return;
     }
-    const terminalCurrent = disposition === 'terminal' ? room.current : null;
+    const terminalCurrent = disposition === 'terminal-recovery' ? room.current : null;
     const terminalSurvivor = terminalCurrent?.staged?.cutoverPort ?? null;
     if (
-      disposition === 'terminal' &&
+      disposition === 'terminal-recovery' &&
       (!terminalCurrent ||
         terminalCurrent === prepared ||
         terminalSurvivor === null ||
@@ -4056,7 +4067,7 @@ class GuestMediaOwner {
         );
       }
       if (this.#closed) return;
-      if (disposition === 'terminal') {
+      if (disposition === 'terminal-recovery') {
         if (
           prepared.staged !== retiringStaged ||
           room.candidate !== prepared ||
@@ -4071,6 +4082,30 @@ class GuestMediaOwner {
         }
         prepared.staged = null;
         room.candidate = null;
+        return;
+      }
+      if (disposition === 'terminal-uncommitted-baseline') {
+        if (
+          prepared.staged !== retiringStaged ||
+          room.current !== prepared ||
+          room.candidate !== null ||
+          prepared.readyPublicationPending ||
+          prepared.attempt !== null ||
+          prepared.participant !== null ||
+          attempt.admittedAttempt !== null ||
+          attempt.stateOperation !== null ||
+          this.#runtime.currentPort(this.#manager) !== null
+        ) {
+          throw new Error(
+            'Guest terminal baseline cancellation did not retire its exact renderer candidate',
+          );
+        }
+        this.#assertPrepared(room, prepared);
+        prepared.staged = null;
+        prepared.readyPublished = false;
+        prepared.participant = null;
+        prepared.rendererDegraded = true;
+        prepared.status = 'current';
         return;
       }
       if (!restageAfterCancellation) return;
@@ -4103,7 +4138,12 @@ class GuestMediaOwner {
       if (prepared.attempt === attempt) prepared.attempt = null;
       prepared.readyPublished = false;
       prepared.participant = null;
-      prepared.status = disposition === 'terminal' ? 'retired' : 'preparing';
+      prepared.status =
+        disposition === 'terminal-recovery'
+          ? 'retired'
+          : disposition === 'terminal-uncommitted-baseline'
+            ? retainedStatus
+            : 'preparing';
     }
   }
 

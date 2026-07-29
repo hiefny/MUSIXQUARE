@@ -324,6 +324,8 @@ interface FakeSourceOptions {
   readonly finalizeGate?: ReturnType<typeof deferred<void>>;
   readonly prepareGate?: ReturnType<typeof deferred<void>>;
   readonly primeGate?: ReturnType<typeof deferred<void>>;
+  readonly pauseScheduleGate?: ReturnType<typeof deferred<void>>;
+  readonly rejectPauseSchedule?: boolean;
   readonly destroyGate?: ReturnType<typeof deferred<void>>;
   readonly destroyError?: Error;
 }
@@ -467,7 +469,8 @@ function makeSource(
       return snapshot();
     },
     async pauseRevisioned(intent) {
-      if (phase !== 'playing') return rejectedTransition(intent);
+      if (options.pauseScheduleGate) await options.pauseScheduleGate.promise;
+      if (options.rejectPauseSchedule || phase !== 'playing') return rejectedTransition(intent);
       const pauseTargetTime = intent.atRoomTimeMs / 1_000;
       const pauseTargetFrame = Math.round(pauseTargetTime * context.sampleRate);
       const applied = deferred<ReturnType<typeof createFilePlaybackTransitionEvidence>>();
@@ -625,6 +628,8 @@ interface StagePlan {
   readonly holdAfterStage?: ReturnType<typeof deferred<void>>;
   readonly prepareGate?: ReturnType<typeof deferred<void>>;
   readonly primeGate?: ReturnType<typeof deferred<void>>;
+  readonly pauseScheduleGate?: ReturnType<typeof deferred<void>>;
+  readonly rejectPauseSchedule?: boolean;
   readonly destroyGate?: ReturnType<typeof deferred<void>>;
   readonly destroyError?: Error;
 }
@@ -751,6 +756,8 @@ function makeHarness(
       finalizeGate: plan.finalizeGate,
       prepareGate: plan.prepareGate,
       primeGate: plan.primeGate,
+      pauseScheduleGate: plan.pauseScheduleGate,
+      rejectPauseSchedule: plan.rejectPauseSchedule,
       destroyGate: plan.destroyGate,
       destroyError: plan.destroyError,
     });
@@ -792,6 +799,8 @@ function makeHarness(
           finalizeGate: plan.finalizeGate,
           prepareGate: plan.prepareGate,
           primeGate: plan.primeGate,
+          pauseScheduleGate: plan.pauseScheduleGate,
+          rejectPauseSchedule: plan.rejectPauseSchedule,
           destroyGate: plan.destroyGate,
           destroyError: plan.destroyError,
         });
@@ -811,6 +820,8 @@ function makeHarness(
           finalizeGate: plan.finalizeGate,
           prepareGate: plan.prepareGate,
           primeGate: plan.primeGate,
+          pauseScheduleGate: plan.pauseScheduleGate,
+          rejectPauseSchedule: plan.rejectPauseSchedule,
           destroyGate: plan.destroyGate,
           destroyError: plan.destroyError,
         });
@@ -4160,6 +4171,19 @@ describe('FilePlaybackHostFirstFileEngine', () => {
       }),
     );
     const previous = harness.controller.timelineSnapshot();
+    const publication = harness.engine.currentPeerPublication()!;
+    const recovery = remoteRecoveryHarness('abort-before-pause-peer', publication);
+    const recoveryEvidence = deferred<void>();
+    let recoveryAttempt: HostRendezvousAttempt | null = null;
+    const recoveryTask = harness.engine.recoverRemoteParticipant({
+      publication,
+      participant: recovery.participant,
+      signal: new AbortController().signal,
+      bindAttempt: (attempt) => {
+        recoveryAttempt = attempt;
+        return recoveryEvidence.promise;
+      },
+    });
 
     await expect(harness.engine.pauseCurrent({ signal: abort.signal })).rejects.toThrow(
       'cancel before native schedule',
@@ -4167,6 +4191,115 @@ describe('FilePlaybackHostFirstFileEngine', () => {
     expect(harness.sources[0]?.hasPendingPause()).toBe(false);
     expect(harness.controller.timelineSnapshot()).toBe(previous);
     expect(harness.manager.currentCutoverPort()).not.toBeNull();
+    expect(recovery.cancels).toEqual([]);
+
+    await recovery.accept(recoveryAttempt!);
+    recoveryEvidence.resolve();
+    await expect(recoveryTask).resolves.toMatchObject({
+      participantId: 'abort-before-pause-peer',
+      publication,
+      timeline: publication.timeline,
+    });
+    await harness.engine.close();
+  });
+
+  it('lets an exact recovery finish while a current transition is awaiting scheduling', async () => {
+    const pauseScheduleGate = deferred<void>();
+    const transitionOrder: string[] = [];
+    const harness = makeHarness([{ backend: 'audio-buffer', pauseScheduleGate }], {
+      onTransitionScheduled: (event) => transitionOrder.push(`state-successor:${event.kind}`),
+    });
+    await resolveLatestStart(
+      harness,
+      harness.start(new Blob([new Uint8Array([64])], { type: 'audio/mpeg' }), {
+        name: 'recovery-during-pause-admission',
+      }),
+    );
+    const publication = harness.engine.currentPeerPublication()!;
+    const recovery = remoteRecoveryHarness(
+      'pause-admission-recovery-peer',
+      publication,
+      transitionOrder,
+    );
+    const recoveryEvidence = deferred<void>();
+    let recoveryAttempt: HostRendezvousAttempt | null = null;
+    const recoveryTask = harness.engine.recoverRemoteParticipant({
+      publication,
+      participant: recovery.participant,
+      signal: new AbortController().signal,
+      bindAttempt: (attempt) => {
+        recoveryAttempt = attempt;
+        return recoveryEvidence.promise;
+      },
+    });
+
+    const pause = harness.engine.pauseCurrent({ signal: new AbortController().signal });
+    await drainMicrotasks();
+    expect(harness.sources[0]?.hasPendingPause()).toBe(false);
+
+    await recovery.accept(recoveryAttempt!);
+    recoveryEvidence.resolve();
+    await expect(recoveryTask).resolves.toMatchObject({
+      participantId: 'pause-admission-recovery-peer',
+      publication,
+      timeline: publication.timeline,
+    });
+
+    pauseScheduleGate.resolve();
+    await drainMicrotasks();
+    expect(harness.sources[0]?.hasPendingPause()).toBe(true);
+    expect(recovery.cancels).toEqual([]);
+    expect(transitionOrder).toEqual(['rendezvous-arm', 'state-successor:pause']);
+
+    harness.sources[0]?.resolvePause();
+    await expect(pause).resolves.toMatchObject({ kind: 'pause' });
+    expect(harness.fatal).not.toHaveBeenCalled();
+    await harness.engine.close();
+  });
+
+  it('preserves an exact recovery when a delayed manager transition is rejected', async () => {
+    const pauseScheduleGate = deferred<void>();
+    const harness = makeHarness([
+      { backend: 'audio-buffer', pauseScheduleGate, rejectPauseSchedule: true },
+    ]);
+    await resolveLatestStart(
+      harness,
+      harness.start(new Blob([new Uint8Array([65])], { type: 'audio/mpeg' }), {
+        name: 'recovery-during-rejected-pause',
+      }),
+    );
+    const previous = harness.controller.timelineSnapshot();
+    const publication = harness.engine.currentPeerPublication()!;
+    const recovery = remoteRecoveryHarness('rejected-pause-recovery-peer', publication);
+    const recoveryEvidence = deferred<void>();
+    let recoveryAttempt: HostRendezvousAttempt | null = null;
+    const recoveryTask = harness.engine.recoverRemoteParticipant({
+      publication,
+      participant: recovery.participant,
+      signal: new AbortController().signal,
+      bindAttempt: (attempt) => {
+        recoveryAttempt = attempt;
+        return recoveryEvidence.promise;
+      },
+    });
+
+    const pause = harness.engine.pauseCurrent({ signal: new AbortController().signal });
+    await drainMicrotasks();
+    await recovery.accept(recoveryAttempt!);
+    recoveryEvidence.resolve();
+    await expect(recoveryTask).resolves.toMatchObject({
+      participantId: 'rejected-pause-recovery-peer',
+      publication,
+      timeline: publication.timeline,
+    });
+
+    pauseScheduleGate.resolve();
+    await expect(pause).rejects.toThrow('Host pause was rejected before scheduling');
+    expect(recovery.cancels).toEqual([]);
+    expect(harness.controller.timelineSnapshot()).toBe(previous);
+    expect(harness.manager.currentCutoverPort()).not.toBeNull();
+    expect(harness.engine.currentPeerPublication()).toBe(publication);
+    expect(harness.fatal).not.toHaveBeenCalled();
     await harness.engine.close();
   });
 

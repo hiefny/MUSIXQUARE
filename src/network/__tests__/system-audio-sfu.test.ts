@@ -24,6 +24,10 @@ import {
   resetLocalSystemAudioSfuCapabilities,
 } from '../system-audio-delivery.ts';
 
+const systemAudioGuestMocks = vi.hoisted(() => ({
+  awaitTrustedReceptionBoundary: vi.fn(async () => true),
+}));
+
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -73,6 +77,8 @@ vi.mock('../peer-state.ts', () => ({
 
 vi.mock('../system-audio-guest.ts', () => ({
   cleanupGuestSystemAudio: vi.fn(),
+  awaitTrustedSystemAudioReceptionBoundary:
+    systemAudioGuestMocks.awaitTrustedReceptionBoundary,
 }));
 
 vi.mock('../webrtc-audio-decoder-primer.ts', () => ({
@@ -235,6 +241,7 @@ beforeEach(() => {
   resetState();
   bus.clear();
   vi.clearAllMocks();
+  systemAudioGuestMocks.awaitTrustedReceptionBoundary.mockResolvedValue(true);
   pendingRealtimeCalls = [];
   pcInstances = [];
   resetLocalSystemAudioSfuCapabilities();
@@ -1118,6 +1125,70 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     expect(guest.sourceL).toBe(false);
 
     delete (globalThis as Record<string, unknown>).MediaStream;
+  });
+
+  it('does not attach an SFU track before the trusted owner-switch boundary settles', async () => {
+    const trustedBoundary = (() => {
+      let resolve!: (ready: boolean) => void;
+      const promise = new Promise<boolean>((done) => {
+        resolve = done;
+      });
+      return { promise, resolve };
+    })();
+    systemAudioGuestMocks.awaitTrustedReceptionBoundary.mockReturnValueOnce(
+      trustedBoundary.promise,
+    );
+
+    const mod = await import('../system-audio-sfu.ts');
+    mod.registerSystemAudioSfuListeners();
+    bus.emit('system-audio:stop');
+
+    const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'remote');
+
+    const engine = await import('../../audio/engine.ts');
+    vi.mocked(engine.initAudio).mockResolvedValue(undefined);
+
+    const { registerHandler } = await import('../protocol.ts');
+    const sfuReadyHandler = vi
+      .mocked(registerHandler)
+      .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
+      | ((data: unknown, conn?: unknown) => void)
+      | undefined;
+    expect(sfuReadyHandler).toBeDefined();
+
+    sfuReadyHandler!(
+      {
+        version: 1,
+        sessionId: 'trusted-boundary-host-session',
+        tracks: [{ trackName: 'audio-L', channel: 'L', mid: '0' }],
+      },
+      hostConn,
+    );
+    await resolveRealtime('new-session', {
+      sessionId: 'trusted-boundary-guest-session',
+      sessionOwnerToken: 'trusted-boundary-owner-token',
+    });
+    await resolveRealtime('tracks-new', {
+      sessionDescription: { type: 'offer', sdp: 'o' },
+      tracks: [{ mid: '0', trackName: 'audio-L' }],
+    });
+    await resolveRealtime('renegotiate', {});
+
+    await vi.waitFor(() => {
+      expect(systemAudioGuestMocks.awaitTrustedReceptionBoundary).toHaveBeenCalledWith('sfu-L');
+    });
+    expect(engine.initAudio).not.toHaveBeenCalled();
+
+    trustedBoundary.resolve(true);
+    await vi.waitFor(() => {
+      expect(engine.initAudio).toHaveBeenCalledTimes(1);
+    });
+
+    bus.emit('system-audio:stop');
+    await rejectAllRealtimeCalls();
   });
 });
 

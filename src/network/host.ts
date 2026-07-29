@@ -58,6 +58,7 @@ import {
 } from './file-playback-session-handshake.ts';
 import { getFilePlaybackBuildProfile } from '../player/file-playback-build-profile.ts';
 import { isFilePlaybackEngineV2Enabled } from '../player/file-playback-engine-gate.ts';
+import { legacyBoundedFileV1Product } from '../player/legacy-bounded-file-v1-product.ts';
 
 const FILE_PLAYBACK_ENGINE_V2_ENABLED = isFilePlaybackEngineV2Enabled();
 const FILE_PLAYBACK_SEMANTIC_COHORT_ID = getFilePlaybackBuildProfile().semanticPlaybackCohortId;
@@ -441,6 +442,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       /* noop */
     }
     applicationSessions?.closeConnection(existingActiveConn, false);
+    void legacyBoundedFileV1Product.retireConnection(existingActiveConn);
   }
 
   // Remove lingering peer object with same id
@@ -885,6 +887,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   conn.on('close', () => {
     log.info(`[Host] Connection closed: ${peerId}`);
     applicationSessions?.closeConnection(conn, false);
+    void legacyBoundedFileV1Product.retireConnection(conn);
 
     // Ignore stale close events from replaced duplicate connections
     if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) return;
@@ -915,6 +918,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   conn.on('error', (err: unknown) => {
     log.error('[Host] Connection error:', err);
     applicationSessions?.closeConnection(conn, false);
+    void legacyBoundedFileV1Product.retireConnection(conn);
 
     if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) {
       try {

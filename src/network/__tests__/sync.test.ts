@@ -35,6 +35,7 @@ import {
   setPlaybackTrackMeta,
   setPlaybackYouTubePlaying,
 } from '../../player/ownership.ts';
+import { legacyBoundedFileV1Product } from '../../player/legacy-bounded-file-v1-product.ts';
 import { grantStandardRoomAdministrator } from '../standard-room-authority.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
@@ -89,6 +90,7 @@ afterEach(() => {
   clearAllManagedTimers();
   resetClockState();
   setCurrentAudioBuffer(null);
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -147,6 +149,40 @@ describe('manual sync nudge routing', () => {
     bus.emit('sync:nudge', 10);
 
     expect(getState('sync.localOffset')).toBe(0);
+  });
+
+  it('keeps manual nudge and reset disabled when only the exact bounded renderer is ready', () => {
+    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockReturnValue({
+      schemaVersion: 1,
+      active: true,
+      role: 'guest',
+      roomKind: 'standard',
+      roomEpoch: 'room-1',
+      generation: 1,
+      current: {
+        queueItemId: QUEUE_ITEM_ID,
+        legacySessionId: 7,
+        state: 'ready',
+        phase: 'playing',
+        positionSeconds: 10,
+        durationSeconds: 120,
+        pendingControl: null,
+      },
+      hostConnections: 0,
+      guestCapabilityAnnounced: true,
+    });
+    vi.spyOn(legacyBoundedFileV1Product, 'hasReadyRenderer').mockReturnValue(true);
+    vi.spyOn(legacyBoundedFileV1Product, 'durationSeconds').mockReturnValue(120);
+    initSync();
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setPlaybackFilePlaying();
+    setState('network.hostConn', { open: true } as DataConnection);
+    setState('sync.localOffset', 0.25);
+
+    bus.emit('sync:nudge', 10);
+    bus.emit('sync:auto-sync');
+
+    expect(getState('sync.localOffset')).toBe(0.25);
   });
 
   it('clamps YouTube manual offset changes to the supported nudge range', () => {
@@ -735,6 +771,57 @@ describe('local-file sync correction', () => {
     );
 
     expect(transportMocks.play).toHaveBeenCalled();
+  });
+
+  it('bootstraps an exact bounded ready guest without requiring an AudioBuffer', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockReturnValue({
+      schemaVersion: 1,
+      active: true,
+      role: 'guest',
+      roomKind: 'standard',
+      roomEpoch: 'room-1',
+      generation: 1,
+      current: {
+        queueItemId: QUEUE_ITEM_ID,
+        legacySessionId: 7,
+        state: 'ready',
+        phase: 'paused',
+        positionSeconds: 0,
+        durationSeconds: 300,
+        pendingControl: null,
+      },
+      hostConnections: 0,
+      guestCapabilityAnnounced: true,
+    });
+    vi.spyOn(legacyBoundedFileV1Product, 'hasReadyRenderer').mockReturnValue(true);
+    vi.spyOn(legacyBoundedFileV1Product, 'durationSeconds').mockReturnValue(300);
+    initSync();
+
+    const hostConn = mockDataConnection('host-1');
+    setState('network.hostConn', hostConn);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setPlaybackLifecycleState(PLAYBACK_STATE.PAUSED);
+    setLocalFilePaused(false);
+
+    registerPing(90);
+    vi.setSystemTime(1050);
+    await handleData(
+      {
+        type: MSG.SYNC_PONG,
+        pingId: 90,
+        hostTime: 1050,
+        position: 30,
+        mode: 'file',
+        activity: 'playing',
+        queueItemId: QUEUE_ITEM_ID,
+      },
+      hostConn,
+    );
+
+    expect(transportMocks.play).toHaveBeenCalledOnce();
+    expect(transportMocks.play.mock.calls[0]?.[0]).toBeCloseTo(30.025, 3);
   });
 
   it('soft-resyncs after three same-direction 50ms+ drift samples', async () => {

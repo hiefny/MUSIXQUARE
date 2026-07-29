@@ -87,7 +87,7 @@ function harness(overrides: Partial<FilePlaybackR2WholeBlobPublisherRuntime> = {
       setId: RECORD_SET_ID,
       recordSize: meta.recordSize,
       recordCount: meta.recordCount,
-      expiresAt: Date.now() + 60_000,
+      expiresAt: Date.now() + 120_000,
       setToken: 'set-token',
       cleanupToken: CLEANUP_TOKEN,
       records: Array.from({ length: meta.recordCount }, (_, index) => {
@@ -145,6 +145,7 @@ function harness(overrides: Partial<FilePlaybackR2WholeBlobPublisherRuntime> = {
   );
   const deleteRecordSet = vi.fn(async () => undefined);
   const runtime: FilePlaybackR2WholeBlobPublisherRuntime = {
+    now: Date.now,
     createStorageRoomId: () => 'storage_room_publisher',
     encrypt,
     upload,
@@ -252,6 +253,23 @@ describe('FilePlaybackR2WholeBlobPublisher', () => {
     await expect(setup.publisher.publish(source())).rejects.toThrow('SOURCE_RETIRED');
   });
 
+  it('retains whole-object cleanup authority when removal fails and retries explicitly', async () => {
+    const deleteObject = vi
+      .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['deleteObject']>>()
+      .mockRejectedValueOnce(new Error('REMOTE_SHARE_OBJECT_CLEANUP_NETWORK'))
+      .mockResolvedValue('deleted');
+    const setup = harness({ deleteObject });
+    const publication = await setup.publisher.publish(source());
+
+    await expect(setup.publisher.removeQueueItem(QUEUE_ID)).rejects.toThrow(
+      'File playback R2 queue item cleanup failed',
+    );
+    expect(setup.publisher.current(QUEUE_ID)).toBe(publication);
+    await expect(setup.publisher.removeQueueItem(QUEUE_ID)).resolves.toBe(true);
+    expect(setup.publisher.current(QUEUE_ID)).toBeNull();
+    expect(deleteObject).toHaveBeenCalledTimes(2);
+  });
+
   it('aborts in-flight publication on queue removal without uploading stale bytes', async () => {
     const encryption = deferred<{
       encryptedBlob: Blob;
@@ -299,6 +317,48 @@ describe('FilePlaybackR2WholeBlobPublisher', () => {
     expect(setup.publisher.current(QUEUE_ID)).toBeNull();
   });
 
+  it('deletes a record set whose creation succeeds after room close', async () => {
+    const created =
+      deferred<Awaited<ReturnType<FilePlaybackR2WholeBlobPublisherRuntime['createRecordSet']>>>();
+    const createRecordSet = vi.fn(() => created.promise);
+    const setup = harness({ createRecordSet });
+    const ready = setup.publisher.publishRecordSet(source(), {
+      storageRoomId: '123456',
+      applicationSessionId: 'application-session',
+    });
+    const readyOutcome = ready.catch((error: unknown) => error);
+    await vi.waitFor(() => expect(createRecordSet).toHaveBeenCalledOnce());
+
+    const closing = setup.publisher.close();
+    const lateSession = {
+      v: 2 as const,
+      storageRoomId: '123456',
+      setId: RECORD_SET_ID,
+      recordSize: 8 * 1024 * 1024,
+      recordCount: 1,
+      expiresAt: Date.now() + 60_000,
+      setToken: 'set-token',
+      cleanupToken: CLEANUP_TOKEN,
+      records: [
+        {
+          index: 0,
+          objectId: RECORD_OBJECT_ZERO,
+          plaintextSize: 4,
+          encryptedSize: 20,
+          downloadUrl: 'https://share.musixquare.com/123456/0',
+        },
+      ],
+    };
+    created.resolve(lateSession);
+
+    await expect(readyOutcome).resolves.toMatchObject({
+      message: 'FILE_PLAYBACK_R2_RECORD_PUBLISH_SOURCE_STALE',
+    });
+    await closing;
+    expect(setup.deleteRecordSet).toHaveBeenCalledWith(lateSession);
+    expect(setup.publisher.currentRecordSet(QUEUE_ID)).toBeNull();
+  });
+
   it('closes every published object once and remains idempotent', async () => {
     const setup = harness();
     await setup.publisher.publish(source());
@@ -321,7 +381,7 @@ describe('FilePlaybackR2WholeBlobPublisher', () => {
     expect(setup.encrypt).not.toHaveBeenCalled();
   });
 
-  it('publishes authenticated records after record zero and deletes the exact set on retirement', async () => {
+  it('publishes an authenticated one-record set and deletes the exact set on retirement', async () => {
     const setup = harness();
     const publication = await setup.publisher.publishRecordSet(source(), {
       storageRoomId: '123456',
@@ -359,7 +419,7 @@ describe('FilePlaybackR2WholeBlobPublisher', () => {
     expect(setup.publisher.currentRecordSet(QUEUE_ID)).toBeNull();
   });
 
-  it('resolves first-record readiness while the remaining immutable records upload ahead', async () => {
+  it('resolves first-record readiness while immutable tail records upload ahead', async () => {
     const secondCompletion = deferred<{
       v: 2;
       setId: string;
@@ -373,6 +433,19 @@ describe('FilePlaybackR2WholeBlobPublisher', () => {
     }>();
     const setup = harness({
       completeRecord: vi.fn(async (session, index) => {
+        if (session.recordCount === 1) {
+          return {
+            v: 2 as const,
+            setId: session.setId,
+            index,
+            objectId: session.records[index]!.objectId,
+            expiresAt: session.expiresAt,
+            readyRecordCount: 1,
+            recordCount: 1,
+            complete: true,
+            downloadUrl: session.records[index]!.downloadUrl,
+          };
+        }
         if (index === 1) return secondCompletion.promise;
         return {
           v: 2 as const,
@@ -400,16 +473,16 @@ describe('FilePlaybackR2WholeBlobPublisher', () => {
       storageRoomId: '123456',
       applicationSessionId: 'application-session',
     });
+    await vi.waitFor(() => expect(setup.uploadRecord).toHaveBeenCalledTimes(2));
     expect(publication.recordCount).toBe(2);
     expect(setup.publisher.currentRecordSet(QUEUE_ID)).toBe(publication);
-    await vi.waitFor(() => expect(setup.uploadRecord).toHaveBeenCalledTimes(2));
 
     secondCompletion.resolve({
       v: 2,
       setId: RECORD_SET_ID,
       index: 1,
       objectId: RECORD_OBJECT_ONE,
-      expiresAt: publication.expiresAtEpochMs,
+      expiresAt: Date.now() + 120_000,
       readyRecordCount: 2,
       recordCount: 2,
       complete: true,
@@ -417,5 +490,402 @@ describe('FilePlaybackR2WholeBlobPublisher', () => {
     });
     await expect(setup.publisher.removeQueueItem(QUEUE_ID)).resolves.toBe(true);
     expect(setup.deleteRecordSet).toHaveBeenCalledOnce();
+  });
+
+  it('keeps an exposed tail alive through an extended transient upload retry budget', async () => {
+    const uploadRecord = vi
+      .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['uploadRecord']>>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('REMOTE_SHARE_RECORD_UPLOAD_NETWORK'))
+      .mockRejectedValueOnce(new Error('REMOTE_SHARE_RECORD_UPLOAD_NETWORK'))
+      .mockRejectedValueOnce(new Error('REMOTE_SHARE_RECORD_UPLOAD_NETWORK'))
+      .mockRejectedValueOnce(new Error('REMOTE_SHARE_RECORD_UPLOAD_NETWORK'))
+      .mockResolvedValue(undefined);
+    const setup = harness({ uploadRecord });
+    const large = source({
+      blob: new File([new Uint8Array(8 * 1024 * 1024), new Uint8Array([9])], 'large.flac', {
+        type: 'audio/flac',
+        lastModified: 0,
+      }),
+      name: 'large.flac',
+      mime: 'audio/flac',
+    });
+
+    const publication = await setup.publisher.publishRecordSet(large, {
+      storageRoomId: '123456',
+      applicationSessionId: 'application-session',
+    });
+    expect(setup.publisher.currentRecordSet(QUEUE_ID)).toBe(publication);
+
+    await vi.waitFor(() => expect(uploadRecord).toHaveBeenCalledTimes(6), { timeout: 5_000 });
+
+    await expect(setup.publisher.cancelPendingRecordSet(QUEUE_ID)).resolves.toBe(false);
+    expect(setup.publisher.currentRecordSet(QUEUE_ID)).toBe(publication);
+    await expect(setup.publisher.removeQueueItem(QUEUE_ID)).resolves.toBe(true);
+  });
+
+  it('retires a first-ready set on tail failure without revoking an active reader', async () => {
+    const createdSetIds: string[] = [];
+    const createRecordSet = vi
+      .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['createRecordSet']>>()
+      .mockImplementation(async (meta) => {
+        const setId = crypto.randomUUID();
+        createdSetIds.push(setId);
+        return {
+          v: 2 as const,
+          storageRoomId: meta.storageRoomId,
+          setId,
+          recordSize: meta.recordSize,
+          recordCount: meta.recordCount,
+          expiresAt: Date.now() + 120_000,
+          setToken: `set-token:${setId}`,
+          cleanupToken: CLEANUP_TOKEN,
+          records: Array.from({ length: meta.recordCount }, (_, index) => {
+            const plaintextSize =
+              index === meta.recordCount - 1
+                ? meta.plaintextSize - index * meta.recordSize
+                : meta.recordSize;
+            return {
+              index,
+              objectId: crypto.randomUUID(),
+              plaintextSize,
+              encryptedSize: plaintextSize + 16,
+              downloadUrl: `https://share.musixquare.com/${meta.storageRoomId}/${index}`,
+            };
+          }),
+        };
+      });
+    const uploadRecord = vi
+      .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['uploadRecord']>>()
+      .mockImplementationOnce(async () => undefined)
+      .mockRejectedValueOnce(new Error('REMOTE_SHARE_RECORD_UPLOAD_HTTP_400'))
+      .mockImplementation(async () => undefined);
+    let oldCleanupFailed = false;
+    const deleteRecordSet = vi
+      .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['deleteRecordSet']>>()
+      .mockImplementation(async (session) => {
+        if (!oldCleanupFailed && session.setId === createdSetIds[0]) {
+          oldCleanupFailed = true;
+          throw new Error('REMOTE_SHARE_RECORD_SET_CLEANUP_NETWORK');
+        }
+      });
+    const setup = harness({ createRecordSet, uploadRecord, deleteRecordSet });
+    const large = source({
+      blob: new File([new Uint8Array(8 * 1024 * 1024), new Uint8Array([9])], 'large.flac', {
+        type: 'audio/flac',
+        lastModified: 0,
+      }),
+      name: 'large.flac',
+      mime: 'audio/flac',
+    });
+
+    const publication = await setup.publisher.publishRecordSet(large, {
+      storageRoomId: '123456',
+      applicationSessionId: 'application-session',
+    });
+    expect(publication.recordCount).toBe(2);
+    await vi.waitFor(() => expect(setup.publisher.currentRecordSet(QUEUE_ID)).toBeNull());
+    // The descriptor was already offered after record zero completed. Tail
+    // failure removes it from future offers but keeps its readable first
+    // record alive until expiry or explicit queue/room retirement.
+    expect(setup.deleteRecordSet).not.toHaveBeenCalled();
+
+    await expect(
+      setup.publisher.publishRecordSet(large, {
+        storageRoomId: '123456',
+        applicationSessionId: 'application-session',
+      }),
+    ).resolves.toMatchObject({ recordCount: 2 });
+    expect(createRecordSet).toHaveBeenCalledTimes(2);
+    await expect(setup.publisher.removeQueueItem(QUEUE_ID)).rejects.toThrow(
+      'File playback R2 queue item cleanup failed',
+    );
+    await expect(setup.publisher.removeQueueItem(QUEUE_ID)).resolves.toBe(true);
+    expect(deleteRecordSet).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not reuse a publication near expiry and republishes the exact source', async () => {
+    let now = 1_000_000;
+    let generation = 0;
+    const createRecordSet = vi.fn(async (meta) => {
+      generation += 1;
+      const setId = `60000000-0000-4000-8000-${String(generation).padStart(12, '0')}`;
+      return {
+        v: 2 as const,
+        storageRoomId: meta.storageRoomId,
+        setId,
+        recordSize: meta.recordSize,
+        recordCount: meta.recordCount,
+        expiresAt: now + 120_000,
+        setToken: `set-token:${generation}`,
+        cleanupToken: CLEANUP_TOKEN,
+        records: [
+          {
+            index: 0,
+            objectId: `70000000-0000-4000-8000-${String(generation).padStart(12, '0')}`,
+            plaintextSize: meta.plaintextSize,
+            encryptedSize: meta.plaintextSize + 16,
+            downloadUrl: `https://share.musixquare.com/${meta.storageRoomId}/${generation}`,
+          },
+        ],
+      };
+    });
+    const setup = harness({ now: () => now, createRecordSet });
+    const options = {
+      storageRoomId: '123456',
+      applicationSessionId: 'application-session',
+    } as const;
+    const input = source();
+    const first = await setup.publisher.publishRecordSet(input, options);
+
+    now = first.expiresAtEpochMs - 60_000;
+    expect(setup.publisher.currentRecordSet(QUEUE_ID)).toBeNull();
+    const second = await setup.publisher.publishRecordSet(input, options);
+
+    expect(second.setId).not.toBe(first.setId);
+    expect(createRecordSet).toHaveBeenCalledTimes(2);
+    expect(setup.deleteRecordSet).not.toHaveBeenCalled();
+    await expect(setup.publisher.removeQueueItem(QUEUE_ID)).resolves.toBe(true);
+    expect(setup.deleteRecordSet).toHaveBeenCalledTimes(2);
+  });
+
+  it('retires an exposed superseded upload without revoking its active reader', async () => {
+    const secondCompletion = deferred<{
+      v: 2;
+      setId: string;
+      index: number;
+      objectId: string;
+      expiresAt: number;
+      readyRecordCount: number;
+      recordCount: number;
+      complete: boolean;
+      downloadUrl: string;
+    }>();
+    let generation = 0;
+    const createRecordSet = vi.fn(async (meta) => {
+      generation += 1;
+      const setId = `60000000-0000-4000-8000-${String(generation).padStart(12, '0')}`;
+      return {
+        v: 2 as const,
+        storageRoomId: meta.storageRoomId,
+        setId,
+        recordSize: meta.recordSize,
+        recordCount: meta.recordCount,
+        expiresAt: Date.now() + 120_000,
+        setToken: `set-token:${generation}`,
+        cleanupToken: CLEANUP_TOKEN,
+        records: Array.from({ length: meta.recordCount }, (_, index) => {
+          const plaintextSize =
+            index === meta.recordCount - 1
+              ? meta.plaintextSize - index * meta.recordSize
+              : meta.recordSize;
+          return {
+            index,
+            objectId: `70000000-0000-4000-8000-${String(generation * 10 + index).padStart(12, '0')}`,
+            plaintextSize,
+            encryptedSize: plaintextSize + 16,
+            downloadUrl: `https://share.musixquare.com/${meta.storageRoomId}/${generation}/${index}`,
+          };
+        }),
+      };
+    });
+    const completeRecord = vi.fn(async (session, index) => {
+      if (session.recordCount === 1) {
+        return {
+          v: 2 as const,
+          setId: session.setId,
+          index,
+          objectId: session.records[index]!.objectId,
+          expiresAt: session.expiresAt,
+          readyRecordCount: 1,
+          recordCount: 1,
+          complete: true,
+          downloadUrl: session.records[index]!.downloadUrl,
+        };
+      }
+      if (generation === 1 && index === 1) return secondCompletion.promise;
+      return {
+        v: 2 as const,
+        setId: session.setId,
+        index,
+        objectId: session.records[index]!.objectId,
+        expiresAt: session.expiresAt,
+        readyRecordCount: index + 1,
+        recordCount: session.recordCount,
+        complete: index + 1 === session.recordCount,
+        downloadUrl: session.records[index]!.downloadUrl,
+      };
+    });
+    const setup = harness({
+      createRecordSet,
+      completeRecord,
+    });
+    const large = source({
+      blob: new File([new Uint8Array(8 * 1024 * 1024), new Uint8Array([9])], 'large.flac', {
+        type: 'audio/flac',
+        lastModified: 0,
+      }),
+      name: 'large.flac',
+      mime: 'audio/flac',
+    });
+    const pending = setup.publisher.publishRecordSet(large, {
+      storageRoomId: '123456',
+      applicationSessionId: 'application-session',
+    });
+    const publication = await pending;
+    await vi.waitFor(() => expect(setup.uploadRecord).toHaveBeenCalledTimes(2));
+
+    const cancellation = setup.publisher.cancelPendingRecordSet(QUEUE_ID);
+    secondCompletion.resolve({
+      v: 2,
+      setId: RECORD_SET_ID,
+      index: 1,
+      objectId: RECORD_OBJECT_ONE,
+      expiresAt: Date.now() + 120_000,
+      readyRecordCount: 2,
+      recordCount: 2,
+      complete: true,
+      downloadUrl: 'https://share.musixquare.com/123456/1',
+    });
+    await expect(cancellation).resolves.toBe(true);
+    expect(publication.recordCount).toBe(2);
+    expect(setup.publisher.currentRecordSet(QUEUE_ID)).toBeNull();
+    expect(setup.deleteRecordSet).not.toHaveBeenCalled();
+
+    const completed = await setup.publisher.publishRecordSet(large, {
+      storageRoomId: '123456',
+      applicationSessionId: 'application-session',
+    });
+    expect(completed.setId).not.toBe(publication.setId);
+    await vi.waitFor(() => expect(completeRecord).toHaveBeenCalledTimes(4));
+    await Promise.resolve();
+    await expect(setup.publisher.cancelPendingRecordSet(QUEUE_ID)).resolves.toBe(false);
+    expect(setup.publisher.currentRecordSet(QUEUE_ID)).toBe(completed);
+    await expect(setup.publisher.removeQueueItem(QUEUE_ID)).resolves.toBe(true);
+    expect(setup.deleteRecordSet).toHaveBeenCalledTimes(2);
+  });
+
+  it('retains record cleanup authority and makes a failed queue removal explicitly retryable', async () => {
+    const deleteRecordSet = vi
+      .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['deleteRecordSet']>>()
+      .mockRejectedValueOnce(new Error('REMOTE_SHARE_RECORD_SET_CLEANUP_NETWORK'))
+      .mockResolvedValue(undefined);
+    const setup = harness({ deleteRecordSet });
+    const publication = await setup.publisher.publishRecordSet(source(), {
+      storageRoomId: '123456',
+      applicationSessionId: 'application-session',
+    });
+
+    await expect(setup.publisher.removeQueueItem(QUEUE_ID)).rejects.toThrow(
+      'File playback R2 queue item cleanup failed',
+    );
+    expect(setup.publisher.currentRecordSet(QUEUE_ID)).toBe(publication);
+    await expect(setup.publisher.removeQueueItem(QUEUE_ID)).resolves.toBe(true);
+    expect(setup.publisher.currentRecordSet(QUEUE_ID)).toBeNull();
+    expect(deleteRecordSet).toHaveBeenCalledTimes(2);
+  });
+
+  it('retains cleanup authority after close failure and retries on the next close', async () => {
+    const deleteRecordSet = vi
+      .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['deleteRecordSet']>>()
+      .mockRejectedValueOnce(new Error('REMOTE_SHARE_RECORD_SET_CLEANUP_NETWORK'))
+      .mockResolvedValue(undefined);
+    const setup = harness({ deleteRecordSet });
+    await setup.publisher.publishRecordSet(source(), {
+      storageRoomId: '123456',
+      applicationSessionId: 'application-session',
+    });
+
+    await expect(setup.publisher.close()).rejects.toThrow(
+      'File playback R2 publisher cleanup failed',
+    );
+    await expect(setup.publisher.close()).resolves.toBeUndefined();
+    expect(deleteRecordSet).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves a partial-set cleanup token and retries it before republishing', async () => {
+    const uploadRecord = vi
+      .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['uploadRecord']>>()
+      .mockRejectedValueOnce(new Error('REMOTE_SHARE_RECORD_UPLOAD_NETWORK'))
+      .mockRejectedValueOnce(new Error('REMOTE_SHARE_RECORD_UPLOAD_NETWORK'))
+      .mockRejectedValueOnce(new Error('REMOTE_SHARE_RECORD_UPLOAD_NETWORK'))
+      .mockResolvedValue(undefined);
+    const deleteRecordSet = vi
+      .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['deleteRecordSet']>>()
+      .mockRejectedValueOnce(new Error('REMOTE_SHARE_RECORD_SET_CLEANUP_NETWORK'))
+      .mockResolvedValue(undefined);
+    const setup = harness({ deleteRecordSet, uploadRecord });
+
+    await expect(
+      setup.publisher.publishRecordSet(source(), {
+        storageRoomId: '123456',
+        applicationSessionId: 'application-session',
+      }),
+    ).rejects.toThrow('File playback R2 partial record-set cleanup failed');
+
+    await expect(
+      setup.publisher.publishRecordSet(source(), {
+        storageRoomId: '123456',
+        applicationSessionId: 'application-session',
+      }),
+    ).resolves.toMatchObject({ recordCount: 1 });
+    expect(deleteRecordSet).toHaveBeenCalledTimes(2);
+    expect(setup.createRecordSet).toHaveBeenCalledTimes(2);
+  });
+
+  it('prunes an expired rotated set, preserves failed cleanup, and retries opportunistically', async () => {
+    let now = 1_000_000;
+    let generation = 0;
+    const createRecordSet = vi.fn(async (meta) => {
+      generation += 1;
+      const suffix = String(generation).padStart(12, '0');
+      return {
+        v: 2 as const,
+        storageRoomId: meta.storageRoomId,
+        setId: `60000000-0000-4000-8000-${suffix}`,
+        recordSize: meta.recordSize,
+        recordCount: meta.recordCount,
+        expiresAt: now + 300_000,
+        setToken: `set-token:${generation}`,
+        cleanupToken: crypto.randomUUID(),
+        records: [
+          {
+            index: 0,
+            objectId: `70000000-0000-4000-8000-${suffix}`,
+            plaintextSize: meta.plaintextSize,
+            encryptedSize: meta.plaintextSize + 16,
+            downloadUrl: `https://share.musixquare.com/${meta.storageRoomId}/${generation}`,
+          },
+        ],
+      };
+    });
+    const deleteRecordSet = vi
+      .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['deleteRecordSet']>>()
+      .mockRejectedValueOnce(new Error('REMOTE_SHARE_RECORD_SET_CLEANUP_NETWORK'))
+      .mockResolvedValue(undefined);
+    const setup = harness({ now: () => now, createRecordSet, deleteRecordSet });
+    const options = {
+      storageRoomId: '123456',
+      applicationSessionId: 'application-session',
+    } as const;
+    const input = source();
+    const first = await setup.publisher.publishRecordSet(input, options);
+
+    now = first.expiresAtEpochMs - 60_000;
+    const second = await setup.publisher.publishRecordSet(input, options);
+    expect(second.setId).not.toBe(first.setId);
+    expect(deleteRecordSet).not.toHaveBeenCalled();
+
+    now = first.expiresAtEpochMs + 1;
+    expect(await setup.publisher.publishRecordSet(input, options)).toBe(second);
+    await vi.waitFor(() => expect(deleteRecordSet).toHaveBeenCalledTimes(1));
+    await expect(deleteRecordSet.mock.results[0]!.value).rejects.toThrow(
+      'REMOTE_SHARE_RECORD_SET_CLEANUP_NETWORK',
+    );
+    expect(await setup.publisher.publishRecordSet(input, options)).toBe(second);
+    await vi.waitFor(() => expect(deleteRecordSet).toHaveBeenCalledTimes(2));
+
+    await expect(setup.publisher.removeQueueItem(QUEUE_ID)).resolves.toBe(true);
+    expect(deleteRecordSet).toHaveBeenCalledTimes(3);
   });
 });

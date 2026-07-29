@@ -33,6 +33,7 @@ import { isFilePlaybackSessionSemanticCohortMismatchV2 } from './file-playback-s
 import { getFilePlaybackBuildProfile } from '../player/file-playback-build-profile.ts';
 import { isFilePlaybackEngineV2Enabled } from '../player/file-playback-engine-gate.ts';
 import { getFilePlaybackProductRuntime } from '../player/file-playback-product-runtime.ts';
+import { legacyBoundedFileV1Product } from '../player/legacy-bounded-file-v1-product.ts';
 
 const FILE_PLAYBACK_ENGINE_V2_ENABLED = isFilePlaybackEngineV2Enabled();
 const FILE_PLAYBACK_SEMANTIC_COHORT_ID = getFilePlaybackBuildProfile().semanticPlaybackCohortId;
@@ -51,6 +52,7 @@ const preOpenTextEncoder = new TextEncoder();
 let _initNetwork: ((requestedId: string | null) => Promise<string>) | null = null;
 let _guestJoinEpoch = 0;
 let _v2GuestRoomOwner: object | null = null;
+let _boundedV1GuestRoomOwner: object | null = null;
 type ConnectionType = 'local' | 'remote' | 'unknown';
 let _hostReportedConnectionType: ConnectionType | null = null;
 const _handledConnectionErrors = new WeakSet<DataConnection>();
@@ -215,6 +217,11 @@ export function joinSession(
     try {
       applicationSessions?.closeConnection(hostConn, false);
       if (usesV2ApplicationSession) retireActiveV2GuestRoom();
+      void legacyBoundedFileV1Product.retireConnection(hostConn);
+      if (_boundedV1GuestRoomOwner) {
+        _boundedV1GuestRoomOwner = null;
+        void legacyBoundedFileV1Product.endRoom();
+      }
       hostConn.close();
     } catch {
       /* noop */
@@ -365,6 +372,13 @@ export function joinSession(
   let preOpenRejected = false;
   let semanticCohortMismatch = false;
   let joinFailureUiPublished = false;
+  const boundedV1RoomOwner = Object.freeze({});
+  const endBoundedV1Room = (): void => {
+    void legacyBoundedFileV1Product.retireConnection(conn);
+    if (_boundedV1GuestRoomOwner !== boundedV1RoomOwner) return;
+    _boundedV1GuestRoomOwner = null;
+    void legacyBoundedFileV1Product.endRoom();
+  };
 
   const publishGuestJoinFailure = (
     key: 'error.app_version_mismatch' | 'error.session_handshake_failed',
@@ -542,6 +556,7 @@ export function joinSession(
       // Retire the exact application record even when a newer RTC connection
       // already owns the guest UI.
       applicationSessions?.closeConnection(conn, false);
+      endBoundedV1Room();
       // Stale-conn no-op (parity with host.ts's per-peer close guard): once
       // this conn no longer owns network.hostConn — replaced by a rejoin, or
       // already nulled by leaveSession/rejoin cleanup — its close is
@@ -589,6 +604,7 @@ export function joinSession(
 
     conn.on('error', (err: unknown) => {
       applicationSessions?.closeConnection(conn, false);
+      endBoundedV1Room();
       // Same stale-conn no-op as the close handler above: a replaced conn's
       // draining error (e.g. a malformed frame on a dying transport) must
       // not surface an error dialog over the live connection.
@@ -645,7 +661,42 @@ export function joinSession(
     } else {
       // Legacy joins are owned solely by RTC open. No V2 HELLO/APPLIED or
       // room clock is created, so existing standard/PRO behavior is unchanged.
+      // Start the additive bounded-V1 lifecycle before publishing success so a
+      // synchronous leave/rejoin listener can revoke this exact invocation,
+      // but never make generic join completion wait for that async lifecycle
+      // lane. Capability negotiation may safely arrive after stable-V1
+      // bootstrap; the host already treats every peer as stable V1 until that
+      // exact connection advertises bounded support.
+      _boundedV1GuestRoomOwner = boundedV1RoomOwner;
+      const boundedV1Room = legacyBoundedFileV1Product.beginGuestRoom(conn);
       completeApplicationSession();
+      void boundedV1Room
+        .then((outcome) => {
+          if (
+            _boundedV1GuestRoomOwner !== boundedV1RoomOwner ||
+            !isCurrentGuestJoin(joinEpoch) ||
+            getState('network.hostConn') !== conn ||
+            !conn.open
+          ) {
+            return;
+          }
+          if (outcome.status === 'active') {
+            legacyBoundedFileV1Product.announceGuestCapability(conn);
+          }
+        })
+        .catch(() => {
+          if (
+            _boundedV1GuestRoomOwner !== boundedV1RoomOwner ||
+            !isCurrentGuestJoin(joinEpoch) ||
+            getState('network.hostConn') !== conn ||
+            !conn.open
+          ) {
+            return;
+          }
+          // The bounded beta path is additive. Its initialization failure
+          // leaves stable V1 as the compatibility owner for this connection.
+          log.warn('[Join] Bounded V1 guest room initialization failed; using stable V1');
+        });
     }
 
     // Detect local vs remote connection. The detectConnectionType function
@@ -734,6 +785,11 @@ function handleSessionFull(data: Record<string, unknown>, conn?: DataConnection)
   if (FILE_PLAYBACK_ENGINE_V2_ENABLED && getRoomContext().kind === 'standard') {
     getFilePlaybackApplicationSessionManager().closeConnection(hostConn, false);
     retireActiveV2GuestRoom();
+  }
+  void legacyBoundedFileV1Product.retireConnection(hostConn);
+  if (_boundedV1GuestRoomOwner) {
+    _boundedV1GuestRoomOwner = null;
+    void legacyBoundedFileV1Product.endRoom();
   }
   try {
     hostConn.close();

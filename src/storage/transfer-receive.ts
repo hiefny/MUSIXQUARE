@@ -44,6 +44,8 @@ import {
   isSystemAudioOwner,
   isYouTubeOwner,
   setPlaybackIdle,
+  setPlaybackFilePaused,
+  setPlaybackFilePlaying,
   setPlaybackTransferState,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
@@ -67,6 +69,11 @@ import {
   resolveProRoomPlaylistFile,
 } from '../pro-room/legacy-media-hooks.ts';
 import { isGuestR2FileDelivery, recordGuestFileDelivery } from '../share/file-delivery-policy.ts';
+import { hasRoomCapability } from '../rooms/authority.ts';
+import {
+  legacyBoundedFileV1Product,
+  type LegacyBoundedFileV1GuestDescriptorEvent,
+} from '../player/legacy-bounded-file-v1-product.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
@@ -615,6 +622,7 @@ async function receiveProRoomFileDirectly(
   clearManagedTimer('prepareWatchdog');
   clearManagedTimer('chunkWatchdog');
   clearManagedTimer('fileWaitTimeout');
+  clearManagedTimer('boundedV1FallbackWatchdog');
 
   const pendingPlaySnapshot = capturePendingPlaySnapshot();
   bus.emit('player:stop-all-media');
@@ -677,11 +685,169 @@ async function receiveProRoomFileDirectly(
   }
 }
 
+function receiveLegacyBoundedV1Prepare(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+): boolean {
+  if (data.delivery !== 'r2-record') return false;
+  const queueItemId = incomingQueueItemId(data);
+  const sessionId = Number(data.sessionId);
+  const item = queueItemId ? getQueueItemById(queueItemId) : null;
+  if (!queueItemId || !item || !Number.isSafeInteger(sessionId) || sessionId <= 0) return true;
+
+  completeAcceptedFileRequest(data, conn);
+  if (legacyBoundedFileV1Product.ownsGuestTransfer(conn, queueItemId, sessionId)) {
+    return true;
+  }
+
+  cancelRemoteShareWait('legacy-bounded-v1');
+  clearManagedTimer('preloadWatchdog');
+  clearManagedTimer('prepareWatchdog');
+  clearManagedTimer('chunkWatchdog');
+  clearManagedTimer('fileWaitTimeout');
+  setState('recovery.retryCount', 0);
+
+  const pendingPlaySnapshot = capturePendingPlaySnapshot();
+  // Retire the outgoing owner before claiming the new bounded identity.
+  // Otherwise player:stop-all-media would observe the just-created transfer
+  // and stop its staged decoder instead of the predecessor.
+  bus.emit('player:stop-all-media', { silent: true });
+  if (!legacyBoundedFileV1Product.beginGuestTransfer({ queueItemId, legacySessionId: sessionId })) {
+    log.warn('[Transfer] Bounded V1 prepare arrived without an active guest room');
+    return true;
+  }
+
+  if (sessionId > getState('transfer.localSessionId')) {
+    setState('transfer.localSessionId', sessionId);
+  }
+  setState('transfer.receivedCount', 0);
+  setState('transfer.lastReceivedCountSnapshot', 0);
+  fileReorderBuffer.clear();
+  nextExpectedChunk = 0;
+  setPlaybackTransferState(TRANSFER_STATE.IDLE);
+
+  const indexHint = findQueueItemIndex(queueItemId);
+  const name = (typeof data.name === 'string' && data.name) || item.name;
+  const size = Number(data.size);
+  const safeSize = Number.isSafeInteger(size) && size > 0 ? size : 0;
+  setPendingRecoveryTarget({ queueItemId, indexHint, name });
+  selectQueueItemById(queueItemId);
+  setState('transfer.meta', {
+    ...getState('transfer.meta'),
+    queueItemId,
+    indexHint,
+    name,
+    size: safeSize,
+    mime: (typeof data.mime === 'string' && data.mime) || '',
+    sessionId,
+    total: safeSize > 0 ? Math.max(1, Math.ceil(safeSize / CHUNK_SIZE)) : 1,
+  });
+  setPlaybackTrackMeta(item);
+  transition({ type: 'FILE_PREPARE', variant: 'preload-match', queueItemId, name });
+  restorePendingPlaySnapshot(pendingPlaySnapshot, data, 'bounded V1 prepare');
+  showLoader(true, t('transfer.preparing_name', { name }));
+  return true;
+}
+
+/**
+ * Projects a descriptor settlement only when the exact guest transfer still
+ * owns the selected queue occurrence. The runtime has already committed (or
+ * buffered) the physical timeline before this observer runs.
+ */
+export function handleLegacyBoundedV1GuestDescriptorEvent(
+  event: Readonly<LegacyBoundedFileV1GuestDescriptorEvent>,
+): void {
+  const { connection, frame, outcome } = event;
+  const queueItemId = frame.scope.queueItemId;
+  const sessionId = frame.legacySessionId;
+  const current = legacyBoundedFileV1Product.snapshot().current;
+  const ownsExactSelection =
+    getState('network.hostConn') === connection &&
+    getState('playlist.currentQueueItemId') === queueItemId &&
+    current?.queueItemId === queueItemId &&
+    current.legacySessionId === sessionId;
+
+  if (ownsExactSelection && (outcome.status === 'fallback' || outcome.status === 'failed')) {
+    // The host normally follows this result with an unmarked stable-V1
+    // FILE_PREPARE. Keep the current loading projection, but never allow a
+    // failed route or lost fallback frame to leave it spinning forever.
+    const fallbackTimeout = getState('network.connectionType') === 'remote' ? 60_000 : 15_000;
+    setManagedTimer(
+      'boundedV1FallbackWatchdog',
+      () => {
+        void (async () => {
+          const latest = legacyBoundedFileV1Product.snapshot().current;
+          if (
+            getState('network.hostConn') !== connection ||
+            getState('playlist.currentQueueItemId') !== queueItemId ||
+            latest?.queueItemId !== queueItemId ||
+            latest.legacySessionId !== sessionId ||
+            latest.state === 'ready'
+          ) {
+            return;
+          }
+          await legacyBoundedFileV1Product.abandonGuestTransfer(connection, queueItemId, sessionId);
+          if (
+            getState('network.hostConn') !== connection ||
+            getState('playlist.currentQueueItemId') !== queueItemId
+          ) {
+            return;
+          }
+          log.warn('[Transfer] Bounded V1 fallback timed out; requesting stable recovery');
+          const name = getQueueItemById(queueItemId)?.name || '';
+          showLoader(true, t('transfer.waiting_recovery', { name }));
+          bus.emit('storage:request-recovery');
+        })();
+      },
+      fallbackTimeout,
+    );
+    return;
+  }
+  if (
+    outcome.status !== 'ready' ||
+    !ownsExactSelection ||
+    !legacyBoundedFileV1Product.hasReadyRenderer(queueItemId, sessionId)
+  ) {
+    return;
+  }
+
+  clearManagedTimer('boundedV1FallbackWatchdog');
+  transition({ type: 'DECODE_SUCCESS' });
+  bus.emit('ui:duration-update', outcome.durationSeconds);
+  setState('player.pausedAt', legacyBoundedFileV1Product.positionSeconds() ?? 0);
+  setPlaybackTransferState(TRANSFER_STATE.IDLE);
+  showLoader(false);
+  bus.emit('ui:play-btn-state', hasRoomCapability('playback.control'));
+
+  const snapshot = legacyBoundedFileV1Product.snapshot().current;
+  if (snapshot?.phase === 'playing') {
+    setPlaybackFilePlaying();
+    transition({
+      type: 'PLAY',
+      time: snapshot.positionSeconds,
+      queueItemId,
+      sameTrack: true,
+    });
+    bus.emit('visualizer:start');
+    bus.emit('ui:loop-start');
+  } else if (snapshot?.phase === 'paused') {
+    setPlaybackFilePaused();
+    transition({
+      type: 'PAUSE',
+      time: snapshot.positionSeconds,
+      queueItemId,
+      endOfPlaylist: false,
+    });
+    bus.emit('visualizer:hold-frame');
+  }
+}
+
 export async function handleFilePrepare(
   data: Record<string, unknown>,
   conn?: DataConnection,
 ): Promise<void> {
   if (!isHostBroadcast(conn)) return;
+  if (!conn) return;
   const queueItemId = incomingQueueItemId(data);
   if (!queueItemId || !getQueueItemById(queueItemId)) return;
   const indexHint = findQueueItemIndex(queueItemId);
@@ -714,6 +880,46 @@ export async function handleFilePrepare(
     log.debug('[Transfer] Ignoring FILE_PREPARE — YouTube mode active');
     return;
   }
+
+  if (receiveLegacyBoundedV1Prepare(data, conn)) return;
+
+  // An unmarked prepare transfers physical ownership back to stable V1. Drain
+  // the bounded owner first even when it belongs to the previous queue item:
+  // a synchronous stop leaves a ready bounded source retained for replay and
+  // would otherwise overlap the successor's RAM/AudioBuffer pipeline. The
+  // exact fallback candidate keeps the stricter connection-scoped abandon.
+  const boundedSnapshot = legacyBoundedFileV1Product.snapshot();
+  const boundedCurrent = boundedSnapshot.role === 'guest' ? boundedSnapshot.current : null;
+  if (boundedCurrent) {
+    const exactCandidate =
+      boundedCurrent.queueItemId === queueItemId && boundedCurrent.legacySessionId === incomingSid;
+    if (exactCandidate) {
+      await legacyBoundedFileV1Product.abandonGuestTransfer(conn, queueItemId, incomingSid);
+    } else {
+      await legacyBoundedFileV1Product.retireCurrent(
+        boundedCurrent.queueItemId,
+        boundedCurrent.legacySessionId,
+      );
+    }
+    const boundedAfterDrain = legacyBoundedFileV1Product.snapshot();
+    const currentAfterDrain = boundedAfterDrain.role === 'guest' ? boundedAfterDrain.current : null;
+    if (
+      currentAfterDrain?.queueItemId === boundedCurrent.queueItemId &&
+      currentAfterDrain.legacySessionId === boundedCurrent.legacySessionId
+    ) {
+      log.warn(
+        '[file-prepare] Stable V1 adoption blocked because the bounded predecessor is still current',
+      );
+      return;
+    }
+    if (!isFilePrepareOwnerCurrent(ownerSnapshot, queueItemId, incomingSid, conn)) {
+      log.debug(
+        '[file-prepare] Bounded predecessor retired after this stable owner was superseded',
+      );
+      return;
+    }
+  }
+  clearManagedTimer('boundedV1FallbackWatchdog');
 
   // New track arriving — reset the per-track decode failure counter so the
   // 2-strikes give-up logic in finalizeGuestFile starts fresh. Without this,

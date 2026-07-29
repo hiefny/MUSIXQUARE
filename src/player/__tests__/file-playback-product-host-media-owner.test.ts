@@ -3647,6 +3647,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
       cleanupToken: 'cleanup-token',
       expiresAt: 61_000,
     }));
+    const deleteObject = vi.fn(async () => 'deleted' as const);
     const r2 = new FilePlaybackR2WholeBlobPublisher({
       roomToken: freezeCanonical({ room: 'r2-owner' }),
       runtime: {
@@ -3659,6 +3660,7 @@ describe('FilePlaybackProductHostMediaOwner', () => {
           encryptedSize: blob.size + 16,
         })),
         upload: upload as never,
+        deleteObject: deleteObject as never,
         reserveTransport: vi.fn(() => ({ release: vi.fn() })) as never,
         resolveMemoryBudget: vi.fn(() => ({ tier: 'desktop' })) as never,
         livePcmBytes: () => 0,
@@ -3703,6 +3705,12 @@ describe('FilePlaybackProductHostMediaOwner', () => {
     expect(await owner.publishCurrent()).toBe(await owner.publishCurrent());
     owner.port().revoke(pair.context);
     await r2.close();
+    expect(deleteObject).toHaveBeenCalledOnce();
+    expect(deleteObject).toHaveBeenCalledWith(
+      'host_owner_r2',
+      '98000000-0000-4000-8000-000000000099',
+      'cleanup-token',
+    );
     now += 1;
   });
 

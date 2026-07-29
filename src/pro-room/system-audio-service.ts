@@ -18,6 +18,7 @@ import {
 } from '../network/pro-system-audio-sfu.ts';
 import { cleanupSystemAudioSfuGuestRoute } from '../network/system-audio-sfu.ts';
 import {
+  awaitTrustedSystemAudioReceptionBoundary,
   beginTrustedSystemAudioReception,
   cleanupGuestSystemAudio,
 } from '../network/system-audio-guest.ts';
@@ -335,6 +336,11 @@ async function attachCoordinatorTrack(
   channel: 'L' | 'R',
   track: MediaStreamTrack,
 ): Promise<void> {
+  const trustedReceptionReady =
+    await awaitTrustedSystemAudioReceptionBoundary(`pro-sfu-${channel}`);
+  if (!trustedReceptionReady || !coordinatorPublicationMatches(identity)) {
+    return;
+  }
   await initAudio();
   const state = controller?.getCurrentState();
   if (

@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   rejoinV2Host: vi.fn<
     (reason: 'media-session-play' | 'audio-context-recovered') => Promise<boolean> | null
   >(() => null),
+  rejoinBoundedV1Host: vi.fn<
+    (reason: 'media-session-play' | 'audio-context-recovered') => Promise<boolean> | null
+  >(() => null),
   rendezvous: vi.fn(
     (): {
       status: 'started' | 'completed' | 'busy' | 'not-ready' | 'no-data';
@@ -25,6 +28,7 @@ vi.mock('../../youtube/sync.ts', () => ({
   guestRendezvousSync: mocks.rendezvous,
 }));
 vi.mock('../transport.ts', () => ({
+  requestLegacyBoundedV1HostOutputRejoin: mocks.rejoinBoundedV1Host,
   requestV2HostFileOutputRejoin: mocks.rejoinV2Host,
 }));
 
@@ -64,6 +68,7 @@ beforeEach(() => {
   bus.clear();
   vi.clearAllMocks();
   mocks.reconcilePro.mockResolvedValue(true);
+  mocks.rejoinBoundedV1Host.mockReturnValue(null);
   mocks.rejoinV2Host.mockReturnValue(null);
   mocks.rendezvous.mockReturnValue({ status: 'started' });
   setLocalFilePaused(false);
@@ -147,6 +152,24 @@ describe('participant-local output rejoin', () => {
 
     settle(true);
     await vi.waitFor(() => expect(isLocalFilePaused()).toBe(false));
+  });
+
+  it('prefers the bounded V1 host rejoin and never lets old V2 claim the same output', async () => {
+    mocks.rejoinBoundedV1Host.mockResolvedValueOnce(true);
+    startSession();
+    setPlaybackFilePlaying();
+    setLocalFilePaused(true);
+
+    bus.emit('playback:local-output-rejoin', {
+      reason: 'audio-context-recovered',
+      mode: 'file',
+    });
+
+    await vi.waitFor(() =>
+      expect(mocks.rejoinBoundedV1Host).toHaveBeenCalledWith('audio-context-recovered'),
+    );
+    expect(mocks.rejoinV2Host).not.toHaveBeenCalled();
+    expect(isLocalFilePaused()).toBe(false);
   });
 
   it('keeps the V2 host locally paused and retries a rejected physical commit', async () => {

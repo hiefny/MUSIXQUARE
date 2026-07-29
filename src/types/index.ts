@@ -384,6 +384,63 @@ export interface ConnectedPeer {
 type NoPayload = Record<never, never>;
 
 /**
+ * Immutable identity fence for one bounded V1 file incarnation.
+ *
+ * These are transport-only shapes. Keep them independent from the player
+ * runtime so the generic protocol layer does not acquire a playback-engine
+ * dependency.
+ */
+export interface FileBoundedV1DeliveryScopeWire {
+  readonly roomEpoch: string;
+  readonly bridgeGeneration: string;
+  readonly bindingId: string;
+  readonly queueItemId: QueueItemId;
+  readonly sourceIdentity: string;
+}
+
+interface FileR2RecordCryptoSecretDescriptorWire {
+  readonly formatVersion: 2;
+  readonly objectId: string;
+  readonly plaintextSize: number;
+  readonly recordSize: number;
+  readonly recordCount: number;
+  readonly noncePrefixB64: string;
+  readonly keyB64: string;
+}
+
+interface FileR2RecordPublicationRecordWire {
+  readonly index: number;
+  readonly objectId: string;
+  readonly plaintextSize: number;
+  readonly encryptedSize: number;
+}
+
+/**
+ * Exact protected-channel representation of a record publication.
+ *
+ * The AES key is intentionally present only because this frame travels over
+ * the already protected host/guest data channel. It must never be persisted as
+ * public R2 metadata.
+ */
+export interface FileR2RecordPublicationWire {
+  readonly schemaVersion: 1;
+  readonly queueItemId: QueueItemId;
+  readonly sourceIdentity: string;
+  readonly transferSessionId: string;
+  readonly applicationSessionId: string;
+  readonly storageRoomId: string;
+  readonly setId: string;
+  readonly encodedSize: number;
+  readonly recordSize: number;
+  readonly recordCount: number;
+  readonly cryptoSecretDescriptor: Readonly<FileR2RecordCryptoSecretDescriptorWire>;
+  readonly records: readonly Readonly<FileR2RecordPublicationRecordWire>[];
+  readonly name: string;
+  readonly mime: string;
+  readonly expiresAtEpochMs: number;
+}
+
+/**
  * Maps each MsgType string literal to its payload shape (excluding the `type` field).
  * Used by ProtocolMsg<T> to build the full message type.
  */
@@ -450,11 +507,35 @@ export interface ProtocolMap {
     mime: string;
     size?: number;
     autoPlayDelayMs?: number;
-    delivery?: 'r2';
+    delivery?: 'r2' | 'r2-record';
   };
   'file-r2-capability': {
     version: 1;
     localAudience: true;
+  };
+  /** Guest -> host advertisement for the additive bounded V1 bridge only. */
+  'file-bounded-v1-capability': {
+    bridgeVersion: 1;
+    descriptorVersion: 1;
+  };
+  /** Host -> guest protected R2 record authority for one exact V1 session. */
+  'file-r2-record-descriptor': {
+    bridgeVersion: 1;
+    legacySessionId: number;
+    purpose: 'current' | 'preload';
+    scope: FileBoundedV1DeliveryScopeWire;
+    descriptorId: string;
+    descriptorVersion: 1;
+    publication: FileR2RecordPublicationWire;
+  };
+  /** Guest -> host terminal adoption result for one exact descriptor. */
+  'file-r2-record-result': {
+    bridgeVersion: 1;
+    legacySessionId: number;
+    scope: FileBoundedV1DeliveryScopeWire;
+    descriptorId: string;
+    descriptorVersion: 1;
+    outcome: 'ready' | 'fallback';
   };
   'remote-file-unavailable': {
     name: string;

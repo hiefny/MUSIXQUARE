@@ -1,6 +1,6 @@
 # Streaming Playback Engine V2
 
-- **Status:** Accepted; production universal route
+- **Status:** Historical accepted design; production rollout rolled back
 - **Decision date:** 2026-07-12
 - **Applies to:** file playback, playback synchronization, remote file sharing,
   participant recovery, and playback-related system messages
@@ -13,30 +13,27 @@
 > FLAC-only lab results and rollout steps below are retained as historical
 > evidence, not as the current format-availability matrix.
 
-## Production release status (2026-07-28)
+## Production release status (rolled back 2026-07-28)
 
-This section records the current production route. The FLAC-first milestones
-and delivery sequence below are preserved as historical design evidence.
+The universal rollout described by this ADR was reverted after real-device
+playback defects. The FLAC-first milestones and delivery sequence below are
+preserved as historical design evidence, not as a statement that V2 is
+currently audible in production.
 
-- The immutable production selection is `v2-universal-v1`: the V2 release
-  latch and universal bounded MP3/AAC/M4A flag are enabled together.
-- Standard rooms use the universal product engine. PRO rooms retain their
-  independent server-authoritative PREPARE/READY/COMMIT protocol and use a
-  PRO-specific bounded renderer over strict immutable R2 byte ranges for
-  admitted formats.
-- Host-only playback reads the local source directly. One or two guests with
-  known-local topology use peer-range reads. Each remote or locality-unknown
-  guest uses encrypted R2 records; once three or more connected guests are
-  known-local, those local guests also use the shared R2 publication.
-- Native FLAC, supported linear PCM, MP3, ADTS AAC, and M4A/MP4 AAC use
-  bounded decoding when the exact codec admission checks pass. Unsupported
-  extensions retain V1-like behavior. Once a bounded route is selected,
-  deadline, identity, or integrity failure is fail-closed rather than a
-  silent engine change.
-- R2 publication establishes record-0 readiness for the rendezvous and
-  continues the remaining records in the background. Readers keep only one
-  decrypted plaintext record and wait at most 60 seconds for a missing record
-  before entering failure or recovery.
+- Ordinary production resolves to `legacy-current`; the tracked V2 latch is
+  off and remote build flags cannot override it.
+- The separately named `beta-bounded` artifact exercises the redesigned,
+  V1-control bounded slice only in standard rooms. Its current admitted cohort
+  is native FLAC, supported WAVE/AIFF/CAF linear PCM, MP3, and M4A AAC-LC.
+  Raw ADTS AAC deliberately remains on V1, and PRO remains on its established
+  server-authoritative V1 path.
+- The beta R2 publisher exposes a descriptor after record zero completes and
+  uploads the immutable tail in publisher-owned background work. Tail uploads
+  have bounded retries; a permanent failure removes that set from future
+  offers without revoking already-issued readers. Existing readers do not yet
+  hot-rebind and can still fail when they reach a permanently missing record.
+- Promotion beyond beta still requires the device, multi-guest, background,
+  seek/pause/replay, fallback, and rollback gates in this document.
 
 ## Product goal
 

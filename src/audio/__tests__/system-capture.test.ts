@@ -14,11 +14,18 @@ const YOUTUBE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 function makeSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
   const { playback: playbackOverride, ...rest } = overrides;
   return {
-    pausedAt: 0,
+    room: {
+      kind: 'standard',
+      roomId: null,
+      epoch: 0,
+      standardPeerId: null,
+    },
+    positionSeconds: overrides.positionSeconds ?? 0,
     currentTrackMeta: null,
     channelMode: 0,
     queueItemId: null,
     subIndex: 0,
+    bounded: null,
     ...rest,
     playback: {
       mode: playbackOverride?.mode ?? null,
@@ -67,7 +74,7 @@ describe('restorePreSystemAudioPlaybackState', () => {
     restorePreSystemAudioPlaybackState(
       makeSnapshot({
         playback: { mode: 'file', activity: 'playing' },
-        pausedAt: 12,
+        positionSeconds: 12,
         currentTrackMeta: meta,
         channelMode: -1,
       }),
@@ -103,8 +110,34 @@ describe('restorePreSystemAudioPlaybackState', () => {
       name: 'Video',
       queueItemId: YOUTUBE_QUEUE_ITEM_ID,
       autoplay: true,
+      positionSeconds: 0,
       subIndex: 4,
     });
+  });
+
+  it('restores a paused YouTube snapshot at its exact position without autoplay', () => {
+    const restore = vi.fn();
+    const meta = youtubeMeta();
+    bus.on('youtube:restore-room-playback', restore);
+
+    restorePreSystemAudioPlaybackState(
+      makeSnapshot({
+        playback: { mode: 'youtube', activity: 'paused' },
+        positionSeconds: 47.25,
+        currentTrackMeta: meta,
+        queueItemId: YOUTUBE_QUEUE_ITEM_ID,
+        subIndex: 2,
+      }),
+    );
+
+    expect(restore).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queueItemId: YOUTUBE_QUEUE_ITEM_ID,
+        autoplay: false,
+        positionSeconds: 47.25,
+        subIndex: 2,
+      }),
+    );
   });
 
   it('falls back to paused when a YouTube snapshot has no restorable id', () => {

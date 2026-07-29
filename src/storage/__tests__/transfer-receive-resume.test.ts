@@ -23,6 +23,10 @@ import {
   type ProRoomLegacyMediaHooks,
 } from '../../pro-room/legacy-media-hooks.ts';
 import {
+  legacyBoundedFileV1Product,
+  type LegacyBoundedFileV1GuestDescriptorEvent,
+} from '../../player/legacy-bounded-file-v1-product.ts';
+import {
   ramStart as rawRamStart,
   ramWrite as rawRamWrite,
   ramEnd as rawRamEnd,
@@ -1367,5 +1371,498 @@ describe('persistent PRO file receive routing', () => {
       conn,
     );
     expect(postCommand).not.toHaveBeenCalled();
+  });
+});
+
+describe('bounded V1 guest descriptor projection', () => {
+  const conn = {
+    open: true,
+    peer: 'bounded-host',
+    send: vi.fn(),
+    close: vi.fn(),
+  } as unknown as DataConnection;
+
+  function guestSnapshot(
+    state: 'preparing' | 'ready' | 'fallback' | 'failed',
+    phase: 'idle' | 'playing' | 'paused' | 'stopped' = 'paused',
+  ): ReturnType<typeof legacyBoundedFileV1Product.snapshot> {
+    return Object.freeze({
+      schemaVersion: 1,
+      active: true,
+      role: 'guest',
+      roomKind: 'standard',
+      roomEpoch: 'standard:100001:test-incarnation',
+      generation: 1,
+      current: Object.freeze({
+        queueItemId: Q[0]!,
+        legacySessionId: 37,
+        state,
+        phase,
+        positionSeconds: 12,
+        durationSeconds: 180,
+        pendingControl: null,
+      }),
+      hostConnections: 0,
+      guestCapabilityAnnounced: true,
+    });
+  }
+
+  function descriptorEvent(
+    outcome:
+      | Readonly<{ status: 'ready'; durationSeconds: number }>
+      | Readonly<{ status: 'fallback' }>
+      | Readonly<{ status: 'failed'; error: unknown }>,
+  ): Readonly<LegacyBoundedFileV1GuestDescriptorEvent> {
+    return {
+      connection: conn,
+      frame: {
+        type: 'file-r2-record-descriptor',
+        bridgeVersion: 1,
+        legacySessionId: 37,
+        purpose: 'current',
+        scope: {
+          roomEpoch: 'standard:100001:test-incarnation',
+          bridgeGeneration: 'bridge:1',
+          bindingId: 'transfer:37',
+          queueItemId: Q[0]!,
+          sourceIdentity: 'source:37',
+        },
+        descriptorId: 'descriptor:37',
+        descriptorVersion: 1,
+        publication: {},
+      },
+      outcome,
+    } as unknown as Readonly<LegacyBoundedFileV1GuestDescriptorEvent>;
+  }
+
+  beforeEach(async () => {
+    resetState();
+    bus.clear();
+    vi.clearAllMocks();
+    const { resetIncomingTransferAuthority } = await import('../transfer-receive.ts');
+    resetIncomingTransferAuthority();
+    setState('network.hostConn', conn);
+    setState('network.connectionType', 'local');
+    setState('playlist.items', [
+      {
+        queueItemId: Q[0]!,
+        type: 'file',
+        name: 'bounded.mp3',
+        videoId: null,
+        playlistId: null,
+      },
+    ]);
+    setState('playlist.currentQueueItemId', Q[0]!);
+    setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('clears the exact loader and watchdog when the descriptor renderer becomes ready', async () => {
+    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockReturnValue(
+      guestSnapshot('ready', 'paused'),
+    );
+    vi.spyOn(legacyBoundedFileV1Product, 'hasReadyRenderer').mockReturnValue(true);
+    vi.spyOn(legacyBoundedFileV1Product, 'positionSeconds').mockReturnValue(12);
+    const durationUpdates: number[] = [];
+    const playButtonUpdates: boolean[] = [];
+    bus.on('ui:duration-update', (duration) => durationUpdates.push(duration));
+    bus.on('ui:play-btn-state', (enabled) => playButtonUpdates.push(enabled));
+
+    const { handleLegacyBoundedV1GuestDescriptorEvent } = await import('../transfer-receive.ts');
+    const { showLoader } = await import('../../ui/toast.ts');
+    const { clearManagedTimer } = await import('../../core/timers.ts');
+    handleLegacyBoundedV1GuestDescriptorEvent(
+      descriptorEvent(Object.freeze({ status: 'ready', durationSeconds: 180 })),
+    );
+
+    expect(clearManagedTimer).toHaveBeenCalledWith('boundedV1FallbackWatchdog');
+    expect(showLoader).toHaveBeenCalledWith(false);
+    expect(durationUpdates).toEqual([180]);
+    expect(playButtonUpdates).toEqual([false]);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.PAUSED);
+    expect(getState('playback.activity')).toBe('paused');
+  });
+
+  it.each([
+    {
+      label: 'retired host connection',
+      mutate: (event: Readonly<LegacyBoundedFileV1GuestDescriptorEvent>) => ({
+        ...event,
+        connection: {
+          open: true,
+          peer: 'retired-host',
+          send: vi.fn(),
+          close: vi.fn(),
+        } as unknown as DataConnection,
+      }),
+    },
+    {
+      label: 'superseded queue item',
+      mutate: (event: Readonly<LegacyBoundedFileV1GuestDescriptorEvent>) => ({
+        ...event,
+        frame: {
+          ...event.frame,
+          scope: { ...event.frame.scope, queueItemId: Q[1]! },
+        },
+      }),
+    },
+    {
+      label: 'superseded transfer session',
+      mutate: (event: Readonly<LegacyBoundedFileV1GuestDescriptorEvent>) => ({
+        ...event,
+        frame: { ...event.frame, legacySessionId: 38 },
+      }),
+    },
+  ])('does not clear loading UI for a ready descriptor from a $label', async ({ mutate }) => {
+    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockReturnValue(
+      guestSnapshot('ready', 'paused'),
+    );
+    vi.spyOn(legacyBoundedFileV1Product, 'hasReadyRenderer').mockReturnValue(true);
+    const durationUpdates: number[] = [];
+    const playButtonUpdates: boolean[] = [];
+    bus.on('ui:duration-update', (duration) => durationUpdates.push(duration));
+    bus.on('ui:play-btn-state', (enabled) => playButtonUpdates.push(enabled));
+
+    const { handleLegacyBoundedV1GuestDescriptorEvent } = await import('../transfer-receive.ts');
+    const { showLoader } = await import('../../ui/toast.ts');
+    const { clearManagedTimer } = await import('../../core/timers.ts');
+    const event = mutate(
+      descriptorEvent(Object.freeze({ status: 'ready', durationSeconds: 180 })),
+    ) as Readonly<LegacyBoundedFileV1GuestDescriptorEvent>;
+    handleLegacyBoundedV1GuestDescriptorEvent(event);
+
+    expect(clearManagedTimer).not.toHaveBeenCalledWith('boundedV1FallbackWatchdog');
+    expect(showLoader).not.toHaveBeenCalledWith(false);
+    expect(durationUpdates).toEqual([]);
+    expect(playButtonUpdates).toEqual([]);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
+  });
+
+  it('keeps the loader until the exact descriptor has a committed ready renderer', async () => {
+    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockReturnValue(
+      guestSnapshot('ready', 'paused'),
+    );
+    vi.spyOn(legacyBoundedFileV1Product, 'hasReadyRenderer').mockReturnValue(false);
+    const durationUpdates: number[] = [];
+    const playButtonUpdates: boolean[] = [];
+    bus.on('ui:duration-update', (duration) => durationUpdates.push(duration));
+    bus.on('ui:play-btn-state', (enabled) => playButtonUpdates.push(enabled));
+
+    const { handleLegacyBoundedV1GuestDescriptorEvent } = await import('../transfer-receive.ts');
+    const { showLoader } = await import('../../ui/toast.ts');
+    handleLegacyBoundedV1GuestDescriptorEvent(
+      descriptorEvent(Object.freeze({ status: 'ready', durationSeconds: 180 })),
+    );
+
+    expect(showLoader).not.toHaveBeenCalledWith(false);
+    expect(durationUpdates).toEqual([]);
+    expect(playButtonUpdates).toEqual([]);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
+  });
+
+  it('keeps a delayed bounded prepare recoverable without closing the guest connection', async () => {
+    vi.spyOn(legacyBoundedFileV1Product, 'ownsGuestTransfer').mockReturnValue(false);
+    const beginGuestTransfer = vi
+      .spyOn(legacyBoundedFileV1Product, 'beginGuestTransfer')
+      .mockReturnValue(true);
+    const stopAllMedia = vi.fn();
+    bus.on('player:stop-all-media', stopAllMedia);
+
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const { showLoader } = await import('../../ui/toast.ts');
+    setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        delivery: 'r2-record',
+        queueItemId: Q[0],
+        sessionId: 37,
+        name: 'bounded.mp3',
+        mime: 'audio/mpeg',
+        size: 1024,
+      },
+      conn,
+    );
+
+    expect(beginGuestTransfer).toHaveBeenCalledWith({
+      queueItemId: Q[0],
+      legacySessionId: 37,
+    });
+    expect(stopAllMedia).toHaveBeenCalledWith({ silent: true });
+    expect(showLoader).toHaveBeenCalledWith(true, 'transfer.preparing_name');
+    expect(getState('transfer.meta')).toEqual(
+      expect.objectContaining({
+        queueItemId: Q[0],
+        sessionId: 37,
+        name: 'bounded.mp3',
+        size: 1024,
+      }),
+    );
+    expect(getState('playback.lifecycle')).not.toBe(PLAYBACK_STATE.IDLE);
+    expect(conn.close).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: 'fallback',
+      state: 'fallback' as const,
+      outcome: Object.freeze({ status: 'fallback' as const }),
+      connectionType: 'local' as const,
+      timeoutMs: 15_000,
+    },
+    {
+      label: 'failed descriptor',
+      state: 'failed' as const,
+      outcome: Object.freeze({
+        status: 'failed' as const,
+        error: new Error('descriptor failed'),
+      }),
+      connectionType: 'remote' as const,
+      timeoutMs: 60_000,
+    },
+  ])(
+    'arms bounded recovery for a $label outcome instead of leaving the loader permanent',
+    async ({ state, outcome, connectionType, timeoutMs }) => {
+      setState('network.connectionType', connectionType);
+      vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockReturnValue(guestSnapshot(state));
+      const abandon = vi
+        .spyOn(legacyBoundedFileV1Product, 'abandonGuestTransfer')
+        .mockResolvedValue(true);
+      const recovery = vi.fn();
+      bus.on('storage:request-recovery', recovery);
+
+      const { handleLegacyBoundedV1GuestDescriptorEvent } = await import('../transfer-receive.ts');
+      const { showLoader } = await import('../../ui/toast.ts');
+      const { setManagedTimer } = await import('../../core/timers.ts');
+      handleLegacyBoundedV1GuestDescriptorEvent(descriptorEvent(outcome));
+
+      const watchdogCall = vi
+        .mocked(setManagedTimer)
+        .mock.calls.find(([name]) => name === 'boundedV1FallbackWatchdog');
+      expect(watchdogCall?.[2]).toBe(timeoutMs);
+      expect(watchdogCall?.[1]).toBeTypeOf('function');
+      watchdogCall?.[1]();
+
+      await vi.waitFor(() => {
+        expect(abandon).toHaveBeenCalledWith(conn, Q[0], 37);
+        expect(recovery).toHaveBeenCalledOnce();
+      });
+      expect(showLoader).toHaveBeenCalledWith(true, 'transfer.waiting_recovery');
+    },
+  );
+
+  it('makes an armed fallback watchdog inert after its exact lifecycle owner retires', async () => {
+    let snapshot = guestSnapshot('fallback');
+    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockImplementation(() => snapshot);
+    const abandon = vi
+      .spyOn(legacyBoundedFileV1Product, 'abandonGuestTransfer')
+      .mockResolvedValue(true);
+    const recovery = vi.fn();
+    bus.on('storage:request-recovery', recovery);
+
+    const { handleLegacyBoundedV1GuestDescriptorEvent } = await import('../transfer-receive.ts');
+    const { showLoader } = await import('../../ui/toast.ts');
+    const { setManagedTimer } = await import('../../core/timers.ts');
+    handleLegacyBoundedV1GuestDescriptorEvent(
+      descriptorEvent(Object.freeze({ status: 'fallback' })),
+    );
+
+    const watchdog = vi
+      .mocked(setManagedTimer)
+      .mock.calls.find(([name]) => name === 'boundedV1FallbackWatchdog')?.[1];
+    expect(watchdog).toBeTypeOf('function');
+
+    snapshot = Object.freeze({
+      ...snapshot,
+      current: null,
+    }) as ReturnType<typeof legacyBoundedFileV1Product.snapshot>;
+    watchdog?.();
+    await Promise.resolve();
+
+    expect(abandon).not.toHaveBeenCalled();
+    expect(recovery).not.toHaveBeenCalled();
+    expect(showLoader).not.toHaveBeenCalledWith(true, 'transfer.waiting_recovery');
+    expect(conn.close).not.toHaveBeenCalled();
+  });
+
+  it('abandons only the exact bounded candidate before adopting an unmarked stable prepare', async () => {
+    let snapshot = guestSnapshot('ready', 'paused');
+    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockImplementation(() => snapshot);
+    const abandon = vi
+      .spyOn(legacyBoundedFileV1Product, 'abandonGuestTransfer')
+      .mockImplementation(async () => {
+        snapshot = Object.freeze({
+          ...snapshot,
+          current: null,
+        }) as ReturnType<typeof legacyBoundedFileV1Product.snapshot>;
+        return true;
+      });
+    const beginGuestTransfer = vi.spyOn(legacyBoundedFileV1Product, 'beginGuestTransfer');
+
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const { clearManagedTimer } = await import('../../core/timers.ts');
+    setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        queueItemId: Q[0],
+        sessionId: 37,
+        name: 'bounded.mp3',
+        mime: 'audio/mpeg',
+        size: 1024,
+      },
+      conn,
+    );
+
+    expect(abandon).toHaveBeenCalledWith(conn, Q[0], 37);
+    expect(beginGuestTransfer).not.toHaveBeenCalled();
+    expect(clearManagedTimer).toHaveBeenCalledWith('boundedV1FallbackWatchdog');
+    expect(getState('transfer.localSessionId')).toBe(37);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+  });
+
+  it('drains an unrelated bounded predecessor before stable V1 adopts its successor', async () => {
+    let snapshot = guestSnapshot('ready', 'playing');
+    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockImplementation(() => snapshot);
+    let releaseRetirement!: (retired: boolean) => void;
+    const retirement = new Promise<boolean>((resolve) => {
+      releaseRetirement = resolve;
+    });
+    const retireCurrent = vi
+      .spyOn(legacyBoundedFileV1Product, 'retireCurrent')
+      .mockReturnValue(retirement);
+    const abandon = vi.spyOn(legacyBoundedFileV1Product, 'abandonGuestTransfer');
+    const stopAllMedia = vi.fn();
+    bus.on('player:stop-all-media', stopAllMedia);
+    setState('playlist.items', [
+      {
+        queueItemId: Q[0]!,
+        type: 'file',
+        name: 'bounded.mp3',
+        videoId: null,
+        playlistId: null,
+      },
+      {
+        queueItemId: Q[1]!,
+        type: 'file',
+        name: 'stable.flac',
+        videoId: null,
+        playlistId: null,
+      },
+    ]);
+    setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
+
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const handling = handleFilePrepare(
+      {
+        type: 'file-prepare',
+        queueItemId: Q[1],
+        sessionId: 38,
+        name: 'stable.flac',
+        mime: 'audio/flac',
+        size: 2048,
+      },
+      conn,
+    );
+    await Promise.resolve();
+
+    expect(retireCurrent).toHaveBeenCalledWith(Q[0], 37);
+    expect(abandon).not.toHaveBeenCalled();
+    expect(stopAllMedia).not.toHaveBeenCalled();
+    expect(getState('transfer.localSessionId')).toBe(0);
+
+    snapshot = Object.freeze({
+      ...snapshot,
+      current: null,
+    }) as ReturnType<typeof legacyBoundedFileV1Product.snapshot>;
+    releaseRetirement(true);
+    await handling;
+
+    expect(stopAllMedia).toHaveBeenCalledOnce();
+    expect(getState('transfer.localSessionId')).toBe(38);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+  });
+
+  it('fails closed when an exact bounded candidate remains current after abandon', async () => {
+    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockReturnValue(
+      guestSnapshot('ready', 'paused'),
+    );
+    const abandon = vi
+      .spyOn(legacyBoundedFileV1Product, 'abandonGuestTransfer')
+      .mockResolvedValue(false);
+    const stopAllMedia = vi.fn();
+    bus.on('player:stop-all-media', stopAllMedia);
+
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const { clearManagedTimer } = await import('../../core/timers.ts');
+    setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        queueItemId: Q[0],
+        sessionId: 37,
+        name: 'bounded.mp3',
+        mime: 'audio/mpeg',
+        size: 1024,
+      },
+      conn,
+    );
+
+    expect(abandon).toHaveBeenCalledWith(conn, Q[0], 37);
+    expect(stopAllMedia).not.toHaveBeenCalled();
+    expect(clearManagedTimer).not.toHaveBeenCalledWith('boundedV1FallbackWatchdog');
+    expect(getState('transfer.localSessionId')).toBe(0);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+  });
+
+  it('fails closed when an unrelated bounded predecessor remains current after retirement', async () => {
+    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockReturnValue(
+      guestSnapshot('ready', 'playing'),
+    );
+    const retireCurrent = vi
+      .spyOn(legacyBoundedFileV1Product, 'retireCurrent')
+      .mockResolvedValue(false);
+    const stopAllMedia = vi.fn();
+    bus.on('player:stop-all-media', stopAllMedia);
+    setState('playlist.items', [
+      {
+        queueItemId: Q[0]!,
+        type: 'file',
+        name: 'bounded.mp3',
+        videoId: null,
+        playlistId: null,
+      },
+      {
+        queueItemId: Q[1]!,
+        type: 'file',
+        name: 'stable.flac',
+        videoId: null,
+        playlistId: null,
+      },
+    ]);
+    setState('playback.lifecycle', PLAYBACK_STATE.IDLE);
+
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const { clearManagedTimer } = await import('../../core/timers.ts');
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        queueItemId: Q[1],
+        sessionId: 38,
+        name: 'stable.flac',
+        mime: 'audio/flac',
+        size: 2048,
+      },
+      conn,
+    );
+
+    expect(retireCurrent).toHaveBeenCalledWith(Q[0], 37);
+    expect(stopAllMedia).not.toHaveBeenCalled();
+    expect(clearManagedTimer).not.toHaveBeenCalledWith('boundedV1FallbackWatchdog');
+    expect(getState('transfer.localSessionId')).toBe(0);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
   });
 });

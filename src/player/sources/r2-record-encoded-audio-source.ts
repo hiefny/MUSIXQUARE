@@ -28,6 +28,19 @@ export interface R2RecordEncodedAudioSourceOptions {
   readonly expiresAtEpochMs: number;
 }
 
+/**
+ * Descriptor-scoped ciphertext cache owned by the private descriptor registry.
+ *
+ * Cached bytes are still AES-GCM authenticated by every fresh source before
+ * they become plaintext. This keeps pause/resume and replacement probes from
+ * downloading the same 8 MiB record again without extending plaintext or key
+ * lifetime beyond an individual source.
+ */
+export interface R2RecordEncodedAudioSourceCiphertextCache {
+  get(recordIndex: number, expectedSize: number): ArrayBuffer | null;
+  put(recordIndex: number, ciphertext: ArrayBuffer): void;
+}
+
 interface CachedRecord {
   readonly index: number;
   readonly bytes: Uint8Array<ArrayBuffer>;
@@ -38,7 +51,11 @@ const STANDARD_ROOM_CODE_RE = /^[1-9]\d{5}$/u;
 const MAX_NAME_LENGTH = 512;
 const MAX_MIME_LENGTH = 128;
 const MIME_RE = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u;
-const MAX_TRANSIENT_RECORD_WAIT_MS = 60_000;
+// A first-record-ready publication can legitimately expose its descriptor
+// while later records are still uploading. Deep seek therefore waits through
+// the publisher's bounded tail retry window (and one stalled PUT watchdog)
+// instead of turning a temporary 404 into a fatal source error.
+const MAX_TRANSIENT_RECORD_WAIT_MS = 180_000;
 
 function abortReason(signal: AbortSignal): unknown {
   try {
@@ -197,6 +214,7 @@ export class R2RecordEncodedAudioSource implements EncodedAudioSource {
   readonly #records: readonly Readonly<R2RecordEncodedAudioSourceRecord>[];
   readonly #expiresAtEpochMs: number;
   readonly #decryptor: Awaited<ReturnType<typeof R2RecordCryptoV2.createDecryptor>>;
+  readonly #ciphertextCache: R2RecordEncodedAudioSourceCiphertextCache | null;
   readonly #lifetimeController = new AbortController();
   #cache: CachedRecord | null = null;
   #loadTail: Promise<void> = Promise.resolve();
@@ -206,11 +224,13 @@ export class R2RecordEncodedAudioSource implements EncodedAudioSource {
   private constructor(
     options: ReturnType<typeof snapshotOptions>,
     decryptor: Awaited<ReturnType<typeof R2RecordCryptoV2.createDecryptor>>,
+    ciphertextCache: R2RecordEncodedAudioSourceCiphertextCache | null,
   ) {
     this.#storageRoomId = options.storageRoomId;
     this.#records = options.records;
     this.#expiresAtEpochMs = options.expiresAtEpochMs;
     this.#decryptor = decryptor;
+    this.#ciphertextCache = ciphertextCache;
     this.size = options.secretDescriptor.plaintextSize;
     this.identity = options.identity;
     this.metadata = options.metadata;
@@ -219,6 +239,7 @@ export class R2RecordEncodedAudioSource implements EncodedAudioSource {
   static async create(
     options: R2RecordEncodedAudioSourceOptions,
     signal?: AbortSignal,
+    ciphertextCache: R2RecordEncodedAudioSourceCiphertextCache | null = null,
   ): Promise<R2RecordEncodedAudioSource> {
     const snapshot = snapshotOptions(options);
     const decryptor = await R2RecordCryptoV2.createDecryptor(snapshot.secretDescriptor, signal);
@@ -226,7 +247,7 @@ export class R2RecordEncodedAudioSource implements EncodedAudioSource {
       decryptor.dispose();
       throw abortReason(signal);
     }
-    return new R2RecordEncodedAudioSource(snapshot, decryptor);
+    return new R2RecordEncodedAudioSource(snapshot, decryptor, ciphertextCache);
   }
 
   async readAt(offset: number, length: number, signal: AbortSignal): Promise<Uint8Array> {
@@ -289,34 +310,38 @@ export class R2RecordEncodedAudioSource implements EncodedAudioSource {
       const descriptor = this.#records[recordIndex];
       if (!descriptor) throw new EncodedSourceIntegrityError('R2 record index is unavailable');
 
-      let attempt = 0;
-      let encrypted: ArrayBuffer;
-      const unavailableSinceEpochMs = Date.now();
-      for (;;) {
-        throwIfAborted(signal);
-        if (this.#closed) throw new EncodedSourceClosedError();
-        if (Date.now() >= this.#expiresAtEpochMs) {
-          throw new EncodedSourceIntegrityError('R2 record set expired before the requested read');
-        }
-        try {
-          encrypted = await downloadR2RecordObject(
-            this.#storageRoomId,
-            descriptor.objectId,
-            descriptor.encryptedSize,
-            signal,
-          );
-          break;
-        } catch (error) {
+      let encrypted = this.#ciphertextCache?.get(recordIndex, descriptor.encryptedSize) ?? null;
+      if (!encrypted) {
+        let attempt = 0;
+        const unavailableSinceEpochMs = Date.now();
+        for (;;) {
           throwIfAborted(signal);
-          if (!isTransientUnavailable(error)) throw error;
-          if (Date.now() - unavailableSinceEpochMs >= MAX_TRANSIENT_RECORD_WAIT_MS) {
+          if (this.#closed) throw new EncodedSourceClosedError();
+          if (Date.now() >= this.#expiresAtEpochMs) {
             throw new EncodedSourceIntegrityError(
-              'R2 record remained unavailable past its bounded wait',
+              'R2 record set expired before the requested read',
             );
           }
-          const retryMs = Math.min(1_000, 100 * 2 ** Math.min(attempt, 4));
-          attempt += 1;
-          await waitForRetry(retryMs, signal);
+          try {
+            encrypted = await downloadR2RecordObject(
+              this.#storageRoomId,
+              descriptor.objectId,
+              descriptor.encryptedSize,
+              signal,
+            );
+            break;
+          } catch (error) {
+            throwIfAborted(signal);
+            if (!isTransientUnavailable(error)) throw error;
+            if (Date.now() - unavailableSinceEpochMs >= MAX_TRANSIENT_RECORD_WAIT_MS) {
+              throw new EncodedSourceIntegrityError(
+                'R2 record remained unavailable past its bounded wait',
+              );
+            }
+            const retryMs = Math.min(1_000, 100 * 2 ** Math.min(attempt, 4));
+            attempt += 1;
+            await waitForRetry(retryMs, signal);
+          }
         }
       }
       if (encrypted.byteLength !== descriptor.encryptedSize) {
@@ -339,6 +364,10 @@ export class R2RecordEncodedAudioSource implements EncodedAudioSource {
         plaintext.fill(0);
         throw new EncodedSourceIntegrityError('R2 record plaintext size is invalid');
       }
+      // Never persist unauthenticated network bytes. A single exact-size but
+      // corrupt response must fail this source without poisoning every fresh
+      // source created from the same live descriptor.
+      this.#ciphertextCache?.put(recordIndex, encrypted);
       this.#dropCache();
       this.#cache = { index: recordIndex, bytes: plaintext };
     });

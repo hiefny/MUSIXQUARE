@@ -19,7 +19,10 @@ import { getStreamL, getStreamR, isSystemAudioActive } from '../audio/system-cap
 import { claimPlaybackOwner, setSystemAudioReceiving } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
 import { safeSend } from './peer-state.ts';
-import { cleanupGuestSystemAudio } from './system-audio-guest.ts';
+import {
+  awaitTrustedSystemAudioReceptionBoundary,
+  cleanupGuestSystemAudio,
+} from './system-audio-guest.ts';
 import {
   beginSystemAudioShareDelivery,
   claimGuestDirectSystemAudioRoute,
@@ -873,6 +876,17 @@ async function connectGuestTrack(
   track: MediaStreamTrack,
   pc: RTCPeerConnection,
 ): Promise<void> {
+  if (guestPc !== pc) return;
+  // SYSTEM_AUDIO_START and the SFU descriptor share a reliable data channel,
+  // but the remote media plane can become audible while the trusted start is
+  // still waiting for a prior bounded-file renderer to stop. Join the same
+  // physical-owner barrier used by the direct-call adapter.
+  const trustedReceptionReady =
+    await awaitTrustedSystemAudioReceptionBoundary(`sfu-${channel}`);
+  if (!trustedReceptionReady || guestPc !== pc) {
+    if (guestPc === pc) cleanupGuestSfu();
+    return;
+  }
   await initAudio();
   // Re-check identity after the await: connectGuestTrack is
   // fire-and-forget, so a teardown (cleanupGuestSfu → guestPc=null) or a new

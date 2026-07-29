@@ -11,14 +11,20 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../core/constants.ts';
 import { t } from '../../i18n/index.ts';
-import { setPlaybackTrackMeta, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
+import {
+  setPlaybackFilePlaying,
+  setPlaybackIdle,
+  setPlaybackTrackMeta,
+  setPlaybackYouTubePaused,
+  setPlaybackYouTubePlaying,
+} from '../../player/ownership.ts';
 import { getWidener, initAudio } from '../engine.ts';
 import {
   isSystemAudioActive,
   registerSystemCaptureListeners,
   startSystemAudioCapture,
 } from '../system-capture.ts';
-import type { ConnectedPeer, DataConnection, TrackMeta } from '../../types/index.ts';
+import type { ConnectedPeer, DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
 
 const YOUTUBE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -85,6 +91,73 @@ const proAudio = vi.hoisted(() => ({
   publish: vi.fn(),
   release: vi.fn(),
   coordinatorCompatible: true,
+}));
+
+const transport = vi.hoisted(() => ({
+  stopAllMediaAsync: vi.fn(async () => true),
+  getTrackPosition: vi.fn(() => 0),
+}));
+
+const boundedV1 = vi.hoisted(() => {
+  const state: {
+    snapshot: {
+      active: boolean;
+      role: 'host' | 'guest' | 'idle';
+      current: {
+        queueItemId: string;
+        legacySessionId: number;
+        state: 'ready';
+        phase: 'playing' | 'paused' | 'stopped';
+        positionSeconds: number;
+        durationSeconds: number;
+      } | null;
+    };
+    positionSeconds: number | null;
+  } = {
+    snapshot: { active: false, role: 'idle', current: null },
+    positionSeconds: null,
+  };
+  return {
+    state,
+    product: {
+      snapshot: vi.fn(() => state.snapshot),
+      positionSeconds: vi.fn(() => state.positionSeconds),
+      applyControl: vi.fn(
+        async (control: {
+          queueItemId: string;
+          legacySessionId: number;
+          positionSeconds: number;
+          kind: string;
+        }) => {
+          const current = state.snapshot.current;
+          if (
+            !current ||
+            current.queueItemId !== control.queueItemId ||
+            current.legacySessionId !== control.legacySessionId
+          ) {
+            return { status: 'rejected' as const };
+          }
+          state.snapshot.current = {
+            ...current,
+            phase: control.kind === 'stop' ? 'stopped' : 'paused',
+            positionSeconds: control.positionSeconds,
+          };
+          state.positionSeconds = control.positionSeconds;
+          return { status: 'applied' as const };
+        },
+      ),
+    },
+  };
+});
+
+vi.mock('../../player/transport.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../player/transport.ts')>()),
+  stopAllMediaAsync: transport.stopAllMediaAsync,
+  getTrackPosition: transport.getTrackPosition,
+}));
+
+vi.mock('../../player/legacy-bounded-file-v1-product.ts', () => ({
+  legacyBoundedFileV1Product: boundedV1.product,
 }));
 
 vi.mock('../engine.ts', () => ({
@@ -265,6 +338,10 @@ beforeEach(() => {
     },
   });
   proAudio.release.mockResolvedValue(null);
+  transport.stopAllMediaAsync.mockResolvedValue(true);
+  transport.getTrackPosition.mockReturnValue(0);
+  boundedV1.state.snapshot = { active: false, role: 'idle', current: null };
+  boundedV1.state.positionSeconds = null;
   setState('network.appRole', 'host');
   registerSystemCaptureListeners();
 });
@@ -305,6 +382,365 @@ describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
         autoplay: true,
       }),
     );
+  });
+
+  it('restores the exact bounded duration and position without an AudioBuffer', async () => {
+    const queueItemId = '10000000-0000-4000-8000-000000000001';
+    const meta: TrackMeta = {
+      queueItemId,
+      type: 'file',
+      name: 'bounded.flac',
+      title: 'bounded.flac',
+      videoId: null,
+      playlistId: null,
+    };
+    setState('playlist.items', [
+      {
+        queueItemId,
+        type: 'file',
+        name: 'bounded.flac',
+        title: 'bounded.flac',
+        videoId: null,
+        playlistId: null,
+      },
+    ]);
+    setState('playlist.currentQueueItemId', queueItemId);
+    setState('player.pausedAt', 0);
+    setPlaybackTrackMeta(meta);
+    setPlaybackFilePlaying();
+    boundedV1.state.snapshot = {
+      active: true,
+      role: 'host',
+      current: {
+        queueItemId,
+        legacySessionId: 17,
+        state: 'ready',
+        phase: 'playing',
+        positionSeconds: 67.5,
+        durationSeconds: 181.25,
+      },
+    };
+    boundedV1.state.positionSeconds = 67.5;
+    const peers = setConnectedGuests(1);
+    const durationUpdate = vi.fn();
+    bus.on('ui:duration-update', durationUpdate);
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+    bus.emit('system-audio:stop');
+
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('paused');
+    expect(getState('player.pausedAt')).toBe(67.5);
+    expect(getState('player.currentTrackMeta')).toBe(meta);
+    expect(durationUpdate).toHaveBeenCalledWith(181.25);
+    await vi.waitFor(() => {
+      expect(boundedV1.state.snapshot.current).toMatchObject({
+        queueItemId,
+        legacySessionId: 17,
+        phase: 'paused',
+        positionSeconds: 67.5,
+      });
+      expect(peers[0]?.conn?.send).toHaveBeenCalledWith({
+        type: 'pause',
+        time: 67.5,
+        queueItemId,
+        reason: 'seek',
+      });
+    });
+  });
+
+  it('restores a legacy file live checkpoint room-wide after a successful share', async () => {
+    const queueItemId = '10000000-0000-4000-8000-000000000002';
+    const meta = {
+      queueItemId,
+      type: 'file',
+      name: 'resident.mp3',
+      title: 'Resident',
+      videoId: null,
+      playlistId: null,
+    } satisfies PlaylistItem;
+    setState('playlist.items', [meta]);
+    setState('playlist.currentQueueItemId', queueItemId);
+    setPlaybackTrackMeta(meta);
+    setPlaybackFilePlaying();
+    setState('player.pausedAt', 5);
+    transport.getTrackPosition.mockReturnValue(71.5);
+    const peers = setConnectedGuests(1);
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+    bus.emit('system-audio:stop');
+
+    expect(getState('player.pausedAt')).toBe(71.5);
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('paused');
+    expect(peers[0]?.conn?.send).toHaveBeenCalledWith({
+      type: 'pause',
+      time: 71.5,
+      queueItemId,
+      reason: 'seek',
+    });
+  });
+
+  it('does not let an old bounded restore repaint over a newer system-audio start', async () => {
+    const queueItemId = '10000000-0000-4000-8000-000000000003';
+    const meta = {
+      queueItemId,
+      type: 'file',
+      name: 'restart-race.m4a',
+      title: 'Restart race',
+      videoId: null,
+      playlistId: null,
+    } satisfies PlaylistItem;
+    setState('playlist.items', [meta]);
+    setState('playlist.currentQueueItemId', queueItemId);
+    setPlaybackTrackMeta(meta);
+    setPlaybackFilePlaying();
+    boundedV1.state.snapshot = {
+      active: true,
+      role: 'host',
+      current: {
+        queueItemId,
+        legacySessionId: 23,
+        state: 'ready',
+        phase: 'stopped',
+        positionSeconds: 0,
+        durationSeconds: 180,
+      },
+    };
+    boundedV1.state.positionSeconds = 0;
+    setState('player.pausedAt', 67);
+    const peers = setConnectedGuests(1);
+    let settleCheckpoint!: () => void;
+    boundedV1.product.applyControl.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          settleCheckpoint = () => resolve({ status: 'applied' as const });
+        }),
+    );
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+    bus.emit('system-audio:stop');
+    await vi.waitFor(() =>
+      expect(boundedV1.product.applyControl).toHaveBeenCalledTimes(1),
+    );
+
+    await startSystemAudioCapture();
+    vi.mocked(peers[0]!.conn!.send).mockClear();
+    settleCheckpoint();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(isSystemAudioActive()).toBe(true);
+    expect(getState('playback.mode')).toBe('system-audio');
+    expect(getState('playback.activity')).toBe('playing');
+    expect(peers[0]?.conn?.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'pause',
+        time: 67,
+        queueItemId,
+        reason: 'seek',
+      }),
+    );
+    bus.emit('system-audio:force-stop');
+  });
+
+  it('projects a newer ready bounded source instead of clearing successor UI', async () => {
+    const originalQueueItemId = '10000000-0000-4000-8000-000000000011';
+    const successorQueueItemId = '10000000-0000-4000-8000-000000000012';
+    const originalMeta = {
+      queueItemId: originalQueueItemId,
+      type: 'file',
+      name: 'original.flac',
+      title: 'Original',
+      videoId: null,
+      playlistId: null,
+    } satisfies PlaylistItem;
+    const successorMeta = {
+      queueItemId: successorQueueItemId,
+      type: 'file',
+      name: 'successor.flac',
+      title: 'Successor',
+      videoId: null,
+      playlistId: null,
+    } satisfies PlaylistItem;
+    setState('playlist.items', [originalMeta, successorMeta]);
+    setState('playlist.currentQueueItemId', originalQueueItemId);
+    setPlaybackTrackMeta(originalMeta);
+    setPlaybackFilePlaying();
+    boundedV1.state.snapshot = {
+      active: true,
+      role: 'host',
+      current: {
+        queueItemId: originalQueueItemId,
+        legacySessionId: 17,
+        state: 'ready',
+        phase: 'playing',
+        positionSeconds: 18,
+        durationSeconds: 180,
+      },
+    };
+    boundedV1.state.positionSeconds = 18;
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    setState('playlist.currentQueueItemId', successorQueueItemId);
+    setPlaybackTrackMeta(successorMeta);
+    boundedV1.state.snapshot = {
+      active: true,
+      role: 'host',
+      current: {
+        queueItemId: successorQueueItemId,
+        legacySessionId: 18,
+        state: 'ready',
+        phase: 'paused',
+        positionSeconds: 52.25,
+        durationSeconds: 240,
+      },
+    };
+    boundedV1.state.positionSeconds = 52.25;
+
+    bus.emit('system-audio:stop');
+
+    expect(getState('playlist.currentQueueItemId')).toBe(successorQueueItemId);
+    expect(getState('player.currentTrackMeta')).toMatchObject({
+      queueItemId: successorQueueItemId,
+      title: 'Successor',
+    });
+    expect(getState('player.pausedAt')).toBe(52.25);
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('paused');
+  });
+
+  it('uses a stopped successor product checkpoint instead of stale player time', async () => {
+    const originalQueueItemId = '10000000-0000-4000-8000-000000000015';
+    const successorQueueItemId = '10000000-0000-4000-8000-000000000016';
+    const originalMeta = {
+      queueItemId: originalQueueItemId,
+      type: 'file',
+      name: 'original-stopped.flac',
+      title: 'Original stopped',
+      videoId: null,
+      playlistId: null,
+    } satisfies PlaylistItem;
+    const successorMeta = {
+      queueItemId: successorQueueItemId,
+      type: 'file',
+      name: 'successor-stopped.flac',
+      title: 'Successor stopped',
+      videoId: null,
+      playlistId: null,
+    } satisfies PlaylistItem;
+    setState('playlist.items', [originalMeta, successorMeta]);
+    setState('playlist.currentQueueItemId', originalQueueItemId);
+    setPlaybackTrackMeta(originalMeta);
+    setPlaybackFilePlaying();
+    boundedV1.state.snapshot = {
+      active: true,
+      role: 'host',
+      current: {
+        queueItemId: originalQueueItemId,
+        legacySessionId: 20,
+        state: 'ready',
+        phase: 'playing',
+        positionSeconds: 18,
+        durationSeconds: 180,
+      },
+    };
+    boundedV1.state.positionSeconds = 18;
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    setState('playlist.currentQueueItemId', successorQueueItemId);
+    setPlaybackTrackMeta(successorMeta);
+    setState('player.pausedAt', 99);
+    boundedV1.state.snapshot = {
+      active: true,
+      role: 'host',
+      current: {
+        queueItemId: successorQueueItemId,
+        legacySessionId: 21,
+        state: 'ready',
+        phase: 'stopped',
+        positionSeconds: 0,
+        durationSeconds: 240,
+      },
+    };
+    boundedV1.state.positionSeconds = 0;
+
+    bus.emit('system-audio:stop');
+
+    expect(getState('playlist.currentQueueItemId')).toBe(successorQueueItemId);
+    expect(getState('player.currentTrackMeta')).toMatchObject({
+      queueItemId: successorQueueItemId,
+      title: 'Successor stopped',
+    });
+    expect(getState('player.pausedAt')).toBe(0);
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('paused');
+  });
+
+  it('does not restore a retained old bounded source over a selected preparing successor', async () => {
+    const originalQueueItemId = '10000000-0000-4000-8000-000000000013';
+    const successorQueueItemId = '10000000-0000-4000-8000-000000000014';
+    const originalMeta = {
+      queueItemId: originalQueueItemId,
+      type: 'file',
+      name: 'original.m4a',
+      title: 'Original',
+      videoId: null,
+      playlistId: null,
+    } satisfies PlaylistItem;
+    const successorMeta = {
+      queueItemId: successorQueueItemId,
+      type: 'file',
+      name: 'preparing-successor.m4a',
+      title: 'Preparing successor',
+      videoId: null,
+      playlistId: null,
+    } satisfies PlaylistItem;
+    setState('playlist.items', [originalMeta, successorMeta]);
+    setState('playlist.currentQueueItemId', originalQueueItemId);
+    setPlaybackTrackMeta(originalMeta);
+    setPlaybackFilePlaying();
+    boundedV1.state.snapshot = {
+      active: true,
+      role: 'host',
+      current: {
+        queueItemId: originalQueueItemId,
+        legacySessionId: 19,
+        state: 'ready',
+        phase: 'playing',
+        positionSeconds: 24,
+        durationSeconds: 180,
+      },
+    };
+    boundedV1.state.positionSeconds = 24;
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    // Selection B is visible while the old A renderer remains retained during
+    // successor preparation/retirement.
+    setState('playlist.currentQueueItemId', successorQueueItemId);
+    setPlaybackTrackMeta(successorMeta);
+    boundedV1.state.snapshot.current = {
+      ...boundedV1.state.snapshot.current!,
+      phase: 'stopped',
+      positionSeconds: 0,
+    };
+    boundedV1.state.positionSeconds = 0;
+
+    bus.emit('system-audio:stop');
+
+    expect(getState('playlist.currentQueueItemId')).toBe(successorQueueItemId);
+    expect(getState('player.currentTrackMeta')).toBe(successorMeta);
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
   });
 
   it('a force-stopped share does not leak its snapshot into a later explicit stop', async () => {
@@ -371,6 +807,117 @@ describe('system audio start failure rollback', () => {
       }),
     );
     expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('does not let a no-widener rollback repaint over a newer capture start', async () => {
+    const queueItemId = '60000000-0000-4000-8000-000000000001';
+    const meta = {
+      queueItemId,
+      type: 'file',
+      name: 'rollback-race.m4a',
+      title: 'Rollback race',
+      videoId: null,
+      playlistId: null,
+    } satisfies PlaylistItem;
+    setState('playlist.items', [meta]);
+    setState('playlist.currentQueueItemId', queueItemId);
+    setPlaybackTrackMeta(meta);
+    setPlaybackFilePlaying();
+    setState('player.pausedAt', 67);
+    boundedV1.state.snapshot = {
+      active: true,
+      role: 'host',
+      current: {
+        queueItemId,
+        legacySessionId: 31,
+        state: 'ready',
+        phase: 'stopped',
+        positionSeconds: 0,
+        durationSeconds: 180,
+      },
+    };
+    boundedV1.state.positionSeconds = 0;
+    const peers = setConnectedGuests(1);
+    let settleCheckpoint!: () => void;
+    boundedV1.product.applyControl.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          settleCheckpoint = () => resolve({ status: 'applied' as const });
+        }),
+    );
+    vi.mocked(getWidener).mockReturnValueOnce(null);
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+    await vi.waitFor(() =>
+      expect(boundedV1.product.applyControl).toHaveBeenCalledTimes(1),
+    );
+    await startSystemAudioCapture();
+    vi.mocked(peers[0]!.conn!.send).mockClear();
+    settleCheckpoint();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(isSystemAudioActive()).toBe(true);
+    expect(getState('playback.mode')).toBe('system-audio');
+    expect(getState('playback.activity')).toBe('playing');
+    expect(peers[0]?.conn?.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'pause',
+        time: 67,
+        queueItemId,
+        reason: 'seek',
+      }),
+    );
+    bus.emit('system-audio:force-stop');
+  });
+
+  it('keeps a PRO room fail-closed when setup fails after prior media STOP', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    const restoreSpy = preparePriorYouTubePlayback();
+    vi.mocked(getWidener).mockReturnValueOnce(null);
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    expect(restoreSpy).not.toHaveBeenCalled();
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+    expect(proAudio.publish).not.toHaveBeenCalled();
+    expect(proAudio.release).toHaveBeenCalledTimes(1);
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('keeps a PRO room fail-closed when publication fails after prior media STOP', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    const restoreSpy = preparePriorYouTubePlayback();
+    proAudio.publish.mockRejectedValueOnce(new Error('publish unavailable'));
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    expect(restoreSpy).not.toHaveBeenCalled();
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+    expect(proAudio.publish).toHaveBeenCalledTimes(1);
+    expect(proAudio.release).toHaveBeenCalledTimes(1);
     expect(isSystemAudioActive()).toBe(false);
   });
 });
@@ -651,6 +1198,312 @@ describe('system audio operating-cost limits', () => {
     await startPromise;
 
     expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('does not resurrect a capture cancelled while previous media teardown is pending', async () => {
+    let settleStop!: (stopped: boolean) => void;
+    transport.stopAllMediaAsync.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settleStop = resolve;
+        }),
+    );
+    stubDisplayMedia();
+    const streamsReadySpy = vi.fn();
+    bus.on('system-audio:streams-ready', streamsReadySpy);
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(transport.stopAllMediaAsync).toHaveBeenCalledTimes(1));
+    bus.emit('system-audio:force-stop');
+    settleStop(true);
+    await startPromise;
+
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(streamsReadySpy).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('rechecks standard coordinator authority after previous media teardown', async () => {
+    const restoreSpy = preparePriorYouTubePlayback();
+    let settleStop!: (stopped: boolean) => void;
+    transport.stopAllMediaAsync.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settleStop = resolve;
+        }),
+    );
+    stubDisplayMedia();
+    const streamsReadySpy = vi.fn();
+    bus.on('system-audio:streams-ready', streamsReadySpy);
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(transport.stopAllMediaAsync).toHaveBeenCalledTimes(1));
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', {
+      peer: 'host-1',
+      open: true,
+    } as DataConnection);
+    setPlaybackIdle();
+    settleStop(true);
+    await startPromise;
+
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(streamsReadySpy).not.toHaveBeenCalled();
+    expect(restoreSpy).not.toHaveBeenCalled();
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('does not restore old media after PRO publication authority is lost during teardown', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    const restoreSpy = preparePriorYouTubePlayback();
+    let settleStop!: (stopped: boolean) => void;
+    transport.stopAllMediaAsync.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settleStop = resolve;
+        }),
+    );
+    stubDisplayMedia();
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(transport.stopAllMediaAsync).toHaveBeenCalledTimes(1));
+    proAudio.coordinatorCompatible = false;
+    setPlaybackIdle();
+    settleStop(true);
+    await startPromise;
+
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(proAudio.publish).not.toHaveBeenCalled();
+    expect(proAudio.release).toHaveBeenCalledTimes(1);
+    expect(restoreSpy).not.toHaveBeenCalled();
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('restores the exact bounded pause when capacity rejects a start after media STOP', async () => {
+    const queueItemId = '70000000-0000-4000-8000-000000000001';
+    const meta = {
+      queueItemId,
+      type: 'file',
+      name: 'capacity-race.m4a',
+      title: 'Capacity race',
+      videoId: null,
+      playlistId: null,
+    } satisfies PlaylistItem;
+    setState('playlist.items', [meta]);
+    setState('playlist.currentQueueItemId', queueItemId);
+    setPlaybackTrackMeta(meta);
+    setPlaybackFilePlaying();
+    setState('player.pausedAt', 0);
+    boundedV1.state.snapshot = {
+      active: true,
+      role: 'host',
+      current: {
+        queueItemId,
+        legacySessionId: 71,
+        state: 'ready',
+        phase: 'playing',
+        positionSeconds: 36.5,
+        durationSeconds: 205,
+      },
+    };
+    boundedV1.state.positionSeconds = 36.5;
+    setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES - 1);
+    let settleStop!: (stopped: boolean) => void;
+    transport.stopAllMediaAsync.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settleStop = resolve;
+        }),
+    );
+    const durationUpdate = vi.fn();
+    bus.on('ui:duration-update', durationUpdate);
+    stubDisplayMedia();
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(transport.stopAllMediaAsync).toHaveBeenCalledTimes(1));
+    const peers = setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES);
+    boundedV1.state.snapshot.current = {
+      ...boundedV1.state.snapshot.current!,
+      phase: 'stopped',
+      positionSeconds: 0,
+    };
+    boundedV1.state.positionSeconds = 0;
+    settleStop(true);
+    await startPromise;
+
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(isSystemAudioActive()).toBe(false);
+    expect(getState('playlist.currentQueueItemId')).toBe(queueItemId);
+    expect(getState('player.currentTrackMeta')).toBe(meta);
+    expect(getState('player.pausedAt')).toBe(36.5);
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('paused');
+    expect(durationUpdate).toHaveBeenLastCalledWith(205);
+    expect(boundedV1.state.snapshot.current).toMatchObject({
+      queueItemId,
+      legacySessionId: 71,
+      phase: 'paused',
+      positionSeconds: 36.5,
+    });
+    for (const peer of peers) {
+      expect(peer.conn?.send).toHaveBeenCalledWith({
+        type: 'pause',
+        time: 36.5,
+        queueItemId,
+        reason: 'seek',
+      });
+    }
+  });
+
+  it('restores a same-room paused YouTube checkpoint when capacity rejects after media STOP', async () => {
+    const restoreSpy = preparePriorYouTubePlayback();
+    setPlaybackYouTubePaused();
+    setState('player.pausedAt', 5);
+    transport.getTrackPosition.mockReturnValue(44.5);
+    setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES - 1);
+    let settleStop!: (stopped: boolean) => void;
+    transport.stopAllMediaAsync.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settleStop = resolve;
+        }),
+    );
+    stubDisplayMedia();
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(transport.stopAllMediaAsync).toHaveBeenCalledTimes(1));
+    const peers = setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES);
+    setPlaybackIdle();
+    settleStop(true);
+    await startPromise;
+
+    expect(isSystemAudioActive()).toBe(false);
+    expect(restoreSpy).toHaveBeenCalledTimes(1);
+    expect(restoreSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queueItemId: YOUTUBE_QUEUE_ITEM_ID,
+        videoId: 'video-1',
+        autoplay: false,
+        positionSeconds: 44.5,
+      }),
+    );
+    // YouTube restoration owns its dedicated room-wide command path; the
+    // system-audio compensation must not manufacture a file PAUSE.
+    for (const peer of peers) {
+      expect(peer.conn?.send).not.toHaveBeenCalled();
+    }
+  });
+
+  it('restores a same-room legacy file checkpoint to host and guests after rejection', async () => {
+    const queueItemId = '70000000-0000-4000-8000-000000000002';
+    const meta = {
+      queueItemId,
+      type: 'file',
+      name: 'resident-race.mp3',
+      title: 'Resident race',
+      videoId: null,
+      playlistId: null,
+    } satisfies PlaylistItem;
+    setState('playlist.items', [meta]);
+    setState('playlist.currentQueueItemId', queueItemId);
+    setPlaybackTrackMeta(meta);
+    setPlaybackFilePlaying();
+    setState('player.pausedAt', 5);
+    transport.getTrackPosition.mockReturnValue(28.25);
+    setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES - 1);
+    let settleStop!: (stopped: boolean) => void;
+    transport.stopAllMediaAsync.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settleStop = resolve;
+        }),
+    );
+    stubDisplayMedia();
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(transport.stopAllMediaAsync).toHaveBeenCalledTimes(1));
+    const peers = setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES);
+    setState('player.pausedAt', 0);
+    setPlaybackIdle();
+    settleStop(true);
+    await startPromise;
+
+    expect(isSystemAudioActive()).toBe(false);
+    expect(getState('playlist.currentQueueItemId')).toBe(queueItemId);
+    expect(getState('player.currentTrackMeta')).toBe(meta);
+    expect(getState('player.pausedAt')).toBe(28.25);
+    expect(getState('playback.mode')).toBe('file');
+    expect(getState('playback.activity')).toBe('paused');
+    for (const peer of peers) {
+      expect(peer.conn?.send).toHaveBeenCalledWith({
+        type: 'pause',
+        time: 28.25,
+        queueItemId,
+        reason: 'seek',
+      });
+    }
+  });
+
+  it('does not restore a rejected start after switching between standard rooms', async () => {
+    setState('network.sessionCode', '111111');
+    setState('network.myId', 'host-room-a');
+    const restoreSpy = preparePriorYouTubePlayback();
+    setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES - 1);
+    let settleStop!: (stopped: boolean) => void;
+    transport.stopAllMediaAsync.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settleStop = resolve;
+        }),
+    );
+    stubDisplayMedia();
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(transport.stopAllMediaAsync).toHaveBeenCalledTimes(1));
+    setState('network.sessionCode', '222222');
+    setState('network.myId', 'host-room-b');
+    setConnectedGuests(MAX_SYSTEM_AUDIO_DEVICES);
+    setPlaybackIdle();
+    settleStop(true);
+    await startPromise;
+
+    expect(isSystemAudioActive()).toBe(false);
+    expect(restoreSpy).not.toHaveBeenCalled();
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+  });
+
+  it('releases a PRO lease when previous media teardown cannot commit', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    transport.stopAllMediaAsync.mockResolvedValueOnce(false);
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(proAudio.release).toHaveBeenCalledTimes(1);
+    expect(proAudio.publish).not.toHaveBeenCalled();
     expect(isSystemAudioActive()).toBe(false);
   });
 

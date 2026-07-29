@@ -19,17 +19,30 @@ import { transition } from './lifecycle.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-clock.ts';
 import { cleanupStoredFile, readStoredFile } from '../storage/storage.ts';
-import { sendFileDeliveryUnavailable, unicastFile } from '../storage/transfer.ts';
+import {
+  handleLegacyBoundedV1GuestDescriptorEvent,
+  sendFileDeliveryUnavailable,
+  unicastFile,
+} from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
 import { broadcast, isRemoteGuest, safeSend } from '../network/peer.ts';
-import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
+import {
+  prepareRemoteShareWait,
+  shareRemoteFileIfNeeded,
+  shouldWaitForRemoteShare,
+} from '../share/remote-share.ts';
 import {
   hasEstablishedFilePlaybackApplicationSession,
   registerHandlers,
   verifyOperator,
 } from '../network/protocol.ts';
 import { beginFileRequest, sendFileRequest } from '../network/file-request-authority.ts';
-import type { DataConnection, QueueItemId, ResidentFile } from '../types/index.ts';
+import type {
+  AnyProtocolMsg,
+  DataConnection,
+  QueueItemId,
+  ResidentFile,
+} from '../types/index.ts';
 import {
   isGuestR2FileDelivery,
   markLateLocalPeerForR2,
@@ -50,6 +63,8 @@ import { hasPlayableFileSource } from './file-playback-runtime.ts';
 import {
   play,
   pause,
+  applyLegacyBoundedV1GuestPause,
+  applyLegacyBoundedV1GuestPlay,
   stopAllMedia,
   getTrackPosition,
   handleEnded,
@@ -57,6 +72,9 @@ import {
   requestV2HostFilePause,
   requestV2HostFileResume,
   requestV2HostFileSeek,
+  requestLegacyBoundedV1HostPause,
+  requestLegacyBoundedV1HostPlay,
+  requestLegacyBoundedV1HostSeek,
   skipTime,
 } from './transport.ts';
 
@@ -87,10 +105,310 @@ import {
   selectQueueItemById,
 } from './queue-model.ts';
 import { hasSystemAudioDeviceCapacity } from '../audio/system-audio-policy.ts';
+import {
+  legacyBoundedFileV1Product,
+  type LegacyBoundedFileV1GuestDescriptorEvent,
+} from './legacy-bounded-file-v1-product.ts';
+import type { LegacyBoundedFileV1FallbackCommit } from './legacy-bounded-file-v1-runtime.ts';
 
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
 const SAME_TRACK_REPLAY_RESYNC_DELAY_MS = 1000;
+interface PendingBoundedV1Fallback {
+  readonly commit: Readonly<LegacyBoundedFileV1FallbackCommit>;
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+  readonly reject: (error: Error) => void;
+}
+
+const _pendingBoundedV1Fallback = new Map<DataConnection, Map<string, PendingBoundedV1Fallback>>();
+const _boundedV1FallbackFlushByConnection = new Map<DataConnection, Promise<void>>();
+let _boundedV1ProductInitialized = false;
+
+function boundedV1FallbackKey(commit: Readonly<LegacyBoundedFileV1FallbackCommit>): string {
+  return `${commit.queueItemId}:${commit.legacySessionId}:${commit.purpose}`;
+}
+
+function createPendingBoundedV1Fallback(
+  commit: Readonly<LegacyBoundedFileV1FallbackCommit>,
+): PendingBoundedV1Fallback {
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { commit, promise, resolve, reject };
+}
+
+function rejectPendingBoundedV1Fallbacks(
+  predicate: (connection: DataConnection) => boolean,
+  reason: string,
+): void {
+  for (const [connection, pendingByScope] of _pendingBoundedV1Fallback) {
+    if (!predicate(connection)) continue;
+    _pendingBoundedV1Fallback.delete(connection);
+    for (const pending of pendingByScope.values()) {
+      pending.reject(new Error(reason));
+    }
+  }
+}
+
+function currentResidentForBoundedFallback(
+  commit: Readonly<LegacyBoundedFileV1FallbackCommit>,
+): Readonly<ResidentFile> | null {
+  const resident = getState('files.current');
+  return resident?.queueItemId === commit.queueItemId &&
+    resident.sessionId === commit.legacySessionId &&
+    getCurrentQueueItemId() === commit.queueItemId
+    ? resident
+    : null;
+}
+
+function boundedV1PrepareFrame(
+  resident: Readonly<ResidentFile>,
+  delivery?: 'r2',
+): Record<string, unknown> {
+  return {
+    type: MSG.FILE_PREPARE,
+    name: resident.name,
+    queueItemId: resident.queueItemId,
+    sessionId: resident.sessionId,
+    size: resident.blob.size,
+    mime: resident.mime || resident.blob.type || 'application/octet-stream',
+    autoPlayDelayMs: 0,
+    ...(delivery ? { delivery } : {}),
+  };
+}
+
+function replayBoundedV1TimelineAfterLateFallback(
+  conn: DataConnection,
+  commit: Readonly<LegacyBoundedFileV1FallbackCommit>,
+): void {
+  // Capability and descriptor-send fallback settle before the caller releases
+  // its first/late-join timeline command. A guest-side decoder fallback or
+  // descriptor-result timeout can happen after PLAY was already delivered to
+  // the bounded candidate; replay that exact current intent behind the stable
+  // FILE_PREPARE so abandoning the candidate cannot strand the guest paused.
+  if (commit.reason !== 'guest-fallback' && commit.reason !== 'descriptor-result-timeout') return;
+
+  const snapshot = legacyBoundedFileV1Product.snapshot();
+  const current = snapshot.current;
+  if (
+    snapshot.role !== 'host' ||
+    !current ||
+    current.queueItemId !== commit.queueItemId ||
+    current.legacySessionId !== commit.legacySessionId ||
+    current.state !== 'ready'
+  ) {
+    return;
+  }
+  const position = legacyBoundedFileV1Product.positionSeconds() ?? current.positionSeconds;
+  const message: AnyProtocolMsg =
+    current.phase === 'playing'
+      ? ({
+          type: MSG.PLAY,
+          time: position,
+          queueItemId: current.queueItemId,
+          hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+        } as AnyProtocolMsg)
+      : ({
+          type: MSG.PAUSE,
+          time: position,
+          queueItemId: current.queueItemId,
+          reason: current.phase === 'stopped' ? 'stop' : 'pause',
+        } as AnyProtocolMsg);
+  if (!safeSend(conn, message)) {
+    throw new Error('Bounded V1 late fallback timeline could not be sent');
+  }
+}
+
+async function dispatchBoundedV1LegacyFallback(
+  conn: DataConnection,
+  commit: Readonly<LegacyBoundedFileV1FallbackCommit>,
+  allowPending = true,
+): Promise<boolean> {
+  if (!conn.open) {
+    const reason = 'Bounded V1 fallback connection is closed';
+    // A later fallback attempt can race the transport close while an earlier
+    // delivery-route decision is still parked. Deleting the map alone would
+    // orphan that earlier acknowledgement forever.
+    rejectPendingBoundedV1Fallbacks((connection) => connection === conn, reason);
+    throw new Error(reason);
+  }
+  const resident = currentResidentForBoundedFallback(commit);
+  const peer = getState('network.connectedPeers').find((candidate) => candidate.conn === conn);
+  if (!resident || !peer) {
+    throw new Error('Bounded V1 fallback no longer owns the selected resident');
+  }
+
+  const delivery = resolvePeerFileDelivery(peer, commit.legacySessionId);
+  if (delivery === 'pending') {
+    if (!allowPending) return false;
+    let pendingByScope = _pendingBoundedV1Fallback.get(conn);
+    if (!pendingByScope) {
+      pendingByScope = new Map();
+      _pendingBoundedV1Fallback.set(conn, pendingByScope);
+    }
+    const key = boundedV1FallbackKey(commit);
+    const existing = pendingByScope.get(key);
+    if (existing) {
+      await existing.promise;
+      return true;
+    }
+    const pending = createPendingBoundedV1Fallback(commit);
+    pendingByScope.set(key, pending);
+    await pending.promise;
+    return true;
+  }
+
+  const prepare = boundedV1PrepareFrame(resident);
+  if (delivery === 'unsupported') {
+    if (
+      !safeSend(conn, {
+        type: MSG.REMOTE_FILE_UNAVAILABLE,
+        name: resident.name,
+        queueItemId: commit.queueItemId,
+        sessionId: commit.legacySessionId,
+        delivery: 'r2',
+      } as AnyProtocolMsg)
+    ) {
+      throw new Error('Bounded V1 unavailable fallback could not be sent');
+    }
+    return true;
+  }
+  if (delivery === 'r2') {
+    if (!safeSend(conn, { ...prepare, delivery: 'r2' } as AnyProtocolMsg)) {
+      throw new Error('Bounded V1 R2 fallback prepare could not be sent');
+    }
+    // Fallback settlement proves the exact control-plane selection boundary,
+    // not completion of a potentially multi-minute payload transfer. The
+    // guest can buffer PLAY/PAUSE after FILE_PREPARE while stable recovery
+    // owns upload/download failure handling.
+    void shareRemoteFileIfNeeded(resident.blob as File, commit.legacySessionId, conn, {
+      queueItemId: commit.queueItemId,
+    }).catch((error) => {
+      log.warn('[Playback] Bounded V1 R2 fallback transfer failed:', error);
+    });
+    replayBoundedV1TimelineAfterLateFallback(conn, commit);
+    return true;
+  }
+
+  if (!safeSend(conn, prepare as AnyProtocolMsg)) {
+    throw new Error('Bounded V1 direct fallback prepare could not be sent');
+  }
+  void unicastFile(conn, resident.blob, 0, commit.legacySessionId, {
+    queueItemId: commit.queueItemId,
+    isSourceCurrent: () => currentResidentForBoundedFallback(commit)?.blob === resident.blob,
+  }).catch((error) => {
+    log.warn('[Playback] Bounded V1 direct fallback transfer failed:', error);
+  });
+  replayBoundedV1TimelineAfterLateFallback(conn, commit);
+  return true;
+}
+
+async function flushBoundedV1LegacyFallbackPass(conn: DataConnection): Promise<void> {
+  const pendingByScope = _pendingBoundedV1Fallback.get(conn);
+  if (!pendingByScope) return;
+  await Promise.all(
+    [...pendingByScope.entries()].map(async ([key, pending]) => {
+      try {
+        const dispatched = await dispatchBoundedV1LegacyFallback(conn, pending.commit, false);
+        if (!dispatched) return;
+        const livePendingByScope = _pendingBoundedV1Fallback.get(conn);
+        if (livePendingByScope?.get(key) === pending) {
+          livePendingByScope.delete(key);
+          if (livePendingByScope.size === 0) {
+            _pendingBoundedV1Fallback.delete(conn);
+          }
+        }
+        pending.resolve();
+      } catch (error) {
+        const livePendingByScope = _pendingBoundedV1Fallback.get(conn);
+        if (livePendingByScope?.get(key) === pending) {
+          livePendingByScope.delete(key);
+          if (livePendingByScope.size === 0) {
+            _pendingBoundedV1Fallback.delete(conn);
+          }
+        }
+        const failure =
+          error instanceof Error ? error : new Error('Bounded V1 fallback dispatch failed');
+        pending.reject(failure);
+      }
+    }),
+  );
+}
+
+async function flushBoundedV1LegacyFallback(conn: DataConnection): Promise<void> {
+  // Keep the pending map live while a pass probes delivery. Re-entrant
+  // same-scope fallbacks then join the existing promise instead of replacing
+  // it, and disconnect/room-change rejection can still reach that waiter.
+  // Serialize passes per exact connection so two readiness events cannot send
+  // the same FILE_PREPARE or race removal of the shared entry.
+  const previous = _boundedV1FallbackFlushByConnection.get(conn) ?? Promise.resolve();
+  const scheduled = previous.then(
+    () => flushBoundedV1LegacyFallbackPass(conn),
+    () => flushBoundedV1LegacyFallbackPass(conn),
+  );
+  _boundedV1FallbackFlushByConnection.set(conn, scheduled);
+  try {
+    await scheduled;
+  } finally {
+    if (_boundedV1FallbackFlushByConnection.get(conn) === scheduled) {
+      _boundedV1FallbackFlushByConnection.delete(conn);
+    }
+  }
+}
+
+export async function offerLegacyBoundedV1CurrentToPeer(
+  conn: DataConnection,
+): Promise<boolean> {
+  if (!conn.open) return false;
+  const snapshot = legacyBoundedFileV1Product.snapshot();
+  const current = snapshot.current;
+  if (
+    !snapshot.active ||
+    snapshot.role !== 'host' ||
+    !current ||
+    current.state !== 'ready'
+  ) {
+    return false;
+  }
+  const resident = getState('files.current');
+  if (
+    !resident ||
+    resident.queueItemId !== current.queueItemId ||
+    resident.sessionId !== current.legacySessionId ||
+    getCurrentQueueItemId() !== current.queueItemId
+  ) {
+    return false;
+  }
+
+  const outcome = await legacyBoundedFileV1Product.offerHostCurrentSettled(
+    conn,
+    current.queueItemId,
+    current.legacySessionId,
+  );
+  return (
+    outcome.status === 'pending' ||
+    outcome.status === 'descriptor-sent' ||
+    outcome.status === 'ready' ||
+    outcome.status === 'legacy-committed'
+  );
+}
+
+function initializeLegacyBoundedV1ProductFlow(): void {
+  if (_boundedV1ProductInitialized) return;
+  _boundedV1ProductInitialized = true;
+  if (!legacyBoundedFileV1Product.initialize()) return;
+  legacyBoundedFileV1Product.registerLegacyFallbackDispatcher(async (conn, commit) => {
+    await dispatchBoundedV1LegacyFallback(conn, commit);
+  });
+  legacyBoundedFileV1Product.registerGuestDescriptorObserver(
+    (event: Readonly<LegacyBoundedFileV1GuestDescriptorEvent>) =>
+      handleLegacyBoundedV1GuestDescriptorEvent(event),
+  );
+}
 function scheduleSameTrackReplayResync(
   time: number,
   incomingQueueItemId: QueueItemId,
@@ -209,6 +527,20 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
   const incomingItem = getQueueItemById(incomingQueueItemId);
   if (!incomingItem) {
     log.debug(`[Guest] PLAY ignored for unknown queue item: ${incomingQueueItemId}`);
+    return;
+  }
+
+  const hostPlayAt = Number(data.hostPlayAt);
+  if (
+    applyLegacyBoundedV1GuestPlay(
+      incomingQueueItemId,
+      time,
+      Number.isFinite(hostPlayAt) && hostPlayAt > 0 ? hostPlayAt : undefined,
+    )
+  ) {
+    setLocalFilePaused(false);
+    clearManagedTimer('playback-replay-defer');
+    bus.emit('sync:arm-initial');
     return;
   }
 
@@ -479,6 +811,16 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
     return;
   }
 
+  if (
+    !endOfPlaylist &&
+    incomingQueueItemId &&
+    applyLegacyBoundedV1GuestPause(incomingQueueItemId, time)
+  ) {
+    setLocalFilePaused(false);
+    setPendingPlayTime(undefined);
+    return;
+  }
+
   // Authoritative host command — release any local lock-screen pause. Both
   // ends end up paused here; a later host PLAY then resumes this guest.
   setLocalFilePaused(false);
@@ -494,6 +836,23 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   // the stale track meta so title/indicator mirror the host's reset.
   if (endOfPlaylist) {
     log.debug('[Guest] Host signalled end of playlist — clearing track meta');
+    const boundedSnapshot = legacyBoundedFileV1Product.snapshot();
+    const boundedCurrent =
+      boundedSnapshot.role === 'guest' &&
+      boundedSnapshot.current?.queueItemId === currentQueueItemId
+        ? boundedSnapshot.current
+        : null;
+    if (boundedCurrent) {
+      // Capture and start retiring the exact physical owner before terminal
+      // deselection hides its queue identity. retireCurrent is incarnation
+      // fenced and joins an existing drain, so a later successor cannot be
+      // cleared when this asynchronous cleanup settles.
+      void legacyBoundedFileV1Product
+        .retireCurrent(boundedCurrent.queueItemId, boundedCurrent.legacySessionId)
+        .catch((error) => {
+          log.warn('[Playback] Bounded guest terminal retirement failed:', error);
+        });
+    }
     setPlaybackTrackMeta(null);
     // Mirror host's deselected state so operator guest's togglePlay
     // also redirects to playTrack(0) instead of resuming stale audio.
@@ -559,6 +918,11 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
   if (!currentQueueItemId) return;
 
   if (requestV2HostFileResume(time)) return;
+  const hostPlayAt = getHostNow() + SCHEDULE_AHEAD_MS;
+  // The bounded renderer intentionally has no resident AudioBuffer. Route it
+  // before the stable-V1 resident guard so an operator/admin guest request can
+  // resume the exact host renderer instead of being silently discarded.
+  if (requestLegacyBoundedV1HostPlay(time, hostPlayAt)) return;
 
   // A busy pipeline still holds the previous track's AudioBuffer. Ignore the
   // request; decode completion owns playback of the newly selected track.
@@ -577,12 +941,12 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
     return;
   }
 
-  play(time);
+  play(time, 0, undefined, undefined, hostPlayAt);
   broadcast({
     type: MSG.PLAY,
     time,
     queueItemId: currentQueueItemId,
-    hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+    hostPlayAt,
   });
   // SharedClock handles sync
 }
@@ -612,6 +976,7 @@ function handleRequestPause(data: Record<string, unknown>, conn: DataConnection)
     return;
   }
   const currentQueueItemId = getCurrentQueueItemId();
+  if (requestLegacyBoundedV1HostPause(undefined, 'pause')) return;
   pause();
   broadcast({
     type: MSG.PAUSE,
@@ -653,6 +1018,7 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
   // V2 publication belongs to the product coordinator and occurs only after
   // physical commit. A missing exact projection still belongs to this boundary
   // and must fail closed instead of reaching the resident AudioBuffer below.
+  if (requestLegacyBoundedV1HostSeek(time)) return;
   if (requestV2HostFileSeek(time)) return;
 
   // A busy file pipeline still holds the previous track's AudioBuffer. Keep
@@ -673,12 +1039,13 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
       log.debug('[Playback] Ignoring REQUEST_SEEK without the selected resident file');
       return;
     }
-    play(time);
+    const hostPlayAt = getHostNow() + SCHEDULE_AHEAD_MS;
+    play(time, 0, undefined, undefined, hostPlayAt);
     broadcast({
       type: MSG.PLAY,
       time,
       queueItemId: currentQueueItemId,
-      hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+      hostPlayAt,
     });
   } else {
     setState('player.pausedAt', time);
@@ -708,6 +1075,7 @@ function handleRequestSkipTime(data: Record<string, unknown>, conn: DataConnecti
 // ─── Init ──────────────────────────────────────────────────────────
 
 export function initPlayback(): void {
+  initializeLegacyBoundedV1ProductFlow();
   registerProRoomLegacyDirectFileHandler((file, queueItemId, sessionId) =>
     finalizeGuestFile(file, queueItemId, sessionId),
   );
@@ -1074,6 +1442,62 @@ export function initPlayback(): void {
     const currentQueueItemId = getCurrentQueueItemId();
     const currentItem = getQueueItemById(currentQueueItemId);
     const currentResident = getState('files.current');
+    const boundedSnapshot = legacyBoundedFileV1Product.snapshot();
+    const boundedSessionOwnsBootstrap =
+      !!currentQueueItemId &&
+      !!currentResident &&
+      currentResident.queueItemId === currentQueueItemId &&
+      boundedSnapshot.role === 'host' &&
+      boundedSnapshot.current?.state === 'ready' &&
+      boundedSnapshot.current.queueItemId === currentQueueItemId &&
+      boundedSnapshot.current.legacySessionId === currentResident.sessionId;
+    if (boundedSessionOwnsBootstrap) {
+      void (async () => {
+        try {
+          if (!(await offerLegacyBoundedV1CurrentToPeer(conn)) || !conn.open) return;
+          const latest = legacyBoundedFileV1Product.snapshot();
+          const latestResident = getState('files.current');
+          const latestQueueItemId = getCurrentQueueItemId();
+          if (
+            latest.role !== 'host' ||
+            latest.current?.state !== 'ready' ||
+            latest.current.queueItemId !== latestQueueItemId ||
+            latest.current.legacySessionId !== latestResident?.sessionId ||
+            latestResident.queueItemId !== latestQueueItemId
+          ) {
+            return;
+          }
+          // The bounded timeline changes to `playing` as soon as the exact
+          // native start has been scheduled, before start evidence projects
+          // the semantic UI activity. A peer joining inside that window must
+          // follow this canonical phase rather than the temporarily stale
+          // app-level activity, otherwise it receives a contradictory PAUSE
+          // immediately after its descriptor.
+          const position = latest.current.positionSeconds;
+          if (latest.current.phase === 'playing') {
+            const hostPlayAt = getHostNow() + SCHEDULE_AHEAD_MS;
+            conn.send({
+              type: MSG.PLAY,
+              time: position,
+              queueItemId: latestQueueItemId,
+              name: latestResident.name,
+              hostPlayAt,
+            });
+          } else {
+            conn.send({
+              type: MSG.PAUSE,
+              time: position,
+              queueItemId: latestQueueItemId,
+              reason: latest.current.phase === 'paused' ? 'pause' : 'stop',
+            });
+          }
+          log.debug('[Playback] Bounded V1 bootstrap settled for new peer');
+        } catch (error) {
+          log.warn('[Playback] Bounded V1 bootstrap failed:', error);
+        }
+      })();
+      return;
+    }
 
     // Send playback state (time-sync for late joiners)
     try {
@@ -1143,6 +1567,18 @@ export function initPlayback(): void {
     markLateLocalPeerForR2(peerId);
 
     const currentResident = getState('files.current');
+    if (
+      currentResident?.queueItemId === currentQueueItemId &&
+      legacyBoundedFileV1Product.ownsSession(currentQueueItemId, currentResident.sessionId)
+    ) {
+      // A pre-ICE offer can be waiting for this exact peer's delivery route.
+      // Start (or join) settlement first, then release the pending fallback
+      // before awaiting it; the inverse order deadlocks old-client fallback.
+      const offerTask = offerLegacyBoundedV1CurrentToPeer(conn);
+      await flushBoundedV1LegacyFallback(conn);
+      await offerTask;
+      return;
+    }
     if (currentResident?.queueItemId === currentQueueItemId) {
       if (isProDirect) {
         safeSend(conn, {
@@ -1231,6 +1667,28 @@ export function initPlayback(): void {
 
   bus.on('orchestrator:peer-data-target-ready', async (peerId: string) => {
     await bootstrapLocalPeerFile(peerId, 'data-target-ready');
+  });
+
+  bus.on('network:peer-disconnected', (peerId: string) => {
+    rejectPendingBoundedV1Fallbacks(
+      (connection) => connection.peer === peerId,
+      'Bounded V1 fallback peer disconnected',
+    );
+  });
+
+  bus.on('network:peer-connection-replaced', (peerId: string) => {
+    const activeConnection = getState('network.activeHostConnByPeerId').get(peerId);
+    rejectPendingBoundedV1Fallbacks(
+      (connection) => connection.peer === peerId && connection !== activeConnection,
+      'Bounded V1 fallback peer connection was replaced',
+    );
+  });
+
+  bus.on('state:network.sessionCode', () => {
+    rejectPendingBoundedV1Fallbacks(
+      () => true,
+      'Bounded V1 fallback room incarnation changed',
+    );
   });
 
   log.info('[Playback] Engine initialized');

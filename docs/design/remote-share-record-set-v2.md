@@ -122,6 +122,25 @@ Success includes `readyRecordCount`, which is the contiguous completed prefix
 starting at record zero, and `complete`, which becomes true only when every
 record is completed. Completion is idempotent.
 
+The beta publisher may offer a descriptor as soon as record zero is durably
+completed. Remaining records continue uploading serially in publisher-owned
+background work. Once exposed, a tail upload receives a longer abort-aware
+bounded retry budget (ten upload attempts with exponential client backoff,
+excluding the network operation's own timeout). A guest that seeks into an
+ahead record which is not visible yet treats `404`, `409`, `503`, network, and
+stall failures as transient for up to three minutes; the read remains
+caller-abortable throughout.
+
+If an exposed tail still fails permanently, the publisher removes that set
+from future offers and a later offer creates a fresh set. It does not revoke
+the old set merely because its tail failed or its upload was superseded:
+already-issued readers retain the exact descriptor until its fixed expiry.
+Explicit queue removal or room close deletes it immediately and retains failed
+cleanup authority for retry. This is bounded damage containment, not live
+repair: an existing reader that reaches a permanently missing tail record can
+still fail after its wait budget because this protocol does not hot-rebind an
+open source to a new set.
+
 ### `GET /download/{roomId}/{recordObjectId}`
 
 The existing endpoint serves a V2 record as one `application/octet-stream`
@@ -133,13 +152,19 @@ its set/index.
 
 Requires `x-mxqr-cleanup-token`. No request body is used.
 
-The Durable Object atomically marks every reservation in the set with an
-optional `revokedAt` field, after which no new upload URL or completion can
-succeed. Existing physical records are deleted best-effort. Reservations are
-not released: a presigned PUT issued before revocation may still land, so all
-bytes remain charged until the original fixed expiry. The existing alarm
-removes expired late objects; the R2 lifecycle rule remains the final
-backstop.
+The Durable Object atomically marks every reservation in the set with
+`revokedAt`, after which no new upload URL or completion can succeed. Existing
+physical records are deleted best-effort. A presigned PUT issued before
+revocation may have started without having finished, so quota remains charged
+until the immutable object expiry rather than relying on an unproven provider
+completion bound. At expiry the media is no longer downloadable and the
+charged reservation becomes a non-charging expiry tombstone. Natural expiry
+uses the same tombstone even when the set was never revoked. The alarm continues
+deleting each exact old-incarnation key at fixed intervals; observing a late
+object resets a one-hour quiet interval. Failed sweeps retain state and retry.
+The quiet interval is an operational cleanup policy, not an assertion that
+every pre-expiry PUT has completed. Prefix audits and the R2 lifecycle rule
+remain the final backstops.
 
 Missing and unauthorized set cleanup returns the same non-enumerating
 `{"ok":true}` shape without mutation.
@@ -148,8 +173,11 @@ Missing and unauthorized set cleanup returns the same non-enumerating
 
 The Durable Object state remains version 1. Each V2 record is one ordinary V1
 reservation at `room/{roomId}/{recordObjectId}` with optional `setId`,
-`recordIndex`, `recordCount`, and `revokedAt` fields. Previous Workers ignore
-those extra fields while continuing to account, expire, and sweep the object.
+`recordIndex`, `recordCount`, and `revokedAt` fields. After any fixed expiry,
+internal `tombstoneQuietSince` and `tombstoneNextSweepAt` fields retain the
+exact-key late-arrival fence for one quiet hour. These fields cannot be supplied
+by public quota requests. Previous Workers ignore those extra fields while
+continuing to account, expire, and sweep the object.
 
 V2 batch admission is a single serialized state write. Ambiguous set-creation
 acknowledgement invokes an atomic batch release before any PUT URL has been
@@ -170,4 +198,15 @@ object path and V1 metadata subset.
 - Deploy the Worker before the app. A client must treat V2 `404`, `503`, or
   capability failure during negotiation as a pre-run V1 fallback, never as a
   mid-run transport swap.
-- Keep the 1-hour R2 object TTL and 1-day `room/` lifecycle backstop.
+- Keep V1 `OBJECT_TTL_SECONDS` at 1 hour, V2
+  `RECORD_SET_TTL_SECONDS` at 6 hours, and the 1-day `room/` lifecycle
+  backstop. Future offers rotate to a fresh immutable set with 60 seconds
+  remaining. The six-hour beta window intentionally covers one-hour-plus
+  tracks and ordinary long pauses; an already-open source paused beyond that
+  fixed window still requires a fresh playback offer rather than unsafe
+  in-place secret rebinding.
+- First-record readiness is intentionally not whole-file upload readiness.
+  Monitor tail upload terminal failures and guest three-minute ahead-record
+  wait exhaustion separately. Repeated failures indicate that playback-level
+  reoffer/rebind recovery is needed; the current beta must not be described as
+  seamlessly repairing an already-open reader after a permanent tail failure.

@@ -249,6 +249,11 @@ const fr: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Saisissez 8 chiffres',
   'connect.room_password_enabled': 'Les nouveaux participants devront saisir le mot de passe',
   'connect.room_password_disabled': 'Les participants n’ont plus besoin du mot de passe',
+  'connect.signaling_healthy': 'Serveur de la salle en ligne',
+  'connect.signaling_recovering': 'Rétablissement de la connexion au serveur',
+  'connect.signaling_failed': 'Échec de la connexion au serveur',
+  'connect.signaling_recover_action': 'Rétablir la connexion',
+  'connect.signaling_recovery_wait': 'Nouvelle vérification du serveur de la salle.',
   'connect.signaling_reconnecting': 'Reconnexion au serveur de la salle · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'La connexion au serveur de la salle est rétablie.',
   'connect.signaling_exhausted':

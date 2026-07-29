@@ -19,8 +19,12 @@ import { normalizeProRoomPin } from '../pro-room/room-code.ts';
 import { requestAccountNicknameChange } from './account.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { groupConnectedRoomMembers, type ConnectedRoomMember } from '../rooms/member-directory.ts';
-import { canContinueWithoutSignaling } from '../network/signaling-health.ts';
-import type { DeviceInfo, DevicePlatform, StandardRoomPermissionSet } from '../types/index.ts';
+import type {
+  DeviceInfo,
+  DevicePlatform,
+  SignalingHealthState,
+  StandardRoomPermissionSet,
+} from '../types/index.ts';
 import type {
   ProRoomAdministrator,
   ProRoomPermission,
@@ -50,6 +54,10 @@ function _guardHostSettingCtrl(): boolean {
 // ─── QR Code Generation ─────────────────────────────────────────
 
 const _qrGeneration = new Map<string, number>();
+const INVITE_LINK_ICON_PATH =
+  'M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z';
+const SIGNALING_RECOVERY_ICON_PATH =
+  'M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h8V3l-3.35 3.35z';
 
 async function generateQR(containerId: string): Promise<void> {
   const gen = (_qrGeneration.get(containerId) ?? 0) + 1;
@@ -60,6 +68,7 @@ async function generateQR(containerId: string): Promise<void> {
 
   const sessionCode = getState('network.sessionCode') || '';
   const sessionStarted = getState('setup.sessionStarted');
+  const shouldRestoreInviteFocus = container.contains(document.activeElement);
 
   if (!sessionStarted || !sessionCode || !/^\d{6}$/.test(sessionCode)) {
     const p = document.createElement('p');
@@ -67,6 +76,8 @@ async function generateQR(containerId: string): Promise<void> {
     p.setAttribute('data-i18n', 'connect.no_session');
     p.textContent = t('connect.no_session');
     container.replaceChildren(p);
+    createSignalingHealthStatus(container);
+    renderSignalingHealthStatus();
     return;
   }
 
@@ -75,6 +86,8 @@ async function generateQR(containerId: string): Promise<void> {
   loadingP.setAttribute('data-i18n', 'connect.generating_qr');
   loadingP.textContent = t('connect.generating_qr');
   container.replaceChildren(loadingP);
+  createSignalingHealthStatus(container);
+  renderSignalingHealthStatus();
 
   try {
     // QR generation happens only after a session exists. Keep its sizeable
@@ -111,11 +124,19 @@ async function generateQR(containerId: string): Promise<void> {
       svg.removeAttribute('height');
     }
 
+    createSignalingHealthStatus(container);
+
     // Copy invite link button
     const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
     copyBtn.className = 'btn-copy-invite-link';
-    copyBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg><span data-i18n="connect.copy_invite_link">${t('connect.copy_invite_link')}</span>`;
+    copyBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${INVITE_LINK_ICON_PATH}"/></svg><span data-i18n="connect.copy_invite_link">${t('connect.copy_invite_link')}</span>`;
     copyBtn.addEventListener('click', async () => {
+      if (_manualSignalingRecovery) return;
+      if (getState('network.signalingHealth').status === 'exhausted') {
+        void beginManualSignalingRecovery(false);
+        return;
+      }
       // Route through copyTextToClipboard so the textarea+execCommand fallback
       // kicks in on insecure contexts (HTTP LAN) and restricted webviews
       // (Toss in-app) where navigator.clipboard may reject or be absent.
@@ -123,6 +144,20 @@ async function generateQR(containerId: string): Promise<void> {
       showToast(ok ? t('connect.link_copied') : t('toast.copy_failed'));
     });
     container.appendChild(copyBtn);
+    syncSignalingInviteButtons();
+    renderSignalingHealthStatus();
+    if (
+      shouldRestoreInviteFocus &&
+      _signalingRecoveryDialogState === 'closed' &&
+      (document.activeElement === document.body ||
+        document.activeElement === document.documentElement)
+    ) {
+      try {
+        copyBtn.focus({ preventScroll: true });
+      } catch {
+        copyBtn.focus();
+      }
+    }
   } catch (e) {
     if (_qrGeneration.get(containerId) !== gen) return;
     log.warn('[Connect] QR generation failed', e);
@@ -131,6 +166,8 @@ async function generateQR(containerId: string): Promise<void> {
     errP.setAttribute('data-i18n', 'connect.no_session');
     errP.textContent = t('connect.no_session');
     container.replaceChildren(errP);
+    createSignalingHealthStatus(container);
+    renderSignalingHealthStatus();
   }
 }
 
@@ -140,8 +177,25 @@ function refreshAllQR(): void {
 }
 
 const SIGNALING_HEALTH_QR_IDS = ['qr-container', 'desktop-qr-container'] as const;
+const SIGNALING_RECOVERY_OVERLAY_ID = 'signaling-recovery-overlay';
+
+type SignalingHealthPresentation = 'healthy' | 'reconnecting' | 'exhausted';
+type SignalingRecoveryDialogState = 'closed' | 'failed' | 'retrying';
+
+interface ManualSignalingRecovery {
+  readonly boundary: string;
+  retryStarted: boolean;
+}
+
+let _manualSignalingRecovery: ManualSignalingRecovery | null = null;
+let _signalingRecoveryDialogState: SignalingRecoveryDialogState = 'closed';
+let _signalingRecoveryDialogBoundary: string | null = null;
+let _signalingRecoveryDialogPreviousFocus: HTMLElement | null = null;
 
 function createSignalingHealthStatus(qrContainer: HTMLElement): HTMLElement {
+  const existing = qrContainer.querySelector<HTMLElement>(':scope > .signaling-health-status');
+  if (existing) return existing;
+
   const status = document.createElement('div');
   status.className = 'signaling-health-status';
   status.id = `${qrContainer.id}-signaling-health`;
@@ -157,24 +211,9 @@ function createSignalingHealthStatus(qrContainer: HTMLElement): HTMLElement {
   message.setAttribute('aria-live', 'polite');
   message.setAttribute('aria-atomic', 'true');
 
-  const actions = document.createElement('span');
-  actions.className = 'signaling-health-actions';
-
-  const retry = document.createElement('button');
-  retry.type = 'button';
-  retry.className = 'signaling-health-action signaling-health-retry';
-  retry.addEventListener('click', () => {
-    void retrySignalingConnection();
-  });
-
-  const restart = document.createElement('button');
-  restart.type = 'button';
-  restart.className = 'signaling-health-action signaling-health-restart';
-  restart.addEventListener('click', restartRecoverableSession);
-
-  actions.append(retry, restart);
-  status.append(indicator, message, actions);
-  qrContainer.insertAdjacentElement('afterend', status);
+  status.append(indicator, message);
+  const inviteButton = qrContainer.querySelector<HTMLElement>(':scope > .btn-copy-invite-link');
+  qrContainer.insertBefore(status, inviteButton);
   return status;
 }
 
@@ -182,92 +221,301 @@ function ensureSignalingHealthStatuses(): void {
   for (const id of SIGNALING_HEALTH_QR_IDS) {
     const qrContainer = document.getElementById(id);
     if (!qrContainer) continue;
-    const next = qrContainer.nextElementSibling as HTMLElement | null;
-    if (next?.classList.contains('signaling-health-status')) continue;
     createSignalingHealthStatus(qrContainer);
   }
 }
 
-function recoverableSessionPath(): string | null {
+function signalingRecoveryBoundary(): string {
   const room = getRoomContext();
-  const code =
-    room.kind === 'pro'
-      ? room.roomId
-      : getState('network.appRole') === 'guest'
-        ? getState('network.lastJoinCode')
-        : null;
-  if (code && /^\d{6}$/.test(code)) return `/${code}`;
-  return room.kind === 'standard' && getState('network.appRole') === 'host' ? '/' : null;
+  return [
+    room.kind,
+    room.roomId ?? '',
+    getState('network.appRole'),
+    getState('network.sessionCode'),
+  ].join(':');
 }
 
-async function retrySignalingConnection(): Promise<void> {
-  if (getRoomContext().kind === 'pro') {
-    const { restartProRoomTransportRecovery } = await import('../pro-room/transport-recovery.ts');
-    restartProRoomTransportRecovery();
+function signalingHealthPresentation(
+  status: SignalingHealthState['status'],
+): SignalingHealthPresentation {
+  if (status === 'exhausted') return 'exhausted';
+  if (status === 'reconnecting') return 'reconnecting';
+  return 'healthy';
+}
+
+function syncSignalingInviteButtons(): void {
+  const health = getState('network.signalingHealth');
+  const recoveryInFlight = _manualSignalingRecovery !== null;
+  const mode = recoveryInFlight ? 'recovering' : health.status === 'exhausted' ? 'recover' : 'copy';
+  const labelKey =
+    mode === 'recovering'
+      ? 'connect.signaling_recovering'
+      : mode === 'recover'
+        ? 'connect.signaling_recover_action'
+        : 'connect.copy_invite_link';
+  const label = t(labelKey);
+
+  document.querySelectorAll<HTMLButtonElement>('.btn-copy-invite-link').forEach((button) => {
+    button.dataset.mode = mode;
+    // Keep the pressed trigger focusable while work is in flight. Native
+    // `disabled` drops focus to <body> in Chromium; the click guard above
+    // provides the same single-flight behavior without losing context.
+    button.disabled = false;
+    button.setAttribute('aria-disabled', mode === 'recovering' ? 'true' : 'false');
+    button.setAttribute('aria-busy', mode === 'recovering' ? 'true' : 'false');
+    button.setAttribute('aria-label', label);
+
+    const text = button.querySelector<HTMLElement>('span');
+    if (text) {
+      text.setAttribute('data-i18n', labelKey);
+      text.textContent = label;
+    }
+    button
+      .querySelector('path')
+      ?.setAttribute('d', mode === 'copy' ? INVITE_LINK_ICON_PATH : SIGNALING_RECOVERY_ICON_PATH);
+  });
+}
+
+function closeSignalingRecoveryDialog(): void {
+  const overlay = document.getElementById(SIGNALING_RECOVERY_OVERLAY_ID);
+  if (overlay) {
+    overlay.classList.remove('show');
+    overlay.setAttribute('aria-hidden', 'true');
+    syncOverlayState();
+  }
+
+  _signalingRecoveryDialogState = 'closed';
+  _signalingRecoveryDialogBoundary = null;
+  const previousFocus = _signalingRecoveryDialogPreviousFocus;
+  _signalingRecoveryDialogPreviousFocus = null;
+  if (previousFocus?.isConnected) {
+    try {
+      previousFocus.focus({ preventScroll: true });
+    } catch {
+      /* ignore stale focus targets */
+    }
+  }
+}
+
+function syncSignalingRecoveryDialogCopy(): void {
+  if (_signalingRecoveryDialogState === 'closed') return;
+  const title = document.getElementById('signaling-recovery-title');
+  const message = document.getElementById('signaling-recovery-message');
+  const confirm = document.getElementById(
+    'btn-signaling-recovery-confirm',
+  ) as HTMLButtonElement | null;
+  const retry = document.getElementById('btn-signaling-recovery-retry') as HTMLButtonElement | null;
+  if (!title || !message || !confirm || !retry) return;
+
+  const titleText =
+    _signalingRecoveryDialogState === 'retrying'
+      ? t('connect.signaling_recovering')
+      : t('connect.signaling_failed');
+  const messageText =
+    _signalingRecoveryDialogState === 'retrying'
+      ? t('connect.signaling_recovery_wait')
+      : t('connect.signaling_exhausted');
+  title.textContent = titleText;
+  message.textContent = messageText;
+  confirm.textContent = t('common.ok');
+  retry.textContent = t('connect.signaling_retry');
+  applyUserTextFontFallback(title, titleText);
+  applyUserTextFontFallback(message, messageText);
+}
+
+function setSignalingRecoveryDialogState(
+  state: Exclude<SignalingRecoveryDialogState, 'closed'>,
+  boundary = signalingRecoveryBoundary(),
+): void {
+  const overlay = document.getElementById(SIGNALING_RECOVERY_OVERLAY_ID);
+  const dialog = document.getElementById('signaling-recovery-dialog');
+  const title = document.getElementById('signaling-recovery-title');
+  const message = document.getElementById('signaling-recovery-message');
+  const actions = document.getElementById('signaling-recovery-actions');
+  const confirm = document.getElementById(
+    'btn-signaling-recovery-confirm',
+  ) as HTMLButtonElement | null;
+  const retry = document.getElementById('btn-signaling-recovery-retry') as HTMLButtonElement | null;
+
+  if (!overlay || !dialog || !title || !message || !actions || !confirm || !retry) {
+    if (state === 'failed') {
+      void showDialog({
+        title: t('connect.signaling_failed'),
+        message: t('connect.signaling_exhausted'),
+        buttonText: t('connect.signaling_retry'),
+        secondaryText: t('common.ok'),
+      }).then((result) => {
+        if (result.action === 'ok') void beginManualSignalingRecovery(true);
+      });
+    }
     return;
   }
-  const { retryPeerSignalingConnection } = await import('../network/peer.ts');
-  retryPeerSignalingConnection();
+
+  const wasOpen = overlay.classList.contains('show');
+  if (!wasOpen) {
+    _signalingRecoveryDialogPreviousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+
+  _signalingRecoveryDialogState = state;
+  _signalingRecoveryDialogBoundary = boundary;
+  dialog.dataset.state = state;
+  dialog.setAttribute('aria-busy', state === 'retrying' ? 'true' : 'false');
+  actions.hidden = state === 'retrying';
+  syncSignalingRecoveryDialogCopy();
+
+  overlay.classList.add('show');
+  overlay.setAttribute('aria-hidden', 'false');
+  syncOverlayState(SIGNALING_RECOVERY_OVERLAY_ID);
+
+  if (wasOpen) {
+    dialog.classList.remove('signaling-recovery-dialog-transition');
+    void dialog.offsetWidth;
+    dialog.classList.add('signaling-recovery-dialog-transition');
+  }
+
+  try {
+    (state === 'failed' ? confirm : dialog).focus({ preventScroll: true });
+  } catch {
+    /* ignore focus failures in detached test documents */
+  }
 }
 
-function restartRecoverableSession(): void {
-  const path = recoverableSessionPath();
-  if (!path) return;
-  scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.replace(path));
+function initSignalingRecoveryDialog(): void {
+  const overlay = document.getElementById(SIGNALING_RECOVERY_OVERLAY_ID);
+  const dialog = document.getElementById('signaling-recovery-dialog');
+  const confirm = document.getElementById(
+    'btn-signaling-recovery-confirm',
+  ) as HTMLButtonElement | null;
+  const retry = document.getElementById('btn-signaling-recovery-retry') as HTMLButtonElement | null;
+  if (!overlay || !dialog || !confirm || !retry || overlay.dataset.bound === 'true') return;
+  overlay.dataset.bound = 'true';
+
+  confirm.addEventListener('click', closeSignalingRecoveryDialog);
+  retry.addEventListener('click', () => {
+    void beginManualSignalingRecovery(true);
+  });
+  dialog.addEventListener('animationend', () => {
+    dialog.classList.remove('signaling-recovery-dialog-transition');
+  });
+  overlay.addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab') return;
+    if (_signalingRecoveryDialogState === 'retrying') {
+      event.preventDefault();
+      dialog.focus({ preventScroll: true });
+      return;
+    }
+
+    const focusables = [confirm, retry].filter((button) => !button.hidden && !button.disabled);
+    if (focusables.length === 0) return;
+    const first = focusables[0]!;
+    const last = focusables[focusables.length - 1]!;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+}
+
+async function retrySignalingConnection(): Promise<boolean> {
+  if (getRoomContext().kind === 'pro') {
+    const { restartProRoomTransportRecovery } = await import('../pro-room/transport-recovery.ts');
+    return restartProRoomTransportRecovery();
+  }
+  const { retryPeerSignalingConnection } = await import('../network/peer.ts');
+  return retryPeerSignalingConnection();
+}
+
+function finishManualSignalingRecovery(
+  recovery: ManualSignalingRecovery,
+  outcome: 'recovered' | 'failed',
+): void {
+  if (_manualSignalingRecovery !== recovery) return;
+  _manualSignalingRecovery = null;
+  syncSignalingInviteButtons();
+
+  if (outcome === 'recovered') {
+    if (_signalingRecoveryDialogState === 'retrying') closeSignalingRecoveryDialog();
+    return;
+  }
+
+  setSignalingRecoveryDialogState('failed', recovery.boundary);
+}
+
+async function beginManualSignalingRecovery(startedFromDialog: boolean): Promise<void> {
+  if (_manualSignalingRecovery || getState('network.signalingHealth').status !== 'exhausted') {
+    return;
+  }
+
+  const recovery: ManualSignalingRecovery = {
+    boundary: signalingRecoveryBoundary(),
+    retryStarted: false,
+  };
+  _manualSignalingRecovery = recovery;
+  if (startedFromDialog) setSignalingRecoveryDialogState('retrying', recovery.boundary);
+  syncSignalingInviteButtons();
+
+  let started = false;
+  try {
+    started = await retrySignalingConnection();
+  } catch (error) {
+    log.warn('[Connect] Could not restart signaling recovery', error);
+  }
+  if (_manualSignalingRecovery !== recovery) return;
+
+  recovery.retryStarted = started;
+  const health = getState('network.signalingHealth');
+  if (!started || health.status === 'exhausted') {
+    finishManualSignalingRecovery(recovery, 'failed');
+  } else if (health.status === 'healthy' || health.status === 'recovered') {
+    finishManualSignalingRecovery(recovery, 'recovered');
+  }
 }
 
 function renderSignalingHealthStatus(): void {
   ensureSignalingHealthStatuses();
   const health = getState('network.signalingHealth');
-  // A partial outage can later lose its last surviving data channel or local
-  // playback after the one-shot disconnect grace has already completed. Keep
-  // the recovery surface in that already-published outage instead of stranding
-  // the user between a hidden status and a dialog that will not reopen.
   const visible =
-    health.status !== 'healthy' &&
-    (canContinueWithoutSignaling() || getState('setup.sessionStarted'));
-  const isProRoom = getRoomContext().kind === 'pro';
-  const restartPath = health.status === 'exhausted' ? recoverableSessionPath() : null;
+    getState('setup.sessionStarted') && /^\d{6}$/.test(getState('network.sessionCode'));
+  const boundary = signalingRecoveryBoundary();
+  const recovery = _manualSignalingRecovery;
+
+  if (recovery && (!visible || recovery.boundary !== boundary)) {
+    _manualSignalingRecovery = null;
+    syncSignalingInviteButtons();
+    if (_signalingRecoveryDialogState !== 'closed') closeSignalingRecoveryDialog();
+  } else if (recovery && (health.status === 'healthy' || health.status === 'recovered')) {
+    finishManualSignalingRecovery(recovery, 'recovered');
+  } else if (recovery?.retryStarted && health.status === 'exhausted') {
+    finishManualSignalingRecovery(recovery, 'failed');
+  } else if (
+    _signalingRecoveryDialogState !== 'closed' &&
+    (!visible ||
+      _signalingRecoveryDialogBoundary !== boundary ||
+      (_signalingRecoveryDialogState === 'failed' && health.status !== 'exhausted'))
+  ) {
+    closeSignalingRecoveryDialog();
+  }
+
+  const presentation = signalingHealthPresentation(health.status);
+  const messageKey =
+    presentation === 'healthy'
+      ? 'connect.signaling_healthy'
+      : presentation === 'reconnecting'
+        ? 'connect.signaling_recovering'
+        : 'connect.signaling_failed';
+  syncSignalingInviteButtons();
 
   document.querySelectorAll<HTMLElement>('.signaling-health-status').forEach((status) => {
     status.hidden = !visible;
-    status.dataset.status = health.status;
+    status.dataset.status = presentation;
     const message = status.querySelector<HTMLElement>('.signaling-health-message');
     message?.setAttribute('aria-busy', health.status === 'reconnecting' ? 'true' : 'false');
     if (!visible) return;
-
-    const retry = status.querySelector<HTMLButtonElement>('.signaling-health-retry');
-    const restart = status.querySelector<HTMLButtonElement>('.signaling-health-restart');
-    if (health.status === 'reconnecting') {
-      if (message) {
-        message.textContent = t('connect.signaling_reconnecting', {
-          attempt: health.attempt,
-          max: health.maxAttempts,
-        });
-      }
-    } else if (health.status === 'recovered') {
-      if (message) message.textContent = t('connect.signaling_recovered');
-    } else if (health.status === 'exhausted') {
-      if (message) {
-        message.textContent = t(
-          isProRoom ? 'connect.signaling_exhausted_pro' : 'connect.signaling_exhausted',
-        );
-      }
-    }
-
-    const showActions = health.status === 'exhausted';
-    if (retry) {
-      retry.hidden = !showActions;
-      retry.textContent = t('connect.signaling_retry');
-    }
-    if (restart) {
-      restart.hidden = !showActions || restartPath === null;
-      restart.textContent = t(
-        !isProRoom && getState('network.appRole') === 'host'
-          ? 'connect.signaling_new_room'
-          : 'connect.signaling_restart',
-      );
-    }
+    if (message) message.textContent = t(messageKey);
   });
 }
 
@@ -1522,6 +1770,7 @@ export function initConnect(): void {
   _busScope.dispose();
 
   ensureSignalingHealthStatuses();
+  initSignalingRecoveryDialog();
   renderSignalingHealthStatus();
   initRoomPasswordControls();
   initAdministratorPermissionsDialog();
@@ -1560,6 +1809,7 @@ export function initConnect(): void {
     syncRoomPasswordControls();
     renderConnectDeviceList(_lastDeviceList);
     renderSignalingHealthStatus();
+    syncSignalingRecoveryDialogCopy();
   });
 
   _busScope.on('network:device-list-update', (list: unknown[]) => {
@@ -1583,6 +1833,7 @@ export function initConnect(): void {
   // sessionCode is set before sessionStarted — both trigger QR refresh
   _busScope.on('state:network.sessionCode', () => {
     refreshAllQR();
+    renderSignalingHealthStatus();
   });
   _busScope.on('state:setup.sessionStarted', () => {
     refreshAllQR();

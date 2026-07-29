@@ -247,6 +247,11 @@ const it: Record<I18nKey, string> = {
   'connect.room_password_enabled': 'Ora è richiesta la password per accedere a questa stanza',
   'connect.room_password_disabled':
     'Ora non è più richiesta la password per accedere a questa stanza',
+  'connect.signaling_healthy': 'Server della stanza online',
+  'connect.signaling_recovering': 'Ripristino della connessione al server',
+  'connect.signaling_failed': 'Connessione al server non riuscita',
+  'connect.signaling_recover_action': 'Ripristina connessione',
+  'connect.signaling_recovery_wait': 'Nuovo controllo del server della stanza.',
   'connect.signaling_reconnecting': 'Riconnessione al server della stanza · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Connessione al server della stanza ripristinata.',
   'connect.signaling_exhausted':

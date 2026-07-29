@@ -248,6 +248,11 @@ const nl: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Voer 8 cijfers in',
   'connect.room_password_enabled': 'Nieuwe deelnemers hebben het wachtwoord nodig',
   'connect.room_password_disabled': 'Deelnemers hebben geen wachtwoord meer nodig',
+  'connect.signaling_healthy': 'Kamerserver online',
+  'connect.signaling_recovering': 'Serververbinding wordt hersteld',
+  'connect.signaling_failed': 'Serververbinding mislukt',
+  'connect.signaling_recover_action': 'Serververbinding herstellen',
+  'connect.signaling_recovery_wait': 'De kamerserver wordt opnieuw gecontroleerd.',
   'connect.signaling_reconnecting': 'Opnieuw verbinden met de kamerserver · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Verbinding met de kamerserver hersteld.',
   'connect.signaling_exhausted':

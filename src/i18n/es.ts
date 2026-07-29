@@ -249,6 +249,11 @@ const es: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Ingresa 8 dígitos',
   'connect.room_password_enabled': 'Los nuevos participantes necesitarán la contraseña de la sala',
   'connect.room_password_disabled': 'Los participantes ya no necesitan la contraseña de la sala',
+  'connect.signaling_healthy': 'Servidor de la sala disponible',
+  'connect.signaling_recovering': 'Restableciendo la conexión del servidor',
+  'connect.signaling_failed': 'Falló la conexión con el servidor',
+  'connect.signaling_recover_action': 'Restablecer conexión',
+  'connect.signaling_recovery_wait': 'Comprobando de nuevo el servidor de la sala.',
   'connect.signaling_reconnecting': 'Reconectando con el servidor de la sala · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Se restableció la conexión con el servidor de la sala.',
   'connect.signaling_exhausted':

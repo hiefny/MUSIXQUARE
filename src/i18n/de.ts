@@ -250,6 +250,11 @@ const de: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Gib 8 Ziffern ein',
   'connect.room_password_enabled': 'Neue Gäste benötigen das Raumpasswort',
   'connect.room_password_disabled': 'Gäste benötigen kein Raumpasswort mehr',
+  'connect.signaling_healthy': 'Raumserver online',
+  'connect.signaling_recovering': 'Serververbindung wird wiederhergestellt',
+  'connect.signaling_failed': 'Serververbindung fehlgeschlagen',
+  'connect.signaling_recover_action': 'Serververbindung wiederherstellen',
+  'connect.signaling_recovery_wait': 'Der Raumserver wird erneut geprüft.',
   'connect.signaling_reconnecting':
     'Verbindung zum Raumserver wird wiederhergestellt · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Verbindung zum Raumserver wiederhergestellt.',

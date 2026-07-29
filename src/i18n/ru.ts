@@ -244,6 +244,11 @@ const ru: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Введите 8-значный пароль',
   'connect.room_password_enabled': 'Для входа в эту комнату теперь требуется пароль',
   'connect.room_password_disabled': 'Для входа в эту комнату больше не требуется пароль',
+  'connect.signaling_healthy': 'Сервер комнаты доступен',
+  'connect.signaling_recovering': 'Восстановление подключения к серверу',
+  'connect.signaling_failed': 'Не удалось подключиться к серверу',
+  'connect.signaling_recover_action': 'Восстановить подключение',
+  'connect.signaling_recovery_wait': 'Повторная проверка сервера комнаты.',
   'connect.signaling_reconnecting': 'Повторное подключение к серверу комнаты · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Подключение к серверу комнаты восстановлено.',
   'connect.signaling_exhausted':

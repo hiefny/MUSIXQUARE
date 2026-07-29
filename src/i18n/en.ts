@@ -247,6 +247,11 @@ const en: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Enter 8 digits',
   'connect.room_password_enabled': 'New participants will need the room password',
   'connect.room_password_disabled': 'Participants no longer need the room password',
+  'connect.signaling_healthy': 'Room server online',
+  'connect.signaling_recovering': 'Restoring server connection',
+  'connect.signaling_failed': 'Server connection failed',
+  'connect.signaling_recover_action': 'Restore server connection',
+  'connect.signaling_recovery_wait': 'Checking the room server again.',
   'connect.signaling_reconnecting': 'Reconnecting to the room server · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Room server connection restored.',
   'connect.signaling_exhausted':

@@ -139,11 +139,12 @@ afterEach(() => {
 });
 
 describe('network initialization ownership', () => {
-  it('keeps the ordinary-room signaling-loss dialog after its grace period', async () => {
+  it('keeps an idle ordinary host on the in-place signaling recovery surface', async () => {
     vi.useFakeTimers();
     const peer = makePeer('STANDARD-HOST', true);
     mocks.createTransportPeer.mockResolvedValueOnce(peer);
-    await createHostSessionWithShortCode(1);
+    const sessionCode = await createHostSessionWithShortCode(1);
+    setState('network.sessionCode', sessionCode);
     setState('setup.sessionStarted', true);
 
     expect(mocks.createTransportPeer).toHaveBeenCalledWith(
@@ -158,10 +159,11 @@ describe('network initialization ownership', () => {
     );
 
     peer.fire('disconnected');
-    expect(getState('network.signalingHealth').status).toBe('healthy');
+    expect(getState('network.signalingHealth').status).toBe('reconnecting');
     await vi.advanceTimersByTimeAsync(5_000);
 
-    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(getState('network.signalingHealth').status).toBe('reconnecting');
+    expect(mocks.showDialog).not.toHaveBeenCalled();
     expect(mocks.showToast).not.toHaveBeenCalled();
   });
 
@@ -354,6 +356,55 @@ describe('network initialization ownership', () => {
     expect(peerA.destroy).toHaveBeenCalled();
     expect(getPeer()).toBe(peerB);
     expect(getState('network.myId')).toBe('HOST-B');
+  });
+
+  it('does not let an old peer reconnect timer act on its replacement', async () => {
+    vi.useFakeTimers();
+    const peerA = makePeer('HOST-A', true);
+    const peerB = makePeer('HOST-B', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peerA).mockResolvedValueOnce(peerB);
+
+    const firstCode = await createHostSessionWithShortCode(1);
+    setState('network.sessionCode', firstCode);
+    setState('setup.sessionStarted', true);
+    peerA.fire('disconnected');
+
+    await createHostSessionWithShortCode(1);
+    setState('network.sessionCode', '654321');
+    setState('setup.sessionStarted', true);
+    peerB.disconnected = true;
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(getPeer()).toBe(peerB);
+    expect(peerA.reconnect).not.toHaveBeenCalled();
+    expect(peerB.reconnect).not.toHaveBeenCalled();
+  });
+
+  it('does not let an old peer grace timer evaluate its replacement', async () => {
+    vi.useFakeTimers();
+    const peerA = makePeer('HOST-A', true);
+    const peerB = makePeer('HOST-B', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peerA).mockResolvedValueOnce(peerB);
+
+    const firstCode = await createHostSessionWithShortCode(1);
+    setState('network.sessionCode', firstCode);
+    setState('setup.sessionStarted', true);
+    peerA.fire('disconnected');
+
+    await createHostSessionWithShortCode(1);
+    setState('network.sessionCode', '654321');
+    setState('setup.sessionStarted', true);
+
+    // Let A's reconnect timer expire while B is healthy, then disconnect only
+    // B before A's grace period expires. A's grace must not evaluate B.
+    await vi.advanceTimersByTimeAsync(1_000);
+    peerB.disconnected = true;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', null);
+    await vi.advanceTimersByTimeAsync(4_000);
+
+    expect(getPeer()).toBe(peerB);
+    expect(mocks.showDialog).not.toHaveBeenCalled();
   });
 
   it('does not let host A publish after cancellation and host B succeeds', async () => {

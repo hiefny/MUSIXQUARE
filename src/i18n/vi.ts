@@ -248,6 +248,11 @@ const vi: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Nhập 8 chữ số',
   'connect.room_password_enabled': 'Khách mới sẽ cần mật khẩu phòng',
   'connect.room_password_disabled': 'Khách không cần mật khẩu phòng nữa',
+  'connect.signaling_healthy': 'Máy chủ phòng đang hoạt động',
+  'connect.signaling_recovering': 'Đang khôi phục kết nối máy chủ',
+  'connect.signaling_failed': 'Kết nối máy chủ thất bại',
+  'connect.signaling_recover_action': 'Khôi phục kết nối',
+  'connect.signaling_recovery_wait': 'Đang kiểm tra lại máy chủ phòng.',
   'connect.signaling_reconnecting': 'Đang kết nối lại với máy chủ phòng · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Đã khôi phục kết nối máy chủ phòng.',
   'connect.signaling_exhausted':

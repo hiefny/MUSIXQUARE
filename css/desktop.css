@@ -23,9 +23,7 @@
       --desktop-ui-scale: 1;
       --desktop-layout-ratio: 1;
       --desktop-viewport-width: calc(100vw * var(--desktop-layout-ratio));
-      --desktop-viewport-height: calc(
-        var(--app-height, 100dvh) * var(--desktop-layout-ratio)
-      );
+      --desktop-viewport-height: calc(var(--app-height, 100dvh) * var(--desktop-layout-ratio));
     }
 
     /* Browser chrome and the OS taskbar reduce a maximized QHD viewport well
@@ -288,17 +286,11 @@
     .vinyl-wrapper {
       width: max(
         160px,
-        min(
-          calc(22vw * var(--desktop-layout-ratio)),
-          calc(30vh * var(--desktop-layout-ratio))
-        )
+        min(calc(22vw * var(--desktop-layout-ratio)), calc(30vh * var(--desktop-layout-ratio)))
       );
       height: max(
         160px,
-        min(
-          calc(22vw * var(--desktop-layout-ratio)),
-          calc(30vh * var(--desktop-layout-ratio))
-        )
+        min(calc(22vw * var(--desktop-layout-ratio)), calc(30vh * var(--desktop-layout-ratio)))
       );
       flex-shrink: 0;
       flex-basis: auto;
@@ -312,10 +304,7 @@
       width: calc(100% - 64px);
       height: max(
         160px,
-        min(
-          calc(22vw * var(--desktop-layout-ratio)),
-          calc(30vh * var(--desktop-layout-ratio))
-        )
+        min(calc(22vw * var(--desktop-layout-ratio)), calc(30vh * var(--desktop-layout-ratio)))
       );
       aspect-ratio: auto;
       max-width: none;
@@ -328,17 +317,11 @@
       .vinyl-wrapper {
         width: max(
           160px,
-          min(
-            calc(28vw * var(--desktop-layout-ratio)),
-            calc(42vh * var(--desktop-layout-ratio))
-          )
+          min(calc(28vw * var(--desktop-layout-ratio)), calc(42vh * var(--desktop-layout-ratio)))
         );
         height: max(
           160px,
-          min(
-            calc(28vw * var(--desktop-layout-ratio)),
-            calc(42vh * var(--desktop-layout-ratio))
-          )
+          min(calc(28vw * var(--desktop-layout-ratio)), calc(42vh * var(--desktop-layout-ratio)))
         );
       }
 
@@ -346,10 +329,7 @@
         width: calc(100% - 64px);
         height: max(
           160px,
-          min(
-            calc(28vw * var(--desktop-layout-ratio)),
-            calc(42vh * var(--desktop-layout-ratio))
-          )
+          min(calc(28vw * var(--desktop-layout-ratio)), calc(42vh * var(--desktop-layout-ratio)))
         );
       }
     }

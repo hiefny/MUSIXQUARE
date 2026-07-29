@@ -246,6 +246,11 @@ const pl: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Wpisz 8-cyfrowe hasło',
   'connect.room_password_enabled': 'Wejście do tego pokoju wymaga teraz hasła',
   'connect.room_password_disabled': 'Wejście do tego pokoju nie wymaga już hasła',
+  'connect.signaling_healthy': 'Serwer pokoju jest online',
+  'connect.signaling_recovering': 'Przywracanie połączenia z serwerem',
+  'connect.signaling_failed': 'Połączenie z serwerem nie powiodło się',
+  'connect.signaling_recover_action': 'Przywróć połączenie',
+  'connect.signaling_recovery_wait': 'Ponowne sprawdzanie serwera pokoju.',
   'connect.signaling_reconnecting': 'Ponowne łączenie z serwerem pokoju · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Połączenie z serwerem pokoju zostało przywrócone.',
   'connect.signaling_exhausted':

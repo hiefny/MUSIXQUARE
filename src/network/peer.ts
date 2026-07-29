@@ -35,7 +35,7 @@ import { getRoomContext } from '../rooms/authority.ts';
 import { getStandardRoomTurnCredentials } from './standard-room-prerequisites.ts';
 import { getFilePlaybackProductRuntime } from '../player/file-playback-product-runtime.ts';
 import {
-  canContinueWithoutSignaling,
+  canRecoverSignalingInPlace,
   publishSignalingExhausted,
   publishSignalingReconnectAttempt,
   publishSignalingRecovered,
@@ -431,11 +431,10 @@ export async function createHostSessionWithShortCode(maxAttempts = 12): Promise<
 // before calling reconnect() — if a prior attempt already succeeded (or
 // the user left the session), we bail and reset the counter.
 //
-// Backoff total: 1+2+4+8+15 = 30s across 5 attempts. After that we give up
-// and let the existing 5s grace dialog (peer.on('disconnected') below)
-// surface the failure to the user IF data channels are also dead. If data
-// channels are still alive, we silently degrade: existing playback works,
-// just no new joins.
+// Backoff total: 1+2+4+8+15 = 30s across 5 attempts. After that an active,
+// recoverable room keeps its existing channels/media and exposes the failed
+// signaling state in Connect. A guest with no surviving room surface still
+// falls through to the lost-session dialog below.
 let _reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = SIGNALING_RECOVERY_MAX_ATTEMPTS;
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
@@ -518,12 +517,15 @@ function attemptPeerReconnect(): void {
   setManagedTimer(
     'peer-signaling-reconnect',
     () => {
-      const p = getPeer();
-      if (!p || p.destroyed) {
+      // This timer belongs to the peer generation that scheduled it. A newer
+      // init can replace the singleton before the backoff expires; never let
+      // the old generation reconnect or reset counters for its successor.
+      if (getPeer() !== peer) return;
+      if (peer.destroyed) {
         _reconnectAttempts = 0;
         return;
       }
-      void performScheduledPeerReconnect(p);
+      void performScheduledPeerReconnect(peer);
     },
     delay,
   );
@@ -650,9 +652,9 @@ function setupPeerEvents(peer: PeerInstance): void {
     //   1. appRole must be set (post-bootstrap).
     //   2. After 5s grace, peer.disconnected must STILL be true.
     //   3. AND there must be no functional data connection (host: no live
-    //      ConnectedPeer.conn; guest: hostConn closed). If either side
-    //      still has a working channel, the session is functional and
-    //      the user shouldn't be bounced to a reload.
+    //      ConnectedPeer.conn; guest: hostConn closed). A standard host room
+    //      with a valid code remains recoverable even before its first guest,
+    //      so it stays in place and exposes the Connect-tab recovery action.
     const appRole = getState('network.appRole');
     if (appRole !== 'host' && appRole !== 'guest') return;
 
@@ -660,7 +662,9 @@ function setupPeerEvents(peer: PeerInstance): void {
       'peer-disconnect-grace',
       () => {
         const currentPeer = getPeer();
-        if (!currentPeer || !currentPeer.disconnected) return; // signaling recovered
+        // Scope the grace period to the peer whose disconnect created it.
+        // A replacement peer must be evaluated only by its own events.
+        if (currentPeer !== peer || peer.destroyed || !peer.disconnected) return;
 
         // Skip the dialog if we still have a working channel — the session
         // is functional even without signaling (no new peers can join, but
@@ -686,9 +690,9 @@ function setupPeerEvents(peer: PeerInstance): void {
           }
         }
 
-        if (getRoomContext().kind === 'standard' && canContinueWithoutSignaling()) {
+        if (getRoomContext().kind === 'standard' && canRecoverSignalingInPlace()) {
           log.info(
-            '[Transport] Signaling disconnected but local media remains active — skipping dialog',
+            '[Transport] Standard room can recover signaling in place — skipping lost-session dialog',
           );
           return;
         }

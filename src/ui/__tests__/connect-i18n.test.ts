@@ -17,7 +17,10 @@ import {
 } from '../../pro-room/runtime.ts';
 import { showToast } from '../toast.ts';
 import { showDialog, type DialogResult } from '../dialog.ts';
+import { copyTextToClipboard } from '../dom.ts';
 import { initConnect } from '../connect.ts';
+import { retryPeerSignalingConnection } from '../../network/peer.ts';
+import { restartProRoomTransportRecovery } from '../../pro-room/transport-recovery.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
 import type { ProRoomAdministrator } from '../../pro-room/contracts.ts';
 
@@ -34,6 +37,22 @@ vi.mock('../dialog.ts', () => ({
   showDialog: vi.fn(),
 }));
 
+vi.mock('../dom.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../dom.ts')>();
+  return {
+    ...actual,
+    copyTextToClipboard: vi.fn(async () => true),
+  };
+});
+
+vi.mock('../../network/peer.ts', () => ({
+  retryPeerSignalingConnection: vi.fn(() => true),
+}));
+
+vi.mock('../../pro-room/transport-recovery.ts', () => ({
+  restartProRoomTransportRecovery: vi.fn(() => true),
+}));
+
 vi.mock('../../pro-room/runtime.ts', () => ({
   changeActiveProRoomPin: vi.fn(),
   getActiveProRoomAdministrators: vi.fn(() => []),
@@ -44,6 +63,9 @@ vi.mock('../../pro-room/runtime.ts', () => ({
 }));
 
 const mockedShowDialog = vi.mocked(showDialog);
+const mockedCopyTextToClipboard = vi.mocked(copyTextToClipboard);
+const mockedRetryPeerSignalingConnection = vi.mocked(retryPeerSignalingConnection);
+const mockedRestartProRoomTransportRecovery = vi.mocked(restartProRoomTransportRecovery);
 const mockedChangeActiveProRoomPin = vi.mocked(changeActiveProRoomPin);
 const mockedGetActiveProRoomAdministrators = vi.mocked(getActiveProRoomAdministrators);
 const mockedKickActiveProRoomMember = vi.mocked(kickActiveProRoomMember);
@@ -67,6 +89,9 @@ beforeEach(() => {
   resetState();
   bus.clear();
   vi.clearAllMocks();
+  mockedCopyTextToClipboard.mockResolvedValue(true);
+  mockedRetryPeerSignalingConnection.mockReturnValue(true);
+  mockedRestartProRoomTransportRecovery.mockReturnValue(true);
   localStorage.clear();
   document.body.innerHTML = `
     <div id="qr-container"></div>
@@ -96,6 +121,22 @@ beforeEach(() => {
     <div id="desktop-device-list"></div>
     <button id="btn-change-nickname"></button>
     <button id="desktop-btn-change-nickname"></button>
+    <div id="signaling-recovery-overlay" aria-hidden="true">
+      <div
+        id="signaling-recovery-dialog"
+        role="dialog"
+        aria-busy="false"
+        data-state="failed"
+        tabindex="-1"
+      >
+        <span id="signaling-recovery-title"></span>
+        <div id="signaling-recovery-message"></div>
+        <div id="signaling-recovery-actions">
+          <button id="btn-signaling-recovery-confirm"></button>
+          <button id="btn-signaling-recovery-retry"></button>
+        </div>
+      </div>
+    </div>
     <div id="administrator-permissions-overlay" aria-hidden="true">
       <div
         id="administrator-permissions-dialog"
@@ -121,10 +162,40 @@ function makeConnection(peer = 'host-1'): DataConnection {
   return { peer, open: true } as DataConnection;
 }
 
+async function startHostSessionWithQR(): Promise<HTMLButtonElement> {
+  setState('network.appRole', 'host');
+  initConnect();
+  setState('network.sessionCode', '123456');
+  setState('setup.sessionStarted', true);
+  await vi.waitFor(() => {
+    expect(document.querySelectorAll('.btn-copy-invite-link')).toHaveLength(2);
+  });
+  return document.querySelector<HTMLButtonElement>('.btn-copy-invite-link')!;
+}
+
 describe('connect signaling health status', () => {
-  it('renders a polite, atomic reconnect status with the bounded attempt', () => {
+  it('shows a compact healthy status only while a room is active', () => {
+    initConnect();
+    const initialStatuses = document.querySelectorAll<HTMLElement>('.signaling-health-status');
+    expect(initialStatuses).toHaveLength(2);
+    for (const status of initialStatuses) expect(status.hidden).toBe(true);
+
+    setState('network.appRole', 'host');
+    setState('network.sessionCode', '123456');
+    setState('setup.sessionStarted', true);
+
+    const statuses = document.querySelectorAll<HTMLElement>('.signaling-health-status');
+    for (const status of statuses) {
+      expect(status.hidden).toBe(false);
+      expect(status.dataset.status).toBe('healthy');
+      expect(status.textContent).toBe('연결 서버 정상');
+    }
+  });
+
+  it('maps reconnecting to yellow recovery copy and recovered back to healthy', () => {
     setState('setup.sessionStarted', true);
     setState('network.appRole', 'guest');
+    setState('network.sessionCode', '123456');
     setState('network.hostConn', makeConnection());
     initConnect();
 
@@ -144,18 +215,28 @@ describe('connect signaling health status', () => {
       expect(message?.getAttribute('aria-live')).toBe('polite');
       expect(message?.getAttribute('aria-atomic')).toBe('true');
       expect(message?.getAttribute('aria-busy')).toBe('true');
-      expect(status.textContent).toContain('2/5');
+      expect(status.dataset.status).toBe('reconnecting');
+      expect(status.textContent).toBe('서버 복구 중');
+    }
+
+    setState('network.signalingHealth', {
+      status: 'recovered',
+      attempt: 0,
+      maxAttempts: 5,
+    });
+
+    for (const status of statuses) {
+      expect(status.hidden).toBe(false);
+      expect(status.dataset.status).toBe('healthy');
+      expect(status.textContent).toBe('연결 서버 정상');
+      expect(
+        status.querySelector<HTMLElement>('.signaling-health-message')?.getAttribute('aria-busy'),
+      ).toBe('false');
     }
   });
 
-  it('shows explicit retry and safe guest restart only after exhaustion', () => {
-    setLanguageMode('en');
-    setState('setup.sessionStarted', true);
-    setState('network.appRole', 'guest');
-    setState('network.lastJoinCode', '123456');
-    setState('network.hostConn', makeConnection());
-    initConnect();
-
+  it('replaces both invite buttons with one recovery action after exhaustion', async () => {
+    await startHostSessionWithQR();
     setState('network.signalingHealth', {
       status: 'exhausted',
       attempt: 0,
@@ -163,67 +244,279 @@ describe('connect signaling health status', () => {
     });
 
     const status = document.querySelector<HTMLElement>('.signaling-health-status');
-    const retry = status?.querySelector<HTMLButtonElement>('.signaling-health-retry');
-    const restart = status?.querySelector<HTMLButtonElement>('.signaling-health-restart');
     const message = status?.querySelector<HTMLElement>('.signaling-health-message');
     expect(status?.hidden).toBe(false);
+    expect(status?.dataset.status).toBe('exhausted');
+    expect(status?.textContent).toBe('서버 연결 실패');
     expect(message?.getAttribute('aria-busy')).toBe('false');
-    expect(retry?.hidden).toBe(false);
-    expect(retry?.type).toBe('button');
-    expect(retry?.textContent).toBe('Retry');
-    expect(restart?.hidden).toBe(false);
-    expect(restart?.type).toBe('button');
-    expect(restart?.textContent).toBe('Restart session');
+    expect(status?.querySelector('.signaling-health-actions')).toBeNull();
+    bus.emit('ui:connect-tab-opened');
+    await vi.waitFor(() => {
+      const regenerated = document.querySelectorAll<HTMLButtonElement>('.btn-copy-invite-link');
+      expect(regenerated).toHaveLength(2);
+      for (const button of regenerated) expect(button.dataset.mode).toBe('recover');
+    });
+    const buttons = document.querySelectorAll<HTMLButtonElement>('.btn-copy-invite-link');
+    expect(buttons).toHaveLength(2);
+    for (const button of buttons) {
+      const status = button.previousElementSibling as HTMLElement | null;
+      expect(status?.classList.contains('signaling-health-status')).toBe(true);
+      expect(status?.parentElement).toBe(button.parentElement);
+      expect(status?.previousElementSibling?.classList.contains('qr-svg')).toBe(true);
+      expect(button.dataset.mode).toBe('recover');
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute('aria-disabled')).toBe('false');
+      expect(button.textContent).toBe('서버 복구하기');
+    }
   });
 
-  it('offers an exhausted ordinary host a safe path to start a new room', () => {
-    setLanguageMode('en');
-    setState('setup.sessionStarted', true);
-    setState('network.appRole', 'host');
-    setState('network.connectedPeers', [
-      {
-        id: 'guest-1',
-        slot: 1,
-        label: 'Guest',
-        joinOrder: 1,
-        status: 'connected',
-        isOp: false,
-        preloadedQueueItemIds: new Set(),
-        isDataTarget: true,
-        connectionType: 'local',
-        lastHeartbeat: Date.now(),
-        conn: makeConnection('guest-1'),
-      },
+  it('uses the unboxed MUSIXQUARE status row and dedicated recovery dialog shell', async () => {
+    const [stylesheet, markup, domSource] = await Promise.all([
+      readFile('css/style.css', 'utf8'),
+      readFile('index.html', 'utf8'),
+      readFile('src/ui/dom.ts', 'utf8'),
     ]);
-    initConnect();
+    const statusRules = stylesheet.match(/\.signaling-health-status\s*\{([^}]*)\}/)?.[1] ?? '';
+    const qrContainerRules = stylesheet.match(/\.qr-container\s*\{([^}]*)\}/)?.[1] ?? '';
+    const inviteButtonRules = stylesheet.match(/\.btn-copy-invite-link\s*\{([^}]*)\}/)?.[1] ?? '';
 
-    setState('network.signalingHealth', {
-      status: 'exhausted',
-      attempt: 0,
-      maxAttempts: 5,
-    });
-
-    const restart = document.querySelector<HTMLButtonElement>('.signaling-health-restart');
-    expect(restart?.hidden).toBe(false);
-    expect(restart?.textContent).toBe('Start a new room');
+    expect(qrContainerRules).toContain('gap: 12px');
+    expect(statusRules).toContain('display: flex');
+    expect(statusRules).toContain('justify-content: center');
+    expect(statusRules).toContain('gap: 11px');
+    expect(statusRules).toContain('margin: 0');
+    expect(inviteButtonRules).toContain('margin: 0');
+    expect(statusRules).toContain('color: var(--text-main)');
+    expect(statusRules).toContain('font-weight: 600');
+    expect(statusRules).toContain('transform: translateY(-8px)');
+    expect(stylesheet).toContain('box-shadow: 0 0 0 4px rgba(32, 164, 90, 0.12)');
+    expect(stylesheet).toContain('box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.13)');
+    expect(stylesheet).toContain('box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12)');
+    expect(statusRules).not.toContain('border:');
+    expect(statusRules).not.toContain('background:');
+    expect(stylesheet).toContain(
+      ".signaling-health-status[data-status='exhausted'] .signaling-health-indicator",
+    );
+    expect(stylesheet).toContain('background: var(--danger-filled)');
+    expect(stylesheet).not.toContain(
+      '.signaling-health-status:not([hidden]) + .btn-copy-invite-link',
+    );
+    expect(markup).toContain('id="signaling-recovery-overlay"');
+    expect(markup).toContain('aria-labelledby="signaling-recovery-title"');
+    expect(domSource).toContain("{ id: 'signaling-recovery-overlay', cls: 'show'");
+    expect(stylesheet).toMatch(
+      /\.signaling-recovery-dialog\[data-state='retrying'\] \.dialog-actions\s*\{\s*display:\s*none;/,
+    );
+    expect(stylesheet).toContain(
+      "[data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover",
+    );
+    expect(stylesheet).not.toContain("[data-theme='light'] .btn-copy-invite-link:hover");
   });
 
-  it('keeps recovery actions after an established partial outage loses its last live surface', () => {
-    setState('setup.sessionStarted', true);
-    setState('network.appRole', 'guest');
-    setState('network.hostConn', makeConnection());
-    initConnect();
+  it('opens the requested failure dialog only after a manual recovery fails', async () => {
+    const button = await startHostSessionWithQR();
+    setState('network.signalingHealth', {
+      status: 'exhausted',
+      attempt: 0,
+      maxAttempts: 5,
+    });
+    mockedRetryPeerSignalingConnection.mockImplementationOnce(() => {
+      setState('network.signalingHealth', {
+        status: 'reconnecting',
+        attempt: 1,
+        maxAttempts: 5,
+      });
+      return true;
+    });
+
+    button.focus();
+    button.click();
+    // Re-rendering while the dynamic import is still pending must not treat
+    // the inherited exhausted state as the result of the new retry.
+    setState('network.signalingHealth', {
+      status: 'exhausted',
+      attempt: 0,
+      maxAttempts: 5,
+    });
+    expect(document.activeElement).toBe(button);
+    expect(document.getElementById('signaling-recovery-overlay')?.classList.contains('show')).toBe(
+      false,
+    );
+    await vi.waitFor(() => expect(mockedRetryPeerSignalingConnection).toHaveBeenCalledOnce());
+    expect(mockedCopyTextToClipboard).not.toHaveBeenCalled();
+    expect(button.dataset.mode).toBe('recovering');
+    expect(button.disabled).toBe(false);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(button.getAttribute('aria-busy')).toBe('true');
+    expect(document.getElementById('signaling-recovery-overlay')?.classList.contains('show')).toBe(
+      false,
+    );
+
     setState('network.signalingHealth', {
       status: 'exhausted',
       attempt: 0,
       maxAttempts: 5,
     });
 
-    expect(document.querySelector<HTMLElement>('.signaling-health-status')?.hidden).toBe(false);
-    setState('network.hostConn', null);
-    const status = document.querySelector<HTMLElement>('.signaling-health-status');
-    expect(status?.hidden).toBe(false);
-    expect(status?.querySelector<HTMLButtonElement>('.signaling-health-retry')?.hidden).toBe(false);
+    const overlay = document.getElementById('signaling-recovery-overlay')!;
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(overlay.getAttribute('aria-hidden')).toBe('false');
+    expect(document.getElementById('signaling-recovery-dialog')?.dataset.state).toBe('failed');
+    expect(document.getElementById('signaling-recovery-title')?.textContent).toBe('서버 연결 실패');
+    expect(document.getElementById('signaling-recovery-message')?.textContent).toBe(
+      '연결 서버가 응답하지 않아요. 새 참여자를 초대할 수 없어요.',
+    );
+    expect(document.getElementById('btn-signaling-recovery-confirm')?.textContent).toBe('확인');
+    expect(document.getElementById('btn-signaling-recovery-retry')?.textContent).toBe('재시도');
+
+    document.getElementById('btn-signaling-recovery-confirm')?.click();
+    expect(overlay.classList.contains('show')).toBe(false);
+    expect(document.activeElement).toBe(button);
+    expect(getState('network.sessionCode')).toBe('123456');
+    expect(getState('setup.sessionStarted')).toBe(true);
+    expect(getState('network.signalingHealth').status).toBe('exhausted');
+  });
+
+  it('restores focus when QR refresh replaces an in-flight recovery trigger', async () => {
+    const originalButton = await startHostSessionWithQR();
+    setState('network.signalingHealth', {
+      status: 'exhausted',
+      attempt: 0,
+      maxAttempts: 5,
+    });
+    mockedRetryPeerSignalingConnection.mockImplementationOnce(() => {
+      setState('network.signalingHealth', {
+        status: 'reconnecting',
+        attempt: 1,
+        maxAttempts: 5,
+      });
+      return true;
+    });
+
+    originalButton.focus();
+    originalButton.click();
+    await vi.waitFor(() => expect(mockedRetryPeerSignalingConnection).toHaveBeenCalledOnce());
+
+    bus.emit('ui:connect-tab-opened');
+    await vi.waitFor(() => {
+      const replacement = document.querySelector<HTMLButtonElement>('.btn-copy-invite-link');
+      expect(replacement).not.toBe(originalButton);
+      expect(document.activeElement).toBe(replacement);
+      expect(replacement?.getAttribute('aria-disabled')).toBe('true');
+    });
+  });
+
+  it('keeps the same recovery action available to a PRO room member', async () => {
+    setState('network.appRole', 'guest');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '123456',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    initConnect();
+    setState('network.sessionCode', '123456');
+    setState('setup.sessionStarted', true);
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll('.btn-copy-invite-link')).toHaveLength(2);
+    });
+    setState('network.signalingHealth', {
+      status: 'exhausted',
+      attempt: 0,
+      maxAttempts: 5,
+    });
+    mockedRestartProRoomTransportRecovery.mockImplementationOnce(() => {
+      setState('network.signalingHealth', {
+        status: 'reconnecting',
+        attempt: 1,
+        maxAttempts: 5,
+      });
+      return true;
+    });
+
+    document.querySelector<HTMLButtonElement>('.btn-copy-invite-link')?.click();
+    await vi.waitFor(() => expect(mockedRestartProRoomTransportRecovery).toHaveBeenCalledOnce());
+    expect(mockedRetryPeerSignalingConnection).not.toHaveBeenCalled();
+
+    const currentRoom = getState('room.context');
+    setState('room.context', {
+      ...currentRoom,
+      epoch: currentRoom.epoch + 1,
+      snapshotRevision: currentRoom.snapshotRevision + 1,
+    });
+    expect(document.querySelector<HTMLButtonElement>('.btn-copy-invite-link')?.dataset.mode).toBe(
+      'recovering',
+    );
+
+    setState('network.signalingHealth', {
+      status: 'exhausted',
+      attempt: 0,
+      maxAttempts: 5,
+    });
+    expect(document.getElementById('signaling-recovery-overlay')?.classList.contains('show')).toBe(
+      true,
+    );
+  });
+
+  it('transitions the failure modal through retrying, repeated failure, and recovery', async () => {
+    const button = await startHostSessionWithQR();
+    const reconnecting = () => {
+      setState('network.signalingHealth', {
+        status: 'reconnecting',
+        attempt: 1,
+        maxAttempts: 5,
+      });
+      return true;
+    };
+    mockedRetryPeerSignalingConnection.mockImplementation(reconnecting);
+    setState('network.signalingHealth', {
+      status: 'exhausted',
+      attempt: 0,
+      maxAttempts: 5,
+    });
+
+    button.click();
+    await vi.waitFor(() => expect(mockedRetryPeerSignalingConnection).toHaveBeenCalledTimes(1));
+    setState('network.signalingHealth', {
+      status: 'exhausted',
+      attempt: 0,
+      maxAttempts: 5,
+    });
+
+    document.getElementById('btn-signaling-recovery-retry')?.click();
+    await vi.waitFor(() => expect(mockedRetryPeerSignalingConnection).toHaveBeenCalledTimes(2));
+    const dialog = document.getElementById('signaling-recovery-dialog')!;
+    const actions = document.getElementById('signaling-recovery-actions')!;
+    expect(dialog.dataset.state).toBe('retrying');
+    expect(dialog.getAttribute('aria-busy')).toBe('true');
+    expect(actions.hidden).toBe(true);
+    expect(document.getElementById('signaling-recovery-title')?.textContent).toBe('서버 복구 중');
+
+    setState('network.signalingHealth', {
+      status: 'exhausted',
+      attempt: 0,
+      maxAttempts: 5,
+    });
+    expect(dialog.dataset.state).toBe('failed');
+    expect(actions.hidden).toBe(false);
+
+    document.getElementById('btn-signaling-recovery-retry')?.click();
+    await vi.waitFor(() => expect(mockedRetryPeerSignalingConnection).toHaveBeenCalledTimes(3));
+    setState('network.signalingHealth', {
+      status: 'recovered',
+      attempt: 0,
+      maxAttempts: 5,
+    });
+
+    expect(document.getElementById('signaling-recovery-overlay')?.classList.contains('show')).toBe(
+      false,
+    );
+    expect(button.dataset.mode).toBe('copy');
+    expect(button.disabled).toBe(false);
+    expect(button.textContent).toBe('초대 링크 복사하기');
   });
 });
 

@@ -2629,6 +2629,43 @@
     </div>
 
     <div
+      class="dialog-overlay signaling-recovery-overlay"
+      id="signaling-recovery-overlay"
+      aria-hidden="true"
+    >
+      <div
+        class="dialog signaling-recovery-dialog"
+        id="signaling-recovery-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="signaling-recovery-title"
+        aria-describedby="signaling-recovery-message"
+        aria-busy="false"
+        data-state="failed"
+        tabindex="-1"
+      >
+        <div class="signaling-recovery-visual" aria-hidden="true">
+          <span class="signaling-recovery-orbit"></span>
+          <svg viewBox="0 0 24 24">
+            <path d="M12 2a10 10 0 1 0 10 10A10.01 10.01 0 0 0 12 2Zm1 15h-2v-2h2Zm0-4h-2V7h2Z" />
+          </svg>
+        </div>
+        <div class="dialog-header signaling-recovery-header">
+          <span class="dialog-title" id="signaling-recovery-title"></span>
+        </div>
+        <div class="dialog-message" id="signaling-recovery-message"></div>
+        <div class="dialog-actions" id="signaling-recovery-actions">
+          <button
+            type="button"
+            class="dialog-secondary"
+            id="btn-signaling-recovery-confirm"
+          ></button>
+          <button type="button" class="dialog-primary" id="btn-signaling-recovery-retry"></button>
+        </div>
+      </div>
+    </div>
+
+    <div
       class="dialog-overlay account-dialog-overlay"
       id="account-dialog-overlay"
       aria-hidden="true"

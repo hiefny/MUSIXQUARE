@@ -3621,6 +3621,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 12px;
     padding: 16px 0;
     min-height: 120px;
   }
@@ -3658,8 +3659,8 @@
     width: 100%;
     height: 56px;
     padding: 0;
-    margin-top: 14px;
-    border: none;
+    margin: 0;
+    border: 1px solid transparent;
     border-radius: 20px;
     background: var(--surface-2);
     color: var(--text-sub);
@@ -3667,8 +3668,12 @@
     font-weight: 600;
     cursor: pointer;
     transition:
-      background 0.2s,
-      transform 0.2s;
+      background 0.2s ease,
+      border-color 0.2s ease,
+      color 0.2s ease,
+      box-shadow 0.2s ease,
+      transform 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
   }
 
   .btn-copy-invite-link svg {
@@ -3686,21 +3691,50 @@
     transform: scale(0.97);
   }
 
-  /* Durable partial-outage state below the invite surface. Playback and
-     existing data channels are intentionally left uninterrupted. */
+  .btn-copy-invite-link[data-mode='recover'],
+  .btn-copy-invite-link[data-mode='recovering'] {
+    border-color: rgba(var(--primary-rgb), 0.2);
+    background: rgba(var(--primary-rgb), 0.11);
+    color: var(--primary);
+    box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.04);
+  }
+
+  .btn-copy-invite-link[data-mode='recover']:hover {
+    background: rgba(var(--primary-rgb), 0.16);
+  }
+
+  .btn-copy-invite-link[data-mode='recover']:active {
+    background: rgba(var(--primary-rgb), 0.2);
+  }
+
+  .btn-copy-invite-link[data-mode='recovering'] {
+    cursor: wait;
+  }
+
+  .btn-copy-invite-link[data-mode='recovering'] svg {
+    animation: signaling-recovery-rotate 1s linear infinite;
+  }
+
+  .btn-copy-invite-link:disabled {
+    opacity: 1;
+  }
+
+  /* Compact server health directly below the QR. Existing data
+     channels and playback remain uninterrupted while signaling recovers. */
   .signaling-health-status {
-    display: grid;
-    grid-template-columns: 8px minmax(0, 1fr);
+    display: flex;
     align-items: center;
-    gap: 8px;
-    margin: 0 0 12px;
-    padding: 10px 12px;
-    border: 1px solid rgba(var(--primary-rgb), 0.18);
-    border-radius: var(--radius-s, 14px);
-    background: rgba(var(--primary-rgb), 0.07);
-    color: var(--text-sub);
-    font-size: 12px;
-    line-height: 1.45;
+    justify-content: center;
+    gap: 11px;
+    min-height: 28px;
+    margin: 0;
+    padding: 0 12px;
+    color: var(--text-main);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
+    transform: translateY(-8px);
   }
 
   .signaling-health-status[hidden] {
@@ -3710,76 +3744,51 @@
   .signaling-health-indicator {
     width: 8px;
     height: 8px;
-    border: 2px solid currentColor;
     border-radius: 50%;
-    opacity: 0.8;
+    flex: 0 0 auto;
+    background: var(--success-filled);
+    box-shadow: 0 0 0 4px rgba(32, 164, 90, 0.12);
   }
 
   .signaling-health-status[data-status='reconnecting'] .signaling-health-indicator {
-    border-right-color: transparent;
-    color: var(--primary);
-    animation: signaling-health-spin 0.9s linear infinite;
-  }
-
-  .signaling-health-status[data-status='recovered'] {
-    border-color: rgba(32, 164, 90, 0.22);
-    background: rgba(32, 164, 90, 0.08);
-  }
-
-  .signaling-health-status[data-status='recovered'] .signaling-health-indicator {
-    border-color: var(--success-filled);
-    background: var(--success-filled);
-  }
-
-  .signaling-health-status[data-status='exhausted'] {
-    border-color: rgba(245, 158, 11, 0.25);
-    background: rgba(245, 158, 11, 0.08);
+    background: var(--warning-filled);
+    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.13);
+    animation: signaling-health-pulse 1.4s ease-in-out infinite;
   }
 
   .signaling-health-status[data-status='exhausted'] .signaling-health-indicator {
-    border-color: var(--warning-filled);
-    background: var(--warning-filled);
+    background: var(--danger-filled);
+    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12);
   }
 
   .signaling-health-message {
     min-width: 0;
+    text-align: center;
   }
 
-  .signaling-health-actions {
-    grid-column: 2;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
+  @keyframes signaling-health-pulse {
+    0%,
+    100% {
+      transform: scale(1);
+      box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.13);
+    }
+
+    50% {
+      transform: scale(0.86);
+      box-shadow: 0 0 0 7px rgba(245, 158, 11, 0.05);
+    }
   }
 
-  .signaling-health-action {
-    min-height: 32px;
-    padding: 0 11px;
-    border: 1px solid rgba(var(--primary-rgb), 0.22);
-    border-radius: 999px;
-    background: var(--surface-1);
-    color: var(--primary);
-    font: inherit;
-    font-weight: 700;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  .signaling-health-action:active {
-    transform: scale(0.97);
-  }
-
-  @keyframes signaling-health-spin {
+  @keyframes signaling-recovery-rotate {
     to {
       transform: rotate(360deg);
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .signaling-health-status[data-status='reconnecting'] .signaling-health-indicator {
+    .signaling-health-status[data-status='reconnecting'] .signaling-health-indicator,
+    .btn-copy-invite-link[data-mode='recovering'] svg {
       animation: none;
-      border-right-color: currentColor;
-      background: currentColor;
     }
   }
 
@@ -4698,6 +4707,95 @@
     word-break: keep-all;
   }
 
+  .signaling-recovery-dialog {
+    max-width: 360px;
+    outline: none;
+  }
+
+  .signaling-recovery-visual {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 58px;
+    height: 58px;
+    margin: 28px auto 0;
+    border-radius: 20px;
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger-filled);
+  }
+
+  .signaling-recovery-visual svg {
+    width: 28px;
+    height: 28px;
+    fill: currentColor;
+  }
+
+  .signaling-recovery-orbit {
+    display: none;
+    width: 26px;
+    height: 26px;
+    border: 3px solid rgba(var(--primary-rgb), 0.2);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+  }
+
+  .signaling-recovery-dialog[data-state='retrying'] .signaling-recovery-visual {
+    background: rgba(var(--primary-rgb), 0.1);
+    color: var(--primary);
+  }
+
+  .signaling-recovery-dialog[data-state='retrying'] .signaling-recovery-visual svg {
+    display: none;
+  }
+
+  .signaling-recovery-dialog[data-state='retrying'] .signaling-recovery-orbit {
+    display: block;
+    animation: signaling-recovery-rotate 0.9s linear infinite;
+  }
+
+  .signaling-recovery-header {
+    justify-content: center;
+    padding-top: 18px;
+    text-align: center;
+  }
+
+  .signaling-recovery-header .dialog-title {
+    width: 100%;
+    text-align: center;
+  }
+
+  .signaling-recovery-dialog .dialog-message {
+    padding-top: 5px;
+    text-align: center;
+  }
+
+  .signaling-recovery-dialog[data-state='retrying'] .dialog-message {
+    padding-bottom: 30px;
+  }
+
+  .signaling-recovery-dialog[data-state='retrying'] .dialog-actions {
+    display: none;
+  }
+
+  .signaling-recovery-dialog-transition .signaling-recovery-visual,
+  .signaling-recovery-dialog-transition .signaling-recovery-header,
+  .signaling-recovery-dialog-transition .dialog-message,
+  .signaling-recovery-dialog-transition .dialog-actions {
+    animation: signaling-recovery-content-in 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes signaling-recovery-content-in {
+    from {
+      opacity: 0;
+      transform: translateY(5px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
   html:lang(ja) .dialog-message,
   html:lang(ja) .ob-slide .ob-desc,
   html:lang(ja) .ob-desc,
@@ -4816,6 +4914,16 @@
     display: flex;
     justify-content: flex-end;
     gap: 10px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .signaling-recovery-dialog[data-state='retrying'] .signaling-recovery-orbit,
+    .signaling-recovery-dialog-transition .signaling-recovery-visual,
+    .signaling-recovery-dialog-transition .signaling-recovery-header,
+    .signaling-recovery-dialog-transition .dialog-message,
+    .signaling-recovery-dialog-transition .dialog-actions {
+      animation: none;
+    }
   }
 
   .dialog-secondary[hidden] + .dialog-primary {
@@ -8296,13 +8404,13 @@
   /* Light Mode — hover/active for surface-2 buttons */
   [data-theme='light'] .chat-preview-btn:hover,
   [data-theme='light'] .file-select-btn:hover,
-  [data-theme='light'] .btn-copy-invite-link:hover {
+  [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover {
     background: #f0f0f0;
   }
 
   [data-theme='light'] .chat-preview-btn:active,
   [data-theme='light'] .file-select-btn:active,
-  [data-theme='light'] .btn-copy-invite-link:active {
+  [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:active {
     background: #e8e8e8;
   }
 
@@ -8370,12 +8478,20 @@
     }
 
     #media-source-overlay .file-select-btn-large:hover:not(:active),
-    .btn-copy-invite-link:hover:not(:active),
+    .btn-copy-invite-link[data-mode='copy']:hover:not(:active),
     #btn-sync:hover:not(:active),
     #btn-media-source:hover:not(:active) {
       background: var(--surface-2);
       transform: none;
       box-shadow: none;
+    }
+
+    .btn-copy-invite-link[data-mode='recover']:hover:not(:active),
+    .btn-copy-invite-link[data-mode='recovering']:hover:not(:active) {
+      border-color: rgba(var(--primary-rgb), 0.2);
+      background: rgba(var(--primary-rgb), 0.11);
+      color: var(--primary);
+      box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.04);
     }
 
     .file-select-btn:hover:not(:active) .btn-icon-bg {
@@ -8396,7 +8512,7 @@
       background: #ffffff;
     }
 
-    [data-theme='light'] .btn-copy-invite-link:hover:not(:active) {
+    [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover:not(:active) {
       background: var(--surface-2);
     }
   }

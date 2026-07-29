@@ -249,6 +249,11 @@ const id: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Masukkan 8 digit',
   'connect.room_password_enabled': 'Peserta baru akan memerlukan sandi ruang',
   'connect.room_password_disabled': 'Peserta tidak lagi memerlukan sandi ruang',
+  'connect.signaling_healthy': 'Server ruang online',
+  'connect.signaling_recovering': 'Memulihkan koneksi server',
+  'connect.signaling_failed': 'Koneksi server gagal',
+  'connect.signaling_recover_action': 'Pulihkan koneksi server',
+  'connect.signaling_recovery_wait': 'Memeriksa kembali server ruang.',
   'connect.signaling_reconnecting': 'Menghubungkan kembali ke server ruang · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Koneksi server ruang telah pulih.',
   'connect.signaling_exhausted':

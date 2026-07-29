@@ -29,7 +29,7 @@ function hasOpenStandardRoomChannel(): boolean {
  * session surface while its control channel is rebuilt. Ordinary rooms need
  * a live data channel or media that can continue locally.
  */
-export function canContinueWithoutSignaling(): boolean {
+function canContinueWithoutSignaling(): boolean {
   if (!getState('setup.sessionStarted')) return false;
   const room = getState('room.context');
   if (room.kind === 'pro') return room.roomId !== null;
@@ -38,6 +38,22 @@ export function canContinueWithoutSignaling(): boolean {
     getState('playback.activity') !== 'idle' ||
     getState('systemAudio.isReceiving')
   );
+}
+
+/**
+ * Whether the current session can keep an in-place signaling recovery surface.
+ *
+ * A standard-room host with no participants or active media cannot "continue"
+ * meaningful playback yet, but its room identity is still recoverable and is
+ * exactly where an unavailable invite path needs an explicit retry action.
+ * Keep that case separate from the stricter live-session survival predicate.
+ */
+export function canRecoverSignalingInPlace(): boolean {
+  if (!getState('setup.sessionStarted')) return false;
+  const room = getState('room.context');
+  if (room.kind === 'pro') return room.roomId !== null;
+  if (canContinueWithoutSignaling()) return true;
+  return getState('network.appRole') === 'host' && /^\d{6}$/.test(getState('network.sessionCode'));
 }
 
 function setHealth(next: SignalingHealthState): void {
@@ -57,7 +73,7 @@ export function publishSignalingReconnectAttempt(
   maxAttempts = SIGNALING_RECOVERY_MAX_ATTEMPTS,
 ): boolean {
   clearManagedTimer(RECOVERED_CLEAR_TIMER);
-  if (!canContinueWithoutSignaling()) {
+  if (!canRecoverSignalingInPlace()) {
     resetSignalingHealth();
     return false;
   }
@@ -72,7 +88,7 @@ export function publishSignalingReconnectAttempt(
 
 export function publishSignalingExhausted(maxAttempts = SIGNALING_RECOVERY_MAX_ATTEMPTS): boolean {
   clearManagedTimer(RECOVERED_CLEAR_TIMER);
-  if (!canContinueWithoutSignaling()) {
+  if (!canRecoverSignalingInPlace()) {
     resetSignalingHealth();
     return false;
   }
@@ -87,7 +103,7 @@ export function publishSignalingExhausted(maxAttempts = SIGNALING_RECOVERY_MAX_A
 export function publishSignalingRecovered(): void {
   const current = getState('network.signalingHealth');
   if (current.status === 'healthy' || current.status === 'recovered') return;
-  if (!canContinueWithoutSignaling()) {
+  if (!canRecoverSignalingInPlace()) {
     resetSignalingHealth();
     return;
   }

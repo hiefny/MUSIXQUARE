@@ -248,6 +248,11 @@ const ja: Record<I18nKey, string> = {
   'connect.room_password_invalid': '8桁を入力してください',
   'connect.room_password_enabled': '新しい参加者はルームパスワードが必要です',
   'connect.room_password_disabled': '参加者はルームパスワードなしで参加できます',
+  'connect.signaling_healthy': '接続サーバーは正常です',
+  'connect.signaling_recovering': 'サーバー接続を復旧中',
+  'connect.signaling_failed': 'サーバー接続に失敗しました',
+  'connect.signaling_recover_action': 'サーバー接続を復旧',
+  'connect.signaling_recovery_wait': 'ルームサーバーを再確認しています。',
   'connect.signaling_reconnecting': 'ルームサーバーに再接続中 · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'ルームサーバーへの接続が復旧しました。',
   'connect.signaling_exhausted':

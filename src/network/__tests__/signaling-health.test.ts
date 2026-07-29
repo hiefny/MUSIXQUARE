@@ -4,7 +4,7 @@ import { resetState, setState, getState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { DataConnection } from '../../types/index.ts';
 import {
-  canContinueWithoutSignaling,
+  canRecoverSignalingInPlace,
   publishSignalingExhausted,
   publishSignalingReconnectAttempt,
   publishSignalingRecovered,
@@ -50,12 +50,24 @@ describe('signaling health state', () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', null);
 
-    expect(canContinueWithoutSignaling()).toBe(false);
     expect(publishSignalingReconnectAttempt(1)).toBe(false);
     expect(getState('network.signalingHealth')).toEqual({
       status: 'healthy',
       attempt: 0,
       maxAttempts: 5,
+    });
+  });
+
+  it('keeps an idle host room recoverable before its first participant joins', () => {
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'host');
+    setState('network.sessionCode', '123456');
+
+    expect(canRecoverSignalingInPlace()).toBe(true);
+    expect(publishSignalingReconnectAttempt(1)).toBe(true);
+    expect(getState('network.signalingHealth')).toMatchObject({
+      status: 'reconnecting',
+      attempt: 1,
     });
   });
 
@@ -94,7 +106,7 @@ describe('signaling health state', () => {
     setState('setup.sessionStarted', true);
     setState('network.appRole', 'guest');
     setState('playback.activity', 'playing');
-    expect(canContinueWithoutSignaling()).toBe(true);
+    expect(canRecoverSignalingInPlace()).toBe(true);
 
     resetSignalingHealth();
     setState('playback.activity', 'idle');
@@ -107,6 +119,6 @@ describe('signaling health state', () => {
       snapshotRevision: 1,
       capabilities: [],
     });
-    expect(canContinueWithoutSignaling()).toBe(true);
+    expect(canRecoverSignalingInPlace()).toBe(true);
   });
 });

@@ -248,6 +248,11 @@ const ptBr: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Digite 8 dígitos',
   'connect.room_password_enabled': 'Novos convidados precisarão da senha da sala',
   'connect.room_password_disabled': 'Convidados não precisam mais da senha da sala',
+  'connect.signaling_healthy': 'Servidor da sala online',
+  'connect.signaling_recovering': 'Restaurando a conexão com o servidor',
+  'connect.signaling_failed': 'Falha na conexão com o servidor',
+  'connect.signaling_recover_action': 'Restaurar conexão',
+  'connect.signaling_recovery_wait': 'Verificando novamente o servidor da sala.',
   'connect.signaling_reconnecting': 'Reconectando ao servidor da sala · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Conexão com o servidor da sala restaurada.',
   'connect.signaling_exhausted':

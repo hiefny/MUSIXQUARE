@@ -41,6 +41,11 @@ const timerMocks = vi.hoisted(() => {
   };
 });
 
+const transportMocks = vi.hoisted(() => ({
+  stopAllMedia: vi.fn(),
+  requestLegacyBoundedV1OwnerSwitchStop: vi.fn(),
+}));
+
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -64,7 +69,9 @@ vi.mock('../../audio/engine.ts', () => ({
 }));
 
 vi.mock('../../player/transport.ts', () => ({
-  stopAllMedia: vi.fn(),
+  stopAllMedia: transportMocks.stopAllMedia,
+  requestLegacyBoundedV1OwnerSwitchStop:
+    transportMocks.requestLegacyBoundedV1OwnerSwitchStop,
 }));
 
 vi.mock('../../ui/toast.ts', () => ({
@@ -135,6 +142,7 @@ describe('system audio guest receive watchdog', () => {
     vi.clearAllMocks();
     timerMocks.timers.clear();
     timerMocks.delays.clear();
+    transportMocks.requestLegacyBoundedV1OwnerSwitchStop.mockReturnValue(null);
     resetGuestSystemAudioShareRoute();
     setState('network.appRole', 'guest');
     setState('network.hostConn', hostConn);
@@ -170,6 +178,62 @@ describe('system audio guest receive watchdog', () => {
     await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
 
     expect(hostStarted).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not connect an early media stream before the trusted START boundary', async () => {
+    const source = { connect: vi.fn(), disconnect: vi.fn() };
+    vi.mocked(getAudioContext).mockReturnValue({
+      createMediaStreamSource: vi.fn(() => source),
+    } as unknown as AudioContext);
+
+    const incoming = createMediaConnection();
+    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    incoming.emit('stream', audioStreamWithTrack());
+    await flushAsyncStreamHandler();
+
+    expect(initAudio).not.toHaveBeenCalled();
+    expect(getState('systemAudio.isReceiving')).toBe(false);
+
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await flushAsyncStreamHandler();
+
+    expect(initAudio).toHaveBeenCalledTimes(1);
+    expect(source.connect).toHaveBeenCalledTimes(1);
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+  });
+
+  it('keeps the incoming stream inaudible until bounded-file STOP really settles', async () => {
+    let resolveStop!: (stopped: boolean) => void;
+    const settled = new Promise<boolean>((resolve) => {
+      resolveStop = resolve;
+    });
+    transportMocks.requestLegacyBoundedV1OwnerSwitchStop.mockReturnValue({
+      settled,
+      isCurrent: vi.fn(() => true),
+    });
+    const source = { connect: vi.fn(), disconnect: vi.fn() };
+    vi.mocked(getAudioContext).mockReturnValue({
+      createMediaStreamSource: vi.fn(() => source),
+    } as unknown as AudioContext);
+
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    const incoming = createMediaConnection();
+    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    incoming.emit('stream', audioStreamWithTrack());
+    await flushAsyncStreamHandler();
+
+    expect(stopAllMedia).not.toHaveBeenCalled();
+    expect(initAudio).not.toHaveBeenCalled();
+    expect(source.connect).not.toHaveBeenCalled();
+
+    resolveStop(true);
+    await flushAsyncStreamHandler();
+    await flushAsyncStreamHandler();
+
+    expect(stopAllMedia).toHaveBeenCalledTimes(1);
+    expect(initAudio).toHaveBeenCalledTimes(1);
+    expect(source.connect).toHaveBeenCalledTimes(1);
+    expect(getState('systemAudio.isReceiving')).toBe(true);
   });
 
   it('closes a stale direct call after an all-audience SFU route is frozen', () => {
@@ -332,7 +396,7 @@ describe('system audio guest receive watchdog', () => {
     const stale = createMediaConnection();
     bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
     stale.emit('stream', audioStreamWithTrack());
-    await Promise.resolve();
+    await flushAsyncStreamHandler();
     expect(initAudio).toHaveBeenCalledTimes(1);
 
     const replacement = createMediaConnection();

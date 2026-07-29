@@ -25,6 +25,9 @@ const mocks = vi.hoisted(() => ({
   play: vi.fn(),
   pause: vi.fn(),
   stopAllMedia: vi.fn(),
+  requestBoundedOwnerSwitchRetirement: vi.fn(
+    (): { settled: Promise<boolean>; isCurrent: () => boolean } | null => null,
+  ),
   getTrackPosition: vi.fn(() => 12),
   getHostNow: vi.fn(() => 10_000),
   broadcast: vi.fn(),
@@ -39,6 +42,7 @@ vi.mock('../../player/transport.ts', () => ({
   getTrackPosition: mocks.getTrackPosition,
   pause: mocks.pause,
   play: mocks.play,
+  requestLegacyBoundedV1OwnerSwitchRetirement: mocks.requestBoundedOwnerSwitchRetirement,
   stopAllMedia: mocks.stopAllMedia,
 }));
 
@@ -206,6 +210,60 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     expect(getState('demo.loading')).toBe(false);
     expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
     expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('waits for exact bounded owner retirement before decoding demo audio', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    let releaseRetirement!: (retired: boolean) => void;
+    mocks.requestBoundedOwnerSwitchRetirement.mockReturnValueOnce({
+      settled: new Promise<boolean>((resolve) => {
+        releaseRetirement = resolve;
+      }),
+      isCurrent: () => true,
+    });
+
+    bus.emit('demo:enter');
+    await flush();
+    FakeXHR.pending[0]?.resolveOk();
+    await flush(20);
+
+    expect(mocks.requestBoundedOwnerSwitchRetirement).toHaveBeenCalledOnce();
+    expect(mocks.loadDemoFile).not.toHaveBeenCalled();
+    releaseRetirement(true);
+    await flush(50);
+
+    expect(mocks.loadDemoFile).toHaveBeenCalledOnce();
+    expect(getState('demo.active')).toBe(true);
+    expect(getState('demo.loading')).toBe(false);
+    bus.emit('demo:request-exit');
+    await flush(20);
+  });
+
+  it('does not revive demo decoding after its owner leaves during bounded retirement', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    let releaseRetirement!: (retired: boolean) => void;
+    mocks.requestBoundedOwnerSwitchRetirement.mockReturnValueOnce({
+      settled: new Promise<boolean>((resolve) => {
+        releaseRetirement = resolve;
+      }),
+      isCurrent: () => true,
+    });
+
+    bus.emit('demo:enter');
+    await flush();
+    FakeXHR.pending[0]?.resolveOk();
+    await flush(20);
+    expect(mocks.loadDemoFile).not.toHaveBeenCalled();
+
+    bus.emit('demo:request-exit');
+    releaseRetirement(true);
+    await flush(50);
+
+    expect(mocks.loadDemoFile).not.toHaveBeenCalled();
+    expect(getState('demo.active')).toBe(false);
+    expect(getState('demo.loading')).toBe(false);
   });
 
   it('keeps a superseded decode success from mutating a re-entered demo generation', async () => {

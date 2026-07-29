@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   play: vi.fn(),
   pause: vi.fn(),
   stopAllMedia: vi.fn(),
+  requestBoundedOwnerSwitchRetirement: vi.fn(() => null),
   getTrackPosition: vi.fn(() => 12),
   getHostNow: vi.fn(() => 10_000),
   isClockCalibrated: vi.fn(() => true),
@@ -26,6 +27,7 @@ vi.mock('../../player/transport.ts', () => ({
   getTrackPosition: mocks.getTrackPosition,
   pause: mocks.pause,
   play: mocks.play,
+  requestLegacyBoundedV1OwnerSwitchRetirement: mocks.requestBoundedOwnerSwitchRetirement,
   stopAllMedia: mocks.stopAllMedia,
 }));
 

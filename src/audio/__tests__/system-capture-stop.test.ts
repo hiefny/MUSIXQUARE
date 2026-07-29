@@ -87,6 +87,15 @@ const proAudio = vi.hoisted(() => ({
   coordinatorCompatible: true,
 }));
 
+const transport = vi.hoisted(() => ({
+  stopAllMediaAsync: vi.fn(async () => true),
+}));
+
+vi.mock('../../player/transport.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../player/transport.ts')>()),
+  stopAllMediaAsync: transport.stopAllMediaAsync,
+}));
+
 vi.mock('../engine.ts', () => ({
   initAudio: vi.fn(async () => {}),
   getWidener: vi.fn(() => ({ input: {} })),
@@ -265,6 +274,7 @@ beforeEach(() => {
     },
   });
   proAudio.release.mockResolvedValue(null);
+  transport.stopAllMediaAsync.mockResolvedValue(true);
   setState('network.appRole', 'host');
   registerSystemCaptureListeners();
 });
@@ -651,6 +661,77 @@ describe('system audio operating-cost limits', () => {
     await startPromise;
 
     expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('does not resurrect a capture cancelled while previous media teardown is pending', async () => {
+    let settleStop!: (stopped: boolean) => void;
+    transport.stopAllMediaAsync.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settleStop = resolve;
+        }),
+    );
+    stubDisplayMedia();
+    const streamsReadySpy = vi.fn();
+    bus.on('system-audio:streams-ready', streamsReadySpy);
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(transport.stopAllMediaAsync).toHaveBeenCalledTimes(1));
+    bus.emit('system-audio:force-stop');
+    settleStop(true);
+    await startPromise;
+
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(streamsReadySpy).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('rechecks standard coordinator authority after previous media teardown', async () => {
+    let settleStop!: (stopped: boolean) => void;
+    transport.stopAllMediaAsync.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settleStop = resolve;
+        }),
+    );
+    stubDisplayMedia();
+    const streamsReadySpy = vi.fn();
+    bus.on('system-audio:streams-ready', streamsReadySpy);
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(transport.stopAllMediaAsync).toHaveBeenCalledTimes(1));
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', {
+      peer: 'host-1',
+      open: true,
+    } as DataConnection);
+    settleStop(true);
+    await startPromise;
+
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(streamsReadySpy).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('releases a PRO lease when previous media teardown cannot commit', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    transport.stopAllMediaAsync.mockResolvedValueOnce(false);
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(proAudio.release).toHaveBeenCalledTimes(1);
+    expect(proAudio.publish).not.toHaveBeenCalled();
     expect(isSystemAudioActive()).toBe(false);
   });
 

@@ -299,6 +299,48 @@ describe('FilePlaybackR2WholeBlobPublisher', () => {
     expect(setup.publisher.current(QUEUE_ID)).toBeNull();
   });
 
+  it('deletes a record set whose creation succeeds after room close', async () => {
+    const created =
+      deferred<Awaited<ReturnType<FilePlaybackR2WholeBlobPublisherRuntime['createRecordSet']>>>();
+    const createRecordSet = vi.fn(() => created.promise);
+    const setup = harness({ createRecordSet });
+    const ready = setup.publisher.publishRecordSet(source(), {
+      storageRoomId: '123456',
+      applicationSessionId: 'application-session',
+    });
+    const readyOutcome = ready.catch((error: unknown) => error);
+    await vi.waitFor(() => expect(createRecordSet).toHaveBeenCalledOnce());
+
+    const closing = setup.publisher.close();
+    const lateSession = {
+      v: 2 as const,
+      storageRoomId: '123456',
+      setId: RECORD_SET_ID,
+      recordSize: 8 * 1024 * 1024,
+      recordCount: 1,
+      expiresAt: Date.now() + 60_000,
+      setToken: 'set-token',
+      cleanupToken: CLEANUP_TOKEN,
+      records: [
+        {
+          index: 0,
+          objectId: RECORD_OBJECT_ZERO,
+          plaintextSize: 4,
+          encryptedSize: 20,
+          downloadUrl: 'https://share.musixquare.com/123456/0',
+        },
+      ],
+    };
+    created.resolve(lateSession);
+
+    await expect(readyOutcome).resolves.toMatchObject({
+      message: 'FILE_PLAYBACK_R2_RECORD_PUBLISH_SOURCE_STALE',
+    });
+    await closing;
+    expect(setup.deleteRecordSet).toHaveBeenCalledWith(lateSession);
+    expect(setup.publisher.currentRecordSet(QUEUE_ID)).toBeNull();
+  });
+
   it('closes every published object once and remains idempotent', async () => {
     const setup = harness();
     await setup.publisher.publish(source());

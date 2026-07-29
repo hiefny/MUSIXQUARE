@@ -67,6 +67,9 @@ const remoteShareMocks = vi.hoisted(() => ({
   isConfigured: vi.fn(() => false),
   shareRemoteFileIfNeeded: vi.fn(),
 }));
+const boundedFileMocks = vi.hoisted(() => ({
+  ownsGuestTransfer: vi.fn(() => false),
+}));
 
 // ─── Mocks ───────────────────────────────────────────────────────────────
 
@@ -105,6 +108,10 @@ vi.mock('../../share/r2-client.ts', () => ({
 
 vi.mock('../../share/remote-share.ts', () => ({
   shareRemoteFileIfNeeded: remoteShareMocks.shareRemoteFileIfNeeded,
+}));
+
+vi.mock('../../player/legacy-bounded-file-v1-product.ts', () => ({
+  legacyBoundedFileV1Product: boundedFileMocks,
 }));
 
 vi.mock('../../i18n/index.ts', () => ({
@@ -146,6 +153,7 @@ beforeEach(() => {
   // every test that runs after it.
   vi.mocked(isRemoteGuest).mockReturnValue(false);
   remoteShareMocks.isConfigured.mockReturnValue(false);
+  boundedFileMocks.ownsGuestTransfer.mockReturnValue(false);
   setState('playlist.items', [
     { queueItemId: Q0, type: 'file', name: 'same.mp3', videoId: null, playlistId: null },
     { queueItemId: Q1, type: 'file', name: 'same.mp3', videoId: null, playlistId: null },
@@ -229,6 +237,38 @@ describe('sendRecoveryRequest', () => {
     expect(Number.isSafeInteger(request.requestId)).toBe(true);
     expect(request.requestId).toBeGreaterThan(0);
     expect(request).not.toHaveProperty('sessionId');
+  });
+
+  it('suppresses legacy recovery while the exact bounded guest transfer owns the target', async () => {
+    const sendRecoveryRequest = await getSendRecoveryRequest();
+    const hostConn = { open: true, peer: 'host', send: vi.fn() } as AnyConn;
+    setState('network.hostConn', hostConn);
+    setState('transfer.meta', { queueItemId: Q0, name: 'test.mp3', sessionId: 7 });
+    boundedFileMocks.ownsGuestTransfer.mockReturnValue(true);
+
+    sendRecoveryRequest();
+    vi.advanceTimersByTime(5000);
+
+    expect(boundedFileMocks.ownsGuestTransfer).toHaveBeenCalledWith(hostConn, Q0, 7);
+    expect(hostConn.send).not.toHaveBeenCalled();
+    expect(getState('recovery.pending')).toBe(false);
+    expect(getState('recovery.retryCount')).toBe(0);
+  });
+
+  it('rechecks bounded ownership before a queued recovery request is sent', async () => {
+    const sendRecoveryRequest = await getSendRecoveryRequest();
+    const hostConn = { open: true, peer: 'host', send: vi.fn() } as AnyConn;
+    setState('network.hostConn', hostConn);
+    setState('transfer.meta', { queueItemId: Q0, name: 'test.mp3', sessionId: 7 });
+    boundedFileMocks.ownsGuestTransfer.mockReturnValueOnce(false).mockReturnValueOnce(true);
+
+    sendRecoveryRequest();
+    vi.advanceTimersByTime(2000);
+
+    expect(boundedFileMocks.ownsGuestTransfer).toHaveBeenNthCalledWith(2, hostConn, Q0, 7);
+    expect(hostConn.send).not.toHaveBeenCalled();
+    expect(getState('recovery.pending')).toBe(false);
+    expect(getState('recovery.retryCount')).toBe(0);
   });
 
   it('allocates a fresh requestId for each successive recovery request', async () => {

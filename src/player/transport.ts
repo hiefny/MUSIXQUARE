@@ -57,6 +57,7 @@ import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import type { FilePlaybackPosition, FilePlaybackSourceSnapshot } from './file-playback-source.ts';
 import type { FilePlaybackProductHostFailureObservation } from './file-playback-product-host-room.ts';
 import {
+  cancelV2HostMutation,
   enqueueV2HostMutation,
   isCurrentV2HostMutationIntent,
   type V2HostMutationIntent,
@@ -69,11 +70,709 @@ import type {
   V2HostUiControlPendingEvent,
   V2HostUiControlSettlementStatus,
 } from '../types/index.ts';
+import { legacyBoundedFileV1Product } from './legacy-bounded-file-v1-product.ts';
+import type {
+  LegacyBoundedFileV1CanonicalControl,
+  LegacyBoundedFileV1CurrentSnapshot,
+} from './legacy-bounded-file-v1-runtime.ts';
 
 /** Lead time for a host command to reach guests before the shared start. */
 const SCHEDULE_AHEAD_MS = 200;
+/** Bounded host includes local scheduling and wire-delivery budget. */
+const LEGACY_BOUNDED_V1_HOST_START_LEAD_MS = 400;
+/** Guests preserve the shared deadline unless it is genuinely too late to arm. */
+const LEGACY_BOUNDED_V1_GUEST_REARM_LEAD_MS = 75;
 const FILE_PLAYBACK_ENGINE_V2_ENABLED = isFilePlaybackEngineV2Enabled();
 const filePlaybackProductRuntime = getFilePlaybackProductRuntime();
+let legacyBoundedV1NaturalEndFence: Readonly<{
+  key: string;
+  task: Promise<unknown>;
+}> | null = null;
+let legacyBoundedV1OwnerSwitchGeneration = 0;
+
+interface LegacyBoundedV1ControlContext {
+  readonly role: 'host' | 'guest';
+  readonly current: Readonly<LegacyBoundedFileV1CurrentSnapshot>;
+}
+
+function readLegacyBoundedV1ControlContext(): LegacyBoundedV1ControlContext | null {
+  if (isYouTubeOwner() || isSystemAudioOwner()) return null;
+  const snapshot = legacyBoundedFileV1Product.snapshot();
+  const current = snapshot.current;
+  if (
+    !snapshot.active ||
+    (snapshot.role !== 'host' && snapshot.role !== 'guest') ||
+    !current ||
+    current.queueItemId !== getCurrentQueueItemId() ||
+    (current.state !== 'preparing' && current.state !== 'ready')
+  ) {
+    return null;
+  }
+  return Object.freeze({ role: snapshot.role, current });
+}
+
+function clampLegacyBoundedV1Position(
+  positionSeconds: number,
+  current: Readonly<LegacyBoundedFileV1CurrentSnapshot>,
+): number {
+  const safe = Number.isFinite(positionSeconds) ? Math.max(0, positionSeconds) : 0;
+  return current.durationSeconds && current.durationSeconds > 0
+    ? Math.min(safe, Math.max(0, current.durationSeconds - 0.001))
+    : safe;
+}
+
+function projectLegacyBoundedV1Snapshot(
+  snapshot: Readonly<LegacyBoundedFileV1CurrentSnapshot>,
+): void {
+  if (snapshot.queueItemId !== getCurrentQueueItemId()) return;
+  setState('player.pausedAt', snapshot.positionSeconds);
+  if (snapshot.phase === 'playing') {
+    setPlaybackFilePlaying();
+    transition({
+      type: 'PLAY',
+      time: snapshot.positionSeconds,
+      queueItemId: snapshot.queueItemId,
+      sameTrack: true,
+    });
+    bus.emit('visualizer:start');
+    bus.emit('ui:loop-start');
+    return;
+  }
+  if (snapshot.phase === 'paused' || snapshot.phase === 'stopped') {
+    setPlaybackFilePaused();
+    transition({
+      type: 'PAUSE',
+      time: snapshot.positionSeconds,
+      queueItemId: snapshot.queueItemId,
+      endOfPlaylist: false,
+    });
+    bus.emit('visualizer:hold-frame');
+  }
+}
+
+function applyLegacyBoundedV1Control(
+  control: Readonly<LegacyBoundedFileV1CanonicalControl>,
+  options: Readonly<{
+    allowBuffered?: boolean;
+    hostUiKind?: V2HostUiControlKind;
+    projectImmediately?: boolean;
+    projectSettlement?: boolean;
+  }> = {},
+): Promise<boolean> {
+  const task = legacyBoundedFileV1Product
+    .applyControl(control)
+    .then((outcome) => {
+      if (outcome.status === 'buffered') return options.allowBuffered === true;
+      if (outcome.status !== 'applied') return false;
+      const current = legacyBoundedFileV1Product.snapshot().current;
+      if (
+        !current ||
+        current.queueItemId !== control.queueItemId ||
+        current.legacySessionId !== control.legacySessionId
+      ) {
+        return false;
+      }
+      if (options.projectSettlement !== false) {
+        projectLegacyBoundedV1Snapshot(current);
+      }
+      return true;
+    })
+    .catch((error) => {
+      log.warn('[Transport] Bounded V1 control failed locally:', error);
+      return false;
+    });
+
+  if (options.projectImmediately) {
+    const current = legacyBoundedFileV1Product.snapshot().current;
+    if (
+      current?.queueItemId === control.queueItemId &&
+      current.legacySessionId === control.legacySessionId
+    ) {
+      projectLegacyBoundedV1Snapshot(current);
+    }
+  }
+  if (options.hostUiKind) {
+    trackV2HostUiControl(
+      beginV2HostUiControl(options.hostUiKind, control.queueItemId),
+      task,
+    );
+  }
+  return task;
+}
+
+function exactLegacyBoundedV1Current(
+  control: Readonly<LegacyBoundedFileV1CanonicalControl>,
+): Readonly<LegacyBoundedFileV1CurrentSnapshot> | null {
+  const current = legacyBoundedFileV1Product.snapshot().current;
+  return current?.queueItemId === control.queueItemId &&
+    current.legacySessionId === control.legacySessionId &&
+    current.state === 'ready'
+    ? current
+    : null;
+}
+
+function exactLegacyBoundedV1Identity(
+  control: Readonly<LegacyBoundedFileV1CanonicalControl>,
+): Readonly<LegacyBoundedFileV1CurrentSnapshot> | null {
+  const current = legacyBoundedFileV1Product.snapshot().current;
+  return current?.queueItemId === control.queueItemId &&
+    current.legacySessionId === control.legacySessionId
+    ? current
+    : null;
+}
+
+function compensateLegacyBoundedV1HostStartFailure(
+  control: Readonly<LegacyBoundedFileV1CanonicalControl>,
+): void {
+  const position = Number.isFinite(control.positionSeconds)
+    ? Math.max(0, control.positionSeconds)
+    : 0;
+  setState('player.pausedAt', position);
+  setPlaybackFilePaused();
+  transition({
+    type: 'PAUSE',
+    time: position,
+    queueItemId: control.queueItemId,
+    endOfPlaylist: false,
+  });
+  bus.emit('visualizer:hold-frame');
+  broadcast({
+    type: MSG.PAUSE,
+    time: position,
+    queueItemId: control.queueItemId,
+    reason: 'transition',
+  });
+}
+
+interface LegacyBoundedV1HostRendezvousRequest {
+  readonly label: string;
+  readonly queueItemId: QueueItemId;
+  readonly legacySessionId: number;
+  readonly positionSeconds: number;
+  readonly requestedStartAtRoomTimeMs?: number;
+  readonly includeTrackName?: boolean;
+}
+
+function enqueueLegacyBoundedV1HostRendezvous(
+  request: Readonly<LegacyBoundedV1HostRendezvousRequest>,
+): Promise<boolean> {
+  return enqueueV2HostMutation(request.label, async (intent) => {
+    const admitted = legacyBoundedFileV1Product.snapshot().current;
+    if (
+      !admitted ||
+      admitted.queueItemId !== request.queueItemId ||
+      admitted.legacySessionId !== request.legacySessionId ||
+      admitted.state !== 'ready' ||
+      getCurrentQueueItemId() !== request.queueItemId
+    ) {
+      return false;
+    }
+    const position = clampLegacyBoundedV1Position(request.positionSeconds, admitted);
+    const requestedStart = Number(request.requestedStartAtRoomTimeMs);
+    const startAt = Math.max(
+      Number.isFinite(requestedStart) ? requestedStart : 0,
+      getHostNow() + LEGACY_BOUNDED_V1_HOST_START_LEAD_MS,
+    );
+    const control: Readonly<LegacyBoundedFileV1CanonicalControl> = Object.freeze({
+      kind: admitted.phase === 'playing' ? 'seek-playing' : 'play',
+      queueItemId: request.queueItemId,
+      legacySessionId: request.legacySessionId,
+      positionSeconds: position,
+      startAtRoomTimeMs: startAt,
+    });
+    const revoke = () => {
+      legacyBoundedFileV1Product.cancelPendingHostControl(
+        request.queueItemId,
+        request.legacySessionId,
+        position,
+      );
+    };
+    intent.controller.signal.addEventListener('abort', revoke, { once: true });
+    try {
+      const scheduled = await legacyBoundedFileV1Product.scheduleHostControl(control);
+      if (
+        scheduled.status !== 'scheduled' ||
+        !isCurrentV2HostMutationIntent(intent) ||
+        !exactLegacyBoundedV1Current(control)
+      ) {
+        revoke();
+        return false;
+      }
+      broadcast({
+        type: MSG.PLAY,
+        time: position,
+        queueItemId: request.queueItemId,
+        ...(request.includeTrackName
+          ? {
+              name:
+                getState('files.current')?.queueItemId === request.queueItemId
+                  ? getState('files.current')?.name
+                  : undefined,
+            }
+          : {}),
+        hostPlayAt: scheduled.startAtRoomTimeMs,
+      });
+      const started = await scheduled.settled;
+      const current = exactLegacyBoundedV1Current(control);
+      if (
+        started.status === 'applied' &&
+        current &&
+        isCurrentV2HostMutationIntent(intent)
+      ) {
+        legacyBoundedV1NaturalEndFence = null;
+        projectLegacyBoundedV1Snapshot(current);
+        return true;
+      }
+      if (
+        started.status === 'failed' &&
+        isCurrentV2HostMutationIntent(intent) &&
+        exactLegacyBoundedV1Identity(control) &&
+        getCurrentQueueItemId() === control.queueItemId
+      ) {
+        const retired = await legacyBoundedFileV1Product.retireCurrent(
+          control.queueItemId,
+          control.legacySessionId,
+        );
+        if (
+          retired &&
+          isCurrentV2HostMutationIntent(intent) &&
+          getCurrentQueueItemId() === control.queueItemId
+        ) {
+          compensateLegacyBoundedV1HostStartFailure(control);
+        }
+      }
+      return false;
+    } finally {
+      intent.controller.signal.removeEventListener('abort', revoke);
+    }
+  }).then(
+    (committed) => committed === true,
+    (error) => {
+      log.warn(`[Transport] ${request.label} lane failed:`, error);
+      return false;
+    },
+  );
+}
+
+/**
+ * Host PLAY/playing-seek has two authoritative boundaries. The shared PLAY is
+ * published after native scheduling while hostPlayAt is still in the future;
+ * local UI settles only after exact start evidence. A superseding intent
+ * synchronously revokes the staged renderer through the bridge.
+ */
+export function requestLegacyBoundedV1HostPlay(
+  positionSeconds: number,
+  startAtRoomTimeMs?: number,
+): boolean {
+  const context = readLegacyBoundedV1ControlContext();
+  if (!context || context.role !== 'host') return false;
+  const queueItemId = context.current.queueItemId;
+  const legacySessionId = context.current.legacySessionId;
+  const requestedPosition = clampLegacyBoundedV1Position(positionSeconds, context.current);
+  const requestedStart = Number(startAtRoomTimeMs);
+  const settlement = enqueueLegacyBoundedV1HostRendezvous({
+    label: 'bounded-v1-play',
+    queueItemId,
+    legacySessionId,
+    positionSeconds: requestedPosition,
+    requestedStartAtRoomTimeMs: requestedStart,
+    includeTrackName: true,
+  });
+  trackV2HostUiControl(
+    beginV2HostUiControl('play', queueItemId),
+    settlement,
+  );
+  return true;
+}
+
+/**
+ * PAUSE is deliberately stop-first rather than rendezvous-first. Calling the
+ * product control synchronously revokes an armed PLAY before the immediate
+ * network PAUSE is published; its physical settlement still drives UI status.
+ */
+export function requestLegacyBoundedV1HostPause(
+  positionSeconds?: number,
+  reason: 'pause' | 'seek' = 'pause',
+): boolean {
+  const context = readLegacyBoundedV1ControlContext();
+  if (!context || context.role !== 'host') return false;
+  const position = clampLegacyBoundedV1Position(
+    positionSeconds ?? legacyBoundedFileV1Product.positionSeconds() ?? 0,
+    context.current,
+  );
+  // Reuse the exact cancellation PAUSE when a PLAY/playing-seek is pending.
+  // Starting a second PAUSE with a newer room-time key can otherwise revoke
+  // the freshly staged paused successor and falsely enter renderer fallback.
+  const pendingCancellation = legacyBoundedFileV1Product.cancelPendingHostControl(
+    context.current.queueItemId,
+    context.current.legacySessionId,
+    position,
+  );
+  // PAUSE is the latest host intent even when a prior PLAY has not yet been
+  // admitted to the shared mutation lane. Cancel that queued/active owner
+  // before any stopped fast-path so it cannot revive playback afterward.
+  cancelV2HostMutation('Bounded V1 host PLAY was superseded by PAUSE');
+  if (pendingCancellation) {
+    const current = legacyBoundedFileV1Product.snapshot().current;
+    if (current) projectLegacyBoundedV1Snapshot(current);
+    const task = pendingCancellation.then((outcome) => outcome.status === 'applied');
+    trackV2HostUiControl(
+      beginV2HostUiControl('pause', context.current.queueItemId),
+      task,
+    );
+    broadcast({
+      type: MSG.PAUSE,
+      time: position,
+      queueItemId: context.current.queueItemId,
+      reason,
+    });
+    return true;
+  }
+  if (context.current.state === 'ready' && context.current.phase === 'stopped') {
+    setState('player.pausedAt', position);
+    return true;
+  }
+  const control: Readonly<LegacyBoundedFileV1CanonicalControl> = Object.freeze({
+    kind: 'pause',
+    queueItemId: context.current.queueItemId,
+    legacySessionId: context.current.legacySessionId,
+    positionSeconds: position,
+    atRoomTimeMs: getHostNow(),
+  });
+  const task = applyLegacyBoundedV1Control(control, {
+    hostUiKind: 'pause',
+    projectImmediately: true,
+  });
+  broadcast({
+    type: MSG.PAUSE,
+    time: position,
+    queueItemId: control.queueItemId,
+    reason,
+  });
+  void task.then((applied) => {
+    if (!applied) log.warn('[Transport] Bounded V1 host PAUSE did not settle locally');
+  });
+  return true;
+}
+
+function requestLegacyBoundedV1GuestPlay(
+  positionSeconds: number,
+  startAtRoomTimeMs?: number,
+): boolean {
+  const context = readLegacyBoundedV1ControlContext();
+  if (!context || context.role !== 'guest') return false;
+  const now = getHostNow();
+  const requestedStart = Number(startAtRoomTimeMs);
+  const hasSharedStart = Number.isFinite(requestedStart) && requestedStart > 0;
+  // The native port intentionally rejects an already-expired rendezvous.
+  // Move only the local arm into the future and advance its position by the
+  // same amount so it joins the original host timeline instead of starting
+  // late or disconnecting.
+  const startAt = hasSharedStart
+    ? Math.max(requestedStart, now + LEGACY_BOUNDED_V1_GUEST_REARM_LEAD_MS)
+    : now + LEGACY_BOUNDED_V1_HOST_START_LEAD_MS;
+  const catchUpSeconds = hasSharedStart ? Math.max(0, startAt - requestedStart) / 1000 : 0;
+  const position = clampLegacyBoundedV1Position(
+    positionSeconds + catchUpSeconds,
+    context.current,
+  );
+  void applyLegacyBoundedV1Control(
+    {
+      kind: context.current.phase === 'playing' ? 'seek-playing' : 'play',
+      queueItemId: context.current.queueItemId,
+      legacySessionId: context.current.legacySessionId,
+      positionSeconds: position,
+      startAtRoomTimeMs: startAt,
+    },
+    { allowBuffered: true },
+  );
+  return true;
+}
+
+function requestLegacyBoundedV1Pause(positionSeconds?: number): boolean {
+  const context = readLegacyBoundedV1ControlContext();
+  if (!context) return false;
+  if (context.role === 'host') {
+    // Host call sites that need a room-wide PAUSE use the exported helper.
+    // This local path exists for teardown/internal callers and avoids an
+    // accidental duplicate broadcast.
+    const position = clampLegacyBoundedV1Position(
+      positionSeconds ?? legacyBoundedFileV1Product.positionSeconds() ?? 0,
+      context.current,
+    );
+    void applyLegacyBoundedV1Control(
+      {
+        kind: 'pause',
+        queueItemId: context.current.queueItemId,
+        legacySessionId: context.current.legacySessionId,
+        positionSeconds: position,
+        atRoomTimeMs: getHostNow(),
+      },
+      { projectImmediately: true },
+    );
+    return true;
+  }
+  const position = clampLegacyBoundedV1Position(
+    positionSeconds ?? legacyBoundedFileV1Product.positionSeconds() ?? 0,
+    context.current,
+  );
+  if (context.current.state === 'ready' && context.current.phase === 'stopped') {
+    setState('player.pausedAt', position);
+    return true;
+  }
+  void applyLegacyBoundedV1Control(
+    {
+      kind: 'pause',
+      queueItemId: context.current.queueItemId,
+      legacySessionId: context.current.legacySessionId,
+      positionSeconds: position,
+      atRoomTimeMs: getHostNow(),
+    },
+    {
+      allowBuffered: true,
+      projectImmediately: true,
+    },
+  );
+  return true;
+}
+
+function requestLegacyBoundedV1Stop(): Promise<boolean> | null {
+  // STOP is also the cancellation boundary for an async YouTube/system-audio
+  // owner switch. Even when the bounded renderer has already finished
+  // retiring (and this function therefore finds no current), a later
+  // continuation must not resurrect the incoming owner after the user stopped
+  // playback or left/replaced the selection.
+  legacyBoundedV1OwnerSwitchGeneration += 1;
+  const context = readLegacyBoundedV1ControlContext();
+  if (context?.role === 'host') {
+    cancelV2HostMutation('Bounded V1 host mutation was superseded by STOP');
+  }
+  if (context?.current.state === 'ready') {
+    return applyLegacyBoundedV1Control(
+      {
+        kind: 'stop',
+        queueItemId: context.current.queueItemId,
+        legacySessionId: context.current.legacySessionId,
+        positionSeconds: 0,
+        atRoomTimeMs: getHostNow(),
+      },
+      {
+        // stopAllMediaLegacy owns the terminal IDLE/reset projection. A delayed
+        // native retirement must not resurrect file-paused UI after teardown.
+        projectSettlement: false,
+      },
+    );
+  }
+
+  // Cross-mode and terminal transitions can update selection/ownership before
+  // teardown runs. Retire the exact product incarnation independently of the
+  // newly selected queue item so an old current or preparing candidate cannot
+  // overlap YouTube, a stable-V1 fallback, or the empty playlist.
+  const snapshot = legacyBoundedFileV1Product.snapshot();
+  const current = snapshot.current;
+  if (
+    !snapshot.active ||
+    (snapshot.role !== 'host' && snapshot.role !== 'guest') ||
+    !current
+  ) {
+    return null;
+  }
+  if (snapshot.role === 'host') {
+    cancelV2HostMutation('Bounded V1 host incarnation was retired by teardown');
+  }
+  return legacyBoundedFileV1Product.retireCurrent(
+    current.queueItemId,
+    current.legacySessionId,
+  );
+}
+
+/**
+ * Exact physical-owner barrier for non-file modes. It does not publish a room
+ * command or project UI; the incoming YouTube/system-audio owner performs its
+ * ordinary stable-V1 transition only after this promise settles.
+ */
+export function requestLegacyBoundedV1OwnerSwitchRetirement(): Readonly<{
+  readonly settled: Promise<boolean>;
+  readonly isCurrent: () => boolean;
+}> | null {
+  const generation = ++legacyBoundedV1OwnerSwitchGeneration;
+  const snapshot = legacyBoundedFileV1Product.snapshot();
+  const current = snapshot.current;
+  if (
+    !snapshot.active ||
+    (snapshot.role !== 'host' && snapshot.role !== 'guest') ||
+    !current
+  ) {
+    return null;
+  }
+  if (snapshot.role === 'host') {
+    cancelV2HostMutation('Bounded V1 host incarnation was retired by an owner switch');
+  }
+  return Object.freeze({
+    settled: legacyBoundedFileV1Product.retireCurrent(
+      current.queueItemId,
+      current.legacySessionId,
+    ),
+    isCurrent: () => generation === legacyBoundedV1OwnerSwitchGeneration,
+  });
+}
+
+/**
+ * System-audio temporarily overlays the selected queue occurrence. Stop its
+ * bounded renderer but retain the exact descriptor/source so a later host PLAY
+ * can reopen the same occurrence without another FILE_PREPARE. A guest source
+ * that is still preparing has no physical STOP settlement yet, so it must be
+ * retired instead of treating a buffered control as released output.
+ */
+export function requestLegacyBoundedV1OwnerSwitchStop(): Readonly<{
+  readonly settled: Promise<boolean>;
+  readonly isCurrent: () => boolean;
+}> | null {
+  const generation = ++legacyBoundedV1OwnerSwitchGeneration;
+  const snapshot = legacyBoundedFileV1Product.snapshot();
+  const current = snapshot.current;
+  if (
+    !snapshot.active ||
+    (snapshot.role !== 'host' && snapshot.role !== 'guest') ||
+    !current
+  ) {
+    return null;
+  }
+  const settled =
+    current.state === 'ready'
+      ? applyLegacyBoundedV1Control(
+          {
+            kind: 'stop',
+            queueItemId: current.queueItemId,
+            legacySessionId: current.legacySessionId,
+            positionSeconds: 0,
+            atRoomTimeMs: getHostNow(),
+          },
+          {
+            allowBuffered: true,
+            projectSettlement: false,
+          },
+        )
+      : legacyBoundedFileV1Product.retireCurrent(
+          current.queueItemId,
+          current.legacySessionId,
+        );
+  return Object.freeze({
+    settled,
+    isCurrent: () => generation === legacyBoundedV1OwnerSwitchGeneration,
+  });
+}
+
+export function requestLegacyBoundedV1HostSeek(time: number): boolean {
+  const context = readLegacyBoundedV1ControlContext();
+  if (!context || context.role !== 'host') return false;
+  const position = clampLegacyBoundedV1Position(time, context.current);
+  const playing = context.current.phase === 'playing';
+  if (playing) {
+    const queueItemId = context.current.queueItemId;
+    const legacySessionId = context.current.legacySessionId;
+    void enqueueLegacyBoundedV1HostRendezvous({
+      label: 'bounded-v1-seek-playing',
+      queueItemId,
+      legacySessionId,
+      positionSeconds: position,
+    });
+  } else if (context.current.state === 'ready') {
+    const control: Readonly<LegacyBoundedFileV1CanonicalControl> = Object.freeze({
+      kind: context.current.phase === 'paused' ? 'seek-paused' : 'pause',
+      queueItemId: context.current.queueItemId,
+      legacySessionId: context.current.legacySessionId,
+      positionSeconds: position,
+      atRoomTimeMs: getHostNow(),
+    });
+    const task = applyLegacyBoundedV1Control(control, { projectImmediately: true });
+    broadcast({
+      type: MSG.PAUSE,
+      time: position,
+      queueItemId: context.current.queueItemId,
+      reason: 'seek',
+    });
+    void task.then((applied) => {
+      if (!applied) log.warn('[Transport] Bounded V1 paused seek did not settle locally');
+    });
+  } else {
+    // PREPARE leaves an exact decoded candidate staged but not yet native
+    // current. Keep the requested paused baseline in stable UI/control state;
+    // the next PLAY commits that exact candidate at this position.
+    setState('player.pausedAt', position);
+    broadcast({
+      type: MSG.PAUSE,
+      time: position,
+      queueItemId: context.current.queueItemId,
+      reason: 'seek',
+    });
+  }
+  return true;
+}
+
+/**
+ * Re-arms the bounded host renderer after this browser's physical output was
+ * suspended. Canonical playing truth gets one same-position room rendezvous;
+ * merely recovering an AudioContext while paused never manufactures PLAY.
+ */
+export function requestLegacyBoundedV1HostOutputRejoin(
+  reason: 'media-session-play' | 'audio-context-recovered',
+): Promise<boolean> | null {
+  const context = readLegacyBoundedV1ControlContext();
+  if (!context || context.role !== 'host') return null;
+  if (context.current.state !== 'ready') return Promise.resolve(false);
+  if (context.current.phase !== 'playing' && reason === 'audio-context-recovered') {
+    return Promise.resolve(true);
+  }
+  const position = clampLegacyBoundedV1Position(
+    legacyBoundedFileV1Product.positionSeconds() ?? context.current.positionSeconds,
+    context.current,
+  );
+  const settlement = enqueueLegacyBoundedV1HostRendezvous({
+    label: 'bounded-v1-output-rejoin',
+    queueItemId: context.current.queueItemId,
+    legacySessionId: context.current.legacySessionId,
+    positionSeconds: position,
+  });
+  if (reason === 'media-session-play') {
+    trackV2HostUiControl(
+      beginV2HostUiControl('play', context.current.queueItemId),
+      settlement,
+    );
+  }
+  return settlement;
+}
+
+export function applyLegacyBoundedV1GuestPlay(
+  queueItemId: QueueItemId,
+  positionSeconds: number,
+  hostPlayAt?: number,
+): boolean {
+  const context = readLegacyBoundedV1ControlContext();
+  if (
+    !context ||
+    context.role !== 'guest' ||
+    context.current.queueItemId !== queueItemId
+  ) {
+    return false;
+  }
+  return requestLegacyBoundedV1GuestPlay(positionSeconds, hostPlayAt);
+}
+
+export function applyLegacyBoundedV1GuestPause(
+  queueItemId: QueueItemId,
+  positionSeconds: number,
+): boolean {
+  const context = readLegacyBoundedV1ControlContext();
+  if (
+    !context ||
+    context.role !== 'guest' ||
+    context.current.queueItemId !== queueItemId
+  ) {
+    return false;
+  }
+  return requestLegacyBoundedV1Pause(positionSeconds);
+}
 
 /** Calibrated output advance for Windows local-file playback. */
 const WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC = 0.02;
@@ -1892,7 +2591,12 @@ function requestV2HostEndedSettlement(): boolean {
 }
 
 function isV2HostFileProductControlContext(): boolean {
-  return isV2HostFileControlContext() && !isYouTubeOwner() && !isSystemAudioOwner();
+  return (
+    readLegacyBoundedV1ControlContext() === null &&
+    isV2HostFileControlContext() &&
+    !isYouTubeOwner() &&
+    !isSystemAudioOwner()
+  );
 }
 
 interface V2HostFreshLocalFileSelection {
@@ -2201,6 +2905,16 @@ function readTrackPosition(repairOutOfRangeOffset: boolean): number {
   const proBoundedPosition = getProRoomBoundedFilePlaybackPosition();
   if (proBoundedPosition) return proBoundedPosition.positionSeconds;
 
+  const legacyBoundedSnapshot = legacyBoundedFileV1Product.snapshot().current;
+  if (
+    legacyBoundedSnapshot?.state === 'ready' &&
+    legacyBoundedSnapshot.queueItemId === getCurrentQueueItemId()
+  ) {
+    if (legacyBoundedSnapshot.phase === 'stopped') return pausedAt;
+    const legacyBoundedPosition = legacyBoundedFileV1Product.positionSeconds();
+    if (legacyBoundedPosition !== null) return legacyBoundedPosition;
+  }
+
   if (isV2HostFileControlContext()) {
     const exact = readExactV2HostControlState();
     if (exact) return exact.position.positionSeconds;
@@ -2415,6 +3129,12 @@ function stopAllMediaLegacy(opts: V2HostStopOptions = {}): void {
 }
 
 export function stopAllMedia(opts: V2HostStopOptions = {}): void {
+  const boundedStop = requestLegacyBoundedV1Stop();
+  if (boundedStop) {
+    stopAllMediaLegacy(opts);
+    void boundedStop;
+    return;
+  }
   const v2Stop = requestV2HostFileStop(opts);
   if (v2Stop) {
     void v2Stop;
@@ -2428,6 +3148,11 @@ export function stopAllMedia(opts: V2HostStopOptions = {}): void {
  * synchronously; V2 callers resume only after exact stopped room truth.
  */
 export async function stopAllMediaAsync(options: V2HostStopOptions = {}): Promise<boolean> {
+  const boundedStop = requestLegacyBoundedV1Stop();
+  if (boundedStop) {
+    stopAllMediaLegacy(options);
+    return boundedStop;
+  }
   const v2Stop = requestV2HostFileStop(options);
   if (v2Stop) return v2Stop;
   stopAllMediaLegacy(options);
@@ -2482,6 +3207,7 @@ export function seekTo(time: number): void {
   // System audio: no seek (live stream)
   if (isSystemAudioOwner()) return;
 
+  if (requestLegacyBoundedV1HostSeek(time)) return;
   if (requestV2HostFileSeek(time)) return;
 
   // A busy file pipeline still holds the previous track's buffer. Ignore seek;
@@ -2494,12 +3220,13 @@ export function seekTo(time: number): void {
   // Host: playing → seek + broadcast
   if (isFilePlaybackPlaying()) {
     if (!queueItemId) return;
-    play(time);
+    const hostPlayAt = getHostNow() + SCHEDULE_AHEAD_MS;
+    play(time, 0, undefined, undefined, hostPlayAt);
     broadcast({
       type: MSG.PLAY,
       time,
       queueItemId,
-      hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+      hostPlayAt,
     });
   } else {
     // Paused: update position + broadcast
@@ -2515,8 +3242,11 @@ export async function play(
   scheduleDelay = 0,
   scheduleDeadlineMs?: number,
   shouldApply?: () => boolean,
+  boundedStartAtRoomTimeMs?: number,
 ): Promise<void> {
   if (shouldApply?.() === false) return;
+  if (requestLegacyBoundedV1HostPlay(offset, boundedStartAtRoomTimeMs)) return;
+  if (requestLegacyBoundedV1GuestPlay(offset, boundedStartAtRoomTimeMs)) return;
   if (requestV2HostFileResume(offset)) return;
   if (isPlayLocked()) {
     log.warn('[Play] Blocked: queuing play request');
@@ -2796,6 +3526,7 @@ export function pause(
   // unlock cannot resurrect audio after an authoritative pause.
   clearPendingPlayIntent();
   revokeInFlightPlayStart();
+  if (requestLegacyBoundedV1Pause(forcedTime)) return;
   if (
     requestV2HostFilePause({
       holdVisualizer: opts?.holdVisualizer ?? forcedTime === undefined,
@@ -2977,6 +3708,63 @@ export function handleEnded(): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Guests don't handle track-end
 
+  const bounded = readLegacyBoundedV1ControlContext();
+  if (bounded?.role === 'host') {
+    const duration = bounded.current.durationSeconds;
+    const position = legacyBoundedFileV1Product.positionSeconds() ?? bounded.current.positionSeconds;
+    if (
+      bounded.current.phase === 'playing' &&
+      duration !== null &&
+      duration > 0.1 &&
+      position >= duration - 0.05 &&
+      !getState('player.isSeeking')
+    ) {
+      const queueItemId = bounded.current.queueItemId;
+      const legacySessionId = bounded.current.legacySessionId;
+      const generation = legacyBoundedFileV1Product.snapshot().generation;
+      const key = `${generation}:${queueItemId}:${legacySessionId}`;
+      if (legacyBoundedV1NaturalEndFence?.key === key) return;
+      const task = legacyBoundedFileV1Product.settleHostNaturalEnd(
+        queueItemId,
+        legacySessionId,
+      );
+      legacyBoundedV1NaturalEndFence = Object.freeze({ key, task });
+      void task
+        .then((outcome) => {
+          if (
+            legacyBoundedV1NaturalEndFence?.key !== key ||
+            legacyBoundedV1NaturalEndFence.task !== task
+          ) {
+            return;
+          }
+          if (outcome.status !== 'settled') {
+            legacyBoundedV1NaturalEndFence = null;
+            return;
+          }
+          const latest = legacyBoundedFileV1Product.snapshot().current;
+          if (
+            !latest ||
+            latest.queueItemId !== queueItemId ||
+            latest.legacySessionId !== legacySessionId ||
+            latest.phase !== 'stopped'
+          ) {
+            return;
+          }
+          projectLegacyBoundedV1Snapshot(latest);
+          setState('player.pausedAt', 0);
+          bus.emit('ui:seek-reset');
+          bus.emit('player:ended');
+        })
+        .catch((error) => {
+          if (legacyBoundedV1NaturalEndFence?.task === task) {
+            legacyBoundedV1NaturalEndFence = null;
+          }
+          log.warn('[Transport] Bounded V1 natural-end settlement failed:', error);
+        });
+    }
+    return;
+  }
+
   // A committed bounded renderer can fail after the room timeline has already
   // published playing truth (for example after an AudioContext/output loss).
   // Freeze the compatibility UI immediately and make one exact fresh-track
@@ -3143,8 +3931,14 @@ export function togglePlay(): void {
   if (!hostConn && !isActuallyPlaying && currentQueueItemId) {
     const selectedItem = playlistItems.find((item) => item.queueItemId === currentQueueItemId);
     const resident = getState('files.current');
+    const bounded = legacyBoundedFileV1Product.snapshot();
+    const boundedOwnsSelectedLoad =
+      bounded.role === 'host' &&
+      bounded.current?.queueItemId === currentQueueItemId &&
+      (bounded.current.state === 'preparing' || bounded.current.state === 'ready');
     if (
       selectedItem?.type === 'file' &&
+      !boundedOwnsSelectedLoad &&
       (!getCurrentAudioBuffer() || resident?.queueItemId !== currentQueueItemId)
     ) {
       void import('./playlist.ts').then((mod) => mod.playTrack(currentQueueItemId));
@@ -3171,6 +3965,7 @@ export function togglePlay(): void {
 
   if (isActuallyPlaying) {
     if (!hostConn) {
+      if (requestLegacyBoundedV1HostPause(undefined, 'pause')) return;
       pause();
       broadcast({
         type: MSG.PAUSE,
@@ -3186,12 +3981,14 @@ export function togglePlay(): void {
   } else {
     if (!hostConn) {
       if (!currentQueueItemId) return;
-      play(pausedAt);
+      const hostPlayAt = getHostNow() + SCHEDULE_AHEAD_MS;
+      if (requestLegacyBoundedV1HostPlay(pausedAt, hostPlayAt)) return;
+      play(pausedAt, 0, undefined, undefined, hostPlayAt);
       broadcast({
         type: MSG.PLAY,
         time: pausedAt,
         queueItemId: currentQueueItemId,
-        hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+        hostPlayAt,
       });
     } else if (canControlPlayback) {
       if (currentQueueItemId) {
@@ -3322,6 +4119,8 @@ export function skipTime(sec: number): void {
     return;
   }
 
+  if (requestLegacyBoundedV1HostSeek(requestedSkipTarget)) return;
+
   if (isV2HostFileControlContext()) {
     if (Number.isFinite(sec)) {
       const checkpoint = readV2HostFailedPauseCheckpoint();
@@ -3355,12 +4154,13 @@ export function skipTime(sec: number): void {
 
   if (isPlaying) {
     if (!queueItemId) return;
-    play(target);
+    const hostPlayAt = getHostNow() + SCHEDULE_AHEAD_MS;
+    play(target, 0, undefined, undefined, hostPlayAt);
     broadcast({
       type: MSG.PLAY,
       time: target,
       queueItemId,
-      hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+      hostPlayAt,
     });
   } else {
     setState('player.pausedAt', target);

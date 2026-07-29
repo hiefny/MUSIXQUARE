@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   broadcastSystemMessage: vi.fn(),
   safeSend: vi.fn(),
   sendToHost: vi.fn(),
+  awaitTrustedReceptionBoundary: vi.fn(async () => true),
   beginReception: vi.fn(),
   cleanupReception: vi.fn(),
   stopPublisher: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock('../../network/system-audio-sfu.ts', () => ({
   cleanupSystemAudioSfuGuestRoute: mocks.cleanupLegacySubscriber,
 }));
 vi.mock('../../network/system-audio-guest.ts', () => ({
+  awaitTrustedSystemAudioReceptionBoundary: mocks.awaitTrustedReceptionBoundary,
   beginTrustedSystemAudioReception: mocks.beginReception,
   cleanupGuestSystemAudio: mocks.cleanupReception,
 }));
@@ -244,6 +246,7 @@ beforeAll(() => {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.roomContextKind = 'pro';
+  mocks.awaitTrustedReceptionBoundary.mockResolvedValue(true);
   mocks.initAudio.mockResolvedValue(undefined);
   mocks.publish.mockResolvedValue({
     sessionId: 'realtime_session_01',
@@ -635,6 +638,39 @@ describe('PRO system-audio service orchestration', () => {
     expect(mocks.getAudioContext).not.toHaveBeenCalled();
     expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalled();
     expect(mocks.claimPlaybackOwner).not.toHaveBeenCalled();
+  });
+
+  it('does not attach a PRO SFU track before the trusted owner-switch boundary settles', async () => {
+    const trustedBoundary = deferred<boolean>();
+    mocks.awaitTrustedReceptionBoundary.mockReturnValueOnce(trustedBoundary.promise);
+    api.getSystemAudioState.mockResolvedValueOnce(live());
+
+    await refreshProSystemAudioState();
+    mocks.initAudio.mockClear();
+    mocks.sfuListener?.({
+      type: 'subscriber-track',
+      descriptor: {
+        version: 1,
+        sessionId: 'realtime_session_01',
+        generation: 1,
+        expiresAt: 1_900_007_200_000,
+        tracks: [
+          { trackName: 'audio-L', channel: 'L', mid: '0' },
+          { trackName: 'audio-R', channel: 'R', mid: '1' },
+        ],
+      },
+      channel: 'L',
+      track: {} as MediaStreamTrack,
+    });
+
+    await Promise.resolve();
+    expect(mocks.awaitTrustedReceptionBoundary).toHaveBeenCalledWith('pro-sfu-L');
+    expect(mocks.initAudio).not.toHaveBeenCalled();
+
+    trustedBoundary.resolve(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mocks.initAudio).toHaveBeenCalledTimes(1);
   });
 
   it('does not attach a pending PRO track after the room context becomes standard', async () => {

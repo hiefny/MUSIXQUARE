@@ -9,6 +9,7 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { DEMO_TRACK } from '../../demo/tracks.ts';
 import { handleData } from '../../network/protocol.ts';
 import {
+  getCurrentAudioBuffer,
   getCurrentLoadEpoch,
   getPendingPlayTime,
   newLoadEpoch,
@@ -28,6 +29,7 @@ import type {
   QueueItemId,
   ResidentFile,
 } from '../../types/index.ts';
+import { legacyBoundedFileV1Product } from '../legacy-bounded-file-v1-product.ts';
 
 const mocks = vi.hoisted(() => ({
   broadcast: vi.fn(),
@@ -38,6 +40,7 @@ const mocks = vi.hoisted(() => ({
   safeSend: vi.fn(() => true),
   sendToHost: vi.fn(),
   stopAllMedia: vi.fn(),
+  stopAllMediaAsync: vi.fn(async () => true),
   showLoader: vi.fn(),
   showToast: vi.fn(),
   transition: vi.fn(),
@@ -102,6 +105,7 @@ vi.mock('../transport.ts', () => ({
   isFilePipelineBusyForPlay: mocks.isFilePipelineBusyForPlay,
   play: vi.fn(),
   stopAllMedia: mocks.stopAllMedia,
+  stopAllMediaAsync: mocks.stopAllMediaAsync,
   stopPlayerNode: vi.fn(),
 }));
 
@@ -819,6 +823,132 @@ describe('host decode failure cleanup', () => {
       endOfPlaylist: true,
       reason: 'end-of-playlist',
     });
+  });
+});
+
+describe('bounded V1 host decode integration', () => {
+  beforeEach(() => {
+    resetState();
+    bus.clear();
+    clearAllManagedTimers();
+    vi.clearAllMocks();
+    setCurrentAudioBuffer(null);
+    setState('network.appRole', 'host');
+    setState('room.context', {
+      kind: 'standard',
+      roomId: null,
+      role: 'idle',
+      coordinatorId: null,
+      epoch: 0,
+      snapshotRevision: 0,
+      capabilities: [],
+    });
+  });
+
+  it('schedules the normal next-track preload after bounded preparation without decoding PCM', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'bounded.mp3', {
+      type: 'audio/mpeg',
+    });
+    const item = makeFileTrack(file);
+    setState('playlist.items', [item]);
+    setCurrentIndex(0);
+    const staleAudioBuffer = { duration: 99 } as AudioBuffer;
+    setCurrentAudioBuffer(staleAudioBuffer);
+    const prepareHost = vi
+      .spyOn(legacyBoundedFileV1Product, 'prepareHost')
+      .mockResolvedValue(Object.freeze({ status: 'ready', durationSeconds: 142 }));
+
+    try {
+      const { loadAndBroadcastFile } = await import('../decode.ts');
+      const { schedulePreload } = await import('../../storage/preload.ts');
+      await expect(loadAndBroadcastFile(file, item.queueItemId, 91)).resolves.toBe(true);
+
+      expect(prepareHost).toHaveBeenCalledWith(
+        expect.objectContaining({
+          blob: file,
+          name: file.name,
+          mime: file.type,
+          queueItemId: item.queueItemId,
+          legacySessionId: 91,
+        }),
+      );
+      expect(mocks.decodeAudioData).not.toHaveBeenCalled();
+      expect(getCurrentAudioBuffer()).toBeNull();
+      expect(getState('files.current')).toEqual(
+        expect.objectContaining({
+          blob: file,
+          queueItemId: item.queueItemId,
+          sessionId: 91,
+        }),
+      );
+      expect(vi.mocked(schedulePreload)).toHaveBeenCalledOnce();
+      expect(vi.mocked(broadcastFileDebounced)).not.toHaveBeenCalled();
+    } finally {
+      prepareHost.mockRestore();
+    }
+  });
+
+  it('does not prepare a successor when bounded teardown reports incomplete', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'successor.mp3', {
+      type: 'audio/mpeg',
+    });
+    const item = makeFileTrack(file);
+    setState('playlist.items', [item]);
+    setCurrentIndex(0);
+    const snapshot = vi
+      .spyOn(legacyBoundedFileV1Product, 'snapshot')
+      .mockReturnValue({ current: Object.freeze({}) } as never);
+    const prepareHost = vi.spyOn(legacyBoundedFileV1Product, 'prepareHost');
+    mocks.stopAllMediaAsync.mockResolvedValueOnce(false);
+
+    try {
+      const { loadAndBroadcastFile } = await import('../decode.ts');
+      await expect(loadAndBroadcastFile(file, item.queueItemId, 92)).resolves.toBe(false);
+
+      expect(mocks.stopAllMediaAsync).toHaveBeenCalledWith({ silent: true });
+      expect(prepareHost).not.toHaveBeenCalled();
+      expect(mocks.transition).not.toHaveBeenCalled();
+    } finally {
+      snapshot.mockRestore();
+      prepareHost.mockRestore();
+    }
+  });
+
+  it('rechecks exact load ownership after bounded teardown settles', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'stale-successor.mp3', {
+      type: 'audio/mpeg',
+    });
+    const item = makeFileTrack(file);
+    setState('playlist.items', [item]);
+    setCurrentIndex(0);
+    const snapshot = vi
+      .spyOn(legacyBoundedFileV1Product, 'snapshot')
+      .mockReturnValue({ current: Object.freeze({}) } as never);
+    const prepareHost = vi.spyOn(legacyBoundedFileV1Product, 'prepareHost');
+    let releaseStop!: (value: boolean) => void;
+    mocks.stopAllMediaAsync.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        releaseStop = resolve;
+      }),
+    );
+    const epoch = newLoadEpoch();
+
+    try {
+      const { loadAndBroadcastFile } = await import('../decode.ts');
+      const loading = loadAndBroadcastFile(file, item.queueItemId, 93, epoch);
+      await vi.waitFor(() => {
+        expect(mocks.stopAllMediaAsync).toHaveBeenCalledWith({ silent: true });
+      });
+      newLoadEpoch();
+      releaseStop(true);
+
+      await expect(loading).resolves.toBe(false);
+      expect(prepareHost).not.toHaveBeenCalled();
+      expect(mocks.transition).not.toHaveBeenCalled();
+    } finally {
+      snapshot.mockRestore();
+      prepareHost.mockRestore();
+    }
   });
 });
 

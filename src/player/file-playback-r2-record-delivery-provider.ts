@@ -10,6 +10,26 @@ import type { EncodedAudioSource } from './sources/encoded-audio-source.ts';
 
 type ExactRecord = Readonly<Record<string, unknown>>;
 
+interface FilePlaybackR2RecordDeliveryOpenInput {
+  readonly scope: Readonly<FilePlaybackR2RecordDeliveryScope>;
+  readonly descriptor: Readonly<FilePlaybackR2RecordDescriptorRef>;
+  readonly signal: AbortSignal;
+}
+
+/**
+ * Product lifecycle surface for the legacy bounded V1 R2 binding.
+ *
+ * `open` transfers a fresh source to its caller. The remaining operations
+ * revoke only provider-owned, not-yet-transferred sources and descriptor
+ * authority.
+ */
+export interface FilePlaybackR2RecordDeliveryProviderContract {
+  open(input: FilePlaybackR2RecordDeliveryOpenInput): Promise<EncodedAudioSource>;
+  retire(scope: Readonly<FilePlaybackR2RecordDeliveryScope>): Promise<void>;
+  clear(): Promise<void>;
+  dispose(): Promise<void>;
+}
+
 interface OpenRecord {
   readonly key: string;
   readonly scope: Readonly<FilePlaybackR2RecordDeliveryScope>;
@@ -40,6 +60,20 @@ const nativeAbortControllerAbort = AbortController.prototype.abort;
 
 function fail(code: string, cause?: unknown): never {
   throw new Error(code, cause === undefined ? undefined : { cause });
+}
+
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T | PromiseLike<T>) => void;
+  readonly reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((accept, decline) => {
+    resolve = accept;
+    reject = decline;
+  });
+  return { promise, resolve, reject };
 }
 
 function snapshotExactDataRecord(
@@ -167,9 +201,12 @@ function validPreflightBytes(value: unknown): value is Uint8Array {
  * resolution and source construction, but no room state, connection, or
  * renderer authority.
  */
-class FilePlaybackR2RecordDeliveryProvider {
+class FilePlaybackR2RecordDeliveryProvider implements FilePlaybackR2RecordDeliveryProviderContract {
   readonly #registry: FilePlaybackR2RecordDescriptorRegistry;
   readonly #openByScope = new Map<string, OpenRecord>();
+  #clearPromise: Promise<void> | null = null;
+  #disposePromise: Promise<void> | null = null;
+  #disposed = false;
 
   constructor(registry: FilePlaybackR2RecordDescriptorRegistry) {
     if (!(registry instanceof FilePlaybackR2RecordDescriptorRegistry)) {
@@ -179,6 +216,12 @@ class FilePlaybackR2RecordDeliveryProvider {
   }
 
   open(value: unknown): Promise<EncodedAudioSource> {
+    if (this.#disposed) {
+      return Promise.reject(new Error('FILE_PLAYBACK_R2_RECORD_PROVIDER_DISPOSED'));
+    }
+    if (this.#clearPromise) {
+      return Promise.reject(new Error('FILE_PLAYBACK_R2_RECORD_PROVIDER_CLEAR_IN_PROGRESS'));
+    }
     let input: ReturnType<typeof canonicalOpen>;
     let key: string;
     try {
@@ -245,6 +288,41 @@ class FilePlaybackR2RecordDeliveryProvider {
     return record.retirement;
   }
 
+  clear(): Promise<void> {
+    if (this.#disposed) return this.#disposePromise ?? Promise.resolve();
+    if (this.#clearPromise) return this.#clearPromise;
+
+    const completion = deferred<void>();
+    const task = completion.promise;
+    this.#clearPromise = task;
+    const settle = (): void => {
+      if (this.#clearPromise === task) this.#clearPromise = null;
+    };
+    void task.then(settle, settle);
+    try {
+      this.#revokeAllOpenRecords('R2 record delivery provider cleared');
+      void this.#registry.clear().then(completion.resolve, completion.reject);
+    } catch (error) {
+      completion.reject(error);
+    }
+    return task;
+  }
+
+  dispose(): Promise<void> {
+    if (this.#disposePromise) return this.#disposePromise;
+    const completion = deferred<void>();
+    const task = completion.promise;
+    this.#disposePromise = task;
+    this.#disposed = true;
+    try {
+      this.#revokeAllOpenRecords('R2 record delivery provider disposed');
+      void this.#registry.dispose().then(completion.resolve, completion.reject);
+    } catch (error) {
+      completion.reject(error);
+    }
+    return task;
+  }
+
   async #performOpen(record: OpenRecord): Promise<EncodedAudioSource> {
     try {
       const source = await this.#registry.createSource(
@@ -296,10 +374,29 @@ class FilePlaybackR2RecordDeliveryProvider {
       .catch(() => undefined);
     return record.sourceClosePromise;
   }
+
+  #revokeAllOpenRecords(message: string): void {
+    for (const record of this.#openByScope.values()) {
+      record.retired = true;
+      if (!signalIsAborted(record.controller.signal)) {
+        abortController(record.controller, new DOMException(message, 'AbortError'));
+      }
+      void record.promise.catch(() => undefined);
+      void this.#closeOwnedSource(record);
+    }
+    this.#openByScope.clear();
+  }
 }
 
 /**
- * Phase-2 foundation seam. Product code deliberately cannot construct this
- * provider until the narrow V1 bridge owns its lifecycle.
+ * Construct the product provider behind the lifecycle surface consumed by the
+ * V1 source binding/runtime. The concrete class remains private.
  */
+export function createFilePlaybackR2RecordDeliveryProvider(
+  registry: FilePlaybackR2RecordDescriptorRegistry,
+): FilePlaybackR2RecordDeliveryProviderContract {
+  return new FilePlaybackR2RecordDeliveryProvider(registry);
+}
+
+/** White-box seam for provider-only contract tests. */
 export { FilePlaybackR2RecordDeliveryProvider as FilePlaybackR2RecordDeliveryProviderForTests };

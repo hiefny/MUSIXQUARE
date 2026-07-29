@@ -532,11 +532,46 @@ The Phase 2 foundation now exists behind a beta-only build gate:
   commit-time V1 position, and fences every native transition; and
 - playback/source/renderer failure has no room transport callback.
 
-The next product change is the narrow V1 bridge: publish the additive R2
-descriptor, select the bounded path before audible ownership, and branch only
-the legacy play/pause/seek/stop/position boundaries. Product wiring remains
-deliberately absent from this checkpoint, so neither the old V2 router nor the
-new actor has runtime authority yet. The first bridge slice is limited to
-standard rooms because their R2 descriptor identity is already generation-
-scoped. PRO rooms remain on the stable V1 path until a separate PRO range-source
-adapter can preserve the same generation and credential fences.
+The narrow V1 bridge is now wired into the isolated beta artifact:
+
+- the bridge is the sole bounded-file authority in standard rooms; the former
+  V2 application session, router, host owner, guest owner, and controller stay
+  disabled;
+- host Blob preparation publishes one encrypted, generation-scoped R2 record
+  descriptor and retains the exact source for local replay;
+- capability and descriptor negotiation happens per connection, so one old or
+  incompatible guest falls back to unchanged V1 without changing the engine
+  selected by other guests;
+- the descriptor/legacy selection boundary settles before PLAY or PAUSE is
+  released to that peer, including late join and delayed connection
+  classification;
+- play and playing-seek use a schedule-then-started rendezvous, while pause,
+  stop, and terminal deselection update canonical V1 UI state immediately and
+  drain native output behind exact incarnation fences;
+- a replacement, queue removal, empty snapshot, end of playlist, owner switch,
+  connection replacement, room exit, or failed preparation retires only the
+  captured queue-item/session/source tuple;
+- an unmarked stable-V1 prepare cannot adopt its AudioBuffer until an unrelated
+  bounded predecessor has physically retired; and
+- decoder, source, renderer, and fallback failures remain playback-local and
+  have no room-connection close capability.
+
+The beta source policy currently admits native FLAC and linear PCM plus bounded
+MP3 and M4A AAC-LC. Raw ADTS `.aac` deliberately remains on unchanged V1:
+without an authenticated frame-index sidecar, its WebCodecs admission scan must
+read the complete object before readiness and would defeat the early-start and
+multi-device bandwidth goals of this slice. Unsupported content and missing
+WebCodecs capability choose V1 before audible bounded ownership.
+
+This first product slice remains limited to standard rooms because their R2
+publication identity is already application-session and transfer-generation
+scoped. PRO rooms remain on stable V1 until a separate adapter can bind its
+persistent media generation, server playback revision, credential lifetime,
+and range-source ownership without reintroducing the rolled-back layered
+controller.
+
+Before this checkpoint can be promoted beyond beta it still requires targeted
+browser and physical-device validation for multi-guest late join, background
+resume, repeated seek/pause/play, mixed bounded/V1 peers, remote R2 delivery,
+and iOS autoplay recovery. Production builds must continue proving the beta
+gate absent.

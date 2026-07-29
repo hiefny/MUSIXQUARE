@@ -140,10 +140,13 @@ async function performLocalOutputRejoin(request: RejoinRequest): Promise<RejoinR
     // legacy AudioBuffer path. The dynamic import keeps this recovery seam out
     // of the ordinary guest dependency graph.
     if (mode !== 'file') return { rejoined: false };
-    const { requestV2HostFileOutputRejoin } = await import('./transport.ts');
+    const { requestLegacyBoundedV1HostOutputRejoin, requestV2HostFileOutputRejoin } =
+      await import('./transport.ts');
     if (!requestStillCurrent(request)) return { rejoined: false };
     try {
-      const settlement = requestV2HostFileOutputRejoin(request.reason);
+      const settlement =
+        requestLegacyBoundedV1HostOutputRejoin(request.reason) ??
+        requestV2HostFileOutputRejoin(request.reason);
       // `null` is an explicit ownership miss: this is a legacy host, so there
       // is no V2 authority to retry and no local pause state to change.
       if (settlement === null) return { rejoined: false };
@@ -163,7 +166,7 @@ async function performLocalOutputRejoin(request: RejoinRequest): Promise<RejoinR
     } catch (error) {
       if (!requestStillCurrent(request)) return { rejoined: false };
       if (wasLocallyPaused) setLocalPause(mode, true);
-      log.warn('[Playback] V2 host output rejoin failed', error);
+      log.warn('[Playback] Host file output rejoin failed', error);
       return {
         rejoined: false,
         ...(request.retryAttempt < REJOIN_RETRY_MS.length

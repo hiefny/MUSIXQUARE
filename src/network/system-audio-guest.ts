@@ -13,7 +13,10 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
-import { stopAllMedia } from '../player/transport.ts';
+import {
+  requestLegacyBoundedV1OwnerSwitchStop,
+  stopAllMedia,
+} from '../player/transport.ts';
 import { cancelIncomingFileTransfer } from '../storage/transfer.ts';
 import { cancelRemoteShareWait } from '../share/remote-share.ts';
 import {
@@ -82,8 +85,19 @@ let _gotR = false;
 let _gotStereo = false;
 let _gotSynced = false;
 let _prevTrackMeta: unknown = null;
+let _trustedReceptionGeneration = 0;
+let _pendingTrustedReceptionGeneration: number | null = null;
+let _trustedReceptionWaitSeq = 0;
 let _initialUnmuteWaitSeq = 0;
 const _replacementWatchdogs = new Map<string, MediaConnection>();
+
+interface TrustedReceptionWaiter {
+  expectedGeneration: number;
+  timerName: string;
+  resolve: (ready: boolean) => void;
+}
+
+const _trustedReceptionWaiters = new Set<TrustedReceptionWaiter>();
 
 interface GuestChannelDebug {
   channel: string;
@@ -123,6 +137,62 @@ function currentMediaConnection(channel: string): MediaConnection | null {
   if (channel === 'STEREO') return _mediaConnStereo;
   if (channel === 'SYNCED') return _mediaConnSynced;
   return null;
+}
+
+function settleTrustedReceptionWaiters(generation: number, ready: boolean): void {
+  for (const waiter of [..._trustedReceptionWaiters]) {
+    if (waiter.expectedGeneration !== generation) continue;
+    _trustedReceptionWaiters.delete(waiter);
+    clearManagedTimer(waiter.timerName);
+    waiter.resolve(ready);
+  }
+}
+
+function cancelAllTrustedReceptionWaiters(): void {
+  for (const waiter of [..._trustedReceptionWaiters]) {
+    _trustedReceptionWaiters.delete(waiter);
+    clearManagedTimer(waiter.timerName);
+    waiter.resolve(false);
+  }
+}
+
+export function awaitTrustedSystemAudioReceptionBoundary(
+  channel: string,
+): Promise<boolean> {
+  if (isSystemAudioPlaceholder()) return Promise.resolve(true);
+
+  const expectedGeneration =
+    _pendingTrustedReceptionGeneration ?? _trustedReceptionGeneration + 1;
+  const timerName =
+    `sys-audio-guest-trust-gate-${channel}-${++_trustedReceptionWaitSeq}`;
+
+  return new Promise<boolean>((resolve) => {
+    const waiter: TrustedReceptionWaiter = {
+      expectedGeneration,
+      timerName,
+      resolve,
+    };
+    _trustedReceptionWaiters.add(waiter);
+    setManagedTimer(
+      timerName,
+      () => {
+        if (!_trustedReceptionWaiters.delete(waiter)) return;
+        resolve(false);
+      },
+      SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
+    );
+
+    // The trusted START may have committed between the first placeholder
+    // check and waiter publication.
+    if (
+      expectedGeneration === _trustedReceptionGeneration &&
+      isSystemAudioPlaceholder()
+    ) {
+      _trustedReceptionWaiters.delete(waiter);
+      clearManagedTimer(timerName);
+      resolve(true);
+    }
+  });
 }
 
 function setCurrentMediaConnection(channel: string, mediaConn: MediaConnection | null): boolean {
@@ -434,6 +504,19 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     await waitForInitialUnmute(channel, streamTracks);
     if (!isCurrentMediaConnection(channel, mediaConn)) return;
 
+    // PeerJS media and data channels are independently ordered. A stream can
+    // arrive before the authenticated SYSTEM_AUDIO_START frame, or while the
+    // prior bounded-file output is still draining. Do not connect that stream
+    // to the audible graph until the exact trusted owner-switch boundary has
+    // committed.
+    const trustedReceptionReady = await awaitTrustedSystemAudioReceptionBoundary(channel);
+    if (!trustedReceptionReady || !isCurrentMediaConnection(channel, mediaConn)) {
+      if (isCurrentMediaConnection(channel, mediaConn)) {
+        closeMediaConnection(mediaConn);
+      }
+      return;
+    }
+
     // Pin every audio receiver to the same playout-delay target so NetEq's
     // adaptive jitter buffer doesn't drift independently per device. See the
     // SYSTEM_AUDIO_PLAYOUT_DELAY_S comment for the rationale + tuning notes.
@@ -645,6 +728,9 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 // Shared by the direct-call and SFU receive adapters; this module owns the
 // placeholder and previous-track metadata restoration contract.
 export function cleanupGuestSystemAudio(): void {
+  _trustedReceptionGeneration += 1;
+  _pendingTrustedReceptionGeneration = null;
+  cancelAllTrustedReceptionWaiters();
   _debugLastCleanupAt = Date.now();
   const wasSystemAudioPlaceholder = isSystemAudioPlaceholder();
   clearReceiveWatchdog();
@@ -720,6 +806,51 @@ export function cleanupGuestSystemAudio(): void {
  * server-owned live-share lease.
  */
 export function beginTrustedSystemAudioReception(): boolean {
+  if (isSystemAudioPlaceholder() || _pendingTrustedReceptionGeneration !== null) {
+    return false;
+  }
+  const generation = ++_trustedReceptionGeneration;
+  _pendingTrustedReceptionGeneration = generation;
+  const boundedStop = requestLegacyBoundedV1OwnerSwitchStop();
+  if (boundedStop) {
+    void boundedStop.settled
+      .then((stopped) => {
+        if (
+          !stopped ||
+          !boundedStop.isCurrent() ||
+          generation !== _trustedReceptionGeneration ||
+          isSystemAudioPlaceholder()
+        ) {
+          if (_pendingTrustedReceptionGeneration === generation) {
+            _pendingTrustedReceptionGeneration = null;
+          }
+          settleTrustedReceptionWaiters(generation, false);
+          return;
+        }
+        const committed = commitTrustedSystemAudioReception();
+        if (_pendingTrustedReceptionGeneration === generation) {
+          _pendingTrustedReceptionGeneration = null;
+        }
+        settleTrustedReceptionWaiters(generation, committed);
+      })
+      .catch((error) => {
+        if (_pendingTrustedReceptionGeneration === generation) {
+          _pendingTrustedReceptionGeneration = null;
+        }
+        settleTrustedReceptionWaiters(generation, false);
+        log.warn('[SysAudioGuest] Bounded file-owner stop failed:', error);
+      });
+    return true;
+  }
+  const committed = commitTrustedSystemAudioReception();
+  if (_pendingTrustedReceptionGeneration === generation) {
+    _pendingTrustedReceptionGeneration = null;
+  }
+  settleTrustedReceptionWaiters(generation, committed);
+  return committed;
+}
+
+function commitTrustedSystemAudioReception(): boolean {
   if (isSystemAudioPlaceholder()) return false;
   _debugLastStartAt = Date.now();
   _debugLastStartIgnoredReason = '';

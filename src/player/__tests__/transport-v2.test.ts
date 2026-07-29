@@ -39,6 +39,67 @@ const v2 = vi.hoisted(() => {
   };
 });
 
+const boundedV1 = vi.hoisted(() => {
+  const state: {
+    snapshot: {
+      schemaVersion: 1;
+      active: boolean;
+      role: 'idle' | 'host' | 'guest' | 'bypass';
+      roomKind: 'standard' | 'pro' | null;
+      roomEpoch: string | null;
+      generation: number;
+      current: {
+        queueItemId: string;
+        legacySessionId: number;
+        state: 'preparing' | 'ready' | 'fallback' | 'failed';
+        phase: 'stopped' | 'playing' | 'paused';
+        positionSeconds: number;
+        durationSeconds: number | null;
+        pendingControl: 'play' | 'seek-playing' | 'pause' | 'seek-paused' | 'stop' | null;
+      } | null;
+      hostConnections: number;
+      guestCapabilityAnnounced: boolean;
+    };
+    nowRoomTimeMs: number;
+  } = {
+    snapshot: {
+      schemaVersion: 1,
+      active: false,
+      role: 'idle',
+      roomKind: null,
+      roomEpoch: null,
+      generation: 0,
+      current: null,
+      hostConnections: 0,
+      guestCapabilityAnnounced: false,
+    },
+    nowRoomTimeMs: 10_000,
+  };
+  return {
+    state,
+    product: {
+      initialize: vi.fn(() => false),
+      registerLegacyFallbackDispatcher: vi.fn(),
+      registerGuestDescriptorObserver: vi.fn(),
+      prepareHost: vi.fn(),
+      offerHostCurrentSettled: vi.fn(),
+      ownsSession: vi.fn(() => false),
+      ownsGuestTransfer: vi.fn(() => false),
+      beginGuestTransfer: vi.fn(() => false),
+      abandonGuestTransfer: vi.fn(async () => false),
+      hasReadyRenderer: vi.fn(() => false),
+      snapshot: vi.fn(() => state.snapshot),
+      positionSeconds: vi.fn(() => state.snapshot.current?.positionSeconds ?? null),
+      applyControl: vi.fn(),
+      scheduleHostControl: vi.fn(),
+      cancelPendingHostControl: vi.fn(),
+      retireCurrent: vi.fn(),
+      settleHostNaturalEnd: vi.fn(),
+    },
+    getHostNow: vi.fn(() => state.nowRoomTimeMs),
+  };
+});
+
 vi.mock('../file-playback-engine-gate.ts', () => ({
   isFilePlaybackEngineV2Enabled: () => true,
 }));
@@ -66,12 +127,25 @@ vi.mock('../../network/peer.ts', () => ({
   isRemoteGuest: vi.fn(() => false),
 }));
 
+vi.mock('../../network/shared-clock.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../network/shared-clock.ts')>();
+  return {
+    ...actual,
+    getHostNow: boundedV1.getHostNow,
+  };
+});
+
+vi.mock('../legacy-bounded-file-v1-product.ts', () => ({
+  legacyBoundedFileV1Product: boundedV1.product,
+}));
+
 import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { broadcast, sendToHost } from '../../network/peer.ts';
 import { handleData } from '../../network/protocol.ts';
+import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import type {
   ConnectedPeer,
   DataConnection,
@@ -101,6 +175,13 @@ import {
   requestV2HostFileResume,
   requestV2HostFileSeek,
   requestV2HostFileStop,
+  applyLegacyBoundedV1GuestPlay,
+  requestLegacyBoundedV1HostOutputRejoin,
+  requestLegacyBoundedV1HostPause,
+  requestLegacyBoundedV1HostPlay,
+  requestLegacyBoundedV1HostSeek,
+  requestLegacyBoundedV1OwnerSwitchRetirement,
+  requestLegacyBoundedV1OwnerSwitchStop,
   seekTo,
   skipTime,
   stopAllMediaAsync,
@@ -429,6 +510,61 @@ function setSelectedFile(): void {
   setState('playlist.currentQueueItemId', Q1);
 }
 
+type BoundedV1Phase = 'stopped' | 'playing' | 'paused';
+type BoundedV1Role = 'host' | 'guest';
+
+function setBoundedV1Current(
+  role: BoundedV1Role,
+  phase: BoundedV1Phase,
+  positionSeconds = 5,
+  durationSeconds = 120,
+): void {
+  boundedV1.state.snapshot = {
+    schemaVersion: 1,
+    active: true,
+    role,
+    roomKind: 'standard',
+    roomEpoch: 'transport-bounded-v1-room',
+    generation: 1,
+    current: {
+      queueItemId: Q1,
+      legacySessionId: 17,
+      state: 'ready',
+      phase,
+      positionSeconds,
+      durationSeconds,
+      pendingControl: null,
+    },
+    hostConnections: role === 'host' ? 1 : 0,
+    guestCapabilityAnnounced: role === 'guest',
+  };
+  boundedV1.product.positionSeconds.mockImplementation(
+    () => boundedV1.state.snapshot.current?.positionSeconds ?? null,
+  );
+  if (phase === 'playing') setPlaybackFilePlaying();
+  else setPlaybackFilePaused();
+  setState('player.pausedAt', positionSeconds);
+}
+
+function updateBoundedV1Current(
+  phase: BoundedV1Phase,
+  positionSeconds: number,
+): NonNullable<(typeof boundedV1.state.snapshot)['current']> {
+  const current = boundedV1.state.snapshot.current;
+  if (!current) throw new Error('Bounded V1 current is required');
+  const next = {
+    ...current,
+    phase,
+    positionSeconds,
+    pendingControl: null,
+  };
+  boundedV1.state.snapshot = {
+    ...boundedV1.state.snapshot,
+    current: next,
+  };
+  return next;
+}
+
 function setPlaying(positionSeconds = 5, revision = 1, durationSeconds = 120): void {
   publishProjection('playing', revision, positionSeconds, durationSeconds);
   setPlaybackFilePlaying();
@@ -516,6 +652,42 @@ beforeEach(async () => {
   v2.state.position = null;
   v2.state.terminal = null;
   v2.state.failure = null;
+  boundedV1.state.snapshot = {
+    schemaVersion: 1,
+    active: false,
+    role: 'idle',
+    roomKind: null,
+    roomEpoch: null,
+    generation: 0,
+    current: null,
+    hostConnections: 0,
+    guestCapabilityAnnounced: false,
+  };
+  boundedV1.state.nowRoomTimeMs = 10_000;
+  boundedV1.product.snapshot.mockImplementation(() => boundedV1.state.snapshot);
+  boundedV1.product.positionSeconds.mockImplementation(
+    () => boundedV1.state.snapshot.current?.positionSeconds ?? null,
+  );
+  boundedV1.product.applyControl.mockImplementation(async (control) => {
+    const phase =
+      control.kind === 'play' || control.kind === 'seek-playing'
+        ? 'playing'
+        : control.kind === 'stop'
+          ? 'stopped'
+          : 'paused';
+    const snapshot = updateBoundedV1Current(phase, control.positionSeconds);
+    return { status: 'applied', snapshot };
+  });
+  boundedV1.product.scheduleHostControl.mockImplementation(async (control) => ({
+    status: 'scheduled' as const,
+    startAtRoomTimeMs: control.startAtRoomTimeMs,
+    snapshot: boundedV1.state.snapshot.current!,
+    settled: boundedV1.product.applyControl(control),
+  }));
+  boundedV1.product.cancelPendingHostControl.mockReturnValue(null);
+  boundedV1.product.retireCurrent.mockResolvedValue(false);
+  boundedV1.product.settleHostNaturalEnd.mockResolvedValue({ status: 'not-ended' });
+  boundedV1.getHostNow.mockImplementation(() => boundedV1.state.nowRoomTimeMs);
   v2.runtime.hostRoomSnapshot.mockImplementation(() => v2.state.room);
   v2.runtime.seekPlaying.mockImplementation(async ({ positionSeconds }) => {
     const current = v2.state.renderer as ReturnType<typeof sourceSnapshot>;
@@ -2237,5 +2409,403 @@ describe('V2 host-local file transport seek boundary', () => {
       reason: 'seek',
     });
     expect(v2.runtime.seekPaused).not.toHaveBeenCalled();
+  });
+});
+
+describe('bounded V1 transport integration', () => {
+  it('captures the exact bounded guest before terminal PAUSE deselects it', async () => {
+    const conn = {
+      peer: 'transport-bounded-v1-host',
+      open: true,
+      send: vi.fn(),
+      close: vi.fn(),
+    } as unknown as DataConnection;
+    setSelectedFile();
+    setBoundedV1Current('guest', 'playing', 119);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', conn);
+    markQueueAuthorityReady(conn);
+    initPlayback();
+
+    const retirement = deferred<boolean>();
+    let selectedWhenRetirementStarted: QueueItemId | null = null;
+    boundedV1.product.retireCurrent.mockImplementationOnce(() => {
+      selectedWhenRetirementStarted = getState('playlist.currentQueueItemId');
+      return retirement.promise;
+    });
+
+    await handleData(
+      {
+        type: MSG.PAUSE,
+        time: 0,
+        queueItemId: Q1,
+        endOfPlaylist: true,
+        reason: 'end-of-playlist',
+      },
+      conn,
+    );
+
+    expect(boundedV1.product.retireCurrent).toHaveBeenNthCalledWith(1, Q1, 17);
+    expect(selectedWhenRetirementStarted).toBe(Q1);
+    expect(getState('playlist.currentQueueItemId')).toBeNull();
+
+    boundedV1.state.snapshot = {
+      ...boundedV1.state.snapshot,
+      current: {
+        ...boundedV1.state.snapshot.current!,
+        queueItemId: Q2,
+        legacySessionId: 18,
+      },
+    };
+    retirement.resolve(true);
+    await drainMicrotasks();
+
+    expect(boundedV1.state.snapshot.current?.queueItemId).toBe(Q2);
+    expect(boundedV1.product.retireCurrent).not.toHaveBeenCalledWith(Q2, 18);
+  });
+
+  it('publishes host PLAY after scheduling and projects UI only after exact start evidence', async () => {
+    setBoundedV1Current('host', 'paused', 4);
+    const visualizerStart = vi.fn();
+    const loopStart = vi.fn();
+    bus.on('visualizer:start', visualizerStart);
+    bus.on('ui:loop-start', loopStart);
+    const applied = deferred<{
+      status: 'applied';
+      snapshot: NonNullable<(typeof boundedV1.state.snapshot)['current']>;
+    }>();
+    boundedV1.product.applyControl.mockImplementationOnce(() => applied.promise);
+
+    expect(requestLegacyBoundedV1HostPlay(12, 10_500)).toBe(true);
+    await drainMicrotasks(4);
+
+    expect(boundedV1.product.scheduleHostControl).toHaveBeenCalledWith({
+      kind: 'play',
+      queueItemId: Q1,
+      legacySessionId: 17,
+      positionSeconds: 12,
+      startAtRoomTimeMs: 10_500,
+    });
+    expect(broadcast).toHaveBeenCalledWith({
+      type: MSG.PLAY,
+      time: 12,
+      queueItemId: Q1,
+      name: undefined,
+      hostPlayAt: 10_500,
+    });
+    expect(visualizerStart).not.toHaveBeenCalled();
+    expect(loopStart).not.toHaveBeenCalled();
+
+    const snapshot = updateBoundedV1Current('playing', 12);
+    applied.resolve({ status: 'applied', snapshot });
+    await drainMicrotasks();
+
+    expect(broadcast).toHaveBeenCalledTimes(1);
+    expect(visualizerStart).toHaveBeenCalledTimes(1);
+    expect(loopStart).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['superseded', { status: 'superseded' as const }],
+    ['failed', { status: 'failed' as const, error: new Error('renderer failed') }],
+  ])('does not publish PLAY when host scheduling is %s', async (_label, outcome) => {
+    setBoundedV1Current('host', 'paused', 4);
+    boundedV1.product.scheduleHostControl.mockResolvedValueOnce(outcome);
+
+    expect(requestLegacyBoundedV1HostPlay(12, 10_500)).toBe(true);
+    await drainMicrotasks();
+
+    expect(broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
+  });
+
+  it('retires and publishes one compensating PAUSE when a published host start fails', async () => {
+    setBoundedV1Current('host', 'paused', 4);
+    boundedV1.product.scheduleHostControl.mockResolvedValueOnce({
+      status: 'scheduled',
+      startAtRoomTimeMs: 10_500,
+      snapshot: boundedV1.state.snapshot.current!,
+      settled: Promise.resolve({
+        status: 'failed',
+        error: new Error('native start failed'),
+      }),
+    });
+    boundedV1.product.retireCurrent.mockResolvedValueOnce(true);
+
+    expect(requestLegacyBoundedV1HostPlay(12, 10_500)).toBe(true);
+    await drainMicrotasks(8);
+
+    expect(boundedV1.product.retireCurrent).toHaveBeenCalledWith(Q1, 17);
+    const publications = vi.mocked(broadcast).mock.calls.map(([message]) => message);
+    expect(publications.filter((message) => message.type === MSG.PLAY)).toHaveLength(1);
+    expect(publications.filter((message) => message.type === MSG.PAUSE)).toEqual([
+      {
+        type: MSG.PAUSE,
+        time: 12,
+        queueItemId: Q1,
+        reason: 'transition',
+      },
+    ]);
+    expect(getState('playback.activity')).toBe('paused');
+    expect(getState('player.pausedAt')).toBe(12);
+  });
+
+  it('orders immediate PAUSE after an already-published scheduled PLAY', async () => {
+    setBoundedV1Current('host', 'paused', 4);
+    const pendingPlay = deferred<{ status: 'superseded' }>();
+    boundedV1.product.applyControl
+      .mockImplementationOnce(() => pendingPlay.promise)
+      .mockImplementationOnce(async (control) => {
+        const snapshot = updateBoundedV1Current('paused', control.positionSeconds);
+        return { status: 'applied' as const, snapshot };
+      });
+
+    expect(requestLegacyBoundedV1HostPlay(8, 10_500)).toBe(true);
+    await drainMicrotasks(4);
+    expect(broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.PLAY, queueItemId: Q1 }),
+    );
+
+    expect(requestLegacyBoundedV1HostPause(8)).toBe(true);
+    expect(boundedV1.product.applyControl).toHaveBeenNthCalledWith(2, {
+      kind: 'pause',
+      queueItemId: Q1,
+      legacySessionId: 17,
+      positionSeconds: 8,
+      atRoomTimeMs: 10_000,
+    });
+    expect(broadcast).toHaveBeenNthCalledWith(2, {
+      type: MSG.PAUSE,
+      time: 8,
+      queueItemId: Q1,
+      reason: 'pause',
+    });
+
+    pendingPlay.resolve({ status: 'superseded' });
+    await drainMicrotasks();
+
+    expect(
+      vi.mocked(broadcast).mock.calls.filter(([message]) => message.type === MSG.PLAY),
+    ).toHaveLength(1);
+    expect(boundedV1.state.snapshot.current?.phase).toBe('paused');
+  });
+
+  it('cancels a same-tick queued PLAY before PAUSE can take the stopped fast path', async () => {
+    setBoundedV1Current('host', 'stopped', 4);
+
+    expect(requestLegacyBoundedV1HostPlay(8, 10_500)).toBe(true);
+    expect(requestLegacyBoundedV1HostPause(8)).toBe(true);
+    await drainMicrotasks();
+
+    expect(boundedV1.product.applyControl).not.toHaveBeenCalled();
+    expect(
+      vi.mocked(broadcast).mock.calls.filter(([message]) => message.type === MSG.PLAY),
+    ).toHaveLength(0);
+    expect(getState('player.pausedAt')).toBe(8);
+  });
+
+  it('keeps terminal IDLE after delayed bounded renderer retirement settles', async () => {
+    setSelectedFile();
+    setBoundedV1Current('host', 'playing', 12);
+    const stopped = deferred<{
+      status: 'applied';
+      snapshot: NonNullable<(typeof boundedV1.state.snapshot)['current']>;
+    }>();
+    boundedV1.product.applyControl.mockImplementationOnce(() => stopped.promise);
+
+    const stopping = stopAllMediaAsync({ cancelInFlight: true });
+    expect(getState('playback.activity')).toBe('idle');
+
+    const snapshot = updateBoundedV1Current('stopped', 0);
+    stopped.resolve({ status: 'applied', snapshot });
+    await expect(stopping).resolves.toBe(true);
+
+    expect(getState('playback.activity')).toBe('idle');
+    expect(getState('player.pausedAt')).toBe(0);
+  });
+
+  it('invalidates a pending cross-owner continuation on explicit STOP', async () => {
+    setSelectedFile();
+    setBoundedV1Current('host', 'playing', 12);
+    const retiring = deferred<boolean>();
+    boundedV1.product.retireCurrent.mockReturnValueOnce(retiring.promise);
+
+    const ownerSwitch = requestLegacyBoundedV1OwnerSwitchRetirement();
+    expect(ownerSwitch).not.toBeNull();
+    expect(ownerSwitch!.isCurrent()).toBe(true);
+
+    await expect(stopAllMediaAsync({ cancelInFlight: true })).resolves.toBe(true);
+
+    expect(ownerSwitch!.isCurrent()).toBe(false);
+    retiring.resolve(true);
+    await expect(ownerSwitch!.settled).resolves.toBe(true);
+  });
+
+  it('physically retires a preparing guest instead of accepting a buffered overlay STOP', async () => {
+    setBoundedV1Current('guest', 'stopped', 0);
+    boundedV1.state.snapshot = {
+      ...boundedV1.state.snapshot,
+      current: {
+        ...boundedV1.state.snapshot.current!,
+        state: 'preparing',
+      },
+    };
+    const retiring = deferred<boolean>();
+    boundedV1.product.retireCurrent.mockReturnValueOnce(retiring.promise);
+
+    const ownerSwitch = requestLegacyBoundedV1OwnerSwitchStop();
+
+    expect(ownerSwitch).not.toBeNull();
+    expect(boundedV1.product.applyControl).not.toHaveBeenCalled();
+    expect(boundedV1.product.retireCurrent).toHaveBeenCalledWith(Q1, 17);
+    let settled = false;
+    void ownerSwitch!.settled.then(() => {
+      settled = true;
+    });
+    await drainMicrotasks();
+    expect(settled).toBe(false);
+
+    retiring.resolve(true);
+    await expect(ownerSwitch!.settled).resolves.toBe(true);
+  });
+
+  it('routes playing seek through a committed seek-playing control before PLAY', async () => {
+    setBoundedV1Current('host', 'playing', 5);
+    const applied = deferred<{
+      status: 'applied';
+      snapshot: NonNullable<(typeof boundedV1.state.snapshot)['current']>;
+    }>();
+    boundedV1.product.applyControl.mockImplementationOnce(() => applied.promise);
+
+    expect(requestLegacyBoundedV1HostSeek(30)).toBe(true);
+    await drainMicrotasks(4);
+
+    expect(boundedV1.product.scheduleHostControl).toHaveBeenCalledWith({
+      kind: 'seek-playing',
+      queueItemId: Q1,
+      legacySessionId: 17,
+      positionSeconds: 30,
+      startAtRoomTimeMs: 10_400,
+    });
+    expect(broadcast).toHaveBeenCalledWith({
+      type: MSG.PLAY,
+      time: 30,
+      queueItemId: Q1,
+      hostPlayAt: 10_400,
+    });
+
+    const snapshot = updateBoundedV1Current('playing', 30);
+    applied.resolve({ status: 'applied', snapshot });
+    await drainMicrotasks();
+
+    expect(broadcast).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejoins a playing host output with a fresh same-position rendezvous', async () => {
+    setBoundedV1Current('host', 'playing', 18);
+
+    const rejoined = requestLegacyBoundedV1HostOutputRejoin('audio-context-recovered');
+
+    await expect(rejoined).resolves.toBe(true);
+    expect(boundedV1.product.scheduleHostControl).toHaveBeenCalledWith({
+      kind: 'seek-playing',
+      queueItemId: Q1,
+      legacySessionId: 17,
+      positionSeconds: 18,
+      startAtRoomTimeMs: 10_400,
+    });
+    expect(broadcast).toHaveBeenCalledWith({
+      type: MSG.PLAY,
+      time: 18,
+      queueItemId: Q1,
+      hostPlayAt: 10_400,
+    });
+  });
+
+  it('does not manufacture PLAY while paused context recovery only restores output', async () => {
+    setBoundedV1Current('host', 'paused', 18);
+
+    await expect(
+      requestLegacyBoundedV1HostOutputRejoin('audio-context-recovered'),
+    ).resolves.toBe(true);
+
+    expect(boundedV1.product.scheduleHostControl).not.toHaveBeenCalled();
+    expect(broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
+  });
+
+  it('lets an explicit Media Session PLAY rendezvous a paused bounded host', async () => {
+    setBoundedV1Current('host', 'paused', 18);
+
+    await expect(
+      requestLegacyBoundedV1HostOutputRejoin('media-session-play'),
+    ).resolves.toBe(true);
+
+    expect(boundedV1.product.scheduleHostControl).toHaveBeenCalledWith({
+      kind: 'play',
+      queueItemId: Q1,
+      legacySessionId: 17,
+      positionSeconds: 18,
+      startAtRoomTimeMs: 10_400,
+    });
+  });
+
+  it('routes paused seek through seek-paused and publishes the paused target immediately', async () => {
+    setBoundedV1Current('host', 'paused', 5);
+
+    expect(requestLegacyBoundedV1HostSeek(40)).toBe(true);
+
+    expect(boundedV1.product.applyControl).toHaveBeenCalledWith({
+      kind: 'seek-paused',
+      queueItemId: Q1,
+      legacySessionId: 17,
+      positionSeconds: 40,
+      atRoomTimeMs: 10_000,
+    });
+    expect(broadcast).toHaveBeenCalledWith({
+      type: MSG.PAUSE,
+      time: 40,
+      queueItemId: Q1,
+      reason: 'seek',
+    });
+    await drainMicrotasks();
+  });
+
+  it('catches up an overdue guest PLAY while keeping its local arm in the future', async () => {
+    setBoundedV1Current('guest', 'paused', 0);
+
+    expect(applyLegacyBoundedV1GuestPlay(Q1, 5, 9_000)).toBe(true);
+
+    expect(boundedV1.product.applyControl).toHaveBeenCalledWith({
+      kind: 'play',
+      queueItemId: Q1,
+      legacySessionId: 17,
+      positionSeconds: 6.075,
+      startAtRoomTimeMs: 10_075,
+    });
+    await drainMicrotasks();
+  });
+
+  it('emits one natural end only after the exact settlement despite duplicate polling', async () => {
+    setBoundedV1Current('host', 'playing', 120, 120);
+    const settlement = deferred<{
+      status: 'settled';
+      snapshot: NonNullable<(typeof boundedV1.state.snapshot)['current']>;
+    }>();
+    boundedV1.product.settleHostNaturalEnd.mockImplementation(() => settlement.promise);
+    const ended = vi.fn();
+    bus.on('player:ended', ended);
+
+    handleEnded();
+    handleEnded();
+    await drainMicrotasks(4);
+
+    expect(boundedV1.product.settleHostNaturalEnd).toHaveBeenCalledTimes(1);
+    expect(ended).not.toHaveBeenCalled();
+
+    const snapshot = updateBoundedV1Current('stopped', 0);
+    settlement.resolve({ status: 'settled', snapshot });
+    await drainMicrotasks();
+
+    expect(ended).toHaveBeenCalledTimes(1);
+    expect(getState('player.pausedAt')).toBe(0);
   });
 });

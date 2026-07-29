@@ -7,7 +7,10 @@ import {
   type FilePlaybackR2RecordDeliveryScope,
   type FilePlaybackR2RecordDescriptorRef,
 } from '../file-playback-r2-record-descriptor.ts';
-import { FilePlaybackR2RecordDeliveryProviderForTests as FilePlaybackR2RecordDeliveryProvider } from '../file-playback-r2-record-delivery-provider.ts';
+import {
+  createFilePlaybackR2RecordDeliveryProvider,
+  FilePlaybackR2RecordDeliveryProviderForTests as FilePlaybackR2RecordDeliveryProvider,
+} from '../file-playback-r2-record-delivery-provider.ts';
 import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
 import { R2RecordEncodedAudioSource } from '../sources/r2-record-encoded-audio-source.ts';
 
@@ -422,6 +425,78 @@ describe('FilePlaybackR2RecordDescriptorRegistry', () => {
 });
 
 describe('FilePlaybackR2RecordDeliveryProvider', () => {
+  it('constructs the product contract and clears abort-ignoring opens before registry reuse', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    const registry = new FilePlaybackR2RecordDescriptorRegistry();
+    const descriptor = register(registry);
+    const stale = fakeSource();
+    const successor = fakeSource();
+    const creation = deferred<R2RecordEncodedAudioSource>();
+    const create = vi
+      .spyOn(R2RecordEncodedAudioSource, 'create')
+      .mockReturnValueOnce(creation.promise)
+      .mockResolvedValueOnce(successor as unknown as R2RecordEncodedAudioSource);
+    const provider = createFilePlaybackR2RecordDeliveryProvider(registry);
+    const open = provider.open({
+      scope: scope(),
+      descriptor,
+      signal: new AbortController().signal,
+    });
+
+    const clearing = provider.clear();
+    expect(provider.clear()).toBe(clearing);
+    expect(create.mock.calls[0]?.[1]?.aborted).toBe(true);
+    await expect(clearing).resolves.toBeUndefined();
+    expect(registry.has(descriptor)).toBe(false);
+
+    const successorDescriptor = registry.register(
+      registration({ descriptorId: 'descriptor-after-clear' }),
+    );
+    creation.resolve(stale as unknown as R2RecordEncodedAudioSource);
+    await expect(open).rejects.toMatchObject({ name: 'AbortError' });
+    expect(stale.close).toHaveBeenCalledTimes(1);
+    await expect(
+      provider.open({
+        scope: scope(),
+        descriptor: successorDescriptor,
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toBe(successor);
+  });
+
+  it('permanently and idempotently disposes after revoking every provider-owned open', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    const registry = new FilePlaybackR2RecordDescriptorRegistry();
+    const descriptor = register(registry);
+    const stale = fakeSource();
+    const creation = deferred<R2RecordEncodedAudioSource>();
+    const create = vi.spyOn(R2RecordEncodedAudioSource, 'create').mockReturnValue(creation.promise);
+    const provider = createFilePlaybackR2RecordDeliveryProvider(registry);
+    const open = provider.open({
+      scope: scope(),
+      descriptor,
+      signal: new AbortController().signal,
+    });
+
+    const disposal = provider.dispose();
+    expect(provider.dispose()).toBe(disposal);
+    expect(provider.clear()).toBe(disposal);
+    expect(create.mock.calls[0]?.[1]?.aborted).toBe(true);
+    await expect(disposal).resolves.toBeUndefined();
+    expect(registry.has(descriptor)).toBe(false);
+    await expect(
+      provider.open({
+        scope: scope(),
+        descriptor,
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow(/PROVIDER_DISPOSED/);
+
+    creation.resolve(stale as unknown as R2RecordEncodedAudioSource);
+    await expect(open).rejects.toMatchObject({ name: 'AbortError' });
+    expect(stale.close).toHaveBeenCalledTimes(1);
+  });
+
   it('validates exact scope, constructs the R2 source, and preflights one byte', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(NOW);
     const registry = new FilePlaybackR2RecordDescriptorRegistry();

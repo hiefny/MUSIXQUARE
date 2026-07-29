@@ -18,12 +18,15 @@ import {
   stopAllMedia,
   stopAllMediaAsync,
   requestV2HostFileStop,
+  requestLegacyBoundedV1HostPause,
+  requestLegacyBoundedV1HostPlay,
   getTrackPosition,
   isFilePipelineBusyForPlay,
   applyProPlaybackFileCommit,
   fmtTime,
 } from './transport.ts';
 import { clearPreviousTrackState, loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
+import { legacyBoundedFileV1Product } from './legacy-bounded-file-v1-product.ts';
 import {
   newLoadEpoch,
   isCurrentLoadEpoch,
@@ -1162,6 +1165,12 @@ export async function playTrack(
     item.type !== 'youtube' &&
     (!!item.file || (isProRoomPersistentPlaylistFile(queueItemId) && !!_residentFile));
   const _bufferMatchesTrack = !!getCurrentAudioBuffer() && _resident?.queueItemId === queueItemId;
+  const _boundedSnapshot = legacyBoundedFileV1Product.snapshot();
+  const _boundedMatchesTrack =
+    _boundedSnapshot.role === 'host' &&
+    _boundedSnapshot.current?.state === 'ready' &&
+    _boundedSnapshot.current.queueItemId === queueItemId &&
+    _boundedSnapshot.current.legacySessionId === _resident?.sessionId;
 
   // Re-clicking the exact YouTube occurrence is a replay request, not a new
   // iframe load. Reusing youtube:load here can stop/cue the already-resident
@@ -1169,6 +1178,43 @@ export async function playTrack(
   // callback that incorrectly advances the playlist. Keep the iframe intact
   // and restart the synchronized timeline through the existing zero-start
   // barrier (or its established rendezvous fallback).
+  if (
+    !appliesServerAuthority &&
+    !hostConn &&
+    _isSameTrack &&
+    _isLocalFileTrack &&
+    _boundedMatchesTrack
+  ) {
+    log.debug('[Host] Same-track re-click -> bounded V1 replay without media redistribution');
+    const isFirstTrackLoad = getState('player.isFirstTrackLoad');
+    const autoPlayDelayMs = isFirstTrackLoad ? 0 : 3000;
+    requestLegacyBoundedV1HostPause(0, 'seek');
+    setState('player.pausedAt', 0);
+    if (isFirstTrackLoad) {
+      setState('player.isFirstTrackLoad', false);
+    } else {
+      showToast(t('toast.playing_in_3s'));
+    }
+    setManagedTimer(
+      'autoPlayTimer',
+      () => {
+        if (getCurrentQueueItemId() !== queueItemId || !getQueueItemById(queueItemId)) return;
+        const hostPlayAt = getLocalFileHostPlayAt();
+        if (requestLegacyBoundedV1HostPlay(0, hostPlayAt)) return;
+        play(0, 0, undefined, undefined, hostPlayAt);
+        broadcast({
+          type: MSG.PLAY,
+          time: 0,
+          queueItemId,
+          name: _resident?.name,
+          hostPlayAt,
+        });
+      },
+      autoPlayDelayMs,
+    );
+    return;
+  }
+
   if (
     !appliesServerAuthority &&
     !hostConn &&
@@ -1257,13 +1303,14 @@ export async function playTrack(
       'autoPlayTimer',
       () => {
         if (getCurrentQueueItemId() !== queueItemId || !getQueueItemById(queueItemId)) return;
-        play(0);
+        const hostPlayAt = getLocalFileHostPlayAt();
+        play(0, 0, undefined, undefined, hostPlayAt);
         broadcast({
           type: MSG.PLAY,
           time: 0,
           queueItemId,
           name: file.name,
-          hostPlayAt: getLocalFileHostPlayAt(),
+          hostPlayAt,
         });
       },
       autoPlayDelayMs,
@@ -1304,7 +1351,24 @@ export async function playTrack(
     if (stoppedYouTubeBeforeSelection) stopAllMedia({ silent: true });
     selectQueueItemById(queueItemId);
     setPlaybackTrackMeta(item);
-    if (!stoppedYouTubeBeforeSelection) stopAllMedia({ silent: true });
+    if (!stoppedYouTubeBeforeSelection) {
+      if (legacyBoundedFileV1Product.snapshot().current) {
+        const stopped = await stopAllMediaAsync({
+          silent: true,
+          cancelInFlight: true,
+          preservePlaylistIntent: true,
+        });
+        if (
+          !stopped ||
+          !isCurrentLoadEpoch(myLoadEpoch) ||
+          getCurrentQueueItemId() !== queueItemId
+        ) {
+          return;
+        }
+      } else {
+        stopAllMedia({ silent: true });
+      }
+    }
     // A preload can be promoted before its presigned source resolves. Release
     // both the previous PCM and encoded resident before changing the runtime
     // lane to foreground; otherwise two maximum-size PRO files could overlap
@@ -1396,7 +1460,22 @@ export async function playTrack(
     freezeFileDeliveryMode(getState('transfer.currentSessionId'));
 
     if (!stoppedYouTubeBeforePreloadSelection) {
-      stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows immediately
+      if (legacyBoundedFileV1Product.snapshot().current) {
+        const stopped = await stopAllMediaAsync({
+          silent: true,
+          cancelInFlight: true,
+          preservePlaylistIntent: true,
+        });
+        if (
+          !stopped ||
+          !isCurrentLoadEpoch(myLoadEpoch) ||
+          getCurrentQueueItemId() !== queueItemId
+        ) {
+          return;
+        }
+      } else {
+        stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows immediately
+      }
     }
 
     const preloadBlob = readyPreload.blob;
@@ -1409,6 +1488,68 @@ export async function playTrack(
           }));
     const fileName = preloadFile.name || readyPreload.name || item.name;
     const isProDirect = isProRoomPersistentPlaylistFile(queueItemId);
+    const boundedHostRoomActive =
+      legacyBoundedFileV1Product.snapshot().role === 'host' &&
+      legacyBoundedFileV1Product.snapshot().active;
+    if (boundedHostRoomActive && !isProDirect) {
+      const preloadSessionId = getState('transfer.currentSessionId');
+      clearPreloadState();
+      // clearPreloadState deliberately preserves a preload owned by the newly
+      // selected queue occurrence so the legacy AudioBuffer promotion path can
+      // consume it atomically. Bounded V1 promotes the captured encoded Blob
+      // through loadAndBroadcastFile instead, so release both preload markers
+      // now; leaving them published would make the next scheduling pass treat
+      // the already-active occurrence as still preloaded.
+      publishPreloadPromotion({
+        'preload.ready': null,
+        'preload.activeTarget': null,
+      });
+      const activated = await loadAndBroadcastFile(
+        preloadFile,
+        queueItemId,
+        preloadSessionId,
+        myLoadEpoch,
+        {
+          type: MSG.FILE_PREPARE,
+          queueItemId,
+          name: fileName,
+          mime: preloadFile.type || readyPreload.mime || 'application/octet-stream',
+          size: preloadFile.size,
+          sessionId: preloadSessionId,
+          autoPlayDelayMs: 0,
+        },
+      );
+      if (
+        !activated ||
+        !isCurrentLoadEpoch(myLoadEpoch) ||
+        getCurrentQueueItemId() !== queueItemId
+      ) {
+        log.debug('[Host] Bounded preloaded activation failed or was superseded');
+        return;
+      }
+      const hostPlayAt = getLocalFileHostPlayAt();
+      if (requestLegacyBoundedV1HostPlay(0, hostPlayAt)) {
+        schedulePreload();
+        return;
+      }
+      await play(0, 0, undefined, undefined, hostPlayAt);
+      if (
+        !isCurrentLoadEpoch(myLoadEpoch) ||
+        getCurrentQueueItemId() !== queueItemId ||
+        getState('playback.activity') !== 'playing'
+      ) {
+        return;
+      }
+      broadcast({
+        type: MSG.PLAY,
+        time: 0,
+        queueItemId,
+        name: fileName,
+        hostPlayAt,
+      });
+      schedulePreload();
+      return;
+    }
     if (isProDirect) {
       broadcast({
         type: MSG.FILE_PREPARE,
@@ -1461,7 +1602,8 @@ export async function playTrack(
       const remoteShareSessionId = getState('transfer.currentSessionId') || null;
       void shareRemoteFileIfNeeded(preloadFile, remoteShareSessionId, undefined, { queueItemId });
     }
-    await play(0);
+    const hostPlayAt = getLocalFileHostPlayAt();
+    await play(0, 0, undefined, undefined, hostPlayAt);
     // play() crosses AudioContext resume/engine-init awaits. A newer
     // playTrack() can take ownership during that window; the transport then
     // aborts the stale local start, so this caller must likewise suppress its
@@ -1479,7 +1621,7 @@ export async function playTrack(
       time: 0,
       queueItemId,
       name: fileName,
-      hostPlayAt: getLocalFileHostPlayAt(),
+      hostPlayAt,
     });
     // SharedClock handles sync
     schedulePreload();
@@ -1522,7 +1664,22 @@ export async function playTrack(
       // an already-scheduled playVideo() cannot fire against the new target.
       cancelYtAutoSync();
       if (!isYtToYt) {
-        stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
+        if (legacyBoundedFileV1Product.snapshot().current) {
+          const stopped = await stopAllMediaAsync({
+            silent: true,
+            cancelInFlight: true,
+            preservePlaylistIntent: true,
+          });
+          if (
+            !stopped ||
+            !isCurrentLoadEpoch(myLoadEpoch) ||
+            getCurrentQueueItemId() !== queueItemId
+          ) {
+            return;
+          }
+        } else {
+          stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
+        }
         if (wasPreparingFile) {
           // A superseded PRO fetch is aborted by the runtime when selection
           // changes. Release its file-only lifecycle too, otherwise the play
@@ -1676,7 +1833,22 @@ export async function playTrack(
 
   // Local file playback
   if (!stoppedYouTubeBeforeFileSelection) {
-    stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows
+    if (legacyBoundedFileV1Product.snapshot().current) {
+      const stopped = await stopAllMediaAsync({
+        silent: true,
+        cancelInFlight: true,
+        preservePlaylistIntent: true,
+      });
+      if (
+        !stopped ||
+        !isCurrentLoadEpoch(myLoadEpoch) ||
+        getCurrentQueueItemId() !== queueItemId
+      ) {
+        return;
+      }
+    } else {
+      stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows
+    }
   }
 
   const file = item.file;
@@ -1803,7 +1975,9 @@ export async function playTrack(
         return;
       }
 
-      await play(restorePosition);
+      const hostPlayAt = getLocalFileHostPlayAt();
+      if (requestLegacyBoundedV1HostPlay(restorePosition, hostPlayAt)) return;
+      await play(restorePosition, 0, undefined, undefined, hostPlayAt);
       if (
         !isCurrentLoadEpoch(myLoadEpoch) ||
         getCurrentQueueItemId() !== queueItemId ||
@@ -1816,7 +1990,7 @@ export async function playTrack(
         time: restorePosition,
         queueItemId,
         name: file.name,
-        hostPlayAt: getLocalFileHostPlayAt(),
+        hostPlayAt,
       });
       return;
     }
@@ -1830,13 +2004,15 @@ export async function playTrack(
         'autoPlayTimer',
         () => {
           if (getCurrentQueueItemId() !== queueItemId || !getQueueItemById(queueItemId)) return;
-          play(0);
+          const hostPlayAt = getLocalFileHostPlayAt();
+          if (requestLegacyBoundedV1HostPlay(0, hostPlayAt)) return;
+          play(0, 0, undefined, undefined, hostPlayAt);
           broadcast({
             type: MSG.PLAY,
             time: 0,
             queueItemId,
             name: file.name,
-            hostPlayAt: getLocalFileHostPlayAt(),
+            hostPlayAt,
           });
           // SharedClock handles sync
         },
@@ -1897,6 +2073,53 @@ function handleEndOfPlaylist(reason: string): void {
       }
       finish(true);
     });
+    return;
+  }
+
+  const boundedSnapshot = legacyBoundedFileV1Product.snapshot();
+  const boundedCurrent =
+    boundedSnapshot.role === 'host' ? (boundedSnapshot.current ?? null) : null;
+  if (boundedCurrent) {
+    void stopAllMediaAsync({ cancelInFlight: true })
+      .then(async () => {
+        let settledSnapshot = legacyBoundedFileV1Product.snapshot();
+        if (!settledSnapshot.active || settledSnapshot.role !== 'host') return;
+        const exactCurrent = settledSnapshot.current;
+        if (
+          exactCurrent?.queueItemId === boundedCurrent.queueItemId &&
+          exactCurrent.legacySessionId === boundedCurrent.legacySessionId
+        ) {
+          const retired = await legacyBoundedFileV1Product.retireCurrent(
+            boundedCurrent.queueItemId,
+            boundedCurrent.legacySessionId,
+          );
+          if (!retired) return;
+        }
+        // STOP can settle false while its exact physical renderer is still
+        // drainable. Conversely, a newer incarnation can claim this playlist
+        // occurrence while the old drain is pending. Finish the terminal UI
+        // reset only after the captured owner is gone and no successor owns
+        // bounded output.
+        settledSnapshot = legacyBoundedFileV1Product.snapshot();
+        if (
+          !settledSnapshot.active ||
+          settledSnapshot.role !== 'host' ||
+          settledSnapshot.current !== null
+        ) {
+          return;
+        }
+        if (
+          getState('playlist.items') !== expectedItems ||
+          getState('playlist.revision') !== expectedRevision ||
+          getCurrentQueueItemId() !== expectedQueueItemId
+        ) {
+          return;
+        }
+        finish(false);
+      })
+      .catch((error) => {
+        log.warn('[Playlist] Bounded end-of-playlist retirement failed:', error);
+      });
     return;
   }
 
@@ -2002,12 +2225,14 @@ function restartCurrentTrackFromStart(queueItemId: QueueItemId): void {
     log.debug('[Playlist] Ignoring restart-current while file pipeline is preparing');
     return;
   }
-  play(0);
+  const hostPlayAt = getLocalFileHostPlayAt();
+  if (requestLegacyBoundedV1HostPlay(0, hostPlayAt)) return;
+  play(0, 0, undefined, undefined, hostPlayAt);
   broadcast({
     type: MSG.PLAY,
     time: 0,
     queueItemId,
-    hostPlayAt: getLocalFileHostPlayAt(),
+    hostPlayAt,
   });
   // SharedClock handles sync
 }
@@ -2156,6 +2381,9 @@ function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnecti
 
   const prevLength = (getState('playlist.items') || []).length;
   const previousCurrentQueueItemId = getCurrentQueueItemId();
+  const boundedBeforeSnapshot = legacyBoundedFileV1Product.snapshot();
+  const boundedBefore =
+    boundedBeforeSnapshot.role === 'guest' ? (boundedBeforeSnapshot.current ?? null) : null;
   const authorityEstablished = hasQueueAuthority(conn);
   if (!authorityEstablished && data.bootstrap !== true) {
     log.warn('[Playlist] Ignored playlist update before authority bootstrap');
@@ -2212,7 +2440,17 @@ function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnecti
         ? 'playlist-emptied'
         : 'playlist-current-removed';
     if (authorityChanged) bus.emit('demo:authority-reset');
-    stopAllMedia({ cancelInFlight: true, clearBuffer: true });
+    const boundedTarget =
+      boundedBefore &&
+      (authorityChanged ||
+        playlistEmptied ||
+        boundedBefore.queueItemId === previousCurrentQueueItemId)
+        ? boundedBefore
+        : null;
+    const boundedStop = boundedTarget
+      ? stopAllMediaAsync({ cancelInFlight: true, clearBuffer: true })
+      : null;
+    if (!boundedStop) stopAllMedia({ cancelInFlight: true, clearBuffer: true });
     // A successor can already be arriving through the independent preload
     // channel. Keep that live session intact while dropping the deleted
     // current media; a full reset here would strand PLAY_PRELOADED after the
@@ -2234,6 +2472,25 @@ function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnecti
     clearPreviousTrackState(reason);
     // clearPreviousTrackState doesn't touch player.currentTrackMeta.
     setPlaybackTrackMeta(null);
+    if (boundedStop && boundedTarget) {
+      void boundedStop
+        .then(async () => {
+          const exactCurrent = legacyBoundedFileV1Product.snapshot().current;
+          if (
+            exactCurrent?.queueItemId !== boundedTarget.queueItemId ||
+            exactCurrent.legacySessionId !== boundedTarget.legacySessionId
+          ) {
+            return;
+          }
+          await legacyBoundedFileV1Product.retireCurrent(
+            boundedTarget.queueItemId,
+            boundedTarget.legacySessionId,
+          );
+        })
+        .catch((error) => {
+          log.warn('[Playlist] Bounded guest snapshot retirement failed:', error);
+        });
+    }
   }
 
   if (outcome === 'rebased') markQueueAuthorityReady(conn);
@@ -2774,30 +3031,69 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
     filePlaybackProductRuntime.currentHostTerminalRendererObservation()?.queueItemId ??
     filePlaybackProductRuntime.currentHostFailedRendererObservation()?.queueItemId ??
     null;
+  const boundedSnapshot = legacyBoundedFileV1Product.snapshot();
+  const activeBoundedQueueItemId =
+    boundedSnapshot.role === 'host' ? (boundedSnapshot.current?.queueItemId ?? null) : null;
+  const activeBoundedLegacySessionId =
+    boundedSnapshot.role === 'host' ? (boundedSnapshot.current?.legacySessionId ?? null) : null;
+  const awaitsV2QueueEmptyRetirement =
+    activeV2QueueItemId === currentQueueItemId && standardHostUsesV2();
+  const awaitsBoundedQueueEmptyRetirement = activeBoundedQueueItemId === currentQueueItemId;
   if (
     nextItems.length === 0 &&
     wasCurrent &&
     currentQueueItemId !== null &&
-    activeV2QueueItemId === currentQueueItemId &&
-    standardHostUsesV2()
+    (awaitsV2QueueEmptyRetirement || awaitsBoundedQueueEmptyRetirement)
   ) {
     const requestedQueueItemIds = [...queueItemIds];
     void stopAllMediaAsync({ cancelInFlight: true })
-      .then((stopped) => {
-        if (!stopped) return;
+      .then(async (stopped) => {
+        // V2 has no independent exact-retire fallback at this integration
+        // boundary. Bounded V1 does: even a false STOP settlement must attempt
+        // to drain the captured incarnation before the final row disappears.
+        if (!stopped && awaitsV2QueueEmptyRetirement && !awaitsBoundedQueueEmptyRetirement) {
+          return;
+        }
+        if (
+          awaitsBoundedQueueEmptyRetirement &&
+          activeBoundedQueueItemId !== null &&
+          activeBoundedLegacySessionId !== null
+        ) {
+          const exactCurrent = legacyBoundedFileV1Product.snapshot().current;
+          if (
+            exactCurrent?.queueItemId === activeBoundedQueueItemId &&
+            exactCurrent.legacySessionId === activeBoundedLegacySessionId
+          ) {
+            const retired = await legacyBoundedFileV1Product.retireCurrent(
+              activeBoundedQueueItemId,
+              activeBoundedLegacySessionId,
+            );
+            if (!retired) return;
+          }
+        }
         const remainingV2QueueItemId =
           filePlaybackProductRuntime.currentHostRendererSnapshot()?.queueItemId ??
           filePlaybackProductRuntime.currentHostTerminalRendererObservation()?.queueItemId ??
           filePlaybackProductRuntime.currentHostFailedRendererObservation()?.queueItemId ??
           null;
-        if (remainingV2QueueItemId === currentQueueItemId) {
-          log.warn('[Playlist] V2 queue-empty retirement settled without releasing its renderer');
+        const remainingBoundedSnapshot = legacyBoundedFileV1Product.snapshot();
+        const remainingBoundedQueueItemId =
+          remainingBoundedSnapshot.role === 'host'
+            ? (remainingBoundedSnapshot.current?.queueItemId ?? null)
+            : null;
+        if (
+          remainingV2QueueItemId === currentQueueItemId ||
+          remainingBoundedQueueItemId === currentQueueItemId
+        ) {
+          log.warn(
+            '[Playlist] Queue-empty retirement settled without releasing its file renderer',
+          );
           return;
         }
         removeQueueItems(requestedQueueItemIds);
       })
       .catch((error) => {
-        log.warn('[Playlist] V2 queue-empty retirement failed:', error);
+        log.warn('[Playlist] Queue-empty file renderer retirement failed:', error);
       });
     return;
   }
@@ -3193,14 +3489,16 @@ export function initPlaylist(): void {
           newLoadEpoch();
           const queueItemId = getCurrentQueueItemId();
           if (!queueItemId || !getQueueItemById(queueItemId)) return;
-          play(0).catch(() => {
+          const hostPlayAt = getLocalFileHostPlayAt();
+          if (requestLegacyBoundedV1HostPlay(0, hostPlayAt)) return;
+          play(0, 0, undefined, undefined, hostPlayAt).catch(() => {
             /* noop */
           });
           broadcast({
             type: MSG.PLAY,
             time: 0,
             queueItemId,
-            hostPlayAt: getLocalFileHostPlayAt(),
+            hostPlayAt,
           });
           // SharedClock handles sync
         },

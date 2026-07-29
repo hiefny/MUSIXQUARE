@@ -34,6 +34,7 @@ import { clearCurrentAccountLoginReturn } from '../account/login-return.ts';
 import { getRoomContext } from '../rooms/authority.ts';
 import { getStandardRoomTurnCredentials } from './standard-room-prerequisites.ts';
 import { getFilePlaybackProductRuntime } from '../player/file-playback-product-runtime.ts';
+import { legacyBoundedFileV1Product } from '../player/legacy-bounded-file-v1-product.ts';
 
 // ─── Sub-module imports (only names used locally in this file) ───────
 
@@ -289,6 +290,7 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
   // independent server authority and must never enter this product runtime.
   if (getRoomContext().kind === 'standard') {
     getFilePlaybackProductRuntime().endRoom();
+    await legacyBoundedFileV1Product.endRoom();
   }
   const owner = beginNetworkInit(requestedId);
   let ownedPeer: PeerInstance | null = null;
@@ -360,6 +362,10 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
       if (getFilePlaybackProductRuntime().enabled() && !begun) {
         throw new Error('FILE_PLAYBACK_HOST_ROOM_START_FAILED');
       }
+      const bounded = await legacyBoundedFileV1Product.beginHostRoom(id);
+      if (bounded.status !== 'active' && bounded.status !== 'bypass') {
+        throw new Error('LEGACY_BOUNDED_V1_HOST_ROOM_START_FAILED');
+      }
     }
     log.info('[Network] Peer opened:', id);
     bus.emit('network:peer-ready', id);
@@ -369,6 +375,11 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
     if (getRoomContext().kind === 'standard') {
       try {
         getFilePlaybackProductRuntime().endRoom();
+      } catch {
+        // Preserve the initiating network/runtime failure.
+      }
+      try {
+        await legacyBoundedFileV1Product.endRoom();
       } catch {
         // Preserve the initiating network/runtime failure.
       }
@@ -727,6 +738,7 @@ export function cancelPendingSessionSetup(): void {
   resetGuestSystemAudioShareRoute();
   if (getRoomContext().kind === 'standard') {
     getFilePlaybackProductRuntime().endRoom();
+    void legacyBoundedFileV1Product.endRoom();
   }
   if (getState('room.context').kind === 'pro' || isProRoomCode(getState('network.lastJoinCode'))) {
     requestProRoomLeave();
@@ -819,6 +831,7 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
   resetGuestSystemAudioShareRoute();
   if (getRoomContext().kind === 'standard') {
     getFilePlaybackProductRuntime().endRoom();
+    void legacyBoundedFileV1Product.endRoom();
   }
   if (getState('room.context').kind === 'pro' || isProRoomCode(getState('network.sessionCode'))) {
     requestProRoomLeave();

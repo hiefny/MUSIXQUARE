@@ -11,6 +11,7 @@ import {
   type FilePlaybackSeekTransitionIntent,
   type FilePlaybackSourceSnapshot,
 } from './file-playback-source.ts';
+import type { FilePlaybackEndedTransitionIntent } from './file-playback-ended-transition.ts';
 import type { RevisionedPlaybackRun } from './rendezvous-contract.ts';
 import type { QueueItemId } from '../types/index.ts';
 import { isEncodedAudioSourceIdentity } from './sources/encoded-audio-source.ts';
@@ -25,16 +26,23 @@ import type {
   LegacyBoundedFilePreparation,
   LegacyBoundedFilePrepareInput,
   LegacyBoundedFilePrepareOutcome,
+  LegacyBoundedFileScheduleOutcome,
   LegacyBoundedFileScope,
   LegacyBoundedFileSeekInput,
   LegacyBoundedFileTimedControlInput,
 } from './legacy-bounded-file-port-contract.ts';
+
+// Revisioned sources reject a pause/seek/stop target that is already at the
+// audio render cursor. A tiny local lead keeps "pause now" perceptually
+// immediate while avoiding the former 200ms room-wide control delay.
+const IMMEDIATE_CONTROL_LEAD_MS = 25;
 
 type RecordPhase =
   | 'opening'
   | 'staging'
   | 'staged'
   | 'committing'
+  | 'scheduled'
   | 'current'
   | 'paused'
   | 'retiring'
@@ -55,10 +63,21 @@ interface LeaseRecord {
   readyPromise: Promise<LegacyBoundedFilePrepareOutcome>;
   commitStartAtRoomTimeMs: number | null;
   commitPositionSeconds: number | null;
+  schedulePromise: Promise<LegacyBoundedFileScheduleOutcome> | null;
   commitPromise: Promise<LegacyBoundedFileControlOutcome> | null;
   transitionPromise: Promise<LegacyBoundedFileControlOutcome> | null;
   cleanupPromise: Promise<void> | null;
 }
+
+interface PlayOperation {
+  readonly schedule: Promise<LegacyBoundedFileScheduleOutcome>;
+  readonly commit: Promise<LegacyBoundedFileControlOutcome>;
+}
+
+type StartedWaitOutcome =
+  | Readonly<{ readonly status: 'started' }>
+  | Readonly<{ readonly status: 'aborted' }>
+  | Readonly<{ readonly status: 'rejected'; readonly error: unknown }>;
 
 const SCOPE_KEYS = Object.freeze([
   'roomEpoch',
@@ -201,6 +220,60 @@ function rejected(
   reason: Extract<LegacyBoundedFileControlOutcome, { readonly status: 'rejected' }>['reason'],
 ): LegacyBoundedFileControlOutcome {
   return freezeRecord({ status: 'rejected' as const, reason });
+}
+
+function scheduleSuperseded(): LegacyBoundedFileScheduleOutcome {
+  return freezeRecord({ status: 'superseded' as const });
+}
+
+function scheduleFailed(error: unknown): LegacyBoundedFileScheduleOutcome {
+  return freezeRecord({ status: 'failed' as const, error });
+}
+
+function scheduleRejected(
+  reason: Extract<LegacyBoundedFileScheduleOutcome, { readonly status: 'rejected' }>['reason'],
+): LegacyBoundedFileScheduleOutcome {
+  return freezeRecord({ status: 'rejected' as const, reason });
+}
+
+function scheduled(
+  startAtRoomTimeMs: number,
+  snapshot: FilePlaybackSourceSnapshot,
+  settled: Promise<LegacyBoundedFileControlOutcome>,
+): LegacyBoundedFileScheduleOutcome {
+  return freezeRecord({
+    status: 'scheduled' as const,
+    startAtRoomTimeMs,
+    snapshot,
+    settled,
+  });
+}
+
+function waitForStartedOrAbort(
+  signal: AbortSignal,
+  started: Promise<unknown>,
+): Promise<StartedWaitOutcome> {
+  if (signal.aborted) {
+    return Promise.resolve(freezeRecord({ status: 'aborted' as const }));
+  }
+  return new Promise<StartedWaitOutcome>((resolve) => {
+    let complete = false;
+    const settle = (outcome: StartedWaitOutcome): void => {
+      if (complete) return;
+      complete = true;
+      signal.removeEventListener('abort', onAbort);
+      resolve(outcome);
+    };
+    const onAbort = (): void => {
+      settle(freezeRecord({ status: 'aborted' as const }));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    void Promise.resolve(started).then(
+      () => settle(freezeRecord({ status: 'started' as const })),
+      (error: unknown) =>
+        settle(freezeRecord({ status: 'rejected' as const, error })),
+    );
+  });
 }
 
 function safeContextForDestination(destination: AudioNode): AudioContext | null {
@@ -383,6 +456,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
       readyPromise: ready.promise,
       commitStartAtRoomTimeMs: null,
       commitPositionSeconds: null,
+      schedulePromise: null,
       commitPromise: null,
       transitionPromise: null,
       cleanupPromise: null,
@@ -400,34 +474,93 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
     return freezeRecord({ lease, ready: ready.promise });
   }
 
+  schedulePlay(
+    lease: LegacyBoundedFileLease,
+    scope: LegacyBoundedFileScope,
+    input: LegacyBoundedFilePlayInput,
+  ): Promise<LegacyBoundedFileScheduleOutcome> {
+    return this.#beginPlay(lease, scope, input).schedule;
+  }
+
   commitPlay(
     lease: LegacyBoundedFileLease,
     scope: LegacyBoundedFileScope,
     input: LegacyBoundedFilePlayInput,
   ): Promise<LegacyBoundedFileControlOutcome> {
+    return this.#beginPlay(lease, scope, input).commit;
+  }
+
+  #beginPlay(
+    lease: LegacyBoundedFileLease,
+    scope: LegacyBoundedFileScope,
+    input: LegacyBoundedFilePlayInput,
+  ): PlayOperation {
     const record = this.#lookup(lease, scope);
     const startAtRoomTimeMs = input?.startAtRoomTimeMs;
     const positionSeconds = input?.positionSeconds;
     if (!record || this.#candidate !== record || !record.port) {
-      return Promise.resolve(superseded());
+      return freezeRecord({
+        schedule: Promise.resolve(scheduleSuperseded()),
+        commit: Promise.resolve(superseded()),
+      });
     }
     if (!finiteNonNegative(startAtRoomTimeMs) || !finiteNonNegative(positionSeconds)) {
-      return Promise.resolve(failed(new TypeError('Bounded start input is invalid')));
+      const error = new TypeError('Bounded start input is invalid');
+      return freezeRecord({
+        schedule: Promise.resolve(scheduleFailed(error)),
+        commit: Promise.resolve(failed(error)),
+      });
     }
-    if (record.commitPromise) {
-      return record.commitStartAtRoomTimeMs === startAtRoomTimeMs &&
+    if (record.schedulePromise || record.commitPromise) {
+      if (
+        record.schedulePromise &&
+        record.commitPromise &&
+        record.commitStartAtRoomTimeMs === startAtRoomTimeMs &&
         record.commitPositionSeconds === positionSeconds
-        ? record.commitPromise
-        : Promise.resolve(rejected('busy'));
+      ) {
+        return freezeRecord({
+          schedule: record.schedulePromise,
+          commit: record.commitPromise,
+        });
+      }
+      return freezeRecord({
+        schedule: Promise.resolve(scheduleRejected('busy')),
+        commit: Promise.resolve(rejected('busy')),
+      });
     }
-    if (record.phase !== 'staged') return Promise.resolve(superseded());
+    if (record.phase !== 'staged') {
+      return freezeRecord({
+        schedule: Promise.resolve(scheduleSuperseded()),
+        commit: Promise.resolve(superseded()),
+      });
+    }
+
+    const commit = deferred<LegacyBoundedFileControlOutcome>();
     record.commitStartAtRoomTimeMs = startAtRoomTimeMs;
     record.commitPositionSeconds = positionSeconds;
     record.phase = 'committing';
-    const task = this.#commitRecord(record, startAtRoomTimeMs, positionSeconds);
-    record.commitPromise = task;
+    const scheduleTask = this.#scheduleRecord(
+      record,
+      startAtRoomTimeMs,
+      positionSeconds,
+      commit.promise,
+      commit.resolve,
+    );
+    record.schedulePromise = scheduleTask;
+    record.commitPromise = commit.promise;
+    void scheduleTask.then((outcome) => {
+      if (outcome.status === 'scheduled') return;
+      if (outcome.status === 'rejected') {
+        commit.resolve(rejected(outcome.reason));
+      } else if (outcome.status === 'superseded') {
+        commit.resolve(superseded());
+      } else {
+        commit.resolve(failed(outcome.error));
+      }
+    });
     const settleCommit = () => {
-      if (record.commitPromise !== task) return;
+      if (record.commitPromise !== commit.promise) return;
+      record.schedulePromise = null;
       record.commitPromise = null;
       record.commitStartAtRoomTimeMs = null;
       record.commitPositionSeconds = null;
@@ -435,8 +568,8 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
         record.phase = 'staged';
       }
     };
-    void task.then(settleCommit, settleCommit);
-    return task;
+    void commit.promise.then(settleCommit, settleCommit);
+    return freezeRecord({ schedule: scheduleTask, commit: commit.promise });
   }
 
   pause(
@@ -644,26 +777,34 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
     }
   }
 
-  async #commitRecord(
+  async #scheduleRecord(
     record: LeaseRecord,
     startAtRoomTimeMs: number,
     positionSeconds: number,
-  ): Promise<LegacyBoundedFileControlOutcome> {
+    settled: Promise<LegacyBoundedFileControlOutcome>,
+    settle: (outcome: LegacyBoundedFileControlOutcome) => void,
+  ): Promise<LegacyBoundedFileScheduleOutcome> {
     const port = record.port;
-    if (!port) return superseded();
+    if (!port) return scheduleSuperseded();
     try {
       const now = this.#readRoomTime();
       if (startAtRoomTimeMs <= now) {
         record.phase = 'staged';
-        return failed(new RangeError('Bounded start time is not in the future'));
+        return scheduleFailed(new RangeError('Bounded start time is not in the future'));
       }
       const revision = 1;
       const runId = `legacy-bounded-${record.serial}`;
       const rendezvousId = `legacy-bounded-${record.serial}-start`;
-      await this.#manager.primeCutoverCandidate(port, positionSeconds, record.controller.signal);
+      const primedSnapshot = createFilePlaybackSourceSnapshot(
+        await this.#manager.primeCutoverCandidate(
+          port,
+          positionSeconds,
+          record.controller.signal,
+        ),
+      );
       if (!record.live || this.#candidate !== record || record.controller.signal.aborted) {
         await this.#manager.retireExactCutoverPort(port);
-        return superseded();
+        return scheduleSuperseded();
       }
       const postPrimeRoomTimeMs = this.#readRoomTime();
       if (startAtRoomTimeMs <= postPrimeRoomTimeMs) {
@@ -672,7 +813,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
         // expose a hidden same-position-only retry rule.
         this.#invalidate(record, 'Legacy bounded start expired while priming');
         await this.#joinRetirement(record);
-        return failed(new RangeError('Bounded start expired while priming'));
+        return scheduleFailed(new RangeError('Bounded start expired while priming'));
       }
       const finalizeByRoomTimeMs =
         postPrimeRoomTimeMs + (startAtRoomTimeMs - postPrimeRoomTimeMs) / 2;
@@ -692,18 +833,18 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
       const armed = await this.#manager.armCutoverCandidate(port, arm);
       if (!record.live || this.#candidate !== record) {
         await this.#manager.retireExactCutoverPort(port);
-        return superseded();
+        return scheduleSuperseded();
       }
       if (armed.status !== 'armed') {
         this.#invalidate(record, 'Legacy bounded arm was rejected');
         await this.#joinRetirement(record);
-        return failed(new Error('Bounded source rejected arm'));
+        return scheduleFailed(new Error('Bounded source rejected arm'));
       }
       const finalizedAtRoomTimeMs = this.#readRoomTime();
       if (finalizedAtRoomTimeMs > startAtRoomTimeMs) {
         this.#invalidate(record, 'Legacy bounded finalization missed start');
         await this.#joinRetirement(record);
-        return failed(new Error('Bounded finalization missed its start boundary'));
+        return scheduleFailed(new Error('Bounded finalization missed its start boundary'));
       }
       const finalization = await this.#manager.finalizeCutoverCandidate(
         port,
@@ -719,41 +860,85 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
           finalizedAtRoomTimeMs,
         }),
       );
-      await finalization.started;
-      if (
-        !record.live ||
-        this.#candidate !== record ||
-        this.#manager.currentCutoverPort() !== port
-      ) {
-        this.#invalidate(record, 'Legacy bounded manager current changed during commit');
-        await this.#joinRetirement(record);
-        this.#reconcileManagerCurrent();
-        return superseded();
+      if (!record.live || this.#candidate !== record || record.controller.signal.aborted) {
+        await this.#manager.retireExactCutoverPort(port);
+        return scheduleSuperseded();
       }
-      const previous = this.#current;
-      this.#candidate = null;
-      this.#current = record;
-      record.phase = 'current';
-      record.runId = runId;
-      record.revision = revision;
-      if (previous && previous !== record) {
-        this.#invalidate(previous, 'Legacy bounded current was replaced');
-        void this.#joinRetirement(previous).catch(() => undefined);
-      }
-      return applied(this.#manager.currentCutoverSnapshot(port));
+      record.phase = 'scheduled';
+      void this.#settleScheduledRecord(
+        record,
+        runId,
+        revision,
+        finalization.started,
+      ).then(settle);
+      return scheduled(startAtRoomTimeMs, primedSnapshot, settled);
     } catch (error) {
       const wasLive = record.live && this.#candidate === record;
       let failure = error;
-      this.#invalidate(record, 'Legacy bounded commit failed');
+      this.#invalidate(record, 'Legacy bounded scheduling failed');
       try {
         await this.#joinRetirement(record);
       } catch (cleanupError) {
         if (wasLive)
-          failure = new AggregateError([failure, cleanupError], 'Commit and cleanup failed');
+          failure = new AggregateError([failure, cleanupError], 'Scheduling and cleanup failed');
+      }
+      this.#reconcileManagerCurrent();
+      return wasLive ? scheduleFailed(failure) : scheduleSuperseded();
+    }
+  }
+
+  async #settleScheduledRecord(
+    record: LeaseRecord,
+    runId: string,
+    revision: number,
+    started: Promise<unknown>,
+  ): Promise<LegacyBoundedFileControlOutcome> {
+    const port = record.port;
+    if (!port) return superseded();
+    const start = await waitForStartedOrAbort(record.controller.signal, started);
+    if (start.status === 'aborted') return superseded();
+    if (start.status === 'rejected') {
+      const wasLive = record.live && this.#candidate === record;
+      let failure = start.error;
+      this.#invalidate(record, 'Legacy bounded start evidence failed');
+      try {
+        await this.#joinRetirement(record);
+      } catch (cleanupError) {
+        if (wasLive) {
+          failure = new AggregateError(
+            [failure, cleanupError],
+            'Start evidence and cleanup failed',
+          );
+        }
       }
       this.#reconcileManagerCurrent();
       return wasLive ? failed(failure) : superseded();
     }
+    if (
+      !record.live ||
+      this.#candidate !== record ||
+      this.#manager.currentCutoverPort() !== port
+    ) {
+      this.#invalidate(record, 'Legacy bounded manager current changed during commit');
+      try {
+        await this.#joinRetirement(record);
+      } catch {
+        // A superseded commit cannot regain authority because cleanup failed.
+      }
+      this.#reconcileManagerCurrent();
+      return superseded();
+    }
+    const previous = this.#current;
+    this.#candidate = null;
+    this.#current = record;
+    record.phase = 'current';
+    record.runId = runId;
+    record.revision = revision;
+    if (previous && previous !== record) {
+      this.#invalidate(previous, 'Legacy bounded current was replaced');
+      void this.#joinRetirement(previous).catch(() => undefined);
+    }
+    return applied(this.#manager.currentCutoverSnapshot(port));
   }
 
   #transition(
@@ -798,13 +983,17 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
     }
     const to = freezeRecord({ ...from, revision: from.revision + 1 });
     try {
+      const effectiveAtRoomTimeMs = Math.max(
+        atRoomTimeMs,
+        this.#readRoomTime() + IMMEDIATE_CONTROL_LEAD_MS,
+      );
       const result = await (async () => {
         if (kind === 'pause') {
           const intent: FilePlaybackPauseTransitionIntent = freezeRecord({
             kind: 'file-playback-pause-transition' as const,
             from,
             to,
-            atRoomTimeMs,
+            atRoomTimeMs: effectiveAtRoomTimeMs,
           });
           return this.#manager.pauseCurrentCutover(port, intent);
         }
@@ -813,7 +1002,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
           from,
           to,
           positionSeconds: positionSeconds as number,
-          atRoomTimeMs,
+          atRoomTimeMs: effectiveAtRoomTimeMs,
         });
         return this.#manager.seekCurrentCutover(port, intent);
       })();
@@ -844,16 +1033,38 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
         return this.#failAndRetire(record, new Error('Bounded current revision is not exact'));
       }
       const nowRoomTimeMs = this.#readRoomTime();
-      if (atRoomTimeMs <= nowRoomTimeMs) {
-        return failed(new RangeError('Bounded stop time is not in the future'));
-      }
-      const contextTimeSeconds = audioContext.currentTime + (atRoomTimeMs - nowRoomTimeMs) / 1_000;
       const to = freezeRecord({ ...from, revision: from.revision + 1 });
+
+      // Natural EOF is already physically stopped and cannot accept a future
+      // scheduled stop. Retire it through the manager's exact ended-evidence
+      // path instead of misclassifying normal completion as renderer failure.
+      if (snapshot?.phase === 'ended') {
+        const endedIntent: Readonly<FilePlaybackEndedTransitionIntent> = freezeRecord({
+          kind: 'file-playback-ended-transition' as const,
+          from,
+          to,
+          observedAtRoomTimeMs: nowRoomTimeMs,
+        });
+        await this.#manager.retireEndedCurrent(port, endedIntent);
+        const wasCurrent = record.live && this.#current === record;
+        this.#invalidate(record, 'Legacy bounded natural end was retired');
+        await this.#joinRetirement(record);
+        if (!wasCurrent) return superseded();
+        record.revision = to.revision;
+        return applied(null);
+      }
+
+      const effectiveAtRoomTimeMs = Math.max(
+        atRoomTimeMs,
+        nowRoomTimeMs + IMMEDIATE_CONTROL_LEAD_MS,
+      );
+      const contextTimeSeconds =
+        audioContext.currentTime + (effectiveAtRoomTimeMs - nowRoomTimeMs) / 1_000;
       const result = await this.#manager.stopCurrentCutover(port, {
         kind: 'file-playback-stop-transition',
         from,
         to,
-        atRoomTimeMs,
+        atRoomTimeMs: effectiveAtRoomTimeMs,
         target: createFilePlaybackCutoverTarget(
           audioContext,
           contextTimeSeconds,
@@ -961,7 +1172,15 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
 }
 
 /**
- * Phase-2 foundation seam. The product-facing constructor is added only with
- * the V1 bridge that owns the exact lease lifecycle.
+ * Construct the product port behind its lease-scoped contract. The concrete
+ * class remains private so callers cannot grow a dependency on implementation
+ * state beyond the V1 bridge lifecycle.
  */
+export function createLegacyBoundedFilePort(
+  options: LegacyBoundedFilePortOptions,
+): LegacyBoundedFilePortContract {
+  return new LegacyBoundedFilePort(options);
+}
+
+/** White-box seam for port-only contract tests. */
 export { LegacyBoundedFilePort as LegacyBoundedFilePortForTests };

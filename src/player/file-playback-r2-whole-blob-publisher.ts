@@ -49,7 +49,7 @@ export interface FilePlaybackR2WholeBlobPublishSource {
 }
 
 /** Body-free R2 object authority. The cleanup token remains publisher-private. */
-export interface FilePlaybackR2WholeBlobPublication {
+interface FilePlaybackR2WholeBlobPublication {
   readonly schemaVersion: 1;
   readonly queueItemId: QueueItemId;
   readonly sourceIdentity: string;
@@ -65,7 +65,7 @@ export interface FilePlaybackR2WholeBlobPublication {
   readonly expiresAtEpochMs: number;
 }
 
-export interface FilePlaybackR2RecordPublicationRecord {
+interface FilePlaybackR2RecordPublicationRecord {
   readonly index: number;
   readonly objectId: string;
   readonly plaintextSize: number;
@@ -113,7 +113,7 @@ export interface FilePlaybackR2WholeBlobPublisherRuntime {
   readonly waitForMemoryReservationChange: (signal: AbortSignal) => Promise<boolean>;
 }
 
-export interface FilePlaybackR2WholeBlobPublisherOptions {
+interface FilePlaybackR2WholeBlobPublisherOptions {
   readonly roomToken: object;
   readonly runtime?: Partial<FilePlaybackR2WholeBlobPublisherRuntime>;
 }
@@ -638,23 +638,25 @@ export class FilePlaybackR2WholeBlobPublisher {
     this.#assertRecordCurrent(source, storageRoomId, applicationSessionId, signal);
     const recordSize = R2RecordCryptoV2.RECORD_PLAINTEXT_BYTES;
     const recordCount = Math.ceil(source.blob.size / recordSize);
-    const session = await this.#runtime.createRecordSet(
-      {
-        storageRoomId,
-        applicationSessionId,
-        queueItemId: source.queueItemId,
-        sourceIdentity: source.sourceIdentity,
-        name: source.name,
-        mime: source.mime,
-        plaintextSize: source.blob.size,
-        recordSize,
-        recordCount,
-      },
-      signal,
-    );
-    this.#assertRecordCurrent(source, storageRoomId, applicationSessionId, signal);
+    let session: Readonly<R2RecordSetUploadSession> | null = null;
     let encryptor: Awaited<ReturnType<typeof R2RecordCryptoV2.createEncryptor>> | null = null;
     try {
+      const activeSession = await this.#runtime.createRecordSet(
+        {
+          storageRoomId,
+          applicationSessionId,
+          queueItemId: source.queueItemId,
+          sourceIdentity: source.sourceIdentity,
+          name: source.name,
+          mime: source.mime,
+          plaintextSize: source.blob.size,
+          recordSize,
+          recordCount,
+        },
+        signal,
+      );
+      session = activeSession;
+      this.#assertRecordCurrent(source, storageRoomId, applicationSessionId, signal);
       encryptor = await R2RecordCryptoV2.createEncryptor(session.setId, source.blob.size, signal);
       const activeEncryptor = encryptor;
       const secret = activeEncryptor.takeSecretDescriptor();
@@ -760,10 +762,12 @@ export class FilePlaybackR2WholeBlobPublisher {
       }
     } catch (error) {
       const published = this.#recordPublications.get(source.queueItemId);
-      if (published?.session === session) {
+      if (session && published?.session === session) {
         this.#recordPublications.delete(source.queueItemId);
       }
-      await this.#runtime.deleteRecordSet(session).catch(() => undefined);
+      if (session) {
+        await this.#runtime.deleteRecordSet(session).catch(() => undefined);
+      }
       throw error;
     } finally {
       encryptor?.dispose();

@@ -110,6 +110,30 @@ export type LegacyBoundedFileControlOutcome =
       readonly error: unknown;
     }>;
 
+/**
+ * Two-phase PLAY admission. `scheduled` proves that native finalization and
+ * gate scheduling succeeded while the shared start is still in the future.
+ * `settled` remains the authoritative started-evidence outcome.
+ */
+export type LegacyBoundedFileScheduleOutcome =
+  | Readonly<{
+      readonly status: 'scheduled';
+      readonly startAtRoomTimeMs: number;
+      readonly snapshot: FilePlaybackSourceSnapshot;
+      readonly settled: Promise<LegacyBoundedFileControlOutcome>;
+    }>
+  | Readonly<{
+      readonly status: 'rejected';
+      readonly reason: FilePlaybackTransitionRejectReason | 'busy' | 'not-current';
+    }>
+  | Readonly<{
+      readonly status: 'superseded';
+    }>
+  | Readonly<{
+      readonly status: 'failed';
+      readonly error: unknown;
+    }>;
+
 export interface LegacyBoundedFilePortOptions {
   /** Monotonic room clock already maintained by the stable V1 controller. */
   readonly nowRoomTimeMs: () => number;
@@ -117,6 +141,11 @@ export interface LegacyBoundedFilePortOptions {
 
 export interface LegacyBoundedFilePortContract {
   prepare(input: LegacyBoundedFilePrepareInput): LegacyBoundedFilePreparation;
+  schedulePlay(
+    lease: LegacyBoundedFileLease,
+    scope: LegacyBoundedFileScope,
+    input: LegacyBoundedFilePlayInput,
+  ): Promise<LegacyBoundedFileScheduleOutcome>;
   commitPlay(
     lease: LegacyBoundedFileLease,
     scope: LegacyBoundedFileScope,

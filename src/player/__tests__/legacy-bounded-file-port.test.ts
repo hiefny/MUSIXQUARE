@@ -27,7 +27,10 @@ import type {
   LegacyBoundedFileLease,
   LegacyBoundedFileScope,
 } from '../legacy-bounded-file-port-contract.ts';
-import { LegacyBoundedFilePortForTests as LegacyBoundedFilePort } from '../legacy-bounded-file-port.ts';
+import {
+  createLegacyBoundedFilePort,
+  LegacyBoundedFilePortForTests as LegacyBoundedFilePort,
+} from '../legacy-bounded-file-port.ts';
 
 const Q1 = '00000000-0000-4000-8000-000000000001';
 const Q2 = '00000000-0000-4000-8000-000000000002';
@@ -126,6 +129,7 @@ interface FakeSource {
   gateStarted(): void;
   resolveStarted(): void;
   rejectStarted(error?: unknown): void;
+  markEnded(): void;
   throwPosition(): void;
   gateDestroy(): void;
   releaseDestroy(): void;
@@ -291,6 +295,10 @@ function makeSource(
     rejectStarted(error = new Error('start evidence rejected')) {
       startedGate.reject(error);
     },
+    markEnded() {
+      phase = 'ended';
+      positionSeconds = 180;
+    },
     throwPosition() {
       positionThrows = true;
     },
@@ -370,6 +378,149 @@ async function startCurrent(
 }
 
 describe('LegacyBoundedFilePort', () => {
+  it('constructs the production lease-scoped contract without exporting the concrete class', async () => {
+    const port = createLegacyBoundedFilePort({ nowRoomTimeMs: () => 1_000 });
+
+    expect(port).toMatchObject({
+      prepare: expect.any(Function),
+      schedulePlay: expect.any(Function),
+      commitPlay: expect.any(Function),
+      pause: expect.any(Function),
+      seek: expect.any(Function),
+      stop: expect.any(Function),
+      snapshot: expect.any(Function),
+      position: expect.any(Function),
+      retire: expect.any(Function),
+      clearRoom: expect.any(Function),
+      clear: expect.any(Function),
+    });
+    await expect(port.clear()).resolves.toBeUndefined();
+  });
+
+  it('reports a scheduled play before exact native start evidence settles', async () => {
+    const h = harness();
+    const exactScope = scope();
+    const fake = h.source();
+    fake.gateStarted();
+    const lease = await prepareReady(h, exactScope, fake);
+
+    const outcome = await h.port.schedulePlay(lease, exactScope, {
+      startAtRoomTimeMs: 1_200,
+      positionSeconds: 12,
+    });
+    expect(outcome).toMatchObject({
+      status: 'scheduled',
+      startAtRoomTimeMs: 1_200,
+      snapshot: {
+        queueItemId: exactScope.queueItemId,
+        positionSeconds: 12,
+      },
+    });
+    if (outcome.status !== 'scheduled') throw new Error('play was not scheduled');
+    expect(h.port.snapshot(lease, exactScope)).toBeNull();
+    let settled = false;
+    void outcome.settled.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    fake.resolveStarted();
+    await expect(outcome.settled).resolves.toMatchObject({
+      status: 'applied',
+      snapshot: { phase: 'playing', run: { revision: 1 } },
+    });
+    expect(h.port.snapshot(lease, exactScope)).toMatchObject({
+      queueItemId: exactScope.queueItemId,
+      phase: 'playing',
+    });
+
+    await h.port.clear();
+  });
+
+  it('keeps commitPlay pending until exact native start evidence settles', async () => {
+    const h = harness();
+    const exactScope = scope();
+    const fake = h.source();
+    fake.gateStarted();
+    const lease = await prepareReady(h, exactScope, fake);
+
+    let settled = false;
+    const commit = h.port
+      .commitPlay(lease, exactScope, {
+        startAtRoomTimeMs: 1_200,
+        positionSeconds: 12,
+      })
+      .then((outcome) => {
+        settled = true;
+        return outcome;
+      });
+    await vi.waitFor(() => expect(fake.source.finalize).toHaveBeenCalledOnce());
+    expect(settled).toBe(false);
+
+    fake.resolveStarted();
+    await expect(commit).resolves.toMatchObject({ status: 'applied' });
+    await h.port.clear();
+  });
+
+  it('settles a scheduled play as superseded when retired before native start', async () => {
+    const h = harness();
+    const exactScope = scope();
+    const fake = h.source();
+    fake.gateStarted();
+    fake.gateDestroy();
+    const lease = await prepareReady(h, exactScope, fake);
+
+    const outcome = await h.port.schedulePlay(lease, exactScope, {
+      startAtRoomTimeMs: 1_200,
+      positionSeconds: 12,
+    });
+    if (outcome.status !== 'scheduled') throw new Error('play was not scheduled');
+
+    let retired = false;
+    const retirement = h.port.retire(lease, exactScope).then(() => {
+      retired = true;
+    });
+    await expect(outcome.settled).resolves.toEqual({ status: 'superseded' });
+    expect(retired).toBe(false);
+    expect(h.port.snapshot(lease, exactScope)).toBeNull();
+    expect(fake.source.destroy).toHaveBeenCalledOnce();
+    fake.releaseDestroy();
+    await retirement;
+    await expect(h.port.clear()).resolves.toBeUndefined();
+  });
+
+  it('joins an exact duplicate schedule and rejects a different pre-schedule request', async () => {
+    const h = harness();
+    const exactScope = scope();
+    const fake = h.source();
+    fake.gatePrime();
+    const lease = await prepareReady(h, exactScope, fake);
+
+    const first = h.port.schedulePlay(lease, exactScope, {
+      startAtRoomTimeMs: 1_200,
+      positionSeconds: 12,
+    });
+    await vi.waitFor(() => expect(fake.source.primeForCutover).toHaveBeenCalledOnce());
+    const duplicate = h.port.schedulePlay(lease, exactScope, {
+      startAtRoomTimeMs: 1_200,
+      positionSeconds: 12,
+    });
+    expect(duplicate).toBe(first);
+    await expect(
+      h.port.schedulePlay(lease, exactScope, {
+        startAtRoomTimeMs: 1_200,
+        positionSeconds: 13,
+      }),
+    ).resolves.toEqual({ status: 'rejected', reason: 'busy' });
+
+    fake.releasePrime();
+    const outcome = await first;
+    if (outcome.status !== 'scheduled') throw new Error('play was not scheduled');
+    await expect(outcome.settled).resolves.toMatchObject({ status: 'applied' });
+    await h.port.clear();
+  });
+
   it('uses a fieldless opaque lease and the real manager to stage, start, and observe a source', async () => {
     const h = harness();
     const exactScope = scope();
@@ -664,6 +815,23 @@ describe('LegacyBoundedFilePort', () => {
     await expect(stopping).resolves.toEqual({ status: 'applied', snapshot: null });
     expect(h.port.snapshot(lease, exactScope)).toBeNull();
     expect(fake.source.destroy).toHaveBeenCalledOnce();
+    await expect(h.port.clear()).resolves.toBeUndefined();
+    expect(fake.source.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('retires an exact naturally ended renderer without scheduling an impossible stop', async () => {
+    const h = harness();
+    const exactScope = scope();
+    const fake = h.source();
+    const lease = await startCurrent(h, exactScope, fake);
+    fake.markEnded();
+
+    await expect(
+      h.port.stop(lease, exactScope, { atRoomTimeMs: 1_250 }),
+    ).resolves.toEqual({ status: 'applied', snapshot: null });
+
+    expect(fake.source.destroy).toHaveBeenCalledOnce();
+    expect(h.port.snapshot(lease, exactScope)).toBeNull();
     await expect(h.port.clear()).resolves.toBeUndefined();
     expect(fake.source.destroy).toHaveBeenCalledOnce();
   });

@@ -74,7 +74,13 @@ import {
   trackDecodedAudioBufferForAdmission,
 } from './_state.ts';
 
-import { isFilePipelineBusyForPlay, play, stopAllMedia, stopPlayerNode } from './transport.ts';
+import {
+  isFilePipelineBusyForPlay,
+  play,
+  stopAllMedia,
+  stopAllMediaAsync,
+  stopPlayerNode,
+} from './transport.ts';
 
 import { getAudioContext, ensureRunning } from '../audio/context.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
@@ -90,6 +96,7 @@ import {
   resolveDecodeMemoryBudget,
   waitForInFlightMemoryReservationChange,
 } from './decode-admission.ts';
+import { legacyBoundedFileV1Product } from './legacy-bounded-file-v1-product.ts';
 
 // ─── Decode Accounting & Ownership ─────────────────────────────────
 // decodeAudioData has no cancellation API. Racing it against a timer only
@@ -281,7 +288,13 @@ export async function loadAndBroadcastFile(
   if (!Number.isSafeInteger(sessionId) || sessionId <= 0 || !isCurrentOwner()) return false;
 
   showLoader(true, t('toast.preparing', { name: file.name }));
-  stopAllMedia({ silent: true });
+  if (legacyBoundedFileV1Product.snapshot().current) {
+    const stopped = await stopAllMediaAsync({ silent: true });
+    if (!stopped || !isCurrentOwner()) return false;
+  } else {
+    stopAllMedia({ silent: true });
+    if (!isCurrentOwner()) return false;
+  }
 
   // Lifecycle: host has the file locally (no download phase). Transition
   // straight into DECODING so the subsequent transition(DECODE_SUCCESS)
@@ -301,6 +314,59 @@ export async function loadAndBroadcastFile(
       await Promise.race([initAudio(), delay(2000)]);
     }
     if (getAudioContext().state !== 'running') await ensureRunning();
+
+    const boundedPrepare = await legacyBoundedFileV1Product.prepareHost({
+      blob: file,
+      name: file.name,
+      mime: file.type || 'application/octet-stream',
+      queueItemId,
+      sourceIdentity: `source:${sessionId}`,
+      transferSessionId: `transfer:${sessionId}`,
+      legacySessionId: sessionId,
+    });
+    if (!isCurrentOwner()) return false;
+    if (boundedPrepare.status === 'ready') {
+      if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
+      transition({ type: 'DECODE_SUCCESS' });
+      bus.emit('ui:duration-update', boundedPrepare.durationSeconds);
+
+      const indexHint = findQueueItemIndex(queueItemId);
+      if (indexHint < 0 || !isCurrentOwner()) return false;
+      const mime = file.type || 'application/octet-stream';
+      const total = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
+      const meta: FileMeta = {
+        name: file.name,
+        type: mime,
+        queueItemId,
+        indexHint,
+        size: file.size,
+        mime,
+        sessionId,
+        total,
+      };
+      const resident: ResidentFile = { ...meta, blob: file };
+      batchSetState({ 'transfer.meta': meta, 'files.current': resident });
+      bus.emit('ui:play-btn-state', true);
+
+      const offers: Promise<unknown>[] = [];
+      for (const peer of getState('network.connectedPeers')) {
+        const conn = peer.conn as DataConnection | null;
+        if (peer.status !== 'connected' || !conn?.open) continue;
+        offers.push(
+          legacyBoundedFileV1Product.offerHostCurrentSettled(conn, queueItemId, sessionId),
+        );
+      }
+      await Promise.allSettled(offers);
+      if (!isCurrentOwner()) return false;
+      // Bounded playback no longer publishes a resident AudioBuffer, but it
+      // still participates in the stable next-track preload lifecycle.
+      schedulePreload();
+      return true;
+    }
+    if (boundedPrepare.status === 'superseded') return false;
+    if (boundedPrepare.status === 'failed') {
+      log.warn('[Load] Bounded V1 preparation failed; using stable V1');
+    }
 
     log.debug('[BufferMode] Decoding audio for high-precision sync...');
     showToast(t('toast.hprecision_sync'));

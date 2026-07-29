@@ -363,13 +363,23 @@ async function performSystemAudioCaptureStart(
   // Capture stable identity instead of an array position: the occurrence may
   // move while system audio is active, while stopAllMedia preserves its ID.
   const playback = getPlaybackModeActivitySnapshot();
-  _preSysAudioState = {
+  const preSysAudioState: PreSystemAudioState = {
     playback,
     pausedAt: getState('player.pausedAt'),
     currentTrackMeta: getState('player.currentTrackMeta'),
     channelMode: getState('audio.channelMode'),
     queueItemId: getState('playlist.currentQueueItemId'),
     subIndex: getState('youtube.currentSubIndex'),
+  };
+  _preSysAudioState = preSysAudioState;
+
+  const discardPendingStart = (): void => {
+    // A force-stop can release the pending-start slot and allow a newer start
+    // while this teardown is still awaiting. Never erase that successor's
+    // snapshot when the stale continuation eventually settles.
+    if (_preSysAudioState === preSysAudioState) _preSysAudioState = null;
+    discardPendingCapture(stream);
+    if (isProRoom) void releaseLocalProSystemAudioLease().catch(() => undefined);
   };
 
   // 3. Stop all current media
@@ -378,8 +388,33 @@ async function performSystemAudioCaptureStart(
     cancelInFlight: true,
   });
   if (!stoppedPreviousMedia) {
-    _preSysAudioState = null;
-    for (const track of stream.getTracks()) track.stop();
+    discardPendingStart();
+    return;
+  }
+
+  // stopAllMediaAsync can wait for a renderer teardown. During that boundary
+  // the user may cancel sharing, leave/switch rooms, lose coordinator
+  // authority, or exceed the standard-room device limit. Revalidate every
+  // start precondition before publishing any graph or playback ownership.
+  const roomKindStillCurrent = getRoomContext().kind === (isProRoom ? 'pro' : 'standard');
+  const standardStillAuthorized =
+    isProRoom || (isCoordinator() && hasSystemAudioDeviceCapacity());
+  const proStillAuthorized =
+    !isProRoom || canPublishProSystemAudioWithCurrentCoordinator();
+  if (
+    startEpoch !== _captureStartEpoch ||
+    !roomKindStillCurrent ||
+    !standardStillAuthorized ||
+    !proStillAuthorized
+  ) {
+    discardPendingStart();
+    if (startEpoch === _captureStartEpoch && roomKindStillCurrent) {
+      if (!isProRoom && !hasSystemAudioDeviceCapacity()) {
+        showSystemAudioDeviceLimit();
+      } else if (isProRoom && !proStillAuthorized) {
+        showProCoordinatorUpdateRequired();
+      }
+    }
     return;
   }
 
@@ -532,7 +567,13 @@ function stopSystemAudioCapture(opts?: {
   clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
   _captureStartEpoch += 1;
   _captureStartPromise = null;
-  if (!isSystemAudioActive() && !_capturedStream) return;
+  if (!isSystemAudioActive() && !_capturedStream) {
+    // A pending start may already have snapshotted the previous owner while
+    // awaiting renderer teardown. Its local snapshot remains identity-guarded,
+    // so clearing this global slot cannot clobber a later start.
+    _preSysAudioState = null;
+    return;
+  }
   const shouldRestore = opts?.restore ?? true;
   const captureRoomKind = _captureRoomKind;
 

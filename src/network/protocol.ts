@@ -136,6 +136,328 @@ function hasExactKeys(
   );
 }
 
+type ExactWireRecord = Readonly<Record<string, unknown>>;
+
+const FILE_BOUNDED_V1_SCOPE_KEYS = Object.freeze([
+  'roomEpoch',
+  'bridgeGeneration',
+  'bindingId',
+  'queueItemId',
+  'sourceIdentity',
+] as const);
+const FILE_R2_RECORD_PUBLICATION_KEYS = Object.freeze([
+  'schemaVersion',
+  'queueItemId',
+  'sourceIdentity',
+  'transferSessionId',
+  'applicationSessionId',
+  'storageRoomId',
+  'setId',
+  'encodedSize',
+  'recordSize',
+  'recordCount',
+  'cryptoSecretDescriptor',
+  'records',
+  'name',
+  'mime',
+  'expiresAtEpochMs',
+] as const);
+const FILE_R2_RECORD_SECRET_KEYS = Object.freeze([
+  'formatVersion',
+  'objectId',
+  'plaintextSize',
+  'recordSize',
+  'recordCount',
+  'noncePrefixB64',
+  'keyB64',
+] as const);
+const FILE_R2_RECORD_KEYS = Object.freeze([
+  'index',
+  'objectId',
+  'plaintextSize',
+  'encryptedSize',
+] as const);
+const FILE_R2_RECORD_PLAINTEXT_BYTES = 8 * 1024 * 1024;
+const FILE_R2_RECORD_AES_GCM_TAG_BYTES = 16;
+const FILE_R2_RECORD_MAX_COUNT = Math.ceil(REMOTE_SHARE_MAX_BYTES / FILE_R2_RECORD_PLAINTEXT_BYTES);
+const FILE_BOUNDED_V1_IDENTIFIER_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u;
+const FILE_R2_RECORD_OBJECT_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const FILE_R2_RECORD_STORAGE_ROOM_ID_RE = /^[1-9]\d{5}$/u;
+const FILE_R2_RECORD_MIME_RE = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u;
+const FILE_R2_RECORD_BASE64_ALPHABET =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+/**
+ * Snapshot an exact JSON-like record without evaluating accessor properties.
+ *
+ * Proxy reflection traps cannot be suppressed by JavaScript, but this avoids
+ * ordinary property reads and contains every reflective failure. A Proxy with
+ * only a hostile `get` trap is therefore never invoked by these validators.
+ */
+function snapshotExactWireRecord(
+  value: unknown,
+  expectedKeys: readonly string[],
+): ExactWireRecord | null {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+    const prototype = Reflect.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const ownKeys = Reflect.ownKeys(descriptors);
+    const expected = new Set(expectedKeys);
+    if (
+      ownKeys.length !== expected.size ||
+      ownKeys.some((key) => typeof key !== 'string' || !expected.has(key))
+    ) {
+      return null;
+    }
+    const snapshot = Object.create(null) as Record<string, unknown>;
+    for (const key of expectedKeys) {
+      const descriptor = descriptors[key];
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      snapshot[key] = descriptor.value;
+    }
+    return Object.freeze(snapshot);
+  } catch {
+    return null;
+  }
+}
+
+function snapshotExactWireArray(value: unknown, expectedLength: number): readonly unknown[] | null {
+  try {
+    if (
+      !Array.isArray(value) ||
+      Reflect.getPrototypeOf(value) !== Array.prototype ||
+      !Number.isSafeInteger(expectedLength) ||
+      expectedLength < 0
+    ) {
+      return null;
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const descriptorMap = descriptors as unknown as PropertyDescriptorMap;
+    const ownKeys = Reflect.ownKeys(descriptors);
+    if (ownKeys.length !== expectedLength + 1) return null;
+    const lengthDescriptor = descriptorMap['length'];
+    if (
+      !lengthDescriptor ||
+      Object.hasOwn(lengthDescriptor, 'get') ||
+      lengthDescriptor.value !== expectedLength
+    ) {
+      return null;
+    }
+    const snapshot: unknown[] = [];
+    for (let index = 0; index < expectedLength; index += 1) {
+      const descriptor = descriptorMap[String(index)];
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) return null;
+      snapshot.push(descriptor.value);
+    }
+    if (
+      ownKeys.some(
+        (key) =>
+          typeof key !== 'string' ||
+          (key !== 'length' && (!/^(0|[1-9]\d*)$/u.test(key) || Number(key) >= expectedLength)),
+      )
+    ) {
+      return null;
+    }
+    return Object.freeze(snapshot);
+  } catch {
+    return null;
+  }
+}
+
+function isFileBoundedV1Identifier(value: unknown): value is string {
+  return typeof value === 'string' && FILE_BOUNDED_V1_IDENTIFIER_RE.test(value);
+}
+
+function containsWireControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
+  }
+  return false;
+}
+
+function isFileBoundedV1SourceIdentity(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 512 &&
+    !containsWireControlCharacter(value)
+  );
+}
+
+function isCanonicalFileR2Base64(value: unknown, expectedBytes: number): value is string {
+  if (typeof value !== 'string') return false;
+  const expectedLength = Math.ceil(expectedBytes / 3) * 4;
+  const expectedPadding = (3 - (expectedBytes % 3)) % 3;
+  if (value.length !== expectedLength) return false;
+
+  const dataLength = value.length - expectedPadding;
+  for (let index = 0; index < dataLength; index += 1) {
+    if (FILE_R2_RECORD_BASE64_ALPHABET.indexOf(value[index] ?? '') < 0) return false;
+  }
+  for (let index = dataLength; index < value.length; index += 1) {
+    if (value[index] !== '=') return false;
+  }
+
+  const finalValue = FILE_R2_RECORD_BASE64_ALPHABET.indexOf(value[dataLength - 1] ?? '');
+  if (expectedPadding === 1 && (finalValue & 0x03) !== 0) return false;
+  if (expectedPadding === 2 && (finalValue & 0x0f) !== 0) return false;
+  return true;
+}
+
+function snapshotFileBoundedV1Scope(value: unknown): ExactWireRecord | null {
+  const scope = snapshotExactWireRecord(value, FILE_BOUNDED_V1_SCOPE_KEYS);
+  if (
+    !scope ||
+    !isFileBoundedV1Identifier(scope.roomEpoch) ||
+    !isFileBoundedV1Identifier(scope.bridgeGeneration) ||
+    !isFileBoundedV1Identifier(scope.bindingId) ||
+    !isQueueItemId(scope.queueItemId) ||
+    !isFileBoundedV1SourceIdentity(scope.sourceIdentity)
+  ) {
+    return null;
+  }
+  return scope;
+}
+
+function isFileR2RecordPublication(value: unknown, scope: ExactWireRecord): boolean {
+  const publication = snapshotExactWireRecord(value, FILE_R2_RECORD_PUBLICATION_KEYS);
+  if (
+    !publication ||
+    publication.schemaVersion !== 1 ||
+    publication.queueItemId !== scope.queueItemId ||
+    publication.sourceIdentity !== scope.sourceIdentity ||
+    publication.transferSessionId !== scope.bindingId ||
+    publication.applicationSessionId !== scope.roomEpoch ||
+    !FILE_R2_RECORD_STORAGE_ROOM_ID_RE.test(
+      typeof publication.storageRoomId === 'string' ? publication.storageRoomId : '',
+    ) ||
+    typeof publication.setId !== 'string' ||
+    !FILE_R2_RECORD_OBJECT_ID_RE.test(publication.setId) ||
+    !isPositiveSafeInt(publication.encodedSize) ||
+    publication.encodedSize > REMOTE_SHARE_MAX_BYTES ||
+    publication.recordSize !== FILE_R2_RECORD_PLAINTEXT_BYTES ||
+    !isPositiveSafeInt(publication.recordCount) ||
+    publication.recordCount > FILE_R2_RECORD_MAX_COUNT ||
+    publication.recordCount !==
+      Math.ceil(publication.encodedSize / FILE_R2_RECORD_PLAINTEXT_BYTES) ||
+    typeof publication.name !== 'string' ||
+    publication.name.length === 0 ||
+    publication.name.length > 512 ||
+    containsWireControlCharacter(publication.name) ||
+    typeof publication.mime !== 'string' ||
+    publication.mime.length === 0 ||
+    publication.mime.length > 128 ||
+    !FILE_R2_RECORD_MIME_RE.test(publication.mime) ||
+    !isPositiveSafeInt(publication.expiresAtEpochMs) ||
+    publication.expiresAtEpochMs <= Date.now()
+  ) {
+    return false;
+  }
+
+  const secret = snapshotExactWireRecord(
+    publication.cryptoSecretDescriptor,
+    FILE_R2_RECORD_SECRET_KEYS,
+  );
+  if (
+    !secret ||
+    secret.formatVersion !== 2 ||
+    secret.objectId !== publication.setId ||
+    secret.plaintextSize !== publication.encodedSize ||
+    secret.recordSize !== publication.recordSize ||
+    secret.recordCount !== publication.recordCount ||
+    !isCanonicalFileR2Base64(secret.noncePrefixB64, 8) ||
+    !isCanonicalFileR2Base64(secret.keyB64, 32)
+  ) {
+    return false;
+  }
+
+  const records = snapshotExactWireArray(publication.records, publication.recordCount);
+  if (!records) return false;
+  const objectIds = new Set<string>();
+  for (let index = 0; index < records.length; index += 1) {
+    const record = snapshotExactWireRecord(records[index], FILE_R2_RECORD_KEYS);
+    const plaintextSize = Math.min(
+      FILE_R2_RECORD_PLAINTEXT_BYTES,
+      publication.encodedSize - index * FILE_R2_RECORD_PLAINTEXT_BYTES,
+    );
+    if (
+      !record ||
+      record.index !== index ||
+      typeof record.objectId !== 'string' ||
+      !FILE_R2_RECORD_OBJECT_ID_RE.test(record.objectId) ||
+      objectIds.has(record.objectId) ||
+      record.plaintextSize !== plaintextSize ||
+      record.encryptedSize !== plaintextSize + FILE_R2_RECORD_AES_GCM_TAG_BYTES
+    ) {
+      return false;
+    }
+    objectIds.add(record.objectId);
+  }
+  return true;
+}
+
+function isFileBoundedV1Capability(data: Record<string, unknown>): boolean {
+  const snapshot = snapshotExactWireRecord(data, ['type', 'bridgeVersion', 'descriptorVersion']);
+  return (
+    !!snapshot &&
+    snapshot.type === MSG.FILE_BOUNDED_V1_CAPABILITY &&
+    snapshot.bridgeVersion === 1 &&
+    snapshot.descriptorVersion === 1
+  );
+}
+
+function isFileR2RecordDescriptor(data: Record<string, unknown>): boolean {
+  const snapshot = snapshotExactWireRecord(data, [
+    'type',
+    'bridgeVersion',
+    'legacySessionId',
+    'purpose',
+    'scope',
+    'descriptorId',
+    'descriptorVersion',
+    'publication',
+  ]);
+  if (
+    !snapshot ||
+    snapshot.type !== MSG.FILE_R2_RECORD_DESCRIPTOR ||
+    snapshot.bridgeVersion !== 1 ||
+    !isPositiveSafeInt(snapshot.legacySessionId) ||
+    (snapshot.purpose !== 'current' && snapshot.purpose !== 'preload') ||
+    !isFileBoundedV1Identifier(snapshot.descriptorId) ||
+    snapshot.descriptorVersion !== 1
+  ) {
+    return false;
+  }
+  const scope = snapshotFileBoundedV1Scope(snapshot.scope);
+  return !!scope && isFileR2RecordPublication(snapshot.publication, scope);
+}
+
+function isFileR2RecordResult(data: Record<string, unknown>): boolean {
+  const snapshot = snapshotExactWireRecord(data, [
+    'type',
+    'bridgeVersion',
+    'legacySessionId',
+    'scope',
+    'descriptorId',
+    'descriptorVersion',
+    'outcome',
+  ]);
+  return (
+    !!snapshot &&
+    snapshot.type === MSG.FILE_R2_RECORD_RESULT &&
+    snapshot.bridgeVersion === 1 &&
+    isPositiveSafeInt(snapshot.legacySessionId) &&
+    snapshotFileBoundedV1Scope(snapshot.scope) !== null &&
+    isFileBoundedV1Identifier(snapshot.descriptorId) &&
+    snapshot.descriptorVersion === 1 &&
+    (snapshot.outcome === 'ready' || snapshot.outcome === 'fallback')
+  );
+}
+
 function isBotChatResult(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const result = value as Record<string, unknown>;
@@ -189,6 +511,7 @@ const isBoundedChunk = (v: unknown): boolean =>
 // owner. Queue-scoped frames are detected generically below.
 const PRE_AUTHORITY_MEDIA_TYPES: ReadonlySet<string> = new Set([
   MSG.FILE_WAIT,
+  MSG.FILE_R2_RECORD_DESCRIPTOR,
   MSG.SYSTEM_AUDIO_START,
   MSG.SYSTEM_AUDIO_SFU_READY,
   MSG.SYSTEM_AUDIO_STOP,
@@ -802,8 +1125,11 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     typeof d.mime === 'string' &&
     (d.size === undefined || isPositiveSafeInt(d.size)) &&
     (d.autoPlayDelayMs === undefined || isNonNegSafeInt(d.autoPlayDelayMs)) &&
-    (d.delivery === undefined || d.delivery === 'r2'),
+    (d.delivery === undefined || d.delivery === 'r2' || d.delivery === 'r2-record'),
+  [MSG.FILE_BOUNDED_V1_CAPABILITY]: isFileBoundedV1Capability,
   [MSG.FILE_R2_CAPABILITY]: (d) => d.version === 1 && d.localAudience === true,
+  [MSG.FILE_R2_RECORD_DESCRIPTOR]: isFileR2RecordDescriptor,
+  [MSG.FILE_R2_RECORD_RESULT]: isFileR2RecordResult,
   [MSG.REMOTE_FILE_UNAVAILABLE]: (d) =>
     typeof d.name === 'string' &&
     d.name.length > 0 &&

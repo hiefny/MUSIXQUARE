@@ -12,7 +12,13 @@ import {
   setPlaybackIdle,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
-import { getTrackPosition, pause, play, stopAllMedia } from '../player/transport.ts';
+import {
+  getTrackPosition,
+  pause,
+  play,
+  requestLegacyBoundedV1OwnerSwitchRetirement,
+  stopAllMedia,
+} from '../player/transport.ts';
 import { cancelOutgoingFileTransfers } from '../storage/transfer.ts';
 import { applySettingsAsync } from '../audio/effects.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
@@ -496,6 +502,23 @@ async function loadDemoTrack(
   try {
     const blob = await fetchDemoBlob(track, true);
     if (!isCurrentDemoLoadOwner(owner)) return getDemoLoadResult(owner, 'superseded');
+
+    // Demo playback is a physical output owner, not another bounded queue
+    // occurrence. The synchronous entry reset stops a ready renderer but keeps
+    // its exact source reusable; retire that incarnation before demo PCM can
+    // claim the output. A later owner switch or demo generation invalidates
+    // this continuation instead of reviving the demo after its authority left.
+    const retirement = requestLegacyBoundedV1OwnerSwitchRetirement();
+    if (retirement) {
+      const retired = await retirement.settled;
+      if (
+        !retired ||
+        !retirement.isCurrent() ||
+        !isCurrentDemoLoadOwner(owner)
+      ) {
+        return getDemoLoadResult(owner, 'superseded');
+      }
+    }
 
     const file = new File([blob], track.fileName, { type: track.mime });
     await loadDemoFile(file, createDemoTrackMeta(track), newLoadEpoch());

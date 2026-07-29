@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED } from '../src/player/legacy-bounded-file-production-latch.ts';
 import {
   cleanupContexts,
   createHostGuestContexts,
@@ -116,13 +117,15 @@ async function waitForTerminalStop(page: HostGuestPair['hostPage']): Promise<voi
   );
 }
 
-test.describe('bounded V1 production candidate', () => {
+test.describe('bounded V1 tracked production profile', () => {
   test.afterEach(async () => {
     if (pair) await cleanupContexts(pair);
     pair = undefined;
   });
 
-  test('keeps stable room services live when local publication falls back', async ({ browser }) => {
+  test('keeps stable room services live across the tracked production gate', async ({
+    browser,
+  }) => {
     pair = await createHostGuestContexts(browser);
     const hostConsoleMessages: string[] = [];
     pair.hostPage.on('console', (message) => hostConsoleMessages.push(message.text()));
@@ -141,23 +144,23 @@ test.describe('bounded V1 production candidate', () => {
       waitForDeviceCount(pair.guestPage, 2),
     ]);
 
-    // localhost intentionally has no remote-share endpoint. A supported file
-    // therefore exercises the bounded publication/negotiation failure lane
-    // and its per-peer stable-V1 fallback without mutating production R2.
+    // localhost intentionally has no remote-share endpoint. With the tracked
+    // latch enabled, a supported file exercises the bounded publication
+    // failure lane and stable-V1 fallback without mutating production R2.
+    // With the rollback latch disabled, the same artifact must stay entirely
+    // on stable V1 and never attempt bounded publication.
     await uploadFixture(pair.hostPage, 'test01');
     await Promise.all([
       waitForPlaylistRows(pair.hostPage, 1),
       waitForPlaylistRows(pair.guestPage, 1),
     ]);
-    await expect
-      .poll(
-        () =>
-          hostConsoleMessages.some((message) =>
-            message.includes('[LegacyBoundedV1Product] Runtime failure at host-publication'),
-          ),
-        { timeout: 10_000 },
-      )
-      .toBe(true);
+    const sawBoundedPublicationFailure = (): boolean =>
+      hostConsoleMessages.some((message) =>
+        message.includes('[LegacyBoundedV1Product] Runtime failure at host-publication'),
+      );
+    if (LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED) {
+      await expect.poll(sawBoundedPublicationFailure, { timeout: 10_000 }).toBe(true);
+    }
 
     // The publication failure must fall back to the existing stable V1 path,
     // not merely leave a connected but unusable room. Exercise the complete
@@ -231,6 +234,9 @@ test.describe('bounded V1 production candidate', () => {
     ]);
     await expect(pair.hostPage.locator('#playlist-ui .playlist-entry')).toHaveCount(0);
     await expect(pair.guestPage.locator('#playlist-ui .playlist-entry')).toHaveCount(0);
+    if (!LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED) {
+      expect(sawBoundedPublicationFailure()).toBe(false);
+    }
     expect(getPageErrors(pair.hostPage)).toEqual([]);
     expect(getPageErrors(pair.guestPage)).toEqual([]);
   });

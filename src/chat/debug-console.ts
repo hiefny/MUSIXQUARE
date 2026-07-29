@@ -27,6 +27,7 @@ import {
   markSyncFlightRecorderIncident,
 } from '../diagnostics/sync-flight-recorder.ts';
 import type { ConnectedPeer } from '../types/index.ts';
+import { parseDebugBrowser } from './debug-user-agent.ts';
 
 type NavigatorDebugInfo = Navigator & {
   standalone?: boolean;
@@ -47,20 +48,6 @@ type PerformanceWithMemory = Performance & {
 
 const debugNavigator = navigator as NavigatorDebugInfo;
 const debugPerformance = performance as PerformanceWithMemory;
-
-function _parseBrowser(ua: string): string {
-  // Order matters: check specific browsers before generic ones
-  if (/SamsungBrowser\/([\d.]+)/.test(ua)) return `Samsung Internet ${RegExp.$1}`;
-  if (/OPR\/([\d.]+)/.test(ua) || /Opera\/([\d.]+)/.test(ua)) return `Opera ${RegExp.$1}`;
-  if (/Edg\/([\d.]+)/.test(ua)) return `Microsoft Edge ${RegExp.$1}`;
-  if (/Whale\/([\d.]+)/.test(ua)) return `Naver Whale ${RegExp.$1}`;
-  if (/Firefox\/([\d.]+)/.test(ua)) return `Firefox ${RegExp.$1}`;
-  if (/CriOS\/([\d.]+)/.test(ua)) return `Chrome iOS ${RegExp.$1}`;
-  if (/FxiOS\/([\d.]+)/.test(ua)) return `Firefox iOS ${RegExp.$1}`;
-  if (/Version\/([\d.]+).*Safari/.test(ua)) return `Safari ${RegExp.$1}`;
-  if (/Chrome\/([\d.]+)/.test(ua)) return `Chrome ${RegExp.$1}`;
-  return ua.slice(0, 50);
-}
 
 function _parseOS(ua: string): string {
   if (/iPhone OS ([\d_]+)/.test(ua)) return `iOS ${RegExp.$1.replace(/_/g, '.')}`;
@@ -106,7 +93,7 @@ export function cmdDebug(args: string[]): void {
 
   // Device & Browser
   const ua = navigator.userAgent;
-  const browser = _parseBrowser(ua);
+  const browser = parseDebugBrowser(ua);
   const os = _parseOS(ua);
   const lang = navigator.language;
   const screen = `${window.screen.width}×${window.screen.height}`;
@@ -462,7 +449,7 @@ function collectScreenDebugText(): string {
   const lines: string[] = ['SCREEN / PWA DEBUG'];
 
   lines.push(`[Time] ${new Date().toISOString()}`);
-  lines.push(`[Browser] ${_parseBrowser(ua)} | ${_parseOS(ua)}`);
+  lines.push(`[Browser] ${parseDebugBrowser(ua)} | ${_parseOS(ua)}`);
   lines.push(`[UA] ${ua}`);
   lines.push(
     `[Mode] display:${getDisplayMode()} | standalone:${fmtBool(isStandaloneLike())} | touch:${fmtBool('ontouchstart' in window)} | dpr:${fmtNum(window.devicePixelRatio, 2)}`,

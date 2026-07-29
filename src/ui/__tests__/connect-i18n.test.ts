@@ -188,7 +188,7 @@ describe('connect signaling health status', () => {
     for (const status of statuses) {
       expect(status.hidden).toBe(false);
       expect(status.dataset.status).toBe('healthy');
-      expect(status.textContent).toBe('연결 서버 정상');
+      expect(status.textContent).toBe('연결 정상');
     }
   });
 
@@ -216,7 +216,7 @@ describe('connect signaling health status', () => {
       expect(message?.getAttribute('aria-atomic')).toBe('true');
       expect(message?.getAttribute('aria-busy')).toBe('true');
       expect(status.dataset.status).toBe('reconnecting');
-      expect(status.textContent).toBe('서버 복구 중');
+      expect(status.textContent).toBe('연결 복구 중');
     }
 
     setState('network.signalingHealth', {
@@ -228,7 +228,7 @@ describe('connect signaling health status', () => {
     for (const status of statuses) {
       expect(status.hidden).toBe(false);
       expect(status.dataset.status).toBe('healthy');
-      expect(status.textContent).toBe('연결 서버 정상');
+      expect(status.textContent).toBe('연결 정상');
       expect(
         status.querySelector<HTMLElement>('.signaling-health-message')?.getAttribute('aria-busy'),
       ).toBe('false');
@@ -247,7 +247,7 @@ describe('connect signaling health status', () => {
     const message = status?.querySelector<HTMLElement>('.signaling-health-message');
     expect(status?.hidden).toBe(false);
     expect(status?.dataset.status).toBe('exhausted');
-    expect(status?.textContent).toBe('서버 연결 실패');
+    expect(status?.textContent).toBe('연결 복구 실패');
     expect(message?.getAttribute('aria-busy')).toBe('false');
     expect(status?.querySelector('.signaling-health-actions')).toBeNull();
     bus.emit('ui:connect-tab-opened');
@@ -266,7 +266,7 @@ describe('connect signaling health status', () => {
       expect(button.dataset.mode).toBe('recover');
       expect(button.disabled).toBe(false);
       expect(button.getAttribute('aria-disabled')).toBe('false');
-      expect(button.textContent).toBe('서버 복구하기');
+      expect(button.textContent).toBe('연결 복구하기');
     }
   });
 
@@ -279,6 +279,17 @@ describe('connect signaling health status', () => {
     const statusRules = stylesheet.match(/\.signaling-health-status\s*\{([^}]*)\}/)?.[1] ?? '';
     const qrContainerRules = stylesheet.match(/\.qr-container\s*\{([^}]*)\}/)?.[1] ?? '';
     const inviteButtonRules = stylesheet.match(/\.btn-copy-invite-link\s*\{([^}]*)\}/)?.[1] ?? '';
+    const recoveryButtonRules =
+      stylesheet.match(
+        /\.btn-copy-invite-link\[data-mode='recover'\],\s*\.btn-copy-invite-link\[data-mode='recovering'\]\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
+    const recoveringIconRules =
+      stylesheet.match(/\.btn-copy-invite-link\[data-mode='recovering'\] svg\s*\{([^}]*)\}/)?.[1] ??
+      '';
+    const recoveringSpinnerRules =
+      stylesheet.match(
+        /\.btn-copy-invite-link\[data-mode='recovering'\]::before\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
 
     expect(qrContainerRules).toContain('gap: 12px');
     expect(statusRules).toContain('display: flex');
@@ -286,6 +297,11 @@ describe('connect signaling health status', () => {
     expect(statusRules).toContain('gap: 11px');
     expect(statusRules).toContain('margin: 0');
     expect(inviteButtonRules).toContain('margin: 0');
+    expect(inviteButtonRules).toContain('border: none');
+    expect(recoveryButtonRules).toContain('border: none');
+    expect(recoveryButtonRules).toContain('background: rgba(245, 158, 11, 0.08)');
+    expect(recoveryButtonRules).toContain('color: var(--warning-filled)');
+    expect(recoveryButtonRules).toContain('box-shadow: none');
     expect(statusRules).toContain('color: var(--text-main)');
     expect(statusRules).toContain('font-weight: 600');
     expect(statusRules).toContain('transform: translateY(-8px)');
@@ -300,6 +316,16 @@ describe('connect signaling health status', () => {
     expect(stylesheet).toContain('background: var(--danger-filled)');
     expect(stylesheet).not.toContain(
       '.signaling-health-status:not([hidden]) + .btn-copy-invite-link',
+    );
+    expect(recoveringIconRules).toContain('display: none');
+    expect(recoveringIconRules).not.toContain('animation:');
+    expect(recoveringSpinnerRules).toContain("content: ''");
+    expect(recoveringSpinnerRules).toContain('width: 20px');
+    expect(recoveringSpinnerRules).toContain('height: 20px');
+    expect(recoveringSpinnerRules).toContain('border: 2px solid rgba(245, 158, 11, 0.2)');
+    expect(recoveringSpinnerRules).toContain('border-top-color: currentColor');
+    expect(recoveringSpinnerRules).toContain(
+      'animation: signaling-recovery-rotate 0.8s linear infinite',
     );
     expect(markup).toContain('id="signaling-recovery-overlay"');
     expect(markup).toContain('aria-labelledby="signaling-recovery-title"');
@@ -362,7 +388,7 @@ describe('connect signaling health status', () => {
     expect(overlay.classList.contains('show')).toBe(true);
     expect(overlay.getAttribute('aria-hidden')).toBe('false');
     expect(document.getElementById('signaling-recovery-dialog')?.dataset.state).toBe('failed');
-    expect(document.getElementById('signaling-recovery-title')?.textContent).toBe('서버 연결 실패');
+    expect(document.getElementById('signaling-recovery-title')?.textContent).toBe('연결 복구 실패');
     expect(document.getElementById('signaling-recovery-message')?.textContent).toBe(
       '연결 서버가 응답하지 않아요. 새 참여자를 초대할 수 없어요.',
     );
@@ -493,7 +519,7 @@ describe('connect signaling health status', () => {
     expect(dialog.dataset.state).toBe('retrying');
     expect(dialog.getAttribute('aria-busy')).toBe('true');
     expect(actions.hidden).toBe(true);
-    expect(document.getElementById('signaling-recovery-title')?.textContent).toBe('서버 복구 중');
+    expect(document.getElementById('signaling-recovery-title')?.textContent).toBe('연결 복구 중');
 
     setState('network.signalingHealth', {
       status: 'exhausted',

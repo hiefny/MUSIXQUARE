@@ -3660,7 +3660,7 @@
     height: 56px;
     padding: 0;
     margin: 0;
-    border: 1px solid transparent;
+    border: none;
     border-radius: 20px;
     background: var(--surface-2);
     color: var(--text-sub);
@@ -3669,9 +3669,7 @@
     cursor: pointer;
     transition:
       background 0.2s ease,
-      border-color 0.2s ease,
       color 0.2s ease,
-      box-shadow 0.2s ease,
       transform 0.2s ease;
     -webkit-tap-highlight-color: transparent;
   }
@@ -3693,18 +3691,20 @@
 
   .btn-copy-invite-link[data-mode='recover'],
   .btn-copy-invite-link[data-mode='recovering'] {
-    border-color: rgba(var(--primary-rgb), 0.2);
-    background: rgba(var(--primary-rgb), 0.11);
-    color: var(--primary);
-    box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.04);
+    border: none;
+    background: rgba(245, 158, 11, 0.08);
+    color: var(--warning-filled);
+    box-shadow: none;
   }
 
-  .btn-copy-invite-link[data-mode='recover']:hover {
-    background: rgba(var(--primary-rgb), 0.16);
+  @media (hover: hover) {
+    .btn-copy-invite-link[data-mode='recover']:hover {
+      background: rgba(245, 158, 11, 0.12);
+    }
   }
 
   .btn-copy-invite-link[data-mode='recover']:active {
-    background: rgba(var(--primary-rgb), 0.2);
+    background: rgba(245, 158, 11, 0.18);
   }
 
   .btn-copy-invite-link[data-mode='recovering'] {
@@ -3712,7 +3712,20 @@
   }
 
   .btn-copy-invite-link[data-mode='recovering'] svg {
-    animation: signaling-recovery-rotate 1s linear infinite;
+    display: none;
+  }
+
+  .btn-copy-invite-link[data-mode='recovering']::before {
+    content: '';
+    display: block;
+    box-sizing: border-box;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    border: 2px solid rgba(245, 158, 11, 0.2);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: signaling-recovery-rotate 0.8s linear infinite;
   }
 
   .btn-copy-invite-link:disabled {
@@ -3787,7 +3800,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .signaling-health-status[data-status='reconnecting'] .signaling-health-indicator,
-    .btn-copy-invite-link[data-mode='recovering'] svg {
+    .btn-copy-invite-link[data-mode='recovering']::before {
       animation: none;
     }
   }
@@ -8488,10 +8501,9 @@
 
     .btn-copy-invite-link[data-mode='recover']:hover:not(:active),
     .btn-copy-invite-link[data-mode='recovering']:hover:not(:active) {
-      border-color: rgba(var(--primary-rgb), 0.2);
-      background: rgba(var(--primary-rgb), 0.11);
-      color: var(--primary);
-      box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.04);
+      background: rgba(245, 158, 11, 0.08);
+      color: var(--warning-filled);
+      box-shadow: none;
     }
 
     .file-select-btn:hover:not(:active) .btn-icon-bg {

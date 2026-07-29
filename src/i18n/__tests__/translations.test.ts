@@ -90,10 +90,10 @@ describe('Translation key integrity', () => {
   });
 
   it('uses the approved Korean signaling health and recovery copy', () => {
-    expect(ko['connect.signaling_healthy']).toBe('연결 서버 정상');
-    expect(ko['connect.signaling_recovering']).toBe('서버 복구 중');
-    expect(ko['connect.signaling_failed']).toBe('서버 연결 실패');
-    expect(ko['connect.signaling_recover_action']).toBe('서버 복구하기');
+    expect(ko['connect.signaling_healthy']).toBe('연결 정상');
+    expect(ko['connect.signaling_recovering']).toBe('연결 복구 중');
+    expect(ko['connect.signaling_failed']).toBe('연결 복구 실패');
+    expect(ko['connect.signaling_recover_action']).toBe('연결 복구하기');
     expect(ko['connect.signaling_exhausted']).toBe(
       '연결 서버가 응답하지 않아요. 새 참여자를 초대할 수 없어요.',
     );

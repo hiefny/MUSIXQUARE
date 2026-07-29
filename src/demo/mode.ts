@@ -209,14 +209,12 @@ function captureDemoRoomIdentity(): DemoRoomIdentity {
     kind: room.kind,
     roomId:
       room.kind === 'standard'
-        ? room.roomId ?? (getState('network.sessionCode') || null)
+        ? (room.roomId ?? (getState('network.sessionCode') || null))
         : room.roomId,
     epoch: room.epoch,
     standardPeerId: room.kind === 'standard' ? getState('network.myId') : null,
     standardHostConnection:
-      room.kind === 'standard' && !isCoordinator()
-        ? getState('network.hostConn')
-        : null,
+      room.kind === 'standard' && !isCoordinator() ? getState('network.hostConn') : null,
     coordinatorAtCapture: isCoordinator(),
   });
 }
@@ -225,7 +223,7 @@ function isCurrentDemoRoom(expected: Readonly<DemoRoomIdentity>): boolean {
   const room = getRoomContext();
   const roomId =
     room.kind === 'standard'
-      ? room.roomId ?? (getState('network.sessionCode') || null)
+      ? (room.roomId ?? (getState('network.sessionCode') || null))
       : room.roomId;
   return (
     room.kind === expected.kind &&
@@ -237,9 +235,7 @@ function isCurrentDemoRoom(expected: Readonly<DemoRoomIdentity>): boolean {
   );
 }
 
-function hasCurrentDemoRestoreAuthority(
-  expected: Readonly<DemoRoomIdentity>,
-): boolean {
+function hasCurrentDemoRestoreAuthority(expected: Readonly<DemoRoomIdentity>): boolean {
   if (!isCurrentDemoRoom(expected)) return false;
   if (expected.kind !== 'standard') return true;
   if (expected.coordinatorAtCapture) return isCoordinator();
@@ -353,9 +349,7 @@ function readLiveRestorableDemoBoundedSnapshot(): RestorableDemoBoundedSnapshot 
     !current ||
     current.state !== 'ready' ||
     current.queueItemId !== getState('playlist.currentQueueItemId') ||
-    (current.phase !== 'playing' &&
-      current.phase !== 'paused' &&
-      current.phase !== 'stopped') ||
+    (current.phase !== 'playing' && current.phase !== 'paused' && current.phase !== 'stopped') ||
     !queueItem ||
     queueItem.type !== 'file' ||
     !Number.isFinite(current.durationSeconds) ||
@@ -395,10 +389,7 @@ function projectDemoBoundedPlayback(
 ): void {
   setState('playlist.currentQueueItemId', bounded.queueItemId);
   setCurrentAudioBuffer(null);
-  setState(
-    'player.pausedAt',
-    Math.min(bounded.durationSeconds, Math.max(0, positionSeconds)),
-  );
+  setState('player.pausedAt', Math.min(bounded.durationSeconds, Math.max(0, positionSeconds)));
   setPlaybackTrackMeta(trackMeta);
   setPlaybackFilePaused();
   bus.emit('ui:play-btn-state', true);
@@ -1789,16 +1780,20 @@ function exitDemoMode(options: ExitDemoOptions = {}): void {
       // restored file-mode projection must be the final writer so a paused
       // bounded source keeps its real position instead of ending at 0:00.
       if (restoreMedia) bus.emit('ui:seek-reset');
-      restoreSnapshot(snapshot, {
-        audio: options.restoreAudioSettings ?? false,
-        media: restoreMedia,
-        isCurrent: () =>
-          _demoLoadGeneration === exitGeneration &&
-          !getState('demo.active') &&
-          !getState('demo.loading') &&
-          !!snapshot &&
-          hasCurrentDemoRestoreAuthority(snapshot.room),
-      }, pendingOwnerStop);
+      restoreSnapshot(
+        snapshot,
+        {
+          audio: options.restoreAudioSettings ?? false,
+          media: restoreMedia,
+          isCurrent: () =>
+            _demoLoadGeneration === exitGeneration &&
+            !getState('demo.active') &&
+            !getState('demo.loading') &&
+            !!snapshot &&
+            hasCurrentDemoRestoreAuthority(snapshot.room),
+        },
+        pendingOwnerStop,
+      );
     },
   });
 }

@@ -682,10 +682,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     expect(exitAnimation.onfinish).toBeTypeOf('function');
 
     setState('network.appRole', 'guest');
-    exitAnimation.onfinish?.call(
-      exitAnimation,
-      new Event('finish') as AnimationPlaybackEvent,
-    );
+    exitAnimation.onfinish?.call(exitAnimation, new Event('finish') as AnimationPlaybackEvent);
     await flush(20);
 
     expect(getCurrentAudioBuffer()).toBeNull();
@@ -787,11 +784,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     expect(getState('player.pausedAt')).toBe(41.25);
     expect(getState('playback.mode')).toBe('file');
     expect(getState('playback.activity')).toBe('paused');
-    expect(mocks.applyBoundedPausedCheckpoint).toHaveBeenCalledWith(
-      queueItemId,
-      17,
-      41.25,
-    );
+    expect(mocks.applyBoundedPausedCheckpoint).toHaveBeenCalledWith(queueItemId, 17, 41.25);
     expect(mocks.boundedSnapshot.current).toMatchObject({
       queueItemId,
       legacySessionId: 17,
@@ -893,11 +886,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     settleStop();
     await flush(50);
 
-    expect(mocks.applyBoundedPausedCheckpoint).toHaveBeenCalledWith(
-      queueItemId,
-      18,
-      37,
-    );
+    expect(mocks.applyBoundedPausedCheckpoint).toHaveBeenCalledWith(queueItemId, 18, 37);
     expect(mocks.boundedSnapshot.current).toMatchObject({
       phase: 'paused',
       positionSeconds: 37,
@@ -1002,11 +991,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     bus.emit('demo:request-exit');
     await flush(50);
 
-    expect(mocks.applyBoundedPausedCheckpoint).toHaveBeenCalledWith(
-      queueItemId,
-      23,
-      39,
-    );
+    expect(mocks.applyBoundedPausedCheckpoint).toHaveBeenCalledWith(queueItemId, 23, 39);
     expect(mocks.boundedSnapshot.current).toMatchObject({
       phase: 'paused',
       positionSeconds: 39,

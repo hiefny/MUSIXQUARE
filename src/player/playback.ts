@@ -37,12 +37,7 @@ import {
   verifyOperator,
 } from '../network/protocol.ts';
 import { beginFileRequest, sendFileRequest } from '../network/file-request-authority.ts';
-import type {
-  AnyProtocolMsg,
-  DataConnection,
-  QueueItemId,
-  ResidentFile,
-} from '../types/index.ts';
+import type { AnyProtocolMsg, DataConnection, QueueItemId, ResidentFile } from '../types/index.ts';
 import {
   isGuestR2FileDelivery,
   markLateLocalPeerForR2,
@@ -360,18 +355,11 @@ async function flushBoundedV1LegacyFallback(conn: DataConnection): Promise<void>
   }
 }
 
-export async function offerLegacyBoundedV1CurrentToPeer(
-  conn: DataConnection,
-): Promise<boolean> {
+export async function offerLegacyBoundedV1CurrentToPeer(conn: DataConnection): Promise<boolean> {
   if (!conn.open) return false;
   const snapshot = legacyBoundedFileV1Product.snapshot();
   const current = snapshot.current;
-  if (
-    !snapshot.active ||
-    snapshot.role !== 'host' ||
-    !current ||
-    current.state !== 'ready'
-  ) {
+  if (!snapshot.active || snapshot.role !== 'host' || !current || current.state !== 'ready') {
     return false;
   }
   const resident = getState('files.current');
@@ -1685,10 +1673,7 @@ export function initPlayback(): void {
   });
 
   bus.on('state:network.sessionCode', () => {
-    rejectPendingBoundedV1Fallbacks(
-      () => true,
-      'Bounded V1 fallback room incarnation changed',
-    );
+    rejectPendingBoundedV1Fallbacks(() => true, 'Bounded V1 fallback room incarnation changed');
   });
 
   log.info('[Playback] Engine initialized');

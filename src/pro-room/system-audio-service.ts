@@ -336,8 +336,9 @@ async function attachCoordinatorTrack(
   channel: 'L' | 'R',
   track: MediaStreamTrack,
 ): Promise<void> {
-  const trustedReceptionReady =
-    await awaitTrustedSystemAudioReceptionBoundary(`pro-sfu-${channel}`);
+  const trustedReceptionReady = await awaitTrustedSystemAudioReceptionBoundary(
+    `pro-sfu-${channel}`,
+  );
   if (!trustedReceptionReady || !coordinatorPublicationMatches(identity)) {
     return;
   }

@@ -588,22 +588,16 @@ class LegacyBoundedFileV1Bridge implements LegacyBoundedFileV1BridgeContract {
       };
     });
     const promise = this.#afterPending(prior, () =>
-      this.#runReplacement(
-        token,
-        candidate,
-        positionSeconds,
-        startAtRoomTimeMs,
-        (outcome) => {
-          resolveScheduled(
-            freezeRecord({
-              status: 'scheduled' as const,
-              startAtRoomTimeMs: outcome.startAtRoomTimeMs,
-              snapshot: this.snapshot(),
-              settled: promise,
-            }),
-          );
-        },
-      ),
+      this.#runReplacement(token, candidate, positionSeconds, startAtRoomTimeMs, (outcome) => {
+        resolveScheduled(
+          freezeRecord({
+            status: 'scheduled' as const,
+            startAtRoomTimeMs: outcome.startAtRoomTimeMs,
+            snapshot: this.snapshot(),
+            settled: promise,
+          }),
+        );
+      }),
     );
     void promise.then(
       (outcome) => {
@@ -1202,16 +1196,9 @@ class LegacyBoundedFileV1Bridge implements LegacyBoundedFileV1BridgeContract {
     return pending?.kind === kind && pending.key === key ? (pending.promise as Promise<T>) : null;
   }
 
-  #duplicateReplacement(
-    kind: 'play' | 'seek-playing',
-    key: string,
-  ): ReplacementOperation | null {
+  #duplicateReplacement(kind: 'play' | 'seek-playing', key: string): ReplacementOperation | null {
     const pending = this.#pending;
-    if (
-      pending?.kind !== kind ||
-      pending.key !== key ||
-      !pending.scheduledPromise
-    ) {
+    if (pending?.kind !== kind || pending.key !== key || !pending.scheduledPromise) {
       return null;
     }
     return freezeRecord({

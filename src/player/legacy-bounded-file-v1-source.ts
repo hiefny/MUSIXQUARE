@@ -33,9 +33,7 @@ import {
   type EncodedAudioSource,
 } from './sources/encoded-audio-source.ts';
 
-type LegacyBoundedFileV1EncodedSourceOpener = (
-  signal: AbortSignal,
-) => Promise<EncodedAudioSource>;
+type LegacyBoundedFileV1EncodedSourceOpener = (signal: AbortSignal) => Promise<EncodedAudioSource>;
 
 /**
  * One immutable byte-source incarnation. The opener must return a fresh

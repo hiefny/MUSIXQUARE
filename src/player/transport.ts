@@ -195,10 +195,7 @@ function applyLegacyBoundedV1Control(
     }
   }
   if (options.hostUiKind) {
-    trackV2HostUiControl(
-      beginV2HostUiControl(options.hostUiKind, control.queueItemId),
-      task,
-    );
+    trackV2HostUiControl(beginV2HostUiControl(options.hostUiKind, control.queueItemId), task);
   }
   return task;
 }
@@ -317,11 +314,7 @@ function enqueueLegacyBoundedV1HostRendezvous(
       });
       const started = await scheduled.settled;
       const current = exactLegacyBoundedV1Current(control);
-      if (
-        started.status === 'applied' &&
-        current &&
-        isCurrentV2HostMutationIntent(intent)
-      ) {
+      if (started.status === 'applied' && current && isCurrentV2HostMutationIntent(intent)) {
         legacyBoundedV1NaturalEndFence = null;
         projectLegacyBoundedV1Snapshot(current);
         return true;
@@ -381,10 +374,7 @@ export function requestLegacyBoundedV1HostPlay(
     requestedStartAtRoomTimeMs: requestedStart,
     includeTrackName: true,
   });
-  trackV2HostUiControl(
-    beginV2HostUiControl('play', queueItemId),
-    settlement,
-  );
+  trackV2HostUiControl(beginV2HostUiControl('play', queueItemId), settlement);
   return true;
 }
 
@@ -419,10 +409,7 @@ export function requestLegacyBoundedV1HostPause(
     const current = legacyBoundedFileV1Product.snapshot().current;
     if (current) projectLegacyBoundedV1Snapshot(current);
     const task = pendingCancellation.then((outcome) => outcome.status === 'applied');
-    trackV2HostUiControl(
-      beginV2HostUiControl('pause', context.current.queueItemId),
-      task,
-    );
+    trackV2HostUiControl(beginV2HostUiControl('pause', context.current.queueItemId), task);
     broadcast({
       type: MSG.PAUSE,
       time: position,
@@ -475,10 +462,7 @@ function requestLegacyBoundedV1GuestPlay(
     ? Math.max(requestedStart, now + LEGACY_BOUNDED_V1_GUEST_REARM_LEAD_MS)
     : now + LEGACY_BOUNDED_V1_HOST_START_LEAD_MS;
   const catchUpSeconds = hasSharedStart ? Math.max(0, startAt - requestedStart) / 1000 : 0;
-  const position = clampLegacyBoundedV1Position(
-    positionSeconds + catchUpSeconds,
-    context.current,
-  );
+  const position = clampLegacyBoundedV1Position(positionSeconds + catchUpSeconds, context.current);
   void applyLegacyBoundedV1Control(
     {
       kind: context.current.phase === 'playing' ? 'seek-playing' : 'play',
@@ -573,20 +557,13 @@ function requestLegacyBoundedV1Stop(): Promise<boolean> | null {
   // overlap YouTube, a stable-V1 fallback, or the empty playlist.
   const snapshot = legacyBoundedFileV1Product.snapshot();
   const current = snapshot.current;
-  if (
-    !snapshot.active ||
-    (snapshot.role !== 'host' && snapshot.role !== 'guest') ||
-    !current
-  ) {
+  if (!snapshot.active || (snapshot.role !== 'host' && snapshot.role !== 'guest') || !current) {
     return null;
   }
   if (snapshot.role === 'host') {
     cancelV2HostMutation('Bounded V1 host incarnation was retired by teardown');
   }
-  return legacyBoundedFileV1Product.retireCurrent(
-    current.queueItemId,
-    current.legacySessionId,
-  );
+  return legacyBoundedFileV1Product.retireCurrent(current.queueItemId, current.legacySessionId);
 }
 
 /**
@@ -601,21 +578,14 @@ export function requestLegacyBoundedV1OwnerSwitchRetirement(): Readonly<{
   const generation = ++legacyBoundedV1OwnerSwitchGeneration;
   const snapshot = legacyBoundedFileV1Product.snapshot();
   const current = snapshot.current;
-  if (
-    !snapshot.active ||
-    (snapshot.role !== 'host' && snapshot.role !== 'guest') ||
-    !current
-  ) {
+  if (!snapshot.active || (snapshot.role !== 'host' && snapshot.role !== 'guest') || !current) {
     return null;
   }
   if (snapshot.role === 'host') {
     cancelV2HostMutation('Bounded V1 host incarnation was retired by an owner switch');
   }
   return Object.freeze({
-    settled: legacyBoundedFileV1Product.retireCurrent(
-      current.queueItemId,
-      current.legacySessionId,
-    ),
+    settled: legacyBoundedFileV1Product.retireCurrent(current.queueItemId, current.legacySessionId),
     isCurrent: () => generation === legacyBoundedV1OwnerSwitchGeneration,
   });
 }
@@ -634,11 +604,7 @@ export function requestLegacyBoundedV1OwnerSwitchStop(): Readonly<{
   const generation = ++legacyBoundedV1OwnerSwitchGeneration;
   const snapshot = legacyBoundedFileV1Product.snapshot();
   const current = snapshot.current;
-  if (
-    !snapshot.active ||
-    (snapshot.role !== 'host' && snapshot.role !== 'guest') ||
-    !current
-  ) {
+  if (!snapshot.active || (snapshot.role !== 'host' && snapshot.role !== 'guest') || !current) {
     return null;
   }
   const settled =
@@ -656,10 +622,7 @@ export function requestLegacyBoundedV1OwnerSwitchStop(): Readonly<{
             projectSettlement: false,
           },
         )
-      : legacyBoundedFileV1Product.retireCurrent(
-          current.queueItemId,
-          current.legacySessionId,
-        );
+      : legacyBoundedFileV1Product.retireCurrent(current.queueItemId, current.legacySessionId);
   return Object.freeze({
     settled,
     isCurrent: () => generation === legacyBoundedV1OwnerSwitchGeneration,
@@ -686,10 +649,7 @@ export function applyLegacyBoundedV1HostPausedCheckpoint(
   ) {
     return null;
   }
-  const position = clampLegacyBoundedV1Position(
-    positionSeconds,
-    context.current,
-  );
+  const position = clampLegacyBoundedV1Position(positionSeconds, context.current);
   const control: Readonly<LegacyBoundedFileV1CanonicalControl> = Object.freeze({
     kind: context.current.phase === 'paused' ? 'seek-paused' : 'pause',
     queueItemId,
@@ -777,10 +737,7 @@ export function requestLegacyBoundedV1HostOutputRejoin(
     positionSeconds: position,
   });
   if (reason === 'media-session-play') {
-    trackV2HostUiControl(
-      beginV2HostUiControl('play', context.current.queueItemId),
-      settlement,
-    );
+    trackV2HostUiControl(beginV2HostUiControl('play', context.current.queueItemId), settlement);
   }
   return settlement;
 }
@@ -791,11 +748,7 @@ export function applyLegacyBoundedV1GuestPlay(
   hostPlayAt?: number,
 ): boolean {
   const context = readLegacyBoundedV1ControlContext();
-  if (
-    !context ||
-    context.role !== 'guest' ||
-    context.current.queueItemId !== queueItemId
-  ) {
+  if (!context || context.role !== 'guest' || context.current.queueItemId !== queueItemId) {
     return false;
   }
   return requestLegacyBoundedV1GuestPlay(positionSeconds, hostPlayAt);
@@ -806,11 +759,7 @@ export function applyLegacyBoundedV1GuestPause(
   positionSeconds: number,
 ): boolean {
   const context = readLegacyBoundedV1ControlContext();
-  if (
-    !context ||
-    context.role !== 'guest' ||
-    context.current.queueItemId !== queueItemId
-  ) {
+  if (!context || context.role !== 'guest' || context.current.queueItemId !== queueItemId) {
     return false;
   }
   return requestLegacyBoundedV1Pause(positionSeconds);
@@ -3173,9 +3122,7 @@ function stopAllMediaLegacy(opts: V2HostStopOptions = {}): void {
 }
 
 export function stopAllMedia(opts: V2HostStopOptions = {}): void {
-  const boundedStop = opts.preserveLegacyBoundedOwner
-    ? null
-    : requestLegacyBoundedV1Stop();
+  const boundedStop = opts.preserveLegacyBoundedOwner ? null : requestLegacyBoundedV1Stop();
   if (boundedStop) {
     stopAllMediaLegacy(opts);
     void boundedStop;
@@ -3194,9 +3141,7 @@ export function stopAllMedia(opts: V2HostStopOptions = {}): void {
  * synchronously; V2 callers resume only after exact stopped room truth.
  */
 export async function stopAllMediaAsync(options: V2HostStopOptions = {}): Promise<boolean> {
-  const boundedStop = options.preserveLegacyBoundedOwner
-    ? null
-    : requestLegacyBoundedV1Stop();
+  const boundedStop = options.preserveLegacyBoundedOwner ? null : requestLegacyBoundedV1Stop();
   if (boundedStop) {
     stopAllMediaLegacy(options);
     return boundedStop;
@@ -3759,7 +3704,8 @@ export function handleEnded(): void {
   const bounded = readLegacyBoundedV1ControlContext();
   if (bounded?.role === 'host') {
     const duration = bounded.current.durationSeconds;
-    const position = legacyBoundedFileV1Product.positionSeconds() ?? bounded.current.positionSeconds;
+    const position =
+      legacyBoundedFileV1Product.positionSeconds() ?? bounded.current.positionSeconds;
     if (
       bounded.current.phase === 'playing' &&
       duration !== null &&
@@ -3772,10 +3718,7 @@ export function handleEnded(): void {
       const generation = legacyBoundedFileV1Product.snapshot().generation;
       const key = `${generation}:${queueItemId}:${legacySessionId}`;
       if (legacyBoundedV1NaturalEndFence?.key === key) return;
-      const task = legacyBoundedFileV1Product.settleHostNaturalEnd(
-        queueItemId,
-        legacySessionId,
-      );
+      const task = legacyBoundedFileV1Product.settleHostNaturalEnd(queueItemId, legacySessionId);
       legacyBoundedV1NaturalEndFence = Object.freeze({ key, task });
       void task
         .then((outcome) => {

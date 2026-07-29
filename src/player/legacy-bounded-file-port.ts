@@ -270,8 +270,7 @@ function waitForStartedOrAbort(
     signal.addEventListener('abort', onAbort, { once: true });
     void Promise.resolve(started).then(
       () => settle(freezeRecord({ status: 'started' as const })),
-      (error: unknown) =>
-        settle(freezeRecord({ status: 'rejected' as const, error })),
+      (error: unknown) => settle(freezeRecord({ status: 'rejected' as const, error })),
     );
   });
 }
@@ -796,11 +795,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
       const runId = `legacy-bounded-${record.serial}`;
       const rendezvousId = `legacy-bounded-${record.serial}-start`;
       const primedSnapshot = createFilePlaybackSourceSnapshot(
-        await this.#manager.primeCutoverCandidate(
-          port,
-          positionSeconds,
-          record.controller.signal,
-        ),
+        await this.#manager.primeCutoverCandidate(port, positionSeconds, record.controller.signal),
       );
       if (!record.live || this.#candidate !== record || record.controller.signal.aborted) {
         await this.#manager.retireExactCutoverPort(port);
@@ -865,12 +860,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
         return scheduleSuperseded();
       }
       record.phase = 'scheduled';
-      void this.#settleScheduledRecord(
-        record,
-        runId,
-        revision,
-        finalization.started,
-      ).then(settle);
+      void this.#settleScheduledRecord(record, runId, revision, finalization.started).then(settle);
       return scheduled(startAtRoomTimeMs, primedSnapshot, settled);
     } catch (error) {
       const wasLive = record.live && this.#candidate === record;
@@ -914,11 +904,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
       this.#reconcileManagerCurrent();
       return wasLive ? failed(failure) : superseded();
     }
-    if (
-      !record.live ||
-      this.#candidate !== record ||
-      this.#manager.currentCutoverPort() !== port
-    ) {
+    if (!record.live || this.#candidate !== record || this.#manager.currentCutoverPort() !== port) {
       this.#invalidate(record, 'Legacy bounded manager current changed during commit');
       try {
         await this.#joinRetirement(record);

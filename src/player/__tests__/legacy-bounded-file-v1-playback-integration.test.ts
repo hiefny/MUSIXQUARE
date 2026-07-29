@@ -490,10 +490,7 @@ describe('bounded V1 stable-fallback settlement', () => {
     await vi.waitFor(() => {
       expect(mocks.resolvePeerFileDelivery).toHaveBeenCalledTimes(2);
     });
-    setState(
-      'network.activeHostConnByPeerId',
-      new Map([[newConnection.peer, newConnection]]),
-    );
+    setState('network.activeHostConnByPeerId', new Map([[newConnection.peer, newConnection]]));
 
     bus.emit('network:peer-connection-replaced', oldConnection.peer);
 

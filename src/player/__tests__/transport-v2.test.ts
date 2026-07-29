@@ -2792,9 +2792,9 @@ describe('bounded V1 transport integration', () => {
   it('does not manufacture PLAY while paused context recovery only restores output', async () => {
     setBoundedV1Current('host', 'paused', 18);
 
-    await expect(
-      requestLegacyBoundedV1HostOutputRejoin('audio-context-recovered'),
-    ).resolves.toBe(true);
+    await expect(requestLegacyBoundedV1HostOutputRejoin('audio-context-recovered')).resolves.toBe(
+      true,
+    );
 
     expect(boundedV1.product.scheduleHostControl).not.toHaveBeenCalled();
     expect(broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
@@ -2803,9 +2803,7 @@ describe('bounded V1 transport integration', () => {
   it('lets an explicit Media Session PLAY rendezvous a paused bounded host', async () => {
     setBoundedV1Current('host', 'paused', 18);
 
-    await expect(
-      requestLegacyBoundedV1HostOutputRejoin('media-session-play'),
-    ).resolves.toBe(true);
+    await expect(requestLegacyBoundedV1HostOutputRejoin('media-session-play')).resolves.toBe(true);
 
     expect(boundedV1.product.scheduleHostControl).toHaveBeenCalledWith({
       kind: 'play',

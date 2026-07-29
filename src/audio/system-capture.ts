@@ -106,28 +106,24 @@ function captureSystemAudioRoomIdentity(): SystemAudioRoomIdentity {
     kind: room.kind,
     roomId:
       room.kind === 'standard'
-        ? room.roomId ?? (getState('network.sessionCode') || null)
+        ? (room.roomId ?? (getState('network.sessionCode') || null))
         : room.roomId,
     epoch: room.epoch,
-    standardPeerId:
-      room.kind === 'standard' ? getState('network.myId') : null,
+    standardPeerId: room.kind === 'standard' ? getState('network.myId') : null,
   });
 }
 
-function isCurrentSystemAudioRoom(
-  expected: Readonly<SystemAudioRoomIdentity>,
-): boolean {
+function isCurrentSystemAudioRoom(expected: Readonly<SystemAudioRoomIdentity>): boolean {
   const current = getRoomContext();
   const currentRoomId =
     current.kind === 'standard'
-      ? current.roomId ?? (getState('network.sessionCode') || null)
+      ? (current.roomId ?? (getState('network.sessionCode') || null))
       : current.roomId;
   return (
     current.kind === expected.kind &&
     currentRoomId === expected.roomId &&
     current.epoch === expected.epoch &&
-    (expected.kind !== 'standard' ||
-      getState('network.myId') === expected.standardPeerId)
+    (expected.kind !== 'standard' || getState('network.myId') === expected.standardPeerId)
   );
 }
 
@@ -515,11 +511,7 @@ export async function startSystemAudioCapture(): Promise<void> {
   // before getDisplayMedia would lose the browser's trusted click gesture.
   const proLeaseAttempt = isProRoom ? beginProLeaseAttempt() : null;
   const startEpoch = ++_captureStartEpoch;
-  const attempt = performSystemAudioCaptureStart(
-    startRoom,
-    proLeaseAttempt,
-    startEpoch,
-  );
+  const attempt = performSystemAudioCaptureStart(startRoom, proLeaseAttempt, startEpoch);
   _captureStartPromise = attempt;
   try {
     await attempt;
@@ -585,10 +577,7 @@ async function performSystemAudioCaptureStart(
 
   if (isProRoom) {
     const leaseResult = await proLeaseAttempt!;
-    if (
-      startEpoch !== _captureStartEpoch ||
-      !isCurrentSystemAudioRoom(startRoom)
-    ) {
+    if (startEpoch !== _captureStartEpoch || !isCurrentSystemAudioRoom(startRoom)) {
       discardPendingCapture(stream);
       if (leaseResult.ok) void releaseLocalProSystemAudioLease().catch(() => undefined);
       return;
@@ -629,10 +618,7 @@ async function performSystemAudioCaptureStart(
     throw error;
   }
 
-  if (
-    startEpoch !== _captureStartEpoch ||
-    !isCurrentSystemAudioRoom(startRoom)
-  ) {
+  if (startEpoch !== _captureStartEpoch || !isCurrentSystemAudioRoom(startRoom)) {
     discardPendingCapture(stream);
     if (isProRoom) void releaseLocalProSystemAudioLease().catch(() => undefined);
     return;
@@ -662,9 +648,7 @@ async function performSystemAudioCaptureStart(
     room: startRoom,
     playback,
     bounded: capturePreSystemAudioBoundedState(),
-    positionSeconds: Number.isFinite(rawPositionSeconds)
-      ? Math.max(0, rawPositionSeconds)
-      : 0,
+    positionSeconds: Number.isFinite(rawPositionSeconds) ? Math.max(0, rawPositionSeconds) : 0,
     currentTrackMeta: getState('player.currentTrackMeta'),
     channelMode: getState('audio.channelMode'),
     queueItemId: getState('playlist.currentQueueItemId'),
@@ -696,10 +680,8 @@ async function performSystemAudioCaptureStart(
   // authority, or exceed the standard-room device limit. Revalidate every
   // start precondition before publishing any graph or playback ownership.
   const roomStillCurrent = isCurrentSystemAudioRoom(startRoom);
-  const standardStillAuthorized =
-    isProRoom || (isCoordinator() && hasSystemAudioDeviceCapacity());
-  const proStillAuthorized =
-    !isProRoom || canPublishProSystemAudioWithCurrentCoordinator();
+  const standardStillAuthorized = isProRoom || (isCoordinator() && hasSystemAudioDeviceCapacity());
+  const proStillAuthorized = !isProRoom || canPublishProSystemAudioWithCurrentCoordinator();
   if (
     startEpoch !== _captureStartEpoch ||
     !roomStillCurrent ||
@@ -904,8 +886,7 @@ function stopSystemAudioCapture(opts?: {
 
   if (shouldRestore && _preSysAudioState) {
     restorePreSystemAudioPlaybackState(_preSysAudioState, {
-      isCurrent: () =>
-        _captureStartEpoch === restoreEpoch && !isSystemAudioActive(),
+      isCurrent: () => _captureStartEpoch === restoreEpoch && !isSystemAudioActive(),
     });
   } else if (shouldRestore) {
     setPlaybackTrackMeta(null);
@@ -962,10 +943,7 @@ export function restorePreSystemAudioPlaybackState(
       live.legacySessionId === snapshot.bounded.legacySessionId &&
       getState('playlist.currentQueueItemId') === snapshot.bounded.queueItemId;
     if (live && exact) {
-      const restoredPosition = Math.min(
-        live.durationSeconds,
-        snapshot.bounded.positionSeconds,
-      );
+      const restoredPosition = Math.min(live.durationSeconds, snapshot.bounded.positionSeconds);
       if (
         snapshot.bounded.role === 'host' &&
         snapshot.room.kind === 'standard' &&
@@ -1142,10 +1120,7 @@ function cleanupCapture(): void {
   }
 }
 
-function abortPreparedCapture(
-  startEpoch: number,
-  snapshot: Readonly<PreSystemAudioState>,
-): void {
+function abortPreparedCapture(startEpoch: number, snapshot: Readonly<PreSystemAudioState>): void {
   clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
   cleanupCapture();
   _captureRoomKind = null;
@@ -1159,8 +1134,7 @@ function abortPreparedCapture(
       setPlaybackIdle();
     } else {
       restorePreSystemAudioPlaybackState(snapshot, {
-        isCurrent: () =>
-          _captureStartEpoch === startEpoch && !isSystemAudioActive(),
+        isCurrent: () => _captureStartEpoch === startEpoch && !isSystemAudioActive(),
       });
     }
     _preSysAudioState = null;

@@ -13,10 +13,7 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
-import {
-  requestLegacyBoundedV1OwnerSwitchStop,
-  stopAllMedia,
-} from '../player/transport.ts';
+import { requestLegacyBoundedV1OwnerSwitchStop, stopAllMedia } from '../player/transport.ts';
 import { cancelIncomingFileTransfer } from '../storage/transfer.ts';
 import { cancelRemoteShareWait } from '../share/remote-share.ts';
 import {
@@ -33,12 +30,7 @@ import {
 } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
 import { claimGuestDirectSystemAudioRoute } from './system-audio-delivery.ts';
-import type {
-  DataConnection,
-  MediaConnection,
-  QueueItemId,
-  TrackMeta,
-} from '../types/index.ts';
+import type { DataConnection, MediaConnection, QueueItemId, TrackMeta } from '../types/index.ts';
 import { legacyBoundedFileV1Product } from '../player/legacy-bounded-file-v1-product.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
@@ -137,21 +129,18 @@ function captureGuestSystemAudioRoomIdentity(): GuestSystemAudioRoomIdentity {
     kind: room.kind,
     roomId:
       room.kind === 'standard'
-        ? room.roomId ?? (getState('network.sessionCode') || null)
+        ? (room.roomId ?? (getState('network.sessionCode') || null))
         : room.roomId,
     epoch: room.epoch,
-    standardHostConnection:
-      room.kind === 'standard' ? getState('network.hostConn') : null,
+    standardHostConnection: room.kind === 'standard' ? getState('network.hostConn') : null,
   });
 }
 
-function isCurrentGuestSystemAudioRoom(
-  expected: Readonly<GuestSystemAudioRoomIdentity>,
-): boolean {
+function isCurrentGuestSystemAudioRoom(expected: Readonly<GuestSystemAudioRoomIdentity>): boolean {
   const room = getRoomContext();
   const roomId =
     room.kind === 'standard'
-      ? room.roomId ?? (getState('network.sessionCode') || null)
+      ? (room.roomId ?? (getState('network.sessionCode') || null))
       : room.roomId;
   return (
     room.kind === expected.kind &&
@@ -227,15 +216,11 @@ function cancelAllTrustedReceptionWaiters(): void {
   }
 }
 
-export function awaitTrustedSystemAudioReceptionBoundary(
-  channel: string,
-): Promise<boolean> {
+export function awaitTrustedSystemAudioReceptionBoundary(channel: string): Promise<boolean> {
   if (isSystemAudioPlaceholder()) return Promise.resolve(true);
 
-  const expectedGeneration =
-    _pendingTrustedReceptionGeneration ?? _trustedReceptionGeneration + 1;
-  const timerName =
-    `sys-audio-guest-trust-gate-${channel}-${++_trustedReceptionWaitSeq}`;
+  const expectedGeneration = _pendingTrustedReceptionGeneration ?? _trustedReceptionGeneration + 1;
+  const timerName = `sys-audio-guest-trust-gate-${channel}-${++_trustedReceptionWaitSeq}`;
 
   return new Promise<boolean>((resolve) => {
     const waiter: TrustedReceptionWaiter = {
@@ -255,10 +240,7 @@ export function awaitTrustedSystemAudioReceptionBoundary(
 
     // The trusted START may have committed between the first placeholder
     // check and waiter publication.
-    if (
-      expectedGeneration === _trustedReceptionGeneration &&
-      isSystemAudioPlaceholder()
-    ) {
+    if (expectedGeneration === _trustedReceptionGeneration && isSystemAudioPlaceholder()) {
       _trustedReceptionWaiters.delete(waiter);
       clearManagedTimer(timerName);
       resolve(true);
@@ -355,10 +337,7 @@ function captureGuestSystemAudioBoundedSnapshot(): GuestSystemAudioBoundedSnapsh
       Number.isFinite(positionSeconds) ? Math.max(0, positionSeconds) : 0,
     ),
     durationSeconds: current.durationSeconds!,
-    trackMeta:
-      currentMeta?.queueItemId === current.queueItemId
-        ? currentMeta
-        : queueItem,
+    trackMeta: currentMeta?.queueItemId === current.queueItemId ? currentMeta : queueItem,
   });
 }
 
@@ -401,8 +380,7 @@ function readLiveGuestSystemAudioBoundedSnapshot(): GuestSystemAudioBoundedSnaps
     ),
     durationSeconds,
     trackMeta:
-      currentMeta?.queueItemId === current.queueItemId &&
-      !isSystemAudioPlaceholderMeta(currentMeta)
+      currentMeta?.queueItemId === current.queueItemId && !isSystemAudioPlaceholderMeta(currentMeta)
         ? currentMeta
         : queueItem,
   });
@@ -442,10 +420,7 @@ function readExactGuestBoundedProductPosition(
   ) {
     return null;
   }
-  return Math.min(
-    current.durationSeconds!,
-    Math.max(0, current.positionSeconds),
-  );
+  return Math.min(current.durationSeconds!, Math.max(0, current.positionSeconds));
 }
 
 function projectGuestBoundedPlayback(
@@ -454,10 +429,7 @@ function projectGuestBoundedPlayback(
   trackMeta: TrackMeta = bounded.trackMeta,
 ): void {
   setState('playlist.currentQueueItemId', bounded.queueItemId);
-  setState(
-    'player.pausedAt',
-    Math.min(bounded.durationSeconds, Math.max(0, positionSeconds)),
-  );
+  setState('player.pausedAt', Math.min(bounded.durationSeconds, Math.max(0, positionSeconds)));
   setPlaybackTrackMeta(trackMeta);
   setPlaybackFilePaused();
   bus.emit('ui:duration-update', bounded.durationSeconds);
@@ -472,9 +444,7 @@ function projectGuestBoundedPlayback(
  * the same selected file UI still owns the screen; a successor or another
  * playback mode wins without being touched.
  */
-function reconcileCancelledTrustedReception(
-  pending: Readonly<PendingTrustedReception>,
-): void {
+function reconcileCancelledTrustedReception(pending: Readonly<PendingTrustedReception>): void {
   const captured = pending.boundedSnapshot;
   if (
     !captured ||
@@ -1123,11 +1093,7 @@ export function cleanupGuestSystemAudio(): void {
         bus.emit('ui:play-btn-state', false);
         return;
       }
-      projectGuestBoundedPlayback(
-        liveBounded,
-        productPosition,
-        prevBoundedPlayback.trackMeta,
-      );
+      projectGuestBoundedPlayback(liveBounded, productPosition, prevBoundedPlayback.trackMeta);
       return;
     }
     if (liveBounded) {
@@ -1220,9 +1186,7 @@ export function beginTrustedSystemAudioReception(): boolean {
           settleTrustedReceptionWaiters(generation, false);
           return;
         }
-        const liveBounded = boundedSnapshot
-          ? readLiveGuestSystemAudioBoundedSnapshot()
-          : null;
+        const liveBounded = boundedSnapshot ? readLiveGuestSystemAudioBoundedSnapshot() : null;
         if (
           boundedSnapshot &&
           (!liveBounded || !isExactGuestBoundedIdentity(liveBounded, boundedSnapshot))

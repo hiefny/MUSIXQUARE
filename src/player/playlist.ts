@@ -1839,11 +1839,7 @@ export async function playTrack(
         cancelInFlight: true,
         preservePlaylistIntent: true,
       });
-      if (
-        !stopped ||
-        !isCurrentLoadEpoch(myLoadEpoch) ||
-        getCurrentQueueItemId() !== queueItemId
-      ) {
+      if (!stopped || !isCurrentLoadEpoch(myLoadEpoch) || getCurrentQueueItemId() !== queueItemId) {
         return;
       }
     } else {
@@ -2077,8 +2073,7 @@ function handleEndOfPlaylist(reason: string): void {
   }
 
   const boundedSnapshot = legacyBoundedFileV1Product.snapshot();
-  const boundedCurrent =
-    boundedSnapshot.role === 'host' ? (boundedSnapshot.current ?? null) : null;
+  const boundedCurrent = boundedSnapshot.role === 'host' ? (boundedSnapshot.current ?? null) : null;
   if (boundedCurrent) {
     void stopAllMediaAsync({ cancelInFlight: true })
       .then(async () => {
@@ -3085,9 +3080,7 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
           remainingV2QueueItemId === currentQueueItemId ||
           remainingBoundedQueueItemId === currentQueueItemId
         ) {
-          log.warn(
-            '[Playlist] Queue-empty retirement settled without releasing its file renderer',
-          );
+          log.warn('[Playlist] Queue-empty retirement settled without releasing its file renderer');
           return;
         }
         removeQueueItems(requestedQueueItemIds);

@@ -1050,11 +1050,7 @@ describe('bounded V1 host decode integration', () => {
       const { loadAndBroadcastFile } = await import('../decode.ts');
       const loading = loadAndBroadcastFile(file, item.queueItemId, 97);
       await vi.waitFor(() => {
-        expect(offerHostCurrentSettled).toHaveBeenCalledWith(
-          firstPeer.conn,
-          item.queueItemId,
-          97,
-        );
+        expect(offerHostCurrentSettled).toHaveBeenCalledWith(firstPeer.conn, item.queueItemId, 97);
       });
 
       setState('network.connectedPeers', [firstPeer, joiningPeer]);

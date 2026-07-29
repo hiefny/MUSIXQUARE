@@ -523,9 +523,7 @@ describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
 
     await startSystemAudioCapture();
     bus.emit('system-audio:stop');
-    await vi.waitFor(() =>
-      expect(boundedV1.product.applyControl).toHaveBeenCalledTimes(1),
-    );
+    await vi.waitFor(() => expect(boundedV1.product.applyControl).toHaveBeenCalledTimes(1));
 
     await startSystemAudioCapture();
     vi.mocked(peers[0]!.conn!.send).mockClear();
@@ -850,9 +848,7 @@ describe('system audio start failure rollback', () => {
     stubDisplayMedia();
 
     await startSystemAudioCapture();
-    await vi.waitFor(() =>
-      expect(boundedV1.product.applyControl).toHaveBeenCalledTimes(1),
-    );
+    await vi.waitFor(() => expect(boundedV1.product.applyControl).toHaveBeenCalledTimes(1));
     await startSystemAudioCapture();
     vi.mocked(peers[0]!.conn!.send).mockClear();
     settleCheckpoint();

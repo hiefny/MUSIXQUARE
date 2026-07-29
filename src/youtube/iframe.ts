@@ -15,10 +15,7 @@ import { clearManagedTimer, delay, setManagedTimer, getManagedTimer } from '../c
 import { broadcast } from '../network/peer.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { IS_ANDROID, IS_IOS } from '../core/platform.ts';
-import {
-  fmtTime,
-  requestLegacyBoundedV1OwnerSwitchRetirement,
-} from '../player/transport.ts';
+import { fmtTime, requestLegacyBoundedV1OwnerSwitchRetirement } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
@@ -899,8 +896,7 @@ export function loadYouTubeVideo(
   subIndex = 0,
   opts: LoadYouTubeVideoOptions = {},
 ): void {
-  const ownerSwitchGeneration =
-    opts.boundedOwnerSwitchGeneration ?? ++boundedOwnerSwitchGeneration;
+  const ownerSwitchGeneration = opts.boundedOwnerSwitchGeneration ?? ++boundedOwnerSwitchGeneration;
   if (
     opts.boundedOwnerSwitchGeneration !== undefined &&
     opts.boundedOwnerSwitchGeneration !== boundedOwnerSwitchGeneration

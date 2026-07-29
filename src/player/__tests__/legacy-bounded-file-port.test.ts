@@ -826,9 +826,10 @@ describe('LegacyBoundedFilePort', () => {
     const lease = await startCurrent(h, exactScope, fake);
     fake.markEnded();
 
-    await expect(
-      h.port.stop(lease, exactScope, { atRoomTimeMs: 1_250 }),
-    ).resolves.toEqual({ status: 'applied', snapshot: null });
+    await expect(h.port.stop(lease, exactScope, { atRoomTimeMs: 1_250 })).resolves.toEqual({
+      status: 'applied',
+      snapshot: null,
+    });
 
     expect(fake.source.destroy).toHaveBeenCalledOnce();
     expect(h.port.snapshot(lease, exactScope)).toBeNull();

@@ -77,8 +77,7 @@ vi.mock('../peer-state.ts', () => ({
 
 vi.mock('../system-audio-guest.ts', () => ({
   cleanupGuestSystemAudio: vi.fn(),
-  awaitTrustedSystemAudioReceptionBoundary:
-    systemAudioGuestMocks.awaitTrustedReceptionBoundary,
+  awaitTrustedSystemAudioReceptionBoundary: systemAudioGuestMocks.awaitTrustedReceptionBoundary,
 }));
 
 vi.mock('../webrtc-audio-decoder-primer.ts', () => ({

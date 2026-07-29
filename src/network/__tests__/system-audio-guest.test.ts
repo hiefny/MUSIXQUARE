@@ -108,8 +108,7 @@ vi.mock('../../audio/engine.ts', () => ({
 
 vi.mock('../../player/transport.ts', () => ({
   stopAllMedia: transportMocks.stopAllMedia,
-  requestLegacyBoundedV1OwnerSwitchStop:
-    transportMocks.requestLegacyBoundedV1OwnerSwitchStop,
+  requestLegacyBoundedV1OwnerSwitchStop: transportMocks.requestLegacyBoundedV1OwnerSwitchStop,
 }));
 
 vi.mock('../../player/legacy-bounded-file-v1-product.ts', () => ({
@@ -377,17 +376,11 @@ describe('system audio guest receive watchdog', () => {
     await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
     await flushAsyncStreamHandler();
 
-    const successorMeta = setBoundedGuestPlayback(
-      successorQueueItemId,
-      38,
-      44.75,
-      300,
-      {
-        phase: 'paused',
-        name: 'successor.flac',
-        append: true,
-      },
-    );
+    const successorMeta = setBoundedGuestPlayback(successorQueueItemId, 38, 44.75, 300, {
+      phase: 'paused',
+      name: 'successor.flac',
+      append: true,
+    });
     // The system-audio placeholder remains the visible owner until cleanup;
     // only the canonical bounded product/queue identity has advanced.
     claimPlaybackOwner('system-audio', {
@@ -416,17 +409,11 @@ describe('system audio guest receive watchdog', () => {
     await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
     await flushAsyncStreamHandler();
 
-    const successorMeta = setBoundedGuestPlayback(
-      successorQueueItemId,
-      40,
-      0,
-      300,
-      {
-        phase: 'stopped',
-        name: 'stopped-successor.flac',
-        append: true,
-      },
-    );
+    const successorMeta = setBoundedGuestPlayback(successorQueueItemId, 40, 0, 300, {
+      phase: 'stopped',
+      name: 'stopped-successor.flac',
+      append: true,
+    });
     setState('player.pausedAt', 99);
     claimPlaybackOwner('system-audio', {
       pending: true,
@@ -646,17 +633,11 @@ describe('system audio guest receive watchdog', () => {
     await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
     await handleData({ type: MSG.SYSTEM_AUDIO_STOP }, hostConn);
 
-    const successorMeta = setBoundedGuestPlayback(
-      successorQueueItemId,
-      69,
-      52,
-      240,
-      {
-        phase: 'paused',
-        name: 'successor.m4a',
-        append: true,
-      },
-    );
+    const successorMeta = setBoundedGuestPlayback(successorQueueItemId, 69, 52, 240, {
+      phase: 'paused',
+      name: 'successor.m4a',
+      append: true,
+    });
     resolveStop(true);
     await flushAsyncStreamHandler();
     await flushAsyncStreamHandler();

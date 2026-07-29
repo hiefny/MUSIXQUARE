@@ -388,9 +388,7 @@ class LegacyBoundedFileV1Product implements LegacyBoundedFileV1ProductContract {
   }
 
   flushDeferredQueueItemRemovals(): Promise<number> {
-    return this.#canOperate()
-      ? this.#runtime.flushDeferredQueueItemRemovals()
-      : Promise.resolve(0);
+    return this.#canOperate() ? this.#runtime.flushDeferredQueueItemRemovals() : Promise.resolve(0);
   }
 
   retireCurrent(queueItemId: QueueItemId, legacySessionId: number): Promise<boolean> {

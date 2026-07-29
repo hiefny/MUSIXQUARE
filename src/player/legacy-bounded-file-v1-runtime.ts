@@ -939,10 +939,7 @@ class LegacyBoundedFileV1Runtime<
     return cleanup;
   }
 
-  #retainOrphanPublisherCleanup(
-    publisher: RecordPublisherContract,
-    error: unknown,
-  ): void {
+  #retainOrphanPublisherCleanup(publisher: RecordPublisherContract, error: unknown): void {
     this.#orphanPublisherCleanups.add(publisher);
     this.#reportFailure('cleanup', error);
     this.#scheduleOrphanPublisherCleanup();
@@ -986,9 +983,7 @@ class LegacyBoundedFileV1Runtime<
     }
 
     const publishers = [...this.#orphanPublisherCleanups];
-    const retry = Promise.allSettled(
-      publishers.map((publisher) => publisher.close()),
-    )
+    const retry = Promise.allSettled(publishers.map((publisher) => publisher.close()))
       .then((results) => {
         results.forEach((result, index) => {
           if (result.status === 'fulfilled') {
@@ -1652,10 +1647,7 @@ class LegacyBoundedFileV1Runtime<
     if (this.#role !== 'host' || !host) {
       return freezeRecord({ status: 'bypass' });
     }
-    if (
-      !validControl(control) ||
-      (control.kind !== 'play' && control.kind !== 'seek-playing')
-    ) {
+    if (!validControl(control) || (control.kind !== 'play' && control.kind !== 'seek-playing')) {
       const error = new TypeError('Legacy bounded V1 scheduled host control is invalid');
       this.#reportFailure('control', error);
       return freezeRecord({ status: 'failed', error });
@@ -1710,10 +1702,7 @@ class LegacyBoundedFileV1Runtime<
     if (!snapshot) return freezeRecord({ status: 'superseded' });
     const settled = outcome.settled.then((settlement) => {
       const mapped = this.#mapBridgeControlOutcome(current, settlement);
-      if (
-        mapped.status === 'applied' &&
-        this.#isCurrentHost(host, current)
-      ) {
+      if (mapped.status === 'applied' && this.#isCurrentHost(host, current)) {
         current.naturalEndSettlement = null;
       }
       return mapped;
@@ -1871,10 +1860,7 @@ class LegacyBoundedFileV1Runtime<
     const guest = this.#guest;
     if (this.#role === 'guest' && guest?.current) {
       const current = guest.current;
-      if (
-        current.queueItemId !== queueItemId ||
-        current.legacySessionId !== legacySessionId
-      ) {
+      if (current.queueItemId !== queueItemId || current.legacySessionId !== legacySessionId) {
         return false;
       }
       // Retain the exact incarnation until both the bridge and delivery source
@@ -2335,10 +2321,7 @@ class LegacyBoundedFileV1Runtime<
       },
       (error) => {
         if (!this.#isLiveHostConnectionForCurrent(current, connection)) return;
-        current.legacyFallbackStates.set(
-          connection,
-          freezeRecord({ status: 'failed', error }),
-        );
+        current.legacyFallbackStates.set(connection, freezeRecord({ status: 'failed', error }));
         this.#settleHostOfferWaiters(
           current,
           connection,

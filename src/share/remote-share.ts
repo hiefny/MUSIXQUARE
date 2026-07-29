@@ -2059,8 +2059,7 @@ function handleRemoteFileUnavailable(data: Record<string, unknown>, conn?: DataC
   const shouldAct =
     matchesPending &&
     matchesSession &&
-    (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD ||
-      matchesBoundedFallback);
+    (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD || matchesBoundedFallback);
   if (!shouldAct) return;
   completeFileRequest(conn, safeQueueItemId, safeSessionId);
 

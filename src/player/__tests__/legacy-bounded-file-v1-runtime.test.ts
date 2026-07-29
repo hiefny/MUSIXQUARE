@@ -124,10 +124,7 @@ class FakeBridge implements LegacyBoundedFileV1BridgeContract {
       positionSeconds: input.positionSeconds,
       startAtRoomTimeMs: input.startAtRoomTimeMs,
     });
-    if (
-      this.playingStartFloorMs !== null &&
-      input.startAtRoomTimeMs <= this.playingStartFloorMs
-    ) {
+    if (this.playingStartFloorMs !== null && input.startAtRoomTimeMs <= this.playingStartFloorMs) {
       throw new Error('playing control rendezvous must remain in the future');
     }
     this.snapshotValue = bridgeSnapshot({
@@ -801,9 +798,9 @@ describe('LegacyBoundedFileV1Runtime', () => {
     await vi.advanceTimersByTimeAsync(21);
     await expect(first).resolves.toEqual({ status: 'legacy-committed' });
 
-    await expect(
-      harness.runtime.offerHostCurrentSettled(connection, QID_A, 1),
-    ).resolves.toEqual({ status: 'legacy-committed' });
+    await expect(harness.runtime.offerHostCurrentSettled(connection, QID_A, 1)).resolves.toEqual({
+      status: 'legacy-committed',
+    });
     expect(harness.fallbacks).toEqual([{ connection, reason: 'capability-timeout' }]);
   });
 
@@ -891,9 +888,7 @@ describe('LegacyBoundedFileV1Runtime', () => {
     await expect(harness.runtime.offerHostCurrent(reconnect)).resolves.toEqual({
       status: 'descriptor-sent',
     });
-    expect(harness.fallbacks).toEqual([
-      { connection: failedPeer, reason: 'publication-failed' },
-    ]);
+    expect(harness.fallbacks).toEqual([{ connection: failedPeer, reason: 'publication-failed' }]);
   });
 
   it('fails a settled offer when the exact stable V1 fallback acknowledgement rejects', async () => {
@@ -920,9 +915,10 @@ describe('LegacyBoundedFileV1Runtime', () => {
     await expect(settlement).resolves.toEqual({ status: 'failed', error: failure });
     expect(harness.failures).toContain(failure);
 
-    await expect(
-      harness.runtime.offerHostCurrentSettled(connection, QID_A, 1),
-    ).resolves.toEqual({ status: 'failed', error: failure });
+    await expect(harness.runtime.offerHostCurrentSettled(connection, QID_A, 1)).resolves.toEqual({
+      status: 'failed',
+      error: failure,
+    });
   });
 
   it('settles exact offer waiters on connection retirement and current replacement', async () => {
@@ -980,9 +976,7 @@ describe('LegacyBoundedFileV1Runtime', () => {
     vi.useFakeTimers();
     const harness = createHarness();
     const cleanupFailure = new Error('transient authenticated cleanup failure');
-    harness.publisher.close
-      .mockRejectedValueOnce(cleanupFailure)
-      .mockResolvedValue(undefined);
+    harness.publisher.close.mockRejectedValueOnce(cleanupFailure).mockResolvedValue(undefined);
     await harness.runtime.beginHostRoom({
       kind: 'standard',
       roomEpoch: 'room-epoch-a',
@@ -1163,10 +1157,9 @@ describe('LegacyBoundedFileV1Runtime', () => {
     expect(repeated.scope.sourceIdentity).toBe(first.scope.sourceIdentity);
     expect(repeated.scope.bridgeGeneration).not.toBe(first.scope.bridgeGeneration);
     expect(repeated.descriptorId).not.toBe(first.descriptorId);
-    const publicationsForRepeatedOccurrence =
-      harness.publisher.publishRecordSet.mock.calls.filter(
-        ([source]) => (source as { queueItemId?: QueueItemId }).queueItemId === QID_A,
-      );
+    const publicationsForRepeatedOccurrence = harness.publisher.publishRecordSet.mock.calls.filter(
+      ([source]) => (source as { queueItemId?: QueueItemId }).queueItemId === QID_A,
+    );
     const firstPublished = publicationsForRepeatedOccurrence[0]?.[0];
     const repeatedPublished = publicationsForRepeatedOccurrence.at(-1)?.[0];
     expect(firstPublished).toMatchObject({
@@ -1566,9 +1559,9 @@ describe('LegacyBoundedFileV1Runtime', () => {
       const preparation = deferred<LegacyBoundedV1PrepareOutcome>();
       harness.bridge.prepareDeferred = preparation;
       await harness.runtime.beginGuestRoom({ kind: 'standard', hostConnection: connection });
-      expect(
-        harness.runtime.beginGuestTransfer({ queueItemId: QID_A, legacySessionId: 1 }),
-      ).toBe(true);
+      expect(harness.runtime.beginGuestTransfer({ queueItemId: QID_A, legacySessionId: 1 })).toBe(
+        true,
+      );
 
       const adoption = harness.runtime.adoptGuestDescriptor(connection, descriptorFrame());
       await vi.waitFor(() => {
@@ -1808,10 +1801,7 @@ describe('LegacyBoundedFileV1Runtime', () => {
     await harness.runtime.beginGuestRoom({ kind: 'standard', hostConnection: connection });
     harness.runtime.beginGuestTransfer({ queueItemId: QID_A, legacySessionId: 1 });
 
-    const adopting = harness.runtime.adoptGuestDescriptor(
-      connection,
-      descriptorFrame(QID_A, 1),
-    );
+    const adopting = harness.runtime.adoptGuestDescriptor(connection, descriptorFrame(QID_A, 1));
     await vi.waitFor(() => {
       expect(harness.bridge.preparedQueueItemIds).toEqual([QID_A]);
     });

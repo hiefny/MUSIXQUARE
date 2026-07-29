@@ -292,11 +292,7 @@ async function settleBoundedHostSelectionBarrier(
     const pendingConnections: DataConnection[] = [];
     for (const peer of getState('network.connectedPeers')) {
       const connection = peer.conn as DataConnection | null;
-      if (
-        peer.status !== 'connected' ||
-        !connection?.open ||
-        settledConnections.has(connection)
-      ) {
+      if (peer.status !== 'connected' || !connection?.open || settledConnections.has(connection)) {
         continue;
       }
       pendingConnections.push(connection);

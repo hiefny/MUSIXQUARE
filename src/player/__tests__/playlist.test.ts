@@ -1854,9 +1854,7 @@ describe('guest queue authority bootstrap', () => {
     await Promise.resolve();
 
     expect(retire).not.toHaveBeenCalled();
-    expect(legacyBoundedFileV1Product.snapshot().current?.queueItemId).toBe(
-      successor.queueItemId,
-    );
+    expect(legacyBoundedFileV1Product.snapshot().current?.queueItemId).toBe(successor.queueItemId);
   });
 
   it('accepts an empty revision-zero baseline from a new connection and clears old media owners', async () => {
@@ -2832,13 +2830,11 @@ describe('bounded V1 playlist integration', () => {
     const retirement = new Promise<boolean>((resolve) => {
       settleRetirement = resolve;
     });
-    vi.spyOn(legacyBoundedFileV1Product, 'retireCurrent').mockImplementationOnce(
-      async () => {
-        const retired = await retirement;
-        if (retired) snapshot = Object.freeze({ ...snapshot, current: null });
-        return retired;
-      },
-    );
+    vi.spyOn(legacyBoundedFileV1Product, 'retireCurrent').mockImplementationOnce(async () => {
+      const retired = await retirement;
+      if (retired) snapshot = Object.freeze({ ...snapshot, current: null });
+      return retired;
+    });
     initPlaylist();
 
     bus.emit('playlist:remove-tracks', [only.queueItemId]);
@@ -2850,10 +2846,7 @@ describe('bounded V1 playlist integration', () => {
     settleRetirement(true);
     await vi.waitFor(() => expect(getState('playlist.items')).toEqual([]));
 
-    expect(legacyBoundedFileV1Product.retireCurrent).toHaveBeenCalledWith(
-      only.queueItemId,
-      91,
-    );
+    expect(legacyBoundedFileV1Product.retireCurrent).toHaveBeenCalledWith(only.queueItemId, 91);
     expect(getState('playlist.currentQueueItemId')).toBeNull();
     expect(legacyBoundedFileV1Product.snapshot().current).toBeNull();
   });
@@ -2936,9 +2929,7 @@ describe('bounded V1 playlist integration', () => {
     await vi.waitFor(() => expect(getState('playlist.items')).toEqual([successor]));
     expect(getState('playlist.currentQueueItemId')).toBe(successor.queueItemId);
     expect(retire).not.toHaveBeenCalled();
-    expect(legacyBoundedFileV1Product.snapshot().current?.queueItemId).toBe(
-      successor.queueItemId,
-    );
+    expect(legacyBoundedFileV1Product.snapshot().current?.queueItemId).toBe(successor.queueItemId);
   });
 });
 

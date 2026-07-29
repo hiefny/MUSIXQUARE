@@ -881,8 +881,7 @@ async function connectGuestTrack(
   // but the remote media plane can become audible while the trusted start is
   // still waiting for a prior bounded-file renderer to stop. Join the same
   // physical-owner barrier used by the direct-call adapter.
-  const trustedReceptionReady =
-    await awaitTrustedSystemAudioReceptionBoundary(`sfu-${channel}`);
+  const trustedReceptionReady = await awaitTrustedSystemAudioReceptionBoundary(`sfu-${channel}`);
   if (!trustedReceptionReady || guestPc !== pc) {
     if (guestPc === pc) cleanupGuestSfu();
     return;

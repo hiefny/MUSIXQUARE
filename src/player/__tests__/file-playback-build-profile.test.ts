@@ -21,6 +21,7 @@ function installProductionEnvironment(options: {
   vi.stubEnv('MODE', options.mode ?? 'production');
   vi.stubEnv('VITE_MUSIXQUARE_FILE_ENGINE_V2', options.v2);
   vi.stubEnv('VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1', options.universalV1);
+  vi.stubEnv('VITE_MUSIXQUARE_LEGACY_BOUNDED', '0');
   vi.stubGlobal('location', { search: '' });
 }
 

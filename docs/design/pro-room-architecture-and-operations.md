@@ -767,10 +767,11 @@ but it does not make that old Worker's HTTP/CORS contract understand a version
 
 Production releases use the repository's `Production Release` GitHub workflow
 for the exact reviewed `main` commit. Select `all` for a cross-Worker contract
-change or `pro-room` for a backward-compatible PRO-only change, approve the
-`production` environment after validation, and retain the recorded deployment
-IDs. The workflow owns the dependency order above, immutable app artifact,
-live smokes, and conflict-aware rollback.
+change or `pro-room` for a backward-compatible PRO-only change, and retain the
+recorded deployment IDs. The `app` target reuses the successful exact-SHA CI
+candidate; infrastructure targets retain the full release validation. The
+workflow owns the dependency order above, immutable app artifact, live smokes,
+and conflict-aware rollback.
 
 The local `deploy:*` scripts are non-deploying guards that always stop. The
 separate `emergency:deploy:*` scripts are emergency/operator primitives only;

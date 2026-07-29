@@ -33,6 +33,7 @@ function runManifest(
   dist: string,
   manifest: string,
   validationProfile?: string,
+  environment: NodeJS.ProcessEnv = {},
 ) {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -41,6 +42,7 @@ function runManifest(
   };
   delete env.RELEASE_VALIDATION_PROFILE;
   if (validationProfile) env.RELEASE_VALIDATION_PROFILE = validationProfile;
+  Object.assign(env, environment);
 
   return spawnSync(process.execPath, [SCRIPT_PATH, mode, dist, manifest], {
     encoding: 'utf8',
@@ -98,6 +100,46 @@ describe('release manifest validation profile', () => {
     const payload = JSON.parse(readFileSync(manifest, 'utf8')) as Manifest;
     expect(payload.validationProfile).toBeNull();
     expect(runManifest('verify', dist, manifest).status).toBe(0);
+  });
+
+  it('verifies an exact-SHA candidate reused from a successful CI run', () => {
+    const { dist, manifest } = createFixture();
+    const createResult = runManifest('create', dist, manifest, 'main-ci', {
+      GITHUB_RUN_ID: '1234',
+      GITHUB_RUN_ATTEMPT: '2',
+    });
+    expect(createResult.status, createResult.stderr).toBe(0);
+
+    const verifyResult = runManifest('verify', dist, manifest, 'main-ci', {
+      GITHUB_RUN_ID: '5678',
+      GITHUB_RUN_ATTEMPT: '1',
+      RELEASE_SOURCE_RUN_ID: '1234',
+      RELEASE_SOURCE_RUN_ATTEMPT: '2',
+    });
+
+    expect(verifyResult.status, verifyResult.stderr).toBe(0);
+  });
+
+  it('rejects a candidate from a different source CI run', () => {
+    const { dist, manifest } = createFixture();
+    expect(
+      runManifest('create', dist, manifest, 'main-ci', {
+        GITHUB_RUN_ID: '1234',
+        GITHUB_RUN_ATTEMPT: '2',
+      }).status,
+    ).toBe(0);
+
+    const verifyResult = runManifest('verify', dist, manifest, 'main-ci', {
+      GITHUB_RUN_ID: '5678',
+      GITHUB_RUN_ATTEMPT: '1',
+      RELEASE_SOURCE_RUN_ID: '9999',
+      RELEASE_SOURCE_RUN_ATTEMPT: '2',
+    });
+
+    expect(verifyResult.status).not.toBe(0);
+    expect(verifyResult.stderr).toContain(
+      'Release manifest run 1234 does not match candidate source run 9999.',
+    );
   });
 
   it('rejects an artifact manifest with a different product release identity', () => {

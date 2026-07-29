@@ -29,19 +29,22 @@ git commit -m "fix(domain): describe the fix"
 git push origin main
 ```
 
-Pushing `main` does not deploy production. Wait for CI, then run the
-`Production Release` workflow from the Actions tab for the exact `main` commit.
-Select only the Worker scope changed by the hotfix, then approve the
-`production` environment after candidate validation succeeds. Every release
-candidate must pass the short Chromium release smoke, which boots the app,
-joins a host and guest, and exchanges chat in both directions.
+Pushing `main` does not deploy production. CI runs static checks, tests, and the
+production build in parallel. A successful `main` CI run records an immutable
+app candidate for that exact commit. Run the `Production Release` workflow from
+the Actions tab and select only the Worker scope changed by the hotfix. The
+default `app` path reuses the successful exact-SHA CI candidate without a second
+validation pass or environment self-approval, then runs the live app session
+and public-boundary smokes with conflict-aware rollback. Infrastructure targets
+still build and validate their own candidate, including the short Chromium
+release smoke, before deployment.
 
 Leave `Apply Developer API D1 schema and one-time migrations` disabled for an
 ordinary Worker release. Enable it only when the approved commit intentionally
-changes the Developer API database schema or its tracked migration SQL. Normal
-releases make read-only D1 schema and cutover-state probes and do not apply
-schema or application-data migrations unless the corresponding reviewed input
-is enabled. A full-stack `all` rollout is the deliberate exception for
+changes the Developer API database schema or its tracked migration SQL.
+Infrastructure releases make read-only D1 schema and cutover-state probes and
+do not apply schema or application-data migrations unless the corresponding
+reviewed input is enabled. A full-stack `all` rollout is the deliberate exception for
 cutover-control state: it temporarily writes the room-code reuse fence to
 `disabled` while dependencies change, then restores verified readiness after
 the new stack owns production.
@@ -362,7 +365,7 @@ npm run build:checked
 ```
 
 4. Commit and push to `main`.
-5. Run and approve the `Production Release` workflow for the affected scope.
+5. Run the `Production Release` workflow for the affected scope.
 6. After Cloudflare deploys, verify:
    - fresh production load
    - an already-open production tab
@@ -387,9 +390,8 @@ npm run build:checked
 git push origin main
 ```
 
-3. Run and approve the `Production Release` workflow for the reverted Worker
-   scope, then rerun its live smoke; a revert push alone does not update
-   Cloudflare.
+3. Run the `Production Release` workflow for the reverted Worker scope, then
+   rerun its live smoke; a revert push alone does not update Cloudflare.
 4. If the rollback changes app-shell behavior or users may be pinned to stale cached assets, include a `CACHE_VERSION` bump in the rollback commit.
 
 Avoid `git reset --hard` plus force push on `main` unless there is no reasonable alternative.

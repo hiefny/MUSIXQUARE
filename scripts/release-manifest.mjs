@@ -63,6 +63,14 @@ function currentCommit() {
   );
 }
 
+function expectedSourceRunId() {
+  return process.env.RELEASE_SOURCE_RUN_ID || process.env.GITHUB_RUN_ID || null;
+}
+
+function expectedSourceRunAttempt() {
+  return process.env.RELEASE_SOURCE_RUN_ATTEMPT || process.env.GITHUB_RUN_ATTEMPT || null;
+}
+
 function createManifest() {
   if (!existsSync(distDirectory)) {
     throw new Error(`Production dist directory does not exist: ${distDirectory}`);
@@ -120,14 +128,16 @@ function verifyManifest() {
       `Release manifest commit ${manifest.commit} does not match ${process.env.GITHUB_SHA}.`,
     );
   }
-  if (process.env.GITHUB_RUN_ID && manifest.runId !== process.env.GITHUB_RUN_ID) {
+  const sourceRunId = expectedSourceRunId();
+  if (sourceRunId && manifest.runId !== sourceRunId) {
     throw new Error(
-      `Release manifest run ${manifest.runId} does not match ${process.env.GITHUB_RUN_ID}.`,
+      `Release manifest run ${manifest.runId} does not match candidate source run ${sourceRunId}.`,
     );
   }
-  if (process.env.GITHUB_RUN_ATTEMPT && manifest.runAttempt !== process.env.GITHUB_RUN_ATTEMPT) {
+  const sourceRunAttempt = expectedSourceRunAttempt();
+  if (sourceRunAttempt && manifest.runAttempt !== sourceRunAttempt) {
     throw new Error(
-      `Release manifest attempt ${manifest.runAttempt} does not match ${process.env.GITHUB_RUN_ATTEMPT}.`,
+      `Release manifest attempt ${manifest.runAttempt} does not match candidate source attempt ${sourceRunAttempt}.`,
     );
   }
   if (process.env.RELEASE_TARGET && manifest.target !== process.env.RELEASE_TARGET) {

@@ -1163,16 +1163,63 @@ describe('release deployment rollback state', () => {
     );
   });
 
-  it('proves first-frame signaling compatibility before an app-only deployment', () => {
+  it('reuses the successful exact-SHA main CI artifact for fast app releases', () => {
+    const ciWorkflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
-    const preflight = workflow.indexOf('Verify current signaling contract before app-only release');
+    const ciBuild = ciWorkflow.indexOf('Build and verify production bundle');
+    const ciArtifact = ciWorkflow.indexOf('Upload immutable main-CI app candidate');
+    expect(ciArtifact).toBeGreaterThan(ciBuild);
+    expect(ciWorkflow).toContain('RELEASE_VALIDATION_PROFILE: main-ci');
+    expect(ciWorkflow).toContain("VITE_MUSIXQUARE_FILE_ENGINE_V2: '1'");
+    expect(ciWorkflow).toContain("VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '1'");
+    expect(ciWorkflow).toContain(
+      'app-production-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}',
+    );
+
+    expect(workflow).toContain('actions: read');
+    expect(workflow).toContain('Select exact-SHA validated candidate');
+    expect(workflow).toContain('actions/workflows/ci.yml/runs');
+    expect(workflow).toContain('-f head_sha="$GITHUB_SHA"');
+    expect(workflow).toContain('select(.conclusion == "success")');
+    expect(workflow).toContain('actions/runs/$run_id/artifacts');
+    expect(workflow).toContain('.name | startswith($prefix)');
+    expect(workflow).toContain('run_attempt="${artifact_name##*-}"');
+    expect(workflow).toContain('RELEASE_SOURCE_RUN_ID');
+    expect(workflow).toContain('RELEASE_SOURCE_RUN_ATTEMPT');
+    expect(workflow).toContain('run-id: ${{ needs.validate.outputs.candidate_run_id }}');
+
+    for (const stepName of [
+      'Install dependencies',
+      'Typecheck',
+      'Lint',
+      'Formatting',
+      'Worker syntax check',
+      'Playback and storage static invariants',
+      'Unit tests',
+      'Critical runtime coverage',
+      'Install Playwright browser',
+      'Release-candidate core smoke',
+      'Build and verify production bundle',
+      'Record immutable release manifest',
+      'Upload immutable production candidate',
+    ]) {
+      const stepStart = workflow.indexOf(`- name: ${stepName}`);
+      const nextStep = workflow.indexOf('\n      - name:', stepStart + 1);
+      const step = workflow.slice(stepStart, nextStep);
+      expect(stepStart, stepName).toBeGreaterThan(-1);
+      expect(step, stepName).toContain("if: inputs.target != 'app'");
+    }
+
+    const compatibility = workflow.indexOf('Verify partial release dependency compatibility');
     const appDeploy = workflow.indexOf('Deploy and record app Worker with immutable dist');
-    expect(preflight).toBeGreaterThan(-1);
-    expect(preflight).toBeLessThan(appDeploy);
-    const nextStep = workflow.indexOf('\n      - name:', preflight + 1);
-    const preflightStep = workflow.slice(preflight, nextStep);
-    expect(preflightStep).toContain("if: inputs.target == 'app'");
-    expect(preflightStep).toContain('run: npm run smoke:live:signaling');
+    expect(compatibility).toBeGreaterThan(-1);
+    expect(compatibility).toBeLessThan(appDeploy);
+    expect(workflow).not.toContain('Verify current signaling contract before app-only release');
+    const appDeployEnd = workflow.indexOf('\n      - name:', appDeploy + 1);
+    const appDeployStep = workflow.slice(appDeploy, appDeployEnd);
+    expect(appDeployStep).toContain('git fetch --no-tags origin main');
+    expect(appDeployStep).toContain('current_main="$(git rev-parse origin/main)"');
+    expect(appDeployStep).toContain('if [[ "$current_main" != "$GITHUB_SHA" ]]');
 
     const appPlan = emergencyDeploymentPlan('app', '1'.repeat(40));
     expect(appPlan[0]).toEqual(['run', '--silent', 'smoke:live:signaling']);

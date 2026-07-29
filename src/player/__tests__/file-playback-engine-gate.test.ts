@@ -141,6 +141,22 @@ describe('file playback engine bootstrap gate', () => {
     },
   );
 
+  it('keeps the real tracked production artifact on legacy during the rollback', async () => {
+    installEnvironment({
+      dev: false,
+      prod: true,
+      mode: 'production',
+      productionFlag: '1',
+      universalV1Flag: '1',
+    });
+    vi.doUnmock(RELEASE_LATCH_MODULE_PATH);
+
+    const gate = await import(MODULE_PATH);
+
+    expect(gate.getFilePlaybackEngineMode()).toBe('legacy');
+    expect(gate.isFilePlaybackEngineV2Enabled()).toBe(false);
+  });
+
   it('allows the exact universal E2E artifact as the only latch-OFF production exception', async () => {
     installEnvironment({
       dev: false,

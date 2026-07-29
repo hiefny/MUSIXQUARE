@@ -13,38 +13,28 @@
 > slices below preserve the FLAC-first integration order; current format status
 > is authoritative only in `universal-bounded-streaming-engine.md`.
 
-## Production release status (2026-07-28)
+## Production release status (2026-07-29)
 
 This section is authoritative for current production routing. The rollback
 baseline, local-only deployment rule, and milestone slices retained elsewhere
 in this document describe the historical rollout plan rather than the deployed
 state.
 
-- Production boots the fixed `v2-universal-v1` profile: the V2 build flag,
-  tracked production latch, and exact universal bounded MP3/AAC/M4A flag are
-  enabled together. A service-worker cache generation change prevents an old
-  `v2-current` document from silently joining the new semantic cohort.
-- Standard rooms use the universal product engine. PRO rooms retain their
-  independent server-authoritative PREPARE/READY/COMMIT clock while a
-  PRO-specific renderer adapter uses strict R2 byte ranges for admitted files.
-  Explicitly unsupported formats and pre-admission capability incompatibility
-  retain the existing whole-file renderer without transferring authority to
-  the standard-room V2 session. Once bounded playback is selected, an expired
-  preparation budget or Range, identity, and integrity failure is fail-closed:
-  the outgoing renderer remains authoritative until a later server transition,
-  rather than silently changing engines.
-- A host-only source stays local. One or two guests known to be local use
-  bounded peer-range delivery. Each remote or locality-unknown guest selects
-  encrypted R2 records; once three or more connected guests are known-local,
-  those local guests also select the shared R2 publication.
-- Native FLAC, supported linear PCM, MP3, ADTS AAC, and M4A/MP4 AAC use the
-  bounded standard-room engine when the exact per-device codec canary passes.
-  Unsupported extensions retain V1-like behavior. AAC/M4A capability failure
-  in an already-selected standard universal cohort is fail-closed rather than
-  silently changing that room's playback semantics.
-- The R2 path makes record 0 ready before playback rendezvous, publishes later
-  records in the background, retains at most one decrypted plaintext record,
-  and bounds a missing-record wait to 60 seconds before failing or recovering.
+- Production boots the fixed `legacy-current` profile. The tracked production
+  latch is OFF, so stale or still-configured remote V2 and universal flags
+  cannot install the V2 application session, handshake, peer-range transport,
+  or renderer ownership.
+- The rollback followed repeated field failures where valid timing races were
+  classified as V2 state-machine violations and a playback adoption error was
+  coupled to full host-connection teardown. Production reliability takes
+  precedence over continuing the rollout.
+- V2 remains available only through the exact development opt-in and isolated
+  E2E artifacts. Re-enablement requires a nonfatal recovery boundary, a
+  connection-preserving playback reset path, and adversarial late-join,
+  pause/stop, seek, re-entry, and reordered-message validation.
+- The universal bounded delivery implementation and its semantic cohort remain
+  in source for isolated development; they do not own playback in the
+  production artifact while the tracked latch is OFF.
 
 ## Purpose
 

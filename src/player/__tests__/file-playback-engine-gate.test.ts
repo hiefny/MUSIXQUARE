@@ -141,7 +141,7 @@ describe('file playback engine bootstrap gate', () => {
     },
   );
 
-  it('keeps the real tracked production artifact on legacy during the rollback', async () => {
+  it('enables the real tracked production artifact after the approved release latch', async () => {
     installEnvironment({
       dev: false,
       prod: true,
@@ -152,6 +152,21 @@ describe('file playback engine bootstrap gate', () => {
     vi.doUnmock(RELEASE_LATCH_MODULE_PATH);
 
     const gate = await import(MODULE_PATH);
+
+    expect(gate.getFilePlaybackEngineMode()).toBe('v2');
+    expect(gate.isFilePlaybackEngineV2Enabled()).toBe(true);
+  });
+
+  it('keeps the isolated beta-bounded artifact on legacy after the production latch turns ON', async () => {
+    installEnvironment({
+      dev: false,
+      prod: true,
+      mode: 'beta-bounded',
+      productionFlag: '1',
+      universalV1Flag: '1',
+    });
+
+    const gate = await loadGate({ productionLatch: true });
 
     expect(gate.getFilePlaybackEngineMode()).toBe('legacy');
     expect(gate.isFilePlaybackEngineV2Enabled()).toBe(false);

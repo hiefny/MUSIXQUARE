@@ -51,6 +51,7 @@ function resolveFilePlaybackEngineMode(): FilePlaybackEngineMode {
   // exact flags.
   if (environment.dev === environment.prod) return 'legacy';
   if (environment.dev) return hasExactDevelopmentOptIn() ? 'v2' : 'legacy';
+  if (environment.mode === 'beta-bounded') return 'legacy';
   if (!environment.v2ProductionFlag) return 'legacy';
 
   const isolatedUniversalCandidate =

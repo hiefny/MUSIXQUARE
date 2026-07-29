@@ -176,12 +176,13 @@ deleted runtime file is a change too.
 If the proof is unavailable or a counterpart changed, use target `all` rather
 than guessing that the contracts remain compatible.
 
-An app-only production release additionally runs the live signaling smoke
-before touching the app Worker, and the emergency-only
-`emergency:deploy:app` command does the same. A signaling protocol change must
-be deployed and smoked first (normally with release target `all`); the
-preflight fails closed while production still serves an incompatible
-signaling contract.
+An app-only production release reuses the exact-SHA CI candidate, proves
+partial dependency compatibility before deployment, and runs a fresh
+host/guest application-session smoke after deployment. The emergency-only
+`emergency:deploy:app` command additionally runs the standalone live signaling
+smoke. A signaling protocol change must be deployed and smoked first (normally
+with release target `all`); the preflight fails closed while production still
+serves an incompatible signaling contract.
 
 Automatic rollback preserves the restored deployment's original Git SHA in
 the new rollback message when that provenance exists. A legacy or manual

@@ -13,28 +13,32 @@
 > slices below preserve the FLAC-first integration order; current format status
 > is authoritative only in `universal-bounded-streaming-engine.md`.
 
-## Production release status (2026-07-29)
+## Production release status (2026-07-30)
 
 This section is authoritative for current production routing. The rollback
 baseline, local-only deployment rule, and milestone slices retained elsewhere
 in this document describe the historical rollout plan rather than the deployed
 state.
 
-- Production boots the fixed `legacy-current` profile. The tracked production
-  latch is OFF, so stale or still-configured remote V2 and universal flags
-  cannot install the V2 application session, handshake, peer-range transport,
-  or renderer ownership.
-- The rollback followed repeated field failures where valid timing races were
-  classified as V2 state-machine violations and a playback adoption error was
-  coupled to full host-connection teardown. Production reliability takes
-  precedence over continuing the rollout.
-- V2 remains available only through the exact development opt-in and isolated
-  E2E artifacts. Re-enablement requires a nonfatal recovery boundary, a
-  connection-preserving playback reset path, and adversarial late-join,
-  pause/stop, seek, re-entry, and reordered-message validation.
-- The universal bounded delivery implementation and its semantic cohort remain
-  in source for isolated development; they do not own playback in the
-  production artifact while the tracked latch is OFF.
+- Production is in an owner-approved monitored rollout of the fixed
+  `v2-universal-v1` profile. The tracked production latch and both exact build
+  flags are ON; URL parameters cannot change that document-lifetime decision.
+- Standard rooms install the V2 application session, exact semantic-cohort
+  handshake, bounded peer/R2 delivery, serialized playback authority, and
+  renderer ownership. Unsupported sources are selected onto the unchanged V1
+  path before bounded ownership transfers.
+- PRO rooms never install the standard-room application session. Their
+  server-clock authority may use the separate bounded PRO adapter and falls
+  back to the existing PRO V1 renderer when source compatibility cannot be
+  established before commit.
+- Playback adoption and recovery failures are isolated from the room
+  connection. Focused adversarial tests and release/live smoke passed before
+  activation; physical-device and multi-guest observation continues during
+  the monitored rollout.
+- Rapid rollback is a forward static-app release: set the tracked latch back
+  to OFF and advance the service-worker cache epoch again. Existing documents
+  keep their immutable bootstrap choice until they accept the update and
+  reload.
 
 ## Purpose
 

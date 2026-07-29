@@ -1,9 +1,10 @@
 # File playback control-plane redesign
 
-- **Status:** Accepted beta architecture; implementation in progress
-- **Branch:** `mxqr_beta`
+- **Status:** Implemented; owner-approved monitored production rollout
+- **Branch:** merged from `mxqr_beta` into `main`
 - **Stable baseline:** `ca342a324f0ee39c1b948b8938690688eaa441d9`
-- **Production rule:** the tracked V2 production latch remains off
+- **Production rule:** the tracked V2 production latch is on; rollback is a
+  forward app release with the latch off and a newer service-worker cache epoch
 - **Scope:** replace the distributed V2 control plane while preserving the
   bounded delivery, decoder, renderer, and R2 work
 
@@ -40,6 +41,20 @@ interaction, not as protocol phases leaking into the UI:
   is transferred; there is no mid-run engine flip; and
 - every playback recovery keeps chat, playlist, membership, and the room
   connection alive.
+
+## Current rollout (2026-07-30)
+
+The redesign and bounded data plane are merged into `main`. Production uses
+the immutable `v2-universal-v1` build profile during a monitored rollout.
+Standard-room playback failures reset only playback state and do not close the
+room transport. PRO keeps its independent server authority and may use only
+its dedicated bounded adapter, with compatibility fallback to its established
+renderer.
+
+The original phase plan below is retained as implementation history. Turning
+the rollout off requires a new static-app build with the tracked latch set to
+false and a monotonically newer service-worker cache epoch; already-open
+documents switch only after update/reload.
 
 ## Why the current V2 failed
 
@@ -417,10 +432,10 @@ work, and observer re-entry is deferred to a subsequent microtask batch.
 
 ## Migration
 
-### Phase 0: stable reset
+### Phase 0: stable reset (historical)
 
-- `main` remains on the production rollback with the V2 latch off.
-- `mxqr_beta` starts from the exact same stable commit.
+- `main` remained on the production rollback with the V2 latch off.
+- `mxqr_beta` started from the exact same stable commit.
 
 ### Phase 1: executable model
 
@@ -477,7 +492,9 @@ work, and observer re-entry is deferred to a subsequent microtask batch.
 
 ## Re-enable gates
 
-Production remains on the stable engine until:
+Production remained on the stable engine until the implementation gates below
+were reviewed. Physical-device evidence continues as part of the monitored
+rollout:
 
 1. the new actor is the only playback state owner;
 2. wire admission and actor commit are atomic;

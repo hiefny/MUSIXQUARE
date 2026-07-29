@@ -290,7 +290,6 @@ describe('Translation key integrity', () => {
         !standardCopy.includes('Cloudflare') ||
         !standardCopy.includes('24') ||
         !proCopy.includes('Cloudflare') ||
-        !proCopy.includes('R2') ||
         !proCopy.includes('24') ||
         !proCopy.includes('PRO') ||
         standardCopy.includes('PRO')
@@ -301,16 +300,16 @@ describe('Translation key integrity', () => {
 
     expect(badLegalCopy).toEqual([]);
     expect(ko['legal.content_html']).toContain(
-      '<span data-legal-standard-storage>같은 네트워크에서는 대부분의 세션 콘텐츠가 기기 간에 직접 전송되며, 방 운영·인증·재연결에 필요한 제한된 상태는 시그널링 서버에서 일시적으로 처리돼요. 원격 참여자와 대규모 세션에 전송되는 데이터는 Cloudflare를 경유할 수 있어요. 임시 파일은 브라우저에서 암호화되어 최대 24시간 이내 삭제되도록 운영되며, 복호화 키는 서버에 저장되지 않아요. 뮤직스퀘어는 기능 제공·서비스 운영·보안 외의 목적으로 세션 콘텐츠를 열람, 분석하거나 보관하지 않아요.</span>',
+      '<span data-legal-standard-storage>같은 네트워크에서는 대부분의 세션 콘텐츠가 기기 간에 직접 전송되며, 방 운영·인증·재연결을 위한 처리는 시그널링 서버에서 일시적으로 이루어져요. 원격 참여자와 대규모 세션에 전송되는 데이터는 Cloudflare를 경유할 수 있어요. 원격 파일은 브라우저에서 암호화되어 업로드되며, 서버에서 24시간 이내 삭제돼요. 뮤직스퀘어는 기능 제공과 서비스 운영·보안에 필요한 범위를 벗어나 세션 콘텐츠를 열람, 분석하거나 보관하지 않아요.</span>',
     );
     expect(ko['legal.content_html']).toContain(
-      '<span data-legal-pro-storage>PRO 방에서는 방 운영에 필요한 세션·멤버·재생목록·재생·업로드 상태가 Cloudflare 서버에 저장돼요. 재생목록에 추가한 원본 파일은 비공개 Cloudflare R2에 지속적으로 보관되며, 방 참여자만 짧게 유효한 주소를 통해 내려받을 수 있어요. 파일은 재생목록에서 더 이상 사용되지 않아 정리가 완료되거나 운영자가 방 데이터를 영구 삭제하면 삭제돼요. 일반 방 원격 파일의 브라우저 암호화와 최대 24시간 임시 보관 기준은 적용되지 않아요.</span>',
+      '<span data-legal-pro-storage>PRO 방에서는 방 운영에 필요한 세션·멤버·재생목록·재생·업로드 상태가 Cloudflare 서버에 저장돼요. 재생목록에 추가한 원본 파일은 비공개 Cloudflare 저장소에 보관되며, 방 참여자만 짧게 유효한 주소를 통해 내려받을 수 있어요. 저장소에 업로드된 파일은 방 관리자가 재생목록에서 삭제하거나, 운영자가 방 데이터를 삭제하면 말소돼요. 일반 방 원격 파일의 브라우저 암호화와 24시간 임시 보관 기준은 적용되지 않아요.</span>',
     );
     expect(en['legal.content_html']).toContain(
-      '<span data-legal-standard-storage>On the same network, most session content is transmitted directly between devices, while limited state needed for room operation, authentication, and reconnection is processed temporarily by the signaling service. Data sent to remote participants and large sessions may pass through Cloudflare. Temporary files are encrypted in the browser and scheduled for deletion within a maximum of 24 hours; decryption keys are not stored on the server. MUSIXQUARE does not access, analyze, or retain session content for purposes other than feature delivery, service operation, and security.</span>',
+      '<span data-legal-standard-storage>On the same network, most session content is transmitted directly between devices, while processing for room operation, authentication, and reconnection takes place temporarily on the signaling server. Data transmitted to remote participants and in large sessions may pass through Cloudflare. Remote files are encrypted in the browser before upload and deleted from the server within 24 hours. MUSIXQUARE does not access, analyze, or retain session content beyond what is necessary for feature delivery, service operation, and security.</span>',
     );
     expect(en['legal.content_html']).toContain(
-      '<span data-legal-pro-storage>PRO rooms store session, member, playlist, playback, and upload state needed to operate the room on Cloudflare servers. Original files added to the playlist are stored persistently in private Cloudflare R2 and can be downloaded only by room participants through short-lived URLs. Files are deleted after they are no longer referenced by the playlist and cleanup completes, or when the operator permanently deletes the room data. The browser encryption and maximum 24-hour temporary retention rules for ordinary-room remote files do not apply.</span>',
+      '<span data-legal-pro-storage>PRO rooms store session, member, playlist, playback, and upload state needed to operate the room on Cloudflare servers. Original files added to the playlist are kept in private Cloudflare storage and can be downloaded only by room participants through short-lived URLs. Files uploaded to storage are erased when a room administrator removes them from the playlist, or when the operator deletes the room data. The browser encryption and 24-hour temporary retention rules for ordinary-room remote files do not apply.</span>',
     );
   });
 

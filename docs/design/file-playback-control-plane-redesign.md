@@ -509,13 +509,13 @@ rollout:
 
 ### Current production rollback procedure
 
-For the `v315` bounded-V1 promotion, an emergency rollback is an app-only
+For the corrected `v316` bounded-V1 promotion, an emergency rollback is an app-only
 release with all of these changes in the same reviewed commit:
 
 1. set `LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED` to `false`;
 2. keep `FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` and both retired V2 build
    flags off;
-3. bump `public/service-worker.js` from `v315` to `v316`; and
+3. bump `public/service-worker.js` from `v316` to `v317`; and
 4. run the focused gates, commit and push the exact SHA, wait for exact-SHA CI,
    then dispatch the formal app release and post-deployment session smoke.
 

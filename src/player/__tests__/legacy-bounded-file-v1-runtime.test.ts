@@ -16,6 +16,7 @@ import type {
 } from '../legacy-bounded-file-v1-source.ts';
 import {
   createLegacyBoundedFileV1Runtime,
+  LEGACY_BOUNDED_V1_HOST_POST_PRIME_LEAD_MS,
   type LegacyBoundedFileV1DescriptorFrame,
   type LegacyBoundedFileV1RuntimeSeams,
   type LegacyBoundedFileV1WireFrame,
@@ -65,7 +66,9 @@ class FakeBridge implements LegacyBoundedFileV1BridgeContract {
   readonly playingInputs: {
     readonly positionSeconds: number;
     readonly startAtRoomTimeMs: number;
+    readonly minimumLeadAfterPrimeMs?: number;
   }[] = [];
+  scheduledStartAtRoomTimeMs: number | null = null;
   playingStartFloorMs: number | null = null;
   prepareDeferred: ReturnType<typeof deferred<LegacyBoundedV1PrepareOutcome>> | null = null;
   retireDeferred: ReturnType<typeof deferred<LegacyBoundedV1ControlOutcome>> | null = null;
@@ -123,6 +126,9 @@ class FakeBridge implements LegacyBoundedFileV1BridgeContract {
     this.playingInputs.push({
       positionSeconds: input.positionSeconds,
       startAtRoomTimeMs: input.startAtRoomTimeMs,
+      ...(input.minimumLeadAfterPrimeMs === undefined
+        ? {}
+        : { minimumLeadAfterPrimeMs: input.minimumLeadAfterPrimeMs }),
     });
     if (this.playingStartFloorMs !== null && input.startAtRoomTimeMs <= this.playingStartFloorMs) {
       throw new Error('playing control rendezvous must remain in the future');
@@ -145,7 +151,7 @@ class FakeBridge implements LegacyBoundedFileV1BridgeContract {
     return Promise.resolve(
       freezeRecord({
         status: 'scheduled' as const,
-        startAtRoomTimeMs: input.startAtRoomTimeMs,
+        startAtRoomTimeMs: this.scheduledStartAtRoomTimeMs ?? input.startAtRoomTimeMs,
         snapshot: this.snapshotValue,
         settled,
       }),
@@ -187,7 +193,7 @@ class FakeBridge implements LegacyBoundedFileV1BridgeContract {
     return Promise.resolve(
       freezeRecord({
         status: 'scheduled' as const,
-        startAtRoomTimeMs: input.startAtRoomTimeMs,
+        startAtRoomTimeMs: this.scheduledStartAtRoomTimeMs ?? input.startAtRoomTimeMs,
         snapshot: this.snapshotValue,
         settled,
       }),
@@ -1550,6 +1556,43 @@ describe('LegacyBoundedFileV1Runtime', () => {
     });
   });
 
+  it('gives host priming a 400ms rendezvous budget and returns the bridge effective start', async () => {
+    const harness = createHarness();
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+    await expect(harness.runtime.prepareHost(hostPrepareInput())).resolves.toMatchObject({
+      status: 'ready',
+    });
+    harness.bridge.scheduledStartAtRoomTimeMs = 2_650;
+
+    const scheduled = await harness.runtime.scheduleHostControl({
+      kind: 'play',
+      queueItemId: QID_A,
+      legacySessionId: 1,
+      positionSeconds: 12,
+      startAtRoomTimeMs: 2_000,
+    });
+
+    expect(LEGACY_BOUNDED_V1_HOST_POST_PRIME_LEAD_MS).toBe(400);
+    expect(harness.bridge.playingInputs).toEqual([
+      {
+        positionSeconds: 12,
+        startAtRoomTimeMs: 2_000,
+        minimumLeadAfterPrimeMs: 400,
+      },
+    ]);
+    expect(scheduled).toMatchObject({
+      status: 'scheduled',
+      startAtRoomTimeMs: 2_650,
+    });
+    if (scheduled.status !== 'scheduled') throw new Error('expected host schedule');
+    await expect(scheduled.settled).resolves.toMatchObject({ status: 'applied' });
+  });
+
   it.each(['play', 'seek-playing'] as const)(
     'rebases a pending guest %s after late descriptor readiness and catches up its position',
     async (kind) => {
@@ -1591,6 +1634,7 @@ describe('LegacyBoundedFileV1Runtime', () => {
         expect(harness.bridge.playingInputs).toHaveLength(1);
       });
       const applied = harness.bridge.playingInputs[0];
+      expect(applied).not.toHaveProperty('minimumLeadAfterPrimeMs');
       expect(applied?.startAtRoomTimeMs).toBeGreaterThan(nowRoomTimeMs);
       expect(applied?.positionSeconds).toBeCloseTo(
         7 + ((applied?.startAtRoomTimeMs ?? 0) - 1_050) / 1_000,

@@ -2543,6 +2543,12 @@ describe('bounded V1 transport integration', () => {
       snapshot: NonNullable<(typeof boundedV1.state.snapshot)['current']>;
     }>();
     boundedV1.product.applyControl.mockImplementationOnce(() => applied.promise);
+    boundedV1.product.scheduleHostControl.mockImplementationOnce(async (control) => ({
+      status: 'scheduled' as const,
+      startAtRoomTimeMs: 10_900,
+      snapshot: boundedV1.state.snapshot.current!,
+      settled: boundedV1.product.applyControl(control),
+    }));
 
     expect(requestLegacyBoundedV1HostPlay(12, 10_500)).toBe(true);
     await drainMicrotasks(4);
@@ -2559,7 +2565,7 @@ describe('bounded V1 transport integration', () => {
       time: 12,
       queueItemId: Q1,
       name: undefined,
-      hostPlayAt: 10_500,
+      hostPlayAt: 10_900,
     });
     expect(visualizerStart).not.toHaveBeenCalled();
     expect(loopStart).not.toHaveBeenCalled();

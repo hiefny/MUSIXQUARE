@@ -45,6 +45,7 @@ interface LegacyBoundedV1MediaInput {
 interface LegacyBoundedV1PlayInput extends LegacyBoundedV1MediaInput {
   readonly positionSeconds: number;
   readonly startAtRoomTimeMs: number;
+  readonly minimumLeadAfterPrimeMs?: number;
 }
 
 interface LegacyBoundedV1TimedPositionInput {
@@ -56,6 +57,7 @@ interface LegacyBoundedV1TimedPositionInput {
 interface LegacyBoundedV1PlayingSeekInput extends LegacyBoundedV1MediaInput {
   readonly positionSeconds: number;
   readonly startAtRoomTimeMs: number;
+  readonly minimumLeadAfterPrimeMs?: number;
 }
 
 export type LegacyBoundedV1PrepareOutcome =
@@ -541,7 +543,13 @@ class LegacyBoundedFileV1Bridge implements LegacyBoundedFileV1BridgeContract {
     const media = mediaInput(input);
     const positionSeconds = input?.positionSeconds;
     const startAtRoomTimeMs = input?.startAtRoomTimeMs;
-    if (!media || !finiteNonNegative(positionSeconds) || !finiteNonNegative(startAtRoomTimeMs)) {
+    const minimumLeadAfterPrimeMs = input?.minimumLeadAfterPrimeMs;
+    if (
+      !media ||
+      !finiteNonNegative(positionSeconds) ||
+      !finiteNonNegative(startAtRoomTimeMs) ||
+      (minimumLeadAfterPrimeMs !== undefined && !finitePositive(minimumLeadAfterPrimeMs))
+    ) {
       return this.#immediateReplacement(
         this.#controlFailed(new TypeError(`V1 bounded ${kind} input is invalid`)),
       );
@@ -552,7 +560,11 @@ class LegacyBoundedFileV1Bridge implements LegacyBoundedFileV1BridgeContract {
     ) {
       return this.#immediateReplacement(this.#superseded());
     }
-    const key = `${kind}:${scopeKey(media.scope)}:${positionKey(positionSeconds)}:${positionKey(startAtRoomTimeMs)}`;
+    const leadKey =
+      minimumLeadAfterPrimeMs === undefined
+        ? 'lead:none'
+        : `lead:${positionKey(minimumLeadAfterPrimeMs)}`;
+    const key = `${kind}:${scopeKey(media.scope)}:${positionKey(positionSeconds)}:${positionKey(startAtRoomTimeMs)}:${leadKey}`;
     const duplicate = this.#duplicateReplacement(kind, key);
     if (duplicate) return duplicate;
 
@@ -576,7 +588,11 @@ class LegacyBoundedFileV1Bridge implements LegacyBoundedFileV1BridgeContract {
       (this.#current && sameScope(this.#current.scope, media.scope)
         ? this.#current.durationSeconds
         : null);
-    this.#timeline.anchorRoomTimeMs = startAtRoomTimeMs;
+    // A host-only post-prime budget means the exact shared start is not known
+    // until native prime completes. Keep the canonical position frozen while
+    // preparing; `onScheduled` installs the effective anchor atomically.
+    this.#timeline.anchorRoomTimeMs =
+      minimumLeadAfterPrimeMs === undefined ? startAtRoomTimeMs : null;
     this.#timeline.fallbackRequired = false;
     let scheduledSettled = false;
     let resolveScheduled!: (outcome: LegacyBoundedV1ScheduleOutcome) => void;
@@ -588,16 +604,24 @@ class LegacyBoundedFileV1Bridge implements LegacyBoundedFileV1BridgeContract {
       };
     });
     const promise = this.#afterPending(prior, () =>
-      this.#runReplacement(token, candidate, positionSeconds, startAtRoomTimeMs, (outcome) => {
-        resolveScheduled(
-          freezeRecord({
-            status: 'scheduled' as const,
-            startAtRoomTimeMs: outcome.startAtRoomTimeMs,
-            snapshot: this.snapshot(),
-            settled: promise,
-          }),
-        );
-      }),
+      this.#runReplacement(
+        token,
+        candidate,
+        positionSeconds,
+        startAtRoomTimeMs,
+        minimumLeadAfterPrimeMs,
+        (outcome) => {
+          this.#timeline.anchorRoomTimeMs = outcome.startAtRoomTimeMs;
+          resolveScheduled(
+            freezeRecord({
+              status: 'scheduled' as const,
+              startAtRoomTimeMs: outcome.startAtRoomTimeMs,
+              snapshot: this.snapshot(),
+              settled: promise,
+            }),
+          );
+        },
+      ),
     );
     void promise.then(
       (outcome) => {
@@ -698,6 +722,7 @@ class LegacyBoundedFileV1Bridge implements LegacyBoundedFileV1BridgeContract {
     candidate: CandidateRecord,
     positionSeconds: number,
     startAtRoomTimeMs: number,
+    minimumLeadAfterPrimeMs: number | undefined,
     onScheduled: (
       outcome: Extract<LegacyBoundedFileScheduleOutcome, { readonly status: 'scheduled' }>,
     ) => void,
@@ -769,6 +794,7 @@ class LegacyBoundedFileV1Bridge implements LegacyBoundedFileV1BridgeContract {
       this.#port.schedulePlay(candidate.lease, candidate.scope, {
         positionSeconds,
         startAtRoomTimeMs,
+        ...(minimumLeadAfterPrimeMs === undefined ? {} : { minimumLeadAfterPrimeMs }),
       }),
     );
     if (waitedSchedule.status === 'cancelled') {

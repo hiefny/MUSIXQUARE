@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   createFilePlaybackCutoverTarget,
+  createFilePlaybackRejectedTransitionResult,
   createFilePlaybackScheduledTransitionResult,
   createFilePlaybackTransitionEvidence,
   createStreamingPlaybackStartEvidence,
@@ -438,6 +439,23 @@ describe('LegacyBoundedFilePort', () => {
     await h.port.clear();
   });
 
+  it('rejects a zero post-prime lead before consuming the staged candidate', async () => {
+    const h = harness();
+    const exactScope = scope();
+    const fake = h.source();
+    const lease = await prepareReady(h, exactScope, fake);
+
+    await expect(
+      h.port.schedulePlay(lease, exactScope, {
+        startAtRoomTimeMs: 1_200,
+        minimumLeadAfterPrimeMs: 0,
+        positionSeconds: 12,
+      }),
+    ).resolves.toMatchObject({ status: 'failed', error: expect.any(TypeError) });
+    expect(fake.source.primeForCutover).not.toHaveBeenCalled();
+    await h.port.clear();
+  });
+
   it('keeps commitPlay pending until exact native start evidence settles', async () => {
     const h = harness();
     const exactScope = scope();
@@ -646,6 +664,39 @@ describe('LegacyBoundedFilePort', () => {
     await h.port.clear();
   });
 
+  it('rebases a host start after slow prime while preserving the exact primed position', async () => {
+    const h = harness();
+    const exactScope = scope();
+    const fake = h.source();
+    fake.gatePrime();
+    const lease = await prepareReady(h, exactScope, fake);
+
+    const scheduling = h.port.schedulePlay(lease, exactScope, {
+      startAtRoomTimeMs: 1_200,
+      minimumLeadAfterPrimeMs: 400,
+      positionSeconds: 12,
+    });
+    await vi.waitFor(() => expect(fake.source.primeForCutover).toHaveBeenCalledOnce());
+    h.setRoomTime(1_300);
+    fake.releasePrime();
+
+    const scheduled = await scheduling;
+    expect(scheduled).toMatchObject({
+      status: 'scheduled',
+      startAtRoomTimeMs: 1_700,
+      snapshot: { positionSeconds: 12 },
+    });
+    expect(fake.source.armForCutover).toHaveBeenCalledWith(
+      expect.objectContaining({ positionSeconds: 12, startAtRoomTimeMs: 1_700 }),
+    );
+    expect(fake.source.finalize).toHaveBeenCalledWith(
+      expect.objectContaining({ startAtRoomTimeMs: 1_700 }),
+    );
+    if (scheduled.status !== 'scheduled') throw new Error('play was not scheduled');
+    await expect(scheduled.settled).resolves.toMatchObject({ status: 'applied' });
+    await h.port.clear();
+  });
+
   it('makes forged leases and exact-scope mismatches inert', async () => {
     const h = harness();
     const exactScope = scope();
@@ -801,6 +852,91 @@ describe('LegacyBoundedFilePort', () => {
       to: { revision: 3 },
     });
 
+    await h.port.clear();
+  });
+
+  it('retries only a non-mutating expired pause target once with a fresh lead', async () => {
+    const h = harness();
+    const exactScope = scope();
+    const fake = h.source();
+    const lease = await startCurrent(h, exactScope, fake);
+    vi.mocked(fake.source.pauseRevisioned).mockImplementationOnce(async (intent) =>
+      createFilePlaybackRejectedTransitionResult(
+        intent,
+        'target-not-in-future',
+        fake.source.getSnapshot(),
+      ),
+    );
+
+    await expect(h.port.pause(lease, exactScope, { atRoomTimeMs: 1_050 })).resolves.toMatchObject({
+      status: 'applied',
+      snapshot: { phase: 'paused', run: { revision: 2 } },
+    });
+    expect(fake.source.pauseRevisioned).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fake.source.pauseRevisioned).mock.calls[0]?.[0]).toMatchObject({
+      to: { revision: 2 },
+      atRoomTimeMs: 1_050,
+    });
+    expect(vi.mocked(fake.source.pauseRevisioned).mock.calls[1]?.[0]).toMatchObject({
+      to: { revision: 2 },
+      atRoomTimeMs: 1_100,
+    });
+    await h.port.clear();
+  });
+
+  it('retries only a non-mutating expired seek target once with the same revision and position', async () => {
+    const h = harness();
+    const exactScope = scope();
+    const fake = h.source();
+    const lease = await startCurrent(h, exactScope, fake);
+    vi.mocked(fake.source.seekRevisioned).mockImplementationOnce(async (intent) =>
+      createFilePlaybackRejectedTransitionResult(
+        intent,
+        'target-not-in-future',
+        fake.source.getSnapshot(),
+      ),
+    );
+
+    await expect(
+      h.port.seek(lease, exactScope, {
+        atRoomTimeMs: 1_050,
+        positionSeconds: 42,
+      }),
+    ).resolves.toMatchObject({
+      status: 'applied',
+      snapshot: { phase: 'paused', positionSeconds: 42, run: { revision: 2 } },
+    });
+    expect(fake.source.seekRevisioned).toHaveBeenCalledTimes(2);
+    for (const [intent] of vi.mocked(fake.source.seekRevisioned).mock.calls) {
+      expect(intent).toMatchObject({
+        to: { revision: 2 },
+        positionSeconds: 42,
+      });
+    }
+    expect(vi.mocked(fake.source.seekRevisioned).mock.calls[0]?.[0]).toMatchObject({
+      atRoomTimeMs: 1_050,
+    });
+    expect(vi.mocked(fake.source.seekRevisioned).mock.calls[1]?.[0]).toMatchObject({
+      atRoomTimeMs: 1_100,
+    });
+    await h.port.clear();
+  });
+
+  it('does not retry a pause rejection unrelated to an expired target', async () => {
+    const h = harness();
+    const exactScope = scope();
+    const fake = h.source();
+    const lease = await startCurrent(h, exactScope, fake);
+    vi.mocked(fake.source.pauseRevisioned).mockImplementationOnce(async (intent) =>
+      createFilePlaybackRejectedTransitionResult(intent, 'wrong-phase', fake.source.getSnapshot()),
+    );
+
+    await expect(h.port.pause(lease, exactScope, { atRoomTimeMs: 1_050 })).resolves.toEqual({
+      status: 'rejected',
+      reason: 'wrong-phase',
+    });
+    expect(fake.source.pauseRevisioned).toHaveBeenCalledOnce();
+    expect(h.port.snapshot(lease, exactScope)).toMatchObject({ phase: 'playing', revision: 1 });
     await h.port.clear();
   });
 

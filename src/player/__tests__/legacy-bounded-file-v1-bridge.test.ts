@@ -264,6 +264,74 @@ describe('LegacyBoundedFileV1Bridge', () => {
     });
   });
 
+  it('projects and returns the effective start chosen after host priming', async () => {
+    const h = harness();
+    const prepared = ready();
+    if (prepared.status !== 'ready') throw new Error('fake ready source is invalid');
+    const nativeSchedule =
+      deferred<Awaited<ReturnType<LegacyBoundedFilePortContract['schedulePlay']>>>();
+    vi.mocked(h.fake.port.schedulePlay).mockImplementationOnce(() => nativeSchedule.promise);
+
+    const scheduling = h.bridge.schedulePlay({
+      scope: scope(),
+      positionSeconds: 10,
+      startAtRoomTimeMs: 2_000,
+      minimumLeadAfterPrimeMs: 400,
+      open: async () => null,
+    });
+    await vi.waitFor(() => expect(h.fake.port.schedulePlay).toHaveBeenCalledOnce());
+    h.setRoomTimeMs(3_000);
+    expect(h.bridge.snapshot()).toMatchObject({
+      phase: 'playing',
+      positionSeconds: 10,
+      anchorRoomTimeMs: null,
+      pending: { kind: 'play' },
+    });
+    nativeSchedule.resolve({
+      status: 'scheduled',
+      startAtRoomTimeMs: 3_400,
+      snapshot: prepared.snapshot,
+      settled: Promise.resolve(applied()),
+    });
+    const scheduled = await scheduling;
+
+    expect(h.fake.port.schedulePlay).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        startAtRoomTimeMs: 2_000,
+        minimumLeadAfterPrimeMs: 400,
+      }),
+    );
+    expect(scheduled).toMatchObject({ status: 'scheduled', startAtRoomTimeMs: 3_400 });
+    expect(h.bridge.snapshot()).toMatchObject({
+      phase: 'playing',
+      positionSeconds: 10,
+      anchorRoomTimeMs: 3_400,
+    });
+    if (scheduled.status !== 'scheduled') throw new Error('expected scheduled outcome');
+    await expect(scheduled.settled).resolves.toMatchObject({ status: 'applied' });
+  });
+
+  it('rejects an explicit zero post-prime lead instead of changing exact-start projection', async () => {
+    const h = harness();
+
+    await expect(
+      h.bridge.schedulePlay({
+        scope: scope(),
+        positionSeconds: 10,
+        startAtRoomTimeMs: 2_000,
+        minimumLeadAfterPrimeMs: 0,
+        open: async () => null,
+      }),
+    ).resolves.toMatchObject({
+      status: 'failed',
+      error: expect.any(TypeError),
+    });
+    expect(h.fake.port.schedulePlay).not.toHaveBeenCalled();
+    expect(h.bridge.snapshot()).toMatchObject({ phase: 'idle', anchorRoomTimeMs: null });
+  });
+
   it('makes a scheduled first PLAY inert when PAUSE supersedes it before start evidence', async () => {
     const h = harness();
     const started = deferred<LegacyBoundedFileControlOutcome>();

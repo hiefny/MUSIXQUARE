@@ -12,7 +12,7 @@ export const FILE_PLAYBACK_V2_CURRENT_SEMANTIC_COHORT_ID =
   'file-playback;session=v2;route=current;flac=wasm-0.2.10;linear-pcm=worker-v1;other=ordinary-blob-v1' as const;
 
 export const FILE_PLAYBACK_V2_UNIVERSAL_V1_SEMANTIC_COHORT_ID =
-  'file-playback;session=v2;route=universal-v1;flac=wasm-0.2.10;linear-pcm=worker-v1;mp3=mpg123-1.0.3;adts-aac=webcodecs-v1;m4a-aac=webcodecs-v1;semrev=s1-dp3__8Ul-H9NHF8NVAgtsWi5Afijv43WSPzD6aIOPLg' as const;
+  'file-playback;session=v2;route=universal-v1;flac=wasm-0.2.10;linear-pcm=worker-v1;mp3=mpg123-1.0.3;adts-aac=webcodecs-v1;m4a-aac=webcodecs-v1;semrev=s1-ZT9dUfuuM7o2UcTNbVK4qBWT0GbS573VfYeIni9CjKA' as const;
 
 const FILE_PLAYBACK_SEMANTIC_COHORT_MAX_LENGTH = 256;
 

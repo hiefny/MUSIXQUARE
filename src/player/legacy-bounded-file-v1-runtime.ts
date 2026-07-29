@@ -43,6 +43,11 @@ const STANDARD_STORAGE_ROOM_ID_RE = /^[1-9]\d{5}$/u;
 const MAX_FILE_NAME_LENGTH = 512;
 const MAX_MIME_LENGTH = 128;
 const MIME_RE = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u;
+/**
+ * The shared rendezvous lead starts after the host has primed its one-shot
+ * candidate. This keeps slow decode/CPU work outside the wire-delivery window.
+ */
+export const LEGACY_BOUNDED_V1_HOST_POST_PRIME_LEAD_MS = 400;
 const NATURAL_END_MIN_DURATION_SECONDS = 0.1;
 const NATURAL_END_EPSILON_SECONDS = 0.05;
 const ORPHAN_PUBLISHER_CLEANUP_RETRY_BASE_MS = 1_000;
@@ -1671,6 +1676,7 @@ class LegacyBoundedFileV1Runtime<
               >[0]['open'],
               positionSeconds: control.positionSeconds,
               startAtRoomTimeMs: control.startAtRoomTimeMs,
+              minimumLeadAfterPrimeMs: LEGACY_BOUNDED_V1_HOST_POST_PRIME_LEAD_MS,
             })
           : await host.bridge.scheduleSeekPlaying({
               scope: current.scope,
@@ -1679,6 +1685,7 @@ class LegacyBoundedFileV1Runtime<
               >[0]['open'],
               positionSeconds: control.positionSeconds,
               startAtRoomTimeMs: control.startAtRoomTimeMs,
+              minimumLeadAfterPrimeMs: LEGACY_BOUNDED_V1_HOST_POST_PRIME_LEAD_MS,
             });
     } catch (error) {
       if (this.#isCurrentHost(host, current)) current.state = 'failed';

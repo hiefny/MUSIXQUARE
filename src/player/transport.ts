@@ -71,15 +71,14 @@ import type {
   V2HostUiControlSettlementStatus,
 } from '../types/index.ts';
 import { legacyBoundedFileV1Product } from './legacy-bounded-file-v1-product.ts';
-import type {
-  LegacyBoundedFileV1CanonicalControl,
-  LegacyBoundedFileV1CurrentSnapshot,
+import {
+  LEGACY_BOUNDED_V1_HOST_POST_PRIME_LEAD_MS,
+  type LegacyBoundedFileV1CanonicalControl,
+  type LegacyBoundedFileV1CurrentSnapshot,
 } from './legacy-bounded-file-v1-runtime.ts';
 
 /** Lead time for a host command to reach guests before the shared start. */
 const SCHEDULE_AHEAD_MS = 200;
-/** Bounded host includes local scheduling and wire-delivery budget. */
-const LEGACY_BOUNDED_V1_HOST_START_LEAD_MS = 400;
 /** Guests preserve the shared deadline unless it is genuinely too late to arm. */
 const LEGACY_BOUNDED_V1_GUEST_REARM_LEAD_MS = 75;
 const FILE_PLAYBACK_ENGINE_V2_ENABLED = isFilePlaybackEngineV2Enabled();
@@ -271,7 +270,7 @@ function enqueueLegacyBoundedV1HostRendezvous(
     const requestedStart = Number(request.requestedStartAtRoomTimeMs);
     const startAt = Math.max(
       Number.isFinite(requestedStart) ? requestedStart : 0,
-      getHostNow() + LEGACY_BOUNDED_V1_HOST_START_LEAD_MS,
+      getHostNow() + LEGACY_BOUNDED_V1_HOST_POST_PRIME_LEAD_MS,
     );
     const control: Readonly<LegacyBoundedFileV1CanonicalControl> = Object.freeze({
       kind: admitted.phase === 'playing' ? 'seek-playing' : 'play',
@@ -460,7 +459,7 @@ function requestLegacyBoundedV1GuestPlay(
   // late or disconnecting.
   const startAt = hasSharedStart
     ? Math.max(requestedStart, now + LEGACY_BOUNDED_V1_GUEST_REARM_LEAD_MS)
-    : now + LEGACY_BOUNDED_V1_HOST_START_LEAD_MS;
+    : now + LEGACY_BOUNDED_V1_HOST_POST_PRIME_LEAD_MS;
   const catchUpSeconds = hasSharedStart ? Math.max(0, startAt - requestedStart) / 1000 : 0;
   const position = clampLegacyBoundedV1Position(positionSeconds + catchUpSeconds, context.current);
   void applyLegacyBoundedV1Control(

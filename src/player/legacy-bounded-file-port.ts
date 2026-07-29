@@ -36,6 +36,7 @@ import type {
 // audio render cursor. A tiny local lead keeps "pause now" perceptually
 // immediate while avoiding the former 200ms room-wide control delay.
 const IMMEDIATE_CONTROL_LEAD_MS = 25;
+const IMMEDIATE_CONTROL_RETRY_LEAD_MS = 100;
 
 type RecordPhase =
   | 'opening'
@@ -63,6 +64,7 @@ interface LeaseRecord {
   readyPromise: Promise<LegacyBoundedFilePrepareOutcome>;
   commitStartAtRoomTimeMs: number | null;
   commitPositionSeconds: number | null;
+  commitMinimumLeadAfterPrimeMs: number | null;
   schedulePromise: Promise<LegacyBoundedFileScheduleOutcome> | null;
   commitPromise: Promise<LegacyBoundedFileControlOutcome> | null;
   transitionPromise: Promise<LegacyBoundedFileControlOutcome> | null;
@@ -455,6 +457,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
       readyPromise: ready.promise,
       commitStartAtRoomTimeMs: null,
       commitPositionSeconds: null,
+      commitMinimumLeadAfterPrimeMs: null,
       schedulePromise: null,
       commitPromise: null,
       transitionPromise: null,
@@ -497,13 +500,21 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
     const record = this.#lookup(lease, scope);
     const startAtRoomTimeMs = input?.startAtRoomTimeMs;
     const positionSeconds = input?.positionSeconds;
+    const requestedMinimumLeadAfterPrimeMs = input?.minimumLeadAfterPrimeMs;
+    const minimumLeadAfterPrimeMs = requestedMinimumLeadAfterPrimeMs ?? 0;
     if (!record || this.#candidate !== record || !record.port) {
       return freezeRecord({
         schedule: Promise.resolve(scheduleSuperseded()),
         commit: Promise.resolve(superseded()),
       });
     }
-    if (!finiteNonNegative(startAtRoomTimeMs) || !finiteNonNegative(positionSeconds)) {
+    if (
+      !finiteNonNegative(startAtRoomTimeMs) ||
+      !finiteNonNegative(positionSeconds) ||
+      (requestedMinimumLeadAfterPrimeMs !== undefined &&
+        (!finiteNonNegative(requestedMinimumLeadAfterPrimeMs) ||
+          requestedMinimumLeadAfterPrimeMs === 0))
+    ) {
       const error = new TypeError('Bounded start input is invalid');
       return freezeRecord({
         schedule: Promise.resolve(scheduleFailed(error)),
@@ -515,7 +526,8 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
         record.schedulePromise &&
         record.commitPromise &&
         record.commitStartAtRoomTimeMs === startAtRoomTimeMs &&
-        record.commitPositionSeconds === positionSeconds
+        record.commitPositionSeconds === positionSeconds &&
+        record.commitMinimumLeadAfterPrimeMs === minimumLeadAfterPrimeMs
       ) {
         return freezeRecord({
           schedule: record.schedulePromise,
@@ -537,11 +549,13 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
     const commit = deferred<LegacyBoundedFileControlOutcome>();
     record.commitStartAtRoomTimeMs = startAtRoomTimeMs;
     record.commitPositionSeconds = positionSeconds;
+    record.commitMinimumLeadAfterPrimeMs = minimumLeadAfterPrimeMs;
     record.phase = 'committing';
     const scheduleTask = this.#scheduleRecord(
       record,
       startAtRoomTimeMs,
       positionSeconds,
+      minimumLeadAfterPrimeMs,
       commit.promise,
       commit.resolve,
     );
@@ -563,6 +577,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
       record.commitPromise = null;
       record.commitStartAtRoomTimeMs = null;
       record.commitPositionSeconds = null;
+      record.commitMinimumLeadAfterPrimeMs = null;
       if (record.live && this.#candidate === record && record.phase === 'committing') {
         record.phase = 'staged';
       }
@@ -780,6 +795,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
     record: LeaseRecord,
     startAtRoomTimeMs: number,
     positionSeconds: number,
+    minimumLeadAfterPrimeMs: number,
     settled: Promise<LegacyBoundedFileControlOutcome>,
     settle: (outcome: LegacyBoundedFileControlOutcome) => void,
   ): Promise<LegacyBoundedFileScheduleOutcome> {
@@ -787,7 +803,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
     if (!port) return scheduleSuperseded();
     try {
       const now = this.#readRoomTime();
-      if (startAtRoomTimeMs <= now) {
+      if (minimumLeadAfterPrimeMs === 0 && startAtRoomTimeMs <= now) {
         record.phase = 'staged';
         return scheduleFailed(new RangeError('Bounded start time is not in the future'));
       }
@@ -802,7 +818,11 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
         return scheduleSuperseded();
       }
       const postPrimeRoomTimeMs = this.#readRoomTime();
-      if (startAtRoomTimeMs <= postPrimeRoomTimeMs) {
+      const effectiveStartAtRoomTimeMs = Math.max(
+        startAtRoomTimeMs,
+        postPrimeRoomTimeMs + minimumLeadAfterPrimeMs,
+      );
+      if (effectiveStartAtRoomTimeMs <= postPrimeRoomTimeMs) {
         // Manager prime is one-shot and fixes this candidate to one exact
         // position. Conservatively retire on a missed start rather than
         // expose a hidden same-position-only retry rule.
@@ -811,7 +831,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
         return scheduleFailed(new RangeError('Bounded start expired while priming'));
       }
       const finalizeByRoomTimeMs =
-        postPrimeRoomTimeMs + (startAtRoomTimeMs - postPrimeRoomTimeMs) / 2;
+        postPrimeRoomTimeMs + (effectiveStartAtRoomTimeMs - postPrimeRoomTimeMs) / 2;
       const arm = freezeRecord({
         protocolVersion: 2 as const,
         kind: 'rendezvous-arm' as const,
@@ -822,7 +842,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
         recipientId: LOCAL_PARTICIPANT_ID,
         positionSeconds,
         playbackRate: 1,
-        startAtRoomTimeMs,
+        startAtRoomTimeMs: effectiveStartAtRoomTimeMs,
         finalizeByRoomTimeMs,
       });
       const armed = await this.#manager.armCutoverCandidate(port, arm);
@@ -836,7 +856,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
         return scheduleFailed(new Error('Bounded source rejected arm'));
       }
       const finalizedAtRoomTimeMs = this.#readRoomTime();
-      if (finalizedAtRoomTimeMs > startAtRoomTimeMs) {
+      if (finalizedAtRoomTimeMs > effectiveStartAtRoomTimeMs) {
         this.#invalidate(record, 'Legacy bounded finalization missed start');
         await this.#joinRetirement(record);
         return scheduleFailed(new Error('Bounded finalization missed its start boundary'));
@@ -851,7 +871,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
           revision,
           rendezvousId,
           recipientId: LOCAL_PARTICIPANT_ID,
-          startAtRoomTimeMs,
+          startAtRoomTimeMs: effectiveStartAtRoomTimeMs,
           finalizedAtRoomTimeMs,
         }),
       );
@@ -861,7 +881,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
       }
       record.phase = 'scheduled';
       void this.#settleScheduledRecord(record, runId, revision, finalization.started).then(settle);
-      return scheduled(startAtRoomTimeMs, primedSnapshot, settled);
+      return scheduled(effectiveStartAtRoomTimeMs, primedSnapshot, settled);
     } catch (error) {
       const wasLive = record.live && this.#candidate === record;
       let failure = error;
@@ -969,11 +989,7 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
     }
     const to = freezeRecord({ ...from, revision: from.revision + 1 });
     try {
-      const effectiveAtRoomTimeMs = Math.max(
-        atRoomTimeMs,
-        this.#readRoomTime() + IMMEDIATE_CONTROL_LEAD_MS,
-      );
-      const result = await (async () => {
+      const runAt = (effectiveAtRoomTimeMs: number) => {
         if (kind === 'pause') {
           const intent: FilePlaybackPauseTransitionIntent = freezeRecord({
             kind: 'file-playback-pause-transition' as const,
@@ -991,7 +1007,23 @@ class LegacyBoundedFilePort implements LegacyBoundedFilePortContract {
           atRoomTimeMs: effectiveAtRoomTimeMs,
         });
         return this.#manager.seekCurrentCutover(port, intent);
-      })();
+      };
+      const effectiveAtRoomTimeMs = Math.max(
+        atRoomTimeMs,
+        this.#readRoomTime() + IMMEDIATE_CONTROL_LEAD_MS,
+      );
+      let result = await runAt(effectiveAtRoomTimeMs);
+      if (
+        result.status === 'rejected' &&
+        result.reason === 'target-not-in-future' &&
+        record.live &&
+        this.#current === record
+      ) {
+        // A browser/runner may pre-empt the main thread between choosing the
+        // near-immediate target and handing it to Web Audio. The rejection is
+        // non-mutating, so retry this exact revision once with a fresh target.
+        result = await runAt(this.#readRoomTime() + IMMEDIATE_CONTROL_RETRY_LEAD_MS);
+      }
       if (!record.live || this.#current !== record) return superseded();
       if (result.status === 'rejected') return rejected(result.reason);
       await result.applied;

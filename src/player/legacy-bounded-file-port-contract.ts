@@ -78,9 +78,17 @@ export interface LegacyBoundedFilePreparation {
 export interface LegacyBoundedFilePlayInput {
   readonly startAtRoomTimeMs: number;
   /**
+   * Positive host-only preparation budget. When present, the port may move the
+   * local start forward after its one-shot prime so slow decoding cannot
+   * consume the shared rendezvous window. Guests omit this and preserve the
+   * host deadline.
+   */
+  readonly minimumLeadAfterPrimeMs?: number;
+  /**
    * Fresh V1 canonical position sampled for this exact start attempt.
-   * A candidate whose one-shot prime outlives its start is retired; callers
-   * prepare a fresh candidate instead of retrying with a different position.
+   * A guest candidate whose one-shot prime outlives its exact shared start is
+   * retired; the host can instead supply `minimumLeadAfterPrimeMs` and publish
+   * the effective start returned by `schedulePlay`.
    */
   readonly positionSeconds: number;
 }

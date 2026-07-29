@@ -168,16 +168,16 @@ membership.
 ```ts
 interface DeliveryScope {
   roomEpoch: string;
-  actorGeneration: string;
+  bridgeGeneration: string;
   bindingId: string;
-  descriptorId: string;
-  descriptorVersion: number;
+  queueItemId: QueueItemId;
+  sourceIdentity: string;
 }
 
 interface EncodedDeliveryProvider {
   open(input: {
     scope: DeliveryScope;
-    descriptor: EncodedDeliveryDescriptor;
+    descriptor: EncodedDeliveryDescriptorRef;
     signal: AbortSignal;
   }): Promise<EncodedAudioSource>;
   retire(scope: DeliveryScope): Promise<void>;
@@ -186,9 +186,24 @@ interface EncodedDeliveryProvider {
 
 `open` transfers ownership of exactly one source to the caller. The source is
 closed exactly once by either the renderer agent that accepted it or the
-aborted opener that never published it. `retire` is joinable: completion means
-all provider work for the exact scope is inert. It never revokes another
-binding or actor generation.
+aborted opener that never published it. Logical retirement makes the exact
+scope inert immediately; a source constructor that ignores cancellation is
+cleaned up when it eventually settles. Retirement of one scope never revokes
+another binding or bridge generation.
+
+The public scope binds the same immutable asset tuple used by the stable
+playlist path: queue occurrence, source identity, and transfer-session binding.
+Registration rejects publication metadata that disagrees with any element of
+that tuple. Descriptor IDs are tombstoned inside their full scope rather than
+globally, and a registry admits at most 1,024 live-plus-retired exact
+descriptors before failing closed. `dispose()` is the only operation that
+releases those tombstones for the retired bridge lifetime.
+
+For the current encrypted R2 record layout, a one-byte logical preflight still
+downloads and authenticates the first complete record (up to 8 MiB). The V1
+bridge must not repeat that cost on every pause/resume. It should either retain
+the already-owned source while safe, introduce a bounded shared record cache,
+or treat decoder preparation itself as readiness evidence.
 
 ### Legacy bounded playback port
 
@@ -198,36 +213,51 @@ late-join bootstrap, and recovery behavior while replacing whole-file
 
 ```ts
 interface LegacyBoundedPortLease {
-  roomEpoch: string;
-  actorGeneration: string;
-  bindingId: string;
-  portGeneration: string;
+  // Intentionally fieldless. Runtime authority lives in a WeakMap owned by
+  // the exact LegacyBoundedFilePort instance.
 }
 
 interface LegacyBoundedFilePort {
   prepare(input: {
+    scope: LegacyBoundedFileScope;
+    open(signal: AbortSignal): Promise<{
+      source: FilePlaybackCutoverSource;
+      destination: AudioNode;
+    } | null>;
+  }): {
     lease: LegacyBoundedPortLease;
-    source: EncodedAudioSource;
-    positionSeconds: number;
-  }): Promise<void>;
-  play(input: {
+    ready: Promise<LegacyBoundedFilePrepareOutcome>;
+  };
+  commitPlay(input: {
     lease: LegacyBoundedPortLease;
+    scope: LegacyBoundedFileScope;
     positionSeconds: number;
-    startAtRoomTimeMs?: number;
-  }): Promise<boolean>;
-  pause(input: { lease: LegacyBoundedPortLease; positionSeconds: number }): Promise<boolean>;
-  stop(lease: LegacyBoundedPortLease): Promise<void>;
-  position(lease: LegacyBoundedPortLease): FilePlaybackPosition | null;
-  retire(lease: LegacyBoundedPortLease): Promise<void>;
+    startAtRoomTimeMs: number;
+  }): Promise<LegacyBoundedFileControlOutcome>;
+  pause(/* exact lease, scope, and V1 room time */): Promise<LegacyBoundedFileControlOutcome>;
+  seek(/* exact lease, scope, position, and V1 room time */): Promise<LegacyBoundedFileControlOutcome>;
+  stop(/* exact lease, scope, and V1 room time */): Promise<LegacyBoundedFileControlOutcome>;
+  retire(/* exact lease and scope */): Promise<void>;
 }
 ```
 
-Every mutation is scoped to one immutable port capability. A late operation
-from a replaced media binding or renderer generation is rejected before it can
-touch the current port.
+`prepare` only opens and silently stages a bounded renderer. It deliberately
+does not prime a position. `commitPlay` receives a fresh V1 canonical position
+for that exact attempt, primes the staged renderer, and only then creates its
+rendezvous schedule. Slow preparation therefore cannot revive an old seek or
+late-join position.
+
+Every mutation is scoped to one immutable, fieldless port capability plus the
+full frozen scope. A late operation from a replaced media binding or bridge
+generation is rejected before it can touch the current port. Logical
+retirement cannot be held hostage by an opener that ignores `AbortSignal`; a
+source that appears after retirement is destroyed without regaining authority.
 
 If no bounded port exists, the unchanged V1 `AudioBuffer` path remains the
-compatibility fallback.
+compatibility fallback. Fallback is allowed only before a bounded renderer
+obtains audible ownership. Resume or playing-seek may prepare a fresh bounded
+candidate and atomically replace the previous renderer rather than mutating an
+already audible decoder in place.
 
 ## Canonical replica state
 
@@ -488,8 +518,25 @@ The checkpoint currently proves:
 - a normalized failure table where delivery, decoder, renderer, state-race,
   media-integrity, and stale-effect failures have no transport-close outcome.
 
-The next product change is Phase 2: extract the PRO-style bounded renderer
-adapter into a V1-controlled `LegacyBoundedFilePort`, initially for one R2
-delivery path. Its capability/scoping contract is specified above; product
-wiring is deliberately not part of this checkpoint. No current V2 router or
-owner is used by that slice.
+The Phase 2 foundation now exists behind a beta-only build gate:
+
+- ordinary production, normal E2E, and universal artifacts fail closed;
+- one separately emitted `beta-bounded` artifact proves the new gate is true
+  while both former V2/universal gates remain false;
+- an R2-record descriptor registry keeps keys, nonce material, and object
+  records module-private and exposes only a frozen body-free reference;
+- its delivery provider supports exact-scope abort, retirement, sequential
+  fresh-source reopening, and bounded source preflight;
+- `LegacyBoundedFilePort` owns one dedicated `FilePlaybackManager`, issues
+  opaque process-local leases, stages silently, primes only from the fresh
+  commit-time V1 position, and fences every native transition; and
+- playback/source/renderer failure has no room transport callback.
+
+The next product change is the narrow V1 bridge: publish the additive R2
+descriptor, select the bounded path before audible ownership, and branch only
+the legacy play/pause/seek/stop/position boundaries. Product wiring remains
+deliberately absent from this checkpoint, so neither the old V2 router nor the
+new actor has runtime authority yet. The first bridge slice is limited to
+standard rooms because their R2 descriptor identity is already generation-
+scoped. PRO rooms remain on the stable V1 path until a separate PRO range-source
+adapter can preserve the same generation and credential fences.

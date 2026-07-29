@@ -45,6 +45,8 @@ const MAX_MIME_LENGTH = 128;
 const MIME_RE = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u;
 const NATURAL_END_MIN_DURATION_SECONDS = 0.1;
 const NATURAL_END_EPSILON_SECONDS = 0.05;
+const ORPHAN_PUBLISHER_CLEANUP_RETRY_BASE_MS = 1_000;
+const ORPHAN_PUBLISHER_CLEANUP_RETRY_MAX_MS = 60_000;
 
 type TimerHandle = ReturnType<typeof globalThis.setTimeout>;
 type RoomKind = 'standard' | 'pro';
@@ -169,6 +171,7 @@ interface RecordPublisherContract {
       readonly applicationSessionId: string;
     },
   ): Promise<Readonly<FilePlaybackR2RecordPublication>>;
+  cancelPendingRecordSet(queueItemId: QueueItemId): Promise<boolean>;
   removeQueueItem(queueItemId: QueueItemId): Promise<boolean>;
   close(): Promise<void>;
 }
@@ -317,6 +320,12 @@ export type LegacyBoundedFileV1NaturalEndOutcome =
   | Readonly<{ readonly status: 'not-ended' | 'superseded' | 'bypass' }>
   | Readonly<{ readonly status: 'failed'; readonly error: unknown }>;
 
+export type LegacyBoundedFileV1QueueItemRemovalOutcome =
+  | 'removed'
+  | 'deferred'
+  | 'bypass'
+  | 'failed';
+
 export interface LegacyBoundedFileV1RuntimeContract<Connection extends object> {
   beginHostRoom(
     input: Readonly<LegacyBoundedFileV1HostRoomInput>,
@@ -364,6 +373,8 @@ export interface LegacyBoundedFileV1RuntimeContract<Connection extends object> {
     legacySessionId: number,
     positionSeconds: number,
   ): Promise<LegacyBoundedFileV1ControlOutcome> | null;
+  removeQueueItem(queueItemId: QueueItemId): Promise<LegacyBoundedFileV1QueueItemRemovalOutcome>;
+  flushDeferredQueueItemRemovals(): Promise<number>;
   retireCurrent(queueItemId: QueueItemId, legacySessionId: number): Promise<boolean>;
   settleHostNaturalEnd(
     queueItemId: QueueItemId,
@@ -390,6 +401,7 @@ interface HostRoom<Connection extends object> {
   readonly bridge: LegacyBoundedFileV1BridgeContract;
   readonly connections: Map<Connection, HostConnection>;
   readonly retiredConnections: WeakSet<Connection>;
+  readonly deferredQueueItemRemovals: Set<QueueItemId>;
   current: HostCurrent<Connection> | null;
 }
 
@@ -416,6 +428,13 @@ interface HostCurrent<Connection extends object> {
   >;
   readonly settlementWaiters: Map<Connection, Set<HostOfferSettlementWaiter>>;
   readonly legacyFallbackAcks: Map<Connection, Promise<void>>;
+  readonly legacyFallbackStates: Map<
+    Connection,
+    | Readonly<{ status: 'pending' }>
+    | Readonly<{ status: 'committed' }>
+    | Readonly<{ status: 'failed'; error: unknown }>
+  >;
+  cleanupBarrierArmed: boolean;
   naturalEndSettlement: Promise<LegacyBoundedFileV1NaturalEndOutcome> | null;
   retirement: Promise<boolean> | null;
   state: 'preparing' | 'ready' | 'retiring' | 'fallback' | 'failed';
@@ -708,6 +727,10 @@ class LegacyBoundedFileV1Runtime<
   #guest: GuestRoom<Connection> | null = null;
   #cleanup: Promise<void> | null = null;
   #lifecycleTail: Promise<void> = Promise.resolve();
+  readonly #orphanPublisherCleanups = new Set<RecordPublisherContract>();
+  #orphanPublisherCleanupTimer: TimerHandle | null = null;
+  #orphanPublisherCleanupAttempt = 0;
+  #orphanPublisherCleanupInFlight: Promise<void> | null = null;
 
   constructor(options: LegacyBoundedFileV1RuntimeOptions<Connection>) {
     if (
@@ -735,6 +758,7 @@ class LegacyBoundedFileV1Runtime<
     input: Readonly<LegacyBoundedFileV1HostRoomInput>,
   ): Promise<LegacyBoundedFileV1RoomBeginOutcome> {
     await this.#endRoomNow();
+    void this.#retryOrphanPublisherCleanups();
     this.#generation += 1;
     this.#roomKind = input?.kind ?? null;
     if (!this.#enabled || input?.kind === 'pro') {
@@ -771,6 +795,7 @@ class LegacyBoundedFileV1Runtime<
         bridge,
         connections,
         retiredConnections: new WeakSet(),
+        deferredQueueItemRemovals: new Set(),
         current: null,
       };
       this.#host = room;
@@ -778,10 +803,16 @@ class LegacyBoundedFileV1Runtime<
       this.#role = 'host';
       return freezeRecord({ status: 'active', role: 'host' });
     } catch (error) {
-      await Promise.allSettled([
+      const cleanupResults = await Promise.allSettled([
         ...(port ? [port.clear()] : []),
         ...(publisher ? [publisher.close()] : []),
       ]);
+      if (publisher && cleanupResults.at(-1)?.status === 'rejected') {
+        this.#retainOrphanPublisherCleanup(
+          publisher,
+          (cleanupResults.at(-1) as PromiseRejectedResult).reason,
+        );
+      }
       this.#role = 'idle';
       this.#roomKind = null;
       this.#reportFailure('room-begin', error);
@@ -799,6 +830,7 @@ class LegacyBoundedFileV1Runtime<
     input: Readonly<LegacyBoundedFileV1GuestRoomInput<Connection>>,
   ): Promise<LegacyBoundedFileV1RoomBeginOutcome> {
     await this.#endRoomNow();
+    void this.#retryOrphanPublisherCleanups();
     this.#generation += 1;
     this.#roomKind = input?.kind ?? null;
     if (!this.#enabled || input?.kind === 'pro') {
@@ -861,6 +893,7 @@ class LegacyBoundedFileV1Runtime<
     if (!host && !guest) {
       this.#role = 'idle';
       this.#roomKind = null;
+      void this.#retryOrphanPublisherCleanups();
       return Promise.resolve();
     }
     this.#generation += 1;
@@ -879,7 +912,12 @@ class LegacyBoundedFileV1Runtime<
           }
           tasks.push(host.bridge.retire(host.current.scope));
         }
-        tasks.push(host.port.clear(), host.publisher.close());
+        tasks.push(
+          host.port.clear(),
+          host.publisher.close().catch((error) => {
+            this.#retainOrphanPublisherCleanup(host.publisher, error);
+          }),
+        );
       }
       if (guest) {
         if (guest.current) this.#enqueueGuestRetirement(guest, guest.current);
@@ -901,6 +939,77 @@ class LegacyBoundedFileV1Runtime<
     return cleanup;
   }
 
+  #retainOrphanPublisherCleanup(
+    publisher: RecordPublisherContract,
+    error: unknown,
+  ): void {
+    this.#orphanPublisherCleanups.add(publisher);
+    this.#reportFailure('cleanup', error);
+    this.#scheduleOrphanPublisherCleanup();
+  }
+
+  #scheduleOrphanPublisherCleanup(): void {
+    if (
+      this.#orphanPublisherCleanups.size === 0 ||
+      this.#orphanPublisherCleanupTimer !== null ||
+      this.#orphanPublisherCleanupInFlight
+    ) {
+      return;
+    }
+    const delayMs = Math.min(
+      ORPHAN_PUBLISHER_CLEANUP_RETRY_MAX_MS,
+      ORPHAN_PUBLISHER_CLEANUP_RETRY_BASE_MS *
+        2 ** Math.min(this.#orphanPublisherCleanupAttempt, 6),
+    );
+    this.#orphanPublisherCleanupAttempt += 1;
+    this.#orphanPublisherCleanupTimer = this.#factories.scheduleTimeout(() => {
+      this.#orphanPublisherCleanupTimer = null;
+      void this.#retryOrphanPublisherCleanups();
+    }, delayMs);
+  }
+
+  #retryOrphanPublisherCleanups(): Promise<void> {
+    if (this.#orphanPublisherCleanupInFlight) {
+      return this.#orphanPublisherCleanupInFlight;
+    }
+    if (this.#orphanPublisherCleanups.size === 0) {
+      this.#orphanPublisherCleanupAttempt = 0;
+      if (this.#orphanPublisherCleanupTimer !== null) {
+        this.#factories.cancelTimeout(this.#orphanPublisherCleanupTimer);
+        this.#orphanPublisherCleanupTimer = null;
+      }
+      return Promise.resolve();
+    }
+    if (this.#orphanPublisherCleanupTimer !== null) {
+      this.#factories.cancelTimeout(this.#orphanPublisherCleanupTimer);
+      this.#orphanPublisherCleanupTimer = null;
+    }
+
+    const publishers = [...this.#orphanPublisherCleanups];
+    const retry = Promise.allSettled(
+      publishers.map((publisher) => publisher.close()),
+    )
+      .then((results) => {
+        results.forEach((result, index) => {
+          if (result.status === 'fulfilled') {
+            this.#orphanPublisherCleanups.delete(publishers[index]);
+          }
+        });
+      })
+      .finally(() => {
+        if (this.#orphanPublisherCleanupInFlight === retry) {
+          this.#orphanPublisherCleanupInFlight = null;
+        }
+        if (this.#orphanPublisherCleanups.size === 0) {
+          this.#orphanPublisherCleanupAttempt = 0;
+        } else {
+          this.#scheduleOrphanPublisherCleanup();
+        }
+      });
+    this.#orphanPublisherCleanupInFlight = retry;
+    return retry;
+  }
+
   #enqueueLifecycle<T>(operation: () => Promise<T>): Promise<T> {
     const task = this.#lifecycleTail.then(operation, operation);
     this.#lifecycleTail = task.then(
@@ -919,8 +1028,10 @@ class LegacyBoundedFileV1Runtime<
       const retired = host.current?.ledger.retireConnection(connection) ?? false;
       if (host.current) {
         host.current.legacyFallbackAcks.delete(connection);
+        host.current.legacyFallbackStates.delete(connection);
         this.#settleHostOfferWaiters(host.current, connection, freezeRecord({ status: 'retired' }));
       }
+      this.#requestDeferredQueueItemRemovalFlush();
       return existed || retired;
     }
     const guest = this.#guest;
@@ -994,6 +1105,7 @@ class LegacyBoundedFileV1Runtime<
     if (!current) return 'stale';
     const outcome = current.ledger.recordResult(connection, frame);
     this.#settleHostOfferFromLedger(current, connection);
+    if (outcome.status === 'ready') this.#requestDeferredQueueItemRemovalFlush();
     return outcome.status;
   }
 
@@ -1076,6 +1188,8 @@ class LegacyBoundedFileV1Runtime<
         ledger: this.#createHostLedger(host),
         settlementWaiters: new Map(),
         legacyFallbackAcks: new Map(),
+        legacyFallbackStates: new Map(),
+        cleanupBarrierArmed: false,
         naturalEndSettlement: null,
         retirement: null,
         state: 'preparing',
@@ -1107,6 +1221,19 @@ class LegacyBoundedFileV1Runtime<
         this.#reportFailure('host-publication', error);
       }
     });
+    if (prior && prior.input.queueItemId !== current.input.queueItemId) {
+      // A queue occurrence owns one immutable publication across repeat
+      // visits. A different occurrence may cancel only unfinished work; the
+      // publisher deliberately preserves completed sets for active readers
+      // until explicit queue removal or room teardown.
+      // cancelPendingRecordSet performs its abort synchronously before waiting
+      // for remote cleanup. Keep that cleanup off the successor's critical
+      // prepare path; a rejection is stage-redacted and the publisher retains
+      // enough state for room-close cleanup.
+      void host.publisher
+        .cancelPendingRecordSet(prior.input.queueItemId)
+        .catch((error) => this.#reportFailure('cleanup', error));
+    }
     // Record publications are room/queue-occurrence assets, not renderer
     // assets. Retain the prior queue item for repeat-mode playback; only room
     // teardown (or an explicit future queue-removal API) may delete it.
@@ -1188,20 +1315,64 @@ class LegacyBoundedFileV1Runtime<
     } else if (connectionState.capability === 'legacy-only') {
       current.ledger.commitConnectionToLegacy(connection);
     }
-    let publication: Readonly<FilePlaybackR2RecordPublication>;
-    try {
-      publication = await current.publication;
-    } catch (error) {
-      if (!this.#isCurrentHost(host, current)) {
-        return freezeRecord({ status: 'superseded' });
+    const existingFallbackAcknowledgement = current.legacyFallbackAcks.get(connection);
+    if (existingFallbackAcknowledgement) {
+      const fallbackState = current.legacyFallbackStates.get(connection);
+      if (fallbackState?.status === 'failed') {
+        return freezeRecord({ status: 'failed', error: fallbackState.error });
       }
-      this.#fallbackOnce(host, connection, {
-        legacySessionId: current.input.legacySessionId,
-        purpose,
-        queueItemId: current.input.queueItemId,
-        reason: 'publication-failed',
-      });
-      return freezeRecord({ status: 'failed', error });
+      if (fallbackState?.status === 'pending') {
+        return freezeRecord({ status: 'pending' });
+      }
+      return freezeRecord({ status: 'legacy-committed' });
+    }
+    let publication: Readonly<FilePlaybackR2RecordPublication>;
+    const pinnedFrame = connectionState.frame;
+    if (
+      pinnedFrame &&
+      pinnedFrame.legacySessionId === current.input.legacySessionId &&
+      pinnedFrame.purpose === purpose &&
+      pinnedFrame.scope.queueItemId === current.input.queueItemId &&
+      pinnedFrame.scope.sourceIdentity === current.input.sourceIdentity &&
+      pinnedFrame.scope.bindingId === current.input.transferSessionId
+    ) {
+      // An accepted descriptor remains valid for this exact connection even
+      // when the publisher rotates future offers away from a near-expiry set.
+      // Never revoke an active reader merely to refresh a reconnect.
+      publication = pinnedFrame.publication;
+    } else {
+      try {
+        // Re-enter the publisher for every unpinned peer offer. It returns the
+        // reusable set cheaply, rotates a near-expiry set, or retries a prior
+        // failed publication. Existing connection frames stay pinned above.
+        publication = await host.publisher.publishRecordSet(
+          freezeRecord({
+            blob: current.input.blob,
+            name: current.input.name,
+            mime: current.input.mime,
+            queueItemId: current.input.queueItemId,
+            sourceIdentity: current.input.sourceIdentity,
+            transferSessionId: current.input.transferSessionId,
+          }),
+          freezeRecord({
+            storageRoomId: host.storageRoomId,
+            applicationSessionId: host.roomEpoch,
+          }),
+        );
+      } catch (error) {
+        if (!this.#isCurrentHost(host, current)) {
+          return freezeRecord({ status: 'superseded' });
+        }
+        const acknowledgement = this.#fallbackOnce(host, connection, {
+          legacySessionId: current.input.legacySessionId,
+          purpose,
+          queueItemId: current.input.queueItemId,
+          reason: 'publication-failed',
+        });
+        current.legacyFallbackAcks.set(connection, acknowledgement);
+        this.#settleHostLegacyOfferAfterAck(current, connection);
+        return freezeRecord({ status: 'failed', error });
+      }
     }
     if (!this.#isCurrentHost(host, current)) {
       return freezeRecord({ status: 'superseded' });
@@ -1304,7 +1475,10 @@ class LegacyBoundedFileV1Runtime<
       this.#reportFailure('host-publication', error);
       return freezeRecord({ status: 'failed', error });
     }
-    if (initial.status === 'legacy-committed') {
+    if (
+      initial.status === 'legacy-committed' ||
+      (initial.status === 'failed' && current.legacyFallbackAcks.has(connection))
+    ) {
       this.#settleHostLegacyOfferAfterAck(current, connection);
       return settled;
     }
@@ -1596,6 +1770,76 @@ class LegacyBoundedFileV1Runtime<
     return mapped;
   }
 
+  async removeQueueItem(
+    queueItemId: QueueItemId,
+  ): Promise<LegacyBoundedFileV1QueueItemRemovalOutcome> {
+    if (!isQueueItemId(queueItemId)) {
+      const error = new TypeError('Legacy bounded V1 queue item removal target is invalid');
+      this.#reportFailure('cleanup', error);
+      return 'failed';
+    }
+    const host = this.#host;
+    if (this.#role !== 'host' || !host) return 'bypass';
+    if (
+      host.current &&
+      (host.current.input.queueItemId === queueItemId || !host.current.cleanupBarrierArmed)
+    ) {
+      // A successor becomes host.current before its guests necessarily stop
+      // reading the predecessor. Until the application has enumerated and
+      // armed the successor peer barrier, even a non-current occurrence is
+      // protected from deletion.
+      host.deferredQueueItemRemovals.add(queueItemId);
+      return 'deferred';
+    }
+    host.deferredQueueItemRemovals.delete(queueItemId);
+    try {
+      await host.publisher.removeQueueItem(queueItemId);
+      return 'removed';
+    } catch (error) {
+      // The publisher retains authenticated cleanup authority on failure.
+      // Preserve the logical request as well so a later drain can retry it;
+      // otherwise a transient DELETE failure would orphan the record set.
+      host.deferredQueueItemRemovals.add(queueItemId);
+      this.#reportFailure('cleanup', error);
+      return 'failed';
+    }
+  }
+
+  async flushDeferredQueueItemRemovals(): Promise<number> {
+    const host = this.#host;
+    if (this.#role !== 'host' || !host) return 0;
+    // The application calls this only after it has enumerated the complete
+    // live-peer successor barrier. Until then the runtime cannot distinguish
+    // a truly guest-free room from a connected peer that has not announced
+    // capability yet.
+    if (host.current) host.current.cleanupBarrierArmed = true;
+    return this.#drainDeferredQueueItemRemovals(host);
+  }
+
+  async #drainDeferredQueueItemRemovals(host: HostRoom<Connection>): Promise<number> {
+    if (this.#host !== host || this.#role !== 'host') return 0;
+    if (!this.#hostCurrentHasReleasedPriorReaders(host)) return 0;
+    const currentQueueItemId = host.current?.input.queueItemId ?? null;
+    const removable = [...host.deferredQueueItemRemovals].filter(
+      (queueItemId) => queueItemId !== currentQueueItemId,
+    );
+    let removed = 0;
+    for (const queueItemId of removable) {
+      // Remove from the pending set before the await so concurrent flushes
+      // cannot issue duplicate physical deletes. A failed attempt is restored
+      // for an exact later retry.
+      host.deferredQueueItemRemovals.delete(queueItemId);
+      try {
+        await host.publisher.removeQueueItem(queueItemId);
+        removed += 1;
+      } catch (error) {
+        host.deferredQueueItemRemovals.add(queueItemId);
+        this.#reportFailure('cleanup', error);
+      }
+    }
+    return removed;
+  }
+
   async retireCurrent(queueItemId: QueueItemId, legacySessionId: number): Promise<boolean> {
     const host = this.#host;
     if (this.#role === 'host' && host?.current) {
@@ -1618,6 +1862,7 @@ class LegacyBoundedFileV1Runtime<
           return true;
         } finally {
           if (host.current === current) host.current = null;
+          this.#requestDeferredQueueItemRemovalFlush();
         }
       })();
       current.retirement = retirement;
@@ -2057,15 +2302,43 @@ class LegacyBoundedFileV1Runtime<
   #settleHostLegacyOfferAfterAck(current: HostCurrent<Connection>, connection: Connection): void {
     const acknowledgement = current.legacyFallbackAcks.get(connection);
     if (!acknowledgement) return;
+    const existingState = current.legacyFallbackStates.get(connection);
+    if (existingState?.status === 'pending') return;
+    if (existingState?.status === 'committed') {
+      this.#settleHostOfferWaiters(
+        current,
+        connection,
+        freezeRecord({ status: 'legacy-committed' }),
+      );
+      this.#requestDeferredQueueItemRemovalFlush();
+      return;
+    }
+    if (existingState?.status === 'failed') {
+      this.#settleHostOfferWaiters(
+        current,
+        connection,
+        freezeRecord({ status: 'failed', error: existingState.error }),
+      );
+      return;
+    }
+    current.legacyFallbackStates.set(connection, freezeRecord({ status: 'pending' }));
     void acknowledgement.then(
       () => {
+        if (!this.#isLiveHostConnectionForCurrent(current, connection)) return;
+        current.legacyFallbackStates.set(connection, freezeRecord({ status: 'committed' }));
         this.#settleHostOfferWaiters(
           current,
           connection,
           freezeRecord({ status: 'legacy-committed' }),
         );
+        this.#requestDeferredQueueItemRemovalFlush();
       },
       (error) => {
+        if (!this.#isLiveHostConnectionForCurrent(current, connection)) return;
+        current.legacyFallbackStates.set(
+          connection,
+          freezeRecord({ status: 'failed', error }),
+        );
         this.#settleHostOfferWaiters(
           current,
           connection,
@@ -2073,6 +2346,69 @@ class LegacyBoundedFileV1Runtime<
         );
       },
     );
+  }
+
+  #isLiveHostConnectionForCurrent(
+    current: HostCurrent<Connection>,
+    connection: Connection,
+  ): boolean {
+    const host = this.#host;
+    return (
+      !!host &&
+      host.current === current &&
+      current.generation === host.generation &&
+      !host.retiredConnections.has(connection) &&
+      host.connections.has(connection)
+    );
+  }
+
+  #hostCurrentHasReleasedPriorReaders(host: HostRoom<Connection>): boolean {
+    const current = host.current;
+    if (!current) return true;
+    if (!current.cleanupBarrierArmed || current.state !== 'ready') return false;
+    for (const connection of host.connections.keys()) {
+      const snapshot = current.ledger.snapshot(connection);
+      if (!snapshot) return false;
+      if (snapshot.retired) continue;
+      const delivery = snapshot.deliveries.find(
+        (candidate) =>
+          candidate.active &&
+          candidate.purpose === 'current' &&
+          candidate.legacySessionId === current.input.legacySessionId &&
+          candidate.scope.queueItemId === current.input.queueItemId,
+      );
+      if (delivery?.state === 'ready') continue;
+      if (
+        delivery?.state === 'legacy-committed' &&
+        current.legacyFallbackStates.get(connection)?.status === 'committed'
+      ) {
+        continue;
+      }
+      if (
+        !delivery &&
+        current.legacyFallbackAcks.has(connection) &&
+        current.legacyFallbackStates.get(connection)?.status === 'committed'
+      ) {
+        // Publication can fail before a descriptor enters the ledger. Its
+        // exact stable-V1 dispatcher acknowledgement is still a complete
+        // successor data-path proof for this connection.
+        continue;
+      }
+      // descriptor-sent is only a selection marker: the guest may still be
+      // reading the previous set while it prepares the successor. Preserve
+      // deferred assets until every live connection proves native readiness
+      // or an acknowledged stable-V1 fallback.
+      return false;
+    }
+    return true;
+  }
+
+  #requestDeferredQueueItemRemovalFlush(): void {
+    const host = this.#host;
+    if (!host) return;
+    void this.#drainDeferredQueueItemRemovals(host).catch((error) => {
+      this.#reportFailure('cleanup', error);
+    });
   }
 
   #settleHostOfferWaiters(

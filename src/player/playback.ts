@@ -1467,8 +1467,14 @@ export function initPlayback(): void {
           ) {
             return;
           }
-          const position = getTrackPosition();
-          if (isPlaybackPlayingFile(getPlaybackModeActivity())) {
+          // The bounded timeline changes to `playing` as soon as the exact
+          // native start has been scheduled, before start evidence projects
+          // the semantic UI activity. A peer joining inside that window must
+          // follow this canonical phase rather than the temporarily stale
+          // app-level activity, otherwise it receives a contradictory PAUSE
+          // immediately after its descriptor.
+          const position = latest.current.positionSeconds;
+          if (latest.current.phase === 'playing') {
             const hostPlayAt = getHostNow() + SCHEDULE_AHEAD_MS;
             conn.send({
               type: MSG.PLAY,
@@ -1482,9 +1488,7 @@ export function initPlayback(): void {
               type: MSG.PAUSE,
               time: position,
               queueItemId: latestQueueItemId,
-              reason: isPlaybackPausedOrPendingFile(getPlaybackModeActivity())
-                ? 'pause'
-                : 'stop',
+              reason: latest.current.phase === 'paused' ? 'pause' : 'stop',
             });
           }
           log.debug('[Playback] Bounded V1 bootstrap settled for new peer');

@@ -12,7 +12,10 @@ import {
   FilePlaybackR2RecordDeliveryProviderForTests as FilePlaybackR2RecordDeliveryProvider,
 } from '../file-playback-r2-record-delivery-provider.ts';
 import type { EncodedAudioSource } from '../sources/encoded-audio-source.ts';
-import { R2RecordEncodedAudioSource } from '../sources/r2-record-encoded-audio-source.ts';
+import {
+  R2RecordEncodedAudioSource,
+  type R2RecordEncodedAudioSourceCiphertextCache,
+} from '../sources/r2-record-encoded-audio-source.ts';
 
 const NOW = 1_900_000_000_000;
 const QUEUE_ID = '10000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -425,6 +428,44 @@ describe('FilePlaybackR2RecordDescriptorRegistry', () => {
 });
 
 describe('FilePlaybackR2RecordDeliveryProvider', () => {
+  it('shares only ciphertext for an exact live descriptor and revokes it with the scope', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(NOW);
+    const registry = new FilePlaybackR2RecordDescriptorRegistry();
+    const descriptor = register(registry);
+    const create = vi
+      .spyOn(R2RecordEncodedAudioSource, 'create')
+      .mockResolvedValueOnce(fakeSource() as unknown as R2RecordEncodedAudioSource)
+      .mockResolvedValueOnce(fakeSource() as unknown as R2RecordEncodedAudioSource);
+    const provider = createFilePlaybackR2RecordDeliveryProvider(registry);
+
+    await provider.open({
+      scope: scope(),
+      descriptor,
+      signal: new AbortController().signal,
+    });
+    await provider.open({
+      scope: scope(),
+      descriptor,
+      signal: new AbortController().signal,
+    });
+
+    const firstCache = create.mock.calls[0]?.[2] as
+      | R2RecordEncodedAudioSourceCiphertextCache
+      | undefined;
+    const secondCache = create.mock.calls[1]?.[2] as
+      | R2RecordEncodedAudioSourceCiphertextCache
+      | undefined;
+    expect(firstCache).toBeDefined();
+    expect(secondCache).toBeDefined();
+    firstCache?.put(0, new Uint8Array([1, 2, 3]).buffer);
+    expect(new Uint8Array(secondCache?.get(0, 3) ?? new ArrayBuffer(0))).toEqual(
+      new Uint8Array([1, 2, 3]),
+    );
+
+    await provider.retire(scope());
+    expect(firstCache?.get(0, 3)).toBeNull();
+  });
+
   it('constructs the product contract and clears abort-ignoring opens before registry reuse', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(NOW);
     const registry = new FilePlaybackR2RecordDescriptorRegistry();

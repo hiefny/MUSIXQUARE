@@ -96,7 +96,10 @@ interface LegacyBoundedV1ControlContext {
 }
 
 function readLegacyBoundedV1ControlContext(): LegacyBoundedV1ControlContext | null {
-  if (isYouTubeOwner() || isSystemAudioOwner()) return null;
+  // Demo PCM temporarily overlays a stopped bounded source. Keep the encoded
+  // occurrence resident for exact exit restoration, but never let ordinary
+  // demo play/pause/seek controls get captured by the hidden bounded renderer.
+  if (getState('demo.active') || isYouTubeOwner() || isSystemAudioOwner()) return null;
   const snapshot = legacyBoundedFileV1Product.snapshot();
   const current = snapshot.current;
   if (
@@ -660,6 +663,45 @@ export function requestLegacyBoundedV1OwnerSwitchStop(): Readonly<{
   return Object.freeze({
     settled,
     isCurrent: () => generation === legacyBoundedV1OwnerSwitchGeneration,
+  });
+}
+
+/**
+ * Rebuild one exact stopped bounded host occurrence as a canonical paused
+ * checkpoint. Cross-mode rollback uses the returned settlement as its publish
+ * barrier: callers must revalidate room authority before mirroring PAUSE.
+ */
+export function applyLegacyBoundedV1HostPausedCheckpoint(
+  queueItemId: QueueItemId,
+  legacySessionId: number,
+  positionSeconds: number,
+): Promise<boolean> | null {
+  const context = readLegacyBoundedV1ControlContext();
+  if (
+    !context ||
+    context.role !== 'host' ||
+    context.current.state !== 'ready' ||
+    context.current.queueItemId !== queueItemId ||
+    context.current.legacySessionId !== legacySessionId
+  ) {
+    return null;
+  }
+  const position = clampLegacyBoundedV1Position(
+    positionSeconds,
+    context.current,
+  );
+  const control: Readonly<LegacyBoundedFileV1CanonicalControl> = Object.freeze({
+    kind: context.current.phase === 'paused' ? 'seek-paused' : 'pause',
+    queueItemId,
+    legacySessionId,
+    positionSeconds: position,
+    atRoomTimeMs: getHostNow(),
+  });
+  return applyLegacyBoundedV1Control(control, {
+    // The cross-mode owner revalidates room/selection authority after physical
+    // settlement and owns the final projection. A stale continuation must not
+    // repaint over a newer system-audio start.
+    projectSettlement: false,
   });
 }
 
@@ -1814,6 +1856,8 @@ type V2HostStopOptions = Readonly<{
   preservePlaylistIntent?: boolean;
   /** Stop legacy owners without retiring a silent PRO cutover candidate. */
   preserveProBoundedCandidate?: boolean;
+  /** Stop an overlay PCM node without mutating its retained bounded V1 owner. */
+  preserveLegacyBoundedOwner?: boolean;
 }>;
 
 function publishV2HostStopped(options: V2HostStopOptions = {}): void {
@@ -3129,7 +3173,9 @@ function stopAllMediaLegacy(opts: V2HostStopOptions = {}): void {
 }
 
 export function stopAllMedia(opts: V2HostStopOptions = {}): void {
-  const boundedStop = requestLegacyBoundedV1Stop();
+  const boundedStop = opts.preserveLegacyBoundedOwner
+    ? null
+    : requestLegacyBoundedV1Stop();
   if (boundedStop) {
     stopAllMediaLegacy(opts);
     void boundedStop;
@@ -3148,7 +3194,9 @@ export function stopAllMedia(opts: V2HostStopOptions = {}): void {
  * synchronously; V2 callers resume only after exact stopped room truth.
  */
 export async function stopAllMediaAsync(options: V2HostStopOptions = {}): Promise<boolean> {
-  const boundedStop = requestLegacyBoundedV1Stop();
+  const boundedStop = options.preserveLegacyBoundedOwner
+    ? null
+    : requestLegacyBoundedV1Stop();
   if (boundedStop) {
     stopAllMediaLegacy(options);
     return boundedStop;

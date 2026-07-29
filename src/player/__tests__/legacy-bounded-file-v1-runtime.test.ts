@@ -241,7 +241,11 @@ interface TestHarness {
   readonly failures: unknown[];
   readonly publisher: {
     readonly publishRecordSet: ReturnType<typeof vi.fn>;
+    readonly cancelPendingRecordSet: ReturnType<typeof vi.fn>;
+    readonly removeQueueItem: ReturnType<typeof vi.fn>;
+    readonly close: ReturnType<typeof vi.fn>;
   };
+  readonly cancelled: QueueItemId[];
   readonly removed: QueueItemId[];
   readonly providerRetired: unknown[];
   readonly runtime: ReturnType<typeof createLegacyBoundedFileV1Runtime<TestConnection>>;
@@ -301,6 +305,7 @@ function createHarness(
   const frames: TestHarness['frames'] = [];
   const fallbacks: TestHarness['fallbacks'] = [];
   const failures: unknown[] = [];
+  const cancelled: QueueItemId[] = [];
   const removed: QueueItemId[] = [];
   const providerRetired: unknown[] = [];
   let identifier = 0;
@@ -363,6 +368,10 @@ function createHarness(
         );
       },
     ),
+    cancelPendingRecordSet: vi.fn((queueItemId: QueueItemId) => {
+      cancelled.push(queueItemId);
+      return Promise.resolve(true);
+    }),
     removeQueueItem: vi.fn((queueItemId: QueueItemId) => {
       removed.push(queueItemId);
       return Promise.resolve(true);
@@ -432,6 +441,7 @@ function createHarness(
     fallbacks,
     failures,
     publisher,
+    cancelled,
     removed,
     providerRetired,
     runtime,
@@ -557,6 +567,44 @@ describe('LegacyBoundedFileV1Runtime', () => {
     expect(harness.fallbacks).toHaveLength(0);
     expect(harness.runtime.hasReadyRenderer(QID_A, 1)).toBe(true);
     expect(harness.runtime.durationSeconds()).toBe(120);
+  });
+
+  it('refreshes publication authority for each unpinned peer while preserving an existing frame', async () => {
+    const harness = createHarness();
+    const first = freezeRecord({ id: 'guest-a' });
+    const reconnect = freezeRecord({ id: 'guest-a-reconnect' });
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+    await harness.runtime.prepareHost(hostPrepareInput());
+    for (const connection of [first, reconnect]) {
+      expect(
+        harness.runtime.adoptHostCapability(connection, {
+          type: 'file-bounded-v1-capability',
+          bridgeVersion: 1,
+          descriptorVersion: 1,
+        }),
+      ).toBe('accepted');
+    }
+
+    const callsAfterPrepare = harness.publisher.publishRecordSet.mock.calls.length;
+    await expect(harness.runtime.offerHostCurrent(first)).resolves.toEqual({
+      status: 'descriptor-sent',
+    });
+    expect(harness.publisher.publishRecordSet).toHaveBeenCalledTimes(callsAfterPrepare + 1);
+
+    // The exact connection keeps its accepted descriptor instead of being
+    // rotated underneath an active reader.
+    await harness.runtime.offerHostCurrent(first);
+    expect(harness.publisher.publishRecordSet).toHaveBeenCalledTimes(callsAfterPrepare + 1);
+
+    await expect(harness.runtime.offerHostCurrent(reconnect)).resolves.toEqual({
+      status: 'descriptor-sent',
+    });
+    expect(harness.publisher.publishRecordSet).toHaveBeenCalledTimes(callsAfterPrepare + 2);
   });
 
   it('keeps an exact host retirement visible and drains it before successor preparation', async () => {
@@ -712,6 +760,142 @@ describe('LegacyBoundedFileV1Runtime', () => {
     expect(terminal).toBe(true);
   });
 
+  it('reports a repeated exact offer as pending while its fallback acknowledgement is unresolved', async () => {
+    vi.useFakeTimers();
+    const acknowledgement = deferred<void>();
+    const harness = createHarness({ fallbackAcknowledgement: acknowledgement.promise });
+    const connection = freezeRecord({ id: 'legacy-guest-pending-repeat' });
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+    await harness.runtime.prepareHost(hostPrepareInput());
+
+    const first = harness.runtime.offerHostCurrentSettled(connection, QID_A, 1);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(21);
+    await expect(harness.runtime.offerHostCurrent(connection)).resolves.toEqual({
+      status: 'pending',
+    });
+
+    acknowledgement.resolve(undefined);
+    await expect(first).resolves.toEqual({ status: 'legacy-committed' });
+  });
+
+  it('settles a repeated exact offer after its cached fallback acknowledgement committed', async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    const connection = freezeRecord({ id: 'legacy-guest-repeat' });
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+    await harness.runtime.prepareHost(hostPrepareInput());
+
+    const first = harness.runtime.offerHostCurrentSettled(connection, QID_A, 1);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(21);
+    await expect(first).resolves.toEqual({ status: 'legacy-committed' });
+
+    await expect(
+      harness.runtime.offerHostCurrentSettled(connection, QID_A, 1),
+    ).resolves.toEqual({ status: 'legacy-committed' });
+    expect(harness.fallbacks).toEqual([{ connection, reason: 'capability-timeout' }]);
+  });
+
+  it('fences a late fallback acknowledgement after its exact connection retires', async () => {
+    vi.useFakeTimers();
+    const acknowledgement = deferred<void>();
+    const harness = createHarness({ fallbackAcknowledgement: acknowledgement.promise });
+    const connection = freezeRecord({ id: 'retiring-legacy-guest' });
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+    await harness.runtime.prepareHost(hostPrepareInput());
+
+    const settlement = harness.runtime.offerHostCurrentSettled(connection, QID_A, 1);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(21);
+    expect(harness.fallbacks).toEqual([{ connection, reason: 'capability-timeout' }]);
+
+    await expect(harness.runtime.retireConnection(connection)).resolves.toBe(true);
+    await expect(settlement).resolves.toEqual({ status: 'retired' });
+    acknowledgement.resolve(undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+    await expect(harness.runtime.offerHostCurrent(connection)).resolves.toEqual({
+      status: 'retired',
+    });
+  });
+
+  it('holds a publication-failure settled offer until its exact stable fallback is committed', async () => {
+    const acknowledgement = deferred<void>();
+    const harness = createHarness({ fallbackAcknowledgement: acknowledgement.promise });
+    const connection = freezeRecord({ id: 'guest-r2-failure' });
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+    await harness.runtime.prepareHost(hostPrepareInput());
+    harness.useRejectedPublication();
+
+    let terminal = false;
+    const settlement = harness.runtime.offerHostCurrentSettled(connection, QID_A, 1);
+    void settlement.then(() => {
+      terminal = true;
+    });
+    const failure = new Error('R2 unavailable');
+    harness.publicationReject(failure);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(harness.fallbacks).toEqual([{ connection, reason: 'publication-failed' }]);
+    expect(terminal).toBe(false);
+
+    acknowledgement.resolve(undefined);
+    await expect(settlement).resolves.toEqual({ status: 'legacy-committed' });
+  });
+
+  it('retries a failed publication for a different unpinned peer', async () => {
+    const harness = createHarness();
+    const failedPeer = freezeRecord({ id: 'guest-failed' });
+    const reconnect = freezeRecord({ id: 'guest-reconnect' });
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+    await harness.runtime.prepareHost(hostPrepareInput());
+    harness.useRejectedPublication();
+    const failed = harness.runtime.offerHostCurrent(failedPeer);
+    const failure = new Error('R2 unavailable');
+    harness.publicationReject(failure);
+    await expect(failed).resolves.toEqual({ status: 'failed', error: failure });
+
+    expect(
+      harness.runtime.adoptHostCapability(reconnect, {
+        type: 'file-bounded-v1-capability',
+        bridgeVersion: 1,
+        descriptorVersion: 1,
+      }),
+    ).toBe('accepted');
+    await expect(harness.runtime.offerHostCurrent(reconnect)).resolves.toEqual({
+      status: 'descriptor-sent',
+    });
+    expect(harness.fallbacks).toEqual([
+      { connection: failedPeer, reason: 'publication-failed' },
+    ]);
+  });
+
   it('fails a settled offer when the exact stable V1 fallback acknowledgement rejects', async () => {
     vi.useFakeTimers();
     const failure = new Error('fallback dispatch failed');
@@ -735,6 +919,10 @@ describe('LegacyBoundedFileV1Runtime', () => {
 
     await expect(settlement).resolves.toEqual({ status: 'failed', error: failure });
     expect(harness.failures).toContain(failure);
+
+    await expect(
+      harness.runtime.offerHostCurrentSettled(connection, QID_A, 1),
+    ).resolves.toEqual({ status: 'failed', error: failure });
   });
 
   it('settles exact offer waiters on connection retirement and current replacement', async () => {
@@ -786,6 +974,30 @@ describe('LegacyBoundedFileV1Runtime', () => {
     await harness.runtime.endRoom();
 
     await expect(settlement).resolves.toEqual({ status: 'retired' });
+  });
+
+  it('retains and retries exact publisher cleanup after a transient room-close failure', async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    const cleanupFailure = new Error('transient authenticated cleanup failure');
+    harness.publisher.close
+      .mockRejectedValueOnce(cleanupFailure)
+      .mockResolvedValue(undefined);
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+
+    await expect(harness.runtime.endRoom()).resolves.toBeUndefined();
+    expect(harness.publisher.close).toHaveBeenCalledTimes(1);
+    expect(harness.failures).toContain(cleanupFailure);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(harness.publisher.close).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(harness.publisher.close).toHaveBeenCalledTimes(2);
   });
 
   it('commits an unknown connection to legacy exactly once after capability timeout', async () => {
@@ -843,7 +1055,6 @@ describe('LegacyBoundedFileV1Runtime', () => {
   it('localizes publication failure and invokes per-connection fallback once', async () => {
     const harness = createHarness();
     const connection = freezeRecord({ id: 'guest-a' });
-    harness.useRejectedPublication();
     await harness.runtime.beginHostRoom({
       kind: 'standard',
       roomEpoch: 'room-epoch-a',
@@ -851,14 +1062,14 @@ describe('LegacyBoundedFileV1Runtime', () => {
       roomToken: Object.freeze({}),
     });
     await harness.runtime.prepareHost(hostPrepareInput());
+    harness.useRejectedPublication();
     const offer = harness.runtime.offerHostCurrent(connection);
     const failure = new Error('R2 unavailable');
     harness.publicationReject(failure);
 
     await expect(offer).resolves.toEqual({ status: 'failed', error: failure });
     await expect(harness.runtime.offerHostCurrent(connection)).resolves.toEqual({
-      status: 'failed',
-      error: failure,
+      status: 'legacy-committed',
     });
     expect(harness.fallbacks).toEqual([{ connection, reason: 'publication-failed' }]);
   });
@@ -952,8 +1163,12 @@ describe('LegacyBoundedFileV1Runtime', () => {
     expect(repeated.scope.sourceIdentity).toBe(first.scope.sourceIdentity);
     expect(repeated.scope.bridgeGeneration).not.toBe(first.scope.bridgeGeneration);
     expect(repeated.descriptorId).not.toBe(first.descriptorId);
-    const firstPublished = harness.publisher.publishRecordSet.mock.calls[0]?.[0];
-    const repeatedPublished = harness.publisher.publishRecordSet.mock.calls[2]?.[0];
+    const publicationsForRepeatedOccurrence =
+      harness.publisher.publishRecordSet.mock.calls.filter(
+        ([source]) => (source as { queueItemId?: QueueItemId }).queueItemId === QID_A,
+      );
+    const firstPublished = publicationsForRepeatedOccurrence[0]?.[0];
+    const repeatedPublished = publicationsForRepeatedOccurrence.at(-1)?.[0];
     expect(firstPublished).toMatchObject({
       sourceIdentity: `mxq:q:${QID_A}`,
       transferSessionId: `mxq:s:room-epoch-a:q:${QID_A}`,
@@ -964,6 +1179,247 @@ describe('LegacyBoundedFileV1Runtime', () => {
       blob: firstInput.blob,
     });
     expect(harness.removed).not.toContain(QID_A);
+    expect(harness.cancelled).toEqual([QID_A, QID_B]);
+  });
+
+  it('cancels only an unfinished different occurrence and never a same-occurrence revisit', async () => {
+    const harness = createHarness();
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+    await harness.runtime.prepareHost(hostPrepareInput(QID_A, 1));
+    await harness.runtime.prepareHost(hostPrepareInput(QID_A, 2));
+    expect(harness.cancelled).toEqual([]);
+
+    await harness.runtime.prepareHost(hostPrepareInput(QID_B, 3));
+    expect(harness.cancelled).toEqual([QID_A]);
+  });
+
+  it('does not hold successor preparation behind remote cancellation cleanup', async () => {
+    const harness = createHarness();
+    const cancellation = deferred<boolean>();
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+    await harness.runtime.prepareHost(hostPrepareInput(QID_A, 1));
+    harness.publisher.cancelPendingRecordSet.mockReturnValueOnce(cancellation.promise);
+
+    await expect(harness.runtime.prepareHost(hostPrepareInput(QID_B, 2))).resolves.toEqual({
+      status: 'ready',
+      durationSeconds: 120,
+    });
+    expect(harness.publisher.cancelPendingRecordSet).toHaveBeenCalledWith(QID_A);
+
+    cancellation.resolve(true);
+    await cancellation.promise;
+  });
+
+  it('deletes non-current queue assets immediately and drains current removal after an explicit guest-free barrier', async () => {
+    const harness = createHarness();
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+    await harness.runtime.prepareHost(hostPrepareInput(QID_A, 1));
+    await expect(harness.runtime.flushDeferredQueueItemRemovals()).resolves.toBe(0);
+
+    await expect(harness.runtime.removeQueueItem(QID_B)).resolves.toBe('removed');
+    await expect(harness.runtime.removeQueueItem(QID_A)).resolves.toBe('deferred');
+    expect(harness.removed).toEqual([QID_B]);
+    await expect(harness.runtime.flushDeferredQueueItemRemovals()).resolves.toBe(0);
+
+    await harness.runtime.prepareHost(hostPrepareInput(QID_B, 2));
+    expect(harness.removed).toEqual([QID_B]);
+    await expect(harness.runtime.flushDeferredQueueItemRemovals()).resolves.toBe(1);
+    expect(harness.removed).toEqual([QID_B, QID_A]);
+  });
+
+  it('retains a failed non-current cleanup request for an exact later retry', async () => {
+    const harness = createHarness();
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+    await harness.runtime.prepareHost(hostPrepareInput(QID_A, 1));
+    await expect(harness.runtime.flushDeferredQueueItemRemovals()).resolves.toBe(0);
+    harness.publisher.removeQueueItem.mockRejectedValueOnce(new Error('transient delete failure'));
+
+    await expect(harness.runtime.removeQueueItem(QID_B)).resolves.toBe('failed');
+    await expect(harness.runtime.flushDeferredQueueItemRemovals()).resolves.toBe(1);
+    expect(harness.publisher.removeQueueItem).toHaveBeenCalledTimes(2);
+    expect(harness.removed).toEqual([QID_B]);
+  });
+
+  it('does not drain an old record set at descriptor-sent before the successor guest is ready', async () => {
+    const harness = createHarness();
+    const connection = freezeRecord({ id: 'guest-a' });
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+    await harness.runtime.prepareHost(hostPrepareInput(QID_A, 1));
+    expect(
+      harness.runtime.adoptHostCapability(connection, {
+        type: 'file-bounded-v1-capability',
+        bridgeVersion: 1,
+        descriptorVersion: 1,
+      }),
+    ).toBe('accepted');
+    await expect(harness.runtime.removeQueueItem(QID_A)).resolves.toBe('deferred');
+    await harness.runtime.prepareHost(hostPrepareInput(QID_B, 2));
+    // The connection existed in the prior ledger, but has no successor
+    // delivery evidence yet. A missing snapshot is not proof of release.
+    await expect(harness.runtime.flushDeferredQueueItemRemovals()).resolves.toBe(0);
+    expect(harness.removed).not.toContain(QID_A);
+    expect(
+      harness.runtime.adoptHostCapability(connection, {
+        type: 'file-bounded-v1-capability',
+        bridgeVersion: 1,
+        descriptorVersion: 1,
+      }),
+    ).toBe('accepted');
+    await expect(harness.runtime.offerHostCurrent(connection)).resolves.toEqual({
+      status: 'descriptor-sent',
+    });
+
+    await expect(harness.runtime.flushDeferredQueueItemRemovals()).resolves.toBe(0);
+    expect(harness.removed).not.toContain(QID_A);
+
+    const descriptor = harness.frames.at(-1)?.frame;
+    if (!descriptor || descriptor.type !== 'file-r2-record-descriptor') {
+      throw new Error('descriptor was not emitted');
+    }
+    expect(
+      harness.runtime.adoptHostResult(connection, {
+        type: 'file-r2-record-result',
+        bridgeVersion: 1,
+        legacySessionId: descriptor.legacySessionId,
+        scope: descriptor.scope,
+        descriptorId: descriptor.descriptorId,
+        descriptorVersion: 1,
+        outcome: 'ready',
+      }),
+    ).toBe('ready');
+    await vi.waitFor(() => expect(harness.removed).toContain(QID_A));
+    await expect(harness.runtime.flushDeferredQueueItemRemovals()).resolves.toBe(0);
+    expect(harness.removed).toContain(QID_A);
+  });
+
+  it('defers predecessor deletion when successor prepare wins the playlist-removal race', async () => {
+    const harness = createHarness();
+    const connection = freezeRecord({ id: 'guest-a' });
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+    await harness.runtime.prepareHost(hostPrepareInput(QID_A, 1));
+    expect(
+      harness.runtime.adoptHostCapability(connection, {
+        type: 'file-bounded-v1-capability',
+        bridgeVersion: 1,
+        descriptorVersion: 1,
+      }),
+    ).toBe('accepted');
+    await harness.runtime.offerHostCurrent(connection);
+    const firstDescriptor = harness.frames.at(-1)?.frame;
+    if (!firstDescriptor || firstDescriptor.type !== 'file-r2-record-descriptor') {
+      throw new Error('first descriptor was not emitted');
+    }
+    harness.runtime.adoptHostResult(connection, {
+      type: 'file-r2-record-result',
+      bridgeVersion: 1,
+      legacySessionId: firstDescriptor.legacySessionId,
+      scope: firstDescriptor.scope,
+      descriptorId: firstDescriptor.descriptorId,
+      descriptorVersion: 1,
+      outcome: 'ready',
+    });
+    await expect(harness.runtime.flushDeferredQueueItemRemovals()).resolves.toBe(0);
+
+    await harness.runtime.prepareHost(hostPrepareInput(QID_B, 2));
+    // Playlist removal can race after prepare has already published qB as the
+    // current identity. qA is still protected until qB's exact peer barrier.
+    await expect(harness.runtime.removeQueueItem(QID_A)).resolves.toBe('deferred');
+    expect(harness.removed).not.toContain(QID_A);
+
+    harness.runtime.adoptHostCapability(connection, {
+      type: 'file-bounded-v1-capability',
+      bridgeVersion: 1,
+      descriptorVersion: 1,
+    });
+    await harness.runtime.offerHostCurrent(connection);
+    await expect(harness.runtime.flushDeferredQueueItemRemovals()).resolves.toBe(0);
+    expect(harness.removed).not.toContain(QID_A);
+    const successorDescriptor = harness.frames.at(-1)?.frame;
+    if (!successorDescriptor || successorDescriptor.type !== 'file-r2-record-descriptor') {
+      throw new Error('successor descriptor was not emitted');
+    }
+    harness.runtime.adoptHostResult(connection, {
+      type: 'file-r2-record-result',
+      bridgeVersion: 1,
+      legacySessionId: successorDescriptor.legacySessionId,
+      scope: successorDescriptor.scope,
+      descriptorId: successorDescriptor.descriptorId,
+      descriptorVersion: 1,
+      outcome: 'ready',
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(harness.removed).toContain(QID_A);
+  });
+
+  it('auto-drains an armed old set after the successor stable-V1 fallback acknowledgement', async () => {
+    vi.useFakeTimers();
+    const harness = createHarness();
+    const connection = freezeRecord({ id: 'legacy-guest' });
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+    await harness.runtime.prepareHost(hostPrepareInput(QID_A, 1));
+    await harness.runtime.offerHostCurrent(connection);
+    await expect(harness.runtime.removeQueueItem(QID_A)).resolves.toBe('deferred');
+    await harness.runtime.prepareHost(hostPrepareInput(QID_B, 2));
+
+    const settlement = harness.runtime.offerHostCurrentSettled(connection, QID_B, 2);
+    await expect(harness.runtime.flushDeferredQueueItemRemovals()).resolves.toBe(0);
+    await vi.advanceTimersByTimeAsync(21);
+    await expect(settlement).resolves.toEqual({ status: 'legacy-committed' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(harness.removed).toContain(QID_A);
+  });
+
+  it('permits deferred current cleanup after exact empty-playlist retirement', async () => {
+    const harness = createHarness();
+    await harness.runtime.beginHostRoom({
+      kind: 'standard',
+      roomEpoch: 'room-epoch-a',
+      storageRoomId: '100001',
+      roomToken: Object.freeze({}),
+    });
+    await harness.runtime.prepareHost(hostPrepareInput(QID_A, 1));
+    await expect(harness.runtime.removeQueueItem(QID_A)).resolves.toBe('deferred');
+
+    await expect(harness.runtime.retireCurrent(QID_A, 1)).resolves.toBe(true);
+    await vi.waitFor(() => expect(harness.removed).toEqual([QID_A]));
+    expect(harness.runtime.snapshot().current).toBeNull();
   });
 
   it('settles one exact host natural end once while duplicate polls share its task', async () => {

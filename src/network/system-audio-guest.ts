@@ -7,7 +7,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
-import { getState } from '../core/state.ts';
+import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
@@ -22,16 +22,26 @@ import { cancelRemoteShareWait } from '../share/remote-share.ts';
 import {
   claimPlaybackOwner,
   createSystemAudioTrackMeta,
+  getPlaybackModeActivitySnapshot,
   isSystemAudioOwner,
   isSystemAudioPlaceholderMeta,
   releasePlaybackOwner,
+  setPlaybackFilePaused,
   setPlaybackIdle,
   setSystemAudioReceiving,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
 import { claimGuestDirectSystemAudioRoute } from './system-audio-delivery.ts';
-import type { DataConnection, MediaConnection, TrackMeta } from '../types/index.ts';
+import type {
+  DataConnection,
+  MediaConnection,
+  QueueItemId,
+  TrackMeta,
+} from '../types/index.ts';
+import { legacyBoundedFileV1Product } from '../player/legacy-bounded-file-v1-product.ts';
+import { getQueueItemById } from '../player/queue-model.ts';
+import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 
 import { forceStereoSdp } from './peer.ts';
 import {
@@ -84,12 +94,73 @@ let _gotL = false;
 let _gotR = false;
 let _gotStereo = false;
 let _gotSynced = false;
-let _prevTrackMeta: unknown = null;
+type GuestSystemAudioBoundedSnapshot = Readonly<{
+  room: GuestSystemAudioRoomIdentity;
+  role: 'guest';
+  queueItemId: QueueItemId;
+  legacySessionId: number;
+  positionSeconds: number;
+  durationSeconds: number;
+  trackMeta: TrackMeta;
+}>;
+
+type GuestSystemAudioRoomIdentity = Readonly<{
+  kind: 'standard' | 'pro';
+  roomId: string | null;
+  epoch: number;
+  standardHostConnection: DataConnection | null;
+}>;
+
+type GuestSystemAudioBoundedStop = NonNullable<
+  ReturnType<typeof requestLegacyBoundedV1OwnerSwitchStop>
+>;
+
+interface PendingTrustedReception {
+  readonly generation: number;
+  readonly boundedSnapshot: GuestSystemAudioBoundedSnapshot | null;
+  readonly boundedStop: GuestSystemAudioBoundedStop;
+  cancelled: boolean;
+}
+
+let _prevTrackMeta: TrackMeta | null = null;
+let _prevBoundedPlayback: GuestSystemAudioBoundedSnapshot | null = null;
 let _trustedReceptionGeneration = 0;
 let _pendingTrustedReceptionGeneration: number | null = null;
+let _pendingTrustedReception: PendingTrustedReception | null = null;
 let _trustedReceptionWaitSeq = 0;
 let _initialUnmuteWaitSeq = 0;
 const _replacementWatchdogs = new Map<string, MediaConnection>();
+
+function captureGuestSystemAudioRoomIdentity(): GuestSystemAudioRoomIdentity {
+  const room = getRoomContext();
+  return Object.freeze({
+    kind: room.kind,
+    roomId:
+      room.kind === 'standard'
+        ? room.roomId ?? (getState('network.sessionCode') || null)
+        : room.roomId,
+    epoch: room.epoch,
+    standardHostConnection:
+      room.kind === 'standard' ? getState('network.hostConn') : null,
+  });
+}
+
+function isCurrentGuestSystemAudioRoom(
+  expected: Readonly<GuestSystemAudioRoomIdentity>,
+): boolean {
+  const room = getRoomContext();
+  const roomId =
+    room.kind === 'standard'
+      ? room.roomId ?? (getState('network.sessionCode') || null)
+      : room.roomId;
+  return (
+    room.kind === expected.kind &&
+    roomId === expected.roomId &&
+    room.epoch === expected.epoch &&
+    (expected.kind !== 'standard' ||
+      getState('network.hostConn') === expected.standardHostConnection)
+  );
+}
 
 interface TrustedReceptionWaiter {
   expectedGeneration: number;
@@ -241,6 +312,210 @@ function readMetadataType(metadata: MediaConnection['metadata']): string {
 function isSystemAudioPlaceholder(): boolean {
   const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
   return isSystemAudioPlaceholderMeta(currentMeta);
+}
+
+function captureGuestSystemAudioBoundedSnapshot(): GuestSystemAudioBoundedSnapshot | null {
+  const snapshot = legacyBoundedFileV1Product.snapshot();
+  const current = snapshot.current;
+  const queueItemId = getState('playlist.currentQueueItemId');
+  const queueItem = getQueueItemById(queueItemId);
+  const playback = getPlaybackModeActivitySnapshot();
+  if (
+    playback.mode !== 'file' ||
+    (playback.activity !== 'playing' && playback.activity !== 'paused') ||
+    !snapshot.active ||
+    snapshot.role !== 'guest' ||
+    !current ||
+    current.state !== 'ready' ||
+    current.queueItemId !== queueItemId ||
+    !queueItem ||
+    queueItem.type !== 'file' ||
+    !Number.isFinite(current.durationSeconds) ||
+    (current.durationSeconds ?? 0) <= 0
+  ) {
+    return null;
+  }
+
+  const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
+  const livePosition = legacyBoundedFileV1Product.positionSeconds();
+  const pausedAt = getState('player.pausedAt');
+  const positionSeconds =
+    current.phase === 'stopped'
+      ? pausedAt
+      : livePosition !== null && Number.isFinite(livePosition)
+        ? livePosition
+        : current.positionSeconds;
+  return Object.freeze({
+    room: captureGuestSystemAudioRoomIdentity(),
+    role: 'guest',
+    queueItemId: current.queueItemId,
+    legacySessionId: current.legacySessionId,
+    positionSeconds: Math.min(
+      current.durationSeconds!,
+      Number.isFinite(positionSeconds) ? Math.max(0, positionSeconds) : 0,
+    ),
+    durationSeconds: current.durationSeconds!,
+    trackMeta:
+      currentMeta?.queueItemId === current.queueItemId
+        ? currentMeta
+        : queueItem,
+  });
+}
+
+function readLiveGuestSystemAudioBoundedSnapshot(): GuestSystemAudioBoundedSnapshot | null {
+  const snapshot = legacyBoundedFileV1Product.snapshot();
+  const current = snapshot.current;
+  const selectedQueueItemId = getState('playlist.currentQueueItemId');
+  const queueItem = getQueueItemById(current?.queueItemId);
+  if (
+    !snapshot.active ||
+    snapshot.role !== 'guest' ||
+    !current ||
+    current.state !== 'ready' ||
+    current.queueItemId !== selectedQueueItemId ||
+    !queueItem ||
+    queueItem.type !== 'file' ||
+    !Number.isFinite(current.durationSeconds) ||
+    (current.durationSeconds ?? 0) <= 0
+  ) {
+    return null;
+  }
+
+  const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
+  const durationSeconds = current.durationSeconds!;
+  const livePosition = legacyBoundedFileV1Product.positionSeconds();
+  const positionSeconds =
+    current.phase === 'stopped'
+      ? current.positionSeconds
+      : livePosition !== null && Number.isFinite(livePosition)
+        ? livePosition
+        : current.positionSeconds;
+  return Object.freeze({
+    room: captureGuestSystemAudioRoomIdentity(),
+    role: 'guest',
+    queueItemId: current.queueItemId,
+    legacySessionId: current.legacySessionId,
+    positionSeconds: Math.min(
+      durationSeconds,
+      Number.isFinite(positionSeconds) ? Math.max(0, positionSeconds) : 0,
+    ),
+    durationSeconds,
+    trackMeta:
+      currentMeta?.queueItemId === current.queueItemId &&
+      !isSystemAudioPlaceholderMeta(currentMeta)
+        ? currentMeta
+        : queueItem,
+  });
+}
+
+function isExactGuestBoundedIdentity(
+  left: GuestSystemAudioBoundedSnapshot,
+  right: GuestSystemAudioBoundedSnapshot,
+): boolean {
+  return (
+    left.room.kind === right.room.kind &&
+    left.room.roomId === right.room.roomId &&
+    left.room.epoch === right.room.epoch &&
+    (left.room.kind !== 'standard' ||
+      left.room.standardHostConnection === right.room.standardHostConnection) &&
+    left.role === right.role &&
+    left.queueItemId === right.queueItemId &&
+    left.legacySessionId === right.legacySessionId
+  );
+}
+
+function readExactGuestBoundedProductPosition(
+  bounded: GuestSystemAudioBoundedSnapshot,
+): number | null {
+  const snapshot = legacyBoundedFileV1Product.snapshot();
+  const current = snapshot.current;
+  if (
+    !snapshot.active ||
+    snapshot.role !== 'guest' ||
+    !current ||
+    current.state !== 'ready' ||
+    current.queueItemId !== bounded.queueItemId ||
+    current.legacySessionId !== bounded.legacySessionId ||
+    !Number.isFinite(current.durationSeconds) ||
+    (current.durationSeconds ?? 0) <= 0 ||
+    !Number.isFinite(current.positionSeconds)
+  ) {
+    return null;
+  }
+  return Math.min(
+    current.durationSeconds!,
+    Math.max(0, current.positionSeconds),
+  );
+}
+
+function projectGuestBoundedPlayback(
+  bounded: GuestSystemAudioBoundedSnapshot,
+  positionSeconds = bounded.positionSeconds,
+  trackMeta: TrackMeta = bounded.trackMeta,
+): void {
+  setState('playlist.currentQueueItemId', bounded.queueItemId);
+  setState(
+    'player.pausedAt',
+    Math.min(bounded.durationSeconds, Math.max(0, positionSeconds)),
+  );
+  setPlaybackTrackMeta(trackMeta);
+  setPlaybackFilePaused();
+  bus.emit('ui:duration-update', bounded.durationSeconds);
+  bus.emit('ui:play-btn-state', hasRoomCapability('playback.control'));
+}
+
+/**
+ * A trusted START can be cancelled while its exact bounded STOP is already in
+ * flight. The cancellation itself must not start a second transport mutation,
+ * but once that shared STOP settles the visible file state must no longer claim
+ * to be playing. Restore only the exact captured incarnation, and only while
+ * the same selected file UI still owns the screen; a successor or another
+ * playback mode wins without being touched.
+ */
+function reconcileCancelledTrustedReception(
+  pending: Readonly<PendingTrustedReception>,
+): void {
+  const captured = pending.boundedSnapshot;
+  if (
+    !captured ||
+    !pending.boundedStop.isCurrent() ||
+    !isCurrentGuestSystemAudioRoom(captured.room)
+  ) {
+    return;
+  }
+
+  const product = legacyBoundedFileV1Product.snapshot();
+  const current = product.current;
+  if (
+    !product.active ||
+    product.role !== 'guest' ||
+    !current ||
+    current.state !== 'ready' ||
+    current.phase !== 'stopped' ||
+    current.queueItemId !== captured.queueItemId ||
+    current.legacySessionId !== captured.legacySessionId ||
+    getState('playlist.currentQueueItemId') !== captured.queueItemId ||
+    isSystemAudioOwner() ||
+    isSystemAudioPlaceholder()
+  ) {
+    return;
+  }
+
+  const playback = getPlaybackModeActivitySnapshot();
+  if (
+    playback.mode !== 'file' ||
+    (playback.activity !== 'playing' && playback.activity !== 'paused')
+  ) {
+    return;
+  }
+
+  const productPosition = readExactGuestBoundedProductPosition(captured);
+  if (productPosition === null) return;
+  // The host is the only authority allowed to promote this physical STOP
+  // checkpoint back to captured N. Until its PAUSE(N) arrives, expose the
+  // exact product position so a failed host compensation cannot leave this
+  // guest ahead of the room.
+  projectGuestBoundedPlayback(captured, productPosition, captured.trackMeta);
 }
 
 function getSystemAudioTrackMapping(
@@ -728,11 +1003,30 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 // Shared by the direct-call and SFU receive adapters; this module owns the
 // placeholder and previous-track metadata restoration contract.
 export function cleanupGuestSystemAudio(): void {
+  const pendingTrustedReception = _pendingTrustedReception;
+  if (
+    pendingTrustedReception &&
+    pendingTrustedReception.generation === _pendingTrustedReceptionGeneration
+  ) {
+    // The single continuation installed by beginTrustedSystemAudioReception()
+    // owns this already-running STOP. Mark it for exact post-settlement
+    // compensation rather than launching a duplicate mutation here.
+    pendingTrustedReception.cancelled = true;
+  }
   _trustedReceptionGeneration += 1;
   _pendingTrustedReceptionGeneration = null;
   cancelAllTrustedReceptionWaiters();
   _debugLastCleanupAt = Date.now();
   const wasSystemAudioPlaceholder = isSystemAudioPlaceholder();
+  const wasSystemAudioOwner = isSystemAudioOwner();
+  const selectedQueueItemIdBeforeCleanup = getState('playlist.currentQueueItemId');
+  const trackMetaBeforeCleanup = getState('player.currentTrackMeta') as TrackMeta | null;
+  const prevTrackMeta = _prevTrackMeta;
+  const prevBoundedPlayback = _prevBoundedPlayback;
+  // Consume restore state before closing adapters. Synchronous close callbacks
+  // and repeated room-leave cleanup must never replay an earlier snapshot.
+  _prevTrackMeta = null;
+  _prevBoundedPlayback = null;
   clearReceiveWatchdog();
   clearAllReplacementWatchdogs();
   if (_sourceL) {
@@ -790,13 +1084,90 @@ export function cleanupGuestSystemAudio(): void {
   _gotSynced = false;
 
   setSystemAudioReceiving(false);
-  setPlaybackTrackMeta(_prevTrackMeta ?? null);
-  _prevTrackMeta = null;
-  if (isSystemAudioOwner() || wasSystemAudioPlaceholder) {
+  if (!wasSystemAudioOwner && !wasSystemAudioPlaceholder) {
+    // A newer playback owner already replaced this receive adapter. Teardown
+    // the stale graph, but never write its title or lifecycle over the winner.
+    return;
+  }
+
+  if (!prevBoundedPlayback) {
+    // Preserve the legacy ordering for non-bounded media: restore its title
+    // first, then make the system-audio owner release authoritative IDLE.
+    setPlaybackTrackMeta(prevTrackMeta);
     releasePlaybackOwner('system-audio', {
       force: wasSystemAudioPlaceholder,
     });
     setPlaybackIdle();
+    return;
+  }
+
+  // Bounded restoration is a new owner projection. Release system audio all
+  // the way to IDLE first so it cannot overwrite the canonical paused state.
+  releasePlaybackOwner('system-audio', {
+    force: wasSystemAudioPlaceholder,
+  });
+  setPlaybackIdle();
+
+  if (prevBoundedPlayback) {
+    if (!isCurrentGuestSystemAudioRoom(prevBoundedPlayback.room)) {
+      const selected = getQueueItemById(getState('playlist.currentQueueItemId'));
+      setPlaybackTrackMeta(selected);
+      bus.emit('ui:play-btn-state', false);
+      return;
+    }
+    const liveBounded = readLiveGuestSystemAudioBoundedSnapshot();
+    if (liveBounded && isExactGuestBoundedIdentity(liveBounded, prevBoundedPlayback)) {
+      const productPosition = readExactGuestBoundedProductPosition(liveBounded);
+      if (productPosition === null) {
+        setPlaybackIdle();
+        bus.emit('ui:play-btn-state', false);
+        return;
+      }
+      projectGuestBoundedPlayback(
+        liveBounded,
+        productPosition,
+        prevBoundedPlayback.trackMeta,
+      );
+      return;
+    }
+    if (liveBounded) {
+      // A newer queue occurrence/incarnation won while system audio owned the
+      // output. Publish its canonical state instead of the captured session.
+      projectGuestBoundedPlayback(liveBounded);
+      return;
+    }
+
+    const successorQueueItem =
+      selectedQueueItemIdBeforeCleanup !== null &&
+      selectedQueueItemIdBeforeCleanup !== prevBoundedPlayback.queueItemId
+        ? getQueueItemById(selectedQueueItemIdBeforeCleanup)
+        : null;
+    const successorMeta =
+      trackMetaBeforeCleanup &&
+      !isSystemAudioPlaceholderMeta(trackMetaBeforeCleanup) &&
+      trackMetaBeforeCleanup.queueItemId !== prevBoundedPlayback.queueItemId
+        ? trackMetaBeforeCleanup
+        : successorQueueItem;
+    if (successorQueueItem || successorMeta) {
+      // The successor has selected UI but has not published a ready bounded
+      // source yet. Keep its identity visible and remain safely idle.
+      if (selectedQueueItemIdBeforeCleanup !== null) {
+        setState('playlist.currentQueueItemId', selectedQueueItemIdBeforeCleanup);
+      }
+      setPlaybackTrackMeta(successorMeta);
+      setPlaybackIdle();
+      bus.emit('ui:play-btn-state', false);
+      return;
+    }
+
+    // The captured incarnation disappeared and no successor owns the UI.
+    if (getState('playlist.currentQueueItemId') === prevBoundedPlayback.queueItemId) {
+      setState('playlist.currentQueueItemId', null);
+    }
+    setPlaybackTrackMeta(null);
+    setPlaybackIdle();
+    bus.emit('ui:play-btn-state', false);
+    return;
   }
 }
 
@@ -810,11 +1181,33 @@ export function beginTrustedSystemAudioReception(): boolean {
     return false;
   }
   const generation = ++_trustedReceptionGeneration;
+  const boundedSnapshot = captureGuestSystemAudioBoundedSnapshot();
   _pendingTrustedReceptionGeneration = generation;
   const boundedStop = requestLegacyBoundedV1OwnerSwitchStop();
   if (boundedStop) {
+    const pending: PendingTrustedReception = {
+      generation,
+      boundedSnapshot,
+      boundedStop,
+      cancelled: false,
+    };
+    _pendingTrustedReception = pending;
     void boundedStop.settled
       .then((stopped) => {
+        if (pending.cancelled) {
+          // STOP/force-stop cancelled the share before it became an owner.
+          // Join the original physical STOP and repair only its exact file
+          // projection; never resurrect the cancelled system-audio start.
+          // The runtime snapshot is the final authority: a false settlement
+          // can still accompany a terminal STOP observed before a superseding
+          // callback resolves.
+          reconcileCancelledTrustedReception(pending);
+          if (_pendingTrustedReceptionGeneration === generation) {
+            _pendingTrustedReceptionGeneration = null;
+          }
+          settleTrustedReceptionWaiters(generation, false);
+          return;
+        }
         if (
           !stopped ||
           !boundedStop.isCurrent() ||
@@ -827,22 +1220,46 @@ export function beginTrustedSystemAudioReception(): boolean {
           settleTrustedReceptionWaiters(generation, false);
           return;
         }
-        const committed = commitTrustedSystemAudioReception();
+        const liveBounded = boundedSnapshot
+          ? readLiveGuestSystemAudioBoundedSnapshot()
+          : null;
+        if (
+          boundedSnapshot &&
+          (!liveBounded || !isExactGuestBoundedIdentity(liveBounded, boundedSnapshot))
+        ) {
+          if (_pendingTrustedReceptionGeneration === generation) {
+            _pendingTrustedReceptionGeneration = null;
+          }
+          settleTrustedReceptionWaiters(generation, false);
+          return;
+        }
+        const committed = commitTrustedSystemAudioReception(boundedSnapshot);
         if (_pendingTrustedReceptionGeneration === generation) {
           _pendingTrustedReceptionGeneration = null;
         }
         settleTrustedReceptionWaiters(generation, committed);
       })
       .catch((error) => {
+        if (pending.cancelled) {
+          // A bridge may reject after committing its terminal STOP. The
+          // reconciliation helper independently verifies exact stopped truth
+          // before projecting anything.
+          reconcileCancelledTrustedReception(pending);
+        }
         if (_pendingTrustedReceptionGeneration === generation) {
           _pendingTrustedReceptionGeneration = null;
         }
         settleTrustedReceptionWaiters(generation, false);
         log.warn('[SysAudioGuest] Bounded file-owner stop failed:', error);
+      })
+      .finally(() => {
+        if (_pendingTrustedReception === pending) {
+          _pendingTrustedReception = null;
+        }
       });
     return true;
   }
-  const committed = commitTrustedSystemAudioReception();
+  const committed = commitTrustedSystemAudioReception(boundedSnapshot);
   if (_pendingTrustedReceptionGeneration === generation) {
     _pendingTrustedReceptionGeneration = null;
   }
@@ -850,11 +1267,14 @@ export function beginTrustedSystemAudioReception(): boolean {
   return committed;
 }
 
-function commitTrustedSystemAudioReception(): boolean {
+function commitTrustedSystemAudioReception(
+  boundedSnapshot: GuestSystemAudioBoundedSnapshot | null,
+): boolean {
   if (isSystemAudioPlaceholder()) return false;
   _debugLastStartAt = Date.now();
   _debugLastStartIgnoredReason = '';
   _prevTrackMeta = getState('player.currentTrackMeta') as TrackMeta | null;
+  _prevBoundedPlayback = boundedSnapshot;
   stopAllMedia({ silent: true, cancelInFlight: true });
   cancelIncomingFileTransfer('system-audio-start');
   cancelRemoteShareWait('system-audio-start');

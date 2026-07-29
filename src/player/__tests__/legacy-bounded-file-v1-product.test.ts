@@ -19,6 +19,8 @@ const mocks = vi.hoisted(() => {
     applyControl: vi.fn(),
     scheduleHostControl: vi.fn(),
     cancelPendingHostControl: vi.fn(),
+    removeQueueItem: vi.fn(),
+    flushDeferredQueueItemRemovals: vi.fn(),
     retireCurrent: vi.fn(),
     settleHostNaturalEnd: vi.fn(),
     ownsSession: vi.fn(),
@@ -174,6 +176,8 @@ function activeRuntimeDefaults(): void {
   });
   mocks.runtime.scheduleHostControl.mockResolvedValue({ status: 'bypass' });
   mocks.runtime.cancelPendingHostControl.mockReturnValue(null);
+  mocks.runtime.removeQueueItem.mockResolvedValue('removed');
+  mocks.runtime.flushDeferredQueueItemRemovals.mockResolvedValue(1);
   mocks.runtime.retireCurrent.mockResolvedValue(false);
   mocks.runtime.settleHostNaturalEnd.mockResolvedValue({
     status: 'settled',
@@ -502,6 +506,23 @@ describe('legacy bounded file V1 product adapter', () => {
     expect(mocks.runtime.settleHostNaturalEnd).toHaveBeenCalledWith('q_1234567890123456789012', 7);
   });
 
+  it('routes queue asset cleanup only through an owned standard room', async () => {
+    const { legacyBoundedFileV1Product: product } = await loadProduct();
+    const queueItemId = 'q_1234567890123456789012';
+    await product.beginHostRoom('123456');
+
+    await expect(product.removeQueueItem(queueItemId)).resolves.toBe('removed');
+    await expect(product.flushDeferredQueueItemRemovals()).resolves.toBe(1);
+    expect(mocks.runtime.removeQueueItem).toHaveBeenCalledWith(queueItemId);
+    expect(mocks.runtime.flushDeferredQueueItemRemovals).toHaveBeenCalledTimes(1);
+
+    mocks.roomKind = 'pro';
+    await expect(product.removeQueueItem(queueItemId)).resolves.toBe('bypass');
+    await expect(product.flushDeferredQueueItemRemovals()).resolves.toBe(0);
+    expect(mocks.runtime.removeQueueItem).toHaveBeenCalledTimes(1);
+    expect(mocks.runtime.flushDeferredQueueItemRemovals).toHaveBeenCalledTimes(1);
+  });
+
   it('discards a natural-end settlement that completes after room teardown', async () => {
     const { legacyBoundedFileV1Product: product } = await loadProduct();
     const pending = deferred<{ status: 'not-ended' }>();
@@ -741,6 +762,8 @@ describe('legacy bounded file V1 product adapter', () => {
     await expect(product.settleHostNaturalEnd('q_1', 1)).resolves.toEqual({
       status: 'bypass',
     });
+    await expect(product.removeQueueItem('q_1')).resolves.toBe('bypass');
+    await expect(product.flushDeferredQueueItemRemovals()).resolves.toBe(0);
     expect(product.positionSeconds()).toBeNull();
     expect(product.durationSeconds()).toBeNull();
     expect(product.snapshot()).toMatchObject({ active: false, role: 'bypass' });
@@ -753,6 +776,8 @@ describe('legacy bounded file V1 product adapter', () => {
     expect(mocks.runtime.abandonGuestTransfer).not.toHaveBeenCalled();
     expect(mocks.runtime.offerHostCurrentSettled).not.toHaveBeenCalled();
     expect(mocks.runtime.settleHostNaturalEnd).not.toHaveBeenCalled();
+    expect(mocks.runtime.removeQueueItem).not.toHaveBeenCalled();
+    expect(mocks.runtime.flushDeferredQueueItemRemovals).not.toHaveBeenCalled();
     expect(mocks.safeSend).not.toHaveBeenCalled();
   });
 

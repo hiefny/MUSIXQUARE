@@ -3121,6 +3121,18 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
     setState('recovery.pending', false);
   }
 
+  // Record-set storage follows stable queue occurrence identity, not renderer
+  // lifetime. Non-current rows can be deleted immediately. The bounded
+  // runtime defers the exact current row until its successor selection barrier
+  // (or exact empty-playlist retirement) has released all old readers.
+  for (const queueItemId of removedQueueItemIds) {
+    void legacyBoundedFileV1Product.removeQueueItem(queueItemId).catch(() => {
+      // Keep signed cleanup material out of application logs. The product
+      // boundary already reports a stage-only cleanup diagnostic.
+      log.warn('[Playlist] Bounded queue asset cleanup request failed');
+    });
+  }
+
   const connectedPeers = getState('network.connectedPeers') || [];
   if (
     connectedPeers.some((peer) =>

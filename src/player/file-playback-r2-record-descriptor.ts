@@ -3,6 +3,7 @@ import { R2RecordCryptoV2 } from '../share/r2-record-crypto-v2.ts';
 import type { QueueItemId } from '../types/index.ts';
 import {
   R2RecordEncodedAudioSource,
+  type R2RecordEncodedAudioSourceCiphertextCache,
   type R2RecordEncodedAudioSourceOptions,
   type R2RecordEncodedAudioSourceRecord,
 } from './sources/r2-record-encoded-audio-source.ts';
@@ -43,6 +44,7 @@ interface PrivateRegistryState {
   readonly entries: Map<string, PrivateDescriptorRecord>;
   readonly retiredDescriptorKeys: Set<string>;
   readonly retiredScopeKeys: Set<string>;
+  readonly ciphertextCache: RegistryCiphertextCache;
   registering: boolean;
   sealed: boolean;
   disposed: boolean;
@@ -92,6 +94,78 @@ const MAX_PRIVATE_DESCRIPTOR_SLOTS = 1_024;
 const MAX_R2_RECORD_COUNT = Math.ceil(
   REMOTE_SHARE_MAX_BYTES / R2RecordCryptoV2.RECORD_PLAINTEXT_BYTES,
 );
+const MAX_CIPHERTEXT_CACHE_BYTES =
+  3 * (R2RecordCryptoV2.RECORD_PLAINTEXT_BYTES + R2RecordCryptoV2.AES_GCM_TAG_BYTES);
+
+/**
+ * Small room-scoped LRU of encrypted records. Entries remain useless without
+ * the module-private descriptor secret and are authenticated again by every
+ * source. Three records retain the common header/tail/current working set
+ * without turning a large playlist into an unbounded browser cache.
+ */
+class RegistryCiphertextCache {
+  readonly #entries = new Map<string, ArrayBuffer>();
+  #totalBytes = 0;
+
+  get(descriptorEntryKey: string, recordIndex: number, expectedSize: number): ArrayBuffer | null {
+    const key = this.#key(descriptorEntryKey, recordIndex);
+    const bytes = this.#entries.get(key);
+    if (!bytes) return null;
+    if (bytes.byteLength !== expectedSize) {
+      this.#delete(key, bytes);
+      return null;
+    }
+    // Refresh insertion order for deterministic LRU eviction.
+    this.#entries.delete(key);
+    this.#entries.set(key, bytes);
+    return bytes;
+  }
+
+  put(descriptorEntryKey: string, recordIndex: number, ciphertext: ArrayBuffer): void {
+    if (
+      !Number.isSafeInteger(recordIndex) ||
+      recordIndex < 0 ||
+      ciphertext.byteLength <= 0 ||
+      ciphertext.byteLength > MAX_CIPHERTEXT_CACHE_BYTES
+    ) {
+      return;
+    }
+    const key = this.#key(descriptorEntryKey, recordIndex);
+    const prior = this.#entries.get(key);
+    if (prior) this.#delete(key, prior);
+    const retained = ciphertext.slice(0);
+    this.#entries.set(key, retained);
+    this.#totalBytes += retained.byteLength;
+    while (this.#totalBytes > MAX_CIPHERTEXT_CACHE_BYTES) {
+      const oldest = this.#entries.entries().next().value as
+        | readonly [string, ArrayBuffer]
+        | undefined;
+      if (!oldest) break;
+      this.#delete(oldest[0], oldest[1]);
+    }
+  }
+
+  removeDescriptor(descriptorEntryKey: string): void {
+    const prefix = `${descriptorEntryKey}\u0000`;
+    for (const [key, bytes] of this.#entries) {
+      if (key.startsWith(prefix)) this.#delete(key, bytes);
+    }
+  }
+
+  clear(): void {
+    this.#entries.clear();
+    this.#totalBytes = 0;
+  }
+
+  #key(descriptorEntryKey: string, recordIndex: number): string {
+    return `${descriptorEntryKey}\u0000${recordIndex}`;
+  }
+
+  #delete(key: string, bytes: ArrayBuffer): void {
+    if (!this.#entries.delete(key)) return;
+    this.#totalBytes = Math.max(0, this.#totalBytes - bytes.byteLength);
+  }
+}
 
 /**
  * Raw delivery material is held only in this module-private registry. Keeping
@@ -436,11 +510,13 @@ function sealRegistry(state: PrivateRegistryState): void {
   state.entries.clear();
   state.retiredDescriptorKeys.clear();
   state.retiredScopeKeys.clear();
+  state.ciphertextCache.clear();
   state.sealed = true;
 }
 
 function retireEntry(state: PrivateRegistryState, key: string): void {
   if (!state.entries.delete(key)) return;
+  state.ciphertextCache.removeDescriptor(key);
   addTombstone(state, key);
 }
 
@@ -467,6 +543,7 @@ function retireScope(
   for (const [descriptorEntryKey, record] of state.entries) {
     if (sameFilePlaybackR2RecordDeliveryScope(record.ref.scope, scope)) {
       state.entries.delete(descriptorEntryKey);
+      state.ciphertextCache.removeDescriptor(descriptorEntryKey);
     }
   }
   const descriptorPrefix = `${key}:`;
@@ -511,6 +588,7 @@ export class FilePlaybackR2RecordDescriptorRegistry {
       entries: new Map(),
       retiredDescriptorKeys: new Set(),
       retiredScopeKeys: new Set(),
+      ciphertextCache: new RegistryCiphertextCache(),
       registering: false,
       sealed: false,
       disposed: false,
@@ -623,7 +701,23 @@ export class FilePlaybackR2RecordDescriptorRegistry {
       if (!record) fail('FILE_PLAYBACK_R2_RECORD_DESCRIPTOR_UNAVAILABLE');
       token = record.token;
       expiresAtEpochMs = record.expiresAtEpochMs;
-      createPromise = R2RecordEncodedAudioSource.create(record.sourceOptions, signal);
+      const ciphertextCache: R2RecordEncodedAudioSourceCiphertextCache = {
+        get: (recordIndex, expectedSize) => {
+          const current = state.entries.get(key);
+          if (current?.token !== token) return null;
+          return state.ciphertextCache.get(key, recordIndex, expectedSize);
+        },
+        put: (recordIndex, ciphertext) => {
+          const current = state.entries.get(key);
+          if (current?.token !== token) return;
+          state.ciphertextCache.put(key, recordIndex, ciphertext);
+        },
+      };
+      createPromise = R2RecordEncodedAudioSource.create(
+        record.sourceOptions,
+        signal,
+        ciphertextCache,
+      );
     }
     // The secret-bearing registry record is no longer in this async frame's live
     // lexical scope while an abort-ignoring constructor is pending. The opaque
@@ -687,6 +781,7 @@ export class FilePlaybackR2RecordDescriptorRegistry {
     state.entries.clear();
     state.retiredDescriptorKeys.clear();
     state.retiredScopeKeys.clear();
+    state.ciphertextCache.clear();
     state.sealed = true;
     state.disposed = true;
     return Promise.resolve();

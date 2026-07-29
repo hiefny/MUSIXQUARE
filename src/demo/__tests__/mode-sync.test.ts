@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
   play: vi.fn(),
   pause: vi.fn(),
   stopAllMedia: vi.fn(),
-  requestBoundedOwnerSwitchRetirement: vi.fn(() => null),
+  requestBoundedOwnerSwitchStop: vi.fn(() => null),
   getTrackPosition: vi.fn(() => 12),
   getHostNow: vi.fn(() => 10_000),
   isClockCalibrated: vi.fn(() => true),
@@ -24,11 +24,19 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../../player/transport.ts', () => ({
+  applyLegacyBoundedV1HostPausedCheckpoint: vi.fn(() => null),
   getTrackPosition: mocks.getTrackPosition,
   pause: mocks.pause,
   play: mocks.play,
-  requestLegacyBoundedV1OwnerSwitchRetirement: mocks.requestBoundedOwnerSwitchRetirement,
+  requestLegacyBoundedV1OwnerSwitchStop: mocks.requestBoundedOwnerSwitchStop,
   stopAllMedia: mocks.stopAllMedia,
+}));
+
+vi.mock('../../player/legacy-bounded-file-v1-product.ts', () => ({
+  legacyBoundedFileV1Product: {
+    snapshot: vi.fn(() => ({ active: false, role: 'idle', current: null })),
+    positionSeconds: vi.fn(() => null),
+  },
 }));
 
 vi.mock('../../network/shared-clock.ts', () => ({

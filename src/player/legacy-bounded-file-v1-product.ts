@@ -19,6 +19,7 @@ import {
   type LegacyBoundedFileV1NaturalEndOutcome,
   type LegacyBoundedFileV1OfferOutcome,
   type LegacyBoundedFileV1PrepareOutcome,
+  type LegacyBoundedFileV1QueueItemRemovalOutcome,
   type LegacyBoundedFileV1RoomBeginOutcome,
   type LegacyBoundedFileV1RuntimeContract,
   type LegacyBoundedFileV1RuntimeSnapshot,
@@ -97,6 +98,8 @@ interface LegacyBoundedFileV1ProductContract {
     legacySessionId: number,
     positionSeconds: number,
   ): Promise<LegacyBoundedFileV1ControlOutcome> | null;
+  removeQueueItem(queueItemId: QueueItemId): Promise<LegacyBoundedFileV1QueueItemRemovalOutcome>;
+  flushDeferredQueueItemRemovals(): Promise<number>;
   retireCurrent(queueItemId: QueueItemId, legacySessionId: number): Promise<boolean>;
   settleHostNaturalEnd(
     queueItemId: QueueItemId,
@@ -376,6 +379,18 @@ class LegacyBoundedFileV1Product implements LegacyBoundedFileV1ProductContract {
     return this.#canOperate()
       ? this.#runtime.cancelPendingHostControl(queueItemId, legacySessionId, positionSeconds)
       : null;
+  }
+
+  removeQueueItem(queueItemId: QueueItemId): Promise<LegacyBoundedFileV1QueueItemRemovalOutcome> {
+    return this.#canOperate()
+      ? this.#runtime.removeQueueItem(queueItemId)
+      : Promise.resolve('bypass');
+  }
+
+  flushDeferredQueueItemRemovals(): Promise<number> {
+    return this.#canOperate()
+      ? this.#runtime.flushDeferredQueueItemRemovals()
+      : Promise.resolve(0);
   }
 
   retireCurrent(queueItemId: QueueItemId, legacySessionId: number): Promise<boolean> {

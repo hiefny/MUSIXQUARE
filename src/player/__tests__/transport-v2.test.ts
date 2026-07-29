@@ -95,6 +95,7 @@ const boundedV1 = vi.hoisted(() => {
       cancelPendingHostControl: vi.fn(),
       retireCurrent: vi.fn(),
       settleHostNaturalEnd: vi.fn(),
+      removeQueueItem: vi.fn(async () => true),
     },
     getHostNow: vi.fn(() => state.nowRoomTimeMs),
   };
@@ -687,6 +688,7 @@ beforeEach(async () => {
   boundedV1.product.cancelPendingHostControl.mockReturnValue(null);
   boundedV1.product.retireCurrent.mockResolvedValue(false);
   boundedV1.product.settleHostNaturalEnd.mockResolvedValue({ status: 'not-ended' });
+  boundedV1.product.removeQueueItem.mockResolvedValue(true);
   boundedV1.getHostNow.mockImplementation(() => boundedV1.state.nowRoomTimeMs);
   v2.runtime.hostRoomSnapshot.mockImplementation(() => v2.state.room);
   v2.runtime.seekPlaying.mockImplementation(async ({ positionSeconds }) => {
@@ -1441,6 +1443,7 @@ describe('V2 host-local file transport seek boundary', () => {
     expect(getState('playlist.items')).toHaveLength(0);
     expect(getState('playlist.currentQueueItemId')).toBeNull();
     expect(getState('playback.activity')).toBe('idle');
+    expect(boundedV1.product.removeQueueItem).toHaveBeenCalledWith(Q1);
   });
 
   it('keeps the prior selection authoritative until the atomic V2 replacement commits', async () => {
@@ -2413,6 +2416,71 @@ describe('V2 host-local file transport seek boundary', () => {
 });
 
 describe('bounded V1 transport integration', () => {
+  it('stops demo PCM without retiring its retained bounded owner', async () => {
+    setSelectedFile();
+    setBoundedV1Current('host', 'stopped', 0);
+    setState('demo.active', true);
+
+    await expect(
+      stopAllMediaAsync({
+        cancelInFlight: true,
+        preserveLegacyBoundedOwner: true,
+      }),
+    ).resolves.toBe(true);
+
+    expect(boundedV1.product.applyControl).not.toHaveBeenCalled();
+    expect(boundedV1.product.retireCurrent).not.toHaveBeenCalled();
+    expect(boundedV1.state.snapshot.current).toMatchObject({
+      queueItemId: Q1,
+      legacySessionId: 17,
+    });
+  });
+
+  it('keeps demo controls on the visible PCM node while a stopped bounded source is retained', async () => {
+    setSelectedFile();
+    setBoundedV1Current('host', 'playing', 31);
+    setState('demo.active', true);
+    const stop = vi.fn();
+    const disconnect = vi.fn();
+    setPlayerNode({
+      stop,
+      disconnect,
+      onended: null,
+      buffer: {},
+    } as unknown as AudioBufferSourceNode);
+
+    pause(undefined, { showToast: false });
+    await drainMicrotasks();
+
+    expect(stop).toHaveBeenCalledOnce();
+    expect(disconnect).toHaveBeenCalledOnce();
+    expect(boundedV1.product.applyControl).not.toHaveBeenCalled();
+    expect(getState('playback.activity')).toBe('paused');
+  });
+
+  it('resumes a restored stopped bounded source from its canonical checkpoint', async () => {
+    setSelectedFile();
+    setBoundedV1Current('host', 'stopped', 41.25, 204.5);
+
+    togglePlay();
+    await drainMicrotasks();
+
+    expect(boundedV1.product.scheduleHostControl).toHaveBeenCalledWith({
+      kind: 'play',
+      queueItemId: Q1,
+      legacySessionId: 17,
+      positionSeconds: 41.25,
+      startAtRoomTimeMs: 10_400,
+    });
+    expect(broadcast).toHaveBeenCalledWith({
+      type: MSG.PLAY,
+      time: 41.25,
+      queueItemId: Q1,
+      name: undefined,
+      hostPlayAt: 10_400,
+    });
+  });
+
   it('captures the exact bounded guest before terminal PAUSE deselects it', async () => {
     const conn = {
       peer: 'transport-bounded-v1-host',

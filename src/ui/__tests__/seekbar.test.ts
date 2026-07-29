@@ -10,10 +10,42 @@ import { getTrackPosition, seekTo } from '../../player/transport.ts';
 
 const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
 
+const boundedV1 = vi.hoisted(() => {
+  const state: {
+    snapshot: {
+      active: boolean;
+      role: 'host' | 'guest' | 'idle';
+      current: {
+        queueItemId: string;
+        legacySessionId: number;
+        state: 'ready';
+        phase: 'playing' | 'paused' | 'stopped';
+        positionSeconds: number;
+        durationSeconds: number;
+      } | null;
+    };
+    positionSeconds: number | null;
+  } = {
+    snapshot: { active: false, role: 'idle', current: null },
+    positionSeconds: null,
+  };
+  return {
+    state,
+    product: {
+      snapshot: vi.fn(() => state.snapshot),
+      positionSeconds: vi.fn(() => state.positionSeconds),
+    },
+  };
+});
+
 vi.mock('../../player/transport.ts', () => ({
   fmtTime: vi.fn((seconds: number) => `fmt:${Math.floor(seconds)}`),
   getTrackPosition: vi.fn(() => 0),
   seekTo: vi.fn(),
+}));
+
+vi.mock('../../player/legacy-bounded-file-v1-product.ts', () => ({
+  legacyBoundedFileV1Product: boundedV1.product,
 }));
 
 beforeEach(() => {
@@ -22,6 +54,8 @@ beforeEach(() => {
   clearAllManagedTimers();
   vi.mocked(seekTo).mockClear();
   vi.mocked(getTrackPosition).mockReturnValue(0);
+  boundedV1.state.snapshot = { active: false, role: 'idle', current: null };
+  boundedV1.state.positionSeconds = null;
   document.body.innerHTML = `
     <input id="seek-slider" type="range" value="0" max="120" />
     <span id="time-curr"></span>
@@ -61,6 +95,36 @@ describe('initSeekBar playback mode gates', () => {
 
     slider.dispatchEvent(new Event('change'));
     expect(seekTo).toHaveBeenCalledWith(42);
+  });
+
+  it('restores an AudioBuffer-free bounded timeline after system audio exits', () => {
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setState('player.pausedAt', 83.25);
+    setState('playback.mode', 'system-audio');
+    setState('playback.activity', 'playing');
+    boundedV1.state.snapshot = {
+      active: true,
+      role: 'host',
+      current: {
+        queueItemId: QUEUE_ITEM_ID,
+        legacySessionId: 7,
+        state: 'ready',
+        phase: 'stopped',
+        positionSeconds: 0,
+        durationSeconds: 245.5,
+      },
+    };
+    boundedV1.state.positionSeconds = 0;
+    initSeekBar();
+
+    setState('playback.activity', 'paused');
+    setState('playback.mode', 'file');
+
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    expect(slider.max).toBe('245.5');
+    expect(slider.value).toBe('83.25');
+    expect(document.getElementById('time-curr')?.innerText).toBe('fmt:83');
+    expect(document.getElementById('time-dur')?.innerText).toBe('fmt:245');
   });
 
   it('freezes file interpolation immediately at the exact paused position', () => {

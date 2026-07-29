@@ -13,6 +13,8 @@
  * Optional env:
  * - R2_BUCKET_NAME: default musixquare-remote-share
  * - OBJECT_TTL_SECONDS: default 3600
+ * - RECORD_SET_TTL_SECONDS: default 21600; an explicitly configured legacy
+ *     OBJECT_TTL_SECONDS remains the fallback when this is absent
  * - UPLOAD_TOKEN_TTL_SECONDS: presigned PUT start window, default 600
  * - RATE_LIMIT_WINDOW_SECONDS: default 3600
  * - IP_UPLOADS_PER_WINDOW: default 60
@@ -35,6 +37,7 @@ const REMOTE_SHARE_MAX_BYTES = 200 * 1024 * 1024;
 const AES_GCM_TAG_BYTES = 16;
 const REMOTE_SHARE_MAX_ENCRYPTED_BYTES = REMOTE_SHARE_MAX_BYTES + AES_GCM_TAG_BYTES;
 const DEFAULT_TTL_SECONDS = 60 * 60;
+const DEFAULT_RECORD_SET_TTL_SECONDS = 6 * 60 * 60;
 const DEFAULT_UPLOAD_TOKEN_TTL_SECONDS = 10 * 60;
 const DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 const DEFAULT_IP_UPLOADS_PER_WINDOW = 60;
@@ -53,6 +56,8 @@ const QUOTA_STATE_KEY = 'quota-state';
 const QUOTA_STATE_VERSION = 1;
 const QUOTA_STATE_MAX_ENTRIES = ROOM_STORAGE_SCAN_MAX_OBJECTS;
 const QUOTA_ALARM_RETRY_MS = 60 * 1000;
+const EXPIRY_TOMBSTONE_SWEEP_MS = 60 * 1000;
+const EXPIRY_TOMBSTONE_QUIET_MS = 60 * 60 * 1000;
 const RECORD_SET_FORMAT_VERSION = 2;
 const RECORD_SET_PLAINTEXT_BYTES = 8 * 1024 * 1024;
 const RECORD_SET_MAX_RECORDS = Math.ceil(REMOTE_SHARE_MAX_BYTES / RECORD_SET_PLAINTEXT_BYTES);
@@ -245,6 +250,16 @@ function parseOptionalLimit(value, fallback) {
   if (value === undefined || value === null || String(value).trim() === '') return fallback;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function recordSetTtlSeconds(env) {
+  // Preserve the original OBJECT_TTL_SECONDS override for staging and focused
+  // expiry tests while allowing record streaming to outlive V1's one-hour
+  // whole-object window. Production config sets the record value explicitly.
+  return parseLimit(
+    env.RECORD_SET_TTL_SECONDS ?? env.OBJECT_TTL_SECONDS,
+    DEFAULT_RECORD_SET_TTL_SECONDS,
+  );
 }
 
 function getSigningSecret(env) {
@@ -782,6 +797,7 @@ async function deleteBucketKeysInChunks(bucket, keys) {
 async function inspectRoomStorage(bucket, roomId, now) {
   const prefix = `room/${roomId}/`;
   const staleKeys = [];
+  const observedKeys = new Set();
   const activeKeys = new Set();
   let cursor;
   let scannedObjects = 0;
@@ -801,6 +817,7 @@ async function inspectRoomStorage(bucket, roomId, now) {
         saturated = true;
         break;
       }
+      observedKeys.add(object.key);
       const expiresAt = Number(readMetadata(object, 'expiresAt', 'expires-at', 'expiresat'));
       if (Number.isFinite(expiresAt) && expiresAt <= now) {
         staleKeys.push(object.key);
@@ -819,6 +836,7 @@ async function inspectRoomStorage(bucket, roomId, now) {
   if (staleKeys.length > 0) await deleteBucketKeysInChunks(bucket, staleKeys);
   return {
     activeKeys,
+    observedKeys,
     totalBytes: saturated ? Number.POSITIVE_INFINITY : totalBytes,
   };
 }
@@ -1137,7 +1155,7 @@ async function handleRecordSetCreate(request, env) {
   if (rateError) return rateError;
 
   const now = Date.now();
-  const objectTtlSeconds = parseLimit(env.OBJECT_TTL_SECONDS, DEFAULT_TTL_SECONDS);
+  const objectTtlSeconds = recordSetTtlSeconds(env);
   const expiresAt = now + objectTtlSeconds * 1000;
   const setId = crypto.randomUUID();
   const cleanupToken = crypto.randomUUID();
@@ -2026,7 +2044,28 @@ function emptyQuotaState(roomId) {
   };
 }
 
+function reservationRetentionDeadline(reservation) {
+  // A presigned PUT is validated when the request starts, not when its body
+  // finishes arriving. There is no provider-backed completion bound that
+  // permits quota to be released at "URL TTL + skew". Keep the exact-byte
+  // reservation through the immutable object expiry instead. After expiry the
+  // record becomes a non-charging tombstone which repeatedly sweeps its exact
+  // incarnation key. The same fence applies to natural expiry: an upload
+  // started before its URL expired can finish after the media lifetime. This
+  // is cleanup defense-in-depth, not a claimed PUT completion bound.
+  return reservation.tombstoneNextSweepAt ?? reservation.expiresAt;
+}
+
 function validQuotaReservation(objectId, value, roomId) {
+  const hasTombstoneFields =
+    value?.tombstoneQuietSince !== undefined ||
+    value?.tombstoneNextSweepAt !== undefined;
+  const validTombstoneFields =
+    !hasTombstoneFields ||
+    (Number.isSafeInteger(value?.tombstoneQuietSince) &&
+      value.tombstoneQuietSince >= value.expiresAt &&
+      Number.isSafeInteger(value?.tombstoneNextSweepAt) &&
+      value.tombstoneNextSweepAt > value.tombstoneQuietSince);
   const hasRecordSetFields =
     value?.setId !== undefined ||
     value?.recordIndex !== undefined ||
@@ -2057,11 +2096,18 @@ function validQuotaReservation(objectId, value, roomId) {
     typeof value.cleanupToken === 'string' &&
     value.cleanupToken.length >= 16 &&
     (value.status === 'reserved' || value.status === 'completed') &&
-    validRecordSetFields
+    validRecordSetFields &&
+    validTombstoneFields
   );
 }
 
 function parseQuotaReservation(body) {
+  if (
+    body?.tombstoneQuietSince !== undefined ||
+    body?.tombstoneNextSweepAt !== undefined
+  ) {
+    return null;
+  }
   const roomId = standardRoomId(body?.roomId);
   const objectId = String(body?.objectId || '');
   const key = objectKey(roomId, objectId);
@@ -2234,7 +2280,7 @@ export class RemoteShareQuota {
   }
 
   async scheduleAlarm(state) {
-    const expiries = Object.values(state.reservations).map((reservation) => reservation.expiresAt);
+    const expiries = Object.values(state.reservations).map(reservationRetentionDeadline);
     if (expiries.length === 0) {
       if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
       return;
@@ -2263,19 +2309,55 @@ export class RemoteShareQuota {
       throw new Error('room storage quota bucket missing');
     }
     const snapshot = await inspectRoomStorage(this.env.REMOTE_SHARE_BUCKET, state.roomId, now);
+    const expiredReservationKeys = Object.values(state.reservations)
+      .filter((reservation) => reservation.expiresAt <= now)
+      .map((reservation) => reservation.objectKey);
+    if (expiredReservationKeys.length > 0) {
+      // The prefix scan removes correctly tagged expired objects. Delete the
+      // exact incarnation keys as well so malformed or very late arrivals are
+      // swept without ever being adopted by a successor set.
+      await deleteBucketKeysInChunks(this.env.REMOTE_SHARE_BUCKET, expiredReservationKeys);
+    }
     let changed = false;
     for (const [objectId, reservation] of Object.entries(state.reservations)) {
-      if (reservation.expiresAt <= now) {
+      if (reservation.expiresAt > now) continue;
+
+      const observed = snapshot.observedKeys.has(reservation.objectKey);
+      const priorQuietSince = reservation.tombstoneQuietSince;
+      const quietSince =
+        observed || !Number.isSafeInteger(priorQuietSince) ? now : priorQuietSince;
+      if (
+        !observed &&
+        Number.isSafeInteger(priorQuietSince) &&
+        now - priorQuietSince >= EXPIRY_TOMBSTONE_QUIET_MS
+      ) {
         delete state.reservations[objectId];
+        changed = true;
+        continue;
+      }
+      const tombstoneNextSweepAt = now + EXPIRY_TOMBSTONE_SWEEP_MS;
+      if (
+        reservation.tombstoneQuietSince !== quietSince ||
+        reservation.tombstoneNextSweepAt !== tombstoneNextSweepAt
+      ) {
+        state.reservations[objectId] = {
+          ...reservation,
+          tombstoneQuietSince: quietSince,
+          tombstoneNextSweepAt,
+        };
         changed = true;
       }
     }
     return { changed, snapshot };
   }
 
-  accountedBytes(state, snapshot) {
+  accountedBytes(state, snapshot, now) {
     let totalBytes = snapshot.totalBytes;
     for (const reservation of Object.values(state.reservations)) {
+      // Every expired object is unusable at the download boundary. Its exact
+      // key remains in repeated-sweep tombstone state, but it no longer
+      // consumes active media quota.
+      if (reservation.expiresAt <= now) continue;
       if (!snapshot.activeKeys.has(reservation.objectKey)) {
         totalBytes += reservation.encryptedSize;
       }
@@ -2373,7 +2455,7 @@ export class RemoteShareQuota {
       (total, reservation) => total + reservation.encryptedSize,
       0,
     );
-    const accountedBytes = this.accountedBytes(state, snapshot);
+    const accountedBytes = this.accountedBytes(state, snapshot, now);
     if (!Number.isSafeInteger(additionalBytes) || accountedBytes + additionalBytes > quotaBytes) {
       await this.maintainState(state, changed);
       return quotaJson(
@@ -2464,6 +2546,10 @@ export class RemoteShareQuota {
       return quotaJson({ error: 'RESERVATION_MISSING' }, 404);
     }
     const revokedAt = Date.now();
+    if (records.some((reservation) => reservation.expiresAt <= revokedAt)) {
+      await this.scheduleAlarm(state);
+      return quotaJson({ error: 'RESERVATION_MISSING' }, 404);
+    }
     let changed = false;
     for (const reservation of records) {
       if (reservation.revokedAt === undefined) {
@@ -2503,7 +2589,7 @@ export class RemoteShareQuota {
       await this.maintainState(state, changed);
       return quotaJson({ error: 'QUOTA_UNAVAILABLE' }, 503);
     }
-    const accountedBytes = this.accountedBytes(state, snapshot);
+    const accountedBytes = this.accountedBytes(state, snapshot, now);
     if (accountedBytes + reservation.encryptedSize > quotaBytes) {
       await this.maintainState(state, changed);
       return quotaJson(
@@ -2547,7 +2633,7 @@ export class RemoteShareQuota {
     // Disabling new quota admission must not strand reservations already
     // issued by the previous configuration. They still settle through this
     // Durable Object; only the over-limit decision is disabled.
-    if (quotaBytes > 0 && this.accountedBytes(state, snapshot) > quotaBytes) {
+    if (quotaBytes > 0 && this.accountedBytes(state, snapshot, now) > quotaBytes) {
       await this.maintainState(state, changed);
       return quotaJson(
         {

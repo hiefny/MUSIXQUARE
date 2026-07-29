@@ -479,15 +479,12 @@ path.
 - One room has a hard **1 GiB** quota.
 - One file has a hard **200 MiB** limit.
 - The per-file limit is an intentional browser playback bound, not another
-  storage entitlement. The private-beta client first attempts the same bounded
-  streaming decoders used by the universal file engine for supported
-  FLAC/WAV/AIFF/CAF, MP3, AAC, and M4A assets. It reads immutable R2 objects
-  through strict byte ranges with a small in-memory window and binds every
-  refreshed signed URL to the exact asset identity. Unsupported formats and
-  explicit pre-admission browser capability incompatibility use the
-  established whole-object fallback. Once the bounded route is selected,
-  deadline expiry and Range, identity, or integrity inconsistencies fail
-  closed and never silently enter that fallback.
+  storage entitlement. PRO currently retains its established server-authority
+  V1 playback path. The experimental standard-room `beta-bounded` coordinator
+  explicitly rejects PRO room ownership, so a beta flag cannot accidentally
+  move a persistent room onto the MP3/M4A record-set path. The universal
+  decoders remain repository capability for a later separately reviewed PRO
+  cutover.
 - The **200 MiB** limit remains in force because compatibility fallback can
   still download an encoded object and decode a full `AudioBuffer`; bounded
   streaming is not grounds to raise the limit until fallback, device, and soak
@@ -526,12 +523,12 @@ preloads, decoded PCM, and partially received files remain RAM-only. Do not add
 OPFS or IndexedDB media bodies as part of PRO rollout. Any OPFS experiment must
 pass that ADR's separate device, soak, reclamation, and rollback gates.
 
-The PRO bounded path owns a manager separate from the standard-room playback
-controller. PREPARE may resolve and prime an inaudible candidate, while only a
-matching server COMMIT can publish playback ownership or make it audible.
-Pause, resume, seek, stop, natural end, room epoch, and playback revision remain
-server-authoritative. A stale candidate, signed URL, range response, or
-incarnation cannot acquire a newer room's playback authority.
+Any future PRO bounded path must own a manager separate from the standard-room
+playback controller. PREPARE may resolve and prime an inaudible candidate,
+while only a matching server COMMIT may publish playback ownership or make it
+audible. Pause, resume, seek, stop, natural end, room epoch, and playback
+revision remain server-authoritative. A stale candidate, signed URL, range
+response, or incarnation must never acquire a newer room's playback authority.
 
 ## Initial Cloudflare Provisioning
 

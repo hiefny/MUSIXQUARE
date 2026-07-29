@@ -1605,6 +1605,9 @@ describe('atomic batch playlist removal', () => {
     setState('playlist.items', [a, b, c, d]);
     setState('playlist.currentQueueItemId', b.queueItemId);
     setState('playlist.revision', 12);
+    const cleanup = vi
+      .spyOn(legacyBoundedFileV1Product, 'removeQueueItem')
+      .mockResolvedValue('removed');
     initPlaylist();
 
     bus.emit('playlist:remove-tracks', [a.queueItemId, c.queueItemId, a.queueItemId, unknown]);
@@ -1612,6 +1615,10 @@ describe('atomic batch playlist removal', () => {
     expect(getState('playlist.items')).toEqual([b, d]);
     expect(getState('playlist.currentQueueItemId')).toBe(b.queueItemId);
     expect(getState('playlist.revision')).toBe(13);
+    expect(cleanup.mock.calls.map(([queueItemId]) => queueItemId)).toEqual([
+      a.queueItemId,
+      c.queueItemId,
+    ]);
     const snapshots = send.mock.calls
       .map(([message]) => message as { type?: string; revision?: number })
       .filter((message) => message.type === MSG.PLAYLIST_UPDATE);

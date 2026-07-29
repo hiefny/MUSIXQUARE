@@ -17,7 +17,6 @@ import {
   uploadR2WholeBlobObject,
   type ProgressHandler,
   type R2RecordSetUploadSession,
-  type R2WholeBlobDeleteResult,
 } from '../share/r2-client.ts';
 import { R2RecordCryptoV2 } from '../share/r2-record-crypto-v2.ts';
 import type { QueueItemId } from '../types/index.ts';
@@ -36,6 +35,11 @@ const MAX_IDENTIFIER_LENGTH = 256;
 const MAX_FILE_NAME_LENGTH = 512;
 const MAX_MIME_LENGTH = 128;
 const MIME_PATTERN = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u;
+const RECORD_PUBLICATION_MIN_REMAINING_MS = 60_000;
+const INITIAL_RECORD_UPLOAD_ATTEMPTS = 3;
+const EXPOSED_TAIL_UPLOAD_ATTEMPTS = 10;
+const RECORD_UPLOAD_RETRY_BASE_MS = 150;
+const RECORD_UPLOAD_RETRY_MAX_MS = 10_000;
 
 type DecodeMemoryBudget = ReturnType<typeof resolveDecodeMemoryBudget>;
 
@@ -91,6 +95,7 @@ export interface FilePlaybackR2RecordPublication {
 }
 
 export interface FilePlaybackR2WholeBlobPublisherRuntime {
+  readonly now: () => number;
   readonly createStorageRoomId: () => string;
   readonly encrypt: typeof encryptR2WholeBlobV2;
   readonly upload: typeof uploadR2WholeBlobObject;
@@ -142,6 +147,12 @@ interface RecordPublicationRecord {
   readonly session: Readonly<R2RecordSetUploadSession>;
 }
 
+interface RetiredRecordPublicationRecord {
+  readonly queueItemId: QueueItemId;
+  readonly publication: Readonly<FilePlaybackR2RecordPublication>;
+  readonly session: Readonly<R2RecordSetUploadSession>;
+}
+
 interface RecordInFlightRecord {
   readonly source: CanonicalSource;
   readonly applicationSessionId: string;
@@ -149,6 +160,22 @@ interface RecordInFlightRecord {
   readonly controller: AbortController;
   readonly ready: Promise<Readonly<FilePlaybackR2RecordPublication>>;
   readonly complete: Promise<void>;
+  readonly progress: {
+    tailComplete: boolean;
+    futureOffersBlocked: boolean;
+  };
+}
+
+interface WholeBlobCleanupRecord {
+  readonly queueItemId: QueueItemId;
+  readonly storageRoomId: string;
+  readonly objectId: string;
+  readonly cleanupToken: string;
+}
+
+interface RecordSetCleanupRecord {
+  readonly queueItemId: QueueItemId;
+  readonly session: Readonly<R2RecordSetUploadSession>;
 }
 
 function freezeCanonical<T extends object>(value: T): Readonly<T> {
@@ -274,6 +301,19 @@ function waitForRecordRetry(signal: AbortSignal, delayMs: number): Promise<void>
   });
 }
 
+function isNonDestructiveRecordRetirement(signal: AbortSignal): boolean {
+  return (
+    signal.aborted &&
+    signal.reason instanceof Error &&
+    (signal.reason.message === 'FILE_PLAYBACK_R2_RECORD_PUBLICATION_ROTATED' ||
+      signal.reason.message === 'FILE_PLAYBACK_R2_RECORD_PUBLISH_SUPERSEDED')
+  );
+}
+
+function recordUploadRetryDelayMs(attempt: number): number {
+  return Math.min(RECORD_UPLOAD_RETRY_MAX_MS, RECORD_UPLOAD_RETRY_BASE_MS * 2 ** attempt);
+}
+
 function defaultStorageRoomId(): string {
   const uuid = globalThis.crypto?.randomUUID?.();
   if (typeof uuid !== 'string') throw new Error('REMOTE_SHARE_V2_STORAGE_ROOM_ID_UNAVAILABLE');
@@ -281,6 +321,7 @@ function defaultStorageRoomId(): string {
 }
 
 const defaultRuntime: Readonly<FilePlaybackR2WholeBlobPublisherRuntime> = Object.freeze({
+  now: Date.now,
   createStorageRoomId: defaultStorageRoomId,
   encrypt: encryptR2WholeBlobV2,
   upload: uploadR2WholeBlobObject,
@@ -302,6 +343,7 @@ function runtimeSnapshot(
 ): Readonly<FilePlaybackR2WholeBlobPublisherRuntime> {
   const runtime = { ...defaultRuntime, ...value };
   if (
+    typeof runtime.now !== 'function' ||
     typeof runtime.createStorageRoomId !== 'function' ||
     typeof runtime.encrypt !== 'function' ||
     typeof runtime.upload !== 'function' ||
@@ -329,6 +371,11 @@ export class FilePlaybackR2WholeBlobPublisher {
   readonly #publications = new Map<QueueItemId, PublicationRecord>();
   readonly #recordInFlight = new Map<QueueItemId, RecordInFlightRecord>();
   readonly #recordPublications = new Map<QueueItemId, RecordPublicationRecord>();
+  readonly #retiredRecordPublications = new Set<RetiredRecordPublicationRecord>();
+  readonly #failedWholeBlobCleanups = new Set<WholeBlobCleanupRecord>();
+  readonly #failedRecordSetCleanups = new Set<RecordSetCleanupRecord>();
+  readonly #wholeBlobCleanupInFlight = new Map<string, Promise<void>>();
+  readonly #recordSetCleanupInFlight = new Map<string, Promise<void>>();
   readonly #removedQueueItems = new Set<QueueItemId>();
   #closed = false;
   #closePromise: Promise<void> | null = null;
@@ -358,6 +405,14 @@ export class FilePlaybackR2WholeBlobPublisher {
     const source = canonicalSource(value);
     if (!source) {
       return Promise.reject(new TypeError('File playback R2 publish source is invalid'));
+    }
+    const failedCleanups = [...this.#failedWholeBlobCleanups].filter(
+      (record) => record.queueItemId === source.queueItemId,
+    );
+    if (failedCleanups.length > 0) {
+      return this.#retryFailedWholeBlobCleanups(failedCleanups).then(() =>
+        this.publish(value, onProgress),
+      );
     }
     if (this.#removedQueueItems.has(source.queueItemId)) {
       return Promise.reject(new Error('FILE_PLAYBACK_R2_PUBLISH_SOURCE_RETIRED'));
@@ -392,8 +447,11 @@ export class FilePlaybackR2WholeBlobPublisher {
   /**
    * Publish one independently encrypted record set shared by every eligible
    * guest connection in this exact room/application/source incarnation.
-   * The returned promise becomes ready after record 0 is durably completed;
-   * remaining records continue in the room-owned background task.
+   * The returned promise becomes ready after record zero is durably completed;
+   * the remaining immutable records continue uploading in publisher-owned
+   * background work. A tail failure removes the set from future offers without
+   * revoking an already-issued descriptor, then retains exact cleanup authority
+   * until descriptor expiry or explicit queue/room retirement.
    */
   publishRecordSet(
     value: Readonly<FilePlaybackR2WholeBlobPublishSource>,
@@ -413,48 +471,90 @@ export class FilePlaybackR2WholeBlobPublisher {
     ) {
       return Promise.reject(new TypeError('File playback R2 record publish source is invalid'));
     }
+    this.#pruneExpiredRetiredRecordPublications();
+    const failedCleanups = [...this.#failedRecordSetCleanups].filter(
+      (record) => record.queueItemId === source.queueItemId,
+    );
+    if (failedCleanups.length > 0) {
+      return this.#retryFailedRecordSetCleanups(failedCleanups).then(() =>
+        this.publishRecordSet(value, options),
+      );
+    }
     if (this.#removedQueueItems.has(source.queueItemId)) {
       return Promise.reject(new Error('FILE_PLAYBACK_R2_PUBLISH_SOURCE_RETIRED'));
     }
     const published = this.#recordPublications.get(source.queueItemId);
+    let rotated = false;
     if (published) {
-      return sameSource(published.source, source) &&
-        published.storageRoomId === options.storageRoomId &&
-        published.applicationSessionId === options.applicationSessionId
-        ? Promise.resolve(published.publication)
-        : Promise.reject(new Error('FILE_PLAYBACK_R2_RECORD_PUBLISH_SOURCE_CONFLICT'));
+      if (
+        !sameSource(published.source, source) ||
+        published.storageRoomId !== options.storageRoomId ||
+        published.applicationSessionId !== options.applicationSessionId
+      ) {
+        return Promise.reject(new Error('FILE_PLAYBACK_R2_RECORD_PUBLISH_SOURCE_CONFLICT'));
+      }
+      if (this.#recordPublicationReusable(published.publication)) {
+        return Promise.resolve(published.publication);
+      }
+      this.#recordPublications.delete(source.queueItemId);
+      // Existing readers may still be consuming the old descriptor. Rotate it
+      // out of future offers without revoking its records mid-playback; room
+      // close or exact queue retirement performs the authenticated cleanup.
+      this.#retireRecordPublication({
+        queueItemId: published.source.queueItemId,
+        publication: published.publication,
+        session: published.session,
+      });
+      this.#pruneExpiredRetiredRecordPublications();
+      this.#recordInFlight
+        .get(source.queueItemId)
+        ?.controller.abort(new Error('FILE_PLAYBACK_R2_RECORD_PUBLICATION_ROTATED'));
+      rotated = true;
     }
     const pending = this.#recordInFlight.get(source.queueItemId);
     if (pending) {
-      return sameSource(pending.source, source) &&
-        pending.storageRoomId === options.storageRoomId &&
-        pending.applicationSessionId === options.applicationSessionId
-        ? pending.ready
-        : Promise.reject(new Error('FILE_PLAYBACK_R2_RECORD_PUBLISH_SOURCE_CONFLICT'));
+      if (
+        !sameSource(pending.source, source) ||
+        pending.storageRoomId !== options.storageRoomId ||
+        pending.applicationSessionId !== options.applicationSessionId
+      ) {
+        return Promise.reject(new Error('FILE_PLAYBACK_R2_RECORD_PUBLISH_SOURCE_CONFLICT'));
+      }
+      if (
+        rotated ||
+        pending.progress.futureOffersBlocked ||
+        isNonDestructiveRecordRetirement(pending.controller.signal)
+      ) {
+        return pending.complete
+          .catch(() => undefined)
+          .then(() => this.publishRecordSet(value, options));
+      }
+      return pending.ready;
     }
 
     const controller = new AbortController();
-    let resolveReady!: (value: Readonly<FilePlaybackR2RecordPublication>) => void;
+    let resolveReady!: (publication: Readonly<FilePlaybackR2RecordPublication>) => void;
     let rejectReady!: (error: unknown) => void;
-    let readySettled = false;
     const ready = new Promise<Readonly<FilePlaybackR2RecordPublication>>((resolve, reject) => {
-      resolveReady = (publication) => {
-        if (readySettled) return;
-        readySettled = true;
-        resolve(publication);
-      };
-      rejectReady = (error) => {
-        if (readySettled) return;
-        readySettled = true;
-        reject(error);
-      };
+      resolveReady = resolve;
+      rejectReady = reject;
     });
+    const progress = {
+      tailComplete: false,
+      futureOffersBlocked: false,
+    };
     const complete = this.#publishRecordSetPhysical(
       source,
       options.storageRoomId,
       options.applicationSessionId,
       controller.signal,
       resolveReady,
+      () => {
+        progress.tailComplete = true;
+      },
+      () => {
+        progress.futureOffersBlocked = true;
+      },
     )
       .catch((error) => {
         rejectReady(error);
@@ -472,20 +572,63 @@ export class FilePlaybackR2WholeBlobPublisher {
       controller,
       ready,
       complete,
+      progress,
     };
     this.#recordInFlight.set(source.queueItemId, record);
+    // Tail upload continues after record zero becomes playable. Its failure is
+    // reflected by retiring this publication from future offers; the already
+    // resolved first-record readiness promise must not become unhandled.
     void complete.catch(() => undefined);
     return ready;
   }
 
   currentRecordSet(queueItemId: QueueItemId): Readonly<FilePlaybackR2RecordPublication> | null {
-    return this.#recordPublications.get(queueItemId)?.publication ?? null;
+    this.#pruneExpiredRetiredRecordPublications();
+    const record = this.#recordPublications.get(queueItemId);
+    if (!record) return null;
+    if (this.#recordPublicationReusable(record.publication)) return record.publication;
+    this.#recordPublications.delete(queueItemId);
+    this.#retireRecordPublication({
+      queueItemId: record.source.queueItemId,
+      publication: record.publication,
+      session: record.session,
+    });
+    this.#recordInFlight
+      .get(queueItemId)
+      ?.controller.abort(new Error('FILE_PLAYBACK_R2_RECORD_PUBLICATION_ROTATED'));
+    this.#pruneExpiredRetiredRecordPublications();
+    return null;
+  }
+
+  /**
+   * Yield bandwidth to a newer queue occurrence without permanently retiring
+   * this occurrence. A fully completed publication is deliberately preserved
+   * for repeat/revisit; only unfinished physical work is cancelled.
+   */
+  async cancelPendingRecordSet(queueItemId: QueueItemId): Promise<boolean> {
+    if (!isQueueItemId(queueItemId)) {
+      throw new TypeError('File playback R2 queue item ID is invalid');
+    }
+    this.#pruneExpiredRetiredRecordPublications();
+    const pending = this.#recordInFlight.get(queueItemId);
+    if (!pending) return false;
+    if (pending.progress.tailComplete) return false;
+    pending.controller.abort(new Error('FILE_PLAYBACK_R2_RECORD_PUBLISH_SUPERSEDED'));
+    await Promise.allSettled([pending.complete]);
+    const failedCleanups = [...this.#failedRecordSetCleanups].filter(
+      (record) => record.queueItemId === queueItemId,
+    );
+    if (failedCleanups.length > 0) {
+      await this.#retryFailedRecordSetCleanups(failedCleanups);
+    }
+    return true;
   }
 
   async removeQueueItem(queueItemId: QueueItemId): Promise<boolean> {
     if (!isQueueItemId(queueItemId)) {
       throw new TypeError('File playback R2 queue item ID is invalid');
     }
+    this.#pruneExpiredRetiredRecordPublications();
     this.#removedQueueItems.add(queueItemId);
     const pending = this.#inFlight.get(queueItemId);
     if (pending) pending.controller.abort(new Error('FILE_PLAYBACK_R2_PUBLISH_SOURCE_RETIRED'));
@@ -497,20 +640,14 @@ export class FilePlaybackR2WholeBlobPublisher {
     if (pending) pendingTasks.push(pending.promise);
     if (pendingRecord) pendingTasks.push(pendingRecord.complete);
     await Promise.allSettled(pendingTasks);
-    const publication = this.#publications.get(queueItemId);
-    const recordPublication = this.#recordPublications.get(queueItemId);
-    this.#publications.delete(queueItemId);
-    this.#recordPublications.delete(queueItemId);
-    await Promise.allSettled([
-      ...(publication ? [this.#delete(publication)] : []),
-      ...(recordPublication ? [this.#deleteRecordPublication(recordPublication)] : []),
-    ]);
-    return !!(pending || pendingRecord || publication || recordPublication);
+    const cleaned = await this.#cleanupQueueItem(queueItemId);
+    return !!(pending || pendingRecord || cleaned);
   }
 
   close(): Promise<void> {
     if (this.#closePromise) return this.#closePromise;
     this.#closed = true;
+    this.#pruneExpiredRetiredRecordPublications();
     const pending = [...this.#inFlight.values()];
     for (const record of pending) {
       record.controller.abort(new Error('FILE_PLAYBACK_R2_PUBLISHER_CLOSED'));
@@ -520,20 +657,36 @@ export class FilePlaybackR2WholeBlobPublisher {
     for (const record of pendingRecords) {
       record.controller.abort(new Error('FILE_PLAYBACK_R2_PUBLISHER_CLOSED'));
     }
-    const recordPublications = [...this.#recordPublications.values()];
-    this.#publications.clear();
-    this.#recordPublications.clear();
-    this.#closePromise = (async () => {
+    const closePromise = (async () => {
       await Promise.allSettled([
         ...pending.map((record) => record.promise),
         ...pendingRecords.map((record) => record.complete),
       ]);
-      await Promise.allSettled([
-        ...publications.map((record) => this.#delete(record)),
-        ...recordPublications.map((record) => this.#deleteRecordPublication(record)),
+      const queueItemIds = new Set<QueueItemId>([
+        ...publications.map((record) => record.source.queueItemId),
+        ...this.#publications.keys(),
+        ...this.#recordPublications.keys(),
+        ...[...this.#retiredRecordPublications].map((record) => record.queueItemId),
+        ...[...this.#failedWholeBlobCleanups].map((record) => record.queueItemId),
+        ...[...this.#failedRecordSetCleanups].map((record) => record.queueItemId),
       ]);
+      const outcomes = await Promise.allSettled(
+        [...queueItemIds].map((queueItemId) => this.#cleanupQueueItem(queueItemId)),
+      );
+      const errors = outcomes.flatMap((outcome) =>
+        outcome.status === 'rejected' ? [outcome.reason] : [],
+      );
+      if (errors.length > 0) {
+        throw new AggregateError(errors, 'File playback R2 publisher cleanup failed');
+      }
     })();
-    return this.#closePromise;
+    this.#closePromise = closePromise;
+    void closePromise.catch(() => {
+      // Keep every failed cleanup record and permit an explicit later close()
+      // retry. The publisher remains closed to new publication throughout.
+      if (this.#closePromise === closePromise) this.#closePromise = null;
+    });
+    return closePromise;
   }
 
   async #publishPhysical(
@@ -585,6 +738,12 @@ export class FilePlaybackR2WholeBlobPublisher {
         onProgress,
         signal,
       );
+      const cleanupRecord: WholeBlobCleanupRecord = Object.freeze({
+        queueItemId: source.queueItemId,
+        storageRoomId: this.#storageRoomId,
+        objectId: uploaded.objectId,
+        cleanupToken: uploaded.cleanupToken,
+      });
       let committed = false;
       try {
         this.#assertCurrent(source, signal);
@@ -612,16 +771,20 @@ export class FilePlaybackR2WholeBlobPublisher {
         this.#publications.set(source.queueItemId, record);
         committed = true;
         return publication;
-      } finally {
+      } catch (error) {
         if (!committed) {
-          await Promise.resolve(
-            this.#runtime.deleteObject(
-              this.#storageRoomId,
-              uploaded.objectId,
-              uploaded.cleanupToken,
-            ),
-          ).catch(() => undefined);
+          try {
+            await this.#deleteWholeBlobCleanup(cleanupRecord);
+          } catch (cleanupError) {
+            this.#failedWholeBlobCleanups.add(cleanupRecord);
+            throw new AggregateError(
+              [error, cleanupError],
+              'File playback R2 partial object cleanup failed',
+              { cause: cleanupError },
+            );
+          }
         }
+        throw error;
       }
     } finally {
       reservation?.release();
@@ -634,12 +797,16 @@ export class FilePlaybackR2WholeBlobPublisher {
     applicationSessionId: string,
     signal: AbortSignal,
     resolveReady: (publication: Readonly<FilePlaybackR2RecordPublication>) => void,
+    markTailComplete: () => void,
+    blockFutureOffers: () => void,
   ): Promise<void> {
     this.#assertRecordCurrent(source, storageRoomId, applicationSessionId, signal);
     const recordSize = R2RecordCryptoV2.RECORD_PLAINTEXT_BYTES;
     const recordCount = Math.ceil(source.blob.size / recordSize);
     let session: Readonly<R2RecordSetUploadSession> | null = null;
     let encryptor: Awaited<ReturnType<typeof R2RecordCryptoV2.createEncryptor>> | null = null;
+    let publication: Readonly<FilePlaybackR2RecordPublication> | null = null;
+    let exposed = false;
     try {
       const activeSession = await this.#runtime.createRecordSet(
         {
@@ -684,7 +851,7 @@ export class FilePlaybackR2WholeBlobPublisher {
           encryptedSize: record.encryptedSize,
         });
       });
-      const publication = freezeCanonical({
+      publication = freezeCanonical({
         schemaVersion: 1 as const,
         queueItemId: source.queueItemId,
         sourceIdentity: source.sourceIdentity,
@@ -717,7 +884,10 @@ export class FilePlaybackR2WholeBlobPublisher {
         let completion: Awaited<
           ReturnType<FilePlaybackR2WholeBlobPublisherRuntime['completeRecord']>
         > | null = null;
-        for (let attempt = 0; attempt < 3; attempt += 1) {
+        const uploadAttempts = exposed
+          ? EXPOSED_TAIL_UPLOAD_ATTEMPTS
+          : INITIAL_RECORD_UPLOAD_ATTEMPTS;
+        for (let attempt = 0; attempt < uploadAttempts; attempt += 1) {
           this.#assertRecordCurrent(source, storageRoomId, applicationSessionId, signal);
           try {
             const authority = await this.#runtime.requestRecordUpload(session, recordIndex, signal);
@@ -733,22 +903,29 @@ export class FilePlaybackR2WholeBlobPublisher {
             }
             if (completion) break;
           } catch (error) {
-            if (!isTransientRecordUploadError(error) || attempt === 2) throw error;
+            if (!isTransientRecordUploadError(error) || attempt === uploadAttempts - 1) {
+              throw error;
+            }
             // The exact immutable lease is deliberately reused. Never invoke
             // encryptRecord again for this index after an ambiguous PUT.
-            await waitForRecordRetry(signal, 150 * (attempt + 1));
+            await waitForRecordRetry(signal, recordUploadRetryDelayMs(attempt));
           }
         }
         if (
           !completion ||
           completion.index !== recordIndex ||
-          completion.readyRecordCount < recordIndex + 1
+          completion.readyRecordCount < recordIndex + 1 ||
+          (recordIndex === session.recordCount - 1 &&
+            (completion.readyRecordCount !== session.recordCount || !completion.complete))
         ) {
           throw new Error('FILE_PLAYBACK_R2_RECORD_COMPLETION_INVALID');
         }
         lease.acknowledgeUploaded();
         if (recordIndex === 0) {
           this.#assertRecordCurrent(source, storageRoomId, applicationSessionId, signal);
+          if (!this.#recordPublicationReusable(publication)) {
+            throw new Error('FILE_PLAYBACK_R2_RECORD_PUBLICATION_EXPIRES_TOO_SOON');
+          }
           const record: RecordPublicationRecord = {
             source,
             storageRoomId,
@@ -757,16 +934,55 @@ export class FilePlaybackR2WholeBlobPublisher {
             session,
           };
           this.#recordPublications.set(source.queueItemId, record);
+          exposed = true;
           resolveReady(publication);
+        } else if (this.#recordPublications.get(source.queueItemId)?.session !== session) {
+          throw new Error('FILE_PLAYBACK_R2_RECORD_PUBLISH_SOURCE_STALE');
         }
       }
+      this.#assertRecordCurrent(source, storageRoomId, applicationSessionId, signal);
+      if (exposed && this.#recordPublications.get(source.queueItemId)?.session !== session) {
+        throw new Error('FILE_PLAYBACK_R2_RECORD_PUBLISH_SOURCE_STALE');
+      }
+      markTailComplete();
     } catch (error) {
+      if (exposed) blockFutureOffers();
       const published = this.#recordPublications.get(source.queueItemId);
       if (session && published?.session === session) {
         this.#recordPublications.delete(source.queueItemId);
       }
       if (session) {
-        await this.#runtime.deleteRecordSet(session).catch(() => undefined);
+        if (
+          exposed &&
+          publication &&
+          (!signal.aborted || isNonDestructiveRecordRetirement(signal))
+        ) {
+          // A tail failure after record zero was offered must not revoke bytes
+          // already being consumed by a guest. Remove it from future offers,
+          // retain only the cleanup capability, and delete after descriptor
+          // expiry (or immediately on explicit queue/room retirement).
+          this.#retireRecordPublication({
+            queueItemId: source.queueItemId,
+            publication,
+            session,
+          });
+          this.#pruneExpiredRetiredRecordPublications();
+        } else {
+          try {
+            await this.#deleteRecordSetSession(session);
+          } catch (cleanupError) {
+            const cleanupRecord: RecordSetCleanupRecord = Object.freeze({
+              queueItemId: source.queueItemId,
+              session,
+            });
+            this.#failedRecordSetCleanups.add(cleanupRecord);
+            throw new AggregateError(
+              [error, cleanupError],
+              'File playback R2 partial record-set cleanup failed',
+              { cause: cleanupError },
+            );
+          }
+        }
       }
       throw error;
     } finally {
@@ -794,8 +1010,199 @@ export class FilePlaybackR2WholeBlobPublisher {
     }
   }
 
-  async #deleteRecordPublication(record: RecordPublicationRecord): Promise<void> {
-    await this.#runtime.deleteRecordSet(record.session);
+  async #cleanupQueueItem(queueItemId: QueueItemId): Promise<boolean> {
+    const publication = this.#publications.get(queueItemId);
+    const recordPublication = this.#recordPublications.get(queueItemId);
+    const retiredRecordPublications = [...this.#retiredRecordPublications].filter(
+      (record) => record.queueItemId === queueItemId,
+    );
+    const failedWholeBlobCleanups = [...this.#failedWholeBlobCleanups].filter(
+      (record) => record.queueItemId === queueItemId,
+    );
+    const failedRecordSetCleanups = [...this.#failedRecordSetCleanups].filter(
+      (record) => record.queueItemId === queueItemId,
+    );
+    const found = !!(
+      publication ||
+      recordPublication ||
+      retiredRecordPublications.length > 0 ||
+      failedWholeBlobCleanups.length > 0 ||
+      failedRecordSetCleanups.length > 0
+    );
+    const operations: Promise<void>[] = [];
+    if (publication) {
+      operations.push(
+        this.#delete(publication).then(() => {
+          if (this.#publications.get(queueItemId) === publication) {
+            this.#publications.delete(queueItemId);
+          }
+        }),
+      );
+    }
+    if (recordPublication) {
+      operations.push(
+        this.#deleteRecordPublication(recordPublication).then(() => {
+          if (this.#recordPublications.get(queueItemId) === recordPublication) {
+            this.#recordPublications.delete(queueItemId);
+          }
+        }),
+      );
+    }
+    for (const record of retiredRecordPublications) {
+      operations.push(
+        this.#deleteRecordPublication(record).then(() => {
+          this.#retiredRecordPublications.delete(record);
+        }),
+      );
+    }
+    for (const record of failedWholeBlobCleanups) {
+      operations.push(
+        this.#deleteWholeBlobCleanup(record).then(() => {
+          this.#failedWholeBlobCleanups.delete(record);
+        }),
+      );
+    }
+    for (const record of failedRecordSetCleanups) {
+      operations.push(
+        this.#deleteRecordSetSession(record.session).then(() => {
+          this.#failedRecordSetCleanups.delete(record);
+        }),
+      );
+    }
+    const outcomes = await Promise.allSettled(operations);
+    const errors = outcomes.flatMap((outcome) =>
+      outcome.status === 'rejected' ? [outcome.reason] : [],
+    );
+    if (errors.length > 0) {
+      throw new AggregateError(errors, 'File playback R2 queue item cleanup failed');
+    }
+    return found;
+  }
+
+  async #retryFailedRecordSetCleanups(records: readonly RecordSetCleanupRecord[]): Promise<void> {
+    const outcomes = await Promise.allSettled(
+      records.map((record) =>
+        this.#deleteRecordSetSession(record.session).then(() => {
+          this.#failedRecordSetCleanups.delete(record);
+        }),
+      ),
+    );
+    const errors = outcomes.flatMap((outcome) =>
+      outcome.status === 'rejected' ? [outcome.reason] : [],
+    );
+    if (errors.length > 0) {
+      throw new AggregateError(errors, 'File playback R2 failed cleanup retry failed');
+    }
+  }
+
+  async #retryFailedWholeBlobCleanups(records: readonly WholeBlobCleanupRecord[]): Promise<void> {
+    const outcomes = await Promise.allSettled(
+      records.map((record) =>
+        this.#deleteWholeBlobCleanup(record).then(() => {
+          this.#failedWholeBlobCleanups.delete(record);
+        }),
+      ),
+    );
+    const errors = outcomes.flatMap((outcome) =>
+      outcome.status === 'rejected' ? [outcome.reason] : [],
+    );
+    if (errors.length > 0) {
+      throw new AggregateError(errors, 'File playback R2 failed object cleanup retry failed');
+    }
+  }
+
+  #retireRecordPublication(record: RetiredRecordPublicationRecord): void {
+    if (
+      [...this.#retiredRecordPublications].some(
+        (candidate) =>
+          candidate.session.storageRoomId === record.session.storageRoomId &&
+          candidate.session.setId === record.session.setId,
+      )
+    ) {
+      return;
+    }
+    this.#retiredRecordPublications.add(
+      Object.freeze({
+        queueItemId: record.queueItemId,
+        publication: record.publication,
+        session: record.session,
+      }),
+    );
+  }
+
+  #pruneExpiredRetiredRecordPublications(): void {
+    const now = this.#runtime.now();
+    if (!Number.isSafeInteger(now)) return;
+    for (const record of this.#retiredRecordPublications) {
+      if (record.publication.expiresAtEpochMs > now) continue;
+      void this.#deleteRecordPublication(record).then(
+        () => {
+          this.#retiredRecordPublications.delete(record);
+        },
+        () => {
+          // The record and cleanup token remain in the set. A later publisher
+          // operation, queue removal, or close retries the exact deletion.
+        },
+      );
+    }
+    for (const record of this.#failedRecordSetCleanups) {
+      if (record.session.expiresAt > now) continue;
+      void this.#deleteRecordSetSession(record.session).then(
+        () => {
+          this.#failedRecordSetCleanups.delete(record);
+        },
+        () => {
+          // Preserve the exact cleanup capability for a later retry.
+        },
+      );
+    }
+  }
+
+  #deleteWholeBlobCleanup(record: WholeBlobCleanupRecord): Promise<void> {
+    const key = `${record.storageRoomId}:${record.objectId}`;
+    const existing = this.#wholeBlobCleanupInFlight.get(key);
+    if (existing) return existing;
+    const task = Promise.resolve()
+      .then(() =>
+        this.#runtime.deleteObject(record.storageRoomId, record.objectId, record.cleanupToken),
+      )
+      .then(() => undefined)
+      .finally(() => {
+        if (this.#wholeBlobCleanupInFlight.get(key) === task) {
+          this.#wholeBlobCleanupInFlight.delete(key);
+        }
+      });
+    this.#wholeBlobCleanupInFlight.set(key, task);
+    return task;
+  }
+
+  #deleteRecordSetSession(session: Readonly<R2RecordSetUploadSession>): Promise<void> {
+    const key = `${session.storageRoomId}:${session.setId}`;
+    const existing = this.#recordSetCleanupInFlight.get(key);
+    if (existing) return existing;
+    const task = Promise.resolve()
+      .then(() => this.#runtime.deleteRecordSet(session))
+      .finally(() => {
+        if (this.#recordSetCleanupInFlight.get(key) === task) {
+          this.#recordSetCleanupInFlight.delete(key);
+        }
+      });
+    this.#recordSetCleanupInFlight.set(key, task);
+    return task;
+  }
+
+  async #deleteRecordPublication(
+    record: RecordPublicationRecord | RetiredRecordPublicationRecord,
+  ): Promise<void> {
+    await this.#deleteRecordSetSession(record.session);
+  }
+
+  #recordPublicationReusable(publication: Readonly<FilePlaybackR2RecordPublication>): boolean {
+    const now = this.#runtime.now();
+    return (
+      Number.isSafeInteger(now) &&
+      publication.expiresAtEpochMs - now > RECORD_PUBLICATION_MIN_REMAINING_MS
+    );
   }
 
   #assertCurrent(source: CanonicalSource, signal: AbortSignal): void {
@@ -810,11 +1217,13 @@ export class FilePlaybackR2WholeBlobPublisher {
     }
   }
 
-  async #delete(record: PublicationRecord): Promise<R2WholeBlobDeleteResult> {
-    return this.#runtime.deleteObject(
-      record.publication.storageRoomId,
-      record.publication.objectId,
-      record.cleanupToken,
-    );
+  async #delete(record: PublicationRecord): Promise<void> {
+    const cleanup = Object.freeze({
+      queueItemId: record.source.queueItemId,
+      storageRoomId: record.publication.storageRoomId,
+      objectId: record.publication.objectId,
+      cleanupToken: record.cleanupToken,
+    });
+    await this.#deleteWholeBlobCleanup(cleanup);
   }
 }

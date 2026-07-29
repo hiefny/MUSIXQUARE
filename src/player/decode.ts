@@ -267,6 +267,83 @@ function finishPreloadActivation(owner: PreloadActivation): void {
   setPlayPreloadedInProgress(false);
 }
 
+function isLiveConnectedPeer(connection: DataConnection): boolean {
+  return (
+    connection.open === true &&
+    getState('network.connectedPeers').some(
+      (peer) => peer.status === 'connected' && peer.conn === connection,
+    )
+  );
+}
+
+async function settleBoundedHostSelectionBarrier(
+  queueItemId: QueueItemId,
+  legacySessionId: number,
+  isCurrentOwner: () => boolean,
+): Promise<boolean> {
+  const settledConnections = new Set<DataConnection>();
+
+  // A connection may join while an earlier offer is awaiting its ordered
+  // descriptor/fallback boundary. Re-snapshot after every await and stop only
+  // when the live connected set has no unobserved member. JavaScript cannot
+  // dispatch another peer-connected event between this final synchronous scan
+  // and the caller's READY transition.
+  while (isCurrentOwner()) {
+    const pendingConnections: DataConnection[] = [];
+    for (const peer of getState('network.connectedPeers')) {
+      const connection = peer.conn as DataConnection | null;
+      if (
+        peer.status !== 'connected' ||
+        !connection?.open ||
+        settledConnections.has(connection)
+      ) {
+        continue;
+      }
+      pendingConnections.push(connection);
+    }
+    if (pendingConnections.length === 0) return true;
+
+    const outcomes = await Promise.all(
+      pendingConnections.map(async (connection) => {
+        try {
+          const outcome = await legacyBoundedFileV1Product.offerHostCurrentSettled(
+            connection,
+            queueItemId,
+            legacySessionId,
+          );
+          return { connection, outcome } as const;
+        } catch (error) {
+          return {
+            connection,
+            outcome: Object.freeze({ status: 'failed' as const, error }),
+          } as const;
+        }
+      }),
+    );
+    if (!isCurrentOwner()) return false;
+
+    for (const { connection, outcome } of outcomes) {
+      // A disconnected peer no longer participates in the activation cohort.
+      // A still-live peer must have crossed either the bounded descriptor
+      // boundary or the exact stable-V1 fallback boundary.
+      if (!isLiveConnectedPeer(connection)) {
+        settledConnections.add(connection);
+        continue;
+      }
+      if (
+        outcome.status !== 'descriptor-sent' &&
+        outcome.status !== 'ready' &&
+        outcome.status !== 'legacy-committed'
+      ) {
+        throw new Error(`Bounded host selection barrier failed: ${outcome.status}`);
+      }
+      settledConnections.add(connection);
+    }
+  }
+
+  return false;
+}
+
 // ─── Load And Broadcast File (Host) ────────────────────────────────
 
 export async function loadAndBroadcastFile(
@@ -327,8 +404,6 @@ export async function loadAndBroadcastFile(
     if (!isCurrentOwner()) return false;
     if (boundedPrepare.status === 'ready') {
       if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
-      transition({ type: 'DECODE_SUCCESS' });
-      bus.emit('ui:duration-update', boundedPrepare.durationSeconds);
 
       const indexHint = findQueueItemIndex(queueItemId);
       if (indexHint < 0 || !isCurrentOwner()) return false;
@@ -346,18 +421,31 @@ export async function loadAndBroadcastFile(
       };
       const resident: ResidentFile = { ...meta, blob: file };
       batchSetState({ 'transfer.meta': meta, 'files.current': resident });
-      bus.emit('ui:play-btn-state', true);
 
-      const offers: Promise<unknown>[] = [];
-      for (const peer of getState('network.connectedPeers')) {
-        const conn = peer.conn as DataConnection | null;
-        if (peer.status !== 'connected' || !conn?.open) continue;
-        offers.push(
-          legacyBoundedFileV1Product.offerHostCurrentSettled(conn, queueItemId, sessionId),
-        );
+      // Preparing the local bounded renderer is only the first readiness
+      // boundary. Keep the lifecycle in DECODING (and therefore keep the play
+      // control loading/inert) until every peer that was connected at this
+      // checkpoint has settled its descriptor or stable-V1 fallback offer.
+      //
+      // Publishing READY before this barrier lets a user PLAY the exact
+      // renderer while playTrack() is still awaiting this function. Once the
+      // barrier later settles, that older playTrack invocation arms its
+      // zero-start autoPlayTimer and rewinds an already-playing track.
+      if (!(await settleBoundedHostSelectionBarrier(queueItemId, sessionId, isCurrentOwner))) {
+        return false;
       }
-      await Promise.allSettled(offers);
-      if (!isCurrentOwner()) return false;
+      // Queue-item deletion is deferred until this exact successor barrier has
+      // enumerated every live peer. Arming the drain here lets the runtime
+      // remove an old R2 set immediately in a guest-free room, or later when
+      // every enrolled peer reports native readiness / acknowledged V1
+      // fallback. A descriptor-sent peer alone never releases prior readers.
+      void legacyBoundedFileV1Product.flushDeferredQueueItemRemovals().catch(() => {
+        // Cleanup failures may carry signed record-set material. Keep the
+        // diagnostic stage-only and let the runtime retain the retry request.
+        log.warn('[Decode] Bounded queue cleanup drain failed');
+      });
+      transition({ type: 'DECODE_SUCCESS' });
+      bus.emit('ui:duration-update', boundedPrepare.durationSeconds);
       // Bounded playback no longer publishes a resident AudioBuffer, but it
       // still participates in the stable next-track preload lifecycle.
       schedulePreload();

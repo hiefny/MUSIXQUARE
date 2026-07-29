@@ -50,12 +50,31 @@ One V2 record-set upload still performs only one rate-limited allocation at
 PUT authority and reports one completion. These per-record control requests
 must not be counted by the outer WAF allocation-burst rule.
 
+The app offers a V2 descriptor after record zero is durably completed and
+continues its tail upload in the background. Exposed tail records use ten
+abort-aware upload attempts with exponential client backoff; a guest deep seek
+waits up to three minutes for a transiently missing record. A permanent tail
+failure removes the set from future offers but deliberately does not revoke an
+already-issued reader before descriptor expiry. Explicit queue or room
+retirement still cleans it immediately and cleanup failures remain retryable.
+There is no live source hot-rebind in this beta, so a reader that eventually
+reaches a permanently missing record can still fail. Track that condition as a
+playback recovery gap rather than treating first-record readiness as proof of
+whole-set availability.
+
 ## Current Guardrails
 
 - Client-side AES-GCM encryption before upload.
 - Signed upload session and completion tokens.
 - Direct-to-R2 presigned PUT upload path.
-- R2 object TTL: `OBJECT_TTL_SECONDS`, currently 1 hour by default.
+- V1 whole-object TTL: `OBJECT_TTL_SECONDS`, currently 1 hour.
+- V2 record-set TTL: `RECORD_SET_TTL_SECONDS`, currently 6 hours. The
+  publisher stops offering a set with 60 seconds remaining and uploads a fresh
+  immutable incarnation for future offers. This removes the one-hour
+  pause/resume and long-track cliff without pretending that an already-open
+  source can live forever. An already-open source paused beyond six hours still
+  requires a new playback offer; live in-place descriptor rebinding is deferred
+  until it can preserve exact-source ownership.
 - Standard-room temporary R2 quota: 1 GiB per generated room code in the exact
   `100000`-`999999` range, counting all active encrypted objects under that
   room's R2 prefix plus every issued session whose PUT is not yet visible in
@@ -69,18 +88,34 @@ must not be counted by the outer WAF allocation-burst rule.
   changes the reservation to completed. Any R2, Durable Object, state, bounded
   scan, or cleanup failure denies the operation rather than issuing/publishing
   an unaccounted object.
-- Authenticated cleanup deletes a matching physical object but deliberately
-  does not release its reservation. A HEAD miss behaves the same way: the
-  already-issued presigned PUT may still be in flight or may be replayed before
-  its start window closes. The room alarm removes the reservation only at the
-  fixed object expiry and deletes any expired physical object it can see.
+- Authenticated record-set cleanup revokes future PUT authorities and deletes
+  matching physical records, but deliberately retains every exact-byte
+  reservation until the immutable object expiry. A presigned PUT is authorized
+  when its request starts, so no unproven "`URL TTL + arrival skew`" interval is
+  treated as a completion fence. At object expiry the media becomes unusable
+  and its reservation transitions to a non-charging expiry tombstone. Natural
+  expiry uses the same tombstone, because a PUT started before the presigned
+  URL closed may also complete after the media lifetime. The room alarm
+  repeatedly deletes every exact old-incarnation key; an observed late arrival
+  resets a one-hour quiet interval. Failed deletes retain the charged
+  reservation before expiry or the exact tombstone after expiry and retry
+  through the alarm. The quiet interval is cleanup defense-in-depth, not a
+  claimed provider request-completion bound. Prefix audits and the R2 lifecycle
+  rule remain the final backstops.
+- V1 authenticated cleanup and natural expiry follow the same conservative
+  fixed-expiry and exact-key tombstone rules. A HEAD miss behaves the same way
+  and remains fail-closed.
   Bucket lifecycle remains the final backstop.
 - This exact accounting has a deliberate availability trade-off: an abandoned
   or malicious session can hold its declared bytes until object expiry even
-  when no PUT becomes visible. At the current limits, five maximum-size
-  sessions can consume almost the entire 1 GiB room allowance for up to one
-  hour. The existing capability, IP, and WAF controls limit request abuse, but
-  a hard per-room entitlement would require signaling-issued authorization.
+  when no PUT becomes visible. An explicitly skipped, deleted, or revoked set
+  has the same conservative accounting fence. At the current limits, five
+  maximum-size V1 sessions can consume almost the entire 1 GiB room allowance
+  for up to one hour; five 200 MiB V2 incarnations can block further admission
+  for the remainder of their six-hour lifetime. The longer V2 window is the
+  bounded beta trade-off for stable one-hour-plus playback and pause/resume.
+  The existing capability, IP, and WAF controls limit request abuse, but a hard
+  per-room entitlement would require signaling-issued authorization.
 - This is an atomic per-room session-admission ceiling, not an abuse-resistant
   account billing entitlement. Room codes remain client-supplied, and the
   direct R2 data plane plus bucket lifecycle still require account-wide usage

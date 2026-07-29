@@ -7,6 +7,7 @@ import {
 } from '../sources/encoded-audio-source.ts';
 import {
   R2RecordEncodedAudioSource,
+  type R2RecordEncodedAudioSourceCiphertextCache,
   type R2RecordEncodedAudioSourceOptions,
 } from '../sources/r2-record-encoded-audio-source.ts';
 
@@ -116,6 +117,133 @@ describe('R2RecordEncodedAudioSource', () => {
     await source.close();
   });
 
+  it('keeps an already-open record source readable after a one-hour pause', async () => {
+    const fixture = await encryptedFixture();
+    vi.useFakeTimers();
+    const startedAt = new Date('2026-07-28T06:00:00.000Z');
+    vi.setSystemTime(startedAt);
+    downloadRecord.mockImplementation(async (_roomId, objectId) => {
+      const ciphertext = fixture.ciphertextByObjectId.get(objectId);
+      if (!ciphertext) throw new Error('unexpected record request');
+      return ciphertext.slice(0);
+    });
+    const source = await R2RecordEncodedAudioSource.create({
+      ...fixture.options,
+      expiresAtEpochMs: startedAt.getTime() + 6 * 60 * 60_000,
+    });
+    const recordSize = R2RecordCryptoV2.RECORD_PLAINTEXT_BYTES;
+
+    // Record zero models the decoded position at pause. Record one must still
+    // be downloadable/authenticatable when playback resumes more than an hour
+    // later; it is intentionally not primed into either source cache.
+    await expect(source.readAt(recordSize - 1, 1, new AbortController().signal)).resolves.toEqual(
+      new Uint8Array([12]),
+    );
+    vi.setSystemTime(startedAt.getTime() + 61 * 60_000);
+    await expect(source.readAt(recordSize, 4, new AbortController().signal)).resolves.toEqual(
+      new Uint8Array([13, 14, 15, 16]),
+    );
+    expect(downloadRecord.mock.calls.map((call) => call[1])).toEqual([
+      RECORD_ZERO_ID,
+      RECORD_ONE_ID,
+    ]);
+    await source.close();
+  });
+
+  it('reuses descriptor-scoped authenticated ciphertext across fresh source incarnations', async () => {
+    const fixture = await encryptedFixture();
+    downloadRecord.mockImplementation(async (_roomId, objectId) => {
+      const ciphertext = fixture.ciphertextByObjectId.get(objectId);
+      if (!ciphertext) throw new Error('unexpected record request');
+      return ciphertext.slice(0);
+    });
+    const cached = new Map<number, ArrayBuffer>();
+    const ciphertextCache: R2RecordEncodedAudioSourceCiphertextCache = {
+      get(recordIndex, expectedSize) {
+        const bytes = cached.get(recordIndex);
+        return bytes?.byteLength === expectedSize ? bytes : null;
+      },
+      put(recordIndex, ciphertext) {
+        cached.set(recordIndex, ciphertext.slice(0));
+      },
+    };
+
+    const first = await R2RecordEncodedAudioSource.create(
+      fixture.options,
+      undefined,
+      ciphertextCache,
+    );
+    await expect(first.readAt(0, 1, new AbortController().signal)).resolves.toEqual(
+      new Uint8Array([0]),
+    );
+    await first.close();
+
+    const second = await R2RecordEncodedAudioSource.create(
+      fixture.options,
+      undefined,
+      ciphertextCache,
+    );
+    await expect(second.readAt(0, 1, new AbortController().signal)).resolves.toEqual(
+      new Uint8Array([0]),
+    );
+    await second.close();
+
+    expect(downloadRecord).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not poison the descriptor cache with an unauthenticated response', async () => {
+    const fixture = await encryptedFixture();
+    const exact = fixture.ciphertextByObjectId.get(RECORD_ZERO_ID);
+    if (!exact) throw new Error('missing test ciphertext');
+    const corrupt = new Uint8Array(exact.slice(0));
+    corrupt[0] ^= 0xff;
+    downloadRecord
+      .mockResolvedValueOnce(corrupt.buffer.slice(0))
+      .mockResolvedValueOnce(exact.slice(0));
+    const cached = new Map<number, ArrayBuffer>();
+    const ciphertextCache: R2RecordEncodedAudioSourceCiphertextCache = {
+      get(recordIndex, expectedSize) {
+        const bytes = cached.get(recordIndex);
+        return bytes?.byteLength === expectedSize ? bytes : null;
+      },
+      put(recordIndex, ciphertext) {
+        cached.set(recordIndex, ciphertext.slice(0));
+      },
+    };
+
+    const failed = await R2RecordEncodedAudioSource.create(
+      fixture.options,
+      undefined,
+      ciphertextCache,
+    );
+    await expect(failed.readAt(0, 1, new AbortController().signal)).rejects.toBeInstanceOf(
+      EncodedSourceIntegrityError,
+    );
+    expect(cached.size).toBe(0);
+    await failed.close();
+
+    const retry = await R2RecordEncodedAudioSource.create(
+      fixture.options,
+      undefined,
+      ciphertextCache,
+    );
+    await expect(retry.readAt(0, 1, new AbortController().signal)).resolves.toEqual(
+      new Uint8Array([0]),
+    );
+    await retry.close();
+
+    const cachedRetry = await R2RecordEncodedAudioSource.create(
+      fixture.options,
+      undefined,
+      ciphertextCache,
+    );
+    await expect(cachedRetry.readAt(0, 1, new AbortController().signal)).resolves.toEqual(
+      new Uint8Array([0]),
+    );
+    await cachedRetry.close();
+    expect(downloadRecord).toHaveBeenCalledTimes(2);
+  });
+
   it('aborts an active object request and settles close idempotently', async () => {
     const fixture = await encryptedFixture();
     let started!: () => void;
@@ -164,6 +292,36 @@ describe('R2RecordEncodedAudioSource', () => {
     await source.close();
   });
 
+  it('keeps a deep-seek read waiting while an exposed tail record is still uploading', async () => {
+    vi.useFakeTimers();
+    const fixture = await encryptedFixture();
+    const startedAt = Date.now();
+    const ciphertext = fixture.ciphertextByObjectId.get(RECORD_ONE_ID);
+    if (!ciphertext) throw new Error('missing encrypted tail fixture');
+    const source = await R2RecordEncodedAudioSource.create({
+      ...fixture.options,
+      expiresAtEpochMs: startedAt + 5 * 60_000,
+    });
+    downloadRecord.mockImplementation(async (_roomId, objectId) => {
+      if (objectId !== RECORD_ONE_ID) throw new Error('unexpected record request');
+      if (Date.now() - startedAt < 61_000) {
+        throw new Error('REMOTE_SHARE_DOWNLOAD_HTTP_404');
+      }
+      return ciphertext.slice(0);
+    });
+
+    const read = source.readAt(
+      R2RecordCryptoV2.RECORD_PLAINTEXT_BYTES,
+      4,
+      new AbortController().signal,
+    );
+    await vi.advanceTimersByTimeAsync(62_000);
+
+    await expect(read).resolves.toEqual(new Uint8Array([13, 14, 15, 16]));
+    expect(downloadRecord.mock.calls.length).toBeGreaterThan(1);
+    await source.close();
+  });
+
   it('bounds a missing ahead record instead of leaving playback loading until set expiry', async () => {
     vi.useFakeTimers();
     const fixture = await encryptedFixture();
@@ -177,7 +335,7 @@ describe('R2RecordEncodedAudioSource', () => {
     const rejection = expect(read).rejects.toThrow(
       'R2 record remained unavailable past its bounded wait',
     );
-    await vi.advanceTimersByTimeAsync(61_000);
+    await vi.advanceTimersByTimeAsync(181_000);
     await rejection;
 
     expect(downloadRecord.mock.calls.length).toBeGreaterThan(1);

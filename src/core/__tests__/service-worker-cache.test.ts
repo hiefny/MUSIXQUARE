@@ -1,8 +1,17 @@
-import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const ACTIVE_CACHE_VERSION = 'v302';
+const SERVICE_WORKER_SOURCE = readFileSync(
+  new URL('../../../public/service-worker.js', import.meta.url),
+  'utf8',
+);
+const ACTIVE_CACHE_VERSION = /^const CACHE_VERSION = '([^']+)';$/mu.exec(
+  SERVICE_WORKER_SOURCE,
+)?.[1];
+if (!ACTIVE_CACHE_VERSION) {
+  throw new Error('Unable to resolve the active service worker cache version');
+}
 const RETIRED_CACHE_VERSION = 'v194';
 
 type FetchListener = (event: {
@@ -68,8 +77,7 @@ describe('service worker cache policy', () => {
       keys: cacheKeys,
       delete: cacheDelete,
     };
-    const source = await readFile('public/service-worker.js', 'utf8');
-    vm.runInNewContext(source, {
+    vm.runInNewContext(SERVICE_WORKER_SOURCE, {
       self,
       caches,
       fetch: fetchMock,

@@ -1172,6 +1172,23 @@ describe('remote-share Worker capability gate', () => {
     await namespace.instance('123456').object.alarm();
 
     expect(bucket.objects.size).toBe(0);
+    expect(namespace.instance('123456').storage.values.size).toBe(1);
+    expect(namespace.instance('123456').storage.alarmAt).toBe(Date.now() + 60_000);
+
+    // Natural expiry needs the same exact-key fence as explicit revocation:
+    // a PUT may have started before its URL closed and finish after expiry.
+    const lateKey = `room/123456/${session.objectId}`;
+    bucket.objects.set(lateKey, quotaObject(lateKey, 20, session.expiresAt));
+    vi.setSystemTime(Date.now() + 60_000);
+    await namespace.instance('123456').object.alarm();
+    expect(bucket.objects.size).toBe(0);
+    const tombstoneState = namespace.instance('123456').storage.values.get('quota-state') as {
+      reservations: Record<string, { tombstoneQuietSince: number }>;
+    };
+    expect(tombstoneState.reservations[session.objectId]?.tombstoneQuietSince).toBe(Date.now());
+
+    vi.setSystemTime(Date.now() + 60 * 60_000 + 1);
+    await namespace.instance('123456').object.alarm();
     expect(namespace.instance('123456').storage.values.size).toBe(0);
     expect(namespace.instance('123456').storage.alarmAt).toBeNull();
   });
@@ -1218,6 +1235,10 @@ describe('remote-share Worker capability gate', () => {
     vi.setSystemTime(Date.now() + 60_000);
     await namespace.instance('123456').object.alarm();
     expect(bucket.objects.has(uploadedKey)).toBe(false);
+    expect(namespace.instance('123456').storage.values.size).toBe(1);
+
+    vi.setSystemTime(Date.now() + 60 * 60_000 + 1);
+    await namespace.instance('123456').object.alarm();
     expect(namespace.instance('123456').storage.values.size).toBe(0);
   });
 
@@ -1935,6 +1956,9 @@ describe('remote-share Worker capability gate', () => {
 
   describe('record-encrypted V2 sets', () => {
     it('creates one atomically reserved set and presigns deterministic record objects', async () => {
+      vi.useFakeTimers();
+      const startedAt = new Date('2026-07-28T06:00:00.000Z');
+      vi.setSystemTime(startedAt);
       const bucket = createQuotaBucket();
       const rateStore = new Map<string, string>();
       const rateLimit = {
@@ -1962,6 +1986,7 @@ describe('remote-share Worker capability gate', () => {
         setToken: expect.any(String),
         cleanupToken: expect.any(String),
       });
+      expect(payload.expiresAt).toBe(startedAt.getTime() + 6 * 60 * 60_000);
       expect(payload.records).toHaveLength(2);
       expect(payload.records).toEqual([
         expect.objectContaining({
@@ -2385,6 +2410,114 @@ describe('remote-share Worker capability gate', () => {
       vi.setSystemTime(startedAt.getTime() + 1_001);
       await namespace.instance('123456').object.alarm();
       expect(bucket.objects.size).toBe(0);
+      const tombstoneState = namespace.instance('123456').storage.values.get('quota-state') as {
+        reservations: Record<string, { tombstoneNextSweepAt: number; tombstoneQuietSince: number }>;
+      };
+      expect(tombstoneState.reservations[payload.records[0].objectId]).toMatchObject({
+        tombstoneQuietSince: startedAt.getTime() + 1_001,
+        tombstoneNextSweepAt: startedAt.getTime() + 61_001,
+      });
+      // Expired revoked bytes are no longer active media quota, while the
+      // exact old-incarnation key remains fenced for repeated cleanup.
+      expect((await createRecordSet(workerEnv)).response.status).toBe(200);
+    });
+
+    it('never treats the PUT start window as a completion fence and retries the expiry sweep', async () => {
+      vi.useFakeTimers();
+      const startedAt = new Date('2026-07-28T01:00:00.000Z');
+      vi.setSystemTime(startedAt);
+      const bucket = createQuotaBucket();
+      const perSetBytes = RECORD_SIZE + 16 + 20;
+      const workerEnv = directUploadQuotaEnv({
+        OBJECT_TTL_SECONDS: '3600',
+        UPLOAD_TOKEN_TTL_SECONDS: '10',
+        REMOTE_SHARE_BUCKET: bucket,
+        ROOM_STORAGE_QUOTA_BYTES: String(perSetBytes),
+      });
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      const { payload } = await createRecordSet(workerEnv);
+      const upload = await workerModule.default.fetch(
+        request(`/v2/sets/123456/${payload.setId}/records/0/upload`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ setToken: payload.setToken }),
+        }),
+        workerEnv,
+      );
+      const uploadPayload = (await upload.json()) as {
+        uploadHeaders: Record<string, string>;
+      };
+      expect(upload.status).toBe(200);
+
+      const cleanup = await workerModule.default.fetch(
+        request(`/v2/sets/123456/${payload.setId}`, {
+          method: 'DELETE',
+          headers: { 'x-mxqr-cleanup-token': payload.cleanupToken },
+        }),
+        workerEnv,
+      );
+      expect(cleanup.status).toBe(200);
+
+      const lateKey = `room/123456/${payload.records[0].objectId}`;
+      bucket.objects.set(lateKey, {
+        key: lateKey,
+        size: payload.records[0].encryptedSize,
+        customMetadata: customMetadataFromUploadHeaders(uploadPayload.uploadHeaders),
+      });
+      const stored = namespace.instance('123456').storage.values.get('quota-state') as {
+        reservations: Record<string, { expiresAt: number; revokedAt: number }>;
+      };
+      const revoked = stored.reservations[payload.records[0].objectId]!;
+      expect(revoked.expiresAt).toBe(startedAt.getTime() + 3_600_000);
+      expect(revoked.revokedAt).toBe(startedAt.getTime());
+      expect((await createRecordSet(workerEnv)).response.status).toBe(409);
+
+      // The presigned URL's ten-second start window is not a completion bound.
+      // The reservation and exact cleanup state stay live for the full object
+      // lifetime even though the physical record is already visible.
+      vi.setSystemTime(startedAt.getTime() + 12_001);
+      await namespace.instance('123456').object.alarm();
+      expect(bucket.objects.has(lateKey)).toBe(true);
+      expect(namespace.instance('123456').storage.values.size).toBe(1);
+      expect((await createRecordSet(workerEnv)).response.status).toBe(409);
+
+      vi.setSystemTime(startedAt.getTime() + 3_600_001);
+      bucket.delete.mockRejectedValueOnce(new Error('temporary late-PUT sweep outage'));
+      const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await namespace.instance('123456').object.alarm();
+      expect(bucket.objects.has(lateKey)).toBe(true);
+      expect(namespace.instance('123456').storage.values.size).toBe(1);
+      expect(namespace.instance('123456').storage.alarmAt).toBe(
+        startedAt.getTime() + 3_600_001 + 60_000,
+      );
+      bucket.delete.mockRejectedValueOnce(new Error('temporary late-PUT sweep outage'));
+      expect((await createRecordSet(workerEnv)).response.status).toBe(503);
+      expect(warning).toHaveBeenCalled();
+
+      vi.setSystemTime(startedAt.getTime() + 3_660_002);
+      await namespace.instance('123456').object.alarm();
+      expect(bucket.objects.size).toBe(0);
+      expect(namespace.instance('123456').storage.values.size).toBe(1);
+
+      // A post-expiry arrival is unusable but must reset the quiet interval
+      // and be removed by the next exact-key sweep.
+      bucket.objects.set(lateKey, {
+        key: lateKey,
+        size: payload.records[0].encryptedSize,
+        customMetadata: customMetadataFromUploadHeaders(uploadPayload.uploadHeaders),
+      });
+      vi.setSystemTime(startedAt.getTime() + 3_720_003);
+      await namespace.instance('123456').object.alarm();
+      expect(bucket.objects.size).toBe(0);
+      const resetState = namespace.instance('123456').storage.values.get('quota-state') as {
+        reservations: Record<string, { tombstoneQuietSince: number }>;
+      };
+      expect(resetState.reservations[payload.records[0].objectId]?.tombstoneQuietSince).toBe(
+        startedAt.getTime() + 3_720_003,
+      );
+
+      vi.setSystemTime(startedAt.getTime() + 7_320_004);
+      await namespace.instance('123456').object.alarm();
       expect(namespace.instance('123456').storage.values.size).toBe(0);
       expect((await createRecordSet(workerEnv)).response.status).toBe(200);
     });

@@ -558,11 +558,10 @@ describe('bounded V1 stable-fallback settlement', () => {
 });
 
 describe('bounded V1 late-join timeline ordering', () => {
-  it('sends unadvanced position with a future hostPlayAt only after offer settlement', async () => {
+  it('uses canonical scheduled-playing phase while semantic UI activity still looks stopped', async () => {
     const conn = connection();
     arrangeHostCurrent(conn, { phase: 'playing' });
     mocks.productSnapshot = productSnapshot('playing', 17.25);
-    setPlaybackFilePlaying();
     const settlement = deferred<Readonly<{ status: 'descriptor-sent' }>>();
     mocks.offerHostCurrentSettled.mockReturnValueOnce(settlement.promise);
 
@@ -582,6 +581,30 @@ describe('bounded V1 late-join timeline ordering', () => {
       queueItemId: QID,
       name: 'bounded.mp3',
       hostPlayAt: 10_200,
+    });
+  });
+
+  it('uses canonical paused phase instead of stale playing UI activity', async () => {
+    const conn = connection();
+    arrangeHostCurrent(conn, { phase: 'paused' });
+    mocks.productSnapshot = productSnapshot('paused', 41.5);
+    setPlaybackFilePlaying();
+    const settlement = deferred<Readonly<{ status: 'descriptor-sent' }>>();
+    mocks.offerHostCurrentSettled.mockReturnValueOnce(settlement.promise);
+
+    bus.emit('network:peer-connected', conn);
+    expect(conn.send).not.toHaveBeenCalled();
+
+    settlement.resolve(Object.freeze({ status: 'descriptor-sent' }));
+
+    await vi.waitFor(() => {
+      expect(conn.send).toHaveBeenCalledOnce();
+    });
+    expect(conn.send).toHaveBeenCalledWith({
+      type: MSG.PAUSE,
+      time: 41.5,
+      queueItemId: QID,
+      reason: 'pause',
     });
   });
 });

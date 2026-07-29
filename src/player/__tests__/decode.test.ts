@@ -46,6 +46,20 @@ const mocks = vi.hoisted(() => ({
   transition: vi.fn(),
 }));
 
+function deferred<T>(): {
+  readonly promise: Promise<T>;
+  readonly resolve: (value: T) => void;
+  readonly reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((settle, fail) => {
+    resolve = settle;
+    reject = fail;
+  });
+  return { promise, resolve, reject };
+}
+
 vi.mock('../../audio/engine.ts', () => ({
   initAudio: vi.fn(),
 }));
@@ -884,6 +898,181 @@ describe('bounded V1 host decode integration', () => {
       expect(vi.mocked(schedulePreload)).toHaveBeenCalledOnce();
       expect(vi.mocked(broadcastFileDebounced)).not.toHaveBeenCalled();
     } finally {
+      prepareHost.mockRestore();
+    }
+  });
+
+  it('keeps bounded playback loading and inert until the connected-peer offer barrier settles', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'bounded-barrier.mp3', {
+      type: 'audio/mpeg',
+    });
+    const item = makeFileTrack(file);
+    const peer = makeConnectedPeer('offer-barrier-guest', false);
+    setState('playlist.items', [item]);
+    setCurrentIndex(0);
+    setState('network.connectedPeers', [peer]);
+    const prepareHost = vi
+      .spyOn(legacyBoundedFileV1Product, 'prepareHost')
+      .mockResolvedValue(Object.freeze({ status: 'ready', durationSeconds: 142 }));
+    const offer = deferred<Readonly<{ status: 'ready' | 'superseded' }>>();
+    const offerHostCurrentSettled = vi
+      .spyOn(legacyBoundedFileV1Product, 'offerHostCurrentSettled')
+      .mockReturnValue(offer.promise as never);
+    const cleanupDrain = deferred<number>();
+    const flushDeferredQueueItemRemovals = vi
+      .spyOn(legacyBoundedFileV1Product, 'flushDeferredQueueItemRemovals')
+      .mockReturnValue(cleanupDrain.promise);
+    const playButtonStates: boolean[] = [];
+    bus.on('ui:play-btn-state', (enabled) => playButtonStates.push(enabled));
+
+    try {
+      const { loadAndBroadcastFile } = await import('../decode.ts');
+      const loading = loadAndBroadcastFile(file, item.queueItemId, 94);
+
+      await vi.waitFor(() => {
+        expect(offerHostCurrentSettled).toHaveBeenCalledWith(peer.conn, item.queueItemId, 94);
+      });
+      expect(mocks.transition).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'FILE_PREPARE' }),
+      );
+      expect(mocks.transition).not.toHaveBeenCalledWith({ type: 'DECODE_SUCCESS' });
+      expect(playButtonStates).not.toContain(true);
+      expect(mocks.showLoader).not.toHaveBeenCalledWith(false);
+
+      offer.resolve({ status: 'ready' });
+      await expect(loading).resolves.toBe(true);
+
+      expect(mocks.transition).toHaveBeenCalledWith({ type: 'DECODE_SUCCESS' });
+      expect(flushDeferredQueueItemRemovals).toHaveBeenCalledOnce();
+      expect(playButtonStates).toEqual([true]);
+      expect(mocks.showLoader).toHaveBeenLastCalledWith(false);
+    } finally {
+      cleanupDrain.resolve(0);
+      flushDeferredQueueItemRemovals.mockRestore();
+      offerHostCurrentSettled.mockRestore();
+      prepareHost.mockRestore();
+    }
+  });
+
+  it('does not publish bounded READY when selection is superseded inside the offer barrier', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'bounded-superseded.mp3', {
+      type: 'audio/mpeg',
+    });
+    const item = makeFileTrack(file);
+    const peer = makeConnectedPeer('offer-barrier-stale-guest', false);
+    setState('playlist.items', [item]);
+    setCurrentIndex(0);
+    setState('network.connectedPeers', [peer]);
+    const prepareHost = vi
+      .spyOn(legacyBoundedFileV1Product, 'prepareHost')
+      .mockResolvedValue(Object.freeze({ status: 'ready', durationSeconds: 142 }));
+    const offer = deferred<Readonly<{ status: 'ready' | 'superseded' }>>();
+    const offerHostCurrentSettled = vi
+      .spyOn(legacyBoundedFileV1Product, 'offerHostCurrentSettled')
+      .mockReturnValue(offer.promise as never);
+    const playButtonStates: boolean[] = [];
+    bus.on('ui:play-btn-state', (enabled) => playButtonStates.push(enabled));
+    const epoch = newLoadEpoch();
+
+    try {
+      const { loadAndBroadcastFile } = await import('../decode.ts');
+      const loading = loadAndBroadcastFile(file, item.queueItemId, 95, epoch);
+      await vi.waitFor(() => {
+        expect(offerHostCurrentSettled).toHaveBeenCalledOnce();
+      });
+
+      newLoadEpoch();
+      setState('playlist.currentQueueItemId', null);
+      offer.resolve({ status: 'superseded' });
+
+      await expect(loading).resolves.toBe(false);
+      expect(mocks.transition).not.toHaveBeenCalledWith({ type: 'DECODE_SUCCESS' });
+      expect(playButtonStates).not.toContain(true);
+    } finally {
+      offerHostCurrentSettled.mockRestore();
+      prepareHost.mockRestore();
+    }
+  });
+
+  it('does not publish bounded READY when a live peer offer fails without changing selection', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'bounded-offer-failed.mp3', {
+      type: 'audio/mpeg',
+    });
+    const item = makeFileTrack(file);
+    const peer = makeConnectedPeer('offer-barrier-failed-guest', false);
+    setState('playlist.items', [item]);
+    setCurrentIndex(0);
+    setState('network.connectedPeers', [peer]);
+    const prepareHost = vi
+      .spyOn(legacyBoundedFileV1Product, 'prepareHost')
+      .mockResolvedValue(Object.freeze({ status: 'ready', durationSeconds: 142 }));
+    const offerHostCurrentSettled = vi
+      .spyOn(legacyBoundedFileV1Product, 'offerHostCurrentSettled')
+      .mockResolvedValue(Object.freeze({ status: 'failed', error: new Error('publication') }));
+
+    try {
+      const { loadAndBroadcastFile } = await import('../decode.ts');
+      await expect(loadAndBroadcastFile(file, item.queueItemId, 96)).resolves.toBe(false);
+
+      expect(offerHostCurrentSettled).toHaveBeenCalledWith(peer.conn, item.queueItemId, 96);
+      expect(mocks.transition).not.toHaveBeenCalledWith({ type: 'DECODE_SUCCESS' });
+      expect(mocks.transition).toHaveBeenCalledWith({ type: 'DECODE_ERROR' });
+    } finally {
+      offerHostCurrentSettled.mockRestore();
+      prepareHost.mockRestore();
+    }
+  });
+
+  it('enrolls a peer that joins while the bounded selection barrier is settling', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'bounded-mid-barrier-join.mp3', {
+      type: 'audio/mpeg',
+    });
+    const item = makeFileTrack(file);
+    const firstPeer = makeConnectedPeer('offer-barrier-first-guest', false);
+    const joiningPeer = makeConnectedPeer('offer-barrier-joining-guest', false);
+    setState('playlist.items', [item]);
+    setCurrentIndex(0);
+    setState('network.connectedPeers', [firstPeer]);
+    const prepareHost = vi
+      .spyOn(legacyBoundedFileV1Product, 'prepareHost')
+      .mockResolvedValue(Object.freeze({ status: 'ready', durationSeconds: 142 }));
+    const firstOffer = deferred<Readonly<{ status: 'ready' }>>();
+    const joiningOffer = deferred<Readonly<{ status: 'legacy-committed' }>>();
+    const offerHostCurrentSettled = vi
+      .spyOn(legacyBoundedFileV1Product, 'offerHostCurrentSettled')
+      .mockImplementation((connection) => {
+        if (connection === firstPeer.conn) return firstOffer.promise as never;
+        if (connection === joiningPeer.conn) return joiningOffer.promise as never;
+        throw new Error('unexpected peer');
+      });
+
+    try {
+      const { loadAndBroadcastFile } = await import('../decode.ts');
+      const loading = loadAndBroadcastFile(file, item.queueItemId, 97);
+      await vi.waitFor(() => {
+        expect(offerHostCurrentSettled).toHaveBeenCalledWith(
+          firstPeer.conn,
+          item.queueItemId,
+          97,
+        );
+      });
+
+      setState('network.connectedPeers', [firstPeer, joiningPeer]);
+      firstOffer.resolve({ status: 'ready' });
+      await vi.waitFor(() => {
+        expect(offerHostCurrentSettled).toHaveBeenCalledWith(
+          joiningPeer.conn,
+          item.queueItemId,
+          97,
+        );
+      });
+      expect(mocks.transition).not.toHaveBeenCalledWith({ type: 'DECODE_SUCCESS' });
+
+      joiningOffer.resolve({ status: 'legacy-committed' });
+      await expect(loading).resolves.toBe(true);
+      expect(mocks.transition).toHaveBeenCalledWith({ type: 'DECODE_SUCCESS' });
+    } finally {
+      offerHostCurrentSettled.mockRestore();
       prepareHost.mockRestore();
     }
   });

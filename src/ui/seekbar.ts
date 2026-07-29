@@ -14,6 +14,7 @@ import { fmtTime, getTrackPosition, seekTo } from '../player/transport.ts';
 import { getPlaybackModeActivitySnapshot } from '../player/ownership.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { getCurrentQueueItemId } from '../player/queue-model.ts';
+import { legacyBoundedFileV1Product } from '../player/legacy-bounded-file-v1-product.ts';
 import type {
   ProPlaybackUiControlPendingEvent,
   QueueItemId,
@@ -203,6 +204,41 @@ function renderSeekPosition(positionSeconds: number): void {
   }
   if (current) current.innerText = formatted;
   _rafLastFmtSec = Math.floor(safePosition);
+}
+
+function readCanonicalBoundedFileTimeline(): Readonly<{
+  durationSeconds: number;
+  positionSeconds: number;
+}> | null {
+  const snapshot = legacyBoundedFileV1Product.snapshot();
+  const current = snapshot.current;
+  if (
+    !snapshot.active ||
+    (snapshot.role !== 'host' && snapshot.role !== 'guest') ||
+    !current ||
+    current.state !== 'ready' ||
+    current.queueItemId !== getCurrentQueueItemId() ||
+    !Number.isFinite(current.durationSeconds) ||
+    (current.durationSeconds ?? 0) <= 0
+  ) {
+    return null;
+  }
+
+  const livePosition = legacyBoundedFileV1Product.positionSeconds();
+  const pausedAt = getState('player.pausedAt');
+  const positionSeconds =
+    current.phase === 'stopped'
+      ? pausedAt
+      : livePosition !== null && Number.isFinite(livePosition)
+        ? livePosition
+        : current.positionSeconds;
+  return Object.freeze({
+    durationSeconds: current.durationSeconds!,
+    positionSeconds: Math.min(
+      current.durationSeconds!,
+      Number.isFinite(positionSeconds) ? Math.max(0, positionSeconds) : 0,
+    ),
+  });
 }
 
 function _seekRafLoop(now: number): void {
@@ -488,6 +524,13 @@ function initSeekBarBusHandlers(): void {
       if (tc) tc.innerText = '0:00';
       if (tDur) tDur.innerText = '0:00';
     } else if (mode === 'file') {
+      const bounded = readCanonicalBoundedFileTimeline();
+      if (bounded) {
+        if (slider) setSeekSliderMax(slider, String(bounded.durationSeconds));
+        if (tDur) tDur.innerText = fmtTime(bounded.durationSeconds);
+        renderSeekPosition(bounded.positionSeconds);
+        return;
+      }
       const buf = getCurrentAudioBuffer();
       if (buf && Number.isFinite(buf.duration) && buf.duration > 0) {
         if (slider) setSeekSliderMax(slider, String(buf.duration));

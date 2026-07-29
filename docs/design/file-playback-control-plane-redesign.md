@@ -507,17 +507,17 @@ rollout:
 7. physical iOS Safari/PWA and Windows checks pass; and
 8. rollback remains a one-latch static-app release.
 
-### Current production rollback procedure
+### Current production rollback state
 
-For the corrected `v316` bounded-V1 promotion, an emergency rollback is an app-only
-release with all of these changes in the same reviewed commit:
+The `v316` bounded-V1 promotion was rolled back after its live R2 publication
+canary failed. Production returns to the stable file path at cache epoch
+`v317` with all of these conditions:
 
-1. set `LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED` to `false`;
-2. keep `FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` and both retired V2 build
-   flags off;
-3. bump `public/service-worker.js` from `v316` to `v317`; and
-4. run the focused gates, commit and push the exact SHA, wait for exact-SHA CI,
-   then dispatch the formal app release and post-deployment session smoke.
+1. `LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED` is `false`;
+2. `FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` and both retired V2 build
+   flags remain off; and
+3. any future re-enable requires a fresh exact-SHA candidate, focused browser
+   proof, and a successful live R2 publication canary.
 
 Changing only an environment flag or only the latch is not an operational
 rollback: production artifacts require the exact gate identity, and the service

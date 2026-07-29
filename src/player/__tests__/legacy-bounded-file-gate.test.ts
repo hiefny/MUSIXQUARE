@@ -295,7 +295,7 @@ describe('legacy bounded file beta bootstrap gate', () => {
     expect((await import(MODULE_PATH)).isLegacyBoundedFileEnabled()).toBe(true);
   });
 
-  it('uses the real tracked latch for the exact normal production artifact', async () => {
+  it('keeps the exact normal production artifact off while the tracked rollback latch is closed', async () => {
     installEnvironment({
       dev: false,
       prod: true,
@@ -306,7 +306,7 @@ describe('legacy bounded file beta bootstrap gate', () => {
     vi.doUnmock(BETA_RELEASE_LATCH_MODULE_PATH);
     vi.doUnmock(PRODUCTION_RELEASE_LATCH_MODULE_PATH);
 
-    expect((await import(MODULE_PATH)).isLegacyBoundedFileEnabled()).toBe(true);
+    expect((await import(MODULE_PATH)).isLegacyBoundedFileEnabled()).toBe(false);
   });
 
   it('keeps the old V2 engine disabled in the exact normal production artifact', async () => {

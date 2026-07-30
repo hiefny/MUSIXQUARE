@@ -273,6 +273,7 @@ function isTransientRecordUploadError(error: unknown): boolean {
     error instanceof Error &&
     (error.message.includes('_NETWORK') ||
       error.message.includes('_STALLED') ||
+      error.message.endsWith('_TIMEOUT') ||
       error.message.endsWith('_HTTP_404') ||
       error.message.endsWith('_HTTP_409') ||
       error.message.endsWith('_HTTP_503'))

@@ -157,6 +157,11 @@ const PROD_ENDPOINT = 'https://share.musixquare.com';
 const REMOTE_SHARE_XHR_STALL_TIMEOUT_MS = 90_000;
 const REMOTE_SHARE_SECURITY_CONFIG_CACHE_MS = 5 * 60_000;
 const REMOTE_SHARE_CONTROL_REQUEST_TIMEOUT_MS = 15_000;
+// Record-set creation is deliberately not retried because a timeout can be
+// ambiguous after the server commits. Give cold Durable Object/R2 reconcile
+// work a wider first-attempt window while keeping every other control request
+// on the shorter shared deadline.
+const REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT_MS = 30_000;
 const REMOTE_SHARE_CONTROL_RESPONSE_MAX_BYTES = 64 * 1024;
 const REMOTE_OBJECT_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -586,6 +591,7 @@ async function requestRecordSetControl(
     readonly method: 'POST';
     readonly body: string;
     readonly capability?: boolean;
+    readonly timeoutMs?: number;
     readonly timeoutReason: string;
   },
   signal?: AbortSignal,
@@ -618,7 +624,7 @@ async function requestRecordSetControl(
       },
       {
         signal,
-        timeoutMs: REMOTE_SHARE_CONTROL_REQUEST_TIMEOUT_MS,
+        timeoutMs: init.timeoutMs ?? REMOTE_SHARE_CONTROL_REQUEST_TIMEOUT_MS,
         timeoutReason: init.timeoutReason,
       },
     );
@@ -1187,6 +1193,7 @@ export async function createR2RecordSet(
       {
         method: 'POST',
         capability: true,
+        timeoutMs: REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT_MS,
         timeoutReason: 'REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT',
         body: JSON.stringify({
           roomId: meta.storageRoomId,

@@ -527,13 +527,32 @@ R2 publication: the first observed an aborted record-set creation request and
 the second never observed record-upload authority. The bounded path therefore
 returns to the stable V1 route at cache epoch `v319` before wider use.
 
+Replay of that exact immutable artifact in fresh browser contexts subsequently
+proved that publication, initial and late-join playback, seek, pause/resume,
+terminal stop, chat, and device liveness all completed without whole-blob
+fallback. The original observer had counted a `2xx` response followed by a
+browser `aborted` event as fatal even when the exact successor PUT, completion,
+download, and playback proved that the application had consumed the response.
+The audit also found one real boundary defect: the shared 15-second control
+deadline remained armed while reading the response body. A slow idempotent
+record completion could therefore commit on the server and time out locally
+without entering the existing completion retry.
+
+The inactive implementation now keeps non-idempotent record-set creation
+single-attempt but gives it a 30-second cold Durable Object/R2 reconcile window,
+retries exact `_TIMEOUT` failures only inside the idempotent
+upload-authority/completion loop, reuses the same immutable ciphertext lease,
+and keeps owner `ABORTED` terminal. Regression tests lock all three boundaries.
+
 1. `LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED` is `false`;
 2. `FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` and both retired V2 build
    flags remain off;
 3. the corrected bridge/delivery retirement scopes and their regression tests
-   remain in the inactive implementation; and
-4. any future promotion requires a diagnosed publication-start failure, a fresh
-   exact-SHA candidate, and successful consecutive hardened live R2 canaries.
+   remain in the inactive implementation;
+4. the publication-start failure is diagnosed and its bounded remediation is
+   staged; and
+5. any future promotion still requires a fresh exact-SHA candidate and
+   successful consecutive successor-aware live R2 canaries.
 
 Changing only an environment flag or only the latch is not an operational
 rollback: production artifacts require the exact gate identity, and the service

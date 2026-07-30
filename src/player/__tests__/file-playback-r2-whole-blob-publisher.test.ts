@@ -649,6 +649,73 @@ describe('FilePlaybackR2WholeBlobPublisher', () => {
     expect(setup.deleteRecordSet).toHaveBeenCalledTimes(2);
   });
 
+  it('retries an ambiguous record-completion timeout without re-uploading ciphertext', async () => {
+    const completeRecord = vi
+      .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['completeRecord']>>()
+      .mockRejectedValueOnce(new Error('REMOTE_SHARE_RECORD_COMPLETE_TIMEOUT'))
+      .mockImplementation(async (session, index) => ({
+        v: 2 as const,
+        setId: session.setId,
+        index,
+        objectId: session.records[index]!.objectId,
+        expiresAt: session.expiresAt,
+        readyRecordCount: index + 1,
+        recordCount: session.recordCount,
+        complete: index + 1 === session.recordCount,
+        downloadUrl: session.records[index]!.downloadUrl,
+      }));
+    const setup = harness({ completeRecord });
+
+    await expect(
+      setup.publisher.publishRecordSet(source(), {
+        storageRoomId: '123456',
+        applicationSessionId: 'application-session',
+      }),
+    ).resolves.toMatchObject({ recordCount: 1 });
+
+    expect(setup.createRecordSet).toHaveBeenCalledOnce();
+    expect(setup.uploadRecord).toHaveBeenCalledOnce();
+    expect(completeRecord).toHaveBeenCalledTimes(2);
+    await expect(setup.publisher.removeQueueItem(QUEUE_ID)).resolves.toBe(true);
+  });
+
+  it('does not retry an owner abort as a transient record-completion failure', async () => {
+    const completeRecord = vi
+      .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['completeRecord']>>()
+      .mockRejectedValue(new Error('REMOTE_SHARE_ABORTED'));
+    const setup = harness({ completeRecord });
+
+    await expect(
+      setup.publisher.publishRecordSet(source(), {
+        storageRoomId: '123456',
+        applicationSessionId: 'application-session',
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_ABORTED');
+
+    expect(setup.createRecordSet).toHaveBeenCalledOnce();
+    expect(setup.uploadRecord).toHaveBeenCalledOnce();
+    expect(completeRecord).toHaveBeenCalledOnce();
+    expect(setup.deleteRecordSet).toHaveBeenCalledOnce();
+  });
+
+  it('does not retry a non-idempotent record-set creation timeout', async () => {
+    const createRecordSet = vi
+      .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['createRecordSet']>>()
+      .mockRejectedValue(new Error('REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT'));
+    const setup = harness({ createRecordSet });
+
+    await expect(
+      setup.publisher.publishRecordSet(source(), {
+        storageRoomId: '123456',
+        applicationSessionId: 'application-session',
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT');
+
+    expect(createRecordSet).toHaveBeenCalledOnce();
+    expect(setup.uploadRecord).not.toHaveBeenCalled();
+    expect(setup.deleteRecordSet).not.toHaveBeenCalled();
+  });
+
   it('retires an exposed superseded upload without revoking its active reader', async () => {
     const secondCompletion = deferred<{
       v: 2;

@@ -42,6 +42,28 @@ const roomId = '123456';
 const objectId = '00000000-0000-4000-8000-000000000001';
 const queueItemId = '10000000-0000-4000-8000-000000000001';
 const expectedUrl = `https://share.example.test/download/${roomId}/${objectId}`;
+const recordSize = 8 * 1024 * 1024;
+const setId = '20000000-0000-4000-8000-000000000001';
+const recordSetMeta = {
+  storageRoomId: roomId,
+  applicationSessionId: 'application-session',
+  queueItemId,
+  sourceIdentity: 'source-identity',
+  name: 'recorded-song.mp3',
+  mime: 'audio/mpeg',
+  plaintextSize: 20,
+  recordSize,
+  recordCount: 1,
+} as const;
+
+function stalledJsonResponse(): Response {
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      pull: () => new Promise<void>(() => undefined),
+    }),
+    { headers: { 'content-type': 'application/json' } },
+  );
+}
 
 beforeEach(() => {
   FakeXmlHttpRequest.instances.length = 0;
@@ -56,6 +78,171 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   Reflect.deleteProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__');
+});
+
+describe('R2 record-set control deadlines', () => {
+  it('gives non-idempotent record-set creation its full 30-second attempt', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__', {
+      configurable: true,
+      value: 'https://create-timeout-share.example.test',
+    });
+    let createSignal: AbortSignal | undefined;
+    let markCreateStarted!: () => void;
+    const createStarted = new Promise<void>((resolve) => {
+      markCreateStarted = resolve;
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/security-config')) {
+        return Response.json({ capabilityRequired: false });
+      }
+      if (url.endsWith('/v2/sets')) {
+        createSignal = init?.signal ?? undefined;
+        markCreateStarted();
+        return stalledJsonResponse();
+      }
+      return new Response('unexpected', { status: 500 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { createR2RecordSet } = await import('../r2-client.ts');
+    const pending = createR2RecordSet(recordSetMeta);
+    let settled = false;
+    const outcome = pending.then(
+      (value) => ({ value, error: null }),
+      (error: unknown) => ({ value: null, error }),
+    );
+    void outcome.then(() => {
+      settled = true;
+    });
+    await createStarted;
+    expect(createSignal).toBeDefined();
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(settled).toBe(false);
+    expect(createSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(settled).toBe(false);
+    expect(createSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    const result = await outcome;
+    expect(result.error).toBeInstanceOf(Error);
+    expect((result.error as Error).message).toBe('REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT');
+    expect(createSignal?.aborted).toBe(true);
+    expect(
+      fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/v2/sets')),
+    ).toHaveLength(1);
+  });
+
+  it('still aborts record-set creation immediately when its owner cancels', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__', {
+      configurable: true,
+      value: 'https://create-owner-cancel-share.example.test',
+    });
+    let createSignal: AbortSignal | undefined;
+    let markCreateStarted!: () => void;
+    const createStarted = new Promise<void>((resolve) => {
+      markCreateStarted = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/security-config')) {
+          return Response.json({ capabilityRequired: false });
+        }
+        if (url.endsWith('/v2/sets')) {
+          createSignal = init?.signal ?? undefined;
+          markCreateStarted();
+          return stalledJsonResponse();
+        }
+        return new Response('unexpected', { status: 500 });
+      }),
+    );
+
+    const { createR2RecordSet } = await import('../r2-client.ts');
+    const controller = new AbortController();
+    const pending = createR2RecordSet(recordSetMeta, controller.signal);
+    await createStarted;
+    expect(createSignal).toBeDefined();
+
+    controller.abort(new Error('owner cancelled'));
+
+    await expect(pending).rejects.toThrow('REMOTE_SHARE_ABORTED');
+    expect(createSignal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('keeps record upload-authority requests on the shared 15-second deadline', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__', {
+      configurable: true,
+      value: 'https://authority-timeout-share.example.test',
+    });
+    let authoritySignal: AbortSignal | undefined;
+    let markAuthorityStarted!: () => void;
+    const authorityStarted = new Promise<void>((resolve) => {
+      markAuthorityStarted = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).endsWith('/records/0/upload')) {
+          authoritySignal = init?.signal ?? undefined;
+          markAuthorityStarted();
+          return stalledJsonResponse();
+        }
+        return new Response('unexpected', { status: 500 });
+      }),
+    );
+
+    const { requestR2RecordUploadAuthority } = await import('../r2-client.ts');
+    const pending = requestR2RecordUploadAuthority(
+      {
+        v: 2,
+        storageRoomId: roomId,
+        setId,
+        recordSize,
+        recordCount: 1,
+        expiresAt: Date.now() + 60_000,
+        setToken: 's'.repeat(32),
+        cleanupToken: '30000000-0000-4000-8000-000000000001',
+        records: [
+          {
+            index: 0,
+            objectId,
+            plaintextSize: 20,
+            encryptedSize: 36,
+            downloadUrl: expectedUrl,
+          },
+        ],
+      },
+      0,
+    );
+    let settled = false;
+    const outcome = pending.then(
+      (value) => ({ value, error: null }),
+      (error: unknown) => ({ value: null, error }),
+    );
+    void outcome.then(() => {
+      settled = true;
+    });
+    await authorityStarted;
+    expect(authoritySignal).toBeDefined();
+
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(settled).toBe(false);
+    expect(authoritySignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    const result = await outcome;
+    expect(result.error).toBeInstanceOf(Error);
+    expect((result.error as Error).message).toBe('REMOTE_SHARE_RECORD_UPLOAD_AUTHORITY_TIMEOUT');
+    expect(authoritySignal?.aborted).toBe(true);
+  });
 });
 
 describe('R2 download boundary', () => {

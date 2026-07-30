@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { QueueItemId } from '../../types/index.ts';
+import { canonicalizeFilePlaybackR2RecordDeliveryScope } from '../file-playback-r2-record-descriptor.ts';
 import type { FilePlaybackR2RecordPublication } from '../file-playback-r2-whole-blob-publisher.ts';
 import type { FilePlaybackCutoverSource } from '../file-playback-source.ts';
 import type { LegacyBoundedFilePortContract } from '../legacy-bounded-file-port-contract.ts';
@@ -340,7 +341,7 @@ function createHarness(
   const provider = {
     open: vi.fn(() => Promise.reject(new Error('unused provider open'))),
     retire: vi.fn((scope: unknown) => {
-      providerRetired.push(scope);
+      providerRetired.push(canonicalizeFilePlaybackR2RecordDeliveryScope(scope));
       return Promise.resolve();
     }),
     clear: vi.fn(() => Promise.resolve()),
@@ -1696,7 +1697,34 @@ describe('LegacyBoundedFileV1Runtime', () => {
       }),
     );
     await expect(retiring).resolves.toBe(true);
-    expect(harness.providerRetired).toHaveLength(1);
+    expect(harness.providerRetired).toEqual([descriptorFrame().scope]);
+    expect(harness.runtime.snapshot().current).toBeNull();
+  });
+
+  it('retires the exact delivery scope after a terminal guest stop without a cleanup failure', async () => {
+    const harness = createHarness();
+    const connection = freezeRecord({ id: 'host' });
+    const descriptor = descriptorFrame(QID_A, 1);
+    await harness.runtime.beginGuestRoom({ kind: 'standard', hostConnection: connection });
+    harness.runtime.beginGuestTransfer({ queueItemId: QID_A, legacySessionId: 1 });
+    await expect(harness.runtime.adoptGuestDescriptor(connection, descriptor)).resolves.toEqual({
+      status: 'ready',
+      durationSeconds: 120,
+    });
+
+    await expect(
+      harness.runtime.applyControl({
+        queueItemId: QID_A,
+        legacySessionId: 1,
+        kind: 'stop',
+        positionSeconds: 0,
+        atRoomTimeMs: 1_000,
+      }),
+    ).resolves.toMatchObject({ status: 'applied' });
+    await expect(harness.runtime.retireCurrent(QID_A, 1)).resolves.toBe(true);
+
+    expect(harness.providerRetired).toEqual([descriptor.scope]);
+    expect(harness.failures).toEqual([]);
     expect(harness.runtime.snapshot().current).toBeNull();
   });
 

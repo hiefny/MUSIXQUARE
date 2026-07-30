@@ -507,17 +507,33 @@ rollout:
 7. physical iOS Safari/PWA and Windows checks pass; and
 8. rollback remains a one-latch static-app release.
 
-### Current production rollback state
+### Current production promotion state
 
-The `v316` bounded-V1 promotion was rolled back after its live R2 publication
-canary failed. Production returns to the stable file path at cache epoch
-`v317` with all of these conditions:
+The `v316` bounded-V1 promotion was conservatively rolled back to stable V1 at
+cache epoch `v317` after the first live R2 publication observer reported a
+request failure. Exact-candidate replay established two independent facts:
 
-1. `LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED` is `false`;
+1. the observer treated a recovered upload-authority retry and the intentional
+   response-body cancellation after successful record-set cleanup as fatal
+   request failures; and
+2. terminal guest retirement passed the seven-field renderer bridge scope to
+   the five-field R2 delivery provider, so exact scope validation could report
+   `FILE_PLAYBACK_R2_RECORD_SCOPE_INVALID` after STOP.
+
+The `v318` promotion separates those scopes, isolates synchronous retirement
+failures inside settled cleanup, and requires request-identity-aware R2 canary
+evidence. Production enables only the bounded V1-control path:
+
+1. `LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED` is `true`;
 2. `FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` and both retired V2 build
-   flags remain off; and
-3. any future re-enable requires a fresh exact-SHA candidate, focused browser
-   proof, and a successful live R2 publication canary.
+   flags remain off;
+3. the exact candidate must pass focused host/guest terminal-retirement proof;
+   and
+4. the live canary must distinguish a completed 2xx request from a response
+   whose body was later aborted, allow only bounded same-record per-route
+   retries within the product retry budgets, reject duplicate successful
+   publication, and still fail closed on unrecovered R2, runtime, fallback, or
+   connection-liveness failure.
 
 Changing only an environment flag or only the latch is not an operational
 rollback: production artifacts require the exact gate identity, and the service

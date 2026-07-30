@@ -2558,9 +2558,24 @@ class LegacyBoundedFileV1Runtime<
     if (current.retirement) return current.retirement;
     current.pendingControl = null;
     const retirement = guest.transitionDrain.then(async () => {
-      const scope = current.scope;
-      if (!scope) return;
-      await Promise.allSettled([guest.bridge.retire(scope), guest.provider.retire(scope)]);
+      const bridgeScope = current.scope;
+      const deliveryScope = current.deliveryScope;
+      const retirements: Promise<unknown>[] = [];
+      if (bridgeScope) {
+        try {
+          retirements.push(Promise.resolve(guest.bridge.retire(bridgeScope)));
+        } catch (error) {
+          retirements.push(Promise.reject(error));
+        }
+      }
+      if (deliveryScope) {
+        try {
+          retirements.push(Promise.resolve(guest.provider.retire(deliveryScope)));
+        } catch (error) {
+          retirements.push(Promise.reject(error));
+        }
+      }
+      await Promise.allSettled(retirements);
     });
     current.retirement = retirement;
     guest.transitionDrain = retirement.catch((error) => {

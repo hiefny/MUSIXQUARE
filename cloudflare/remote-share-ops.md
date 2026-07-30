@@ -13,17 +13,21 @@ than a hard account storage cap.
 ## Current Decision
 
 - Start on Cloudflare Workers Free.
-- Keep the existing KV-backed per-IP upload-session rate limit.
+- Keep the existing KV-backed rate limit for V1 and legacy unkeyed clients.
+  Keyed V2 create/cancel uses a strongly consistent per-rate-key Durable
+  Object so concurrent retries consume exactly one logical admission.
 - Cap each standard room's active encrypted R2 objects at 1 GiB
   (`ROOM_STORAGE_QUOTA_BYTES`) through a per-room SQLite Durable Object.
 - Upgrade to Workers Paid only when real usage starts hitting Free-plan limits.
 - Keep the active Cloudflare WAF burst guard on the top-level allocation
-  routes: `POST /session` and `POST /v2/sets`.
+  routes: `POST /session`, `POST /v2/sets`, and
+  `POST /v2/sets/idempotent`.
 
 WAF Rate Limiting is not expected to reduce normal KV writes. It blocks abusive
 or bursty top-level allocation requests before they reach the Worker. Normal
-successful remote uploads still consume one KV write for the upload-session
-rate counter. Per-record V2 upload-authority and completion requests are
+successful V1 or legacy unkeyed uploads still consume one KV write for the
+upload-session rate counter. Keyed V2 consumes one atomic Durable Object rate
+admission instead. Per-record V2 upload-authority and completion requests are
 intentionally excluded: one valid set can contain up to 25 records, and those
 requests reuse the set's already-admitted allocation.
 
@@ -46,9 +50,10 @@ One V1 remote file upload attempt roughly means:
 Downloads do not write to KV.
 
 One V2 record-set upload still performs only one rate-limited allocation at
-`POST /v2/sets`. Each encrypted record then requests one short-lived direct R2
-PUT authority and reports one completion. These per-record control requests
-must not be counted by the outer WAF allocation-burst rule.
+`POST /v2/sets/idempotent` (or legacy unkeyed `POST /v2/sets`). Each encrypted
+record then requests one short-lived direct R2 PUT authority and reports one
+completion. These per-record control requests must not be counted by the outer
+WAF allocation-burst rule.
 
 The app offers a V2 descriptor after record zero is durably completed and
 continues its tail upload in the background. Exposed tail records use ten
@@ -102,6 +107,22 @@ whole-set availability.
   through the alarm. The quiet interval is cleanup defense-in-depth, not a
   claimed provider request-completion bound. Prefix audits and the R2 lifecycle
   rule remain the final backstops.
+- V2 record-set creation advertises its retry contract through
+  `recordSetCreateIdempotency` in `/security-config`. A publisher-owned UUIDv4
+  header is atomically bound to one canonical request and one allocation in
+  the existing room Durable Object. Separate hashed rate-key Durable Object
+  instances serialize IP/room admission without storing the raw key. Exact
+  create/cancel retries replay without a second quota/rate admission; a changed
+  body is rejected, and cancellation before an ordinary cleanup token is
+  received installs a non-charging tombstone. Keep this feature additive to
+  quota-state version 1 so a Worker rollback can still read, account, and sweep
+  every reservation. Keyed creation uses the dedicated
+  `/v2/sets/idempotent` rollback fence; an older Worker returns 404 instead of
+  ignoring the header and creating duplicate authority.
+- Create-intent state stores only the winning token timestamp and nonce, not a
+  duplicate of the request strings. New admission is rejected before the
+  serialized room state exceeds 1.5 MB, while cleanup and expiry remain
+  available to reduce an already-large state.
 - V1 authenticated cleanup and natural expiry follow the same conservative
   fixed-expiry and exact-key tombstone rules. A HEAD miss behaves the same way
   and remains fail-closed.
@@ -130,9 +151,11 @@ whole-set availability.
   admission ceiling before attempting the operation. Browser allocation,
   encryption/decryption, and `decodeAudioData` can still fail below 200 MiB,
   especially when a compressed file expands into a large PCM buffer.
-- KV rate limit:
+- Upload-allocation rate limit:
   - `IP_UPLOADS_PER_WINDOW`: default 60 upload sessions per IP per hour.
   - `ROOM_UPLOADS_PER_WINDOW`: default 0, which disables room-wide limiting.
+  - V1/legacy unkeyed requests use KV; keyed V2 create/cancel uses the quota
+    Durable Object binding for exact retry deduplication.
 - `ROOM_STORAGE_QUOTA_BYTES`: production is `1073741824` (1 GiB). Setting it
   to `0` disables new atomic admission. Existing marked reservations still
   settle through the Durable Object while its binding is present, so changing
@@ -148,10 +171,10 @@ whole-set availability.
 - The Worker rejects missing, malformed, and `0xxxxx` room IDs before issuing a
   presigned URL. The complete `0xxxxx` namespace is reserved for PRO rooms,
   whose persistent media uses the separate PRO bucket and control plane.
-- App-issued capability token required on `POST /session` and `POST /v2/sets`
-  in production. With Turnstile disabled, the app Worker issues it only after
-  a signed, IP/scope-bound proof-of-work challenge; Origin/Host headers are not
-  proof.
+- App-issued capability token required on `POST /session`, `POST /v2/sets`,
+  and `POST /v2/sets/idempotent` in production. With Turnstile disabled, the
+  app Worker issues it only after a signed, IP/scope-bound proof-of-work
+  challenge; Origin/Host headers are not proof.
 - R2 bucket CORS includes exact MUSIXQUARE web origins, the canonical
   `https://musixquare.apps.tossmini.com` production origin, the existing Toss
   apex/pattern entries, and local development origins. R2 documents Origin
@@ -186,7 +209,7 @@ The production zone's `Remote share session burst guard` rule must remain
 enabled with this allocation-route scope:
 
 - Match host: `share.musixquare.com`
-- Match path: `/session` or `/v2/sets` (exact paths)
+- Match path: `/session`, `/v2/sets`, or `/v2/sets/idempotent` (exact paths)
 - Match method: `POST`
 - Characteristic: IP
 - Threshold: 20 requests
@@ -194,23 +217,24 @@ enabled with this allocation-route scope:
 - Action: block for 10 seconds after the threshold is exceeded
 
 This outer guard stops automated V1 session and V2 set-creation bursts before
-they consume a Worker request or KV operation. Do not broaden the match to
-`/v2/sets/*`: record upload-authority and completion calls are normal traffic
-inside one already-admitted set. The short window and short block keep normal
-multi-file use below the threshold and minimize user-visible impact. Revisit
-the threshold only with production 429 evidence; on higher Cloudflare plans, a
-longer, more ergonomic per-minute window can replace it.
+they consume a Worker request or durable rate operation. Do not broaden the
+match to every `/v2/sets/*` descendant: record upload-authority and completion
+calls are normal traffic inside one already-admitted set. Match the
+`/v2/sets/idempotent` allocation path explicitly. The short window and short
+block keep normal multi-file use below the threshold and minimize user-visible
+impact. Revisit the threshold only with production 429 evidence; on higher
+Cloudflare plans, a longer, more ergonomic per-minute window can replace it.
 
-Before enabling V2 record sets, inspect the live rule. If its exact-path
-expression still matches only `/session`, add the exact `/v2/sets` alternative
-without changing the threshold or matching any descendant record route.
+Before enabling V2 record sets, inspect the live rule. Its exact-path expression
+must include `/session`, `/v2/sets`, and `/v2/sets/idempotent` without changing
+the threshold or matching unrelated descendant record routes.
 
 ## Notes
 
-- WAF does not replace the Worker-side KV rate limit. It is an outer layer for
-  fast bursts.
-- KV rate limiting can be removed only if we intentionally accept weaker abuse
-  resistance or replace it with another durable counter.
+- WAF does not replace the Worker-side allocation rate limits. It is an outer
+  layer for fast bursts.
+- The legacy KV counter can be removed only after every unkeyed/V1 path is
+  retired or moved to another durable counter.
 - Capability-gated sessions use the app Worker's transparent proof-of-work path
   while Turnstile remains disabled. Both Workers must share the capability
   HMAC secret.

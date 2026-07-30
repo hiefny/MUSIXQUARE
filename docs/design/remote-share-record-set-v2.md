@@ -22,10 +22,32 @@ Status: additive server contract for the bounded file-playback engine. V1
 
 ## Public endpoints
 
-### `POST /v2/sets`
+### `POST /v2/sets` and `POST /v2/sets/idempotent`
 
 Requires the same allowed Origin and `remote-share` capability as V1
 `POST /session`.
+
+When `GET /security-config` advertises
+`"recordSetCreateIdempotency": true`, the publisher sends one UUIDv4 in
+`X-MXQR-Idempotency-Key` for the lifetime of that logical publication and uses
+`POST /v2/sets/idempotent`. The dedicated path is a rollback fence: a prior
+Worker can neither ignore the header nor accidentally create two sets after a
+cached client retries. `POST /v2/sets` accepts only legacy unkeyed,
+single-attempt creation. The header is deliberately separate from the exact
+JSON body and never enters the public descriptor or signed set-token schema.
+Dedicated per-rate-key Durable Object instances serialize IP/room rate
+admission, and the room Durable Object serializes allocation:
+
+- the first key/body pair atomically fixes one allocation and all of its quota;
+- the same key and canonical body replays that allocation without consuming
+  quota or rate admission again;
+- the same key with a different canonical body fails with HTTP 409;
+- a revoked or cancelled key remains fenced and returns HTTP 410 rather than
+  creating a successor allocation.
+
+Capability verification still runs on every attempt. A refreshed capability
+after HTTP 401 therefore reuses the same idempotency key and request body.
+Clients which do not send the header retain the legacy single-attempt contract.
 
 Exact request:
 
@@ -169,22 +191,47 @@ remain the final backstops.
 Missing and unauthorized set cleanup returns the same non-enumerating
 `{"ok":true}` shape without mutation.
 
+### `POST /v2/sets/intents/cancel`
+
+This capability-protected endpoint uses the exact create JSON body and the same
+`X-MXQR-Idempotency-Key`. It exists for owner cancellation before a create
+response yielded the ordinary cleanup token. Cancellation is idempotent:
+cancel-before-create installs a non-charging exact-incarnation fence, while
+cancel-after-create atomically revokes the winning allocation and deletes its
+exact physical record keys before acknowledging success. A later create with
+that key cannot resurrect the allocation while its fixed-expiry/quiet-period
+fence is retained. Publisher queue removal and room close retain and retry this
+authority until cancellation is acknowledged. Create and cancel share the same
+atomic rate marker, so either arrival order consumes one logical admission
+without allowing cancel-only tombstone spam to bypass the configured limits.
+
 ## Quota state and rollback
 
 The Durable Object state remains version 1. Each V2 record is one ordinary V1
 reservation at `room/{roomId}/{recordObjectId}` with optional `setId`,
-`recordIndex`, `recordCount`, and `revokedAt` fields. After any fixed expiry,
-internal `tombstoneQuietSince` and `tombstoneNextSweepAt` fields retain the
-exact-key late-arrival fence for one quiet hour. These fields cannot be supplied
-by public quota requests. Previous Workers ignore those extra fields while
+`recordIndex`, `recordCount`, `revokedAt`, and hashed create-intent metadata.
+Raw idempotency keys are never persisted. After any fixed expiry, internal
+`tombstoneQuietSince` and `tombstoneNextSweepAt` fields retain the exact-key
+late-arrival fence for one quiet hour. These fields cannot be supplied by
+public quota requests. Previous Workers ignore those additive fields while
 continuing to account, expire, and sweep the object.
 
-V2 batch admission is a single serialized state write. Ambiguous set-creation
-acknowledgement invokes an atomic batch release before any PUT URL has been
-exposed. If release also fails, the full reservation remains conservatively
-charged until expiry.
+The state stores only the winning `iat` and nonce needed to reconstruct an
+exact token payload from a fingerprint-matching retry; it does not duplicate
+the full request strings. New admission also stops at a 1.5 MB serialized-state
+ceiling, below the Durable Object single-value limit. Revocation, release,
+expiry, and sweep operations remain available above that admission ceiling so
+cleanup can always reduce state.
 
-A rollback Worker does not expose `/v2/sets`, so no new V2 authority is issued.
+V2 keyed admission is a single serialized state write. An ambiguous
+acknowledgement never releases the winning reservation: the exact-key retry
+recovers it. This avoids one timed-out request deleting authority already
+returned to a concurrent replay. Legacy unkeyed creation keeps its pre-exposure
+batch-release behavior.
+
+A rollback Worker may still expose legacy `/v2/sets`, but it does not expose
+`/v2/sets/idempotent`. A client which cached the new feature therefore fails
+closed with 404 instead of letting the old exact-body handler ignore its key.
 Already-issued direct PUTs and `/download` remain compatible with the flat
 object path and V1 metadata subset.
 
@@ -193,8 +240,8 @@ object path and V1 metadata subset.
 - Apply `cloudflare/r2-cors.remote-share.json` before enabling the client. It
   contains every signed V2 `x-amz-meta-*` upload header.
 - Extend the remote-share WAF session-creation burst rule to cover
-  `POST /v2/sets` as well as `POST /session`. Per-record endpoints remain
-  HMAC-set-authority and Durable-Object guarded.
+  `POST /v2/sets` and `POST /v2/sets/idempotent` as well as `POST /session`.
+  Per-record endpoints remain HMAC-set-authority and Durable-Object guarded.
 - Deploy the Worker before the app. A client must treat V2 `404`, `503`, or
   capability failure during negotiation as a pre-run V1 fallback, never as a
   mid-run transport swap.

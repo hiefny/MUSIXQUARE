@@ -109,7 +109,8 @@ async function waitForRemoteShareWorkerReady(requireRecordSet: boolean): Promise
     const advertisedVersion = requireRecordSet
       ? config.recordSetVersion
       : config.workerContractVersion;
-    if (advertisedVersion === RECORD_SET_VERSION) {
+    const idempotencyReady = !requireRecordSet || config.recordSetCreateIdempotency === true;
+    if (advertisedVersion === RECORD_SET_VERSION && idempotencyReady) {
       consecutiveReadyReads += 1;
       if (consecutiveReadyReads >= 2) return;
     } else if (advertisedVersion === undefined) {
@@ -372,6 +373,27 @@ async function cleanup(session: RemoteShareSession, roomId: string): Promise<Res
   });
 }
 
+function recordSetRequestBody(
+  roomId: string,
+  queueItemId: string,
+  applicationSessionId: string,
+  sourceIdentity: string,
+  sourceFile: File,
+  name = sourceFile.name,
+): string {
+  return JSON.stringify({
+    roomId,
+    sessionId: applicationSessionId,
+    queueItemId,
+    sourceIdentity,
+    name,
+    mime: sourceFile.type,
+    size: sourceFile.size,
+    recordSize: RECORD_SIZE,
+    recordCount: 1,
+  });
+}
+
 async function requestRecordSet(
   token: string,
   roomId: string,
@@ -379,25 +401,23 @@ async function requestRecordSet(
   applicationSessionId: string,
   sourceIdentity: string,
   sourceFile: File,
+  idempotencyKey: string,
 ): Promise<RemoteRecordSetSession> {
-  const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/v2/sets`, {
+  const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/v2/sets/idempotent`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Origin: APP_ORIGIN,
+      'X-MXQR-Idempotency-Key': idempotencyKey,
       ...(token ? { 'X-MXQR-Capability': token } : {}),
     },
-    body: JSON.stringify({
+    body: recordSetRequestBody(
       roomId,
-      sessionId: applicationSessionId,
       queueItemId,
+      applicationSessionId,
       sourceIdentity,
-      name: sourceFile.name,
-      mime: sourceFile.type,
-      size: sourceFile.size,
-      recordSize: RECORD_SIZE,
-      recordCount: 1,
-    }),
+      sourceFile,
+    ),
   });
   assertAllowedOrigin(response, 'remote-share V2 record set');
   const value = await readJson(response, 'remote-share V2 record set');
@@ -699,6 +719,7 @@ async function runRecordSetSmoke(
   const queueItemId = randomUUID();
   const applicationSessionId = `live-remote-share-smoke:${randomUUID()}`;
   const sourceIdentity = `live-remote-share-smoke:${randomUUID()}`;
+  const idempotencyKey = randomUUID();
   const sourceFile = new File([sourceBytes], FILE_NAME, { type: FILE_MIME });
   let session: RemoteRecordSetSession | undefined;
   let cleaned = false;
@@ -713,7 +734,44 @@ async function runRecordSetSmoke(
       applicationSessionId,
       sourceIdentity,
       sourceFile,
+      idempotencyKey,
     );
+    const replayedSession = await requestRecordSet(
+      token,
+      roomId,
+      queueItemId,
+      applicationSessionId,
+      sourceIdentity,
+      sourceFile,
+      idempotencyKey,
+    );
+    if (JSON.stringify(replayedSession) !== JSON.stringify(session)) {
+      throw new Error('remote-share V2 idempotent create replay changed authority');
+    }
+    const conflictingCreate = await fetchWithTimeout(`${REMOTE_ORIGIN}/v2/sets/idempotent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: APP_ORIGIN,
+        'X-MXQR-Idempotency-Key': idempotencyKey,
+        ...(token ? { 'X-MXQR-Capability': token } : {}),
+      },
+      body: recordSetRequestBody(
+        roomId,
+        queueItemId,
+        applicationSessionId,
+        sourceIdentity,
+        sourceFile,
+        `${sourceFile.name}.conflict`,
+      ),
+    });
+    assertAllowedOrigin(conflictingCreate, 'remote-share V2 idempotency conflict');
+    if (conflictingCreate.status !== 409) {
+      throw new Error(
+        `remote-share V2 idempotency conflict returned HTTP ${conflictingCreate.status}`,
+      );
+    }
+    await conflictingCreate.body?.cancel().catch(() => undefined);
     encryptor = await R2RecordCryptoV2.createEncryptor(session.setId, sourceFile.size);
     const secret = encryptor.takeSecretDescriptor();
     const lease = await encryptor.encryptRecord(0, sourceBytes);
@@ -775,6 +833,30 @@ async function runRecordSetSmoke(
     await readJson(deleted, 'remote-share V2 record-set cleanup');
     cleaned = true;
 
+    const replayAfterCleanup = await fetchWithTimeout(`${REMOTE_ORIGIN}/v2/sets/idempotent`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: APP_ORIGIN,
+        'X-MXQR-Idempotency-Key': idempotencyKey,
+        ...(token ? { 'X-MXQR-Capability': token } : {}),
+      },
+      body: recordSetRequestBody(
+        roomId,
+        queueItemId,
+        applicationSessionId,
+        sourceIdentity,
+        sourceFile,
+      ),
+    });
+    assertAllowedOrigin(replayAfterCleanup, 'remote-share V2 revoked intent replay');
+    if (replayAfterCleanup.status !== 410) {
+      throw new Error(
+        `remote-share V2 revoked intent replay returned HTTP ${replayAfterCleanup.status}`,
+      );
+    }
+    await replayAfterCleanup.body?.cancel().catch(() => undefined);
+
     const afterDelete = await fetchWithTimeout(downloadUrl, {
       headers: { Origin: APP_ORIGIN },
     });
@@ -794,6 +876,9 @@ async function runRecordSetSmoke(
       directR2Put: true,
       corsPreflight: true,
       metadataMatch: true,
+      idempotentCreateReplay: true,
+      idempotencyConflictRejected: true,
+      revokedIntentReplayRejected: true,
       cleanupStatus: deleted.status,
       afterCleanupStatus: afterDelete.status,
     };

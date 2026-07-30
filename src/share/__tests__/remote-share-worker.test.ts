@@ -23,6 +23,7 @@ const CAPABILITY_SECRET = 'remote-share-capability-secret-for-tests';
 const CLIENT_IP = '203.0.113.7';
 const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
 const RECORD_SIZE = 8 * 1024 * 1024;
+const RECORD_SET_IDEMPOTENCY_KEY = '20000000-0000-4000-8000-000000000001';
 
 interface R2CorsRule {
   allowed: {
@@ -309,15 +310,17 @@ interface RecordSetResponse {
 async function createRecordSet(
   workerEnv: Record<string, unknown>,
   overrides: Record<string, unknown> = {},
+  options: { idempotencyKey?: string } = {},
 ): Promise<{ response: Response; payload: RecordSetResponse }> {
   const token = await createCapabilityToken();
   const response = await workerModule.default.fetch(
-    request('/v2/sets', {
+    request(options.idempotencyKey ? '/v2/sets/idempotent' : '/v2/sets', {
       method: 'POST',
       headers: {
         'cf-connecting-ip': CLIENT_IP,
         'content-type': 'application/json',
         'x-mxqr-capability': token,
+        ...(options.idempotencyKey ? { 'x-mxqr-idempotency-key': options.idempotencyKey } : {}),
       },
       body: recordSetRequestBody(overrides),
     }),
@@ -409,7 +412,7 @@ describe('remote-share Worker capability gate', () => {
     expect(liveSmokeSource).toContain('consecutiveReadyReads >= 2');
     expect(liveSmokeSource).toContain('runV1Smoke');
     expect(liveSmokeSource).toContain('runRecordSetSmoke');
-    expect(liveSmokeSource).toContain('`${REMOTE_ORIGIN}/v2/sets`');
+    expect(liveSmokeSource).toContain('`${REMOTE_ORIGIN}/v2/sets/idempotent`');
     expect(liveSmokeSource).toContain('/records/0/upload');
     expect(liveSmokeSource).toContain('/records/0/complete');
     expect(liveSmokeSource).toContain('Buffer.compare(Buffer.from(downloadedCiphertext)');
@@ -537,6 +540,7 @@ describe('remote-share Worker capability gate', () => {
     const unavailablePayload = await unavailable.json();
     expect(unavailablePayload).toMatchObject({ workerContractVersion: 2 });
     expect(unavailablePayload).not.toHaveProperty('recordSetVersion');
+    expect(unavailablePayload).not.toHaveProperty('recordSetCreateIdempotency');
 
     const available = await workerModule.default.fetch(
       request('/security-config'),
@@ -548,7 +552,26 @@ describe('remote-share Worker capability gate', () => {
     expect(await available.json()).toMatchObject({
       workerContractVersion: 2,
       recordSetVersion: 2,
+      recordSetCreateIdempotency: true,
     });
+  });
+
+  it('advertises the record-set idempotency request header through Worker CORS', async () => {
+    const response = await workerModule.default.fetch(
+      request('/v2/sets/idempotent', {
+        method: 'OPTIONS',
+        headers: {
+          'access-control-request-headers': 'content-type,x-mxqr-capability,x-mxqr-idempotency-key',
+          'access-control-request-method': 'POST',
+        },
+      }),
+      env(),
+    );
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('access-control-allow-headers')?.toLowerCase()).toContain(
+      'x-mxqr-idempotency-key',
+    );
   });
 
   it('keeps unexpected internal exception detail out of public 5xx bodies', async () => {
@@ -2079,6 +2102,478 @@ describe('remote-share Worker capability gate', () => {
       for (const header of Object.keys(uploadPayload.uploadHeaders)) {
         expect(corsHeaders).toContain(header.toLowerCase());
       }
+    });
+
+    it('keeps unkeyed clients compatible and rejects malformed idempotency keys before quota mutation', async () => {
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: createQuotaBucket(),
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 2),
+      });
+      const token = await createCapabilityToken();
+      const malformed = await workerModule.default.fetch(
+        request('/v2/sets/idempotent', {
+          method: 'POST',
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-capability': token,
+            'x-mxqr-idempotency-key': 'not-a-uuid',
+          },
+          body: recordSetRequestBody(),
+        }),
+        workerEnv,
+      );
+
+      expect(malformed.status).toBe(400);
+      expect(await malformed.json()).toEqual({ error: 'invalid idempotency key' });
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      expect(namespace.instance('123456').storage.values.size).toBe(0);
+      expect((await createRecordSet(workerEnv)).response.status).toBe(200);
+    });
+
+    it('fences keyed creation behind a route that rollback Workers cannot mutate', async () => {
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: createQuotaBucket(),
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 2),
+      });
+      const token = await createCapabilityToken();
+      const headers = {
+        'cf-connecting-ip': CLIENT_IP,
+        'content-type': 'application/json',
+        'x-mxqr-capability': token,
+      };
+      const keyedOnLegacyPath = await workerModule.default.fetch(
+        request('/v2/sets', {
+          method: 'POST',
+          headers: {
+            ...headers,
+            'x-mxqr-idempotency-key': RECORD_SET_IDEMPOTENCY_KEY,
+          },
+          body: recordSetRequestBody(),
+        }),
+        workerEnv,
+      );
+      const missingKeyOnIdempotentPath = await workerModule.default.fetch(
+        request('/v2/sets/idempotent', {
+          method: 'POST',
+          headers,
+          body: recordSetRequestBody(),
+        }),
+        workerEnv,
+      );
+
+      expect(keyedOnLegacyPath.status).toBe(400);
+      expect(await keyedOnLegacyPath.json()).toEqual({ error: 'invalid idempotency route' });
+      expect(missingKeyOnIdempotentPath.status).toBe(400);
+      expect(await missingKeyOnIdempotentPath.json()).toEqual({
+        error: 'invalid idempotency route',
+      });
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      expect(namespace.instance('123456').storage.values.size).toBe(0);
+    });
+
+    it('replays one keyed authority through atomic rate admission without touching legacy KV', async () => {
+      const rateLimit = {
+        get: vi.fn(async () => null),
+        put: vi.fn(async () => {}),
+      };
+      const workerEnv = directUploadQuotaEnv({
+        IP_UPLOADS_PER_WINDOW: '1',
+        REMOTE_SHARE_BUCKET: createQuotaBucket(),
+        REMOTE_SHARE_RATE_LIMIT: rateLimit,
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 2),
+        ROOM_UPLOADS_PER_WINDOW: '1',
+      });
+
+      const first = await createRecordSet(
+        workerEnv,
+        {},
+        { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY },
+      );
+      const replay = await createRecordSet(
+        workerEnv,
+        {},
+        { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY },
+      );
+
+      expect(first.response.status).toBe(200);
+      expect(replay.response.status).toBe(200);
+      expect(replay.payload).toEqual(first.payload);
+      const differentIntent = await createRecordSet(
+        workerEnv,
+        {},
+        { idempotencyKey: '20000000-0000-4000-8000-000000000002' },
+      );
+      expect(differentIntent.response.status).toBe(429);
+      expect(rateLimit.get).not.toHaveBeenCalled();
+      expect(rateLimit.put).not.toHaveBeenCalled();
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      const stored = namespace.instance('123456').storage.values.get('quota-state') as {
+        v: number;
+        reservations: Record<
+          string,
+          {
+            createIntentKeyDigest: string;
+            createIntentFingerprint: string;
+            setId: string;
+          }
+        >;
+      };
+      expect(stored.v).toBe(1);
+      expect(Object.keys(stored.reservations)).toHaveLength(2);
+      expect(new Set(Object.values(stored.reservations).map(({ setId }) => setId)).size).toBe(1);
+      expect(JSON.stringify(stored)).not.toContain(RECORD_SET_IDEMPOTENCY_KEY);
+      expect(JSON.stringify(stored)).not.toContain('createIntentTokenPayload');
+      expect(new TextEncoder().encode(JSON.stringify(stored)).byteLength).toBeLessThan(4 * 1024);
+      expect(
+        Object.values(stored.reservations).every(
+          ({ createIntentKeyDigest, createIntentFingerprint }) =>
+            /^[A-Za-z0-9_-]{43}$/.test(createIntentKeyDigest) &&
+            /^[0-9a-f]{64}$/.test(createIntentFingerprint),
+        ),
+      ).toBe(true);
+
+      const withoutCapability = await workerModule.default.fetch(
+        request('/v2/sets/idempotent', {
+          method: 'POST',
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-idempotency-key': RECORD_SET_IDEMPOTENCY_KEY,
+          },
+          body: recordSetRequestBody(),
+        }),
+        workerEnv,
+      );
+      expect(withoutCapability.status).toBe(401);
+    });
+
+    it('serializes concurrent same-key creates to one byte-identical winner', async () => {
+      const workerEnv = directUploadQuotaEnv({
+        IP_UPLOADS_PER_WINDOW: '1',
+        REMOTE_SHARE_BUCKET: createQuotaBucket(),
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 2),
+        ROOM_UPLOADS_PER_WINDOW: '1',
+      });
+
+      const [left, right] = await Promise.all([
+        createRecordSet(workerEnv, {}, { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY }),
+        createRecordSet(workerEnv, {}, { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY }),
+      ]);
+
+      expect(left.response.status).toBe(200);
+      expect(right.response.status).toBe(200);
+      expect(right.payload).toEqual(left.payload);
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      const stored = namespace.instance('123456').storage.values.get('quota-state') as {
+        reservations: Record<string, { setId: string }>;
+      };
+      expect(Object.keys(stored.reservations)).toHaveLength(2);
+      expect(new Set(Object.values(stored.reservations).map(({ setId }) => setId)).size).toBe(1);
+      expect(
+        (
+          await createRecordSet(
+            workerEnv,
+            {},
+            { idempotencyKey: '20000000-0000-4000-8000-000000000002' },
+          )
+        ).response.status,
+      ).toBe(429);
+    });
+
+    it('fails a same-key different-body replay closed without adding reservations', async () => {
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: createQuotaBucket(),
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 4),
+      });
+      const first = await createRecordSet(
+        workerEnv,
+        {},
+        { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY },
+      );
+      const conflict = await createRecordSet(
+        workerEnv,
+        { name: 'different.flac' },
+        { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY },
+      );
+
+      expect(first.response.status).toBe(200);
+      expect(conflict.response.status).toBe(409);
+      expect(conflict.payload).toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' });
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      const stored = namespace.instance('123456').storage.values.get('quota-state') as {
+        reservations: Record<string, unknown>;
+      };
+      expect(Object.keys(stored.reservations)).toHaveLength(2);
+    });
+
+    it('recovers the original keyed winner after an alarm failure acknowledged its state commit', async () => {
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: createQuotaBucket(),
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 2),
+      });
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      vi.spyOn(namespace.instance('123456').storage, 'setAlarm').mockRejectedValueOnce(
+        new Error('alarm unavailable after idempotent batch put'),
+      );
+      const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const first = await createRecordSet(
+        workerEnv,
+        {},
+        { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY },
+      );
+      expect(first.response.status).toBe(503);
+      const committed = namespace.instance('123456').storage.values.get('quota-state') as {
+        reservations: Record<string, { setId: string }>;
+      };
+      expect(Object.keys(committed.reservations)).toHaveLength(2);
+      const committedSetId = Object.values(committed.reservations)[0]?.setId;
+
+      const replay = await createRecordSet(
+        workerEnv,
+        {},
+        { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY },
+      );
+      expect(replay.response.status).toBe(200);
+      expect(replay.payload.setId).toBe(committedSetId);
+      expect(warning).toHaveBeenCalled();
+    });
+
+    it('preserves legacy v1 reservations while adding keyed replay metadata', async () => {
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: createQuotaBucket(),
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 4),
+      });
+      const legacy = await createRecordSet(workerEnv);
+      const keyed = await createRecordSet(
+        workerEnv,
+        {},
+        { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY },
+      );
+
+      expect(legacy.response.status).toBe(200);
+      expect(keyed.response.status).toBe(200);
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      const stored = namespace.instance('123456').storage.values.get('quota-state') as {
+        v: number;
+        reservations: Record<string, { createIntentKeyDigest?: string; setId: string }>;
+      };
+      expect(stored.v).toBe(1);
+      expect(Object.keys(stored.reservations)).toHaveLength(4);
+      expect(
+        Object.values(stored.reservations).filter(
+          ({ createIntentKeyDigest }) => createIntentKeyDigest !== undefined,
+        ),
+      ).toHaveLength(2);
+      expect(new Set(Object.values(stored.reservations).map(({ setId }) => setId)).size).toBe(2);
+    });
+
+    it('fails new admission closed before quota state reaches the Durable Object row limit', async () => {
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: createQuotaBucket(),
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 8),
+      });
+      const legacy = await createRecordSet(workerEnv);
+      expect(legacy.response.status).toBe(200);
+
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      const roomInstance = namespace.instance('123456');
+      const stored = roomInstance.storage.values.get('quota-state') as {
+        reservations: Record<string, Record<string, unknown>>;
+      };
+      const firstReservation = Object.values(stored.reservations)[0]!;
+      firstReservation.forwardCompatiblePadding = 'x'.repeat(1_500_000);
+      roomInstance.storage.values.set('quota-state', stored);
+      const reservationIdsBefore = Object.keys(stored.reservations);
+
+      const denied = await createRecordSet(
+        workerEnv,
+        {},
+        { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY },
+      );
+      expect(denied.response.status).toBe(503);
+      const after = roomInstance.storage.values.get('quota-state') as {
+        reservations: Record<string, unknown>;
+      };
+      expect(Object.keys(after.reservations)).toEqual(reservationIdsBefore);
+    });
+
+    it('keeps explicit create cancellation and cleanup as replay tombstones', async () => {
+      const bucket = createQuotaBucket();
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: bucket,
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 4),
+      });
+      const created = await createRecordSet(
+        workerEnv,
+        {},
+        { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY },
+      );
+      const token = await createCapabilityToken();
+      for (const record of created.payload.records) {
+        bucket.objects.set(`room/123456/${record.objectId}`, {
+          key: `room/123456/${record.objectId}`,
+          size: record.encryptedSize,
+          customMetadata: {},
+        });
+      }
+      const cancel = (): Promise<Response> =>
+        workerModule.default.fetch(
+          request('/v2/sets/intents/cancel', {
+            method: 'POST',
+            headers: {
+              'cf-connecting-ip': CLIENT_IP,
+              'content-type': 'application/json',
+              'x-mxqr-capability': token,
+              'x-mxqr-idempotency-key': RECORD_SET_IDEMPOTENCY_KEY,
+            },
+            body: recordSetRequestBody(),
+          }),
+          workerEnv,
+        );
+
+      expect(created.response.status).toBe(200);
+      const canceled = await cancel();
+      expect(canceled.status).toBe(200);
+      expect(await canceled.json()).toEqual({ ok: true });
+      expect(bucket.objects.size).toBe(0);
+      const canceledAgain = await cancel();
+      expect(canceledAgain.status).toBe(200);
+      expect(await canceledAgain.json()).toEqual({ ok: true });
+      const replay = await createRecordSet(
+        workerEnv,
+        {},
+        { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY },
+      );
+      expect(replay.response.status).toBe(410);
+      expect(replay.payload).toMatchObject({ code: 'CREATE_INTENT_CANCELED' });
+
+      const conflict = await createRecordSet(
+        workerEnv,
+        { name: 'different.flac' },
+        { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY },
+      );
+      expect(conflict.response.status).toBe(409);
+      expect(conflict.payload).toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' });
+    });
+
+    it('lets a cancel win before create without charging active room quota', async () => {
+      const perSetBytes = RECORD_SIZE + 16 + 20;
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: createQuotaBucket(),
+        ROOM_STORAGE_QUOTA_BYTES: String(perSetBytes),
+      });
+      const token = await createCapabilityToken();
+      const cancel = await workerModule.default.fetch(
+        request('/v2/sets/intents/cancel', {
+          method: 'POST',
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-capability': token,
+            'x-mxqr-idempotency-key': RECORD_SET_IDEMPOTENCY_KEY,
+          },
+          body: recordSetRequestBody(),
+        }),
+        workerEnv,
+      );
+      expect(cancel.status).toBe(200);
+      expect(
+        (await createRecordSet(workerEnv, {}, { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY }))
+          .response.status,
+      ).toBe(410);
+
+      const unrelated = await createRecordSet(
+        workerEnv,
+        {},
+        { idempotencyKey: '20000000-0000-4000-8000-000000000002' },
+      );
+      expect(unrelated.response.status).toBe(200);
+    });
+
+    it('shares one atomic rate admission between cancel-first and its matching create', async () => {
+      const workerEnv = directUploadQuotaEnv({
+        IP_UPLOADS_PER_WINDOW: '1',
+        REMOTE_SHARE_BUCKET: createQuotaBucket(),
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 2),
+        ROOM_UPLOADS_PER_WINDOW: '1',
+      });
+      const token = await createCapabilityToken();
+      const canceled = await workerModule.default.fetch(
+        request('/v2/sets/intents/cancel', {
+          method: 'POST',
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-capability': token,
+            'x-mxqr-idempotency-key': RECORD_SET_IDEMPOTENCY_KEY,
+          },
+          body: recordSetRequestBody(),
+        }),
+        workerEnv,
+      );
+
+      expect(canceled.status).toBe(200);
+      expect(
+        (await createRecordSet(workerEnv, {}, { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY }))
+          .response.status,
+      ).toBe(410);
+      expect(
+        (
+          await createRecordSet(
+            workerEnv,
+            {},
+            { idempotencyKey: '20000000-0000-4000-8000-000000000002' },
+          )
+        ).response.status,
+      ).toBe(429);
+    });
+
+    it('retains a cleaned-up keyed intent through expiry and the quiet tombstone fence', async () => {
+      vi.useFakeTimers();
+      const startedAt = new Date('2026-07-30T00:00:00.000Z');
+      vi.setSystemTime(startedAt);
+      const workerEnv = directUploadQuotaEnv({
+        OBJECT_TTL_SECONDS: '1',
+        REMOTE_SHARE_BUCKET: createQuotaBucket(),
+        ROOM_STORAGE_QUOTA_BYTES: String(RECORD_SIZE * 2),
+      });
+      const created = await createRecordSet(
+        workerEnv,
+        {},
+        { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY },
+      );
+      expect(created.response.status).toBe(200);
+      const cleanup = await workerModule.default.fetch(
+        request(`/v2/sets/123456/${created.payload.setId}`, {
+          method: 'DELETE',
+          headers: { 'x-mxqr-cleanup-token': created.payload.cleanupToken },
+        }),
+        workerEnv,
+      );
+      expect(cleanup.status).toBe(200);
+      expect(
+        (await createRecordSet(workerEnv, {}, { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY }))
+          .response.status,
+      ).toBe(410);
+
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      vi.setSystemTime(startedAt.getTime() + 1_001);
+      await namespace.instance('123456').object.alarm();
+      expect(
+        (await createRecordSet(workerEnv, {}, { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY }))
+          .response.status,
+      ).toBe(410);
+      expect(namespace.instance('123456').storage.values.size).toBe(1);
+
+      vi.setSystemTime(startedAt.getTime() + 3_601_002);
+      await namespace.instance('123456').object.alarm();
+      expect(namespace.instance('123456').storage.values.size).toBe(0);
+      expect(
+        (await createRecordSet(workerEnv, {}, { idempotencyKey: RECORD_SET_IDEMPOTENCY_KEY }))
+          .response.status,
+      ).toBe(200);
     });
 
     it('rejects PRO codes, non-exact schemas, invalid geometry, and mismatched authority', async () => {

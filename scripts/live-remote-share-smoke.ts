@@ -110,9 +110,16 @@ async function waitForRemoteShareWorkerReady(requireRecordSet: boolean): Promise
       ? config.recordSetVersion
       : config.workerContractVersion;
     const idempotencyReady = !requireRecordSet || config.recordSetCreateIdempotency === true;
-    if (advertisedVersion === RECORD_SET_VERSION && idempotencyReady) {
-      consecutiveReadyReads += 1;
-      if (consecutiveReadyReads >= 2) return;
+    if (advertisedVersion === RECORD_SET_VERSION) {
+      if (idempotencyReady) {
+        consecutiveReadyReads += 1;
+        if (consecutiveReadyReads >= 2) return;
+      } else {
+        // The previous production Worker already advertises record-set v2.
+        // During edge propagation, wait for the new idempotency capability
+        // instead of misclassifying that otherwise-compatible Worker.
+        consecutiveReadyReads = 0;
+      }
     } else if (advertisedVersion === undefined) {
       // A just-superseded Worker does not advertise this contract. The
       // rollback-safe bridge advertises only its Worker contract; the full

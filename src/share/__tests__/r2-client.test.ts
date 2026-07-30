@@ -65,6 +65,27 @@ function stalledJsonResponse(): Response {
   );
 }
 
+function recordSetSuccessResponse(origin = 'https://share.example.test'): Response {
+  return Response.json({
+    v: 2,
+    setId,
+    recordSize,
+    recordCount: 1,
+    expiresAt: Date.now() + 60_000,
+    setToken: 's'.repeat(32),
+    cleanupToken: '30000000-0000-4000-8000-000000000001',
+    records: [
+      {
+        index: 0,
+        objectId,
+        plaintextSize: 20,
+        encryptedSize: 36,
+        downloadUrl: `${origin}/download/${roomId}/${objectId}`,
+      },
+    ],
+  });
+}
+
 beforeEach(() => {
   FakeXmlHttpRequest.instances.length = 0;
   vi.stubGlobal('XMLHttpRequest', FakeXmlHttpRequest);
@@ -136,6 +157,152 @@ describe('R2 record-set control deadlines', () => {
     ).toHaveLength(1);
   });
 
+  it('never downgrades a publisher-owned intent to the legacy unkeyed create route', async () => {
+    Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__', {
+      configurable: true,
+      value: 'https://unsupported-intent-share.example.test',
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith('/security-config')) {
+        return Response.json({
+          capabilityRequired: false,
+          recordSetCreateIdempotency: false,
+        });
+      }
+      return new Response('unexpected mutation', { status: 500 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { createR2RecordSet } = await import('../r2-client.ts');
+    await expect(
+      createR2RecordSet({
+        ...recordSetMeta,
+        publicationIntentId: '40000000-0000-4000-8000-000000000010',
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_RECORD_SET_IDEMPOTENCY_UNSUPPORTED');
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/v2/sets'))).toBe(false);
+  });
+
+  it('retries an ambiguous keyed create with the exact same intent and body', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__', {
+      configurable: true,
+      value: 'https://keyed-create-share.example.test',
+    });
+    const publicationIntentId = '40000000-0000-4000-8000-000000000001';
+    let createAttempts = 0;
+    let markFirstCreateStarted!: () => void;
+    const firstCreateStarted = new Promise<void>((resolve) => {
+      markFirstCreateStarted = resolve;
+    });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/security-config')) {
+        return Response.json({
+          capabilityRequired: false,
+          recordSetCreateIdempotency: true,
+        });
+      }
+      if (url.endsWith('/v2/sets/idempotent')) {
+        createAttempts += 1;
+        if (createAttempts === 1) {
+          markFirstCreateStarted();
+          return stalledJsonResponse();
+        }
+        return recordSetSuccessResponse('https://keyed-create-share.example.test');
+      }
+      return new Response('unexpected', { status: 500 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { createR2RecordSet } = await import('../r2-client.ts');
+    const pending = createR2RecordSet({
+      ...recordSetMeta,
+      publicationIntentId,
+    });
+    await firstCreateStarted;
+    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.advanceTimersByTimeAsync(150);
+
+    await expect(pending).resolves.toMatchObject({ setId, recordCount: 1 });
+    const createCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).endsWith('/v2/sets/idempotent'),
+    );
+    expect(createCalls).toHaveLength(2);
+    expect(createCalls[0]![1]?.headers).toMatchObject({
+      'X-MXQR-Idempotency-Key': publicationIntentId,
+    });
+    expect(createCalls[1]![1]?.headers).toMatchObject({
+      'X-MXQR-Idempotency-Key': publicationIntentId,
+    });
+    expect(createCalls[1]![1]?.body).toBe(createCalls[0]![1]?.body);
+  });
+
+  it('preserves the Worker idempotency-conflict code for publisher fencing', async () => {
+    Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__', {
+      configurable: true,
+      value: 'https://conflicting-intent-share.example.test',
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/security-config')) {
+          return Response.json({
+            capabilityRequired: false,
+            recordSetCreateIdempotency: true,
+          });
+        }
+        if (url.endsWith('/v2/sets/idempotent')) {
+          return Response.json({ code: 'IDEMPOTENCY_CONFLICT' }, { status: 409 });
+        }
+        return new Response('unexpected', { status: 500 });
+      }),
+    );
+
+    const { createR2RecordSet } = await import('../r2-client.ts');
+    await expect(
+      createR2RecordSet({
+        ...recordSetMeta,
+        publicationIntentId: '40000000-0000-4000-8000-000000000011',
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_RECORD_SET_CREATE_IDEMPOTENCY_CONFLICT');
+  });
+
+  it('keeps a keyed create intent poisoned when a 409 response body is malformed', async () => {
+    Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__', {
+      configurable: true,
+      value: 'https://malformed-conflict-share.example.test',
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/security-config')) {
+          return Response.json({
+            capabilityRequired: false,
+            recordSetCreateIdempotency: true,
+          });
+        }
+        if (url.endsWith('/v2/sets/idempotent')) {
+          return new Response('{', {
+            status: 409,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('unexpected', { status: 500 });
+      }),
+    );
+
+    const { createR2RecordSet } = await import('../r2-client.ts');
+    await expect(
+      createR2RecordSet({
+        ...recordSetMeta,
+        publicationIntentId: '40000000-0000-4000-8000-000000000012',
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_RECORD_SET_CREATE_IDEMPOTENCY_CONFLICT');
+  });
+
   it('still aborts record-set creation immediately when its owner cancels', async () => {
     vi.useFakeTimers();
     Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__', {
@@ -174,6 +341,98 @@ describe('R2 record-set control deadlines', () => {
     await expect(pending).rejects.toThrow('REMOTE_SHARE_ABORTED');
     expect(createSignal?.aborted).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('fences a keyed create intent after owner cancellation', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__', {
+      configurable: true,
+      value: 'https://keyed-cancel-share.example.test',
+    });
+    const publicationIntentId = '40000000-0000-4000-8000-000000000002';
+    let markCreateStarted!: () => void;
+    const createStarted = new Promise<void>((resolve) => {
+      markCreateStarted = resolve;
+    });
+    let markCancelStarted!: (init: RequestInit | undefined) => void;
+    const cancelStarted = new Promise<RequestInit | undefined>((resolve) => {
+      markCancelStarted = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/security-config')) {
+          return Response.json({
+            capabilityRequired: false,
+            recordSetCreateIdempotency: true,
+          });
+        }
+        if (url.endsWith('/v2/sets/idempotent')) {
+          markCreateStarted();
+          return stalledJsonResponse();
+        }
+        if (url.endsWith('/v2/sets/intents/cancel')) {
+          markCancelStarted(init);
+          return Response.json({ ok: true });
+        }
+        return new Response('unexpected', { status: 500 });
+      }),
+    );
+
+    const { createR2RecordSet } = await import('../r2-client.ts');
+    const controller = new AbortController();
+    const pending = createR2RecordSet(
+      {
+        ...recordSetMeta,
+        publicationIntentId,
+      },
+      controller.signal,
+    );
+    await createStarted;
+    controller.abort(new Error('owner cancelled'));
+
+    await expect(pending).rejects.toThrow('REMOTE_SHARE_ABORTED');
+    const cancelInit = await cancelStarted;
+    expect(cancelInit?.headers).toMatchObject({
+      'X-MXQR-Idempotency-Key': publicationIntentId,
+    });
+    expect(cancelInit?.keepalive).toBe(true);
+  });
+
+  it('treats a cancel-route 404 as rollback expiry cleanup after a fresh false probe', async () => {
+    Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__', {
+      configurable: true,
+      value: 'https://rollback-cancel-share.example.test',
+    });
+    let configCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/security-config')) {
+        configCalls += 1;
+        return Response.json({
+          capabilityRequired: false,
+          recordSetCreateIdempotency: configCalls === 1,
+        });
+      }
+      if (url.endsWith('/v2/sets/intents/cancel')) {
+        return Response.json({ error: 'not found' }, { status: 404 });
+      }
+      return new Response('unexpected', { status: 500 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { cancelR2RecordSetCreateIntent } = await import('../r2-client.ts');
+    await expect(
+      cancelR2RecordSetCreateIntent({
+        ...recordSetMeta,
+        publicationIntentId: '40000000-0000-4000-8000-000000000012',
+      }),
+    ).resolves.toBeUndefined();
+    expect(configCalls).toBe(2);
+    expect(
+      fetchMock.mock.calls.filter(([input]) => String(input).endsWith('/v2/sets/intents/cancel')),
+    ).toHaveLength(1);
   });
 
   it('keeps record upload-authority requests on the shared 15-second deadline', async () => {

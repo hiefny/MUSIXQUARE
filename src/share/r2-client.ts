@@ -66,6 +66,12 @@ export type R2WholeBlobDeleteResult = 'deleted' | 'not-found';
 export interface R2RecordSetCreateMeta {
   readonly storageRoomId: string;
   readonly applicationSessionId: string;
+  /**
+   * Publisher-owned logical publication identity. It is carried only in the
+   * Idempotency-Key header and never enters a public descriptor or signed set
+   * token.
+   */
+  readonly publicationIntentId?: string;
   readonly queueItemId: QueueItemId;
   readonly sourceIdentity: string;
   readonly name: string;
@@ -147,6 +153,7 @@ declare global {
 
 interface RemoteShareSecurityConfig {
   capabilityRequired: boolean;
+  recordSetCreateIdempotency: boolean;
 }
 
 const ENDPOINT_STORAGE_KEY = 'musixquare-remote-share-endpoint';
@@ -157,15 +164,18 @@ const PROD_ENDPOINT = 'https://share.musixquare.com';
 const REMOTE_SHARE_XHR_STALL_TIMEOUT_MS = 90_000;
 const REMOTE_SHARE_SECURITY_CONFIG_CACHE_MS = 5 * 60_000;
 const REMOTE_SHARE_CONTROL_REQUEST_TIMEOUT_MS = 15_000;
-// Record-set creation is deliberately not retried because a timeout can be
-// ambiguous after the server commits. Give cold Durable Object/R2 reconcile
-// work a wider first-attempt window while keeping every other control request
-// on the shorter shared deadline.
-const REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT_MS = 30_000;
+// A keyed retry is safe after an ambiguous commit. Two bounded attempts retain
+// the old 30-second total ceiling while recovering a lost first response.
+const REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT_MS = 15_000;
+const REMOTE_SHARE_RECORD_SET_CREATE_LEGACY_TIMEOUT_MS = 30_000;
+const REMOTE_SHARE_RECORD_SET_CREATE_ATTEMPTS = 2;
+const REMOTE_SHARE_RECORD_SET_CREATE_RETRY_DELAY_MS = 150;
+const REMOTE_SHARE_RECORD_SET_CANCEL_TIMEOUT_MS = 10_000;
 const REMOTE_SHARE_CONTROL_RESPONSE_MAX_BYTES = 64 * 1024;
 const REMOTE_OBJECT_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const QUEUE_ITEM_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const IDEMPOTENCY_KEY_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STORAGE_ROOM_ID_RE = /^[A-Za-z0-9_-]{1,64}$/u;
 const CLEANUP_TOKEN_RE = REMOTE_OBJECT_ID_RE;
 const MIME_PATTERN = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u;
@@ -234,6 +244,8 @@ function assertRecordSetMeta(meta: R2RecordSetCreateMeta): void {
   if (
     !/^[1-9]\d{5}$/u.test(meta.storageRoomId) ||
     !isRecordIdentifier(meta.applicationSessionId) ||
+    (meta.publicationIntentId !== undefined &&
+      !IDEMPOTENCY_KEY_RE.test(meta.publicationIntentId)) ||
     !QUEUE_ITEM_ID_RE.test(meta.queueItemId) ||
     !isRecordIdentifier(meta.sourceIdentity) ||
     typeof meta.name !== 'string' ||
@@ -550,7 +562,10 @@ async function getRemoteShareSecurityConfig(
         timeoutReason: 'REMOTE_SHARE_SECURITY_CONFIG_TIMEOUT',
       },
     );
-    const value = { capabilityRequired: payload.capabilityRequired === true };
+    const value = {
+      capabilityRequired: payload.capabilityRequired === true,
+      recordSetCreateIdempotency: payload.recordSetCreateIdempotency === true,
+    };
     remoteShareSecurityConfigCache = {
       endpoint,
       expiresAt: Date.now() + REMOTE_SHARE_SECURITY_CONFIG_CACHE_MS,
@@ -559,7 +574,10 @@ async function getRemoteShareSecurityConfig(
     return value;
   } catch (error) {
     if (signal?.aborted) throw error;
-    return { capabilityRequired: false };
+    return {
+      capabilityRequired: false,
+      recordSetCreateIdempotency: false,
+    };
   }
 }
 
@@ -591,6 +609,8 @@ async function requestRecordSetControl(
     readonly method: 'POST';
     readonly body: string;
     readonly capability?: boolean;
+    readonly headers?: Readonly<Record<string, string>>;
+    readonly keepalive?: boolean;
     readonly timeoutMs?: number;
     readonly timeoutReason: string;
   },
@@ -605,9 +625,11 @@ async function requestRecordSetControl(
           headers: {
             Accept: 'application/json',
             'content-type': 'application/json',
+            ...init.headers,
             ...capabilityHeaders,
           },
           body: init.body,
+          keepalive: init.keepalive,
           signal: requestSignal,
         });
         let body: unknown = null;
@@ -1186,84 +1208,277 @@ export async function createR2RecordSet(
   assertRecordSetMeta(meta);
   const endpoint = getRemoteShareEndpoint();
   if (!endpoint) throw new Error('REMOTE_SHARE_ENDPOINT_MISSING');
+  const requestBody = JSON.stringify({
+    roomId: meta.storageRoomId,
+    sessionId: meta.applicationSessionId,
+    queueItemId: meta.queueItemId,
+    sourceIdentity: meta.sourceIdentity,
+    name: meta.name,
+    mime: meta.mime,
+    size: meta.plaintextSize,
+    recordSize: meta.recordSize,
+    recordCount: meta.recordCount,
+  });
+  let requestStarted = false;
+  let idempotencyKey: string | null = null;
+  let idempotencySupported = false;
   try {
-    const { response, body } = await requestRecordSetControl(
-      endpoint,
-      '/v2/sets',
-      {
-        method: 'POST',
-        capability: true,
-        timeoutMs: REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT_MS,
-        timeoutReason: 'REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT',
-        body: JSON.stringify({
-          roomId: meta.storageRoomId,
-          sessionId: meta.applicationSessionId,
-          queueItemId: meta.queueItemId,
-          sourceIdentity: meta.sourceIdentity,
-          name: meta.name,
-          mime: meta.mime,
-          size: meta.plaintextSize,
-          recordSize: meta.recordSize,
-          recordCount: meta.recordCount,
-        }),
-      },
-      signal,
-    );
-    if (!response.ok) throw new Error(`REMOTE_SHARE_RECORD_SET_CREATE_HTTP_${response.status}`);
-    const value = body as Partial<R2RecordSetUploadSession> | null;
-    if (
-      value?.v !== R2_RECORD_SET_VERSION ||
-      !REMOTE_OBJECT_ID_RE.test(String(value.setId ?? '')) ||
-      value.recordSize !== meta.recordSize ||
-      value.recordCount !== meta.recordCount ||
-      !Number.isSafeInteger(value.expiresAt) ||
-      (value.expiresAt ?? 0) <= Date.now() ||
-      !isRecordControlToken(value.setToken) ||
-      !CLEANUP_TOKEN_RE.test(String(value.cleanupToken ?? '')) ||
-      !Array.isArray(value.records) ||
-      value.records.length !== meta.recordCount
-    ) {
-      throw new Error('REMOTE_SHARE_RECORD_SET_CREATE_RESPONSE_INVALID');
+    const securityConfig = await getRemoteShareSecurityConfig(endpoint, signal);
+    idempotencySupported = securityConfig.recordSetCreateIdempotency;
+    if (meta.publicationIntentId && !idempotencySupported) {
+      // Product publishers own a stable logical intent. Never silently
+      // downgrade that intent to the legacy unkeyed endpoint: an ambiguous
+      // legacy commit could be repeated by a later publish attempt.
+      throw new Error('REMOTE_SHARE_RECORD_SET_IDEMPOTENCY_UNSUPPORTED');
     }
-    const records = value.records.map((record, index) => {
-      const expectedPlaintextSize =
-        index === meta.recordCount - 1
-          ? meta.plaintextSize - index * meta.recordSize
-          : meta.recordSize;
-      if (
-        !record ||
-        record.index !== index ||
-        !REMOTE_OBJECT_ID_RE.test(record.objectId) ||
-        record.plaintextSize !== expectedPlaintextSize ||
-        record.encryptedSize !== expectedPlaintextSize + REMOTE_SHARE_AES_GCM_TAG_BYTES ||
-        !isExactRecordDownloadUrl(meta.storageRoomId, record.objectId, record.downloadUrl)
-      ) {
-        throw new Error('REMOTE_SHARE_RECORD_SET_CREATE_RESPONSE_INVALID');
+    if (idempotencySupported) {
+      idempotencyKey = meta.publicationIntentId ?? crypto.randomUUID();
+      if (!IDEMPOTENCY_KEY_RE.test(idempotencyKey)) {
+        throw new Error('REMOTE_SHARE_RECORD_SET_IDEMPOTENCY_KEY_INVALID');
       }
-      return freezeCanonical({
-        index,
-        objectId: record.objectId,
-        plaintextSize: record.plaintextSize,
-        encryptedSize: record.encryptedSize,
-        downloadUrl: expectedDownloadUrl(meta.storageRoomId, record.objectId).toString(),
-      });
-    });
-    return freezeCanonical({
-      v: R2_RECORD_SET_VERSION,
-      storageRoomId: meta.storageRoomId,
-      setId: value.setId as string,
-      recordSize: meta.recordSize,
-      recordCount: meta.recordCount,
-      expiresAt: value.expiresAt as number,
-      setToken: value.setToken as string,
-      cleanupToken: value.cleanupToken as string,
-      records: Object.freeze(records),
-    });
+    }
+
+    const attempts = idempotencySupported ? REMOTE_SHARE_RECORD_SET_CREATE_ATTEMPTS : 1;
+    let lastError: unknown = new Error('REMOTE_SHARE_RECORD_SET_CREATE_NETWORK');
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        requestStarted = true;
+        const { response, body } = await requestRecordSetControl(
+          endpoint,
+          idempotencySupported ? '/v2/sets/idempotent' : '/v2/sets',
+          {
+            method: 'POST',
+            capability: true,
+            headers: idempotencyKey ? { 'X-MXQR-Idempotency-Key': idempotencyKey } : undefined,
+            timeoutMs: idempotencySupported
+              ? REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT_MS
+              : REMOTE_SHARE_RECORD_SET_CREATE_LEGACY_TIMEOUT_MS,
+            timeoutReason: 'REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT',
+            body: requestBody,
+          },
+          signal,
+        );
+        if (
+          response.status === 409 &&
+          body &&
+          typeof body === 'object' &&
+          (body as { code?: unknown }).code === 'IDEMPOTENCY_CONFLICT'
+        ) {
+          throw new Error('REMOTE_SHARE_RECORD_SET_CREATE_IDEMPOTENCY_CONFLICT');
+        }
+        if (
+          response.status === 409 &&
+          body &&
+          typeof body === 'object' &&
+          (body as { code?: unknown }).code === 'ROOM_STORAGE_QUOTA_EXCEEDED'
+        ) {
+          throw new Error('REMOTE_SHARE_RECORD_SET_CREATE_QUOTA_EXCEEDED');
+        }
+        if (idempotencySupported && response.status === 409) {
+          // A keyed conflict response with a missing or malformed body must remain
+          // bound to this intent. Rotating the UUID could otherwise bypass a real
+          // idempotency conflict whose response body was lost in transit.
+          throw new Error('REMOTE_SHARE_RECORD_SET_CREATE_IDEMPOTENCY_CONFLICT');
+        }
+        if (
+          response.status === 410 &&
+          body &&
+          typeof body === 'object' &&
+          (body as { code?: unknown }).code === 'CREATE_INTENT_CANCELED'
+        ) {
+          throw new Error('REMOTE_SHARE_RECORD_SET_CREATE_INTENT_CANCELED');
+        }
+        if (!response.ok) {
+          throw new Error(`REMOTE_SHARE_RECORD_SET_CREATE_HTTP_${response.status}`);
+        }
+        return parseR2RecordSetCreateResponse(meta, body);
+      } catch (error) {
+        lastError = error;
+        if (
+          attempt === attempts - 1 ||
+          signal?.aborted ||
+          isCapabilityChallengeCancelled(error) ||
+          !isRetryableRecordSetCreateError(error)
+        ) {
+          break;
+        }
+        await waitForRecordSetCreateRetry(signal);
+      }
+    }
+    throw lastError;
   } catch (error) {
-    if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
+    if (signal?.aborted) {
+      if (idempotencySupported && idempotencyKey && requestStarted) {
+        void sendR2RecordSetCreateIntentCancellation(endpoint, requestBody, idempotencyKey).catch(
+          () => undefined,
+        );
+      }
+      throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
+    }
     if (isCapabilityChallengeCancelled(error)) throw error;
     if (error instanceof Error && error.message.startsWith('REMOTE_SHARE_')) throw error;
     throw new Error('REMOTE_SHARE_RECORD_SET_CREATE_NETWORK', { cause: error });
+  }
+}
+
+function parseR2RecordSetCreateResponse(
+  meta: R2RecordSetCreateMeta,
+  body: unknown,
+): Readonly<R2RecordSetUploadSession> {
+  const value = body as Partial<R2RecordSetUploadSession> | null;
+  if (
+    value?.v !== R2_RECORD_SET_VERSION ||
+    !REMOTE_OBJECT_ID_RE.test(String(value.setId ?? '')) ||
+    value.recordSize !== meta.recordSize ||
+    value.recordCount !== meta.recordCount ||
+    !Number.isSafeInteger(value.expiresAt) ||
+    (value.expiresAt ?? 0) <= Date.now() ||
+    !isRecordControlToken(value.setToken) ||
+    !CLEANUP_TOKEN_RE.test(String(value.cleanupToken ?? '')) ||
+    !Array.isArray(value.records) ||
+    value.records.length !== meta.recordCount
+  ) {
+    throw new Error('REMOTE_SHARE_RECORD_SET_CREATE_RESPONSE_INVALID');
+  }
+  const records = value.records.map((record, index) => {
+    const expectedPlaintextSize =
+      index === meta.recordCount - 1
+        ? meta.plaintextSize - index * meta.recordSize
+        : meta.recordSize;
+    if (
+      !record ||
+      record.index !== index ||
+      !REMOTE_OBJECT_ID_RE.test(record.objectId) ||
+      record.plaintextSize !== expectedPlaintextSize ||
+      record.encryptedSize !== expectedPlaintextSize + REMOTE_SHARE_AES_GCM_TAG_BYTES ||
+      !isExactRecordDownloadUrl(meta.storageRoomId, record.objectId, record.downloadUrl)
+    ) {
+      throw new Error('REMOTE_SHARE_RECORD_SET_CREATE_RESPONSE_INVALID');
+    }
+    return freezeCanonical({
+      index,
+      objectId: record.objectId,
+      plaintextSize: record.plaintextSize,
+      encryptedSize: record.encryptedSize,
+      downloadUrl: expectedDownloadUrl(meta.storageRoomId, record.objectId).toString(),
+    });
+  });
+  return freezeCanonical({
+    v: R2_RECORD_SET_VERSION,
+    storageRoomId: meta.storageRoomId,
+    setId: value.setId as string,
+    recordSize: meta.recordSize,
+    recordCount: meta.recordCount,
+    expiresAt: value.expiresAt as number,
+    setToken: value.setToken as string,
+    cleanupToken: value.cleanupToken as string,
+    records: Object.freeze(records),
+  });
+}
+
+function isRetryableRecordSetCreateError(error: unknown): boolean {
+  if (!(error instanceof Error)) return true;
+  return (
+    error.message === 'REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT' ||
+    error.message === 'REMOTE_SHARE_RECORD_SET_CREATE_NETWORK' ||
+    error.message === 'REMOTE_SHARE_RECORD_SET_CREATE_RESPONSE_INVALID' ||
+    /^REMOTE_SHARE_RECORD_SET_CREATE_HTTP_(?:408|425|500|502|503|504)$/u.test(error.message) ||
+    !error.message.startsWith('REMOTE_SHARE_')
+  );
+}
+
+function waitForRecordSetCreateRetry(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(abortReason(signal));
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer: ReturnType<typeof globalThis.setTimeout>;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    };
+    const onAbort = (): void => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      reject(signal ? abortReason(signal) : new DOMException('Aborted', 'AbortError'));
+    };
+    timer = globalThis.setTimeout(finish, REMOTE_SHARE_RECORD_SET_CREATE_RETRY_DELAY_MS);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+async function sendR2RecordSetCreateIntentCancellation(
+  endpoint: string,
+  body: string,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const { response } = await requestRecordSetControl(
+    endpoint,
+    '/v2/sets/intents/cancel',
+    {
+      method: 'POST',
+      body,
+      capability: true,
+      headers: { 'X-MXQR-Idempotency-Key': idempotencyKey },
+      keepalive: true,
+      timeoutMs: REMOTE_SHARE_RECORD_SET_CANCEL_TIMEOUT_MS,
+      timeoutReason: 'REMOTE_SHARE_RECORD_SET_CANCEL_TIMEOUT',
+    },
+    signal,
+  );
+  if (!response.ok) {
+    throw new Error(`REMOTE_SHARE_RECORD_SET_CANCEL_HTTP_${response.status}`);
+  }
+}
+
+/**
+ * Fence a publisher-owned create intent that never yielded cleanup authority.
+ * Exact retries are safe; unsupported legacy Workers are left to their fixed
+ * object expiry because they never admitted the idempotency contract.
+ */
+export async function cancelR2RecordSetCreateIntent(
+  meta: R2RecordSetCreateMeta,
+  signal?: AbortSignal,
+): Promise<void> {
+  assertV2Signal(signal);
+  assertRecordSetMeta(meta);
+  if (!meta.publicationIntentId) {
+    throw new Error('REMOTE_SHARE_RECORD_SET_IDEMPOTENCY_KEY_INVALID');
+  }
+  const endpoint = getRemoteShareEndpoint();
+  if (!endpoint) throw new Error('REMOTE_SHARE_ENDPOINT_MISSING');
+  const securityConfig = await getRemoteShareSecurityConfig(endpoint, signal);
+  const body = JSON.stringify({
+    roomId: meta.storageRoomId,
+    sessionId: meta.applicationSessionId,
+    queueItemId: meta.queueItemId,
+    sourceIdentity: meta.sourceIdentity,
+    name: meta.name,
+    mime: meta.mime,
+    size: meta.plaintextSize,
+    recordSize: meta.recordSize,
+    recordCount: meta.recordCount,
+  });
+  try {
+    await sendR2RecordSetCreateIntentCancellation(endpoint, body, meta.publicationIntentId, signal);
+  } catch (error) {
+    if (error instanceof Error && error.message === 'REMOTE_SHARE_RECORD_SET_CANCEL_HTTP_404') {
+      if (!securityConfig.recordSetCreateIdempotency) return;
+      // A cached `true` can outlive a Worker rollback. Re-probe once so a
+      // rollback Worker without the cancellation route falls back to the
+      // immutable object-expiry fence instead of making room teardown fail.
+      invalidateRemoteShareSecurityConfig(endpoint);
+      const refreshedConfig = await getRemoteShareSecurityConfig(endpoint, signal);
+      if (!refreshedConfig.recordSetCreateIdempotency) return;
+    }
+    if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
+    if (isCapabilityChallengeCancelled(error)) throw error;
+    if (error instanceof Error && error.message.startsWith('REMOTE_SHARE_')) throw error;
+    throw new Error('REMOTE_SHARE_RECORD_SET_CANCEL_NETWORK', { cause: error });
   }
 }
 

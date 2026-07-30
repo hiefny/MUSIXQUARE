@@ -53,6 +53,7 @@ interface Harness {
   readonly release: ReturnType<typeof vi.fn>;
   readonly waitForMemoryReservationChange: ReturnType<typeof vi.fn>;
   readonly createRecordSet: ReturnType<typeof vi.fn>;
+  readonly cancelRecordSetCreateIntent: ReturnType<typeof vi.fn>;
   readonly uploadRecord: ReturnType<typeof vi.fn>;
   readonly completeRecord: ReturnType<typeof vi.fn>;
   readonly deleteRecordSet: ReturnType<typeof vi.fn>;
@@ -105,6 +106,7 @@ function harness(overrides: Partial<FilePlaybackR2WholeBlobPublisherRuntime> = {
       }),
     }),
   );
+  const cancelRecordSetCreateIntent = vi.fn(async () => undefined);
   const requestRecordUpload = vi.fn(
     async (
       session: Awaited<ReturnType<FilePlaybackR2WholeBlobPublisherRuntime['createRecordSet']>>,
@@ -159,6 +161,7 @@ function harness(overrides: Partial<FilePlaybackR2WholeBlobPublisherRuntime> = {
     livePcmBytes: () => 77,
     waitForMemoryReservationChange,
     createRecordSet,
+    cancelRecordSetCreateIntent,
     requestRecordUpload,
     uploadRecord,
     completeRecord,
@@ -177,6 +180,7 @@ function harness(overrides: Partial<FilePlaybackR2WholeBlobPublisherRuntime> = {
     release,
     waitForMemoryReservationChange,
     createRecordSet,
+    cancelRecordSetCreateIntent,
     uploadRecord,
     completeRecord,
     deleteRecordSet,
@@ -698,7 +702,41 @@ describe('FilePlaybackR2WholeBlobPublisher', () => {
     expect(setup.deleteRecordSet).toHaveBeenCalledOnce();
   });
 
-  it('does not retry a non-idempotent record-set creation timeout', async () => {
+  it('retains one publication intent across ambiguous create retries', async () => {
+    const createRecordSet = vi
+      .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['createRecordSet']>>()
+      .mockRejectedValue(new Error('REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT'));
+    const setup = harness({ createRecordSet });
+    const publishSource = source();
+    const options = {
+      storageRoomId: '123456',
+      applicationSessionId: 'application-session',
+    } as const;
+
+    await expect(setup.publisher.publishRecordSet(publishSource, options)).rejects.toThrow(
+      'REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT',
+    );
+    await expect(setup.publisher.publishRecordSet(publishSource, options)).rejects.toThrow(
+      'REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT',
+    );
+
+    expect(createRecordSet).toHaveBeenCalledTimes(2);
+    const firstIntent = createRecordSet.mock.calls[0]![0].publicationIntentId;
+    expect(firstIntent).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(createRecordSet.mock.calls[1]![0].publicationIntentId).toBe(firstIntent);
+    expect(setup.uploadRecord).not.toHaveBeenCalled();
+    expect(setup.deleteRecordSet).not.toHaveBeenCalled();
+
+    await expect(setup.publisher.removeQueueItem(QUEUE_ID)).resolves.toBe(true);
+    expect(setup.cancelRecordSetCreateIntent).toHaveBeenCalledOnce();
+    expect(setup.cancelRecordSetCreateIntent.mock.calls[0]![0].publicationIntentId).toBe(
+      firstIntent,
+    );
+  });
+
+  it('cancels a retained ambiguous intent after its in-flight attempt has settled', async () => {
     const createRecordSet = vi
       .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['createRecordSet']>>()
       .mockRejectedValue(new Error('REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT'));
@@ -711,9 +749,37 @@ describe('FilePlaybackR2WholeBlobPublisher', () => {
       }),
     ).rejects.toThrow('REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT');
 
-    expect(createRecordSet).toHaveBeenCalledOnce();
-    expect(setup.uploadRecord).not.toHaveBeenCalled();
-    expect(setup.deleteRecordSet).not.toHaveBeenCalled();
+    await expect(setup.publisher.cancelPendingRecordSet(QUEUE_ID)).resolves.toBe(true);
+    expect(setup.cancelRecordSetCreateIntent).toHaveBeenCalledOnce();
+    expect(setup.cancelRecordSetCreateIntent.mock.calls[0]![0].publicationIntentId).toBe(
+      createRecordSet.mock.calls[0]![0].publicationIntentId,
+    );
+  });
+
+  it('keeps an idempotency-conflicted intent poisoned instead of rotating its key', async () => {
+    const createRecordSet = vi
+      .fn<NonNullable<FilePlaybackR2WholeBlobPublisherRuntime['createRecordSet']>>()
+      .mockRejectedValue(new Error('REMOTE_SHARE_RECORD_SET_CREATE_IDEMPOTENCY_CONFLICT'));
+    const setup = harness({ createRecordSet });
+    const publishSource = source();
+    const options = {
+      storageRoomId: '123456',
+      applicationSessionId: 'application-session',
+    } as const;
+
+    await expect(setup.publisher.publishRecordSet(publishSource, options)).rejects.toThrow(
+      'REMOTE_SHARE_RECORD_SET_CREATE_IDEMPOTENCY_CONFLICT',
+    );
+    await expect(setup.publisher.publishRecordSet(publishSource, options)).rejects.toThrow(
+      'REMOTE_SHARE_RECORD_SET_CREATE_IDEMPOTENCY_CONFLICT',
+    );
+
+    expect(createRecordSet).toHaveBeenCalledTimes(2);
+    expect(createRecordSet.mock.calls[1]![0].publicationIntentId).toBe(
+      createRecordSet.mock.calls[0]![0].publicationIntentId,
+    );
+    await expect(setup.publisher.removeQueueItem(QUEUE_ID)).resolves.toBe(true);
+    expect(setup.cancelRecordSetCreateIntent).toHaveBeenCalledOnce();
   });
 
   it('retires an exposed superseded upload without revoking its active reader', async () => {

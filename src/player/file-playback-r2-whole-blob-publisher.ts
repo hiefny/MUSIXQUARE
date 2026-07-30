@@ -8,6 +8,7 @@ import {
 } from './decode-admission.ts';
 import { encryptR2WholeBlobV2 } from '../share/crypto.ts';
 import {
+  cancelR2RecordSetCreateIntent,
   completeR2RecordUpload,
   createR2RecordSet,
   deleteR2RecordSet,
@@ -16,6 +17,7 @@ import {
   uploadR2RecordCiphertext,
   uploadR2WholeBlobObject,
   type ProgressHandler,
+  type R2RecordSetCreateMeta,
   type R2RecordSetUploadSession,
 } from '../share/r2-client.ts';
 import { R2RecordCryptoV2 } from '../share/r2-record-crypto-v2.ts';
@@ -35,6 +37,8 @@ const MAX_IDENTIFIER_LENGTH = 256;
 const MAX_FILE_NAME_LENGTH = 512;
 const MAX_MIME_LENGTH = 128;
 const MIME_PATTERN = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u;
+const PUBLICATION_INTENT_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const RECORD_PUBLICATION_MIN_REMAINING_MS = 60_000;
 const INITIAL_RECORD_UPLOAD_ATTEMPTS = 3;
 const EXPOSED_TAIL_UPLOAD_ATTEMPTS = 10;
@@ -101,6 +105,7 @@ export interface FilePlaybackR2WholeBlobPublisherRuntime {
   readonly upload: typeof uploadR2WholeBlobObject;
   readonly deleteObject: typeof deleteR2WholeBlobObject;
   readonly createRecordSet: typeof createR2RecordSet;
+  readonly cancelRecordSetCreateIntent: typeof cancelR2RecordSetCreateIntent;
   readonly requestRecordUpload: typeof requestR2RecordUploadAuthority;
   readonly uploadRecord: typeof uploadR2RecordCiphertext;
   readonly completeRecord: typeof completeR2RecordUpload;
@@ -176,6 +181,13 @@ interface WholeBlobCleanupRecord {
 interface RecordSetCleanupRecord {
   readonly queueItemId: QueueItemId;
   readonly session: Readonly<R2RecordSetUploadSession>;
+}
+
+interface RecordSetCreateIntentRecord {
+  readonly source: CanonicalSource;
+  readonly applicationSessionId: string;
+  readonly storageRoomId: string;
+  readonly meta: Readonly<R2RecordSetCreateMeta>;
 }
 
 function freezeCanonical<T extends object>(value: T): Readonly<T> {
@@ -280,6 +292,23 @@ function isTransientRecordUploadError(error: unknown): boolean {
   );
 }
 
+function isAmbiguousRecordSetCreateFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return true;
+  return (
+    error.message === 'REMOTE_SHARE_RECORD_SET_CREATE_TIMEOUT' ||
+    error.message === 'REMOTE_SHARE_RECORD_SET_CREATE_NETWORK' ||
+    error.message === 'REMOTE_SHARE_RECORD_SET_CREATE_RESPONSE_INVALID' ||
+    /^REMOTE_SHARE_RECORD_SET_CREATE_HTTP_(?:408|425|500|502|503|504)$/u.test(error.message)
+  );
+}
+
+function isRecordSetCreateIdempotencyConflict(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message === 'REMOTE_SHARE_RECORD_SET_CREATE_IDEMPOTENCY_CONFLICT'
+  );
+}
+
 function waitForRecordRetry(signal: AbortSignal, delayMs: number): Promise<void> {
   if (signal.aborted) return Promise.reject(signal.reason);
   return new Promise((resolve, reject) => {
@@ -328,6 +357,7 @@ const defaultRuntime: Readonly<FilePlaybackR2WholeBlobPublisherRuntime> = Object
   upload: uploadR2WholeBlobObject,
   deleteObject: deleteR2WholeBlobObject,
   createRecordSet: createR2RecordSet,
+  cancelRecordSetCreateIntent: cancelR2RecordSetCreateIntent,
   requestRecordUpload: requestR2RecordUploadAuthority,
   uploadRecord: uploadR2RecordCiphertext,
   completeRecord: completeR2RecordUpload,
@@ -350,6 +380,7 @@ function runtimeSnapshot(
     typeof runtime.upload !== 'function' ||
     typeof runtime.deleteObject !== 'function' ||
     typeof runtime.createRecordSet !== 'function' ||
+    typeof runtime.cancelRecordSetCreateIntent !== 'function' ||
     typeof runtime.requestRecordUpload !== 'function' ||
     typeof runtime.uploadRecord !== 'function' ||
     typeof runtime.completeRecord !== 'function' ||
@@ -377,6 +408,7 @@ export class FilePlaybackR2WholeBlobPublisher {
   readonly #failedRecordSetCleanups = new Set<RecordSetCleanupRecord>();
   readonly #wholeBlobCleanupInFlight = new Map<string, Promise<void>>();
   readonly #recordSetCleanupInFlight = new Map<string, Promise<void>>();
+  readonly #recordSetCreateIntents = new Map<QueueItemId, RecordSetCreateIntentRecord>();
   readonly #removedQueueItems = new Set<QueueItemId>();
   #closed = false;
   #closePromise: Promise<void> | null = null;
@@ -533,6 +565,43 @@ export class FilePlaybackR2WholeBlobPublisher {
       return pending.ready;
     }
 
+    let createIntent = this.#recordSetCreateIntents.get(source.queueItemId);
+    if (
+      createIntent &&
+      (!sameSource(createIntent.source, source) ||
+        createIntent.storageRoomId !== options.storageRoomId ||
+        createIntent.applicationSessionId !== options.applicationSessionId)
+    ) {
+      return Promise.reject(new Error('FILE_PLAYBACK_R2_RECORD_PUBLISH_SOURCE_CONFLICT'));
+    }
+    if (!createIntent) {
+      const publicationIntentId = globalThis.crypto?.randomUUID?.();
+      if (
+        typeof publicationIntentId !== 'string' ||
+        !PUBLICATION_INTENT_ID_RE.test(publicationIntentId)
+      ) {
+        return Promise.reject(new Error('REMOTE_SHARE_RECORD_SET_IDEMPOTENCY_KEY_UNAVAILABLE'));
+      }
+      createIntent = Object.freeze({
+        source,
+        storageRoomId: options.storageRoomId,
+        applicationSessionId: options.applicationSessionId,
+        meta: Object.freeze({
+          storageRoomId: options.storageRoomId,
+          applicationSessionId: options.applicationSessionId,
+          publicationIntentId,
+          queueItemId: source.queueItemId,
+          sourceIdentity: source.sourceIdentity,
+          name: source.name,
+          mime: source.mime,
+          plaintextSize: source.blob.size,
+          recordSize: R2RecordCryptoV2.RECORD_PLAINTEXT_BYTES,
+          recordCount: Math.ceil(source.blob.size / R2RecordCryptoV2.RECORD_PLAINTEXT_BYTES),
+        }),
+      });
+      this.#recordSetCreateIntents.set(source.queueItemId, createIntent);
+    }
+
     const controller = new AbortController();
     let resolveReady!: (publication: Readonly<FilePlaybackR2RecordPublication>) => void;
     let rejectReady!: (error: unknown) => void;
@@ -548,6 +617,7 @@ export class FilePlaybackR2WholeBlobPublisher {
       source,
       options.storageRoomId,
       options.applicationSessionId,
+      createIntent,
       controller.signal,
       resolveReady,
       () => {
@@ -612,10 +682,20 @@ export class FilePlaybackR2WholeBlobPublisher {
     }
     this.#pruneExpiredRetiredRecordPublications();
     const pending = this.#recordInFlight.get(queueItemId);
-    if (!pending) return false;
-    if (pending.progress.tailComplete) return false;
-    pending.controller.abort(new Error('FILE_PLAYBACK_R2_RECORD_PUBLISH_SUPERSEDED'));
-    await Promise.allSettled([pending.complete]);
+    const retainedIntent = this.#recordSetCreateIntents.get(queueItemId);
+    if (!pending && !retainedIntent) return false;
+    if (pending?.progress.tailComplete && !retainedIntent) return false;
+    if (pending && !pending.progress.tailComplete) {
+      pending.controller.abort(new Error('FILE_PLAYBACK_R2_RECORD_PUBLISH_SUPERSEDED'));
+      await Promise.allSettled([pending.complete]);
+    }
+    const createIntent = this.#recordSetCreateIntents.get(queueItemId);
+    if (createIntent) {
+      await this.#runtime.cancelRecordSetCreateIntent(createIntent.meta);
+      if (this.#recordSetCreateIntents.get(queueItemId) === createIntent) {
+        this.#recordSetCreateIntents.delete(queueItemId);
+      }
+    }
     const failedCleanups = [...this.#failedRecordSetCleanups].filter(
       (record) => record.queueItemId === queueItemId,
     );
@@ -667,6 +747,7 @@ export class FilePlaybackR2WholeBlobPublisher {
         ...publications.map((record) => record.source.queueItemId),
         ...this.#publications.keys(),
         ...this.#recordPublications.keys(),
+        ...this.#recordSetCreateIntents.keys(),
         ...[...this.#retiredRecordPublications].map((record) => record.queueItemId),
         ...[...this.#failedWholeBlobCleanups].map((record) => record.queueItemId),
         ...[...this.#failedRecordSetCleanups].map((record) => record.queueItemId),
@@ -796,34 +877,23 @@ export class FilePlaybackR2WholeBlobPublisher {
     source: CanonicalSource,
     storageRoomId: string,
     applicationSessionId: string,
+    createIntent: RecordSetCreateIntentRecord,
     signal: AbortSignal,
     resolveReady: (publication: Readonly<FilePlaybackR2RecordPublication>) => void,
     markTailComplete: () => void,
     blockFutureOffers: () => void,
   ): Promise<void> {
     this.#assertRecordCurrent(source, storageRoomId, applicationSessionId, signal);
-    const recordSize = R2RecordCryptoV2.RECORD_PLAINTEXT_BYTES;
-    const recordCount = Math.ceil(source.blob.size / recordSize);
     let session: Readonly<R2RecordSetUploadSession> | null = null;
     let encryptor: Awaited<ReturnType<typeof R2RecordCryptoV2.createEncryptor>> | null = null;
     let publication: Readonly<FilePlaybackR2RecordPublication> | null = null;
     let exposed = false;
     try {
-      const activeSession = await this.#runtime.createRecordSet(
-        {
-          storageRoomId,
-          applicationSessionId,
-          queueItemId: source.queueItemId,
-          sourceIdentity: source.sourceIdentity,
-          name: source.name,
-          mime: source.mime,
-          plaintextSize: source.blob.size,
-          recordSize,
-          recordCount,
-        },
-        signal,
-      );
+      const activeSession = await this.#runtime.createRecordSet(createIntent.meta, signal);
       session = activeSession;
+      if (this.#recordSetCreateIntents.get(source.queueItemId) === createIntent) {
+        this.#recordSetCreateIntents.delete(source.queueItemId);
+      }
       this.#assertRecordCurrent(source, storageRoomId, applicationSessionId, signal);
       encryptor = await R2RecordCryptoV2.createEncryptor(session.setId, source.blob.size, signal);
       const activeEncryptor = encryptor;
@@ -947,6 +1017,15 @@ export class FilePlaybackR2WholeBlobPublisher {
       }
       markTailComplete();
     } catch (error) {
+      if (
+        !session &&
+        this.#recordSetCreateIntents.get(source.queueItemId) === createIntent &&
+        !signal.aborted &&
+        !isAmbiguousRecordSetCreateFailure(error) &&
+        !isRecordSetCreateIdempotencyConflict(error)
+      ) {
+        this.#recordSetCreateIntents.delete(source.queueItemId);
+      }
       if (exposed) blockFutureOffers();
       const published = this.#recordPublications.get(source.queueItemId);
       if (session && published?.session === session) {
@@ -1014,6 +1093,7 @@ export class FilePlaybackR2WholeBlobPublisher {
   async #cleanupQueueItem(queueItemId: QueueItemId): Promise<boolean> {
     const publication = this.#publications.get(queueItemId);
     const recordPublication = this.#recordPublications.get(queueItemId);
+    const createIntent = this.#recordSetCreateIntents.get(queueItemId);
     const retiredRecordPublications = [...this.#retiredRecordPublications].filter(
       (record) => record.queueItemId === queueItemId,
     );
@@ -1026,11 +1106,21 @@ export class FilePlaybackR2WholeBlobPublisher {
     const found = !!(
       publication ||
       recordPublication ||
+      createIntent ||
       retiredRecordPublications.length > 0 ||
       failedWholeBlobCleanups.length > 0 ||
       failedRecordSetCleanups.length > 0
     );
     const operations: Promise<void>[] = [];
+    if (createIntent) {
+      operations.push(
+        this.#runtime.cancelRecordSetCreateIntent(createIntent.meta).then(() => {
+          if (this.#recordSetCreateIntents.get(queueItemId) === createIntent) {
+            this.#recordSetCreateIntents.delete(queueItemId);
+          }
+        }),
+      );
+    }
     if (publication) {
       operations.push(
         this.#delete(publication).then(() => {

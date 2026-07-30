@@ -1391,7 +1391,6 @@ function waitForRecordSetCreateRetry(signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.reject(abortReason(signal));
   return new Promise((resolve, reject) => {
     let settled = false;
-    let timer: ReturnType<typeof globalThis.setTimeout>;
     const finish = (): void => {
       if (settled) return;
       settled = true;
@@ -1405,7 +1404,7 @@ function waitForRecordSetCreateRetry(signal?: AbortSignal): Promise<void> {
       signal?.removeEventListener('abort', onAbort);
       reject(signal ? abortReason(signal) : new DOMException('Aborted', 'AbortError'));
     };
-    timer = globalThis.setTimeout(finish, REMOTE_SHARE_RECORD_SET_CREATE_RETRY_DELAY_MS);
+    const timer = globalThis.setTimeout(finish, REMOTE_SHARE_RECORD_SET_CREATE_RETRY_DELAY_MS);
     signal?.addEventListener('abort', onAbort, { once: true });
   });
 }

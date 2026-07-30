@@ -507,7 +507,7 @@ rollout:
 7. physical iOS Safari/PWA and Windows checks pass; and
 8. rollback remains a one-latch static-app release.
 
-### Current production rollback state
+### Current production promotion state
 
 The `v316` bounded-V1 promotion was conservatively rolled back to stable V1 at
 cache epoch `v317` after the first live R2 publication observer reported a
@@ -538,21 +538,23 @@ deadline remained armed while reading the response body. A slow idempotent
 record completion could therefore commit on the server and time out locally
 without entering the existing completion retry.
 
-The inactive implementation now keeps non-idempotent record-set creation
+The promoted `v320` candidate keeps non-idempotent record-set creation
 single-attempt but gives it a 30-second cold Durable Object/R2 reconcile window,
 retries exact `_TIMEOUT` failures only inside the idempotent
 upload-authority/completion loop, reuses the same immutable ciphertext lease,
 and keeps owner `ABORTED` terminal. Regression tests lock all three boundaries.
 
-1. `LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED` is `false`;
+Production enables only the bounded V1-control path:
+
+1. `LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED` is `true`;
 2. `FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` and both retired V2 build
    flags remain off;
 3. the corrected bridge/delivery retirement scopes and their regression tests
-   remain in the inactive implementation;
+   remain part of the promoted implementation;
 4. the publication-start failure is diagnosed and its bounded remediation is
-   staged; and
-5. any future promotion still requires a fresh exact-SHA candidate and
-   successful consecutive successor-aware live R2 canaries.
+   active; and
+5. the exact-SHA candidate and consecutive successor-aware live R2 canaries
+   must pass before the rollout is considered complete.
 
 Changing only an environment flag or only the latch is not an operational
 rollback: production artifacts require the exact gate identity, and the service

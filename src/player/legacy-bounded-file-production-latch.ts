@@ -6,4 +6,4 @@
  * `false`, keeps the retired V2 latch and flags disabled, bumps the service
  * worker cache version, and rebuilds the static application.
  */
-export const LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED: boolean = false;
+export const LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED: boolean = true;

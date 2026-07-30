@@ -507,7 +507,7 @@ rollout:
 7. physical iOS Safari/PWA and Windows checks pass; and
 8. rollback remains a one-latch static-app release.
 
-### Current production promotion state
+### Current production rollback state
 
 The `v316` bounded-V1 promotion was conservatively rolled back to stable V1 at
 cache epoch `v317` after the first live R2 publication observer reported a
@@ -544,17 +544,26 @@ retries exact `_TIMEOUT` failures only inside the idempotent
 upload-authority/completion loop, reuses the same immutable ciphertext lease,
 and keeps owner `ABORTED` terminal. Regression tests lock all three boundaries.
 
-Production enables only the bounded V1-control path:
+The `v321` release added server-backed idempotency for record-set creation.
+Its first physical multi-device check then reproduced incomplete delivery,
+visible synchronization drift, and a stage-only
+`LegacyBoundedV1Product` control failure. Because the runtime deliberately
+redacts the underlying control error, the bounded path cannot be considered
+production-safe from that observation alone. Production returns to the stable
+V1 route at cache epoch `v322` while the failure is reproduced with
+secret-safe structured diagnostics.
 
-1. `LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED` is `true`;
+Production keeps every experimental playback route disabled:
+
+1. `LEGACY_BOUNDED_FILE_PRODUCTION_RELEASE_ENABLED` is `false`;
 2. `FILE_PLAYBACK_V2_PRODUCTION_RELEASE_ENABLED` and both retired V2 build
    flags remain off;
 3. the corrected bridge/delivery retirement scopes and their regression tests
-   remain part of the promoted implementation;
-4. the publication-start failure is diagnosed and its bounded remediation is
-   active; and
-5. the exact-SHA candidate and consecutive successor-aware live R2 canaries
-   must pass before the rollout is considered complete.
+   remain in the inactive implementation;
+4. record-set idempotency remains deployed but has no bounded playback owner
+   while the latch is off; and
+5. any future promotion requires secret-safe control diagnostics plus fresh
+   exact-SHA and physical multi-device validation.
 
 Changing only an environment flag or only the latch is not an operational
 rollback: production artifacts require the exact gate identity, and the service

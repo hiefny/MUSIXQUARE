@@ -336,6 +336,17 @@
 
   html:lang(th) {
     --font-sans: var(--font-sans-th);
+    /* Thai marks need a taller line box than the Latin/Korean UI. Keep that
+       safe leading, then reclaim it from component padding/margins so the
+       surrounding settings/onboarding geometry stays aligned. */
+    --locale-settings-choice-line-height: 20px;
+    --locale-settings-choice-padding-block: 16px;
+    --locale-settings-section-line-height: 1.294118;
+    --locale-settings-section-padding-adjust: 1px;
+    --locale-settings-subtab-line-height: 19px;
+    --locale-settings-subtab-padding-block: 8px;
+    --locale-onboarding-title-line-height: 1.357143;
+    --locale-onboarding-title-margin-adjust: 4px;
   }
 
   html:lang(ru) {
@@ -346,6 +357,15 @@
   html:lang(zh-Hans),
   html:lang(zh-Hant) {
     --font-weight-display: 700;
+    /* Noto CJK's `normal` leading is several pixels taller than Pretendard's.
+       Limit the correction to compact, single-purpose UI components instead
+       of changing body copy or the global line-height. */
+    --locale-settings-choice-line-height: 18px;
+    --locale-settings-choice-padding-block: 17px;
+    --locale-settings-section-line-height: 1.176471;
+    --locale-settings-subtab-line-height: 17px;
+    --locale-settings-subtab-padding-block: 9px;
+    --locale-onboarding-title-line-height: 1.214286;
   }
 
   @keyframes fadeIn {
@@ -2679,7 +2699,9 @@
   }
 
   .section-header-row {
-    padding: 44px 0 16px;
+    padding:
+      calc(44px - var(--locale-settings-section-padding-adjust, 0px)) 0
+      calc(16px - var(--locale-settings-section-padding-adjust, 0px));
     border-bottom: none;
     display: flex;
     justify-content: space-between;
@@ -2826,11 +2848,11 @@
     #tab-connect>.tab-body>.section-group:first-of-type .section-header-row,
     /* Connect sub-tab: .section-group is inside #desktop-connect-content wrapper */
     #desktop-connect-content>.section-group:first-of-type .section-header-row {
-    padding-top: 24px;
+    padding-top: calc(24px - var(--locale-settings-section-padding-adjust, 0px));
   }
 
   #youtube-settings-disabled-wrap .section-group:first-child .section-header-row {
-    padding-top: 56px;
+    padding-top: calc(56px - var(--locale-settings-section-padding-adjust, 0px));
   }
 
   .section-title {
@@ -2839,6 +2861,7 @@
     color: var(--text-main);
     text-transform: none;
     letter-spacing: -0.5px;
+    line-height: var(--locale-settings-section-line-height, normal);
   }
 
   .badge-host-ctrl {
@@ -3087,11 +3110,12 @@
   .ch-opt {
     background: var(--surface-1);
     color: var(--text-sub);
-    padding: 18px 12px;
+    padding: var(--locale-settings-choice-padding-block, 18px) 12px;
     border-radius: var(--radius-m);
     font-size: 14px;
     font-weight: 700;
     font-family: inherit;
+    line-height: var(--locale-settings-choice-line-height, normal);
     cursor: pointer;
     display: flex;
     flex-direction: column;
@@ -5385,7 +5409,8 @@
   .ob-slide .ob-title {
     font-size: 24px;
     font-weight: var(--font-weight-display);
-    margin-bottom: 8px;
+    line-height: var(--locale-onboarding-title-line-height, normal);
+    margin-bottom: calc(8px - var(--locale-onboarding-title-margin-adjust, 0px));
     color: var(--text-main);
   }
 
@@ -9319,7 +9344,10 @@
 
     .desktop-diagram-area .ob-slide .ob-title {
       font-size: var(--setup-ob-title) !important;
-      margin-bottom: var(--setup-ob-title-mb) !important;
+      line-height: var(--locale-onboarding-title-line-height, normal) !important;
+      margin-bottom: calc(
+        var(--setup-ob-title-mb) - var(--locale-onboarding-title-margin-adjust, 0px)
+      ) !important;
     }
 
     .desktop-diagram-area .ob-slide .ob-desc {

@@ -346,10 +346,10 @@ describe('Translation key integrity', () => {
       '<span data-legal-pro-storage>PRO 방에서는 방 운영에 필요한 세션·멤버·재생목록·재생·업로드 상태가 Cloudflare 서버에 저장돼요. 재생목록에 추가한 원본 파일은 비공개 Cloudflare 저장소에 보관되며, 방 참여자만 짧게 유효한 주소를 통해 내려받을 수 있어요. 저장소에 업로드된 파일은 방 관리자가 재생목록에서 삭제하거나, 운영자가 방 데이터를 삭제하면 말소돼요. 일반 방 원격 파일의 브라우저 암호화는 적용되지 않아요.</span>',
     );
     expect(en['legal.content_html']).toContain(
-      '<span data-legal-standard-storage>On the same network, most session content is transmitted directly between devices, while processing for room operation, authentication, and reconnection takes place temporarily on the signaling server. In remote and large sessions, some data passes through Cloudflare. Remote files are encrypted in the browser before upload and deleted within 24 hours. MUSIXQUARE does not access, analyze, or retain session content for purposes other than feature delivery, service operation, and security.</span>',
+      '<span data-legal-standard-storage>On the same network, most session content travels directly between devices. The signaling server temporarily processes data for room operation, authentication, and reconnection; some data may pass through Cloudflare in remote or large sessions. Remote files are encrypted in the browser before upload and deleted within 24 hours. MUSIXQUARE does not access, analyze, or retain session content except to provide, operate, and secure the service.</span>',
     );
     expect(en['legal.content_html']).toContain(
-      '<span data-legal-pro-storage>PRO rooms store session, member, playlist, playback, and upload state needed to operate the room on Cloudflare servers. Original files added to the playlist are kept in private Cloudflare storage and can be downloaded only by room participants through short-lived URLs. Files uploaded to storage are erased when a room administrator removes them from the playlist, or when the operator deletes the room data. The browser encryption used for ordinary-room remote files does not apply.</span>',
+      '<span data-legal-pro-storage>PRO rooms store the session, member, playlist, playback, and upload state needed to operate the room on Cloudflare. Original playlist files are kept in private Cloudflare storage and are available only to room participants through short-lived URLs. They are erased when a room administrator removes them from the playlist or the operator deletes the room data. Browser encryption for remote files in ordinary rooms does not apply.</span>',
     );
   });
 

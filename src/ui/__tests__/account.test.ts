@@ -57,9 +57,11 @@ function renderAccountDialog(): void {
         <div id="account-dialog-content">
           <p id="account-dialog-message"></p>
           <strong id="account-dialog-nickname" hidden></strong>
+        </div>
+        <div id="account-dialog-login-actions" hidden>
           <a id="btn-account-google" hidden><span id="account-google-label"></span></a>
           <button
-            class="dialog-secondary account-dialog-content-close"
+            class="dialog-secondary account-dialog-login-close"
             id="btn-account-login-close"
             hidden
           ></button>
@@ -138,6 +140,8 @@ describe('optional account UI', () => {
     expect(document.getElementById('account-google-label')?.textContent).not.toBe('');
     expect(document.getElementById('account-legal-links')?.hidden).toBe(false);
     expect(document.getElementById('account-dialog-title')?.hidden).toBe(false);
+    expect(document.getElementById('account-dialog-login-actions')?.hidden).toBe(false);
+    expect(document.getElementById('account-dialog')?.dataset.accountView).toBe('login');
     expect(document.getElementById('account-dialog')?.getAttribute('aria-labelledby')).toBe(
       'account-dialog-title',
     );
@@ -165,6 +169,7 @@ describe('optional account UI', () => {
 
     const close = document.getElementById('btn-account-login-close') as HTMLButtonElement;
     expect(getAccountSnapshot().status).toBe('loading');
+    expect(document.getElementById('account-dialog-login-actions')?.hidden).toBe(false);
     expect(document.getElementById('btn-account-google')?.hidden).toBe(true);
     expect(close.hidden).toBe(false);
     expect(close.classList.contains('dialog-primary')).toBe(true);
@@ -583,6 +588,7 @@ describe('optional account UI', () => {
       'temporarily unavailable',
     );
     expect(document.getElementById('btn-account-google')?.hidden).toBe(true);
+    expect(document.getElementById('account-dialog-login-actions')?.hidden).toBe(false);
     const close = document.getElementById('btn-account-login-close');
     expect(close?.hidden).toBe(false);
     expect(close?.classList.contains('dialog-primary')).toBe(true);
@@ -610,6 +616,8 @@ describe('optional account UI', () => {
       'account-dialog-title-edit-label',
     );
     expect(document.getElementById('account-dialog-content')?.hidden).toBe(true);
+    expect(document.getElementById('account-dialog-login-actions')?.hidden).toBe(true);
+    expect(document.getElementById('account-dialog')?.dataset.accountView).toBe('account');
     expect(document.getElementById('account-dialog-nickname')?.hidden).toBe(true);
     expect(document.getElementById('account-dialog-actions')?.hidden).toBe(false);
     const titleEdit = document.getElementById('btn-account-title-edit') as HTMLButtonElement;
@@ -716,6 +724,136 @@ describe('optional account UI', () => {
     expect(document.getElementById('account-dialog-actions')?.hidden).toBe(false);
   });
 
+  it('counts account statistics up smoothly before settling on the exact values', async () => {
+    const pendingFrames = new Map<number, FrameRequestCallback>();
+    let nextFrameId = 1;
+    const requestAnimationFrameMock = vi.fn((callback: FrameRequestCallback) => {
+      const frameId = nextFrameId++;
+      pendingFrames.set(frameId, callback);
+      return frameId;
+    });
+    const cancelAnimationFrameMock = vi.fn((frameId: number) => {
+      pendingFrames.delete(frameId);
+    });
+    vi.stubGlobal('requestAnimationFrame', requestAnimationFrameMock);
+    vi.stubGlobal('cancelAnimationFrame', cancelAnimationFrameMock);
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: false })),
+    );
+    vi.mocked(flushAccountActivityStatsForRead).mockResolvedValueOnce({
+      status: 'updated',
+      stats: { sessionCount: 14, listeningSeconds: 9_540, trackCount: 53 },
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Minsu', profileComplete: true },
+      }),
+    );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+
+    openAccountDialog();
+
+    await vi.waitFor(() => expect(requestAnimationFrameMock).toHaveBeenCalledOnce());
+    expect(document.getElementById('account-dialog-stats')?.getAttribute('aria-busy')).toBe('true');
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('0');
+    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe(
+      '2 hr 39 min',
+    );
+    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('0');
+
+    const runNextFrame = (now: number): void => {
+      const nextFrame = pendingFrames.entries().next().value as
+        | [number, FrameRequestCallback]
+        | undefined;
+      expect(nextFrame).toBeDefined();
+      if (!nextFrame) return;
+      pendingFrames.delete(nextFrame[0]);
+      nextFrame[1](now);
+    };
+
+    runNextFrame(100);
+    runNextFrame(500);
+    const intermediateSessions = Number(
+      document.getElementById('account-stats-session-count')?.textContent,
+    );
+    const intermediateTracks = Number(
+      document.getElementById('account-stats-track-count')?.textContent,
+    );
+    expect(intermediateSessions).toBeGreaterThan(0);
+    expect(intermediateSessions).toBeLessThan(14);
+    expect(intermediateTracks).toBeGreaterThan(0);
+    expect(intermediateTracks).toBeLessThan(53);
+
+    runNextFrame(900);
+
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('14');
+    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe(
+      '2 hr 39 min',
+    );
+    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('53');
+    expect(document.getElementById('account-dialog-stats')?.getAttribute('aria-busy')).toBe(
+      'false',
+    );
+    expect(pendingFrames.size).toBe(0);
+
+    document.getElementById('btn-account-center-close')?.click();
+    openAccountDialog();
+    await vi.waitFor(() => expect(requestAnimationFrameMock).toHaveBeenCalledTimes(4));
+    expect(pendingFrames.size).toBe(1);
+
+    document.getElementById('btn-account-center-close')?.click();
+
+    expect(cancelAnimationFrameMock).toHaveBeenCalledOnce();
+    expect(pendingFrames.size).toBe(0);
+    expect(document.getElementById('account-dialog-overlay')?.classList.contains('show')).toBe(
+      false,
+    );
+    expect(document.getElementById('account-dialog-stats')?.getAttribute('aria-busy')).toBe(
+      'false',
+    );
+  });
+
+  it('shows final account statistics immediately when reduced motion is preferred', async () => {
+    const requestAnimationFrameMock = vi.fn(() => 1);
+    vi.stubGlobal('requestAnimationFrame', requestAnimationFrameMock);
+    vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn((query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)' })),
+    );
+    vi.mocked(flushAccountActivityStatsForRead).mockResolvedValueOnce({
+      status: 'updated',
+      stats: { sessionCount: 14, listeningSeconds: 9_540, trackCount: 53 },
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Minsu', profileComplete: true },
+      }),
+    );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+
+    openAccountDialog();
+
+    await vi.waitFor(() =>
+      expect(document.getElementById('account-stats-session-count')?.textContent).toBe('14'),
+    );
+    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe(
+      '2 hr 39 min',
+    );
+    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('53');
+    expect(document.getElementById('account-dialog-stats')?.getAttribute('aria-busy')).toBe(
+      'false',
+    );
+    expect(requestAnimationFrameMock).not.toHaveBeenCalled();
+  });
+
   it('uses the PATCH aggregate directly without a redundant GET', async () => {
     vi.mocked(flushAccountActivityStatsForRead).mockResolvedValueOnce({
       status: 'updated',
@@ -734,8 +872,11 @@ describe('optional account UI', () => {
     openAccountDialog();
 
     await vi.waitFor(() =>
-      expect(document.getElementById('account-stats-session-count')?.textContent).toBe('3'),
+      expect(document.getElementById('account-dialog-stats')?.getAttribute('aria-busy')).toBe(
+        'false',
+      ),
     );
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('3');
     expect(document.getElementById('account-stats-listening-time')?.textContent).toBe('42 sec');
     expect(document.getElementById('account-stats-track-count')?.textContent).toBe('7');
     expect(fetch).toHaveBeenCalledTimes(1);
@@ -1176,6 +1317,12 @@ describe('optional account UI', () => {
       stylesheet.match(/\.dialog\.account-dialog\s+\.account-dialog-header\s*\{([^}]*)\}/)?.[1] ??
       '';
     const contentRules = stylesheet.match(/\.account-dialog-content\s*\{([^}]*)\}/)?.[1] ?? '';
+    const loginContentRules =
+      stylesheet.match(
+        /\.dialog\.account-dialog\[data-account-view='login'\]\s+\.account-dialog-content\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
+    const loginActionsRules =
+      stylesheet.match(/\.account-dialog-login-actions\s*\{([^}]*)\}/)?.[1] ?? '';
     const statsRules = stylesheet.match(/\.account-dialog-stats\s*\{([^}]*)\}/)?.[1] ?? '';
     const statRowRules = stylesheet.match(/\.account-dialog-stat-row\s*\{([^}]*)\}/)?.[1] ?? '';
     const statValueRules =
@@ -1187,8 +1334,10 @@ describe('optional account UI', () => {
       stylesheet.match(/\.account-dialog-title-edit:focus-visible\s*\{([^}]*)\}/)?.[1] ?? '';
     const titleEditLabelRules =
       stylesheet.match(/\.account-dialog-title-edit-label\s*\{([^}]*)\}/)?.[1] ?? '';
-    const contentCloseRules =
-      stylesheet.match(/\.account-dialog-content-close\s*\{([^}]*)\}/)?.[1] ?? '';
+    const loginCloseRules =
+      stylesheet.match(/\.account-dialog-login-close\s*\{([^}]*)\}/)?.[1] ?? '';
+    const primaryLoginCloseRules =
+      stylesheet.match(/\.account-dialog-login-close\.dialog-primary\s*\{([^}]*)\}/)?.[1] ?? '';
     const accountCloseRules =
       stylesheet.match(/\.account-dialog-account-close\s*\{([^}]*)\}/)?.[1] ?? '';
     const deleteRules = stylesheet.match(/^\s{2}\.account-delete-button\s*\{([^}]*)\}/m)?.[1] ?? '';
@@ -1213,11 +1362,17 @@ describe('optional account UI', () => {
     expect(contentRules).toContain('min-height: 0');
     expect(contentRules).toContain('overflow-y: auto');
     expect(contentRules).toContain('overflow-anchor: none');
-    expect(contentCloseRules).toContain('width: 100%');
+    expect(loginContentRules).toContain('padding-bottom: 10px');
+    expect(loginActionsRules).toContain('padding: 0 32px 30px');
+    expect(loginCloseRules).toContain('width: 100%');
+    expect(primaryLoginCloseRules).toContain('margin-top: 0');
     expect(statsRules).toContain('flex: 1 1 auto');
     expect(statsRules).toContain('min-height: 0');
     expect(statsRules).toContain('overflow-y: auto');
+    expect(statsRules).not.toContain('border-top');
+    expect(statsRules).not.toContain('border-bottom');
     expect(statRowRules).toContain('grid-template-columns: minmax(0, 1fr) auto');
+    expect(statRowRules).toContain('border-bottom: 1px solid var(--divider)');
     expect(statValueRules).toContain('font-variant-numeric: tabular-nums');
     expect(statValueRules).toContain('white-space: nowrap');
     expect(accountActionsRules).toContain('grid-template-columns: 1fr 1fr');
@@ -1230,8 +1385,12 @@ describe('optional account UI', () => {
     expect(stylesheet).toContain(
       'html:not(.keyboard-open) .account-dialog-stat-row {\n      min-height: 40px;',
     );
+    expect(stylesheet).toContain('.account-dialog-stat-row:last-child {\n    border-bottom: 0;');
     expect(stylesheet).toContain(
       'html:not(.keyboard-open) .account-dialog-actions .account-delete-button {\n      min-height: 44px;',
+    );
+    expect(stylesheet).toContain(
+      'html:not(.keyboard-open) .account-dialog-login-actions {\n      padding: 0 24px 12px;',
     );
   });
 
@@ -1246,7 +1405,12 @@ describe('optional account UI', () => {
       accountDialog?.querySelector('#btn-account-title-edit > #account-dialog-title-edit-label'),
     ).not.toBeNull();
     expect(accountDialog?.querySelector('#btn-account-title-edit svg path')).not.toBeNull();
-    expect(accountDialog?.querySelector('#btn-account-login-close')).not.toBeNull();
+    expect(
+      accountDialog?.querySelector('#account-dialog-login-actions > #btn-account-login-close'),
+    ).not.toBeNull();
+    expect(
+      accountDialog?.querySelector('#account-dialog-content #btn-account-login-close'),
+    ).toBeNull();
     expect(accountDialog?.querySelector('#btn-account-center-close')).not.toBeNull();
   });
 

@@ -8,6 +8,11 @@ import { announceProRoomTabTakeover } from './tab-handoff.ts';
 import { consumeAccountLoginReturnForRoom } from '../account/login-return.ts';
 
 const PRO_ROOM_ENTRY_OPERATION_TIMEOUT_MS = 20_000;
+// A reload starts its keepalive presence-close request before the replacement
+// document enters, but the two requests can still reach the server out of
+// order. Give that close a short grace window and retry without takeover once
+// before describing the surviving presence as another tab.
+const ACTIVE_TAB_RELEASE_RETRY_DELAY_MS = 750;
 const TERMINAL_CLAIM_ERROR_CODES = new Set([
   'ACTIVATION_INVALID',
   'ACTIVATION_UNAVAILABLE',
@@ -140,6 +145,12 @@ function isActiveInAnotherTab(error: unknown): boolean {
   return error instanceof ProRoomApiError && error.code === 'PRESENCE_ACTIVE_ELSEWHERE';
 }
 
+function waitForActiveTabRelease(): Promise<void> {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, ACTIVE_TAB_RELEASE_RETRY_DELAY_MS);
+  });
+}
+
 /**
  * Authenticate and connect a reserved PRO room. UI orchestration remains here
  * while the runtime owns cookies, authority, heartbeats, and WebRTC topology.
@@ -260,36 +271,50 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
 
   // A host-only HttpOnly cookie survives a reload. Try it before asking for
   // the 8-digit PIN again; only an authentication miss falls through.
+  let resumeError: unknown;
   try {
     await runEntryOperation((signal) => runtime.resumeProRoom(code, { signal }));
     return true;
   } catch (error) {
-    if (isActiveInAnotherTab(error)) {
-      if (returningFromSameTabLogin) {
-        await runEntryOperation((signal) =>
-          runtime.resumeProRoom(code, { takeover: true, signal }),
-        );
-        announceProRoomTabTakeover(code);
-        return true;
-      }
-      const result = await showDialog({
-        title: t('pro.active_tab_title'),
-        message: t('pro.active_tab_message'),
-        buttonText: t('pro.use_this_tab'),
-        secondaryText: t('common.cancel'),
-        dismissible: false,
-        defaultFocus: 'secondary',
-      });
-      if (result.action !== 'ok') return false;
+    resumeError = error;
+  }
+
+  if (isActiveInAnotherTab(resumeError)) {
+    if (returningFromSameTabLogin) {
       await runEntryOperation((signal) => runtime.resumeProRoom(code, { takeover: true, signal }));
-      // The server is the source of truth. Broadcast only after it commits the
-      // new incarnation so the previous tab can stop immediately instead of
-      // waiting for its next signaling/heartbeat failure.
       announceProRoomTabTakeover(code);
       return true;
     }
-    if (!isMissingCookieSession(error)) throw error;
+
+    // A refresh/update can race the previous document's unload keepalive.
+    // Retry once without takeover so a real sibling tab remains protected.
+    await waitForActiveTabRelease();
+    try {
+      await runEntryOperation((signal) => runtime.resumeProRoom(code, { signal }));
+      return true;
+    } catch (error) {
+      resumeError = error;
+    }
   }
+
+  if (isActiveInAnotherTab(resumeError)) {
+    const result = await showDialog({
+      title: t('pro.active_tab_title'),
+      message: t('pro.active_tab_message'),
+      buttonText: t('pro.use_this_tab'),
+      secondaryText: t('common.cancel'),
+      dismissible: false,
+      defaultFocus: 'secondary',
+    });
+    if (result.action !== 'ok') return false;
+    await runEntryOperation((signal) => runtime.resumeProRoom(code, { takeover: true, signal }));
+    // The server is the source of truth. Broadcast only after it commits the
+    // new incarnation so the previous tab can stop immediately instead of
+    // waiting for its next signaling/heartbeat failure.
+    announceProRoomTabTakeover(code);
+    return true;
+  }
+  if (!isMissingCookieSession(resumeError)) throw resumeError;
 
   let retry = false;
   while (true) {

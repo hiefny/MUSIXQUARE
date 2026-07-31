@@ -4381,7 +4381,8 @@
   .account-dialog-nickname[hidden],
   .account-google-button[hidden],
   .account-dialog-title-edit[hidden],
-  .account-dialog-content-close[hidden],
+  .account-dialog-login-actions[hidden],
+  .account-dialog-login-close[hidden],
   .account-legal-links[hidden],
   .account-dialog-stats[hidden],
   .account-dialog-actions[hidden] {
@@ -4469,6 +4470,15 @@
     overflow-anchor: none;
   }
 
+  .dialog.account-dialog[data-account-view='login'] .account-dialog-content {
+    padding-bottom: 10px;
+  }
+
+  .account-dialog-login-actions {
+    flex: 0 0 auto;
+    padding: 0 32px 30px;
+  }
+
   .account-dialog > .cscroll-track {
     right: 24px;
     z-index: 2;
@@ -4506,8 +4516,6 @@
     padding: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
-    border-top: 1px solid var(--divider);
-    border-bottom: 1px solid var(--divider);
   }
 
   .account-dialog-stat-row {
@@ -4549,7 +4557,7 @@
 
   .account-google-button {
     min-height: 54px;
-    margin-top: 18px;
+    margin-top: 8px;
     padding: 0 12px;
     display: grid;
     grid-template-columns: 24px minmax(0, 1fr) 24px;
@@ -4613,9 +4621,13 @@
     white-space: nowrap;
   }
 
-  .account-dialog-content-close {
+  .account-dialog-login-close {
     width: 100%;
     margin-top: 10px;
+  }
+
+  .account-dialog-login-close.dialog-primary {
+    margin-top: 0;
   }
 
   .account-legal-links {
@@ -4727,6 +4739,16 @@
     html:not(.keyboard-open) .account-dialog-actions {
       padding: 0 24px 12px;
       gap: 6px;
+    }
+
+    html:not(.keyboard-open) .account-dialog-login-actions {
+      padding: 0 24px 12px;
+    }
+
+    html:not(.keyboard-open) .account-dialog-login-actions .account-google-button,
+    html:not(.keyboard-open) .account-dialog-login-actions .dialog-primary,
+    html:not(.keyboard-open) .account-dialog-login-actions .dialog-secondary {
+      min-height: 44px;
     }
 
     html:not(.keyboard-open) .account-dialog-actions .dialog-primary,

@@ -116,13 +116,20 @@ describe('PRO room setup flow', () => {
   });
 
   it('keeps the existing tab connected when takeover confirmation is cancelled', async () => {
+    vi.useFakeTimers();
     mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
-    mocks.resume.mockRejectedValueOnce(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409));
+    mocks.resume.mockRejectedValue(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409));
     mocks.showDialog.mockResolvedValueOnce({ action: 'secondary' });
 
-    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+    const entering = enterProRoomFromSetup(ROOM_CODE);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.resume).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).not.toHaveBeenCalled();
 
-    expect(mocks.resume).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersToNextTimerAsync();
+    await expect(entering).resolves.toBe(false);
+
+    expect(mocks.resume).toHaveBeenCalledTimes(2);
     expect(mocks.showDialog).toHaveBeenCalledWith({
       title: 'pro.active_tab_title',
       message: 'pro.active_tab_message',
@@ -134,19 +141,51 @@ describe('PRO room setup flow', () => {
     expect(mocks.announceTakeover).not.toHaveBeenCalled();
   });
 
-  it('moves the room to this tab only after explicit confirmation', async () => {
+  it('silently resumes when a reload close settles during the active-tab grace window', async () => {
+    vi.useFakeTimers();
     mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
     mocks.resume
       .mockRejectedValueOnce(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409))
       .mockResolvedValueOnce({});
+
+    const entering = enterProRoomFromSetup(ROOM_CODE);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mocks.resume).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+
+    await vi.advanceTimersToNextTimerAsync();
+    await expect(entering).resolves.toBe(true);
+
+    expect(mocks.resume).toHaveBeenCalledTimes(2);
+    expect(mocks.resume).toHaveBeenNthCalledWith(2, ROOM_CODE, {
+      signal: expect.any(AbortSignal),
+    });
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+    expect(mocks.announceTakeover).not.toHaveBeenCalled();
+  });
+
+  it('moves the room to this tab only after explicit confirmation', async () => {
+    vi.useFakeTimers();
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.resume
+      .mockRejectedValueOnce(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409))
+      .mockRejectedValueOnce(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409))
+      .mockResolvedValueOnce({});
     mocks.showDialog.mockResolvedValueOnce({ action: 'ok' });
 
-    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+    const entering = enterProRoomFromSetup(ROOM_CODE);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersToNextTimerAsync();
+    await expect(entering).resolves.toBe(true);
 
     expect(mocks.resume).toHaveBeenNthCalledWith(1, ROOM_CODE, {
       signal: expect.any(AbortSignal),
     });
     expect(mocks.resume).toHaveBeenNthCalledWith(2, ROOM_CODE, {
+      signal: expect.any(AbortSignal),
+    });
+    expect(mocks.resume).toHaveBeenNthCalledWith(3, ROOM_CODE, {
       takeover: true,
       signal: expect.any(AbortSignal),
     });
@@ -176,14 +215,18 @@ describe('PRO room setup flow', () => {
   });
 
   it('does not reclaim from a same-context route hint created before presence existed', async () => {
+    vi.useFakeTimers();
     rememberAccountLoginReturn('/000001', ROOM_CODE);
     mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
-    mocks.resume.mockRejectedValueOnce(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409));
+    mocks.resume.mockRejectedValue(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409));
     mocks.showDialog.mockResolvedValueOnce({ action: 'secondary' });
 
-    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+    const entering = enterProRoomFromSetup(ROOM_CODE);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersToNextTimerAsync();
+    await expect(entering).resolves.toBe(false);
 
-    expect(mocks.resume).toHaveBeenCalledOnce();
+    expect(mocks.resume).toHaveBeenCalledTimes(2);
     expect(mocks.showDialog).toHaveBeenCalledOnce();
     expect(mocks.announceTakeover).not.toHaveBeenCalled();
   });
@@ -205,16 +248,20 @@ describe('PRO room setup flow', () => {
   });
 
   it('never silently takes over an active tab from a durable PWA relaunch hint', async () => {
+    vi.useFakeTimers();
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
     rememberAccountLoginReturn('/000001', ROOM_CODE);
     sessionStorage.clear();
     mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
-    mocks.resume.mockRejectedValueOnce(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409));
+    mocks.resume.mockRejectedValue(new ProRoomApiError('PRESENCE_ACTIVE_ELSEWHERE', 409));
     mocks.showDialog.mockResolvedValueOnce({ action: 'secondary' });
 
-    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+    const entering = enterProRoomFromSetup(ROOM_CODE);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersToNextTimerAsync();
+    await expect(entering).resolves.toBe(false);
 
-    expect(mocks.resume).toHaveBeenCalledOnce();
+    expect(mocks.resume).toHaveBeenCalledTimes(2);
     expect(mocks.showDialog).toHaveBeenCalledWith({
       title: 'pro.active_tab_title',
       message: 'pro.active_tab_message',

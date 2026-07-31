@@ -38,8 +38,14 @@ const ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
 const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
 const ACCOUNT_LOGIN_POPUP_POLL_MS = 250;
 const ACCOUNT_STATS_PLACEHOLDER = '—';
+const ACCOUNT_STATS_COUNT_UP_DURATION_MS = 800;
 type AccountAuthOutcome = 'cancelled' | 'error';
 type CompletedAccount = NonNullable<AccountSnapshot['account']>;
+type AccountStatValueElements = {
+  sessionCount: HTMLElement | null;
+  listeningTime: HTMLElement | null;
+  trackCount: HTMLElement | null;
+};
 
 function createAccountClientId(): string {
   try {
@@ -69,6 +75,12 @@ let _accountStats: AccountStats | null = null;
 let _accountStatsOwner: CompletedAccount | null = null;
 let _accountStatsLoading = false;
 let _accountStatsRequestId = 0;
+let _accountStatsAnimationFrame: number | null = null;
+let _accountStatsAnimationOwner: CompletedAccount | null = null;
+let _accountStatsAnimationTarget: string | null = null;
+let _accountStatsReducedMotionQuery: MediaQueryList | null = null;
+let _accountStatsNumberFormatterLocale: string | null = null;
+let _accountStatsNumberFormatter: Intl.NumberFormat | null = null;
 const _handledAccountResultIds = new Set<string>();
 
 function byId<T extends HTMLElement>(id: string): T | null {
@@ -85,11 +97,15 @@ function focusWithoutScroll(element: HTMLElement | null): void {
 
 function formatAccountStatNumber(value: number): string {
   const locale = document.documentElement.lang || getResolvedLanguage();
-  try {
-    return new Intl.NumberFormat(locale).format(value);
-  } catch {
-    return String(value);
+  if (_accountStatsNumberFormatterLocale !== locale) {
+    _accountStatsNumberFormatterLocale = locale;
+    try {
+      _accountStatsNumberFormatter = new Intl.NumberFormat(locale);
+    } catch {
+      _accountStatsNumberFormatter = null;
+    }
   }
+  return _accountStatsNumberFormatter?.format(value) ?? String(value);
 }
 
 function formatAccountListeningTime(listeningSeconds: number): string {
@@ -112,6 +128,130 @@ function formatAccountListeningTime(listeningSeconds: number): string {
   });
 }
 
+function renderAccountStatValues(
+  elements: AccountStatValueElements,
+  stats: Readonly<AccountStats>,
+): void {
+  if (elements.sessionCount) {
+    elements.sessionCount.textContent = t('account.stats_count_value', {
+      count: formatAccountStatNumber(stats.sessionCount),
+    });
+  }
+  if (elements.listeningTime) {
+    elements.listeningTime.textContent = formatAccountListeningTime(stats.listeningSeconds);
+  }
+  if (elements.trackCount) {
+    elements.trackCount.textContent = t('account.stats_count_value', {
+      count: formatAccountStatNumber(stats.trackCount),
+    });
+  }
+}
+
+function renderAccountStatPlaceholders(elements: AccountStatValueElements): void {
+  if (elements.sessionCount) elements.sessionCount.textContent = ACCOUNT_STATS_PLACEHOLDER;
+  if (elements.listeningTime) elements.listeningTime.textContent = ACCOUNT_STATS_PLACEHOLDER;
+  if (elements.trackCount) elements.trackCount.textContent = ACCOUNT_STATS_PLACEHOLDER;
+}
+
+function resetAccountStatsAnimation(): void {
+  if (_accountStatsAnimationFrame !== null && typeof window.cancelAnimationFrame === 'function') {
+    window.cancelAnimationFrame(_accountStatsAnimationFrame);
+  }
+  _accountStatsAnimationFrame = null;
+  _accountStatsAnimationOwner = null;
+  _accountStatsAnimationTarget = null;
+}
+
+function supportsAccountStatsAnimation(): boolean {
+  if (
+    typeof window.requestAnimationFrame !== 'function' ||
+    typeof window.cancelAnimationFrame !== 'function'
+  ) {
+    return false;
+  }
+  try {
+    _accountStatsReducedMotionQuery ??=
+      window.matchMedia?.('(prefers-reduced-motion: reduce)') ?? null;
+    return _accountStatsReducedMotionQuery?.matches !== true;
+  } catch {
+    return true;
+  }
+}
+
+function animateAccountStatValues(
+  account: CompletedAccount,
+  target: Readonly<AccountStats>,
+  elements: AccountStatValueElements,
+  statsContainer: HTMLElement,
+): boolean {
+  const targetKey = `${target.sessionCount}:${target.listeningSeconds}:${target.trackCount}`;
+  if (_accountStatsAnimationOwner === account && _accountStatsAnimationTarget === targetKey) {
+    return _accountStatsAnimationFrame !== null;
+  }
+
+  resetAccountStatsAnimation();
+  _accountStatsAnimationOwner = account;
+  _accountStatsAnimationTarget = targetKey;
+  statsContainer.setAttribute('aria-busy', 'true');
+  renderAccountStatValues(elements, {
+    sessionCount: 0,
+    listeningSeconds: target.listeningSeconds,
+    trackCount: 0,
+  });
+
+  let startedAt: number | null = null;
+  const step = (now: number): void => {
+    if (
+      _accountStatsAnimationOwner !== account ||
+      _accountStatsAnimationTarget !== targetKey ||
+      !byId<HTMLElement>('account-dialog-overlay')?.classList.contains('show')
+    ) {
+      return;
+    }
+    if (_accountStatsReducedMotionQuery?.matches === true) {
+      _accountStatsAnimationFrame = null;
+      renderAccountStatValues(elements, target);
+      statsContainer.setAttribute(
+        'aria-busy',
+        String(_accountStatsOwner === account && _accountStatsLoading),
+      );
+      return;
+    }
+
+    startedAt ??= now;
+    const progress = Math.min(
+      1,
+      Math.max(0, (now - startedAt) / ACCOUNT_STATS_COUNT_UP_DURATION_MS),
+    );
+    const easedProgress = 1 - Math.pow(1 - progress, 3);
+    renderAccountStatValues(elements, {
+      sessionCount: Math.round(target.sessionCount * easedProgress),
+      listeningSeconds: target.listeningSeconds,
+      trackCount: Math.round(target.trackCount * easedProgress),
+    });
+
+    if (progress < 1) {
+      _accountStatsAnimationFrame = window.requestAnimationFrame(step);
+      return;
+    }
+
+    _accountStatsAnimationFrame = null;
+    renderAccountStatValues(elements, target);
+    statsContainer.setAttribute(
+      'aria-busy',
+      String(_accountStatsOwner === account && _accountStatsLoading),
+    );
+  };
+
+  try {
+    _accountStatsAnimationFrame = window.requestAnimationFrame(step);
+    return true;
+  } catch {
+    resetAccountStatsAnimation();
+    return false;
+  }
+}
+
 function renderAccountStats(snapshot: Readonly<AccountSnapshot>): void {
   const stats = byId<HTMLElement>('account-dialog-stats');
   if (!stats) return;
@@ -123,12 +263,8 @@ function renderAccountStats(snapshot: Readonly<AccountSnapshot>): void {
       ? snapshot.account
       : null;
   stats.hidden = completedAccount === null;
-  stats.setAttribute(
-    'aria-busy',
-    String(
-      completedAccount !== null && _accountStatsOwner === completedAccount && _accountStatsLoading,
-    ),
-  );
+  const loadingCurrentStats =
+    completedAccount !== null && _accountStatsOwner === completedAccount && _accountStatsLoading;
 
   const sessionsLabel = byId<HTMLElement>('account-stats-sessions-label');
   const listeningLabel = byId<HTMLElement>('account-stats-listening-label');
@@ -139,28 +275,28 @@ function renderAccountStats(snapshot: Readonly<AccountSnapshot>): void {
 
   const currentStats =
     completedAccount !== null && _accountStatsOwner === completedAccount ? _accountStats : null;
-  const sessionCount = byId<HTMLElement>('account-stats-session-count');
-  const listeningTime = byId<HTMLElement>('account-stats-listening-time');
-  const trackCount = byId<HTMLElement>('account-stats-track-count');
-  if (sessionCount) {
-    sessionCount.textContent = currentStats
-      ? t('account.stats_count_value', {
-          count: formatAccountStatNumber(currentStats.sessionCount),
-        })
-      : ACCOUNT_STATS_PLACEHOLDER;
+  const valueElements: AccountStatValueElements = {
+    sessionCount: byId<HTMLElement>('account-stats-session-count'),
+    listeningTime: byId<HTMLElement>('account-stats-listening-time'),
+    trackCount: byId<HTMLElement>('account-stats-track-count'),
+  };
+  if (!currentStats) {
+    resetAccountStatsAnimation();
+    renderAccountStatPlaceholders(valueElements);
+    stats.setAttribute('aria-busy', String(loadingCurrentStats));
+    return;
   }
-  if (listeningTime) {
-    listeningTime.textContent = currentStats
-      ? formatAccountListeningTime(currentStats.listeningSeconds)
-      : ACCOUNT_STATS_PLACEHOLDER;
+
+  const dialogShown =
+    byId<HTMLElement>('account-dialog-overlay')?.classList.contains('show') === true;
+  if (dialogShown && completedAccount && supportsAccountStatsAnimation()) {
+    if (animateAccountStatValues(completedAccount, currentStats, valueElements, stats)) return;
+  } else {
+    resetAccountStatsAnimation();
   }
-  if (trackCount) {
-    trackCount.textContent = currentStats
-      ? t('account.stats_count_value', {
-          count: formatAccountStatNumber(currentStats.trackCount),
-        })
-      : ACCOUNT_STATS_PLACEHOLDER;
-  }
+
+  renderAccountStatValues(valueElements, currentStats);
+  stats.setAttribute('aria-busy', String(loadingCurrentStats));
 }
 
 async function loadAccountStats(account: CompletedAccount, requestId: number): Promise<void> {
@@ -440,6 +576,7 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   const message = byId<HTMLElement>('account-dialog-message');
   const nickname = byId<HTMLElement>('account-dialog-nickname');
   const content = byId<HTMLElement>('account-dialog-content');
+  const loginActions = byId<HTMLElement>('account-dialog-login-actions');
   const google = byId<HTMLAnchorElement>('btn-account-google');
   const googleLabel = byId<HTMLElement>('account-google-label');
   const loginClose = byId<HTMLButtonElement>('btn-account-login-close');
@@ -456,6 +593,7 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
     !message ||
     !nickname ||
     !content ||
+    !loginActions ||
     !google ||
     !googleLabel ||
     !loginClose ||
@@ -474,9 +612,12 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   };
 
   dialog.setAttribute('aria-labelledby', 'account-dialog-title');
+  dialog.dataset.accountView =
+    snapshot.status === 'authenticated' && snapshot.account ? 'account' : 'login';
   title.hidden = false;
   titleEditLabel.textContent = '';
   content.hidden = false;
+  loginActions.hidden = true;
   message.hidden = false;
   nickname.hidden = true;
   google.hidden = true;
@@ -520,6 +661,7 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   }
 
   title.textContent = t('account.login_title');
+  loginActions.hidden = false;
   loginClose.hidden = false;
   if (snapshot.status === 'loading') {
     message.textContent = t('common.wait');
@@ -892,6 +1034,10 @@ export function __resetAccountUiForTests(): void {
   _accountStatsOwner = null;
   _accountStatsLoading = false;
   _accountStatsRequestId = 0;
+  resetAccountStatsAnimation();
+  _accountStatsReducedMotionQuery = null;
+  _accountStatsNumberFormatterLocale = null;
+  _accountStatsNumberFormatter = null;
   _accountLoginPopup = null;
   stopAccountLoginPopupMonitor();
   stopAccountLoginNavigationGuard();

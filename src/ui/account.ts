@@ -206,9 +206,12 @@ function setPending(pending: boolean): void {
   for (const button of document.querySelectorAll<HTMLElement>(
     '#account-dialog button, #account-dialog .account-google-button',
   )) {
-    if (button instanceof HTMLButtonElement) button.disabled = pending;
-    else button.setAttribute('aria-disabled', String(pending));
+    if (button instanceof HTMLButtonElement) {
+      button.disabled = pending || button.dataset.accountStateDisabled === 'true';
+    } else button.setAttribute('aria-disabled', String(pending));
   }
+  const overlay = byId<HTMLElement>('account-dialog-overlay');
+  if (pending && overlay?.classList.contains('show')) focusWithoutScroll(dialog);
 }
 
 function parseAccountAuthResultMessage(value: unknown): {
@@ -405,17 +408,33 @@ function consumeAccountAuthOutcomeFromUrl(): { outcome: AccountAuthOutcome; id: 
 
 function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSnapshot()): void {
   const title = byId<HTMLElement>('account-dialog-title');
+  const titleEdit = byId<HTMLButtonElement>('btn-account-title-edit');
   const message = byId<HTMLElement>('account-dialog-message');
   const nickname = byId<HTMLElement>('account-dialog-nickname');
   const content = byId<HTMLElement>('account-dialog-content');
   const google = byId<HTMLAnchorElement>('btn-account-google');
   const googleLabel = byId<HTMLElement>('account-google-label');
+  const loginClose = byId<HTMLButtonElement>('btn-account-login-close');
   const legal = byId<HTMLElement>('account-legal-links');
   const actions = byId<HTMLElement>('account-dialog-actions');
-  const rename = byId<HTMLButtonElement>('btn-account-rename');
   const logout = byId<HTMLButtonElement>('btn-account-logout');
   const remove = byId<HTMLButtonElement>('btn-account-delete');
-  if (!title || !message || !nickname || !content || !google || !googleLabel || !legal || !actions)
+  const centerClose = byId<HTMLButtonElement>('btn-account-center-close');
+  if (
+    !title ||
+    !titleEdit ||
+    !message ||
+    !nickname ||
+    !content ||
+    !google ||
+    !googleLabel ||
+    !loginClose ||
+    !legal ||
+    !actions ||
+    !logout ||
+    !remove ||
+    !centerClose
+  )
     return;
 
   const syncRenderedTextFonts = () => {
@@ -427,8 +446,17 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   message.hidden = false;
   nickname.hidden = true;
   google.hidden = true;
+  loginClose.hidden = true;
+  loginClose.textContent = t('common.close');
+  loginClose.classList.remove('dialog-primary');
+  loginClose.classList.add('dialog-secondary');
   legal.hidden = true;
   actions.hidden = true;
+  centerClose.textContent = t('common.close');
+  titleEdit.dataset.accountStateDisabled = 'true';
+  titleEdit.disabled = true;
+  titleEdit.hidden = true;
+  titleEdit.removeAttribute('aria-label');
   renderAccountStats(snapshot);
 
   if (snapshot.status === 'authenticated' && snapshot.account) {
@@ -440,26 +468,33 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
     content.hidden = snapshot.account.profileComplete;
     nickname.textContent = '';
     actions.hidden = false;
-    if (rename) {
-      rename.textContent = snapshot.account.profileComplete
-        ? t('account.change_nickname')
-        : t('account.nickname_title');
-    }
-    if (logout) logout.textContent = t('account.logout');
-    if (remove) remove.textContent = t('account.delete_account');
+    const editLabel = snapshot.account.profileComplete
+      ? t('account.change_nickname')
+      : t('account.nickname_title');
+    titleEdit.dataset.accountStateDisabled = 'false';
+    titleEdit.disabled = _accountActionPending;
+    titleEdit.hidden = false;
+    titleEdit.setAttribute('aria-label', editLabel);
+    logout.textContent = t('account.logout');
+    remove.textContent = t('account.delete_account');
     syncRenderedTextFonts();
     return;
   }
 
   title.textContent = t('account.login_title');
+  loginClose.hidden = false;
   if (snapshot.status === 'loading') {
     message.textContent = t('common.wait');
+    loginClose.classList.remove('dialog-secondary');
+    loginClose.classList.add('dialog-primary');
     syncRenderedTextFonts();
     return;
   }
 
   if (snapshot.status === 'unavailable' || snapshot.configured === false) {
     message.textContent = t('account.unavailable');
+    loginClose.classList.remove('dialog-secondary');
+    loginClose.classList.add('dialog-primary');
     syncRenderedTextFonts();
     return;
   }
@@ -496,6 +531,16 @@ function closeAccountDialog(): void {
   focus?.focus?.();
 }
 
+function getPreferredAccountDialogFocus(snapshot: Readonly<AccountSnapshot>): HTMLElement | null {
+  if (snapshot.status === 'anonymous' && snapshot.configured) {
+    return byId<HTMLElement>('btn-account-google');
+  }
+  if (snapshot.status === 'authenticated') {
+    return byId<HTMLElement>('btn-account-title-edit');
+  }
+  return byId<HTMLElement>('btn-account-login-close');
+}
+
 export function openAccountDialog(): void {
   const snapshot = getAccountSnapshot();
   const overlay = byId<HTMLElement>('account-dialog-overlay');
@@ -511,11 +556,7 @@ export function openAccountDialog(): void {
     beginAccountStatsLoad(snapshot.account);
   }
   queueMicrotask(() => {
-    const preferred =
-      snapshot.status === 'anonymous' && snapshot.configured
-        ? byId<HTMLElement>('btn-account-google')
-        : byId<HTMLElement>('btn-account-close');
-    focusWithoutScroll(preferred);
+    focusWithoutScroll(getPreferredAccountDialogFocus(snapshot));
   });
 }
 
@@ -577,7 +618,11 @@ function bindAccountDialog(): void {
   if (!overlay || overlay.dataset.accountBound === '1') return;
   overlay.dataset.accountBound = '1';
 
-  byId<HTMLButtonElement>('btn-account-close')?.addEventListener('click', closeAccountDialog);
+  byId<HTMLButtonElement>('btn-account-login-close')?.addEventListener('click', closeAccountDialog);
+  byId<HTMLButtonElement>('btn-account-center-close')?.addEventListener(
+    'click',
+    closeAccountDialog,
+  );
   byId<HTMLAnchorElement>('btn-account-google')?.addEventListener('click', (event) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;
@@ -648,25 +693,30 @@ function bindAccountDialog(): void {
     }
     if (event.key !== 'Tab') return;
     const focusable = getFocusableElements();
-    if (focusable.length === 0) return;
+    if (focusable.length === 0) {
+      event.preventDefault();
+      focusWithoutScroll(byId<HTMLElement>('account-dialog'));
+      return;
+    }
     const first = focusable[0]!;
     const last = focusable[focusable.length - 1]!;
-    if (
-      event.shiftKey &&
-      (document.activeElement === first || !overlay.contains(document.activeElement))
-    ) {
+    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (!active || !focusable.includes(active)) {
+      event.preventDefault();
+      focusWithoutScroll(event.shiftKey ? last : first);
+      return;
+    }
+    if (event.shiftKey && (active === first || !overlay.contains(active))) {
       event.preventDefault();
       last.focus();
-    } else if (
-      !event.shiftKey &&
-      (document.activeElement === last || !overlay.contains(document.activeElement))
-    ) {
+    } else if (!event.shiftKey && (active === last || !overlay.contains(active))) {
       event.preventDefault();
       first.focus();
     }
   });
 
-  byId<HTMLButtonElement>('btn-account-rename')?.addEventListener('click', () => {
+  byId<HTMLButtonElement>('btn-account-title-edit')?.addEventListener('click', () => {
+    if (!isAccountAuthenticated()) return;
     closeAccountDialog();
     void requestAccountNicknameChange();
   });
@@ -679,6 +729,7 @@ function bindAccountDialog(): void {
       closeAccountDialog();
     } catch {
       setPending(false);
+      focusWithoutScroll(byId<HTMLButtonElement>('btn-account-logout'));
       showToast(t('account.action_failed'));
     }
   });
@@ -706,10 +757,22 @@ function bindAccountDialog(): void {
 
 function handleAccountState(snapshot: Readonly<AccountSnapshot>): void {
   const overlay = byId<HTMLElement>('account-dialog-overlay');
-  const google = byId<HTMLAnchorElement>('btn-account-google');
-  const focusedLoginAction =
-    overlay?.classList.contains('show') === true && document.activeElement === google;
+  const dialog = byId<HTMLElement>('account-dialog');
+  const activeDialogElement =
+    document.activeElement instanceof HTMLElement && dialog?.contains(document.activeElement)
+      ? document.activeElement
+      : null;
   renderAccountDialog(snapshot);
+  if (activeDialogElement) {
+    queueMicrotask(() => {
+      if (
+        overlay?.classList.contains('show') &&
+        !getFocusableElements().includes(activeDialogElement)
+      ) {
+        focusWithoutScroll(getPreferredAccountDialogFocus(snapshot));
+      }
+    });
+  }
   if (
     overlay?.classList.contains('show') === true &&
     snapshot.status === 'authenticated' &&
@@ -727,13 +790,6 @@ function handleAccountState(snapshot: Readonly<AccountSnapshot>): void {
     // A later Google account in the same tab must still receive its own first
     // nickname prompt after the previous account signed out or was deleted.
     _profilePromptShown = false;
-    if (
-      focusedLoginAction &&
-      snapshot.status === 'authenticated' &&
-      snapshot.account?.profileComplete
-    ) {
-      queueMicrotask(() => focusWithoutScroll(byId<HTMLButtonElement>('btn-account-rename')));
-    }
     return;
   }
   if (

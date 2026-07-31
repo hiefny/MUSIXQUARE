@@ -41,14 +41,24 @@ function renderAccountDialog(): void {
   document.body.innerHTML = `
     <button id="opener">open</button>
     <div id="account-dialog-overlay" aria-hidden="true">
-      <div id="account-dialog" aria-busy="false">
-        <button id="btn-account-close"></button>
+      <div id="account-dialog" aria-busy="false" tabindex="-1">
         <span id="account-dialog-title"></span>
+        <button class="account-dialog-title-edit" id="btn-account-title-edit" hidden>
+          <svg id="account-dialog-title-edit-icon"></svg>
+        </button>
         <div id="account-dialog-content">
           <p id="account-dialog-message"></p>
           <strong id="account-dialog-nickname" hidden></strong>
           <a id="btn-account-google" hidden><span id="account-google-label"></span></a>
-          <nav id="account-legal-links" hidden></nav>
+          <button
+            class="dialog-secondary account-dialog-content-close"
+            id="btn-account-login-close"
+            hidden
+          ></button>
+          <nav id="account-legal-links" hidden>
+            <a id="account-terms" href="/terms"></a>
+            <a id="account-privacy" href="/privacy"></a>
+          </nav>
         </div>
         <dl id="account-dialog-stats" aria-live="polite" aria-busy="false" hidden>
           <div class="account-dialog-stat-row">
@@ -65,9 +75,12 @@ function renderAccountDialog(): void {
           </div>
         </dl>
         <div id="account-dialog-actions" hidden>
-          <button id="btn-account-rename"></button>
           <button id="btn-account-logout"></button>
           <button id="btn-account-delete"></button>
+          <button
+            class="dialog-primary account-dialog-account-close"
+            id="btn-account-center-close"
+          ></button>
         </div>
       </div>
     </div>
@@ -113,6 +126,42 @@ describe('optional account UI', () => {
     );
     expect(document.getElementById('account-google-label')?.textContent).not.toBe('');
     expect(document.getElementById('account-legal-links')?.hidden).toBe(false);
+    expect(document.getElementById('btn-account-title-edit')?.hidden).toBe(true);
+    const close = document.getElementById('btn-account-login-close');
+    expect(close?.hidden).toBe(false);
+    expect(close?.textContent).toBe('Close');
+    expect(close?.classList.contains('dialog-secondary')).toBe(true);
+    expect(close?.classList.contains('dialog-primary')).toBe(false);
+    expect(
+      document.getElementById('btn-account-google')?.compareDocumentPosition(close as Node),
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('shows a primary close action while account availability is loading', async () => {
+    let resolveSession!: (response: Response) => void;
+    vi.mocked(fetch).mockReturnValue(
+      new Promise<Response>((resolve) => {
+        resolveSession = resolve;
+      }),
+    );
+    initAccount();
+
+    openAccountDialog();
+
+    const close = document.getElementById('btn-account-login-close') as HTMLButtonElement;
+    expect(getAccountSnapshot().status).toBe('loading');
+    expect(document.getElementById('btn-account-google')?.hidden).toBe(true);
+    expect(close.hidden).toBe(false);
+    expect(close.classList.contains('dialog-primary')).toBe(true);
+    expect(close.classList.contains('dialog-secondary')).toBe(false);
+
+    close.click();
+    expect(document.getElementById('account-dialog-overlay')?.classList.contains('show')).toBe(
+      false,
+    );
+
+    resolveSession(jsonResponse({ configured: true, authenticated: false, account: null }));
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
   });
 
   it('uses a completion popup so an active room is not navigated away', async () => {
@@ -247,7 +296,7 @@ describe('optional account UI', () => {
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
     openAccountDialog();
 
-    document.getElementById('btn-account-close')?.click();
+    document.getElementById('btn-account-login-close')?.click();
 
     expect(window.location.pathname + window.location.search + window.location.hash).toBe(
       '/000001?panel=connect#account',
@@ -443,6 +492,10 @@ describe('optional account UI', () => {
       'temporarily unavailable',
     );
     expect(document.getElementById('btn-account-google')?.hidden).toBe(true);
+    const close = document.getElementById('btn-account-login-close');
+    expect(close?.hidden).toBe(false);
+    expect(close?.classList.contains('dialog-primary')).toBe(true);
+    expect(close?.classList.contains('dialog-secondary')).toBe(false);
   });
 
   it('shows an authenticated nickname and restores focus after close', async () => {
@@ -463,9 +516,46 @@ describe('optional account UI', () => {
     expect(document.getElementById('account-dialog-content')?.hidden).toBe(true);
     expect(document.getElementById('account-dialog-nickname')?.hidden).toBe(true);
     expect(document.getElementById('account-dialog-actions')?.hidden).toBe(false);
+    const titleEdit = document.getElementById('btn-account-title-edit') as HTMLButtonElement;
+    expect(titleEdit.disabled).toBe(false);
+    expect(titleEdit.hidden).toBe(false);
+    expect(titleEdit.getAttribute('aria-label')).toBe('Change nickname');
+    expect(document.getElementById('account-dialog-title-edit-icon')?.hasAttribute('hidden')).toBe(
+      false,
+    );
+    const centerClose = document.getElementById('btn-account-center-close') as HTMLButtonElement;
+    expect(centerClose.textContent).toBe('Close');
+    expect(centerClose.classList.contains('dialog-primary')).toBe(true);
 
-    document.getElementById('btn-account-close')?.click();
+    centerClose.click();
     expect(document.activeElement).toBe(opener);
+  });
+
+  it('opens nickname editing from the account title and removes the account modal first', async () => {
+    vi.mocked(showDialog).mockResolvedValue({ action: 'secondary' });
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Minsu', profileComplete: true },
+      }),
+    );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+
+    openAccountDialog();
+    document.getElementById('btn-account-title-edit')?.click();
+
+    expect(document.getElementById('account-dialog-overlay')?.classList.contains('show')).toBe(
+      false,
+    );
+    await vi.waitFor(() => expect(showDialog).toHaveBeenCalledOnce());
+    expect(showDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'Set nickname',
+        inputField: expect.objectContaining({ defaultValue: 'Minsu' }),
+      }),
+    );
   });
 
   it('loads and formats account statistics only when a completed account opens the dialog', async () => {
@@ -638,7 +728,51 @@ describe('optional account UI', () => {
     await Promise.resolve();
 
     expect(document.getElementById('btn-account-google')?.hidden).toBe(true);
-    expect(document.activeElement).toBe(document.getElementById('btn-account-rename'));
+    expect(document.activeElement).toBe(document.getElementById('btn-account-title-edit'));
+  });
+
+  it('moves focus from Google to the primary close action if login becomes unavailable', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ configured: true, authenticated: false, account: null }),
+    );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    openAccountDialog();
+    await Promise.resolve();
+    expect(document.activeElement).toBe(document.getElementById('btn-account-google'));
+
+    applyAccountSession({ configured: false, authenticated: false, account: null });
+    await Promise.resolve();
+
+    const close = document.getElementById('btn-account-login-close') as HTMLButtonElement;
+    expect(document.getElementById('btn-account-google')?.hidden).toBe(true);
+    expect(close.classList.contains('dialog-primary')).toBe(true);
+    expect(document.activeElement).toBe(close);
+  });
+
+  it('repairs focus when an externally signed-out account hides the active action', async () => {
+    vi.mocked(flushAccountActivityStatsForRead).mockResolvedValueOnce({
+      status: 'updated',
+      stats: { sessionCount: 1, listeningSeconds: 1, trackCount: 1 },
+    });
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Minsu', profileComplete: true },
+      }),
+    );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+    openAccountDialog();
+    const remove = document.getElementById('btn-account-delete') as HTMLButtonElement;
+    remove.focus();
+
+    applyAccountSession({ configured: true, authenticated: false, account: null });
+    await Promise.resolve();
+
+    expect(document.getElementById('account-dialog-actions')?.hidden).toBe(true);
+    expect(document.activeElement).toBe(document.getElementById('btn-account-google'));
   });
 
   it('closes with Escape and restores focus to the element that opened it', async () => {
@@ -674,17 +808,22 @@ describe('optional account UI', () => {
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
     const overlay = document.getElementById('account-dialog-overlay') as HTMLElement;
     const dialog = document.getElementById('account-dialog') as HTMLElement;
-    const close = document.getElementById('btn-account-close') as HTMLButtonElement;
+    const close = document.getElementById('btn-account-login-close') as HTMLButtonElement;
     const google = document.getElementById('btn-account-google') as HTMLAnchorElement;
+    const terms = document.getElementById('account-terms') as HTMLAnchorElement;
+    const privacy = document.getElementById('account-privacy') as HTMLAnchorElement;
     // jsdom has no layout and therefore reports a null offsetParent for every
-    // element. Model the two controls that are visible in the real dialog.
+    // element. Model the controls that are visible in the real dialog.
     Object.defineProperty(close, 'offsetParent', { configurable: true, value: dialog });
     Object.defineProperty(google, 'offsetParent', { configurable: true, value: dialog });
+    Object.defineProperty(terms, 'offsetParent', { configurable: true, value: dialog });
+    Object.defineProperty(privacy, 'offsetParent', { configurable: true, value: dialog });
 
     openAccountDialog();
     await Promise.resolve();
     expect(document.activeElement).toBe(google);
 
+    privacy.focus();
     const forward = new KeyboardEvent('keydown', {
       key: 'Tab',
       bubbles: true,
@@ -692,8 +831,9 @@ describe('optional account UI', () => {
     });
     overlay.dispatchEvent(forward);
     expect(forward.defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(close);
+    expect(document.activeElement).toBe(google);
 
+    google.focus();
     const backward = new KeyboardEvent('keydown', {
       key: 'Tab',
       shiftKey: true,
@@ -702,7 +842,49 @@ describe('optional account UI', () => {
     });
     overlay.dispatchEvent(backward);
     expect(backward.defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(google);
+    expect(document.activeElement).toBe(privacy);
+  });
+
+  it('keeps focus on the dialog while every account action is pending', async () => {
+    let resolveLogout!: (response: Response) => void;
+    vi.mocked(flushAccountActivityStatsForRead).mockResolvedValueOnce({
+      status: 'updated',
+      stats: { sessionCount: 1, listeningSeconds: 1, trackCount: 1 },
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: 'Minsu', profileComplete: true },
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          resolveLogout = resolve;
+        }),
+      );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+    const overlay = document.getElementById('account-dialog-overlay') as HTMLElement;
+    const dialog = document.getElementById('account-dialog') as HTMLElement;
+
+    openAccountDialog();
+    document.getElementById('btn-account-logout')?.click();
+
+    expect(dialog.getAttribute('aria-busy')).toBe('true');
+    expect(document.activeElement).toBe(dialog);
+    const tab = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    });
+    overlay.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(dialog);
+
+    resolveLogout(jsonResponse({ ok: true }));
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
   });
 
   it('opens login instead of a nickname editor for an anonymous user', async () => {
@@ -879,6 +1061,13 @@ describe('optional account UI', () => {
     expect(document.getElementById('account-dialog-actions')?.hidden).toBe(false);
     expect(document.getElementById('btn-account-logout')?.textContent).not.toBe('');
     expect(document.getElementById('btn-account-delete')?.textContent).not.toBe('');
+    expect((document.getElementById('btn-account-title-edit') as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+    expect(document.getElementById('account-dialog-title-edit-icon')?.hasAttribute('hidden')).toBe(
+      false,
+    );
+    expect(document.getElementById('btn-account-center-close')?.textContent).toBe('Close');
   });
 
   it('keeps account controls reachable in a short landscape viewport', async () => {
@@ -897,7 +1086,11 @@ describe('optional account UI', () => {
       [...stylesheet.matchAll(/\.account-dialog-stat-row dd\s*\{([^}]*)\}/g)].at(-1)?.[1] ?? '';
     const accountActionsRules =
       stylesheet.match(/\.account-dialog-actions\s*\{([^}]*)\}/)?.[1] ?? '';
-    const renameRules = stylesheet.match(/#btn-account-rename\s*\{([^}]*)\}/)?.[1] ?? '';
+    const titleEditRules = stylesheet.match(/\.account-dialog-title-edit\s*\{([^}]*)\}/)?.[1] ?? '';
+    const contentCloseRules =
+      stylesheet.match(/\.account-dialog-content-close\s*\{([^}]*)\}/)?.[1] ?? '';
+    const accountCloseRules =
+      stylesheet.match(/\.account-dialog-account-close\s*\{([^}]*)\}/)?.[1] ?? '';
     const deleteRules = stylesheet.match(/^\s{2}\.account-delete-button\s*\{([^}]*)\}/m)?.[1] ?? '';
 
     expect(dialogRules).toContain('max-height: calc(100dvh - 48px)');
@@ -905,10 +1098,13 @@ describe('optional account UI', () => {
     expect(dialogRules).not.toContain('scale(');
     expect(shownDialogRules).toContain('transform: translateY(0)');
     expect(shownDialogRules).not.toContain('scale(');
-    expect(headerRules).toContain('padding: 30px 72px 6px 32px');
+    expect(headerRules).toContain('padding: 30px 32px 6px');
+    expect(titleEditRules).toContain('width: 44px');
+    expect(titleEditRules).toContain('display: grid');
     expect(contentRules).toContain('min-height: 0');
     expect(contentRules).toContain('overflow-y: auto');
     expect(contentRules).toContain('overflow-anchor: none');
+    expect(contentCloseRules).toContain('width: 100%');
     expect(statsRules).toContain('flex: 1 1 auto');
     expect(statsRules).toContain('min-height: 0');
     expect(statsRules).toContain('overflow-y: auto');
@@ -916,7 +1112,8 @@ describe('optional account UI', () => {
     expect(statValueRules).toContain('font-variant-numeric: tabular-nums');
     expect(statValueRules).toContain('white-space: nowrap');
     expect(accountActionsRules).toContain('grid-template-columns: 1fr 1fr');
-    expect(renameRules).toContain('grid-column: 1 / -1');
+    expect(accountCloseRules).toContain('grid-column: 1 / -1');
+    expect(accountCloseRules).toContain('width: 100%');
     expect(deleteRules).toContain('min-height: 54px');
     expect(deleteRules).toContain('border-radius: 18px');
     expect(deleteRules).not.toContain('grid-column: 1 / -1');
@@ -927,6 +1124,18 @@ describe('optional account UI', () => {
     expect(stylesheet).toContain(
       'html:not(.keyboard-open) .account-dialog-actions .account-delete-button {\n      min-height: 44px;',
     );
+  });
+
+  it('uses text actions instead of an X in the account modal markup', async () => {
+    const markup = await readFile('index.html', 'utf8');
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    const accountDialog = parsed.getElementById('account-dialog');
+
+    expect(accountDialog?.querySelector('.account-dialog-close')).toBeNull();
+    expect(accountDialog?.querySelector('#btn-account-rename')).toBeNull();
+    expect(accountDialog?.querySelector('#btn-account-title-edit svg path')).not.toBeNull();
+    expect(accountDialog?.querySelector('#btn-account-login-close')).not.toBeNull();
+    expect(accountDialog?.querySelector('#btn-account-center-close')).not.toBeNull();
   });
 
   it('inverts the borderless Google button against the active app theme', async () => {

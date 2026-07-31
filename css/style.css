@@ -4379,38 +4379,58 @@
 
   .account-dialog-nickname[hidden],
   .account-google-button[hidden],
+  .account-dialog-title-edit[hidden],
+  .account-dialog-content-close[hidden],
   .account-legal-links[hidden],
   .account-dialog-stats[hidden],
   .account-dialog-actions[hidden] {
     display: none;
   }
 
-  .account-dialog-close {
-    position: absolute;
-    top: 18px;
-    right: 18px;
-    z-index: 1;
-    width: 38px;
-    height: 38px;
+  .dialog.account-dialog .account-dialog-header {
+    flex: 0 0 auto;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 30px 32px 6px;
+  }
+
+  .account-dialog-header .dialog-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .account-dialog-title-edit {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 auto;
+    margin: -6px;
     padding: 0;
     border: 0;
     display: grid;
     place-items: center;
-    background: var(--surface-2);
+    background: transparent;
     color: var(--text-sub);
+    font: inherit;
+    opacity: 1;
     cursor: pointer;
   }
 
-  .account-dialog-close svg {
-    width: 18px;
-    height: 18px;
-    fill: currentColor;
+  .account-dialog-title-edit:disabled {
+    cursor: default;
   }
 
-  .dialog.account-dialog .account-dialog-header {
+  .account-dialog-title-edit:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 6px;
+    border-radius: 8px;
+  }
+
+  .account-dialog-title-edit-icon {
+    width: 20px;
+    height: 20px;
     flex: 0 0 auto;
-    /* Reserve the close-button column even for a long account nickname. */
-    padding: 30px 72px 6px 32px;
+    fill: currentColor;
   }
 
   .account-dialog-content {
@@ -4565,6 +4585,11 @@
     white-space: nowrap;
   }
 
+  .account-dialog-content-close {
+    width: 100%;
+    margin-top: 10px;
+  }
+
   .account-legal-links {
     margin-top: 16px;
     display: flex;
@@ -4595,7 +4620,7 @@
     padding-inline: 18px;
   }
 
-  #btn-account-rename {
+  .account-dialog-account-close {
     grid-column: 1 / -1;
     width: 100%;
   }
@@ -4660,7 +4685,7 @@
 
   @media (max-height: 350px) {
     html:not(.keyboard-open) .dialog.account-dialog .account-dialog-header {
-      padding: 20px 72px 4px 24px;
+      padding: 20px 24px 4px;
     }
 
     html:not(.keyboard-open) .account-dialog-stats:not([hidden]) {

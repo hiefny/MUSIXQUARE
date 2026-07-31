@@ -2671,21 +2671,29 @@
         aria-labelledby="account-dialog-title"
         aria-describedby="account-dialog-message"
         aria-busy="false"
+        tabindex="-1"
       >
-        <button
-          type="button"
-          class="account-dialog-close"
-          id="btn-account-close"
-          data-i18n-aria-label="common.close"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.41 4.29 19.71 2.88 18.3 9.17 12 2.88 5.7 4.29 4.29 10.59 10.59 16.89 4.29z"
-            />
-          </svg>
-        </button>
         <div class="dialog-header account-dialog-header">
           <span class="dialog-title" id="account-dialog-title"></span>
+          <button
+            type="button"
+            class="account-dialog-title-edit"
+            id="btn-account-title-edit"
+            aria-haspopup="dialog"
+            hidden
+          >
+            <svg
+              class="account-dialog-title-edit-icon"
+              id="account-dialog-title-edit-icon"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path
+                d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
+              />
+            </svg>
+          </button>
         </div>
         <div
           class="account-dialog-content"
@@ -2720,6 +2728,12 @@
             <span class="account-google-label" id="account-google-label"></span>
             <span class="account-google-balance" aria-hidden="true"></span>
           </a>
+          <button
+            type="button"
+            class="dialog-secondary account-dialog-content-close"
+            id="btn-account-login-close"
+            hidden
+          ></button>
           <nav class="account-legal-links" id="account-legal-links" hidden>
             <a
               href="/terms"
@@ -2757,9 +2771,13 @@
           </div>
         </dl>
         <div class="account-dialog-actions" id="account-dialog-actions" hidden>
-          <button type="button" class="dialog-primary" id="btn-account-rename"></button>
           <button type="button" class="dialog-secondary" id="btn-account-logout"></button>
           <button type="button" class="account-delete-button" id="btn-account-delete"></button>
+          <button
+            type="button"
+            class="dialog-primary account-dialog-account-close"
+            id="btn-account-center-close"
+          ></button>
         </div>
       </div>
     </div>

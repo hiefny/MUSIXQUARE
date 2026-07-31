@@ -30,14 +30,12 @@ git push origin main
 ```
 
 Pushing `main` does not deploy production. CI runs static checks, tests, and the
-production build in parallel. A successful `main` CI run records an immutable
-app candidate for that exact commit. Run the `Production Release` workflow from
-the Actions tab and select only the Worker scope changed by the hotfix. The
-default `app` path reuses the successful exact-SHA CI candidate without a second
-validation pass or environment self-approval, then runs the live app session
-and public-boundary smokes with conflict-aware rollback. Infrastructure targets
-still build and validate their own candidate, including the short Chromium
-release smoke, before deployment.
+production build in parallel. A successful `main` CI run records one immutable
+production candidate for that exact commit. Run the `Production Release`
+workflow from the Actions tab and select only the Worker scope changed by the
+hotfix. Every target reuses that exact-SHA CI candidate without a second
+validation pass or environment self-approval, then runs its live smokes with
+conflict-aware rollback.
 
 Leave `Apply Developer API D1 schema and one-time migrations` disabled for an
 ordinary Worker release. Enable it only when the approved commit intentionally
@@ -347,8 +345,9 @@ PWA runtime changes. A feature commit may be followed by a separate version-bump
 commit, or may include the bump itself; the guard passes once the latest bump
 covers the resulting app tree. Cloudflare Worker code, repository documentation,
 and test-only changes do not require a bump. The check intentionally fails on a
-shallow clone because it cannot prove where the latest bump occurred, so CI and
-release validation must check out full git history (`fetch-depth: 0`).
+shallow clone because it cannot prove where the latest bump occurred, so the CI
+candidate build and release deployment checkout must retain full git history
+(`fetch-depth: 0`).
 
 ## Emergency Hotfix
 

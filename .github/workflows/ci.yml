@@ -56,9 +56,15 @@ jobs:
         run: npm run guard:chunk-pump && npm run guard:lifecycle-writes
 
   tests:
-    name: Unit and critical coverage
+    name: Unit tests (${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard:
+          - '1/2'
+          - '2/2'
 
     steps:
       - name: Checkout full history
@@ -76,13 +82,33 @@ jobs:
         run: npm ci
 
       - name: Unit tests
-        run: npm test
+        run: npm test -- --shard=${{ matrix.shard }}
+
+  coverage:
+    name: Critical runtime coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Critical runtime coverage
         run: npm run test:coverage:critical
 
   candidate:
-    name: Production app candidate
+    name: Production release candidate
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -111,18 +137,18 @@ jobs:
       - name: Exercise bounded V1 fallback candidate
         run: npm run test:e2e:legacy-bounded-production:dist
 
-      - name: Record immutable main-CI app candidate
+      - name: Record immutable main-CI production candidate
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
-          RELEASE_TARGET: app
+          RELEASE_TARGET: all
           RELEASE_VALIDATION_PROFILE: main-ci
         run: npm run release:manifest
 
-      - name: Upload immutable main-CI app candidate
+      - name: Upload immutable main-CI production candidate
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: app-production-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: production-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             dist/
             release-artifacts/release-manifest.json

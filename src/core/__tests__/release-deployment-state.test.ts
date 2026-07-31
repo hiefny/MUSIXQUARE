@@ -186,6 +186,15 @@ describe('release deployment rollback state', () => {
     }
   });
 
+  it('maps the exact PRO generation migrations without treating the global D1 manifest as runtime', () => {
+    const paths = runtimePathsForWorker('pro-room');
+    expect(paths).toContain('cloudflare/admin-metrics.pro-room-generation.migration.sql');
+    expect(paths).toContain('cloudflare/auth.pro-room-generation.migration.sql');
+    expect(paths).toContain('cloudflare/developer-api-room-generation.migration.sql');
+    expect(paths).not.toContain('cloudflare/d1-migrations.manifest.json');
+    expect(paths).not.toContain('cloudflare/auth.account-stats.migration.sql');
+  });
+
   it('extracts only an exact release Git SHA from deployment messages', () => {
     const sha = 'a'.repeat(40);
     expect(releaseGitSha(`git:${sha} run:123 target:all`)).toBe(sha);
@@ -391,6 +400,55 @@ describe('release deployment rollback state', () => {
     expect(queried).not.toContain('app');
     expect(diffed).toEqual(queried);
     expect(report.results).toHaveLength(5);
+  });
+
+  it('keeps app-owned account migration metadata from forcing a PRO deployment', () => {
+    const directory = createDirectory();
+    const deployedSha = 'a'.repeat(40);
+    const changed = new Set([
+      'cloudflare/d1-migrations.manifest.json',
+      'cloudflare/auth.schema.sql',
+      'cloudflare/auth.account-stats.migration.sql',
+    ]);
+    const report = verifyPartialReleaseCompatibility('app', 'b'.repeat(40), directory, {
+      queryCurrent: (target: string) => ({
+        deploymentId: `deployment-${target}`,
+        versionId: `version-${target}`,
+        message: `git:${deployedSha} run:1 target:all`,
+      }),
+      changedRuntimePaths: (_base: string, _head: string, paths: string[]) =>
+        paths.filter((path) => changed.has(path)),
+    });
+
+    expect(report.status).toBe('compatible');
+    expect(report.results).toContainEqual(
+      expect.objectContaining({ target: 'pro-room', status: 'compatible' }),
+    );
+  });
+
+  it('still blocks an app-only release when the auth PRO generation contract changed', () => {
+    const directory = createDirectory();
+    const deployedSha = 'a'.repeat(40);
+    expect(() =>
+      verifyPartialReleaseCompatibility('app', 'b'.repeat(40), directory, {
+        queryCurrent: (target: string) => ({
+          deploymentId: `deployment-${target}`,
+          versionId: `version-${target}`,
+          message: `git:${deployedSha} run:1 target:all`,
+        }),
+        changedRuntimePaths: (_base: string, _head: string, paths: string[]) =>
+          paths.filter((path) => path === 'cloudflare/auth.pro-room-generation.migration.sql'),
+      }),
+    ).toThrow('pro-room has undeployed production-source changes');
+
+    const report = JSON.parse(
+      readFileSync(resolve(directory, 'partial-release-compatibility.json'), 'utf8'),
+    ) as {
+      results: Array<{ target: string; status: string }>;
+    };
+    expect(report.results).toContainEqual(
+      expect.objectContaining({ target: 'pro-room', status: 'incompatible' }),
+    );
   });
 
   it('blocks a partial release when another Worker has undeployed runtime changes', () => {
@@ -1136,23 +1194,30 @@ describe('release deployment rollback state', () => {
     expect(workerStep).not.toContain('secrets.CLOUDFLARE_D1_API_TOKEN');
   });
 
-  it('runs documented storage and playback static invariants in CI and release validation', () => {
-    for (const workflowPath of ['.github/workflows/ci.yml', '.github/workflows/release.yml']) {
-      const workflow = readFileSync(resolve(workflowPath), 'utf8');
-      expect(workflow, workflowPath).toContain('npm run guard:chunk-pump');
-      expect(workflow, workflowPath).toContain('npm run guard:lifecycle-writes');
-      expect(workflow, workflowPath).toContain('run: npm run format:check');
-    }
+  it('runs documented storage and playback static invariants once in main CI', () => {
+    const ciWorkflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
+    const releaseWorkflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    expect(ciWorkflow).toContain('npm run guard:chunk-pump');
+    expect(ciWorkflow).toContain('npm run guard:lifecycle-writes');
+    expect(ciWorkflow).toContain('run: npm run format:check');
+    expect(releaseWorkflow).not.toContain('npm run guard:chunk-pump');
+    expect(releaseWorkflow).not.toContain('npm run guard:lifecycle-writes');
+    expect(releaseWorkflow).not.toContain('run: npm run format:check');
   });
 
-  it('runs critical coverage and the partial-release compatibility gate before production deploys', () => {
+  it('uses CI critical coverage and front-loads partial-release compatibility before deploy setup', () => {
+    const ciWorkflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
-    const coverage = workflow.indexOf('run: npm run test:coverage:critical');
+    const coverage = ciWorkflow.indexOf('run: npm run test:coverage:critical');
     const compatibility = workflow.indexOf('Verify partial release dependency compatibility');
+    const accountSchema = workflow.indexOf('Probe account stats migration state');
+    const browserInstall = workflow.indexOf('Install app smoke browser');
     const firstDeploy = workflow.indexOf('Deploy and record remote-share Worker');
     expect(coverage).toBeGreaterThan(-1);
-    expect(coverage).toBeLessThan(firstDeploy);
     expect(compatibility).toBeGreaterThan(-1);
+    expect(compatibility).toBeLessThan(accountSchema);
+    expect(compatibility).toBeLessThan(browserInstall);
+    expect(browserInstall).toBeLessThan(accountSchema);
     expect(compatibility).toBeLessThan(firstDeploy);
     const nextStep = workflow.indexOf('\n      - name:', compatibility + 1);
     const step = workflow.slice(compatibility, nextStep);
@@ -1163,18 +1228,19 @@ describe('release deployment rollback state', () => {
     );
   });
 
-  it('reuses the successful exact-SHA main CI artifact for fast app releases', () => {
+  it('reuses the successful exact-SHA main CI artifact for every release target', () => {
     const ciWorkflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
     const ciBuild = ciWorkflow.indexOf('Build and verify production bundle');
-    const ciArtifact = ciWorkflow.indexOf('Upload immutable main-CI app candidate');
+    const ciArtifact = ciWorkflow.indexOf('Upload immutable main-CI production candidate');
     expect(ciArtifact).toBeGreaterThan(ciBuild);
     expect(ciWorkflow).toContain('RELEASE_VALIDATION_PROFILE: main-ci');
+    expect(ciWorkflow).toContain('RELEASE_TARGET: all');
     expect(ciWorkflow).toContain("VITE_MUSIXQUARE_LEGACY_BOUNDED: '1'");
     expect(ciWorkflow).toContain("VITE_MUSIXQUARE_FILE_ENGINE_V2: '0'");
     expect(ciWorkflow).toContain("VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '0'");
     expect(ciWorkflow).toContain(
-      'app-production-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}',
+      'production-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}',
     );
 
     expect(workflow).toContain('actions: read');
@@ -1184,12 +1250,17 @@ describe('release deployment rollback state', () => {
     expect(workflow).toContain('select(.conclusion == "success")');
     expect(workflow).toContain('actions/runs/$run_id/artifacts');
     expect(workflow).toContain('.name | startswith($prefix)');
+    expect(workflow).toContain('artifact_prefix="production-candidate-$GITHUB_SHA-$run_id-"');
     expect(workflow).toContain('run_attempt="${artifact_name##*-}"');
     expect(workflow).toContain('RELEASE_SOURCE_RUN_ID');
     expect(workflow).toContain('RELEASE_SOURCE_RUN_ATTEMPT');
     expect(workflow).toContain('run-id: ${{ needs.validate.outputs.candidate_run_id }}');
 
+    const validateStart = workflow.indexOf('  validate:');
+    const deployStart = workflow.indexOf('  deploy:');
+    const validateJob = workflow.slice(validateStart, deployStart);
     for (const stepName of [
+      'Setup Node.js',
       'Install dependencies',
       'Typecheck',
       'Lint',
@@ -1204,12 +1275,10 @@ describe('release deployment rollback state', () => {
       'Record immutable release manifest',
       'Upload immutable production candidate',
     ]) {
-      const stepStart = workflow.indexOf(`- name: ${stepName}`);
-      const nextStep = workflow.indexOf('\n      - name:', stepStart + 1);
-      const step = workflow.slice(stepStart, nextStep);
-      expect(stepStart, stepName).toBeGreaterThan(-1);
-      expect(step, stepName).toContain("if: inputs.target != 'app'");
+      expect(validateJob, stepName).not.toContain(`- name: ${stepName}`);
     }
+    expect(validateJob).not.toContain('RELEASE_TARGET_INPUT');
+    expect(validateJob).not.toContain('if [[ "$RELEASE_TARGET_INPUT" != "app" ]]');
 
     const compatibility = workflow.indexOf('Verify partial release dependency compatibility');
     const appDeploy = workflow.indexOf('Deploy and record app Worker with immutable dist');

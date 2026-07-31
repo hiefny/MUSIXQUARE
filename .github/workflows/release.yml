@@ -51,7 +51,6 @@ concurrency:
 
 env:
   WRANGLER_VERSION: 4.114.0
-  RELEASE_VALIDATION_PROFILE: core-smoke
   VITE_MUSIXQUARE_LEGACY_BOUNDED: '1'
   VITE_MUSIXQUARE_FILE_ENGINE_V2: '0'
   VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '0'
@@ -69,13 +68,6 @@ jobs:
       candidate_validation_profile: ${{ steps.candidate_source.outputs.validation_profile }}
 
     steps:
-      - name: Checkout exact release commit
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          # Release validation must prove that this commit is covered by the
-          # latest CACHE_VERSION bump, including a separate follow-up bump.
-          fetch-depth: 0
-
       - name: Validate release options
         env:
           PRO_ROOM_GENERATION_CUTOVER_CONFIRMATION: ${{ inputs.pro_room_generation_cutover_confirmation }}
@@ -109,16 +101,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TARGET_INPUT: ${{ inputs.target }}
         run: |
-          if [[ "$RELEASE_TARGET_INPUT" != "app" ]]; then
-            echo "run_id=$GITHUB_RUN_ID" >> "$GITHUB_OUTPUT"
-            echo "run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
-            echo "artifact_name=production-candidate-$GITHUB_SHA-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
-            echo "validation_profile=core-smoke" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           deadline=$((SECONDS + 720))
           while (( SECONDS < deadline )); do
             runs="$(
@@ -140,19 +123,19 @@ jobs:
                   "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts" \
                   -f per_page=100
               )"
-              artifact_prefix="app-production-candidate-$GITHUB_SHA-$run_id-"
+              artifact_prefix="production-candidate-$GITHUB_SHA-$run_id-"
               artifact_name="$(
                 jq -r --arg prefix "$artifact_prefix" \
                   '[.artifacts[] | select(.expired == false and (.name | startswith($prefix)))] | sort_by(.created_at) | last | .name // empty' \
                   <<< "$artifacts"
               )"
               if [[ -z "$artifact_name" ]]; then
-                echo "::error::Successful CI run $run_id has no unexpired exact-SHA app candidate."
+                echo "::error::Successful CI run $run_id has no unexpired exact-SHA production candidate."
                 exit 1
               fi
               run_attempt="${artifact_name##*-}"
               if [[ ! "$run_attempt" =~ ^[1-9][0-9]*$ ]]; then
-                echo "::error::App candidate $artifact_name has an invalid source attempt."
+                echo "::error::Production candidate $artifact_name has an invalid source attempt."
                 exit 1
               fi
               echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
@@ -181,77 +164,6 @@ jobs:
 
           echo "::error::Timed out waiting for successful CI on exact commit $GITHUB_SHA."
           exit 1
-
-      - name: Setup Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        if: inputs.target != 'app'
-        run: npm ci
-
-      - name: Typecheck
-        if: inputs.target != 'app'
-        run: npm run typecheck
-
-      - name: Lint
-        if: inputs.target != 'app'
-        run: npm run lint
-
-      - name: Formatting
-        if: inputs.target != 'app'
-        run: npm run format:check
-
-      - name: Worker syntax check
-        if: inputs.target != 'app'
-        run: npm run check:workers
-
-      - name: Playback and storage static invariants
-        if: inputs.target != 'app'
-        run: npm run guard:chunk-pump && npm run guard:lifecycle-writes
-
-      - name: Unit tests
-        if: inputs.target != 'app'
-        run: npm test
-
-      - name: Critical runtime coverage
-        if: inputs.target != 'app'
-        run: npm run test:coverage:critical
-
-      - name: Install Playwright browser
-        if: inputs.target != 'app'
-        run: npx playwright install --with-deps chromium
-
-      - name: Release-candidate core smoke
-        if: inputs.target != 'app'
-        run: npm run test:e2e:release
-
-      - name: Build and verify production bundle
-        if: inputs.target != 'app'
-        run: npm run build:checked
-
-      - name: Record immutable release manifest
-        if: inputs.target != 'app'
-        env:
-          RELEASE_TARGET: ${{ inputs.target }}
-          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: npm run release:manifest
-
-      - name: Upload immutable production candidate
-        if: inputs.target != 'app'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: production-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            dist/
-            release-artifacts/release-manifest.json
-          include-hidden-files: true
-          if-no-files-found: error
-          # Infrastructure candidates are consumed by this same validated run.
-          # Deployment records below remain available for the long audit trail.
-          retention-days: 3
 
   deploy:
     name: Deploy validated candidate
@@ -298,10 +210,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install app smoke browser
-        if: inputs.target == 'all' || inputs.target == 'app'
-        run: npx playwright install --with-deps chromium
-
       - name: Download validated production candidate
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
@@ -318,6 +226,17 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npm run --silent wrangler -- whoami
+
+      - name: Verify partial release dependency compatibility
+        if: inputs.target != 'all'
+        timeout-minutes: 5
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/release-deployment-state.mjs compatibility "$RELEASE_TARGET" "${{ github.sha }}"
+
+      - name: Install app smoke browser
+        if: inputs.target == 'all' || inputs.target == 'app'
+        run: npx playwright install --with-deps chromium
 
       - name: Probe account stats migration state
         timeout-minutes: 10
@@ -574,13 +493,6 @@ jobs:
           node scripts/pro-room-generation-cutover.mjs verify-cutover \
             release-artifacts/deployments/pro-room-generation-cutover-rollout-fenced.json \
             disabled
-
-      - name: Verify partial release dependency compatibility
-        if: inputs.target != 'all'
-        timeout-minutes: 5
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: node scripts/release-deployment-state.mjs compatibility "$RELEASE_TARGET" "${{ github.sha }}"
 
       - name: Verify Developer API D1 migration credentials
         timeout-minutes: 10

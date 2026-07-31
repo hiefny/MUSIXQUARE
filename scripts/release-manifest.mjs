@@ -6,6 +6,14 @@ import { readReleaseIdentity } from './release-identity.mjs';
 
 const SCHEMA_VERSION = 2;
 const DEFAULT_WRANGLER_VERSION = '4.114.0';
+const REUSABLE_RELEASE_TARGETS = new Set([
+  'app',
+  'signaling',
+  'pro-room',
+  'developer-api',
+  'remote-share',
+  'all',
+]);
 const mode = process.argv[2];
 const distDirectory = resolve(process.argv[3] || 'dist');
 const manifestPath = resolve(process.argv[4] || 'release-artifacts/release-manifest.json');
@@ -140,7 +148,15 @@ function verifyManifest() {
       `Release manifest attempt ${manifest.runAttempt} does not match candidate source attempt ${sourceRunAttempt}.`,
     );
   }
-  if (process.env.RELEASE_TARGET && manifest.target !== process.env.RELEASE_TARGET) {
+  const reusableMainCiCandidate =
+    manifest.target === 'all' &&
+    manifest.validationProfile === 'main-ci' &&
+    REUSABLE_RELEASE_TARGETS.has(process.env.RELEASE_TARGET);
+  if (
+    process.env.RELEASE_TARGET &&
+    manifest.target !== process.env.RELEASE_TARGET &&
+    !reusableMainCiCandidate
+  ) {
     throw new Error(
       `Release manifest target ${manifest.target} does not match ${process.env.RELEASE_TARGET}.`,
     );

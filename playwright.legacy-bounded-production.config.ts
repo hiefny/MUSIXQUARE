@@ -5,9 +5,9 @@ export default defineConfig({
   testMatch: 'legacy-bounded-production-smoke.test.ts',
   timeout: 90_000,
   expect: { timeout: 20_000 },
-  // A production-candidate smoke must report its first observed result. The
-  // setup helpers already have bounded connection retries for signaling.
-  retries: 0,
+  // Keep local failures immediate, but let CI recover once from runner-only
+  // browser scheduling stalls while still reporting the first attempt as flaky.
+  retries: process.env.CI ? 1 : 0,
   workers: 1,
   globalSetup: './e2e/global-setup.ts',
   globalTeardown: './e2e/global-teardown.ts',

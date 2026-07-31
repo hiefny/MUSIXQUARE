@@ -15,6 +15,7 @@ type Manifest = {
     serviceWorkerCacheEpoch: number;
   };
   commit: string;
+  target: string | null;
   validationProfile: string | null;
 };
 
@@ -41,6 +42,7 @@ function runManifest(
     npm_config_user_agent: 'npm/10.9.0 node/v22.0.0 win32 x64',
   };
   delete env.RELEASE_VALIDATION_PROFILE;
+  delete env.RELEASE_TARGET;
   if (validationProfile) env.RELEASE_VALIDATION_PROFILE = validationProfile;
   Object.assign(env, environment);
 
@@ -118,6 +120,55 @@ describe('release manifest validation profile', () => {
     });
 
     expect(verifyResult.status, verifyResult.stderr).toBe(0);
+  });
+
+  it('reuses an all-scope main-CI candidate for a partial production target', () => {
+    const { dist, manifest } = createFixture();
+    const createResult = runManifest('create', dist, manifest, 'main-ci', {
+      GITHUB_RUN_ID: '1234',
+      GITHUB_RUN_ATTEMPT: '2',
+      RELEASE_TARGET: 'all',
+    });
+    expect(createResult.status, createResult.stderr).toBe(0);
+
+    const payload = JSON.parse(readFileSync(manifest, 'utf8')) as Manifest;
+    expect(payload.target).toBe('all');
+
+    const verifyResult = runManifest('verify', dist, manifest, 'main-ci', {
+      GITHUB_RUN_ID: '5678',
+      GITHUB_RUN_ATTEMPT: '1',
+      RELEASE_SOURCE_RUN_ID: '1234',
+      RELEASE_SOURCE_RUN_ATTEMPT: '2',
+      RELEASE_TARGET: 'app',
+    });
+
+    expect(verifyResult.status, verifyResult.stderr).toBe(0);
+  });
+
+  it('does not reuse a narrow or non-main-CI candidate for another target', () => {
+    const narrow = createFixture();
+    expect(
+      runManifest('create', narrow.dist, narrow.manifest, 'main-ci', {
+        RELEASE_TARGET: 'app',
+      }).status,
+    ).toBe(0);
+    const narrowVerify = runManifest('verify', narrow.dist, narrow.manifest, 'main-ci', {
+      RELEASE_TARGET: 'signaling',
+    });
+    expect(narrowVerify.status).not.toBe(0);
+    expect(narrowVerify.stderr).toContain('Release manifest target app does not match signaling.');
+
+    const weak = createFixture();
+    expect(
+      runManifest('create', weak.dist, weak.manifest, 'core-smoke', {
+        RELEASE_TARGET: 'all',
+      }).status,
+    ).toBe(0);
+    const weakVerify = runManifest('verify', weak.dist, weak.manifest, 'core-smoke', {
+      RELEASE_TARGET: 'app',
+    });
+    expect(weakVerify.status).not.toBe(0);
+    expect(weakVerify.stderr).toContain('Release manifest target all does not match app.');
   });
 
   it('rejects a candidate from a different source CI run', () => {

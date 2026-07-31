@@ -252,7 +252,7 @@ const ru: Record<I18nKey, string> = {
   'connect.signaling_reconnecting': 'Повторное подключение к серверу комнаты · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Подключение к серверу комнаты восстановлено.',
   'connect.signaling_exhausted':
-    'Сервер комнаты не отвечает. Новые участники не могут подключиться.',
+    'Сервер комнаты не отвечает.\nНовые участники не могут подключиться.',
   'connect.signaling_exhausted_pro':
     'Сервер комнаты не отвечает. Новые подключения и обновления в реальном времени ограничены.',
   'connect.signaling_retry': 'Повторить',

@@ -259,7 +259,7 @@ const de: Record<I18nKey, string> = {
     'Verbindung zum Raumserver wird wiederhergestellt · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Verbindung zum Raumserver wiederhergestellt.',
   'connect.signaling_exhausted':
-    'Der Raumserver antwortet nicht. Neue Teilnehmer können sich nicht verbinden.',
+    'Der Raumserver antwortet nicht.\nNeue Teilnehmer können sich nicht verbinden.',
   'connect.signaling_exhausted_pro':
     'Der Raumserver antwortet nicht. Neue Beitritte und Live-Aktualisierungen sind eingeschränkt.',
   'connect.signaling_retry': 'Erneut versuchen',

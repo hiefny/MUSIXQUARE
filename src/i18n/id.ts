@@ -257,7 +257,7 @@ const id: Record<I18nKey, string> = {
   'connect.signaling_reconnecting': 'Menghubungkan kembali ke server ruang · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Koneksi server ruang telah pulih.',
   'connect.signaling_exhausted':
-    'Server ruang tidak merespons. Peserta baru tidak dapat terhubung.',
+    'Server ruang tidak merespons.\nPeserta baru tidak dapat terhubung.',
   'connect.signaling_exhausted_pro':
     'Server ruang tidak merespons. Peserta baru dan pembaruan langsung dibatasi.',
   'connect.signaling_retry': 'Coba lagi',

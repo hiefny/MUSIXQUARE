@@ -251,7 +251,7 @@ const th: Record<I18nKey, string> = {
   'connect.signaling_recovery_wait': 'กำลังตรวจสอบเซิร์ฟเวอร์ห้องอีกครั้ง',
   'connect.signaling_reconnecting': 'กำลังเชื่อมต่อเซิร์ฟเวอร์ห้องอีกครั้ง · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'กู้คืนการเชื่อมต่อเซิร์ฟเวอร์ห้องแล้ว',
-  'connect.signaling_exhausted': 'เซิร์ฟเวอร์ห้องไม่ตอบสนอง ผู้เข้าร่วมใหม่ไม่สามารถเชื่อมต่อได้',
+  'connect.signaling_exhausted': 'เซิร์ฟเวอร์ห้องไม่ตอบสนอง\nผู้เข้าร่วมใหม่ไม่สามารถเชื่อมต่อได้',
   'connect.signaling_exhausted_pro':
     'เซิร์ฟเวอร์ห้องไม่ตอบสนอง การเข้าร่วมใหม่และการอัปเดตแบบเรียลไทม์ถูกจำกัด',
   'connect.signaling_retry': 'ลองอีกครั้ง',

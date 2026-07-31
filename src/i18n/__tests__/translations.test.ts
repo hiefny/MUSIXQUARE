@@ -95,7 +95,7 @@ describe('Translation key integrity', () => {
     expect(ko['connect.signaling_failed']).toBe('연결 복구 실패');
     expect(ko['connect.signaling_recover_action']).toBe('연결 복구하기');
     expect(ko['connect.signaling_exhausted']).toBe(
-      '연결 서버가 응답하지 않아요. 새 참여자를 초대할 수 없어요.',
+      '연결 서버가 응답하지 않아요.\n새 참여자를 초대할 수 없어요.',
     );
     expect(ko['connect.signaling_retry']).toBe('재시도');
   });

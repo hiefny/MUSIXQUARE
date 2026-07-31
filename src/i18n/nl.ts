@@ -256,7 +256,7 @@ const nl: Record<I18nKey, string> = {
   'connect.signaling_reconnecting': 'Opnieuw verbinden met de kamerserver · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Verbinding met de kamerserver hersteld.',
   'connect.signaling_exhausted':
-    'De kamerserver reageert niet. Nieuwe deelnemers kunnen geen verbinding maken.',
+    'De kamerserver reageert niet.\nNieuwe deelnemers kunnen geen verbinding maken.',
   'connect.signaling_exhausted_pro':
     'De kamerserver reageert niet. Nieuwe deelnemers en live-updates zijn beperkt.',
   'connect.signaling_retry': 'Opnieuw proberen',

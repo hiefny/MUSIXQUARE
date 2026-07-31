@@ -255,7 +255,7 @@ const en: Record<I18nKey, string> = {
   'connect.signaling_reconnecting': 'Reconnecting to the room server · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Room server connection restored.',
   'connect.signaling_exhausted':
-    "The room server isn't responding. New participants can't connect.",
+    "The room server isn't responding.\nNew participants can't connect.",
   'connect.signaling_exhausted_pro':
     "The room server isn't responding. New joins and live updates are limited.",
   'connect.signaling_retry': 'Retry',

@@ -4720,95 +4720,6 @@
     word-break: keep-all;
   }
 
-  .signaling-recovery-dialog {
-    max-width: 360px;
-    outline: none;
-  }
-
-  .signaling-recovery-visual {
-    position: relative;
-    display: grid;
-    place-items: center;
-    width: 58px;
-    height: 58px;
-    margin: 28px auto 0;
-    border-radius: 20px;
-    background: rgba(239, 68, 68, 0.1);
-    color: var(--danger-filled);
-  }
-
-  .signaling-recovery-visual svg {
-    width: 28px;
-    height: 28px;
-    fill: currentColor;
-  }
-
-  .signaling-recovery-orbit {
-    display: none;
-    width: 26px;
-    height: 26px;
-    border: 3px solid rgba(var(--primary-rgb), 0.2);
-    border-top-color: var(--primary);
-    border-radius: 50%;
-  }
-
-  .signaling-recovery-dialog[data-state='retrying'] .signaling-recovery-visual {
-    background: rgba(var(--primary-rgb), 0.1);
-    color: var(--primary);
-  }
-
-  .signaling-recovery-dialog[data-state='retrying'] .signaling-recovery-visual svg {
-    display: none;
-  }
-
-  .signaling-recovery-dialog[data-state='retrying'] .signaling-recovery-orbit {
-    display: block;
-    animation: signaling-recovery-rotate 0.9s linear infinite;
-  }
-
-  .signaling-recovery-header {
-    justify-content: center;
-    padding-top: 18px;
-    text-align: center;
-  }
-
-  .signaling-recovery-header .dialog-title {
-    width: 100%;
-    text-align: center;
-  }
-
-  .signaling-recovery-dialog .dialog-message {
-    padding-top: 5px;
-    text-align: center;
-  }
-
-  .signaling-recovery-dialog[data-state='retrying'] .dialog-message {
-    padding-bottom: 30px;
-  }
-
-  .signaling-recovery-dialog[data-state='retrying'] .dialog-actions {
-    display: none;
-  }
-
-  .signaling-recovery-dialog-transition .signaling-recovery-visual,
-  .signaling-recovery-dialog-transition .signaling-recovery-header,
-  .signaling-recovery-dialog-transition .dialog-message,
-  .signaling-recovery-dialog-transition .dialog-actions {
-    animation: signaling-recovery-content-in 0.28s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-
-  @keyframes signaling-recovery-content-in {
-    from {
-      opacity: 0;
-      transform: translateY(5px);
-    }
-
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
   html:lang(ja) .dialog-message,
   html:lang(ja) .ob-slide .ob-desc,
   html:lang(ja) .ob-desc,
@@ -4927,16 +4838,6 @@
     display: flex;
     justify-content: flex-end;
     gap: 10px;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .signaling-recovery-dialog[data-state='retrying'] .signaling-recovery-orbit,
-    .signaling-recovery-dialog-transition .signaling-recovery-visual,
-    .signaling-recovery-dialog-transition .signaling-recovery-header,
-    .signaling-recovery-dialog-transition .dialog-message,
-    .signaling-recovery-dialog-transition .dialog-actions {
-      animation: none;
-    }
   }
 
   .dialog-secondary[hidden] + .dialog-primary {

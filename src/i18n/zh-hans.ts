@@ -254,7 +254,7 @@ const zhHans: Record<I18nKey, string> = {
   'connect.signaling_recovery_wait': '正在重新检查房间服务器。',
   'connect.signaling_reconnecting': '正在重新连接房间服务器 · {{attempt}}/{{max}}',
   'connect.signaling_recovered': '已恢复与房间服务器的连接。',
-  'connect.signaling_exhausted': '房间服务器无响应，新参与者暂时无法连接。',
+  'connect.signaling_exhausted': '房间服务器无响应，\n新参与者暂时无法连接。',
   'connect.signaling_exhausted_pro': '房间服务器无响应，新参与和实时更新会受到限制。',
   'connect.signaling_retry': '重试',
   'connect.signaling_restart': '重新启动会话',

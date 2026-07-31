@@ -256,7 +256,7 @@ const vi: Record<I18nKey, string> = {
   'connect.signaling_reconnecting': 'Đang kết nối lại với máy chủ phòng · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Đã khôi phục kết nối máy chủ phòng.',
   'connect.signaling_exhausted':
-    'Máy chủ phòng không phản hồi. Người tham gia mới không thể kết nối.',
+    'Máy chủ phòng không phản hồi.\nNgười tham gia mới không thể kết nối.',
   'connect.signaling_exhausted_pro':
     'Máy chủ phòng không phản hồi. Người tham gia mới và cập nhật trực tiếp bị hạn chế.',
   'connect.signaling_retry': 'Thử lại',

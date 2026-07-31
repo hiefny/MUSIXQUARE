@@ -254,7 +254,7 @@ const pl: Record<I18nKey, string> = {
   'connect.signaling_reconnecting': 'Ponowne łączenie z serwerem pokoju · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Połączenie z serwerem pokoju zostało przywrócone.',
   'connect.signaling_exhausted':
-    'Serwer pokoju nie odpowiada. Nowi uczestnicy nie mogą się połączyć.',
+    'Serwer pokoju nie odpowiada.\nNowi uczestnicy nie mogą się połączyć.',
   'connect.signaling_exhausted_pro':
     'Serwer pokoju nie odpowiada. Nowe dołączenia i aktualizacje na żywo są ograniczone.',
   'connect.signaling_retry': 'Spróbuj ponownie',

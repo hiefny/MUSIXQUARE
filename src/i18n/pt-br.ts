@@ -256,7 +256,7 @@ const ptBr: Record<I18nKey, string> = {
   'connect.signaling_reconnecting': 'Reconectando ao servidor da sala · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Conexão com o servidor da sala restaurada.',
   'connect.signaling_exhausted':
-    'O servidor da sala não está respondendo. Novos participantes não podem se conectar.',
+    'O servidor da sala não está respondendo.\nNovos participantes não podem se conectar.',
   'connect.signaling_exhausted_pro':
     'O servidor da sala não está respondendo. Novas entradas e atualizações em tempo real estão limitadas.',
   'connect.signaling_retry': 'Tentar novamente',

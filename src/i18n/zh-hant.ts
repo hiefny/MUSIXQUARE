@@ -254,7 +254,7 @@ const zhHant: Record<I18nKey, string> = {
   'connect.signaling_recovery_wait': '正在重新檢查房間伺服器。',
   'connect.signaling_reconnecting': '正在重新連線房間伺服器 · {{attempt}}/{{max}}',
   'connect.signaling_recovered': '已恢復與房間伺服器的連線。',
-  'connect.signaling_exhausted': '房間伺服器沒有回應，新參與者暫時無法連線。',
+  'connect.signaling_exhausted': '房間伺服器沒有回應，\n新參與者暫時無法連線。',
   'connect.signaling_exhausted_pro': '房間伺服器沒有回應，新參與和即時更新會受到限制。',
   'connect.signaling_retry': '重試',
   'connect.signaling_restart': '重新啟動工作階段',

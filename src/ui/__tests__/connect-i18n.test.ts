@@ -329,10 +329,10 @@ describe('connect signaling health status', () => {
     );
     expect(markup).toContain('id="signaling-recovery-overlay"');
     expect(markup).toContain('aria-labelledby="signaling-recovery-title"');
+    expect(markup).not.toContain('signaling-recovery-visual');
     expect(domSource).toContain("{ id: 'signaling-recovery-overlay', cls: 'show'");
-    expect(stylesheet).toMatch(
-      /\.signaling-recovery-dialog\[data-state='retrying'\] \.dialog-actions\s*\{\s*display:\s*none;/,
-    );
+    expect(stylesheet).not.toContain(".signaling-recovery-dialog[data-state='retrying']");
+    expect(stylesheet).not.toContain('.signaling-recovery-header');
     expect(stylesheet).toContain(
       "[data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover",
     );
@@ -390,7 +390,7 @@ describe('connect signaling health status', () => {
     expect(document.getElementById('signaling-recovery-dialog')?.dataset.state).toBe('failed');
     expect(document.getElementById('signaling-recovery-title')?.textContent).toBe('연결 복구 실패');
     expect(document.getElementById('signaling-recovery-message')?.textContent).toBe(
-      '연결 서버가 응답하지 않아요. 새 참여자를 초대할 수 없어요.',
+      '연결 서버가 응답하지 않아요.\n새 참여자를 초대할 수 없어요.',
     );
     expect(document.getElementById('btn-signaling-recovery-confirm')?.textContent).toBe('확인');
     expect(document.getElementById('btn-signaling-recovery-retry')?.textContent).toBe('재시도');
@@ -487,7 +487,7 @@ describe('connect signaling health status', () => {
     );
   });
 
-  it('transitions the failure modal through retrying, repeated failure, and recovery', async () => {
+  it('closes the failure modal during retry and reopens it only after another failure', async () => {
     const button = await startHostSessionWithQR();
     const reconnecting = () => {
       setState('network.signalingHealth', {
@@ -513,33 +513,37 @@ describe('connect signaling health status', () => {
     });
 
     document.getElementById('btn-signaling-recovery-retry')?.click();
-    await vi.waitFor(() => expect(mockedRetryPeerSignalingConnection).toHaveBeenCalledTimes(2));
+    const overlay = document.getElementById('signaling-recovery-overlay')!;
     const dialog = document.getElementById('signaling-recovery-dialog')!;
     const actions = document.getElementById('signaling-recovery-actions')!;
-    expect(dialog.dataset.state).toBe('retrying');
-    expect(dialog.getAttribute('aria-busy')).toBe('true');
-    expect(actions.hidden).toBe(true);
-    expect(document.getElementById('signaling-recovery-title')?.textContent).toBe('연결 복구 중');
+    expect(overlay.classList.contains('show')).toBe(false);
+    expect(button.dataset.mode).toBe('recovering');
+    expect(button.getAttribute('aria-busy')).toBe('true');
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(document.activeElement).toBe(button);
+    await vi.waitFor(() => expect(mockedRetryPeerSignalingConnection).toHaveBeenCalledTimes(2));
 
     setState('network.signalingHealth', {
       status: 'exhausted',
       attempt: 0,
       maxAttempts: 5,
     });
+    expect(overlay.classList.contains('show')).toBe(true);
     expect(dialog.dataset.state).toBe('failed');
+    expect(dialog.getAttribute('aria-busy')).toBe('false');
     expect(actions.hidden).toBe(false);
 
     document.getElementById('btn-signaling-recovery-retry')?.click();
     await vi.waitFor(() => expect(mockedRetryPeerSignalingConnection).toHaveBeenCalledTimes(3));
+    expect(overlay.classList.contains('show')).toBe(false);
+    expect(button.dataset.mode).toBe('recovering');
     setState('network.signalingHealth', {
       status: 'recovered',
       attempt: 0,
       maxAttempts: 5,
     });
 
-    expect(document.getElementById('signaling-recovery-overlay')?.classList.contains('show')).toBe(
-      false,
-    );
+    expect(overlay.classList.contains('show')).toBe(false);
     expect(button.dataset.mode).toBe('copy');
     expect(button.disabled).toBe(false);
     expect(button.textContent).toBe('초대 링크 복사하기');

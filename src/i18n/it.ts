@@ -255,7 +255,7 @@ const it: Record<I18nKey, string> = {
   'connect.signaling_reconnecting': 'Riconnessione al server della stanza · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Connessione al server della stanza ripristinata.',
   'connect.signaling_exhausted':
-    'Il server della stanza non risponde. I nuovi partecipanti non possono connettersi.',
+    'Il server della stanza non risponde.\nI nuovi partecipanti non possono connettersi.',
   'connect.signaling_exhausted_pro':
     'Il server della stanza non risponde. I nuovi accessi e gli aggiornamenti in tempo reale sono limitati.',
   'connect.signaling_retry': 'Riprova',

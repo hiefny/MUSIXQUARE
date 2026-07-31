@@ -256,7 +256,7 @@ const ja: Record<I18nKey, string> = {
   'connect.signaling_reconnecting': 'ルームサーバーに再接続中 · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'ルームサーバーへの接続が復旧しました。',
   'connect.signaling_exhausted':
-    'ルームサーバーが応答していないため、新しい参加者は接続できません。',
+    'ルームサーバーが応答していないため、\n新しい参加者は接続できません。',
   'connect.signaling_exhausted_pro':
     'ルームサーバーが応答していないため、新規参加とリアルタイム更新が制限されています。',
   'connect.signaling_retry': '再試行',

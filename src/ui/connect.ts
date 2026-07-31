@@ -134,7 +134,7 @@ async function generateQR(containerId: string): Promise<void> {
     copyBtn.addEventListener('click', async () => {
       if (_manualSignalingRecovery) return;
       if (getState('network.signalingHealth').status === 'exhausted') {
-        void beginManualSignalingRecovery(false);
+        void beginManualSignalingRecovery();
         return;
       }
       // Route through copyTextToClipboard so the textarea+execCommand fallback
@@ -180,7 +180,7 @@ const SIGNALING_HEALTH_QR_IDS = ['qr-container', 'desktop-qr-container'] as cons
 const SIGNALING_RECOVERY_OVERLAY_ID = 'signaling-recovery-overlay';
 
 type SignalingHealthPresentation = 'healthy' | 'reconnecting' | 'exhausted';
-type SignalingRecoveryDialogState = 'closed' | 'failed' | 'retrying';
+type SignalingRecoveryDialogState = 'closed' | 'failed';
 
 interface ManualSignalingRecovery {
   readonly boundary: string;
@@ -276,7 +276,7 @@ function syncSignalingInviteButtons(): void {
   });
 }
 
-function closeSignalingRecoveryDialog(): void {
+function closeSignalingRecoveryDialog(focusRecoveryButton = false): void {
   const overlay = document.getElementById(SIGNALING_RECOVERY_OVERLAY_ID);
   if (overlay) {
     overlay.classList.remove('show');
@@ -288,9 +288,21 @@ function closeSignalingRecoveryDialog(): void {
   _signalingRecoveryDialogBoundary = null;
   const previousFocus = _signalingRecoveryDialogPreviousFocus;
   _signalingRecoveryDialogPreviousFocus = null;
-  if (previousFocus?.isConnected) {
+  const recoveryButtons = Array.from(
+    document.querySelectorAll<HTMLButtonElement>('.btn-copy-invite-link'),
+  );
+  const recoveryButton =
+    previousFocus instanceof HTMLButtonElement &&
+    previousFocus.matches('.btn-copy-invite-link') &&
+    previousFocus.isConnected
+      ? previousFocus
+      : recoveryButtons.find((button) => button.offsetParent !== null) ||
+        recoveryButtons[0] ||
+        null;
+  const focusTarget = focusRecoveryButton ? recoveryButton : previousFocus;
+  if (focusTarget instanceof HTMLElement && focusTarget.isConnected) {
     try {
-      previousFocus.focus({ preventScroll: true });
+      focusTarget.focus({ preventScroll: true });
     } catch {
       /* ignore stale focus targets */
     }
@@ -307,14 +319,8 @@ function syncSignalingRecoveryDialogCopy(): void {
   const retry = document.getElementById('btn-signaling-recovery-retry') as HTMLButtonElement | null;
   if (!title || !message || !confirm || !retry) return;
 
-  const titleText =
-    _signalingRecoveryDialogState === 'retrying'
-      ? t('connect.signaling_recovering')
-      : t('connect.signaling_failed');
-  const messageText =
-    _signalingRecoveryDialogState === 'retrying'
-      ? t('connect.signaling_recovery_wait')
-      : t('connect.signaling_exhausted');
+  const titleText = t('connect.signaling_failed');
+  const messageText = t('connect.signaling_exhausted');
   title.textContent = titleText;
   message.textContent = messageText;
   confirm.textContent = t('common.ok');
@@ -345,7 +351,7 @@ function setSignalingRecoveryDialogState(
         buttonText: t('connect.signaling_retry'),
         secondaryText: t('common.ok'),
       }).then((result) => {
-        if (result.action === 'ok') void beginManualSignalingRecovery(true);
+        if (result.action === 'ok') void beginManualSignalingRecovery();
       });
     }
     return;
@@ -360,22 +366,16 @@ function setSignalingRecoveryDialogState(
   _signalingRecoveryDialogState = state;
   _signalingRecoveryDialogBoundary = boundary;
   dialog.dataset.state = state;
-  dialog.setAttribute('aria-busy', state === 'retrying' ? 'true' : 'false');
-  actions.hidden = state === 'retrying';
+  dialog.setAttribute('aria-busy', 'false');
+  actions.hidden = false;
   syncSignalingRecoveryDialogCopy();
 
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');
   syncOverlayState(SIGNALING_RECOVERY_OVERLAY_ID);
 
-  if (wasOpen) {
-    dialog.classList.remove('signaling-recovery-dialog-transition');
-    void dialog.offsetWidth;
-    dialog.classList.add('signaling-recovery-dialog-transition');
-  }
-
   try {
-    (state === 'failed' ? confirm : dialog).focus({ preventScroll: true });
+    confirm.focus({ preventScroll: true });
   } catch {
     /* ignore focus failures in detached test documents */
   }
@@ -391,21 +391,13 @@ function initSignalingRecoveryDialog(): void {
   if (!overlay || !dialog || !confirm || !retry || overlay.dataset.bound === 'true') return;
   overlay.dataset.bound = 'true';
 
-  confirm.addEventListener('click', closeSignalingRecoveryDialog);
+  confirm.addEventListener('click', () => closeSignalingRecoveryDialog());
   retry.addEventListener('click', () => {
-    void beginManualSignalingRecovery(true);
-  });
-  dialog.addEventListener('animationend', () => {
-    dialog.classList.remove('signaling-recovery-dialog-transition');
+    void beginManualSignalingRecovery();
+    closeSignalingRecoveryDialog(true);
   });
   overlay.addEventListener('keydown', (event) => {
     if (event.key !== 'Tab') return;
-    if (_signalingRecoveryDialogState === 'retrying') {
-      event.preventDefault();
-      dialog.focus({ preventScroll: true });
-      return;
-    }
-
     const focusables = [confirm, retry].filter((button) => !button.hidden && !button.disabled);
     if (focusables.length === 0) return;
     const first = focusables[0]!;
@@ -438,14 +430,13 @@ function finishManualSignalingRecovery(
   syncSignalingInviteButtons();
 
   if (outcome === 'recovered') {
-    if (_signalingRecoveryDialogState === 'retrying') closeSignalingRecoveryDialog();
     return;
   }
 
   setSignalingRecoveryDialogState('failed', recovery.boundary);
 }
 
-async function beginManualSignalingRecovery(startedFromDialog: boolean): Promise<void> {
+async function beginManualSignalingRecovery(): Promise<void> {
   if (_manualSignalingRecovery || getState('network.signalingHealth').status !== 'exhausted') {
     return;
   }
@@ -455,7 +446,6 @@ async function beginManualSignalingRecovery(startedFromDialog: boolean): Promise
     retryStarted: false,
   };
   _manualSignalingRecovery = recovery;
-  if (startedFromDialog) setSignalingRecoveryDialogState('retrying', recovery.boundary);
   syncSignalingInviteButtons();
 
   let started = false;

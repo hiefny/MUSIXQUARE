@@ -252,7 +252,7 @@ const ko = {
   'connect.signaling_recovery_wait': '연결 상태를 다시 확인하고 있어요.',
   'connect.signaling_reconnecting': '연결 서버 복구 중 · {{attempt}}/{{max}}',
   'connect.signaling_recovered': '연결 서버가 복구됐어요.',
-  'connect.signaling_exhausted': '연결 서버가 응답하지 않아요. 새 참여자를 초대할 수 없어요.',
+  'connect.signaling_exhausted': '연결 서버가 응답하지 않아요.\n새 참여자를 초대할 수 없어요.',
   'connect.signaling_exhausted_pro':
     '연결 서버가 응답하지 않아 새 참여와 실시간 업데이트가 제한돼요.',
   'connect.signaling_retry': '재시도',

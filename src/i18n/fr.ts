@@ -257,7 +257,7 @@ const fr: Record<I18nKey, string> = {
   'connect.signaling_reconnecting': 'Reconnexion au serveur de la salle · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'La connexion au serveur de la salle est rétablie.',
   'connect.signaling_exhausted':
-    'Le serveur de la salle ne répond pas. Les nouveaux participants ne peuvent pas se connecter.',
+    'Le serveur de la salle ne répond pas.\nLes nouveaux participants ne peuvent pas se connecter.',
   'connect.signaling_exhausted_pro':
     'Le serveur de la salle ne répond pas. Les nouvelles arrivées et les mises à jour en temps réel sont limitées.',
   'connect.signaling_retry': 'Réessayer',

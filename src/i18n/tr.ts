@@ -253,7 +253,7 @@ const tr: Record<I18nKey, string> = {
   'connect.signaling_recovery_wait': 'Oda sunucusu yeniden kontrol ediliyor.',
   'connect.signaling_reconnecting': 'Oda sunucusuna yeniden bağlanılıyor · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Oda sunucusu bağlantısı geri yüklendi.',
-  'connect.signaling_exhausted': 'Oda sunucusu yanıt vermiyor. Yeni katılımcılar bağlanamıyor.',
+  'connect.signaling_exhausted': 'Oda sunucusu yanıt vermiyor.\nYeni katılımcılar bağlanamıyor.',
   'connect.signaling_exhausted_pro':
     'Oda sunucusu yanıt vermiyor. Yeni katılımlar ve canlı güncellemeler sınırlı.',
   'connect.signaling_retry': 'Yeniden dene',

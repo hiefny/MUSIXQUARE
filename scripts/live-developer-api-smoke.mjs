@@ -4,7 +4,13 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const API_ORIGIN = 'https://api.musixquare.com';
-const RETRY_DELAYS_MS = Object.freeze([0, 1_000, 2_000, 4_000, 8_000]);
+// Cloudflare can report a 100% deployment before every custom-domain edge
+// serves that version. Keep the exact version fence, but use the same bounded
+// convergence window as the PRO Worker smoke instead of rolling back healthy
+// code after only fifteen seconds.
+export const DEVELOPER_API_READINESS_RETRY_DELAYS_MS = Object.freeze([
+  0, 1_000, 2_000, 4_000, 8_000, 15_000, 20_000, 20_000, 20_000, 20_000, 20_000, 20_000,
+]);
 const REQUEST_TIMEOUT_MS = 30_000;
 
 function delay(milliseconds) {
@@ -252,17 +258,14 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
   if (!roomEtag) throw new Error('Developer API room response omitted ETag');
   if (!effects || !effectsEtag) throw new Error('Developer API effects response omitted ETag');
   if (!queueMode) throw new Error('Developer API queue-mode response was not observed');
-  const effectsV2Response = await fetchWithTimeout(
-    `${API_ORIGIN}/v1/rooms/${roomCode}/effects`,
-    {
-      cache: 'no-store',
-      headers: {
-        Accept: 'application/json',
-        Authorization: authorization,
-        'X-MXQR-Effects-Version': '2',
-      },
+  const effectsV2Response = await fetchWithTimeout(`${API_ORIGIN}/v1/rooms/${roomCode}/effects`, {
+    cache: 'no-store',
+    headers: {
+      Accept: 'application/json',
+      Authorization: authorization,
+      'X-MXQR-Effects-Version': '2',
     },
-  );
+  });
   if (effectsV2Response.status !== 200) {
     throw new Error(`Developer API effects v2 smoke returned HTTP ${effectsV2Response.status}`);
   }
@@ -429,7 +432,7 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
 
 export async function waitForDeveloperApiReady(
   expectedVersion,
-  { read = readHealth, retryDelaysMs = RETRY_DELAYS_MS, wait = delay } = {},
+  { read = readHealth, retryDelaysMs = DEVELOPER_API_READINESS_RETRY_DELAYS_MS, wait = delay } = {},
 ) {
   let lastVersion = '';
   let lastError = null;

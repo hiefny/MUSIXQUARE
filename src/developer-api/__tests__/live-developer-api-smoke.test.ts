@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { assertDeveloperApiCanary } from '../../../scripts/live-developer-api-smoke.mjs';
+import {
+  assertDeveloperApiCanary,
+  DEVELOPER_API_READINESS_RETRY_DELAYS_MS,
+  waitForDeveloperApiReady,
+} from '../../../scripts/live-developer-api-smoke.mjs';
 
 const ROOM = '000001';
 const OTHER_ROOM = '000000';
@@ -29,6 +33,39 @@ afterEach(() => {
 });
 
 describe('Developer API live canary smoke', () => {
+  it('keeps the exact-version readiness fence long enough for edge propagation', async () => {
+    expect(
+      DEVELOPER_API_READINESS_RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0),
+    ).toBeGreaterThanOrEqual(120_000);
+
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({
+        service: 'musixquare-developer-api',
+        workerVersionId: 'previous-version',
+      })
+      .mockResolvedValueOnce({
+        service: 'musixquare-developer-api',
+        workerVersionId: 'expected-version',
+      });
+    const wait = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      waitForDeveloperApiReady('expected-version', {
+        read,
+        retryDelaysMs: [0, 1_000],
+        wait,
+      }),
+    ).resolves.toEqual({
+      service: 'musixquare-developer-api',
+      expectedVersion: 'expected-version',
+      actualVersion: 'expected-version',
+    });
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(wait).toHaveBeenCalledOnce();
+    expect(wait).toHaveBeenCalledWith(1_000);
+  });
+
   it('exercises scoped reads, queue mutations, direct upload, completion, and cleanup', async () => {
     let youtubePresent = false;
     let audioPresent = false;

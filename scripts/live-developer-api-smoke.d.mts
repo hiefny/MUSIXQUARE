@@ -4,6 +4,7 @@ export interface DeveloperApiReadiness {
   actualVersion: string | null;
 }
 
+export const DEVELOPER_API_READINESS_RETRY_DELAYS_MS: readonly number[];
 export function assertDeveloperApiOff(): Promise<void>;
 export function assertDeveloperApiCanary(apiKey: string, roomCode?: string): Promise<void>;
 export function waitForDeveloperApiReady(

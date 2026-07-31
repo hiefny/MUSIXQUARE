@@ -31,9 +31,18 @@ SELECT
          FROM sqlite_schema
         WHERE type = 'table'
           AND name = 'mxqr_account_stats'
-          AND lower(sql) LIKE '%check (session_count between 0 and 9007199254740991)%'
-          AND lower(sql) LIKE '%check (listening_seconds between 0 and 9007199254740991)%'
-          AND lower(sql) LIKE '%check (track_count between 0 and 9007199254740991)%'
+          AND instr(
+            lower(sql),
+            'check (session_count between 0 and 9007199254740991)'
+          ) > 0
+          AND instr(
+            lower(sql),
+            'check (listening_seconds between 0 and 9007199254740991)'
+          ) > 0
+          AND instr(
+            lower(sql),
+            'check (track_count between 0 and 9007199254740991)'
+          ) > 0
      )
     THEN 1 ELSE 0
   END AS columns_ready,
@@ -77,9 +86,18 @@ SELECT
          FROM sqlite_schema
         WHERE type = 'table'
           AND name = 'mxqr_account_stats'
-          AND lower(sql) LIKE '%check (session_count between 0 and 9007199254740991)%'
-          AND lower(sql) LIKE '%check (listening_seconds between 0 and 9007199254740991)%'
-          AND lower(sql) LIKE '%check (track_count between 0 and 9007199254740991)%'
+          AND instr(
+            lower(sql),
+            'check (session_count between 0 and 9007199254740991)'
+          ) > 0
+          AND instr(
+            lower(sql),
+            'check (listening_seconds between 0 and 9007199254740991)'
+          ) > 0
+          AND instr(
+            lower(sql),
+            'check (track_count between 0 and 9007199254740991)'
+          ) > 0
      )
      AND EXISTS (
        SELECT 1

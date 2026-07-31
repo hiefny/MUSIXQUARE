@@ -72,8 +72,8 @@ describe('count-sensitive translations', () => {
       ],
       ['toast.unsupported_files_excluded', { count: 1 }, 'Unsupported file skipped: 1'],
       ['toast.unsupported_files_excluded', { count: 2 }, 'Unsupported files skipped: 2'],
-      ['dialog.file_drop.message', { count: 1 }, 'Add 1 track?'],
-      ['dialog.file_drop.message', { count: 2 }, 'Add 2 tracks?'],
+      ['dialog.file_drop.message', { count: 1 }, 'Add 1 file?'],
+      ['dialog.file_drop.message', { count: 2 }, 'Add 2 files?'],
       ['dialog.file_drop.unsupported_notice', { count: 1 }, "1 unsupported file won't be added."],
       ['dialog.file_drop.unsupported_notice', { count: 2 }, "2 unsupported files won't be added."],
     ] as const;
@@ -86,30 +86,34 @@ describe('count-sensitive translations', () => {
   it('selects Russian one, few and many forms, including compound counts', async () => {
     const t = await loadTranslator('ru-RU');
 
-    expect(t('dialog.file_drop.message', { count: 1 })).toBe('Добавить 1 трек?');
-    expect(t('dialog.file_drop.message', { count: 2 })).toBe('Добавить 2 трека?');
-    expect(t('dialog.file_drop.message', { count: 5 })).toBe('Добавить 5 треков?');
-    expect(t('dialog.file_drop.message', { count: 21 })).toBe('Добавить 21 трек?');
-    expect(t('dialog.file_drop.message', { count: 22 })).toBe('Добавить 22 трека?');
-    expect(t('dialog.file_drop.message', { count: 25 })).toBe('Добавить 25 треков?');
+    expect(t('dialog.file_drop.message', { count: 1 })).toBe('Добавить 1 файл?');
+    expect(t('dialog.file_drop.message', { count: 2 })).toBe('Добавить 2 файла?');
+    expect(t('dialog.file_drop.message', { count: 5 })).toBe('Добавить 5 файлов?');
+    expect(t('dialog.file_drop.message', { count: 21 })).toBe('Добавить 21 файл?');
+    expect(t('dialog.file_drop.message', { count: 22 })).toBe('Добавить 22 файла?');
+    expect(t('dialog.file_drop.message', { count: 25 })).toBe('Добавить 25 файлов?');
+
+    expect(t('toast.added_tracks', { count: 1 })).toBe('Добавлен 1 материал');
+    expect(t('toast.added_tracks', { count: 2 })).toBe('Добавлено 2 материала');
+    expect(t('toast.added_tracks', { count: 5 })).toBe('Добавлено 5 материалов');
   });
 
   it('selects Polish one, few and many forms using Polish cardinal rules', async () => {
     const t = await loadTranslator('pl-PL');
 
-    expect(t('toast.added_tracks', { count: 1 })).toBe('Dodano 1 utwór');
-    expect(t('toast.added_tracks', { count: 2 })).toBe('Dodano 2 utwory');
-    expect(t('toast.added_tracks', { count: 5 })).toBe('Dodano 5 utworów');
-    expect(t('toast.added_tracks', { count: 21 })).toBe('Dodano 21 utworów');
-    expect(t('toast.added_tracks', { count: 22 })).toBe('Dodano 22 utwory');
-    expect(t('toast.added_tracks', { count: 25 })).toBe('Dodano 25 utworów');
+    expect(t('toast.added_tracks', { count: 1 })).toBe('Dodano 1 materiał');
+    expect(t('toast.added_tracks', { count: 2 })).toBe('Dodano 2 materiały');
+    expect(t('toast.added_tracks', { count: 5 })).toBe('Dodano 5 materiałów');
+    expect(t('toast.added_tracks', { count: 21 })).toBe('Dodano 21 materiałów');
+    expect(t('toast.added_tracks', { count: 22 })).toBe('Dodano 22 materiały');
+    expect(t('toast.added_tracks', { count: 25 })).toBe('Dodano 25 materiałów');
   });
 
   it('keeps invariant Korean counter copy for both singular and plural counts', async () => {
     const t = await loadTranslator('ko-KR');
 
-    expect(t('dialog.file_drop.message', { count: 1 })).toBe('1곡을 추가할까요?');
-    expect(t('dialog.file_drop.message', { count: 5 })).toBe('5곡을 추가할까요?');
+    expect(t('dialog.file_drop.message', { count: 1 })).toBe('파일 1개를 추가할까요?');
+    expect(t('dialog.file_drop.message', { count: 5 })).toBe('파일 5개를 추가할까요?');
   });
 
   it('defines every singular form and every Slavic few/many form', () => {

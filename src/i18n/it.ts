@@ -102,13 +102,13 @@ const it: Record<I18nKey, string> = {
   'player.volume': 'Regola il volume',
   'player.toggle_mute': 'Attiva/Disattiva audio',
   'player.fullscreen': 'Schermo intero',
-  'player.prev_track': 'Brano precedente',
-  'player.next_track': 'Brano successivo',
+  'player.prev_track': 'Traccia precedente',
+  'player.next_track': 'Traccia successiva',
   'player.repeat_mode': 'Cambia modalità di ripetizione',
   'player.shuffle_mode': 'Cambia modalità casuale',
-  'player.play_media': 'Riproduci brano',
-  'player.play_media_action': 'Riproduci brano',
-  'player.add_media': 'Aggiungi brano',
+  'player.play_media': 'Riproduci traccia',
+  'player.play_media_action': 'Riproduci traccia',
+  'player.add_media': 'Aggiungi traccia',
   'player.play_start': 'Aggiungi alla coda',
   'player.select_media': 'Scegli cosa riprodurre',
   'player.play_together': 'Sincronizza riproduzione',
@@ -118,27 +118,27 @@ const it: Record<I18nKey, string> = {
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Mostra/nascondi playlist',
-  'playlist.jump_to_current': 'Vai al brano in riproduzione',
+  'playlist.jump_to_current': 'Vai alla traccia in riproduzione',
   'playlist.reorder_handle': 'Riordina {{title}}, posizione {{position}}',
   'playlist.reorder_position': '{{title}}, posizione {{position}} di {{total}}',
-  'playlist.repeat_all': 'Ripetizione di tutti i brani attiva',
-  'playlist.repeat_one': 'Riproduzione ripetuta del brano attiva',
+  'playlist.repeat_all': 'Ripetizione di tutte le tracce attivata',
+  'playlist.repeat_one': 'Ripetizione della traccia corrente attivata',
   'playlist.repeat_off': 'Riproduzione ripetuta disattivata',
   'playlist.shuffle_on': 'Riproduzione casuale attiva',
   'playlist.shuffle_off': 'Riproduzione casuale disattivata',
   'playlist.empty_hint': 'Non ci sono ancora contenuti.',
-  'playlist.loading_info': 'Caricamento informazioni del brano...',
+  'playlist.loading_info': 'Caricamento delle informazioni sulla traccia...',
   'playlist.sub_load_failed': 'Impossibile recuperare le informazioni del video',
   'playlist.remove_title': 'Rimuovi dalla playlist',
   'playlist.select_for_deletion': 'Seleziona {{title}} per eliminarlo',
   'playlist.deselect_for_deletion': 'Deseleziona {{title}}',
   'playlist.deselect_all': 'Deseleziona tutto',
   'playlist.select_all': 'Seleziona tutto',
-  'playlist.delete_selected': 'Elimina {{count}} brani selezionati',
+  'playlist.delete_selected': 'Elimina {{count}} tracce selezionate',
   'playlist.video_fallback': 'Caricamento...',
-  'playlist.track_fallback': 'Brano {{idx}}',
+  'playlist.track_fallback': 'Traccia {{idx}}',
   'playlist.deferred_load_hint':
-    'Avvia la riproduzione per caricare le informazioni di tutti i brani',
+    'Avvia la riproduzione per caricare le informazioni di tutte le tracce',
   'playlist.host_update_required': 'Aggiorna il dispositivo che gestisce questa stanza.',
   'playlist.queue_full': 'La playlist è piena.',
   'playlist.mutation_retry': 'La playlist è cambiata. Riprova.',
@@ -339,7 +339,7 @@ const it: Record<I18nKey, string> = {
   'help.youtube_no_effects':
     'In modalità YouTube, gli effetti audio avanzati e la gestione dei ruoli non sono disponibili.',
   'help.media_synced_detail':
-    'I brani selezionati vengono riprodotti in perfetta sincronia su tutti i dispositivi connessi.',
+    'Le tracce selezionate vengono riprodotte in perfetta sincronia su tutti i dispositivi connessi.',
   'help.wifi_hotspot':
     "Puoi anche usare l'hotspot per connettere tutti i dispositivi alla stessa rete",
 
@@ -371,11 +371,11 @@ const it: Record<I18nKey, string> = {
   'chat.bot_processing': 'BOT sta elaborando la richiesta...',
   'chat.bot_completed': 'Richiesta BOT completata',
   'chat.bot_failed': 'BOT non ha potuto completare la richiesta',
-  'chat.bot_added_tracks': 'Brani aggiunti dal BOT: {{count}}',
-  'chat.bot_added_and_playing': 'Brani aggiunti dal BOT: {{count}}. Riproduzione avviata',
+  'chat.bot_added_tracks': 'Tracce aggiunte dal BOT: {{count}}',
+  'chat.bot_added_and_playing': 'Tracce aggiunte dal BOT: {{count}}. Riproduzione avviata',
   'chat.bot_rate_limited': 'Limite di richieste BOT raggiunto. Riprova tra {{duration}}',
   'chat.decode_skip_system_message':
-    'Alcuni dispositivi non possono riprodurre questo brano. Passaggio al brano successivo.',
+    'Alcuni dispositivi non possono riprodurre questa traccia. Passaggio alla traccia successiva.',
   'chat.system_audio_started_system_message':
     "La condivisione dell'audio di sistema è iniziata. Poiché è inevitabile un certo ritardo tra il gestore e gli ospiti, consigliamo al gestore di abbassare al minimo il volume del proprio dispositivo.",
   'chat.system_audio_stopped_system_message':
@@ -448,7 +448,7 @@ const it: Record<I18nKey, string> = {
   'youtube.ready': 'YouTube è pronto!\nPremi Riproduci per iniziare.',
   'youtube.thumbnail': 'Anteprima del video di YouTube',
   'youtube.load_fail': "Impossibile caricare l'API di YouTube.\nVerifica la connessione internet!",
-  'youtube.video_unavailable': 'Video non disponibile. Passaggio al brano successivo...',
+  'youtube.video_unavailable': 'Video non disponibile. Passaggio alla traccia successiva...',
   'youtube.load_timeout': 'Caricamento di YouTube scaduto.\nRiprova.',
   'youtube.invalid_link': 'Link di YouTube non valido',
   'youtube.effects_disabled':
@@ -488,16 +488,16 @@ const it: Record<I18nKey, string> = {
   'toast.device_conn_error': 'Errore di connessione con {{name}}',
   'toast.device_kicked': '{{name}} è stato espulso',
   'toast.remote_decode_device_wait':
-    'Un dispositivo non è riuscito a decodificare questo brano. La riproduzione continua sugli altri.',
+    'Un dispositivo non è riuscito a decodificare questa traccia. La riproduzione continua sugli altri.',
   'toast.invite_code': "Codice d'invito: {{code}}",
   'toast.invite_code_info': '{{count}} dispositivi | Codice: {{code}}',
-  'toast.added_tracks': 'Brani aggiunti: {{count}}',
+  'toast.added_tracks': '{{count}} tracce aggiunte',
   'toast.preparing': 'Preparazione: {{name}}',
   'toast.file_save_error': 'Errore di salvataggio del file: {{name}}',
   'toast.distortion_warn': 'Il suono potrebbe presentare distorsioni',
   'toast.decoding_audio': 'Decodifica audio in corso...',
-  'toast.preparing_next': 'Preparazione brano successivo... ({{name}})',
-  'toast.preparing_next_pct': 'Preparazione brano successivo... {{pct}}%',
+  'toast.preparing_next': 'Preparazione traccia successiva... ({{name}})',
+  'toast.preparing_next_pct': 'Preparazione traccia successiva... {{pct}}%',
   'toast.op_status': 'Permessi di {{label}} {{status}}',
   'toast.file_read_error': 'Errore di lettura del file: {{name}}',
   'toast.host_ended_connection': 'Il gestore ha chiuso la connessione',
@@ -507,7 +507,7 @@ const it: Record<I18nKey, string> = {
   'toast.copy_failed': 'Copia non riuscita',
   'toast.email_copied': 'Indirizzo email copiato negli appunti!',
   'toast.host_only': 'Solo il gestore della stanza può eseguire questa operazione.',
-  'toast.host_only_media': 'Solo il gestore della stanza può aggiungere brani.',
+  'toast.host_only_media': 'Solo il gestore della stanza può aggiungere tracce.',
   'toast.media_management_required': 'È richiesta l’autorizzazione per gestire i contenuti.',
   'toast.playback_control_required':
     'È richiesta l’autorizzazione per controllare la riproduzione.',
@@ -520,7 +520,7 @@ const it: Record<I18nKey, string> = {
   'toast.host_only_control': 'Solo il gestore della stanza può controllare la riproduzione.',
   'toast.host_setting_required': 'Solo il gestore può modificare questa impostazione',
   'toast.host_only_file': 'Solo il gestore della stanza può aggiungere file.',
-  'toast.no_tracks': 'Nessun brano da riprodurre',
+  'toast.no_tracks': 'Nessuna traccia da riprodurre',
   'toast.no_invite_code': "Codice d'invito non ancora generato",
   'toast.invite_code_settings': "Puoi condividere il link d'invito dalla scheda Connessione.",
   'toast.click_copy_invite': "Clicca per copiare il codice d'invito",
@@ -610,8 +610,8 @@ const it: Record<I18nKey, string> = {
   'error.audio_decode_fail': 'Decodifica audio fallita!',
   'error.audio_memory': "Caricamento dell'audio in memoria...",
   'error.local_decode_wait':
-    'Questo dispositivo non è riuscito a decodificare il brano.\nAttendi il brano successivo.',
-  'error.all_tracks_failed': 'Nessun brano riproducibile nella playlist.',
+    'Questo dispositivo non è riuscito a decodificare la traccia.\nAttendi la traccia successiva.',
+  'error.all_tracks_failed': 'Nessuna traccia riproducibile nella playlist.',
   'error.audio_engine_prepare': 'Impossibile avviare il motore audio',
   'error.session_create_fail': 'Impossibile creare la stanza',
   'error.network_generic': 'Errore di rete rilevato',
@@ -645,7 +645,7 @@ const it: Record<I18nKey, string> = {
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'Aggiungi file locali',
-  'dialog.file_drop.message': 'Aggiungere {{count}} brani?',
+  'dialog.file_drop.message': 'Aggiungere {{count}} file?',
   'dialog.file_drop.unsupported_notice': '{{count}} file non supportati non verranno aggiunti.',
   'dialog.return_home_title': 'Esci dalla stanza',
   'dialog.return_home_msg': 'Vuoi tornare alla schermata iniziale?',
@@ -734,9 +734,9 @@ const it: Record<I18nKey, string> = {
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Ho inserito il codice ma non si connette:</strong> Verifica il codice e riprova tra qualche istante. Le reti aziendali, scolastiche o VPN potrebbero bloccare la connessione.</li><li><strong>Connessione instabile:</strong> Si raccomanda ai partecipanti locali di posizionarsi vicino al router Wi-Fi e ai partecipanti remoti di utilizzare una rete stabile.</li><li><strong>Altri problemi:</strong> Verifica lo stato della rete e riavvia l\'app su tutti i dispositivi. Per altre domande, consulta le <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> o contattaci all\'indirizzo email in fondo alla pagina.</li></ul>',
   'chat.peer_connected': '{{name}} è entrato nella stanza',
-  'chat.tracks_added': '{{name}} ha aggiunto {{count}} brani',
-  'chat.track_added_named': '{{name}} ha aggiunto 1 brano: {{title}}',
-  'chat.tracks_added_named': '{{name}} ha aggiunto {{count}} brani, incluso {{title}}',
+  'chat.tracks_added': '{{name}} ha aggiunto {{count}} tracce',
+  'chat.track_added_named': '{{name}} ha aggiunto 1 traccia: {{title}}',
+  'chat.tracks_added_named': '{{name}} ha aggiunto {{count}} tracce, tra cui {{title}}',
   'chat.peer_disconnected': '{{name}} è uscito dalla stanza',
   'chat.participant_connection_unstable_recovering':
     'La connessione di {{name}} è instabile. Tentativo di ripristino in corso.',
@@ -747,7 +747,7 @@ const it: Record<I18nKey, string> = {
   'setup.invite_share_desc_html':
     'Connetti più dispositivi in modalità wireless<br>per creare un enorme sistema audio.<br>Usa il codice di 6 cifre per connetterti.',
   'setup.play_together_desc_html':
-    'Quando il gestore riproduce un brano,<br>tutti i dispositivi connessi suonano in sincrono.<br>Clicca su "Sincronizza" per allineare l\'audio.',
+    'Quando il gestore riproduce una traccia,<br>tutti i dispositivi connessi la riproducono in sincrono.<br>Clicca su "Sincronizza" per allineare l\'audio.',
   'setup.spatial_audio_desc_html':
     "Imposta il ruolo per ciascun dispositivo.<br>Riproduci l'audio sinistro e destro separatamente<br>e senti i bassi profondi grazie al subwoofer.",
   'setup.advanced_audio_desc_html':

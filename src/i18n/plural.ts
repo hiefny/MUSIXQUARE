@@ -43,7 +43,7 @@ export const PLURAL_MESSAGES = {
     },
     'toast.added_tracks': { one: '{{count}} track added' },
     'toast.unsupported_files_excluded': { one: 'Unsupported file skipped: {{count}}' },
-    'dialog.file_drop.message': { one: 'Add {{count}} track?' },
+    'dialog.file_drop.message': { one: 'Add {{count}} file?' },
     'dialog.file_drop.unsupported_notice': {
       one: "{{count}} unsupported file won't be added.",
     },
@@ -65,7 +65,7 @@ export const PLURAL_MESSAGES = {
     'toast.unsupported_files_excluded': {
       one: 'Nicht unterstützte Datei übersprungen: {{count}}',
     },
-    'dialog.file_drop.message': { one: '{{count}} Titel hinzufügen?' },
+    'dialog.file_drop.message': { one: '{{count}} Datei hinzufügen?' },
     'dialog.file_drop.unsupported_notice': {
       one: '{{count}} nicht unterstützte Datei wird nicht hinzugefügt.',
     },
@@ -87,36 +87,36 @@ export const PLURAL_MESSAGES = {
     'toast.unsupported_files_excluded': {
       one: 'Archivo no compatible omitido: {{count}}',
     },
-    'dialog.file_drop.message': { one: '¿Agregar {{count}} pista?' },
+    'dialog.file_drop.message': { one: '¿Agregar {{count}} archivo?' },
     'dialog.file_drop.unsupported_notice': {
       one: 'No se añadirá {{count}} archivo no compatible.',
     },
   },
   fr: {
     'connect.administrator_list': { one: '{{count}} administrateur' },
-    'playlist.delete_selected': { one: 'Supprimer {{count}} titre sélectionné' },
+    'playlist.delete_selected': { one: 'Supprimer {{count}} piste sélectionnée' },
     'connect.device_list': { one: '{{count}} appareil connecté' },
     'demo.session_body_connected': {
       one: '{{count}} appareil est connecté actuellement.\nDéfinissez un rôle pour cet appareil.',
     },
     'chat.cmd_slowmode_on': { one: 'Mode lent : {{sec}} seconde entre les messages' },
     'chat.cmd_slowmode_wait': { one: 'Attendez {{sec}} seconde avant d’envoyer' },
-    'chat.tracks_added': { one: '{{name}} a ajouté {{count}} titre' },
+    'chat.tracks_added': { one: '{{name}} a ajouté {{count}} piste' },
     'chat.tracks_added_named': {
-      one: '{{name}} a ajouté {{count}} titre, dont {{title}}',
+      one: '{{name}} a ajouté {{count}} piste, dont {{title}}',
     },
     'toast.added_tracks': { one: '{{count}} piste ajoutée' },
     'toast.unsupported_files_excluded': {
       one: 'Fichier non pris en charge ignoré : {{count}}',
     },
-    'dialog.file_drop.message': { one: 'Ajouter {{count}} morceau ?' },
+    'dialog.file_drop.message': { one: 'Ajouter {{count}} fichier ?' },
     'dialog.file_drop.unsupported_notice': {
       one: '{{count}} fichier non pris en charge ne sera pas ajouté.',
     },
   },
   it: {
     'connect.administrator_list': { one: '{{count}} amministratore' },
-    'playlist.delete_selected': { one: 'Elimina {{count}} brano selezionato' },
+    'playlist.delete_selected': { one: 'Elimina {{count}} traccia selezionata' },
     'connect.device_list': { one: '{{count}} dispositivo connesso' },
     'demo.session_body_connected': {
       one: 'Attualmente c’è {{count}} dispositivo connesso.\nAssegna un ruolo a questo dispositivo.',
@@ -127,35 +127,35 @@ export const PLURAL_MESSAGES = {
     'chat.cmd_slowmode_wait': {
       one: 'Attendi {{sec}} secondo prima di inviare un nuovo messaggio',
     },
-    'chat.tracks_added': { one: '{{name}} ha aggiunto {{count}} brano' },
+    'chat.tracks_added': { one: '{{name}} ha aggiunto {{count}} traccia' },
     'chat.tracks_added_named': {
-      one: '{{name}} ha aggiunto {{count}} brano, incluso {{title}}',
+      one: '{{name}} ha aggiunto {{count}} traccia, inclusa {{title}}',
     },
-    'toast.added_tracks': { one: '{{count}} brano aggiunto' },
+    'toast.added_tracks': { one: '{{count}} traccia aggiunta' },
     'toast.unsupported_files_excluded': { one: 'File non supportato escluso: {{count}}' },
-    'dialog.file_drop.message': { one: 'Aggiungere {{count}} brano?' },
+    'dialog.file_drop.message': { one: 'Aggiungere {{count}} file?' },
     'dialog.file_drop.unsupported_notice': {
       one: '{{count}} file non supportato non verrà aggiunto.',
     },
   },
   nl: {
     'connect.administrator_list': { one: '{{count}} beheerder' },
-    'playlist.delete_selected': { one: '{{count}} geselecteerd nummer verwijderen' },
+    'playlist.delete_selected': { one: '{{count}} geselecteerde track verwijderen' },
     'connect.device_list': { one: '{{count}} verbonden apparaat' },
     'demo.session_body_connected': {
       one: 'Er is nu {{count}} apparaat verbonden.\nStel voor dit apparaat een rol in.',
     },
     'chat.cmd_slowmode_on': { one: 'Langzame modus: {{sec}} seconde tussen berichten' },
     'chat.cmd_slowmode_wait': { one: 'Wacht {{sec}} seconde voordat je verstuurt' },
-    'chat.tracks_added': { one: '{{name}} heeft {{count}} nummer toegevoegd' },
+    'chat.tracks_added': { one: '{{name}} heeft {{count}} track toegevoegd' },
     'chat.tracks_added_named': {
-      one: '{{name}} heeft {{count}} nummer toegevoegd, waaronder {{title}}',
+      one: '{{name}} heeft {{count}} track toegevoegd, waaronder {{title}}',
     },
-    'toast.added_tracks': { one: '{{count}} nummer toegevoegd' },
+    'toast.added_tracks': { one: '{{count}} track toegevoegd' },
     'toast.unsupported_files_excluded': {
       one: 'Niet-ondersteund bestand overgeslagen: {{count}}',
     },
-    'dialog.file_drop.message': { one: '{{count}} nummer toevoegen?' },
+    'dialog.file_drop.message': { one: '{{count}} bestand toevoegen?' },
     'dialog.file_drop.unsupported_notice': {
       one: '{{count}} niet-ondersteund bestand wordt niet toegevoegd.',
     },
@@ -177,7 +177,7 @@ export const PLURAL_MESSAGES = {
     'toast.unsupported_files_excluded': {
       one: 'Arquivo não compatível ignorado: {{count}}',
     },
-    'dialog.file_drop.message': { one: 'Adicionar {{count}} faixa?' },
+    'dialog.file_drop.message': { one: 'Adicionar {{count}} arquivo?' },
     'dialog.file_drop.unsupported_notice': {
       one: '{{count}} arquivo não compatível não será adicionado.',
     },
@@ -189,9 +189,9 @@ export const PLURAL_MESSAGES = {
       many: 'Administratorzy: {{count}}',
     },
     'playlist.delete_selected': {
-      one: 'Usuń {{count}} zaznaczony utwór',
-      few: 'Usuń {{count}} zaznaczone utwory',
-      many: 'Usuń {{count}} zaznaczonych utworów',
+      one: 'Usuń {{count}} zaznaczony materiał',
+      few: 'Usuń {{count}} zaznaczone materiały',
+      many: 'Usuń {{count}} zaznaczonych materiałów',
     },
     'connect.device_list': {
       one: '{{count}} połączone urządzenie',
@@ -214,19 +214,19 @@ export const PLURAL_MESSAGES = {
       many: 'Poczekaj {{sec}} sekund przed wysłaniem kolejnej wiadomości',
     },
     'chat.tracks_added': {
-      one: '{{name}} dodał(a) {{count}} utwór',
-      few: '{{name}} dodał(a) {{count}} utwory',
-      many: '{{name}} dodał(a) {{count}} utworów',
+      one: '{{name}} dodał(a) {{count}} materiał',
+      few: '{{name}} dodał(a) {{count}} materiały',
+      many: '{{name}} dodał(a) {{count}} materiałów',
     },
     'chat.tracks_added_named': {
-      one: '{{name}} dodał(a) {{count}} utwór, w tym {{title}}',
-      few: '{{name}} dodał(a) {{count}} utwory, w tym {{title}}',
-      many: '{{name}} dodał(a) {{count}} utworów, w tym {{title}}',
+      one: '{{name}} dodał(a) {{count}} materiał, w tym {{title}}',
+      few: '{{name}} dodał(a) {{count}} materiały, w tym {{title}}',
+      many: '{{name}} dodał(a) {{count}} materiałów, w tym {{title}}',
     },
     'toast.added_tracks': {
-      one: 'Dodano {{count}} utwór',
-      few: 'Dodano {{count}} utwory',
-      many: 'Dodano {{count}} utworów',
+      one: 'Dodano {{count}} materiał',
+      few: 'Dodano {{count}} materiały',
+      many: 'Dodano {{count}} materiałów',
     },
     'toast.unsupported_files_excluded': {
       one: 'Pominięto {{count}} nieobsługiwany plik',
@@ -234,9 +234,9 @@ export const PLURAL_MESSAGES = {
       many: 'Pominięto {{count}} nieobsługiwanych plików',
     },
     'dialog.file_drop.message': {
-      one: 'Dodać {{count}} utwór?',
-      few: 'Dodać {{count}} utwory?',
-      many: 'Dodać {{count}} utworów?',
+      one: 'Dodać {{count}} plik?',
+      few: 'Dodać {{count}} pliki?',
+      many: 'Dodać {{count}} plików?',
     },
     'dialog.file_drop.unsupported_notice': {
       one: '{{count}} nieobsługiwany plik nie zostanie dodany.',
@@ -251,9 +251,9 @@ export const PLURAL_MESSAGES = {
       many: 'Администраторы: {{count}}',
     },
     'playlist.delete_selected': {
-      one: 'Удалить {{count}} выбранный трек',
-      few: 'Удалить {{count}} выбранных трека',
-      many: 'Удалить {{count}} выбранных треков',
+      one: 'Удалить {{count}} выбранный материал',
+      few: 'Удалить {{count}} выбранных материала',
+      many: 'Удалить {{count}} выбранных материалов',
     },
     'connect.device_list': {
       one: 'Подключено {{count}} устройство',
@@ -276,19 +276,19 @@ export const PLURAL_MESSAGES = {
       many: 'Подождите {{sec}} секунд перед отправкой следующего сообщения',
     },
     'chat.tracks_added': {
-      one: '{{name}} добавил(а) {{count}} трек',
-      few: '{{name}} добавил(а) {{count}} трека',
-      many: '{{name}} добавил(а) {{count}} треков',
+      one: '{{name}} добавил(а) {{count}} материал',
+      few: '{{name}} добавил(а) {{count}} материала',
+      many: '{{name}} добавил(а) {{count}} материалов',
     },
     'chat.tracks_added_named': {
-      one: '{{name}} добавил(а) {{count}} трек, включая {{title}}',
-      few: '{{name}} добавил(а) {{count}} трека, включая {{title}}',
-      many: '{{name}} добавил(а) {{count}} треков, включая {{title}}',
+      one: '{{name}} добавил(а) {{count}} материал, включая {{title}}',
+      few: '{{name}} добавил(а) {{count}} материала, включая {{title}}',
+      many: '{{name}} добавил(а) {{count}} материалов, включая {{title}}',
     },
     'toast.added_tracks': {
-      one: 'Добавлен {{count}} трек',
-      few: 'Добавлено {{count}} трека',
-      many: 'Добавлено {{count}} треков',
+      one: 'Добавлен {{count}} материал',
+      few: 'Добавлено {{count}} материала',
+      many: 'Добавлено {{count}} материалов',
     },
     'toast.unsupported_files_excluded': {
       one: 'Пропущен {{count}} неподдерживаемый файл',
@@ -296,9 +296,9 @@ export const PLURAL_MESSAGES = {
       many: 'Пропущено {{count}} неподдерживаемых файлов',
     },
     'dialog.file_drop.message': {
-      one: 'Добавить {{count}} трек?',
-      few: 'Добавить {{count}} трека?',
-      many: 'Добавить {{count}} треков?',
+      one: 'Добавить {{count}} файл?',
+      few: 'Добавить {{count}} файла?',
+      many: 'Добавить {{count}} файлов?',
     },
     'dialog.file_drop.unsupported_notice': {
       one: '{{count}} неподдерживаемый файл не будет добавлен.',

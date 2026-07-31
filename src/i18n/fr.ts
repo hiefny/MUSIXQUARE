@@ -189,7 +189,7 @@ const fr: Record<I18nKey, string> = {
 
   // Playlist
   'playlist.toggle': 'Développer/réduire la playlist',
-  'playlist.jump_to_current': 'Aller au titre en cours de lecture',
+  'playlist.jump_to_current': 'Aller à la piste en cours de lecture',
   'playlist.reorder_handle': 'Réorganiser {{title}}, position {{position}}',
   'playlist.reorder_position': '{{title}}, position {{position}} sur {{total}}',
   'playlist.repeat_all': 'Répétition de toutes les pistes activée',
@@ -205,7 +205,7 @@ const fr: Record<I18nKey, string> = {
   'playlist.deselect_for_deletion': 'Désélectionner {{title}}',
   'playlist.deselect_all': 'Tout désélectionner',
   'playlist.select_all': 'Tout sélectionner',
-  'playlist.delete_selected': 'Supprimer {{count}} titres sélectionnés',
+  'playlist.delete_selected': 'Supprimer {{count}} pistes sélectionnées',
   'playlist.video_fallback': 'Chargement...',
   'playlist.track_fallback': 'Piste {{idx}}',
   'playlist.deferred_load_hint': 'Lancez la lecture pour charger la liste complète',
@@ -577,7 +577,7 @@ const fr: Record<I18nKey, string> = {
     'Sur le même réseau, le transfert direct de fichiers est stable jusqu’à 8 appareils d’invités, sans compter celui de l’hôte. Dans les grands salons locaux, les fichiers peuvent être distribués via Cloudflare R2.\n\nContinuer ?',
   'dialog.continue': 'Continuer',
   'dialog.file_drop.title': 'Ajouter des fichiers locaux',
-  'dialog.file_drop.message': 'Ajouter {{count}} morceaux ?',
+  'dialog.file_drop.message': 'Ajouter {{count}} fichiers ?',
   'dialog.file_drop.unsupported_notice':
     '{{count}} fichiers non pris en charge ne seront pas ajoutés.',
   'dialog.return_home_title': 'Quitter la salle',
@@ -680,8 +680,8 @@ const fr: Record<I18nKey, string> = {
   'chat.bot_processing': 'BOT traite la demande...',
   'chat.bot_completed': 'Demande BOT terminée',
   'chat.bot_failed': 'BOT n’a pas pu traiter la demande',
-  'chat.bot_added_tracks': 'Titres ajoutés par le BOT : {{count}}',
-  'chat.bot_added_and_playing': 'Titres ajoutés par le BOT : {{count}}. Lecture lancée',
+  'chat.bot_added_tracks': 'Pistes ajoutées par le BOT : {{count}}',
+  'chat.bot_added_and_playing': 'Pistes ajoutées par le BOT : {{count}}. Lecture lancée',
   'chat.bot_rate_limited': 'Limite de requêtes BOT atteinte. Réessayez dans {{duration}}',
   'chat.decode_skip_system_message':
     'Piste ignorée : format non pris en charge sur certains appareils.',
@@ -746,9 +746,9 @@ const fr: Record<I18nKey, string> = {
     'Informations de débogage copiées.\nEnvoyez-les au développeur si vous avez trouvé un bug.',
   'chat.seek_to': 'Aller à {{time}}',
   'chat.peer_connected': '{{name}} a rejoint la salle',
-  'chat.tracks_added': '{{name}} a ajouté {{count}} titres',
-  'chat.track_added_named': '{{name}} a ajouté 1 titre : {{title}}',
-  'chat.tracks_added_named': '{{name}} a ajouté {{count}} titres, dont {{title}}',
+  'chat.tracks_added': '{{name}} a ajouté {{count}} pistes',
+  'chat.track_added_named': '{{name}} a ajouté 1 piste : {{title}}',
+  'chat.tracks_added_named': '{{name}} a ajouté {{count}} pistes, dont {{title}}',
   'chat.peer_disconnected': '{{name}} est parti',
   'chat.participant_connection_unstable_recovering':
     'La connexion de {{name}} est instable. Tentative de rétablissement.',

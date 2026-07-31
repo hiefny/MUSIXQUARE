@@ -1238,7 +1238,7 @@ describe('Chat Module', () => {
       ]);
       requestActiveProRoomBotCommand.mockResolvedValueOnce({
         ok: true,
-        summary: '3곡을 추가했어요.',
+        summary: '트랙 3개를 추가했어요.',
         addedCount: 3,
         playbackChanged: false,
       });

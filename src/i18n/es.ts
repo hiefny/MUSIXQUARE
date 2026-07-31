@@ -576,7 +576,7 @@ const es: Record<I18nKey, string> = {
     'En la misma red, la transferencia directa de archivos es estable con hasta 8 dispositivos de participantes, sin contar el del host. En salas locales más grandes, los archivos pueden distribuirse mediante Cloudflare R2.\n\n¿Continuar?',
   'dialog.continue': 'Continuar',
   'dialog.file_drop.title': 'Agregar archivos locales',
-  'dialog.file_drop.message': '¿Agregar {{count}} pistas?',
+  'dialog.file_drop.message': '¿Agregar {{count}} archivos?',
   'dialog.file_drop.unsupported_notice': 'No se añadirán {{count}} archivos no compatibles.',
   'dialog.return_home_title': 'Salir de la sala',
   'dialog.return_home_msg': '¿Volver a la pantalla inicial?',

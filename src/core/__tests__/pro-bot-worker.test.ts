@@ -476,7 +476,7 @@ describe('server-only PRO BOT app boundary', () => {
         });
         return Response.json({
           ok: true,
-          summary: '2곡을 삭제해 재생목록을 비웠어요.',
+          summary: '트랙 2개를 삭제해 재생목록을 비웠어요.',
           addedCount: 0,
           playbackChanged: true,
         });
@@ -506,7 +506,7 @@ describe('server-only PRO BOT app boundary', () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       ok: true,
-      summary: '2곡을 삭제해 재생목록을 비웠어요.',
+      summary: '트랙 2개를 삭제해 재생목록을 비웠어요.',
       addedCount: 0,
       playbackChanged: true,
     });
@@ -733,6 +733,9 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
       'Find a YouTube recipe video for carbonara and add it',
       '유튜브에서 요리 영상 찾아서 추가해줘',
       'Add a news podcast from YouTube',
+      '트랙터 영상 추가해줘',
+      '트랙패드 영상 추가해줘',
+      '트랙볼 영상 추가해줘',
     ];
     for (const prompt of trackCases) {
       const plan = {
@@ -777,6 +780,8 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
     const prompts = [
       '음악 재생해줘',
       '현재 곡 재생해줘',
+      '현재 트랙 재생해줘',
+      '트랙을 재생해줘',
       '이 곡 재생해줘',
       '재생목록 재생해줘',
       'play the music',
@@ -812,6 +817,19 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
       trackQueries: ['PSY Gangnam Style official audio'],
       playAddedIndex: 0,
       answer: 'Tracks added.',
+    });
+    expect(
+      normalizePlanForExecution('강남스타일 트랙 추가해줘', {
+        intent: 'add_youtube',
+        trackQueries: ['PSY Gangnam Style official audio'],
+        playAddedIndex: -1,
+        answer: '추가할게요.',
+      }),
+    ).toEqual({
+      intent: 'add_youtube',
+      trackQueries: ['PSY Gangnam Style official audio'],
+      playAddedIndex: -1,
+      answer: '트랙을 추가했어요.',
     });
     expect(
       normalizePlanForExecution('셔플 켜줘', {
@@ -1221,13 +1239,19 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
       planMatchesPromptScope,
       requestedQueueOrdinal,
     } = proBotInternalsForTests;
-    for (const prompt of ['3번곡 재생 시작', '5번 곡 틀어줘', 'play track 2']) {
+    for (const prompt of [
+      '3번곡 재생 시작',
+      '5번 곡 틀어줘',
+      '4번 트랙 재생해줘',
+      'play track 2',
+    ]) {
       const plan = { intent: 'play_existing', queueItemId: QUEUE_ITEM_ID_1 };
       expect(isTrackRequestPrompt(prompt), prompt).toBe(true);
       expect(planMatchesPromptScope(prompt, plan), prompt).toBe(true);
       expect(normalizePlanForExecution(prompt, plan), prompt).toEqual(plan);
     }
     expect(requestedQueueOrdinal('3번곡 재생 시작')).toBe(3);
+    expect(requestedQueueOrdinal('4번 트랙 재생해줘')).toBe(4);
     expect(requestedQueueOrdinal('play track 2')).toBe(2);
     expect(
       planExplicitQueueOrdinal('2번곡 재생 시작', {
@@ -1238,13 +1262,13 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
     ).toEqual({
       intent: 'play_existing',
       queueItemId: QUEUE_ITEM_ID_2,
-      answer: '2번 곡을 재생할게요.',
+      answer: '2번 트랙을 재생할게요.',
     });
     expect(
       planExplicitQueueOrdinal('3번곡 재생 시작', {
         room: { playlist: [{ queueItemId: QUEUE_ITEM_ID_1 }] },
       }),
-    ).toEqual({ intent: 'answer', answer: '재생목록에 해당 순번의 곡이 없어요.' });
+    ).toEqual({ intent: 'answer', answer: '재생목록에 해당 순번의 트랙이 없어요.' });
     const ordinalContext = {
       room: { playlist: [{ queueItemId: QUEUE_ITEM_ID_1 }] },
     };
@@ -1632,6 +1656,7 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
 
     for (const prompt of [
       '재생목록에서 첫 곡을 삭제해줘',
+      '재생목록에서 첫 트랙을 삭제해줘',
       'remove the first track from this room queue',
     ]) {
       expect(planMatchesPromptScope(prompt, removePlan), prompt).toBe(true);
@@ -1641,6 +1666,16 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
       'delete a track from the playlist',
     ]) {
       expect(planMatchesPromptScope(vaguePrompt, removePlan), vaguePrompt).toBe(false);
+    }
+
+    const clearPlan = { intent: 'clear_queue', answer: 'Cleared.' };
+    for (const compoundPrompt of [
+      '이 트랙터 삭제해줘',
+      '재생목록에서 이 트랙패드 삭제해줘',
+      '트랙볼 전부 삭제해줘',
+    ]) {
+      expect(planMatchesPromptScope(compoundPrompt, removePlan), compoundPrompt).toBe(false);
+      expect(planMatchesPromptScope(compoundPrompt, clearPlan), compoundPrompt).toBe(false);
     }
   });
 
@@ -1742,7 +1777,9 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
     expect(explicitlyRequestsQueueClear('전곡 삭제해줘')).toBe(true);
     expect(explicitlyRequestsQueueClear('delete entire playlist')).toBe(true);
     expect(explicitlyRequestsQueueClear('remove the whole queue')).toBe(true);
+    expect(explicitlyRequestsQueueClear('모든 트랙 삭제해줘')).toBe(true);
     expect(explicitlyRequestsQueueClear('모든 곡 중 첫 곡만 삭제해줘')).toBe(false);
+    expect(explicitlyRequestsQueueClear('모든 트랙 중 첫 트랙만 삭제해줘')).toBe(false);
     expect(explicitlyRequestsQueueClear('재생목록 전체에서 첫 곡만 삭제해줘')).toBe(false);
     expect(explicitlyRequestsQueueClear('clear the playlist except the first song')).toBe(false);
     expect(explicitlyRequestsQueueClear('첫 곡을 삭제해줘')).toBe(false);

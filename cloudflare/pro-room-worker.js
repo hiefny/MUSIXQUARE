@@ -2021,11 +2021,11 @@ function botDestructiveSummary(action, removedCount, languageHint = '') {
       return korean ? '재생목록이 이미 비어 있어요.' : 'The queue was already empty.';
     }
     return korean
-      ? `${removedCount}곡을 삭제해 재생목록을 비웠어요.`
+      ? `트랙 ${removedCount}개를 삭제해 재생목록을 비웠어요.`
       : `Cleared the queue and removed ${removedCount} track${removedCount === 1 ? '' : 's'}.`;
   }
   return korean
-    ? `${removedCount}곡을 삭제했어요.`
+    ? `트랙 ${removedCount}개를 삭제했어요.`
     : `Removed ${removedCount} track${removedCount === 1 ? '' : 's'}.`;
 }
 

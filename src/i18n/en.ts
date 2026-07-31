@@ -626,7 +626,7 @@ const en: Record<I18nKey, string> = {
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'Add local files',
-  'dialog.file_drop.message': 'Add {{count}} tracks?',
+  'dialog.file_drop.message': 'Add {{count}} files?',
   'dialog.file_drop.unsupported_notice': "{{count}} unsupported files won't be added.",
   'dialog.return_home_title': 'Leave Session',
   'dialog.return_home_msg': 'Return to the start screen?',

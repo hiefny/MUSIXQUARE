@@ -33,7 +33,7 @@ const MUSIC_DISCOVERY_ACTION_RE =
 const MUSIC_DISCOVERY_REQUEST_HINT_RE =
   /(?:\b(?:recommend|suggest|find|search)\b|추천|찾아|검색|推荐|検索|おすすめ|найд|рекоменд|recom|suger|buscar|trouv|empfehl|such|cari|consigli|zoek|poleć|recomendar|แนะนำ|öner|gợi\s*ý)/iu;
 const CURRENT_ROOM_STATE_RE =
-  /(?:\b(?:now\s+playing|currently\s+playing|current\s+(?:song|track))\b|현재\s*(?:곡|재생)|지금\s*(?:재생|나오))/iu;
+  /(?:\b(?:now\s+playing|currently\s+playing|current\s+(?:song|track))\b|현재\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_])|재생)|지금\s*(?:재생|나오))/iu;
 // Free-form answers are intentionally broad, but an action-shaped phrase must
 // still name music before it can mutate the shared room. This prevents prompts
 // such as "play a joke" or "add a recipe video" from becoming YouTube actions
@@ -43,7 +43,7 @@ const NON_MUSIC_ACTION_CONTEXT_RE =
 const PAUSE_REQUEST_HINT_RE =
   /(?:\b(?:pause|stop)\b|일시\s*정지|정지해|멈춰|暂停|停止|一時停止|止め|пауза|останов|pausar|detener|pause|arrêter|pausieren|stoppen|jeda|berhenti|metti\s+in\s+pausa|ferma|pauzeer|stop|wstrzymaj|zatrzymaj|pausar|parar|หยุด|duraklat|dừng)/iu;
 const NEXT_REQUEST_HINT_RE =
-  /(?:\b(?:next|skip)\b|다음\s*곡|넘겨|건너뛰|下一首|跳过|次の曲|スキップ|следующ|пропуст|siguiente|saltar|suivant|passer|nächst|überspring|berikut|lewati|prossim|salta|volgend|następn|pomiń|próxim|pular|ถัดไป|ข้าม|sonraki|atla|tiếp\s+theo|bỏ\s+qua)/iu;
+  /(?:\b(?:next|skip)\b|다음\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|넘겨|건너뛰|下一首|跳过|次の曲|スキップ|следующ|пропуст|siguiente|saltar|suivant|passer|nächst|überspring|berikut|lewati|prossim|salta|volgend|następn|pomiń|próxim|pular|ถัดไป|ข้าม|sonraki|atla|tiếp\s+theo|bỏ\s+qua)/iu;
 const QUEUE_MODE_REQUEST_HINT_RE =
   /(?:\b(?:repeat|shuffle|loop)\b|반복|셔플|랜덤|循环|随机|リピート|シャッフル|повтор|перемеш|repet|aleatori|répét|aléato|wiederhol|zufäll|acak|ripeti|casual|herhaal|willekeurig|powtarz|losow|повтор|случайн|ทำซ้ำ|สุ่ม|tekrar|karıştır|lặp|ngẫu\s*nhiên)/iu;
 const PLAY_REQUEST_HINT_RE =
@@ -51,16 +51,20 @@ const PLAY_REQUEST_HINT_RE =
 const DELETE_REQUEST_HINT_RE =
   /(?:\b(?:delete|remove|erase)\b|삭제|지워|지우|제거|删除|移除|削除|消して|消去|eliminar|borrar|quitar|supprimer|effacer|retirer|löschen|entfernen|hapus|elimina|cancella|rimuovi|verwijder|wissen|usuń|usun|skasuj|remover|excluir|apagar|удали|убери|ลบ|sil|kaldır|xóa|xoá|gỡ)/iu;
 const CLEAR_QUEUE_REQUEST_HINT_RE =
-  /(?:\b(?:clear|empty)\s+(?:the\s+)?(?:(?:entire|whole)\s+)?(?:queue|playlist)\b|\b(?:delete|remove|erase)\s+(?:everything|(?:all|every)\s+(?:tracks?|songs?|items?)|(?:the\s+)?(?:entire|whole)\s+(?:queue|playlist))\b|(?:재생\s*목록|플레이리스트|플리)(?:\s*(?:을|를|은|는|의))?\s*(?:(?:전부|모두|전체|모든|전곡|싹)(?:\s*(?:의)?\s*(?:곡|노래))?(?:\s*(?:을|를))?\s*(?:삭제해|지워|지우|제거해|비워|비우)|(?:비워|비우))|(?:전부|모두|전체|모든|전곡|싹|다)(?:\s*(?:의)?\s*(?:곡|노래|재생\s*목록|플레이리스트|플리))?(?:\s*(?:을|를))?\s*(?:삭제해|지워|지우|제거해|비워|비우)|清空(?:播放列表|播放清单|队列|歌单)?|(?:すべて|全て|全部).{0,16}(?:削除|消して|消去)|(?:toda|todo|toutes|tous|alle|alles|semua|tutti|tutto|allemaal|wszystkie|todas|todos|все|ทั้งหมด|tüm|tất\s*cả).{0,24}(?:eliminar|borrar|quitar|supprimer|effacer|retirer|löschen|entfernen|hapus|elimina|cancella|rimuovi|verwijder|wissen|usuń|usun|skasuj|remover|excluir|apagar|удали|убери|ลบ|sil|kaldır|xóa|xoá|gỡ))/iu;
+  /(?:\b(?:clear|empty)\s+(?:the\s+)?(?:(?:entire|whole)\s+)?(?:queue|playlist)\b|\b(?:delete|remove|erase)\s+(?:everything|(?:all|every)\s+(?:tracks?|songs?|items?)|(?:the\s+)?(?:entire|whole)\s+(?:queue|playlist))\b|(?:재생\s*목록|플레이리스트|플리)(?:\s*(?:을|를|은|는|의))?\s*(?:(?:전부|모두|전체|모든|전곡|싹)(?:\s*(?:의)?\s*(?:곡|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_])))?(?:\s*(?:을|를))?\s*(?:삭제해|지워|지우|제거해|비워|비우)|(?:비워|비우))|(?:전부|모두|전체|모든|전곡|싹|다)(?:\s*(?:의)?\s*(?:곡|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_])|재생\s*목록|플레이리스트|플리))?(?:\s*(?:을|를))?\s*(?:삭제해|지워|지우|제거해|비워|비우)|清空(?:播放列表|播放清单|队列|歌单)?|(?:すべて|全て|全部).{0,16}(?:削除|消して|消去)|(?:toda|todo|toutes|tous|alle|alles|semua|tutti|tutto|allemaal|wszystkie|todas|todos|все|ทั้งหมด|tüm|tất\s*cả).{0,24}(?:eliminar|borrar|quitar|supprimer|effacer|retirer|löschen|entfernen|hapus|elimina|cancella|rimuovi|verwijder|wissen|usuń|usun|skasuj|remover|excluir|apagar|удали|убери|ลบ|sil|kaldır|xóa|xoá|gỡ))/iu;
 const CLEAR_QUEUE_PARTIAL_SCOPE_RE =
-  /(?:\b(?:except|excluding|but|only|first|last|some|selected)\b|(?:제외|빼고|남기고)|(?:중|가운데).{0,12}(?:첫|하나|한\s*곡|일부|선택|마지막)|(?:첫|마지막|일부|선택한|특정|하나|한\s*곡|\d+\s*번).{0,12}(?:만|삭제|지워|지우|제거))/iu;
+  /(?:\b(?:except|excluding|but|only|first|last|some|selected)\b|(?:제외|빼고|남기고)|(?:중|가운데).{0,12}(?:첫|하나|한\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|일부|선택|마지막)|(?:첫|마지막|일부|선택한|특정|하나|한\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|\d+\s*번).{0,12}(?:만|삭제|지워|지우|제거))/iu;
 // Destructive plans need a concrete room-queue object, not merely the broad
 // word "music". Otherwise requests such as "delete my music account" can be
 // misread as permission to remove a model-selected queue item.
 const ROOM_QUEUE_DELETION_TARGET_RE =
   /(?:\b(?:queue|playlist|queue\s+items?)\b|재생\s*목록|플레이리스트|플리|대기열|播放列表|播放清单|队列|歌单|再生リスト|プレイリスト|キュー|очеред|плейлист|lista\s+de\s+reproducci[oó]n|cola|liste\s+de\s+lecture|file\s+d['’]attente|wiedergabeliste|warteschlange|daftar\s+putar|antrean|lista\s+di\s+riproduzione|coda|afspeellijst|wachtrij|playlista|kolejka|fila|เพลย์ลิสต์|คิว|çalma\s+listesi|danh\s+sách\s+phát|hàng\s+đợi)/iu;
+// Treat the product term as a complete Korean noun, optionally followed by a
+// particle, so unrelated compounds such as 트랙터 or 트랙패드 cannot authorize actions.
+const KOREAN_TRACK_TERM_RE =
+  /트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_])/u;
 const ROOM_TRACK_DELETION_TARGET_RE =
-  /(?:\b(?:songs?|tracks?|queue\s+items?)\b|곡|노래|歌曲|曲目|楽曲|曲|песн|трек|canci[oó]n|pista|chanson|morceau|lied|titel|lagu|canzone|brano|nummer|utw[oó]r|piosenk|canç[aã]o|faixa|เพลง|şarkı|parça|bài\s+hát|bản\s+nhạc)/iu;
+  /(?:\b(?:songs?|tracks?|queue\s+items?)\b|곡|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_])|歌曲|曲目|楽曲|曲|песн|трек|canci[oó]n|pista|chanson|morceau|lied|titel|lagu|canzone|brano|nummer|utw[oó]r|piosenk|canç[aã]o|faixa|เพลง|şarkı|parça|bài\s+hát|bản\s+nhạc)/iu;
 // An explicit external location wins unless the same prompt also names this
 // room's queue/playlist. "Remove this Spotify song from the room queue" stays
 // valid; "remove this song from my phone" cannot mutate shared state.
@@ -86,9 +90,9 @@ const DESTRUCTIVE_POLITE_REQUEST_RE =
 const NON_IMMEDIATE_ACTION_CONTEXT_RE =
   /(?:^\s*(?:should|may|might|do|does|did|is|are|am)\b|^\s*(?:how|what|why|when|whether)\b|^\s*(?:if|unless|suppose|assuming|after|before|once)\b|\b(?:if|unless|when)\s+(?:i|you|we|they|it|this|that|the|my|your|our|their|there)\b|\bwould\s+(?:it|this|that|there)\b|(?:만약|혹시|나중에|경우|라면|하면|할까|할까요|해도\s*돼|할\s*수|어떻게|방법|왜)|(?:如果|假如|是否|怎么|如何|为什么|為什麼)|(?:もし|場合|ですか|ますか|でしょうか))/iu;
 const EXPLICIT_DELETION_SELECTOR_RE =
-  /(?:\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|last|current|this|that|selected)\s+(?:queue\s+)?(?:track|song|item)\b|\b(?:track|song|item)\s*#?\d{1,3}\b|\b#?\d{1,3}(?:st|nd|rd|th)?\s+(?:queue\s+)?(?:track|song|item)\b|(?:첫|첫\s*번째|두\s*번째|세\s*번째|네\s*번째|다섯\s*번째|마지막|현재|이|그|선택한)\s*(?:곡|노래)|#?\d{1,3}\s*번\s*(?:곡|노래)|\b(?:named|called|titled)\b|["“][^"”\r\n]{1,160}["”]|(?:제목|이름)(?:이|가|\s)*(?:["“][^"”\r\n]{1,160}["”]))/iu;
+  /(?:\b(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|last|current|this|that|selected)\s+(?:queue\s+)?(?:track|song|item)\b|\b(?:track|song|item)\s*#?\d{1,3}\b|\b#?\d{1,3}(?:st|nd|rd|th)?\s+(?:queue\s+)?(?:track|song|item)\b|(?:첫|첫\s*번째|두\s*번째|세\s*번째|네\s*번째|다섯\s*번째|마지막|현재|이|그|선택한)\s*(?:곡|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|#?\d{1,3}\s*번\s*(?:곡|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|\b(?:named|called|titled)\b|["“][^"”\r\n]{1,160}["”]|(?:제목|이름)(?:이|가|\s)*(?:["“][^"”\r\n]{1,160}["”]))/iu;
 const CURRENT_DELETION_SELECTOR_RE =
-  /(?:\b(?:current|this|that|selected)\s+(?:queue\s+)?(?:track|song|item)\b|(?:현재|이|그|선택한)\s*(?:곡|노래))/iu;
+  /(?:\b(?:current|this|that|selected)\s+(?:queue\s+)?(?:track|song|item)\b|(?:현재|이|그|선택한)\s*(?:곡|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_])))/iu;
 const NAMED_DELETION_SELECTOR_RE =
   /(?:\b(?:named|called|titled)\b|["“][^"”\r\n]{1,160}["”]|(?:제목|이름)(?:이|가|\s)*(?:["“][^"”\r\n]{1,160}["”]))/iu;
 const ENGLISH_DELETION_ORDINAL_RE =
@@ -96,7 +100,8 @@ const ENGLISH_DELETION_ORDINAL_RE =
 const ENGLISH_DELETION_NUMBER_BEFORE_RE =
   /\b#?(\d{1,3})(?:st|nd|rd|th)?\s+(?:queue\s+)?(?:track|song|item)\b/giu;
 const ENGLISH_DELETION_NUMBER_AFTER_RE = /\b(?:track|song|item)\s*#?(\d{1,3})\b/giu;
-const KOREAN_DELETION_NUMBER_RE = /#?(\d{1,3})\s*번\s*(?:곡|노래)/gu;
+const KOREAN_DELETION_NUMBER_RE =
+  /#?(\d{1,3})\s*번\s*(?:곡|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))/gu;
 const ENGLISH_ORDINALS = Object.freeze({
   first: 1,
   second: 2,
@@ -115,17 +120,17 @@ const LOCAL_DEVELOPMENT_ORIGIN_RE = /^http:\/\/(?:localhost|127\.0\.0\.1):(?:300
 // deliberately describe product concepts and command grammar, not merely a
 // single ambiguous word such as "play", "next", or "MUSIXQUARE".
 const EXPLICIT_MUSIC_SUBJECT_RE =
-  /(?:\b(?:music|songs?|tracks?|playlists?|soundtracks?|ost|spotify|apple\s+music)\b|음악|노래|(?:인기|추천|다음|이전|현재|이\s*)곡|플레이리스트|플리|사운드트랙|OST|스포티파이|애플\s*뮤직|音乐|歌曲|播放列表|音楽|曲|プレイリスト|музык|песн|трек|плейлист|música|musique|musik|muziek|muzyka|müzik|musica|nhạc|lagu|เพลง|canción|chanson|lied|nummer|utwór|canção|şarkı|bài\s*hát)/iu;
+  /(?:\b(?:music|songs?|tracks?|playlists?|soundtracks?|ost|spotify|apple\s+music)\b|음악|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_])|(?:인기|추천|다음|이전|현재|이\s*)곡|플레이리스트|플리|사운드트랙|OST|스포티파이|애플\s*뮤직|音乐|歌曲|播放列表|音楽|曲|プレイリスト|музык|песн|трек|плейлист|música|musique|musik|muziek|muzyka|müzik|musica|nhạc|lagu|เพลง|canción|chanson|lied|nummer|utwór|canção|şarkı|bài\s*hát)/iu;
 const MUSIC_REQUEST_NEGATION_RE =
-  /(?:\b(?:not|without|except)\s+(?:music|songs?|tracks?)\b|(?:음악|노래|곡)\s*(?:말고|빼고|제외)|不要(?:音乐|歌曲)|音楽以外|без\s+музык)/iu;
+  /(?:\b(?:not|without|except)\s+(?:music|songs?|tracks?)\b|(?:음악|노래|곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))\s*(?:말고|빼고|제외)|不要(?:音乐|歌曲)|音楽以外|без\s+музык)/iu;
 const MUSIC_REPLACEMENT_REQUEST_RE =
-  /(?:(?:이|this)\s*(?:곡|노래|song|track)?\s*(?:말고|빼고|제외|instead\s+of|except|not).{0,40}(?:다른|비슷한|another|similar).{0,20}(?:음악|노래|곡|music|song|track)|(?:말고|빼고|제외).{0,40}(?:대신|다른|비슷한).{0,20}(?:음악|노래|곡))/iu;
+  /(?:(?:이|this)\s*(?:곡|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_])|song|track)?\s*(?:말고|빼고|제외|instead\s+of|except|not).{0,40}(?:다른|비슷한|another|similar).{0,20}(?:음악|노래|곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_])|music|song|track)|(?:말고|빼고|제외).{0,40}(?:대신|다른|비슷한).{0,20}(?:음악|노래|곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_])))/iu;
 const TRACK_ADD_REQUEST_HINT_RE =
   /(?:\b(?:add|queue)\b|추가|담아|添加|追加|добав|ajout|aggiung|dodaj|adicionar|เพิ่ม|ekle|thêm)/iu;
 const ENGLISH_QUEUE_ORDINAL_TRACK_ACTION_RE =
   /\b(?:play|start|select)\s+(?:queue\s+)?(?:track|song|item)\s*#?(\d{1,3})\b/iu;
 const KOREAN_QUEUE_ORDINAL_TRACK_ACTION_RE =
-  /(?:^|\s)#?(\d{1,3})\s*번\s*(?:곡|노래)\s*(?:을|를)?\s*(?:재생(?:\s*시작)?|틀어|선택)(?:해|해줘|해주세요|줘|주세요)?[.!?…\s]*$/iu;
+  /(?:^|\s)#?(\d{1,3})\s*번\s*(?:곡|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))\s*(?:을|를)?\s*(?:재생(?:\s*시작)?|틀어|선택)(?:해|해줘|해주세요|줘|주세요)?[.!?…\s]*$/iu;
 const ADD_ACTION_NEGATION_RE =
   /(?:\b(?:do\s+not|don['’]?t|dont|never)\b.{0,24}\b(?:add|queue)\b|(?:추가|담).{0,10}(?:하지\s*마|지\s*마|말고|않|마세요|금지)|(?:添加|追加).{0,8}(?:不要|しない|しないで))/iu;
 const PLAY_ACTION_NEGATION_RE =
@@ -133,7 +138,7 @@ const PLAY_ACTION_NEGATION_RE =
 const PAUSE_ACTION_NEGATION_RE =
   /(?:\b(?:do\s+not|don['’]?t|dont|never)\b.{0,24}\b(?:pause|stop)\b|(?:일시\s*정지|정지|멈춰).{0,10}(?:하지\s*마|지\s*마|말고|않|마세요|금지))/iu;
 const NEXT_ACTION_NEGATION_RE =
-  /(?:\b(?:do\s+not|don['’]?t|dont|never)\b.{0,24}\b(?:skip|advance|next)\b|(?:다음\s*(?:곡|노래)?|넘겨|건너뛰|스킵).{0,10}(?:하지\s*마|지\s*마|말고|않|마세요|금지))/iu;
+  /(?:\b(?:do\s+not|don['’]?t|dont|never)\b.{0,24}\b(?:skip|advance|next)\b|(?:다음\s*(?:곡|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))?|넘겨|건너뛰|스킵).{0,10}(?:하지\s*마|지\s*마|말고|않|마세요|금지))/iu;
 const QUEUE_MODE_ACTION_NEGATION_RE =
   /(?:(?:\b(?:do\s+not|don['’]?t|dont|never)\b.{0,24}\b(?:repeat|shuffle|loop)\b|(?:repeat|shuffle|loop).{0,12}\b(?:do\s+not|don['’]?t|dont|never)\b)|(?:반복|셔플|랜덤).{0,10}(?:하지\s*마|지\s*마|말고|않|마세요|금지))/iu;
 const VIRTUAL_TREBLE_TOPIC_RE =
@@ -151,7 +156,7 @@ const HELP_QUESTION_HINT_RE =
 const ACTION_EXPLANATION_REQUEST_RE =
   /(?:\b(?:how|why)\b|어떻게|방법|왜|怎么|如何|为什么|為什麼|どうやって|なぜ|方法)/iu;
 const ROOM_ANSWER_TOPIC_RE =
-  /(?:\b(?:(?:this|current)\s+room|room\s+(?:state|status|controls?)|playback|player|now\s+playing|current\s+(?:song|track)|queue|playlist|repeat|shuffle|seek|volume|mute|reverb|equalizer|eq|bass|surround|sync|synchronization|latency|effects?|developer\s+api)\b|(?:이|현재)\s*방|방\s*(?:상태|제어)|재생\s*(?:목록|상태|제어)|플레이리스트|플리|대기열|현재\s*(?:곡|재생)|지금\s*(?:재생|나오)|다음\s*곡|이전\s*곡|반복|셔플|탐색|시크|볼륨|음소거|뮤트|리버브|잔향|이퀄라이저|이큐|베이스|서라운드|동기화|싱크|지연|효과|개발자\s*API|(?:곡|노래).{0,12}(?:추가|삭제|재생|찾|추천)|(?:추가|삭제|재생|찾|추천).{0,12}(?:곡|노래)|播放列表|队列|循环|随机|音量|静音|混响|均衡器|低音|环绕|同步|房间状态|プレイリスト|キュー|リピート|シャッフル|音量|ミュート|リバーブ|イコライザー|低音|サラウンド|同期|ルーム状態|воспроиз|пауз|очеред|плейлист|повтор|перемеш|громк|реверб|эквалайз|синхрон)/iu;
+  /(?:\b(?:(?:this|current)\s+room|room\s+(?:state|status|controls?)|playback|player|now\s+playing|current\s+(?:song|track)|queue|playlist|repeat|shuffle|seek|volume|mute|reverb|equalizer|eq|bass|surround|sync|synchronization|latency|effects?|developer\s+api)\b|(?:이|현재)\s*방|방\s*(?:상태|제어)|재생\s*(?:목록|상태|제어)|플레이리스트|플리|대기열|현재\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_])|재생)|지금\s*(?:재생|나오)|다음\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|이전\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|반복|셔플|탐색|시크|볼륨|음소거|뮤트|리버브|잔향|이퀄라이저|이큐|베이스|서라운드|동기화|싱크|지연|효과|개발자\s*API|(?:곡|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_])).{0,12}(?:추가|삭제|재생|찾|추천)|(?:추가|삭제|재생|찾|추천).{0,12}(?:곡|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|播放列表|队列|循环|随机|音量|静音|混响|均衡器|低音|环绕|同步|房间状态|プレイリスト|キュー|リピート|シャッフル|音量|ミュート|リバーブ|イコライザー|低音|サラウンド|同期|ルーム状態|воспроиз|пауз|очеред|плейлист|повтор|перемеш|громк|реверб|эквалайз|синхрон)/iu;
 const SIMPLE_PLAY_CONTROL_RE =
   /^(?:please\s+)?(?:play|resume|start)(?:\s+(?:(?:the|this)\s+)?(?:(?:current\s+)?(?:music|song|track)|playback))?(?:\s+please)?[.!…]?$/iu;
 const SIMPLE_PAUSE_CONTROL_RE =
@@ -177,9 +182,9 @@ const SHUFFLE_ENABLE_REQUEST_RE =
 const REPEAT_DISABLE_REQUEST_RE =
   /(?:\bdisable\b.{0,12}\b(?:repeat|loop)\b|\b(?:turn|set|switch)\b.{0,12}\b(?:repeat|loop)\b.{0,8}\boff\b|\b(?:repeat|loop)\b.{0,12}\b(?:off|disable)\b|반복.{0,10}(?:꺼|끄|해제))/iu;
 const REPEAT_ONE_REQUEST_RE =
-  /(?:\b(?:repeat|loop)\b.{0,16}\b(?:one|single|this|current)\b|\b(?:one|single|this|current)\b.{0,16}\b(?:repeat|loop)\b|(?:한\s*곡|현재\s*곡|이\s*곡).{0,10}반복|반복.{0,10}(?:한\s*곡|현재\s*곡|이\s*곡))/iu;
+  /(?:\b(?:repeat|loop)\b.{0,16}\b(?:one|single|this|current)\b|\b(?:one|single|this|current)\b.{0,16}\b(?:repeat|loop)\b|(?:한\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|현재\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|이\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))).{0,10}반복|반복.{0,10}(?:한\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|현재\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|이\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))))/iu;
 const REPEAT_ALL_REQUEST_RE =
-  /(?:\b(?:repeat|loop)\b.{0,16}\b(?:all|playlist|queue)\b|\b(?:all|playlist|queue)\b.{0,16}\b(?:repeat|loop)\b|(?:전체|모든\s*곡|재생\s*목록).{0,10}반복|반복.{0,10}(?:전체|모든\s*곡|재생\s*목록))/iu;
+  /(?:\b(?:repeat|loop)\b.{0,16}\b(?:all|playlist|queue)\b|\b(?:all|playlist|queue)\b.{0,16}\b(?:repeat|loop)\b|(?:전체|모든\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|재생\s*목록).{0,10}반복|반복.{0,10}(?:전체|모든\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|재생\s*목록))/iu;
 const REPEAT_ENABLE_REQUEST_RE =
   /(?:\benable\b.{0,12}\b(?:repeat|loop)\b|\b(?:turn|set|switch)\b.{0,12}\b(?:repeat|loop)\b.{0,8}\bon\b|\b(?:repeat|loop)\b.{0,12}\b(?:on|enable)\b|반복(?:\s*재생)?\s*(?:해|해줘|해주세요|켜|켜줘))/iu;
 
@@ -623,28 +628,28 @@ function explicitlySelectedRemovalIds(prompt, roomState) {
     for (const match of prompt.matchAll(expression)) queueItemIdAt(Number(match[1]));
   }
   if (
-    /(?:\bfirst\s+(?:queue\s+)?(?:track|song|item)\b|(?:\uCCAB|\uCCAB\s*\uBC88\uC9F8)\s*(?:\uACE1|\uB178\uB798))/iu.test(
+    /(?:\bfirst\s+(?:queue\s+)?(?:track|song|item)\b|(?:\uCCAB|\uCCAB\s*\uBC88\uC9F8)\s*(?:\uACE1|\uB178\uB798|\uD2B8\uB799(?:\uC73C\uB85C|\uC5D0\uC11C|\uBD80\uD130|\uAE4C\uC9C0|\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uC758|\uB3C4|\uB9CC|\uC5D0|\uB85C|\uACFC|\uC640)?(?![\p{L}\p{N}_])))/iu.test(
       prompt,
     )
   ) {
     queueItemIdAt(1);
   }
   if (
-    /(?:\bsecond\s+(?:queue\s+)?(?:track|song|item)\b|\uB450\s*\uBC88\uC9F8\s*(?:\uACE1|\uB178\uB798))/iu.test(
+    /(?:\bsecond\s+(?:queue\s+)?(?:track|song|item)\b|\uB450\s*\uBC88\uC9F8\s*(?:\uACE1|\uB178\uB798|\uD2B8\uB799(?:\uC73C\uB85C|\uC5D0\uC11C|\uBD80\uD130|\uAE4C\uC9C0|\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uC758|\uB3C4|\uB9CC|\uC5D0|\uB85C|\uACFC|\uC640)?(?![\p{L}\p{N}_])))/iu.test(
       prompt,
     )
   ) {
     queueItemIdAt(2);
   }
   if (
-    /(?:\bthird\s+(?:queue\s+)?(?:track|song|item)\b|\uC138\s*\uBC88\uC9F8\s*(?:\uACE1|\uB178\uB798))/iu.test(
+    /(?:\bthird\s+(?:queue\s+)?(?:track|song|item)\b|\uC138\s*\uBC88\uC9F8\s*(?:\uACE1|\uB178\uB798|\uD2B8\uB799(?:\uC73C\uB85C|\uC5D0\uC11C|\uBD80\uD130|\uAE4C\uC9C0|\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uC758|\uB3C4|\uB9CC|\uC5D0|\uB85C|\uACFC|\uC640)?(?![\p{L}\p{N}_])))/iu.test(
       prompt,
     )
   ) {
     queueItemIdAt(3);
   }
   if (
-    /(?:\b(?:last)\s+(?:queue\s+)?(?:track|song|item)\b|\uB9C8\uC9C0\uB9C9\s*(?:\uACE1|\uB178\uB798))/iu.test(
+    /(?:\b(?:last)\s+(?:queue\s+)?(?:track|song|item)\b|\uB9C8\uC9C0\uB9C9\s*(?:\uACE1|\uB178\uB798|\uD2B8\uB799(?:\uC73C\uB85C|\uC5D0\uC11C|\uBD80\uD130|\uAE4C\uC9C0|\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uC758|\uB3C4|\uB9CC|\uC5D0|\uB85C|\uACFC|\uC640)?(?![\p{L}\p{N}_])))/iu.test(
       prompt,
     )
   ) {
@@ -674,6 +679,7 @@ function explicitlySelectedRemovalIds(prompt, roomState) {
       'playlist',
       '\uACE1',
       '\uB178\uB798',
+      '\uD2B8\uB799',
       '\uC74C\uC545',
       '\uD50C\uB808\uC774\uB9AC\uC2A4\uD2B8',
     ]);
@@ -803,14 +809,14 @@ function planExplicitQueueOrdinal(prompt, context) {
     return {
       intent: 'answer',
       answer: korean
-        ? '재생목록에 해당 순번의 곡이 없어요.'
+        ? '재생목록에 해당 순번의 트랙이 없어요.'
         : 'That track number is not in the queue.',
     };
   }
   return {
     intent: 'play_existing',
     queueItemId,
-    answer: korean ? `${ordinal}번 곡을 재생할게요.` : `Playing track ${ordinal}.`,
+    answer: korean ? `${ordinal}번 트랙을 재생할게요.` : `Playing track ${ordinal}.`,
   };
 }
 
@@ -821,7 +827,7 @@ function isPlayControlPrompt(prompt) {
   if (targetsExternalControlSurface(prompt)) return false;
   if (
     SIMPLE_PLAY_CONTROL_RE.test(prompt) ||
-    /^(?:(?:음악|노래|현재\s*곡|이\s*(?:곡|노래)|재생\s*목록)\s*)?(?:재생(?:\s*시작)?(?:해|해줘|해주세요)?|다시\s*재생(?:해|해줘|해주세요)?|틀어(?:줘|주세요)?|시작해(?:줘|주세요)?)[.!…]?$/u.test(
+    /^(?:(?:음악|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_])|현재\s*(?:곡|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|이\s*(?:곡|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))|재생\s*목록)\s*)?(?:재생(?:\s*시작)?(?:해|해줘|해주세요)?|다시\s*재생(?:해|해줘|해주세요)?|틀어(?:줘|주세요)?|시작해(?:줘|주세요)?)[.!…]?$/u.test(
       prompt.trim(),
     )
   ) {
@@ -856,7 +862,7 @@ function isNextControlPrompt(prompt) {
   if (targetsExternalControlSurface(prompt)) return false;
   if (
     SIMPLE_NEXT_CONTROL_RE.test(prompt) ||
-    /^(?:다음\s*(?:곡|노래)(?:으?로)?(?:\s*(?:넘어가|가|재생|틀어)(?:줘|주세요|해|해줘)?)?|다음으로\s*(?:넘어가|가)(?:줘|주세요)?|넘겨(?:줘|주세요)?|건너뛰어?(?:줘|주세요)?|스킵(?:해|해줘)?)[.!…]?$/u.test(
+    /^(?:다음\s*(?:곡|노래|트랙(?:으로|에서|부터|까지|은|는|이|가|을|를|의|도|만|에|로|과|와)?(?![\p{L}\p{N}_]))(?:으?로)?(?:\s*(?:넘어가|가|재생|틀어)(?:줘|주세요|해|해줘)?)?|다음으로\s*(?:넘어가|가)(?:줘|주세요)?|넘겨(?:줘|주세요)?|건너뛰어?(?:줘|주세요)?|스킵(?:해|해줘)?)[.!…]?$/u.test(
       prompt.trim(),
     )
   ) {
@@ -928,7 +934,9 @@ function virtualTreblePlanMatchesPrompt(prompt, plan) {
 function isScopedDeletionPrompt(prompt) {
   if (!explicitlyRequestsDeletion(prompt)) return false;
   if (EXTERNAL_DELETION_TARGET_RE.test(prompt)) return false;
-  if (CLEAR_QUEUE_REQUEST_HINT_RE.test(prompt)) return true;
+  if (CLEAR_QUEUE_REQUEST_HINT_RE.test(prompt)) {
+    return !prompt.includes('트랙') || KOREAN_TRACK_TERM_RE.test(prompt);
+  }
   const namesRoomQueue = ROOM_QUEUE_DELETION_TARGET_RE.test(prompt);
   if (!namesRoomQueue && !ROOM_TRACK_DELETION_TARGET_RE.test(prompt)) return false;
   return EXPLICIT_DELETION_SELECTOR_RE.test(prompt);
@@ -976,11 +984,11 @@ function normalizePlanForExecution(prompt, plan) {
   const answer =
     plan.intent === 'add_youtube'
       ? korean
-        ? '곡을 추가했어요.'
+        ? '트랙을 추가했어요.'
         : 'Tracks added.'
       : plan.intent === 'remove_items'
         ? korean
-          ? '곡을 삭제했어요.'
+          ? '트랙을 삭제했어요.'
           : 'Tracks removed.'
         : plan.intent === 'clear_queue'
           ? korean
@@ -1028,6 +1036,7 @@ function explicitlyRequestsDeletion(prompt) {
 }
 
 function explicitlyRequestsQueueClear(prompt) {
+  if (prompt.includes('트랙') && !KOREAN_TRACK_TERM_RE.test(prompt)) return false;
   return (
     hasUnambiguousDestructiveIntent(prompt) &&
     CLEAR_QUEUE_REQUEST_HINT_RE.test(prompt) &&

@@ -9,7 +9,7 @@ const MAX_SMOKE_BYTES = 1024 * 1024;
 const FILE_NAME = 'live-remote-share-smoke.wav';
 const FILE_MIME = 'audio/wav';
 const REQUEST_TIMEOUT_MS = 30_000;
-const WORKER_PROPAGATION_TIMEOUT_MS = 30_000;
+const WORKER_PROPAGATION_TIMEOUT_MS = 120_000;
 const WORKER_RETRY_INTERVAL_MS = 1_000;
 const R2_CORS_PROPAGATION_TIMEOUT_MS = 45_000;
 const R2_CORS_RETRY_INTERVAL_MS = 2_000;
@@ -56,9 +56,12 @@ function assertAllowedOrigin(response: Response, label: string): void {
 async function waitForRemoteShareWorkerReady(): Promise<void> {
   const deadline = Date.now() + WORKER_PROPAGATION_TIMEOUT_MS;
   let consecutiveReadyReads = 0;
+  let lastObservedContract = 'none';
 
   for (;;) {
-    const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/security-config`, {
+    const readinessUrl = new URL('/security-config', REMOTE_ORIGIN);
+    readinessUrl.searchParams.set('readiness', `${Date.now()}-${randomUUID()}`);
+    const response = await fetchWithTimeout(readinessUrl, {
       headers: { Accept: 'application/json', Origin: APP_ORIGIN },
     });
     assertAllowedOrigin(response, 'remote-share readiness');
@@ -73,13 +76,21 @@ async function waitForRemoteShareWorkerReady(): Promise<void> {
 
     const wholeObjectReady =
       config.wholeObjectVersion === 1 && config.downloadAuthorizationVersion === 1;
+    lastObservedContract = JSON.stringify({
+      workerContractVersion: config.workerContractVersion,
+      wholeObjectVersion: config.wholeObjectVersion,
+      plainWholeObjectVersion: config.plainWholeObjectVersion,
+      downloadAuthorizationVersion: config.downloadAuthorizationVersion,
+    });
     if (config.workerContractVersion === 1 && wholeObjectReady) {
       consecutiveReadyReads += 1;
       if (consecutiveReadyReads >= 2) return;
     } else consecutiveReadyReads = 0;
 
     if (Date.now() >= deadline) {
-      throw new Error('remote-share readiness did not converge');
+      throw new Error(
+        `remote-share readiness did not converge; last contract: ${lastObservedContract}`,
+      );
     }
     await new Promise((resolve) =>
       setTimeout(resolve, Math.min(WORKER_RETRY_INTERVAL_MS, Math.max(0, deadline - Date.now()))),

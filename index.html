@@ -2736,6 +2736,26 @@
             ></a>
           </nav>
         </div>
+        <dl
+          class="account-dialog-stats"
+          id="account-dialog-stats"
+          aria-live="polite"
+          aria-busy="false"
+          hidden
+        >
+          <div class="account-dialog-stat-row">
+            <dt id="account-stats-sessions-label" data-i18n="account.stats_sessions_label"></dt>
+            <dd id="account-stats-session-count">—</dd>
+          </div>
+          <div class="account-dialog-stat-row">
+            <dt id="account-stats-listening-label" data-i18n="account.stats_listening_label"></dt>
+            <dd id="account-stats-listening-time">—</dd>
+          </div>
+          <div class="account-dialog-stat-row">
+            <dt id="account-stats-tracks-label" data-i18n="account.stats_tracks_label"></dt>
+            <dd id="account-stats-track-count">—</dd>
+          </div>
+        </dl>
         <div class="account-dialog-actions" id="account-dialog-actions" hidden>
           <button type="button" class="dialog-primary" id="btn-account-rename"></button>
           <button type="button" class="dialog-secondary" id="btn-account-logout"></button>

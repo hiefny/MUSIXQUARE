@@ -41,6 +41,7 @@ export const EXPECTED_ACCOUNT_SCHEMA_OBJECTS = [
   'mxqr_account_pro_room_generations',
   'mxqr_account_pro_rooms',
   'mxqr_account_sessions',
+  'mxqr_account_stats',
   'mxqr_accounts',
   'mxqr_oauth_flows',
 ].sort();

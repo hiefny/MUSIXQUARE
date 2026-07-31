@@ -49,6 +49,13 @@ const ptBr: Record<I18nKey, string> = {
   'account.unavailable':
     'O login está temporariamente indisponível. Você pode continuar sem uma conta.',
   'account.account_title': 'Conta',
+  'account.stats_sessions_label': 'Sessões participadas',
+  'account.stats_listening_label': 'Tempo ouvido em conjunto',
+  'account.stats_tracks_label': 'Faixas reproduzidas',
+  'account.stats_count_value': '{{count}}',
+  'account.stats_seconds_value': '{{seconds}} s',
+  'account.stats_minutes_value': '{{minutes}} min',
+  'account.stats_hours_minutes_value': '{{hours}} h {{minutes}} min',
   'account.change_nickname': 'Alterar apelido',
   'account.logout': 'Sair',
   'account.delete_account': 'Excluir conta',

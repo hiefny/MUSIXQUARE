@@ -395,7 +395,7 @@ describe('PRO room generation release cutover', () => {
     );
     const strictCaptures = workflow.match(/\| node scripts\/capture-wrangler-d1-json\.mjs/gu);
     const d1JsonExecutionCount = d1JsonExecutions?.length ?? 0;
-    expect(d1JsonExecutionCount).toBe(13);
+    expect(d1JsonExecutionCount).toBe(15);
     expect(strictCaptures).toHaveLength(d1JsonExecutionCount);
     for (const execution of d1JsonExecutions ?? []) {
       expect(execution).toContain('| node scripts/capture-wrangler-d1-json.mjs');

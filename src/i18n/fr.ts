@@ -49,6 +49,13 @@ const fr: Record<I18nKey, string> = {
   'account.unavailable':
     'La connexion est temporairement indisponible. Vous pouvez continuer sans compte.',
   'account.account_title': 'Compte',
+  'account.stats_sessions_label': 'Sessions rejointes',
+  'account.stats_listening_label': 'Temps d’écoute partagé',
+  'account.stats_tracks_label': 'Titres lus',
+  'account.stats_count_value': '{{count}}',
+  'account.stats_seconds_value': '{{seconds}} s',
+  'account.stats_minutes_value': '{{minutes}} min',
+  'account.stats_hours_minutes_value': '{{hours}} h {{minutes}} min',
   'account.change_nickname': 'Modifier le pseudo',
   'account.logout': 'Se déconnecter',
   'account.delete_account': 'Supprimer le compte',

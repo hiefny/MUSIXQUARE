@@ -58,7 +58,7 @@
     <main class="policy-shell">
       <section class="policy-hero">
         <h1>Privacy Policy</h1>
-        <p class="policy-date">Effective date: July 28, 2026</p>
+        <p class="policy-date">Effective date: July 31, 2026</p>
       </section>
 
       <article class="policy-doc">
@@ -120,9 +120,12 @@
                 verified-email claim. MUSIXQUARE uses that claim only to require a Google-verified
                 account and does not store the email address. It stores a random account ID, an
                 HMAC-pseudonymized form of Google's subject identifier, your chosen nickname,
-                profile status, and account-session timestamps. Google tokens, your email address,
-                Google name, and profile photo are not stored. Sign-in uses a Secure, HttpOnly
-                cookie, and the database stores only a keyed digest of the random session token.
+                profile status, account-session timestamps, and the cumulative totals shown in the
+                account menu: sessions joined, seconds listened, and tracks played. These totals do
+                not include room codes, track titles, event timestamps, or per-session or per-track
+                history. Google tokens, your email address, Google name, and profile photo are not
+                stored. Sign-in uses a Secure, HttpOnly cookie, and the database stores only a keyed
+                digest of the random session token.
               </dd>
             </div>
             <div>
@@ -217,8 +220,9 @@
           <p>
             Data is processed to provide optional sign-in, keep a chosen nickname, represent a
             person across their devices, establish and protect rooms, synchronize playback, deliver
-            requested sharing features, interpret individual AI BOT requests, diagnose failures,
-            prevent abuse, and understand aggregate service reliability.
+            requested sharing features, show cumulative account activity totals, interpret
+            individual AI BOT requests, diagnose failures, prevent abuse, and understand aggregate
+            service reliability.
           </p>
           <p>
             MUSIXQUARE does not access, analyze, or retain ordinary-room shared content except as
@@ -265,12 +269,13 @@
             until the room owner revokes them, the room is deleted, or the account is deleted.
           </p>
           <p>
-            Deleting an account removes the active account profile, account sessions, and that
-            account's membership and account-linked authority, including a linked owner association,
-            from PRO rooms. If room cleanup is temporarily unavailable, the account is kept and
-            deletion can be retried. Account deletion does not decommission a PRO room or invalidate
-            its separate room-recovery credential, and it does not automatically delete media
-            already shared in that room. The media follows the room's retention rules.
+            Deleting an account removes the active account profile, cumulative account activity
+            totals, account sessions, and that account's membership and account-linked authority,
+            including a linked owner association, from PRO rooms. If room cleanup is temporarily
+            unavailable, the account is kept and deletion can be retried. Account deletion does not
+            decommission a PRO room or invalidate its separate room-recovery credential, and it does
+            not automatically delete media already shared in that room. The media follows the
+            room's retention rules.
             Provider-managed point-in-time recovery data may remain for the applicable
             backup-retention period.
           </p>

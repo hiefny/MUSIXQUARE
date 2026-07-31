@@ -6,7 +6,7 @@ server-only secrets are provisioned. When any requirement is missing,
 `GET /api/auth/session` returns:
 
 ```json
-{ "configured": false, "authenticated": false, "account": null }
+{ "configured": false, "authenticated": false, "account": null, "statsScope": null }
 ```
 
 All other `/api/auth/*` routes fail closed with HTTP 503. Ordinary and PRO room
@@ -49,9 +49,11 @@ database_id = "<the-real-database-id>"
 
 No placeholder binding is committed because Wrangler would treat it as a
 deployable production configuration. D1 contains only random account IDs,
-HMAC-pseudonymized Google subjects, account nicknames, and digests of random
-session tokens. Google email, OAuth tokens, and raw browser session tokens are
-not stored.
+HMAC-pseudonymized Google subjects, account nicknames, three account-scoped
+lifetime aggregate counters, and digests of random session tokens. The counters
+record only sessions joined, listening seconds, and tracks played; they contain
+no room code, media identity, title, event timestamp, or per-play history.
+Google email, OAuth tokens, and raw browser session tokens are not stored.
 
 New nickname writes accept at most 12 Unicode code points and reject every
 Unicode whitespace character. A separate `nickname_key` is derived with NFKC,
@@ -101,6 +103,21 @@ is one-time migration evidence, not a live parity invariant: generation-`0`
 traffic deliberately continues writing the legacy table and deletion reads the
 distinct union. Do not drop the legacy table during the rolling compatibility
 window and do not collapse generation-aware rows back to room-code-only edges.
+
+Account statistics use a separate additive, forward-only migration:
+
+```text
+cloudflare/auth.account-stats.migration.sql
+```
+
+The routine production path is the `Production Release` workflow with target
+`app` (or `all`) and `apply_account_stats_d1` enabled. The workflow first probes
+the one-to-one table shape, refuses a partially compatible table, applies the
+migration only when the table is absent, and verifies it again before deploying
+the App Worker. Do not expose `/api/auth/stats` before this verification passes.
+An older App Worker safely ignores the additive table, so a failed Worker
+rollout leaves the table in place and restores the previous Worker rather than
+dropping account data.
 
 ## 2. Configure Google OpenID Connect
 
@@ -200,6 +217,18 @@ one account retains at most 128 browser sessions; issuing another session
 removes the least recently used excess sessions. Sign-out removes the current
 session, sign-out-all removes every session for the account, and account
 deletion removes the active account row and all of its account-session rows.
+An optional one-to-one statistics row keeps only the three nonnegative lifetime
+aggregates described above. Missing rows read as zero. Statistics writes accept
+bounded positive deltas from an authenticated same-origin client. Each
+authenticated session response also carries a short opaque `statsScope`, and
+the client echoes it in `X-MXQR-Account-Stats-Scope` on a statistics PATCH. The
+value is a purpose-separated HMAC fence for that exact session—not an account
+identifier or authorization credential—and is never stored in the statistics
+table. A stale scope is rejected before any write, so activity queued before a
+browser switches accounts cannot be attributed to the new cookie session.
+Statistics are deliberately unsuitable for ranking, rewards, billing, or
+authorization because they are user-facing approximate counters rather than
+an event ledger.
 Immediately before deletion, the same D1 transaction copies at most 128 session
 digests into `mxqr_account_deleted_sessions` for ten minutes. Those rows can
 mint only a separate Standard-room deletion assertion: they cannot authenticate
@@ -250,6 +279,11 @@ one-minute cron resumes durable jobs after interruption. Each confirmed,
 idempotent room purge deletes only its matching reverse edge. The account row is
 removed after no edge remains; a failed edge stays queued while the account
 remains disabled and cannot log in, attach, or create new authority.
+The aggregate statistics row follows the same boundary: it may remain while a
+disabled account's durable PRO cleanup is pending, but it cannot be read or
+updated after sessions are revoked and is removed by the final account-row
+cascade. Statistics are never copied into the ten-minute deletion-only session
+tombstone.
 
 The reverse index is atomically capped at 1,000 distinct incarnations per
 account; an existing edge may still refresh at that limit, but a new
@@ -366,6 +400,11 @@ or deploys a Worker.
    with one flag enabled.
 5. Deploy PRO first, signaling second, and App/static last. Do not publish the
    App while either downstream Worker is still on its pre-activation version.
+
+For an account-statistics release, use the dedicated workflow input described
+above. Its schema probe/apply/verify steps run before the App/static deployment;
+the ordinary fast `app` target remains sufficient because no signaling or PRO
+protocol contract changes.
 
 For the reusable-code release, apply the auth generation migration before the
 Worker release and use the broader dependency order in the PRO operations ADR:

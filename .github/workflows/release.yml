@@ -15,6 +15,11 @@ on:
           - developer-api
           - remote-share
           - all
+      apply_account_stats_d1:
+        description: Apply the additive aggregate-only account stats migration
+        required: true
+        default: false
+        type: boolean
       apply_developer_api_d1:
         description: Apply Developer API D1 schema and one-time migrations
         required: true
@@ -75,6 +80,12 @@ jobs:
         env:
           PRO_ROOM_GENERATION_CUTOVER_CONFIRMATION: ${{ inputs.pro_room_generation_cutover_confirmation }}
         run: |
+          if [[ "${{ inputs.apply_account_stats_d1 }}" == "true" &&
+                "${{ inputs.target }}" != "all" &&
+                "${{ inputs.target }}" != "app" ]]; then
+            echo "::error::Account stats D1 changes require target 'app' or 'all'."
+            exit 1
+          fi
           if [[ "${{ inputs.apply_developer_api_d1 }}" == "true" &&
                 "${{ inputs.target }}" != "all" &&
                 "${{ inputs.target }}" != "developer-api" ]]; then
@@ -307,6 +318,68 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npm run --silent wrangler -- whoami
+
+      - name: Probe account stats migration state
+        timeout-minutes: 10
+        id: account_stats_schema_plan
+        if: inputs.target == 'all' || inputs.target == 'app'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::The production environment secret CLOUDFLARE_D1_API_TOKEN is not configured."
+            exit 1
+          fi
+          mkdir -p release-artifacts/deployments
+          npm run --silent wrangler -- d1 execute musixquare-auth \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command="$(cat scripts/sql/account-stats-auth-readiness.sql)" \
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/deployments/account-stats-auth-before.json
+          node scripts/account-stats-schema-state.mjs plan \
+            release-artifacts/deployments/account-stats-auth-before.json \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Validate account stats migration intent
+        if: inputs.target == 'all' || inputs.target == 'app'
+        shell: bash
+        run: |
+          if [[ "${{ steps.account_stats_schema_plan.outputs.state }}" != "ready" &&
+                "${{ inputs.apply_account_stats_d1 }}" != "true" ]]; then
+            echo "::error::The account stats schema is missing. Re-run target 'app' or 'all' with the reviewed account stats migration enabled."
+            exit 1
+          fi
+
+      - name: Apply account stats migration
+        timeout-minutes: 10
+        if: >-
+          inputs.apply_account_stats_d1 &&
+          (inputs.target == 'all' || inputs.target == 'app') &&
+          steps.account_stats_schema_plan.outputs.state == 'missing'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          npm run --silent wrangler -- d1 execute musixquare-auth \
+            --remote --config cloudflare/wrangler.app.toml \
+            --file cloudflare/auth.account-stats.migration.sql
+
+      - name: Verify account stats schema
+        timeout-minutes: 10
+        if: >-
+          inputs.apply_account_stats_d1 &&
+          (inputs.target == 'all' || inputs.target == 'app') &&
+          steps.account_stats_schema_plan.outputs.state == 'missing'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          npm run --silent wrangler -- d1 execute musixquare-auth \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command="$(cat scripts/sql/account-stats-auth-readiness.sql)" \
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/deployments/account-stats-auth-ready.json
+          node scripts/account-stats-schema-state.mjs verify \
+            release-artifacts/deployments/account-stats-auth-ready.json
 
       - name: Probe PRO room generation migration state
         timeout-minutes: 10
@@ -1059,6 +1132,7 @@ jobs:
           echo "- Wrangler: \`${WRANGLER_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Validation: \`${RELEASE_VALIDATION_PROFILE}\` (full E2E runs on manual dispatch)." >> "$GITHUB_STEP_SUMMARY"
           echo "- Candidate source: run \`${RELEASE_SOURCE_RUN_ID}\`, attempt \`${RELEASE_SOURCE_RUN_ATTEMPT}\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Account stats D1 changes requested: \`${{ inputs.apply_account_stats_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Developer API D1 changes requested: \`${{ inputs.apply_developer_api_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- PRO generation D1 changes requested: \`${{ inputs.apply_pro_room_generation_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- PRO generation cutover requested: \`${{ inputs.enable_pro_room_generation_cutover }}\`" >> "$GITHUB_STEP_SUMMARY"

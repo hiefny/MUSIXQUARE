@@ -422,6 +422,13 @@ describe('Translation key integrity', () => {
       'account.privacy',
       'account.unavailable',
       'account.account_title',
+      'account.stats_sessions_label',
+      'account.stats_listening_label',
+      'account.stats_tracks_label',
+      'account.stats_count_value',
+      'account.stats_seconds_value',
+      'account.stats_minutes_value',
+      'account.stats_hours_minutes_value',
       'account.change_nickname',
       'account.logout',
       'account.delete_account',
@@ -451,5 +458,10 @@ describe('Translation key integrity', () => {
         );
       }
     }
+
+    expect(ko['account.stats_sessions_label']).toBe('참여한 세션');
+    expect(ko['account.stats_listening_label']).toBe('함께 들은 시간');
+    expect(ko['account.stats_tracks_label']).toBe('재생한 곡');
+    expect(ko['account.stats_hours_minutes_value']).toBe('{{hours}}시간 {{minutes}}분');
   });
 });

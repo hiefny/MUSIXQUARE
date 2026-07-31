@@ -31,9 +31,9 @@
     {
       "database": "musixquare-auth",
       "baseline": "cloudflare/auth.schema.sql",
-      "baselineRevision": 3,
-      "baselineSha256": "51f95596346292b644248b5b1c6fd55a9fc31b2b54fbb1d24bb11d15fe6817af",
-      "baselineMigration": "auth-pro-room-generation-v1",
+      "baselineRevision": 4,
+      "baselineSha256": "d5d1968b7c1376aaad7be271139d384f949738b335004f2cc727b7b5b8f9b382",
+      "baselineMigration": "auth-account-stats-v1",
       "baselineRecovery": {
         "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
         "runbook": "docs/account-auth-operations.md",
@@ -64,6 +64,19 @@
             "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
             "runbook": "docs/account-auth-operations.md",
             "note": "Account cleanup authority is bound to an immutable PRO room generation; after the reuse cutover is enabled, recovery never collapses composite reverse edges back to room-code-only authority."
+          }
+        },
+        {
+          "id": "auth-account-stats-v1",
+          "forward": "cloudflare/auth.account-stats.migration.sql",
+          "forwardSha256": "d6a6681bda95195ff08f5f1077ff31ad7752308590afc5cc442be4ffd124f319",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "roll-forward-or-provider-restore",
+            "runbook": "docs/account-auth-operations.md",
+            "note": "The additive aggregate-only table is ignored by older App Workers; recovery keeps it in place, rolls forward, or restores the provider database."
           }
         }
       ]

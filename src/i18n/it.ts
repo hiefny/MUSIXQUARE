@@ -46,6 +46,13 @@ const it: Record<I18nKey, string> = {
   'account.unavailable':
     'L’accesso non è temporaneamente disponibile. Puoi continuare senza account.',
   'account.account_title': 'Account',
+  'account.stats_sessions_label': 'Sessioni a cui hai partecipato',
+  'account.stats_listening_label': 'Tempo di ascolto insieme',
+  'account.stats_tracks_label': 'Brani riprodotti',
+  'account.stats_count_value': '{{count}}',
+  'account.stats_seconds_value': '{{seconds}} sec',
+  'account.stats_minutes_value': '{{minutes}} min',
+  'account.stats_hours_minutes_value': '{{hours}} h {{minutes}} min',
   'account.change_nickname': 'Cambia nickname',
   'account.logout': 'Esci',
   'account.delete_account': 'Elimina account',

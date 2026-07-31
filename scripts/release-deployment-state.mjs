@@ -119,6 +119,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/pro-room-generation.js',
     'cloudflare/account-auth.js',
     'cloudflare/auth.schema.sql',
+    'cloudflare/auth.account-stats.migration.sql',
     'cloudflare/auth.nickname-key.migration.sql',
     'cloudflare/auth.pro-room-generation.migration.sql',
     'cloudflare/admin-metrics.schema.sql',

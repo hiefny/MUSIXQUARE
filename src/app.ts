@@ -97,6 +97,7 @@ import { initTabs } from './ui/tabs.ts';
 import { initI18n } from './i18n/index.ts';
 import { t } from './i18n/index.ts';
 import { initAccount } from './ui/account.ts';
+import { initAccountActivityStats } from './account/activity-stats.ts';
 import { initAccountRoomIdentity } from './account/room-identity.ts';
 import { initVisualizer } from './ui/visualizer.ts';
 import { initChat } from './ui/chat.ts';
@@ -475,6 +476,7 @@ async function bootstrap(): Promise<void> {
     log.error('[App] I18n init failed:', e),
   );
   safeInit('Account', initAccount);
+  safeInit('Account activity stats', initAccountActivityStats);
   safeInit('Account room identity', initAccountRoomIdentity);
 
   // 3. Player & Media

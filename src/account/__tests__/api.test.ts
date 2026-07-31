@@ -2,9 +2,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  addAccountStats,
   buildGoogleLoginUrl,
   deleteAccount,
   getAccountSession,
+  getAccountStats,
   getStandardRoomIdentityAssertions,
   updateAccountProfile,
 } from '../api.ts';
@@ -15,6 +17,8 @@ function jsonResponse(value: unknown, status = 200): Response {
     headers: { 'Content-Type': 'application/json' },
   });
 }
+
+const STATS_SCOPE = 'a'.repeat(43);
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn());
@@ -31,6 +35,7 @@ describe('account API client', () => {
         configured: true,
         authenticated: true,
         account: { nickname: 'Minsu', profileComplete: true },
+        statsScope: STATS_SCOPE,
         session: { expiresAt: 1234 },
       }),
     );
@@ -39,6 +44,7 @@ describe('account API client', () => {
       configured: true,
       authenticated: true,
       account: { nickname: 'Minsu', profileComplete: true },
+      statsScope: STATS_SCOPE,
     });
     expect(fetch).toHaveBeenCalledWith(
       '/api/auth/session',
@@ -68,6 +74,93 @@ describe('account API client', () => {
         body: JSON.stringify({ nickname: 'Jisu' }),
       }),
     );
+  });
+
+  it('reads aggregate account stats and sends bounded deltas with the CSRF marker', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          stats: { sessionCount: 7, listeningSeconds: 3_661, trackCount: 42 },
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          stats: { sessionCount: 8, listeningSeconds: 3_691, trackCount: 43 },
+        }),
+      );
+
+    await expect(getAccountStats()).resolves.toEqual({
+      sessionCount: 7,
+      listeningSeconds: 3_661,
+      trackCount: 42,
+    });
+    await expect(
+      addAccountStats(
+        {
+          sessionCountDelta: 1,
+          listeningSecondsDelta: 30,
+          trackCountDelta: 1,
+        },
+        STATS_SCOPE,
+      ),
+    ).resolves.toEqual({
+      sessionCount: 8,
+      listeningSeconds: 3_691,
+      trackCount: 43,
+    });
+
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      '/api/auth/stats',
+      expect.objectContaining({ credentials: 'same-origin' }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      '/api/auth/stats',
+      expect.objectContaining({
+        method: 'PATCH',
+        headers: expect.objectContaining({
+          'Content-Type': 'application/json',
+          'X-MXQR-Account-CSRF': '1',
+          'X-MXQR-Account-Stats-Scope': STATS_SCOPE,
+        }),
+        body: JSON.stringify({
+          sessionCountDelta: 1,
+          listeningSecondsDelta: 30,
+          trackCountDelta: 1,
+        }),
+      }),
+    );
+  });
+
+  it('rejects malformed aggregate account stats', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({
+        stats: { sessionCount: 1, listeningSeconds: -1, trackCount: 2 },
+      }),
+    );
+
+    await expect(getAccountStats()).rejects.toMatchObject({
+      code: 'ACCOUNT_INVALID_RESPONSE',
+      status: 502,
+    });
+  });
+
+  it('fails closed before sending an aggregate write without a valid session scope', async () => {
+    await expect(
+      addAccountStats(
+        {
+          sessionCountDelta: 1,
+          listeningSecondsDelta: 0,
+          trackCountDelta: 0,
+        },
+        'not-a-valid-scope',
+      ),
+    ).rejects.toMatchObject({
+      code: 'ACCOUNT_STATS_SCOPE_INVALID',
+      status: 0,
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('requires explicit confirmation for account deletion', async () => {

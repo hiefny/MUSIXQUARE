@@ -49,6 +49,13 @@ const es: Record<I18nKey, string> = {
   'account.unavailable':
     'El inicio de sesión no está disponible temporalmente. Puedes continuar sin él.',
   'account.account_title': 'Cuenta',
+  'account.stats_sessions_label': 'Sesiones en las que participaste',
+  'account.stats_listening_label': 'Tiempo escuchado en conjunto',
+  'account.stats_tracks_label': 'Pistas reproducidas',
+  'account.stats_count_value': '{{count}}',
+  'account.stats_seconds_value': '{{seconds}} s',
+  'account.stats_minutes_value': '{{minutes}} min',
+  'account.stats_hours_minutes_value': '{{hours}} h {{minutes}} min',
   'account.change_nickname': 'Cambiar apodo',
   'account.logout': 'Cerrar sesión',
   'account.delete_account': 'Eliminar cuenta',

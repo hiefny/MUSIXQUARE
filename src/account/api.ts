@@ -17,6 +17,24 @@ export interface AccountSessionResponse {
   configured: boolean;
   authenticated: boolean;
   account: AccountProfile | null;
+  /**
+   * Opaque, non-authorizing fence for the current HttpOnly account session.
+   * Older Workers may omit it during a rolling deployment; activity writes
+   * remain disabled until a scoped response is available.
+   */
+  statsScope?: string | null;
+}
+
+export interface AccountStats {
+  sessionCount: number;
+  listeningSeconds: number;
+  trackCount: number;
+}
+
+export interface AccountStatsDelta {
+  sessionCountDelta: number;
+  listeningSecondsDelta: number;
+  trackCountDelta: number;
 }
 
 export interface StandardRoomAssertionRequest {
@@ -41,9 +59,20 @@ interface RawAccountSessionResponse {
   configured?: unknown;
   authenticated?: unknown;
   account?: RawAccountProfile | null;
+  statsScope?: unknown;
+}
+
+interface RawAccountStatsResponse {
+  stats?: {
+    sessionCount?: unknown;
+    listeningSeconds?: unknown;
+    trackCount?: unknown;
+  };
 }
 
 const ACCOUNT_CSRF_HEADER = 'X-MXQR-Account-CSRF';
+const ACCOUNT_STATS_SCOPE_HEADER = 'X-MXQR-Account-Stats-Scope';
+const ACCOUNT_STATS_SCOPE_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const ACCOUNT_REQUEST_TIMEOUT_MS = 15_000;
 const ACCOUNT_RESPONSE_MAX_BYTES = 64 * 1024;
 
@@ -69,7 +98,7 @@ function normalizeAccountResponse(value: unknown): AccountSessionResponse {
   const authenticated = configured && raw.authenticated === true;
 
   if (!authenticated) {
-    return { configured, authenticated: false, account: null };
+    return { configured, authenticated: false, account: null, statsScope: null };
   }
 
   const account = raw.account;
@@ -80,14 +109,46 @@ function normalizeAccountResponse(value: unknown): AccountSessionResponse {
   ) {
     throw new AccountApiError('ACCOUNT_INVALID_RESPONSE', 502);
   }
+  const statsScope = raw.statsScope;
+  if (
+    statsScope !== undefined &&
+    statsScope !== null &&
+    (typeof statsScope !== 'string' || !ACCOUNT_STATS_SCOPE_PATTERN.test(statsScope))
+  ) {
+    throw new AccountApiError('ACCOUNT_INVALID_RESPONSE', 502);
+  }
 
   return {
     configured: true,
     authenticated: true,
+    statsScope: typeof statsScope === 'string' ? statsScope : null,
     account: {
       nickname: account.nickname,
       profileComplete: account.profileComplete,
     },
+  };
+}
+
+function normalizeAccountStats(value: unknown): AccountStats {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AccountApiError('ACCOUNT_INVALID_RESPONSE', 502);
+  }
+  const stats = (value as RawAccountStatsResponse).stats;
+  if (
+    !stats ||
+    !Number.isSafeInteger(stats.sessionCount) ||
+    (stats.sessionCount as number) < 0 ||
+    !Number.isSafeInteger(stats.listeningSeconds) ||
+    (stats.listeningSeconds as number) < 0 ||
+    !Number.isSafeInteger(stats.trackCount) ||
+    (stats.trackCount as number) < 0
+  ) {
+    throw new AccountApiError('ACCOUNT_INVALID_RESPONSE', 502);
+  }
+  return {
+    sessionCount: stats.sessionCount as number,
+    listeningSeconds: stats.listeningSeconds as number,
+    trackCount: stats.trackCount as number,
   };
 }
 
@@ -150,6 +211,29 @@ function mutationHeaders(): HeadersInit {
 
 export async function getAccountSession(): Promise<AccountSessionResponse> {
   return normalizeAccountResponse(await requestJson('/api/auth/session'));
+}
+
+export async function getAccountStats(): Promise<AccountStats> {
+  return normalizeAccountStats(await requestJson('/api/auth/stats'));
+}
+
+export async function addAccountStats(
+  input: AccountStatsDelta,
+  statsScope: string,
+): Promise<AccountStats> {
+  if (!ACCOUNT_STATS_SCOPE_PATTERN.test(statsScope)) {
+    throw new AccountApiError('ACCOUNT_STATS_SCOPE_INVALID', 0);
+  }
+  return normalizeAccountStats(
+    await requestJson('/api/auth/stats', {
+      method: 'PATCH',
+      headers: {
+        ...mutationHeaders(),
+        [ACCOUNT_STATS_SCOPE_HEADER]: statsScope,
+      },
+      body: JSON.stringify(input),
+    }),
+  );
 }
 
 function normalizeRoomAssertionToken(value: unknown): string | null {

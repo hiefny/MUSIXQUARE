@@ -38,6 +38,13 @@ interface SessionRow {
   expires_at: number;
 }
 
+interface AccountStatsRow {
+  account_id: string;
+  session_count: number;
+  listening_seconds: number;
+  track_count: number;
+}
+
 interface DeletedSessionRow {
   session_hash: string;
   account_id: string;
@@ -86,6 +93,7 @@ class FakeAuthDb {
   readonly accounts = new Map<string, AccountRow>();
   readonly accountBySubject = new Map<string, string>();
   readonly sessions = new Map<string, SessionRow>();
+  readonly accountStats = new Map<string, AccountStatsRow>();
   readonly deletedSessions = new Map<string, DeletedSessionRow>();
   readonly flows = new Map<string, FlowRow>();
   readonly proRoomLinks = new Map<string, ProRoomLinkRow>();
@@ -102,6 +110,7 @@ class FakeAuthDb {
     const accountSnapshot = new Map(this.accounts);
     const subjectSnapshot = new Map(this.accountBySubject);
     const sessionSnapshot = new Map(this.sessions);
+    const accountStatsSnapshot = new Map(this.accountStats);
     const deletedSessionSnapshot = new Map(this.deletedSessions);
     const flowSnapshot = new Map(this.flows);
     const proRoomLinkSnapshot = new Map(this.proRoomLinks);
@@ -114,6 +123,7 @@ class FakeAuthDb {
       this.accounts.clear();
       this.accountBySubject.clear();
       this.sessions.clear();
+      this.accountStats.clear();
       this.deletedSessions.clear();
       this.flows.clear();
       this.proRoomLinks.clear();
@@ -121,6 +131,7 @@ class FakeAuthDb {
       for (const entry of accountSnapshot) this.accounts.set(...entry);
       for (const entry of subjectSnapshot) this.accountBySubject.set(...entry);
       for (const entry of sessionSnapshot) this.sessions.set(...entry);
+      for (const entry of accountStatsSnapshot) this.accountStats.set(...entry);
       for (const entry of deletedSessionSnapshot) this.deletedSessions.set(...entry);
       for (const entry of flowSnapshot) this.flows.set(...entry);
       for (const entry of proRoomLinkSnapshot) this.proRoomLinks.set(...entry);
@@ -180,6 +191,10 @@ class FakeAuthDb {
       const session = this.sessions.get(String(values[0]));
       const account = session ? this.accounts.get(session.account_id) : null;
       return session && account ? { ...session, ...account } : null;
+    }
+    if (normalized.includes('from mxqr_account_stats')) {
+      const stats = this.accountStats.get(String(values[0]));
+      return stats ? { ...stats } : null;
     }
     if (normalized.includes('from mxqr_account_deleted_sessions')) {
       const deletedSession = this.deletedSessions.get(String(values[0]));
@@ -260,6 +275,39 @@ class FakeAuthDb {
         created_at: now,
         last_seen_at: now,
         expires_at: expiresAt,
+      });
+      return changed(1);
+    }
+    if (normalized.startsWith('insert into mxqr_account_stats')) {
+      const [accountId, sessionDelta, listeningDelta, trackDelta, totalMax] = values as [
+        string,
+        number,
+        number,
+        number,
+        number,
+      ];
+      const account = this.accounts.get(accountId);
+      if (!account || account.status !== 'active' || this.accountDeletions.has(accountId)) {
+        return changed(0);
+      }
+      const current = this.accountStats.get(accountId) ?? {
+        account_id: accountId,
+        session_count: 0,
+        listening_seconds: 0,
+        track_count: 0,
+      };
+      if (
+        current.session_count > totalMax - sessionDelta ||
+        current.listening_seconds > totalMax - listeningDelta ||
+        current.track_count > totalMax - trackDelta
+      ) {
+        return changed(0);
+      }
+      this.accountStats.set(accountId, {
+        account_id: accountId,
+        session_count: current.session_count + sessionDelta,
+        listening_seconds: current.listening_seconds + listeningDelta,
+        track_count: current.track_count + trackDelta,
       });
       return changed(1);
     }
@@ -456,6 +504,7 @@ class FakeAuthDb {
       if (!account) return changed(0);
       this.accounts.delete(accountId);
       this.accountBySubject.delete(account.google_subject_hash);
+      this.accountStats.delete(accountId);
       return changed(1);
     }
     throw new Error(`Unexpected D1 run: ${normalized}`);
@@ -747,6 +796,26 @@ function mutationHeaders(cookie: string): Record<string, string> {
   };
 }
 
+async function statsScopeFor(env: Record<string, unknown>, cookie: string): Promise<string> {
+  const response = await handleAccountAuthRequest(
+    new Request('https://musixquare.com/api/auth/session', {
+      headers: { Cookie: cookie },
+    }),
+    env,
+  );
+  expect(response?.status).toBe(200);
+  const payload = (await response?.json()) as { statsScope?: unknown };
+  expect(payload.statsScope).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  return payload.statsScope as string;
+}
+
+function statsMutationHeaders(cookie: string, statsScope: string): Record<string, string> {
+  return {
+    ...mutationHeaders(cookie),
+    'X-MXQR-Account-Stats-Scope': statsScope,
+  };
+}
+
 describe('optional account authentication configuration', () => {
   it('fails closed as unconfigured without affecting the App Worker route', async () => {
     const direct = await handleAccountAuthRequest(
@@ -758,6 +827,7 @@ describe('optional account authentication configuration', () => {
       configured: false,
       authenticated: false,
       account: null,
+      statsScope: null,
     });
 
     const appResponse = await appWorker.fetch(
@@ -771,6 +841,7 @@ describe('optional account authentication configuration', () => {
       configured: false,
       authenticated: false,
       account: null,
+      statsScope: null,
     });
 
     const start = await handleAccountAuthRequest(
@@ -902,7 +973,13 @@ describe('Google Authorization Code + PKCE account flow', () => {
       env,
     );
     expect(session?.status).toBe(200);
-    await expect(session?.json()).resolves.toEqual({
+    const sessionPayload = (await session?.json()) as {
+      configured: boolean;
+      authenticated: boolean;
+      account: { nickname: string; profileComplete: boolean };
+      statsScope: string;
+    };
+    expect(sessionPayload).toMatchObject({
       configured: true,
       authenticated: true,
       account: {
@@ -910,6 +987,10 @@ describe('Google Authorization Code + PKCE account flow', () => {
         profileComplete: false,
       },
     });
+    expect(sessionPayload.statsScope).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(sessionPayload.statsScope).not.toBe(storedAccount.account_id);
+    expect(sessionPayload.statsScope).not.toBe(rawSessionToken);
+    expect(sessionPayload.statsScope).not.toBe(storedSession.session_hash);
     await expect(
       resolveAccountSession(
         new Request('https://musixquare.com/', {
@@ -973,6 +1054,20 @@ describe('Google Authorization Code + PKCE account flow', () => {
     expect(db.accounts.size).toBe(1);
     expect(db.sessions.size).toBe(2);
     expect(db.flows.size).toBe(2);
+  });
+
+  it('keeps the stats scope stable within one session and rotates it for a new session', async () => {
+    const db = new FakeAuthDb();
+    const env = authEnv(db);
+    const first = await completeLogin(env);
+    const second = await completeLogin(env);
+    vi.unstubAllGlobals();
+
+    const firstScope = await statsScopeFor(env, first.sessionCookie!);
+    expect(await statsScopeFor(env, first.sessionCookie!)).toBe(firstScope);
+    expect(await statsScopeFor(env, second.sessionCookie!)).not.toBe(firstScope);
+    expect(db.accounts.size).toBe(1);
+    expect(db.sessions.size).toBe(2);
   });
 
   it('bounds active OAuth cookies to three and removes expired flow cookies on the next start', async () => {
@@ -1311,6 +1406,7 @@ describe('account session mutations', () => {
     const env = authEnv();
     const login = await completeLogin(env);
     vi.unstubAllGlobals();
+    const sessionStatsScope = await statsScopeFor(env, login.sessionCookie!);
     const blocked = await handleAccountAuthRequest(
       new Request('https://musixquare.com/api/auth/profile', {
         method: 'PATCH',
@@ -1336,9 +1432,11 @@ describe('account session mutations', () => {
     expect(updated?.status).toBe(200);
     const payload = (await updated?.json()) as {
       account: { nickname: string; profileComplete: boolean };
+      statsScope: string;
     };
     expect(payload.account.nickname).toBe('\u00e9');
     expect(payload.account.profileComplete).toBe(true);
+    expect(payload.statsScope).toBe(sessionStatsScope);
 
     for (const nickname of [
       'Peer 3',
@@ -1365,6 +1463,223 @@ describe('account session mutations', () => {
       expect(response?.status, nickname).toBe(400);
       await expect(response?.json()).resolves.toEqual({ error: 'NICKNAME_INVALID' });
     }
+  });
+
+  it('stores and reads aggregate-only account stats with strict delta bounds', async () => {
+    const db = new FakeAuthDb();
+    const env = authEnv(db);
+    const login = await completeLogin(env);
+    vi.unstubAllGlobals();
+    const statsScope = await statsScopeFor(env, login.sessionCookie!);
+
+    const initial = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/stats', {
+        headers: { Cookie: login.sessionCookie! },
+      }),
+      env,
+    );
+    expect(initial?.status).toBe(200);
+    await expect(initial?.json()).resolves.toEqual({
+      stats: { sessionCount: 0, listeningSeconds: 0, trackCount: 0 },
+    });
+    expect(db.accountStats.size).toBe(0);
+
+    const blocked = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/stats', {
+        method: 'PATCH',
+        headers: {
+          Cookie: login.sessionCookie!,
+          'Content-Type': 'application/json',
+          'X-MXQR-Account-CSRF': '1',
+        },
+        body: JSON.stringify({
+          sessionCountDelta: 1,
+          listeningSecondsDelta: 60,
+          trackCountDelta: 2,
+        }),
+      }),
+      env,
+    );
+    expect(blocked?.status).toBe(403);
+    expect(db.accountStats.size).toBe(0);
+
+    const missingScope = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/stats', {
+        method: 'PATCH',
+        headers: mutationHeaders(login.sessionCookie!),
+        body: JSON.stringify({
+          sessionCountDelta: 1,
+          listeningSecondsDelta: 60,
+          trackCountDelta: 2,
+        }),
+      }),
+      env,
+    );
+    expect(missingScope?.status).toBe(400);
+    await expect(missingScope?.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    expect(db.accountStats.size).toBe(0);
+
+    const patch = (body: unknown) =>
+      handleAccountAuthRequest(
+        new Request('https://musixquare.com/api/auth/stats', {
+          method: 'PATCH',
+          headers: statsMutationHeaders(login.sessionCookie!, statsScope),
+          body: JSON.stringify(body),
+        }),
+        env,
+      );
+    const first = await patch({
+      sessionCountDelta: 1,
+      listeningSecondsDelta: 60,
+      trackCountDelta: 2,
+    });
+    expect(first?.status).toBe(200);
+    await expect(first?.json()).resolves.toEqual({
+      stats: { sessionCount: 1, listeningSeconds: 60, trackCount: 2 },
+    });
+
+    const second = await patch({
+      sessionCountDelta: 2,
+      listeningSecondsDelta: 180,
+      trackCountDelta: 3,
+    });
+    expect(second?.status).toBe(200);
+    await expect(second?.json()).resolves.toEqual({
+      stats: { sessionCount: 3, listeningSeconds: 240, trackCount: 5 },
+    });
+    expect([...db.accountStats.values()]).toEqual([
+      expect.objectContaining({
+        session_count: 3,
+        listening_seconds: 240,
+        track_count: 5,
+      }),
+    ]);
+
+    for (const invalid of [
+      { sessionCountDelta: 0, listeningSecondsDelta: 0, trackCountDelta: 0 },
+      { sessionCountDelta: -1, listeningSecondsDelta: 0, trackCountDelta: 0 },
+      { sessionCountDelta: 101, listeningSecondsDelta: 0, trackCountDelta: 0 },
+      { sessionCountDelta: 0, listeningSecondsDelta: 3601, trackCountDelta: 0 },
+      { sessionCountDelta: 0, listeningSecondsDelta: 0, trackCountDelta: 1001 },
+      { sessionCountDelta: 1.5, listeningSecondsDelta: 0, trackCountDelta: 0 },
+      {
+        sessionCountDelta: 1,
+        listeningSecondsDelta: 0,
+        trackCountDelta: 0,
+        roomCode: '123456',
+      },
+    ]) {
+      const response = await patch(invalid);
+      expect(response?.status).toBe(400);
+      await expect(response?.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    }
+    expect([...db.accountStats.values()][0]).toMatchObject({
+      session_count: 3,
+      listening_seconds: 240,
+      track_count: 5,
+    });
+  });
+
+  it('rejects a stale stats scope after an authenticated account switch without writing', async () => {
+    const db = new FakeAuthDb();
+    const env = authEnv(db);
+    const first = await completeLogin(env);
+    const second = await completeLogin(env, undefined, {
+      claimOverrides: { sub: 'second-stats-account' },
+    });
+    vi.unstubAllGlobals();
+
+    const firstScope = await statsScopeFor(env, first.sessionCookie!);
+    const secondScope = await statsScopeFor(env, second.sessionCookie!);
+    expect(secondScope).not.toBe(firstScope);
+
+    const stale = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/stats', {
+        method: 'PATCH',
+        headers: statsMutationHeaders(second.sessionCookie!, firstScope),
+        body: JSON.stringify({
+          sessionCountDelta: 1,
+          listeningSecondsDelta: 60,
+          trackCountDelta: 2,
+        }),
+      }),
+      env,
+    );
+    expect(stale?.status).toBe(409);
+    await expect(stale?.json()).resolves.toEqual({ error: 'ACCOUNT_STATS_SCOPE_MISMATCH' });
+    expect(db.accountStats.size).toBe(0);
+
+    const accepted = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/stats', {
+        method: 'PATCH',
+        headers: statsMutationHeaders(second.sessionCookie!, secondScope),
+        body: JSON.stringify({
+          sessionCountDelta: 1,
+          listeningSecondsDelta: 60,
+          trackCountDelta: 2,
+        }),
+      }),
+      env,
+    );
+    expect(accepted?.status).toBe(200);
+    const secondSession = await resolveAccountSession(
+      new Request('https://musixquare.com/', {
+        headers: { Cookie: second.sessionCookie! },
+      }),
+      env,
+    );
+    expect([...db.accountStats.values()]).toEqual([
+      expect.objectContaining({
+        account_id: secondSession?.accountId,
+        session_count: 1,
+        listening_seconds: 60,
+        track_count: 2,
+      }),
+    ]);
+  });
+
+  it('rejects aggregate overflow and new writes behind an account-deletion fence', async () => {
+    const db = new FakeAuthDb();
+    const env = authEnv(db);
+    const login = await completeLogin(env);
+    vi.unstubAllGlobals();
+    const statsScope = await statsScopeFor(env, login.sessionCookie!);
+    const accountId = [...db.accounts.keys()][0]!;
+    const patch = () =>
+      handleAccountAuthRequest(
+        new Request('https://musixquare.com/api/auth/stats', {
+          method: 'PATCH',
+          headers: statsMutationHeaders(login.sessionCookie!, statsScope),
+          body: JSON.stringify({
+            sessionCountDelta: 1,
+            listeningSecondsDelta: 0,
+            trackCountDelta: 0,
+          }),
+        }),
+        env,
+      );
+
+    db.accountStats.set(accountId, {
+      account_id: accountId,
+      session_count: Number.MAX_SAFE_INTEGER,
+      listening_seconds: 0,
+      track_count: 0,
+    });
+    const overflow = await patch();
+    expect(overflow?.status).toBe(409);
+    await expect(overflow?.json()).resolves.toEqual({ error: 'ACCOUNT_STATS_LIMIT_REACHED' });
+
+    db.accountStats.set(accountId, {
+      account_id: accountId,
+      session_count: 0,
+      listening_seconds: 0,
+      track_count: 0,
+    });
+    db.accountDeletions.set(accountId, Date.now());
+    const fenced = await patch();
+    expect(fenced?.status).toBe(409);
+    await expect(fenced?.json()).resolves.toEqual({ error: 'ACCOUNT_STATS_UPDATE_REJECTED' });
+    expect(db.accountStats.get(accountId)?.session_count).toBe(0);
   });
 
   it('reserves nickname compatibility keys globally and reports only real collisions', async () => {
@@ -1633,6 +1948,13 @@ describe('account session mutations', () => {
     resetAccountAuthCachesForTests();
     const third = await completeLogin(env);
     vi.unstubAllGlobals();
+    const accountId = [...db.accounts.keys()][0]!;
+    db.accountStats.set(accountId, {
+      account_id: accountId,
+      session_count: 4,
+      listening_seconds: 900,
+      track_count: 12,
+    });
     const missingConfirmation = await handleAccountAuthRequest(
       new Request('https://musixquare.com/api/auth/account', {
         method: 'DELETE',
@@ -1653,6 +1975,7 @@ describe('account session mutations', () => {
     );
     expect(deleted?.status).toBe(200);
     expect(db.accounts.size).toBe(0);
+    expect(db.accountStats.size).toBe(0);
     expect(db.sessions.size).toBe(0);
     expect(db.deletedSessions.size).toBe(1);
     expect(setCookieValues(deleted!).join('\n')).toContain('Max-Age=600');
@@ -2160,6 +2483,47 @@ describe('account endpoint abuse bounds', () => {
     const limited = await appWorker.fetch(request(), env, {});
     expect(limited.status).toBe(429);
     expect(limited.headers.get('Retry-After')).toBe('600');
+  });
+
+  it('isolates aggregate stats reporting from account profile mutations', async () => {
+    const cache = new Map<string, Response>();
+    vi.stubGlobal('caches', {
+      default: {
+        match: vi.fn(async (request: Request) => cache.get(request.url)?.clone() || undefined),
+        put: vi.fn(async (request: Request, response: Response) => {
+          cache.set(request.url, response.clone());
+        }),
+      },
+    });
+    const env = authEnv();
+    const ip = '203.0.113.77';
+    const statsRequest = () =>
+      new Request('https://musixquare.com/api/auth/stats', {
+        headers: { 'CF-Connecting-IP': ip },
+      });
+
+    for (let index = 0; index < 300; index += 1) {
+      const response = await appWorker.fetch(statsRequest(), env, {});
+      expect(response.status, `stats read ${index + 1}`).toBe(401);
+    }
+    const limited = await appWorker.fetch(statsRequest(), env, {});
+    expect(limited.status).toBe(429);
+
+    const profile = await appWorker.fetch(
+      new Request('https://musixquare.com/api/auth/profile', {
+        method: 'PATCH',
+        headers: {
+          'CF-Connecting-IP': ip,
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          'X-MXQR-Account-CSRF': '1',
+        },
+        body: JSON.stringify({ nickname: 'Minsu' }),
+      }),
+      env,
+      {},
+    );
+    expect(profile.status).toBe(401);
   });
 
   it('gives room assertion renewal its own 100-device venue rate bucket', async () => {

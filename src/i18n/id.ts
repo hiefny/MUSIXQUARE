@@ -49,6 +49,13 @@ const id: Record<I18nKey, string> = {
   'account.unavailable':
     'Fitur masuk sedang tidak tersedia. Anda tetap dapat melanjutkan tanpa akun.',
   'account.account_title': 'Akun',
+  'account.stats_sessions_label': 'Sesi yang diikuti',
+  'account.stats_listening_label': 'Waktu mendengarkan bersama',
+  'account.stats_tracks_label': 'Trek yang diputar',
+  'account.stats_count_value': '{{count}}',
+  'account.stats_seconds_value': '{{seconds}} dtk',
+  'account.stats_minutes_value': '{{minutes}} mnt',
+  'account.stats_hours_minutes_value': '{{hours}} jam {{minutes}} mnt',
   'account.change_nickname': 'Ubah nama panggilan',
   'account.logout': 'Keluar',
   'account.delete_account': 'Hapus akun',

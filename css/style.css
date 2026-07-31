@@ -4380,6 +4380,7 @@
   .account-dialog-nickname[hidden],
   .account-google-button[hidden],
   .account-legal-links[hidden],
+  .account-dialog-stats[hidden],
   .account-dialog-actions[hidden] {
     display: none;
   }
@@ -4447,6 +4448,54 @@
     font-weight: var(--font-weight-display);
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .account-dialog-stats {
+    flex: 1 1 auto;
+    min-height: 0;
+    margin: 18px 32px 22px;
+    padding: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-top: 1px solid var(--divider);
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .account-dialog-stat-row {
+    min-height: 52px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 20px;
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .account-dialog-stat-row:last-child {
+    border-bottom: 0;
+  }
+
+  .account-dialog-stat-row dt,
+  .account-dialog-stat-row dd {
+    min-width: 0;
+    margin: 0;
+  }
+
+  .account-dialog-stat-row dt {
+    color: var(--text-sub);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  .account-dialog-stat-row dd {
+    color: var(--text-main);
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.35;
+    text-align: right;
     white-space: nowrap;
   }
 
@@ -4539,13 +4588,6 @@
     gap: 10px;
   }
 
-  /* Authenticated accounts no longer render the redundant content block.
-     Preserve the visual breathing room that block used to provide between the
-     nickname heading and the first action row. */
-  .account-dialog-content[hidden] + .account-dialog-actions:not([hidden]) {
-    padding-top: 18px;
-  }
-
   .account-dialog-actions .dialog-primary,
   .account-dialog-actions .dialog-secondary,
   .account-dialog-actions .account-delete-button {
@@ -4613,6 +4655,31 @@
     .dialog.administrator-permissions-dialog {
       max-height: calc(100vh - 24px);
       max-height: calc(100dvh - 24px);
+    }
+  }
+
+  @media (max-height: 350px) {
+    html:not(.keyboard-open) .dialog.account-dialog .account-dialog-header {
+      padding: 20px 72px 4px 24px;
+    }
+
+    html:not(.keyboard-open) .account-dialog-stats:not([hidden]) {
+      margin: 8px 24px 10px;
+    }
+
+    html:not(.keyboard-open) .account-dialog-stat-row {
+      min-height: 40px;
+    }
+
+    html:not(.keyboard-open) .account-dialog-actions {
+      padding: 0 24px 12px;
+      gap: 6px;
+    }
+
+    html:not(.keyboard-open) .account-dialog-actions .dialog-primary,
+    html:not(.keyboard-open) .account-dialog-actions .dialog-secondary,
+    html:not(.keyboard-open) .account-dialog-actions .account-delete-button {
+      min-height: 44px;
     }
   }
 

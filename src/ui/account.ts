@@ -1,7 +1,8 @@
 /** Optional Google account UI. Authentication never gates room playback. */
 
 import { bus, createBusScope } from '../core/events.ts';
-import { buildGoogleLoginUrl } from '../account/api.ts';
+import { buildGoogleLoginUrl, getAccountStats, type AccountStats } from '../account/api.ts';
+import { flushAccountActivityStatsForRead } from '../account/activity-stats.ts';
 import {
   getAccountSnapshot,
   isAccountAuthenticated,
@@ -23,7 +24,7 @@ import {
   sanitizeAccountLoginReturnPath,
 } from '../account/login-return.ts';
 import { clearIntentionalNav, markIntentionalNav } from '../core/page-lifecycle.ts';
-import { t } from '../i18n/index.ts';
+import { getResolvedLanguage, t } from '../i18n/index.ts';
 import { getRoomContext } from '../rooms/authority.ts';
 import { showDialog } from './dialog.ts';
 import { syncOverlayState } from './dom.ts';
@@ -35,7 +36,9 @@ const ACCOUNT_COMPLETION_PATH = '/account-complete.html';
 const ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
 const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
 const ACCOUNT_LOGIN_POPUP_POLL_MS = 250;
+const ACCOUNT_STATS_PLACEHOLDER = '—';
 type AccountAuthOutcome = 'cancelled' | 'error';
+type CompletedAccount = NonNullable<AccountSnapshot['account']>;
 
 function createAccountClientId(): string {
   try {
@@ -61,6 +64,10 @@ let _accountLoginNavigationGuard: ReturnType<typeof setTimeout> | null = null;
 let _accountResultChannel: BroadcastChannel | null = null;
 let _accountResultLifecycleBound = false;
 let _profilePromptVisibilityBound = false;
+let _accountStats: AccountStats | null = null;
+let _accountStatsOwner: CompletedAccount | null = null;
+let _accountStatsLoading = false;
+let _accountStatsRequestId = 0;
 const _handledAccountResultIds = new Set<string>();
 
 function byId<T extends HTMLElement>(id: string): T | null {
@@ -73,6 +80,123 @@ function focusWithoutScroll(element: HTMLElement | null): void {
   } catch {
     element?.focus();
   }
+}
+
+function formatAccountStatNumber(value: number): string {
+  const locale = document.documentElement.lang || getResolvedLanguage();
+  try {
+    return new Intl.NumberFormat(locale).format(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatAccountListeningTime(listeningSeconds: number): string {
+  if (listeningSeconds < 60) {
+    return t('account.stats_seconds_value', {
+      seconds: formatAccountStatNumber(listeningSeconds),
+    });
+  }
+
+  const totalMinutes = Math.floor(listeningSeconds / 60);
+  if (totalMinutes < 60) {
+    return t('account.stats_minutes_value', {
+      minutes: formatAccountStatNumber(totalMinutes),
+    });
+  }
+
+  return t('account.stats_hours_minutes_value', {
+    hours: formatAccountStatNumber(Math.floor(totalMinutes / 60)),
+    minutes: formatAccountStatNumber(totalMinutes % 60),
+  });
+}
+
+function renderAccountStats(snapshot: Readonly<AccountSnapshot>): void {
+  const stats = byId<HTMLElement>('account-dialog-stats');
+  if (!stats) return;
+
+  const completedAccount =
+    snapshot.status === 'authenticated' &&
+    snapshot.account?.profileComplete === true &&
+    snapshot.account
+      ? snapshot.account
+      : null;
+  stats.hidden = completedAccount === null;
+  stats.setAttribute(
+    'aria-busy',
+    String(
+      completedAccount !== null && _accountStatsOwner === completedAccount && _accountStatsLoading,
+    ),
+  );
+
+  const sessionsLabel = byId<HTMLElement>('account-stats-sessions-label');
+  const listeningLabel = byId<HTMLElement>('account-stats-listening-label');
+  const tracksLabel = byId<HTMLElement>('account-stats-tracks-label');
+  if (sessionsLabel) sessionsLabel.textContent = t('account.stats_sessions_label');
+  if (listeningLabel) listeningLabel.textContent = t('account.stats_listening_label');
+  if (tracksLabel) tracksLabel.textContent = t('account.stats_tracks_label');
+
+  const currentStats =
+    completedAccount !== null && _accountStatsOwner === completedAccount ? _accountStats : null;
+  const sessionCount = byId<HTMLElement>('account-stats-session-count');
+  const listeningTime = byId<HTMLElement>('account-stats-listening-time');
+  const trackCount = byId<HTMLElement>('account-stats-track-count');
+  if (sessionCount) {
+    sessionCount.textContent = currentStats
+      ? t('account.stats_count_value', {
+          count: formatAccountStatNumber(currentStats.sessionCount),
+        })
+      : ACCOUNT_STATS_PLACEHOLDER;
+  }
+  if (listeningTime) {
+    listeningTime.textContent = currentStats
+      ? formatAccountListeningTime(currentStats.listeningSeconds)
+      : ACCOUNT_STATS_PLACEHOLDER;
+  }
+  if (trackCount) {
+    trackCount.textContent = currentStats
+      ? t('account.stats_count_value', {
+          count: formatAccountStatNumber(currentStats.trackCount),
+        })
+      : ACCOUNT_STATS_PLACEHOLDER;
+  }
+}
+
+async function loadAccountStats(account: CompletedAccount, requestId: number): Promise<void> {
+  let stats: AccountStats | null = null;
+  try {
+    const flushResult = await flushAccountActivityStatsForRead();
+    if (flushResult.status === 'updated') {
+      stats = flushResult.stats;
+    } else if (flushResult.status === 'idle') {
+      stats = await getAccountStats();
+    }
+  } catch {
+    // Account statistics are optional and never gate account or playback UI.
+  }
+
+  if (
+    requestId !== _accountStatsRequestId ||
+    getAccountSnapshot().account !== account ||
+    !byId<HTMLElement>('account-dialog-overlay')?.classList.contains('show')
+  ) {
+    return;
+  }
+
+  if (stats) {
+    _accountStats = stats;
+  }
+  _accountStatsLoading = false;
+  renderAccountStats(getAccountSnapshot());
+}
+
+function beginAccountStatsLoad(account: CompletedAccount): void {
+  const requestId = ++_accountStatsRequestId;
+  if (_accountStatsOwner !== account) _accountStats = null;
+  _accountStatsOwner = account;
+  _accountStatsLoading = true;
+  renderAccountStats(getAccountSnapshot());
+  void loadAccountStats(account, requestId);
 }
 
 function setPending(pending: boolean): void {
@@ -305,6 +429,7 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   google.hidden = true;
   legal.hidden = true;
   actions.hidden = true;
+  renderAccountStats(snapshot);
 
   if (snapshot.status === 'authenticated' && snapshot.account) {
     title.textContent = snapshot.account.profileComplete
@@ -362,6 +487,9 @@ function closeAccountDialog(): void {
   if (!overlay?.classList.contains('show') || _accountActionPending) return;
   overlay.classList.remove('show');
   overlay.setAttribute('aria-hidden', 'true');
+  _accountStatsRequestId += 1;
+  _accountStatsLoading = false;
+  renderAccountStats(getAccountSnapshot());
   syncOverlayState();
   const focus = _previousFocus;
   _previousFocus = null;
@@ -379,6 +507,9 @@ export function openAccountDialog(): void {
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');
   syncOverlayState('account-dialog-overlay');
+  if (snapshot.status === 'authenticated' && snapshot.account?.profileComplete === true) {
+    beginAccountStatsLoad(snapshot.account);
+  }
   queueMicrotask(() => {
     const preferred =
       snapshot.status === 'anonymous' && snapshot.configured
@@ -579,6 +710,14 @@ function handleAccountState(snapshot: Readonly<AccountSnapshot>): void {
   const focusedLoginAction =
     overlay?.classList.contains('show') === true && document.activeElement === google;
   renderAccountDialog(snapshot);
+  if (
+    overlay?.classList.contains('show') === true &&
+    snapshot.status === 'authenticated' &&
+    snapshot.account?.profileComplete === true &&
+    _accountStatsOwner !== snapshot.account
+  ) {
+    beginAccountStatsLoad(snapshot.account);
+  }
   bus.emit('network:role-badge-update');
   if (
     snapshot.status !== 'authenticated' ||
@@ -646,6 +785,10 @@ export function __resetAccountUiForTests(): void {
   _profilePromptShown = false;
   _profilePromptActive = false;
   _accountActionPending = false;
+  _accountStats = null;
+  _accountStatsOwner = null;
+  _accountStatsLoading = false;
+  _accountStatsRequestId = 0;
   _accountLoginPopup = null;
   stopAccountLoginPopupMonitor();
   stopAccountLoginNavigationGuard();

@@ -20,6 +20,14 @@ const NICKNAME_KEY_MIGRATION = readFileSync(
   new URL('../../../cloudflare/auth.nickname-key.migration.sql', import.meta.url),
   'utf8',
 );
+const ACCOUNT_STATS_MIGRATION = readFileSync(
+  new URL('../../../cloudflare/auth.account-stats.migration.sql', import.meta.url),
+  'utf8',
+);
+const ACCOUNT_STATS_READINESS = readFileSync(
+  new URL('../../../scripts/sql/account-stats-auth-readiness.sql', import.meta.url),
+  'utf8',
+);
 
 async function handleAccountAuthRequest(request: Request, env: unknown): Promise<Response> {
   const response = await handleMaybeAccountAuthRequest(request, env);
@@ -42,6 +50,15 @@ function schemaBeforeNicknameKeyMigration(): string {
     throw new Error('Pre-migration account schema fixture still contains nickname_key.');
   }
   return withoutIndex;
+}
+
+function schemaBeforeAccountStatsMigration(): string {
+  const tableStart = SCHEMA.indexOf('-- Account-scoped lifetime aggregates.');
+  const nextTable = SCHEMA.indexOf('CREATE TABLE IF NOT EXISTS mxqr_account_sessions', tableStart);
+  if (tableStart < 0 || nextTable < 0) {
+    throw new Error('Unable to derive the pre-account-stats schema fixture.');
+  }
+  return `${SCHEMA.slice(0, tableStart)}${SCHEMA.slice(nextTable)}`;
 }
 const sqlite = (() => {
   try {
@@ -141,11 +158,14 @@ function authEnv(db: SqliteD1): Record<string, unknown> {
 
 function request(
   path: string,
-  options: { method?: string; token?: string; body?: unknown } = {},
+  options: { method?: string; token?: string; statsScope?: string; body?: unknown } = {},
 ): Request {
   const method = options.method ?? 'GET';
   const headers = new Headers();
   if (options.token) headers.set('Cookie', `__Host-mxqr_account=${options.token}`);
+  if (options.statsScope) {
+    headers.set('X-MXQR-Account-Stats-Scope', options.statsScope);
+  }
   if (method !== 'GET' && method !== 'HEAD') {
     headers.set('Content-Type', 'application/json');
     headers.set('Origin', ORIGIN);
@@ -157,6 +177,17 @@ function request(
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
+}
+
+async function statsScopeFor(db: SqliteD1, token: string): Promise<string> {
+  const response = await handleAccountAuthRequest(
+    request('/api/auth/session', { token }),
+    authEnv(db),
+  );
+  expect(response.status).toBe(200);
+  const payload = (await response.json()) as { statsScope?: unknown };
+  expect(payload.statsScope).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  return payload.statsScope as string;
 }
 
 async function seedAccount(
@@ -227,6 +258,149 @@ afterEach(() => {
     } finally {
       migrated.close();
       canonical.close();
+    }
+  });
+
+  it('applies the aggregate-only account-stats migration and matches canonical SQL', () => {
+    if (!sqlite) throw new Error('node:sqlite is unavailable');
+    const migrated = new sqlite.DatabaseSync(':memory:');
+    const canonical = new sqlite.DatabaseSync(':memory:');
+    try {
+      migrated.exec(schemaBeforeAccountStatsMigration());
+      migrated.exec(ACCOUNT_STATS_MIGRATION);
+      canonical.exec(SCHEMA);
+
+      const migratedSql = migrated
+        .prepare("SELECT sql FROM sqlite_master WHERE name = 'mxqr_account_stats'")
+        .get()?.sql;
+      const canonicalSql = canonical
+        .prepare("SELECT sql FROM sqlite_master WHERE name = 'mxqr_account_stats'")
+        .get()?.sql;
+      if (typeof migratedSql !== 'string' || typeof canonicalSql !== 'string') {
+        throw new Error('Expected SQLite schema SQL for mxqr_account_stats');
+      }
+      expect(normalizeSchemaSql(migratedSql)).toBe(normalizeSchemaSql(canonicalSql));
+      expect(migrated.prepare(ACCOUNT_STATS_READINESS).get()).toEqual({
+        table_present: 1,
+        columns_ready: 1,
+        foreign_key_ready: 1,
+        schema_ready: 1,
+      });
+    } finally {
+      migrated.close();
+      canonical.close();
+    }
+  });
+
+  it('atomically accumulates only the three account-stat counters', async () => {
+    const db = new SqliteD1();
+    const token = 'z'.repeat(43);
+    try {
+      await seedAccount(db, [token]);
+      const statsScope = await statsScopeFor(db, token);
+      const initial = await handleAccountAuthRequest(
+        request('/api/auth/stats', { token }),
+        authEnv(db),
+      );
+      await expect(initial.json()).resolves.toEqual({
+        stats: { sessionCount: 0, listeningSeconds: 0, trackCount: 0 },
+      });
+
+      const updated = await handleAccountAuthRequest(
+        request('/api/auth/stats', {
+          method: 'PATCH',
+          token,
+          statsScope,
+          body: {
+            sessionCountDelta: 2,
+            listeningSecondsDelta: 360,
+            trackCountDelta: 7,
+          },
+        }),
+        authEnv(db),
+      );
+      expect(updated.status).toBe(200);
+      await expect(updated.json()).resolves.toEqual({
+        stats: { sessionCount: 2, listeningSeconds: 360, trackCount: 7 },
+      });
+      expect(
+        db.database
+          .prepare(
+            'SELECT account_id, session_count, listening_seconds, track_count FROM mxqr_account_stats',
+          )
+          .get(),
+      ).toEqual({
+        account_id: ACCOUNT_ID,
+        session_count: 2,
+        listening_seconds: 360,
+        track_count: 7,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('rejects a mismatched stats scope before the SQLite aggregate write', async () => {
+    const db = new SqliteD1();
+    const firstToken = 'x'.repeat(43);
+    const secondToken = 'y'.repeat(43);
+    const secondAccountId = `acct_${'B'.repeat(22)}`;
+    try {
+      await seedAccount(db, [firstToken]);
+      await seedAccount(db, [secondToken], {
+        accountId: secondAccountId,
+        subjectHash: 'T'.repeat(43),
+      });
+      const firstScope = await statsScopeFor(db, firstToken);
+      const secondScope = await statsScopeFor(db, secondToken);
+
+      const stale = await handleAccountAuthRequest(
+        request('/api/auth/stats', {
+          method: 'PATCH',
+          token: secondToken,
+          statsScope: firstScope,
+          body: {
+            sessionCountDelta: 1,
+            listeningSecondsDelta: 60,
+            trackCountDelta: 2,
+          },
+        }),
+        authEnv(db),
+      );
+      expect(stale.status).toBe(409);
+      await expect(stale.json()).resolves.toEqual({ error: 'ACCOUNT_STATS_SCOPE_MISMATCH' });
+      expect(db.database.prepare('SELECT COUNT(*) AS count FROM mxqr_account_stats').get()).toEqual(
+        { count: 0 },
+      );
+
+      const accepted = await handleAccountAuthRequest(
+        request('/api/auth/stats', {
+          method: 'PATCH',
+          token: secondToken,
+          statsScope: secondScope,
+          body: {
+            sessionCountDelta: 1,
+            listeningSecondsDelta: 60,
+            trackCountDelta: 2,
+          },
+        }),
+        authEnv(db),
+      );
+      expect(accepted.status).toBe(200);
+      expect(
+        db.database
+          .prepare(
+            'SELECT account_id, session_count, listening_seconds, track_count FROM mxqr_account_stats',
+          )
+          .get(),
+      ).toEqual({
+        account_id: secondAccountId,
+        session_count: 1,
+        listening_seconds: 60,
+        track_count: 2,
+      });
+    } finally {
+      db.close();
     }
   });
 
@@ -578,6 +752,13 @@ afterEach(() => {
     const secondToken = 'd'.repeat(43);
     try {
       await seedAccount(db, [firstToken, secondToken]);
+      db.database
+        .prepare(
+          `INSERT INTO mxqr_account_stats
+             (account_id, session_count, listening_seconds, track_count)
+           VALUES (?, 2, 360, 7)`,
+        )
+        .run(ACCOUNT_ID);
       const response = await handleAccountAuthRequest(
         request('/api/auth/account', {
           method: 'DELETE',
@@ -595,6 +776,9 @@ afterEach(() => {
       });
       expect(
         db.database.prepare('SELECT COUNT(*) AS count FROM mxqr_account_sessions').get(),
+      ).toMatchObject({ count: 0 });
+      expect(
+        db.database.prepare('SELECT COUNT(*) AS count FROM mxqr_account_stats').get(),
       ).toMatchObject({ count: 0 });
       expect(
         db.database.prepare('SELECT COUNT(*) AS count FROM mxqr_account_deleted_sessions').get(),
@@ -629,6 +813,22 @@ afterEach(() => {
              VALUES (?, ?, ?, 0, 'active', 1, 1)`,
           )
           .run(ACCOUNT_ID, 'S'.repeat(43), 'nickname-with-incomplete-profile'),
+      ).toThrow();
+      db.database
+        .prepare(
+          `INSERT INTO mxqr_accounts
+             (account_id, google_subject_hash, nickname, profile_complete, status, created_at, updated_at)
+           VALUES (?, ?, NULL, 0, 'active', 1, 1)`,
+        )
+        .run(ACCOUNT_ID, 'S'.repeat(43));
+      expect(() =>
+        db.database
+          .prepare(
+            `INSERT INTO mxqr_account_stats
+               (account_id, session_count, listening_seconds, track_count)
+             VALUES (?, -1, 0, 0)`,
+          )
+          .run(ACCOUNT_ID),
       ).toThrow();
     } finally {
       db.close();

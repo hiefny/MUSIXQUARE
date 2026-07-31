@@ -46,6 +46,13 @@ const tr: Record<I18nKey, string> = {
   'account.unavailable':
     'Oturum açma geçici olarak kullanılamıyor. Hesap olmadan devam edebilirsin.',
   'account.account_title': 'Hesap',
+  'account.stats_sessions_label': 'Katılınan oturumlar',
+  'account.stats_listening_label': 'Birlikte dinleme süresi',
+  'account.stats_tracks_label': 'Çalınan parçalar',
+  'account.stats_count_value': '{{count}}',
+  'account.stats_seconds_value': '{{seconds}} sn',
+  'account.stats_minutes_value': '{{minutes}} dk',
+  'account.stats_hours_minutes_value': '{{hours}} sa {{minutes}} dk',
   'account.change_nickname': 'Takma adı değiştir',
   'account.logout': 'Oturumu kapat',
   'account.delete_account': 'Hesabı sil',

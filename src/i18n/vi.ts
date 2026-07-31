@@ -49,6 +49,13 @@ const vi: Record<I18nKey, string> = {
   'account.unavailable':
     'Tạm thời không thể đăng nhập. Bạn vẫn có thể tiếp tục mà không cần tài khoản.',
   'account.account_title': 'Tài khoản',
+  'account.stats_sessions_label': 'Phiên đã tham gia',
+  'account.stats_listening_label': 'Thời gian nghe cùng nhau',
+  'account.stats_tracks_label': 'Bài đã phát',
+  'account.stats_count_value': '{{count}}',
+  'account.stats_seconds_value': '{{seconds}} giây',
+  'account.stats_minutes_value': '{{minutes}} phút',
+  'account.stats_hours_minutes_value': '{{hours}} giờ {{minutes}} phút',
   'account.change_nickname': 'Đổi biệt danh',
   'account.logout': 'Đăng xuất',
   'account.delete_account': 'Xóa tài khoản',

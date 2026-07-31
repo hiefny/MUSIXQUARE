@@ -32,6 +32,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_mxqr_accounts_nickname_key
   ON mxqr_accounts(nickname_key)
   WHERE nickname_key IS NOT NULL;
 
+-- Account-scoped lifetime aggregates. This one-to-one row deliberately keeps
+-- no room code, media identity, title, event timestamp, or per-play history.
+-- Missing rows read as zero so existing accounts need no write-time backfill.
+CREATE TABLE IF NOT EXISTS mxqr_account_stats (
+  account_id TEXT PRIMARY KEY NOT NULL,
+  session_count INTEGER NOT NULL DEFAULT 0
+    CHECK (session_count BETWEEN 0 AND 9007199254740991),
+  listening_seconds INTEGER NOT NULL DEFAULT 0
+    CHECK (listening_seconds BETWEEN 0 AND 9007199254740991),
+  track_count INTEGER NOT NULL DEFAULT 0
+    CHECK (track_count BETWEEN 0 AND 9007199254740991),
+  FOREIGN KEY (account_id) REFERENCES mxqr_accounts(account_id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS mxqr_account_sessions (
   session_hash TEXT PRIMARY KEY NOT NULL,
   account_id TEXT NOT NULL,

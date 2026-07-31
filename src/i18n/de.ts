@@ -49,6 +49,13 @@ const de: Record<I18nKey, string> = {
   'account.unavailable':
     'Die Anmeldung ist vorübergehend nicht verfügbar. Du kannst ohne sie fortfahren.',
   'account.account_title': 'Konto',
+  'account.stats_sessions_label': 'Beigetretene Sitzungen',
+  'account.stats_listening_label': 'Gemeinsame Hörzeit',
+  'account.stats_tracks_label': 'Abgespielte Titel',
+  'account.stats_count_value': '{{count}}',
+  'account.stats_seconds_value': '{{seconds}} Sek.',
+  'account.stats_minutes_value': '{{minutes}} Min.',
+  'account.stats_hours_minutes_value': '{{hours}} Std. {{minutes}} Min.',
   'account.change_nickname': 'Nickname ändern',
   'account.logout': 'Abmelden',
   'account.delete_account': 'Konto löschen',

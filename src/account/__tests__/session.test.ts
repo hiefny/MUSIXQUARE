@@ -11,7 +11,12 @@ import {
   signOutAccount,
   startAccountSessionRefresh,
 } from '../session.ts';
-import { __resetAccountStateForTests, getAccountSnapshot } from '../state.ts';
+import {
+  __resetAccountStateForTests,
+  applyAccountSession,
+  getAccountSnapshot,
+  getAccountStatsScope,
+} from '../state.ts';
 
 interface Deferred<T> {
   promise: Promise<T>;
@@ -59,6 +64,25 @@ afterEach(() => {
 });
 
 describe('account session mutation ordering', () => {
+  it('keeps the aggregate-write fence outside the public account profile and clears it on logout', () => {
+    const statsScope = 's'.repeat(43);
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: 'Minsu', profileComplete: true },
+      statsScope,
+    });
+
+    expect(getAccountStatsScope()).toBe(statsScope);
+    expect(getAccountSnapshot().account).toEqual({
+      nickname: 'Minsu',
+      profileComplete: true,
+    });
+
+    applyAccountSession(ANONYMOUS);
+    expect(getAccountStatsScope()).toBeNull();
+  });
+
   it('refreshes the visible session after a same-origin login popup completes', async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

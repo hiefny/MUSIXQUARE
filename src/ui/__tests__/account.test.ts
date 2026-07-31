@@ -22,9 +22,13 @@ import {
   __accountLoginReturnForTests,
   rememberAccountLoginReturn,
 } from '../../account/login-return.ts';
+import { flushAccountActivityStatsForRead } from '../../account/activity-stats.ts';
 
 vi.mock('../dialog.ts', () => ({ showDialog: vi.fn() }));
 vi.mock('../toast.ts', () => ({ showToast: vi.fn() }));
+vi.mock('../../account/activity-stats.ts', () => ({
+  flushAccountActivityStatsForRead: vi.fn().mockResolvedValue({ status: 'idle' }),
+}));
 
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -46,6 +50,20 @@ function renderAccountDialog(): void {
           <a id="btn-account-google" hidden><span id="account-google-label"></span></a>
           <nav id="account-legal-links" hidden></nav>
         </div>
+        <dl id="account-dialog-stats" aria-live="polite" aria-busy="false" hidden>
+          <div class="account-dialog-stat-row">
+            <dt id="account-stats-sessions-label"></dt>
+            <dd id="account-stats-session-count">—</dd>
+          </div>
+          <div class="account-dialog-stat-row">
+            <dt id="account-stats-listening-label"></dt>
+            <dd id="account-stats-listening-time">—</dd>
+          </div>
+          <div class="account-dialog-stat-row">
+            <dt id="account-stats-tracks-label"></dt>
+            <dd id="account-stats-track-count">—</dd>
+          </div>
+        </dl>
         <div id="account-dialog-actions" hidden>
           <button id="btn-account-rename"></button>
           <button id="btn-account-logout"></button>
@@ -61,8 +79,10 @@ beforeEach(() => {
   __resetAccountStateForTests();
   bus.clear();
   vi.clearAllMocks();
+  vi.mocked(flushAccountActivityStatsForRead).mockResolvedValue({ status: 'idle' });
   renderAccountDialog();
   vi.stubGlobal('fetch', vi.fn());
+  document.documentElement.lang = 'en-US';
   sessionStorage.clear();
   localStorage.clear();
   clearIntentionalNav();
@@ -448,6 +468,154 @@ describe('optional account UI', () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it('loads and formats account statistics only when a completed account opens the dialog', async () => {
+    let resolveStats: ((response: Response) => void) | null = null;
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: 'Minsu', profileComplete: true },
+        }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveStats = resolve;
+          }),
+      );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(document.getElementById('account-dialog-stats')?.hidden).toBe(false);
+    expect(flushAccountActivityStatsForRead).not.toHaveBeenCalled();
+
+    document.documentElement.lang = 'de-DE';
+    openAccountDialog();
+
+    expect(document.getElementById('account-dialog-stats')?.hidden).toBe(false);
+    expect(document.getElementById('account-dialog-stats')?.getAttribute('aria-busy')).toBe('true');
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('—');
+    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe('—');
+    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('—');
+    await vi.waitFor(() => expect(flushAccountActivityStatsForRead).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(resolveStats).not.toBeNull());
+
+    resolveStats!(
+      jsonResponse({
+        stats: {
+          sessionCount: 12_345,
+          listeningSeconds: 3_661,
+          trackCount: 9_876,
+        },
+      }),
+    );
+
+    await vi.waitFor(() =>
+      expect(document.getElementById('account-dialog-stats')?.getAttribute('aria-busy')).toBe(
+        'false',
+      ),
+    );
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('12.345');
+    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe('1 hr 1 min');
+    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('9.876');
+    expect(document.getElementById('account-stats-sessions-label')?.textContent).toBe(
+      'Sessions joined',
+    );
+    expect(document.getElementById('account-dialog-actions')?.hidden).toBe(false);
+  });
+
+  it('uses the PATCH aggregate directly without a redundant GET', async () => {
+    vi.mocked(flushAccountActivityStatsForRead).mockResolvedValueOnce({
+      status: 'updated',
+      stats: { sessionCount: 3, listeningSeconds: 42, trackCount: 7 },
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Minsu', profileComplete: true },
+      }),
+    );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+
+    openAccountDialog();
+
+    await vi.waitFor(() =>
+      expect(document.getElementById('account-stats-session-count')?.textContent).toBe('3'),
+    );
+    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe('42 sec');
+    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('7');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not stack a second network timeout after an uncertain activity write', async () => {
+    vi.mocked(flushAccountActivityStatsForRead).mockResolvedValueOnce({ status: 'uncertain' });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Minsu', profileComplete: true },
+      }),
+    );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+
+    openAccountDialog();
+
+    await vi.waitFor(() =>
+      expect(document.getElementById('account-dialog-stats')?.getAttribute('aria-busy')).toBe(
+        'false',
+      ),
+    );
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('—');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps unavailable statistics isolated as em dashes', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: 'Minsu', profileComplete: true },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ error: 'unavailable' }, 503));
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+
+    openAccountDialog();
+
+    await vi.waitFor(() =>
+      expect(document.getElementById('account-dialog-stats')?.getAttribute('aria-busy')).toBe(
+        'false',
+      ),
+    );
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('—');
+    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe('—');
+    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('—');
+    expect(document.getElementById('account-dialog-actions')?.hidden).toBe(false);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('does not request statistics for an incomplete authenticated profile', async () => {
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: '', profileComplete: false },
+    });
+
+    openAccountDialog();
+    await Promise.resolve();
+
+    expect(document.getElementById('account-dialog-stats')?.hidden).toBe(true);
+    expect(flushAccountActivityStatsForRead).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('moves focus from the hidden Google action to account actions after popup sign-in', async () => {
     vi.mocked(fetch).mockResolvedValue(
       jsonResponse({ configured: true, authenticated: false, account: null }),
@@ -719,10 +887,10 @@ describe('optional account UI', () => {
       stylesheet.match(/\.dialog\.account-dialog\s+\.account-dialog-header\s*\{([^}]*)\}/)?.[1] ??
       '';
     const contentRules = stylesheet.match(/\.account-dialog-content\s*\{([^}]*)\}/)?.[1] ?? '';
-    const authenticatedActionsRules =
-      stylesheet.match(
-        /\.account-dialog-content\[hidden\]\s*\+\s*\.account-dialog-actions:not\(\[hidden\]\)\s*\{([^}]*)\}/,
-      )?.[1] ?? '';
+    const statsRules = stylesheet.match(/\.account-dialog-stats\s*\{([^}]*)\}/)?.[1] ?? '';
+    const statRowRules = stylesheet.match(/\.account-dialog-stat-row\s*\{([^}]*)\}/)?.[1] ?? '';
+    const statValueRules =
+      [...stylesheet.matchAll(/\.account-dialog-stat-row dd\s*\{([^}]*)\}/g)].at(-1)?.[1] ?? '';
     const accountActionsRules =
       stylesheet.match(/\.account-dialog-actions\s*\{([^}]*)\}/)?.[1] ?? '';
     const renameRules = stylesheet.match(/#btn-account-rename\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -737,12 +905,24 @@ describe('optional account UI', () => {
     expect(contentRules).toContain('min-height: 0');
     expect(contentRules).toContain('overflow-y: auto');
     expect(contentRules).toContain('overflow-anchor: none');
-    expect(authenticatedActionsRules).toContain('padding-top: 18px');
+    expect(statsRules).toContain('flex: 1 1 auto');
+    expect(statsRules).toContain('min-height: 0');
+    expect(statsRules).toContain('overflow-y: auto');
+    expect(statRowRules).toContain('grid-template-columns: minmax(0, 1fr) auto');
+    expect(statValueRules).toContain('font-variant-numeric: tabular-nums');
+    expect(statValueRules).toContain('white-space: nowrap');
     expect(accountActionsRules).toContain('grid-template-columns: 1fr 1fr');
     expect(renameRules).toContain('grid-column: 1 / -1');
     expect(deleteRules).toContain('min-height: 54px');
     expect(deleteRules).toContain('border-radius: 18px');
     expect(deleteRules).not.toContain('grid-column: 1 / -1');
+    expect(stylesheet).toContain('@media (max-height: 350px)');
+    expect(stylesheet).toContain(
+      'html:not(.keyboard-open) .account-dialog-stat-row {\n      min-height: 40px;',
+    );
+    expect(stylesheet).toContain(
+      'html:not(.keyboard-open) .account-dialog-actions .account-delete-button {\n      min-height: 44px;',
+    );
   });
 
   it('inverts the borderless Google button against the active app theme', async () => {

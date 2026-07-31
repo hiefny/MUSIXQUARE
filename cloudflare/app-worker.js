@@ -7306,6 +7306,12 @@ export default {
         // This generous ceiling only bounds obviously automated D1 probing.
         rateKey = 'account-auth-session';
         rateLimit = 600;
+      } else if (url.pathname === '/api/auth/stats') {
+        // Aggregate-only reporting is optional and may flush concurrently for
+        // many signed-in listeners behind one venue NAT. Isolate it so a
+        // reporting burst cannot consume profile/logout mutation capacity.
+        rateKey = 'account-auth-stats';
+        rateLimit = 300;
       } else if (url.pathname === '/api/auth/room-assertion') {
         // A full 100-device room refreshes 60-second assertions every 40s:
         // roughly 150 requests/minute behind one venue NAT. Keep this separate

@@ -53,14 +53,22 @@ const JWT_MAX_AGE_SECONDS = 60 * 60;
 const RETURN_TO_MAX_UTF8_BYTES = 1024;
 
 const ACCOUNT_TABLE = 'mxqr_accounts';
+const ACCOUNT_STATS_TABLE = 'mxqr_account_stats';
 const SESSION_TABLE = 'mxqr_account_sessions';
 const DELETED_SESSION_TABLE = 'mxqr_account_deleted_sessions';
 const ACCOUNT_DELETION_TABLE = 'mxqr_account_deletions';
 const PRO_ROOM_LINK_TABLE = 'mxqr_account_pro_rooms';
 const PRO_ROOM_GENERATION_LINK_TABLE = 'mxqr_account_pro_room_generations';
 const OAUTH_FLOW_TABLE = 'mxqr_oauth_flows';
+const ACCOUNT_STATS_TOTAL_MAX = Number.MAX_SAFE_INTEGER;
+const ACCOUNT_STATS_SESSION_DELTA_MAX = 100;
+const ACCOUNT_STATS_LISTENING_SECONDS_DELTA_MAX = 60 * 60;
+const ACCOUNT_STATS_TRACK_DELTA_MAX = 1000;
+const ACCOUNT_STATS_SCOPE_HEADER = 'X-MXQR-Account-Stats-Scope';
+const ACCOUNT_STATS_SCOPE_PURPOSE = 'account-stats-session-scope:v1';
 const FLOW_TOKEN_AAD = new TextEncoder().encode('mxqr-oauth-flow:v1');
 const SESSION_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+const ACCOUNT_STATS_SCOPE_RE = /^[A-Za-z0-9_-]{43}$/;
 const OAUTH_STATE_RE = /^[A-Za-z0-9_-]{43}$/;
 const OAUTH_FLOW_COOKIE_SUFFIX_RE = /^[A-Za-z0-9_-]{16}$/;
 const ACCOUNT_ID_RE = /^acct_[A-Za-z0-9_-]{22}$/;
@@ -801,6 +809,43 @@ function accountResponse(row) {
   };
 }
 
+function accountStatsResponse(row) {
+  if (!row) return { sessionCount: 0, listeningSeconds: 0, trackCount: 0 };
+  const sessionCount = row.session_count;
+  const listeningSeconds = row.listening_seconds;
+  const trackCount = row.track_count;
+  if (
+    typeof sessionCount !== 'number' ||
+    !Number.isSafeInteger(sessionCount) ||
+    sessionCount < 0 ||
+    typeof listeningSeconds !== 'number' ||
+    !Number.isSafeInteger(listeningSeconds) ||
+    listeningSeconds < 0 ||
+    typeof trackCount !== 'number' ||
+    !Number.isSafeInteger(trackCount) ||
+    trackCount < 0
+  ) {
+    throw new Error('ACCOUNT_STATS_INVALID');
+  }
+  return { sessionCount, listeningSeconds, trackCount };
+}
+
+async function readAccountStats(db, accountId) {
+  const row = await d1First(
+    db,
+    `SELECT session_count, listening_seconds, track_count
+       FROM ${ACCOUNT_STATS_TABLE}
+      WHERE account_id = ?1
+      LIMIT 1`,
+    [accountId],
+  );
+  return accountStatsResponse(row);
+}
+
+async function accountStatsScope(config, sessionHash) {
+  return hmacDigest(config.sessionPepper, ACCOUNT_STATS_SCOPE_PURPOSE, sessionHash);
+}
+
 async function resolveStoredSession(request, config, { touch = true } = {}) {
   const token = readCookie(request, AUTH_SESSION_COOKIE);
   if (!token || !SESSION_TOKEN_RE.test(token)) {
@@ -1066,8 +1111,13 @@ async function handleSession(request, config) {
   try {
     const session = await resolveStoredSession(request, config);
     const body = session.authenticated
-      ? { configured: true, authenticated: true, account: session.account }
-      : { configured: true, authenticated: false, account: null };
+      ? {
+          configured: true,
+          authenticated: true,
+          account: session.account,
+          statsScope: await accountStatsScope(config, session.sessionHash),
+        }
+      : { configured: true, authenticated: false, account: null, statsScope: null };
     const response =
       request.method === 'HEAD'
         ? new Response(null, {
@@ -1134,7 +1184,109 @@ async function handleProfile(request, config) {
         nickname,
         profileComplete: true,
       },
+      statsScope: await accountStatsScope(config, resolved.session.sessionHash),
     });
+  } catch {
+    return authJson({ error: 'AUTH_TEMPORARILY_UNAVAILABLE' }, 503);
+  }
+}
+
+async function handleAccountStats(request, config) {
+  if (request.method !== 'GET' && request.method !== 'PATCH') {
+    return methodNotAllowed('GET, PATCH');
+  }
+  if (request.method === 'PATCH' && !mutationAuthorized(request)) {
+    return authJson({ error: 'CSRF_FAILED' }, 403);
+  }
+
+  let deltas = null;
+  let expectedStatsScope = null;
+  if (request.method === 'PATCH') {
+    expectedStatsScope = request.headers.get(ACCOUNT_STATS_SCOPE_HEADER);
+    if (!expectedStatsScope || !ACCOUNT_STATS_SCOPE_RE.test(expectedStatsScope)) {
+      return authJson({ error: 'INVALID_REQUEST' }, 400);
+    }
+    const body = await readJsonObject(request);
+    const keys = body ? Object.keys(body).sort() : [];
+    if (
+      !body ||
+      keys.length !== 3 ||
+      keys[0] !== 'listeningSecondsDelta' ||
+      keys[1] !== 'sessionCountDelta' ||
+      keys[2] !== 'trackCountDelta' ||
+      !Number.isSafeInteger(body.sessionCountDelta) ||
+      body.sessionCountDelta < 0 ||
+      body.sessionCountDelta > ACCOUNT_STATS_SESSION_DELTA_MAX ||
+      !Number.isSafeInteger(body.listeningSecondsDelta) ||
+      body.listeningSecondsDelta < 0 ||
+      body.listeningSecondsDelta > ACCOUNT_STATS_LISTENING_SECONDS_DELTA_MAX ||
+      !Number.isSafeInteger(body.trackCountDelta) ||
+      body.trackCountDelta < 0 ||
+      body.trackCountDelta > ACCOUNT_STATS_TRACK_DELTA_MAX ||
+      (body.sessionCountDelta === 0 &&
+        body.listeningSecondsDelta === 0 &&
+        body.trackCountDelta === 0)
+    ) {
+      return authJson({ error: 'INVALID_REQUEST' }, 400);
+    }
+    deltas = {
+      sessionCount: body.sessionCountDelta,
+      listeningSeconds: body.listeningSecondsDelta,
+      trackCount: body.trackCountDelta,
+    };
+  }
+
+  try {
+    const resolved = await requireSession(request, config);
+    if (resolved.error) return resolved.error;
+    const accountId = resolved.session.accountId;
+    if (deltas) {
+      const currentStatsScope = await accountStatsScope(config, resolved.session.sessionHash);
+      if (!constantTimeStringEqual(expectedStatsScope, currentStatsScope)) {
+        return authJson({ error: 'ACCOUNT_STATS_SCOPE_MISMATCH' }, 409);
+      }
+      const updated = await d1Run(
+        config.db,
+        `INSERT INTO ${ACCOUNT_STATS_TABLE}
+           (account_id, session_count, listening_seconds, track_count)
+         SELECT account.account_id, ?2, ?3, ?4
+           FROM ${ACCOUNT_TABLE} account
+          WHERE account.account_id = ?1
+            AND account.status = 'active'
+            AND NOT EXISTS (
+              SELECT 1
+                FROM ${ACCOUNT_DELETION_TABLE} deletion
+               WHERE deletion.account_id = account.account_id
+            )
+         ON CONFLICT(account_id) DO UPDATE SET
+           session_count = ${ACCOUNT_STATS_TABLE}.session_count + excluded.session_count,
+           listening_seconds =
+             ${ACCOUNT_STATS_TABLE}.listening_seconds + excluded.listening_seconds,
+           track_count = ${ACCOUNT_STATS_TABLE}.track_count + excluded.track_count
+         WHERE ${ACCOUNT_STATS_TABLE}.session_count <= ?5 - excluded.session_count
+           AND ${ACCOUNT_STATS_TABLE}.listening_seconds <= ?5 - excluded.listening_seconds
+           AND ${ACCOUNT_STATS_TABLE}.track_count <= ?5 - excluded.track_count`,
+        [
+          accountId,
+          deltas.sessionCount,
+          deltas.listeningSeconds,
+          deltas.trackCount,
+          ACCOUNT_STATS_TOTAL_MAX,
+        ],
+      );
+      if (d1ChangeCount(updated) !== 1) {
+        const current = await readAccountStats(config.db, accountId);
+        const limitReached =
+          current.sessionCount > ACCOUNT_STATS_TOTAL_MAX - deltas.sessionCount ||
+          current.listeningSeconds > ACCOUNT_STATS_TOTAL_MAX - deltas.listeningSeconds ||
+          current.trackCount > ACCOUNT_STATS_TOTAL_MAX - deltas.trackCount;
+        return authJson(
+          { error: limitReached ? 'ACCOUNT_STATS_LIMIT_REACHED' : 'ACCOUNT_STATS_UPDATE_REJECTED' },
+          409,
+        );
+      }
+    }
+    return authJson({ stats: await readAccountStats(config.db, accountId) });
   } catch {
     return authJson({ error: 'AUTH_TEMPORARILY_UNAVAILABLE' }, 503);
   }
@@ -1563,7 +1715,12 @@ export async function handleAccountAuthRequest(
           },
         });
       }
-      return authJson({ configured: false, authenticated: false, account: null });
+      return authJson({
+        configured: false,
+        authenticated: false,
+        account: null,
+        statsScope: null,
+      });
     }
     return authJson({ error: 'AUTH_NOT_CONFIGURED' }, 503);
   }
@@ -1577,6 +1734,8 @@ export async function handleAccountAuthRequest(
       return handleSession(request, config);
     case '/api/auth/profile':
       return handleProfile(request, config);
+    case '/api/auth/stats':
+      return handleAccountStats(request, config);
     case '/api/auth/room-assertion':
       return handleStandardRoomAssertion(request, config, env);
     case '/api/auth/logout':

@@ -108,15 +108,18 @@ function formatAccountStatNumber(value: number): string {
   return _accountStatsNumberFormatter?.format(value) ?? String(value);
 }
 
-function formatAccountListeningTime(listeningSeconds: number): string {
-  if (listeningSeconds < 60) {
+function formatAccountListeningTime(
+  listeningSeconds: number,
+  unitReferenceSeconds = listeningSeconds,
+): string {
+  if (unitReferenceSeconds < 60) {
     return t('account.stats_seconds_value', {
       seconds: formatAccountStatNumber(listeningSeconds),
     });
   }
 
   const totalMinutes = Math.floor(listeningSeconds / 60);
-  if (totalMinutes < 60) {
+  if (unitReferenceSeconds < 60 * 60) {
     return t('account.stats_minutes_value', {
       minutes: formatAccountStatNumber(totalMinutes),
     });
@@ -131,6 +134,7 @@ function formatAccountListeningTime(listeningSeconds: number): string {
 function renderAccountStatValues(
   elements: AccountStatValueElements,
   stats: Readonly<AccountStats>,
+  listeningTimeUnitReference = stats.listeningSeconds,
 ): void {
   if (elements.sessionCount) {
     elements.sessionCount.textContent = t('account.stats_count_value', {
@@ -138,7 +142,10 @@ function renderAccountStatValues(
     });
   }
   if (elements.listeningTime) {
-    elements.listeningTime.textContent = formatAccountListeningTime(stats.listeningSeconds);
+    elements.listeningTime.textContent = formatAccountListeningTime(
+      stats.listeningSeconds,
+      listeningTimeUnitReference,
+    );
   }
   if (elements.trackCount) {
     elements.trackCount.textContent = t('account.stats_count_value', {
@@ -193,11 +200,15 @@ function animateAccountStatValues(
   _accountStatsAnimationOwner = account;
   _accountStatsAnimationTarget = targetKey;
   statsContainer.setAttribute('aria-busy', 'true');
-  renderAccountStatValues(elements, {
-    sessionCount: 0,
-    listeningSeconds: target.listeningSeconds,
-    trackCount: 0,
-  });
+  renderAccountStatValues(
+    elements,
+    {
+      sessionCount: 0,
+      listeningSeconds: 0,
+      trackCount: 0,
+    },
+    target.listeningSeconds,
+  );
 
   let startedAt: number | null = null;
   const step = (now: number): void => {
@@ -224,11 +235,15 @@ function animateAccountStatValues(
       Math.max(0, (now - startedAt) / ACCOUNT_STATS_COUNT_UP_DURATION_MS),
     );
     const easedProgress = 1 - Math.pow(1 - progress, 3);
-    renderAccountStatValues(elements, {
-      sessionCount: Math.round(target.sessionCount * easedProgress),
-      listeningSeconds: target.listeningSeconds,
-      trackCount: Math.round(target.trackCount * easedProgress),
-    });
+    renderAccountStatValues(
+      elements,
+      {
+        sessionCount: Math.round(target.sessionCount * easedProgress),
+        listeningSeconds: Math.round(target.listeningSeconds * easedProgress),
+        trackCount: Math.round(target.trackCount * easedProgress),
+      },
+      target.listeningSeconds,
+    );
 
     if (progress < 1) {
       _accountStatsAnimationFrame = window.requestAnimationFrame(step);

@@ -760,9 +760,7 @@ describe('optional account UI', () => {
     await vi.waitFor(() => expect(requestAnimationFrameMock).toHaveBeenCalledOnce());
     expect(document.getElementById('account-dialog-stats')?.getAttribute('aria-busy')).toBe('true');
     expect(document.getElementById('account-stats-session-count')?.textContent).toBe('0');
-    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe(
-      '2 hr 39 min',
-    );
+    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe('0 hr 0 min');
     expect(document.getElementById('account-stats-track-count')?.textContent).toBe('0');
 
     const runNextFrame = (now: number): void => {
@@ -787,6 +785,9 @@ describe('optional account UI', () => {
     expect(intermediateSessions).toBeLessThan(14);
     expect(intermediateTracks).toBeGreaterThan(0);
     expect(intermediateTracks).toBeLessThan(53);
+    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe(
+      '2 hr 19 min',
+    );
 
     runNextFrame(900);
 

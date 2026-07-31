@@ -25,6 +25,7 @@ export interface RemoteUploadResponse {
   downloadUrl?: string;
   expiresAt: number;
   cleanupToken?: string;
+  downloadToken?: string;
 }
 
 interface RemoteUploadSessionResponse {
@@ -154,6 +155,8 @@ declare global {
 interface RemoteShareSecurityConfig {
   capabilityRequired: boolean;
   recordSetCreateIdempotency: boolean;
+  plainWholeObjectVersion: number;
+  downloadAuthorizationVersion: number;
 }
 
 const ENDPOINT_STORAGE_KEY = 'musixquare-remote-share-endpoint';
@@ -185,6 +188,8 @@ const R2_RECORD_SET_VERSION = 2 as const;
 const R2_RECORD_PLAINTEXT_BYTES = 8 * 1024 * 1024;
 const R2_RECORD_MAX_IDENTIFIER_LENGTH = 256;
 const R2_RECORD_CONTROL_TOKEN_MAX_LENGTH = 8 * 1024;
+const PLAIN_DOWNLOAD_TOKEN_MAX_LENGTH = 2048;
+const PLAIN_DOWNLOAD_TOKEN_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u;
 let remoteShareSecurityConfigCache: {
   endpoint: string;
   expiresAt: number;
@@ -429,6 +434,14 @@ function expectedDownloadUrl(roomId: string, objectId: string): URL {
   );
 }
 
+function expectedPlainDownloadUrl(roomId: string, objectId: string): URL {
+  const endpoint = getRemoteShareEndpoint();
+  if (!endpoint) throw new Error('REMOTE_SHARE_ENDPOINT_MISSING');
+  return new URL(
+    `${endpoint}/v3/plain/download/${encodeURIComponent(roomId)}/${encodeURIComponent(objectId)}`,
+  );
+}
+
 function expectedObjectUrl(roomId: string, objectId: string): URL {
   const endpoint = getRemoteShareEndpoint();
   if (!endpoint) throw new Error('REMOTE_SHARE_ENDPOINT_MISSING');
@@ -439,6 +452,29 @@ function expectedObjectUrl(roomId: string, objectId: string): URL {
 
 function buildDownloadUrl(roomId: string, objectId: string, downloadUrl?: string): string {
   const expected = expectedDownloadUrl(roomId, objectId);
+  if (!downloadUrl) return expected.toString();
+
+  let candidate: URL;
+  try {
+    candidate = new URL(downloadUrl);
+  } catch {
+    throw new Error('REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID');
+  }
+  if (
+    candidate.origin !== expected.origin ||
+    candidate.pathname !== expected.pathname ||
+    candidate.search !== '' ||
+    candidate.hash !== '' ||
+    candidate.username !== '' ||
+    candidate.password !== ''
+  ) {
+    throw new Error('REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID');
+  }
+  return candidate.toString();
+}
+
+function buildPlainDownloadUrl(roomId: string, objectId: string, downloadUrl?: string): string {
+  const expected = expectedPlainDownloadUrl(roomId, objectId);
   if (!downloadUrl) return expected.toString();
 
   let candidate: URL;
@@ -565,6 +601,10 @@ async function getRemoteShareSecurityConfig(
     const value = {
       capabilityRequired: payload.capabilityRequired === true,
       recordSetCreateIdempotency: payload.recordSetCreateIdempotency === true,
+      plainWholeObjectVersion:
+        payload.plainWholeObjectVersion === 1 ? payload.plainWholeObjectVersion : 0,
+      downloadAuthorizationVersion:
+        payload.downloadAuthorizationVersion === 1 ? payload.downloadAuthorizationVersion : 0,
     };
     remoteShareSecurityConfigCache = {
       endpoint,
@@ -577,8 +617,18 @@ async function getRemoteShareSecurityConfig(
     return {
       capabilityRequired: false,
       recordSetCreateIdempotency: false,
+      plainWholeObjectVersion: 0,
+      downloadAuthorizationVersion: 0,
     };
   }
+}
+
+/** True only when the deployed Worker supports the isolated authenticated path. */
+export async function supportsPlainWholeObjectUpload(signal?: AbortSignal): Promise<boolean> {
+  const endpoint = getRemoteShareEndpoint();
+  if (!endpoint) return false;
+  const config = await getRemoteShareSecurityConfig(endpoint, signal);
+  return config.plainWholeObjectVersion === 1 && config.downloadAuthorizationVersion === 1;
 }
 
 /** Invalidate cached security configuration after a 401 so the retry probes
@@ -666,9 +716,10 @@ async function requestRecordSetControl(
 
 async function requestUploadSession(
   endpoint: string,
-  encryptedBlob: Blob,
+  uploadBlob: Blob,
   meta: RemoteUploadMeta,
   signal?: AbortSignal,
+  storageFormat: 'aes-gcm-whole-v1' | 'plain-whole-v1' = 'aes-gcm-whole-v1',
 ): Promise<RemoteUploadSessionResponse> {
   try {
     const requestBody = JSON.stringify({
@@ -678,18 +729,21 @@ async function requestUploadSession(
       name: meta.name,
       mime: meta.mime || 'application/octet-stream',
       size: meta.size,
-      encryptedSize: encryptedBlob.size,
+      ...(storageFormat === 'aes-gcm-whole-v1' ? { encryptedSize: uploadBlob.size } : {}),
     });
     const capabilityTarget = new URL('/api/capability-token', location.origin);
     const requestOnce = (capabilityHeaders: Record<string, string>) =>
       withRequestDeadline(
         async (requestSignal) => {
-          const response = await fetch(`${endpoint}/session`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', ...capabilityHeaders },
-            body: requestBody,
-            signal: requestSignal,
-          });
+          const response = await fetch(
+            `${endpoint}${storageFormat === 'plain-whole-v1' ? '/v3/plain/session' : '/session'}`,
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', ...capabilityHeaders },
+              body: requestBody,
+              signal: requestSignal,
+            },
+          );
           let body: Partial<RemoteUploadSessionResponse> | null = null;
           try {
             body = (await readBoundedJson(
@@ -764,20 +818,24 @@ async function completeDirectUpload(
   session: RemoteUploadSessionResponse,
   meta: RemoteUploadMeta,
   signal?: AbortSignal,
+  storageFormat: 'aes-gcm-whole-v1' | 'plain-whole-v1' = 'aes-gcm-whole-v1',
 ): Promise<RemoteUploadResponse> {
   try {
     const { response, body } = await withRequestDeadline(
       async (requestSignal) => {
-        const response = await fetch(`${endpoint}/complete`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            roomId: meta.roomId,
-            objectId: session.objectId,
-            completeToken: session.completeToken,
-          }),
-          signal: requestSignal,
-        });
+        const response = await fetch(
+          `${endpoint}${storageFormat === 'plain-whole-v1' ? '/v3/plain/complete' : '/complete'}`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              roomId: meta.roomId,
+              objectId: session.objectId,
+              completeToken: session.completeToken,
+            }),
+            signal: requestSignal,
+          },
+        );
         let body: Partial<RemoteUploadResponse> | null = null;
         try {
           body = (await readBoundedJson(
@@ -802,6 +860,11 @@ async function completeDirectUpload(
       typeof body?.objectId !== 'string' ||
       body.objectId !== session.objectId ||
       typeof body.expiresAt !== 'number' ||
+      (storageFormat === 'plain-whole-v1' &&
+        (typeof body.downloadToken !== 'string' ||
+          body.downloadToken.length < 32 ||
+          body.downloadToken.length > PLAIN_DOWNLOAD_TOKEN_MAX_LENGTH ||
+          !PLAIN_DOWNLOAD_TOKEN_RE.test(body.downloadToken))) ||
       (typeof body.cleanupToken === 'string' &&
         typeof session.cleanupToken === 'string' &&
         body.cleanupToken !== session.cleanupToken)
@@ -814,6 +877,7 @@ async function completeDirectUpload(
       expiresAt: body.expiresAt,
       cleanupToken:
         typeof body.cleanupToken === 'string' ? body.cleanupToken : session.cleanupToken,
+      downloadToken: typeof body.downloadToken === 'string' ? body.downloadToken : undefined,
     };
   } catch (error) {
     if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED', { cause: error });
@@ -826,13 +890,16 @@ async function cleanupUploadSession(
   endpoint: string,
   session: RemoteUploadSessionResponse,
   meta: RemoteUploadMeta,
+  storageFormat: 'aes-gcm-whole-v1' | 'plain-whole-v1' = 'aes-gcm-whole-v1',
 ): Promise<void> {
   if (!session.cleanupToken) return;
   try {
     await withRequestDeadline(
       async (signal) => {
         const response = await fetch(
-          `${endpoint}/object/${encodeURIComponent(meta.roomId)}/${encodeURIComponent(session.objectId)}`,
+          storageFormat === 'plain-whole-v1'
+            ? `${endpoint}/v3/plain/object/${encodeURIComponent(meta.roomId)}/${encodeURIComponent(session.objectId)}`
+            : `${endpoint}/object/${encodeURIComponent(meta.roomId)}/${encodeURIComponent(session.objectId)}`,
           {
             method: 'DELETE',
             headers: { 'x-mxqr-cleanup-token': session.cleanupToken! },
@@ -862,10 +929,38 @@ export async function uploadEncryptedBlob(
   onProgress?: ProgressHandler,
   signal?: AbortSignal,
 ): Promise<RemoteUploadResponse> {
+  return uploadWholeBlob(encryptedBlob, meta, 'aes-gcm-whole-v1', onProgress, signal);
+}
+
+/** Upload an unencrypted private object only when the Worker advertises v1 support. */
+export async function uploadPlainBlob(
+  plainBlob: Blob,
+  meta: RemoteUploadMeta,
+  onProgress?: ProgressHandler,
+  signal?: AbortSignal,
+): Promise<RemoteUploadResponse & { downloadToken: string }> {
+  if (plainBlob.size !== meta.size) throw new Error('REMOTE_SHARE_PLAINTEXT_SIZE_MISMATCH');
+  if (!(await supportsPlainWholeObjectUpload(signal))) {
+    throw new Error('REMOTE_SHARE_PLAIN_PROTOCOL_UNAVAILABLE');
+  }
+  const uploaded = await uploadWholeBlob(plainBlob, meta, 'plain-whole-v1', onProgress, signal);
+  if (typeof uploaded.downloadToken !== 'string') {
+    throw new Error('REMOTE_SHARE_BAD_COMPLETE_RESPONSE');
+  }
+  return { ...uploaded, downloadToken: uploaded.downloadToken };
+}
+
+async function uploadWholeBlob(
+  uploadBlob: Blob,
+  meta: RemoteUploadMeta,
+  storageFormat: 'aes-gcm-whole-v1' | 'plain-whole-v1',
+  onProgress?: ProgressHandler,
+  signal?: AbortSignal,
+): Promise<RemoteUploadResponse> {
   const endpoint = getRemoteShareEndpoint();
   if (!endpoint) throw new Error('REMOTE_SHARE_ENDPOINT_MISSING');
 
-  const session = await requestUploadSession(endpoint, encryptedBlob, meta, signal);
+  const session = await requestUploadSession(endpoint, uploadBlob, meta, signal, storageFormat);
   const reportProgress = createDisplayProgressReporter(onProgress);
 
   return new Promise((resolve, reject) => {
@@ -887,7 +982,7 @@ export async function uploadEncryptedBlob(
       if (settled) return;
       settled = true;
       finalizeXhr();
-      void cleanupUploadSession(endpoint, session, meta);
+      void cleanupUploadSession(endpoint, session, meta, storageFormat);
       reject(error);
     };
     try {
@@ -924,7 +1019,7 @@ export async function uploadEncryptedBlob(
     xhr.onload = () => {
       finalizeXhr();
       if (xhr.status >= 200 && xhr.status < 300) {
-        void completeDirectUpload(endpoint, session, meta, signal).then((body) => {
+        void completeDirectUpload(endpoint, session, meta, signal, storageFormat).then((body) => {
           if (settled) return;
           settled = true;
           reportProgress(1);
@@ -938,7 +1033,7 @@ export async function uploadEncryptedBlob(
       rejectWithCleanup(new Error('REMOTE_SHARE_UPLOAD_NETWORK'));
     };
     try {
-      xhr.send(encryptedBlob);
+      xhr.send(uploadBlob);
     } catch (error) {
       rejectWithCleanup(
         signal?.aborted
@@ -1105,6 +1200,137 @@ export function downloadEncryptedObject(
     xhr.onerror = () => {
       rejectOnce(new Error('REMOTE_SHARE_DOWNLOAD_NETWORK'));
     };
+    try {
+      xhr.send();
+    } catch (error) {
+      rejectOnce(
+        signal?.aborted
+          ? new Error('REMOTE_SHARE_ABORTED', { cause: error })
+          : new Error('REMOTE_SHARE_DOWNLOAD_NETWORK', { cause: error }),
+      );
+    }
+  });
+}
+
+/** Download one private plaintext object with participant-delivered read authority. */
+export function downloadPlainObject(
+  roomId: string,
+  objectId: string,
+  expectedSize: number,
+  downloadToken: string,
+  downloadUrl?: string,
+  onProgress?: ProgressHandler,
+  signal?: AbortSignal,
+): Promise<ArrayBuffer> {
+  return new Promise((resolve, reject) => {
+    if (
+      !Number.isSafeInteger(expectedSize) ||
+      expectedSize <= 0 ||
+      expectedSize > REMOTE_SHARE_MAX_BYTES
+    ) {
+      reject(new Error('REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH'));
+      return;
+    }
+    if (
+      typeof downloadToken !== 'string' ||
+      downloadToken.length < 32 ||
+      downloadToken.length > PLAIN_DOWNLOAD_TOKEN_MAX_LENGTH ||
+      !PLAIN_DOWNLOAD_TOKEN_RE.test(downloadToken)
+    ) {
+      reject(new Error('REMOTE_SHARE_DOWNLOAD_AUTH_INVALID'));
+      return;
+    }
+
+    const requestUrl = buildPlainDownloadUrl(roomId, objectId, downloadUrl);
+    const reportProgress = createDisplayProgressReporter(onProgress);
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', requestUrl, true);
+    xhr.setRequestHeader('Authorization', `Bearer ${downloadToken}`);
+    xhr.responseType = 'arraybuffer';
+
+    let settled = false;
+    let xhrFinalized = false;
+    const xhrLifecycle: {
+      stall?: ReturnType<typeof createXhrStallWatchdog>;
+      detachAbort?: (() => void) | null;
+    } = {};
+    const finalizeXhr = (): void => {
+      if (xhrFinalized) return;
+      xhrFinalized = true;
+      xhrLifecycle.stall?.clear();
+      xhrLifecycle.detachAbort?.();
+      xhrLifecycle.detachAbort = undefined;
+    };
+    const rejectOnce = (error: Error): void => {
+      if (settled) return;
+      settled = true;
+      finalizeXhr();
+      reject(error);
+    };
+    const resolveOnce = (value: ArrayBuffer): void => {
+      if (settled) return;
+      settled = true;
+      finalizeXhr();
+      resolve(value);
+    };
+
+    xhrLifecycle.stall = createXhrStallWatchdog(xhr, rejectOnce, 'REMOTE_SHARE_DOWNLOAD_STALLED');
+    xhrLifecycle.detachAbort = wireAbort(xhr, rejectOnce, signal, finalizeXhr);
+    if (xhrLifecycle.detachAbort === null) {
+      finalizeXhr();
+      return;
+    }
+
+    let lastDownloadedBytes = 0;
+    xhr.onprogress = (event) => {
+      if (event.loaded > expectedSize || (event.lengthComputable && event.total !== expectedSize)) {
+        finalizeXhr();
+        try {
+          xhr.abort();
+        } catch {
+          /* ignore */
+        }
+        rejectOnce(new Error('REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH'));
+        return;
+      }
+      if (event.loaded > lastDownloadedBytes) {
+        lastDownloadedBytes = event.loaded;
+        xhrLifecycle.stall?.reset();
+      }
+      if (event.lengthComputable && onProgress) reportProgress(event.loaded / event.total);
+    };
+    xhr.onload = () => {
+      finalizeXhr();
+      try {
+        if (
+          !xhr.responseURL ||
+          buildPlainDownloadUrl(roomId, objectId, xhr.responseURL) !==
+            new URL(requestUrl).toString()
+        ) {
+          rejectOnce(new Error('REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID'));
+          return;
+        }
+      } catch {
+        rejectOnce(new Error('REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID'));
+        return;
+      }
+      if (
+        xhr.status >= 200 &&
+        xhr.status < 300 &&
+        xhr.response instanceof ArrayBuffer &&
+        xhr.response.byteLength === expectedSize
+      ) {
+        reportProgress(1);
+        resolveOnce(xhr.response);
+        return;
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && xhr.response instanceof ArrayBuffer) {
+        rejectOnce(new Error('REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH'));
+        return;
+      }
+      rejectOnce(new Error(`REMOTE_SHARE_DOWNLOAD_HTTP_${xhr.status}`));
+    };
+    xhr.onerror = () => rejectOnce(new Error('REMOTE_SHARE_DOWNLOAD_NETWORK'));
     try {
       xhr.send();
     } catch (error) {

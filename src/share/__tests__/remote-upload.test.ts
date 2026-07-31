@@ -6,7 +6,9 @@ import { REMOTE_SHARE_MAX_BYTES } from '../../core/constants.ts';
 
 const mocks = vi.hoisted(() => ({
   encryptFile: vi.fn(),
+  supportsPlainWholeObjectUpload: vi.fn(),
   uploadEncryptedBlob: vi.fn(),
+  uploadPlainBlob: vi.fn(),
 }));
 
 const Q0 = '10000000-0000-4000-8000-000000000001';
@@ -15,12 +17,17 @@ const Q2 = '10000000-0000-4000-8000-000000000003';
 const Q3 = '10000000-0000-4000-8000-000000000004';
 
 vi.mock('../crypto.ts', () => ({ encryptFile: mocks.encryptFile }));
-vi.mock('../r2-client.ts', () => ({ uploadEncryptedBlob: mocks.uploadEncryptedBlob }));
+vi.mock('../r2-client.ts', () => ({
+  supportsPlainWholeObjectUpload: mocks.supportsPlainWholeObjectUpload,
+  uploadEncryptedBlob: mocks.uploadEncryptedBlob,
+  uploadPlainBlob: mocks.uploadPlainBlob,
+}));
 
 beforeEach(() => {
   resetState();
   vi.clearAllMocks();
   setState('network.sessionCode', '123456');
+  mocks.supportsPlainWholeObjectUpload.mockResolvedValue(false);
   mocks.encryptFile.mockResolvedValue({
     encryptedBlob: new Blob([new Uint8Array(20)]),
     keyB64: 'a2V5',
@@ -32,9 +39,39 @@ beforeEach(() => {
       'https://share.musixquare.com/download/123456/00000000-0000-4000-8000-000000000001',
     expiresAt: Date.now() + 60_000,
   });
+  mocks.uploadPlainBlob.mockResolvedValue({
+    objectId: '00000000-0000-4000-8000-000000000002',
+    downloadUrl:
+      'https://share.musixquare.com/v3/plain/download/123456/00000000-0000-4000-8000-000000000002',
+    expiresAt: Date.now() + 60_000,
+    downloadToken: `${'p'.repeat(40)}.${'s'.repeat(43)}`,
+  });
 });
 
 describe('remote upload contract', () => {
+  it('uploads the original File without invoking Web Crypto when plaintext v1 is available', async () => {
+    mocks.supportsPlainWholeObjectUpload.mockResolvedValueOnce(true);
+    const { uploadRemoteFile } = await import('../remote-upload.ts');
+    const file = new File(['data'], 'song.mp3', { type: 'audio/mpeg' });
+
+    await expect(uploadRemoteFile(file, 7, Q2)).resolves.toMatchObject({
+      storageFormat: 'plain-whole-v1',
+      storedSize: 4,
+      size: 4,
+      sessionId: 7,
+      queueItemId: Q2,
+      downloadToken: expect.any(String),
+    });
+    expect(mocks.encryptFile).not.toHaveBeenCalled();
+    expect(mocks.uploadEncryptedBlob).not.toHaveBeenCalled();
+    expect(mocks.uploadPlainBlob).toHaveBeenCalledWith(
+      file,
+      expect.objectContaining({ roomId: '123456', size: 4 }),
+      expect.any(Function),
+      undefined,
+    );
+  });
+
   it('rejects a malformed queue occurrence before reserving or encrypting', async () => {
     const { uploadRemoteFile } = await import('../remote-upload.ts');
     const file = new File(['data'], 'song.mp3', { type: 'audio/mpeg' });

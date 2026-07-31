@@ -1,8 +1,8 @@
 /**
- * Remote file sharing over temporary encrypted object storage.
+ * Remote file sharing over temporary private object storage.
  *
  * This is intentionally a side path: LAN P2P transfer remains the primary
- * path, while remote/unknown guests receive an encrypted R2 descriptor.
+ * path, while remote/unknown guests receive a negotiated R2 descriptor.
  *
  * Foreground playback and speculative next-track delivery use separate lanes.
  * When the speculative object becomes current, its exact queue/session owner
@@ -68,6 +68,8 @@ import { isPeerConnectionCurrent } from '../storage/chunk-pump.ts';
 import { completeFileRequest } from '../network/file-request-authority.ts';
 import {
   getR2FileTargets,
+  isFileR2PlainCapable,
+  markFileR2PlainCapable,
   markLocalFileR2Capable,
   markLateLocalPeerForR2,
   recordGuestFileDelivery,
@@ -321,16 +323,27 @@ function fileIdentity(file: File): number {
   return id;
 }
 
-function uploadRequestKey(file: File, sessionId: number, queueItemId: QueueItemId): string {
-  return JSON.stringify([sessionId, queueItemId, fileIdentity(file)]);
+type DesiredRemoteStorageFormat = 'aes-gcm-whole-v1' | 'plain-whole-v1';
+
+function uploadRequestKey(
+  file: File,
+  sessionId: number,
+  queueItemId: QueueItemId,
+  desiredFormat: DesiredRemoteStorageFormat,
+): string {
+  return JSON.stringify([sessionId, queueItemId, fileIdentity(file), desiredFormat]);
 }
 
 function currentRemoteShareRoomId(): string {
   return getState('network.sessionCode') || getState('network.myId') || 'room';
 }
 
-function descriptorCacheKey(file: File, roomId: string): string {
-  return JSON.stringify([roomId, fileIdentity(file)]);
+function descriptorCacheKey(
+  file: File,
+  roomId: string,
+  desiredFormat: DesiredRemoteStorageFormat,
+): string {
+  return JSON.stringify([roomId, fileIdentity(file), desiredFormat]);
 }
 
 function withPlaybackContext(
@@ -756,7 +769,7 @@ export async function preloadRemoteFileIfNeeded(
 }
 
 /**
- * Host-side: encrypt + upload the file and broadcast the descriptor to
+ * Host-side: upload the file in the format supported by every target and publish its descriptor to
  * remote guests. Completed uploads are reused for the same file while fresh,
  * rebasing the wire descriptor to the current queue occurrence and session.
  * In-flight uploads remain scoped to the original playback request so
@@ -787,9 +800,15 @@ export async function shareRemoteFileIfNeeded(
     (currentResident?.blob === file ? currentResident.queueItemId : undefined);
   if (!queueItemId || !getQueueItemById(queueItemId)) return;
 
+  const initialTargets = getR2MessageTargets(sessionId, targetConn);
+  if (initialTargets.length === 0) return;
+  const preferPlain = initialTargets.every((conn) => isFileR2PlainCapable(conn));
+  const desiredFormat: DesiredRemoteStorageFormat = preferPlain
+    ? 'plain-whole-v1'
+    : 'aes-gcm-whole-v1';
   const roomId = currentRemoteShareRoomId();
-  const uploadKey = uploadRequestKey(file, sessionId, queueItemId);
-  const cacheKey = descriptorCacheKey(file, roomId);
+  const uploadKey = uploadRequestKey(file, sessionId, queueItemId, desiredFormat);
+  const cacheKey = descriptorCacheKey(file, roomId, desiredFormat);
 
   try {
     let descriptor: RemoteFileSharePayload;
@@ -817,12 +836,13 @@ export async function shareRemoteFileIfNeeded(
         if (inFlight.abort.signal.aborted) return;
       } else {
         const abort = new AbortController();
-        let currentStage: UploadEntry['stage'] = 'encrypting';
+        let currentStage: UploadEntry['stage'] = preferPlain ? 'uploading' : 'encrypting';
         let currentProgress = 0;
         let entry: UploadEntry | null = null;
         const promise = uploadRemoteFile(file, sessionId, queueItemId, {
           signal: abort.signal,
           publishState: !isPreload,
+          preferPlain,
           onUploadProgress: (progress) => {
             currentProgress = progress;
             if (!entry) return;
@@ -850,8 +870,11 @@ export async function shareRemoteFileIfNeeded(
         _activeUploads.set(uploadKey, entry);
 
         if (!isPreload) {
-          showToast(t('share.remote.encrypting'));
-          showUploadProgress(t('share.remote.encrypting'));
+          const progressMessage = t(
+            currentStage === 'encrypting' ? 'share.remote.encrypting' : 'share.remote.uploading',
+          );
+          showToast(progressMessage);
+          showUploadProgress(progressMessage);
         }
 
         try {
@@ -907,11 +930,13 @@ export async function shareRemoteFileIfNeeded(
 
     const outboundDescriptor = withPlaybackContext(descriptor, sessionId, queueItemId);
     const msg = toRemoteShareMessage(outboundDescriptor, isPreload);
-    const targets = getR2MessageTargets(sessionId, targetConn);
+    const targets = getR2MessageTargets(sessionId, targetConn).filter(
+      (conn) => outboundDescriptor.storageFormat !== 'plain-whole-v1' || isFileR2PlainCapable(conn),
+    );
     if (targets.length === 0) return;
     for (const conn of targets) safeSend(conn, msg);
     log.info(
-      `[RemoteShare] Shared encrypted ${isPreload ? 'preload ' : ''}descriptor for ${outboundDescriptor.name}`,
+      `[RemoteShare] Shared ${outboundDescriptor.storageFormat ?? 'aes-gcm-whole-v1'} ${isPreload ? 'preload ' : ''}descriptor for ${outboundDescriptor.name}`,
     );
     if (!isPreload) showToast(t('share.remote.upload_ready'));
   } catch (error) {
@@ -1204,12 +1229,17 @@ function sameRemoteDescriptorBytes(
   left: RemoteFileSharePayload,
   right: RemoteFileSharePayload,
 ): boolean {
-  return (
-    left.roomId === right.roomId &&
-    left.objectId === right.objectId &&
-    left.size === right.size &&
-    left.encryptedSize === right.encryptedSize
-  );
+  if (
+    left.roomId !== right.roomId ||
+    left.objectId !== right.objectId ||
+    left.size !== right.size
+  ) {
+    return false;
+  }
+  if (left.storageFormat === 'plain-whole-v1') {
+    return right.storageFormat === 'plain-whole-v1' && left.storedSize === right.storedSize;
+  }
+  return right.storageFormat !== 'plain-whole-v1' && left.encryptedSize === right.encryptedSize;
 }
 
 function reconcileDeferredPreloadForActiveDescriptor(descriptor: RemoteFileSharePayload): void {
@@ -1835,9 +1865,9 @@ async function handleRemoteFileShare(
     );
     showLoader(true, t('share.remote.downloading'));
 
-    // Whole-file XHR + Web Crypto allocations happen before decode admission.
-    // Reject an unsafe transport peak before the browser receives the first
-    // encrypted byte.
+    // Whole-file XHR allocations happen before decode admission; the rolling
+    // legacy format additionally needs Web Crypto working memory. Reject an
+    // unsafe transport peak before the browser receives the first stored byte.
     const memoryBudget = resolveDecodeMemoryBudget();
     for (;;) {
       try {
@@ -2165,6 +2195,16 @@ async function handleFileR2Capability(
   }
 }
 
+function handleFileR2PlainCapability(
+  data: ProtocolMsg<typeof MSG.FILE_R2_PLAIN_CAPABILITY>,
+  conn?: DataConnection,
+): void {
+  if (data.version !== 1) return;
+  if (getState('network.appRole') !== 'host' || !conn?.peer) return;
+  if (getState('network.activeHostConnByPeerId').get(conn.peer) !== conn) return;
+  markFileR2PlainCapable(conn);
+}
+
 function resetRemoteShareAuthorityBoundary(): void {
   _remoteDescriptorGeneration++;
   _lastAdoptedRemoteContext = null;
@@ -2203,6 +2243,7 @@ function resetRemoteShareAuthorityBoundary(): void {
 export function initRemoteShare(): void {
   registerHandlers({
     [MSG.FILE_R2_CAPABILITY]: handleFileR2Capability,
+    [MSG.FILE_R2_PLAIN_CAPABILITY]: handleFileR2PlainCapability,
     [MSG.REMOTE_FILE_SHARE]: handleRemoteFileShare,
     [MSG.REMOTE_FILE_UNAVAILABLE]: handleRemoteFileUnavailable,
   });
@@ -2301,6 +2342,12 @@ export function initRemoteShare(): void {
     if (getState('network.appRole') !== 'guest') return;
     const hostConn = getState('network.hostConn');
     if (!hostConn || conn !== hostConn) return;
+    // Send the additive format marker first so the legacy R2 capability can
+    // immediately recover a frozen overflow route using the preferred format.
+    safeSend(hostConn, {
+      type: MSG.FILE_R2_PLAIN_CAPABILITY,
+      version: 1,
+    });
     safeSend(hostConn, {
       type: MSG.FILE_R2_CAPABILITY,
       version: 1,
@@ -2337,7 +2384,7 @@ export function initRemoteShare(): void {
     // A new host owns a new sessionId ordering, including truthy-to-truthy
     // session-code changes, so reset the adopted-context gate unconditionally.
     // Room changes are security boundaries even when both codes are truthy.
-    // Never carry encrypted objects, cached descriptors, or download
+    // Never carry remote objects, cached descriptors, or download
     // ownership from room A into room B.
     resetRemoteShareAuthorityBoundary();
   });

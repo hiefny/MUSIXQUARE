@@ -20,9 +20,9 @@ clearer lifetime: leaving or replacing a session drops app-owned references and
 makes its browser-local working set eligible for browser reclamation, without a
 disk-recovery path. The browser still controls the actual reclamation timing.
 
-Temporary encrypted objects in Cloudflare R2 are outside the scope of this
-decision. They are server-side handoff objects with their own TTL and cleanup
-contract, not browser-local playback storage.
+Temporary private objects in Cloudflare R2 are outside the scope of this
+decision. They are participant-authorized server-side handoff objects with
+their own TTL and cleanup contract, not browser-local playback storage.
 
 ## Decision
 
@@ -55,8 +55,8 @@ RAM-only media still has a device-dependent physical capacity ceiling, and
 persistent storage would not remove the PCM required by the current AudioBuffer
 playback engine. The legacy engine nevertheless does **not** impose a predicted
 per-device RAM ceiling. Local decode, P2P receive/preload, and whole-file remote
-encryption/decryption proceed on a best-effort basis and rely on the browser's
-actual allocation and `decodeAudioData` outcome.
+upload/download proceed on a best-effort basis and rely on the browser's actual
+allocation and `decodeAudioData` outcome.
 
 **Implementation note (2026-07-15):** the shared memory ledger remains for
 ownership, cleanup, diagnostics, and future bounded-engine work, but production

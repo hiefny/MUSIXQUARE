@@ -141,10 +141,11 @@ whole-set availability.
   account billing entitlement. Room codes remain client-supplied, and the
   direct R2 data plane plus bucket lifecycle still require account-wide usage
   alerts and the existing capability/IP/WAF controls.
-- The production R2 bucket also has a bucket-level lifecycle rule that automatically
-  expires remote-share objects. This setting lives in R2 rather than this repository
-  and must remain configured for a maximum intended retention of 24 hours. Wrangler
-  last confirmed the enabled one-day `room/` expiry rule on 2026-07-11.
+- The production R2 bucket also has bucket-level lifecycle rules that automatically
+  expire remote-share objects. `cloudflare/r2-lifecycle.remote-share.json` is the
+  authoritative policy applied and read back by the production release workflow.
+  It defines enabled one-day expiry rules for both the legacy `room/` prefix and
+  the plaintext `plain-room/` prefix.
 - Max plaintext wire/storage size: fixed at 200 MiB across the descriptor,
   Worker session, and stored-object checks. AES-GCM ciphertext is exactly 16
   bytes larger. The current app does not apply a predictive device-tier or PCM

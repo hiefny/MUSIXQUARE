@@ -905,6 +905,23 @@ describe('file-transfer frame validation', () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it('accepts only the exact additive plaintext R2 capability marker', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('peer-file-r2-plain-capability');
+    registerHandler(MSG.FILE_R2_PLAIN_CAPABILITY, handler);
+
+    await handleData({ type: MSG.FILE_R2_PLAIN_CAPABILITY, version: 1 }, conn);
+    for (const invalid of [
+      { type: MSG.FILE_R2_PLAIN_CAPABILITY, version: 2 },
+      { type: MSG.FILE_R2_PLAIN_CAPABILITY, version: 1, extra: true },
+      { type: MSG.FILE_R2_PLAIN_CAPABILITY, version: '1' },
+    ]) {
+      await handleData(invalid, conn);
+    }
+
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it('enforces the exact 200 MiB whole-file AES-GCM descriptor contract', async () => {
     const handler = vi.fn();
     registerHandler(MSG.REMOTE_FILE_SHARE, handler);
@@ -948,6 +965,45 @@ describe('file-transfer frame validation', () => {
     ]) {
       await handleData(invalid, conn);
     }
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it('accepts an exact authorized plaintext descriptor and rejects mixed format fields', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.REMOTE_FILE_SHARE, handler);
+    const conn = makeConnection('peer-plain-remote-descriptor');
+    const valid = {
+      type: MSG.REMOTE_FILE_SHARE,
+      roomId: '123456',
+      objectId: '00000000-0000-4000-8000-000000000001',
+      downloadUrl:
+        'https://share.musixquare.com/v3/plain/download/123456/00000000-0000-4000-8000-000000000001',
+      storageFormat: 'plain-whole-v1',
+      storedSize: REMOTE_SHARE_MAX_BYTES,
+      downloadToken: `eyJ2IjoxLCJraW5kIjoicGxhaW4tZG93bmxvYWQifQ.${'a'.repeat(43)}`,
+      name: 'track.wav',
+      mime: 'audio/wav',
+      size: REMOTE_SHARE_MAX_BYTES,
+      queueItemId: QUEUE_ITEM_ID,
+      sessionId: 1,
+      expiresAt: Date.now() + 60_000,
+      delivery: 'r2',
+    };
+
+    await handleData(valid, conn);
+    await handleData({ ...valid, preload: true }, conn);
+
+    for (const invalid of [
+      { ...valid, storedSize: valid.size - 1 },
+      { ...valid, roomId: 'room' },
+      { ...valid, downloadToken: 'not-a-signed-token' },
+      { ...valid, keyB64: 'a2V5', ivB64: 'aXY=', encryptedSize: valid.size + 16 },
+      { ...valid, storageFormat: 'aes-gcm-whole-v1' },
+      { ...valid, unexpected: true },
+    ]) {
+      await handleData(invalid, conn);
+    }
+
     expect(handler).toHaveBeenCalledTimes(2);
   });
 

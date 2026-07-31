@@ -14,6 +14,8 @@ class FakeXmlHttpRequest {
   timeout = 0;
   sendCalls = 0;
   abortCalls = 0;
+  requestHeaders: Record<string, string> = {};
+  sentBody: Document | XMLHttpRequestBodyInit | null = null;
   upload = {} as XMLHttpRequestUpload;
   onload: ((this: XMLHttpRequest, ev: ProgressEvent<EventTarget>) => unknown) | null = null;
   onerror: ((this: XMLHttpRequest, ev: ProgressEvent<EventTarget>) => unknown) | null = null;
@@ -29,9 +31,12 @@ class FakeXmlHttpRequest {
     this.url = url;
   }
 
-  setRequestHeader(): void {}
-  send(): void {
+  setRequestHeader(name: string, value: string): void {
+    this.requestHeaders[name.toLowerCase()] = value;
+  }
+  send(body: Document | XMLHttpRequestBodyInit | null = null): void {
     this.sendCalls += 1;
+    this.sentBody = body;
   }
   abort(): void {
     this.abortCalls += 1;
@@ -649,6 +654,96 @@ describe('R2 download boundary', () => {
 
     await rejected;
     expect(xhr.abortCalls).toBe(1);
+  });
+});
+
+describe('plain whole-object authorization', () => {
+  it('keeps the read token out of the URL and sends it only as a bearer header', async () => {
+    const plainUrl = `https://share.example.test/v3/plain/download/${roomId}/${objectId}`;
+    const downloadToken = `${'p'.repeat(40)}.${'s'.repeat(43)}`;
+    const { downloadPlainObject } = await import('../r2-client.ts');
+    const pending = downloadPlainObject(roomId, objectId, 4, downloadToken, plainUrl);
+    const xhr = FakeXmlHttpRequest.instances.at(-1)!;
+
+    expect(xhr.url).toBe(plainUrl);
+    expect(xhr.url).not.toContain(downloadToken);
+    expect(xhr.requestHeaders.authorization).toBe(`Bearer ${downloadToken}`);
+
+    xhr.responseURL = plainUrl;
+    xhr.response = new ArrayBuffer(4);
+    xhr.onload?.call(xhr as unknown as XMLHttpRequest, new ProgressEvent('load'));
+    await expect(pending).resolves.toBe(xhr.response);
+  });
+
+  it('uploads the original Blob through the advertised plaintext protocol', async () => {
+    const endpoint = 'https://plain-upload-share.example.test';
+    const plainUrl = `${endpoint}/v3/plain/download/${roomId}/${objectId}`;
+    Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__', {
+      configurable: true,
+      value: endpoint,
+    });
+    const downloadToken = `${'p'.repeat(40)}.${'s'.repeat(43)}`;
+    let sessionBody: Record<string, unknown> | null = null;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith('/security-config')) {
+          return Response.json({
+            capabilityRequired: false,
+            plainWholeObjectVersion: 1,
+            downloadAuthorizationVersion: 1,
+          });
+        }
+        if (url.endsWith('/v3/plain/session')) {
+          sessionBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          return Response.json({
+            uploadUrl: 'https://r2.example.test/plain-signed-put',
+            uploadHeaders: { 'x-amz-meta-storage-format': 'plain-whole-v1' },
+            uploadUrlExpiresAt: Date.now() + 60_000,
+            completeToken: 'complete-token',
+            objectId,
+            expiresAt: Date.now() + 300_000,
+            cleanupToken: 'cleanup-token',
+          });
+        }
+        if (url.endsWith('/v3/plain/complete')) {
+          return Response.json({
+            objectId,
+            downloadUrl: plainUrl,
+            expiresAt: Date.now() + 300_000,
+            cleanupToken: 'cleanup-token',
+            downloadToken,
+          });
+        }
+        return new Response('unexpected', { status: 500 });
+      }),
+    );
+
+    const source = new Blob(['data'], { type: 'audio/mpeg' });
+    const { uploadPlainBlob } = await import('../r2-client.ts');
+    const pending = uploadPlainBlob(source, {
+      roomId,
+      name: 'song.mp3',
+      mime: 'audio/mpeg',
+      size: source.size,
+      sessionId: 1,
+      queueItemId,
+    });
+
+    await vi.waitFor(() => expect(FakeXmlHttpRequest.instances).toHaveLength(1));
+    const xhr = FakeXmlHttpRequest.instances[0]!;
+    expect(sessionBody).toMatchObject({ roomId, size: 4 });
+    expect(sessionBody).not.toHaveProperty('encryptedSize');
+    expect(xhr.sentBody).toBe(source);
+    expect(xhr.requestHeaders['x-amz-meta-storage-format']).toBe('plain-whole-v1');
+    xhr.onload?.call(xhr as unknown as XMLHttpRequest, new ProgressEvent('load'));
+
+    await expect(pending).resolves.toMatchObject({
+      objectId,
+      downloadUrl: plainUrl,
+      downloadToken,
+    });
   });
 });
 

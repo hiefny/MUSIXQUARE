@@ -11,7 +11,7 @@
     <title>Privacy Policy · MUSIXQUARE</title>
     <meta
       name="description"
-      content="MUSIXQUARE privacy policy for real-time audio sync, temporary encrypted remote sharing, and persistent private PRO-room media storage."
+      content="MUSIXQUARE privacy policy for real-time audio sync, temporary private remote sharing, and persistent private PRO-room media storage."
     />
 
     <meta property="og:title" content="Privacy Policy · MUSIXQUARE" />
@@ -58,7 +58,7 @@
     <main class="policy-shell">
       <section class="policy-hero">
         <h1>Privacy Policy</h1>
-        <p class="policy-date">Effective date: July 31, 2026</p>
+        <p class="policy-date">Effective date: August 1, 2026</p>
       </section>
 
       <article class="policy-doc">
@@ -169,9 +169,9 @@
               <dt>Ordinary-room file data</dt>
               <dd>
                 Ordinary-room files are usually transferred directly when participants are on the
-                same network. For remote participants or in large rooms, files may be encrypted in
-                the sharing browser and temporarily stored in Cloudflare R2. MUSIXQUARE does not
-                store the decryption key, and these objects are automatically deleted within an
+                same network. For remote participants or in large rooms, files are temporarily kept
+                in private Cloudflare R2 storage and made available only to room participants with
+                temporary download authorization. These objects are automatically deleted within an
                 intended maximum of 24 hours.
               </dd>
             </div>
@@ -179,11 +179,11 @@
               <dt>PRO-room media</dt>
               <dd>
                 In a PRO room, original media uploaded by an authorized room participant is stored
-                persistently in a private Cloudflare R2 bucket for the room playlist. This storage
-                is not covered by the ordinary remote-share client-encryption or 24-hour-retention
-                statements. File name, title, artist, thumbnail, media type, size, content hash,
-                uploader relationship, and upload state may also be stored as room metadata.
-                Downloads are issued only through short-lived authorized URLs.
+                persistently in a private Cloudflare R2 bucket for the room playlist. The ordinary
+                room's 24-hour retention limit does not apply. File name, title, artist, thumbnail,
+                media type, size, content hash, uploader relationship, and upload state may also be
+                stored as room metadata. Downloads are issued only through short-lived authorized
+                URLs.
               </dd>
             </div>
             <div>
@@ -241,9 +241,10 @@
             not necessarily delete that temporary state immediately.
           </p>
           <p>
-            Access to encrypted remote-file objects normally expires after one hour. A bucket-level
-            R2 lifecycle rule automatically deletes ordinary remote-share objects, with a maximum
-            intended retention of 24 hours. Expired objects cannot be downloaded through MUSIXQUARE.
+            Temporary download authorization for ordinary-room remote files normally expires after
+            one hour. A bucket-level R2 lifecycle rule automatically deletes ordinary remote-share
+            objects, with a maximum intended retention of 24 hours. Expired objects cannot be
+            downloaded through MUSIXQUARE.
           </p>
           <p>
             PRO-room media remains stored until its last playlist reference is removed and cleanup
@@ -274,10 +275,9 @@
             including a linked owner association, from PRO rooms. If room cleanup is temporarily
             unavailable, the account is kept and deletion can be retried. Account deletion does not
             decommission a PRO room or invalidate its separate room-recovery credential, and it does
-            not automatically delete media already shared in that room. The media follows the
-            room's retention rules.
-            Provider-managed point-in-time recovery data may remain for the applicable
-            backup-retention period.
+            not automatically delete media already shared in that room. The media follows the room's
+            retention rules. Provider-managed point-in-time recovery data may remain for the
+            applicable backup-retention period.
           </p>
           <p>
             Short-lived rate-limit records used to prevent remote-share abuse identify an IP address
@@ -294,9 +294,9 @@
           <h2>5. Service Providers and International Processing</h2>
           <p>
             MUSIXQUARE uses Cloudflare for website delivery, signaling, relay services, remote
-            system audio, temporary encrypted remote-file delivery, persistent private PRO-room
-            media storage, security, and aggregate web analytics. Cloudflare may process technical
-            data in the countries and regions where its network and service providers operate.
+            system audio, temporary private remote-file delivery, persistent private PRO-room media
+            storage, security, and aggregate web analytics. Cloudflare may process technical data in
+            the countries and regions where its network and service providers operate.
           </p>
           <p>
             YouTube features use YouTube API Services and the YouTube embedded player. Their use is
@@ -342,10 +342,10 @@
           <h2>6. Security</h2>
           <p>
             MUSIXQUARE uses HTTPS, WebRTC transport security, browser security controls, restricted
-            service capabilities, and Cloudflare infrastructure. Ordinary remote-share files use
-            client-side AES-GCM encryption before upload. This client-side encryption statement does
-            not apply to persistent PRO-room media, which is kept in a private bucket and made
-            downloadable only through short-lived authorized URLs.
+            service capabilities, and Cloudflare infrastructure. Ordinary remote-share files are
+            kept temporarily in private storage and made downloadable only with participant-bound
+            temporary authorization. Persistent PRO-room media is kept in a separate private bucket
+            and made downloadable only through short-lived authorized URLs.
           </p>
           <p>
             No internet service can guarantee absolute security. Users should share room codes and

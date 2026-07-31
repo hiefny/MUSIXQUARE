@@ -9,10 +9,12 @@ import {
   getDirectFilePeers,
   getR2FileTargets,
   getUnsupportedFileTargetsForTests,
+  isFileR2PlainCapable,
   isGuestR2FileDelivery,
   isLocalFileR2CapableForTests,
   markLocalFileR2Capable,
   markLateLocalPeerForR2,
+  markFileR2PlainCapable,
   recordGuestFileDelivery,
   releaseFileDeliveryPeer,
   resolvePeerFileDelivery,
@@ -255,6 +257,31 @@ describe('bounded local file delivery policy', () => {
     setState('network.connectedPeers', [reconnected]);
     expect(resolvePeerFileDelivery(reconnected, 10)).toBe('direct-local');
     expect(getR2FileTargets(10)).toHaveLength(0);
+  });
+
+  it('binds plaintext capability to the exact active connection and clears it at boundaries', () => {
+    const first = peer(1, 'remote');
+    const firstConn = first.conn as DataConnection;
+    setState('network.connectedPeers', [first]);
+    setState('network.activeHostConnByPeerId', new Map([[first.id, firstConn]]));
+
+    expect(markFileR2PlainCapable(firstConn)).toBe(true);
+    expect(isFileR2PlainCapable(firstConn)).toBe(true);
+
+    const replacementConn = { open: true, peer: first.id } as DataConnection;
+    const replacement = { ...first, conn: replacementConn };
+    setState('network.connectedPeers', [replacement]);
+    setState('network.activeHostConnByPeerId', new Map([[first.id, replacementConn]]));
+
+    expect(isFileR2PlainCapable(firstConn)).toBe(false);
+    expect(isFileR2PlainCapable(replacementConn)).toBe(false);
+
+    releaseFileDeliveryPeer(first.id);
+    expect(markFileR2PlainCapable(replacementConn)).toBe(true);
+    expect(isFileR2PlainCapable(replacementConn)).toBe(true);
+
+    resetFileDeliveryPolicies();
+    expect(isFileR2PlainCapable(replacementConn)).toBe(false);
   });
 
   it('never prunes an active frozen session while trimming old policy history', () => {

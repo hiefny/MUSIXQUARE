@@ -26,7 +26,7 @@ The following identifiers are deliberately separate:
 | `queueItemId`                   | One occurrence in the queue                   | Add until removal         |
 | `playlistRevision`              | Version of the authoritative ordered snapshot | Host session              |
 | `sessionId`                     | One file transfer or preload attempt          | Transfer attempt          |
-| `objectId`                      | One encrypted R2 object                       | Remote object lifetime    |
+| `objectId`                      | One remote R2 object                          | Remote object lifetime    |
 | `videoId` / `playlistId`        | YouTube content                               | YouTube content lifetime  |
 | `File` / `Blob` object identity | Local byte source                             | In-memory object lifetime |
 | array index                     | Current visual position                       | Until the next mutation   |

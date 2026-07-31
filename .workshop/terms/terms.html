@@ -55,7 +55,7 @@
     <main class="policy-shell">
       <section class="policy-hero">
         <h1>Terms of Use</h1>
-        <p class="policy-date">Effective date: July 23, 2026</p>
+        <p class="policy-date">Effective date: August 1, 2026</p>
       </section>
 
       <article class="policy-doc">
@@ -87,10 +87,9 @@
             Where account-linked permissions are enabled, a room owner or authorized administrator
             may grant or revoke media, playback, announcement, or member-management capabilities
             under the room's rules and may disconnect one selected device or remove all connected
-            devices associated with one account.
-            An ordinary-room grant lasts only while that room exists. A signed-in PRO-room grant may
-            remain until it is revoked, the account is deleted, or the room is deleted; an anonymous
-            grant ends with that user's room presence.
+            devices associated with one account. An ordinary-room grant lasts only while that room
+            exists. A signed-in PRO-room grant may remain until it is revoked, the account is
+            deleted, or the room is deleted; an anonymous grant ends with that user's room presence.
           </p>
           <p>
             Deleting an account removes account-linked room permissions but does not decommission a
@@ -125,20 +124,19 @@
           <p>
             In ordinary rooms, file and system audio sharing is usually exchanged directly when
             participants are on the same network. For remote participants or in large rooms, this
-            data may route through Cloudflare infrastructure. Files routed through Cloudflare are
-            encrypted in the sharing browser before temporary upload, are automatically deleted
-            within an intended maximum of 24 hours, and have no decryption key stored by MUSIXQUARE.
-            System audio is relayed only for live delivery and is not intentionally recorded or
-            stored. MUSIXQUARE does not access, analyze, or retain ordinary-room shared content
-            except as technically necessary to provide the requested sharing feature.
+            data may route through Cloudflare infrastructure. Remote files are kept temporarily in
+            private Cloudflare storage, made available only to room participants with temporary
+            download authorization, and automatically deleted within an intended maximum of 24
+            hours. System audio is relayed only for live delivery and is not intentionally recorded
+            or stored. MUSIXQUARE does not access, analyze, or retain session content outside what
+            is necessary to provide features, operate the service, and maintain security.
           </p>
           <p>
             PRO-room storage is different. Original media uploaded by authorized room participants
             is stored persistently in a private Cloudflare R2 bucket for the room playlist and is
-            not covered by the ordinary remote-share client-encryption or 24-hour-retention
-            statements. It remains until its last playlist reference is removed and cleanup
-            succeeds, or until the operator deletes the room data. Downloads are available only
-            through short-lived authorized URLs.
+            not covered by the ordinary room's 24-hour retention limit. It remains until its last
+            playlist reference is removed and cleanup succeeds, or until the operator deletes the
+            room data. Downloads are available only through short-lived authorized URLs.
           </p>
           <p>
             Do not share unlawful, harmful, invasive, or unauthorized content. You are responsible

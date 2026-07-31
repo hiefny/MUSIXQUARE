@@ -63,16 +63,13 @@ export interface PreloadSessionEntry {
   finalized: boolean;
 }
 
-export interface RemoteFileSharePayload {
+interface RemoteFileSharePayloadBase {
   roomId: string;
   objectId: string;
   downloadUrl?: string;
-  keyB64: string;
-  ivB64: string;
   name: string;
   mime: string;
   size: number;
-  encryptedSize: number;
   queueItemId: QueueItemId;
   sessionId: number;
   expiresAt: number;
@@ -81,6 +78,28 @@ export interface RemoteFileSharePayload {
   /** Background next-track delivery. Absence means the active playback file. */
   preload?: true;
 }
+
+/** Rolling-deploy fallback for clients that predate participant-bound downloads. */
+interface EncryptedRemoteFileSharePayload extends RemoteFileSharePayloadBase {
+  storageFormat?: 'aes-gcm-whole-v1';
+  keyB64: string;
+  ivB64: string;
+  encryptedSize: number;
+  storedSize?: never;
+  downloadToken?: never;
+}
+
+/** Private R2 object delivered with exact room/object/expiry-bound read authority. */
+interface PlainRemoteFileSharePayload extends RemoteFileSharePayloadBase {
+  storageFormat: 'plain-whole-v1';
+  storedSize: number;
+  downloadToken: string;
+  keyB64?: never;
+  ivB64?: never;
+  encryptedSize?: never;
+}
+
+export type RemoteFileSharePayload = EncryptedRemoteFileSharePayload | PlainRemoteFileSharePayload;
 
 export type RemoteShareUploadStatus = 'idle' | 'encrypting' | 'uploading' | 'done' | 'error';
 export type RemoteShareDownloadStatus = 'idle' | 'fetching' | 'decrypting' | 'ready' | 'error';
@@ -512,6 +531,10 @@ export interface ProtocolMap {
   'file-r2-capability': {
     version: 1;
     localAudience: true;
+  };
+  /** Guest -> host advertisement for authenticated plaintext whole-object reads. */
+  'file-r2-plain-capability': {
+    version: 1;
   };
   /** Guest -> host advertisement for the additive bounded V1 bridge only. */
   'file-bounded-v1-capability': {

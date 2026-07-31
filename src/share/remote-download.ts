@@ -1,5 +1,5 @@
 import { decryptToFile } from './crypto.ts';
-import { downloadEncryptedObject } from './r2-client.ts';
+import { downloadEncryptedObject, downloadPlainObject } from './r2-client.ts';
 import type { RemoteFileSharePayload } from '../types/index.ts';
 
 /**
@@ -17,6 +17,28 @@ export async function downloadRemoteFile(
   onProgress?: (progress: number) => void,
   signal?: AbortSignal,
 ): Promise<File> {
+  if (descriptor.storageFormat === 'plain-whole-v1') {
+    if (descriptor.storedSize !== descriptor.size) {
+      throw new Error('REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH');
+    }
+    const plaintext = await downloadPlainObject(
+      descriptor.roomId,
+      descriptor.objectId,
+      descriptor.storedSize,
+      descriptor.downloadToken,
+      descriptor.downloadUrl,
+      onProgress,
+      signal,
+    );
+    if (signal?.aborted) throw new Error('REMOTE_SHARE_ABORTED');
+    if (plaintext.byteLength !== descriptor.size) {
+      throw new Error('REMOTE_SHARE_PLAINTEXT_SIZE_MISMATCH');
+    }
+    return new File([plaintext], descriptor.name, {
+      type: descriptor.mime || 'application/octet-stream',
+    });
+  }
+
   const encrypted = await downloadEncryptedObject(
     descriptor.roomId,
     descriptor.objectId,

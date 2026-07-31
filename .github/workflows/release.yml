@@ -542,6 +542,31 @@ jobs:
             --config cloudflare/wrangler.remote-share.toml \
             --force
 
+      - name: Apply and verify remote-share R2 lifecycle policy
+        timeout-minutes: 10
+        if: inputs.target == 'all' || inputs.target == 'remote-share'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          npm run --silent wrangler -- r2 bucket lifecycle set musixquare-remote-share \
+            --file cloudflare/r2-lifecycle.remote-share.json \
+            --config cloudflare/wrangler.remote-share.toml \
+            --force
+          lifecycle_state="$(npm run --silent wrangler -- r2 bucket lifecycle list \
+            musixquare-remote-share \
+            --config cloudflare/wrangler.remote-share.toml)"
+          for required_prefix in 'room/' 'plain-room/'; do
+            if ! grep -Fq "prefix:   ${required_prefix}" <<<"$lifecycle_state"; then
+              echo "::error::Remote-share R2 lifecycle read-back is missing ${required_prefix}."
+              exit 1
+            fi
+          done
+          if [[ "$(grep -Fc 'action:   Expire objects after 1 days' <<<"$lifecycle_state")" -ne 2 ]]; then
+            echo "::error::Remote-share R2 lifecycle read-back must contain two one-day expiry rules."
+            exit 1
+          fi
+
       - name: Apply PRO media R2 CORS policy
         timeout-minutes: 10
         if: inputs.target == 'all' || inputs.target == 'pro-room' || inputs.target == 'app'

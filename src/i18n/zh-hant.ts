@@ -383,11 +383,11 @@ const zhHant: Record<I18nKey, string> = {
   'transfer.file_wait': '正在等待檔案...\n請稍候',
   'transfer.preload_done': '使用已預載的檔案！',
   'transfer.preload_waiting': '正在等待預載完成...',
-  'share.remote.encrypting': '正在為遠端參與者加密檔案...',
-  'share.remote.uploading': '正在上傳加密檔案...',
+  'share.remote.encrypting': '正在為遠端參與者準備檔案...',
+  'share.remote.uploading': '正在上傳檔案...',
   'share.remote.upload_ready': '遠端分享已準備好',
-  'share.remote.waiting': '正在等待加密的遠端檔案...',
-  'share.remote.downloading': '正在下載加密的遠端檔案...',
+  'share.remote.waiting': '正在等待遠端檔案...',
+  'share.remote.downloading': '正在下載遠端檔案...',
   'share.remote.upload_failed': '遠端檔案分享失敗：{{msg}}',
   'share.remote.download_failed': '遠端檔案下載失敗：{{msg}}',
   'share.remote.timeout': '遠端檔案分享逾時',
@@ -733,7 +733,7 @@ const zhHant: Record<I18nKey, string> = {
   'youtube.enter_link_desc_html': '只能播放公開影片或播放清單。',
   'legal.title': '服務說明',
   'legal.content_html':
-    '<strong>隱私權政策</strong><br><span data-legal-standard-storage>同一網路內，大部分工作階段內容直接在裝置間傳輸。房間運作、身分驗證與重新連線僅在訊號伺服器暫時處理；遠端或大型工作階段的部分資料會經由 Cloudflare。遠端檔案上傳前在瀏覽器中加密，24 小時內刪除。除提供功能、營運與安全外，MUSIXQUARE 不存取、分析或保留工作階段內容。</span><span data-legal-pro-storage>PRO 房間會在 Cloudflare 儲存運作所需的工作階段、成員、播放清單、播放與上傳狀態。播放清單中的原始檔案存入 Cloudflare 私有儲存空間，只有房間參與者能透過短期 URL 下載；管理員將其移出播放清單或營運者刪除房間資料時即刪除。一般房間遠端檔案的瀏覽器加密不適用於 PRO 房間。</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>著作權提示</strong><br>透過 MUSIXQUARE 分享的內容歸相應權利人所有。系統音訊分享和檔案分享僅供個人使用。使用者需對受著作權保護內容的未經授權散布或公開傳輸負責。YouTube 分享使用官方播放方式，觀看次數和權利處理遵循該服務的政策和權利人設定。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>免責聲明</strong><br>MUSIXQUARE 免費提供。部分功能依賴 YouTube 或 Cloudflare 等外部服務，因此這些服務變更或中斷時可能出現臨時限制。即時音訊同步和遠端分享品質會因網路、瀏覽器政策和裝置效能而有很大差異。非 Wi-Fi 環境下使用可能產生行動數據費用。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>隱私權政策</strong><br><span data-legal-standard-storage>同一網路內，大部分工作階段內容直接在裝置間傳輸。房間運作、身分驗證與重新連線僅在訊號伺服器暫時處理；遠端或大型工作階段的部分資料會經由 Cloudflare。遠端檔案會暫時存放在 Cloudflare 私有儲存空間中，僅透過臨時下載權限提供給房間參與者，並在 24 小時內刪除。除提供功能、營運與安全外，MUSIXQUARE 不存取、分析或保留工作階段內容。</span><span data-legal-pro-storage>PRO 房間會在 Cloudflare 儲存運作所需的工作階段、成員、播放清單、播放與上傳狀態。播放清單中的原始檔案存入 Cloudflare 私有儲存空間，只有房間參與者能透過短期 URL 下載；管理員將其移出播放清單或營運者刪除房間資料時即刪除。</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>著作權提示</strong><br>透過 MUSIXQUARE 分享的內容歸相應權利人所有。系統音訊分享和檔案分享僅供個人使用。使用者需對受著作權保護內容的未經授權散布或公開傳輸負責。YouTube 分享使用官方播放方式，觀看次數和權利處理遵循該服務的政策和權利人設定。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>免責聲明</strong><br>MUSIXQUARE 免費提供。部分功能依賴 YouTube 或 Cloudflare 等外部服務，因此這些服務變更或中斷時可能出現臨時限制。即時音訊同步和遠端分享品質會因網路、瀏覽器政策和裝置效能而有很大差異。非 Wi-Fi 環境下使用可能產生行動數據費用。 <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">了解更多</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default zhHant;

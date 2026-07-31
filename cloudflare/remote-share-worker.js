@@ -63,6 +63,43 @@ const QUOTA_ALARM_RETRY_MS = 60 * 1000;
 const EXPIRY_TOMBSTONE_SWEEP_MS = 60 * 1000;
 const EXPIRY_TOMBSTONE_QUIET_MS = 60 * 60 * 1000;
 const RECORD_SET_FORMAT_VERSION = 2;
+const PLAIN_WHOLE_OBJECT_VERSION = 1;
+const DOWNLOAD_AUTHORIZATION_VERSION = 1;
+const PLAIN_WHOLE_OBJECT_STORAGE_FORMAT = 'plain-whole-object-v1';
+const PLAIN_DOWNLOAD_TOKEN_KIND = 'plain-download';
+const PLAIN_DOWNLOAD_TOKEN_AUDIENCE = 'musixquare-remote-share';
+const PLAIN_DOWNLOAD_TOKEN_METHOD = 'GET';
+const PLAIN_DOWNLOAD_SIGNING_PURPOSE = 'MUSIXQUARE\0REMOTE-SHARE\0PLAIN-DOWNLOAD\0V1';
+const PLAIN_DOWNLOAD_TOKEN_MAX_LENGTH = 2048;
+const PLAIN_DOWNLOAD_TOKEN_KEYS = Object.freeze([
+  'aud',
+  'byteSize',
+  'exp',
+  'iat',
+  'key',
+  'kind',
+  'method',
+  'objectId',
+  'roomId',
+  'storageFormat',
+  'v',
+]);
+const PLAIN_COMPLETE_TOKEN_KEYS = Object.freeze([
+  'byteSize',
+  'cleanupToken',
+  'exp',
+  'expiresAt',
+  'iat',
+  'kind',
+  'nonce',
+  'objectId',
+  'objectKey',
+  'queueItemId',
+  'roomId',
+  'sessionId',
+  'storageFormat',
+  'v',
+]);
 const RECORD_SET_CREATE_IDEMPOTENCY_VERSION = 1;
 const RECORD_SET_PLAINTEXT_BYTES = 8 * 1024 * 1024;
 const RECORD_SET_MAX_RECORDS = Math.ceil(REMOTE_SHARE_MAX_BYTES / RECORD_SET_PLAINTEXT_BYTES);
@@ -176,9 +213,12 @@ function originError(request, env) {
 function requiresAllowedOrigin(path) {
   return (
     path === '/session' ||
+    path === '/v3/plain/session' ||
+    path === '/v3/plain/complete' ||
     path === '/security-config' ||
     path === '/complete' ||
     /^\/v2\/sets(?:\/|$)/.test(path) ||
+    /^\/v3\/plain\/(?:download|object)\/[^/]+\/[^/]+$/.test(path) ||
     /^\/download\/[^/]+\/[^/]+$/.test(path) ||
     /^\/object\/[^/]+\/[^/]+$/.test(path)
   );
@@ -454,6 +494,8 @@ function handleSecurityConfig(request, env) {
     scope: CAPABILITY_SCOPE,
     ttl: CAPABILITY_TOKEN_TTL_DEFAULT,
     workerContractVersion: RECORD_SET_FORMAT_VERSION,
+    plainWholeObjectVersion: PLAIN_WHOLE_OBJECT_VERSION,
+    downloadAuthorizationVersion: DOWNLOAD_AUTHORIZATION_VERSION,
     ...(recordSetReady
       ? {
           recordSetVersion: RECORD_SET_FORMAT_VERSION,
@@ -582,6 +624,34 @@ async function verifySignedToken(token, secret) {
   } catch {
     return null;
   }
+}
+
+async function plainDownloadSigningSecret(signingSecret) {
+  // Keep download bearers cryptographically separate from upload-completion
+  // and record-set authorities even though production provisions one root
+  // remote-share signing secret.
+  return hmacSha256(signingSecret, PLAIN_DOWNLOAD_SIGNING_PURPOSE);
+}
+
+async function createPlainDownloadToken(payload, signingSecret) {
+  return createSignedToken(payload, await plainDownloadSigningSecret(signingSecret));
+}
+
+async function verifyPlainDownloadToken(token, signingSecret) {
+  if (
+    typeof token !== 'string' ||
+    token.length === 0 ||
+    token.length > PLAIN_DOWNLOAD_TOKEN_MAX_LENGTH
+  ) {
+    return null;
+  }
+  return verifySignedToken(token, await plainDownloadSigningSecret(signingSecret));
+}
+
+function readPlainDownloadBearer(request) {
+  const authorization = request.headers.get('authorization') || '';
+  const match = authorization.match(/^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/);
+  return match && match[1].length <= PLAIN_DOWNLOAD_TOKEN_MAX_LENGTH ? match[1] : '';
 }
 
 function standardRoomId(value) {
@@ -880,43 +950,46 @@ async function deleteBucketKeysInChunks(bucket, keys) {
 }
 
 async function inspectRoomStorage(bucket, roomId, now) {
-  const prefix = `room/${roomId}/`;
+  const prefixes = [`room/${roomId}/`, `plain-room/${roomId}/`];
   const staleKeys = [];
   const observedKeys = new Set();
   const activeKeys = new Set();
-  let cursor;
   let scannedObjects = 0;
   let totalBytes = 0;
   let saturated = false;
 
-  do {
-    const page = await bucket.list({
-      prefix,
-      limit: ROOM_STORAGE_LIST_PAGE_SIZE,
-      ...(cursor ? { cursor } : {}),
-      include: ['customMetadata'],
-    });
-    for (const object of page?.objects || []) {
-      scannedObjects += 1;
-      if (scannedObjects > ROOM_STORAGE_SCAN_MAX_OBJECTS) {
-        saturated = true;
-        break;
+  for (const prefix of prefixes) {
+    let cursor;
+    do {
+      const page = await bucket.list({
+        prefix,
+        limit: ROOM_STORAGE_LIST_PAGE_SIZE,
+        ...(cursor ? { cursor } : {}),
+        include: ['customMetadata'],
+      });
+      for (const object of page?.objects || []) {
+        scannedObjects += 1;
+        if (scannedObjects > ROOM_STORAGE_SCAN_MAX_OBJECTS) {
+          saturated = true;
+          break;
+        }
+        observedKeys.add(object.key);
+        const expiresAt = Number(readMetadata(object, 'expiresAt', 'expires-at', 'expiresat'));
+        if (Number.isFinite(expiresAt) && expiresAt <= now) {
+          staleKeys.push(object.key);
+          continue;
+        }
+        const size = Number(object?.size);
+        if (Number.isSafeInteger(size) && size > 0) {
+          totalBytes += size;
+          activeKeys.add(object.key);
+        }
       }
-      observedKeys.add(object.key);
-      const expiresAt = Number(readMetadata(object, 'expiresAt', 'expires-at', 'expiresat'));
-      if (Number.isFinite(expiresAt) && expiresAt <= now) {
-        staleKeys.push(object.key);
-        continue;
-      }
-      const size = Number(object?.size);
-      if (Number.isSafeInteger(size) && size > 0) {
-        totalBytes += size;
-        activeKeys.add(object.key);
-      }
-    }
+      if (saturated) break;
+      cursor = page?.truncated ? page.cursor : undefined;
+    } while (cursor);
     if (saturated) break;
-    cursor = page?.truncated ? page.cursor : undefined;
-  } while (cursor);
+  }
 
   if (staleKeys.length > 0) await deleteBucketKeysInChunks(bucket, staleKeys);
   return {
@@ -2081,6 +2154,152 @@ async function handleSession(request, env) {
   }
 }
 
+async function handlePlainSession(request, env) {
+  const secret = getSigningSecret(env);
+  if (!secret) return json(request, env, { error: 'signing secret missing' }, 500);
+
+  const capabilityError = await requireSessionCapability(request, env);
+  if (capabilityError) return capabilityError;
+
+  const parsedBody = await readJsonBodyLimited(request, SESSION_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(request, env, parsedBody);
+  const body = parsedBody.value;
+
+  if (!hasExactOwnKeys(body, ['roomId', 'sessionId', 'queueItemId', 'name', 'mime', 'size'])) {
+    return json(request, env, { error: 'invalid plaintext upload session request' }, 400);
+  }
+
+  const roomId = standardRoomId(body?.roomId);
+  const sessionId = Number(body?.sessionId);
+  const queueItemId = safeQueueItemId(body?.queueItemId);
+  const byteSize = Number(body?.size);
+  if (
+    !roomId ||
+    !Number.isSafeInteger(sessionId) ||
+    sessionId <= 0 ||
+    !queueItemId ||
+    !Number.isSafeInteger(byteSize) ||
+    byteSize <= 0 ||
+    byteSize > REMOTE_SHARE_MAX_BYTES
+  ) {
+    return json(request, env, { error: 'invalid plaintext upload session request' }, 400);
+  }
+
+  const rateLimitError = await consumeUploadSessionRateLimits(request, env, secret, roomId);
+  if (rateLimitError) return rateLimitError;
+
+  const ttlSeconds = parseLimit(env.UPLOAD_TOKEN_TTL_SECONDS, DEFAULT_UPLOAD_TOKEN_TTL_SECONDS);
+  const now = Date.now();
+  const uploadUrlExpiresAt = now + ttlSeconds * 1000;
+  const objectTtlSeconds = parseLimit(env.OBJECT_TTL_SECONDS, DEFAULT_TTL_SECONDS);
+  const expiresAt = now + objectTtlSeconds * 1000;
+  const objectId = crypto.randomUUID();
+  const objectKeyValue = plainObjectKey(roomId, objectId);
+  const cleanupToken = crypto.randomUUID();
+  const name = metadataString(body?.name, 'track');
+  const mime = metadataString(body?.mime, 'application/octet-stream');
+  const quotaEnabled = atomicRoomStorageQuotaEnabled(env);
+  let quotaReserved = false;
+
+  try {
+    if (!quotaEnabled && roomStorageQuotaBytes(env) > 0) {
+      try {
+        if (!(await roomHasStorageCapacity(env, roomId, byteSize))) {
+          return roomStorageQuotaExceeded(request, env);
+        }
+      } catch (error) {
+        console.warn('remote share plaintext room storage quota unavailable', error);
+        return json(request, env, { error: 'room storage quota unavailable' }, 503);
+      }
+    }
+    if (quotaEnabled) {
+      let reserved;
+      try {
+        reserved = await reserveRoomStorage(env, {
+          cleanupToken,
+          // The quota Durable Object's persisted byte field predates plaintext
+          // storage. It accounts exact stored bytes for both formats.
+          encryptedSize: byteSize,
+          expiresAt,
+          objectId,
+          objectKey: objectKeyValue,
+          roomId,
+        });
+      } catch (error) {
+        console.warn('remote share plaintext room storage quota unavailable', error);
+        await releaseRoomStorageReservationBestEffort(env, roomId, objectId, cleanupToken);
+        return json(request, env, { error: 'room storage quota unavailable' }, 503);
+      }
+      if (!reserved) return roomStorageQuotaExceeded(request, env);
+      quotaReserved = true;
+    }
+
+    const uploadHeaders = {
+      'content-type': 'application/octet-stream',
+      'x-amz-meta-cleanup-token': cleanupToken,
+      'x-amz-meta-expires-at': String(expiresAt),
+      'x-amz-meta-format-version': PLAIN_WHOLE_OBJECT_STORAGE_FORMAT,
+      'x-amz-meta-mime': mime,
+      'x-amz-meta-name': name,
+      'x-amz-meta-object-id': objectId,
+      'x-amz-meta-room-id': roomId,
+      'x-amz-meta-size-bytes': String(byteSize),
+    };
+    const uploadUrl = await createR2PresignedPutUrl({
+      env,
+      objectKey: objectKeyValue,
+      headers: {
+        ...uploadHeaders,
+        'content-length': String(byteSize),
+      },
+      expiresInSeconds: ttlSeconds,
+      now: new Date(now),
+    });
+    if (!uploadUrl) {
+      if (quotaReserved) {
+        await releaseRoomStorageReservationBestEffort(env, roomId, objectId, cleanupToken);
+        quotaReserved = false;
+      }
+      return json(request, env, { error: 'r2 s3 config missing' }, 500);
+    }
+
+    const completePayload = {
+      v: PLAIN_WHOLE_OBJECT_VERSION,
+      ...(quotaEnabled ? { quotaReservationVersion: 1 } : {}),
+      kind: 'plain-complete',
+      storageFormat: PLAIN_WHOLE_OBJECT_STORAGE_FORMAT,
+      roomId,
+      objectId,
+      objectKey: objectKeyValue,
+      sessionId,
+      queueItemId,
+      byteSize,
+      expiresAt,
+      cleanupToken,
+      iat: now,
+      exp: expiresAt,
+      nonce: crypto.randomUUID(),
+    };
+    const completeToken = await createSignedToken(completePayload, secret);
+    const response = json(request, env, {
+      uploadUrl,
+      uploadHeaders,
+      uploadUrlExpiresAt,
+      completeToken,
+      objectId,
+      expiresAt,
+      cleanupToken,
+    });
+    quotaReserved = false;
+    return response;
+  } catch (error) {
+    if (quotaReserved) {
+      await releaseRoomStorageReservationBestEffort(env, roomId, objectId, cleanupToken);
+    }
+    throw error;
+  }
+}
+
 async function deleteObjectAndRetainReservation(env, _roomId, _objectId, key, _cleanupToken) {
   await env.REMOTE_SHARE_BUCKET.delete(key);
   // Once a presigned PUT URL has been returned, deleting its current object
@@ -2236,6 +2455,161 @@ async function handleComplete(request, env) {
   });
 }
 
+async function handlePlainComplete(request, env) {
+  if (!env.REMOTE_SHARE_BUCKET) return json(request, env, { error: 'bucket missing' }, 500);
+
+  const secret = getSigningSecret(env);
+  if (!secret) return json(request, env, { error: 'signing secret missing' }, 500);
+
+  const parsedBody = await readJsonBodyLimited(request, COMPLETE_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(request, env, parsedBody);
+  const body = parsedBody.value;
+  if (!hasExactOwnKeys(body, ['roomId', 'objectId', 'completeToken'])) {
+    return json(request, env, { error: 'invalid plaintext upload completion' }, 400);
+  }
+
+  const payload = await verifySignedToken(body.completeToken, secret);
+  const roomId = standardRoomId(body.roomId);
+  const objectId = String(body.objectId || '');
+  const now = Date.now();
+  const issuedAt = Number(payload?.iat);
+  const tokenExpiresAt = Number(payload?.exp);
+  const objectExpiresAt = Number(payload?.expiresAt);
+  const expectedTokenKeys =
+    payload?.quotaReservationVersion === undefined
+      ? PLAIN_COMPLETE_TOKEN_KEYS
+      : [...PLAIN_COMPLETE_TOKEN_KEYS, 'quotaReservationVersion'];
+  if (
+    !roomId ||
+    !payload ||
+    !hasExactOwnKeys(payload, expectedTokenKeys) ||
+    payload.v !== PLAIN_WHOLE_OBJECT_VERSION ||
+    (payload.quotaReservationVersion !== undefined && payload.quotaReservationVersion !== 1) ||
+    payload.kind !== 'plain-complete' ||
+    payload.storageFormat !== PLAIN_WHOLE_OBJECT_STORAGE_FORMAT ||
+    payload.roomId !== roomId ||
+    payload.objectId !== objectId ||
+    !Number.isSafeInteger(payload.sessionId) ||
+    payload.sessionId <= 0 ||
+    !safeQueueItemId(payload.queueItemId) ||
+    !Number.isSafeInteger(payload.byteSize) ||
+    payload.byteSize <= 0 ||
+    payload.byteSize > REMOTE_SHARE_MAX_BYTES ||
+    !UUID_V4_RE.test(String(payload.cleanupToken || '')) ||
+    !UUID_V4_RE.test(String(payload.nonce || '')) ||
+    !Number.isSafeInteger(issuedAt) ||
+    !Number.isSafeInteger(tokenExpiresAt) ||
+    !Number.isSafeInteger(objectExpiresAt) ||
+    issuedAt > tokenExpiresAt ||
+    issuedAt > now + 60_000 ||
+    tokenExpiresAt !== objectExpiresAt ||
+    tokenExpiresAt <= now
+  ) {
+    return json(request, env, { error: 'invalid plaintext upload completion' }, 403);
+  }
+
+  const key = plainObjectKey(roomId, objectId);
+  if (!key || key !== payload.objectKey) return json(request, env, { error: 'not found' }, 404);
+
+  const object = await env.REMOTE_SHARE_BUCKET.head(key);
+  if (!object) return json(request, env, { error: 'not found' }, 404);
+
+  const byteSize = Number(payload.byteSize);
+  const storedByteSize = Number(readMetadata(object, 'sizeBytes', 'size-bytes', 'sizebytes'));
+  const storedFormat = String(
+    readMetadata(object, 'formatVersion', 'format-version', 'formatversion') || '',
+  );
+  const storedRoomId = String(readMetadata(object, 'roomId', 'room-id', 'roomid') || '');
+  const storedObjectId = String(readMetadata(object, 'objectId', 'object-id', 'objectid') || '');
+  const storedCleanupToken = String(
+    readMetadata(object, 'cleanupToken', 'cleanup-token', 'cleanuptoken') || '',
+  );
+  const storedExpiresAt = Number(readMetadata(object, 'expiresAt', 'expires-at', 'expiresat'));
+  if (
+    object.size !== byteSize ||
+    object.size > REMOTE_SHARE_MAX_BYTES ||
+    storedByteSize !== byteSize ||
+    storedFormat !== PLAIN_WHOLE_OBJECT_STORAGE_FORMAT ||
+    storedRoomId !== roomId ||
+    storedObjectId !== objectId ||
+    !constantTimeEqual(storedCleanupToken, payload.cleanupToken) ||
+    storedExpiresAt !== objectExpiresAt
+  ) {
+    await deleteObjectAndRetainReservation(env, roomId, objectId, key, payload.cleanupToken);
+    return json(request, env, { error: 'invalid uploaded plaintext object' }, 403);
+  }
+
+  if (objectExpiresAt <= Date.now()) {
+    await deleteObjectAndRetainReservation(env, roomId, objectId, key, payload.cleanupToken);
+    return json(request, env, { error: 'expired' }, 404);
+  }
+
+  const quotaSettlementRequired = roomStorageQuotaBytes(env) > 0 || Boolean(env.REMOTE_SHARE_QUOTA);
+  if (payload.quotaReservationVersion === 1 && quotaSettlementRequired) {
+    try {
+      const completion = await completeRoomStorageReservation(env, {
+        cleanupToken: payload.cleanupToken,
+        encryptedSize: byteSize,
+        expiresAt: objectExpiresAt,
+        objectId,
+        objectKey: key,
+        roomId,
+      });
+      if (completion === 'quota-exceeded') {
+        await deleteObjectAndRetainReservation(env, roomId, objectId, key, payload.cleanupToken);
+        return roomStorageQuotaExceeded(request, env);
+      }
+      if (completion !== 'completed') {
+        return json(request, env, { error: 'room storage quota unavailable' }, 503);
+      }
+    } catch (error) {
+      console.warn('remote share plaintext completion quota validation unavailable', error);
+      return json(request, env, { error: 'room storage quota unavailable' }, 503);
+    }
+  } else {
+    try {
+      if (!(await roomHasStorageCapacity(env, roomId, 0))) {
+        await env.REMOTE_SHARE_BUCKET.delete(key);
+        return roomStorageQuotaExceeded(request, env);
+      }
+    } catch (error) {
+      console.warn('remote share plaintext completion quota validation unavailable', error);
+      await env.REMOTE_SHARE_BUCKET.delete(key);
+      return json(request, env, { error: 'room storage quota unavailable' }, 503);
+    }
+  }
+
+  const tokenIssuedAt = Date.now();
+  if (objectExpiresAt <= tokenIssuedAt) {
+    await deleteObjectAndRetainReservation(env, roomId, objectId, key, payload.cleanupToken);
+    return json(request, env, { error: 'expired' }, 404);
+  }
+  const downloadToken = await createPlainDownloadToken(
+    {
+      v: DOWNLOAD_AUTHORIZATION_VERSION,
+      kind: PLAIN_DOWNLOAD_TOKEN_KIND,
+      aud: PLAIN_DOWNLOAD_TOKEN_AUDIENCE,
+      method: PLAIN_DOWNLOAD_TOKEN_METHOD,
+      roomId,
+      objectId,
+      key,
+      byteSize,
+      storageFormat: PLAIN_WHOLE_OBJECT_STORAGE_FORMAT,
+      iat: tokenIssuedAt,
+      exp: objectExpiresAt,
+    },
+    secret,
+  );
+  const url = new URL(request.url);
+  return json(request, env, {
+    downloadToken,
+    downloadUrl: `${url.origin}/v3/plain/download/${roomId}/${objectId}`,
+    objectId,
+    expiresAt: objectExpiresAt,
+    cleanupToken: payload.cleanupToken,
+  });
+}
+
 function objectKey(roomId, objectId) {
   const room = standardRoomId(roomId);
   if (
@@ -2245,6 +2619,148 @@ function objectKey(roomId, objectId) {
     return null;
   }
   return `room/${room}/${objectId}`;
+}
+
+function plainObjectKey(roomId, objectId) {
+  const room = standardRoomId(roomId);
+  if (
+    !room ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(objectId)
+  ) {
+    return null;
+  }
+  return `plain-room/${room}/${objectId}`;
+}
+
+function plainDownloadUnauthorized(request, env) {
+  return json(
+    request,
+    env,
+    { error: 'download authorization required', code: 'DOWNLOAD_AUTHORIZATION_REQUIRED' },
+    401,
+    { 'www-authenticate': 'Bearer' },
+  );
+}
+
+async function handlePlainDownload(request, env, roomId, objectId) {
+  if (!env.REMOTE_SHARE_BUCKET) return json(request, env, { error: 'bucket missing' }, 500);
+  const secret = getSigningSecret(env);
+  if (!secret) return json(request, env, { error: 'signing secret missing' }, 500);
+
+  const key = plainObjectKey(roomId, objectId);
+  if (!key) return json(request, env, { error: 'not found' }, 404);
+  if (new URL(request.url).search !== '') {
+    return json(request, env, { error: 'download query parameters are not allowed' }, 400);
+  }
+
+  const token = readPlainDownloadBearer(request);
+  const payload = token ? await verifyPlainDownloadToken(token, secret) : null;
+  const now = Date.now();
+  if (
+    !payload ||
+    !hasExactOwnKeys(payload, PLAIN_DOWNLOAD_TOKEN_KEYS) ||
+    payload.v !== DOWNLOAD_AUTHORIZATION_VERSION ||
+    payload.kind !== PLAIN_DOWNLOAD_TOKEN_KIND ||
+    payload.aud !== PLAIN_DOWNLOAD_TOKEN_AUDIENCE ||
+    payload.method !== request.method ||
+    payload.method !== PLAIN_DOWNLOAD_TOKEN_METHOD ||
+    payload.roomId !== roomId ||
+    payload.objectId !== objectId ||
+    payload.key !== key ||
+    payload.storageFormat !== PLAIN_WHOLE_OBJECT_STORAGE_FORMAT ||
+    !Number.isSafeInteger(payload.byteSize) ||
+    payload.byteSize <= 0 ||
+    payload.byteSize > REMOTE_SHARE_MAX_BYTES ||
+    !Number.isSafeInteger(payload.iat) ||
+    payload.iat <= 0 ||
+    payload.iat > now + 60_000 ||
+    !Number.isSafeInteger(payload.exp) ||
+    payload.exp < payload.iat ||
+    payload.exp <= now
+  ) {
+    return plainDownloadUnauthorized(request, env);
+  }
+
+  if (request.headers.has('range')) {
+    return json(
+      request,
+      env,
+      { error: 'range requests are not supported', code: 'RANGE_NOT_SUPPORTED' },
+      416,
+      {
+        'accept-ranges': 'none',
+        'content-range': `bytes */${payload.byteSize}`,
+      },
+    );
+  }
+
+  // Authentication deliberately precedes the R2 read so random object IDs or
+  // leaked clean URLs cannot be converted into Class B operations.
+  const object = await env.REMOTE_SHARE_BUCKET.get(key);
+  if (!object) return json(request, env, { error: 'not found' }, 404);
+
+  const storedCleanupToken = String(
+    readMetadata(object, 'cleanupToken', 'cleanup-token', 'cleanuptoken') || '',
+  );
+  const storedByteSize = Number(readMetadata(object, 'sizeBytes', 'size-bytes', 'sizebytes'));
+  const storedFormat = String(
+    readMetadata(object, 'formatVersion', 'format-version', 'formatversion') || '',
+  );
+  const storedRoomId = String(readMetadata(object, 'roomId', 'room-id', 'roomid') || '');
+  const storedObjectId = String(readMetadata(object, 'objectId', 'object-id', 'objectid') || '');
+  const storedExpiresAt = Number(readMetadata(object, 'expiresAt', 'expires-at', 'expiresat'));
+  if (
+    object.size !== payload.byteSize ||
+    object.size > REMOTE_SHARE_MAX_BYTES ||
+    storedByteSize !== payload.byteSize ||
+    storedFormat !== payload.storageFormat ||
+    storedRoomId !== roomId ||
+    storedObjectId !== objectId ||
+    storedExpiresAt !== payload.exp ||
+    !UUID_V4_RE.test(storedCleanupToken)
+  ) {
+    await deleteObjectAndRetainReservation(env, roomId, objectId, key, storedCleanupToken);
+    return json(request, env, { error: 'invalid stored plaintext object' }, 404);
+  }
+  if (storedExpiresAt <= Date.now()) {
+    await deleteObjectAndRetainReservation(env, roomId, objectId, key, storedCleanupToken);
+    return json(request, env, { error: 'expired' }, 404);
+  }
+
+  return new Response(object.body, {
+    headers: {
+      ...SECURITY_HEADERS,
+      ...corsHeaders(request, env),
+      'content-type': 'application/octet-stream',
+      'cache-control': 'no-store',
+      'content-length': String(object.size),
+      'accept-ranges': 'none',
+    },
+  });
+}
+
+async function handlePlainDelete(request, env, roomId, objectId) {
+  if (!env.REMOTE_SHARE_BUCKET) return json(request, env, { error: 'bucket missing' }, 500);
+
+  const key = plainObjectKey(roomId, objectId);
+  if (!key) return json(request, env, { ok: true });
+
+  const supplied = request.headers.get('x-mxqr-cleanup-token') || '';
+  if (!UUID_V4_RE.test(supplied)) return json(request, env, { error: 'forbidden' }, 403);
+  const object = await env.REMOTE_SHARE_BUCKET.head(key);
+  if (!object) return json(request, env, { ok: true });
+
+  const expected = String(
+    readMetadata(object, 'cleanupToken', 'cleanup-token', 'cleanuptoken') || '',
+  );
+  if (!constantTimeEqual(supplied, expected)) {
+    return json(request, env, { error: 'forbidden' }, 403);
+  }
+
+  await env.REMOTE_SHARE_BUCKET.delete(key);
+  // As with encrypted objects, the exact-byte quota reservation remains until
+  // immutable expiry because a previously issued PUT can still be replayed.
+  return json(request, env, { ok: true });
 }
 
 async function handleDownload(request, env, roomId, objectId) {
@@ -2479,14 +2995,23 @@ function validQuotaReservation(objectId, value, roomId) {
         (Number.isSafeInteger(value.revokedAt) &&
           value.revokedAt > 0 &&
           value.revokedAt <= value.expiresAt)));
+  const legacyKey = objectKey(roomId, objectId);
+  const plainKey = hasRecordSetFields ? null : plainObjectKey(roomId, objectId);
+  const validStoredSize =
+    value?.objectKey === plainKey
+      ? Number.isSafeInteger(value.encryptedSize) &&
+        value.encryptedSize > 0 &&
+        value.encryptedSize <= REMOTE_SHARE_MAX_BYTES
+      : value?.objectKey === legacyKey &&
+        Number.isSafeInteger(value.encryptedSize) &&
+        value.encryptedSize > AES_GCM_TAG_BYTES &&
+        value.encryptedSize <= REMOTE_SHARE_MAX_ENCRYPTED_BYTES;
   return (
     value &&
     typeof value === 'object' &&
     value.objectId === objectId &&
-    value.objectKey === objectKey(roomId, objectId) &&
-    Number.isSafeInteger(value.encryptedSize) &&
-    value.encryptedSize > AES_GCM_TAG_BYTES &&
-    value.encryptedSize <= REMOTE_SHARE_MAX_ENCRYPTED_BYTES &&
+    (value.objectKey === legacyKey || value.objectKey === plainKey) &&
+    validStoredSize &&
     Number.isSafeInteger(value.expiresAt) &&
     typeof value.cleanupToken === 'string' &&
     value.cleanupToken.length >= 16 &&
@@ -2503,7 +3028,6 @@ function parseQuotaReservation(body) {
   }
   const roomId = standardRoomId(body?.roomId);
   const objectId = String(body?.objectId || '');
-  const key = objectKey(roomId, objectId);
   const encryptedSize = Number(body?.encryptedSize);
   const expiresAt = Number(body?.expiresAt);
   const cleanupToken = String(body?.cleanupToken || '');
@@ -2517,13 +3041,23 @@ function parseQuotaReservation(body) {
   const recordCount = hasRecordSetFields ? Number(body?.recordCount) : undefined;
   const revokedAt =
     hasRecordSetFields && body?.revokedAt !== undefined ? Number(body.revokedAt) : undefined;
+  const legacyKey = objectKey(roomId, objectId);
+  const plainKey = hasRecordSetFields ? null : plainObjectKey(roomId, objectId);
+  const key =
+    body?.objectKey === legacyKey ? legacyKey : body?.objectKey === plainKey ? plainKey : null;
+  const validStoredSize =
+    key === plainKey
+      ? Number.isSafeInteger(encryptedSize) &&
+        encryptedSize > 0 &&
+        encryptedSize <= REMOTE_SHARE_MAX_BYTES
+      : key === legacyKey &&
+        Number.isSafeInteger(encryptedSize) &&
+        encryptedSize > AES_GCM_TAG_BYTES &&
+        encryptedSize <= REMOTE_SHARE_MAX_ENCRYPTED_BYTES;
   if (
     !roomId ||
     !key ||
-    body?.objectKey !== key ||
-    !Number.isSafeInteger(encryptedSize) ||
-    encryptedSize <= AES_GCM_TAG_BYTES ||
-    encryptedSize > REMOTE_SHARE_MAX_ENCRYPTED_BYTES ||
+    !validStoredSize ||
     !Number.isSafeInteger(expiresAt) ||
     cleanupToken.length < 16 ||
     (hasRecordSetFields &&
@@ -3617,8 +4151,14 @@ export default {
       if (request.method === 'POST' && path === '/session') {
         return handleSession(request, env);
       }
+      if (request.method === 'POST' && path === '/v3/plain/session') {
+        return handlePlainSession(request, env);
+      }
       if (request.method === 'POST' && path === '/complete') {
         return handleComplete(request, env);
+      }
+      if (request.method === 'POST' && path === '/v3/plain/complete') {
+        return handlePlainComplete(request, env);
       }
       if (request.method === 'POST' && path === '/v2/sets') {
         return handleRecordSetCreate(request, env);
@@ -3646,9 +4186,17 @@ export default {
       if (request.method === 'GET' && download) {
         return handleDownload(request, env, download[1], download[2]);
       }
+      const plainDownload = path.match(/^\/v3\/plain\/download\/([^/]+)\/([^/]+)$/);
+      if (request.method === 'GET' && plainDownload) {
+        return handlePlainDownload(request, env, plainDownload[1], plainDownload[2]);
+      }
       const object = path.match(/^\/object\/([^/]+)\/([^/]+)$/);
       if (request.method === 'DELETE' && object) {
         return handleDelete(request, env, object[1], object[2]);
+      }
+      const plainObject = path.match(/^\/v3\/plain\/object\/([^/]+)\/([^/]+)$/);
+      if (request.method === 'DELETE' && plainObject) {
+        return handlePlainDelete(request, env, plainObject[1], plainObject[2]);
       }
       return json(request, env, { error: 'not found' }, 404);
     } catch (error) {

@@ -273,6 +273,23 @@ function sessionRequestBody(overrides: Record<string, unknown> = {}): string {
   });
 }
 
+function plainSessionRequestBody(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    roomId: '123456',
+    sessionId: 7,
+    queueItemId: QUEUE_ITEM_ID,
+    name: 'song.wav',
+    mime: 'audio/wav',
+    size: 4,
+    ...overrides,
+  });
+}
+
+async function signTestToken(payload: Record<string, unknown>, secret = SIGNING_SECRET) {
+  const payloadPart = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  return `${payloadPart}.${await hmacSha256(secret, payloadPart)}`;
+}
+
 function recordSetRequestBody(overrides: Record<string, unknown> = {}): string {
   const size = Number(overrides.size ?? RECORD_SIZE + 4);
   const recordSize = Number(overrides.recordSize ?? RECORD_SIZE);
@@ -391,6 +408,73 @@ function quotaObject(key: string, size: number, expiresAt = Date.now() + 60_000)
       expiresAt: String(expiresAt),
     },
   };
+}
+
+interface PlainSessionResponse {
+  uploadUrl: string;
+  uploadHeaders: Record<string, string>;
+  uploadUrlExpiresAt: number;
+  completeToken: string;
+  objectId: string;
+  expiresAt: number;
+  cleanupToken: string;
+}
+
+interface PlainCompleteResponse {
+  downloadToken: string;
+  downloadUrl: string;
+  objectId: string;
+  expiresAt: number;
+  cleanupToken: string;
+}
+
+async function createCompletedPlainObject() {
+  const bucket = createQuotaBucket();
+  const get = vi.fn(async (key: string) => {
+    const object = bucket.objects.get(key);
+    return object ? { ...object, body: new Uint8Array([1, 2, 3, 4]) } : null;
+  });
+  Object.assign(bucket, { get });
+  const workerEnv = directUploadQuotaEnv({
+    REMOTE_SHARE_BUCKET: bucket,
+    ROOM_STORAGE_QUOTA_BYTES: '32',
+  });
+  const capability = await createCapabilityToken();
+  const sessionResponse = await workerModule.default.fetch(
+    request('/v3/plain/session', {
+      method: 'POST',
+      headers: {
+        'cf-connecting-ip': CLIENT_IP,
+        'content-type': 'application/json',
+        'x-mxqr-capability': capability,
+      },
+      body: plainSessionRequestBody(),
+    }),
+    workerEnv,
+  );
+  expect(sessionResponse.status).toBe(200);
+  const session = (await sessionResponse.json()) as PlainSessionResponse;
+  const key = `plain-room/123456/${session.objectId}`;
+  bucket.objects.set(key, {
+    key,
+    size: 4,
+    customMetadata: customMetadataFromUploadHeaders(session.uploadHeaders),
+  });
+  const completeResponse = await workerModule.default.fetch(
+    request('/v3/plain/complete', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        roomId: '123456',
+        objectId: session.objectId,
+        completeToken: session.completeToken,
+      }),
+    }),
+    workerEnv,
+  );
+  expect(completeResponse.status).toBe(200);
+  const complete = (await completeResponse.json()) as PlainCompleteResponse;
+  return { bucket, complete, get, key, session, workerEnv };
 }
 
 afterEach(() => {
@@ -524,6 +608,8 @@ describe('remote-share Worker capability gate', () => {
       capabilityRequired: true,
       scope: 'remote-share',
       workerContractVersion: 2,
+      plainWholeObjectVersion: 1,
+      downloadAuthorizationVersion: 1,
     });
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
   });
@@ -1626,7 +1712,8 @@ describe('remote-share Worker capability gate', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(bucket.list).toHaveBeenCalledTimes(2);
+    // Two legacy pages plus the isolated plaintext namespace.
+    expect(bucket.list).toHaveBeenCalledTimes(3);
     expect(bucket.delete).toHaveBeenCalledTimes(2);
     for (const [keys] of bucket.delete.mock.calls) {
       expect(Array.isArray(keys) ? keys.length : 1).toBeLessThanOrEqual(1000);
@@ -1976,6 +2063,221 @@ describe('remote-share Worker capability gate', () => {
     expect(response.headers.get('content-length')).toBe('20');
     expect((await response.arrayBuffer()).byteLength).toBe(20);
     expect(bucket.delete).not.toHaveBeenCalled();
+  });
+
+  describe('plaintext whole-object V3 transport', () => {
+    it('requires the exact plaintext session schema and never accepts encrypted-size fields', async () => {
+      const capability = await createCapabilityToken();
+      const bucket = createQuotaBucket();
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: bucket,
+        ROOM_STORAGE_QUOTA_BYTES: '32',
+      });
+      for (const body of [
+        plainSessionRequestBody({ unexpected: true }),
+        plainSessionRequestBody({ encryptedSize: 20 }),
+      ]) {
+        const response = await workerModule.default.fetch(
+          request('/v3/plain/session', {
+            method: 'POST',
+            headers: {
+              'cf-connecting-ip': CLIENT_IP,
+              'content-type': 'application/json',
+              'x-mxqr-capability': capability,
+            },
+            body,
+          }),
+          workerEnv,
+        );
+        expect(response.status).toBe(400);
+        expect(await response.json()).toEqual({
+          error: 'invalid plaintext upload session request',
+        });
+      }
+      expect(bucket.list).not.toHaveBeenCalled();
+    });
+
+    it('isolates plaintext storage, settles exact-byte quota, and issues a scoped read bearer', async () => {
+      const { complete, key, session, workerEnv } = await createCompletedPlainObject();
+
+      expect(new URL(session.uploadUrl).pathname).toContain(
+        `/test-bucket/plain-room/123456/${session.objectId}`,
+      );
+      expect(session.uploadHeaders).toMatchObject({
+        'content-type': 'application/octet-stream',
+        'x-amz-meta-format-version': 'plain-whole-object-v1',
+        'x-amz-meta-size-bytes': '4',
+      });
+      expect(session.uploadHeaders).not.toHaveProperty('x-amz-meta-encrypted-size');
+      expect(complete).toEqual({
+        downloadToken: expect.any(String),
+        downloadUrl: `https://share.musixquare.com/v3/plain/download/123456/${session.objectId}`,
+        objectId: session.objectId,
+        expiresAt: session.expiresAt,
+        cleanupToken: session.cleanupToken,
+      });
+      expect(new URL(complete.downloadUrl).search).toBe('');
+
+      const tokenPayload = decodeSignedTokenPayload(complete.downloadToken);
+      expect(tokenPayload).toEqual({
+        v: 1,
+        kind: 'plain-download',
+        aud: 'musixquare-remote-share',
+        method: 'GET',
+        roomId: '123456',
+        objectId: session.objectId,
+        key,
+        byteSize: 4,
+        storageFormat: 'plain-whole-object-v1',
+        iat: expect.any(Number),
+        exp: session.expiresAt,
+      });
+      expect(JSON.stringify(tokenPayload)).not.toContain(session.cleanupToken);
+
+      const quotaNamespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      const stored = quotaNamespace.instance('123456').storage.values.get('quota-state') as {
+        reservations: Record<
+          string,
+          { objectKey: string; encryptedSize: number; status: string; cleanupToken: string }
+        >;
+      };
+      expect(stored.reservations[session.objectId]).toMatchObject({
+        objectKey: key,
+        encryptedSize: 4,
+        status: 'completed',
+        cleanupToken: session.cleanupToken,
+      });
+    });
+
+    it('authenticates before R2, rejects query credentials and Range, then streams one full object', async () => {
+      const { complete, get, session, workerEnv } = await createCompletedPlainObject();
+      const path = `/v3/plain/download/123456/${session.objectId}`;
+
+      const missing = await workerModule.default.fetch(request(path), workerEnv);
+      expect(missing.status).toBe(401);
+      expect(get).not.toHaveBeenCalled();
+
+      const queryOnly = await workerModule.default.fetch(
+        request(`${path}?token=${encodeURIComponent(complete.downloadToken)}`),
+        workerEnv,
+      );
+      expect(queryOnly.status).toBe(400);
+      expect(get).not.toHaveBeenCalled();
+
+      const tokenPayload = decodeSignedTokenPayload(complete.downloadToken);
+      const wrongPurposeToken = await signTestToken(tokenPayload);
+      const wrongPurpose = await workerModule.default.fetch(
+        request(path, { headers: { authorization: `Bearer ${wrongPurposeToken}` } }),
+        workerEnv,
+      );
+      expect(wrongPurpose.status).toBe(401);
+      expect(get).not.toHaveBeenCalled();
+
+      const wrongObject = await workerModule.default.fetch(
+        request('/v3/plain/download/123456/00000000-0000-4000-8000-000000000099', {
+          headers: { authorization: `Bearer ${complete.downloadToken}` },
+        }),
+        workerEnv,
+      );
+      expect(wrongObject.status).toBe(401);
+      expect(get).not.toHaveBeenCalled();
+
+      const ranged = await workerModule.default.fetch(
+        request(path, {
+          headers: {
+            authorization: `Bearer ${complete.downloadToken}`,
+            range: 'bytes=0-0',
+          },
+        }),
+        workerEnv,
+      );
+      expect(ranged.status).toBe(416);
+      expect(await ranged.json()).toMatchObject({ code: 'RANGE_NOT_SUPPORTED' });
+      expect(get).not.toHaveBeenCalled();
+
+      const downloaded = await workerModule.default.fetch(
+        request(path, { headers: { authorization: `Bearer ${complete.downloadToken}` } }),
+        workerEnv,
+      );
+      expect(downloaded.status).toBe(200);
+      expect(downloaded.headers.get('cache-control')).toBe('no-store');
+      expect(downloaded.headers.get('accept-ranges')).toBe('none');
+      expect(new Uint8Array(await downloaded.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3, 4]));
+      expect(get).toHaveBeenCalledTimes(1);
+
+      get.mockClear();
+      vi.useFakeTimers();
+      vi.setSystemTime(complete.expiresAt + 1);
+      const expired = await workerModule.default.fetch(
+        request(path, { headers: { authorization: `Bearer ${complete.downloadToken}` } }),
+        workerEnv,
+      );
+      expect(expired.status).toBe(401);
+      expect(get).not.toHaveBeenCalled();
+    });
+
+    it('keeps cleanup authority separate and deletes only the exact plaintext incarnation', async () => {
+      const { bucket, complete, key, session, workerEnv } = await createCompletedPlainObject();
+      const path = `/v3/plain/object/123456/${session.objectId}`;
+
+      const forbidden = await workerModule.default.fetch(
+        request(path, {
+          method: 'DELETE',
+          headers: { 'x-mxqr-cleanup-token': crypto.randomUUID() },
+        }),
+        workerEnv,
+      );
+      expect(forbidden.status).toBe(403);
+      expect(bucket.objects.has(key)).toBe(true);
+
+      const deleted = await workerModule.default.fetch(
+        request(path, {
+          method: 'DELETE',
+          headers: { 'x-mxqr-cleanup-token': complete.cleanupToken },
+        }),
+        workerEnv,
+      );
+      expect(deleted.status).toBe(200);
+      expect(await deleted.json()).toEqual({ ok: true });
+      expect(bucket.objects.has(key)).toBe(false);
+      expect(bucket.objects.has(`room/123456/${session.objectId}`)).toBe(false);
+      const quotaNamespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      const stored = quotaNamespace.instance('123456').storage.values.get('quota-state') as {
+        reservations: Record<string, unknown>;
+      };
+      // A still-replayable presigned PUT keeps its exact-byte reservation until
+      // fixed expiry, matching the encrypted-object lifecycle fence.
+      expect(stored.reservations).toHaveProperty(session.objectId);
+    });
+
+    it('counts encrypted and plaintext prefixes against one room quota', async () => {
+      const capability = await createCapabilityToken();
+      const bucket = createQuotaBucket([
+        quotaObject('room/123456/legacy-object', 16),
+        quotaObject('plain-room/123456/plain-object', 16),
+      ]);
+      const response = await workerModule.default.fetch(
+        request('/v3/plain/session', {
+          method: 'POST',
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-capability': capability,
+          },
+          body: plainSessionRequestBody({ size: 1 }),
+        }),
+        directUploadQuotaEnv({
+          REMOTE_SHARE_BUCKET: bucket,
+          ROOM_STORAGE_QUOTA_BYTES: '32',
+        }),
+      );
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: 'ROOM_STORAGE_QUOTA_EXCEEDED' });
+      expect(bucket.list).toHaveBeenCalledWith(expect.objectContaining({ prefix: 'room/123456/' }));
+      expect(bucket.list).toHaveBeenCalledWith(
+        expect.objectContaining({ prefix: 'plain-room/123456/' }),
+      );
+    });
   });
 
   describe('record-encrypted V2 sets', () => {

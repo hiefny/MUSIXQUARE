@@ -32,6 +32,16 @@ interface RemoteShareSession {
   sessionId: number;
 }
 
+interface PlainRemoteShareSession {
+  uploadUrl: string;
+  uploadHeaders: Record<string, string>;
+  completeToken: string;
+  objectId: string;
+  cleanupToken: string;
+  queueItemId: string;
+  sessionId: number;
+}
+
 interface RemoteRecordSetRecord {
   index: number;
   objectId: string;
@@ -110,7 +120,9 @@ async function waitForRemoteShareWorkerReady(requireRecordSet: boolean): Promise
       ? config.recordSetVersion
       : config.workerContractVersion;
     const idempotencyReady = !requireRecordSet || config.recordSetCreateIdempotency === true;
-    if (advertisedVersion === RECORD_SET_VERSION) {
+    const plainWholeReady =
+      config.plainWholeObjectVersion === 1 && config.downloadAuthorizationVersion === 1;
+    if (advertisedVersion === RECORD_SET_VERSION && plainWholeReady) {
       if (idempotencyReady) {
         consecutiveReadyReads += 1;
         if (consecutiveReadyReads >= 2) return;
@@ -120,7 +132,7 @@ async function waitForRemoteShareWorkerReady(requireRecordSet: boolean): Promise
         // instead of misclassifying that otherwise-compatible Worker.
         consecutiveReadyReads = 0;
       }
-    } else if (advertisedVersion === undefined) {
+    } else if (advertisedVersion === undefined || !plainWholeReady) {
       // A just-superseded Worker does not advertise this contract. The
       // rollback-safe bridge advertises only its Worker contract; the full
       // deployment additionally advertises active record-set admission.
@@ -260,8 +272,48 @@ async function requestSession(
   return { ...session, queueItemId, sessionId } as unknown as RemoteShareSession;
 }
 
+async function requestPlainSession(
+  token: string,
+  roomId: string,
+  queueItemId: string,
+  sessionId: number,
+  sourceFile: File,
+): Promise<PlainRemoteShareSession> {
+  const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/v3/plain/session`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: APP_ORIGIN,
+      ...(token ? { 'X-MXQR-Capability': token } : {}),
+    },
+    body: JSON.stringify({
+      roomId,
+      sessionId,
+      queueItemId,
+      name: sourceFile.name,
+      mime: sourceFile.type,
+      size: sourceFile.size,
+    }),
+  });
+  assertAllowedOrigin(response, 'plaintext remote-share session');
+  const session = await readJson(response, 'plaintext remote-share session');
+  if (
+    typeof session.uploadUrl !== 'string' ||
+    typeof session.completeToken !== 'string' ||
+    typeof session.objectId !== 'string' ||
+    typeof session.cleanupToken !== 'string' ||
+    !session.uploadHeaders ||
+    typeof session.uploadHeaders !== 'object' ||
+    Array.isArray(session.uploadHeaders) ||
+    !Object.values(session.uploadHeaders).every((value) => typeof value === 'string')
+  ) {
+    throw new Error('invalid plaintext remote-share session response');
+  }
+  return { ...session, queueItemId, sessionId } as unknown as PlainRemoteShareSession;
+}
+
 function assertSessionPlaybackContext(
-  session: RemoteShareSession,
+  session: Pick<RemoteShareSession, 'completeToken' | 'queueItemId' | 'sessionId'>,
   queueItemId: string,
   sessionId: number,
 ): void {
@@ -304,6 +356,28 @@ function assertUploadMetadata(session: RemoteShareSession, sourceFile: File): vo
     if (normalized[name] !== value) {
       throw new Error(`remote-share upload metadata mismatch for ${name}`);
     }
+  }
+}
+
+function assertPlainUploadMetadata(session: PlainRemoteShareSession, sourceFile: File): void {
+  const normalized = Object.fromEntries(
+    Object.entries(session.uploadHeaders).map(([name, value]) => [name.toLowerCase(), value]),
+  );
+  const expected: Record<string, string> = {
+    'content-type': 'application/octet-stream',
+    'x-amz-meta-name': encodeURIComponent(sourceFile.name),
+    'x-amz-meta-mime': encodeURIComponent(sourceFile.type),
+    'x-amz-meta-size-bytes': String(sourceFile.size),
+    'x-amz-meta-format-version': 'plain-whole-object-v1',
+    'x-amz-meta-object-id': session.objectId,
+  };
+  for (const [name, value] of Object.entries(expected)) {
+    if (normalized[name] !== value) {
+      throw new Error(`plaintext remote-share upload metadata mismatch for ${name}`);
+    }
+  }
+  if ('x-amz-meta-encrypted-size' in normalized) {
+    throw new Error('plaintext remote-share upload exposed encrypted-size metadata');
   }
 }
 
@@ -370,8 +444,35 @@ async function completeUpload(
   return readJson(response, 'remote-share complete');
 }
 
+async function completePlainUpload(
+  session: PlainRemoteShareSession,
+  roomId: string,
+): Promise<Record<string, unknown>> {
+  const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/v3/plain/complete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Origin: APP_ORIGIN },
+    body: JSON.stringify({
+      roomId,
+      objectId: session.objectId,
+      completeToken: session.completeToken,
+    }),
+  });
+  assertAllowedOrigin(response, 'plaintext remote-share complete');
+  return readJson(response, 'plaintext remote-share complete');
+}
+
 async function cleanup(session: RemoteShareSession, roomId: string): Promise<Response> {
   return fetchWithTimeout(`${REMOTE_ORIGIN}/object/${roomId}/${session.objectId}`, {
+    method: 'DELETE',
+    headers: {
+      Origin: APP_ORIGIN,
+      'X-MXQR-Cleanup-Token': session.cleanupToken,
+    },
+  });
+}
+
+async function cleanupPlain(session: PlainRemoteShareSession, roomId: string): Promise<Response> {
+  return fetchWithTimeout(`${REMOTE_ORIGIN}/v3/plain/object/${roomId}/${session.objectId}`, {
     method: 'DELETE',
     headers: {
       Origin: APP_ORIGIN,
@@ -718,6 +819,114 @@ async function runV1Smoke(
   }
 }
 
+async function runPlainWholeSmoke(
+  token: string,
+  roomId: string,
+  sourceBytes: Uint8Array<ArrayBuffer>,
+): Promise<Record<string, unknown>> {
+  const queueItemId = randomUUID();
+  const sessionId = Date.now() + 1;
+  const sourceFile = new File([sourceBytes], FILE_NAME, { type: FILE_MIME });
+  const expectedSha256 = createHash('sha256').update(sourceBytes).digest('hex');
+  let session: PlainRemoteShareSession | undefined;
+  let cleaned = false;
+
+  try {
+    session = await requestPlainSession(token, roomId, queueItemId, sessionId, sourceFile);
+    assertSessionPlaybackContext(session, queueItemId, sessionId);
+    assertPlainUploadMetadata(session, sourceFile);
+    await assertUploadCors(session);
+
+    const upload = await fetchWithTimeout(session.uploadUrl, {
+      method: 'PUT',
+      headers: { ...session.uploadHeaders, Origin: APP_ORIGIN },
+      body: sourceFile,
+    });
+    if (!upload.ok) throw new Error(`plaintext R2 direct PUT HTTP ${upload.status}`);
+    assertAllowedOrigin(upload, 'plaintext R2 direct PUT');
+
+    const completed = await completePlainUpload(session, roomId);
+    const downloadUrl = completed.downloadUrl;
+    const downloadToken = completed.downloadToken;
+    if (
+      completed.objectId !== session.objectId ||
+      typeof downloadUrl !== 'string' ||
+      downloadUrl !== `${REMOTE_ORIGIN}/v3/plain/download/${roomId}/${session.objectId}` ||
+      typeof downloadToken !== 'string' ||
+      downloadToken.length < 32 ||
+      downloadUrl.includes(downloadToken)
+    ) {
+      throw new Error('invalid plaintext remote-share completion response');
+    }
+
+    const unauthorized = await fetchWithTimeout(downloadUrl, {
+      headers: { Origin: APP_ORIGIN },
+    });
+    assertAllowedOrigin(unauthorized, 'plaintext unauthorized download');
+    if (unauthorized.status !== 401) {
+      throw new Error(`unauthorized plaintext download returned HTTP ${unauthorized.status}`);
+    }
+    await unauthorized.body?.cancel().catch(() => undefined);
+
+    const range = await fetchWithTimeout(downloadUrl, {
+      headers: {
+        Authorization: `Bearer ${downloadToken}`,
+        Origin: APP_ORIGIN,
+        Range: 'bytes=0-0',
+      },
+    });
+    assertAllowedOrigin(range, 'plaintext Range rejection');
+    if (range.status !== 416) {
+      throw new Error(`plaintext Range returned HTTP ${range.status}, expected 416`);
+    }
+    await range.body?.cancel().catch(() => undefined);
+
+    const download = await fetchWithTimeout(downloadUrl, {
+      headers: { Authorization: `Bearer ${downloadToken}`, Origin: APP_ORIGIN },
+    });
+    assertAllowedOrigin(download, 'plaintext authorized download');
+    if (!download.ok) throw new Error(`plaintext remote-share download HTTP ${download.status}`);
+    if (download.headers.get('cache-control') !== 'no-store') {
+      throw new Error('plaintext remote-share download is cacheable');
+    }
+    const downloadedBytes = new Uint8Array(await download.arrayBuffer());
+    const actualSha256 = createHash('sha256').update(downloadedBytes).digest('hex');
+    if (downloadedBytes.byteLength !== sourceBytes.byteLength || actualSha256 !== expectedSha256) {
+      throw new Error('plaintext remote-share byte mismatch');
+    }
+
+    const deleted = await cleanupPlain(session, roomId);
+    assertAllowedOrigin(deleted, 'plaintext remote-share cleanup');
+    await readJson(deleted, 'plaintext remote-share cleanup');
+    cleaned = true;
+
+    const afterDelete = await fetchWithTimeout(downloadUrl, {
+      headers: { Authorization: `Bearer ${downloadToken}`, Origin: APP_ORIGIN },
+    });
+    assertAllowedOrigin(afterDelete, 'plaintext deleted-object lookup');
+    if (afterDelete.status !== 404) {
+      throw new Error(`deleted plaintext object returned HTTP ${afterDelete.status}, expected 404`);
+    }
+    await afterDelete.body?.cancel().catch(() => undefined);
+
+    return {
+      storageFormat: 'plain-whole-v1',
+      bytes: sourceFile.size,
+      directR2Put: true,
+      corsPreflight: true,
+      exactPlaintextRoundTrip: true,
+      bearerHeaderOnly: true,
+      unauthorizedReadRejected: true,
+      rangeRejected: true,
+      noStore: true,
+      cleanupStatus: deleted.status,
+      afterCleanupStatus: afterDelete.status,
+    };
+  } finally {
+    if (session && !cleaned) await cleanupPlain(session, roomId).catch(() => undefined);
+  }
+}
+
 async function runRecordSetSmoke(
   token: string,
   roomId: string,
@@ -907,12 +1116,14 @@ async function main(): Promise<void> {
   const token = await requestCapabilityToken();
   await waitForRemoteShareWorkerReady(!v1Only);
   const v1 = await runV1Smoke(token, roomId, sourceBytes);
+  const plainWholeV1 = await runPlainWholeSmoke(token, roomId, sourceBytes);
   const recordSetV2 = v1Only ? undefined : await runRecordSetSmoke(token, roomId, sourceBytes);
 
   console.log(
     JSON.stringify({
       ok: true,
       ...v1,
+      plainWholeV1,
       ...(recordSetV2 ? { recordSetV2 } : {}),
     }),
   );

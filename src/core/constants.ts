@@ -116,6 +116,7 @@ export const MSG = {
   FILE_BOUNDED_V1_CAPABILITY: 'file-bounded-v1-capability',
   FILE_PREPARE: 'file-prepare',
   FILE_R2_CAPABILITY: 'file-r2-capability',
+  FILE_R2_PLAIN_CAPABILITY: 'file-r2-plain-capability',
   FILE_R2_RECORD_DESCRIPTOR: 'file-r2-record-descriptor',
   FILE_R2_RECORD_RESULT: 'file-r2-record-result',
   REMOTE_FILE_UNAVAILABLE: 'remote-file-unavailable',

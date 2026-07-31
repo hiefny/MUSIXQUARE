@@ -23,6 +23,7 @@ import {
   rememberAccountLoginReturn,
 } from '../../account/login-return.ts';
 import { flushAccountActivityStatsForRead } from '../../account/activity-stats.ts';
+import { resetState, setState } from '../../core/state.ts';
 
 vi.mock('../dialog.ts', () => ({ showDialog: vi.fn() }));
 vi.mock('../toast.ts', () => ({ showToast: vi.fn() }));
@@ -90,6 +91,7 @@ function renderAccountDialog(): void {
 beforeEach(() => {
   __resetAccountUiForTests();
   __resetAccountStateForTests();
+  resetState();
   bus.clear();
   vi.clearAllMocks();
   vi.mocked(flushAccountActivityStatsForRead).mockResolvedValue({ status: 'idle' });
@@ -104,7 +106,9 @@ beforeEach(() => {
 
 afterEach(() => {
   __resetAccountUiForTests();
+  resetState();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('optional account UI', () => {
@@ -164,10 +168,12 @@ describe('optional account UI', () => {
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
   });
 
-  it('uses a completion popup so an active room is not navigated away', async () => {
+  it('uses a completion popup from an installed PWA so an active room stays live', async () => {
     vi.mocked(fetch).mockResolvedValue(
       jsonResponse({ configured: true, authenticated: false, account: null }),
     );
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    setState('setup.sessionStarted', true);
     const focus = vi.fn();
     const replace = vi.fn();
     const popup = {
@@ -181,7 +187,13 @@ describe('optional account UI', () => {
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
     openAccountDialog();
 
-    document.getElementById('btn-account-google')?.click();
+    const google = document.getElementById('btn-account-google') as HTMLAnchorElement;
+    let preventedByAccountHandler = false;
+    google.addEventListener('click', (event) => {
+      preventedByAccountHandler = event.defaultPrevented;
+      event.preventDefault();
+    });
+    google.dispatchEvent(new MouseEvent('click', { button: 0, bubbles: true, cancelable: true }));
 
     expect(open).toHaveBeenCalledWith(
       'about:blank',
@@ -195,12 +207,14 @@ describe('optional account UI', () => {
     );
     expect(popup.opener).toBeNull();
     expect(focus).toHaveBeenCalledOnce();
+    expect(preventedByAccountHandler).toBe(true);
   });
 
-  it('falls back to ordinary same-tab navigation when a popup is blocked', async () => {
+  it('falls back to ordinary same-tab navigation when an idle PWA popup is blocked', async () => {
     vi.mocked(fetch).mockResolvedValue(
       jsonResponse({ configured: true, authenticated: false, account: null }),
     );
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
     initAccount();
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
@@ -220,29 +234,92 @@ describe('optional account UI', () => {
     expect(google.getAttribute('href')).toContain('returnTo=%2F');
   });
 
-  it('keeps installed PWAs on the same-tab OAuth return path', async () => {
+  it('keeps an active PWA room in place when the login popup is blocked', async () => {
+    window.history.replaceState({}, '', '/?panel=connect#account');
     vi.mocked(fetch).mockResolvedValue(
       jsonResponse({ configured: true, authenticated: false, account: null }),
     );
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
-    const open = vi.spyOn(window, 'open');
+    setState('setup.sessionStarted', true);
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
     initAccount();
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
     openAccountDialog();
 
     const google = document.getElementById('btn-account-google') as HTMLAnchorElement;
-    let preventedByAccountHandler = true;
+    let preventedByAccountHandler = false;
     google.addEventListener('click', (event) => {
       preventedByAccountHandler = event.defaultPrevented;
-      event.preventDefault();
     });
     const click = new MouseEvent('click', { button: 0, bubbles: true, cancelable: true });
     google.dispatchEvent(click);
 
-    expect(open).not.toHaveBeenCalled();
-    expect(preventedByAccountHandler).toBe(false);
-    expect(google.getAttribute('href')).toContain('returnTo=%2F');
-    expect(google.getAttribute('href')).not.toContain('account-complete');
+    expect(open).toHaveBeenCalledOnce();
+    expect(preventedByAccountHandler).toBe(true);
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(
+      '/?panel=connect#account',
+    );
+    expect(isIntentionalNav()).toBe(false);
+    expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
+    expect(showToast).toHaveBeenCalledWith('Could not sign in. Please try again.');
+  });
+
+  it('keeps an active room in place when opening the login popup throws', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ configured: true, authenticated: false, account: null }),
+    );
+    setState('setup.sessionStarted', true);
+    vi.spyOn(window, 'open').mockImplementation(() => {
+      throw new Error('popup unavailable');
+    });
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    openAccountDialog();
+
+    const google = document.getElementById('btn-account-google') as HTMLAnchorElement;
+    const click = new MouseEvent('click', { button: 0, bubbles: true, cancelable: true });
+    google.dispatchEvent(click);
+
+    expect(click.defaultPrevented).toBe(true);
+    expect(isIntentionalNav()).toBe(false);
+    expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
+    expect(showToast).toHaveBeenCalledWith('Could not sign in. Please try again.');
+  });
+
+  it('closes a failed popup bootstrap without replacing an active room', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ configured: true, authenticated: false, account: null }),
+    );
+    setState('setup.sessionStarted', true);
+    const close = vi.fn();
+    const popup = {
+      closed: false,
+      close,
+      focus: vi.fn(),
+      location: {
+        replace: vi.fn(() => {
+          throw new Error('navigation unavailable');
+        }),
+      },
+      opener: window,
+    } as unknown as Window;
+    vi.spyOn(window, 'open').mockReturnValue(popup);
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    openAccountDialog();
+
+    const google = document.getElementById('btn-account-google') as HTMLAnchorElement;
+    const click = new MouseEvent('click', { button: 0, bubbles: true, cancelable: true });
+    google.dispatchEvent(click);
+
+    expect(close).toHaveBeenCalledOnce();
+    expect(click.defaultPrevented).toBe(true);
+    expect(isIntentionalNav()).toBe(false);
+    expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
+    expect(showToast).toHaveBeenCalledWith('Could not sign in. Please try again.');
   });
 
   it('preserves the PRO route in a PWA even before room context projection is ready', async () => {
@@ -251,6 +328,7 @@ describe('optional account UI', () => {
       jsonResponse({ configured: true, authenticated: false, account: null }),
     );
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    vi.spyOn(window, 'open').mockReturnValue(null);
     initAccount();
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
     openAccountDialog();
@@ -312,6 +390,7 @@ describe('optional account UI', () => {
   it('cleans a same-tab fallback marker when the OAuth anchor navigation is cancelled', async () => {
     window.history.replaceState({}, '', '/000001');
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    vi.spyOn(window, 'open').mockReturnValue(null);
     vi.mocked(fetch).mockResolvedValue(
       jsonResponse({ configured: true, authenticated: false, account: null }),
     );
@@ -333,6 +412,7 @@ describe('optional account UI', () => {
   it('keeps a slow same-tab OAuth navigation recoverable beyond two seconds', async () => {
     window.history.replaceState({}, '', '/000001');
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    vi.spyOn(window, 'open').mockReturnValue(null);
     vi.mocked(fetch).mockResolvedValue(
       jsonResponse({ configured: true, authenticated: false, account: null }),
     );

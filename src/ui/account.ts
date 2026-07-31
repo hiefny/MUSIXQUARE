@@ -24,6 +24,7 @@ import {
   sanitizeAccountLoginReturnPath,
 } from '../account/login-return.ts';
 import { clearIntentionalNav, markIntentionalNav } from '../core/page-lifecycle.ts';
+import { getState } from '../core/state.ts';
 import { getResolvedLanguage, t } from '../i18n/index.ts';
 import { getRoomContext } from '../rooms/authority.ts';
 import { showDialog } from './dialog.ts';
@@ -309,6 +310,31 @@ function prepareSameTabAccountLogin(anchor: HTMLAnchorElement, activationEvent: 
     clearIntentionalNav();
     if (attemptId) clearAccountLoginReturn(attemptId);
   });
+}
+
+function preserveActiveRoomOrPrepareSameTabAccountLogin(
+  anchor: HTMLAnchorElement,
+  activationEvent: MouseEvent,
+): void {
+  // Standard rooms retain an idle provider-neutral context, so
+  // setup.sessionStarted is the cross-room signal that the live page owns a
+  // joined session. The context check also covers a projected PRO room during
+  // short lifecycle transitions around the shared setup flag.
+  if (getState('setup.sessionStarted') || getRoomContext().role !== 'idle') {
+    activationEvent.preventDefault();
+    showToast(t('account.login_failed'));
+    return;
+  }
+  prepareSameTabAccountLogin(anchor, activationEvent);
+}
+
+function focusAccountLoginPopup(popup: Window): void {
+  try {
+    popup.focus?.();
+  } catch {
+    // The provider may already own a cross-origin window. Login can continue
+    // even when a constrained shell refuses to focus it.
+  }
 }
 
 function monitorAccountLoginPopup(popup: Window): void {
@@ -627,60 +653,69 @@ function bindAccountDialog(): void {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;
     }
-    const standalone =
-      window.matchMedia?.('(display-mode: standalone)').matches === true ||
-      (navigator as Navigator & { standalone?: boolean }).standalone === true;
-    if (standalone) {
-      prepareSameTabAccountLogin(event.currentTarget as HTMLAnchorElement, event);
-      return;
-    }
-    try {
-      if (_accountLoginPopup && !_accountLoginPopup.closed) {
+    const anchor = event.currentTarget as HTMLAnchorElement;
+    const existingPopup = _accountLoginPopup;
+    if (existingPopup) {
+      try {
+        if (!existingPopup.closed) {
+          event.preventDefault();
+          focusAccountLoginPopup(existingPopup);
+          return;
+        }
+      } catch {
+        // Treat an unreadable provider-owned handle as live. Starting another
+        // OAuth attempt could overwrite the first attempt's state.
         event.preventDefault();
-        _accountLoginPopup.focus?.();
+        focusAccountLoginPopup(existingPopup);
         return;
       }
-      const loginUrl = buildGoogleLoginUrl(
+      _accountLoginPopup = null;
+      stopAccountLoginPopupMonitor();
+    }
+
+    let loginUrl: string;
+    let popup: Window | null;
+    try {
+      loginUrl = buildGoogleLoginUrl(
         location,
         `${ACCOUNT_COMPLETION_PATH}?accountClient=${encodeURIComponent(ACCOUNT_CLIENT_ID)}`,
       );
       // Start with a same-origin blank document so the opener can be severed
       // before Google owns the popup. Opening the OAuth URL directly can race
       // its redirect and make `popup.opener = null` a cross-origin access.
-      const popup = window.open(
+      popup = window.open(
         'about:blank',
         `mxqr-google-login-${ACCOUNT_CLIENT_ID}`,
         'popup=yes,width=520,height=720,resizable=yes,scrollbars=yes',
       );
-      if (!popup) {
-        prepareSameTabAccountLogin(event.currentTarget as HTMLAnchorElement, event);
-        return;
-      }
-      try {
-        // The completion page uses BroadcastChannel/storage, so it does not
-        // need a live opener reference while visiting the OAuth provider.
-        popup.opener = null;
-        popup.location.replace(loginUrl);
-      } catch {
-        // If a constrained browser rejects the isolated-popup bootstrap,
-        // close the blank window and preserve the anchor's same-tab fallback.
-        try {
-          popup.close();
-        } catch {
-          // Best-effort cleanup only; the same-tab anchor remains available.
-        }
-        prepareSameTabAccountLogin(event.currentTarget as HTMLAnchorElement, event);
-        return;
-      }
-      event.preventDefault();
-      _accountLoginPopup = popup;
-      monitorAccountLoginPopup(popup);
-      popup.focus?.();
     } catch {
-      // Popup blocking and constrained installed-app browsers fall back to the
-      // anchor's ordinary same-tab OAuth navigation.
-      prepareSameTabAccountLogin(event.currentTarget as HTMLAnchorElement, event);
+      preserveActiveRoomOrPrepareSameTabAccountLogin(anchor, event);
+      return;
     }
+    if (!popup) {
+      preserveActiveRoomOrPrepareSameTabAccountLogin(anchor, event);
+      return;
+    }
+    try {
+      // The completion page uses BroadcastChannel/storage, so it does not
+      // need a live opener reference while visiting the OAuth provider.
+      popup.opener = null;
+      popup.location.replace(loginUrl);
+    } catch {
+      // If a constrained browser rejects the isolated-popup bootstrap, close
+      // its blank window before considering the same-tab fallback.
+      try {
+        popup.close();
+      } catch {
+        // Best-effort cleanup only.
+      }
+      preserveActiveRoomOrPrepareSameTabAccountLogin(anchor, event);
+      return;
+    }
+    event.preventDefault();
+    _accountLoginPopup = popup;
+    monitorAccountLoginPopup(popup);
+    focusAccountLoginPopup(popup);
   });
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) closeAccountDialog();

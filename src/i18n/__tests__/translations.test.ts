@@ -460,8 +460,8 @@ describe('Translation key integrity', () => {
     }
 
     expect(ko['account.stats_sessions_label']).toBe('참여한 세션');
-    expect(ko['account.stats_listening_label']).toBe('함께 들은 시간');
-    expect(ko['account.stats_tracks_label']).toBe('재생한 곡');
+    expect(ko['account.stats_listening_label']).toBe('감상 시간');
+    expect(ko['account.stats_tracks_label']).toBe('재생한 미디어');
     expect(ko['account.stats_hours_minutes_value']).toBe('{{hours}}시간 {{minutes}}분');
   });
 });

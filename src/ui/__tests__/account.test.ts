@@ -523,6 +523,10 @@ describe('optional account UI', () => {
     expect(document.getElementById('account-stats-sessions-label')?.textContent).toBe(
       'Sessions joined',
     );
+    expect(document.getElementById('account-stats-listening-label')?.textContent).toBe(
+      'Listening time',
+    );
+    expect(document.getElementById('account-stats-tracks-label')?.textContent).toBe('Media played');
     expect(document.getElementById('account-dialog-actions')?.hidden).toBe(false);
   });
 

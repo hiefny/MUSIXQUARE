@@ -47,9 +47,6 @@ const RELEASE_TARGET_WORKERS = Object.freeze({
   app: ['app'],
   all: Object.keys(TARGETS),
 });
-const REMOTE_SHARE_QUOTA_MIGRATION_PATH = 'cloudflare/wrangler.remote-share.toml';
-const REMOTE_SHARE_QUOTA_CLASS_RE =
-  /new_sqlite_classes\s*=\s*\[[^\]]*["']RemoteShareQuota["'][^\]]*\]/u;
 
 // Files that become production code or deployment configuration for each
 // Worker. Shared modules intentionally appear in every Worker that imports
@@ -169,23 +166,6 @@ function runtimePathsForWorker(worker) {
 function releaseGitSha(message) {
   if (typeof message !== 'string') return null;
   return RELEASE_GIT_SHA_RE.exec(message)?.[1]?.toLowerCase() || null;
-}
-
-function remoteShareQuotaMigrationBridgeRequired(deployment, options = {}) {
-  const deployedGitSha = releaseGitSha(deploymentMessage(deployment));
-  if (!deployedGitSha) return true;
-  const runner = options.runner || runGit;
-  try {
-    const source = runner(['show', `${deployedGitSha}:${REMOTE_SHARE_QUOTA_MIGRATION_PATH}`], {
-      capture: true,
-    });
-    return !REMOTE_SHARE_QUOTA_CLASS_RE.test(String(source));
-  } catch {
-    // An unverifiable production revision must take the safe bridge path. The
-    // bridge preserves legacy behavior while making the lifecycle migration a
-    // rollback baseline before atomic admission is activated.
-    return true;
-  }
 }
 
 function rollbackDeploymentMessage(state, fallbackMessage) {
@@ -913,10 +893,7 @@ function main() {
   );
 
   if (mode === 'prepare') prepare(targetArgument, directory);
-  else if (mode === 'remote-share-bridge-required') {
-    const deployment = readJson(resolve(targetArgument));
-    process.stdout.write(`${remoteShareQuotaMigrationBridgeRequired(deployment)}\n`);
-  } else if (mode === 'preflight') preflight(targetArgument, directory);
+  else if (mode === 'preflight') preflight(targetArgument, directory);
   else if (mode === 'attempt') markAttempt(targetArgument, directory);
   else if (mode === 'record') record(targetArgument, directory);
   else if (mode === 'version') recordedVersion(targetArgument, directory);
@@ -927,7 +904,7 @@ function main() {
   else if (mode === 'summary') summary(directory);
   else {
     throw new Error(
-      'Usage: node scripts/release-deployment-state.mjs <prepare|preflight|attempt|record|version> <target> [directory] | remote-share-bridge-required <deployment-json> | compatibility <release-target> <git-sha> [directory] | <verify-current|rollback|summary> [directory]',
+      'Usage: node scripts/release-deployment-state.mjs <prepare|preflight|attempt|record|version> <target> [directory] | compatibility <release-target> <git-sha> [directory] | <verify-current|rollback|summary> [directory]',
     );
   }
 }
@@ -946,7 +923,6 @@ export {
   productionVersion,
   queryCurrent,
   releaseGitSha,
-  remoteShareQuotaMigrationBridgeRequired,
   releaseTargetWorkers,
   runtimePathsForWorker,
   rollbackDeploymentMessage,

@@ -9,7 +9,7 @@
  * Ignore transient visibility bounces (tab previews, DevTools focus changes,
  * mobile browser chrome) that are too short to suspend timers or audio.
  *
- * V2 wake recovery invalidates clock continuation leases before recalibrating.
+ * Wake recovery invalidates clock continuation leases before recalibrating.
  * Running it for a zero-duration bounce can therefore disrupt a healthy
  * rendezvous even though no sleep/wake actually occurred.
  */

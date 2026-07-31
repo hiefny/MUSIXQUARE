@@ -23,19 +23,6 @@ const mocks = vi.hoisted(() => ({
   downloadRemoteFile: vi.fn(),
   uploadRemoteFile: vi.fn(),
   transition: vi.fn(),
-  ownsBoundedSession: vi.fn((_queueItemId: string, _sessionId: number) => false),
-  boundedSnapshot: {
-    role: 'idle',
-    current: null,
-  } as {
-    role: 'idle' | 'guest';
-    current: null | {
-      queueItemId: string;
-      legacySessionId: number;
-      state: 'fallback' | 'failed';
-    };
-  },
-  abandonBoundedTransfer: vi.fn(async () => true),
 }));
 
 vi.mock('../remote-download.ts', () => ({
@@ -60,14 +47,6 @@ vi.mock('../../network/peer.ts', () => ({
 
 vi.mock('../../player/lifecycle.ts', () => ({
   transition: mocks.transition,
-}));
-
-vi.mock('../../player/legacy-bounded-file-v1-product.ts', () => ({
-  legacyBoundedFileV1Product: {
-    ownsSession: mocks.ownsBoundedSession,
-    snapshot: vi.fn(() => mocks.boundedSnapshot),
-    abandonGuestTransfer: mocks.abandonBoundedTransfer,
-  },
 }));
 
 vi.mock('../../ui/toast.ts', () => ({
@@ -169,9 +148,6 @@ describe('remote file share policy', () => {
     const { resetInboundRateLimit } = await import('../../network/protocol.ts');
     resetInboundRateLimit(conn.peer);
     vi.clearAllMocks();
-    mocks.ownsBoundedSession.mockReturnValue(false);
-    mocks.boundedSnapshot.role = 'idle';
-    mocks.boundedSnapshot.current = null;
     const { isRemoteGuest, waitForGuestConnectionType } = await import('../../network/peer.ts');
     vi.mocked(isRemoteGuest).mockReturnValue(true);
     vi.mocked(waitForGuestConnectionType).mockReset();
@@ -1092,115 +1068,6 @@ describe('remote file share policy', () => {
     );
   });
 
-  it('suppresses the exact bounded current whole-blob replay while preserving preload warmup', async () => {
-    const { handleData } = await import('../../network/protocol.ts');
-    const { safeSend } = await import('../../network/peer.ts');
-    const { freezeFileDeliveryMode } = await import('../file-delivery-policy.ts');
-    setState('network.appRole', 'host');
-    setState('network.hostConn', null);
-
-    const peers = Array.from({ length: 9 }, (_, index) => {
-      const id = `bounded-overflow-${index + 1}`;
-      return {
-        id,
-        status: 'connected' as const,
-        slot: index + 1,
-        label: id,
-        conn: dataConnection(id),
-        isOp: false,
-        preloadedQueueItemIds: new Set(),
-        isDataTarget: true,
-        connectionType: 'local' as const,
-        joinOrder: index + 1,
-        lastHeartbeat: 0,
-      } satisfies ConnectedPeer;
-    });
-    const target = peers[8]!;
-    setState('network.connectedPeers', peers);
-    setState(
-      'network.activeHostConnByPeerId',
-      new Map(peers.map((peer) => [peer.id, peer.conn as DataConnection])),
-    );
-
-    const current = new File(['current'], 'current.flac', { type: 'audio/flac' });
-    const next = new File(['next'], 'next.flac', { type: 'audio/flac' });
-    setState(
-      'playlist.items',
-      getState('playlist.items').map((item) =>
-        item.queueItemId === Q0
-          ? { ...item, name: current.name, file: current }
-          : item.queueItemId === Q1
-            ? { ...item, name: next.name, file: next }
-            : item,
-      ),
-    );
-    setState('files.current', {
-      queueItemId: Q0,
-      indexHint: 0,
-      name: current.name,
-      mime: current.type,
-      size: current.size,
-      sessionId: 10,
-      blob: current,
-    });
-    setState('preload.activeTarget', {
-      queueItemId: Q1,
-      indexHint: 1,
-      name: next.name,
-      mime: next.type,
-      size: next.size,
-      sessionId: 11,
-    });
-    setState('preload.ready', {
-      queueItemId: Q1,
-      indexHint: 1,
-      name: next.name,
-      mime: next.type,
-      size: next.size,
-      sessionId: 11,
-      blob: next,
-    });
-    expect(freezeFileDeliveryMode(10)).toBe('mixed');
-    expect(freezeFileDeliveryMode(11)).toBe('mixed');
-    mocks.ownsBoundedSession.mockImplementation(
-      (queueItemId: string, sessionId: number) => queueItemId === Q0 && sessionId === 10,
-    );
-    mocks.uploadRemoteFile.mockResolvedValueOnce(
-      descriptor({
-        objectId: OBJECT_2,
-        name: next.name,
-        queueItemId: Q1,
-        sessionId: 11,
-      }),
-    );
-
-    await handleData(
-      { type: MSG.FILE_R2_CAPABILITY, version: 1, localAudience: true },
-      target.conn as DataConnection,
-    );
-
-    expect(mocks.ownsBoundedSession).toHaveBeenCalledWith(Q0, 10);
-    expect(mocks.uploadRemoteFile).toHaveBeenCalledTimes(1);
-    expect(mocks.uploadRemoteFile.mock.calls[0]?.[0]).toBe(next);
-    expect(safeSend).not.toHaveBeenCalledWith(
-      target.conn,
-      expect.objectContaining({
-        type: MSG.FILE_PREPARE,
-        queueItemId: Q0,
-        sessionId: 10,
-      }),
-    );
-    expect(safeSend).toHaveBeenCalledWith(
-      target.conn,
-      expect.objectContaining({
-        type: MSG.REMOTE_FILE_SHARE,
-        queueItemId: Q1,
-        sessionId: 11,
-        preload: true,
-      }),
-    );
-  });
-
   it('does not let a suspended stale descriptor replace a newer transfer owner', async () => {
     const { handleData } = await import('../../network/protocol.ts');
     const { waitForGuestConnectionType } = await import('../../network/peer.ts');
@@ -1596,45 +1463,6 @@ describe('remote file share policy', () => {
       progress: 0,
       error: 'chat.remote_upload_failed_system_message',
     });
-    expect(mocks.transition).toHaveBeenCalledWith({ type: 'REMOTE_FILE_UNAVAILABLE' });
-  });
-
-  it('ends an exact bounded descriptor fallback that is still projected as decoding', async () => {
-    const { handleData } = await import('../../network/protocol.ts');
-    const { showLoader } = await import('../../ui/toast.ts');
-
-    setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
-    setState('playback.pendingRecoveryTarget', {
-      queueItemId: Q2,
-      indexHint: 2,
-      name: 'missing.mp3',
-    });
-    setState('transfer.meta', {
-      queueItemId: Q2,
-      indexHint: 2,
-      name: 'missing.mp3',
-      sessionId: 11,
-    });
-    mocks.boundedSnapshot.role = 'guest';
-    mocks.boundedSnapshot.current = {
-      queueItemId: Q2,
-      legacySessionId: 11,
-      state: 'fallback',
-    };
-
-    await handleData(
-      {
-        type: MSG.REMOTE_FILE_UNAVAILABLE,
-        name: 'missing.mp3',
-        queueItemId: Q2,
-        sessionId: 11,
-        delivery: 'r2',
-      },
-      conn,
-    );
-
-    expect(mocks.abandonBoundedTransfer).toHaveBeenCalledWith(conn, Q2, 11);
-    expect(showLoader).toHaveBeenCalledWith(false);
     expect(mocks.transition).toHaveBeenCalledWith({ type: 'REMOTE_FILE_UNAVAILABLE' });
   });
 
@@ -2120,7 +1948,6 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     bus.emit('state:network.sessionCode', null, 'network.sessionCode');
     bus.clear();
     vi.clearAllMocks();
-    mocks.ownsBoundedSession.mockReturnValue(false);
 
     // Host role: no hostConn, one connected remote guest as broadcast target.
     setState('network.hostConn', null);
@@ -2135,22 +1962,6 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
 
     const { initRemoteShare } = await import('../remote-share.ts');
     initRemoteShare();
-  });
-
-  it('does not warm a late R2 peer with the exact bounded current whole blob', async () => {
-    const { bus } = await import('../../core/events.ts');
-    const file = new File(['bounded-current'], 'bounded.flac', { type: 'audio/flac' });
-    setState('playlist.items', [fileItem(file, Q0)]);
-    setHostFile(file, Q0, 7);
-    mocks.ownsBoundedSession.mockImplementation(
-      (queueItemId: string, sessionId: number) => queueItemId === Q0 && sessionId === 7,
-    );
-
-    bus.emit('orchestrator:peer-joined', 'guest-remote-1');
-    await Promise.resolve();
-
-    expect(mocks.ownsBoundedSession).toHaveBeenCalledWith(Q0, 7);
-    expect(mocks.uploadRemoteFile).not.toHaveBeenCalled();
   });
 
   it('never creates a second encrypted remote-share object for PRO room media', async () => {

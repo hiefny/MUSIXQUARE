@@ -19,12 +19,10 @@ custom_domain = true
 [vars]
 R2_BUCKET_NAME = "musixquare-remote-share"
 OBJECT_TTL_SECONDS = "3600"
-RECORD_SET_TTL_SECONDS = "21600"
 RATE_LIMIT_WINDOW_SECONDS = "3600"
 IP_UPLOADS_PER_WINDOW = "60"
 ROOM_UPLOADS_PER_WINDOW = "0"
 ROOM_STORAGE_QUOTA_BYTES = "1073741824"
-REMOTE_SHARE_ATOMIC_QUOTA_ENABLED = "true"
 ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
 
 # Required secrets, set outside this file:

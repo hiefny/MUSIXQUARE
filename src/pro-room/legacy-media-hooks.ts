@@ -1,5 +1,4 @@
 import type { PlaylistItem, PlaylistRevision, QueueItemId } from '../types/index.ts';
-import type { EncodedAudioSource } from '../player/sources/encoded-audio-source.ts';
 
 export interface ProRoomLegacyMediaHooks {
   addFiles(files: readonly File[], rejectedCount: number): boolean;
@@ -15,17 +14,6 @@ export interface ProRoomLegacyMediaHooks {
     baseRevision: PlaylistRevision,
   ): boolean;
   resolveFile(queueItemId: QueueItemId): Promise<File | null> | null;
-  /**
-   * Resolve the immutable canonical PRO asset as an exact-range source.
-   *
-   * This is deliberately separate from resolveFile(): callers that cannot
-   * admit a bounded decoder fall back to the established whole-object path,
-   * while a successful bounded decoder owns and closes this source itself.
-   */
-  resolveRangeSource?(
-    queueItemId: QueueItemId,
-    signal: AbortSignal,
-  ): Promise<EncodedAudioSource | null> | null;
   /**
    * Warm one immutable PRO asset into this participant's RAM cache without
    * entering the foreground playback lifecycle or opening the global loader.
@@ -103,13 +91,6 @@ export function handleProRoomTrackReorder(
 
 export function resolveProRoomPlaylistFile(queueItemId: QueueItemId): Promise<File | null> | null {
   return activeHooks?.resolveFile(queueItemId) ?? null;
-}
-
-export function resolveProRoomPlaylistRangeSource(
-  queueItemId: QueueItemId,
-  signal: AbortSignal,
-): Promise<EncodedAudioSource | null> | null {
-  return activeHooks?.resolveRangeSource?.(queueItemId, signal) ?? null;
 }
 
 export function preloadProRoomPlaylistFile(queueItemId: QueueItemId): Promise<File | null> | null {

@@ -14,7 +14,6 @@ import {
   queryCurrent,
   releaseGitSha,
   releaseTargetWorkers,
-  remoteShareQuotaMigrationBridgeRequired,
   runtimePathsForWorker,
   retrySync,
   runRollbackWithRetry,
@@ -117,21 +116,6 @@ describe('release deployment rollback state', () => {
     expect(appConfig).toBeGreaterThan(apiConfig);
   });
 
-  it('establishes a rollback baseline before activating a new remote-share DO lifecycle', () => {
-    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
-    const bridge = workflow.indexOf('Establish rollback-safe remote-share quota migration bridge');
-    const record = workflow.indexOf('Record current remote-share deployment');
-    const activeDeploy = workflow.indexOf('Deploy and record remote-share Worker');
-
-    expect(bridge).toBeGreaterThan(-1);
-    expect(record).toBeGreaterThan(bridge);
-    expect(activeDeploy).toBeGreaterThan(record);
-    const bridgeStep = workflow.slice(bridge, record);
-    expect(bridgeStep).toContain('remote-share-bridge-required');
-    expect(bridgeStep).toContain('--var REMOTE_SHARE_ATOMIC_QUOTA_ENABLED:false');
-    expect(bridgeStep).toContain('npm run smoke:live:remote-share');
-  });
-
   it('maps logical release targets to the exact Worker set they publish', () => {
     expect([...releaseTargetWorkers('app')]).toEqual(['app']);
     expect([...releaseTargetWorkers('developer-api')]).toEqual([
@@ -202,32 +186,6 @@ describe('release deployment rollback state', () => {
     expect(releaseGitSha(`git:${'a'.repeat(39)} run:123`)).toBeNull();
     expect(releaseGitSha(`git:${sha}trailing`)).toBeNull();
     expect(releaseGitSha(null)).toBeNull();
-  });
-
-  it('requires the remote-share migration bridge only before its DO class exists', () => {
-    const sha = 'a'.repeat(40);
-    const current = deployment('version-current', `git:${sha} run:123 target:remote-share`);
-    const runner = vi.fn(
-      () => '[[migrations]]\ntag = "v3"\nnew_sqlite_classes = ["RemoteShareQuota"]',
-    );
-
-    expect(remoteShareQuotaMigrationBridgeRequired(current, { runner })).toBe(false);
-    expect(runner).toHaveBeenCalledWith(['show', `${sha}:cloudflare/wrangler.remote-share.toml`], {
-      capture: true,
-    });
-    expect(
-      remoteShareQuotaMigrationBridgeRequired(current, {
-        runner: () => '[[migrations]]\ntag = "v2"\ndeleted_classes = ["RemoteShareRateLimiter"]',
-      }),
-    ).toBe(true);
-    expect(remoteShareQuotaMigrationBridgeRequired(deployment('legacy'))).toBe(true);
-    expect(
-      remoteShareQuotaMigrationBridgeRequired(current, {
-        runner: () => {
-          throw new Error('revision unavailable');
-        },
-      }),
-    ).toBe(true);
   });
 
   it('preserves the restored release provenance in rollback deployment messages', () => {
@@ -1236,9 +1194,6 @@ describe('release deployment rollback state', () => {
     expect(ciArtifact).toBeGreaterThan(ciBuild);
     expect(ciWorkflow).toContain('RELEASE_VALIDATION_PROFILE: main-ci');
     expect(ciWorkflow).toContain('RELEASE_TARGET: all');
-    expect(ciWorkflow).toContain("VITE_MUSIXQUARE_LEGACY_BOUNDED: '1'");
-    expect(ciWorkflow).toContain("VITE_MUSIXQUARE_FILE_ENGINE_V2: '0'");
-    expect(ciWorkflow).toContain("VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '0'");
     expect(ciWorkflow).toContain(
       'production-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}',
     );

@@ -79,7 +79,6 @@ import {
 // ── Player ──
 import { initPlayback } from './player/playback.ts';
 import { initPlaylist } from './player/playlist.ts';
-import { getFilePlaybackProductRuntime } from './player/file-playback-product-runtime.ts';
 import { initDecodeHandlers } from './player/decode.ts';
 import { initMediaSession } from './player/media-session.ts';
 import { initLocalOutputRejoin } from './player/local-output-rejoin.ts';
@@ -243,7 +242,6 @@ async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
   log.warn(`[App] Background resume (${Math.round(hiddenMs / 1000)}s) — attempting recovery`);
 
   reacquireWakeLockIfActive();
-  getFilePlaybackProductRuntime().handleWake();
   await resumeAudioForBackgroundRecovery();
 
   // PRO reconciliation belongs exclusively to the server-authority runtime.
@@ -492,11 +490,6 @@ async function bootstrap(): Promise<void> {
 
   // 5. Network (registers listeners; transport startup is deferred to the
   // host/guest flow in setup.ts).
-  // V2 installs its application-session hooks before protocol can observe a
-  // connection. This call is deliberately outside safeInit: a selected V2
-  // runtime must fail network bootstrap closed instead of falling back to the
-  // legacy protocol with partially installed authority.
-  getFilePlaybackProductRuntime().initializeBeforeProtocol();
   safeInit('Protocol', initProtocol);
   safeInit('StandardQueueMutationAuthority', initStandardQueueMutationAuthority);
   safeInit('PeerHandlers', initPeerHandlers);

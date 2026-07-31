@@ -59,7 +59,7 @@ upload/download proceed on a best-effort basis and rely on the browser's actual
 allocation and `decodeAudioData` outcome.
 
 **Implementation note (2026-07-15):** the shared memory ledger remains for
-ownership, cleanup, diagnostics, and future bounded-engine work, but production
+ownership, cleanup, diagnostics, and future media-engine work, but production
 budgets are effectively unbounded for every file a browser can materialize.
 Metadata duration/channel probes are skipped because their only production use
 was conservative pre-rejection. A successful AudioBuffer is measured after

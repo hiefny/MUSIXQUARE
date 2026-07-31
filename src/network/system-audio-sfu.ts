@@ -879,7 +879,7 @@ async function connectGuestTrack(
   if (guestPc !== pc) return;
   // SYSTEM_AUDIO_START and the SFU descriptor share a reliable data channel,
   // but the remote media plane can become audible while the trusted start is
-  // still waiting for a prior bounded-file renderer to stop. Join the same
+  // still waiting for the prior file renderer to stop. Join the same
   // physical-owner barrier used by the direct-call adapter.
   const trustedReceptionReady = await awaitTrustedSystemAudioReceptionBoundary(`sfu-${channel}`);
   if (!trustedReceptionReady || guestPc !== pc) {

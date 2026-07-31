@@ -12,14 +12,7 @@ import {
   setPlaybackIdle,
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
-import {
-  applyLegacyBoundedV1HostPausedCheckpoint,
-  getTrackPosition,
-  pause,
-  play,
-  requestLegacyBoundedV1OwnerSwitchStop,
-  stopAllMedia,
-} from '../player/transport.ts';
+import { getTrackPosition, pause, play, stopAllMedia } from '../player/transport.ts';
 import { cancelOutgoingFileTransfers } from '../storage/transfer.ts';
 import { applySettingsAsync } from '../audio/effects.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
@@ -43,7 +36,6 @@ import { isProRoomCode } from '../pro-room/room-code.ts';
 import type { DataConnection } from '../types/index.ts';
 import type { PlaybackModeActivity } from '../player/ownership.ts';
 import { shouldRestoreDemoSnapshotMedia } from './restore-policy.ts';
-import { legacyBoundedFileV1Product } from '../player/legacy-bounded-file-v1-product.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
 import { getRoomContext, isCoordinator } from '../rooms/authority.ts';
 
@@ -54,15 +46,6 @@ type DemoRoomIdentity = Readonly<{
   standardPeerId: string | null;
   standardHostConnection: DataConnection | null;
   coordinatorAtCapture: boolean;
-}>;
-
-type DemoBoundedSnapshot = Readonly<{
-  role: 'host' | 'guest';
-  runtimeGeneration: number;
-  queueItemId: QueueItemId;
-  legacySessionId: number;
-  positionSeconds: number;
-  durationSeconds: number;
 }>;
 
 type DemoSnapshot = {
@@ -90,7 +73,6 @@ type DemoSnapshot = {
   duration: number;
   playback: PlaybackModeActivity;
   visualizerMode: 'circular' | 'spectrum';
-  bounded: DemoBoundedSnapshot | null;
 };
 
 type RestoreSnapshotOptions = {
@@ -145,17 +127,6 @@ type DemoAsyncResult = Readonly<{
 
 let _demoLoadGeneration = 0;
 let _activeDemoLoadOwner: DemoLoadOwner | null = null;
-type DemoBoundedOwnerStop = {
-  readonly runtimeGeneration: number;
-  readonly queueItemId: QueueItemId;
-  readonly legacySessionId: number;
-  readonly settled: Promise<boolean>;
-  readonly isCurrent: () => boolean;
-  status: 'pending' | 'fulfilled' | 'rejected';
-  result: boolean | null;
-};
-let _pendingDemoBoundedOwnerStop: DemoBoundedOwnerStop | null = null;
-let _pendingDemoBoundedRestoreTask: Promise<void> | null = null;
 let _pendingDemoPlay: PendingDemoPlay | null = null;
 // Hold DEMO_ENTER/PLAY received during a demo track load. Dropping them would
 // leave guests on the prior track while SYNC_PONG follows the host's timeline.
@@ -246,53 +217,11 @@ function hasCurrentDemoRestoreAuthority(expected: Readonly<DemoRoomIdentity>): b
   );
 }
 
-function captureDemoBoundedSnapshot(): DemoBoundedSnapshot | null {
-  const snapshot = legacyBoundedFileV1Product.snapshot();
-  const current = snapshot.current;
-  const queueItemId = getState('playlist.currentQueueItemId');
-  const playback = getPlaybackModeActivitySnapshot();
-  if (
-    playback.mode !== 'file' ||
-    (playback.activity !== 'playing' && playback.activity !== 'paused') ||
-    !snapshot.active ||
-    (snapshot.role !== 'host' && snapshot.role !== 'guest') ||
-    !current ||
-    current.state !== 'ready' ||
-    current.queueItemId !== queueItemId ||
-    !Number.isFinite(current.durationSeconds) ||
-    (current.durationSeconds ?? 0) <= 0
-  ) {
-    return null;
-  }
-
-  const livePosition = legacyBoundedFileV1Product.positionSeconds();
-  const pausedAt = getState('player.pausedAt');
-  const positionSeconds =
-    current.phase === 'stopped'
-      ? pausedAt
-      : livePosition !== null && Number.isFinite(livePosition)
-        ? livePosition
-        : current.positionSeconds;
-  return Object.freeze({
-    role: snapshot.role,
-    runtimeGeneration: snapshot.generation,
-    queueItemId: current.queueItemId,
-    legacySessionId: current.legacySessionId,
-    positionSeconds: Math.min(
-      current.durationSeconds!,
-      Number.isFinite(positionSeconds) ? Math.max(0, positionSeconds) : 0,
-    ),
-    durationSeconds: current.durationSeconds!,
-  });
-}
-
 function captureSnapshot(): DemoSnapshot {
-  const bounded = captureDemoBoundedSnapshot();
   const playback = getPlaybackModeActivitySnapshot();
   const currentAudioBuffer = getCurrentAudioBuffer();
   const fallbackPausedAt = getState('player.pausedAt') ?? 0;
   const legacyFilePosition =
-    !bounded &&
     playback.mode === 'file' &&
     (playback.activity === 'playing' || playback.activity === 'paused') &&
     currentAudioBuffer
@@ -317,219 +246,13 @@ function captureSnapshot(): DemoSnapshot {
     currentFile: getState('files.current'),
     transferMeta: { ...(getState('transfer.meta') || {}) },
     currentAudioBuffer,
-    pausedAt:
-      bounded?.positionSeconds ??
-      (Number.isFinite(legacyFilePosition) ? Math.max(0, legacyFilePosition) : fallbackPausedAt),
-    duration: bounded?.durationSeconds ?? currentAudioBuffer?.duration ?? 0,
+    pausedAt: Number.isFinite(legacyFilePosition)
+      ? Math.max(0, legacyFilePosition)
+      : fallbackPausedAt,
+    duration: currentAudioBuffer?.duration ?? 0,
     playback,
     visualizerMode: getCurrentVisualizerMode(),
-    bounded,
   };
-}
-
-type RestorableDemoBoundedSnapshot = Readonly<{
-  role: 'host' | 'guest';
-  runtimeGeneration: number;
-  queueItemId: QueueItemId;
-  legacySessionId: number;
-  durationSeconds: number;
-  positionSeconds: number;
-  phase: 'playing' | 'paused' | 'stopped';
-  pendingControl: string | null;
-  trackMeta: TrackMeta;
-}>;
-
-function readLiveRestorableDemoBoundedSnapshot(): RestorableDemoBoundedSnapshot | null {
-  const snapshot = legacyBoundedFileV1Product.snapshot();
-  const current = snapshot.current;
-  const queueItem = getQueueItemById(current?.queueItemId);
-  if (
-    !snapshot.active ||
-    (snapshot.role !== 'host' && snapshot.role !== 'guest') ||
-    !current ||
-    current.state !== 'ready' ||
-    current.queueItemId !== getState('playlist.currentQueueItemId') ||
-    (current.phase !== 'playing' && current.phase !== 'paused' && current.phase !== 'stopped') ||
-    !queueItem ||
-    queueItem.type !== 'file' ||
-    !Number.isFinite(current.durationSeconds) ||
-    (current.durationSeconds ?? 0) <= 0
-  ) {
-    return null;
-  }
-
-  const durationSeconds = current.durationSeconds!;
-  const livePosition = legacyBoundedFileV1Product.positionSeconds();
-  const positionSeconds =
-    current.phase === 'stopped'
-      ? current.positionSeconds
-      : livePosition !== null && Number.isFinite(livePosition)
-        ? livePosition
-        : current.positionSeconds;
-  return Object.freeze({
-    role: snapshot.role,
-    runtimeGeneration: snapshot.generation,
-    queueItemId: current.queueItemId,
-    legacySessionId: current.legacySessionId,
-    durationSeconds,
-    positionSeconds: Math.min(
-      durationSeconds,
-      Number.isFinite(positionSeconds) ? Math.max(0, positionSeconds) : 0,
-    ),
-    phase: current.phase,
-    pendingControl: current.pendingControl ?? null,
-    trackMeta: queueItem,
-  });
-}
-
-function projectDemoBoundedPlayback(
-  bounded: RestorableDemoBoundedSnapshot,
-  positionSeconds: number,
-  trackMeta: TrackMeta = bounded.trackMeta,
-): void {
-  setState('playlist.currentQueueItemId', bounded.queueItemId);
-  setCurrentAudioBuffer(null);
-  setState('player.pausedAt', Math.min(bounded.durationSeconds, Math.max(0, positionSeconds)));
-  setPlaybackTrackMeta(trackMeta);
-  setPlaybackFilePaused();
-  bus.emit('ui:play-btn-state', true);
-  bus.emit('ui:duration-update', bounded.durationSeconds);
-}
-
-function isExactDemoBoundedPausedProjection(
-  bounded: Readonly<Pick<DemoBoundedSnapshot, 'queueItemId'>>,
-): boolean {
-  const playback = getPlaybackModeActivitySnapshot();
-  return (
-    getState('playlist.currentQueueItemId') === bounded.queueItemId &&
-    getState('player.currentTrackMeta')?.queueItemId === bounded.queueItemId &&
-    playback.mode === 'file' &&
-    playback.activity === 'paused'
-  );
-}
-
-function canProjectDemoBoundedExit(
-  bounded: Readonly<Pick<DemoBoundedSnapshot, 'queueItemId'>>,
-): boolean {
-  if (getState('playlist.currentQueueItemId') !== bounded.queueItemId) return false;
-  const playback = getPlaybackModeActivitySnapshot();
-  if (playback.activity === 'idle' || playback.mode === null) return true;
-  return isExactDemoBoundedPausedProjection(bounded);
-}
-
-async function restoreDemoBoundedCheckpointAfterExit(
-  snapshot: Readonly<DemoSnapshot>,
-  captured: Readonly<DemoBoundedSnapshot>,
-  isOperationCurrent: () => boolean,
-  pendingOwnerStop: DemoBoundedOwnerStop | null,
-): Promise<boolean> {
-  let ownerStopSettled = true;
-  if (pendingOwnerStop) {
-    if (!sameDemoBoundedOwnerStopIdentity(pendingOwnerStop, captured)) return false;
-    try {
-      ownerStopSettled = await pendingOwnerStop.settled;
-    } catch {
-      ownerStopSettled = false;
-    }
-    // A newer owner-switch operation owns the exact product now. It is also
-    // responsible for projecting its own UI; demo cleanup must stay silent.
-    if (!pendingOwnerStop.isCurrent()) return false;
-  }
-  if (
-    !isOperationCurrent() ||
-    getState('demo.active') ||
-    getState('demo.loading') ||
-    !hasCurrentDemoRestoreAuthority(snapshot.room)
-  ) {
-    return false;
-  }
-
-  const live = readLiveRestorableDemoBoundedSnapshot();
-  if (
-    !live ||
-    live.role !== captured.role ||
-    live.runtimeGeneration !== captured.runtimeGeneration ||
-    live.queueItemId !== captured.queueItemId ||
-    live.legacySessionId !== captured.legacySessionId ||
-    live.phase !== 'stopped' ||
-    live.pendingControl !== null ||
-    !canProjectDemoBoundedExit(captured)
-  ) {
-    return false;
-  }
-
-  // The terminal owner-switch checkpoint is physical truth for every role.
-  // While a STOP is pending, restoreSnapshot deliberately leaves the UI at
-  // stopAllMedia's neutral 0/idle baseline. Only this settled, identity-checked
-  // continuation may expose the retained product again.
-  setState('transfer.meta', snapshot.transferMeta);
-  setState('files.current', snapshot.currentFile);
-  projectDemoBoundedPlayback(
-    live,
-    live.positionSeconds,
-    snapshot.currentTrackMeta ?? live.trackMeta,
-  );
-
-  if (
-    !ownerStopSettled ||
-    captured.role !== 'host' ||
-    snapshot.room.kind !== 'standard' ||
-    !snapshot.room.coordinatorAtCapture ||
-    !isCoordinator()
-  ) {
-    return false;
-  }
-
-  const restoredPosition = Math.min(live.durationSeconds, captured.positionSeconds);
-  const compensation = applyLegacyBoundedV1HostPausedCheckpoint(
-    captured.queueItemId,
-    captured.legacySessionId,
-    restoredPosition,
-  );
-  const applied = compensation ? await compensation : false;
-  const restoredLive = readLiveRestorableDemoBoundedSnapshot();
-  const remainsExact =
-    isOperationCurrent() &&
-    !getState('demo.active') &&
-    !getState('demo.loading') &&
-    hasCurrentDemoRestoreAuthority(snapshot.room) &&
-    isExactDemoBoundedPausedProjection(captured) &&
-    restoredLive?.role === 'host' &&
-    restoredLive.runtimeGeneration === captured.runtimeGeneration &&
-    restoredLive.queueItemId === captured.queueItemId &&
-    restoredLive.legacySessionId === captured.legacySessionId &&
-    restoredLive.phase === 'paused' &&
-    restoredLive.pendingControl === null &&
-    Math.abs(restoredLive.positionSeconds - restoredPosition) < 0.01;
-  if (!applied || !remainsExact || !restoredLive) return false;
-
-  projectDemoBoundedPlayback(
-    restoredLive,
-    restoredPosition,
-    snapshot.currentTrackMeta ?? restoredLive.trackMeta,
-  );
-  broadcast({
-    type: MSG.PAUSE,
-    time: restoredPosition,
-    queueItemId: captured.queueItemId,
-    reason: 'seek',
-  });
-  return true;
-}
-
-function trackDemoBoundedRestoreTask(task: Promise<boolean>): void {
-  const tracked = task.then(
-    () => undefined,
-    (error: unknown) => {
-      log.warn('[Demo] Bounded exit restore failed closed:', error);
-    },
-  );
-  _pendingDemoBoundedRestoreTask = tracked;
-  void tracked.finally(() => {
-    if (_pendingDemoBoundedRestoreTask === tracked) {
-      _pendingDemoBoundedRestoreTask = null;
-    }
-  });
 }
 
 function failClosedDemoMediaRestore(snapshot: DemoSnapshot): void {
@@ -571,7 +294,6 @@ function failClosedDemoMediaRestore(snapshot: DemoSnapshot): void {
 function restoreSnapshot(
   snapshot: DemoSnapshot | null,
   options: RestoreSnapshotOptions = {},
-  pendingOwnerStop: DemoBoundedOwnerStop | null = null,
 ): void {
   if (!snapshot) return;
   const restoreAudio = options.audio ?? true;
@@ -592,47 +314,7 @@ function restoreSnapshot(
     setState('audio.subFreq', snapshot.subFreq);
   }
   if (restoreMedia && hasCurrentDemoRestoreAuthority(snapshot.room)) {
-    if (snapshot.bounded) {
-      const live = readLiveRestorableDemoBoundedSnapshot();
-      const exact =
-        live?.role === snapshot.bounded.role &&
-        live.runtimeGeneration === snapshot.bounded.runtimeGeneration &&
-        live.queueItemId === snapshot.bounded.queueItemId &&
-        live.legacySessionId === snapshot.bounded.legacySessionId;
-      if (pendingOwnerStop) {
-        trackDemoBoundedRestoreTask(
-          restoreDemoBoundedCheckpointAfterExit(
-            snapshot,
-            snapshot.bounded,
-            options.isCurrent ?? (() => true),
-            pendingOwnerStop,
-          ),
-        );
-      } else if (!live) {
-        failClosedDemoMediaRestore(snapshot);
-      } else if (exact) {
-        trackDemoBoundedRestoreTask(
-          restoreDemoBoundedCheckpointAfterExit(
-            snapshot,
-            snapshot.bounded,
-            options.isCurrent ?? (() => true),
-            null,
-          ),
-        );
-      } else {
-        // The original source is stale, but a newer bounded incarnation is
-        // already ready. Keep its resident/session state intact and project
-        // only canonical product truth; never let demo cleanup erase it.
-        setState('playlist.currentQueueItemId', live.queueItemId);
-        if (getState('files.current')?.queueItemId !== live.queueItemId) {
-          setState('files.current', null);
-        }
-        if (getState('transfer.meta')?.queueItemId !== live.queueItemId) {
-          setState('transfer.meta', {});
-        }
-        projectDemoBoundedPlayback(live, live.positionSeconds);
-      }
-    } else if (
+    if (
       snapshot.playback.mode === 'file' &&
       snapshot.currentAudioBuffer &&
       snapshot.currentFile &&
@@ -690,19 +372,14 @@ function restoreSnapshot(
   void applySettingsAsync();
 }
 
-function stopPlaybackForDemoEntry(
-  playback: PlaybackModeActivity,
-  bounded: Readonly<DemoBoundedSnapshot> | null,
-): void {
+function stopPlaybackForDemoEntry(playback: PlaybackModeActivity): void {
   if (playback.mode === 'system-audio') {
     bus.emit('system-audio:force-stop');
   }
 
-  if (bounded) ensureDemoBoundedOwnerStop(bounded);
   stopAllMedia({
     silent: true,
     cancelInFlight: true,
-    preserveLegacyBoundedOwner: !!bounded,
   });
 
   // The demo takes over the room. Guests drop any still-streaming
@@ -906,86 +583,6 @@ function isCurrentDemoLoadOwner(owner: DemoLoadOwner): boolean {
   return _activeDemoLoadOwner === owner && getState('demo.active');
 }
 
-function sameDemoBoundedOwnerStopIdentity(
-  pending: Readonly<DemoBoundedOwnerStop>,
-  bounded: Readonly<
-    Pick<DemoBoundedSnapshot, 'runtimeGeneration' | 'queueItemId' | 'legacySessionId'>
-  >,
-): boolean {
-  return (
-    pending.runtimeGeneration === bounded.runtimeGeneration &&
-    pending.queueItemId === bounded.queueItemId &&
-    pending.legacySessionId === bounded.legacySessionId
-  );
-}
-
-function trackDemoBoundedOwnerStop(
-  handle: Readonly<{ settled: Promise<boolean>; isCurrent: () => boolean }>,
-  bounded: Readonly<
-    Pick<DemoBoundedSnapshot, 'runtimeGeneration' | 'queueItemId' | 'legacySessionId'>
-  >,
-): DemoBoundedOwnerStop {
-  const pending: DemoBoundedOwnerStop = {
-    runtimeGeneration: bounded.runtimeGeneration,
-    queueItemId: bounded.queueItemId,
-    legacySessionId: bounded.legacySessionId,
-    settled: handle.settled,
-    isCurrent: handle.isCurrent,
-    status: 'pending',
-    result: null,
-  };
-  _pendingDemoBoundedOwnerStop = pending;
-  void handle.settled.then(
-    (result) => {
-      pending.status = 'fulfilled';
-      pending.result = result;
-    },
-    () => {
-      pending.status = 'rejected';
-      pending.result = false;
-    },
-  );
-  return pending;
-}
-
-function ensureDemoBoundedOwnerStop(
-  expected?: Readonly<DemoBoundedSnapshot>,
-): DemoBoundedOwnerStop | null {
-  const product = legacyBoundedFileV1Product.snapshot();
-  const current = product.current;
-  if (
-    !product.active ||
-    (product.role !== 'host' && product.role !== 'guest') ||
-    !current ||
-    (expected &&
-      (product.generation !== expected.runtimeGeneration ||
-        current.queueItemId !== expected.queueItemId ||
-        current.legacySessionId !== expected.legacySessionId))
-  ) {
-    return null;
-  }
-  if (
-    _pendingDemoBoundedOwnerStop &&
-    sameDemoBoundedOwnerStopIdentity(_pendingDemoBoundedOwnerStop, {
-      runtimeGeneration: product.generation,
-      queueItemId: current.queueItemId,
-      legacySessionId: current.legacySessionId,
-    }) &&
-    _pendingDemoBoundedOwnerStop.isCurrent() &&
-    (_pendingDemoBoundedOwnerStop.status === 'pending' ||
-      (_pendingDemoBoundedOwnerStop.result === true && current.phase === 'stopped'))
-  ) {
-    return _pendingDemoBoundedOwnerStop;
-  }
-  const handle = requestLegacyBoundedV1OwnerSwitchStop();
-  if (!handle) return null;
-  return trackDemoBoundedOwnerStop(handle, {
-    runtimeGeneration: product.generation,
-    queueItemId: current.queueItemId,
-    legacySessionId: current.legacySessionId,
-  });
-}
-
 function getDemoLoadResult(
   owner: DemoLoadOwner,
   status: DemoAsyncResult['status'],
@@ -1036,19 +633,6 @@ async function loadDemoTrack(
   try {
     const blob = await fetchDemoBlob(track, true);
     if (!isCurrentDemoLoadOwner(owner)) return getDemoLoadResult(owner, 'superseded');
-
-    // Demo playback temporarily overlays the selected bounded occurrence.
-    // Stop and drain its renderer but retain the exact descriptor/source so
-    // exit can restore an AudioBuffer-free bounded timeline without another
-    // distribution. A preparing guest has no safe reusable renderer; the
-    // owner-switch helper retires that incomplete incarnation instead.
-    const release = ensureDemoBoundedOwnerStop();
-    if (release) {
-      const stopped = await release.settled;
-      if (!stopped || !release.isCurrent() || !isCurrentDemoLoadOwner(owner)) {
-        return getDemoLoadResult(owner, 'superseded');
-      }
-    }
 
     const file = new File([blob], track.fileName, { type: track.mime });
     await loadDemoFile(file, createDemoTrackMeta(track), newLoadEpoch());
@@ -1677,19 +1261,9 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<DemoAsyncR
   markDemoPromptSeen();
   markAppUsed();
   finishPendingDemoExitRestore();
-  const pendingRestore = _pendingDemoBoundedRestoreTask;
-  if (pendingRestore) {
-    await pendingRestore;
-    if (isProRoomDemoBlocked() || getState('demo.loading')) {
-      return getSupersededDemoResult();
-    }
-    if (getState('demo.active')) {
-      return enterDemoMode(options);
-    }
-  }
   _snapshot = captureSnapshot();
   const initialEffectState = readDemoEffectStateFromAudio(false);
-  stopPlaybackForDemoEntry(_snapshot.playback, _snapshot.bounded);
+  stopPlaybackForDemoEntry(_snapshot.playback);
   setCurrentAudioBuffer(null);
   _demoStep = 1;
   _demoTrackIndex = normalizeDemoTrackIndex(options.index ?? 0);
@@ -1736,21 +1310,11 @@ function exitDemoMode(options: ExitDemoOptions = {}): void {
   supersedeDemoLoad();
   const exitGeneration = _demoLoadGeneration;
   const snapshot = _snapshot;
-  const pendingOwnerStop =
-    snapshot?.bounded &&
-    _pendingDemoBoundedOwnerStop &&
-    sameDemoBoundedOwnerStopIdentity(_pendingDemoBoundedOwnerStop, snapshot.bounded)
-      ? _pendingDemoBoundedOwnerStop
-      : null;
-  if (_pendingDemoBoundedOwnerStop === pendingOwnerStop) {
-    _pendingDemoBoundedOwnerStop = null;
-  }
   _pendingDemoPlay = null;
   _queuedDemoEnterIndex = null;
   _lastDemoStateBroadcastKey = '';
   stopAllMedia({
     cancelInFlight: true,
-    preserveLegacyBoundedOwner: !!snapshot?.bounded,
   });
   setCurrentAudioBuffer(null);
   setState('demo.active', false);
@@ -1777,23 +1341,18 @@ function exitDemoMode(options: ExitDemoOptions = {}): void {
       // Failed/interrupted entry paths opt back into restoring the audio
       // snapshot, while media and visualizer restoration remain independent.
       // Clear the demo timeline before restoring the captured owner. The
-      // restored file-mode projection must be the final writer so a paused
-      // bounded source keeps its real position instead of ending at 0:00.
+      // restored file-mode projection must be the final writer.
       if (restoreMedia) bus.emit('ui:seek-reset');
-      restoreSnapshot(
-        snapshot,
-        {
-          audio: options.restoreAudioSettings ?? false,
-          media: restoreMedia,
-          isCurrent: () =>
-            _demoLoadGeneration === exitGeneration &&
-            !getState('demo.active') &&
-            !getState('demo.loading') &&
-            !!snapshot &&
-            hasCurrentDemoRestoreAuthority(snapshot.room),
-        },
-        pendingOwnerStop,
-      );
+      restoreSnapshot(snapshot, {
+        audio: options.restoreAudioSettings ?? false,
+        media: restoreMedia,
+        isCurrent: () =>
+          _demoLoadGeneration === exitGeneration &&
+          !getState('demo.active') &&
+          !getState('demo.loading') &&
+          !!snapshot &&
+          hasCurrentDemoRestoreAuthority(snapshot.room),
+      });
     },
   });
 }

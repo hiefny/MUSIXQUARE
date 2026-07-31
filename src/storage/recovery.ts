@@ -47,7 +47,6 @@ import {
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import { setPendingRecoveryTarget } from '../player/_state.ts';
-import { legacyBoundedFileV1Product } from '../player/legacy-bounded-file-v1-product.ts';
 import { isProRoomPersistentPlaylistFile } from '../pro-room/legacy-media-hooks.ts';
 
 let recoveryRequestGeneration = 0;
@@ -80,27 +79,6 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
     return;
   }
 
-  const hostConn = getState('network.hostConn');
-  const meta = getState('transfer.meta');
-  const queueItemId = selectedQueueItemId || '';
-  const metaOwnsSelection = meta?.queueItemId === queueItemId;
-  const boundedSessionId = metaOwnsSelection
-    ? (normalizeSessionId(meta.sessionId) ??
-      normalizeSessionId(getState('transfer.localSessionId')) ??
-      normalizeSessionId(getState('transfer.currentSessionId')))
-    : undefined;
-  if (
-    hostConn?.open &&
-    queueItemId &&
-    boundedSessionId &&
-    legacyBoundedFileV1Product.ownsGuestTransfer(hostConn, queueItemId, boundedSessionId)
-  ) {
-    log.debug('[Recovery] Exact bounded guest transfer owns recovery; suppressing legacy request');
-    cancelPendingRecoveryRequest();
-    clearManagedTimer('chunkWatchdog');
-    return;
-  }
-
   const pending = getState('recovery.pending');
   if (pending) {
     log.debug('[Recovery] Request already pending, skipping');
@@ -119,17 +97,22 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
     return;
   }
 
+  const hostConn = getState('network.hostConn');
+
   if (!hostConn || !hostConn.open) {
     log.warn('[Recovery] No healthy connection for recovery');
     return;
   }
 
+  const meta = getState('transfer.meta');
   const recoveryTarget = getState('playback.pendingRecoveryTarget');
+  const queueItemId = getState('playlist.currentQueueItemId') || '';
   if (!queueItemId) {
     log.warn('[Recovery] Missing queue item identity; refusing metadata fallback');
     return;
   }
   const targetOwnsSelection = recoveryTarget?.queueItemId === queueItemId;
+  const metaOwnsSelection = meta?.queueItemId === queueItemId;
   const playlistItem = getState('playlist.items').find((item) => item.queueItemId === queueItemId);
   const fileName =
     (targetOwnsSelection ? recoveryTarget.name : '') ||
@@ -187,17 +170,6 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
           normalizeSessionId(getState('transfer.localSessionId')) ??
           normalizeSessionId(getState('transfer.currentSessionId')))
         : undefined;
-      if (
-        freshSid &&
-        legacyBoundedFileV1Product.ownsGuestTransfer(freshConn, queueItemId, freshSid)
-      ) {
-        log.debug(
-          '[Recovery] Exact bounded guest transfer claimed the target during backoff; suppressing legacy request',
-        );
-        cancelPendingRecoveryRequest();
-        clearManagedTimer('chunkWatchdog');
-        return;
-      }
 
       // Re-read receivedCount after backoff — more chunks may have arrived during delay.
       // Clamp the control-plane counter to the exact RAM session's contiguous

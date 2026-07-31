@@ -25,7 +25,6 @@ import {
   waitForGuestConnectionType,
 } from '../network/peer.ts';
 import { transition } from '../player/lifecycle.ts';
-import { legacyBoundedFileV1Product } from '../player/legacy-bounded-file-v1-product.ts';
 import { createFileTrackMeta, isExternalOwner, setPlaybackTrackMeta } from '../player/ownership.ts';
 import {
   currentAudioBufferPcmBytes,
@@ -2078,29 +2077,12 @@ function handleRemoteFileUnavailable(data: Record<string, unknown>, conn?: DataC
   const activeSessionId = Number(transferMeta?.sessionId) || 0;
   const matchesPending = pendingTarget?.queueItemId === safeQueueItemId;
   const matchesSession = activeSessionId === 0 || activeSessionId === safeSessionId;
-  const bounded = legacyBoundedFileV1Product.snapshot();
-  const boundedCurrent = bounded.current;
-  const matchesBoundedFallback =
-    getState('playback.lifecycle') === PLAYBACK_STATE.DECODING &&
-    bounded.role === 'guest' &&
-    boundedCurrent?.queueItemId === safeQueueItemId &&
-    boundedCurrent.legacySessionId === safeSessionId &&
-    (boundedCurrent.state === 'fallback' || boundedCurrent.state === 'failed');
   const shouldAct =
     matchesPending &&
     matchesSession &&
-    (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD || matchesBoundedFallback);
+    getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD;
   if (!shouldAct) return;
   completeFileRequest(conn, safeQueueItemId, safeSessionId);
-
-  if (matchesBoundedFallback) {
-    clearManagedTimer('boundedV1FallbackWatchdog');
-    void legacyBoundedFileV1Product
-      .abandonGuestTransfer(conn, safeQueueItemId, safeSessionId)
-      .catch((error) => {
-        log.warn('[RemoteShare] Bounded fallback retirement failed:', error);
-      });
-  }
 
   const activeDownload = _activeDownload;
   if (activeDownload?.descriptor.queueItemId === safeQueueItemId) {
@@ -2149,25 +2131,19 @@ async function handleFileR2Capability(
       queueItemId: current.queueItemId,
       sessionId: current.sessionId,
     };
-    // The bounded current owner publishes an encrypted range record through its
-    // own negotiated descriptor. Replaying the legacy whole-blob R2 path for
-    // the same queue/session would create two competing foreground owners.
-    // Preload remains independent and is intentionally drained below.
-    if (!legacyBoundedFileV1Product.ownsSession(current.queueItemId, current.sessionId)) {
-      safeSend(conn, {
-        type: MSG.FILE_PREPARE,
-        name: current.name,
-        queueItemId: current.queueItemId,
-        sessionId: current.sessionId,
-        size: current.blob.size,
-        mime: current.mime || current.blob.type || 'application/octet-stream',
-        autoPlayDelayMs: 0,
-        delivery: 'r2',
-      });
-      await shareRemoteFileIfNeeded(current.blob, current.sessionId, conn, {
-        queueItemId: current.queueItemId,
-      });
-    }
+    safeSend(conn, {
+      type: MSG.FILE_PREPARE,
+      name: current.name,
+      queueItemId: current.queueItemId,
+      sessionId: current.sessionId,
+      size: current.blob.size,
+      mime: current.mime || current.blob.type || 'application/octet-stream',
+      autoPlayDelayMs: 0,
+      delivery: 'r2',
+    });
+    await shareRemoteFileIfNeeded(current.blob, current.sessionId, conn, {
+      queueItemId: current.queueItemId,
+    });
   }
 
   // ICE can classify the ninth local peer before its capability frame arrives.
@@ -2291,11 +2267,9 @@ export function initRemoteShare(): void {
         queueItemId: current.queueItemId,
         sessionId: current.sessionId,
       };
-      if (!legacyBoundedFileV1Product.ownsSession(current.queueItemId, current.sessionId)) {
-        await shareRemoteFileIfNeeded(currentBlob, current.sessionId, peer.conn, {
-          queueItemId: current.queueItemId,
-        });
-      }
+      await shareRemoteFileIfNeeded(currentBlob, current.sessionId, peer.conn, {
+        queueItemId: current.queueItemId,
+      });
     }
 
     // Give a late R2 participant the same warm next-track resident that a late

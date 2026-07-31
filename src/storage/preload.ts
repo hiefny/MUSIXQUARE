@@ -66,8 +66,6 @@ import {
   preloadProRoomPlaylistFile,
 } from '../pro-room/legacy-media-hooks.ts';
 import { isArrayBuffer } from './transfer-shared.ts';
-import { selectNextPreloadableLocalFile } from '../player/next-preloadable-local-file.ts';
-import { getFilePlaybackProductRuntime } from '../player/file-playback-product-runtime.ts';
 
 /**
  * One-switch rollback for the persistent-room R2 prefetch policy. Keep this
@@ -75,11 +73,6 @@ import { getFilePlaybackProductRuntime } from '../player/file-playback-product-r
  * shed either workload without disabling LAN preload.
  */
 const PRO_ROOM_FILE_PRELOAD_ENABLED = true;
-const filePlaybackProductRuntime = getFilePlaybackProductRuntime();
-
-function proRoomUsesBoundedFilePlayback(): boolean {
-  return getState('room.context').kind === 'pro' && filePlaybackProductRuntime.enabled();
-}
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
@@ -223,28 +216,6 @@ interface BackgroundTransferOwner {
 
 let _inFlightBackgroundOwner: BackgroundTransferOwner | null = null;
 
-interface V2NextLocalTrackWarmOwner {
-  readonly generation: number;
-  readonly queueItemId: QueueItemId;
-  readonly file: File;
-}
-
-/**
- * V2 warm ownership stays separate from legacy preload.*. A bounded source is
- * not a transferable resident Blob, and publishing it through the legacy slot
- * would let old promotion code claim authority it does not own.
- */
-let _v2NextLocalTrackWarmOwner: V2NextLocalTrackWarmOwner | null = null;
-
-function isExactV2NextLocalTrackWarmOwner(owner: V2NextLocalTrackWarmOwner): boolean {
-  const current = _v2NextLocalTrackWarmOwner;
-  return (
-    current?.generation === owner.generation &&
-    current.queueItemId === owner.queueItemId &&
-    current.file === owner.file
-  );
-}
-
 function abortBackgroundPeer(owner: BackgroundTransferOwner, peer: ConnectedPeer): void {
   if (owner.abortedPeerIds.has(peer.id)) return;
   owner.abortedPeerIds.add(peer.id);
@@ -383,14 +354,6 @@ export function cancelPreloadTransfer(queueItemId?: QueueItemId): void {
   // await and exit instead of starting a new (unwanted) transfer.
   _preloadGeneration++;
 
-  const ownedV2Warm = _v2NextLocalTrackWarmOwner !== null;
-  _v2NextLocalTrackWarmOwner = null;
-  if (ownedV2Warm) {
-    void filePlaybackProductRuntime.clearNextLocalTrackWarm().catch((error) => {
-      log.warn('[Preload] V2 next-track warm clear failed:', error);
-    });
-  }
-
   cancelRemoteFilePreload('preload-transfer-cancelled', queueItemId);
 
   // Notify the exact peers that received PRELOAD_START before disposing the
@@ -427,13 +390,6 @@ export function cancelPreloadTransfer(queueItemId?: QueueItemId): void {
 export function resetPreloadReceiveAuthority(): void {
   _preloadGeneration++;
   clearManagedTimer('preloadScheduleTimer');
-  const ownedV2Warm = _v2NextLocalTrackWarmOwner !== null;
-  _v2NextLocalTrackWarmOwner = null;
-  if (ownedV2Warm) {
-    void filePlaybackProductRuntime.clearNextLocalTrackWarm().catch((error) => {
-      log.warn('[Preload] V2 warm clear during authority reset failed:', error);
-    });
-  }
   _awaitedPreloadIdentity = null;
   _activePlayPreloadedQueueItemId = undefined;
   _pendingProRoomPreloadHint = null;
@@ -541,14 +497,6 @@ function beginProRoomFilePreload(
   queueItemId: QueueItemId,
   sessionId: number,
 ): Promise<void> | null {
-  if (proRoomUsesBoundedFilePlayback()) {
-    // Universal PRO playback reads immutable R2 objects through bounded Range
-    // sources during server PREPARE. A legacy next-track preload would make
-    // every participant download the entire object up front and defeat that
-    // bandwidth/memory policy. Rollback builds keep the established V1 path.
-    clearPreloadCacheState();
-    return null;
-  }
   if (
     !PRO_ROOM_FILE_PRELOAD_ENABLED ||
     getState('room.context').kind !== 'pro' ||
@@ -650,11 +598,6 @@ function handleProRoomFilePreload(
 ): void {
   const context = getState('room.context');
   if (!PRO_ROOM_FILE_PRELOAD_ENABLED || context.kind !== 'pro' || !context.roomId) return;
-  if (filePlaybackProductRuntime.enabled()) {
-    _pendingProRoomPreloadHint = null;
-    clearPreloadCacheState();
-    return;
-  }
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
@@ -693,11 +636,6 @@ function handleProRoomFilePreload(
 function replayPendingProRoomPreloadHint(): void {
   const pending = _pendingProRoomPreloadHint;
   if (!pending) return;
-  if (proRoomUsesBoundedFilePlayback()) {
-    _pendingProRoomPreloadHint = null;
-    clearPreloadCacheState();
-    return;
-  }
   const context = getState('room.context');
   const hostConn = getState('network.hostConn');
   if (
@@ -716,40 +654,6 @@ function replayPendingProRoomPreloadHint(): void {
 }
 
 /**
- * Retire a deleted V2 warm without touching the independent legacy preload
- * cache. The product runtime serializes clears and replacements, so an older
- * queue deletion cannot clear a newer warm through queue-ID reuse.
- */
-export function cancelV2NextLocalTrackWarmForRemovedQueueItems(
-  removedQueueItemIds: ReadonlySet<QueueItemId>,
-): boolean {
-  const owner = _v2NextLocalTrackWarmOwner;
-  if (!owner || !removedQueueItemIds.has(owner.queueItemId)) return false;
-
-  _preloadGeneration++;
-  _v2NextLocalTrackWarmOwner = null;
-  clearManagedTimer('preloadScheduleTimer');
-  void filePlaybackProductRuntime.clearNextLocalTrackWarm().catch((error) => {
-    log.warn('[Preload] Removed V2 next-track warm clear failed:', error);
-  });
-  return true;
-}
-
-async function clearV2NextLocalTrackWarm(expectedGeneration: number): Promise<void> {
-  if (_preloadGeneration !== expectedGeneration) return;
-  const owned = _v2NextLocalTrackWarmOwner !== null;
-  _v2NextLocalTrackWarmOwner = null;
-  if (!owned) return;
-  try {
-    await filePlaybackProductRuntime.clearNextLocalTrackWarm();
-  } catch (error) {
-    if (_preloadGeneration === expectedGeneration) {
-      log.warn('[Preload] V2 next-track warm clear failed:', error);
-    }
-  }
-}
-
-/**
  * Preload the next track in the playlist (host-only).
  *
  * Await the prior background transfer before publishing the next preload.
@@ -760,22 +664,15 @@ async function preloadNextTrack(): Promise<void> {
   const myGeneration = _preloadGeneration;
 
   const roomContext = getState('room.context');
-  const v2Enabled =
-    roomContext.kind === 'standard' &&
-    !getState('network.hostConn') &&
-    filePlaybackProductRuntime.enabled();
   if (roomContext.kind === 'pro') {
-    // The server owns queue order in PRO rooms. V2 endpoints warm through the
-    // bounded server PREPARE path outside this scheduler; rollback/V1
-    // endpoints retain the established whole-object preload without a browser
-    // coordinator.
+    // The server owns queue order in PRO rooms. Each member warms the canonical
+    // private object without a browser coordinator.
   } else if (getState('network.hostConn')) {
     return;
   }
 
   const playlist = getState('playlist.items');
   if (playlist.length <= 1) {
-    if (v2Enabled) await clearV2NextLocalTrackWarm(myGeneration);
     clearPreloadCacheState();
     return;
   }
@@ -785,72 +682,6 @@ async function preloadNextTrack(): Promise<void> {
   if (currentTrackIndex < 0) return;
   const repeatMode = getState('playlist.repeatMode');
   const isShuffle = getState('playlist.isShuffle');
-
-  if (v2Enabled) {
-    if (repeatMode === 2) {
-      await clearV2NextLocalTrackWarm(myGeneration);
-      clearPreloadCacheState();
-      return;
-    }
-
-    let shuffleNextQueueItemId: QueueItemId | null = null;
-    if (isShuffle) {
-      try {
-        const mod = await import('../player/playlist.ts');
-        shuffleNextQueueItemId = mod.getShuffleNextQueueItemId();
-      } catch {
-        shuffleNextQueueItemId = null;
-      }
-    }
-    if (_preloadGeneration !== myGeneration) return;
-
-    const selection = selectNextPreloadableLocalFile({
-      items: playlist,
-      currentQueueItemId,
-      repeatMode,
-      isShuffle,
-      shuffleNextQueueItemId,
-    });
-    const file = selection?.item.file;
-    if (!selection || typeof File === 'undefined' || !(file instanceof File)) {
-      await clearV2NextLocalTrackWarm(myGeneration);
-      clearPreloadCacheState();
-      return;
-    }
-
-    const stillExact = getState('playlist.items').some(
-      (candidate) => candidate.queueItemId === selection.queueItemId && candidate.file === file,
-    );
-    if (_preloadGeneration !== myGeneration || !stillExact) return;
-
-    // V2 owns only the speculative bounded source. Keep legacy promotion state
-    // empty so playTrack cannot observe a half-V1/half-V2 cache.
-    clearPreloadCacheState();
-    const owner: V2NextLocalTrackWarmOwner = {
-      generation: myGeneration,
-      queueItemId: selection.queueItemId,
-      file,
-    };
-    _v2NextLocalTrackWarmOwner = owner;
-    try {
-      const warmed = await filePlaybackProductRuntime.warmNextLocalTrack({
-        queueItemId: selection.queueItemId,
-        file,
-      });
-      if (isExactV2NextLocalTrackWarmOwner(owner) && !warmed) {
-        _v2NextLocalTrackWarmOwner = null;
-        await filePlaybackProductRuntime.clearNextLocalTrackWarm();
-      }
-    } catch (error) {
-      if (isExactV2NextLocalTrackWarmOwner(owner)) {
-        _v2NextLocalTrackWarmOwner = null;
-      }
-      if (_preloadGeneration === myGeneration) {
-        log.warn('[Preload] V2 next-track warm failed:', error);
-      }
-    }
-    return;
-  }
 
   // Repeat-one replays the already-decoded current owner in place. Staging
   // that same queue occurrence again would mint a new transfer session and,
@@ -955,12 +786,6 @@ async function preloadNextTrack(): Promise<void> {
   const queueItemId = item.queueItemId;
 
   if (roomContext.kind === 'pro') {
-    if (filePlaybackProductRuntime.enabled()) {
-      // The server PREPARE window is the bounded warm-up boundary for PRO.
-      // Never broadcast a V1 whole-object preload hint in the V2 build.
-      clearPreloadCacheState();
-      return;
-    }
     if (!PRO_ROOM_FILE_PRELOAD_ENABLED) {
       clearPreloadCacheState();
       return;
@@ -2401,11 +2226,6 @@ export function initPreload(): void {
   // exact active preload owner once its data connection becomes eligible;
   // duplicate hints are idempotent on the member.
   const sendProRoomPreloadHintToPeer = (peerId: string): void => {
-    if (proRoomUsesBoundedFilePlayback()) {
-      _pendingProRoomPreloadHint = null;
-      clearPreloadCacheState();
-      return;
-    }
     if (!PRO_ROOM_FILE_PRELOAD_ENABLED || getState('room.context').kind !== 'pro') {
       return;
     }

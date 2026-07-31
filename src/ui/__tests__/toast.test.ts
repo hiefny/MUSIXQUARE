@@ -90,7 +90,7 @@ describe('standard operator file uplink feedback', () => {
     expect(document.getElementById('header-progress-bg')!.style.width).toBe('0%');
   });
 
-  it('shows the current batch position and a bounded file name', () => {
+  it('shows the current batch position and a truncated file name', () => {
     const progress = uplinkProgress({
       fileIndex: 1,
       fileCount: 3,

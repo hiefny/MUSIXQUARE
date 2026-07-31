@@ -27,7 +27,6 @@ import {
   setLocalManualSyncOffset,
 } from '../player/transport.ts';
 import { getCurrentAudioBuffer, isLocalFilePaused, setLocalFilePaused } from '../player/_state.ts';
-import { legacyBoundedFileV1Product } from '../player/legacy-bounded-file-v1-product.ts';
 import { detachHostPeerConnection } from './host-peer-departure.ts';
 import {
   getHostNow,
@@ -127,30 +126,9 @@ function isProCoordinatorManualSyncEndpoint(): boolean {
   return room.kind === 'pro';
 }
 
-function getExactReadyBoundedFileDuration(): number | null | undefined {
-  const current = legacyBoundedFileV1Product.snapshot().current;
-  if (
-    !current ||
-    current.state !== 'ready' ||
-    current.queueItemId !== getState('playlist.currentQueueItemId') ||
-    !legacyBoundedFileV1Product.hasReadyRenderer(current.queueItemId, current.legacySessionId)
-  ) {
-    return undefined;
-  }
-
-  const duration = legacyBoundedFileV1Product.durationSeconds();
-  return typeof duration === 'number' && Number.isFinite(duration) && duration >= 0
-    ? duration
-    : null;
-}
-
 function canApplyManualSyncAction(): boolean {
   if (!hasManualSyncEndpoint()) return false;
   if (isPlaybackModeYouTube()) return !isYouTubeZeroStartProtocolActive();
-  // Bounded V1 can accept authoritative seek/bootstrap controls, but its
-  // renderer does not consume sync.localOffset yet. Keep manual nudge/reset
-  // unavailable rather than presenting a control whose value changes without
-  // changing audible output.
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
 }
 
@@ -326,16 +304,10 @@ function getSafeSyncPongPosition(isFilePlaying: boolean): number {
 function getPlayableFileSyncPosition(estimatedHostPos: number): number | null {
   if (!Number.isFinite(estimatedHostPos)) return null;
 
-  const boundedDuration = getExactReadyBoundedFileDuration();
-  const buffer = boundedDuration === undefined ? getCurrentAudioBuffer() : null;
-  if (boundedDuration === undefined && !buffer) return null;
+  const buffer = getCurrentAudioBuffer();
+  if (!buffer) return null;
 
-  const duration =
-    boundedDuration !== undefined
-      ? (boundedDuration ?? 0)
-      : Number.isFinite(buffer?.duration)
-        ? (buffer?.duration ?? 0)
-        : 0;
+  const duration = Number.isFinite(buffer.duration) ? buffer.duration : 0;
   const syncPosition = Math.max(0, estimatedHostPos);
   if (duration <= 0) return syncPosition;
 

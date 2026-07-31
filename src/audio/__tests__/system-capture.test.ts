@@ -25,7 +25,6 @@ function makeSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
     channelMode: 0,
     queueItemId: null,
     subIndex: 0,
-    bounded: null,
     ...rest,
     playback: {
       mode: playbackOverride?.mode ?? null,

@@ -143,65 +143,6 @@ export type YouTubeSyncLoadingOwner = 'rendezvous' | 'clock-action' | 'zero-star
 export type FileRequestId = number;
 export type PlaylistRevision = number;
 
-export type V2FilePlaybackLoadingOwner =
-  | 'host-start'
-  | 'host-seek'
-  | 'host-replay'
-  | 'host-recover'
-  | 'guest-prepare'
-  | 'guest-rendezvous'
-  | 'pro-prepare';
-
-export type V2FilePlaybackLoadingToken = string | number;
-
-export interface V2FilePlaybackLoadingEvent {
-  readonly owner: V2FilePlaybackLoadingOwner;
-  readonly token: V2FilePlaybackLoadingToken;
-}
-
-export interface V2HostSeekPendingEvent {
-  readonly token: number;
-  readonly queueItemId: QueueItemId;
-  readonly targetSeconds: number;
-}
-
-export type V2HostSeekSettlementStatus = 'committed' | 'failed' | 'superseded';
-
-export interface V2HostSeekSettledEvent {
-  readonly token: number;
-  readonly queueItemId: QueueItemId;
-  readonly status: V2HostSeekSettlementStatus;
-  readonly positionSeconds: number;
-}
-
-export type V2HostUiControlKind = 'play' | 'pause';
-
-/**
- * Host-local projection for one standard-room V2 playback control.
- *
- * This token never crosses the network and never advances canonical playback
- * truth. It exists only to make a host click immediately visible and safely
- * reversible while the revisioned renderer transition remains authoritative.
- */
-export interface V2HostUiControlPendingEvent {
-  readonly token: number;
-  readonly kind: V2HostUiControlKind;
-  readonly queueItemId: QueueItemId | null;
-}
-
-export type V2HostUiControlSettlementStatus = 'committed' | 'failed' | 'superseded';
-
-export interface V2HostUiControlSettledEvent {
-  readonly token: number;
-  readonly kind: V2HostUiControlKind;
-  readonly queueItemId: QueueItemId | null;
-  readonly status: V2HostUiControlSettlementStatus;
-}
-
-interface V2GuestPauseGateEvent {
-  readonly token: number;
-}
-
 export type ProPlaybackUiControlKind = 'play' | 'pause' | 'seek';
 
 /**
@@ -403,63 +344,6 @@ export interface ConnectedPeer {
 type NoPayload = Record<never, never>;
 
 /**
- * Immutable identity fence for one bounded V1 file incarnation.
- *
- * These are transport-only shapes. Keep them independent from the player
- * runtime so the generic protocol layer does not acquire a playback-engine
- * dependency.
- */
-export interface FileBoundedV1DeliveryScopeWire {
-  readonly roomEpoch: string;
-  readonly bridgeGeneration: string;
-  readonly bindingId: string;
-  readonly queueItemId: QueueItemId;
-  readonly sourceIdentity: string;
-}
-
-interface FileR2RecordCryptoSecretDescriptorWire {
-  readonly formatVersion: 2;
-  readonly objectId: string;
-  readonly plaintextSize: number;
-  readonly recordSize: number;
-  readonly recordCount: number;
-  readonly noncePrefixB64: string;
-  readonly keyB64: string;
-}
-
-interface FileR2RecordPublicationRecordWire {
-  readonly index: number;
-  readonly objectId: string;
-  readonly plaintextSize: number;
-  readonly encryptedSize: number;
-}
-
-/**
- * Exact protected-channel representation of a record publication.
- *
- * The AES key is intentionally present only because this frame travels over
- * the already protected host/guest data channel. It must never be persisted as
- * public R2 metadata.
- */
-export interface FileR2RecordPublicationWire {
-  readonly schemaVersion: 1;
-  readonly queueItemId: QueueItemId;
-  readonly sourceIdentity: string;
-  readonly transferSessionId: string;
-  readonly applicationSessionId: string;
-  readonly storageRoomId: string;
-  readonly setId: string;
-  readonly encodedSize: number;
-  readonly recordSize: number;
-  readonly recordCount: number;
-  readonly cryptoSecretDescriptor: Readonly<FileR2RecordCryptoSecretDescriptorWire>;
-  readonly records: readonly Readonly<FileR2RecordPublicationRecordWire>[];
-  readonly name: string;
-  readonly mime: string;
-  readonly expiresAtEpochMs: number;
-}
-
-/**
  * Maps each MsgType string literal to its payload shape (excluding the `type` field).
  * Used by ProtocolMsg<T> to build the full message type.
  */
@@ -526,7 +410,7 @@ export interface ProtocolMap {
     mime: string;
     size?: number;
     autoPlayDelayMs?: number;
-    delivery?: 'r2' | 'r2-record';
+    delivery?: 'r2';
   };
   'file-r2-capability': {
     version: 1;
@@ -535,30 +419,6 @@ export interface ProtocolMap {
   /** Guest -> host advertisement for authenticated plaintext whole-object reads. */
   'file-r2-plain-capability': {
     version: 1;
-  };
-  /** Guest -> host advertisement for the additive bounded V1 bridge only. */
-  'file-bounded-v1-capability': {
-    bridgeVersion: 1;
-    descriptorVersion: 1;
-  };
-  /** Host -> guest protected R2 record authority for one exact V1 session. */
-  'file-r2-record-descriptor': {
-    bridgeVersion: 1;
-    legacySessionId: number;
-    purpose: 'current' | 'preload';
-    scope: FileBoundedV1DeliveryScopeWire;
-    descriptorId: string;
-    descriptorVersion: 1;
-    publication: FileR2RecordPublicationWire;
-  };
-  /** Guest -> host terminal adoption result for one exact descriptor. */
-  'file-r2-record-result': {
-    bridgeVersion: 1;
-    legacySessionId: number;
-    scope: FileBoundedV1DeliveryScopeWire;
-    descriptorId: string;
-    descriptorVersion: 1;
-    outcome: 'ready' | 'fallback';
   };
   'remote-file-unavailable': {
     name: string;
@@ -1394,29 +1254,6 @@ interface BaseEventMap {
   ];
   'player:check-ended': [];
   'player:buffer-changed': [];
-  /** Exact V2 guest renderer state after physical evidence and metadata commit. */
-  'player:v2-guest-timeline-rendered': [
-    queueItemId: QueueItemId | null,
-    phase: 'playing' | 'paused' | 'stopped',
-    positionSeconds: number,
-    durationSeconds?: number | null,
-  ];
-  /** Host-local V2 seek UI projection; this does not change playback lifecycle semantics. */
-  'player:v2-host-seek-pending': [event: Readonly<V2HostSeekPendingEvent>];
-  /** Exact terminal result for one admitted host-local V2 seek token. */
-  'player:v2-host-seek-settled': [event: Readonly<V2HostSeekSettledEvent>];
-  /** Immediate host-local feedback while a standard-room V2 control commits. */
-  'player:v2-host-ui-control-pending': [event: Readonly<V2HostUiControlPendingEvent>];
-  /** Exact terminal result for the matching host-local V2 UI control token. */
-  'player:v2-host-ui-control-settled': [event: Readonly<V2HostUiControlSettledEvent>];
-  /** Exact guest PAUSE successor was admitted; silence local file output immediately. */
-  'player:v2-guest-pause-gate-pending': [event: Readonly<V2GuestPauseGateEvent>];
-  /** Matching guest PAUSE reached or abandoned its physical cutover boundary. */
-  'player:v2-guest-pause-gate-settled': [event: Readonly<V2GuestPauseGateEvent>];
-  /** Delayed participant-local projection for one exact V2 file preparation. */
-  'player:v2-file-loading-pending': [event: Readonly<V2FilePlaybackLoadingEvent>];
-  /** Exact terminal settlement; stale owner/token pairs are ignored by the UI. */
-  'player:v2-file-loading-settled': [event: Readonly<V2FilePlaybackLoadingEvent>];
   /** Local-only feedback while a PRO playback command awaits canonical media application. */
   'pro-playback:ui-control-pending': [event: Readonly<ProPlaybackUiControlPendingEvent>];
   /** Exact terminal result for the matching local PRO UI control token. */
@@ -1431,7 +1268,6 @@ interface BaseEventMap {
   'playlist:toggle-shuffle': [];
   'playlist:shuffle-order-changed': [];
   'playlist:play-track': [queueItemId: QueueItemId, subIndex?: number];
-  'playlist:cancel-v2-playback-intent': [];
 
   // ── UI ────────────────────────────────────────────────────────────
   'ui:sync-reverb-preset': [type: string];

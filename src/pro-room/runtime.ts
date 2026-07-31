@@ -1417,43 +1417,6 @@ function installLegacyMediaHooks(
       if (warm) warm.controller.abort();
       return startProRoomFileDownload(queueItemId, lease, 'foreground')?.promise ?? null;
     },
-    resolveRangeSource(queueItemId, signal) {
-      if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return null;
-      const projection = playlistProjection;
-      const transfer = mediaTransfer;
-      const context = getState('room.context');
-      const item = getState('playlist.items').find(
-        (candidate) => candidate.queueItemId === queueItemId,
-      );
-      if (
-        !projection ||
-        !transfer ||
-        context.kind !== 'pro' ||
-        context.roomId !== lease.roomCode ||
-        !item ||
-        item.type !== 'file'
-      ) {
-        return null;
-      }
-
-      return resolveCanonicalR2Source(queueItemId, lease).then(async (source) => {
-        if (!source || signal.aborted || !isDownloadLeaseCurrent(lease)) return null;
-        const liveSource = projection.sourceFor(queueItemId);
-        if (liveSource?.kind !== 'pro-r2' || !sameR2Source(liveSource, source) || signal.aborted) {
-          return null;
-        }
-        const rangeSource = transfer.createRangeSource({
-          code: lease.roomCode,
-          name: item.name,
-          source,
-        });
-        if (signal.aborted || !isDownloadLeaseCurrent(lease)) {
-          await rangeSource.close();
-          return null;
-        }
-        return rangeSource;
-      });
-    },
     preloadFile(queueItemId) {
       if (!isPlaylistLeaseCurrent(lease)) return null;
       const projection = playlistProjection;

@@ -16,17 +16,12 @@ import {
   play,
   pause,
   stopAllMedia,
-  stopAllMediaAsync,
-  requestV2HostFileStop,
-  requestLegacyBoundedV1HostPause,
-  requestLegacyBoundedV1HostPlay,
   getTrackPosition,
   isFilePipelineBusyForPlay,
   applyProPlaybackFileCommit,
   fmtTime,
 } from './transport.ts';
 import { clearPreviousTrackState, loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
-import { legacyBoundedFileV1Product } from './legacy-bounded-file-v1-product.ts';
 import {
   newLoadEpoch,
   isCurrentLoadEpoch,
@@ -42,7 +37,6 @@ import { transition } from './lifecycle.ts';
 import {
   schedulePreload,
   cancelPreloadTransfer,
-  cancelV2NextLocalTrackWarmForRemovedQueueItems,
   resetPreloadReceiveAuthority,
 } from '../storage/preload.ts';
 import {
@@ -79,15 +73,8 @@ import { isYtLoadInProgress, isYtPlayerReady } from '../youtube/_state.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
-import {
-  isPlaybackIdleCompat,
-  isSystemAudioOwner,
-  isYouTubeOwner,
-  setPlaybackIdle,
-  setPlaybackFilePlaying,
-  setPlaybackTrackMeta,
-} from './ownership.ts';
-import type { AnyProtocolMsg, DataConnection, PlaylistItem, QueueItemId } from '../types/index.ts';
+import { isPlaybackIdleCompat, isYouTubeOwner, setPlaybackTrackMeta } from './ownership.ts';
+import type { DataConnection, PlaylistItem, QueueItemId } from '../types/index.ts';
 import { showToast } from '../ui/toast.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { hasFileShareWarned, markFileShareWarned } from '../ui/large-room-warnings.ts';
@@ -144,462 +131,11 @@ import {
   moveQueueItemBefore,
   selectQueueItemById,
 } from './queue-model.ts';
-import { getFilePlaybackProductRuntime } from './file-playback-product-runtime.ts';
-import {
-  cancelProRoomBoundedFilePlayback,
-  clearProRoomBoundedFilePlayback,
-  hasCurrentProRoomBoundedFilePlayback,
-  invalidateCommittedProRoomBoundedFilePlayback,
-  prepareProRoomBoundedFilePlayback,
-} from './pro-room-bounded-playback.ts';
-import {
-  cancelV2HostMutation,
-  enqueueV2HostMutation,
-  isCurrentV2HostMutationIntent,
-  type V2HostMutationIntent,
-} from './v2-host-mutation-lane.ts';
 
 const LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS = 200;
-const filePlaybackProductRuntime = getFilePlaybackProductRuntime();
-
-interface V2PlaylistLoadingIntent {
-  readonly loadingOwner: 'host-start' | 'host-replay' | 'host-recover';
-  readonly loadingToken: number;
-  loadingSettled: boolean;
-}
-
-interface V2HostLocalFilePlayOptions {
-  readonly navigateToPlay: boolean;
-  readonly positionSeconds?: number;
-  readonly recovery?: boolean;
-  readonly repairFallback?: Readonly<{
-    readonly queueItemId: QueueItemId | null;
-    readonly positionSeconds: number;
-  }>;
-}
-
-let v2PlaylistLoadingToken = 0;
-
-function nextV2PlaylistLoadingToken(): number {
-  v2PlaylistLoadingToken =
-    v2PlaylistLoadingToken >= Number.MAX_SAFE_INTEGER ? 1 : v2PlaylistLoadingToken + 1;
-  return v2PlaylistLoadingToken;
-}
-
-function settleV2PlaylistLoading(intent: V2PlaylistLoadingIntent): void {
-  if (intent.loadingSettled) return;
-  intent.loadingSettled = true;
-  bus.emit('player:v2-file-loading-settled', {
-    owner: intent.loadingOwner,
-    token: intent.loadingToken,
-  });
-}
-
-function beginV2PlaylistLoading(
-  owner: V2PlaylistLoadingIntent['loadingOwner'],
-): V2PlaylistLoadingIntent {
-  const intent: V2PlaylistLoadingIntent = {
-    loadingOwner: owner,
-    loadingToken: nextV2PlaylistLoadingToken(),
-    loadingSettled: false,
-  };
-  bus.emit('player:v2-file-loading-pending', {
-    owner: intent.loadingOwner,
-    token: intent.loadingToken,
-  });
-  return intent;
-}
-
-function standardHostUsesV2(): boolean {
-  return (
-    getRoomContext().kind === 'standard' &&
-    !getState('network.hostConn') &&
-    filePlaybackProductRuntime.enabled() &&
-    filePlaybackProductRuntime.hostRoomSnapshot() !== null
-  );
-}
-
-function restoreV2SelectedFileRetryAffordance(queueItemId: QueueItemId, file: File): void {
-  if (!standardHostUsesV2() || !isPlaybackIdleCompat() || getCurrentQueueItemId() !== queueItemId) {
-    return;
-  }
-  const selected = getQueueItemById(queueItemId);
-  if (
-    !selected ||
-    selected.type === 'youtube' ||
-    selected.file !== file ||
-    typeof File === 'undefined' ||
-    !(selected.file instanceof File)
-  ) {
-    return;
-  }
-  try {
-    if (
-      filePlaybackProductRuntime.currentHostRendererSnapshot() !== null ||
-      filePlaybackProductRuntime.currentHostFailedRendererObservation() !== null ||
-      filePlaybackProductRuntime.currentHostTerminalRendererObservation() !== null
-    ) {
-      return;
-    }
-  } catch {
-    return;
-  }
-  // A pre-commit preparation failure has no renderer to project readiness,
-  // but the exact selected File remains a valid explicit retry target.
-  bus.emit('ui:play-btn-state', true);
-}
-
-interface CommittedV2PlaylistTrack {
-  readonly status: 'committed';
-  readonly asset: Readonly<{ readonly queueItemId: QueueItemId }>;
-  readonly attempt: Readonly<{
-    readonly queueItemId: QueueItemId;
-    readonly revision: number;
-    readonly runId: string;
-  }>;
-  readonly timeline: Readonly<{
-    readonly phase: 'playing';
-    readonly revision: number;
-    readonly positionSeconds: number;
-    readonly run: Readonly<{ readonly queueItemId: QueueItemId; readonly runId: string }>;
-  }>;
-}
-
-function isCommittedV2PlaylistTrack(
-  value: unknown,
-  queueItemId: QueueItemId,
-): value is CommittedV2PlaylistTrack {
-  if (value === null || typeof value !== 'object' || !Object.isFrozen(value)) return false;
-  try {
-    const commit = value as {
-      readonly status?: unknown;
-      readonly asset?: { readonly queueItemId?: unknown };
-      readonly attempt?: {
-        readonly queueItemId?: unknown;
-        readonly revision?: unknown;
-        readonly runId?: unknown;
-      };
-      readonly timeline?: {
-        readonly phase?: unknown;
-        readonly revision?: unknown;
-        readonly positionSeconds?: unknown;
-        readonly run?: { readonly queueItemId?: unknown; readonly runId?: unknown } | null;
-      };
-    };
-    const timeline = commit.timeline;
-    const run = timeline?.run;
-    return (
-      commit.status === 'committed' &&
-      Object.isFrozen(commit.asset) &&
-      Object.isFrozen(commit.attempt) &&
-      Object.isFrozen(timeline) &&
-      Object.isFrozen(run) &&
-      timeline?.phase === 'playing' &&
-      typeof timeline.positionSeconds === 'number' &&
-      Number.isFinite(timeline.positionSeconds) &&
-      timeline.positionSeconds >= 0 &&
-      timeline.revision === commit.attempt?.revision &&
-      run?.queueItemId === queueItemId &&
-      run.runId === commit.attempt?.runId &&
-      commit.attempt?.queueItemId === queueItemId &&
-      commit.asset?.queueItemId === queueItemId
-    );
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Product V2 prepares a replacement while the current renderer keeps owning
- * output, then performs one rendezvous cutover. In particular, never issue a
- * stop between two V2 files: that was the source of seekbar rollback and an
- * audible/visual idle gap in the earlier beta.
- */
-async function playV2HostLocalFile(
-  queueItemId: QueueItemId,
-  file: File,
-  options: V2HostLocalFilePlayOptions,
-): Promise<boolean> {
-  const currentRenderer = filePlaybackProductRuntime.currentHostRendererSnapshot();
-  const replay =
-    !options.recovery &&
-    queueItemId === getCurrentQueueItemId() &&
-    currentRenderer?.queueItemId === queueItemId;
-  const positionSeconds =
-    typeof options.positionSeconds === 'number' &&
-    Number.isFinite(options.positionSeconds) &&
-    options.positionSeconds >= 0
-      ? options.positionSeconds
-      : 0;
-  const repairFallback = {
-    queueItemId: getCurrentQueueItemId(),
-    positionSeconds: getTrackPosition(),
-  };
-  const loadingIntent = beginV2PlaylistLoading(
-    options.recovery ? 'host-recover' : replay ? 'host-replay' : 'host-start',
-  );
-
-  try {
-    const result = await enqueueV2HostMutation(
-      options.recovery ? 'playlist renderer recovery' : 'playlist track start',
-      (intent) =>
-        playV2HostLocalFileWithinMutation(intent, queueItemId, file, {
-          ...options,
-          positionSeconds,
-          repairFallback,
-        }),
-    );
-    return result === true;
-  } finally {
-    settleV2PlaylistLoading(loadingIntent);
-    restoreV2SelectedFileRetryAffordance(queueItemId, file);
-  }
-}
-
-function projectCommittedV2PlaylistTrack(
-  queueItemId: QueueItemId,
-  liveItem: PlaylistItem,
-  commit: CommittedV2PlaylistTrack,
-): void {
-  selectQueueItemById(queueItemId);
-  setPlaybackTrackMeta(liveItem);
-  setState('player.pausedAt', commit.timeline.positionSeconds);
-  setPlaybackFilePlaying();
-  // V2 bypasses the legacy decode completion path that used to enable this
-  // affordance. Publish readiness only after the exact renderer commit so the
-  // first local file cannot leave the host button visually disabled.
-  bus.emit('ui:play-btn-state', true);
-  const committedRenderer = filePlaybackProductRuntime.currentHostRendererSnapshot();
-  if (
-    committedRenderer?.queueItemId === queueItemId &&
-    typeof committedRenderer.durationSeconds === 'number' &&
-    Number.isFinite(committedRenderer.durationSeconds) &&
-    committedRenderer.durationSeconds > 0
-  ) {
-    bus.emit('ui:duration-update', committedRenderer.durationSeconds);
-  }
-  bus.emit('visualizer:start');
-  bus.emit('ui:loop-start');
-}
-
-async function repairRemovedCommittedV2PlaylistTrack(
-  removedQueueItemId: QueueItemId,
-  fallback: V2HostLocalFilePlayOptions['repairFallback'],
-  restoreFallback: boolean,
-): Promise<void> {
-  const repairController = new AbortController();
-  const authoritativeQueueItemId = getCurrentQueueItemId();
-  const authoritativeItem = getQueueItemById(authoritativeQueueItemId);
-
-  if (
-    restoreFallback &&
-    authoritativeQueueItemId &&
-    authoritativeQueueItemId !== removedQueueItemId &&
-    authoritativeItem &&
-    authoritativeItem.type !== 'youtube' &&
-    typeof File !== 'undefined' &&
-    authoritativeItem.file instanceof File
-  ) {
-    const fallbackPositionSeconds =
-      fallback?.queueItemId === authoritativeQueueItemId &&
-      Number.isFinite(fallback.positionSeconds) &&
-      fallback.positionSeconds >= 0
-        ? fallback.positionSeconds
-        : 0;
-    try {
-      const repairCommit = await filePlaybackProductRuntime.startLocalTrack({
-        queueItemId: authoritativeQueueItemId,
-        file: authoritativeItem.file,
-        positionSeconds: fallbackPositionSeconds,
-        signal: repairController.signal,
-      });
-      const liveItem = getQueueItemById(authoritativeQueueItemId);
-      if (
-        isCommittedV2PlaylistTrack(repairCommit, authoritativeQueueItemId) &&
-        liveItem &&
-        liveItem.type !== 'youtube' &&
-        liveItem.file === authoritativeItem.file
-      ) {
-        projectCommittedV2PlaylistTrack(authoritativeQueueItemId, liveItem, repairCommit);
-        return;
-      }
-    } catch (error) {
-      log.warn('[Playlist] Removed V2 renderer replacement failed:', error);
-    }
-  }
-
-  // This repair belongs to the already-committed predecessor, not to its
-  // cancelled UX intent. A later PAUSE/SEEK/selection waits behind the current
-  // lane task, so retire the orphan with an independent signal before that
-  // successor is admitted. Otherwise the successor sees queue identity A while
-  // renderer identity B and correctly fails closed, leaving B audible forever.
-  try {
-    await filePlaybackProductRuntime.stopCurrent({ signal: repairController.signal });
-  } catch (error) {
-    log.warn('[Playlist] Removed V2 renderer retirement failed:', error);
-    return;
-  }
-  const remainingRenderer =
-    filePlaybackProductRuntime.currentHostRendererSnapshot() ??
-    filePlaybackProductRuntime.currentHostFailedRendererObservation() ??
-    filePlaybackProductRuntime.currentHostTerminalRendererObservation();
-  if (remainingRenderer) {
-    log.warn('[Playlist] Removed V2 renderer retirement did not reach stopped truth');
-    return;
-  }
-  setPlaybackIdle();
-  setState('player.pausedAt', 0);
-  bus.emit('ui:seek-reset');
-  bus.emit('visualizer:fade-out');
-  bus.emit('ui:play-btn-state', !!getCurrentQueueItemId());
-}
-
-async function playV2HostLocalFileWithinMutation(
-  intent: V2HostMutationIntent,
-  queueItemId: QueueItemId,
-  file: File,
-  options: V2HostLocalFilePlayOptions,
-): Promise<boolean> {
-  const signal = intent.controller.signal;
-  try {
-    const requestedItem = getQueueItemById(queueItemId);
-    if (
-      !standardHostUsesV2() ||
-      !requestedItem ||
-      requestedItem.type === 'youtube' ||
-      requestedItem.file !== file ||
-      (options.recovery && getCurrentQueueItemId() !== queueItemId)
-    ) {
-      return false;
-    }
-
-    // Cross-mode owners are not part of the V2 atomic renderer pair. Retire
-    // them through their established transport before constructing the file
-    // candidate; V2-to-V2 deliberately skips this branch.
-    if (isYouTubeOwner() || isSystemAudioOwner()) {
-      const stopped = await stopAllMediaAsync({
-        silent: true,
-        cancelInFlight: true,
-        preservePlaylistIntent: true,
-      });
-      const exact = getQueueItemById(queueItemId);
-      if (
-        !isCurrentV2HostMutationIntent(intent) ||
-        !stopped ||
-        !exact ||
-        exact.type === 'youtube' ||
-        exact.file !== file
-      ) {
-        return false;
-      }
-    }
-
-    const currentRenderer = filePlaybackProductRuntime.currentHostRendererSnapshot();
-    const replay =
-      !options.recovery &&
-      queueItemId === getCurrentQueueItemId() &&
-      currentRenderer?.queueItemId === queueItemId;
-    const commit = replay
-      ? await filePlaybackProductRuntime.replayCurrent({ signal })
-      : await filePlaybackProductRuntime.startLocalTrack({
-          queueItemId,
-          file,
-          positionSeconds: options.positionSeconds ?? 0,
-          signal,
-        });
-
-    // Abort is advisory once the engine crosses its commit boundary. Always
-    // reconcile an exact physical commit before admitting the successor; this
-    // keeps product truth and projected UI coherent even when the caller was
-    // superseded while rendezvous was already commit-dominant.
-    if (!isCommittedV2PlaylistTrack(commit, queueItemId)) return false;
-    const liveItem = getQueueItemById(queueItemId);
-    if (
-      !liveItem ||
-      liveItem.type === 'youtube' ||
-      liveItem.file !== file ||
-      typeof File === 'undefined' ||
-      !(liveItem.file instanceof File)
-    ) {
-      await repairRemovedCommittedV2PlaylistTrack(
-        queueItemId,
-        options.repairFallback,
-        isCurrentV2HostMutationIntent(intent),
-      );
-      return false;
-    }
-
-    projectCommittedV2PlaylistTrack(queueItemId, liveItem, commit);
-
-    // Navigation, one-shot messaging, and speculative work belong only to the
-    // latest request. A superseded committed predecessor is still projected
-    // above, but cannot steal focus or start obsolete preload work.
-    if (isCurrentV2HostMutationIntent(intent)) {
-      if (options.navigateToPlay) bus.emit('ui:switch-tab', 'play');
-      if (getState('player.isFirstTrackLoad')) {
-        setState('player.isFirstTrackLoad', false);
-        showToast(t('toast.file_ready'));
-      }
-      schedulePreload();
-    }
-    return true;
-  } catch (error) {
-    if (isCurrentV2HostMutationIntent(intent) && !signal.aborted) {
-      log.warn('[Playlist] V2 local track intent failed:', error);
-    }
-    return false;
-  }
-}
-
-/**
- * Recovery entry point for a caller that already owns the shared mutation
- * lane. It deliberately does not enqueue again, avoiding a self-deadlock.
- *
- * @internal
- */
-export async function recoverV2HostLocalFileOutputWithinMutation(
-  intent: V2HostMutationIntent,
-  queueItemId: QueueItemId,
-  positionSeconds: number,
-): Promise<boolean> {
-  if (
-    !isCurrentV2HostMutationIntent(intent) ||
-    !standardHostUsesV2() ||
-    getCurrentQueueItemId() !== queueItemId ||
-    !Number.isFinite(positionSeconds) ||
-    positionSeconds < 0
-  ) {
-    return false;
-  }
-  const item = getQueueItemById(queueItemId);
-  if (
-    !item ||
-    item.type === 'youtube' ||
-    typeof File === 'undefined' ||
-    !(item.file instanceof File)
-  ) {
-    return false;
-  }
-
-  const loadingIntent = beginV2PlaylistLoading('host-recover');
-  try {
-    return await playV2HostLocalFileWithinMutation(intent, queueItemId, item.file, {
-      navigateToPlay: false,
-      positionSeconds,
-      recovery: true,
-    });
-  } finally {
-    settleV2PlaylistLoading(loadingIntent);
-  }
-}
 
 interface PlayTrackOptions {
   navigateToPlay?: boolean;
-  /**
-   * Product-owned restart position for a stopped V2 local-file occurrence.
-   * Legacy, YouTube, guest, and PRO callers must leave this omitted.
-   */
-  v2StartPositionSeconds?: number;
   proRestore?: ProRoomLegacyPlaybackRestore;
   /** Treat the selection as an explicit play command, including the first file. */
   explicitPlaybackIntent?: boolean;
@@ -1106,46 +642,6 @@ export async function playTrack(
   const hostConn = getState('network.hostConn');
   const previousQueueItemId = getCurrentQueueItemId();
 
-  const v2Host = !appliesServerAuthority && standardHostUsesV2();
-  if (v2Host) cancelV2HostMutation('A newer playlist choice was made');
-  if (
-    v2Host &&
-    !hostConn &&
-    item.type !== 'youtube' &&
-    typeof File !== 'undefined' &&
-    item.file instanceof File
-  ) {
-    await playV2HostLocalFile(queueItemId, item.file, {
-      navigateToPlay: options.navigateToPlay !== false,
-      ...(options.v2StartPositionSeconds === undefined
-        ? {}
-        : { positionSeconds: options.v2StartPositionSeconds }),
-    });
-    return;
-  }
-
-  // YouTube selection must not race an already-running V2 file renderer. Wait
-  // for canonical stopped truth before the persistent iframe takes ownership.
-  if (
-    v2Host &&
-    item.type === 'youtube' &&
-    filePlaybackProductRuntime.currentHostRendererSnapshot()
-  ) {
-    const expectedRevision = getState('playlist.revision');
-    const stopped = await stopAllMediaAsync({
-      silent: true,
-      cancelInFlight: true,
-      preservePlaylistIntent: true,
-    });
-    if (
-      !stopped ||
-      getState('playlist.revision') !== expectedRevision ||
-      getQueueItemById(queueItemId) !== item
-    ) {
-      return;
-    }
-  }
-
   // ─── Fast Path: Host re-clicks currently-playing local file ─────────
   // Skip full reload/rebroadcast/preload-reset. Just reset position to 0
   // and restart after the standard 3s delay. Guests get a FILE_PREPARE
@@ -1165,12 +661,6 @@ export async function playTrack(
     item.type !== 'youtube' &&
     (!!item.file || (isProRoomPersistentPlaylistFile(queueItemId) && !!_residentFile));
   const _bufferMatchesTrack = !!getCurrentAudioBuffer() && _resident?.queueItemId === queueItemId;
-  const _boundedSnapshot = legacyBoundedFileV1Product.snapshot();
-  const _boundedMatchesTrack =
-    _boundedSnapshot.role === 'host' &&
-    _boundedSnapshot.current?.state === 'ready' &&
-    _boundedSnapshot.current.queueItemId === queueItemId &&
-    _boundedSnapshot.current.legacySessionId === _resident?.sessionId;
 
   // Re-clicking the exact YouTube occurrence is a replay request, not a new
   // iframe load. Reusing youtube:load here can stop/cue the already-resident
@@ -1178,43 +668,6 @@ export async function playTrack(
   // callback that incorrectly advances the playlist. Keep the iframe intact
   // and restart the synchronized timeline through the existing zero-start
   // barrier (or its established rendezvous fallback).
-  if (
-    !appliesServerAuthority &&
-    !hostConn &&
-    _isSameTrack &&
-    _isLocalFileTrack &&
-    _boundedMatchesTrack
-  ) {
-    log.debug('[Host] Same-track re-click -> bounded V1 replay without media redistribution');
-    const isFirstTrackLoad = getState('player.isFirstTrackLoad');
-    const autoPlayDelayMs = isFirstTrackLoad ? 0 : 3000;
-    requestLegacyBoundedV1HostPause(0, 'seek');
-    setState('player.pausedAt', 0);
-    if (isFirstTrackLoad) {
-      setState('player.isFirstTrackLoad', false);
-    } else {
-      showToast(t('toast.playing_in_3s'));
-    }
-    setManagedTimer(
-      'autoPlayTimer',
-      () => {
-        if (getCurrentQueueItemId() !== queueItemId || !getQueueItemById(queueItemId)) return;
-        const hostPlayAt = getLocalFileHostPlayAt();
-        if (requestLegacyBoundedV1HostPlay(0, hostPlayAt)) return;
-        play(0, 0, undefined, undefined, hostPlayAt);
-        broadcast({
-          type: MSG.PLAY,
-          time: 0,
-          queueItemId,
-          name: _resident?.name,
-          hostPlayAt,
-        });
-      },
-      autoPlayDelayMs,
-    );
-    return;
-  }
-
   if (
     !appliesServerAuthority &&
     !hostConn &&
@@ -1303,14 +756,13 @@ export async function playTrack(
       'autoPlayTimer',
       () => {
         if (getCurrentQueueItemId() !== queueItemId || !getQueueItemById(queueItemId)) return;
-        const hostPlayAt = getLocalFileHostPlayAt();
-        play(0, 0, undefined, undefined, hostPlayAt);
+        play(0);
         broadcast({
           type: MSG.PLAY,
           time: 0,
           queueItemId,
           name: file.name,
-          hostPlayAt,
+          hostPlayAt: getLocalFileHostPlayAt(),
         });
       },
       autoPlayDelayMs,
@@ -1351,24 +803,7 @@ export async function playTrack(
     if (stoppedYouTubeBeforeSelection) stopAllMedia({ silent: true });
     selectQueueItemById(queueItemId);
     setPlaybackTrackMeta(item);
-    if (!stoppedYouTubeBeforeSelection) {
-      if (legacyBoundedFileV1Product.snapshot().current) {
-        const stopped = await stopAllMediaAsync({
-          silent: true,
-          cancelInFlight: true,
-          preservePlaylistIntent: true,
-        });
-        if (
-          !stopped ||
-          !isCurrentLoadEpoch(myLoadEpoch) ||
-          getCurrentQueueItemId() !== queueItemId
-        ) {
-          return;
-        }
-      } else {
-        stopAllMedia({ silent: true });
-      }
-    }
+    if (!stoppedYouTubeBeforeSelection) stopAllMedia({ silent: true });
     // A preload can be promoted before its presigned source resolves. Release
     // both the previous PCM and encoded resident before changing the runtime
     // lane to foreground; otherwise two maximum-size PRO files could overlap
@@ -1460,22 +895,7 @@ export async function playTrack(
     freezeFileDeliveryMode(getState('transfer.currentSessionId'));
 
     if (!stoppedYouTubeBeforePreloadSelection) {
-      if (legacyBoundedFileV1Product.snapshot().current) {
-        const stopped = await stopAllMediaAsync({
-          silent: true,
-          cancelInFlight: true,
-          preservePlaylistIntent: true,
-        });
-        if (
-          !stopped ||
-          !isCurrentLoadEpoch(myLoadEpoch) ||
-          getCurrentQueueItemId() !== queueItemId
-        ) {
-          return;
-        }
-      } else {
-        stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows immediately
-      }
+      stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows immediately
     }
 
     const preloadBlob = readyPreload.blob;
@@ -1488,68 +908,6 @@ export async function playTrack(
           }));
     const fileName = preloadFile.name || readyPreload.name || item.name;
     const isProDirect = isProRoomPersistentPlaylistFile(queueItemId);
-    const boundedHostRoomActive =
-      legacyBoundedFileV1Product.snapshot().role === 'host' &&
-      legacyBoundedFileV1Product.snapshot().active;
-    if (boundedHostRoomActive && !isProDirect) {
-      const preloadSessionId = getState('transfer.currentSessionId');
-      clearPreloadState();
-      // clearPreloadState deliberately preserves a preload owned by the newly
-      // selected queue occurrence so the legacy AudioBuffer promotion path can
-      // consume it atomically. Bounded V1 promotes the captured encoded Blob
-      // through loadAndBroadcastFile instead, so release both preload markers
-      // now; leaving them published would make the next scheduling pass treat
-      // the already-active occurrence as still preloaded.
-      publishPreloadPromotion({
-        'preload.ready': null,
-        'preload.activeTarget': null,
-      });
-      const activated = await loadAndBroadcastFile(
-        preloadFile,
-        queueItemId,
-        preloadSessionId,
-        myLoadEpoch,
-        {
-          type: MSG.FILE_PREPARE,
-          queueItemId,
-          name: fileName,
-          mime: preloadFile.type || readyPreload.mime || 'application/octet-stream',
-          size: preloadFile.size,
-          sessionId: preloadSessionId,
-          autoPlayDelayMs: 0,
-        },
-      );
-      if (
-        !activated ||
-        !isCurrentLoadEpoch(myLoadEpoch) ||
-        getCurrentQueueItemId() !== queueItemId
-      ) {
-        log.debug('[Host] Bounded preloaded activation failed or was superseded');
-        return;
-      }
-      const hostPlayAt = getLocalFileHostPlayAt();
-      if (requestLegacyBoundedV1HostPlay(0, hostPlayAt)) {
-        schedulePreload();
-        return;
-      }
-      await play(0, 0, undefined, undefined, hostPlayAt);
-      if (
-        !isCurrentLoadEpoch(myLoadEpoch) ||
-        getCurrentQueueItemId() !== queueItemId ||
-        getState('playback.activity') !== 'playing'
-      ) {
-        return;
-      }
-      broadcast({
-        type: MSG.PLAY,
-        time: 0,
-        queueItemId,
-        name: fileName,
-        hostPlayAt,
-      });
-      schedulePreload();
-      return;
-    }
     if (isProDirect) {
       broadcast({
         type: MSG.FILE_PREPARE,
@@ -1602,8 +960,7 @@ export async function playTrack(
       const remoteShareSessionId = getState('transfer.currentSessionId') || null;
       void shareRemoteFileIfNeeded(preloadFile, remoteShareSessionId, undefined, { queueItemId });
     }
-    const hostPlayAt = getLocalFileHostPlayAt();
-    await play(0, 0, undefined, undefined, hostPlayAt);
+    await play(0);
     // play() crosses AudioContext resume/engine-init awaits. A newer
     // playTrack() can take ownership during that window; the transport then
     // aborts the stale local start, so this caller must likewise suppress its
@@ -1621,7 +978,7 @@ export async function playTrack(
       time: 0,
       queueItemId,
       name: fileName,
-      hostPlayAt,
+      hostPlayAt: getLocalFileHostPlayAt(),
     });
     // SharedClock handles sync
     schedulePreload();
@@ -1664,22 +1021,7 @@ export async function playTrack(
       // an already-scheduled playVideo() cannot fire against the new target.
       cancelYtAutoSync();
       if (!isYtToYt) {
-        if (legacyBoundedFileV1Product.snapshot().current) {
-          const stopped = await stopAllMediaAsync({
-            silent: true,
-            cancelInFlight: true,
-            preservePlaylistIntent: true,
-          });
-          if (
-            !stopped ||
-            !isCurrentLoadEpoch(myLoadEpoch) ||
-            getCurrentQueueItemId() !== queueItemId
-          ) {
-            return;
-          }
-        } else {
-          stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
-        }
+        stopAllMedia({ silent: true }); // suppress IDLE flash — youtube:load follows
         if (wasPreparingFile) {
           // A superseded PRO fetch is aborted by the runtime when selection
           // changes. Release its file-only lifecycle too, otherwise the play
@@ -1833,18 +1175,7 @@ export async function playTrack(
 
   // Local file playback
   if (!stoppedYouTubeBeforeFileSelection) {
-    if (legacyBoundedFileV1Product.snapshot().current) {
-      const stopped = await stopAllMediaAsync({
-        silent: true,
-        cancelInFlight: true,
-        preservePlaylistIntent: true,
-      });
-      if (!stopped || !isCurrentLoadEpoch(myLoadEpoch) || getCurrentQueueItemId() !== queueItemId) {
-        return;
-      }
-    } else {
-      stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows
-    }
+    stopAllMedia({ silent: true }); // suppress IDLE flash — play() follows
   }
 
   const file = item.file;
@@ -1971,9 +1302,7 @@ export async function playTrack(
         return;
       }
 
-      const hostPlayAt = getLocalFileHostPlayAt();
-      if (requestLegacyBoundedV1HostPlay(restorePosition, hostPlayAt)) return;
-      await play(restorePosition, 0, undefined, undefined, hostPlayAt);
+      await play(restorePosition);
       if (
         !isCurrentLoadEpoch(myLoadEpoch) ||
         getCurrentQueueItemId() !== queueItemId ||
@@ -1986,7 +1315,7 @@ export async function playTrack(
         time: restorePosition,
         queueItemId,
         name: file.name,
-        hostPlayAt,
+        hostPlayAt: getLocalFileHostPlayAt(),
       });
       return;
     }
@@ -2000,15 +1329,13 @@ export async function playTrack(
         'autoPlayTimer',
         () => {
           if (getCurrentQueueItemId() !== queueItemId || !getQueueItemById(queueItemId)) return;
-          const hostPlayAt = getLocalFileHostPlayAt();
-          if (requestLegacyBoundedV1HostPlay(0, hostPlayAt)) return;
-          play(0, 0, undefined, undefined, hostPlayAt);
+          play(0);
           broadcast({
             type: MSG.PLAY,
             time: 0,
             queueItemId,
             name: file.name,
-            hostPlayAt,
+            hostPlayAt: getLocalFileHostPlayAt(),
           });
           // SharedClock handles sync
         },
@@ -2032,94 +1359,21 @@ export async function playTrack(
  */
 function handleEndOfPlaylist(reason: string): void {
   log.debug(`[Host] End of playlist: ${reason}. Resetting to deselected state.`);
-  const finish = (v2Owned: boolean): void => {
-    setCurrentAudioBuffer(null);
-    setPlaybackTrackMeta(null);
-    selectQueueItemById(null);
-    setState('files.current', null);
-    setState('player.pausedAt', 0);
-    if (!v2Owned) {
-      // Legacy guests mirror the terminal deselection through PAUSE. V2
-      // participants already received the exact stopped timeline revision.
-      transition({ type: 'PAUSE', time: 0, queueItemId: null, endOfPlaylist: true });
-      broadcast({
-        type: MSG.PAUSE,
-        time: 0,
-        queueItemId: null,
-        endOfPlaylist: true,
-        reason: 'end-of-playlist',
-      });
-    }
-    showToast(t('toast.playlist_ended'));
-  };
-
-  const expectedItems = getState('playlist.items');
-  const expectedRevision = getState('playlist.revision');
-  const expectedQueueItemId = getCurrentQueueItemId();
-  const v2Stop = requestV2HostFileStop({ cancelInFlight: true });
-  if (v2Stop) {
-    void v2Stop.then((stopped) => {
-      if (
-        !stopped ||
-        getState('playlist.items') !== expectedItems ||
-        getState('playlist.revision') !== expectedRevision ||
-        getCurrentQueueItemId() !== expectedQueueItemId
-      ) {
-        return;
-      }
-      finish(true);
-    });
-    return;
-  }
-
-  const boundedSnapshot = legacyBoundedFileV1Product.snapshot();
-  const boundedCurrent = boundedSnapshot.role === 'host' ? (boundedSnapshot.current ?? null) : null;
-  if (boundedCurrent) {
-    void stopAllMediaAsync({ cancelInFlight: true })
-      .then(async () => {
-        let settledSnapshot = legacyBoundedFileV1Product.snapshot();
-        if (!settledSnapshot.active || settledSnapshot.role !== 'host') return;
-        const exactCurrent = settledSnapshot.current;
-        if (
-          exactCurrent?.queueItemId === boundedCurrent.queueItemId &&
-          exactCurrent.legacySessionId === boundedCurrent.legacySessionId
-        ) {
-          const retired = await legacyBoundedFileV1Product.retireCurrent(
-            boundedCurrent.queueItemId,
-            boundedCurrent.legacySessionId,
-          );
-          if (!retired) return;
-        }
-        // STOP can settle false while its exact physical renderer is still
-        // drainable. Conversely, a newer incarnation can claim this playlist
-        // occurrence while the old drain is pending. Finish the terminal UI
-        // reset only after the captured owner is gone and no successor owns
-        // bounded output.
-        settledSnapshot = legacyBoundedFileV1Product.snapshot();
-        if (
-          !settledSnapshot.active ||
-          settledSnapshot.role !== 'host' ||
-          settledSnapshot.current !== null
-        ) {
-          return;
-        }
-        if (
-          getState('playlist.items') !== expectedItems ||
-          getState('playlist.revision') !== expectedRevision ||
-          getCurrentQueueItemId() !== expectedQueueItemId
-        ) {
-          return;
-        }
-        finish(false);
-      })
-      .catch((error) => {
-        log.warn('[Playlist] Bounded end-of-playlist retirement failed:', error);
-      });
-    return;
-  }
-
   stopAllMedia();
-  finish(false);
+  setCurrentAudioBuffer(null);
+  setPlaybackTrackMeta(null);
+  selectQueueItemById(null);
+  setState('files.current', null);
+  setState('player.pausedAt', 0);
+  transition({ type: 'PAUSE', time: 0, queueItemId: null, endOfPlaylist: true });
+  broadcast({
+    type: MSG.PAUSE,
+    time: 0,
+    queueItemId: null,
+    endOfPlaylist: true,
+    reason: 'end-of-playlist',
+  });
+  showToast(t('toast.playlist_ended'));
 }
 
 // ─── Play Next Track ───────────────────────────────────────────────
@@ -2220,14 +1474,12 @@ function restartCurrentTrackFromStart(queueItemId: QueueItemId): void {
     log.debug('[Playlist] Ignoring restart-current while file pipeline is preparing');
     return;
   }
-  const hostPlayAt = getLocalFileHostPlayAt();
-  if (requestLegacyBoundedV1HostPlay(0, hostPlayAt)) return;
-  play(0, 0, undefined, undefined, hostPlayAt);
+  play(0);
   broadcast({
     type: MSG.PLAY,
     time: 0,
     queueItemId,
-    hostPlayAt,
+    hostPlayAt: getLocalFileHostPlayAt(),
   });
   // SharedClock handles sync
 }
@@ -2376,9 +1628,6 @@ function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnecti
 
   const prevLength = (getState('playlist.items') || []).length;
   const previousCurrentQueueItemId = getCurrentQueueItemId();
-  const boundedBeforeSnapshot = legacyBoundedFileV1Product.snapshot();
-  const boundedBefore =
-    boundedBeforeSnapshot.role === 'guest' ? (boundedBeforeSnapshot.current ?? null) : null;
   const authorityEstablished = hasQueueAuthority(conn);
   if (!authorityEstablished && data.bootstrap !== true) {
     log.warn('[Playlist] Ignored playlist update before authority bootstrap');
@@ -2428,24 +1677,13 @@ function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnecti
     (getState('preload.ready')?.queueItemId === previousCurrentQueueItemId ||
       getState('preload.activeTarget')?.queueItemId === previousCurrentQueueItemId);
   if (authorityChanged || playlistEmptied || removedCurrentOwner) {
-    cancelV2HostMutation('Playlist room authority was reset');
     const reason = authorityChanged
       ? 'playlist-authority-rebased'
       : playlistEmptied
         ? 'playlist-emptied'
         : 'playlist-current-removed';
     if (authorityChanged) bus.emit('demo:authority-reset');
-    const boundedTarget =
-      boundedBefore &&
-      (authorityChanged ||
-        playlistEmptied ||
-        boundedBefore.queueItemId === previousCurrentQueueItemId)
-        ? boundedBefore
-        : null;
-    const boundedStop = boundedTarget
-      ? stopAllMediaAsync({ cancelInFlight: true, clearBuffer: true })
-      : null;
-    if (!boundedStop) stopAllMedia({ cancelInFlight: true, clearBuffer: true });
+    stopAllMedia({ cancelInFlight: true, clearBuffer: true });
     // A successor can already be arriving through the independent preload
     // channel. Keep that live session intact while dropping the deleted
     // current media; a full reset here would strand PLAY_PRELOADED after the
@@ -2467,25 +1705,6 @@ function handlePlaylistUpdate(data: Record<string, unknown>, conn?: DataConnecti
     clearPreviousTrackState(reason);
     // clearPreviousTrackState doesn't touch player.currentTrackMeta.
     setPlaybackTrackMeta(null);
-    if (boundedStop && boundedTarget) {
-      void boundedStop
-        .then(async () => {
-          const exactCurrent = legacyBoundedFileV1Product.snapshot().current;
-          if (
-            exactCurrent?.queueItemId !== boundedTarget.queueItemId ||
-            exactCurrent.legacySessionId !== boundedTarget.legacySessionId
-          ) {
-            return;
-          }
-          await legacyBoundedFileV1Product.retireCurrent(
-            boundedTarget.queueItemId,
-            boundedTarget.legacySessionId,
-          );
-        })
-        .catch((error) => {
-          log.warn('[Playlist] Bounded guest snapshot retirement failed:', error);
-        });
-    }
   }
 
   if (outcome === 'rebased') markQueueAuthorityReady(conn);
@@ -3021,76 +2240,6 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
         : sequentialSuccessor;
   }
 
-  const activeV2QueueItemId =
-    filePlaybackProductRuntime.currentHostRendererSnapshot()?.queueItemId ??
-    filePlaybackProductRuntime.currentHostTerminalRendererObservation()?.queueItemId ??
-    filePlaybackProductRuntime.currentHostFailedRendererObservation()?.queueItemId ??
-    null;
-  const boundedSnapshot = legacyBoundedFileV1Product.snapshot();
-  const activeBoundedQueueItemId =
-    boundedSnapshot.role === 'host' ? (boundedSnapshot.current?.queueItemId ?? null) : null;
-  const activeBoundedLegacySessionId =
-    boundedSnapshot.role === 'host' ? (boundedSnapshot.current?.legacySessionId ?? null) : null;
-  const awaitsV2QueueEmptyRetirement =
-    activeV2QueueItemId === currentQueueItemId && standardHostUsesV2();
-  const awaitsBoundedQueueEmptyRetirement = activeBoundedQueueItemId === currentQueueItemId;
-  if (
-    nextItems.length === 0 &&
-    wasCurrent &&
-    currentQueueItemId !== null &&
-    (awaitsV2QueueEmptyRetirement || awaitsBoundedQueueEmptyRetirement)
-  ) {
-    const requestedQueueItemIds = [...queueItemIds];
-    void stopAllMediaAsync({ cancelInFlight: true })
-      .then(async (stopped) => {
-        // V2 has no independent exact-retire fallback at this integration
-        // boundary. Bounded V1 does: even a false STOP settlement must attempt
-        // to drain the captured incarnation before the final row disappears.
-        if (!stopped && awaitsV2QueueEmptyRetirement && !awaitsBoundedQueueEmptyRetirement) {
-          return;
-        }
-        if (
-          awaitsBoundedQueueEmptyRetirement &&
-          activeBoundedQueueItemId !== null &&
-          activeBoundedLegacySessionId !== null
-        ) {
-          const exactCurrent = legacyBoundedFileV1Product.snapshot().current;
-          if (
-            exactCurrent?.queueItemId === activeBoundedQueueItemId &&
-            exactCurrent.legacySessionId === activeBoundedLegacySessionId
-          ) {
-            const retired = await legacyBoundedFileV1Product.retireCurrent(
-              activeBoundedQueueItemId,
-              activeBoundedLegacySessionId,
-            );
-            if (!retired) return;
-          }
-        }
-        const remainingV2QueueItemId =
-          filePlaybackProductRuntime.currentHostRendererSnapshot()?.queueItemId ??
-          filePlaybackProductRuntime.currentHostTerminalRendererObservation()?.queueItemId ??
-          filePlaybackProductRuntime.currentHostFailedRendererObservation()?.queueItemId ??
-          null;
-        const remainingBoundedSnapshot = legacyBoundedFileV1Product.snapshot();
-        const remainingBoundedQueueItemId =
-          remainingBoundedSnapshot.role === 'host'
-            ? (remainingBoundedSnapshot.current?.queueItemId ?? null)
-            : null;
-        if (
-          remainingV2QueueItemId === currentQueueItemId ||
-          remainingBoundedQueueItemId === currentQueueItemId
-        ) {
-          log.warn('[Playlist] Queue-empty retirement settled without releasing its file renderer');
-          return;
-        }
-        removeQueueItems(requestedQueueItemIds);
-      })
-      .catch((error) => {
-        log.warn('[Playlist] Queue-empty file renderer retirement failed:', error);
-      });
-    return;
-  }
-
   commitPlaylistItems(nextItems, { currentQueueItemId: successorQueueItemId });
   _shuffleOrder = nextShuffleOrder;
   if (_shuffleOrder.length === 0) {
@@ -3105,25 +2254,12 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
     removedQueueItemIds.has(getState('preload.nextQueueItemId') ?? '') ||
     removedQueueItemIds.has(getState('preload.ready')?.queueItemId ?? '') ||
     removedQueueItemIds.has(getState('preload.activeTarget')?.queueItemId ?? '');
-  const v2WarmOwnsRemovedItem = cancelV2NextLocalTrackWarmForRemovedQueueItems(removedQueueItemIds);
   if (preloadOwnsRemovedItem) clearPreloadState();
 
   const recoveryTarget = getState('playback.pendingRecoveryTarget');
   if (recoveryTarget?.queueItemId && removedQueueItemIds.has(recoveryTarget.queueItemId)) {
     setState('playback.pendingRecoveryTarget', null);
     setState('recovery.pending', false);
-  }
-
-  // Record-set storage follows stable queue occurrence identity, not renderer
-  // lifetime. Non-current rows can be deleted immediately. The bounded
-  // runtime defers the exact current row until its successor selection barrier
-  // (or exact empty-playlist retirement) has released all old readers.
-  for (const queueItemId of removedQueueItemIds) {
-    void legacyBoundedFileV1Product.removeQueueItem(queueItemId).catch(() => {
-      // Keep signed cleanup material out of application logs. The product
-      // boundary already reports a stage-only cleanup diagnostic.
-      log.warn('[Playlist] Bounded queue asset cleanup request failed');
-    });
   }
 
   const connectedPeers = getState('network.connectedPeers') || [];
@@ -3163,10 +2299,7 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
     setCurrentAudioBuffer(null);
     setState('files.current', null);
     void playTrack(successorQueueItemId);
-  } else if (
-    (preloadOwnsRemovedItem || v2WarmOwnsRemovedItem || standardHostUsesV2()) &&
-    nextItems.length > 0
-  ) {
+  } else if (preloadOwnsRemovedItem && nextItems.length > 0) {
     schedulePreload();
   }
 }
@@ -3278,27 +2411,6 @@ async function prepareAuthoritativePlayback(
   }
 
   try {
-    if (item.type === 'file') {
-      const bounded = await prepareProRoomBoundedFilePlayback(request);
-      if (bounded.status === 'superseded' || request.isCurrent?.() === false) {
-        return supersededAuthorityPrepare(request);
-      }
-      if (bounded.status === 'ready') {
-        // PREPARE is deliberately UI- and audio-inert. The previous renderer,
-        // title, selection, and seekbar remain authoritative until matching
-        // COMMIT produces native start evidence for this silent candidate.
-        return {
-          status: 'ready',
-          authority: request.authority,
-          queueItemId: request.queueItemId,
-          mediaKind: 'file',
-          durationSeconds: bounded.durationSeconds,
-          youtubeSubIndex: null,
-          youtubeVideoId: null,
-        };
-      }
-    }
-
     if (item.type === 'youtube') {
       // A PRO late-join snapshot can arrive while the join gesture's silent
       // iOS prime bounce is still awaiting PLAYING. Let that exact gesture
@@ -3385,18 +2497,10 @@ async function commitAuthoritativePlayback(
   request: Readonly<ProPlaybackCommitRequest>,
 ): Promise<ProPlaybackCommitResult> {
   if (request.state === 'idle') {
-    const hadBoundedCurrent = hasCurrentProRoomBoundedFilePlayback();
-    if (hadBoundedCurrent) {
-      const applied = await applyProPlaybackFileCommit(request);
-      if (!applied) {
-        return { status: 'failed', authority: request.authority, reason: 'media-unavailable' };
-      }
-    } else {
-      const delayMs = Number.isFinite(request.scheduleDelayMs)
-        ? Math.max(0, Math.min(30_000, request.scheduleDelayMs))
-        : 0;
-      if (delayMs > 0) await delay(delayMs);
-    }
+    const delayMs = Number.isFinite(request.scheduleDelayMs)
+      ? Math.max(0, Math.min(30_000, request.scheduleDelayMs))
+      : 0;
+    if (delayMs > 0) await delay(delayMs);
     if (
       request.isCurrent?.() === false ||
       getState('room.context').kind !== 'pro' ||
@@ -3440,14 +2544,9 @@ export function initPlaylist(): void {
       // authority generation in playback-authority-hooks fences any late
       // completion, while these existing cancellation seams release work.
       newLoadEpoch();
-      cancelProRoomBoundedFilePlayback();
       cancelProRoomPlaylistFileResolution();
       clearManagedTimer('decode-fail-advance');
       cancelYouTubeAuthorityPreparation();
-    },
-    invalidateCommitted: invalidateCommittedProRoomBoundedFilePlayback,
-    reset: () => {
-      void clearProRoomBoundedFilePlayback();
     },
   });
   registerProRoomLegacyPlaybackRestoreHandler(restoreProRoomFilePlayback);
@@ -3494,16 +2593,14 @@ export function initPlaylist(): void {
           newLoadEpoch();
           const queueItemId = getCurrentQueueItemId();
           if (!queueItemId || !getQueueItemById(queueItemId)) return;
-          const hostPlayAt = getLocalFileHostPlayAt();
-          if (requestLegacyBoundedV1HostPlay(0, hostPlayAt)) return;
-          play(0, 0, undefined, undefined, hostPlayAt).catch(() => {
+          play(0).catch(() => {
             /* noop */
           });
           broadcast({
             type: MSG.PLAY,
             time: 0,
             queueItemId,
-            hostPlayAt,
+            hostPlayAt: getLocalFileHostPlayAt(),
           });
           // SharedClock handles sync
         },
@@ -3567,102 +2664,34 @@ export function initPlaylist(): void {
     removeQueueItems(queueItemIds);
   });
 
-  bus.on('playlist:cancel-v2-playback-intent', () => {
-    cancelV2HostMutation('V2 playlist intent was cancelled by a media transition');
-  });
-
   bus.on('playlist:reorder-track', (queueItemId, beforeQueueItemId, baseRevision) => {
     reorderQueueItem(queueItemId, beforeQueueItemId, baseRevision);
   });
 
   // Host: send queue authority during the ordered pre-playback bootstrap phase.
-  bus.on('network:peer-bootstrap', (conn, send, acknowledge) => {
-    if (!conn?.open) {
-      acknowledge?.(false);
-      return;
-    }
+  bus.on('network:peer-bootstrap', (conn) => {
+    if (!conn?.open) return;
 
     // Only Host bootstraps guests
     const hostConn = getState('network.hostConn');
-    if (hostConn) {
-      acknowledge?.(false);
-      return;
-    }
+    if (hostConn) return;
 
     try {
-      const sendFrame =
-        typeof send === 'function'
-          ? send
-          : (frame: AnyProtocolMsg) => {
-              conn.send(frame);
-              return true;
-            };
       // Full authoritative queue snapshot must be first after WELCOME. Every
       // qid/media frame on the guest is gated until this exact connection's
       // baseline has been applied.
-      if (!sendFrame({ type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), bootstrap: true })) {
-        acknowledge?.(false);
-        return;
-      }
+      conn.send({ type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), bootstrap: true });
 
-      // Repeat mode
       const repeatMode = getState('playlist.repeatMode') || 0;
-      if (!sendFrame({ type: MSG.REPEAT_MODE, value: repeatMode, _bootstrap: true })) {
-        acknowledge?.(false);
-        return;
-      }
+      conn.send({ type: MSG.REPEAT_MODE, value: repeatMode, _bootstrap: true });
 
-      // Shuffle mode
       const isShuffle = getState('playlist.isShuffle');
-      if (!sendFrame({ type: MSG.SHUFFLE_MODE, value: isShuffle, _bootstrap: true })) {
-        acknowledge?.(false);
-        return;
-      }
+      conn.send({ type: MSG.SHUFFLE_MODE, value: isShuffle, _bootstrap: true });
 
       log.debug('[Playlist] Bootstrap: sent playlist state to new peer');
-      acknowledge?.(true);
-    } catch (e) {
-      log.warn('[Playlist] Bootstrap send failed:', e);
-      acknowledge?.(false);
-    }
-  });
-
-  // V2 applies the three authority frames inside its exact application
-  // session, and emits APPLIED only after each synchronous acknowledgement.
-  bus.on('network:peer-bootstrap-apply', (frame, conn, acknowledge) => {
-    let applied = false;
-    try {
-      if (!frame || typeof frame !== 'object' || Array.isArray(frame)) {
-        acknowledge(false);
-        return;
-      }
-      const data = frame as Record<string, unknown>;
-      if (data.type === MSG.PLAYLIST_UPDATE && data.bootstrap === true) {
-        if (hasQueueAuthority(conn)) {
-          acknowledge(false);
-          return;
-        }
-        handlePlaylistUpdate(data, conn);
-        applied = hasQueueAuthority(conn);
-      } else if (
-        data.type === MSG.REPEAT_MODE &&
-        data._bootstrap === true &&
-        (data.value === 0 || data.value === 1 || data.value === 2)
-      ) {
-        handleRepeatMode(data, conn);
-        applied = getState('playlist.repeatMode') === data.value;
-      } else if (
-        data.type === MSG.SHUFFLE_MODE &&
-        data._bootstrap === true &&
-        typeof data.value === 'boolean'
-      ) {
-        handleShuffleMode(data, conn);
-        applied = getState('playlist.isShuffle') === data.value;
-      }
     } catch (error) {
-      log.warn('[Playlist] Bootstrap apply failed:', error);
+      log.warn('[Playlist] Bootstrap send failed:', error);
     }
-    acknowledge(applied);
   });
 
   log.info('[Playlist] Initialized');

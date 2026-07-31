@@ -82,7 +82,6 @@ export type PlaybackEvent =
   // ── Playback control ──
   | { type: 'PLAY'; time: number; queueItemId: QueueItemId | null; sameTrack: boolean }
   | { type: 'PAUSE'; time: number; queueItemId: QueueItemId | null; endOfPlaylist: boolean }
-  | { type: 'PRODUCT_TIMELINE_RENDERED'; phase: 'playing' | 'paused' }
   | { type: 'TRACK_ENDED' } // natural end of current audio buffer
   // ── Decode outcomes ──
   | { type: 'DECODE_SUCCESS' }
@@ -117,16 +116,6 @@ type TransitionResult =
 // design context rather than transition authority.
 
 function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
-  // V2 media owners emit this only after native renderer evidence and
-  // connection-media authority commit. It is an authoritative projection of
-  // the file renderer, not a second playback command, so it may replace any
-  // legacy pipeline state.
-  if (ev.type === 'PRODUCT_TIMELINE_RENDERED') {
-    return {
-      next: ev.phase === 'playing' ? PLAYBACK_STATE.PLAYING : PLAYBACK_STATE.PAUSED,
-    };
-  }
-
   // ── Global transitions (apply from ANY state) ──
   // PAUSE with endOfPlaylist flag wipes us back to IDLE regardless of where we were.
   if (ev.type === 'PAUSE' && ev.endOfPlaylist) {
@@ -474,7 +463,7 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
  * is a no-op. Those modes own their own state paths.
  */
 export function transition(ev: PlaybackEvent): PlaybackStateValue {
-  if (isExternalOwner() && ev.type !== 'PRODUCT_TIMELINE_RENDERED') {
+  if (isExternalOwner()) {
     // Other playback modes own separate state paths, so file-lifecycle events
     // cannot change their state.
     return getState('playback.lifecycle');

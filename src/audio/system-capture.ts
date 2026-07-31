@@ -20,11 +20,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from './context.ts';
 import { initAudio, getWidener, getMasterGain } from './engine.ts';
-import {
-  applyLegacyBoundedV1HostPausedCheckpoint,
-  getTrackPosition,
-  stopAllMediaAsync,
-} from '../player/transport.ts';
+import { getTrackPosition, stopAllMediaAsync } from '../player/transport.ts';
 import {
   claimPlaybackOwner,
   createSystemAudioTrackMeta,
@@ -47,7 +43,6 @@ import {
   publishLocalProSystemAudio,
   releaseLocalProSystemAudioLease,
 } from '../pro-room/system-audio-bridge.ts';
-import { legacyBoundedFileV1Product } from '../player/legacy-bounded-file-v1-product.ts';
 
 // ─── Module State ─────────────────────────────────────────────────
 
@@ -85,13 +80,6 @@ interface PreSystemAudioState {
   channelMode: number;
   queueItemId: QueueItemId | null;
   subIndex: number;
-  bounded: Readonly<{
-    role: 'host' | 'guest';
-    queueItemId: QueueItemId;
-    legacySessionId: number;
-    positionSeconds: number;
-    durationSeconds: number;
-  }> | null;
 }
 
 let _preSysAudioState: PreSystemAudioState | null = null;
@@ -127,206 +115,13 @@ function isCurrentSystemAudioRoom(expected: Readonly<SystemAudioRoomIdentity>): 
   );
 }
 
-function capturePreSystemAudioBoundedState(): PreSystemAudioState['bounded'] {
-  const snapshot = legacyBoundedFileV1Product.snapshot();
-  const current = snapshot.current;
-  const queueItemId = getState('playlist.currentQueueItemId');
-  const playback = getPlaybackModeActivitySnapshot();
-  if (
-    playback.mode !== 'file' ||
-    (playback.activity !== 'playing' && playback.activity !== 'paused') ||
-    !snapshot.active ||
-    (snapshot.role !== 'host' && snapshot.role !== 'guest') ||
-    !current ||
-    current.state !== 'ready' ||
-    current.queueItemId !== queueItemId ||
-    !Number.isFinite(current.durationSeconds) ||
-    (current.durationSeconds ?? 0) <= 0
-  ) {
-    return null;
-  }
-
-  const livePosition = legacyBoundedFileV1Product.positionSeconds();
-  const pausedAt = getState('player.pausedAt');
-  const positionSeconds =
-    current.phase === 'stopped'
-      ? pausedAt
-      : livePosition !== null && Number.isFinite(livePosition)
-        ? livePosition
-        : current.positionSeconds;
-  return Object.freeze({
-    role: snapshot.role,
-    queueItemId: current.queueItemId,
-    legacySessionId: current.legacySessionId,
-    positionSeconds: Math.min(
-      current.durationSeconds!,
-      Number.isFinite(positionSeconds) ? Math.max(0, positionSeconds) : 0,
-    ),
-    durationSeconds: current.durationSeconds!,
-  });
-}
-
-type RestorableBoundedState = Readonly<{
-  role: 'host' | 'guest';
-  queueItemId: QueueItemId;
-  legacySessionId: number;
-  positionSeconds: number;
-  durationSeconds: number;
-  trackMeta: TrackMeta;
-}>;
-
-function readLiveRestorableBoundedState(): RestorableBoundedState | null {
-  const snapshot = legacyBoundedFileV1Product.snapshot();
-  const current = snapshot.current;
-  const selectedQueueItemId = getState('playlist.currentQueueItemId');
-  const selected = getQueueItemById(current?.queueItemId);
-  if (
-    !snapshot.active ||
-    (snapshot.role !== 'host' && snapshot.role !== 'guest') ||
-    !current ||
-    current.state !== 'ready' ||
-    current.queueItemId !== selectedQueueItemId ||
-    !selected ||
-    selected.type !== 'file' ||
-    !Number.isFinite(current.durationSeconds) ||
-    (current.durationSeconds ?? 0) <= 0
-  ) {
-    return null;
-  }
-
-  const durationSeconds = current.durationSeconds!;
-  const livePosition = legacyBoundedFileV1Product.positionSeconds();
-  const positionSeconds =
-    current.phase === 'stopped'
-      ? current.positionSeconds
-      : livePosition !== null && Number.isFinite(livePosition)
-        ? livePosition
-        : current.positionSeconds;
-  return Object.freeze({
-    role: snapshot.role,
-    queueItemId: current.queueItemId,
-    legacySessionId: current.legacySessionId,
-    positionSeconds: Math.min(
-      durationSeconds,
-      Number.isFinite(positionSeconds) ? Math.max(0, positionSeconds) : 0,
-    ),
-    durationSeconds,
-    trackMeta: selected,
-  });
-}
-
-function projectRestorableBoundedState(
-  bounded: RestorableBoundedState,
-  positionSeconds = bounded.positionSeconds,
-  trackMeta: TrackMeta = bounded.trackMeta,
-): void {
-  setState('playlist.currentQueueItemId', bounded.queueItemId);
-  setState('player.pausedAt', Math.min(bounded.durationSeconds, positionSeconds));
-  setPlaybackTrackMeta(trackMeta);
-  setPlaybackFilePaused();
-  bus.emit('ui:duration-update', bounded.durationSeconds);
-  bus.emit('ui:play-btn-state', true);
-}
-
-async function compensateStandardBoundedCheckpoint(
-  snapshot: Readonly<PreSystemAudioState>,
-  captured: NonNullable<PreSystemAudioState['bounded']>,
-  isOperationCurrent: () => boolean,
-): Promise<boolean> {
-  if (
-    !isOperationCurrent() ||
-    isSystemAudioActive() ||
-    captured.role !== 'host' ||
-    snapshot.room.kind !== 'standard' ||
-    !isCurrentSystemAudioRoom(snapshot.room) ||
-    !isCoordinator()
-  ) {
-    return false;
-  }
-  const live = readLiveRestorableBoundedState();
-  if (
-    !live ||
-    live.role !== captured.role ||
-    live.queueItemId !== captured.queueItemId ||
-    live.legacySessionId !== captured.legacySessionId ||
-    getState('playlist.currentQueueItemId') !== captured.queueItemId
-  ) {
-    return false;
-  }
-
-  const restoredPosition = Math.min(live.durationSeconds, captured.positionSeconds);
-  const compensation = applyLegacyBoundedV1HostPausedCheckpoint(
-    captured.queueItemId,
-    captured.legacySessionId,
-    restoredPosition,
-  );
-  const applied = compensation ? await compensation : false;
-  const restoredLive = readLiveRestorableBoundedState();
-  const remainsExact =
-    isOperationCurrent() &&
-    !isSystemAudioActive() &&
-    isCurrentSystemAudioRoom(snapshot.room) &&
-    isCoordinator() &&
-    restoredLive?.role === captured.role &&
-    restoredLive.queueItemId === captured.queueItemId &&
-    restoredLive.legacySessionId === captured.legacySessionId &&
-    getState('playlist.currentQueueItemId') === captured.queueItemId;
-  if (!remainsExact || !restoredLive) return false;
-
-  if (!applied) {
-    // Guests already hold the transition STOP. Keep the host on the same
-    // product checkpoint instead of displaying an uncommitted local N.
-    const productCurrent = legacyBoundedFileV1Product.snapshot().current;
-    const productPosition =
-      productCurrent?.queueItemId === captured.queueItemId &&
-      productCurrent.legacySessionId === captured.legacySessionId &&
-      Number.isFinite(productCurrent.positionSeconds)
-        ? Math.max(0, productCurrent.positionSeconds)
-        : 0;
-    projectRestorableBoundedState(
-      restoredLive,
-      Math.min(restoredLive.durationSeconds, productPosition),
-      snapshot.currentTrackMeta ?? restoredLive.trackMeta,
-    );
-    return false;
-  }
-
-  projectRestorableBoundedState(
-    restoredLive,
-    restoredPosition,
-    snapshot.currentTrackMeta ?? restoredLive.trackMeta,
-  );
-  broadcast({
-    type: MSG.PAUSE,
-    time: restoredPosition,
-    queueItemId: captured.queueItemId,
-    reason: 'seek',
-  });
-  return true;
-}
-
-async function restoreRejectedPendingCapture(
-  snapshot: Readonly<PreSystemAudioState>,
-): Promise<void> {
+function restoreRejectedPendingCapture(snapshot: Readonly<PreSystemAudioState>): void {
   if (
     _preSysAudioState !== snapshot ||
     snapshot.room.kind !== 'standard' ||
     !isCurrentSystemAudioRoom(snapshot.room) ||
     !isCoordinator()
   ) {
-    return;
-  }
-
-  const captured = snapshot.bounded;
-  if (captured) {
-    // Host-only projection is forbidden: stopAllMediaAsync() already sent
-    // transition PAUSE(0) to guests. Rebuild the exact product checkpoint
-    // first, then publish only while the same standard-room authority remains.
-    await compensateStandardBoundedCheckpoint(
-      snapshot,
-      captured,
-      () => _preSysAudioState === snapshot,
-    );
     return;
   }
 
@@ -339,7 +134,7 @@ async function restoreRejectedPendingCapture(
       currentTrackMeta?.queueItemId !== undefined &&
       currentTrackMeta.queueItemId !== capturedMetaQueueItemId)
   ) {
-    // A non-bounded successor already owns the visible selection.
+    // A successor already owns the visible selection.
     return;
   }
 
@@ -647,7 +442,6 @@ async function performSystemAudioCaptureStart(
   const preSysAudioState: PreSystemAudioState = {
     room: startRoom,
     playback,
-    bounded: capturePreSystemAudioBoundedState(),
     positionSeconds: Number.isFinite(rawPositionSeconds) ? Math.max(0, rawPositionSeconds) : 0,
     currentTrackMeta: getState('player.currentTrackMeta'),
     channelMode: getState('audio.channelMode'),
@@ -699,7 +493,7 @@ async function performSystemAudioCaptureStart(
       isCoordinator() &&
       !hasSystemAudioDeviceCapacity();
     if (restoreRejectedStart) {
-      await restoreRejectedPendingCapture(preSysAudioState);
+      restoreRejectedPendingCapture(preSysAudioState);
     }
     discardPendingStart();
     if (startEpoch === _captureStartEpoch && roomStillCurrent) {
@@ -763,7 +557,7 @@ async function performSystemAudioCaptureStart(
     stereoUpmix.connect(widener.input);
   } else {
     log.error('[SystemAudio] No widener found');
-    abortPreparedCapture(startEpoch, preSysAudioState);
+    abortPreparedCapture(preSysAudioState);
     if (isProRoom) void releaseLocalProSystemAudioLease().catch(() => undefined);
     return;
   }
@@ -802,7 +596,7 @@ async function performSystemAudioCaptureStart(
         return;
       }
       log.warn('[SystemAudio] PRO publication failed:', error);
-      abortPreparedCapture(startEpoch, preSysAudioState);
+      abortPreparedCapture(preSysAudioState);
       void releaseLocalProSystemAudioLease().catch(() => undefined);
       if (
         error instanceof Error &&
@@ -859,7 +653,7 @@ function stopSystemAudioCapture(opts?: {
   reason?: SystemAudioStopReason;
 }): void {
   clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
-  const restoreEpoch = ++_captureStartEpoch;
+  ++_captureStartEpoch;
   _captureStartPromise = null;
   if (!isSystemAudioActive() && !_capturedStream) {
     // A pending start may already have snapshotted the previous owner while
@@ -885,9 +679,7 @@ function stopSystemAudioCapture(opts?: {
   muteLocalOutput(false);
 
   if (shouldRestore && _preSysAudioState) {
-    restorePreSystemAudioPlaybackState(_preSysAudioState, {
-      isCurrent: () => _captureStartEpoch === restoreEpoch && !isSystemAudioActive(),
-    });
+    restorePreSystemAudioPlaybackState(_preSysAudioState);
   } else if (shouldRestore) {
     setPlaybackTrackMeta(null);
     setPlaybackIdle();
@@ -919,10 +711,7 @@ function stopSystemAudioCapture(opts?: {
   log.info('[SystemAudio] Capture stopped');
 }
 
-export function restorePreSystemAudioPlaybackState(
-  snapshot: PreSystemAudioState,
-  options: Readonly<{ isCurrent?: () => boolean }> = {},
-): void {
+export function restorePreSystemAudioPlaybackState(snapshot: PreSystemAudioState): void {
   // Restore channel UI to previous selection.
   try {
     document
@@ -933,78 +722,6 @@ export function restorePreSystemAudioPlaybackState(
       ?.classList.add('active');
   } catch {
     /* noop */
-  }
-
-  if (snapshot.bounded) {
-    const live = readLiveRestorableBoundedState();
-    const exact =
-      live?.role === snapshot.bounded.role &&
-      live.queueItemId === snapshot.bounded.queueItemId &&
-      live.legacySessionId === snapshot.bounded.legacySessionId &&
-      getState('playlist.currentQueueItemId') === snapshot.bounded.queueItemId;
-    if (live && exact) {
-      const restoredPosition = Math.min(live.durationSeconds, snapshot.bounded.positionSeconds);
-      if (
-        snapshot.bounded.role === 'host' &&
-        snapshot.room.kind === 'standard' &&
-        isCurrentSystemAudioRoom(snapshot.room) &&
-        isCoordinator()
-      ) {
-        const productCurrent = legacyBoundedFileV1Product.snapshot().current;
-        const productPosition =
-          productCurrent?.queueItemId === snapshot.bounded.queueItemId &&
-          productCurrent.legacySessionId === snapshot.bounded.legacySessionId &&
-          Number.isFinite(productCurrent.positionSeconds)
-            ? Math.max(0, productCurrent.positionSeconds)
-            : 0;
-        // Guests currently hold this physical STOP checkpoint. Project it
-        // locally first so a failed compensation remains consistent; the
-        // async helper is the sole writer allowed to promote the room to N.
-        projectRestorableBoundedState(
-          live,
-          Math.min(live.durationSeconds, productPosition),
-          snapshot.currentTrackMeta ?? live.trackMeta,
-        );
-        void compensateStandardBoundedCheckpoint(
-          snapshot,
-          snapshot.bounded,
-          options.isCurrent ?? (() => true),
-        );
-        return;
-      }
-      projectRestorableBoundedState(
-        live,
-        restoredPosition,
-        snapshot.currentTrackMeta ?? live.trackMeta,
-      );
-      return;
-    }
-    if (live && !exact) {
-      // A newer bounded occurrence became authoritative while capture owned
-      // the output. Project that live source, never the captured incarnation.
-      projectRestorableBoundedState(live);
-      return;
-    }
-
-    const selectedQueueItemId = getState('playlist.currentQueueItemId');
-    const selectedTrackMeta = getState('player.currentTrackMeta');
-    const hasSuccessorUi =
-      (selectedQueueItemId !== null && selectedQueueItemId !== snapshot.bounded.queueItemId) ||
-      (selectedTrackMeta?.queueItemId !== undefined &&
-        selectedTrackMeta.queueItemId !== snapshot.bounded.queueItemId);
-    if (hasSuccessorUi) {
-      // Release system-audio ownership without erasing a successor that has
-      // not yet published its own ready bounded source.
-      setPlaybackIdle();
-      return;
-    }
-
-    // The captured bounded source disappeared and no successor owns the UI.
-    // Fail closed instead of fabricating duration/position from stale state.
-    setPlaybackTrackMeta(null);
-    setPlaybackIdle();
-    bus.emit('ui:play-btn-state', false);
-    return;
   }
 
   setState('player.pausedAt', snapshot.positionSeconds);
@@ -1120,7 +837,7 @@ function cleanupCapture(): void {
   }
 }
 
-function abortPreparedCapture(startEpoch: number, snapshot: Readonly<PreSystemAudioState>): void {
+function abortPreparedCapture(snapshot: Readonly<PreSystemAudioState>): void {
   clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
   cleanupCapture();
   _captureRoomKind = null;
@@ -1128,14 +845,12 @@ function abortPreparedCapture(startEpoch: number, snapshot: Readonly<PreSystemAu
   if (_preSysAudioState === snapshot) {
     if (snapshot.room.kind === 'pro') {
       // PRO playback truth is server-authoritative. Once the prior media STOP
-      // has committed, a local-only rollback (file, bounded, or YouTube) would
+      // has committed, a local-only rollback (file or YouTube) would
       // fork this device from the room. Until an authoritative PRO resume
       // command exists, publication/setup aborts must remain fail-closed.
       setPlaybackIdle();
     } else {
-      restorePreSystemAudioPlaybackState(snapshot, {
-        isCurrent: () => _captureStartEpoch === startEpoch && !isSystemAudioActive(),
-      });
+      restorePreSystemAudioPlaybackState(snapshot);
     }
     _preSysAudioState = null;
   } else if (!isSystemAudioActive()) {

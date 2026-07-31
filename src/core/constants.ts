@@ -82,7 +82,7 @@ export const MAX_SYSTEM_AUDIO_DEVICES = 4;
 /** Hard ceiling for one host-side system-audio sharing session. */
 export const SYSTEM_AUDIO_SHARE_LIMIT_MS = 2 * 60 * 60 * 1000;
 /** Show the local-file warning only once the ninth connected guest requires
- *  the bounded R2 fanout path. The fixed room ceiling must never make the
+ *  the R2 fanout path. The fixed room ceiling must never make the
  *  dialog appear in an otherwise direct-transfer room. */
 export const WARN_WHEN_CONNECTED_LOCAL_GUESTS_AT_LEAST = 9;
 export const PEER_NAME_PREFIX = 'Peer';
@@ -113,12 +113,9 @@ export const MSG = {
   EQ_UPDATE: 'eq-update',
   FILE_CHUNK: 'file-chunk',
   FILE_END: 'file-end',
-  FILE_BOUNDED_V1_CAPABILITY: 'file-bounded-v1-capability',
   FILE_PREPARE: 'file-prepare',
   FILE_R2_CAPABILITY: 'file-r2-capability',
   FILE_R2_PLAIN_CAPABILITY: 'file-r2-plain-capability',
-  FILE_R2_RECORD_DESCRIPTOR: 'file-r2-record-descriptor',
-  FILE_R2_RECORD_RESULT: 'file-r2-record-result',
   REMOTE_FILE_UNAVAILABLE: 'remote-file-unavailable',
   REMOTE_FILE_SHARE: 'remote-file-share',
   FILE_RESUME: 'file-resume',

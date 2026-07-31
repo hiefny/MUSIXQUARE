@@ -10,7 +10,7 @@
  * predicted device-memory budget. Browser allocation and decode failures are
  * allowed to surface naturally so conservative estimates do not reject files
  * that a particular device can actually play. The ledger remains useful for
- * ownership, cleanup, diagnostics, and a future bounded streaming engine.
+ * ownership, cleanup, and diagnostics.
  */
 
 import { probeAudioChannelCount } from './audio-header.ts';

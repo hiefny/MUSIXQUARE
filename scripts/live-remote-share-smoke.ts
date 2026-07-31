@@ -3,7 +3,6 @@
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 
 import { decryptToFile, encryptFile } from '../src/share/crypto.js';
-import { R2RecordCryptoV2 } from '../src/share/r2-record-crypto-v2.js';
 
 const APP_ORIGIN = 'https://musixquare.com';
 const REMOTE_ORIGIN = 'https://share.musixquare.com';
@@ -12,14 +11,10 @@ const MAX_SMOKE_BYTES = 1024 * 1024;
 const FILE_NAME = 'live-remote-share-smoke.wav';
 const FILE_MIME = 'audio/wav';
 const REQUEST_TIMEOUT_MS = 30_000;
-const WORKER_V2_PROPAGATION_TIMEOUT_MS = 30_000;
-const WORKER_V2_RETRY_INTERVAL_MS = 1_000;
+const WORKER_PROPAGATION_TIMEOUT_MS = 30_000;
+const WORKER_RETRY_INTERVAL_MS = 1_000;
 const R2_CORS_PROPAGATION_TIMEOUT_MS = 45_000;
 const R2_CORS_RETRY_INTERVAL_MS = 2_000;
-const RECORD_SET_VERSION = 2;
-const RECORD_SIZE = R2RecordCryptoV2.RECORD_PLAINTEXT_BYTES;
-const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const UUID_V8_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 interface RemoteShareSession {
   uploadUrl: string;
@@ -40,34 +35,6 @@ interface PlainRemoteShareSession {
   cleanupToken: string;
   queueItemId: string;
   sessionId: number;
-}
-
-interface RemoteRecordSetRecord {
-  index: number;
-  objectId: string;
-  plaintextSize: number;
-  encryptedSize: number;
-  downloadUrl: string;
-}
-
-interface RemoteRecordSetSession {
-  v: typeof RECORD_SET_VERSION;
-  setId: string;
-  recordSize: number;
-  recordCount: number;
-  expiresAt: number;
-  setToken: string;
-  cleanupToken: string;
-  records: RemoteRecordSetRecord[];
-}
-
-interface RemoteRecordUploadAuthority extends RemoteRecordSetRecord {
-  v: typeof RECORD_SET_VERSION;
-  setId: string;
-  uploadUrl: string;
-  uploadHeaders: Record<string, string>;
-  uploadUrlExpiresAt: number;
-  expiresAt: number;
 }
 
 interface UploadTarget {
@@ -98,57 +65,36 @@ function assertAllowedOrigin(response: Response, label: string): void {
   }
 }
 
-async function waitForRemoteShareWorkerReady(requireRecordSet: boolean): Promise<void> {
-  const deadline = Date.now() + WORKER_V2_PROPAGATION_TIMEOUT_MS;
+async function waitForRemoteShareWorkerReady(): Promise<void> {
+  const deadline = Date.now() + WORKER_PROPAGATION_TIMEOUT_MS;
   let consecutiveReadyReads = 0;
 
   for (;;) {
     const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/security-config`, {
       headers: { Accept: 'application/json', Origin: APP_ORIGIN },
     });
-    assertAllowedOrigin(response, 'remote-share V2 readiness');
-    const config = await readJson(response, 'remote-share V2 readiness');
+    assertAllowedOrigin(response, 'remote-share readiness');
+    const config = await readJson(response, 'remote-share readiness');
     if (
       typeof config.capabilityRequired !== 'boolean' ||
       config.scope !== 'remote-share' ||
       typeof config.ttl !== 'number'
     ) {
-      throw new Error('remote-share V2 readiness returned invalid security config');
+      throw new Error('remote-share readiness returned invalid security config');
     }
 
-    const advertisedVersion = requireRecordSet
-      ? config.recordSetVersion
-      : config.workerContractVersion;
-    const idempotencyReady = !requireRecordSet || config.recordSetCreateIdempotency === true;
     const plainWholeReady =
       config.plainWholeObjectVersion === 1 && config.downloadAuthorizationVersion === 1;
-    if (advertisedVersion === RECORD_SET_VERSION && plainWholeReady) {
-      if (idempotencyReady) {
-        consecutiveReadyReads += 1;
-        if (consecutiveReadyReads >= 2) return;
-      } else {
-        // The previous production Worker already advertises record-set v2.
-        // During edge propagation, wait for the new idempotency capability
-        // instead of misclassifying that otherwise-compatible Worker.
-        consecutiveReadyReads = 0;
-      }
-    } else if (advertisedVersion === undefined || !plainWholeReady) {
-      // A just-superseded Worker does not advertise this contract. The
-      // rollback-safe bridge advertises only its Worker contract; the full
-      // deployment additionally advertises active record-set admission.
-      consecutiveReadyReads = 0;
-    } else {
-      throw new Error('remote-share readiness returned an unsupported contract version');
-    }
+    if (config.workerContractVersion === 1 && plainWholeReady) {
+      consecutiveReadyReads += 1;
+      if (consecutiveReadyReads >= 2) return;
+    } else consecutiveReadyReads = 0;
 
     if (Date.now() >= deadline) {
-      throw new Error('remote-share V2 readiness did not converge');
+      throw new Error('remote-share readiness did not converge');
     }
     await new Promise((resolve) =>
-      setTimeout(
-        resolve,
-        Math.min(WORKER_V2_RETRY_INTERVAL_MS, Math.max(0, deadline - Date.now())),
-      ),
+      setTimeout(resolve, Math.min(WORKER_RETRY_INTERVAL_MS, Math.max(0, deadline - Date.now()))),
     );
   }
 }
@@ -481,241 +427,7 @@ async function cleanupPlain(session: PlainRemoteShareSession, roomId: string): P
   });
 }
 
-function recordSetRequestBody(
-  roomId: string,
-  queueItemId: string,
-  applicationSessionId: string,
-  sourceIdentity: string,
-  sourceFile: File,
-  name = sourceFile.name,
-): string {
-  return JSON.stringify({
-    roomId,
-    sessionId: applicationSessionId,
-    queueItemId,
-    sourceIdentity,
-    name,
-    mime: sourceFile.type,
-    size: sourceFile.size,
-    recordSize: RECORD_SIZE,
-    recordCount: 1,
-  });
-}
-
-async function requestRecordSet(
-  token: string,
-  roomId: string,
-  queueItemId: string,
-  applicationSessionId: string,
-  sourceIdentity: string,
-  sourceFile: File,
-  idempotencyKey: string,
-): Promise<RemoteRecordSetSession> {
-  const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/v2/sets/idempotent`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Origin: APP_ORIGIN,
-      'X-MXQR-Idempotency-Key': idempotencyKey,
-      ...(token ? { 'X-MXQR-Capability': token } : {}),
-    },
-    body: recordSetRequestBody(
-      roomId,
-      queueItemId,
-      applicationSessionId,
-      sourceIdentity,
-      sourceFile,
-    ),
-  });
-  assertAllowedOrigin(response, 'remote-share V2 record set');
-  const value = await readJson(response, 'remote-share V2 record set');
-  const records = value.records;
-  if (
-    value.v !== RECORD_SET_VERSION ||
-    typeof value.setId !== 'string' ||
-    !UUID_V4_RE.test(value.setId) ||
-    value.recordSize !== RECORD_SIZE ||
-    value.recordCount !== 1 ||
-    typeof value.expiresAt !== 'number' ||
-    !Number.isSafeInteger(value.expiresAt) ||
-    value.expiresAt <= Date.now() ||
-    typeof value.setToken !== 'string' ||
-    !value.setToken.includes('.') ||
-    typeof value.cleanupToken !== 'string' ||
-    !UUID_V4_RE.test(value.cleanupToken) ||
-    !Array.isArray(records) ||
-    records.length !== 1
-  ) {
-    throw new Error('invalid remote-share V2 record set response');
-  }
-  const record = records[0] as Record<string, unknown> | undefined;
-  if (
-    !record ||
-    record.index !== 0 ||
-    typeof record.objectId !== 'string' ||
-    !UUID_V8_RE.test(record.objectId) ||
-    record.plaintextSize !== sourceFile.size ||
-    record.encryptedSize !== sourceFile.size + R2RecordCryptoV2.AES_GCM_TAG_BYTES ||
-    record.downloadUrl !== `${REMOTE_ORIGIN}/download/${roomId}/${record.objectId}`
-  ) {
-    throw new Error('invalid remote-share V2 record descriptor');
-  }
-  return {
-    v: RECORD_SET_VERSION,
-    setId: value.setId,
-    recordSize: RECORD_SIZE,
-    recordCount: 1,
-    expiresAt: value.expiresAt,
-    setToken: value.setToken,
-    cleanupToken: value.cleanupToken,
-    records: [
-      {
-        index: 0,
-        objectId: record.objectId,
-        plaintextSize: sourceFile.size,
-        encryptedSize: sourceFile.size + R2RecordCryptoV2.AES_GCM_TAG_BYTES,
-        downloadUrl: record.downloadUrl,
-      },
-    ],
-  };
-}
-
-async function requestRecordUploadAuthority(
-  roomId: string,
-  session: RemoteRecordSetSession,
-): Promise<RemoteRecordUploadAuthority> {
-  const record = session.records[0];
-  const response = await fetchWithTimeout(
-    `${REMOTE_ORIGIN}/v2/sets/${roomId}/${session.setId}/records/0/upload`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Origin: APP_ORIGIN },
-      body: JSON.stringify({ setToken: session.setToken }),
-    },
-  );
-  assertAllowedOrigin(response, 'remote-share V2 record upload authority');
-  const value = await readJson(response, 'remote-share V2 record upload authority');
-  if (
-    value.v !== RECORD_SET_VERSION ||
-    value.setId !== session.setId ||
-    value.index !== 0 ||
-    value.objectId !== record.objectId ||
-    value.plaintextSize !== record.plaintextSize ||
-    value.encryptedSize !== record.encryptedSize ||
-    typeof value.uploadUrl !== 'string' ||
-    !value.uploadUrl.startsWith('https://') ||
-    !value.uploadHeaders ||
-    typeof value.uploadHeaders !== 'object' ||
-    Array.isArray(value.uploadHeaders) ||
-    !Object.values(value.uploadHeaders).every((header) => typeof header === 'string') ||
-    typeof value.uploadUrlExpiresAt !== 'number' ||
-    !Number.isSafeInteger(value.uploadUrlExpiresAt) ||
-    value.uploadUrlExpiresAt <= Date.now() ||
-    value.expiresAt !== session.expiresAt ||
-    value.downloadUrl !== record.downloadUrl
-  ) {
-    throw new Error('invalid remote-share V2 record upload authority');
-  }
-  return {
-    v: RECORD_SET_VERSION,
-    setId: session.setId,
-    index: 0,
-    objectId: record.objectId,
-    plaintextSize: record.plaintextSize,
-    encryptedSize: record.encryptedSize,
-    downloadUrl: record.downloadUrl,
-    uploadUrl: value.uploadUrl,
-    uploadHeaders: value.uploadHeaders as Record<string, string>,
-    uploadUrlExpiresAt: value.uploadUrlExpiresAt,
-    expiresAt: session.expiresAt,
-  };
-}
-
-function assertRecordUploadMetadata(
-  authority: RemoteRecordUploadAuthority,
-  session: RemoteRecordSetSession,
-  roomId: string,
-  queueItemId: string,
-  applicationSessionId: string,
-  sourceIdentity: string,
-  sourceFile: File,
-): void {
-  const normalized = Object.fromEntries(
-    Object.entries(authority.uploadHeaders).map(([name, value]) => [name.toLowerCase(), value]),
-  );
-  const expected: Record<string, string> = {
-    'content-type': 'application/octet-stream',
-    'x-amz-meta-cleanup-token': session.cleanupToken,
-    'x-amz-meta-encrypted-size': String(authority.encryptedSize),
-    'x-amz-meta-expires-at': String(session.expiresAt),
-    'x-amz-meta-format-version': String(RECORD_SET_VERSION),
-    'x-amz-meta-mime': encodeURIComponent(sourceFile.type),
-    'x-amz-meta-name': encodeURIComponent(sourceFile.name),
-    'x-amz-meta-object-id': authority.objectId,
-    'x-amz-meta-queue-item-id': queueItemId,
-    'x-amz-meta-record-count': '1',
-    'x-amz-meta-record-index': '0',
-    'x-amz-meta-record-size': String(RECORD_SIZE),
-    'x-amz-meta-room-id': roomId,
-    'x-amz-meta-session-id-sha256': createHash('sha256').update(applicationSessionId).digest('hex'),
-    'x-amz-meta-set-id': session.setId,
-    'x-amz-meta-size-bytes': String(sourceFile.size),
-    'x-amz-meta-source-identity-sha256': createHash('sha256').update(sourceIdentity).digest('hex'),
-    'x-amz-meta-total-size-bytes': String(sourceFile.size),
-  };
-  if (
-    Object.keys(normalized).length !== Object.keys(expected).length ||
-    Object.entries(expected).some(([name, value]) => normalized[name] !== value)
-  ) {
-    throw new Error('remote-share V2 record upload metadata mismatch');
-  }
-}
-
-async function completeRecordUpload(
-  roomId: string,
-  session: RemoteRecordSetSession,
-): Promise<string> {
-  const record = session.records[0];
-  const response = await fetchWithTimeout(
-    `${REMOTE_ORIGIN}/v2/sets/${roomId}/${session.setId}/records/0/complete`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Origin: APP_ORIGIN },
-      body: JSON.stringify({ setToken: session.setToken }),
-    },
-  );
-  assertAllowedOrigin(response, 'remote-share V2 record completion');
-  const value = await readJson(response, 'remote-share V2 record completion');
-  if (
-    value.v !== RECORD_SET_VERSION ||
-    value.setId !== session.setId ||
-    value.index !== 0 ||
-    value.objectId !== record.objectId ||
-    value.expiresAt !== session.expiresAt ||
-    value.readyRecordCount !== 1 ||
-    value.recordCount !== 1 ||
-    value.complete !== true ||
-    value.downloadUrl !== record.downloadUrl
-  ) {
-    throw new Error('invalid remote-share V2 record completion response');
-  }
-  return record.downloadUrl;
-}
-
-async function cleanupRecordSet(
-  roomId: string,
-  session: RemoteRecordSetSession,
-): Promise<Response> {
-  return fetchWithTimeout(`${REMOTE_ORIGIN}/v2/sets/${roomId}/${session.setId}`, {
-    method: 'DELETE',
-    headers: {
-      Origin: APP_ORIGIN,
-      'X-MXQR-Cleanup-Token': session.cleanupToken,
-    },
-  });
-}
-
-async function runV1Smoke(
+async function runEncryptedWholeSmoke(
   token: string,
   roomId: string,
   sourceBytes: Uint8Array<ArrayBuffer>,
@@ -927,204 +639,23 @@ async function runPlainWholeSmoke(
   }
 }
 
-async function runRecordSetSmoke(
-  token: string,
-  roomId: string,
-  sourceBytes: Uint8Array<ArrayBuffer>,
-): Promise<Record<string, unknown>> {
-  const queueItemId = randomUUID();
-  const applicationSessionId = `live-remote-share-smoke:${randomUUID()}`;
-  const sourceIdentity = `live-remote-share-smoke:${randomUUID()}`;
-  const idempotencyKey = randomUUID();
-  const sourceFile = new File([sourceBytes], FILE_NAME, { type: FILE_MIME });
-  let session: RemoteRecordSetSession | undefined;
-  let cleaned = false;
-  let encryptor: Awaited<ReturnType<typeof R2RecordCryptoV2.createEncryptor>> | undefined;
-  let decryptor: Awaited<ReturnType<typeof R2RecordCryptoV2.createDecryptor>> | undefined;
-
-  try {
-    session = await requestRecordSet(
-      token,
-      roomId,
-      queueItemId,
-      applicationSessionId,
-      sourceIdentity,
-      sourceFile,
-      idempotencyKey,
-    );
-    const replayedSession = await requestRecordSet(
-      token,
-      roomId,
-      queueItemId,
-      applicationSessionId,
-      sourceIdentity,
-      sourceFile,
-      idempotencyKey,
-    );
-    if (JSON.stringify(replayedSession) !== JSON.stringify(session)) {
-      throw new Error('remote-share V2 idempotent create replay changed authority');
-    }
-    const conflictingCreate = await fetchWithTimeout(`${REMOTE_ORIGIN}/v2/sets/idempotent`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Origin: APP_ORIGIN,
-        'X-MXQR-Idempotency-Key': idempotencyKey,
-        ...(token ? { 'X-MXQR-Capability': token } : {}),
-      },
-      body: recordSetRequestBody(
-        roomId,
-        queueItemId,
-        applicationSessionId,
-        sourceIdentity,
-        sourceFile,
-        `${sourceFile.name}.conflict`,
-      ),
-    });
-    assertAllowedOrigin(conflictingCreate, 'remote-share V2 idempotency conflict');
-    if (conflictingCreate.status !== 409) {
-      throw new Error(
-        `remote-share V2 idempotency conflict returned HTTP ${conflictingCreate.status}`,
-      );
-    }
-    await conflictingCreate.body?.cancel().catch(() => undefined);
-    encryptor = await R2RecordCryptoV2.createEncryptor(session.setId, sourceFile.size);
-    const secret = encryptor.takeSecretDescriptor();
-    const lease = await encryptor.encryptRecord(0, sourceBytes);
-    const ciphertext = lease.bytesForUpload();
-    const expectedCiphertext = new Uint8Array(await ciphertext.arrayBuffer());
-    if (
-      ciphertext.size !== session.records[0].encryptedSize ||
-      expectedCiphertext.byteLength !== sourceFile.size + R2RecordCryptoV2.AES_GCM_TAG_BYTES
-    ) {
-      throw new Error('remote-share V2 record ciphertext size mismatch');
-    }
-
-    const authority = await requestRecordUploadAuthority(roomId, session);
-    assertRecordUploadMetadata(
-      authority,
-      session,
-      roomId,
-      queueItemId,
-      applicationSessionId,
-      sourceIdentity,
-      sourceFile,
-    );
-    await assertUploadCors(authority);
-
-    const upload = await fetchWithTimeout(authority.uploadUrl, {
-      method: 'PUT',
-      headers: { ...authority.uploadHeaders, Origin: APP_ORIGIN },
-      body: ciphertext,
-    });
-    if (!upload.ok) throw new Error(`R2 V2 record direct PUT HTTP ${upload.status}`);
-    assertAllowedOrigin(upload, 'R2 V2 record direct PUT');
-    lease.acknowledgeUploaded();
-
-    const downloadUrl = await completeRecordUpload(roomId, session);
-    const download = await fetchWithTimeout(downloadUrl, {
-      headers: { Origin: APP_ORIGIN },
-    });
-    assertAllowedOrigin(download, 'remote-share V2 record download');
-    if (!download.ok) throw new Error(`remote-share V2 record download HTTP ${download.status}`);
-    const downloadedCiphertext = new Uint8Array(await download.arrayBuffer());
-    if (
-      downloadedCiphertext.byteLength !== expectedCiphertext.byteLength ||
-      Buffer.compare(Buffer.from(downloadedCiphertext), Buffer.from(expectedCiphertext)) !== 0
-    ) {
-      throw new Error('remote-share V2 downloaded ciphertext mismatch');
-    }
-
-    decryptor = await R2RecordCryptoV2.createDecryptor(secret);
-    const decrypted = await decryptor.decryptRecord(0, downloadedCiphertext);
-    if (
-      decrypted.byteLength !== sourceBytes.byteLength ||
-      Buffer.compare(Buffer.from(decrypted), Buffer.from(sourceBytes)) !== 0
-    ) {
-      throw new Error('remote-share V2 decrypted plaintext mismatch');
-    }
-
-    const deleted = await cleanupRecordSet(roomId, session);
-    assertAllowedOrigin(deleted, 'remote-share V2 record-set cleanup');
-    await readJson(deleted, 'remote-share V2 record-set cleanup');
-    cleaned = true;
-
-    const replayAfterCleanup = await fetchWithTimeout(`${REMOTE_ORIGIN}/v2/sets/idempotent`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Origin: APP_ORIGIN,
-        'X-MXQR-Idempotency-Key': idempotencyKey,
-        ...(token ? { 'X-MXQR-Capability': token } : {}),
-      },
-      body: recordSetRequestBody(
-        roomId,
-        queueItemId,
-        applicationSessionId,
-        sourceIdentity,
-        sourceFile,
-      ),
-    });
-    assertAllowedOrigin(replayAfterCleanup, 'remote-share V2 revoked intent replay');
-    if (replayAfterCleanup.status !== 410) {
-      throw new Error(
-        `remote-share V2 revoked intent replay returned HTTP ${replayAfterCleanup.status}`,
-      );
-    }
-    await replayAfterCleanup.body?.cancel().catch(() => undefined);
-
-    const afterDelete = await fetchWithTimeout(downloadUrl, {
-      headers: { Origin: APP_ORIGIN },
-    });
-    assertAllowedOrigin(afterDelete, 'remote-share V2 deleted-record lookup');
-    if (afterDelete.status !== 404) {
-      throw new Error(`deleted V2 record returned HTTP ${afterDelete.status}, expected 404`);
-    }
-
-    return {
-      version: RECORD_SET_VERSION,
-      recordCount: session.recordCount,
-      plaintextBytes: sourceFile.size,
-      ciphertextBytes: expectedCiphertext.byteLength,
-      exactCiphertextRoundTrip: true,
-      productCryptoRoundTrip: true,
-      firstRecordReady: true,
-      directR2Put: true,
-      corsPreflight: true,
-      metadataMatch: true,
-      idempotentCreateReplay: true,
-      idempotencyConflictRejected: true,
-      revokedIntentReplayRejected: true,
-      cleanupStatus: deleted.status,
-      afterCleanupStatus: afterDelete.status,
-    };
-  } finally {
-    decryptor?.dispose();
-    encryptor?.dispose();
-    if (session && !cleaned) await cleanupRecordSet(roomId, session).catch(() => undefined);
-  }
-}
-
 async function main(): Promise<void> {
   const byteCount = parseByteCount();
-  const v1Only = process.argv.includes('--v1-only');
   // Exercise the same namespace the product can actually allocate. The object
   // UUID still makes concurrent smoke objects unique if two runs pick the same
   // six-digit room code.
   const roomId = String(randomInt(100_000, 1_000_000));
   const sourceBytes = new Uint8Array(randomBytes(byteCount));
   const token = await requestCapabilityToken();
-  await waitForRemoteShareWorkerReady(!v1Only);
-  const v1 = await runV1Smoke(token, roomId, sourceBytes);
-  const plainWholeV1 = await runPlainWholeSmoke(token, roomId, sourceBytes);
-  const recordSetV2 = v1Only ? undefined : await runRecordSetSmoke(token, roomId, sourceBytes);
+  await waitForRemoteShareWorkerReady();
+  const encryptedWhole = await runEncryptedWholeSmoke(token, roomId, sourceBytes);
+  const plainWhole = await runPlainWholeSmoke(token, roomId, sourceBytes);
 
   console.log(
     JSON.stringify({
       ok: true,
-      ...v1,
-      plainWholeV1,
-      ...(recordSetV2 ? { recordSetV2 } : {}),
+      encryptedWhole,
+      plainWhole,
     }),
   );
 }

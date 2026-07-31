@@ -15,7 +15,7 @@ import { clearManagedTimer, delay, setManagedTimer, getManagedTimer } from '../c
 import { broadcast } from '../network/peer.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { IS_ANDROID, IS_IOS } from '../core/platform.ts';
-import { fmtTime, requestLegacyBoundedV1OwnerSwitchRetirement } from '../player/transport.ts';
+import { fmtTime } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
@@ -23,7 +23,6 @@ import { handleProRoomTrackMetadata } from '../pro-room/legacy-media-hooks.ts';
 import { routeProPlaybackCommand } from '../pro-room/playback-authority-hooks.ts';
 import {
   isPlaybackModeYouTube,
-  isSystemAudioOwner,
   setPlaybackIdle,
   setPlaybackYouTubePaused,
   setPlaybackYouTubePlaying,
@@ -809,11 +808,7 @@ type LoadYouTubeVideoOptions = {
    * of the load it belongs to (see YtIndexingSession in _state.ts).
    */
   indexingCallback?: (ids: string[]) => void;
-  /** Internal latest-wins continuation after bounded file-owner retirement. */
-  boundedOwnerSwitchGeneration?: number;
 };
-
-let boundedOwnerSwitchGeneration = 0;
 
 /**
  * Mark a queue-occurrence transition before youtube:load enters the persistent
@@ -896,15 +891,6 @@ export function loadYouTubeVideo(
   subIndex = 0,
   opts: LoadYouTubeVideoOptions = {},
 ): void {
-  const ownerSwitchGeneration = opts.boundedOwnerSwitchGeneration ?? ++boundedOwnerSwitchGeneration;
-  if (
-    opts.boundedOwnerSwitchGeneration !== undefined &&
-    opts.boundedOwnerSwitchGeneration !== boundedOwnerSwitchGeneration
-  ) {
-    return;
-  }
-  const expectedQueueItemId = getCurrentQueueItemId();
-  const expectedRoom = getState('room.context');
   const preparedSameVideoRestart = preparedSameVideoOccurrenceRestart;
   preparedSameVideoOccurrenceRestart = null;
   // A newer load always supersedes an unclaimed same-video handoff.
@@ -993,39 +979,6 @@ export function loadYouTubeVideo(
     // Stop existing media BEFORE creating new scope/session — otherwise
     // stopYouTubeMode() (triggered by player:stop-all-media) disposes the
     // new scope immediately, causing the first-ever IFrame API load to abort.
-    // A bounded file renderer owns physical output beyond the synchronous UI
-    // reset. Retire that exact incarnation before the iframe can claim output;
-    // a newer YouTube load invalidates this continuation.
-    if (opts.boundedOwnerSwitchGeneration === undefined) {
-      const retirement = requestLegacyBoundedV1OwnerSwitchRetirement();
-      if (retirement) {
-        void retirement.settled
-          .then((retired) => {
-            const room = getState('room.context');
-            if (
-              !retired ||
-              !retirement.isCurrent() ||
-              ownerSwitchGeneration !== boundedOwnerSwitchGeneration ||
-              getCurrentQueueItemId() !== expectedQueueItemId ||
-              !getState('setup.sessionStarted') ||
-              room.kind !== expectedRoom.kind ||
-              room.roomId !== expectedRoom.roomId ||
-              room.epoch !== expectedRoom.epoch ||
-              isSystemAudioOwner()
-            ) {
-              return;
-            }
-            loadYouTubeVideo(videoId, playlistId, autoplay, subIndex, {
-              ...opts,
-              boundedOwnerSwitchGeneration: ownerSwitchGeneration,
-            });
-          })
-          .catch((error) => {
-            log.warn('[YouTube] Bounded file-owner retirement failed:', error);
-          });
-        return;
-      }
-    }
     bus.emit('player:stop-all-media');
   }
   setEngineMode('youtube');

@@ -15,9 +15,6 @@ concurrency:
 
 env:
   WRANGLER_VERSION: 4.114.0
-  VITE_MUSIXQUARE_LEGACY_BOUNDED: '1'
-  VITE_MUSIXQUARE_FILE_ENGINE_V2: '0'
-  VITE_MUSIXQUARE_FILE_ENGINE_UNIVERSAL_V1: '0'
 
 jobs:
   static:
@@ -52,7 +49,7 @@ jobs:
       - name: Worker syntax check
         run: npm run check:workers
 
-      - name: Playback and storage static invariants
+      - name: Storage static invariants
         run: npm run guard:chunk-pump && npm run guard:lifecycle-writes
 
   tests:
@@ -128,14 +125,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Chromium for focused candidate smoke
-        run: npx playwright install --with-deps chromium
-
       - name: Build and verify production bundle
         run: npm run build:checked
-
-      - name: Exercise bounded V1 fallback candidate
-        run: npm run test:e2e:legacy-bounded-production:dist
 
       - name: Record immutable main-CI production candidate
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

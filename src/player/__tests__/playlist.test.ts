@@ -54,7 +54,6 @@ import { findQueueItemIndex } from '../queue-model.ts';
 import { t } from '../../i18n/index.ts';
 import * as transport from '../transport.ts';
 import { transition } from '../lifecycle.ts';
-import { legacyBoundedFileV1Product } from '../legacy-bounded-file-v1-product.ts';
 import {
   registerProRoomLegacyMediaHooks,
   restoreProRoomLegacyPlayback,
@@ -1023,7 +1022,7 @@ describe('PRO playlist mutation bridge', () => {
       }),
     ).resolves.toBe(true);
 
-    expect(playSpy).toHaveBeenCalledWith(61.5, 0, undefined, undefined, expect.any(Number));
+    expect(playSpy).toHaveBeenCalledWith(61.5);
     expect(getState('playback.activity')).toBe('playing');
   });
 });
@@ -1605,9 +1604,6 @@ describe('atomic batch playlist removal', () => {
     setState('playlist.items', [a, b, c, d]);
     setState('playlist.currentQueueItemId', b.queueItemId);
     setState('playlist.revision', 12);
-    const cleanup = vi
-      .spyOn(legacyBoundedFileV1Product, 'removeQueueItem')
-      .mockResolvedValue('removed');
     initPlaylist();
 
     bus.emit('playlist:remove-tracks', [a.queueItemId, c.queueItemId, a.queueItemId, unknown]);
@@ -1615,10 +1611,6 @@ describe('atomic batch playlist removal', () => {
     expect(getState('playlist.items')).toEqual([b, d]);
     expect(getState('playlist.currentQueueItemId')).toBe(b.queueItemId);
     expect(getState('playlist.revision')).toBe(13);
-    expect(cleanup.mock.calls.map(([queueItemId]) => queueItemId)).toEqual([
-      a.queueItemId,
-      c.queueItemId,
-    ]);
     const snapshots = send.mock.calls
       .map(([message]) => message as { type?: string; revision?: number })
       .filter((message) => message.type === MSG.PLAYLIST_UPDATE);
@@ -1752,110 +1744,6 @@ describe('guest queue authority bootstrap', () => {
     initPlaylist();
     return conn;
   }
-
-  function boundedGuestSnapshot(
-    queueItemId: QueueItemId,
-    legacySessionId: number,
-  ): ReturnType<typeof legacyBoundedFileV1Product.snapshot> {
-    return Object.freeze({
-      schemaVersion: 1,
-      active: true,
-      role: 'guest',
-      roomKind: 'standard',
-      roomEpoch: null,
-      generation: 1,
-      current: Object.freeze({
-        queueItemId,
-        legacySessionId,
-        state: 'ready',
-        phase: 'paused',
-        positionSeconds: 0,
-        durationSeconds: 180,
-        pendingControl: null,
-      }),
-      hostConnections: 0,
-      guestCapabilityAnnounced: true,
-    });
-  }
-
-  it('retires the exact bounded guest owner even when empty-snapshot STOP reports incomplete', async () => {
-    const old = fileItem('old.mp3');
-    setState('playlist.items', [old]);
-    setState('playlist.currentQueueItemId', old.queueItemId);
-    setState('playlist.revision', 3);
-    let snapshot = boundedGuestSnapshot(old.queueItemId, 91);
-    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockImplementation(() => snapshot);
-    let settleStop!: (stopped: boolean) => void;
-    vi.spyOn(transport, 'stopAllMediaAsync').mockImplementationOnce(
-      () =>
-        new Promise<boolean>((resolve) => {
-          settleStop = resolve;
-        }),
-    );
-    const retire = vi
-      .spyOn(legacyBoundedFileV1Product, 'retireCurrent')
-      .mockImplementationOnce(async () => {
-        snapshot = Object.freeze({ ...snapshot, current: null });
-        return true;
-      });
-    const conn = setupGuestConnection('host-bounded-empty');
-
-    await handleData(
-      {
-        type: MSG.PLAYLIST_UPDATE,
-        list: [],
-        revision: 0,
-        currentQueueItemId: null,
-        bootstrap: true,
-      },
-      conn,
-    );
-
-    expect(getState('playlist.items')).toEqual([]);
-    expect(retire).not.toHaveBeenCalled();
-    settleStop(false);
-    await vi.waitFor(() => {
-      expect(retire).toHaveBeenCalledWith(old.queueItemId, 91);
-    });
-    expect(legacyBoundedFileV1Product.snapshot().current).toBeNull();
-  });
-
-  it('does not retire a newer bounded guest owner after stale snapshot cleanup settles', async () => {
-    const old = fileItem('old.mp3');
-    const successor = fileItem('successor.mp3');
-    setState('playlist.items', [old]);
-    setState('playlist.currentQueueItemId', old.queueItemId);
-    setState('playlist.revision', 3);
-    let snapshot = boundedGuestSnapshot(old.queueItemId, 101);
-    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockImplementation(() => snapshot);
-    let settleStop!: (stopped: boolean) => void;
-    vi.spyOn(transport, 'stopAllMediaAsync').mockImplementationOnce(
-      () =>
-        new Promise<boolean>((resolve) => {
-          settleStop = resolve;
-        }),
-    );
-    const retire = vi.spyOn(legacyBoundedFileV1Product, 'retireCurrent');
-    const conn = setupGuestConnection('host-bounded-successor');
-
-    await handleData(
-      {
-        type: MSG.PLAYLIST_UPDATE,
-        list: [],
-        revision: 0,
-        currentQueueItemId: null,
-        bootstrap: true,
-      },
-      conn,
-    );
-    snapshot = boundedGuestSnapshot(successor.queueItemId, 102);
-    settleStop(true);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(retire).not.toHaveBeenCalled();
-    expect(legacyBoundedFileV1Product.snapshot().current?.queueItemId).toBe(successor.queueItemId);
-  });
 
   it('accepts an empty revision-zero baseline from a new connection and clears old media owners', async () => {
     const oldFile = new File(['old'], 'old.mp3', { type: 'audio/mpeg' });
@@ -2614,9 +2502,7 @@ describe('preloaded activation post-play ownership', () => {
     const playSpy = vi.spyOn(transport, 'play').mockReturnValueOnce(playGate);
 
     const activation = playTrack(a.queueItemId);
-    await vi.waitFor(() =>
-      expect(playSpy).toHaveBeenCalledWith(0, 0, undefined, undefined, expect.any(Number)),
-    );
+    await vi.waitFor(() => expect(playSpy).toHaveBeenCalledWith(0));
 
     // Model a newer playTrack invocation taking ownership while the old
     // transport is suspended inside AudioContext/engine initialization.
@@ -2637,299 +2523,6 @@ describe('preloaded activation post-play ownership', () => {
       ),
     ).toBe(false);
     expect(getManagedTimer('preloadScheduleTimer')).toBeNull();
-  });
-});
-
-describe('bounded V1 playlist integration', () => {
-  function boundedHostSnapshot(
-    queueItemId: QueueItemId,
-    legacySessionId: number,
-  ): ReturnType<typeof legacyBoundedFileV1Product.snapshot> {
-    return Object.freeze({
-      schemaVersion: 1,
-      active: true,
-      role: 'host',
-      roomKind: 'standard',
-      roomEpoch: 'standard:100001:test-incarnation',
-      generation: 1,
-      current: Object.freeze({
-        queueItemId,
-        legacySessionId,
-        state: 'ready',
-        phase: 'paused',
-        positionSeconds: 0,
-        durationSeconds: 180,
-        pendingControl: null,
-      }),
-      hostConnections: 1,
-      guestCapabilityAnnounced: false,
-    });
-  }
-
-  it('replays the exact bounded source without decoding or redistributing it', async () => {
-    vi.useFakeTimers();
-    const send = vi.fn();
-    const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
-    setState('network.appRole', 'host');
-    setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-1', false), conn }]);
-
-    const file = new File(['bounded-current'], 'same.mp3', { type: 'audio/mpeg' });
-    const item = fileItem(file.name, file);
-    const resident = residentFor(item, file, 71);
-    setState('playlist.items', [item]);
-    setState('playlist.currentQueueItemId', item.queueItemId);
-    setState('files.current', resident);
-    setState('playback.mode', 'file');
-    setState('playback.activity', 'paused');
-    setState('player.isFirstTrackLoad', true);
-
-    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockReturnValue(
-      boundedHostSnapshot(item.queueItemId, resident.sessionId),
-    );
-    const prepareHost = vi.spyOn(legacyBoundedFileV1Product, 'prepareHost');
-    const pauseBounded = vi
-      .spyOn(transport, 'requestLegacyBoundedV1HostPause')
-      .mockReturnValue(true);
-    const playBounded = vi.spyOn(transport, 'requestLegacyBoundedV1HostPlay').mockReturnValue(true);
-
-    await playTrack(item.queueItemId);
-    await vi.advanceTimersByTimeAsync(0);
-
-    expect(pauseBounded).toHaveBeenCalledWith(0, 'seek');
-    expect(playBounded).toHaveBeenCalledWith(0, expect.any(Number));
-    expect(prepareHost).not.toHaveBeenCalled();
-    expect(decodeMocks.loadAndBroadcastFile).not.toHaveBeenCalled();
-    expect(decodeMocks.loadPreloadedTrack).not.toHaveBeenCalled();
-    expect(getState('files.current')).toBe(resident);
-    expect(
-      send.mock.calls.some(([message]) => {
-        const type = (message as { type?: string }).type;
-        return (
-          type === MSG.FILE_PREPARE ||
-          type === MSG.FILE_START ||
-          type === MSG.FILE_CHUNK ||
-          type === MSG.PLAY_PRELOADED
-        );
-      }),
-    ).toBe(false);
-  });
-
-  it('promotes a bounded preload through its encoded source without old AudioBuffer activation', async () => {
-    const send = vi.fn();
-    const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
-    setState('network.appRole', 'host');
-    setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-1', false), conn }]);
-
-    const currentFile = new File(['current'], 'current.mp3', { type: 'audio/mpeg' });
-    const preloadFile = new File(['bounded-next'], 'next.mp3', { type: 'audio/mpeg' });
-    const current = fileItem(currentFile.name, currentFile);
-    const next = fileItem(preloadFile.name, preloadFile);
-    const ready = residentFor(next, preloadFile, 82);
-    setState('playlist.items', [current, next]);
-    setState('playlist.currentQueueItemId', current.queueItemId);
-    setState('files.current', residentFor(current, currentFile, 81));
-    setState('preload.nextQueueItemId', next.queueItemId);
-    setState('preload.activeTarget', ready);
-    setState('preload.ready', ready);
-
-    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockReturnValue(
-      boundedHostSnapshot(current.queueItemId, 81),
-    );
-    vi.spyOn(transport, 'stopAllMediaAsync').mockResolvedValueOnce(true);
-    const playBounded = vi.spyOn(transport, 'requestLegacyBoundedV1HostPlay').mockReturnValue(true);
-    const legacyAudioBufferPlay = vi.spyOn(transport, 'play');
-    decodeMocks.loadAndBroadcastFile.mockImplementation(async () => {
-      setState('files.current', ready);
-      return true;
-    });
-
-    await playTrack(next.queueItemId);
-
-    expect(decodeMocks.loadPreloadedTrack).not.toHaveBeenCalled();
-    expect(decodeMocks.loadAndBroadcastFile).toHaveBeenCalledWith(
-      preloadFile,
-      next.queueItemId,
-      ready.sessionId,
-      expect.any(Number),
-      expect.objectContaining({
-        type: MSG.FILE_PREPARE,
-        queueItemId: next.queueItemId,
-        sessionId: ready.sessionId,
-      }),
-    );
-    expect(legacyAudioBufferPlay).not.toHaveBeenCalled();
-    expect(playBounded).toHaveBeenCalledWith(0, expect.any(Number));
-    expect(getState('preload.ready')).toBeNull();
-    expect(getState('files.current')).toBe(ready);
-    expect(
-      send.mock.calls.some(
-        ([message]) => (message as { type?: string }).type === MSG.PLAY_PRELOADED,
-      ),
-    ).toBe(false);
-  });
-
-  it('finishes the playlist after exact retirement even when bounded STOP reports false', async () => {
-    const only = fileItem('only.mp3');
-    setState('network.appRole', 'host');
-    setState('network.hostConn', null);
-    setState('playlist.items', [only]);
-    setState('playlist.currentQueueItemId', only.queueItemId);
-    let snapshot = boundedHostSnapshot(only.queueItemId, 88);
-    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockImplementation(() => snapshot);
-    vi.spyOn(transport, 'stopAllMediaAsync').mockResolvedValueOnce(false);
-    const retire = vi
-      .spyOn(legacyBoundedFileV1Product, 'retireCurrent')
-      .mockImplementationOnce(async () => {
-        snapshot = Object.freeze({ ...snapshot, current: null });
-        return true;
-      });
-
-    playNextTrack();
-
-    await vi.waitFor(() => expect(getState('playlist.currentQueueItemId')).toBeNull());
-    expect(retire).toHaveBeenCalledWith(only.queueItemId, 88);
-    expect(legacyBoundedFileV1Product.snapshot().current).toBeNull();
-  });
-
-  it('does not finish the playlist over a newer bounded incarnation of the same row', async () => {
-    const only = fileItem('only.mp3');
-    setState('network.appRole', 'host');
-    setState('network.hostConn', null);
-    setState('playlist.items', [only]);
-    setState('playlist.currentQueueItemId', only.queueItemId);
-    let snapshot = boundedHostSnapshot(only.queueItemId, 89);
-    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockImplementation(() => snapshot);
-    let settleStop!: (stopped: boolean) => void;
-    vi.spyOn(transport, 'stopAllMediaAsync').mockImplementationOnce(
-      () =>
-        new Promise<boolean>((resolve) => {
-          settleStop = resolve;
-        }),
-    );
-    const retire = vi.spyOn(legacyBoundedFileV1Product, 'retireCurrent');
-
-    playNextTrack();
-    snapshot = boundedHostSnapshot(only.queueItemId, 90);
-    settleStop(false);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(retire).not.toHaveBeenCalled();
-    expect(getState('playlist.currentQueueItemId')).toBe(only.queueItemId);
-    expect(legacyBoundedFileV1Product.snapshot().current?.legacySessionId).toBe(90);
-  });
-
-  it('keeps the final queue row until its exact bounded renderer is physically retired', async () => {
-    const only = fileItem('only.mp3');
-    setState('playlist.items', [only]);
-    setState('playlist.currentQueueItemId', only.queueItemId);
-    let snapshot = boundedHostSnapshot(only.queueItemId, 91);
-    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockImplementation(() => snapshot);
-    vi.spyOn(transport, 'stopAllMediaAsync').mockResolvedValueOnce(true);
-    let settleRetirement!: (retired: boolean) => void;
-    const retirement = new Promise<boolean>((resolve) => {
-      settleRetirement = resolve;
-    });
-    vi.spyOn(legacyBoundedFileV1Product, 'retireCurrent').mockImplementationOnce(async () => {
-      const retired = await retirement;
-      if (retired) snapshot = Object.freeze({ ...snapshot, current: null });
-      return retired;
-    });
-    initPlaylist();
-
-    bus.emit('playlist:remove-tracks', [only.queueItemId]);
-    await Promise.resolve();
-
-    expect(getState('playlist.items')).toEqual([only]);
-    expect(getState('playlist.currentQueueItemId')).toBe(only.queueItemId);
-
-    settleRetirement(true);
-    await vi.waitFor(() => expect(getState('playlist.items')).toEqual([]));
-
-    expect(legacyBoundedFileV1Product.retireCurrent).toHaveBeenCalledWith(only.queueItemId, 91);
-    expect(getState('playlist.currentQueueItemId')).toBeNull();
-    expect(legacyBoundedFileV1Product.snapshot().current).toBeNull();
-  });
-
-  it('removes the final row after exact retirement even when bounded STOP reports false', async () => {
-    const only = fileItem('only.mp3');
-    setState('playlist.items', [only]);
-    setState('playlist.currentQueueItemId', only.queueItemId);
-    let snapshot = boundedHostSnapshot(only.queueItemId, 95);
-    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockImplementation(() => snapshot);
-    vi.spyOn(transport, 'stopAllMediaAsync').mockResolvedValueOnce(false);
-    const retire = vi
-      .spyOn(legacyBoundedFileV1Product, 'retireCurrent')
-      .mockImplementationOnce(async () => {
-        snapshot = Object.freeze({ ...snapshot, current: null });
-        return true;
-      });
-    initPlaylist();
-
-    bus.emit('playlist:remove-tracks', [only.queueItemId]);
-
-    await vi.waitFor(() => expect(getState('playlist.items')).toEqual([]));
-    expect(retire).toHaveBeenCalledWith(only.queueItemId, 95);
-    expect(getState('playlist.currentQueueItemId')).toBeNull();
-  });
-
-  it('keeps the final row when its queue identity has a newer bounded incarnation', async () => {
-    const only = fileItem('only.mp3');
-    setState('playlist.items', [only]);
-    setState('playlist.currentQueueItemId', only.queueItemId);
-    let snapshot = boundedHostSnapshot(only.queueItemId, 96);
-    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockImplementation(() => snapshot);
-    let settleStop!: (stopped: boolean) => void;
-    vi.spyOn(transport, 'stopAllMediaAsync').mockImplementationOnce(
-      () =>
-        new Promise<boolean>((resolve) => {
-          settleStop = resolve;
-        }),
-    );
-    const retire = vi.spyOn(legacyBoundedFileV1Product, 'retireCurrent');
-    initPlaylist();
-
-    bus.emit('playlist:remove-tracks', [only.queueItemId]);
-    snapshot = boundedHostSnapshot(only.queueItemId, 97);
-    settleStop(false);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(retire).not.toHaveBeenCalled();
-    expect(getState('playlist.items')).toEqual([only]);
-    expect(getState('playlist.currentQueueItemId')).toBe(only.queueItemId);
-    expect(legacyBoundedFileV1Product.snapshot().current?.legacySessionId).toBe(97);
-  });
-
-  it('never retires a newer bounded successor that appears during final-row teardown', async () => {
-    const removed = fileItem('removed.mp3');
-    const successor = fileItem('successor.mp3');
-    setState('playlist.items', [removed]);
-    setState('playlist.currentQueueItemId', removed.queueItemId);
-    let snapshot = boundedHostSnapshot(removed.queueItemId, 101);
-    vi.spyOn(legacyBoundedFileV1Product, 'snapshot').mockImplementation(() => snapshot);
-    let settleStop!: (stopped: boolean) => void;
-    vi.spyOn(transport, 'stopAllMediaAsync').mockImplementationOnce(
-      () =>
-        new Promise<boolean>((resolve) => {
-          settleStop = resolve;
-        }),
-    );
-    const retire = vi.spyOn(legacyBoundedFileV1Product, 'retireCurrent');
-    initPlaylist();
-
-    bus.emit('playlist:remove-tracks', [removed.queueItemId]);
-    await Promise.resolve();
-
-    snapshot = boundedHostSnapshot(successor.queueItemId, 102);
-    setState('playlist.items', [removed, successor]);
-    setState('playlist.currentQueueItemId', successor.queueItemId);
-    settleStop(true);
-
-    await vi.waitFor(() => expect(getState('playlist.items')).toEqual([successor]));
-    expect(getState('playlist.currentQueueItemId')).toBe(successor.queueItemId);
-    expect(retire).not.toHaveBeenCalled();
-    expect(legacyBoundedFileV1Product.snapshot().current?.queueItemId).toBe(successor.queueItemId);
   });
 });
 

@@ -40,11 +40,7 @@ import { initSeekBar } from './seekbar.ts';
 import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
-import type {
-  ProPlaybackUiControlKind,
-  V2HostUiControlKind,
-  YouTubeSyncLoadingOwner,
-} from '../types/index.ts';
+import type { ProPlaybackUiControlKind, YouTubeSyncLoadingOwner } from '../types/index.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { navigateToAppHome } from '../core/navigation.ts';
 import { scopePlaybackModeActivity } from './_state-hooks.ts';
@@ -73,14 +69,6 @@ import {
 import { getAccountSnapshot } from '../account/state.ts';
 import { openAccountDialog } from './account.ts';
 import { getProRoomServerNow, proRoomServerBridge } from '../pro-room/network-bridge.ts';
-import {
-  beginFilePlaybackLoading,
-  clearFilePlaybackLoading,
-  getFilePlaybackLoadingSnapshot,
-  settleFilePlaybackLoading,
-  subscribeFilePlaybackLoading,
-  type FilePlaybackLoadingSnapshot,
-} from './file-playback-loading-state.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -106,12 +94,6 @@ let _proPlaybackControlLoading = false;
 let _proPlaybackTransitionLoading = false;
 let _proPlaybackControlToken: number | null = null;
 let _proPlaybackControlKind: ProPlaybackUiControlKind | null = null;
-let _v2HostControlLoading = false;
-let _v2HostControlToken: number | null = null;
-let _v2HostControlKind: V2HostUiControlKind | null = null;
-let _v2GuestPauseGateToken: number | null = null;
-let _v2FilePlaybackLoadingVisible = false;
-let _disposeFilePlaybackLoadingSubscription: (() => void) | null = null;
 let _manualSyncPreviousFocus: HTMLElement | null = null;
 let _mediaSourcePreviousFocus: HTMLElement | null = null;
 let _youtubePopupPreviousFocus: HTMLElement | null = null;
@@ -133,8 +115,7 @@ function syncPlayButtonLoadingClass(): void {
   const btn = document.getElementById('play-btn');
   const iframeOwnedLoading =
     _ytPlayButtonLoading || _proPlaybackControlLoading || _proPlaybackTransitionLoading;
-  const establishedLoading = iframeOwnedLoading || _filePlayButtonLoading || _v2HostControlLoading;
-  const loading = establishedLoading || _v2FilePlaybackLoadingVisible;
+  const loading = iframeOwnedLoading || _filePlayButtonLoading;
   if (btn) {
     btn.classList.toggle('yt-syncing', loading);
     btn.setAttribute('aria-busy', String(loading));
@@ -143,8 +124,8 @@ function syncPlayButtonLoadingClass(): void {
   const videoWrapper = document.querySelector<HTMLElement>('.video-wrapper');
   const youtubeContainer = document.getElementById('youtube-player-container');
   const overlay = document.getElementById('youtube-sync-loading-overlay');
-  // V2 file preparation is projected only on the play control and must never
-  // make the YouTube iframe inert. The iframe shield is YouTube-owned.
+  // File preparation never makes the YouTube iframe inert. The iframe shield
+  // is owned only by YouTube and PRO transition feedback.
   const showYouTubeOverlay = iframeOwnedLoading && getState('playback.mode') === 'youtube';
   if (videoWrapper) videoWrapper.setAttribute('aria-busy', String(showYouTubeOverlay));
   if (youtubeContainer instanceof HTMLElement) {
@@ -154,20 +135,6 @@ function syncPlayButtonLoadingClass(): void {
     overlay.hidden = !showYouTubeOverlay;
     overlay.setAttribute('aria-hidden', String(!showYouTubeOverlay));
   }
-}
-
-function syncFilePlaybackLoadingUi(
-  snapshot: Readonly<FilePlaybackLoadingSnapshot> = getFilePlaybackLoadingSnapshot(),
-): void {
-  const wrapper = document.querySelector<HTMLElement>('.vinyl-wrapper');
-  const mode = getState('playback.mode');
-  const fileSurfaceActive = mode === null || mode === 'file';
-  _v2FilePlaybackLoadingVisible = snapshot.visible && fileSurfaceActive;
-
-  if (wrapper) {
-    wrapper.setAttribute('aria-busy', String(snapshot.active && fileSurfaceActive));
-  }
-  syncPlayButtonLoadingClass();
 }
 
 function syncPlayButtonAuthority(): void {
@@ -1173,9 +1140,6 @@ export function initPlayerControls(): void {
   // don't stack duplicate handlers. Matches the pattern in connect.ts
   // and playlist-view.ts.
   _busScope.dispose();
-  _disposeFilePlaybackLoadingSubscription?.();
-  _disposeFilePlaybackLoadingSubscription = null;
-  clearFilePlaybackLoading();
   _ytSyncLoadingOwners.clear();
   _ytPlayButtonLoading = false;
   _filePlayButtonLoading = false;
@@ -1183,20 +1147,11 @@ export function initPlayerControls(): void {
   _proPlaybackTransitionLoading = false;
   _proPlaybackControlToken = null;
   _proPlaybackControlKind = null;
-  _v2HostControlLoading = false;
-  _v2HostControlToken = null;
-  _v2HostControlKind = null;
-  _v2GuestPauseGateToken = null;
-  _v2FilePlaybackLoadingVisible = false;
   _playButtonMediaEnabled =
     document.getElementById('play-btn')?.getAttribute('aria-disabled') === 'false';
   // Re-initialization must never inherit an interaction shield owned by a
   // disposed subscription scope.
   syncPlayButtonLoadingClass();
-  // File preparation remains visible on the play control, but must not cover
-  // the visualizer. Remove a stale overlay left by HMR or an older runtime.
-  document.getElementById('file-playback-loading-overlay')?.remove();
-  _disposeFilePlaybackLoadingSubscription = subscribeFilePlaybackLoading(syncFilePlaybackLoadingUi);
   initTabTitleMarquee(getTabTitleSnapshot);
 
   const $on = (id: string, evt: string, fn: EventListener) => {
@@ -1605,11 +1560,7 @@ export function initPlayerControls(): void {
 
   // Play/Pause visual state — derived from playback activity + YouTube play event
   function updatePlayIcon(playing: boolean): void {
-    if (
-      _proPlaybackControlKind === 'pause' ||
-      _v2HostControlKind === 'pause' ||
-      _v2GuestPauseGateToken !== null
-    ) {
+    if (_proPlaybackControlKind === 'pause') {
       playing = false;
     }
     const btn = document.getElementById('play-btn');
@@ -1651,7 +1602,6 @@ export function initPlayerControls(): void {
       // PRO transition). Reconcile the iframe shield on every mode change so
       // it appears only while the active engine is YouTube.
       syncPlayButtonLoadingClass();
-      syncFilePlaybackLoadingUi();
 
       // System audio: host gets "공유 중지", guest keeps "미디어 재생" (dimmed)
       const mediaBtn = document.getElementById('btn-media-source');
@@ -1746,78 +1696,6 @@ export function initPlayerControls(): void {
     }
   });
 
-  _busScope.on('player:v2-host-ui-control-pending', (event) => {
-    _v2HostControlToken = event.token;
-    _v2HostControlKind = event.kind;
-    _v2HostControlLoading = event.kind === 'play';
-    if (event.kind === 'pause') updatePlayIcon(false);
-    syncPlayButtonLoadingClass();
-  });
-
-  _busScope.on('player:v2-host-ui-control-settled', (event) => {
-    if (_v2HostControlToken !== event.token) return;
-    _v2HostControlToken = null;
-    _v2HostControlKind = null;
-    _v2HostControlLoading = false;
-    syncPlayButtonLoadingClass();
-
-    if (event.status !== 'committed') {
-      const mode = getState('playback.mode');
-      const activity = getState('playback.activity');
-      updatePlayIcon(mode !== null && activity === 'playing');
-    }
-  });
-
-  _busScope.on('player:v2-guest-pause-gate-pending', (event) => {
-    _v2GuestPauseGateToken = event.token;
-    updatePlayIcon(false);
-  });
-
-  _busScope.on('player:v2-guest-pause-gate-settled', (event) => {
-    if (_v2GuestPauseGateToken !== event.token) return;
-    _v2GuestPauseGateToken = null;
-    const mode = getState('playback.mode');
-    const activity = getState('playback.activity');
-    updatePlayIcon(mode !== null && activity === 'playing');
-  });
-
-  _busScope.on('player:v2-host-seek-pending', (event) => {
-    beginFilePlaybackLoading('host-seek', event.token);
-  });
-
-  _busScope.on('player:v2-host-seek-settled', (event) => {
-    settleFilePlaybackLoading('host-seek', event.token);
-  });
-
-  _busScope.on('player:v2-file-loading-pending', (event) => {
-    beginFilePlaybackLoading(event.owner, event.token);
-  });
-
-  _busScope.on('player:v2-file-loading-settled', (event) => {
-    settleFilePlaybackLoading(event.owner, event.token);
-  });
-
-  const clearV2ControlUi = () => {
-    _v2HostControlToken = null;
-    _v2HostControlKind = null;
-    _v2GuestPauseGateToken = null;
-    _v2HostControlLoading = false;
-    syncPlayButtonLoadingClass();
-  };
-
-  // Hard teardown is intentionally broader than exact-token settlement:
-  // stop and room exit invalidate every preparation authority immediately.
-  _busScope.on('player:stop-all-media', () => {
-    clearV2ControlUi();
-    clearFilePlaybackLoading();
-  });
-  _busScope.on('state:setup.sessionStarted', (started) => {
-    if (!started) {
-      clearV2ControlUi();
-      clearFilePlaybackLoading();
-    }
-  });
-
   refreshFilePlayButtonLoading();
   _busScope.on('state:playback.lifecycle', () => {
     refreshFilePlayButtonLoading();
@@ -1871,10 +1749,6 @@ export function initPlayerControls(): void {
 
   // Player actions
   _busScope.on('player:toggle-play', () => {
-    // A standard-room V2 PLAY owns a revisioned async transition. Keep the
-    // first intent visible and ignore accidental rapid repeats until its exact
-    // token settles. PAUSE remains reversible through the latest-wins lane.
-    if (_v2HostControlLoading) return;
     togglePlay();
   });
 

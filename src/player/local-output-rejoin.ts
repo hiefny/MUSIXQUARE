@@ -134,46 +134,8 @@ async function performLocalOutputRejoin(request: RejoinRequest): Promise<RejoinR
 
   const hostConnection = getState('network.hostConn');
   if (!hostConnection?.open) {
-    // Legacy hosts do not have a participant-local authority to query. A V2
-    // host does: its exact product room can rebuild one same-position cohort
-    // rendezvous after a physical output interruption without falling into the
-    // legacy AudioBuffer path. The dynamic import keeps this recovery seam out
-    // of the ordinary guest dependency graph.
-    if (mode !== 'file') return { rejoined: false };
-    const { requestLegacyBoundedV1HostOutputRejoin, requestV2HostFileOutputRejoin } =
-      await import('./transport.ts');
-    if (!requestStillCurrent(request)) return { rejoined: false };
-    try {
-      const settlement =
-        requestLegacyBoundedV1HostOutputRejoin(request.reason) ??
-        requestV2HostFileOutputRejoin(request.reason);
-      // `null` is an explicit ownership miss: this is a legacy host, so there
-      // is no V2 authority to retry and no local pause state to change.
-      if (settlement === null) return { rejoined: false };
-      const committed = await settlement;
-      if (!requestStillCurrent(request)) return { rejoined: false };
-      if (committed) {
-        setLocalPause(mode, false);
-      } else if (wasLocallyPaused) {
-        setLocalPause(mode, true);
-      }
-      return {
-        rejoined: committed,
-        ...(!committed && request.retryAttempt < REJOIN_RETRY_MS.length
-          ? { retryAfterMs: REJOIN_RETRY_MS[request.retryAttempt] }
-          : {}),
-      };
-    } catch (error) {
-      if (!requestStillCurrent(request)) return { rejoined: false };
-      if (wasLocallyPaused) setLocalPause(mode, true);
-      log.warn('[Playback] Host file output rejoin failed', error);
-      return {
-        rejoined: false,
-        ...(request.retryAttempt < REJOIN_RETRY_MS.length
-          ? { retryAfterMs: REJOIN_RETRY_MS[request.retryAttempt] }
-          : {}),
-      };
-    }
+    // Stable standard-room hosts have no participant-local authority endpoint.
+    return { rejoined: false };
   }
 
   setLocalPause(mode, false);

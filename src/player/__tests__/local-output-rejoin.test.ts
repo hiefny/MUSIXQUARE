@@ -5,12 +5,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   reconcilePro: vi.fn(async () => true),
-  rejoinV2Host: vi.fn<
-    (reason: 'media-session-play' | 'audio-context-recovered') => Promise<boolean> | null
-  >(() => null),
-  rejoinBoundedV1Host: vi.fn<
-    (reason: 'media-session-play' | 'audio-context-recovered') => Promise<boolean> | null
-  >(() => null),
   rendezvous: vi.fn(
     (): {
       status: 'started' | 'completed' | 'busy' | 'not-ready' | 'no-data';
@@ -26,10 +20,6 @@ vi.mock('../../pro-room/runtime.ts', () => ({
 }));
 vi.mock('../../youtube/sync.ts', () => ({
   guestRendezvousSync: mocks.rendezvous,
-}));
-vi.mock('../transport.ts', () => ({
-  requestLegacyBoundedV1HostOutputRejoin: mocks.rejoinBoundedV1Host,
-  requestV2HostFileOutputRejoin: mocks.rejoinV2Host,
 }));
 
 import { bus } from '../../core/events.ts';
@@ -68,8 +58,6 @@ beforeEach(() => {
   bus.clear();
   vi.clearAllMocks();
   mocks.reconcilePro.mockResolvedValue(true);
-  mocks.rejoinBoundedV1Host.mockReturnValue(null);
-  mocks.rejoinV2Host.mockReturnValue(null);
   mocks.rendezvous.mockReturnValue({ status: 'started' });
   setLocalFilePaused(false);
   setLocalYouTubePaused(false);
@@ -127,143 +115,6 @@ describe('participant-local output rejoin', () => {
     expect(forceResync).not.toHaveBeenCalled();
     expect(mocks.reconcilePro).not.toHaveBeenCalled();
     expect(mocks.rendezvous).not.toHaveBeenCalled();
-  });
-
-  it('re-arms an exact V2 standard host after its AudioContext recovers', async () => {
-    let settle!: (committed: boolean) => void;
-    mocks.rejoinV2Host.mockReturnValue(
-      new Promise<boolean>((resolve) => {
-        settle = resolve;
-      }),
-    );
-    startSession();
-    setPlaybackFilePlaying();
-    setLocalFilePaused(true);
-
-    bus.emit('playback:local-output-rejoin', {
-      reason: 'audio-context-recovered',
-      mode: 'file',
-    });
-
-    await vi.waitFor(() =>
-      expect(mocks.rejoinV2Host).toHaveBeenCalledWith('audio-context-recovered'),
-    );
-    expect(isLocalFilePaused()).toBe(true);
-
-    settle(true);
-    await vi.waitFor(() => expect(isLocalFilePaused()).toBe(false));
-  });
-
-  it('prefers the bounded V1 host rejoin and never lets old V2 claim the same output', async () => {
-    mocks.rejoinBoundedV1Host.mockResolvedValueOnce(true);
-    startSession();
-    setPlaybackFilePlaying();
-    setLocalFilePaused(true);
-
-    bus.emit('playback:local-output-rejoin', {
-      reason: 'audio-context-recovered',
-      mode: 'file',
-    });
-
-    await vi.waitFor(() =>
-      expect(mocks.rejoinBoundedV1Host).toHaveBeenCalledWith('audio-context-recovered'),
-    );
-    expect(mocks.rejoinV2Host).not.toHaveBeenCalled();
-    expect(isLocalFilePaused()).toBe(false);
-  });
-
-  it('keeps the V2 host locally paused and retries a rejected physical commit', async () => {
-    vi.useFakeTimers();
-    mocks.rejoinV2Host.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
-    startSession();
-    setPlaybackFilePlaying();
-    setLocalFilePaused(true);
-
-    bus.emit('playback:local-output-rejoin', {
-      reason: 'audio-context-recovered',
-      mode: 'file',
-    });
-
-    await vi.advanceTimersByTimeAsync(0);
-    expect(mocks.rejoinV2Host).toHaveBeenCalledTimes(1);
-    expect(isLocalFilePaused()).toBe(true);
-
-    await vi.advanceTimersByTimeAsync(250);
-    expect(mocks.rejoinV2Host).toHaveBeenCalledTimes(2);
-    expect(isLocalFilePaused()).toBe(false);
-    vi.useRealTimers();
-  });
-
-  it('keeps the V2 host locally paused and retries a failed rejoin operation', async () => {
-    vi.useFakeTimers();
-    mocks.rejoinV2Host
-      .mockRejectedValueOnce(new Error('output context remained suspended'))
-      .mockResolvedValueOnce(true);
-    startSession();
-    setPlaybackFilePlaying();
-    setLocalFilePaused(true);
-
-    bus.emit('playback:local-output-rejoin', {
-      reason: 'audio-context-recovered',
-      mode: 'file',
-    });
-
-    await vi.advanceTimersByTimeAsync(0);
-    expect(mocks.rejoinV2Host).toHaveBeenCalledTimes(1);
-    expect(isLocalFilePaused()).toBe(true);
-
-    await vi.advanceTimersByTimeAsync(250);
-    expect(mocks.rejoinV2Host).toHaveBeenCalledTimes(2);
-    expect(isLocalFilePaused()).toBe(false);
-    vi.useRealTimers();
-  });
-
-  it('bounds persistent V2 host rejoin failures', async () => {
-    vi.useFakeTimers();
-    mocks.rejoinV2Host.mockResolvedValue(false);
-    startSession();
-    setPlaybackFilePlaying();
-    setLocalFilePaused(true);
-
-    bus.emit('playback:local-output-rejoin', {
-      reason: 'audio-context-recovered',
-      mode: 'file',
-    });
-
-    await vi.advanceTimersByTimeAsync(10_500);
-    expect(mocks.rejoinV2Host).toHaveBeenCalledTimes(6);
-    expect(isLocalFilePaused()).toBe(true);
-
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(mocks.rejoinV2Host).toHaveBeenCalledTimes(6);
-    vi.useRealTimers();
-  });
-
-  it('does not let a stale V2 rejoin settlement change a replacement queue occurrence', async () => {
-    let settle!: (committed: boolean) => void;
-    mocks.rejoinV2Host.mockReturnValue(
-      new Promise<boolean>((resolve) => {
-        settle = resolve;
-      }),
-    );
-    startSession();
-    setPlaybackFilePlaying();
-    setLocalFilePaused(true);
-    setState('playlist.currentQueueItemId', '00000000-0000-4000-8000-000000000001');
-
-    bus.emit('playback:local-output-rejoin', {
-      reason: 'audio-context-recovered',
-      mode: 'file',
-    });
-    await vi.waitFor(() => expect(mocks.rejoinV2Host).toHaveBeenCalledOnce());
-
-    setState('playlist.currentQueueItemId', '00000000-0000-4000-8000-000000000002');
-    settle(true);
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(isLocalFilePaused()).toBe(true);
-    expect(mocks.rejoinV2Host).toHaveBeenCalledOnce();
   });
 
   it('uses the local YouTube rendezvous for a standard guest', async () => {

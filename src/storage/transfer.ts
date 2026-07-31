@@ -33,7 +33,6 @@ export {
   cancelOutgoingFileTransfers,
 } from './transfer-send.ts';
 export { cancelIncomingFileTransfer, resetIncomingTransferAuthority } from './transfer-receive.ts';
-export { handleLegacyBoundedV1GuestDescriptorEvent } from './transfer-receive.ts';
 export { isArrayBuffer } from './transfer-shared.ts';
 
 // ─── Register Handlers ──────────────────────────────────────────────

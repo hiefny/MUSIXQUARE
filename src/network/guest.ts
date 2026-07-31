@@ -28,87 +28,14 @@ import {
   markProRoomTransportRecovered,
   requestProRoomTransportRecovery,
 } from '../pro-room/transport-recovery.ts';
-import { getFilePlaybackApplicationSessionManager } from './file-playback-application-session.ts';
-import { isFilePlaybackSessionSemanticCohortMismatchV2 } from './file-playback-session-handshake.ts';
-import { getFilePlaybackBuildProfile } from '../player/file-playback-build-profile.ts';
-import { isFilePlaybackEngineV2Enabled } from '../player/file-playback-engine-gate.ts';
-import { getFilePlaybackProductRuntime } from '../player/file-playback-product-runtime.ts';
-import { legacyBoundedFileV1Product } from '../player/legacy-bounded-file-v1-product.ts';
-
-const FILE_PLAYBACK_ENGINE_V2_ENABLED = isFilePlaybackEngineV2Enabled();
-const FILE_PLAYBACK_SEMANTIC_COHORT_ID = getFilePlaybackBuildProfile().semanticPlaybackCohortId;
-const PRE_OPEN_LIFECYCLE_FRAME_LIMIT = 3;
-const PRE_OPEN_LIFECYCLE_BYTE_LIMIT = 2_048;
-const PRE_OPEN_LIFECYCLE_TYPES = new Set<string>([
-  MSG.WELCOME,
-  MSG.SESSION_FULL,
-  MSG.FORCE_CLOSE_DUPLICATE,
-]);
-const PRE_OPEN_INVALID = Symbol('pre-open-invalid');
-const preOpenTextEncoder = new TextEncoder();
 
 // ─── Late-bound initNetwork (avoids circular peer.ts ↔ guest.ts) ───
 
 let _initNetwork: ((requestedId: string | null) => Promise<string>) | null = null;
 let _guestJoinEpoch = 0;
-let _v2GuestRoomOwner: object | null = null;
-let _boundedV1GuestRoomOwner: object | null = null;
 type ConnectionType = 'local' | 'remote' | 'unknown';
 let _hostReportedConnectionType: ConnectionType | null = null;
 const _handledConnectionErrors = new WeakSet<DataConnection>();
-
-function snapshotPreOpenValue(value: unknown, depth: number): unknown | typeof PRE_OPEN_INVALID {
-  if (
-    value === null ||
-    typeof value === 'string' ||
-    typeof value === 'boolean' ||
-    (typeof value === 'number' && Number.isFinite(value))
-  ) {
-    return value;
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value) || depth > 3) {
-    return PRE_OPEN_INVALID;
-  }
-  try {
-    const descriptors = Object.getOwnPropertyDescriptors(value);
-    const keys = Reflect.ownKeys(descriptors);
-    if (keys.length > 16 || keys.some((key) => typeof key !== 'string')) {
-      return PRE_OPEN_INVALID;
-    }
-    const output = Object.create(null) as Record<string, unknown>;
-    for (const key of keys as string[]) {
-      const descriptor = descriptors[key];
-      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
-        return PRE_OPEN_INVALID;
-      }
-      const item = snapshotPreOpenValue(descriptor.value, depth + 1);
-      if (item === PRE_OPEN_INVALID) return PRE_OPEN_INVALID;
-      output[key] = item;
-    }
-    return Object.freeze(output);
-  } catch {
-    return PRE_OPEN_INVALID;
-  }
-}
-
-function snapshotPreOpenLifecycleFrame(
-  value: unknown,
-): Readonly<{ frame: Readonly<Record<string, unknown>>; bytes: number }> | null {
-  const snapshot = snapshotPreOpenValue(value, 0);
-  if (snapshot === PRE_OPEN_INVALID || !snapshot || typeof snapshot !== 'object') return null;
-  const frame = snapshot as Readonly<Record<string, unknown>>;
-  if (typeof frame.type !== 'string' || !PRE_OPEN_LIFECYCLE_TYPES.has(frame.type)) return null;
-  const serialized = JSON.stringify(frame);
-  const bytes = preOpenTextEncoder.encode(serialized).byteLength;
-  if (bytes <= 0 || bytes > PRE_OPEN_LIFECYCLE_BYTE_LIMIT) return null;
-  return Object.freeze({ frame, bytes });
-}
-
-function retireActiveV2GuestRoom(): void {
-  if (!_v2GuestRoomOwner) return;
-  _v2GuestRoomOwner = null;
-  getFilePlaybackProductRuntime().endRoom();
-}
 
 function asConnectionType(value: unknown): ConnectionType | null {
   return value === 'local' || value === 'remote' || value === 'unknown' ? value : null;
@@ -166,9 +93,6 @@ function reportGuestConnectionFailure(error: unknown): void {
 /** Invalidate every callback/timer owned by the current provisional join. */
 export function invalidateGuestJoinAttempt(): void {
   _guestJoinEpoch++;
-  if (getRoomContext().kind === 'standard') {
-    retireActiveV2GuestRoom();
-  }
 }
 
 function isCurrentGuestJoin(epoch: number): boolean {
@@ -202,12 +126,6 @@ export function joinSession(
     return;
   }
 
-  const usesV2ApplicationSession =
-    FILE_PLAYBACK_ENGINE_V2_ENABLED && getRoomContext().kind === 'standard';
-  const applicationSessions = usesV2ApplicationSession
-    ? getFilePlaybackApplicationSessionManager()
-    : null;
-
   const hostConn = getState('network.hostConn');
   if (hostConn) {
     if (hostConn.open) {
@@ -215,13 +133,6 @@ export function joinSession(
       return;
     }
     try {
-      applicationSessions?.closeConnection(hostConn, false);
-      if (usesV2ApplicationSession) retireActiveV2GuestRoom();
-      void legacyBoundedFileV1Product.retireConnection(hostConn);
-      if (_boundedV1GuestRoomOwner) {
-        _boundedV1GuestRoomOwner = null;
-        void legacyBoundedFileV1Product.endRoom();
-      }
       hostConn.close();
     } catch {
       /* noop */
@@ -314,39 +225,6 @@ export function joinSession(
     return;
   }
 
-  const productRuntime = usesV2ApplicationSession ? getFilePlaybackProductRuntime() : null;
-  const productRoomOwner = usesV2ApplicationSession ? Object.freeze({}) : null;
-  let productRoomBegun = false;
-  const endProductRoom = (): void => {
-    if (
-      !productRoomBegun ||
-      !productRuntime ||
-      !productRoomOwner ||
-      _v2GuestRoomOwner !== productRoomOwner
-    ) {
-      return;
-    }
-    productRoomBegun = false;
-    _v2GuestRoomOwner = null;
-    try {
-      productRuntime.endRoom();
-    } catch (error) {
-      log.error('[Join] V2 guest room cleanup failed', error);
-    }
-  };
-  if (productRuntime && productRoomOwner) {
-    try {
-      productRoomBegun = productRuntime.beginGuestRoom();
-      if (!productRoomBegun) throw new Error('FILE_PLAYBACK_GUEST_ROOM_START_FAILED');
-      _v2GuestRoomOwner = productRoomOwner;
-    } catch (error) {
-      log.error('[Join] V2 guest room initialization failed', error);
-      setState('network.isConnecting', false);
-      reportGuestConnectionFailure(error);
-      return;
-    }
-  }
-
   let conn: DataConnection;
   try {
     const channelMode = getState('audio.channelMode');
@@ -356,7 +234,6 @@ export function joinSession(
       roomPassword,
     });
   } catch (e) {
-    endProductRoom();
     log.error('[Join] peer.connect failed', e);
     setState('network.isConnecting', false);
     reportGuestConnectionFailure(new Error('CONNECT_FAILED'));
@@ -366,64 +243,29 @@ export function joinSession(
   // Track the observed event; an adapter may expose conn.open before its open
   // callback has completed.
   let dataChannelOpened = false;
-  let applicationEstablished = false;
-  const preOpenFrames: Readonly<Record<string, unknown>>[] = [];
-  let preOpenFrameBytes = 0;
-  let preOpenRejected = false;
-  let semanticCohortMismatch = false;
-  let joinFailureUiPublished = false;
-  const boundedV1RoomOwner = Object.freeze({});
-  const endBoundedV1Room = (): void => {
-    void legacyBoundedFileV1Product.retireConnection(conn);
-    if (_boundedV1GuestRoomOwner !== boundedV1RoomOwner) return;
-    _boundedV1GuestRoomOwner = null;
-    void legacyBoundedFileV1Product.endRoom();
-  };
+  let connectionEstablished = false;
 
-  const publishGuestJoinFailure = (
-    key: 'error.app_version_mismatch' | 'error.session_handshake_failed',
-  ): void => {
-    if (joinFailureUiPublished) return;
-    joinFailureUiPublished = true;
-    _handledConnectionErrors.add(conn);
-    setState('network.isConnecting', false);
-    const error = new Error(
-      key === 'error.app_version_mismatch'
-        ? 'FILE_PLAYBACK_UPDATE_REQUIRED'
-        : 'FILE_PLAYBACK_HANDSHAKE_FAILED',
-    );
-    bus.emit('setup:guest-join-failure', { error, userMessage: t(key) });
-  };
-
-  const recordSemanticCohortMismatch = (): void => {
-    semanticCohortMismatch = true;
-    publishGuestJoinFailure('error.app_version_mismatch');
-  };
-
-  const completeApplicationSession = (): void => {
+  const completeConnection = (): void => {
     if (
-      applicationEstablished ||
+      connectionEstablished ||
       !isCurrentGuestJoin(joinEpoch) ||
       getState('network.hostConn') !== conn ||
-      !conn.open ||
-      (usesV2ApplicationSession && !applicationSessions?.establishedChannel(conn))
+      !conn.open
     ) {
       return;
     }
-    applicationEstablished = true;
+    connectionEstablished = true;
     setState('network.isConnecting', false);
     startWorkerTimer('sync', 1000);
     bus.emit('sync:request-immediate-ping');
     bus.emit('network:peer-connected', conn);
     bus.emit('setup:guest-join-success');
     markProRoomTransportRecovered();
-    log.info('[Join] Application session established with host:', hostId);
+    log.info('[Join] Connection established with host:', hostId);
   };
 
   const handlePreOpenError = (err: unknown) => {
     if (dataChannelOpened || !terminateGuestJoin(joinEpoch)) return;
-    applicationSessions?.closeConnection(conn, false);
-    endProductRoom();
     log.warn('[Join] Host connection error before open', err);
     try {
       conn.close();
@@ -436,60 +278,13 @@ export function joinSession(
 
   // Register data handling before `open`: PeerJS adapters can deliver the
   // host's lifecycle WELCOME before the guest-side callback has finished.
-  // Only a tiny, immutable lifecycle prefix is retained. V2 session frames
-  // cannot arrive yet because the guest sends HELLO only after `open`.
   const processInboundData = (data: unknown): void => {
     if (!isCurrentGuestJoin(joinEpoch) || getState('network.hostConn') !== conn) return;
-    if (usesV2ApplicationSession) {
-      if (!applicationSessions) {
-        endProductRoom();
-        try {
-          conn.close();
-        } catch {
-          /* noop */
-        }
-        return;
-      }
-      if (isFilePlaybackSessionSemanticCohortMismatchV2(data, FILE_PLAYBACK_SEMANTIC_COHORT_ID)) {
-        recordSemanticCohortMismatch();
-      }
-      const application = applicationSessions.receive(data, conn);
-      if (application.updateRequired) recordSemanticCohortMismatch();
-      if (application.handled) {
-        if (application.established) completeApplicationSession();
-        return;
-      }
-    }
     bus.emit('network:data', data, conn);
   };
 
   conn.on('data', (data: unknown) => {
     if (!isCurrentGuestJoin(joinEpoch)) return;
-    if (usesV2ApplicationSession && !dataChannelOpened) {
-      const queued = snapshotPreOpenLifecycleFrame(data);
-      if (
-        !queued ||
-        preOpenFrames.length >= PRE_OPEN_LIFECYCLE_FRAME_LIMIT ||
-        preOpenFrameBytes + queued.bytes > PRE_OPEN_LIFECYCLE_BYTE_LIMIT
-      ) {
-        preOpenRejected = true;
-        preOpenFrames.length = 0;
-        preOpenFrameBytes = 0;
-        clearManagedTimer('join-timeout');
-        publishGuestJoinFailure('error.session_handshake_failed');
-        applicationSessions?.closeConnection(conn, false);
-        endProductRoom();
-        try {
-          conn.close();
-        } catch {
-          /* noop */
-        }
-        return;
-      }
-      preOpenFrames.push(queued.frame);
-      preOpenFrameBytes += queued.bytes;
-      return;
-    }
     processInboundData(data);
   });
   conn.on('error', handlePreOpenError);
@@ -503,8 +298,6 @@ export function joinSession(
         return;
       }
       if (!terminateGuestJoin(joinEpoch)) return;
-      applicationSessions?.closeConnection(conn, false);
-      endProductRoom();
       log.warn('[Join] Connection timeout — data channel did not open in 10s');
       try {
         conn.close();
@@ -519,8 +312,6 @@ export function joinSession(
 
   conn.on('open', () => {
     if (!isCurrentGuestJoin(joinEpoch)) {
-      applicationSessions?.closeConnection(conn, false);
-      endProductRoom();
       try {
         conn.close();
       } catch {
@@ -531,17 +322,6 @@ export function joinSession(
     dataChannelOpened = true;
     clearManagedTimer('join-timeout');
     conn.off?.('error', handlePreOpenError);
-    if (preOpenRejected) {
-      applicationSessions?.closeConnection(conn, false);
-      endProductRoom();
-      try {
-        conn.close();
-      } catch {
-        /* noop */
-      }
-      setState('network.isConnecting', false);
-      return;
-    }
     log.info('[Join] Connected to host:', hostId);
 
     setState('network.hostConn', conn);
@@ -553,10 +333,6 @@ export function joinSession(
     _handledConnectionErrors.delete(conn);
 
     conn.on('close', () => {
-      // Retire the exact application record even when a newer RTC connection
-      // already owns the guest UI.
-      applicationSessions?.closeConnection(conn, false);
-      endBoundedV1Room();
       // Stale-conn no-op (parity with host.ts's per-peer close guard): once
       // this conn no longer owns network.hostConn — replaced by a rejoin, or
       // already nulled by leaveSession/rejoin cleanup — its close is
@@ -575,7 +351,6 @@ export function joinSession(
         return;
       }
       log.warn('[Join] Host connection closed');
-      endProductRoom();
       setState('network.hostConn', null);
       setState('network.isConnecting', false);
 
@@ -586,15 +361,6 @@ export function joinSession(
         return;
       }
       const isIntentional = getState('network.isIntentionalDisconnect');
-      if (
-        usesV2ApplicationSession &&
-        !isIntentional &&
-        !applicationEstablished &&
-        !semanticCohortMismatch
-      ) {
-        publishGuestJoinFailure('error.session_handshake_failed');
-        return;
-      }
       _handledConnectionErrors.add(conn);
       if (!isIntentional) {
         reportGuestConnectionFailure(new Error('HOST_DISCONNECTED'));
@@ -603,8 +369,6 @@ export function joinSession(
     });
 
     conn.on('error', (err: unknown) => {
-      applicationSessions?.closeConnection(conn, false);
-      endBoundedV1Room();
       // Same stale-conn no-op as the close handler above: a replaced conn's
       // draining error (e.g. a malformed frame on a dying transport) must
       // not surface an error dialog over the live connection.
@@ -613,91 +377,19 @@ export function joinSession(
         return;
       }
       log.error('[Join] Host connection error', err);
-      endProductRoom();
       setState('network.hostConn', null);
       setState('network.isConnecting', false);
 
       if (_handledConnectionErrors.has(conn)) return;
 
       const isIntentional = getState('network.isIntentionalDisconnect');
-      if (
-        usesV2ApplicationSession &&
-        !isIntentional &&
-        !applicationEstablished &&
-        !semanticCohortMismatch
-      ) {
-        publishGuestJoinFailure('error.session_handshake_failed');
-        return;
-      }
       _handledConnectionErrors.add(conn);
       if (!isIntentional) {
         reportGuestConnectionFailure(new Error('HOST_CONNECTION_ERROR'));
       }
     });
 
-    if (usesV2ApplicationSession) {
-      const guestParticipantId = getState('network.myId');
-      if (
-        !applicationSessions ||
-        !guestParticipantId ||
-        !applicationSessions.beginGuestConnection(conn, guestParticipantId)
-      ) {
-        endProductRoom();
-        try {
-          conn.close();
-        } catch {
-          /* noop */
-        }
-        return;
-      }
-
-      for (const queued of preOpenFrames.splice(0)) {
-        if (!isCurrentGuestJoin(joinEpoch) || getState('network.hostConn') !== conn || !conn.open) {
-          break;
-        }
-        processInboundData(queued);
-      }
-      preOpenFrameBytes = 0;
-    } else {
-      // Legacy joins are owned solely by RTC open. No V2 HELLO/APPLIED or
-      // room clock is created, so existing standard/PRO behavior is unchanged.
-      // Start the additive bounded-V1 lifecycle before publishing success so a
-      // synchronous leave/rejoin listener can revoke this exact invocation,
-      // but never make generic join completion wait for that async lifecycle
-      // lane. Capability negotiation may safely arrive after stable-V1
-      // bootstrap; the host already treats every peer as stable V1 until that
-      // exact connection advertises bounded support.
-      _boundedV1GuestRoomOwner = boundedV1RoomOwner;
-      const boundedV1Room = legacyBoundedFileV1Product.beginGuestRoom(conn);
-      completeApplicationSession();
-      void boundedV1Room
-        .then((outcome) => {
-          if (
-            _boundedV1GuestRoomOwner !== boundedV1RoomOwner ||
-            !isCurrentGuestJoin(joinEpoch) ||
-            getState('network.hostConn') !== conn ||
-            !conn.open
-          ) {
-            return;
-          }
-          if (outcome.status === 'active') {
-            legacyBoundedFileV1Product.announceGuestCapability(conn);
-          }
-        })
-        .catch(() => {
-          if (
-            _boundedV1GuestRoomOwner !== boundedV1RoomOwner ||
-            !isCurrentGuestJoin(joinEpoch) ||
-            getState('network.hostConn') !== conn ||
-            !conn.open
-          ) {
-            return;
-          }
-          // The bounded V1 path is additive. Its initialization failure
-          // leaves stable V1 as the compatibility owner for this connection.
-          log.warn('[Join] Bounded V1 guest room initialization failed; using stable V1');
-        });
-    }
+    completeConnection();
 
     // Detect local vs remote connection. The detectConnectionType function
     // now internally polls until ICE stabilizes (up to 10 seconds).
@@ -728,10 +420,6 @@ export function joinSession(
         );
       }
     });
-
-    if (usesV2ApplicationSession) {
-      log.info('[Join] Transport open; awaiting application-session APPLIED');
-    }
   });
 }
 
@@ -782,15 +470,6 @@ function handleSessionFull(data: Record<string, unknown>, conn?: DataConnection)
 
   setState('network.isIntentionalDisconnect', true);
 
-  if (FILE_PLAYBACK_ENGINE_V2_ENABLED && getRoomContext().kind === 'standard') {
-    getFilePlaybackApplicationSessionManager().closeConnection(hostConn, false);
-    retireActiveV2GuestRoom();
-  }
-  void legacyBoundedFileV1Product.retireConnection(hostConn);
-  if (_boundedV1GuestRoomOwner) {
-    _boundedV1GuestRoomOwner = null;
-    void legacyBoundedFileV1Product.endRoom();
-  }
   try {
     hostConn.close();
   } catch {

@@ -23,23 +23,23 @@ Important rules:
 
 Source: `src/types/index.ts::StateTree`.
 
-| Domain | Main owner | Purpose | Risk if changed carelessly |
-| --- | --- | --- | --- |
-| `setup` | setup UI/app bootstrap | Whether session setup has started. | Overlays and join/host flow can desync. |
-| `player` | player/decode/transport/UI | Current track timing, seek flag, track metadata, decode failures. | Playback UI, sync, media session, and recovery can disagree. |
-| `share.remote` | remote-share | Upload/download status, progress, blob URL, errors. | Remote guests can hang or show stale progress. |
-| `transfer` | storage transfer | Direct file receive/send status, session IDs, metadata, stale chunk counters. | File transfer races and stale chunks can corrupt current playback. |
-| `preload` | storage preload | Next-track preload metadata, session state, ack tracking, next blob. | Preload promotion can collide with foreground track switching. |
-| `audio` | audio engine/effects/settings | Volume, channel, EQ, reverb, stereo width, virtual bass, sub frequency. | Host/guest audio settings can diverge. |
-| `demo` | demo mode | Demo active/loading/effects toggles. | Demo exit/restore can leave app in wrong mode. |
-| `sync` | sync/shared clock/YouTube | Local offsets, latency history, YouTube local offset. | Playback convergence and manual sync can drift. |
-| `network` | peer/host/guest/chat | Role, IDs, connection objects, slots, OP, room password, chat policy. | Authority, room membership, and chat controls can break. |
-| `playlist` | playlist/player/UI | Items, current index, repeat, shuffle. | Track changes and preload target selection can break. |
-| `files` | decode/storage/player | Current file blob and current track name. | Decode/playback/recovery can target wrong file. |
-| `youtube` | YouTube modules | Current subindex, playlist subitems, guest play latency. | YouTube playlist/rendezvous sync can break. |
-| `recovery` | storage recovery/playback | Recovery pending/retry counters. | Guests can retry wrong file or spam host. |
-| `systemAudio` | system audio modules | Guest receiving state. | UI ownership and restore behavior can desync. |
-| `playback` | player ownership/lifecycle | Media owner, activity, file lifecycle, pending play/recovery, failed tracks. | Central playback contract breaks across modules. |
+| Domain         | Main owner                    | Purpose                                                                       | Risk if changed carelessly                                         |
+| -------------- | ----------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `setup`        | setup UI/app bootstrap        | Whether session setup has started.                                            | Overlays and join/host flow can desync.                            |
+| `player`       | player/decode/transport/UI    | Current track timing, seek flag, track metadata, decode failures.             | Playback UI, sync, media session, and recovery can disagree.       |
+| `share.remote` | remote-share                  | Upload/download status, progress, blob URL, errors.                           | Remote guests can hang or show stale progress.                     |
+| `transfer`     | storage transfer              | Direct file receive/send status, session IDs, metadata, stale chunk counters. | File transfer races and stale chunks can corrupt current playback. |
+| `preload`      | storage preload               | Next-track preload metadata, session state, ack tracking, next blob.          | Preload promotion can collide with foreground track switching.     |
+| `audio`        | audio engine/effects/settings | Volume, channel, EQ, reverb, stereo width, virtual bass, sub frequency.       | Host/guest audio settings can diverge.                             |
+| `demo`         | demo mode                     | Demo active/loading/effects toggles.                                          | Demo exit/restore can leave app in wrong mode.                     |
+| `sync`         | sync/shared clock/YouTube     | Local offsets, latency history, YouTube local offset.                         | Playback convergence and manual sync can drift.                    |
+| `network`      | peer/host/guest/chat          | Role, IDs, connection objects, slots, OP, room password, chat policy.         | Authority, room membership, and chat controls can break.           |
+| `playlist`     | playlist/player/UI            | Items, current index, repeat, shuffle.                                        | Track changes and preload target selection can break.              |
+| `files`        | decode/storage/player         | Current file blob and current track name.                                     | Decode/playback/recovery can target wrong file.                    |
+| `youtube`      | YouTube modules               | Current subindex, playlist subitems, guest play latency.                      | YouTube playlist/rendezvous sync can break.                        |
+| `recovery`     | storage recovery/playback     | Recovery pending/retry counters.                                              | Guests can retry wrong file or spam host.                          |
+| `systemAudio`  | system audio modules          | Guest receiving state.                                                        | UI ownership and restore behavior can desync.                      |
+| `playback`     | player ownership/lifecycle    | Media owner, activity, file lifecycle, pending play/recovery, failed tracks.  | Central playback contract breaks across modules.                   |
 
 ## Playback State Contract
 
@@ -54,38 +54,38 @@ Source files:
 
 `playback.mode` values:
 
-| Value | Meaning |
-| --- | --- |
-| `null` | No active media owner. |
-| `file` | Local file pipeline is current/selected owner. |
-| `youtube` | YouTube iframe/player is current owner. |
+| Value          | Meaning                                          |
+| -------------- | ------------------------------------------------ |
+| `null`         | No active media owner.                           |
+| `file`         | Local file pipeline is current/selected owner.   |
+| `youtube`      | YouTube iframe/player is current owner.          |
 | `system-audio` | System audio sharing/receiving is current owner. |
 
 ### Activity
 
 `playback.activity` values:
 
-| Value | Meaning |
-| --- | --- |
-| `idle` | No active user-visible playback. |
+| Value     | Meaning                                                                 |
+| --------- | ----------------------------------------------------------------------- |
+| `idle`    | No active user-visible playback.                                        |
 | `pending` | A media path is preparing, loading, transferring, decoding, or waiting. |
-| `playing` | Media is actively producing or expected to produce playback. |
-| `paused` | Media is selected/loaded but not advancing. |
+| `playing` | Media is actively producing or expected to produce playback.            |
+| `paused`  | Media is selected/loaded but not advancing.                             |
 
 ### File Lifecycle
 
 `playback.lifecycle` values:
 
-| Value | Meaning |
-| --- | --- |
-| `IDLE` | No file pipeline active. |
-| `DOWNLOADING` | Main file transfer/download active. |
+| Value              | Meaning                                                |
+| ------------------ | ------------------------------------------------------ |
+| `IDLE`             | No file pipeline active.                               |
+| `DOWNLOADING`      | Main file transfer/download active.                    |
 | `AWAITING_PRELOAD` | Preload-promoted path selected but blob not ready yet. |
-| `DECODING` | Blob available and `decodeAudioData` running. |
-| `READY` | Decoded buffer loaded, awaiting play. |
-| `PLAYING` | File playback active. |
-| `PAUSED` | File playback paused with decoded buffer. |
-| `FAILED` | Decode/timeout/unavailable state. |
+| `DECODING`         | Blob available and `decodeAudioData` running.          |
+| `READY`            | Decoded buffer loaded, awaiting play.                  |
+| `PLAYING`          | File playback active.                                  |
+| `PAUSED`           | File playback paused with decoded buffer.              |
+| `FAILED`           | Decode/timeout/unavailable state.                      |
 
 Important nuance:
 
@@ -100,19 +100,19 @@ Source: `src/player/ownership.ts`.
 
 Use these helpers instead of ad hoc cross-module state writes:
 
-| Helper family | Purpose |
-| --- | --- |
-| `setPlaybackLifecycleState(...)` | Writes file lifecycle and synchronizes mode/activity. |
-| `setPlaybackTransferState(...)` | Writes transfer state and synchronizes ownership. |
-| `setSystemAudioReceiving(...)` | Writes system audio receive state and synchronizes ownership. |
-| `claimPlaybackOwner(...)` / domain claim helpers | Claim active media owner. |
-| `releasePlaybackOwner(...)` / domain release helpers | Release active media owner. |
-| `setPlaybackIdle(...)` | Return public playback state to idle. |
-| `getPlaybackOwnership()` | Full derived ownership view. |
-| `getPlaybackModeActivity()` | Public mode/activity view. |
-| `isPlaybackPlayingFile/YouTube/SystemAudio(...)` | Mode-specific predicates. |
-| `isExternalOwner(...)` | Safety check for file pipeline versus external owners. |
-| `isPlaybackIdleCompat()` | Narrow legacy-compatible predicate only. |
+| Helper family                                        | Purpose                                                       |
+| ---------------------------------------------------- | ------------------------------------------------------------- |
+| `setPlaybackLifecycleState(...)`                     | Writes file lifecycle and synchronizes mode/activity.         |
+| `setPlaybackTransferState(...)`                      | Writes transfer state and synchronizes ownership.             |
+| `setSystemAudioReceiving(...)`                       | Writes system audio receive state and synchronizes ownership. |
+| `claimPlaybackOwner(...)` / domain claim helpers     | Claim active media owner.                                     |
+| `releasePlaybackOwner(...)` / domain release helpers | Release active media owner.                                   |
+| `setPlaybackIdle(...)`                               | Return public playback state to idle.                         |
+| `getPlaybackOwnership()`                             | Full derived ownership view.                                  |
+| `getPlaybackModeActivity()`                          | Public mode/activity view.                                    |
+| `isPlaybackPlayingFile/YouTube/SystemAudio(...)`     | Mode-specific predicates.                                     |
+| `isExternalOwner(...)`                               | Safety check for file pipeline versus external owners.        |
+| `isPlaybackIdleCompat()`                             | Narrow legacy-compatible predicate only.                      |
 
 Do not add broad new state flags if the value can be derived from lifecycle, transfer, metadata, and mode/activity.
 
@@ -261,7 +261,7 @@ Authority and policy:
 - Guests accept broadcast transfer frames only from host connection.
 - File chunk payloads are bounded and sessioned.
 - Remote/unknown peers should not receive file data over TURN.
-- Remote guests use encrypted remote-share descriptors instead.
+- Remote guests use authorized whole-object remote-share descriptors instead.
 
 ### Preload
 

@@ -12,15 +12,15 @@ application shell.
 
 Use production files as the authority for implementation details:
 
-| Area | Authoritative source |
-|---|---|
-| App layout and components | `index.html`, `css/style.css`, `css/desktop.css` |
-| Color, spacing, radius, and motion tokens | `css/style.css` |
-| Fonts and locale fallbacks | `css/pretendard.css`, `css/fonts/`, `fonts/README.md` |
-| Product copy | `src/i18n/` |
-| Interaction behavior | `src/ui/`, `src/player/`, `src/network/` |
-| Public editorial shell | `public/editorial-*.css`, `.workshop/landing/` |
-| Brand assets | `public/designsystem/assets/`, `public/favicon.svg`, `icons/` |
+| Area                                      | Authoritative source                                          |
+| ----------------------------------------- | ------------------------------------------------------------- |
+| App layout and components                 | `index.html`, `css/style.css`, `css/desktop.css`              |
+| Color, spacing, radius, and motion tokens | `css/style.css`                                               |
+| Fonts and locale fallbacks                | `css/pretendard.css`, `css/fonts/`, `fonts/README.md`         |
+| Product copy                              | `src/i18n/`                                                   |
+| Interaction behavior                      | `src/ui/`, `src/player/`, `src/network/`                      |
+| Public editorial shell                    | `public/editorial-*.css`, `.workshop/landing/`                |
+| Brand assets                              | `public/designsystem/assets/`, `public/favicon.svg`, `icons/` |
 
 Files under `src_ref/` are extraction snapshots for design archaeology, not
 production source. They are not synchronized automatically. The exception is
@@ -36,8 +36,8 @@ and Design System pages; keep its font URL compatible with the deployed
 - Browser media transfer and playback are RAM-only and use the shared
   AudioBuffer playback clock. Do not introduce a browser-specific playback
   presentation without reviewing the storage and synchronization ADR.
-- Remote file sharing encrypts media in the browser and uses temporary
-  Cloudflare R2 handoff objects.
+- Remote file sharing uses authenticated temporary whole objects in private
+  Cloudflare R2 storage; read authority is delivered only to room participants.
 - The app supports light and dark themes, mobile and wide layouts, installed
   PWAs, safe-area insets, reduced motion, and keyboard navigation.
 

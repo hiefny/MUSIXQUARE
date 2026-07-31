@@ -2,8 +2,6 @@
 
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 
-import { decryptToFile, encryptFile } from '../src/share/crypto.js';
-
 const APP_ORIGIN = 'https://musixquare.com';
 const REMOTE_ORIGIN = 'https://share.musixquare.com';
 const DEFAULT_BYTES = 32;
@@ -21,18 +19,8 @@ interface RemoteShareSession {
   uploadHeaders: Record<string, string>;
   completeToken: string;
   objectId: string;
-  downloadUrl: string;
   cleanupToken: string;
-  queueItemId: string;
-  sessionId: number;
-}
-
-interface PlainRemoteShareSession {
-  uploadUrl: string;
-  uploadHeaders: Record<string, string>;
-  completeToken: string;
-  objectId: string;
-  cleanupToken: string;
+  expiresAt: number;
   queueItemId: string;
   sessionId: number;
 }
@@ -83,9 +71,9 @@ async function waitForRemoteShareWorkerReady(): Promise<void> {
       throw new Error('remote-share readiness returned invalid security config');
     }
 
-    const plainWholeReady =
-      config.plainWholeObjectVersion === 1 && config.downloadAuthorizationVersion === 1;
-    if (config.workerContractVersion === 1 && plainWholeReady) {
+    const wholeObjectReady =
+      config.wholeObjectVersion === 1 && config.downloadAuthorizationVersion === 1;
+    if (config.workerContractVersion === 1 && wholeObjectReady) {
       consecutiveReadyReads += 1;
       if (consecutiveReadyReads >= 2) return;
     } else consecutiveReadyReads = 0;
@@ -181,7 +169,6 @@ async function requestSession(
   queueItemId: string,
   sessionId: number,
   sourceFile: File,
-  encryptedBlob: Blob,
 ): Promise<RemoteShareSession> {
   const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/session`, {
     method: 'POST',
@@ -197,7 +184,6 @@ async function requestSession(
       name: sourceFile.name,
       mime: sourceFile.type,
       size: sourceFile.size,
-      encryptedSize: encryptedBlob.size,
     }),
   });
   assertAllowedOrigin(response, 'remote-share session');
@@ -206,8 +192,8 @@ async function requestSession(
     typeof session.uploadUrl !== 'string' ||
     typeof session.completeToken !== 'string' ||
     typeof session.objectId !== 'string' ||
-    typeof session.downloadUrl !== 'string' ||
     typeof session.cleanupToken !== 'string' ||
+    typeof session.expiresAt !== 'number' ||
     !session.uploadHeaders ||
     typeof session.uploadHeaders !== 'object' ||
     Array.isArray(session.uploadHeaders) ||
@@ -216,46 +202,6 @@ async function requestSession(
     throw new Error('invalid remote-share session response');
   }
   return { ...session, queueItemId, sessionId } as unknown as RemoteShareSession;
-}
-
-async function requestPlainSession(
-  token: string,
-  roomId: string,
-  queueItemId: string,
-  sessionId: number,
-  sourceFile: File,
-): Promise<PlainRemoteShareSession> {
-  const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/v3/plain/session`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Origin: APP_ORIGIN,
-      ...(token ? { 'X-MXQR-Capability': token } : {}),
-    },
-    body: JSON.stringify({
-      roomId,
-      sessionId,
-      queueItemId,
-      name: sourceFile.name,
-      mime: sourceFile.type,
-      size: sourceFile.size,
-    }),
-  });
-  assertAllowedOrigin(response, 'plaintext remote-share session');
-  const session = await readJson(response, 'plaintext remote-share session');
-  if (
-    typeof session.uploadUrl !== 'string' ||
-    typeof session.completeToken !== 'string' ||
-    typeof session.objectId !== 'string' ||
-    typeof session.cleanupToken !== 'string' ||
-    !session.uploadHeaders ||
-    typeof session.uploadHeaders !== 'object' ||
-    Array.isArray(session.uploadHeaders) ||
-    !Object.values(session.uploadHeaders).every((value) => typeof value === 'string')
-  ) {
-    throw new Error('invalid plaintext remote-share session response');
-  }
-  return { ...session, queueItemId, sessionId } as unknown as PlainRemoteShareSession;
 }
 
 function assertSessionPlaybackContext(
@@ -284,46 +230,53 @@ function assertSessionPlaybackContext(
   }
 }
 
+function decodeAuthorityPayload(token: string, label: string): Record<string, unknown> {
+  const [encodedPayload, encodedSignature] = token.split('.');
+  if (!encodedPayload || !encodedSignature) throw new Error(`${label} token shape is invalid`);
+  try {
+    return JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8')) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    throw new Error(`${label} token payload is invalid`);
+  }
+}
+
+function assertCleanupAuthority(session: RemoteShareSession, roomId: string): void {
+  const payload = decodeAuthorityPayload(session.cleanupToken, 'remote-share cleanup');
+  if (
+    payload.v !== 1 ||
+    payload.kind !== 'cleanup' ||
+    payload.aud !== 'musixquare-remote-share' ||
+    payload.method !== 'DELETE' ||
+    payload.roomId !== roomId ||
+    payload.objectId !== session.objectId ||
+    payload.key !== `room/${roomId}/${session.objectId}` ||
+    payload.exp !== session.expiresAt ||
+    typeof payload.iat !== 'number' ||
+    typeof payload.nonce !== 'string'
+  ) {
+    throw new Error('remote-share cleanup authority is not bound to the object incarnation');
+  }
+}
+
 function assertUploadMetadata(session: RemoteShareSession, sourceFile: File): void {
   const normalized = Object.fromEntries(
     Object.entries(session.uploadHeaders).map(([name, value]) => [name.toLowerCase(), value]),
   );
   const expected: Record<string, string> = {
     'content-type': 'application/octet-stream',
-    // The Worker percent-encodes metadata before signing it so R2 headers stay
-    // ASCII-safe; the download path decodes these values for product use.
     'x-amz-meta-name': encodeURIComponent(sourceFile.name),
     'x-amz-meta-mime': encodeURIComponent(sourceFile.type),
-    'x-amz-meta-size-bytes': String(sourceFile.size),
-    'x-amz-meta-encrypted-size': String(sourceFile.size + 16),
+    'x-amz-meta-stored-size': String(sourceFile.size),
+    'x-amz-meta-format-version': 'whole-object-v1',
     'x-amz-meta-object-id': session.objectId,
   };
   for (const [name, value] of Object.entries(expected)) {
     if (normalized[name] !== value) {
       throw new Error(`remote-share upload metadata mismatch for ${name}`);
     }
-  }
-}
-
-function assertPlainUploadMetadata(session: PlainRemoteShareSession, sourceFile: File): void {
-  const normalized = Object.fromEntries(
-    Object.entries(session.uploadHeaders).map(([name, value]) => [name.toLowerCase(), value]),
-  );
-  const expected: Record<string, string> = {
-    'content-type': 'application/octet-stream',
-    'x-amz-meta-name': encodeURIComponent(sourceFile.name),
-    'x-amz-meta-mime': encodeURIComponent(sourceFile.type),
-    'x-amz-meta-size-bytes': String(sourceFile.size),
-    'x-amz-meta-format-version': 'plain-whole-object-v1',
-    'x-amz-meta-object-id': session.objectId,
-  };
-  for (const [name, value] of Object.entries(expected)) {
-    if (normalized[name] !== value) {
-      throw new Error(`plaintext remote-share upload metadata mismatch for ${name}`);
-    }
-  }
-  if ('x-amz-meta-encrypted-size' in normalized) {
-    throw new Error('plaintext remote-share upload exposed encrypted-size metadata');
   }
 }
 
@@ -390,23 +343,6 @@ async function completeUpload(
   return readJson(response, 'remote-share complete');
 }
 
-async function completePlainUpload(
-  session: PlainRemoteShareSession,
-  roomId: string,
-): Promise<Record<string, unknown>> {
-  const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/v3/plain/complete`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Origin: APP_ORIGIN },
-    body: JSON.stringify({
-      roomId,
-      objectId: session.objectId,
-      completeToken: session.completeToken,
-    }),
-  });
-  assertAllowedOrigin(response, 'plaintext remote-share complete');
-  return readJson(response, 'plaintext remote-share complete');
-}
-
 async function cleanup(session: RemoteShareSession, roomId: string): Promise<Response> {
   return fetchWithTimeout(`${REMOTE_ORIGIN}/object/${roomId}/${session.objectId}`, {
     method: 'DELETE',
@@ -417,136 +353,23 @@ async function cleanup(session: RemoteShareSession, roomId: string): Promise<Res
   });
 }
 
-async function cleanupPlain(session: PlainRemoteShareSession, roomId: string): Promise<Response> {
-  return fetchWithTimeout(`${REMOTE_ORIGIN}/v3/plain/object/${roomId}/${session.objectId}`, {
-    method: 'DELETE',
-    headers: {
-      Origin: APP_ORIGIN,
-      'X-MXQR-Cleanup-Token': session.cleanupToken,
-    },
-  });
-}
-
-async function runEncryptedWholeSmoke(
+async function runWholeObjectSmoke(
   token: string,
   roomId: string,
   sourceBytes: Uint8Array<ArrayBuffer>,
 ): Promise<Record<string, unknown>> {
   const queueItemId = randomUUID();
   const sessionId = Date.now();
-  const sourceFile = new File([sourceBytes], FILE_NAME, {
-    type: FILE_MIME,
-  });
+  const sourceFile = new File([sourceBytes], FILE_NAME, { type: FILE_MIME });
   const expectedSha256 = createHash('sha256').update(sourceBytes).digest('hex');
-  const encrypted = await encryptFile(sourceFile);
   let session: RemoteShareSession | undefined;
   let cleaned = false;
 
   try {
-    session = await requestSession(
-      token,
-      roomId,
-      queueItemId,
-      sessionId,
-      sourceFile,
-      encrypted.encryptedBlob,
-    );
+    session = await requestSession(token, roomId, queueItemId, sessionId, sourceFile);
     assertSessionPlaybackContext(session, queueItemId, sessionId);
+    assertCleanupAuthority(session, roomId);
     assertUploadMetadata(session, sourceFile);
-    await assertUploadCors(session);
-
-    const upload = await fetchWithTimeout(session.uploadUrl, {
-      method: 'PUT',
-      headers: { ...session.uploadHeaders, Origin: APP_ORIGIN },
-      body: encrypted.encryptedBlob,
-    });
-    if (!upload.ok) throw new Error(`R2 direct PUT HTTP ${upload.status}`);
-    assertAllowedOrigin(upload, 'R2 direct PUT');
-
-    const completed = await completeUpload(session, roomId);
-    const completedObjectId = completed.objectId;
-    const completedDownloadUrl = completed.downloadUrl;
-    if (
-      completedObjectId !== session.objectId ||
-      session.queueItemId !== queueItemId ||
-      session.sessionId !== sessionId ||
-      typeof completedDownloadUrl !== 'string' ||
-      !completedDownloadUrl
-    ) {
-      throw new Error('invalid remote-share completion response');
-    }
-
-    const download = await fetchWithTimeout(completedDownloadUrl, {
-      headers: { Origin: APP_ORIGIN },
-    });
-    assertAllowedOrigin(download, 'remote-share download');
-    if (!download.ok) throw new Error(`remote-share download HTTP ${download.status}`);
-    const downloadedEncrypted = await download.arrayBuffer();
-    if (downloadedEncrypted.byteLength !== encrypted.encryptedBlob.size) {
-      throw new Error('remote-share encrypted download size mismatch');
-    }
-    const decrypted = await decryptToFile(
-      downloadedEncrypted,
-      encrypted.keyB64,
-      encrypted.ivB64,
-      sourceFile.name,
-      sourceFile.type,
-    );
-    const decryptedBytes = new Uint8Array(await decrypted.arrayBuffer());
-    const actualSha256 = createHash('sha256').update(decryptedBytes).digest('hex');
-    if (decryptedBytes.byteLength !== sourceBytes.byteLength || actualSha256 !== expectedSha256) {
-      throw new Error('remote-share decrypted plaintext mismatch');
-    }
-    if (decrypted.name !== sourceFile.name || decrypted.type !== sourceFile.type) {
-      throw new Error('remote-share decrypted file metadata mismatch');
-    }
-
-    const deleted = await cleanup(session, roomId);
-    assertAllowedOrigin(deleted, 'remote-share cleanup');
-    await readJson(deleted, 'remote-share cleanup');
-    cleaned = true;
-
-    const afterDelete = await fetchWithTimeout(completedDownloadUrl, {
-      headers: { Origin: APP_ORIGIN },
-    });
-    assertAllowedOrigin(afterDelete, 'remote-share deleted-object lookup');
-    if (afterDelete.status !== 404) {
-      throw new Error(`deleted object returned HTTP ${afterDelete.status}, expected 404`);
-    }
-
-    return {
-      bytes: sourceFile.size,
-      encryptedBytes: encrypted.encryptedBlob.size,
-      directR2Put: true,
-      corsPreflight: true,
-      workerCors: ['session', 'complete', 'download', 'cleanup', 'deleted-object'],
-      productCryptoRoundTrip: true,
-      plaintextSha256Match: true,
-      metadataMatch: true,
-      cleanupStatus: deleted.status,
-      afterCleanupStatus: afterDelete.status,
-    };
-  } finally {
-    if (session && !cleaned) await cleanup(session, roomId).catch(() => undefined);
-  }
-}
-
-async function runPlainWholeSmoke(
-  token: string,
-  roomId: string,
-  sourceBytes: Uint8Array<ArrayBuffer>,
-): Promise<Record<string, unknown>> {
-  const queueItemId = randomUUID();
-  const sessionId = Date.now() + 1;
-  const sourceFile = new File([sourceBytes], FILE_NAME, { type: FILE_MIME });
-  const expectedSha256 = createHash('sha256').update(sourceBytes).digest('hex');
-  let session: PlainRemoteShareSession | undefined;
-  let cleaned = false;
-
-  try {
-    session = await requestPlainSession(token, roomId, queueItemId, sessionId, sourceFile);
-    assertSessionPlaybackContext(session, queueItemId, sessionId);
-    assertPlainUploadMetadata(session, sourceFile);
     await assertUploadCors(session);
 
     const upload = await fetchWithTimeout(session.uploadUrl, {
@@ -554,29 +377,30 @@ async function runPlainWholeSmoke(
       headers: { ...session.uploadHeaders, Origin: APP_ORIGIN },
       body: sourceFile,
     });
-    if (!upload.ok) throw new Error(`plaintext R2 direct PUT HTTP ${upload.status}`);
-    assertAllowedOrigin(upload, 'plaintext R2 direct PUT');
+    if (!upload.ok) throw new Error(`R2 direct PUT HTTP ${upload.status}`);
+    assertAllowedOrigin(upload, 'R2 direct PUT');
 
-    const completed = await completePlainUpload(session, roomId);
+    const completed = await completeUpload(session, roomId);
     const downloadUrl = completed.downloadUrl;
     const downloadToken = completed.downloadToken;
     if (
       completed.objectId !== session.objectId ||
       typeof downloadUrl !== 'string' ||
-      downloadUrl !== `${REMOTE_ORIGIN}/v3/plain/download/${roomId}/${session.objectId}` ||
+      downloadUrl !== `${REMOTE_ORIGIN}/download/${roomId}/${session.objectId}` ||
       typeof downloadToken !== 'string' ||
       downloadToken.length < 32 ||
+      completed.cleanupToken !== session.cleanupToken ||
       downloadUrl.includes(downloadToken)
     ) {
-      throw new Error('invalid plaintext remote-share completion response');
+      throw new Error('invalid remote-share completion response');
     }
 
     const unauthorized = await fetchWithTimeout(downloadUrl, {
       headers: { Origin: APP_ORIGIN },
     });
-    assertAllowedOrigin(unauthorized, 'plaintext unauthorized download');
+    assertAllowedOrigin(unauthorized, 'unauthorized remote-share download');
     if (unauthorized.status !== 401) {
-      throw new Error(`unauthorized plaintext download returned HTTP ${unauthorized.status}`);
+      throw new Error(`unauthorized remote-share download returned HTTP ${unauthorized.status}`);
     }
     await unauthorized.body?.cancel().catch(() => undefined);
 
@@ -587,55 +411,69 @@ async function runPlainWholeSmoke(
         Range: 'bytes=0-0',
       },
     });
-    assertAllowedOrigin(range, 'plaintext Range rejection');
+    assertAllowedOrigin(range, 'remote-share Range rejection');
     if (range.status !== 416) {
-      throw new Error(`plaintext Range returned HTTP ${range.status}, expected 416`);
+      throw new Error(`remote-share Range returned HTTP ${range.status}, expected 416`);
     }
     await range.body?.cancel().catch(() => undefined);
 
     const download = await fetchWithTimeout(downloadUrl, {
       headers: { Authorization: `Bearer ${downloadToken}`, Origin: APP_ORIGIN },
     });
-    assertAllowedOrigin(download, 'plaintext authorized download');
-    if (!download.ok) throw new Error(`plaintext remote-share download HTTP ${download.status}`);
+    assertAllowedOrigin(download, 'authorized remote-share download');
+    if (!download.ok) throw new Error(`remote-share download HTTP ${download.status}`);
     if (download.headers.get('cache-control') !== 'no-store') {
-      throw new Error('plaintext remote-share download is cacheable');
+      throw new Error('remote-share download is cacheable');
     }
     const downloadedBytes = new Uint8Array(await download.arrayBuffer());
     const actualSha256 = createHash('sha256').update(downloadedBytes).digest('hex');
     if (downloadedBytes.byteLength !== sourceBytes.byteLength || actualSha256 !== expectedSha256) {
-      throw new Error('plaintext remote-share byte mismatch');
+      throw new Error('remote-share byte mismatch');
     }
 
-    const deleted = await cleanupPlain(session, roomId);
-    assertAllowedOrigin(deleted, 'plaintext remote-share cleanup');
-    await readJson(deleted, 'plaintext remote-share cleanup');
+    const forgedCleanup = await fetchWithTimeout(
+      `${REMOTE_ORIGIN}/object/${roomId}/${session.objectId}`,
+      {
+        method: 'DELETE',
+        headers: { Origin: APP_ORIGIN, 'X-MXQR-Cleanup-Token': randomUUID() },
+      },
+    );
+    assertAllowedOrigin(forgedCleanup, 'forged remote-share cleanup');
+    if (forgedCleanup.status !== 403) {
+      throw new Error(`forged remote-share cleanup returned HTTP ${forgedCleanup.status}`);
+    }
+    await forgedCleanup.body?.cancel().catch(() => undefined);
+
+    const deleted = await cleanup(session, roomId);
+    assertAllowedOrigin(deleted, 'remote-share cleanup');
+    await readJson(deleted, 'remote-share cleanup');
     cleaned = true;
 
     const afterDelete = await fetchWithTimeout(downloadUrl, {
       headers: { Authorization: `Bearer ${downloadToken}`, Origin: APP_ORIGIN },
     });
-    assertAllowedOrigin(afterDelete, 'plaintext deleted-object lookup');
+    assertAllowedOrigin(afterDelete, 'remote-share deleted-object lookup');
     if (afterDelete.status !== 404) {
-      throw new Error(`deleted plaintext object returned HTTP ${afterDelete.status}, expected 404`);
+      throw new Error(`deleted object returned HTTP ${afterDelete.status}, expected 404`);
     }
     await afterDelete.body?.cancel().catch(() => undefined);
 
     return {
-      storageFormat: 'plain-whole-v1',
+      wireFormat: 'whole-v1',
       bytes: sourceFile.size,
       directR2Put: true,
       corsPreflight: true,
-      exactPlaintextRoundTrip: true,
+      exactByteRoundTrip: true,
       bearerHeaderOnly: true,
       unauthorizedReadRejected: true,
       rangeRejected: true,
       noStore: true,
+      forgedCleanupRejected: true,
       cleanupStatus: deleted.status,
       afterCleanupStatus: afterDelete.status,
     };
   } finally {
-    if (session && !cleaned) await cleanupPlain(session, roomId).catch(() => undefined);
+    if (session && !cleaned) await cleanup(session, roomId).catch(() => undefined);
   }
 }
 
@@ -648,14 +486,12 @@ async function main(): Promise<void> {
   const sourceBytes = new Uint8Array(randomBytes(byteCount));
   const token = await requestCapabilityToken();
   await waitForRemoteShareWorkerReady();
-  const encryptedWhole = await runEncryptedWholeSmoke(token, roomId, sourceBytes);
-  const plainWhole = await runPlainWholeSmoke(token, roomId, sourceBytes);
+  const wholeObject = await runWholeObjectSmoke(token, roomId, sourceBytes);
 
   console.log(
     JSON.stringify({
       ok: true,
-      encryptedWhole,
-      plainWhole,
+      wholeObject,
     }),
   );
 }

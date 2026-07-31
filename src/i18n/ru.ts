@@ -571,7 +571,6 @@ const ru: Record<I18nKey, string> = {
   'transfer.preload_done': 'Используется предзагруженный файл!',
   'transfer.preload_waiting': 'Ожидание завершения предзагрузки...',
   // Remote file sharing (R2-backed transfer)
-  'share.remote.encrypting': 'Подготовка файла для удалённых гостей...',
   'share.remote.uploading': 'Загрузка файла...',
   'share.remote.upload_ready': 'Удаленный общий доступ готов',
   'share.remote.waiting': 'Ожидание удалённого файла...',

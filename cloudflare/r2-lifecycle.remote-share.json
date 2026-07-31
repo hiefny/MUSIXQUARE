@@ -1,7 +1,7 @@
 {
   "rules": [
     {
-      "id": "Delete remote share objects",
+      "id": "Delete active remote share objects",
       "enabled": true,
       "conditions": {
         "prefix": "room/"
@@ -14,7 +14,7 @@
       }
     },
     {
-      "id": "Delete plain remote share objects",
+      "id": "Delete retired remote share objects",
       "enabled": true,
       "conditions": {
         "prefix": "plain-room/"

@@ -248,6 +248,12 @@ describe('release deployment rollback state', () => {
     expect(diffCall).toContain(':(exclude)src/**/*.test.tsx');
   });
 
+  it('treats the remote-share contract marker as runtime for both sides', () => {
+    const marker = 'cloudflare/remote-share-contract-version.txt';
+    expect(runtimePathsForWorker('remote-share')).toContain(marker);
+    expect(runtimePathsForWorker('app')).toContain(marker);
+  });
+
   it('treats deleted runtime files as compatibility-relevant changes', () => {
     const repository = createDirectory();
     const git = (args: string[], options: { capture?: boolean } = {}): string =>

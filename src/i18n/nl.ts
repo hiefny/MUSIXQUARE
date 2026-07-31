@@ -567,7 +567,6 @@ const nl: Record<I18nKey, string> = {
   'transfer.file_wait': 'Wachten op bestand...\nEven geduld',
   'transfer.preload_done': 'Vooraf geladen bestand gebruiken!',
   'transfer.preload_waiting': 'Wachten tot vooraf laden klaar is...',
-  'share.remote.encrypting': 'Bestand voorbereiden voor externe deelnemers...',
   'share.remote.uploading': 'Bestand uploaden...',
   'share.remote.upload_ready': 'Delen op afstand klaar',
   'share.remote.waiting': 'Wachten op extern bestand...',

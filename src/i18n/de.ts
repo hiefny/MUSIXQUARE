@@ -394,7 +394,6 @@ const de: Record<I18nKey, string> = {
   'transfer.file_wait': 'Warten auf Datei...\nBitte kurz warten',
   'transfer.preload_done': 'Vorab geladene Datei wird verwendet!',
   'transfer.preload_waiting': 'Warten auf Abschluss des Vorladens...',
-  'share.remote.encrypting': 'Datei für Remote-Teilnehmer wird vorbereitet...',
   'share.remote.uploading': 'Datei wird hochgeladen...',
   'share.remote.upload_ready': 'Remote-Freigabe bereit',
   'share.remote.waiting': 'Warten auf Remote-Datei...',

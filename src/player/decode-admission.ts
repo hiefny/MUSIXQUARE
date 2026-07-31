@@ -24,7 +24,9 @@ const DURATION_ESTIMATE_HEADROOM = 1.25;
 const UNKNOWN_DURATION_EXPANSION = 64;
 const ENCODED_PEAK_COPIES = 2;
 const ENCODED_RECEIVE_PEAK_COPIES = 2;
-const REMOTE_TRANSPORT_PEAK_COPIES = 4;
+// Whole-object upload/download can overlap the source/response bytes with one
+// browser-owned request or File backing, so reserve two representations.
+const REMOTE_TRANSPORT_PEAK_COPIES = 2;
 const METADATA_TIMEOUT_MS = 4_000;
 // Effectively unbounded for every file a browser can materialize while keeping
 // the accounting arithmetic finite and its invalid-number guards meaningful.
@@ -289,7 +291,7 @@ export interface EncodedReceiveMemoryReservation {
 
 export interface RemoteTransportMemoryReservation {
   /**
-   * Atomically replace the four-copy download/decrypt peak with one retained
+   * Atomically replace the two-copy whole-object transport peak with one retained
    * encoded-file lease. The returned lease must be owned by the published
    * Blob/File until that resident object is discarded.
    */
@@ -513,9 +515,9 @@ function reserveRemoteTransportMemory(encodedBytes: number): RemoteTransportMemo
         throw new Error('INVALID_RETAINED_ENCODED_SIZE');
       }
 
-      // This is a strict footprint reduction (4x transport -> 1x retained),
+      // This is a strict footprint reduction (2x transport -> 1x retained),
       // so no second admission check is needed and there is no gap where both
-      // ledgers omit the decrypted File.
+      // ledgers omit the materialized File.
       const retained = createEncodedReceiveReservation(retainedBytes, retainedBytes, false);
       bindEncodedReceiveReservationToBlob(blob, retained.id);
       released = true;
@@ -677,12 +679,12 @@ export function assertDecodedAudioBufferWithinBudget(
 }
 
 /**
- * Account for whole-file remote encryption/decryption before it starts allocating.
+ * Account for a whole-object remote upload/download before it starts allocating.
  *
- * Web Crypto and XHR can overlap the source File/Blob, plaintext ArrayBuffer,
- * ciphertext ArrayBuffer, and returned Blob/File backing. The conservative
- * four-copy estimate remains useful for diagnostics and explicit finite test
- * budgets; the production legacy policy does not reject on this estimate.
+ * XHR can overlap the source File/Blob or response ArrayBuffer with one
+ * browser-owned request/File backing. The two-copy estimate remains useful for
+ * diagnostics and explicit finite test budgets; the production legacy policy
+ * does not reject on this estimate.
  */
 function assertRemoteTransportMemoryWithinBudget(
   encodedBytes: number,

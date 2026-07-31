@@ -18,7 +18,7 @@ test('browser XHR supplies the exact Content-Length signed by the R2 URL', async
         ),
       );
       response.setHeader('access-control-allow-methods', 'PUT');
-      response.setHeader('access-control-allow-headers', 'content-type,x-amz-meta-size-bytes');
+      response.setHeader('access-control-allow-headers', 'content-type,x-amz-meta-stored-size');
       response.writeHead(204).end();
       return;
     }
@@ -47,7 +47,7 @@ test('browser XHR supplies the exact Content-Length signed by the R2 URL', async
           const xhr = new XMLHttpRequest();
           xhr.open('PUT', url);
           xhr.setRequestHeader('content-type', 'application/octet-stream');
-          xhr.setRequestHeader('x-amz-meta-size-bytes', '4');
+          xhr.setRequestHeader('x-amz-meta-stored-size', '4');
           xhr.onload = () => resolve(xhr.status);
           xhr.onerror = () => reject(new Error('XHR failed'));
           // Application code never sets Content-Length (a forbidden header).
@@ -60,9 +60,9 @@ test('browser XHR supplies the exact Content-Length signed by the R2 URL', async
     expect(status).toBe(200);
     expect(putHeaders).not.toBeNull();
     expect(putHeaders?.['content-length']).toBe('4');
-    expect(putHeaders?.['x-amz-meta-size-bytes']).toBe('4');
+    expect(putHeaders?.['x-amz-meta-stored-size']).toBe('4');
     const requestedHeaders = preflightHeaders?.['access-control-request-headers'] ?? '';
-    expect(requestedHeaders).toContain('x-amz-meta-size-bytes');
+    expect(requestedHeaders).toContain('x-amz-meta-stored-size');
     expect(requestedHeaders).not.toContain('content-length');
   } finally {
     await new Promise<void>((resolve, reject) => {

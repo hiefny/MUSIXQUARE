@@ -220,16 +220,16 @@ describe('AudioBuffer decode admission', () => {
     }
   });
 
-  it('admits whole-file remote crypto before its four overlapping copies allocate', () => {
+  it('admits whole-object transfer before its two overlapping copies allocate', () => {
     const budget = IOS_BOUNDED_BUDGET;
 
-    const safeReservation = reserveRemoteTransportMemoryWithinBudget(80 * MIB, {
+    const safeReservation = reserveRemoteTransportMemoryWithinBudget(160 * MIB, {
       budget,
       fileName: 'safe.wav',
     });
     safeReservation.release();
     expect(() =>
-      reserveRemoteTransportMemoryWithinBudget(81 * MIB, {
+      reserveRemoteTransportMemoryWithinBudget(161 * MIB, {
         budget,
         fileName: 'unsafe.wav',
       }),
@@ -238,7 +238,7 @@ describe('AudioBuffer decode admission', () => {
 
   it('includes an active remote transport lease in a new decode decision', async () => {
     const budget = STANDARD_BOUNDED_BUDGET;
-    const remoteTransport = reserveRemoteTransportMemoryWithinBudget(100 * MIB, {
+    const remoteTransport = reserveRemoteTransportMemoryWithinBudget(200 * MIB, {
       budget: HIGH_MEMORY_BOUNDED_BUDGET,
     });
     try {
@@ -260,7 +260,7 @@ describe('AudioBuffer decode admission', () => {
     const decode = reserveDecodeMemoryWithinBudget(1 * MIB, { budget });
     try {
       expect(() =>
-        reserveRemoteTransportMemoryWithinBudget(80 * MIB, {
+        reserveRemoteTransportMemoryWithinBudget(160 * MIB, {
           budget,
           fileName: 'next.wav',
         }),

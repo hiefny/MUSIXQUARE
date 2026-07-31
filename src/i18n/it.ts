@@ -576,7 +576,6 @@ const it: Record<I18nKey, string> = {
   'transfer.preload_done': 'Utilizzo il file precaricato!',
   'transfer.preload_waiting': 'Attendo il completamento del precaricamento...',
   // Remote file sharing (R2-backed transfer)
-  'share.remote.encrypting': 'Preparazione del file per i partecipanti remoti...',
   'share.remote.uploading': 'Caricamento file in corso...',
   'share.remote.upload_ready': 'Condivisione remota pronta',
   'share.remote.waiting': 'In attesa del file remoto...',

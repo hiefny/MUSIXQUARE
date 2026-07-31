@@ -53,7 +53,11 @@ const RELEASE_TARGET_WORKERS = Object.freeze({
 // them: a partial release must not publish only one copy of an identity or
 // protocol contract that changed in the same source revision.
 const TARGET_RUNTIME_PATHS = Object.freeze({
-  'remote-share': ['cloudflare/remote-share-worker.js', 'cloudflare/wrangler.remote-share.toml'],
+  'remote-share': [
+    'cloudflare/remote-share-contract-version.txt',
+    'cloudflare/remote-share-worker.js',
+    'cloudflare/wrangler.remote-share.toml',
+  ],
   signaling: [
     'cloudflare/signaling-worker.js',
     'cloudflare/pro-room-generation.js',
@@ -95,6 +99,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/wrangler.developer-api.toml',
   ],
   app: [
+    'cloudflare/remote-share-contract-version.txt',
     'src',
     ':(exclude)src/**/__tests__/**',
     ':(exclude)src/**/*.test.ts',

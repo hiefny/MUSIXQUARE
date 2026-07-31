@@ -388,7 +388,6 @@ const ja: Record<I18nKey, string> = {
   'transfer.file_wait': 'ファイル待機中...\nしばらくお待ちください',
   'transfer.preload_done': 'プリロード済みファイルを使用します！',
   'transfer.preload_waiting': 'プリロード完了を待っています...',
-  'share.remote.encrypting': 'リモート参加者向けにファイルを準備中...',
   'share.remote.uploading': 'ファイルをアップロード中...',
   'share.remote.upload_ready': 'リモート共有の準備ができました',
   'share.remote.waiting': 'リモートファイルを待っています...',

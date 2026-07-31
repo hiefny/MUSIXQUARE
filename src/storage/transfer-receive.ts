@@ -316,7 +316,7 @@ function shouldSkipIncomingFile(data?: Record<string, unknown>): boolean {
   const sessionId = data ? Number(data.sessionId) : undefined;
   if (isGuestR2FileDelivery(queueItemId, sessionId)) return true;
 
-  // Remote guests use encrypted remote-share instead of direct file chunks;
+  // Remote guests use authenticated whole-object remote share instead of direct file chunks;
   // orchestrator gates isDataTarget=false so stale direct frames are dropped.
   if (isRemoteGuest()) return true;
 
@@ -723,7 +723,7 @@ export async function handleFilePrepare(
 
   // Same-track replay needs to win before the remote-share branch. A remote
   // guest that already has the Blob should restart it locally, not enter
-  // "waiting for encrypted remote file" for a descriptor the host will not
+  // "waiting for remote file" for a descriptor the host will not
   // send on the replay fast path.
   if (replayLoadedSameFile(data)) {
     completeAcceptedFileRequest(data, conn);

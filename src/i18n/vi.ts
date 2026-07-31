@@ -388,7 +388,6 @@ const vi: Record<I18nKey, string> = {
   'transfer.file_wait': 'Đang chờ tệp...\nVui lòng đợi',
   'transfer.preload_done': 'Dùng tệp đã tải trước!',
   'transfer.preload_waiting': 'Đang chờ tải trước hoàn tất...',
-  'share.remote.encrypting': 'Đang chuẩn bị tệp cho người tham gia từ xa...',
   'share.remote.uploading': 'Đang tải lên tệp...',
   'share.remote.upload_ready': 'Chia sẻ từ xa đã sẵn sàng',
   'share.remote.waiting': 'Đang chờ tệp từ xa...',

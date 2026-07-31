@@ -383,7 +383,6 @@ const zhHans: Record<I18nKey, string> = {
   'transfer.file_wait': '正在等待文件...\n请稍候',
   'transfer.preload_done': '使用已预加载的文件！',
   'transfer.preload_waiting': '正在等待预加载完成...',
-  'share.remote.encrypting': '正在为远程参与者准备文件...',
   'share.remote.uploading': '正在上传文件...',
   'share.remote.upload_ready': '远程共享已准备好',
   'share.remote.waiting': '正在等待远程文件...',

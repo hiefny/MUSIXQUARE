@@ -63,10 +63,17 @@ export interface PreloadSessionEntry {
   finalized: boolean;
 }
 
-interface RemoteFileSharePayloadBase {
+export interface RemoteFileSharePayload {
   roomId: string;
   objectId: string;
   downloadUrl?: string;
+  /**
+   * Peer descriptor format. `whole-v1` names the WebRTC handoff contract;
+   * Worker tokens/R2 metadata use the storage-layer name `whole-object-v1`.
+   */
+  storageFormat: 'whole-v1';
+  storedSize: number;
+  downloadToken: string;
   name: string;
   mime: string;
   size: number;
@@ -79,30 +86,8 @@ interface RemoteFileSharePayloadBase {
   preload?: true;
 }
 
-/** Rolling-deploy fallback for clients that predate participant-bound downloads. */
-interface EncryptedRemoteFileSharePayload extends RemoteFileSharePayloadBase {
-  storageFormat?: 'aes-gcm-whole-v1';
-  keyB64: string;
-  ivB64: string;
-  encryptedSize: number;
-  storedSize?: never;
-  downloadToken?: never;
-}
-
-/** Private R2 object delivered with exact room/object/expiry-bound read authority. */
-interface PlainRemoteFileSharePayload extends RemoteFileSharePayloadBase {
-  storageFormat: 'plain-whole-v1';
-  storedSize: number;
-  downloadToken: string;
-  keyB64?: never;
-  ivB64?: never;
-  encryptedSize?: never;
-}
-
-export type RemoteFileSharePayload = EncryptedRemoteFileSharePayload | PlainRemoteFileSharePayload;
-
-export type RemoteShareUploadStatus = 'idle' | 'encrypting' | 'uploading' | 'done' | 'error';
-export type RemoteShareDownloadStatus = 'idle' | 'fetching' | 'decrypting' | 'ready' | 'error';
+export type RemoteShareUploadStatus = 'idle' | 'uploading' | 'done' | 'error';
+export type RemoteShareDownloadStatus = 'idle' | 'fetching' | 'ready' | 'error';
 
 export interface RemoteShareState {
   upload: {
@@ -415,10 +400,6 @@ export interface ProtocolMap {
   'file-r2-capability': {
     version: 1;
     localAudience: true;
-  };
-  /** Guest -> host advertisement for authenticated plaintext whole-object reads. */
-  'file-r2-plain-capability': {
-    version: 1;
   };
   'remote-file-unavailable': {
     name: string;

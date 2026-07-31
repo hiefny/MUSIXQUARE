@@ -50,13 +50,8 @@ export type LoadSourceValue = (typeof LOAD_SOURCE)[keyof typeof LOAD_SOURCE];
 export const CHUNK_SIZE = 64 * 1024; // 64 KiB per chunk
 export const WATCHDOG_TIMEOUT = 12000; // 12s chunk watchdog
 
-/** Remote-share wire/storage contract. AES-GCM appends one 128-bit tag to the
- * whole-file plaintext; the Worker and descriptor validator enforce the same
- * exact relationship. */
+/** Maximum authenticated whole-object size for standard-room remote sharing. */
 export const REMOTE_SHARE_MAX_BYTES = 200 * 1024 * 1024;
-export const REMOTE_SHARE_AES_GCM_TAG_BYTES = 16;
-export const REMOTE_SHARE_MAX_ENCRYPTED_BYTES =
-  REMOTE_SHARE_MAX_BYTES + REMOTE_SHARE_AES_GCM_TAG_BYTES;
 
 export const MAX_RECOVERY_RETRIES = 3;
 export const RECOVERY_BACKOFF = [2000, 5000, 10000] as const;
@@ -115,7 +110,6 @@ export const MSG = {
   FILE_END: 'file-end',
   FILE_PREPARE: 'file-prepare',
   FILE_R2_CAPABILITY: 'file-r2-capability',
-  FILE_R2_PLAIN_CAPABILITY: 'file-r2-plain-capability',
   REMOTE_FILE_UNAVAILABLE: 'remote-file-unavailable',
   REMOTE_FILE_SHARE: 'remote-file-share',
   FILE_RESUME: 'file-resume',

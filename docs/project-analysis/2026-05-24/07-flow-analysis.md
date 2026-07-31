@@ -140,7 +140,7 @@ Flow:
 8. Host broadcasts playlist/current file/play messages.
 9. Host chooses data path per peer:
    - local data target: direct WebRTC chunks.
-   - remote/unknown: encrypted remote-share descriptor.
+   - remote/unknown: authorized whole-object remote-share descriptor.
 
 Critical contract:
 
@@ -210,23 +210,23 @@ Primary files:
 Host flow:
 
 1. Peer is classified as remote/unknown or not a data target.
-2. Host encrypts file with AES-GCM.
+2. Host prepares the complete file as one private remote object.
 3. Host creates remote-share session through capability-gated endpoint.
-4. Host uploads encrypted object to R2 via presigned URL.
+4. Host uploads the object to R2 via a presigned URL.
 5. Host sends `remote-file-share` descriptor over WebRTC.
 
 Guest flow:
 
 1. Guest receives descriptor from host.
 2. Guest starts download with progress.
-3. Guest decrypts locally with key/IV from descriptor.
-4. Guest creates file/blob for RAM storage/decode.
+3. Guest authorizes the whole-object download with the short-lived descriptor token.
+4. Guest creates a file/blob for RAM storage/decode.
 5. Guest applies pending playback state.
 
 Critical contract:
 
-- R2 stores encrypted object only.
-- Decryption key is not sent to R2.
+- R2 stores one private whole-file object under the canonical `room/` namespace.
+- Download authority is carried only in a short-lived request header, not in the URL.
 - Remote-share descriptor should be accepted only for current active track, not speculative preload.
 - Active foreground download is single-flight.
 

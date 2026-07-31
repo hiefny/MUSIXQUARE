@@ -198,6 +198,19 @@ jobs:
             exit 1
           fi
 
+      - name: Require a full release for remote-share contract cutovers
+        shell: bash
+        run: |
+          contract_marker='cloudflare/remote-share-contract-version.txt'
+          parent_sha="$(git rev-parse "${GITHUB_SHA}^")"
+          if git diff --quiet "$parent_sha" "$GITHUB_SHA" -- "$contract_marker"; then
+            exit 0
+          fi
+          if [[ "${{ inputs.target }}" != 'all' ]]; then
+            echo "::error::A remote-share public contract cutover requires target 'all' so the app and Worker deploy together."
+            exit 1
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -538,6 +551,34 @@ jobs:
             --file cloudflare/r2-cors.remote-share.json \
             --config cloudflare/wrangler.remote-share.toml \
             --force
+          cors_state="$(npm run --silent wrangler -- r2 bucket cors list \
+            musixquare-remote-share \
+            --config cloudflare/wrangler.remote-share.toml)"
+          for required_header in \
+            content-type \
+            x-amz-meta-cleanup-token \
+            x-amz-meta-expires-at \
+            x-amz-meta-format-version \
+            x-amz-meta-mime \
+            x-amz-meta-name \
+            x-amz-meta-object-id \
+            x-amz-meta-room-id \
+            x-amz-meta-stored-size; do
+            if ! grep -Eiq "(^|[^[:alnum:]-])${required_header}([^[:alnum:]-]|$)" <<<"$cors_state"; then
+              echo "::error::Remote-share R2 CORS read-back is missing ${required_header}."
+              exit 1
+            fi
+          done
+          for retired_header in \
+            x-amz-meta-encrypted-size \
+            x-amz-meta-size-bytes \
+            x-amz-meta-record-count \
+            x-amz-meta-set-id; do
+            if grep -Eiq "(^|[^[:alnum:]-])${retired_header}([^[:alnum:]-]|$)" <<<"$cors_state"; then
+              echo "::error::Remote-share R2 CORS read-back still exposes ${retired_header}."
+              exit 1
+            fi
+          done
 
       - name: Apply and verify remote-share R2 lifecycle policy
         timeout-minutes: 10
@@ -553,6 +594,8 @@ jobs:
           lifecycle_state="$(npm run --silent wrangler -- r2 bucket lifecycle list \
             musixquare-remote-share \
             --config cloudflare/wrangler.remote-share.toml)"
+          # room/ is the sole active namespace. Keep verifying the retired
+          # plain-room/ expiry backstop until post-cutover storage is empty.
           for required_prefix in 'room/' 'plain-room/'; do
             if ! grep -Fq "prefix:   ${required_prefix}" <<<"$lifecycle_state"; then
               echo "::error::Remote-share R2 lifecycle read-back is missing ${required_prefix}."
@@ -560,7 +603,7 @@ jobs:
             fi
           done
           if [[ "$(grep -Fc 'action:   Expire objects after 1 days' <<<"$lifecycle_state")" -ne 2 ]]; then
-            echo "::error::Remote-share R2 lifecycle read-back must contain two one-day expiry rules."
+            echo "::error::Remote-share R2 lifecycle read-back must contain the active and retired one-day expiry rules."
             exit 1
           fi
 

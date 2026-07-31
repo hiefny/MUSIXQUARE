@@ -13,12 +13,6 @@ import type {
   RemoteFileSharePayload,
 } from '../../types/index.ts';
 
-type EncryptedRemoteFileSharePayload = Extract<RemoteFileSharePayload, { keyB64: string }>;
-type PlainRemoteFileSharePayload = Extract<
-  RemoteFileSharePayload,
-  { storageFormat: 'plain-whole-v1' }
->;
-
 const mocks = vi.hoisted(() => ({
   downloadRemoteFile: vi.fn(),
   uploadRemoteFile: vi.fn(),
@@ -93,35 +87,14 @@ const Q1 = '10000000-0000-4000-8000-000000000002';
 const Q2 = '10000000-0000-4000-8000-000000000003';
 const Q3 = '10000000-0000-4000-8000-000000000004';
 
-function descriptor(
-  overrides: Partial<EncryptedRemoteFileSharePayload> = {},
-): EncryptedRemoteFileSharePayload {
-  return {
-    roomId: 'room',
-    objectId: OBJECT_1,
-    keyB64: 'a2V5',
-    ivB64: 'aXY=',
-    name: 'song.mp3',
-    mime: 'audio/mpeg',
-    size: 4,
-    encryptedSize: 20,
-    queueItemId: Q0,
-    sessionId: 7,
-    expiresAt: Date.now() + 300_000,
-    ...overrides,
-  };
-}
-
-function plainDescriptor(
-  overrides: Partial<PlainRemoteFileSharePayload> = {},
-): PlainRemoteFileSharePayload {
+function descriptor(overrides: Partial<RemoteFileSharePayload> = {}): RemoteFileSharePayload {
   return {
     roomId: '123456',
     objectId: OBJECT_1,
-    downloadUrl: `https://share.musixquare.com/v3/plain/download/123456/${OBJECT_1}`,
-    storageFormat: 'plain-whole-v1',
+    downloadUrl: `https://share.musixquare.com/download/123456/${OBJECT_1}`,
+    storageFormat: 'whole-v1',
     storedSize: 4,
-    downloadToken: `eyJ2IjoxLCJraW5kIjoicGxhaW4tZG93bmxvYWQifQ.${'a'.repeat(43)}`,
+    downloadToken: `eyJ2IjoxLCJraW5kIjoid2hvbGUtZG93bmxvYWQifQ.${'a'.repeat(43)}`,
     name: 'song.mp3',
     mime: 'audio/mpeg',
     size: 4,
@@ -963,7 +936,7 @@ describe('remote file share policy', () => {
     expect(getState('share.remote').download.status).toBe('idle');
   });
 
-  it('advertises plaintext and legacy R2 support only over the current guest host connection', async () => {
+  it('advertises R2 support only over the current guest host connection', async () => {
     const { bus } = await import('../../core/events.ts');
     const { safeSend } = await import('../../network/peer.ts');
     setState('network.appRole', 'guest');
@@ -971,11 +944,8 @@ describe('remote file share policy', () => {
 
     bus.emit('network:peer-connected', conn);
 
-    expect(safeSend).toHaveBeenNthCalledWith(1, conn, {
-      type: MSG.FILE_R2_PLAIN_CAPABILITY,
-      version: 1,
-    });
-    expect(safeSend).toHaveBeenNthCalledWith(2, conn, {
+    expect(safeSend).toHaveBeenCalledOnce();
+    expect(safeSend).toHaveBeenCalledWith(conn, {
       type: MSG.FILE_R2_CAPABILITY,
       version: 1,
       localAudience: true,
@@ -1140,7 +1110,7 @@ describe('remote file share policy', () => {
       await handleData(
         {
           type: MSG.REMOTE_FILE_SHARE,
-          ...descriptor({ size, encryptedSize: size + 16 }),
+          ...descriptor({ size, storedSize: size }),
         },
         conn,
       );
@@ -1182,7 +1152,7 @@ describe('remote file share policy', () => {
       const pending = handleData(
         {
           type: MSG.REMOTE_FILE_SHARE,
-          ...descriptor({ size, encryptedSize: size + 16 }),
+          ...descriptor({ size, storedSize: size }),
         },
         conn,
       );
@@ -1964,7 +1934,7 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     initRemoteShare();
   });
 
-  it('never creates a second encrypted remote-share object for PRO room media', async () => {
+  it('never creates a second remote-share object for PRO room media', async () => {
     const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
     const file = new File(['canonical-r2'], 'persistent.flac', { type: 'audio/flac' });
     setState('playlist.items', [fileItem(file, Q0)]);
@@ -1982,124 +1952,6 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     await shareRemoteFileIfNeeded(file, 7, undefined, { queueItemId: Q0 });
 
     expect(mocks.uploadRemoteFile).not.toHaveBeenCalled();
-  });
-
-  it('prefers plaintext only after every exact R2 target advertises support', async () => {
-    const { handleData } = await import('../../network/protocol.ts');
-    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
-    const target = getState('network.connectedPeers')[0]!;
-    const targetConn = target.conn as DataConnection;
-    setState('network.appRole', 'host');
-    setState('network.activeHostConnByPeerId', new Map([[target.id, targetConn]]));
-
-    await handleData({ type: MSG.FILE_R2_PLAIN_CAPABILITY, version: 1 }, targetConn);
-
-    const file = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
-    setState('playlist.items', [fileItem(file, Q0)]);
-    setHostFile(file, Q0, 7);
-    mocks.uploadRemoteFile.mockResolvedValueOnce(
-      plainDescriptor({ name: file.name, queueItemId: Q0, sessionId: 7 }),
-    );
-
-    await shareRemoteFileIfNeeded(file, 7, undefined, { queueItemId: Q0 });
-
-    expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce();
-    expect(mocks.uploadRemoteFile.mock.calls[0]?.[3]).toMatchObject({ preferPlain: true });
-  });
-
-  it('uses the legacy format when any exact R2 target has not advertised plaintext', async () => {
-    const { handleData } = await import('../../network/protocol.ts');
-    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
-    const capable = getState('network.connectedPeers')[0]!;
-    const legacy = {
-      ...remotePeer(),
-      id: 'guest-remote-legacy',
-      label: 'Legacy guest',
-      conn: { open: true, peer: 'guest-remote-legacy' } as DataConnection,
-      joinOrder: 2,
-    } satisfies ConnectedPeer;
-    const capableConn = capable.conn as DataConnection;
-    const legacyConn = legacy.conn as DataConnection;
-    setState('network.appRole', 'host');
-    setState('network.connectedPeers', [capable, legacy]);
-    setState(
-      'network.activeHostConnByPeerId',
-      new Map([
-        [capable.id, capableConn],
-        [legacy.id, legacyConn],
-      ]),
-    );
-    await handleData({ type: MSG.FILE_R2_PLAIN_CAPABILITY, version: 1 }, capableConn);
-
-    const file = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
-    setState('playlist.items', [fileItem(file, Q0)]);
-    setHostFile(file, Q0, 7);
-    mocks.uploadRemoteFile.mockResolvedValueOnce(
-      descriptor({ name: file.name, queueItemId: Q0, sessionId: 7 }),
-    );
-
-    await shareRemoteFileIfNeeded(file, 7, undefined, { queueItemId: Q0 });
-
-    expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce();
-    expect(mocks.uploadRemoteFile.mock.calls[0]?.[3]).toMatchObject({ preferPlain: false });
-  });
-
-  it('separates format caches so a later legacy target never receives a cached plaintext descriptor', async () => {
-    const { handleData } = await import('../../network/protocol.ts');
-    const { safeSend } = await import('../../network/peer.ts');
-    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
-    const capable = getState('network.connectedPeers')[0]!;
-    const capableConn = capable.conn as DataConnection;
-    setState('network.appRole', 'host');
-    setState('network.activeHostConnByPeerId', new Map([[capable.id, capableConn]]));
-    await handleData({ type: MSG.FILE_R2_PLAIN_CAPABILITY, version: 1 }, capableConn);
-
-    const file = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
-    setState('playlist.items', [fileItem(file, Q0)]);
-    setHostFile(file, Q0, 7);
-    mocks.uploadRemoteFile.mockResolvedValueOnce(
-      plainDescriptor({ name: file.name, queueItemId: Q0, sessionId: 7 }),
-    );
-    await shareRemoteFileIfNeeded(file, 7, capableConn, { queueItemId: Q0 });
-
-    const legacy = {
-      ...remotePeer(),
-      id: 'guest-remote-late-legacy',
-      label: 'Late legacy guest',
-      conn: { open: true, peer: 'guest-remote-late-legacy' } as DataConnection,
-      joinOrder: 2,
-    } satisfies ConnectedPeer;
-    const legacyConn = legacy.conn as DataConnection;
-    setState('network.connectedPeers', [capable, legacy]);
-    setState(
-      'network.activeHostConnByPeerId',
-      new Map([
-        [capable.id, capableConn],
-        [legacy.id, legacyConn],
-      ]),
-    );
-    setHostFile(file, Q0, 9);
-    mocks.uploadRemoteFile.mockResolvedValueOnce(
-      descriptor({ objectId: OBJECT_2, name: file.name, queueItemId: Q0, sessionId: 9 }),
-    );
-
-    await shareRemoteFileIfNeeded(file, 9, legacyConn, { queueItemId: Q0 });
-
-    expect(mocks.uploadRemoteFile).toHaveBeenCalledTimes(2);
-    expect(mocks.uploadRemoteFile.mock.calls[0]?.[3]).toMatchObject({ preferPlain: true });
-    expect(mocks.uploadRemoteFile.mock.calls[1]?.[3]).toMatchObject({ preferPlain: false });
-    expect(safeSend).toHaveBeenCalledWith(
-      legacyConn,
-      expect.objectContaining({
-        type: MSG.REMOTE_FILE_SHARE,
-        objectId: OBJECT_2,
-        keyB64: 'a2V5',
-      }),
-    );
-    expect(safeSend).not.toHaveBeenCalledWith(
-      legacyConn,
-      expect.objectContaining({ storageFormat: 'plain-whole-v1' }),
-    );
   });
 
   it('announces room storage exhaustion as a gray system message', async () => {
@@ -2437,7 +2289,7 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
 
     // The completed upload still warms the cache and leaves no active waiter.
     // Returning to the same queue occurrence can therefore publish without a
-    // second encryption/upload, rebased onto the new playback session.
+    // second upload, rebased onto the new playback session.
     setHostFile(fileA, Q0, 9);
     await shareRemoteFileIfNeeded(fileA, 9, targetConn, { queueItemId: Q0 });
 

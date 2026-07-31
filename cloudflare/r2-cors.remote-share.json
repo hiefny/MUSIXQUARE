@@ -24,22 +24,13 @@
         "headers": [
           "content-type",
           "x-amz-meta-cleanup-token",
-          "x-amz-meta-encrypted-size",
           "x-amz-meta-expires-at",
           "x-amz-meta-format-version",
           "x-amz-meta-mime",
           "x-amz-meta-name",
           "x-amz-meta-object-id",
-          "x-amz-meta-queue-item-id",
-          "x-amz-meta-record-count",
-          "x-amz-meta-record-index",
-          "x-amz-meta-record-size",
           "x-amz-meta-room-id",
-          "x-amz-meta-session-id-sha256",
-          "x-amz-meta-set-id",
-          "x-amz-meta-size-bytes",
-          "x-amz-meta-source-identity-sha256",
-          "x-amz-meta-total-size-bytes"
+          "x-amz-meta-stored-size"
         ]
       },
       "exposeHeaders": ["etag"],

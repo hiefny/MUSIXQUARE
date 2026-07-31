@@ -351,9 +351,7 @@ describe('Translation key integrity', () => {
     expect(en['legal.content_html']).toContain(
       '<span data-legal-pro-storage>PRO rooms store the session, member, playlist, playback, and upload state needed to operate the room on Cloudflare. Original playlist files are kept in private Cloudflare storage and are available only to room participants through short-lived URLs. They are erased when a room administrator removes them from the playlist or the operator deletes the room data.</span>',
     );
-    expect(ko['share.remote.encrypting']).toBe('원격 참여자용 파일을 준비하고 있어요...');
     expect(ko['share.remote.uploading']).toBe('파일을 업로드하고 있어요...');
-    expect(en['share.remote.encrypting']).toBe('Preparing file for remote participants...');
     expect(en['share.remote.uploading']).toBe('Uploading file...');
   });
 

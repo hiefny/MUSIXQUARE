@@ -16,12 +16,12 @@ This analysis intentionally does not modify production code. The only repository
 
 Current fast-gate verification from this workspace:
 
-| Command | Result | Notes |
-| --- | --- | --- |
-| `npm run typecheck` | Pass | Main app TypeScript plus worker TypeScript config passed. |
-| `npm run lint` | Pass | ESLint over `src/` passed. |
-| `npm test` | Pass | 66 test files, 947 tests passed. |
-| `npm run build:checked` | Pass | Vite production build plus production hook/security guards passed. |
+| Command                 | Result | Notes                                                              |
+| ----------------------- | ------ | ------------------------------------------------------------------ |
+| `npm run typecheck`     | Pass   | Main app TypeScript plus worker TypeScript config passed.          |
+| `npm run lint`          | Pass   | ESLint over `src/` passed.                                         |
+| `npm test`              | Pass   | 66 test files, 947 tests passed.                                   |
+| `npm run build:checked` | Pass   | Vite production build plus production hook/security guards passed. |
 
 Build warnings observed:
 
@@ -55,7 +55,7 @@ E2E was not executed in this pass. The repository's own `.github/workflows/e2e.y
 
 ## Highest-Signal Findings
 
-1. The project is a mature browser PWA for synchronized multi-device media playback, not a simple music player. The core surface area is Web Audio, WebRTC, typed protocol messages, Cloudflare edge workers, encrypted remote file transfer, YouTube iframe synchronization, system audio capture, and a dense DOM UI.
+1. The project is a mature browser PWA for synchronized multi-device media playback, not a simple music player. The core surface area is Web Audio, WebRTC, typed protocol messages, Cloudflare edge workers, private remote whole-file transfer, YouTube iframe synchronization, system audio capture, and a dense DOM UI.
 
 2. The main architectural contract has recently moved away from legacy broad `appState` semantics. Production code now uses `playback.mode`, `playback.activity`, and a file-specific lifecycle FSM. This is a good direction and is guarded by unit tests.
 
@@ -65,6 +65,6 @@ E2E was not executed in this pass. The repository's own `.github/workflows/e2e.y
 
 5. Runtime risk is concentrated less in ordinary TypeScript correctness and more in multi-device timing: room join/leave races, host/guest authority, remote-share versus direct-transfer promotion, YouTube iframe readiness, mobile autoplay/background behavior, TURN/SFU capability flow, and cleanup of long-lived singleton resources.
 
-6. The application has strong defensive patterns: typed central state paths, typed event bus, managed timers, session scopes, explicit cancellation tokens, protocol validators, inbound rate limiting, production test-hook guards, and R2 remote-share encryption.
+6. The application has strong defensive patterns: typed central state paths, typed event bus, managed timers, session scopes, explicit cancellation tokens, protocol validators, inbound rate limiting, production test-hook guards, and capability-gated private R2 remote sharing.
 
 7. The largest maintainability hotspots by file size are command parsing, YouTube iframe/player/sync, transfer receive/preload, playlist orchestration, playback decode/transport, UI controls, and network signaling.

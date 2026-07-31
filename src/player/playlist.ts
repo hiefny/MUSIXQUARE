@@ -953,7 +953,7 @@ export async function playTrack(
       log.debug('[Host] Preloaded activation failed or superseded — skipping play/broadcast');
       return;
     }
-    // Whole-file remote encryption is admitted against the active PCM buffer.
+    // Whole-object remote upload is admitted against the active PCM buffer.
     // Start it only after this preloaded track has decoded and published its
     // own AudioBuffer, never while the previous track still owns that slot.
     if (!isProDirect) {

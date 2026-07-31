@@ -570,7 +570,6 @@ const pl: Record<I18nKey, string> = {
   'transfer.preload_done': 'Użyto wstępnie wczytanego pliku!',
   'transfer.preload_waiting': 'Oczekiwanie na zakończenie wstępnego wczytywania...',
   // Remote file sharing (R2-backed transfer)
-  'share.remote.encrypting': 'Przygotowywanie pliku dla gości zdalnych...',
   'share.remote.uploading': 'Przesyłanie pliku w toku...',
   'share.remote.upload_ready': 'Zdalne udostępnianie gotowe',
   'share.remote.waiting': 'Oczekiwanie na plik zdalny...',

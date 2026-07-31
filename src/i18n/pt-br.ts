@@ -391,7 +391,6 @@ const ptBr: Record<I18nKey, string> = {
   'transfer.file_wait': 'Aguardando arquivo...\nSó um momento',
   'transfer.preload_done': 'Usando arquivo pré-carregado!',
   'transfer.preload_waiting': 'Aguardando o pré-carregamento terminar...',
-  'share.remote.encrypting': 'Preparando arquivo para participantes remotos...',
   'share.remote.uploading': 'Enviando arquivo...',
   'share.remote.upload_ready': 'Compartilhamento remoto pronto',
   'share.remote.waiting': 'Aguardando arquivo remoto...',

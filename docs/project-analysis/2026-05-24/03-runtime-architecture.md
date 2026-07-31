@@ -305,12 +305,12 @@ Purpose:
 High-level flow:
 
 1. Host determines some peers are remote/unknown or not direct-data targets.
-2. Host encrypts the file with AES-GCM.
+2. Host prepares the complete file as one private remote object.
 3. Host requests a remote-share session from R2 worker.
-4. Host uploads encrypted object via presigned URL.
-5. Host sends descriptor and decryption key over WebRTC control channel.
-6. Guest downloads encrypted object.
-7. Guest decrypts locally and converts it to a File/Blob for RAM storage/decode.
+4. Host uploads the object via a presigned URL.
+5. Host sends the download descriptor over the WebRTC control channel.
+6. Guest downloads the authorized whole object.
+7. Guest converts it to a File/Blob for RAM storage/decode.
 
 Important policy:
 

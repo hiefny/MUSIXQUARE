@@ -67,8 +67,6 @@ import { isPeerConnectionCurrent } from '../storage/chunk-pump.ts';
 import { completeFileRequest } from '../network/file-request-authority.ts';
 import {
   getR2FileTargets,
-  isFileR2PlainCapable,
-  markFileR2PlainCapable,
   markLocalFileR2Capable,
   markLateLocalPeerForR2,
   recordGuestFileDelivery,
@@ -94,7 +92,6 @@ interface UploadEntry {
   promise: Promise<RemoteFileSharePayload>;
   abort: AbortController;
   preload: boolean;
-  stage: 'encrypting' | 'uploading';
   progress: number;
 }
 
@@ -124,7 +121,7 @@ let _nextFileId = 1;
 // the in-flight one via abort.
 let _activeDownload: DownloadEntry | null = null;
 // One independent speculative next-track download. Promotion transfers this
-// exact entry to _activeDownload; its XHR/decrypt promise continues untouched.
+// exact entry to _activeDownload; its XHR/File-materialization promise continues untouched.
 let _activePreloadDownload: DownloadEntry | null = null;
 // A current-track GET has strict priority, but the host sends a preload
 // descriptor only once. Keep the newest validated hint and start it as soon as
@@ -322,27 +319,16 @@ function fileIdentity(file: File): number {
   return id;
 }
 
-type DesiredRemoteStorageFormat = 'aes-gcm-whole-v1' | 'plain-whole-v1';
-
-function uploadRequestKey(
-  file: File,
-  sessionId: number,
-  queueItemId: QueueItemId,
-  desiredFormat: DesiredRemoteStorageFormat,
-): string {
-  return JSON.stringify([sessionId, queueItemId, fileIdentity(file), desiredFormat]);
+function uploadRequestKey(file: File, sessionId: number, queueItemId: QueueItemId): string {
+  return JSON.stringify([sessionId, queueItemId, fileIdentity(file)]);
 }
 
 function currentRemoteShareRoomId(): string {
   return getState('network.sessionCode') || getState('network.myId') || 'room';
 }
 
-function descriptorCacheKey(
-  file: File,
-  roomId: string,
-  desiredFormat: DesiredRemoteStorageFormat,
-): string {
-  return JSON.stringify([roomId, fileIdentity(file), desiredFormat]);
+function descriptorCacheKey(file: File, roomId: string): string {
+  return JSON.stringify([roomId, fileIdentity(file)]);
 }
 
 function withPlaybackContext(
@@ -408,7 +394,6 @@ function friendlyErrorMessage(error: unknown): string {
     return t('share.remote.network_error');
   }
   if (
-    raw === 'REMOTE_SHARE_UPLOAD_HTTP_429' ||
     raw === 'REMOTE_SHARE_SESSION_HTTP_429' ||
     raw === 'REMOTE_SHARE_COMPLETE_HTTP_429' ||
     raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_429'
@@ -421,14 +406,13 @@ function friendlyErrorMessage(error: unknown): string {
   if (
     raw === 'REMOTE_SHARE_BAD_SESSION_RESPONSE' ||
     raw === 'REMOTE_SHARE_BAD_COMPLETE_RESPONSE' ||
-    raw === 'REMOTE_SHARE_ENCRYPTED_SIZE_MISMATCH' ||
     raw === 'REMOTE_SHARE_DOWNLOAD_ORIGIN_INVALID' ||
     raw === 'REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH' ||
-    raw === 'REMOTE_SHARE_PLAINTEXT_SIZE_MISMATCH' ||
+    raw === 'REMOTE_SHARE_OBJECT_SIZE_MISMATCH' ||
+    raw === 'REMOTE_SHARE_DOWNLOAD_AUTH_INVALID' ||
     raw === 'REMOTE_SHARE_SESSION_HTTP_403' ||
     raw === 'REMOTE_SHARE_SESSION_HTTP_404' ||
     raw === 'REMOTE_SHARE_SESSION_HTTP_500' ||
-    raw === 'REMOTE_SHARE_UPLOAD_HTTP_403' ||
     raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_403' ||
     raw === 'REMOTE_SHARE_COMPLETE_HTTP_403' ||
     raw === 'REMOTE_SHARE_COMPLETE_HTTP_404' ||
@@ -447,7 +431,6 @@ function friendlyErrorMessage(error: unknown): string {
 function isUploadLimitError(error: unknown): boolean {
   const raw = rawRemoteShareError(error);
   return (
-    raw === 'REMOTE_SHARE_UPLOAD_HTTP_429' ||
     raw === 'REMOTE_SHARE_SESSION_HTTP_429' ||
     raw === 'REMOTE_SHARE_COMPLETE_HTTP_429' ||
     raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_429'
@@ -567,17 +550,14 @@ function publishForegroundUploadProgress(entry: UploadEntry): void {
   setState('share.remote', {
     ...remote,
     upload: {
-      status: entry.stage,
+      status: 'uploading',
       progress: entry.progress,
       objectId: null,
       expiresAt: null,
       error: null,
     },
   });
-  showUploadProgress(
-    t(entry.stage === 'encrypting' ? 'share.remote.encrypting' : 'share.remote.uploading'),
-    entry.progress,
-  );
+  showUploadProgress(t('share.remote.uploading'), entry.progress);
 }
 
 function publishForegroundUploadDone(descriptor: RemoteFileSharePayload): void {
@@ -782,8 +762,8 @@ export async function shareRemoteFileIfNeeded(
 ): Promise<void> {
   if (getState('network.hostConn')) return;
   // Persistent PRO media already lives in the private room bucket. Every
-  // participant downloads that canonical object directly; re-encrypting and
-  // uploading a second transient copy would waste memory, storage, and uplink.
+  // participant downloads that canonical object directly; uploading a second
+  // transient copy would waste memory, storage, and uplink.
   if (getState('room.context').kind === 'pro') return;
   if (!isRemoteShareConfigured()) return;
   if (sessionId === null) return;
@@ -801,13 +781,9 @@ export async function shareRemoteFileIfNeeded(
 
   const initialTargets = getR2MessageTargets(sessionId, targetConn);
   if (initialTargets.length === 0) return;
-  const preferPlain = initialTargets.every((conn) => isFileR2PlainCapable(conn));
-  const desiredFormat: DesiredRemoteStorageFormat = preferPlain
-    ? 'plain-whole-v1'
-    : 'aes-gcm-whole-v1';
   const roomId = currentRemoteShareRoomId();
-  const uploadKey = uploadRequestKey(file, sessionId, queueItemId, desiredFormat);
-  const cacheKey = descriptorCacheKey(file, roomId, desiredFormat);
+  const uploadKey = uploadRequestKey(file, sessionId, queueItemId);
+  const cacheKey = descriptorCacheKey(file, roomId);
 
   try {
     let descriptor: RemoteFileSharePayload;
@@ -835,23 +811,15 @@ export async function shareRemoteFileIfNeeded(
         if (inFlight.abort.signal.aborted) return;
       } else {
         const abort = new AbortController();
-        let currentStage: UploadEntry['stage'] = preferPlain ? 'uploading' : 'encrypting';
         let currentProgress = 0;
         let entry: UploadEntry | null = null;
         const promise = uploadRemoteFile(file, sessionId, queueItemId, {
           signal: abort.signal,
           publishState: !isPreload,
-          preferPlain,
           onUploadProgress: (progress) => {
             currentProgress = progress;
             if (!entry) return;
             entry.progress = progress;
-            if (!entry.preload) publishForegroundUploadProgress(entry);
-          },
-          onStageChange: (stage) => {
-            currentStage = stage;
-            if (!entry) return;
-            entry.stage = stage;
             if (!entry.preload) publishForegroundUploadProgress(entry);
           },
         });
@@ -863,15 +831,12 @@ export async function shareRemoteFileIfNeeded(
           promise,
           abort,
           preload: isPreload,
-          stage: currentStage,
           progress: currentProgress,
         };
         _activeUploads.set(uploadKey, entry);
 
         if (!isPreload) {
-          const progressMessage = t(
-            currentStage === 'encrypting' ? 'share.remote.encrypting' : 'share.remote.uploading',
-          );
+          const progressMessage = t('share.remote.uploading');
           showToast(progressMessage);
           showUploadProgress(progressMessage);
         }
@@ -929,13 +894,11 @@ export async function shareRemoteFileIfNeeded(
 
     const outboundDescriptor = withPlaybackContext(descriptor, sessionId, queueItemId);
     const msg = toRemoteShareMessage(outboundDescriptor, isPreload);
-    const targets = getR2MessageTargets(sessionId, targetConn).filter(
-      (conn) => outboundDescriptor.storageFormat !== 'plain-whole-v1' || isFileR2PlainCapable(conn),
-    );
+    const targets = getR2MessageTargets(sessionId, targetConn);
     if (targets.length === 0) return;
     for (const conn of targets) safeSend(conn, msg);
     log.info(
-      `[RemoteShare] Shared ${outboundDescriptor.storageFormat ?? 'aes-gcm-whole-v1'} ${isPreload ? 'preload ' : ''}descriptor for ${outboundDescriptor.name}`,
+      `[RemoteShare] Shared whole-object ${isPreload ? 'preload ' : ''}descriptor for ${outboundDescriptor.name}`,
     );
     if (!isPreload) showToast(t('share.remote.upload_ready'));
   } catch (error) {
@@ -1235,10 +1198,7 @@ function sameRemoteDescriptorBytes(
   ) {
     return false;
   }
-  if (left.storageFormat === 'plain-whole-v1') {
-    return right.storageFormat === 'plain-whole-v1' && left.storedSize === right.storedSize;
-  }
-  return right.storageFormat !== 'plain-whole-v1' && left.encryptedSize === right.encryptedSize;
+  return left.storedSize === right.storedSize;
 }
 
 function reconcileDeferredPreloadForActiveDescriptor(descriptor: RemoteFileSharePayload): void {
@@ -1474,7 +1434,7 @@ async function runRemoteDownload(entry: DownloadEntry): Promise<void> {
       ...getState('share.remote'),
       download: { status: 'error', progress: 0, error: message },
     });
-    log.warn('[RemoteShare] Download/decrypt failed:', error);
+    log.warn('[RemoteShare] Download failed:', error);
     showToast(t('share.remote.download_failed', { msg: message }));
     showLoader(false);
   } finally {
@@ -1781,7 +1741,7 @@ async function handleRemoteFileShare(
   completeFileRequest(conn, descriptor.queueItemId, descriptor.sessionId);
 
   // The same speculative object is already arriving. Transfer ownership from
-  // the background lane to foreground playback without aborting XHR/decrypt or
+  // the background lane to foreground playback without aborting the XHR or
   // allocating a second transport reservation.
   if (_activePreloadDownload && sameRemoteDownloadOwner(_activePreloadDownload, descriptor)) {
     const promoted = _activePreloadDownload;
@@ -2011,7 +1971,7 @@ async function handleRemoteFileShare(
     );
   } catch (error) {
     // Admission can throw synchronously after prepareRemoteShareWait() armed
-    // the five-minute watchdog. Later network/decrypt failures own the same
+    // the five-minute watchdog. Later network/download failures own the same
     // cleanup contract, but a stale predecessor must not clear its successor.
     if (!releaseOwnedRemoteWaitAfterDownloadFailure(abort)) {
       log.debug('[RemoteShare] Stale download failure ignored after supersession');
@@ -2033,7 +1993,7 @@ async function handleRemoteFileShare(
         error: message,
       },
     });
-    log.warn('[RemoteShare] Download/decrypt failed:', error);
+    log.warn('[RemoteShare] Download failed:', error);
     showToast(t('share.remote.download_failed', { msg: message }));
     showLoader(false);
   } finally {
@@ -2171,16 +2131,6 @@ async function handleFileR2Capability(
   }
 }
 
-function handleFileR2PlainCapability(
-  data: ProtocolMsg<typeof MSG.FILE_R2_PLAIN_CAPABILITY>,
-  conn?: DataConnection,
-): void {
-  if (data.version !== 1) return;
-  if (getState('network.appRole') !== 'host' || !conn?.peer) return;
-  if (getState('network.activeHostConnByPeerId').get(conn.peer) !== conn) return;
-  markFileR2PlainCapable(conn);
-}
-
 function resetRemoteShareAuthorityBoundary(): void {
   _remoteDescriptorGeneration++;
   _lastAdoptedRemoteContext = null;
@@ -2219,7 +2169,6 @@ function resetRemoteShareAuthorityBoundary(): void {
 export function initRemoteShare(): void {
   registerHandlers({
     [MSG.FILE_R2_CAPABILITY]: handleFileR2Capability,
-    [MSG.FILE_R2_PLAIN_CAPABILITY]: handleFileR2PlainCapability,
     [MSG.REMOTE_FILE_SHARE]: handleRemoteFileShare,
     [MSG.REMOTE_FILE_UNAVAILABLE]: handleRemoteFileUnavailable,
   });
@@ -2316,12 +2265,6 @@ export function initRemoteShare(): void {
     if (getState('network.appRole') !== 'guest') return;
     const hostConn = getState('network.hostConn');
     if (!hostConn || conn !== hostConn) return;
-    // Send the additive format marker first so the legacy R2 capability can
-    // immediately recover a frozen overflow route using the preferred format.
-    safeSend(hostConn, {
-      type: MSG.FILE_R2_PLAIN_CAPABILITY,
-      version: 1,
-    });
     safeSend(hostConn, {
       type: MSG.FILE_R2_CAPABILITY,
       version: 1,

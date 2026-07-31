@@ -10,7 +10,6 @@ import { getState } from '../core/state.ts';
 import {
   MSG,
   CHUNK_SIZE,
-  REMOTE_SHARE_AES_GCM_TAG_BYTES,
   REMOTE_SHARE_MAX_BYTES,
   BOT_RATE_LIMIT_MAX_RETRY_SECONDS,
 } from '../core/constants.ts';
@@ -61,9 +60,9 @@ const isArrayBufferLike = (v: unknown): boolean =>
 
 const REMOTE_OBJECT_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const PLAIN_REMOTE_ROOM_ID_RE = /^[1-9]\d{5}$/u;
-const PLAIN_DOWNLOAD_TOKEN_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u;
-const PLAIN_DOWNLOAD_TOKEN_MAX_LENGTH = 2048;
+const STANDARD_REMOTE_ROOM_ID_RE = /^[1-9]\d{5}$/u;
+const DOWNLOAD_TOKEN_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u;
+const DOWNLOAD_TOKEN_MAX_LENGTH = 2048;
 // Cloudflare signaling's authenticated PRO participant identifier contract.
 // Keep member-management requests to one small opaque identifier so callers
 // cannot smuggle a connection object or other coordinator-owned state.
@@ -139,13 +138,7 @@ const REMOTE_FILE_SHARE_COMMON_OPTIONAL_KEYS = Object.freeze([
   'delivery',
   'preload',
 ] as const);
-const ENCRYPTED_REMOTE_FILE_SHARE_REQUIRED_KEYS = Object.freeze([
-  ...REMOTE_FILE_SHARE_COMMON_REQUIRED_KEYS,
-  'keyB64',
-  'ivB64',
-  'encryptedSize',
-] as const);
-const PLAIN_REMOTE_FILE_SHARE_REQUIRED_KEYS = Object.freeze([
+const REMOTE_FILE_SHARE_REQUIRED_KEYS = Object.freeze([
   ...REMOTE_FILE_SHARE_COMMON_REQUIRED_KEYS,
   'storageFormat',
   'storedSize',
@@ -180,36 +173,16 @@ function hasValidRemoteFileShareCommonFields(d: Record<string, unknown>): boolea
 
 function isRemoteFileShare(d: Record<string, unknown>): boolean {
   if (!hasValidRemoteFileShareCommonFields(d)) return false;
-
-  if (d.storageFormat === 'plain-whole-v1') {
-    return (
-      hasExactKeys(
-        d,
-        PLAIN_REMOTE_FILE_SHARE_REQUIRED_KEYS,
-        REMOTE_FILE_SHARE_COMMON_OPTIONAL_KEYS,
-      ) &&
-      PLAIN_REMOTE_ROOM_ID_RE.test(d.roomId as string) &&
-      Number.isSafeInteger(d.storedSize) &&
-      d.storedSize === d.size &&
-      typeof d.downloadToken === 'string' &&
-      d.downloadToken.length >= 32 &&
-      d.downloadToken.length <= PLAIN_DOWNLOAD_TOKEN_MAX_LENGTH &&
-      PLAIN_DOWNLOAD_TOKEN_RE.test(d.downloadToken)
-    );
-  }
-
   return (
-    hasExactKeys(d, ENCRYPTED_REMOTE_FILE_SHARE_REQUIRED_KEYS, [
-      ...REMOTE_FILE_SHARE_COMMON_OPTIONAL_KEYS,
-      'storageFormat',
-    ]) &&
-    (d.storageFormat === undefined || d.storageFormat === 'aes-gcm-whole-v1') &&
-    typeof d.keyB64 === 'string' &&
-    d.keyB64.length <= 128 &&
-    typeof d.ivB64 === 'string' &&
-    d.ivB64.length <= 64 &&
-    Number.isSafeInteger(d.encryptedSize) &&
-    d.encryptedSize === (d.size as number) + REMOTE_SHARE_AES_GCM_TAG_BYTES
+    hasExactKeys(d, REMOTE_FILE_SHARE_REQUIRED_KEYS, REMOTE_FILE_SHARE_COMMON_OPTIONAL_KEYS) &&
+    d.storageFormat === 'whole-v1' &&
+    STANDARD_REMOTE_ROOM_ID_RE.test(d.roomId as string) &&
+    Number.isSafeInteger(d.storedSize) &&
+    d.storedSize === d.size &&
+    typeof d.downloadToken === 'string' &&
+    d.downloadToken.length >= 32 &&
+    d.downloadToken.length <= DOWNLOAD_TOKEN_MAX_LENGTH &&
+    DOWNLOAD_TOKEN_RE.test(d.downloadToken)
   );
 }
 
@@ -850,7 +823,6 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.autoPlayDelayMs === undefined || isNonNegSafeInt(d.autoPlayDelayMs)) &&
     (d.delivery === undefined || d.delivery === 'r2'),
   [MSG.FILE_R2_CAPABILITY]: (d) => d.version === 1 && d.localAudience === true,
-  [MSG.FILE_R2_PLAIN_CAPABILITY]: (d) => hasExactKeys(d, ['type', 'version']) && d.version === 1,
   [MSG.REMOTE_FILE_UNAVAILABLE]: (d) =>
     typeof d.name === 'string' &&
     d.name.length > 0 &&

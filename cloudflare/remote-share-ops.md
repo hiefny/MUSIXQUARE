@@ -17,9 +17,11 @@ than a hard account storage cap.
 - Keep the KV-backed allocation rate limit on `POST /session`.
 - Cap each standard room's active R2 objects at 1 GiB
   (`ROOM_STORAGE_QUOTA_BYTES`) through a per-room SQLite Durable Object.
-- Upload and download each remote file as one complete object. Current clients
-  use the private plaintext route; the encrypted whole-object route remains for
-  compatible cached clients until their temporary objects expire.
+- Upload and download each remote file as one complete private object through
+  the canonical `/session`, `/complete`, `/download`, and `/object` routes.
+- The peer descriptor calls this contract `whole-v1`; signed Worker tokens and
+  R2 metadata call its storage representation `whole-object-v1`. These are
+  layer-specific names for the same bytes, not separate engines or route eras.
 - Upgrade to Workers Paid only when real usage starts hitting Free-plan limits.
 - Keep the Cloudflare WAF burst guard on the single top-level allocation route,
   `POST /session`.
@@ -39,18 +41,19 @@ One remote whole-file upload attempt roughly means:
 - `POST /complete`: one Worker request, R2 HEAD validation, and one serialized
   room Durable Object request with an authoritative room-prefix usage recheck.
   A racing excess object is deleted before publication.
-- `DELETE /object/...`: R2 HEAD/delete only. The exact-byte reservation remains
-  charged until its fixed expiry because deleting an object does not revoke an
-  already-issued, still-valid presigned PUT URL.
-- `GET /download/...` or `GET /v3/plain/...`: one Worker request and one R2 read
-  per remote guest.
+- `DELETE /object/...`: validates a room/object/expiry-bound cleanup HMAC before
+  R2 HEAD/delete, so unauthenticated requests cannot create Class B work. The
+  exact-byte reservation remains charged until its fixed expiry because
+  deleting an object does not revoke an already-issued, still-valid presigned
+  PUT URL.
+- `GET /download/...`: one Worker request and one R2 read per remote guest.
 
 ## Current Guardrails
 
 - App-issued, IP/scope-bound capability token required on `POST /session` in
   production. With Turnstile disabled, the app Worker issues it only after a
   signed proof-of-work challenge; Origin and Host headers are not proof.
-- Signed upload-session and completion tokens.
+- Purpose-separated signed upload-completion, download, and cleanup tokens.
 - Direct-to-R2 presigned PUT upload path.
 - Whole-object TTL: `OBJECT_TTL_SECONDS`, currently 1 hour.
 - Standard-room temporary R2 quota: 1 GiB per generated room code in the exact
@@ -63,16 +66,22 @@ One remote whole-file upload attempt roughly means:
   completed. Any R2, Durable Object, state, bounded scan, or cleanup failure
   denies the operation rather than publishing an unaccounted object.
 - Authenticated cleanup and natural expiry retain conservative exact-key
-  tombstones until a one-hour quiet interval proves that no authorized late PUT
-  arrived. The bucket lifecycle rule is the final cleanup backstop.
+  tombstones through a one-hour quiet interval as defense-in-depth against late
+  PUT completion. The interval is not a provider-backed proof that every PUT
+  has finished: every later quota admission still scans the room prefix,
+  deletes expired objects that appeared after tombstone retirement, and fails
+  closed if that reconciliation cannot complete. The bucket lifecycle rule is
+  the final cleanup backstop.
 - An abandoned or malicious session can hold its declared bytes until object
   expiry even when no PUT becomes visible. Capability, IP throttling, WAF, and
   account-wide R2 alerts remain necessary abuse and cost controls.
-- The production bucket lifecycle policy in
-  `cloudflare/r2-lifecycle.remote-share.json` expires both the encrypted
-  `room/` prefix and plaintext `plain-room/` prefix after one day.
-- Max plaintext wire/storage size is fixed at 200 MiB. AES-GCM compatibility
-  objects are exactly 16 bytes larger. Browser allocation and
+- The sole active R2 object namespace is `room/`, and the production bucket
+  lifecycle policy expires it after one day. A second one-day lifecycle rule
+  temporarily remains only to delete objects left under the retired
+  `plain-room/` prefix; no production route writes new objects there. Remove
+  that cleanup-only rule only after a bucket inspection confirms that the
+  retired prefix is empty.
+- Max wire/storage size is fixed at 200 MiB. Browser allocation and
   `decodeAudioData` can still fail below this limit when compressed media
   expands into a large PCM buffer.
 - Upload allocation limits:
@@ -140,5 +149,9 @@ the threshold only with production 429 evidence.
   atomic quota is enabled; later releases do not repeat it.
 - Emergency remote-share deployments fail closed until that lifecycle bridge
   is present in production.
-- Public `/session`, `/complete`, cleanup, and download response shapes remain
-  backward-compatible with cached whole-object clients.
+- `/session`, `/complete`, `/download`, and `/object` are the complete public
+  remote-share surface. Retired route aliases are intentionally not served.
+- `cloudflare/remote-share-contract-version.txt` is the explicit public
+  app/Worker cutover marker. Change it in the same commit as an incompatible
+  contract change; the release workflow then rejects every target except
+  `all`, so the first production rollout cannot publish only one side.

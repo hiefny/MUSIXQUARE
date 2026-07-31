@@ -565,7 +565,6 @@ const tr: Record<I18nKey, string> = {
   'transfer.preload_done': 'Önceden yüklenmiş dosya kullanılıyor!',
   'transfer.preload_waiting': 'Ön yüklemenin tamamlanması bekleniyor...',
   // Remote file sharing (R2-backed transfer)
-  'share.remote.encrypting': 'Uzaktaki misafirler için dosya hazırlanıyor...',
   'share.remote.uploading': 'Dosya yükleniyor...',
   'share.remote.upload_ready': 'Uzaktan paylaşıma hazır',
   'share.remote.waiting': 'Uzak dosya bekleniyor...',

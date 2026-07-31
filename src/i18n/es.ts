@@ -395,7 +395,6 @@ const es: Record<I18nKey, string> = {
   'transfer.file_wait': 'Esperando archivo...\nUn momento',
   'transfer.preload_done': '¡Usando archivo precargado!',
   'transfer.preload_waiting': 'Esperando que termine la precarga...',
-  'share.remote.encrypting': 'Preparando archivo para participantes remotos...',
   'share.remote.uploading': 'Subiendo archivo...',
   'share.remote.upload_ready': 'Compartición remota lista',
   'share.remote.waiting': 'Esperando archivo remoto...',

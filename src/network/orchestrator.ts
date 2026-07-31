@@ -1,7 +1,7 @@
 /**
  * Host-side data-plane routing after ICE classification. Local peers receive
  * file bytes directly; remote peers retain the control connection and obtain
- * local files through encrypted remote share.
+ * local files through authenticated whole-object remote share.
  */
 
 import { log } from '../core/log.ts';

@@ -460,7 +460,7 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   //   (b) Guest just finished decoding a buffer (READY/PAUSED/IDLE) but
   //       never received an applicable MSG.PLAY. This happens on the very
   //       first remote-share download: the host had broadcast PLAY before
-  //       the guest joined (or before the encrypted blob finished
+  //       the guest joined (or before the remote whole object finished
   //       downloading), so pendingPlayTime was either never set or was
   //       cleared. Without bootstrap, the guest sits at 0:00 until the
   //       host pauses/seeks/re-plays — exactly the "first remote download

@@ -392,7 +392,6 @@ const id: Record<I18nKey, string> = {
   'transfer.file_wait': 'Menunggu file...\nMohon tunggu',
   'transfer.preload_done': 'Menggunakan file pramuat!',
   'transfer.preload_waiting': 'Menunggu pramuat selesai...',
-  'share.remote.encrypting': 'Menyiapkan file untuk peserta jarak jauh...',
   'share.remote.uploading': 'Mengunggah file...',
   'share.remote.upload_ready': 'Berbagi jarak jauh siap',
   'share.remote.waiting': 'Menunggu file jarak jauh...',

@@ -65,15 +65,15 @@ to its baseline after cleanup rather than treating this total alone as a leak.
 
 Run these manually when the focused E2E group is green:
 
-| Scenario | Expected signal |
-| --- | --- |
-| Remote guest late-joins a local-file room | Guest receives the encrypted remote-share handoff, then syncs near host position. |
-| Local guest late-joins a local-file room | Guest receives the direct WebRTC file transfer, then syncs near host position. |
-| Host rapidly switches local files while a preload is active | Guest does not play the wrong file; stale chunks do not keep transfer stuck. |
-| YouTube load, manual sync, then stop mode | Guest enters and exits YouTube projection without stale play timers. |
-| Desktop system-audio share over local P2P | Guest receives one stream and cleanup restores previous UI state. |
-| Remote system-audio SFU path | Guest receives SFU stream, host stop clears placeholder/receiving state. |
-| Background/resume on mobile browser | App attempts recovery and warns if sync may be stale. |
+| Scenario                                                    | Expected signal                                                                                 |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Remote guest late-joins a local-file room                   | Guest receives the authorized whole-object remote-share handoff, then syncs near host position. |
+| Local guest late-joins a local-file room                    | Guest receives the direct WebRTC file transfer, then syncs near host position.                  |
+| Host rapidly switches local files while a preload is active | Guest does not play the wrong file; stale chunks do not keep transfer stuck.                    |
+| YouTube load, manual sync, then stop mode                   | Guest enters and exits YouTube projection without stale play timers.                            |
+| Desktop system-audio share over local P2P                   | Guest receives one stream and cleanup restores previous UI state.                               |
+| Remote system-audio SFU path                                | Guest receives SFU stream, host stop clears placeholder/receiving state.                        |
+| Background/resume on mobile browser                         | App attempts recovery and warns if sync may be stale.                                           |
 
 ## Exit Criteria
 

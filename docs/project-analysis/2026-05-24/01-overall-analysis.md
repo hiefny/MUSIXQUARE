@@ -19,19 +19,19 @@ The codebase is large, browser-heavy, and event-driven. It has more of the shape
 
 ## Stack
 
-| Area | Current stack |
-| --- | --- |
-| App language | TypeScript, strict mode |
-| Bundler/dev server | Vite 6 |
-| UI model | Static HTML + modular DOM controllers; no React/Vue/Svelte |
-| Audio | Web Audio API, MediaStream, display/system capture |
-| Realtime network | WebRTC DataChannel/MediaConnection through transport facade |
-| Signaling | Cloudflare Durable Object signaling or PeerJS fallback |
-| Remote object transfer | Cloudflare R2 worker, presigned upload/download URLs |
-| Security gate | App Worker capability tokens, optional Turnstile, per-IP rate limits |
-| Tests | Vitest unit tests, Playwright E2E suite |
-| CI | GitHub Actions: fast CI on PR/push, E2E manual dispatch |
-| PWA/service worker | `sw-register.ts`, service worker assets in root/public |
+| Area                   | Current stack                                                        |
+| ---------------------- | -------------------------------------------------------------------- |
+| App language           | TypeScript, strict mode                                              |
+| Bundler/dev server     | Vite 6                                                               |
+| UI model               | Static HTML + modular DOM controllers; no React/Vue/Svelte           |
+| Audio                  | Web Audio API, MediaStream, display/system capture                   |
+| Realtime network       | WebRTC DataChannel/MediaConnection through transport facade          |
+| Signaling              | Cloudflare Durable Object signaling or PeerJS fallback               |
+| Remote object transfer | Cloudflare R2 worker, presigned upload/download URLs                 |
+| Security gate          | App Worker capability tokens, optional Turnstile, per-IP rate limits |
+| Tests                  | Vitest unit tests, Playwright E2E suite                              |
+| CI                     | GitHub Actions: fast CI on PR/push, E2E manual dispatch              |
+| PWA/service worker     | `sw-register.ts`, service worker assets in root/public               |
 
 Runtime dependencies:
 
@@ -46,16 +46,16 @@ Development dependencies include TypeScript, Vite, Vitest, Playwright, ESLint, P
 
 Top-level areas:
 
-| Path | Purpose |
-| --- | --- |
-| `src/` | Main browser app, organized by runtime domain. |
-| `cloudflare/` | App worker, signaling worker, remote-share worker, Wrangler configs, R2 CORS docs. |
-| `e2e/` | Playwright integration/E2E tests and helpers. |
-| `docs/` | Architecture docs and prior audit notes. |
-| `scripts/` | Production build/security guards and static OG tooling. |
-| `.github/workflows/` | CI and manual E2E workflows. |
-| `public/`, `icons/`, `fonts/`, `css/` | Static assets. |
-| `dist/`, `coverage/`, `test-results/` | Generated output or test artifacts. |
+| Path                                  | Purpose                                                                            |
+| ------------------------------------- | ---------------------------------------------------------------------------------- |
+| `src/`                                | Main browser app, organized by runtime domain.                                     |
+| `cloudflare/`                         | App worker, signaling worker, remote-share worker, Wrangler configs, R2 CORS docs. |
+| `e2e/`                                | Playwright integration/E2E tests and helpers.                                      |
+| `docs/`                               | Architecture docs and prior audit notes.                                           |
+| `scripts/`                            | Production build/security guards and static OG tooling.                            |
+| `.github/workflows/`                  | CI and manual E2E workflows.                                                       |
+| `public/`, `icons/`, `fonts/`, `css/` | Static assets.                                                                     |
+| `dist/`, `coverage/`, `test-results/` | Generated output or test artifacts.                                                |
 
 Important entry/config files:
 
@@ -73,36 +73,36 @@ Important entry/config files:
 
 Production module line counts from this pass:
 
-| Module | Files | Lines | Notes |
-| --- | ---: | ---: | --- |
-| `src/ui` | 34 | ~9,893 | Dense DOM control surface, overlays, settings, chat, visualizer. |
-| `src/network` | 31 | ~8,645 | Transport, signaling, host/guest orchestration, sync, system audio. |
-| `src/player` | 18 | ~7,489 | Playback lifecycle, transport, playlist, decode, media session, ownership. |
-| `src/youtube` | 13 | ~6,919 | Iframe API, sync/rendezvous, search, handlers, module state. |
-| `src/storage` | 14 | ~5,001 | RAM storage, file transfer send/receive, preload, recovery. |
-| `src/core` | 23 | ~3,718 | State, event bus, timers, session, logging, capability, lifecycle helpers. |
-| `src/audio` | 13 | ~2,965 | Web Audio graph, effects, channel routing, beat detection, system capture. |
-| `src/chat` | 3 | ~2,137 | Commands, protocol, profanity filter. |
-| `src/i18n` | 6 | ~1,616 | Korean/English dictionaries and DOM translation engine. |
-| `src/share` | 7 | ~1,559 | Remote-share client, encryption, upload/download control. |
-| `src/demo` | 7 | ~1,398 | Demo mode, demo tracks, storage/restore policy. |
-| `src/types` | 1 | ~915 | Shared protocol, state, and event types. |
-| `src/workers` | 2 | ~300 | Worker-side helpers. |
+| Module        | Files |  Lines | Notes                                                                      |
+| ------------- | ----: | -----: | -------------------------------------------------------------------------- |
+| `src/ui`      |    34 | ~9,893 | Dense DOM control surface, overlays, settings, chat, visualizer.           |
+| `src/network` |    31 | ~8,645 | Transport, signaling, host/guest orchestration, sync, system audio.        |
+| `src/player`  |    18 | ~7,489 | Playback lifecycle, transport, playlist, decode, media session, ownership. |
+| `src/youtube` |    13 | ~6,919 | Iframe API, sync/rendezvous, search, handlers, module state.               |
+| `src/storage` |    14 | ~5,001 | RAM storage, file transfer send/receive, preload, recovery.                |
+| `src/core`    |    23 | ~3,718 | State, event bus, timers, session, logging, capability, lifecycle helpers. |
+| `src/audio`   |    13 | ~2,965 | Web Audio graph, effects, channel routing, beat detection, system capture. |
+| `src/chat`    |     3 | ~2,137 | Commands, protocol, profanity filter.                                      |
+| `src/i18n`    |     6 | ~1,616 | Korean/English dictionaries and DOM translation engine.                    |
+| `src/share`   |     7 | ~1,559 | Remote-share client, encryption, upload/download control.                  |
+| `src/demo`    |     7 | ~1,398 | Demo mode, demo tracks, storage/restore policy.                            |
+| `src/types`   |     1 |   ~915 | Shared protocol, state, and event types.                                   |
+| `src/workers` |     2 |   ~300 | Worker-side helpers.                                                       |
 
 Largest production files:
 
-| File | Lines | Why it matters |
-| --- | ---: | --- |
-| `src/chat/commands.ts` | 1,575 | Large command/debug surface. |
-| `src/youtube/iframe.ts` | 1,444 | Browser API readiness, iframe lifecycle, iOS behavior, crash recovery. |
-| `src/youtube/player.ts` | 1,386 | YouTube mode coordinator and autosync. |
-| `src/storage/transfer-receive.ts` | 1,319 | Most race-sensitive file receive path. |
-| `src/player/playlist.ts` | 1,277 | Track switching, preload, shuffle/repeat, cross-mode transitions. |
-| `src/storage/preload.ts` | 1,255 | Background preload and unicast transfer coordination. |
-| `src/youtube/sync.ts` | 1,241 | Host/guest YouTube timing convergence. |
-| `src/demo/mode.ts` | 1,162 | Demo orchestration and restore behavior. |
-| `src/ui/player-controls.ts` | 1,068 | User-facing playback control state. |
-| `src/network/transport/cloudflare-signaling.ts` | 931 | Signaling transport facade implementation. |
+| File                                            | Lines | Why it matters                                                         |
+| ----------------------------------------------- | ----: | ---------------------------------------------------------------------- |
+| `src/chat/commands.ts`                          | 1,575 | Large command/debug surface.                                           |
+| `src/youtube/iframe.ts`                         | 1,444 | Browser API readiness, iframe lifecycle, iOS behavior, crash recovery. |
+| `src/youtube/player.ts`                         | 1,386 | YouTube mode coordinator and autosync.                                 |
+| `src/storage/transfer-receive.ts`               | 1,319 | Most race-sensitive file receive path.                                 |
+| `src/player/playlist.ts`                        | 1,277 | Track switching, preload, shuffle/repeat, cross-mode transitions.      |
+| `src/storage/preload.ts`                        | 1,255 | Background preload and unicast transfer coordination.                  |
+| `src/youtube/sync.ts`                           | 1,241 | Host/guest YouTube timing convergence.                                 |
+| `src/demo/mode.ts`                              | 1,162 | Demo orchestration and restore behavior.                               |
+| `src/ui/player-controls.ts`                     | 1,068 | User-facing playback control state.                                    |
+| `src/network/transport/cloudflare-signaling.ts` |   931 | Signaling transport facade implementation.                             |
 
 These files are not automatically "bad", but they are the natural blast-radius centers for future changes.
 
@@ -116,7 +116,7 @@ Strong points:
 - Production bundle is guarded against leaking E2E test hooks.
 - Production security config is explicitly checked by script.
 - Network protocol handling includes typed messages, validators, and inbound rate limiting.
-- File data is intentionally kept out of TURN paths; remote or unknown peers use encrypted remote-share.
+- File data is intentionally kept out of TURN paths; remote or unknown peers use private remote whole-file sharing.
 - Storage has moved to RAM-first behavior, avoiding OPFS/disk lifecycle complexity.
 - Playback state ownership has been decomposed into more precise contracts.
 
@@ -157,7 +157,7 @@ The application has five central contracts:
 
 5. Data path policy
    - Same-LAN direct file transfer can use WebRTC data channels.
-   - Remote/unknown guests use encrypted R2 remote-share.
+   - Remote/unknown guests use private R2 remote whole-file sharing.
    - File data is explicitly prevented from flowing over TURN for cost and policy reasons.
    - System audio can use P2P or SFU-style paths depending on topology and capability.
 
@@ -231,9 +231,8 @@ The hard part is not raw storage; it is deciding whether an incoming transfer is
 
 ### Share
 
-`src/share` owns remote encrypted file sharing:
+`src/share` owns private remote whole-file sharing:
 
-- AES-GCM encryption/decryption.
 - R2 client endpoint discovery.
 - Capability headers for remote-share sessions.
 - Presigned upload/download progress.

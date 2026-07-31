@@ -280,7 +280,7 @@ export function handleRequestYouTubePlaylistInfo(
 function cancelInFlightTransfer(): void {
   // R2 download first, UNCONDITIONALLY: the remote path never sets
   // transfer.state, so the RECEIVING/PROCESSING gate below is blind to it —
-  // without this an in-flight encrypted download keeps streaming over mobile
+  // without this an in-flight whole-object download keeps streaming over mobile
   // data through the whole YouTube switch, repaints the loader on top of the
   // new mode, and leaves the 5-minute wait timer armed. Idempotent no-op when
   // nothing is in flight. (No cycle: remote-share imports no youtube/*.)

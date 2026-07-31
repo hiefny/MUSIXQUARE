@@ -559,7 +559,6 @@ const en: Record<I18nKey, string> = {
   'transfer.preload_done': 'Using preloaded file!',
   'transfer.preload_waiting': 'Waiting for preload to complete...',
   // Remote file sharing (R2-backed transfer)
-  'share.remote.encrypting': 'Preparing file for remote participants...',
   'share.remote.uploading': 'Uploading file...',
   'share.remote.upload_ready': 'Remote share ready',
   'share.remote.waiting': 'Waiting for remote file...',

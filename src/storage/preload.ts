@@ -1216,7 +1216,7 @@ export const isActiveHostPreloadChunkForRateLimitForTests = isActiveHostPreloadC
 function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
 
-  // Remote guests receive preloads through the encrypted remote-share path.
+  // Remote guests receive preloads through the authenticated whole-object path.
   const routeQueueItemId =
     typeof data.queueItemId === 'string' ? (data.queueItemId as QueueItemId) : null;
   const incomingSessionId = Number(data.sessionId);
@@ -1555,7 +1555,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
 function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!isHostBroadcast(conn)) return;
 
-  // Remote guests receive encrypted remote-share blobs instead of direct chunks.
+  // Remote guests receive authenticated whole objects instead of direct chunks.
   if (isRemoteGuest()) return;
 
   // Exact session identity is mandatory on every preload chunk.

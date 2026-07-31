@@ -556,7 +556,6 @@ const th: Record<I18nKey, string> = {
   'transfer.preload_done': 'ใช้ไฟล์ที่โหลดล่วงหน้าแล้ว!',
   'transfer.preload_waiting': 'กำลังรอให้โหลดล่วงหน้าเสร็จ...',
   // Remote file sharing (R2-backed transfer)
-  'share.remote.encrypting': 'กำลังเตรียมไฟล์สำหรับผู้เข้าร่วมระยะไกล...',
   'share.remote.uploading': 'กำลังอัปโหลดไฟล์...',
   'share.remote.upload_ready': 'แชร์ระยะไกลพร้อมแล้ว',
   'share.remote.waiting': 'กำลังรอไฟล์ระยะไกล...',

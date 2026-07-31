@@ -33,9 +33,6 @@ interface FrozenFileDelivery {
 const MAX_RETAINED_SESSIONS = 64;
 const hostPolicies = new Map<string, FrozenFileDelivery>();
 const localR2CapablePeerIds = new Set<string>();
-// Plain-object read authority is connection-bound. A stable PeerJS id must not
-// carry this rolling-deploy capability across a replaced DataConnection.
-const plainR2CapabilityConnectionByPeerId = new Map<string, DataConnection>();
 
 interface GuestDelivery {
   queueItemId: QueueItemId;
@@ -248,31 +245,10 @@ export function markLocalFileR2Capable(peerId: string): number[] {
   return recoveredSessionIds;
 }
 
-/** Record authenticated plaintext whole-object support for one exact live socket. */
-export function markFileR2PlainCapable(conn: DataConnection): boolean {
-  const peerId = conn?.peer;
-  if (!peerId || !conn.open) return false;
-  if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) return false;
-  plainR2CapabilityConnectionByPeerId.set(peerId, conn);
-  return true;
-}
-
-/** True only while the advertised connection is still the host's exact live peer. */
-export function isFileR2PlainCapable(conn: DataConnection): boolean {
-  const peerId = conn?.peer;
-  return (
-    !!peerId &&
-    !!conn.open &&
-    plainR2CapabilityConnectionByPeerId.get(peerId) === conn &&
-    getState('network.activeHostConnByPeerId').get(peerId) === conn
-  );
-}
-
 /** A reconnect is a new authenticated DataConnection and must advertise again. */
 export function releaseFileDeliveryPeer(peerId: string): void {
   if (!peerId) return;
   localR2CapablePeerIds.delete(peerId);
-  plainR2CapabilityConnectionByPeerId.delete(peerId);
   for (const policy of hostPolicies.values()) {
     policy.directPeerIds.delete(peerId);
     policy.r2PeerIds.delete(peerId);
@@ -405,6 +381,5 @@ export function isGuestR2FileDelivery(
 export function resetFileDeliveryPolicies(): void {
   hostPolicies.clear();
   localR2CapablePeerIds.clear();
-  plainR2CapabilityConnectionByPeerId.clear();
   guestDeliveryByQueueItem.clear();
 }

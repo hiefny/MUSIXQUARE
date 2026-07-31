@@ -556,7 +556,6 @@ const ko = {
   'transfer.preload_done': '프리로드된 파일 사용!',
   'transfer.preload_waiting': '프리로드 완료 대기 중...',
   // Remote file sharing (R2-backed transfer)
-  'share.remote.encrypting': '원격 참여자용 파일을 준비하고 있어요...',
   'share.remote.uploading': '파일을 업로드하고 있어요...',
   'share.remote.upload_ready': '원격 공유 준비 완료',
   'share.remote.waiting': '원격 파일을 기다리고 있어요...',

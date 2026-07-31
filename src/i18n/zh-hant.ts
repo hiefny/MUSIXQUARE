@@ -383,7 +383,6 @@ const zhHant: Record<I18nKey, string> = {
   'transfer.file_wait': '正在等待檔案...\n請稍候',
   'transfer.preload_done': '使用已預載的檔案！',
   'transfer.preload_waiting': '正在等待預載完成...',
-  'share.remote.encrypting': '正在為遠端參與者準備檔案...',
   'share.remote.uploading': '正在上傳檔案...',
   'share.remote.upload_ready': '遠端分享已準備好',
   'share.remote.waiting': '正在等待遠端檔案...',

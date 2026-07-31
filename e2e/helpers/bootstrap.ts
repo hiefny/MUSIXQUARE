@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 
-const EXPECTED_BOOTSTRAP_STEP_COUNT = '53';
+const EXPECTED_BOOTSTRAP_STEP_COUNT = '54';
 
 interface BootstrapObservation {
   state: string | null;

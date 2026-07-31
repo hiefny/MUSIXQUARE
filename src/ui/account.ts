@@ -433,8 +433,10 @@ function consumeAccountAuthOutcomeFromUrl(): { outcome: AccountAuthOutcome; id: 
 }
 
 function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSnapshot()): void {
+  const dialog = byId<HTMLElement>('account-dialog');
   const title = byId<HTMLElement>('account-dialog-title');
   const titleEdit = byId<HTMLButtonElement>('btn-account-title-edit');
+  const titleEditLabel = byId<HTMLElement>('account-dialog-title-edit-label');
   const message = byId<HTMLElement>('account-dialog-message');
   const nickname = byId<HTMLElement>('account-dialog-nickname');
   const content = byId<HTMLElement>('account-dialog-content');
@@ -447,8 +449,10 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   const remove = byId<HTMLButtonElement>('btn-account-delete');
   const centerClose = byId<HTMLButtonElement>('btn-account-center-close');
   if (
+    !dialog ||
     !title ||
     !titleEdit ||
+    !titleEditLabel ||
     !message ||
     !nickname ||
     !content ||
@@ -465,9 +469,13 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
 
   const syncRenderedTextFonts = () => {
     applyUserTextFontFallback(title, title.textContent || '');
+    applyUserTextFontFallback(titleEditLabel, titleEditLabel.textContent || '');
     applyUserTextFontFallback(message, message.textContent || '');
   };
 
+  dialog.setAttribute('aria-labelledby', 'account-dialog-title');
+  title.hidden = false;
+  titleEditLabel.textContent = '';
   content.hidden = false;
   message.hidden = false;
   nickname.hidden = true;
@@ -486,9 +494,13 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
   renderAccountStats(snapshot);
 
   if (snapshot.status === 'authenticated' && snapshot.account) {
-    title.textContent = snapshot.account.profileComplete
+    const accountTitle = snapshot.account.profileComplete
       ? snapshot.account.nickname
       : t('account.nickname_title');
+    title.textContent = accountTitle;
+    title.hidden = true;
+    titleEditLabel.textContent = accountTitle;
+    dialog.setAttribute('aria-labelledby', 'account-dialog-title-edit-label');
     message.textContent = snapshot.account.profileComplete ? '' : t('account.nickname_message');
     message.hidden = snapshot.account.profileComplete;
     content.hidden = snapshot.account.profileComplete;

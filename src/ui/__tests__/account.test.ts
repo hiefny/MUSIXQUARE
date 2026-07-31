@@ -43,8 +43,15 @@ function renderAccountDialog(): void {
     <button id="opener">open</button>
     <div id="account-dialog-overlay" aria-hidden="true">
       <div id="account-dialog" aria-busy="false" tabindex="-1">
-        <span id="account-dialog-title"></span>
+        <span
+          class="dialog-title account-dialog-static-title"
+          id="account-dialog-title"
+        ></span>
         <button class="account-dialog-title-edit" id="btn-account-title-edit" hidden>
+          <span
+            class="dialog-title account-dialog-title-edit-label"
+            id="account-dialog-title-edit-label"
+          ></span>
           <svg id="account-dialog-title-edit-icon"></svg>
         </button>
         <div id="account-dialog-content">
@@ -130,6 +137,10 @@ describe('optional account UI', () => {
     );
     expect(document.getElementById('account-google-label')?.textContent).not.toBe('');
     expect(document.getElementById('account-legal-links')?.hidden).toBe(false);
+    expect(document.getElementById('account-dialog-title')?.hidden).toBe(false);
+    expect(document.getElementById('account-dialog')?.getAttribute('aria-labelledby')).toBe(
+      'account-dialog-title',
+    );
     expect(document.getElementById('btn-account-title-edit')?.hidden).toBe(true);
     const close = document.getElementById('btn-account-login-close');
     expect(close?.hidden).toBe(false);
@@ -593,6 +604,11 @@ describe('optional account UI', () => {
 
     openAccountDialog();
     expect(document.getElementById('account-dialog-title')?.textContent).toBe('Minsu');
+    expect(document.getElementById('account-dialog-title')?.hidden).toBe(true);
+    expect(document.getElementById('account-dialog-title-edit-label')?.textContent).toBe('Minsu');
+    expect(document.getElementById('account-dialog')?.getAttribute('aria-labelledby')).toBe(
+      'account-dialog-title-edit-label',
+    );
     expect(document.getElementById('account-dialog-content')?.hidden).toBe(true);
     expect(document.getElementById('account-dialog-nickname')?.hidden).toBe(true);
     expect(document.getElementById('account-dialog-actions')?.hidden).toBe(false);
@@ -624,7 +640,7 @@ describe('optional account UI', () => {
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
 
     openAccountDialog();
-    document.getElementById('btn-account-title-edit')?.click();
+    document.getElementById('account-dialog-title-edit-label')?.click();
 
     expect(document.getElementById('account-dialog-overlay')?.classList.contains('show')).toBe(
       false,
@@ -1167,6 +1183,10 @@ describe('optional account UI', () => {
     const accountActionsRules =
       stylesheet.match(/\.account-dialog-actions\s*\{([^}]*)\}/)?.[1] ?? '';
     const titleEditRules = stylesheet.match(/\.account-dialog-title-edit\s*\{([^}]*)\}/)?.[1] ?? '';
+    const titleEditFocusRules =
+      stylesheet.match(/\.account-dialog-title-edit:focus-visible\s*\{([^}]*)\}/)?.[1] ?? '';
+    const titleEditLabelRules =
+      stylesheet.match(/\.account-dialog-title-edit-label\s*\{([^}]*)\}/)?.[1] ?? '';
     const contentCloseRules =
       stylesheet.match(/\.account-dialog-content-close\s*\{([^}]*)\}/)?.[1] ?? '';
     const accountCloseRules =
@@ -1178,9 +1198,18 @@ describe('optional account UI', () => {
     expect(dialogRules).not.toContain('scale(');
     expect(shownDialogRules).toContain('transform: translateY(0)');
     expect(shownDialogRules).not.toContain('scale(');
-    expect(headerRules).toContain('padding: 30px 32px 6px');
-    expect(titleEditRules).toContain('width: 44px');
-    expect(titleEditRules).toContain('display: grid');
+    expect(headerRules).toContain('padding: 24px 20px 0');
+    expect(titleEditRules).toContain('width: auto');
+    expect(titleEditRules).toContain('max-width: 100%');
+    expect(titleEditRules).toContain('min-height: 44px');
+    expect(titleEditRules).toContain('display: inline-flex');
+    expect(titleEditRules).toContain('border-radius: 999px');
+    expect(titleEditFocusRules).toContain('outline: 2px solid var(--primary)');
+    expect(titleEditFocusRules).toContain('outline-offset: 2px');
+    expect(titleEditFocusRules).not.toContain('outline-offset: 6px');
+    expect(titleEditLabelRules).toContain('min-width: 0');
+    expect(titleEditLabelRules).toContain('text-overflow: ellipsis');
+    expect(titleEditLabelRules).toContain('white-space: nowrap');
     expect(contentRules).toContain('min-height: 0');
     expect(contentRules).toContain('overflow-y: auto');
     expect(contentRules).toContain('overflow-anchor: none');
@@ -1213,6 +1242,9 @@ describe('optional account UI', () => {
 
     expect(accountDialog?.querySelector('.account-dialog-close')).toBeNull();
     expect(accountDialog?.querySelector('#btn-account-rename')).toBeNull();
+    expect(
+      accountDialog?.querySelector('#btn-account-title-edit > #account-dialog-title-edit-label'),
+    ).not.toBeNull();
     expect(accountDialog?.querySelector('#btn-account-title-edit svg path')).not.toBeNull();
     expect(accountDialog?.querySelector('#btn-account-login-close')).not.toBeNull();
     expect(accountDialog?.querySelector('#btn-account-center-close')).not.toBeNull();

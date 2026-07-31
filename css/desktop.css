@@ -456,10 +456,9 @@
 
     .subtab-pill {
       flex: 1;
-      padding: var(--locale-settings-subtab-padding-block, 10px) 0;
+      padding: 10px 0;
       font-size: 13px;
       font-weight: 600;
-      line-height: var(--locale-settings-subtab-line-height, normal);
       color: var(--text-sub);
       background: none;
       border: none;
@@ -764,9 +763,7 @@
 
     .section-header-row {
       border-bottom: none;
-      padding:
-        calc(44px - var(--locale-settings-section-padding-adjust, 0px)) 20px
-        calc(16px - var(--locale-settings-section-padding-adjust, 0px));
+      padding: 44px 20px 16px;
     }
 
     .accent-action-btn,
@@ -795,7 +792,7 @@
 
     /* Align the first audio section with the other settings sections. */
     #youtube-settings-disabled-wrap .section-group:first-of-type .section-header-row {
-      padding-top: calc(44px - var(--locale-settings-section-padding-adjust, 0px));
+      padding-top: 44px;
     }
 
     .section-title {

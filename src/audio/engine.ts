@@ -62,7 +62,7 @@ import { FilePlaybackRoute } from './file-playback-route.ts';
 
 // ─── AudioGraph Struct ────────────────────────────────────────────
 interface AudioGraph {
-  // Stable input shared by AudioBuffer and streaming file backends.
+  // Stable input for AudioBuffer file playback.
   filePlaybackRoute: FilePlaybackRoute | null;
 
   // Channel & stereo processing

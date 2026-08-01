@@ -952,7 +952,7 @@ describe('remote file share policy', () => {
     });
   });
 
-  it('recovers only an authenticated legacy-overflow connection after capability arrives', async () => {
+  it('recovers only an authenticated unadvertised overflow connection after capability arrives', async () => {
     const { handleData } = await import('../../network/protocol.ts');
     const { safeSend } = await import('../../network/peer.ts');
     const {
@@ -966,7 +966,7 @@ describe('remote file share policy', () => {
     setState('network.hostConn', null);
 
     const peers = Array.from({ length: 9 }, (_, index) => {
-      const id = `local-legacy-${index + 1}`;
+      const id = `local-unadvertised-${index + 1}`;
       return {
         id,
         status: 'connected' as const,

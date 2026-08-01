@@ -94,7 +94,7 @@ import {
 // ─── Decode Accounting & Ownership ─────────────────────────────────
 // decodeAudioData has no cancellation API. Racing it against a timer only
 // abandons the Promise while native decoder work and its allocation continue,
-// which is especially harmful on iOS. The legacy engine therefore awaits the
+// which is especially harmful on iOS. Playback therefore awaits the
 // native decoder without an arbitrary deadline and checks caller ownership at
 // every cancellable boundary. Memory reservations are accounting only under the
 // production unbounded policy; they do not pre-reject normal files.

@@ -180,7 +180,8 @@ Status: heavily guarded but still complex.
 - Session IDs guard start/resume/chunk/end boundaries.
 - Chunk size and total bounds exist in protocol validators.
 - Stale chunk burst detection requests recovery rather than silently drifting forever.
-- Remote share descriptors are tied to active session/index and encrypted object metadata.
+- Remote share descriptors are tied to the active session/index, signed download
+  authorization, and validated object metadata.
 
 Residual risk:
 

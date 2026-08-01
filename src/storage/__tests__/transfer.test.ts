@@ -131,7 +131,7 @@ describe('transfer state reset', () => {
 });
 
 describe('host outgoing transfer routing', () => {
-  it('marks capable mixed-room peers for R2 and rejects legacy overflow explicitly', async () => {
+  it('marks capable mixed-room peers for R2 and rejects unadvertised overflow explicitly', async () => {
     const { sendFilePrepareByDelivery } = await import('../transfer.ts');
     const peers = Array.from({ length: 10 }, (_, index) => {
       const id = `mixed-peer-${index + 1}`;
@@ -170,9 +170,13 @@ describe('host outgoing transfer routing', () => {
     );
   });
 
-  it('defers an unclassified legacy peer until ICE chooses remote R2 or local overflow', async () => {
+  it('defers an unadvertised peer until ICE chooses remote R2 or local overflow', async () => {
     const { sendFilePrepareByDelivery } = await import('../transfer.ts');
-    const conn = { open: true, peer: 'unknown-legacy', send: vi.fn() } as unknown as DataConnection;
+    const conn = {
+      open: true,
+      peer: 'unknown-unadvertised',
+      send: vi.fn(),
+    } as unknown as DataConnection;
     const unknownPeer = connectedPeer(conn.peer, conn, {
       isDataTarget: false,
       connectionType: 'unknown',

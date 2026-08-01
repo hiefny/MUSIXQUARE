@@ -56,7 +56,7 @@ const EXPIRY_TOMBSTONE_QUIET_MS = 60 * 60 * 1000;
 const WHOLE_OBJECT_VERSION = 1;
 const DOWNLOAD_AUTHORIZATION_VERSION = 1;
 // Storage/token format name. The peer descriptor deliberately calls the same
-// downloaded bytes `whole-v1`; neither name is a retired-route compatibility tag.
+// downloaded bytes `whole-v1`; the distinct names identify the storage and wire layers.
 const WHOLE_OBJECT_STORAGE_FORMAT = 'whole-object-v1';
 const DOWNLOAD_TOKEN_KIND = 'download';
 const DOWNLOAD_TOKEN_AUDIENCE = 'musixquare-remote-share';

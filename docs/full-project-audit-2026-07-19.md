@@ -24,7 +24,7 @@ was a defect. Historical proposals were not treated as current requirements.
 
 The audit also replayed the intended behavior against Git history where a guard
 looked unusually strict or a compatibility branch looked redundant. This kept
-intentional RAM-only media storage, legacy-engine playback, best-effort edge
+intentional RAM-only media storage, AudioBuffer playback, best-effort edge
 rate limiting, and device-specific sync compensation intact.
 
 ## Confirmed defects corrected
@@ -95,8 +95,7 @@ rate limiting, and device-specific sync compensation intact.
 
 - OPFS remains prohibited by the current RAM-only ADR; no storage-engine pivot
   was introduced.
-- The bounded/preloaded legacy audio engine remains the production engine; the
-  separate streaming-engine work was not merged.
+- The bounded/preloaded AudioBuffer engine remains the production engine.
 - Turnstile was not reintroduced and user-visible admission policy was not made
   stricter.
 - Platform sync compensation, DSP tuning, and YouTube rendezvous behavior were

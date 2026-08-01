@@ -6,7 +6,7 @@
  *
  * Memory use scales with the active encoded blob, retained preload blobs, and
  * the decoded AudioBuffer owned by playback. The store has no persistent
- * spill path. Callers own obsolete-session release. The legacy engine accounts
+ * spill path. Callers own obsolete-session release. Playback accounts
  * for this memory but intentionally applies no predictive device-memory cap;
  * browser allocation/decode is best effort as documented in the ADR below.
  * Policy source (repository path, not a runtime URL):

@@ -109,7 +109,7 @@ export function sendFilePrepareByDelivery(
 }
 
 /**
- * A legacy LAN peer beyond the eight direct slots cannot understand local R2
+ * An unadvertised LAN peer beyond the eight direct slots cannot understand local R2
  * delivery. Fail explicitly instead of sending FILE_PREPARE and leaving it
  * waiting forever for chunks which must never be fanned out directly.
  */

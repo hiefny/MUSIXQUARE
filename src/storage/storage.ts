@@ -8,7 +8,7 @@
  *
  * Memory scales with the encoded active/preload blobs and the decoded PCM
  * retained by playback. There is no persistent fallback. Callers own cleanup;
- * the legacy engine records memory ownership but does not pre-reject a valid
+ * playback records memory ownership but does not pre-reject a valid
  * file from a predicted device-memory ceiling.
  * Policy source (repository path, not a runtime URL):
  * docs/design/browser-media-storage-policy.md

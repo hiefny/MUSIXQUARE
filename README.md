@@ -85,7 +85,7 @@ secrets.
   are rejected; video playback uses the YouTube path.
 - **Remote File Sharing**: Remote guests can receive temporary file handoffs
   through private Cloudflare-backed storage with participant-authorized
-  downloads. The 200 MiB figure is the remote wire/storage ceiling. The legacy
+  downloads. The 200 MiB figure is the remote wire/storage ceiling. The
   AudioBuffer engine does not pre-reject files from a predicted device-memory
   budget; transfer and native decode are attempted on a best-effort basis. A
   browser may still reject an allocation or terminate a memory-constrained tab.

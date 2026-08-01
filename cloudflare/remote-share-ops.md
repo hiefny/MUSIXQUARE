@@ -136,17 +136,16 @@ the threshold only with production 429 evidence.
 - The KV counter can be removed only after `POST /session` moves to another
   durable counter.
 - Both Workers must share the capability HMAC secret.
-- `wrangler.remote-share.toml` retains append-only Durable Object history: v1
-  created the unused `RemoteShareRateLimiter`, v2 deleted it, and v3 created the
-  distinct SQLite `RemoteShareQuota` namespace. Do not reuse the deleted class
-  name or edit old migration tags.
+- `wrangler.remote-share.toml` retains Cloudflare's required append-only Durable
+  Object migration entries. They are immutable infrastructure schema tags; do
+  not reuse deleted class names or edit old tags.
 - Cloudflare cannot roll a Worker version back across a Durable Object class
-  lifecycle migration. The release bridge establishes the v3 lifecycle before
-  atomic quota is enabled; later releases do not repeat it.
+  lifecycle migration. The release bridge establishes the required lifecycle
+  before atomic quota is enabled; later releases do not repeat it.
 - Emergency remote-share deployments fail closed until that lifecycle bridge
   is present in production.
 - `/session`, `/complete`, `/download`, and `/object` are the complete public
-  remote-share surface. Retired route aliases are intentionally not served.
+  remote-share surface.
 - `cloudflare/remote-share-contract-version.txt` is the explicit public
   app/Worker cutover marker. Change it in the same commit as an incompatible
   contract change; the release workflow then rejects every target except

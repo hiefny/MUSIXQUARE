@@ -470,7 +470,6 @@ describe('remote-share Worker capability gate', () => {
     ]);
     expect(releaseWorkflowSource).toContain("grep -Fq 'prefix:   room/'");
     expect(releaseWorkflowSource).toContain('-ne 1');
-    expect(releaseWorkflowSource).not.toContain('plain-room/');
   });
 
   it('forces the first incompatible app/Worker contract rollout through target all', () => {
@@ -1942,47 +1941,6 @@ describe('remote-share Worker capability gate', () => {
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({ error: 'expired' });
     expect(bucket.delete).toHaveBeenCalledOnce();
-  });
-
-  it('removes the legacy same-Worker proxy upload route', async () => {
-    const response = await workerModule.default.fetch(
-      request('/upload', { method: 'POST', body: new Uint8Array([1, 2, 3]) }),
-      env(),
-    );
-
-    expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: 'not found' });
-  });
-
-  it('keeps every retired v3/plain alias inert without touching R2 or rate-limit KV', async () => {
-    const objectId = '00000000-0000-4000-8000-000000000001';
-    const bucket = {
-      delete: vi.fn(),
-      get: vi.fn(),
-      head: vi.fn(),
-      list: vi.fn(),
-      put: vi.fn(),
-    };
-    const rateLimit = { get: vi.fn(), put: vi.fn() };
-    const workerEnv = env({
-      REMOTE_SHARE_BUCKET: bucket,
-      REMOTE_SHARE_RATE_LIMIT: rateLimit,
-    });
-    const retiredRequests = [
-      request('/v3/plain/session', { method: 'POST', body: '{}' }),
-      request('/v3/plain/complete', { method: 'POST', body: '{}' }),
-      request(`/v3/plain/download/123456/${objectId}`),
-      request(`/v3/plain/object/123456/${objectId}`, { method: 'DELETE' }),
-    ];
-
-    for (const retiredRequest of retiredRequests) {
-      const response = await workerModule.default.fetch(retiredRequest, workerEnv);
-      expect(response.status).toBe(404);
-      expect(await response.json()).toEqual({ error: 'not found' });
-    }
-    for (const operation of Object.values(bucket)) expect(operation).not.toHaveBeenCalled();
-    expect(rateLimit.get).not.toHaveBeenCalled();
-    expect(rateLimit.put).not.toHaveBeenCalled();
   });
 
   it('rejects oversized session JSON after capability verification', async () => {

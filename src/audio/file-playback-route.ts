@@ -1,5 +1,5 @@
 /**
- * Stable input for every file-playback backend.
+ * Stable input for decoded file playback.
  *
  * Sources connect once to `input`; product routing may then switch between the
  * stereo effects input and the multichannel splitter without asking a decoder

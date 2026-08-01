@@ -6,7 +6,7 @@
  * graph; it provides duration before decodeAudioData expands the whole file to
  * planar Float32 PCM. No media bytes are persisted to OPFS or IndexedDB.
  *
- * The legacy AudioBuffer engine deliberately does not reject media from a
+ * The AudioBuffer engine deliberately does not reject media from a
  * predicted device-memory budget. Browser allocation and decode failures are
  * allowed to surface naturally so conservative estimates do not reject files
  * that a particular device can actually play. The ledger remains useful for
@@ -582,9 +582,9 @@ export async function assertBlobCanDecodeToAudioBuffer(
     options.fileName ?? (typeof File !== 'undefined' && blob instanceof File ? blob.name : '');
   const retainedPcmBytes = Math.max(0, options.retainedPcmBytes ?? 0);
   const sourceEncodedReceiveReservationId = encodedReceiveReservationByBlob.get(blob);
-  // The production legacy policy is unbounded, so avoid delaying every load on
+  // The production policy is unbounded, so avoid delaying every load on
   // metadata probes whose only purpose is predictive rejection. Explicit
-  // finite budgets retain the probe path for tests and future engines.
+  // finite budgets retain the probe path for validation callers.
   const [duration, probedChannels] = hasPredictiveMemoryLimit(budget)
     ? await Promise.all([
         options.durationProbe ? options.durationProbe(blob) : getProbedDuration(blob),
@@ -683,7 +683,7 @@ export function assertDecodedAudioBufferWithinBudget(
  *
  * XHR can overlap the source File/Blob or response ArrayBuffer with one
  * browser-owned request/File backing. The two-copy estimate remains useful for
- * diagnostics and explicit finite test budgets; the production legacy policy
+ * diagnostics and explicit finite test budgets; the production policy
  * does not reject on this estimate.
  */
 function assertRemoteTransportMemoryWithinBudget(

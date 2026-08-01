@@ -28,7 +28,7 @@ their own TTL and cleanup contract, not browser-local playback storage.
 
 The shipping browser media pipeline is **RAM-only**.
 
-- Do not write media payload bytes, encrypted media chunks, preloaded tracks,
+- Do not write media payload bytes, media chunks, preloaded tracks,
   or decoded PCM to OPFS or IndexedDB in production playback paths.
 - Keep one playback/storage behavior across supported browsers. A device must
   not silently switch to a different playback clock because persistent browser
@@ -53,13 +53,13 @@ also block diagnostics and legitimate future metadata work.
 
 RAM-only media still has a device-dependent physical capacity ceiling, and
 persistent storage would not remove the PCM required by the current AudioBuffer
-playback engine. The legacy engine nevertheless does **not** impose a predicted
+playback engine. Playback nevertheless does **not** impose a predicted
 per-device RAM ceiling. Local decode, P2P receive/preload, and whole-file remote
 upload/download proceed on a best-effort basis and rely on the browser's actual
 allocation and `decodeAudioData` outcome.
 
 **Implementation note (2026-07-15):** the shared memory ledger remains for
-ownership, cleanup, diagnostics, and future media-engine work, but production
+ownership, cleanup, diagnostics, and future policy review, but production
 budgets are effectively unbounded for every file a browser can materialize.
 Metadata duration/channel probes are skipped because their only production use
 was conservative pre-rejection. A successful AudioBuffer is measured after
@@ -164,7 +164,7 @@ migration.
   engines or backing stores in the middle of a synchronized track.
 - On OPFS open/write/read/quota failure, remove any app-owned partial artifact.
   A future proposal must define its own explicit fallback-capacity policy; the
-  current legacy RAM path is best effort and has no predictive admission gate.
+  current RAM path is best effort and has no predictive admission gate.
 - A single configuration change or deployment revert must restore RAM-only
   behavior for new sessions.
 - Rollback verification must include opening the downgraded build with old

@@ -46,11 +46,9 @@ id = "ccf776d532e44e2daed916e7304542cd"
 name = "REMOTE_SHARE_QUOTA"
 class_name = "RemoteShareQuota"
 
-# Migration history is append-only in Cloudflare. v1 created an experimental
-# Durable Object rate limiter; the production path continued using
-# REMOTE_SHARE_RATE_LIMIT (KV). v2 permanently retires that unused class. The
-# distinct v3 class serializes per-room byte reservations and must not reuse the
-# deleted v1 class name.
+# Cloudflare requires this Durable Object migration history to remain
+# append-only. These provider-managed identifiers are immutable infrastructure
+# schema tags; do not edit or reuse deleted class names.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RemoteShareRateLimiter"]

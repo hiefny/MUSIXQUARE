@@ -1824,9 +1824,9 @@ async function handleRemoteFileShare(
     );
     showLoader(true, t('share.remote.downloading'));
 
-    // Whole-file XHR allocations happen before decode admission; the rolling
-    // legacy format additionally needs Web Crypto working memory. Reject an
-    // unsafe transport peak before the browser receives the first stored byte.
+    // Whole-file XHR allocations happen before decode admission and can overlap
+    // the retained source/response bytes. Reject an unsafe transport peak before
+    // the browser receives the first stored byte.
     const memoryBudget = resolveDecodeMemoryBudget();
     for (;;) {
       try {

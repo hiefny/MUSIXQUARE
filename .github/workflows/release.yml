@@ -569,16 +569,11 @@ jobs:
               exit 1
             fi
           done
-          for retired_header in \
-            x-amz-meta-encrypted-size \
-            x-amz-meta-size-bytes \
-            x-amz-meta-record-count \
-            x-amz-meta-set-id; do
-            if grep -Eiq "(^|[^[:alnum:]-])${retired_header}([^[:alnum:]-]|$)" <<<"$cors_state"; then
-              echo "::error::Remote-share R2 CORS read-back still exposes ${retired_header}."
-              exit 1
-            fi
-          done
+          metadata_header_count="$(grep -Eio 'x-amz-meta-[[:alnum:]-]+' <<<"$cors_state" | sort -u | wc -l | tr -d '[:space:]')"
+          if [[ "$metadata_header_count" -ne 8 ]]; then
+            echo "::error::Remote-share R2 CORS read-back must expose exactly the eight configured metadata headers."
+            exit 1
+          fi
 
       - name: Apply and verify remote-share R2 lifecycle policy
         timeout-minutes: 10

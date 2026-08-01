@@ -15,7 +15,6 @@ export default defineConfig({
       'src/pro-room/__tests__/{api,heartbeat-single-flight,media-transfer,playlist-state-manager,session-controller}.test.ts',
       'src/pro-room/__tests__/runtime-*.test.ts',
       'src/player/__tests__/{busy-guard,concurrency-invariants,local-output-rejoin,playback,playback-extended,playback-queue-identity,playback-replay-resync,playback-remote-wait,playlist,transport-position}.test.ts',
-      'src/player/__tests__/transport-v2.test.ts',
       'src/storage/__tests__/preload.test.ts',
       'src/network/transport/__tests__/{cloudflare-signaling,cloudflare-signaling-worker}.test.ts',
       'src/youtube/__tests__/{search,search-style}.test.ts',

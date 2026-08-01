@@ -79,7 +79,6 @@ async function waitForRemoteShareWorkerReady(): Promise<void> {
     lastObservedContract = JSON.stringify({
       workerContractVersion: config.workerContractVersion,
       wholeObjectVersion: config.wholeObjectVersion,
-      plainWholeObjectVersion: config.plainWholeObjectVersion,
       downloadAuthorizationVersion: config.downloadAuthorizationVersion,
     });
     if (config.workerContractVersion === 1 && wholeObjectReady) {

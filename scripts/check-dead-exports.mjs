@@ -6,9 +6,9 @@
  * unrelated exports that happen to share a name no longer keep each other
  * alive. Value/type space and prod/test/self evidence are reported separately.
  *
- * The binding-aware 67/697 count baselines record the reviewed V2 playback
- * integration plus the current server-authority cohort. Fully-dead exports
- * remain forbidden, and both counts are shrink-only.
+ * The binding-aware 27/95 count baselines record the reviewed runtime and
+ * server-authority surfaces. Fully-dead exports remain forbidden, and both
+ * counts are shrink-only.
  * Module reachability is report-only and includes static value imports,
  * type-only imports, dynamic import(), and new URL(..., import.meta.url) worker
  * edges. It must not be treated as proof that a staged module is dead.
@@ -30,13 +30,13 @@ import { join, resolve } from 'node:path';
 import { analyzeDeadExports } from './lib/dead-export-analyzer.mjs';
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
-// Reviewed binding-by-binding on 2026-07-28 while integrating the beta
-// playback engine with main. The five test-only additions are explicit
-// regression seams from server authority, stable audio routing, and the R2
-// record offer. The self-only additions are test-observed seams, module-local
-// API types, or the central event/type barrel; no fully-dead export is allowed.
-const TEST_ONLY_BASELINE_COUNT = 67;
-const SELF_ONLY_BASELINE_COUNT = 697;
+// Reviewed binding-by-binding on 2026-07-28. The test-only additions are
+// explicit regression seams from server authority, stable audio routing, and
+// remote file delivery. The self-only additions are test-observed seams,
+// module-local API types, or the central event/type barrel; no fully-dead
+// export is allowed.
+const TEST_ONLY_BASELINE_COUNT = 27;
+const SELF_ONLY_BASELINE_COUNT = 95;
 
 function kindCounts(entries) {
   return entries.reduce(

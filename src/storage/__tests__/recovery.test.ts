@@ -828,9 +828,9 @@ describe('host cached-blob recovery identity', () => {
     );
   });
 
-  it('reports unavailable instead of exceeding eight direct legacy recovery targets', async () => {
-    const currentBlob = new Blob(['legacy-overflow'], { type: 'audio/mpeg' });
-    setResident(Q2, 'legacy-overflow.mp3', currentBlob, 12);
+  it('reports unavailable instead of exceeding eight direct unadvertised recovery targets', async () => {
+    const currentBlob = new Blob(['unadvertised-overflow'], { type: 'audio/mpeg' });
+    setResident(Q2, 'unadvertised-overflow.mp3', currentBlob, 12);
     remoteShareMocks.isConfigured.mockReturnValue(true);
 
     const conn = makeGuestConn('local');
@@ -838,8 +838,8 @@ describe('host cached-blob recovery identity', () => {
       ...getState('network.connectedPeers')[0]!,
       joinOrder: 9,
     };
-    const earlierLegacy = Array.from({ length: 8 }, (_, index) => {
-      const id = `legacy-${index + 1}`;
+    const earlierUnadvertised = Array.from({ length: 8 }, (_, index) => {
+      const id = `unadvertised-${index + 1}`;
       return {
         ...target,
         id,
@@ -847,7 +847,7 @@ describe('host cached-blob recovery identity', () => {
         joinOrder: index + 1,
       };
     });
-    setState('network.connectedPeers', [...earlierLegacy, target]);
+    setState('network.connectedPeers', [...earlierUnadvertised, target]);
     expect(freezeFileDeliveryMode(12)).toBe('mixed');
 
     await invokeRecoveryHandler(
@@ -861,7 +861,7 @@ describe('host cached-blob recovery identity', () => {
     expect(remoteShareMocks.shareRemoteFileIfNeeded).not.toHaveBeenCalled();
     expect(sendFileDeliveryUnavailable).toHaveBeenCalledWith(
       conn,
-      { name: 'legacy-overflow.mp3', queueItemId: Q2 },
+      { name: 'unadvertised-overflow.mp3', queueItemId: Q2 },
       12,
     );
   });

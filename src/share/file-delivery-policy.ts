@@ -3,13 +3,13 @@
  *
  * Physical ICE location (`connectionType`) and file delivery are deliberately
  * separate. A capable local guest can use temporary R2 delivery when direct
- * fanout would exceed the host's bounded eight-peer budget, while legacy
+ * fanout would exceed the host's bounded eight-peer budget, while unadvertised
  * clients retain scarce direct slots and every other feature keeps the real
  * physical topology.
  *
  * A decision is frozen per transfer session. Peers already receiving a direct
  * stream never change transport mid-file. A late capable overflow guest uses
- * R2; a legacy overflow guest is explicit unsupported instead of expanding
+ * R2; an unadvertised overflow guest is explicit unsupported instead of expanding
  * direct fanout. A reconnect is a new authenticated connection and advertises
  * capability again.
  */
@@ -108,12 +108,12 @@ export function freezeFileDeliveryMode(sessionId: number): FileDeliveryMode {
     for (const peer of localPeers) r2PeerIds.add(peer.id);
   } else {
     mode = 'mixed';
-    // A current client can consume the explicit local-audience R2 marker.
-    // Legacy/unadvertised local clients cannot, so reserve the bounded direct
-    // slots for them first and never grow P2P fanout beyond eight.
-    const legacyPeers = localPeers.filter((peer) => !localR2CapablePeerIds.has(peer.id));
+    // A client which advertised support can consume the explicit local-audience
+    // R2 marker. Reserve the bounded direct slots for unadvertised peers first
+    // and never grow P2P fanout beyond eight.
+    const unadvertisedPeers = localPeers.filter((peer) => !localR2CapablePeerIds.has(peer.id));
     const capablePeers = localPeers.filter((peer) => localR2CapablePeerIds.has(peer.id));
-    for (const peer of legacyPeers) {
+    for (const peer of unadvertisedPeers) {
       if (directPeerIds.size < MAX_DIRECT_LOCAL_FILE_GUESTS) directPeerIds.add(peer.id);
       else unsupportedPeerIds.add(peer.id);
     }
@@ -161,7 +161,7 @@ function assignLateLocalPeer(policy: FrozenFileDelivery, peerId: string): FilePe
       policy.r2PeerIds.add(peerId);
       return 'r2';
     }
-    // The frozen all-R2 recipients stay untouched, but a later legacy client
+    // The frozen all-R2 recipients stay untouched, but a later unadvertised client
     // may safely use one of the otherwise-empty bounded direct slots.
     if (policy.directPeerIds.size < MAX_DIRECT_LOCAL_FILE_GUESTS) {
       policy.directPeerIds.add(peerId);
@@ -175,7 +175,7 @@ function assignLateLocalPeer(policy: FrozenFileDelivery, peerId: string): FilePe
     // Once a transfer already uses R2, keep every capable newcomer on R2 and
     // reserve the scarce direct slots for clients which cannot understand the
     // local-audience descriptor. Otherwise an early capable newcomer could
-    // consume a free direct slot and strand a later legacy participant.
+    // consume a free direct slot and strand a later unadvertised participant.
     if (capable) {
       policy.r2PeerIds.add(peerId);
       return 'r2';

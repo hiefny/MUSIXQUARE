@@ -32,9 +32,9 @@ id = "replace-with-kv-namespace-id"
 name = "REMOTE_SHARE_QUOTA"
 class_name = "RemoteShareQuota"
 
-# Keep the production Worker's append-only namespace history when deriving a
-# deployable config from this example. The v1 class was retired in v2; v3 is a
-# separate SQLite namespace for atomic room-byte reservations.
+# Keep the production Worker's provider-required append-only Durable Object
+# migration entries when deriving a deployable config from this example. These
+# identifiers are immutable infrastructure schema tags.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RemoteShareRateLimiter"]

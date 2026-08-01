@@ -15,7 +15,7 @@ import { escapeHtml } from './dom.ts';
 import { t } from '../i18n/index.ts';
 import { safeSend } from '../network/peer.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { setSubItemsLoadError } from '../youtube/_state.ts';
+import { getYouTubePlayer, setSubItemsLoadError } from '../youtube/_state.ts';
 import {
   createPlaylistReorderController,
   type PlaylistReorderController,
@@ -69,6 +69,8 @@ let _currentJumpController: PlaylistCurrentJumpController | null = null;
 let _followList: HTMLElement | null = null;
 let _followScrollContainer: HTMLElement | null = null;
 let _unsubscribeProRoomUploadRows: (() => void) | null = null;
+let _desktopSessionFollowPending = false;
+let _desktopSessionStarted = false;
 
 // Expansion is view-local. It must not increment the authoritative playlist
 // revision or clone a queue item while a drag owns that item's identity.
@@ -94,14 +96,19 @@ function pruneExpansionOverrides(items: readonly PlaylistItem[]): void {
   }
 }
 
+function isDesktopPlaylistLayout(): boolean {
+  try {
+    return window.matchMedia('(min-width: 1280px)').matches;
+  } catch {
+    /* matchMedia can be unavailable in tests. */
+    return false;
+  }
+}
+
 function playlistIsVisible(): boolean {
   const panel = document.getElementById('tab-playlist');
   if (!panel) return true;
-  try {
-    if (window.matchMedia('(min-width: 1280px)').matches) return true;
-  } catch {
-    /* matchMedia can be unavailable in tests. */
-  }
+  if (isDesktopPlaylistLayout()) return true;
   return panel.classList.contains('active');
 }
 
@@ -200,9 +207,61 @@ function toggleExpansion(queueItemId: QueueItemId): void {
   }
 }
 
-function renderLeadingSlot(item: PlaylistItem, idx: number, canReorder: boolean): string {
+type PlaylistPlaybackIndicatorState = 'playing' | 'paused' | null;
+
+function currentPlaybackIndicatorState(
+  youtubePlayingOverride?: boolean,
+): PlaylistPlaybackIndicatorState {
+  const mode = getState('playback.mode');
+  if (!mode || mode === 'system-audio') return null;
+
+  if (mode === 'youtube') {
+    if (youtubePlayingOverride !== undefined) {
+      return youtubePlayingOverride ? 'playing' : 'paused';
+    }
+    const youtubeState = getYouTubePlayer()?.getPlayerState?.();
+    if (youtubeState === 1) return 'playing';
+    if (youtubeState === 2 || youtubeState === 5) return 'paused';
+  }
+
+  const activity = getState('playback.activity');
+  if (activity === 'playing') return 'playing';
+  if (activity === 'paused') return 'paused';
+  return null;
+}
+
+function renderPlaybackIndicatorIcons(): string {
+  return `
+    <svg class="track-playback-state-icon track-playing-indicator" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 5v14l11-7z"/>
+    </svg>
+    <svg class="track-playback-state-icon track-paused-indicator" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+    </svg>`;
+}
+
+function syncPlaylistPlaybackIndicator(
+  list: HTMLElement | null = document.getElementById('playlist-ui'),
+  youtubePlayingOverride?: boolean,
+): void {
+  if (!list) return;
+  const state = currentPlaybackIndicatorState(youtubePlayingOverride);
+  for (const leading of list.querySelectorAll<HTMLElement>('.playlist-current-leading')) {
+    leading.classList.toggle('is-current-playing', state === 'playing');
+    leading.classList.toggle('is-current-paused', state === 'paused');
+  }
+}
+
+function renderLeadingSlot(
+  item: PlaylistItem,
+  idx: number,
+  canReorder: boolean,
+  isCurrent: boolean,
+): string {
+  const currentClass = isCurrent ? ' playlist-current-leading' : '';
+  const playbackIcons = isCurrent ? renderPlaybackIndicatorIcons() : '';
   if (!canReorder) {
-    return `<div class="track-leading track-leading-static" aria-hidden="true"><span class="track-idx">${idx + 1}</span></div>`;
+    return `<div class="track-leading track-leading-static${currentClass}" aria-hidden="true"><span class="track-idx">${idx + 1}</span>${playbackIcons}</div>`;
   }
 
   const label = t('playlist.reorder_handle', {
@@ -210,11 +269,12 @@ function renderLeadingSlot(item: PlaylistItem, idx: number, canReorder: boolean)
     position: idx + 1,
   });
   return `
-    <button type="button" class="track-leading playlist-reorder-handle"
+    <button type="button" class="track-leading playlist-reorder-handle${currentClass}"
       data-queue-item-id="${escapeHtml(item.queueItemId)}"
       aria-label="${escapeHtml(label)}" aria-grabbed="false"
       aria-keyshortcuts="Space Enter ArrowUp ArrowDown Home End Escape">
       <span class="track-idx" aria-hidden="true">${idx + 1}</span>
+      ${playbackIcons}
       <svg class="playlist-reorder-grip" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M5 8h14M5 12h14M5 16h14"/>
       </svg>
@@ -701,7 +761,7 @@ export function updatePlaylistUI(): void {
       : '';
 
     row.innerHTML = `
-      ${renderLeadingSlot(item, idx, canReorder)}
+      ${renderLeadingSlot(item, idx, canReorder, isCurrent)}
       <button type="button" class="track-name" data-action="play"
         data-queue-item-id="${escapeHtml(item.queueItemId)}"
         ${isCurrent ? 'aria-current="true"' : ''}>${renderTrackIcon(item)}<span class="track-name-text">${escapeHtml(displayName)}</span></button>
@@ -715,6 +775,7 @@ export function updatePlaylistUI(): void {
     list.appendChild(entry);
   });
   for (const upload of uploads) appendProRoomUploadRow(list, upload);
+  syncPlaylistPlaybackIndicator(list);
   if (playlistIsVisible()) restorePlaylistFocus(list, focusSnapshot);
 
   // DOM replacement must not turn an in-flight follow into a false success.
@@ -723,7 +784,21 @@ export function updatePlaylistUI(): void {
   // immediate follow-up render.
   scrollContainer.scrollTop = savedScrollTop;
   const followSelection = currentFollowSelection(playlist);
-  followController.updateSelection(followSelection.queueItemId, followSelection.subIndex);
+  if (
+    _desktopSessionFollowPending &&
+    isDesktopPlaylistLayout() &&
+    followSelection.queueItemId &&
+    playlist.some((item) => item.queueItemId === followSelection.queueItemId)
+  ) {
+    // Desktop keeps the playlist mounted instead of emitting the mobile tab-open
+    // event. Force the same locator once when a new joined session becomes live,
+    // including the ordering where its current item arrived just before
+    // setup.sessionStarted.
+    _desktopSessionFollowPending = false;
+    followController.forceSelection(followSelection.queueItemId, followSelection.subIndex);
+  } else {
+    followController.updateSelection(followSelection.queueItemId, followSelection.subIndex);
+  }
   _reorderController?.afterRender();
   _removalController?.afterRender();
   followController.afterRender();
@@ -933,6 +1008,8 @@ export function initPlaylistView(): void {
   _playlistRaf = 0;
   _pendingPlaylistUpdate = false;
   _deferredPlaylistUpdate = false;
+  _desktopSessionStarted = getState('setup.sessionStarted');
+  _desktopSessionFollowPending = _desktopSessionStarted && isDesktopPlaylistLayout();
 
   const list = document.getElementById('playlist-ui');
   if (list) {
@@ -1028,6 +1105,22 @@ export function initPlaylistView(): void {
   _busScope.on('state:playback.mode', () => {
     if (getState('playback.mode') === 'system-audio') _removalController?.cancel();
     schedulePlaylistUpdate();
+  });
+  _busScope.on('state:playback.activity', () => syncPlaylistPlaybackIndicator());
+  _busScope.on('ui:update-play-state', (playing) => {
+    if (getState('playback.mode') === 'youtube') {
+      syncPlaylistPlaybackIndicator(undefined, playing);
+    }
+  });
+  _busScope.on('state:setup.sessionStarted', (started) => {
+    const isStarted = started === true;
+    if (isStarted && !_desktopSessionStarted && isDesktopPlaylistLayout()) {
+      _desktopSessionFollowPending = true;
+      schedulePlaylistUpdate();
+    } else if (!isStarted) {
+      _desktopSessionFollowPending = false;
+    }
+    _desktopSessionStarted = isStarted;
   });
   _busScope.on('i18n:changed', schedulePlaylistUpdate);
   _busScope.on('playlist:items-added', () => _reorderController?.notifyItemsAdded());

@@ -838,6 +838,104 @@ describe('optional account UI', () => {
     );
   });
 
+  it('keeps one count-up when refreshed stats and a fresh profile object arrive', async () => {
+    const pendingFrames = new Map<number, FrameRequestCallback>();
+    let nextFrameId = 1;
+    const requestAnimationFrameMock = vi.fn((callback: FrameRequestCallback) => {
+      const frameId = nextFrameId++;
+      pendingFrames.set(frameId, callback);
+      return frameId;
+    });
+    const cancelAnimationFrameMock = vi.fn((frameId: number) => {
+      pendingFrames.delete(frameId);
+    });
+    vi.stubGlobal('requestAnimationFrame', requestAnimationFrameMock);
+    vi.stubGlobal('cancelAnimationFrame', cancelAnimationFrameMock);
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: false })),
+    );
+
+    const statsScope = 's'.repeat(43);
+    type FlushResult = Awaited<ReturnType<typeof flushAccountActivityStatsForRead>>;
+    let resolveRefreshedStats!: (result: FlushResult) => void;
+    const refreshedStats = new Promise<FlushResult>((resolve) => {
+      resolveRefreshedStats = resolve;
+    });
+    vi.mocked(flushAccountActivityStatsForRead)
+      .mockResolvedValueOnce({
+        status: 'updated',
+        stats: { sessionCount: 8, listeningSeconds: 3_600, trackCount: 20 },
+      })
+      .mockReturnValueOnce(refreshedStats);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        configured: true,
+        authenticated: true,
+        statsScope,
+        account: { nickname: 'Minsu', profileComplete: true },
+      }),
+    );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+
+    const runNextFrame = (now: number): void => {
+      const nextFrame = pendingFrames.entries().next().value as
+        | [number, FrameRequestCallback]
+        | undefined;
+      expect(nextFrame).toBeDefined();
+      if (!nextFrame) return;
+      pendingFrames.delete(nextFrame[0]);
+      nextFrame[1](now);
+    };
+
+    openAccountDialog();
+    await vi.waitFor(() => expect(requestAnimationFrameMock).toHaveBeenCalledOnce());
+    runNextFrame(100);
+    runNextFrame(1_300);
+    document.getElementById('btn-account-center-close')?.click();
+
+    openAccountDialog();
+    await vi.waitFor(() => expect(flushAccountActivityStatsForRead).toHaveBeenCalledTimes(2));
+    expect(requestAnimationFrameMock).toHaveBeenCalledTimes(3);
+    runNextFrame(2_000);
+    runNextFrame(2_300);
+    const countBeforeRefresh = document.getElementById('account-stats-session-count')?.textContent;
+    expect(Number(countBeforeRefresh)).toBeGreaterThan(0);
+
+    resolveRefreshedStats({
+      status: 'updated',
+      stats: { sessionCount: 12, listeningSeconds: 7_200, trackCount: 30 },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe(
+      countBeforeRefresh,
+    );
+    expect(requestAnimationFrameMock).toHaveBeenCalledTimes(5);
+    expect(cancelAnimationFrameMock).not.toHaveBeenCalled();
+
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      statsScope,
+      account: { nickname: 'Minsu', profileComplete: true },
+    });
+
+    expect(flushAccountActivityStatsForRead).toHaveBeenCalledTimes(2);
+    expect(requestAnimationFrameMock).toHaveBeenCalledTimes(5);
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe(
+      countBeforeRefresh,
+    );
+
+    runNextFrame(3_200);
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('12');
+    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe('2 hr 0 min');
+    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('30');
+    expect(pendingFrames.size).toBe(0);
+  });
+
   it('shows final account statistics immediately when reduced motion is preferred', async () => {
     const requestAnimationFrameMock = vi.fn(() => 1);
     vi.stubGlobal('requestAnimationFrame', requestAnimationFrameMock);

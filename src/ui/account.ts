@@ -4,6 +4,7 @@ import { bus, createBusScope } from '../core/events.ts';
 import { buildGoogleLoginUrl, getAccountStats, type AccountStats } from '../account/api.ts';
 import { flushAccountActivityStatsForRead } from '../account/activity-stats.ts';
 import {
+  getAccountStatsScope,
   getAccountSnapshot,
   isAccountAuthenticated,
   subscribeAccount,
@@ -41,6 +42,7 @@ const ACCOUNT_STATS_PLACEHOLDER = '—';
 const ACCOUNT_STATS_COUNT_UP_DURATION_MS = 1_200;
 type AccountAuthOutcome = 'cancelled' | 'error';
 type CompletedAccount = NonNullable<AccountSnapshot['account']>;
+type AccountStatsOwner = string;
 type AccountStatValueElements = {
   sessionCount: HTMLElement | null;
   listeningTime: HTMLElement | null;
@@ -72,12 +74,15 @@ let _accountResultChannel: BroadcastChannel | null = null;
 let _accountResultLifecycleBound = false;
 let _profilePromptVisibilityBound = false;
 let _accountStats: AccountStats | null = null;
-let _accountStatsOwner: CompletedAccount | null = null;
+let _accountStatsOwner: AccountStatsOwner | null = null;
 let _accountStatsLoading = false;
 let _accountStatsRequestId = 0;
+let _accountStatsDialogEpoch = 0;
+let _accountStatsAnimatedDialogEpoch: number | null = null;
 let _accountStatsAnimationFrame: number | null = null;
-let _accountStatsAnimationOwner: CompletedAccount | null = null;
-let _accountStatsAnimationTarget: string | null = null;
+let _accountStatsAnimationOwner: AccountStatsOwner | null = null;
+let _accountStatsAnimationEpoch: number | null = null;
+let _accountStatsAnimationTarget: AccountStats | null = null;
 let _accountStatsReducedMotionQuery: MediaQueryList | null = null;
 let _accountStatsNumberFormatterLocale: string | null = null;
 let _accountStatsNumberFormatter: Intl.NumberFormat | null = null;
@@ -85,6 +90,24 @@ const _handledAccountResultIds = new Set<string>();
 
 function byId<T extends HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null;
+}
+
+function getCompletedAccount(snapshot: Readonly<AccountSnapshot>): CompletedAccount | null {
+  return snapshot.status === 'authenticated' && snapshot.account?.profileComplete === true
+    ? snapshot.account
+    : null;
+}
+
+function getAccountStatsOwner(snapshot: Readonly<AccountSnapshot>): AccountStatsOwner | null {
+  const account = getCompletedAccount(snapshot);
+  if (!account) return null;
+
+  const statsScope = getAccountStatsScope();
+  if (statsScope) return `scope:${statsScope}`;
+
+  // A rolling deployment can briefly omit statsScope. Keep identical legacy
+  // profiles stable across refresh objects while the scoped response arrives.
+  return `legacy:${JSON.stringify([account.nickname, account.profileComplete])}`;
 }
 
 function focusWithoutScroll(element: HTMLElement | null): void {
@@ -166,6 +189,7 @@ function resetAccountStatsAnimation(): void {
   }
   _accountStatsAnimationFrame = null;
   _accountStatsAnimationOwner = null;
+  _accountStatsAnimationEpoch = null;
   _accountStatsAnimationTarget = null;
 }
 
@@ -186,19 +210,31 @@ function supportsAccountStatsAnimation(): boolean {
 }
 
 function animateAccountStatValues(
-  account: CompletedAccount,
+  owner: AccountStatsOwner,
   target: Readonly<AccountStats>,
   elements: AccountStatValueElements,
   statsContainer: HTMLElement,
 ): boolean {
-  const targetKey = `${target.sessionCount}:${target.listeningSeconds}:${target.trackCount}`;
-  if (_accountStatsAnimationOwner === account && _accountStatsAnimationTarget === targetKey) {
-    return _accountStatsAnimationFrame !== null;
+  if (_accountStatsAnimationFrame !== null) {
+    if (
+      _accountStatsAnimationOwner === owner &&
+      _accountStatsAnimationEpoch === _accountStatsDialogEpoch
+    ) {
+      // A refreshed aggregate belongs to the same visible opening. Let the
+      // already-running curve pursue its latest target instead of replaying 0.
+      _accountStatsAnimationTarget = { ...target };
+      return true;
+    }
+    resetAccountStatsAnimation();
   }
 
-  resetAccountStatsAnimation();
-  _accountStatsAnimationOwner = account;
-  _accountStatsAnimationTarget = targetKey;
+  if (_accountStatsAnimatedDialogEpoch === _accountStatsDialogEpoch) return false;
+
+  const animationEpoch = _accountStatsDialogEpoch;
+  _accountStatsAnimatedDialogEpoch = animationEpoch;
+  _accountStatsAnimationOwner = owner;
+  _accountStatsAnimationEpoch = animationEpoch;
+  _accountStatsAnimationTarget = { ...target };
   statsContainer.setAttribute('aria-busy', 'true');
   renderAccountStatValues(
     elements,
@@ -212,19 +248,22 @@ function animateAccountStatValues(
 
   let startedAt: number | null = null;
   const step = (now: number): void => {
+    const currentTarget = _accountStatsAnimationTarget;
     if (
-      _accountStatsAnimationOwner !== account ||
-      _accountStatsAnimationTarget !== targetKey ||
+      _accountStatsAnimationOwner !== owner ||
+      _accountStatsAnimationEpoch !== animationEpoch ||
+      _accountStatsDialogEpoch !== animationEpoch ||
+      !currentTarget ||
       !byId<HTMLElement>('account-dialog-overlay')?.classList.contains('show')
     ) {
       return;
     }
     if (_accountStatsReducedMotionQuery?.matches === true) {
       _accountStatsAnimationFrame = null;
-      renderAccountStatValues(elements, target);
+      renderAccountStatValues(elements, currentTarget);
       statsContainer.setAttribute(
         'aria-busy',
-        String(_accountStatsOwner === account && _accountStatsLoading),
+        String(_accountStatsOwner === owner && _accountStatsLoading),
       );
       return;
     }
@@ -240,11 +279,11 @@ function animateAccountStatValues(
     renderAccountStatValues(
       elements,
       {
-        sessionCount: Math.round(target.sessionCount * easedProgress),
-        listeningSeconds: Math.round(target.listeningSeconds * easedProgress),
-        trackCount: Math.round(target.trackCount * easedProgress),
+        sessionCount: Math.round(currentTarget.sessionCount * easedProgress),
+        listeningSeconds: Math.round(currentTarget.listeningSeconds * easedProgress),
+        trackCount: Math.round(currentTarget.trackCount * easedProgress),
       },
-      target.listeningSeconds,
+      currentTarget.listeningSeconds,
     );
 
     if (progress < 1) {
@@ -253,10 +292,10 @@ function animateAccountStatValues(
     }
 
     _accountStatsAnimationFrame = null;
-    renderAccountStatValues(elements, target);
+    renderAccountStatValues(elements, currentTarget);
     statsContainer.setAttribute(
       'aria-busy',
-      String(_accountStatsOwner === account && _accountStatsLoading),
+      String(_accountStatsOwner === owner && _accountStatsLoading),
     );
   };
 
@@ -273,15 +312,11 @@ function renderAccountStats(snapshot: Readonly<AccountSnapshot>): void {
   const stats = byId<HTMLElement>('account-dialog-stats');
   if (!stats) return;
 
-  const completedAccount =
-    snapshot.status === 'authenticated' &&
-    snapshot.account?.profileComplete === true &&
-    snapshot.account
-      ? snapshot.account
-      : null;
+  const completedAccount = getCompletedAccount(snapshot);
+  const statsOwner = getAccountStatsOwner(snapshot);
   stats.hidden = completedAccount === null;
   const loadingCurrentStats =
-    completedAccount !== null && _accountStatsOwner === completedAccount && _accountStatsLoading;
+    statsOwner !== null && _accountStatsOwner === statsOwner && _accountStatsLoading;
 
   const sessionsLabel = byId<HTMLElement>('account-stats-sessions-label');
   const listeningLabel = byId<HTMLElement>('account-stats-listening-label');
@@ -291,7 +326,7 @@ function renderAccountStats(snapshot: Readonly<AccountSnapshot>): void {
   if (tracksLabel) tracksLabel.textContent = t('account.stats_tracks_label');
 
   const currentStats =
-    completedAccount !== null && _accountStatsOwner === completedAccount ? _accountStats : null;
+    statsOwner !== null && _accountStatsOwner === statsOwner ? _accountStats : null;
   const valueElements: AccountStatValueElements = {
     sessionCount: byId<HTMLElement>('account-stats-session-count'),
     listeningTime: byId<HTMLElement>('account-stats-listening-time'),
@@ -306,8 +341,8 @@ function renderAccountStats(snapshot: Readonly<AccountSnapshot>): void {
 
   const dialogShown =
     byId<HTMLElement>('account-dialog-overlay')?.classList.contains('show') === true;
-  if (dialogShown && completedAccount && supportsAccountStatsAnimation()) {
-    if (animateAccountStatValues(completedAccount, currentStats, valueElements, stats)) return;
+  if (dialogShown && statsOwner && supportsAccountStatsAnimation()) {
+    if (animateAccountStatValues(statsOwner, currentStats, valueElements, stats)) return;
   } else {
     resetAccountStatsAnimation();
   }
@@ -316,7 +351,7 @@ function renderAccountStats(snapshot: Readonly<AccountSnapshot>): void {
   stats.setAttribute('aria-busy', String(loadingCurrentStats));
 }
 
-async function loadAccountStats(account: CompletedAccount, requestId: number): Promise<void> {
+async function loadAccountStats(owner: AccountStatsOwner, requestId: number): Promise<void> {
   let stats: AccountStats | null = null;
   try {
     const flushResult = await flushAccountActivityStatsForRead();
@@ -331,7 +366,7 @@ async function loadAccountStats(account: CompletedAccount, requestId: number): P
 
   if (
     requestId !== _accountStatsRequestId ||
-    getAccountSnapshot().account !== account ||
+    getAccountStatsOwner(getAccountSnapshot()) !== owner ||
     !byId<HTMLElement>('account-dialog-overlay')?.classList.contains('show')
   ) {
     return;
@@ -344,13 +379,13 @@ async function loadAccountStats(account: CompletedAccount, requestId: number): P
   renderAccountStats(getAccountSnapshot());
 }
 
-function beginAccountStatsLoad(account: CompletedAccount): void {
+function beginAccountStatsLoad(owner: AccountStatsOwner): void {
   const requestId = ++_accountStatsRequestId;
-  if (_accountStatsOwner !== account) _accountStats = null;
-  _accountStatsOwner = account;
+  if (_accountStatsOwner !== owner) _accountStats = null;
+  _accountStatsOwner = owner;
   _accountStatsLoading = true;
   renderAccountStats(getAccountSnapshot());
-  void loadAccountStats(account, requestId);
+  void loadAccountStats(owner, requestId);
 }
 
 function setPending(pending: boolean): void {
@@ -742,6 +777,8 @@ export function openAccountDialog(): void {
   const snapshot = getAccountSnapshot();
   const overlay = byId<HTMLElement>('account-dialog-overlay');
   if (!overlay) return;
+  const openingNewEpoch = !overlay.classList.contains('show');
+  if (openingNewEpoch) _accountStatsDialogEpoch += 1;
   _previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   renderAccountDialog(snapshot);
   const content = byId<HTMLElement>('account-dialog-content');
@@ -749,8 +786,9 @@ export function openAccountDialog(): void {
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');
   syncOverlayState('account-dialog-overlay');
-  if (snapshot.status === 'authenticated' && snapshot.account?.profileComplete === true) {
-    beginAccountStatsLoad(snapshot.account);
+  const statsOwner = getAccountStatsOwner(snapshot);
+  if (openingNewEpoch && statsOwner) {
+    beginAccountStatsLoad(statsOwner);
   }
   queueMicrotask(() => {
     focusWithoutScroll(getPreferredAccountDialogFocus(snapshot));
@@ -964,6 +1002,7 @@ function bindAccountDialog(): void {
 function handleAccountState(snapshot: Readonly<AccountSnapshot>): void {
   const overlay = byId<HTMLElement>('account-dialog-overlay');
   const dialog = byId<HTMLElement>('account-dialog');
+  const statsOwner = getAccountStatsOwner(snapshot);
   const activeDialogElement =
     document.activeElement instanceof HTMLElement && dialog?.contains(document.activeElement)
       ? document.activeElement
@@ -981,11 +1020,10 @@ function handleAccountState(snapshot: Readonly<AccountSnapshot>): void {
   }
   if (
     overlay?.classList.contains('show') === true &&
-    snapshot.status === 'authenticated' &&
-    snapshot.account?.profileComplete === true &&
-    _accountStatsOwner !== snapshot.account
+    statsOwner !== null &&
+    _accountStatsOwner !== statsOwner
   ) {
-    beginAccountStatsLoad(snapshot.account);
+    beginAccountStatsLoad(statsOwner);
   }
   bus.emit('network:role-badge-update');
   if (
@@ -1051,6 +1089,8 @@ export function __resetAccountUiForTests(): void {
   _accountStatsOwner = null;
   _accountStatsLoading = false;
   _accountStatsRequestId = 0;
+  _accountStatsDialogEpoch = 0;
+  _accountStatsAnimatedDialogEpoch = null;
   resetAccountStatsAnimation();
   _accountStatsReducedMotionQuery = null;
   _accountStatsNumberFormatterLocale = null;

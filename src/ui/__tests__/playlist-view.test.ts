@@ -321,17 +321,54 @@ describe('playlist queue identity rendering and actions', () => {
 
   it('does not rebuild every row for play/pause activity changes', async () => {
     setState('playlist.items', sampleItems());
+    setState('playlist.currentQueueItemId', FILE_A);
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'paused');
     initPlaylistView();
     const list = document.getElementById('playlist-ui')!;
     const replaceChildren = vi.spyOn(list, 'replaceChildren');
+    const currentLeading = list.querySelector<HTMLElement>('.playlist-current-leading')!;
+
+    expect(currentLeading.classList).toContain('is-current-paused');
+    expect(currentLeading.querySelector('.track-idx')?.textContent).toBe('1');
+    expect(currentLeading.querySelector('.track-playing-indicator path')?.getAttribute('d')).toBe(
+      'M8 5v14l11-7z',
+    );
+    expect(currentLeading.querySelector('.track-paused-indicator path')?.getAttribute('d')).toBe(
+      'M6 19h4V5H6v14zm8-14v14h4V5h-4z',
+    );
+    expect(list.querySelectorAll('.playlist-current-leading')).toHaveLength(1);
 
     setState('playback.activity', 'playing');
     await nextAnimationFrame();
     expect(replaceChildren).not.toHaveBeenCalled();
+    expect(currentLeading.classList).toContain('is-current-playing');
+    expect(currentLeading.classList).not.toContain('is-current-paused');
 
     setState('playback.mode', 'system-audio');
     await nextAnimationFrame();
     expect(replaceChildren).toHaveBeenCalledOnce();
+  });
+
+  it('patches the current ordinal from YouTube play-state events without rebuilding rows', () => {
+    setState('playlist.items', sampleItems());
+    setState('playlist.currentQueueItemId', YT_B);
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    initPlaylistView();
+    const list = document.getElementById('playlist-ui')!;
+    const replaceChildren = vi.spyOn(list, 'replaceChildren');
+    const currentLeading = list.querySelector<HTMLElement>('.playlist-current-leading')!;
+
+    bus.emit('ui:update-play-state', false);
+    expect(replaceChildren).not.toHaveBeenCalled();
+    expect(currentLeading.classList).toContain('is-current-paused');
+    expect(currentLeading.classList).not.toContain('is-current-playing');
+
+    bus.emit('ui:update-play-state', true);
+    expect(replaceChildren).not.toHaveBeenCalled();
+    expect(currentLeading.classList).toContain('is-current-playing');
+    expect(currentLeading.classList).not.toContain('is-current-paused');
   });
 
   it('renders each YouTube parent and sub-list inside one atomic queue entry', () => {
@@ -948,6 +985,47 @@ describe('playlist queue identity rendering and actions', () => {
     await nextAnimationFrame();
 
     expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('forces the already-observed current item once when a desktop session becomes live', async () => {
+    const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn((query: string) => ({ matches: query === '(min-width: 1280px)' })),
+    });
+
+    try {
+      setState('playlist.items', sampleItems());
+      setState('playlist.currentQueueItemId', YT_B);
+      initPlaylistView();
+      let scrollTo = configurePlaylistFollowLayout();
+      await nextAnimationFrame();
+
+      const scroller = document.querySelector<HTMLElement>('.tab-body')!;
+      scroller.dispatchEvent(new Event('scrollend'));
+      scroller.scrollTop = 0;
+
+      setState('setup.sessionStarted', true);
+      await nextAnimationFrame();
+      scrollTo = configurePlaylistFollowLayout();
+      await nextAnimationFrame();
+
+      expect(scrollTo).toHaveBeenCalledOnce();
+      expect(scrollTo).toHaveBeenCalledWith({ top: 170, behavior: 'smooth' });
+
+      scroller.dispatchEvent(new Event('scrollend'));
+      scroller.scrollTop = 0;
+      setState('playlist.items', [...sampleItems()]);
+      await nextAnimationFrame();
+      scrollTo = configurePlaylistFollowLayout();
+      await nextAnimationFrame();
+
+      expect(scrollTo).not.toHaveBeenCalled();
+      expect(scroller.scrollTop).toBe(0);
+    } finally {
+      if (originalMatchMedia) Object.defineProperty(window, 'matchMedia', originalMatchMedia);
+      else Reflect.deleteProperty(window, 'matchMedia');
+    }
   });
 
   it('resumes a pending active-track follow after deletion selection ends', async () => {

@@ -1902,10 +1902,6 @@
     background: var(--surface-2);
   }
 
-  .track-item.active {
-    background: var(--surface-2);
-  }
-
   .track-item.active .track-idx,
   .track-item.active .track-name {
     color: var(--primary);
@@ -1940,6 +1936,31 @@
     transition:
       opacity 0.14s ease,
       transform 0.14s ease;
+  }
+
+  .track-playback-state-icon {
+    grid-area: 1 / 1;
+    width: 16px;
+    height: 16px;
+    color: var(--primary);
+    fill: currentColor;
+    opacity: 0;
+    transform: scale(0.82);
+    pointer-events: none;
+    transition:
+      opacity 0.14s ease,
+      transform 0.14s ease;
+  }
+
+  .playlist-current-leading:is(.is-current-playing, .is-current-paused) .track-idx {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+
+  .playlist-current-leading.is-current-playing .track-playing-indicator,
+  .playlist-current-leading.is-current-paused .track-paused-indicator {
+    opacity: 1;
+    transform: scale(1);
   }
 
   .playlist-reorder-handle {
@@ -1995,8 +2016,11 @@
   /* Reorder affordance priority:
      dragging > row hover/focus or touch-scroll row > global hint > number. */
   .playlist-ul.show-reorder-hints .playlist-reorder-handle .track-idx,
+  .playlist-ul.show-reorder-hints .playlist-reorder-handle .track-playback-state-icon,
   .playlist-entry.is-touch-scroll-hint .playlist-reorder-handle .track-idx,
-  .playlist-entry.is-reorder-source .playlist-reorder-handle .track-idx {
+  .playlist-entry.is-touch-scroll-hint .playlist-reorder-handle .track-playback-state-icon,
+  .playlist-entry.is-reorder-source .playlist-reorder-handle .track-idx,
+  .playlist-entry.is-reorder-source .playlist-reorder-handle .track-playback-state-icon {
     opacity: 0;
     transform: scale(0.82);
   }
@@ -2014,7 +2038,9 @@
     }
 
     .track-item:hover .playlist-reorder-handle .track-idx,
-    .playlist-reorder-handle:focus-visible .track-idx {
+    .track-item:hover .playlist-reorder-handle .track-playback-state-icon,
+    .playlist-reorder-handle:focus-visible .track-idx,
+    .playlist-reorder-handle:focus-visible .track-playback-state-icon {
       opacity: 0;
       transform: scale(0.82);
     }
@@ -2040,6 +2066,26 @@
     .playlist-reorder-grip {
     opacity: 0;
     transform: scale(0.82);
+  }
+
+  .playlist-ul:is(.is-reordering, .is-keyboard-reordering)
+    .playlist-entry:not(.is-reorder-source)
+    .playlist-current-leading:is(.is-current-playing, .is-current-paused)
+    .track-idx {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+
+  .playlist-ul:is(.is-reordering, .is-keyboard-reordering)
+    .playlist-entry:not(.is-reorder-source)
+    .playlist-current-leading.is-current-playing
+    .track-playing-indicator,
+  .playlist-ul:is(.is-reordering, .is-keyboard-reordering)
+    .playlist-entry:not(.is-reorder-source)
+    .playlist-current-leading.is-current-paused
+    .track-paused-indicator {
+    opacity: 1;
+    transform: scale(1);
   }
 
   .track-name {
@@ -2367,7 +2413,8 @@
     will-change: opacity, transform;
   }
 
-  :is(.playlist-reorder-ghost, .playlist-reorder-settle) .track-idx {
+  :is(.playlist-reorder-ghost, .playlist-reorder-settle) .track-idx,
+  :is(.playlist-reorder-ghost, .playlist-reorder-settle) .track-playback-state-icon {
     opacity: 0;
     transform: scale(0.82);
   }
@@ -2404,6 +2451,7 @@
     .playlist-entry > .track-item,
     .playlist-entry > .sub-playlist,
     .playlist-reorder-handle .track-idx,
+    .track-playback-state-icon,
     .playlist-reorder-grip,
     .playlist-reorder-ghost,
     .playlist-reorder-settle,
@@ -2644,6 +2692,23 @@
   }
 
   .playlist-ul.has-removal-selection .playlist-reorder-handle .track-idx {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .playlist-ul.has-removal-selection
+    .playlist-current-leading:is(.is-current-playing, .is-current-paused)
+    .track-idx {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+
+  .playlist-ul.has-removal-selection
+    .playlist-current-leading.is-current-playing
+    .track-playing-indicator,
+  .playlist-ul.has-removal-selection
+    .playlist-current-leading.is-current-paused
+    .track-paused-indicator {
     opacity: 1;
     transform: scale(1);
   }

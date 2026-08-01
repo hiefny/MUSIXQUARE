@@ -930,7 +930,7 @@ function validateIncomingMessage(message, role) {
   if (role === 'guest') {
     // The current client sends this on every guest socket, including rooms
     // without a password. Once the guest is admitted it is intentionally a
-    // harmless no-op, preserving the existing wire contract.
+    // harmless no-op after admission.
     if (message.type === 'guest-auth') return 'ignore';
     if (message.type === 'account-identity-refresh') {
       return hasExactKeys(message, ['type', 'accountAssertion']) &&
@@ -3434,8 +3434,8 @@ export class MusixquareRoom {
     }
 
     // Every guest authenticates its reconnect secret over the WebSocket frame,
-    // never in the URL. Current and previous clients already send guest-auth
-    // for passwordless rooms, so this adds no user-visible round trip.
+    // never in the URL. The current client sends guest-auth for passwordless
+    // rooms too, so this adds no user-visible round trip.
     this.acceptPendingGuest(ws, roomId, peerId);
     if (meta.roomPassword) this.recordMetric('guest_auth_pending');
   }

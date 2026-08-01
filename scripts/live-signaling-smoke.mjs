@@ -214,6 +214,7 @@ async function runRoomAttempt(password, expectedVersion) {
   const hostSecret = `secret-${randomUUID()}`;
   const reconnectSecret = randomBytes(32).toString('base64url');
   const wrongReconnectSecret = randomBytes(32).toString('base64url');
+  const negotiationId = `live-smoke-${suffix}`;
   const host = createSocketInbox(
     socketUrl(roomId, 'host', hostPeerId),
     `${password ? 'protected' : 'passwordless'} host`,
@@ -245,7 +246,11 @@ async function runRoomAttempt(password, expectedVersion) {
       const invalidPasswordGuest = createGuest(`invalid-${suffix}`, 'invalid-password guest');
       await invalidPasswordGuest.opened;
       invalidPasswordGuest.socket.send(
-        JSON.stringify({ type: 'guest-auth', password: '00000000' }),
+        JSON.stringify({
+          type: 'guest-auth',
+          password: '00000000',
+          reconnectSecret: wrongReconnectSecret,
+        }),
       );
       await expectGuestRejection(
         invalidPasswordGuest,
@@ -272,8 +277,8 @@ async function runRoomAttempt(password, expectedVersion) {
     missingSecretGuest.socket.send(JSON.stringify({ type: 'guest-auth', password }));
     await expectGuestRejection(
       missingSecretGuest,
-      'guest-reconnect-denied',
-      'GUEST_RECONNECT_DENIED',
+      'invalid-id',
+      'GUEST_AUTH_FIRST_FRAME_INVALID',
     );
 
     const wrongSecretGuest = createGuest(guestPeerId, 'wrong-reconnect-secret guest');
@@ -313,6 +318,7 @@ async function runRoomAttempt(password, expectedVersion) {
       JSON.stringify({
         type: 'signal-candidate',
         to: 'host',
+        negotiationId,
         candidate: { candidate: `original-still-live-${suffix}` },
       }),
     );
@@ -378,6 +384,7 @@ async function runRoomAttempt(password, expectedVersion) {
     const offer = {
       type: 'signal-offer',
       to: 'host',
+      negotiationId,
       sdp: { type: 'offer', sdp: 'v=0\r\ns=musixquare-live-smoke-offer\r\n' },
       metadata: { liveSmoke: true },
       futureField: 'forward-compatible',
@@ -394,6 +401,7 @@ async function runRoomAttempt(password, expectedVersion) {
     const answer = {
       type: 'signal-answer',
       to: guestPeerId,
+      negotiationId,
       sdp: { type: 'answer', sdp: 'v=0\r\ns=musixquare-live-smoke-answer\r\n' },
       futureField: 'forward-compatible',
     };

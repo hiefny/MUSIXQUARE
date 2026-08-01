@@ -337,7 +337,7 @@ describe('playlist queue identity rendering and actions', () => {
     );
     expect(
       currentLeading.querySelector('.track-playing-indicator path')?.getAttribute('transform'),
-    ).toBe('translate(-0.75 0)');
+    ).toBe('translate(-1.5 0)');
     expect(currentLeading.querySelector('.track-paused-indicator path')?.getAttribute('d')).toBe(
       'M6 19h4V5H6v14zm8-14v14h4V5h-4z',
     );
@@ -392,11 +392,19 @@ describe('playlist queue identity rendering and actions', () => {
     expect(replaceChildren).not.toHaveBeenCalled();
   });
 
-  it('uses matching rotation endpoints so the loading spinner visibly turns', async () => {
+  it('keeps playback spinners centered with a faint full track and matching rotation', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const loadingRules =
       stylesheet.match(/\.track-playback-loading-indicator\s*\{([^}]*)\}/)?.[1] ?? '';
+    const mainLoadingRules =
+      stylesheet.match(/\.play-fab\.yt-syncing::after\s*\{([^}]*)\}/)?.[1] ?? '';
+    const demoLoadingRules =
+      stylesheet.match(/\.demo-play-button\.is-loading::after\s*\{([^}]*)\}/)?.[1] ?? '';
 
+    for (const rules of [loadingRules, mainLoadingRules, demoLoadingRules]) {
+      expect(rules).toContain('border-color: color-mix(in srgb, currentColor 20%, transparent);');
+      expect(rules).toContain('border-top-color: currentColor;');
+    }
     expect(loadingRules).toContain('animation: track-playback-spin 0.8s linear infinite;');
     expect(stylesheet).toMatch(
       /@keyframes\s+track-playback-spin\s*\{\s*from\s*\{\s*transform:\s*rotate\(0deg\);\s*\}\s*to\s*\{\s*transform:\s*rotate\(360deg\);\s*\}\s*\}/s,

@@ -74,8 +74,6 @@ export type ProPlaybackCommandHandler = (
 ) => void | Promise<void>;
 
 let commandHandler: ProPlaybackCommandHandler | null = null;
-let selectionCommandSequence = 0;
-const pendingSelectionCommands = new Set<number>();
 
 export function registerProPlaybackCommandHandler(
   handler: ProPlaybackCommandHandler | null,
@@ -84,16 +82,6 @@ export function registerProPlaybackCommandHandler(
   return () => {
     if (commandHandler === handler) commandHandler = null;
   };
-}
-
-/**
- * True only while a PRO `select` command is crossing the server admission
- * boundary. During this window the visible renderer still belongs to the
- * outgoing row, so a seek routed from that renderer would carry stale UI
- * intent into the incoming row.
- */
-export function isProPlaybackTrackSelectionPending(): boolean {
-  return pendingSelectionCommands.size > 0;
 }
 
 type RoutedIntentOf<T> = T extends ProPlaybackUserIntent
@@ -213,17 +201,10 @@ export function routeProPlaybackCommand(
     return true;
   }
 
-  if (intent.kind !== 'select' && isProPlaybackTrackSelectionPending()) {
-    log.debug('[PRO Playback] Ignored control while a track selection is awaiting admission');
-    return true;
-  }
-
   const uiControl =
     uiProjection && (intent.kind === 'play' || intent.kind === 'pause' || intent.kind === 'seek')
       ? beginUiControl(intent as RoutedUiIntent, uiProjection)
       : null;
-  const selectionCommand = intent.kind === 'select' ? ++selectionCommandSequence : null;
-  if (selectionCommand !== null) pendingSelectionCommands.add(selectionCommand);
 
   const command = {
     ...intent,
@@ -237,16 +218,11 @@ export function routeProPlaybackCommand(
       : {}),
   } as ProPlaybackUserIntent;
   try {
-    void Promise.resolve(handler(command))
-      .catch((error) => {
-        log.warn('[PRO Playback] Server command rejected', error);
-        if (uiControl) settleProPlaybackUiControl(uiControl.token, 'failed');
-      })
-      .finally(() => {
-        if (selectionCommand !== null) pendingSelectionCommands.delete(selectionCommand);
-      });
+    void Promise.resolve(handler(command)).catch((error) => {
+      log.warn('[PRO Playback] Server command rejected', error);
+      if (uiControl) settleProPlaybackUiControl(uiControl.token, 'failed');
+    });
   } catch (error) {
-    if (selectionCommand !== null) pendingSelectionCommands.delete(selectionCommand);
     log.warn('[PRO Playback] Server command handler threw', error);
     if (uiControl) settleProPlaybackUiControl(uiControl.token, 'failed');
   }
@@ -833,7 +809,6 @@ export function resetProPlaybackAuthorityHooks(): void {
   highestSeen = null;
   latestApplied = null;
   highestCommittedPlaybackRevision = 0;
-  pendingSelectionCommands.clear();
   const pendingUiControl = activeUiControl;
   if (pendingUiControl) {
     activeUiControl = null;

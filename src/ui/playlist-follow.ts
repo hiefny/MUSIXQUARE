@@ -15,6 +15,7 @@ interface FollowRequest {
 interface ActiveFollow {
   token: number;
   targetTop: number;
+  target: HTMLElement;
 }
 
 interface PlaylistFollowOptions {
@@ -26,6 +27,7 @@ interface PlaylistFollowOptions {
 
 export interface PlaylistFollowController {
   readonly isFollowing: boolean;
+  readonly isScrolling: boolean;
   updateSelection: (queueItemId: QueueItemId | null, subIndex: number) => void;
   forceSelection: (queueItemId: QueueItemId | null, subIndex: number) => void;
   afterRender: () => void;
@@ -120,8 +122,22 @@ export function createPlaylistFollowController(
   function completeActiveFollow(): void {
     const active = activeFollow;
     if (!active) return;
-    if (request?.token === active.token) request = null;
     clearActiveFollow();
+
+    const current = request;
+    if (!current || current.token !== active.token) return;
+    const target = targetForRequest(options.list, current);
+    const top = target ? desiredScrollTop(options.scrollContainer, target) : null;
+    if (top !== null && Math.abs(options.scrollContainer.scrollTop - top) <= FOLLOW_TOLERANCE_PX) {
+      request = null;
+      return;
+    }
+
+    // A DOM replacement or an unrelated scrollTop write can cancel a native
+    // smooth scroll and still emit scrollend. Treat that as an interruption,
+    // not success: the selection request remains authoritative until the
+    // current render's target is actually reached.
+    scheduleFollow();
   }
 
   function replaceRequest(queueItemId: QueueItemId | null, subIndex: number): void {
@@ -178,6 +194,7 @@ export function createPlaylistFollowController(
 
     if (
       activeFollow?.token === token &&
+      activeFollow.target === target &&
       Math.abs(activeFollow.targetTop - top) <= FOLLOW_TOLERANCE_PX
     ) {
       return;
@@ -189,7 +206,7 @@ export function createPlaylistFollowController(
       request = null;
       return;
     }
-    activeFollow = { token, targetTop: top };
+    activeFollow = { token, targetTop: top, target };
   }
 
   function scheduleFollow(): void {
@@ -290,6 +307,9 @@ export function createPlaylistFollowController(
   return {
     get isFollowing() {
       return request !== null || activeFollow !== null;
+    },
+    get isScrolling() {
+      return activeFollow !== null;
     },
     updateSelection(queueItemId, subIndex) {
       const normalizedSubIndex = normalizeSubIndex(subIndex);

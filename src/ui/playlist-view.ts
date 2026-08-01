@@ -69,14 +69,7 @@ let _currentJumpController: PlaylistCurrentJumpController | null = null;
 let _followList: HTMLElement | null = null;
 let _followScrollContainer: HTMLElement | null = null;
 let _unsubscribeProRoomUploadRows: (() => void) | null = null;
-let _desktopSessionFollowPending = false;
-let _desktopSessionStarted = false;
-let _desktopSessionFollowAwaitingEntrance = false;
-let _desktopSessionFollowFrame = 0;
-let _desktopSessionFollowLayoutAttempts = 0;
 let _playButtonLoading = false;
-
-const DESKTOP_SESSION_FOLLOW_LAYOUT_ATTEMPTS = 8;
 
 // Expansion is view-local. It must not increment the authoritative playlist
 // revision or clone a queue item while a drag owns that item's identity.
@@ -112,6 +105,7 @@ function isDesktopPlaylistLayout(): boolean {
 }
 
 function playlistIsVisible(): boolean {
+  if (setupOverlayIsActive()) return false;
   const panel = document.getElementById('tab-playlist');
   if (!panel) return true;
   if (isDesktopPlaylistLayout()) return true;
@@ -185,62 +179,6 @@ function ensureFollowController(
   return _followController;
 }
 
-function cancelDesktopSessionFollowFrame(): void {
-  if (_desktopSessionFollowFrame) cancelAnimationFrame(_desktopSessionFollowFrame);
-  _desktopSessionFollowFrame = 0;
-  _desktopSessionFollowLayoutAttempts = 0;
-}
-
-function scheduleDesktopSessionFollowAttempt(resetAttempts = false): void {
-  if (resetAttempts) _desktopSessionFollowLayoutAttempts = 0;
-  if (
-    _desktopSessionFollowFrame ||
-    !_desktopSessionFollowPending ||
-    _desktopSessionFollowAwaitingEntrance
-  ) {
-    return;
-  }
-
-  _desktopSessionFollowFrame = requestAnimationFrame(() => {
-    _desktopSessionFollowFrame = 0;
-    if (
-      !_desktopSessionFollowPending ||
-      !getState('setup.sessionStarted') ||
-      !isDesktopPlaylistLayout()
-    ) {
-      return;
-    }
-
-    const list = document.getElementById('playlist-ui');
-    const scrollContainer = list?.closest<HTMLElement>('.tab-body') ?? null;
-    const selection = currentFollowSelection();
-    const entry = selection.queueItemId
-      ? Array.from(list?.children ?? []).find(
-          (child) =>
-            child instanceof HTMLElement && child.dataset.queueItemId === selection.queueItemId,
-        )
-      : null;
-    const target =
-      entry instanceof HTMLElement
-        ? (entry.querySelector<HTMLElement>('.track-item') ?? entry)
-        : null;
-
-    if (!list || !scrollContainer || !selection.queueItemId || !target) return;
-    if (scrollContainer.clientHeight <= 0 || target.getBoundingClientRect().height <= 0) {
-      _desktopSessionFollowLayoutAttempts += 1;
-      if (_desktopSessionFollowLayoutAttempts < DESKTOP_SESSION_FOLLOW_LAYOUT_ATTEMPTS) {
-        scheduleDesktopSessionFollowAttempt();
-      }
-      return;
-    }
-
-    _desktopSessionFollowPending = false;
-    _desktopSessionFollowLayoutAttempts = 0;
-    _followController?.forceSelection(selection.queueItemId, selection.subIndex);
-    _followController?.afterRender();
-  });
-}
-
 function toggleExpansion(queueItemId: QueueItemId): void {
   const idx = resolveQueueIndex(queueItemId);
   const item = idx >= 0 ? getState('playlist.items')[idx] : undefined;
@@ -301,7 +239,7 @@ function currentPlaybackIndicatorState(
 function renderPlaybackIndicatorIcons(): string {
   return `
     <svg class="track-playback-state-icon track-playing-indicator" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M8 5v14l11-7z"/>
+      <path d="M8 5v14l11-7z" transform="translate(-0.75 0)"/>
     </svg>
     <svg class="track-playback-state-icon track-paused-indicator" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
@@ -848,25 +786,13 @@ export function updatePlaylistUI(): void {
   syncPlaylistPlaybackIndicator(list);
   if (playlistIsVisible()) restorePlaylistFocus(list, focusSnapshot);
 
-  // DOM replacement must not turn an in-flight follow into a false success.
-  // Restore the current physical position first; the follow controller then
-  // recenters the active occurrence on the next layout frame and survives any
-  // immediate follow-up render.
-  scrollContainer.scrollTop = savedScrollTop;
+  // Preserve manual browsing across a full DOM replacement. When a follow
+  // owns the viewport, writing even the same scrollTop cancels Chromium's
+  // compositor-driven smooth scroll, so let the controller retain/re-target
+  // that motion instead.
+  if (!followController.isScrolling) scrollContainer.scrollTop = savedScrollTop;
   const followSelection = currentFollowSelection(playlist);
-  if (
-    _desktopSessionFollowPending &&
-    isDesktopPlaylistLayout() &&
-    followSelection.queueItemId &&
-    playlist.some((item) => item.queueItemId === followSelection.queueItemId)
-  ) {
-    // The setup overlay closes after sessionStarted and publishes its entrance
-    // signal on the next frame. Preserve the one-shot until that boundary and
-    // until the desktop scrollport has measurable geometry.
-    scheduleDesktopSessionFollowAttempt(true);
-  } else {
-    followController.updateSelection(followSelection.queueItemId, followSelection.subIndex);
-  }
+  followController.updateSelection(followSelection.queueItemId, followSelection.subIndex);
   _reorderController?.afterRender();
   _removalController?.afterRender();
   followController.afterRender();
@@ -1076,10 +1002,6 @@ export function initPlaylistView(): void {
   _playlistRaf = 0;
   _pendingPlaylistUpdate = false;
   _deferredPlaylistUpdate = false;
-  cancelDesktopSessionFollowFrame();
-  _desktopSessionStarted = getState('setup.sessionStarted');
-  _desktopSessionFollowPending = _desktopSessionStarted && isDesktopPlaylistLayout();
-  _desktopSessionFollowAwaitingEntrance = _desktopSessionFollowPending && setupOverlayIsActive();
   _playButtonLoading =
     document.getElementById('play-btn')?.classList.contains('yt-syncing') ?? false;
 
@@ -1174,9 +1096,19 @@ export function initPlaylistView(): void {
     }
     queueEditBoundary = nextBoundary;
   });
+  let renderedPlaybackMode = getState('playback.mode');
   _busScope.on('state:playback.mode', () => {
-    if (getState('playback.mode') === 'system-audio') _removalController?.cancel();
-    schedulePlaylistUpdate();
+    const mode = getState('playback.mode');
+    const crossesSystemAudioBoundary =
+      (renderedPlaybackMode === 'system-audio') !== (mode === 'system-audio');
+    renderedPlaybackMode = mode;
+    if (mode === 'system-audio') _removalController?.cancel();
+    if (crossesSystemAudioBoundary) {
+      schedulePlaylistUpdate();
+    } else {
+      syncPlaylistPlaybackIndicator();
+      _currentJumpController?.refresh();
+    }
   });
   _busScope.on('state:playback.activity', () => syncPlaylistPlaybackIndicator());
   _busScope.on('ui:play-loading-state', (loading) => {
@@ -1189,26 +1121,11 @@ export function initPlaylistView(): void {
     }
   });
   _busScope.on('state:setup.sessionStarted', (started) => {
-    const isStarted = started === true;
-    if (isStarted && !_desktopSessionStarted && isDesktopPlaylistLayout()) {
-      _desktopSessionFollowPending = true;
-      _desktopSessionFollowAwaitingEntrance = setupOverlayIsActive();
-      cancelDesktopSessionFollowFrame();
-      _followController?.reset();
-      schedulePlaylistUpdate();
-    } else if (!isStarted) {
-      _desktopSessionFollowPending = false;
-      _desktopSessionFollowAwaitingEntrance = false;
-      cancelDesktopSessionFollowFrame();
-    }
-    _desktopSessionStarted = isStarted;
+    if (started !== true) _followController?.reset();
   });
   _busScope.on('setup:app-entrance', () => {
-    if (!_desktopSessionFollowPending) return;
-    _desktopSessionFollowAwaitingEntrance = false;
-    scheduleDesktopSessionFollowAttempt(true);
+    if (isDesktopPlaylistLayout()) _followController?.afterRender();
   });
-  _busScope.on('visualizer:start', () => scheduleDesktopSessionFollowAttempt(true));
   _busScope.on('i18n:changed', schedulePlaylistUpdate);
   _busScope.on('playlist:items-added', () => _reorderController?.notifyItemsAdded());
   _unsubscribeProRoomUploadRows = subscribeProRoomUploadRows(schedulePlaylistUpdate);
@@ -1236,9 +1153,6 @@ export function initPlaylistView(): void {
   });
   _busScope.on('state:network.appRole', (role: unknown) => {
     if (role === 'idle') {
-      _desktopSessionFollowPending = false;
-      _desktopSessionFollowAwaitingEntrance = false;
-      cancelDesktopSessionFollowFrame();
       _followController?.reset();
       _expansionOverrides.clear();
       _reorderController?.cancel();

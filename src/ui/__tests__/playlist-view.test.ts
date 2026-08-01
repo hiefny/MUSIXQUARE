@@ -335,6 +335,9 @@ describe('playlist queue identity rendering and actions', () => {
     expect(currentLeading.querySelector('.track-playing-indicator path')?.getAttribute('d')).toBe(
       'M8 5v14l11-7z',
     );
+    expect(
+      currentLeading.querySelector('.track-playing-indicator path')?.getAttribute('transform'),
+    ).toBe('translate(-0.75 0)');
     expect(currentLeading.querySelector('.track-paused-indicator path')?.getAttribute('d')).toBe(
       'M6 19h4V5H6v14zm8-14v14h4V5h-4z',
     );
@@ -345,6 +348,10 @@ describe('playlist queue identity rendering and actions', () => {
     expect(replaceChildren).not.toHaveBeenCalled();
     expect(currentLeading.classList).toContain('is-current-playing');
     expect(currentLeading.classList).not.toContain('is-current-paused');
+
+    setState('playback.mode', 'youtube');
+    await nextAnimationFrame();
+    expect(replaceChildren).not.toHaveBeenCalled();
 
     setState('playback.mode', 'system-audio');
     await nextAnimationFrame();
@@ -1033,49 +1040,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(scrollTo).not.toHaveBeenCalled();
   });
 
-  it('forces the already-observed current item once when a desktop session becomes live', async () => {
-    const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: vi.fn((query: string) => ({ matches: query === '(min-width: 1280px)' })),
-    });
-
-    try {
-      setState('playlist.items', sampleItems());
-      setState('playlist.currentQueueItemId', YT_B);
-      initPlaylistView();
-      let scrollTo = configurePlaylistFollowLayout();
-      await nextAnimationFrame();
-
-      const scroller = document.querySelector<HTMLElement>('.tab-body')!;
-      scroller.dispatchEvent(new Event('scrollend'));
-      scroller.scrollTop = 0;
-
-      setState('setup.sessionStarted', true);
-      await nextAnimationFrame();
-      scrollTo = configurePlaylistFollowLayout();
-      await nextAnimationFrame();
-      await nextAnimationFrame();
-
-      expect(scrollTo).toHaveBeenCalledOnce();
-      expect(scrollTo).toHaveBeenCalledWith({ top: 170, behavior: 'smooth' });
-
-      scroller.dispatchEvent(new Event('scrollend'));
-      scroller.scrollTop = 0;
-      setState('playlist.items', [...sampleItems()]);
-      await nextAnimationFrame();
-      scrollTo = configurePlaylistFollowLayout();
-      await nextAnimationFrame();
-
-      expect(scrollTo).not.toHaveBeenCalled();
-      expect(scroller.scrollTop).toBe(0);
-    } finally {
-      if (originalMatchMedia) Object.defineProperty(window, 'matchMedia', originalMatchMedia);
-      else Reflect.deleteProperty(window, 'matchMedia');
-    }
-  });
-
-  it('waits for the real desktop setup entrance before consuming its initial follow', async () => {
+  it('resumes one pending desktop follow only after the setup entrance', async () => {
     const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
@@ -1090,29 +1055,63 @@ describe('playlist queue identity rendering and actions', () => {
       setState('playlist.items', sampleItems());
       setState('playlist.currentQueueItemId', YT_B);
       initPlaylistView();
-      await nextAnimationFrame();
-
-      setState('setup.sessionStarted', true);
-      await nextAnimationFrame();
       const scrollTo = configurePlaylistFollowLayout();
-
-      // hideSetupOverlay removes the class synchronously, then publishes the
-      // entrance boundary on the following animation frame.
-      document.getElementById('setup-overlay')!.classList.remove('active');
       await nextAnimationFrame();
       expect(scrollTo).not.toHaveBeenCalled();
 
+      const scroller = document.querySelector<HTMLElement>('.tab-body')!;
+      setState('setup.sessionStarted', true);
+      await nextAnimationFrame();
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      document.getElementById('setup-overlay')!.classList.remove('active');
       bus.emit('setup:app-entrance');
       await nextAnimationFrame();
-      await nextAnimationFrame();
+
       expect(scrollTo).toHaveBeenCalledOnce();
       expect(scrollTo).toHaveBeenCalledWith({ top: 170, behavior: 'smooth' });
 
+      scroller.dispatchEvent(new Event('scrollend'));
+      scroller.scrollTop = 0;
       bus.emit('setup:app-entrance');
-      bus.emit('visualizer:start');
+      setState('playlist.items', [...sampleItems()]);
       await nextAnimationFrame();
       await nextAnimationFrame();
+
       expect(scrollTo).toHaveBeenCalledOnce();
+      expect(scroller.scrollTop).toBe(0);
+    } finally {
+      if (originalMatchMedia) Object.defineProperty(window, 'matchMedia', originalMatchMedia);
+      else Reflect.deleteProperty(window, 'matchMedia');
+    }
+  });
+
+  it('preserves manual scroll while a setup-blocked follow is only pending', async () => {
+    const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn((query: string) => ({ matches: query === '(min-width: 1280px)' })),
+    });
+
+    try {
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        '<div id="setup-overlay" class="active"></div>',
+      );
+      setState('playlist.items', sampleItems());
+      setState('playlist.currentQueueItemId', YT_B);
+      initPlaylistView();
+      const scrollTo = configurePlaylistFollowLayout();
+      await nextAnimationFrame();
+
+      const scroller = document.querySelector<HTMLElement>('.tab-body')!;
+      scroller.scrollTop = 60;
+      setState('playlist.items', [...sampleItems()]);
+      await nextAnimationFrame();
+      await nextAnimationFrame();
+
+      expect(scrollTo).not.toHaveBeenCalled();
+      expect(scroller.scrollTop).toBe(60);
     } finally {
       if (originalMatchMedia) Object.defineProperty(window, 'matchMedia', originalMatchMedia);
       else Reflect.deleteProperty(window, 'matchMedia');

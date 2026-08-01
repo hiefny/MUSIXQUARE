@@ -225,6 +225,54 @@ describe('playlist active-track follow', () => {
     }
   });
 
+  it('restarts an interrupted native follow after the same target is rerendered', () => {
+    const { panel, scroller, list } = setupScroller();
+    renderEntries(list, [QUEUE_A, QUEUE_B]);
+    scroller.scrollTop = 40;
+    const scrollTo = vi.fn((options: ScrollToOptions) => {
+      // Model Chromium's compositor path: smooth scrolling does not update
+      // main-thread scrollTop synchronously, while an auto write cancels it.
+      if (options.behavior === 'auto' && typeof options.top === 'number') {
+        scroller.scrollTop = options.top;
+      }
+    });
+    Object.defineProperty(scroller, 'scrollTo', { configurable: true, value: scrollTo });
+
+    const controller = createPlaylistFollowController({
+      list,
+      scrollContainer: scroller,
+      isVisible: () => panel.classList.contains('active'),
+    });
+    try {
+      controller.updateSelection(QUEUE_B, -1);
+      controller.afterRender();
+      flushFollowFrame();
+      expect(scrollTo).toHaveBeenNthCalledWith(1, { top: 540, behavior: 'smooth' });
+
+      // A full playlist render creates a new node at the same logical
+      // position. The old smooth operation can no longer be trusted even
+      // though its token and numeric destination are unchanged.
+      renderEntries(list, [QUEUE_A, QUEUE_B]);
+      controller.afterRender();
+      flushFollowFrame();
+      expect(scrollTo).toHaveBeenNthCalledWith(2, { top: 40, behavior: 'auto' });
+      expect(scrollTo).toHaveBeenNthCalledWith(3, { top: 540, behavior: 'smooth' });
+
+      // Chromium emits scrollend when a scrollTop write interrupts smooth
+      // motion. It is not completion while the viewport is still at 40.
+      scroller.dispatchEvent(new Event('scrollend'));
+      expect(controller.isFollowing).toBe(true);
+      flushFollowFrame();
+      expect(scrollTo).toHaveBeenNthCalledWith(4, { top: 540, behavior: 'smooth' });
+
+      scroller.scrollTop = 540;
+      scroller.dispatchEvent(new Event('scrollend'));
+      expect(controller.isFollowing).toBe(false);
+    } finally {
+      controller.destroy();
+    }
+  });
+
   it('leaves a very long jump entirely to native smooth scrolling without a timeout snap', () => {
     const { panel, scroller, list } = setupScroller();
     renderEntries(list, [QUEUE_A, QUEUE_B]);
@@ -397,7 +445,7 @@ describe('playlist active-track follow', () => {
     },
   );
 
-  it('observes native-scroll idle completion without forcing a final position', () => {
+  it('retries native-scroll idle away from the target without forcing a final position', () => {
     const { panel, scroller, list, scrollTo } = setupScroller();
     renderEntries(list, [QUEUE_A, QUEUE_B]);
 
@@ -419,6 +467,12 @@ describe('playlist active-track follow', () => {
 
       expect(scroller.scrollTop).toBe(430);
       expect(scrollTo).toHaveBeenCalledTimes(1);
+      expect(controller.isFollowing).toBe(true);
+
+      flushFollowFrame();
+      expect(scrollTo).toHaveBeenNthCalledWith(2, { top: 540, behavior: 'smooth' });
+      expect(scroller.scrollTop).toBe(540);
+      scroller.dispatchEvent(new Event('scrollend'));
       expect(controller.isFollowing).toBe(false);
     } finally {
       controller.destroy();

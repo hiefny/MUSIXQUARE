@@ -6,11 +6,7 @@ import {
   expectedEmergencyDeployConfirmation,
 } from './guard-emergency-deploy.mjs';
 import { executeNpm, npmInvocation } from './npm-invocation.mjs';
-import {
-  queryCurrent,
-  remoteShareQuotaMigrationBridgeRequired,
-  verifyPartialReleaseCompatibility,
-} from './release-deployment-state.mjs';
+import { queryCurrent, verifyPartialReleaseCompatibility } from './release-deployment-state.mjs';
 
 const WORKER_CONFIGS = Object.freeze({
   'remote-share': 'cloudflare/wrangler.remote-share.toml',
@@ -106,7 +102,12 @@ export function emergencyCompatibilityTarget(target) {
 export function assertEmergencyRemoteShareLifecycleEstablished(target, commitSha, options = {}) {
   if (target !== 'remote-share' && target !== 'all-workers') return null;
   const query = options.queryCurrent || queryCurrent;
-  const bridgeRequired = options.bridgeRequired || remoteShareQuotaMigrationBridgeRequired;
+  const bridgeRequired = options.bridgeRequired;
+  if (typeof bridgeRequired !== 'function') {
+    throw new Error(
+      'Emergency remote-share deployment is unavailable because its legacy lifecycle guard is no longer exported.',
+    );
+  }
   const outputPath =
     `release-artifacts/emergency-deployments/${commitSha}-${target}-` +
     'remote-share-lifecycle.json';

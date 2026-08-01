@@ -75,12 +75,8 @@ One remote whole-file upload attempt roughly means:
 - An abandoned or malicious session can hold its declared bytes until object
   expiry even when no PUT becomes visible. Capability, IP throttling, WAF, and
   account-wide R2 alerts remain necessary abuse and cost controls.
-- The sole active R2 object namespace is `room/`, and the production bucket
-  lifecycle policy expires it after one day. A second one-day lifecycle rule
-  temporarily remains only to delete objects left under the retired
-  `plain-room/` prefix; no production route writes new objects there. Remove
-  that cleanup-only rule only after a bucket inspection confirms that the
-  retired prefix is empty.
+- The sole R2 object namespace is `room/`, and the production bucket lifecycle
+  policy expires it after one day.
 - Max wire/storage size is fixed at 200 MiB. Browser allocation and
   `decodeAudioData` can still fail below this limit when compressed media
   expands into a large PCM buffer.

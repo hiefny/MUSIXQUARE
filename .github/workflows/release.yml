@@ -594,16 +594,12 @@ jobs:
           lifecycle_state="$(npm run --silent wrangler -- r2 bucket lifecycle list \
             musixquare-remote-share \
             --config cloudflare/wrangler.remote-share.toml)"
-          # room/ is the sole active namespace. Keep verifying the retired
-          # plain-room/ expiry backstop until post-cutover storage is empty.
-          for required_prefix in 'room/' 'plain-room/'; do
-            if ! grep -Fq "prefix:   ${required_prefix}" <<<"$lifecycle_state"; then
-              echo "::error::Remote-share R2 lifecycle read-back is missing ${required_prefix}."
-              exit 1
-            fi
-          done
-          if [[ "$(grep -Fc 'action:   Expire objects after 1 days' <<<"$lifecycle_state")" -ne 2 ]]; then
-            echo "::error::Remote-share R2 lifecycle read-back must contain the active and retired one-day expiry rules."
+          if ! grep -Fq 'prefix:   room/' <<<"$lifecycle_state"; then
+            echo "::error::Remote-share R2 lifecycle read-back is missing room/."
+            exit 1
+          fi
+          if [[ "$(grep -Fc 'action:   Expire objects after 1 days' <<<"$lifecycle_state")" -ne 1 ]]; then
+            echo "::error::Remote-share R2 lifecycle read-back must contain exactly one room/ one-day expiry rule."
             exit 1
           fi
 

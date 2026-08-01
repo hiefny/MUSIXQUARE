@@ -31,9 +31,24 @@ interface R2CorsRule {
   };
 }
 
+interface R2LifecycleRule {
+  id: string;
+  enabled: boolean;
+  conditions: { prefix: string };
+  deleteObjectsTransition: {
+    condition: { type: string; maxAge: number };
+  };
+}
+
 const r2CorsPolicy = JSON.parse(
   await readFile(new URL('../../../cloudflare/r2-cors.remote-share.json', import.meta.url), 'utf8'),
 ) as { rules: R2CorsRule[] };
+const r2LifecyclePolicy = JSON.parse(
+  await readFile(
+    new URL('../../../cloudflare/r2-lifecycle.remote-share.json', import.meta.url),
+    'utf8',
+  ),
+) as { rules: R2LifecycleRule[] };
 const liveSmokeSource = await readFile(
   new URL('../../../scripts/live-remote-share-smoke.ts', import.meta.url),
   'utf8',
@@ -440,6 +455,22 @@ describe('remote-share Worker capability gate', () => {
     expect(releaseWorkflowSource).toContain('r2 bucket cors set musixquare-remote-share');
     expect(releaseWorkflowSource).toContain('--file cloudflare/r2-cors.remote-share.json');
     expect(releaseWorkflowSource).toContain('--force');
+  });
+
+  it('keeps one automatic lifecycle rule for the sole room/ object namespace', () => {
+    expect(r2LifecyclePolicy.rules).toEqual([
+      {
+        id: 'Delete active remote share objects',
+        enabled: true,
+        conditions: { prefix: 'room/' },
+        deleteObjectsTransition: {
+          condition: { type: 'Age', maxAge: 86_400 },
+        },
+      },
+    ]);
+    expect(releaseWorkflowSource).toContain("grep -Fq 'prefix:   room/'");
+    expect(releaseWorkflowSource).toContain('-ne 1');
+    expect(releaseWorkflowSource).not.toContain('plain-room/');
   });
 
   it('forces the first incompatible app/Worker contract rollout through target all', () => {

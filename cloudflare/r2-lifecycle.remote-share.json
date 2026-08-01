@@ -12,19 +12,6 @@
           "maxAge": 86400
         }
       }
-    },
-    {
-      "id": "Delete retired remote share objects",
-      "enabled": true,
-      "conditions": {
-        "prefix": "plain-room/"
-      },
-      "deleteObjectsTransition": {
-        "condition": {
-          "type": "Age",
-          "maxAge": 86400
-        }
-      }
     }
   ]
 }

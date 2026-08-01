@@ -250,6 +250,14 @@ const SYSTEM_AUDIO_LIVE_TTL_MS = 2 * 60 * 60 * 1000;
 const SYSTEM_AUDIO_TRACK_NAME_MAX_LENGTH = 160;
 const SYSTEM_AUDIO_TRACK_MID_MAX_LENGTH = 64;
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+// Playback controls are high-frequency, short-retry mutations. The browser
+// retries one command for at most a few seconds, so retaining every full
+// command response for 24 hours can saturate the shared 256-item browser
+// ledger during ordinary all-day playback. Keep a generous ten-minute replay
+// fence for controls while preserving the 24-hour contract for playlist,
+// media, account, and other destructive browser mutations.
+const PLAYBACK_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
+const PLAYBACK_IDEMPOTENCY_SCOPE_SEGMENT = ':playback-authority:';
 // workerd rejects PBKDF2 counts above 100,000. Keep the stored record at the
 // runtime ceiling so activation and PIN verification use the strongest value
 // Cloudflare can execute instead of surfacing an unhandled NotSupportedError.
@@ -10461,23 +10469,50 @@ export class MusixquareProRoom {
       : { records: this.room.idempotency, maxItems: IDEMPOTENCY_MAX_ITEMS };
   }
 
+  idempotencyExpiresAt(storageKey, record) {
+    if (!storageKey.includes(PLAYBACK_IDEMPOTENCY_SCOPE_SEGMENT)) {
+      return record.expiresAtMs;
+    }
+    if (record.kind === 'playback-authority') return record.expiresAtMs;
+    // Legacy playback receipts have no kind marker and were written with the
+    // former 24-hour TTL. Derive their original creation time so this rollout
+    // immediately releases already-saturated rooms instead of waiting up to a
+    // day for the old absolute expiry.
+    return Math.min(
+      record.expiresAtMs,
+      record.expiresAtMs - IDEMPOTENCY_TTL_MS + PLAYBACK_IDEMPOTENCY_TTL_MS,
+    );
+  }
+
+  idempotencyRecordIsExpired(storageKey, record, nowMs = Date.now()) {
+    return this.idempotencyExpiresAt(storageKey, record) <= nowMs;
+  }
+
   idempotencyRecord(scope, key) {
     const storageKey = `${scope}:${key}`;
     const { records } = this.idempotencyLedger(scope);
     // During the additive ledger migration, a receipt written by the previous
     // Worker may still live in the shared map. Read it until its ordinary TTL
     // expires so a retry spanning deployment cannot duplicate a mutation.
-    return (
-      records[storageKey] ||
-      (scope.startsWith('developer:') ? this.room.idempotency[storageKey] : undefined)
-    );
+    const primary = records[storageKey];
+    if (primary) {
+      if (!this.idempotencyRecordIsExpired(storageKey, primary)) return primary;
+      delete records[storageKey];
+    }
+    const legacyDeveloper = scope.startsWith('developer:')
+      ? this.room.idempotency[storageKey]
+      : undefined;
+    if (!legacyDeveloper) return undefined;
+    if (!this.idempotencyRecordIsExpired(storageKey, legacyDeveloper)) return legacyDeveloper;
+    delete this.room.idempotency[storageKey];
+    return undefined;
   }
 
   reserveIdempotencySlot(scope, key, nowMs = Date.now()) {
     const storageKey = `${scope}:${key}`;
     const { records, maxItems } = this.idempotencyLedger(scope);
     for (const [recordKey, record] of Object.entries(records)) {
-      if (record.expiresAtMs <= nowMs) delete records[recordKey];
+      if (this.idempotencyRecordIsExpired(recordKey, record, nowMs)) delete records[recordKey];
     }
     if (records[storageKey] !== undefined) return records;
     if (Object.keys(records).length >= maxItems) {
@@ -10533,7 +10568,16 @@ export class MusixquareProRoom {
     expiresAtMs = Date.now() + IDEMPOTENCY_TTL_MS,
   ) {
     const records = this.reserveIdempotencySlot(scope, key);
-    records[`${scope}:${key}`] = { fingerprint, body: structuredClone(body), status, expiresAtMs };
+    const playbackAuthority = scope.endsWith(':playback-authority');
+    records[`${scope}:${key}`] = {
+      fingerprint,
+      body: structuredClone(body),
+      status,
+      ...(playbackAuthority ? { kind: 'playback-authority' } : {}),
+      expiresAtMs: playbackAuthority
+        ? Math.min(expiresAtMs, Date.now() + PLAYBACK_IDEMPOTENCY_TTL_MS)
+        : expiresAtMs,
+    };
   }
 
   storeSnapshotIdempotency(scope, key, fingerprint, committedRevision) {
@@ -11273,7 +11317,7 @@ export class MusixquareProRoom {
       }
     }
     for (const [key, record] of Object.entries(this.room.idempotency)) {
-      if (record.expiresAtMs <= nowMs) {
+      if (this.idempotencyRecordIsExpired(key, record, nowMs)) {
         delete this.room.idempotency[key];
         changed = true;
       }

@@ -26,6 +26,7 @@ import {
 } from '../rooms/permission-feedback.ts';
 import { t } from '../i18n/index.ts';
 import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
+import { isProPlaybackTrackSelectionPending } from '../pro-room/playback-authority-hooks.ts';
 import type { ProPlaybackUiControlPendingEvent, QueueItemId } from '../types/index.ts';
 import { syncRangeProgress } from './range-drag.ts';
 import { showToast } from './toast.ts';
@@ -33,6 +34,7 @@ import { showToast } from './toast.ts';
 type SeekUnavailableReason = 'no-media' | 'not-ready' | 'permission' | 'system-audio';
 
 function getSeekUnavailableReason(): SeekUnavailableReason | null {
+  if (isProPlaybackTrackSelectionPending() || _proPlaybackTransitionLoading) return 'not-ready';
   const playback = getPlaybackModeActivitySnapshot();
   if (playback.activity === 'idle') return 'no-media';
   if (playback.mode === 'system-audio') return 'system-audio';
@@ -83,6 +85,7 @@ const SEEK_DRAFT_RELEASE_TIMER = 'seekbar-draft-release';
 const SEEK_DRAFT_RELEASE_FALLBACK_MS = 350;
 let _seekDraftActive = false;
 let _seekDenialFeedbackActive = false;
+let _proPlaybackTransitionLoading = false;
 
 function anchorSeekDraft(slider: HTMLInputElement): void {
   const value = Number.parseFloat(slider.value);
@@ -375,6 +378,7 @@ function initSeekBarBusHandlers(): void {
   _busScope.dispose();
   finishSeekDraft();
   clearPendingSeekProjections();
+  _proPlaybackTransitionLoading = false;
 
   const refreshAvailability = () => syncSeekAvailability();
   _busScope.on('state:playback.mode', refreshAvailability);
@@ -387,6 +391,11 @@ function initSeekBarBusHandlers(): void {
   _busScope.on('state:playback.lifecycle', refreshAvailability);
   _busScope.on('youtube:zero-start-readiness-changed', refreshAvailability);
   _busScope.on('i18n:changed', refreshAvailability);
+  _busScope.on('pro-playback:transition-loading', (loading) => {
+    _proPlaybackTransitionLoading = loading;
+    if (loading) finishSeekDraft();
+    refreshAvailability();
+  });
 
   _busScope.on('ui:duration-update', (duration) => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;

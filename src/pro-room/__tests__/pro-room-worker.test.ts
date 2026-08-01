@@ -258,6 +258,70 @@ describe('PRO room server-authoritative playback', () => {
     return internal.room.playback as Record<string, any>;
   }
 
+  it('reclaims legacy playback receipts immediately without shortening other browser mutations', async () => {
+    const context = await activatedRoom();
+    expect(
+      (await replacePlaylist(context, duplicateVideoPlaylist, 'playback-ledger-recovery')).status,
+    ).toBe(200);
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const participantId = context.activationEnvelope.snapshot.viewer.participantId as string;
+    const playbackScope = `participant:${participantId}:playback-authority`;
+    const nowMs = Date.now();
+
+    internal.room.idempotency = {};
+    for (let index = 0; index < 254; index += 1) {
+      internal.room.idempotency[`${playbackScope}:legacy-old-${String(index).padStart(3, '0')}`] = {
+        fingerprint: 'f'.repeat(43),
+        body: { status: 'committed' },
+        status: 200,
+        // Written an hour ago with the former 24-hour playback TTL.
+        expiresAtMs: nowMs + 23 * 60 * 60 * 1000 + index,
+      };
+    }
+    const freshLegacyKey = `${playbackScope}:legacy-fresh`;
+    internal.room.idempotency[freshLegacyKey] = {
+      fingerprint: 'f'.repeat(43),
+      body: { status: 'committed' },
+      status: 200,
+      expiresAtMs: nowMs + 24 * 60 * 60 * 1000,
+    };
+    const ordinaryMutationKey = `participant:${participantId}:playlist:legacy-ordinary`;
+    internal.room.idempotency[ordinaryMutationKey] = {
+      fingerprint: 'f'.repeat(43),
+      body: { snapshot: true },
+      status: 200,
+      // The same age remains valid for an ordinary 24-hour browser mutation.
+      expiresAtMs: nowMs + 23 * 60 * 60 * 1000,
+    };
+    expect(Object.keys(internal.room.idempotency)).toHaveLength(256);
+
+    const response = await context.worker.fetch(
+      jsonRequest(
+        '/playback/commands',
+        'POST',
+        {
+          type: 'select',
+          baseRevision: internal.room.playback.revision,
+          queueItemId: firstQueueItemId,
+          state: 'playing',
+          positionSeconds: 0,
+        },
+        context.ownerCookie,
+        'playback-ledger-recovered-command',
+      ),
+    );
+
+    expect(response.status).toBe(202);
+    expect(internal.room.idempotency[ordinaryMutationKey]).toBeDefined();
+    expect(internal.room.idempotency[freshLegacyKey]).toBeDefined();
+    const newReceipt =
+      internal.room.idempotency[`${playbackScope}:playback-ledger-recovered-command`];
+    expect(newReceipt).toMatchObject({ kind: 'playback-authority', status: 202 });
+    expect(newReceipt.expiresAtMs).toBeGreaterThan(nowMs + 9 * 60 * 1000);
+    expect(newReceipt.expiresAtMs).toBeLessThanOrEqual(Date.now() + 10 * 60 * 1000);
+    expect(Object.keys(internal.room.idempotency)).toHaveLength(3);
+  });
+
   it('never elects a browser coordinator and signs every signaling ticket as a named member', async () => {
     const context = await activatedRoom();
     expect(context.activationEnvelope.snapshot.presence.coordinatorParticipantId).toBeNull();

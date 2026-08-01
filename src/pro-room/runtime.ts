@@ -894,12 +894,13 @@ function reportPlaylistError(error: unknown): void {
       ? t('pro.file_too_large')
       : code === 'ROOM_QUOTA_EXCEEDED'
         ? t('pro.quota_exceeded')
-        : code === 'PLAYLIST_CAPACITY_EXCEEDED' ||
-            code === 'PRO_ROOM_PLAYLIST_LIMIT_REACHED' ||
-            code === 'ROOM_STATE_CAPACITY_EXCEEDED' ||
-            code === 'REQUEST_TOO_LARGE'
-          ? t('playlist.queue_full')
-          : t('pro.connect_failed');
+        : code === 'ROOM_STATE_CAPACITY_EXCEEDED'
+          ? t('playlist.mutation_retry')
+          : code === 'PLAYLIST_CAPACITY_EXCEEDED' ||
+              code === 'PRO_ROOM_PLAYLIST_LIMIT_REACHED' ||
+              code === 'REQUEST_TOO_LARGE'
+            ? t('playlist.queue_full')
+            : t('pro.connect_failed');
   bus.emit('ui:show-toast', message);
 }
 

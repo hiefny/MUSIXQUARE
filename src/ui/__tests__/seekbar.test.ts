@@ -7,6 +7,7 @@ import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { initSeekBar } from '../seekbar.ts';
 import { getTrackPosition, isFilePipelineBusyForPlay, seekTo } from '../../player/transport.ts';
+import { isProPlaybackTrackSelectionPending } from '../../pro-room/playback-authority-hooks.ts';
 
 const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
 
@@ -17,6 +18,10 @@ vi.mock('../../player/transport.ts', () => ({
   seekTo: vi.fn(),
 }));
 
+vi.mock('../../pro-room/playback-authority-hooks.ts', () => ({
+  isProPlaybackTrackSelectionPending: vi.fn(() => false),
+}));
+
 beforeEach(() => {
   resetState();
   bus.clear();
@@ -24,6 +29,7 @@ beforeEach(() => {
   vi.mocked(seekTo).mockClear();
   vi.mocked(getTrackPosition).mockReturnValue(0);
   vi.mocked(isFilePipelineBusyForPlay).mockReturnValue(false);
+  vi.mocked(isProPlaybackTrackSelectionPending).mockReturnValue(false);
   document.body.innerHTML = `
     <input id="seek-slider" type="range" value="0" max="120" />
     <span id="time-curr"></span>
@@ -100,6 +106,44 @@ describe('initSeekBar playback mode gates', () => {
     expect(slider.value).toBe('14');
     expect(getState('player.isSeeking')).toBe(false);
     expect(seekTo).not.toHaveBeenCalled();
+  });
+
+  it('blocks a seek while a PRO local-to-YouTube selection awaits server admission', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    vi.mocked(isProPlaybackTrackSelectionPending).mockReturnValue(true);
+    vi.mocked(getTrackPosition).mockReturnValue(14);
+    initSeekBar();
+
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    expect(slider.getAttribute('aria-disabled')).toBe('true');
+
+    slider.value = '55';
+    slider.dispatchEvent(new Event('input'));
+    slider.dispatchEvent(new Event('change'));
+
+    expect(slider.value).toBe('14');
+    expect(getState('player.isSeeking')).toBe(false);
+    expect(seekTo).not.toHaveBeenCalled();
+  });
+
+  it('keeps seek blocked through the PRO media transition after server admission', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    vi.mocked(getTrackPosition).mockReturnValue(14);
+    initSeekBar();
+
+    bus.emit('pro-playback:transition-loading', true);
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    expect(slider.getAttribute('aria-disabled')).toBe('true');
+
+    slider.value = '55';
+    slider.dispatchEvent(new Event('change'));
+    expect(slider.value).toBe('14');
+    expect(seekTo).not.toHaveBeenCalled();
+
+    bus.emit('pro-playback:transition-loading', false);
+    expect(slider.getAttribute('aria-disabled')).toBe('false');
   });
 
   it('freezes file interpolation immediately at the exact paused position', () => {

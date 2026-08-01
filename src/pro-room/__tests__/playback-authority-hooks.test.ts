@@ -7,6 +7,7 @@ import {
   cancelProPlaybackPreparation,
   commitProPlaybackAuthority,
   createProPlaybackAuthorityToken,
+  isProPlaybackTrackSelectionPending,
   prepareCurrentProPlaybackRendezvousAuthority,
   prepareProPlaybackAuthority,
   reconcileCurrentProPlaybackAuthority,
@@ -71,6 +72,46 @@ afterEach(() => {
 });
 
 describe('coordinator-free PRO playback authority seam', () => {
+  it('drops controls that race an admitted track selection request', async () => {
+    let resolveSelection!: () => void;
+    const selection = new Promise<void>((resolve) => {
+      resolveSelection = resolve;
+    });
+    const handler = vi
+      .fn<() => Promise<void>>()
+      .mockImplementationOnce(() => selection)
+      .mockResolvedValue(undefined);
+    registerProPlaybackCommandHandler(handler);
+
+    expect(
+      routeProPlaybackCommand({
+        kind: 'select',
+        queueItemId: Q1,
+        positionSeconds: 0,
+        youtubeSubIndex: 0,
+        youtubeVideoId: 'dQw4w9WgXcQ',
+      }),
+    ).toBe(true);
+    expect(isProPlaybackTrackSelectionPending()).toBe(true);
+
+    expect(
+      routeProPlaybackCommand(
+        { kind: 'seek', queueItemId: Q1, positionSeconds: 42 },
+        { wasPlaying: true },
+      ),
+    ).toBe(true);
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    resolveSelection();
+    await vi.waitFor(() => expect(isProPlaybackTrackSelectionPending()).toBe(false));
+
+    routeProPlaybackCommand(
+      { kind: 'seek', queueItemId: Q1, positionSeconds: 42 },
+      { wasPlaying: true },
+    );
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
   it('consumes every member control and queue-mutating media observation locally', async () => {
     setState('room.context', {
       kind: 'pro',

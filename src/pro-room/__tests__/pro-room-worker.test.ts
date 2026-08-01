@@ -270,9 +270,7 @@ describe('PRO room server-authoritative playback', () => {
 
     internal.room.idempotency = {};
     for (let index = 0; index < 254; index += 1) {
-      internal.room.idempotency[
-        `${playbackScope}:legacy-old-${String(index).padStart(3, '0')}`
-      ] = {
+      internal.room.idempotency[`${playbackScope}:legacy-old-${String(index).padStart(3, '0')}`] = {
         fingerprint: 'f'.repeat(43),
         body: { status: 'committed' },
         status: 200,

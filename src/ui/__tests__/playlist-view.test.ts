@@ -1,6 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
+import { readFile } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
@@ -382,6 +383,17 @@ describe('playlist queue identity rendering and actions', () => {
     expect(currentLeading.classList).not.toContain('is-current-loading');
     expect(currentLeading.classList).toContain('is-current-playing');
     expect(replaceChildren).not.toHaveBeenCalled();
+  });
+
+  it('uses matching rotation endpoints so the loading spinner visibly turns', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const loadingRules =
+      stylesheet.match(/\.track-playback-loading-indicator\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(loadingRules).toContain('animation: track-playback-spin 0.8s linear infinite;');
+    expect(stylesheet).toMatch(
+      /@keyframes\s+track-playback-spin\s*\{\s*from\s*\{\s*transform:\s*rotate\(0deg\);\s*\}\s*to\s*\{\s*transform:\s*rotate\(360deg\);\s*\}\s*\}/s,
+    );
   });
 
   it('patches the current ordinal from YouTube play-state events without rebuilding rows', () => {

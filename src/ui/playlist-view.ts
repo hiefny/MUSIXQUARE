@@ -71,6 +71,12 @@ let _followScrollContainer: HTMLElement | null = null;
 let _unsubscribeProRoomUploadRows: (() => void) | null = null;
 let _desktopSessionFollowPending = false;
 let _desktopSessionStarted = false;
+let _desktopSessionFollowAwaitingEntrance = false;
+let _desktopSessionFollowFrame = 0;
+let _desktopSessionFollowLayoutAttempts = 0;
+let _playButtonLoading = false;
+
+const DESKTOP_SESSION_FOLLOW_LAYOUT_ATTEMPTS = 8;
 
 // Expansion is view-local. It must not increment the authoritative playlist
 // revision or clone a queue item while a drag owns that item's identity.
@@ -110,6 +116,10 @@ function playlistIsVisible(): boolean {
   if (!panel) return true;
   if (isDesktopPlaylistLayout()) return true;
   return panel.classList.contains('active');
+}
+
+function setupOverlayIsActive(): boolean {
+  return document.getElementById('setup-overlay')?.classList.contains('active') === true;
 }
 
 function effectiveFollowSubIndex(
@@ -175,6 +185,62 @@ function ensureFollowController(
   return _followController;
 }
 
+function cancelDesktopSessionFollowFrame(): void {
+  if (_desktopSessionFollowFrame) cancelAnimationFrame(_desktopSessionFollowFrame);
+  _desktopSessionFollowFrame = 0;
+  _desktopSessionFollowLayoutAttempts = 0;
+}
+
+function scheduleDesktopSessionFollowAttempt(resetAttempts = false): void {
+  if (resetAttempts) _desktopSessionFollowLayoutAttempts = 0;
+  if (
+    _desktopSessionFollowFrame ||
+    !_desktopSessionFollowPending ||
+    _desktopSessionFollowAwaitingEntrance
+  ) {
+    return;
+  }
+
+  _desktopSessionFollowFrame = requestAnimationFrame(() => {
+    _desktopSessionFollowFrame = 0;
+    if (
+      !_desktopSessionFollowPending ||
+      !getState('setup.sessionStarted') ||
+      !isDesktopPlaylistLayout()
+    ) {
+      return;
+    }
+
+    const list = document.getElementById('playlist-ui');
+    const scrollContainer = list?.closest<HTMLElement>('.tab-body') ?? null;
+    const selection = currentFollowSelection();
+    const entry = selection.queueItemId
+      ? Array.from(list?.children ?? []).find(
+          (child) =>
+            child instanceof HTMLElement && child.dataset.queueItemId === selection.queueItemId,
+        )
+      : null;
+    const target =
+      entry instanceof HTMLElement
+        ? (entry.querySelector<HTMLElement>('.track-item') ?? entry)
+        : null;
+
+    if (!list || !scrollContainer || !selection.queueItemId || !target) return;
+    if (scrollContainer.clientHeight <= 0 || target.getBoundingClientRect().height <= 0) {
+      _desktopSessionFollowLayoutAttempts += 1;
+      if (_desktopSessionFollowLayoutAttempts < DESKTOP_SESSION_FOLLOW_LAYOUT_ATTEMPTS) {
+        scheduleDesktopSessionFollowAttempt();
+      }
+      return;
+    }
+
+    _desktopSessionFollowPending = false;
+    _desktopSessionFollowLayoutAttempts = 0;
+    _followController?.forceSelection(selection.queueItemId, selection.subIndex);
+    _followController?.afterRender();
+  });
+}
+
 function toggleExpansion(queueItemId: QueueItemId): void {
   const idx = resolveQueueIndex(queueItemId);
   const item = idx >= 0 ? getState('playlist.items')[idx] : undefined;
@@ -207,11 +273,13 @@ function toggleExpansion(queueItemId: QueueItemId): void {
   }
 }
 
-type PlaylistPlaybackIndicatorState = 'playing' | 'paused' | null;
+type PlaylistPlaybackIndicatorState = 'loading' | 'playing' | 'paused' | null;
 
 function currentPlaybackIndicatorState(
   youtubePlayingOverride?: boolean,
 ): PlaylistPlaybackIndicatorState {
+  if (_playButtonLoading) return 'loading';
+
   const mode = getState('playback.mode');
   if (!mode || mode === 'system-audio') return null;
 
@@ -237,7 +305,8 @@ function renderPlaybackIndicatorIcons(): string {
     </svg>
     <svg class="track-playback-state-icon track-paused-indicator" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
-    </svg>`;
+    </svg>
+    <span class="track-playback-state-icon track-playback-loading-indicator" aria-hidden="true"></span>`;
 }
 
 function syncPlaylistPlaybackIndicator(
@@ -247,6 +316,7 @@ function syncPlaylistPlaybackIndicator(
   if (!list) return;
   const state = currentPlaybackIndicatorState(youtubePlayingOverride);
   for (const leading of list.querySelectorAll<HTMLElement>('.playlist-current-leading')) {
+    leading.classList.toggle('is-current-loading', state === 'loading');
     leading.classList.toggle('is-current-playing', state === 'playing');
     leading.classList.toggle('is-current-paused', state === 'paused');
   }
@@ -790,12 +860,10 @@ export function updatePlaylistUI(): void {
     followSelection.queueItemId &&
     playlist.some((item) => item.queueItemId === followSelection.queueItemId)
   ) {
-    // Desktop keeps the playlist mounted instead of emitting the mobile tab-open
-    // event. Force the same locator once when a new joined session becomes live,
-    // including the ordering where its current item arrived just before
-    // setup.sessionStarted.
-    _desktopSessionFollowPending = false;
-    followController.forceSelection(followSelection.queueItemId, followSelection.subIndex);
+    // The setup overlay closes after sessionStarted and publishes its entrance
+    // signal on the next frame. Preserve the one-shot until that boundary and
+    // until the desktop scrollport has measurable geometry.
+    scheduleDesktopSessionFollowAttempt(true);
   } else {
     followController.updateSelection(followSelection.queueItemId, followSelection.subIndex);
   }
@@ -1008,8 +1076,12 @@ export function initPlaylistView(): void {
   _playlistRaf = 0;
   _pendingPlaylistUpdate = false;
   _deferredPlaylistUpdate = false;
+  cancelDesktopSessionFollowFrame();
   _desktopSessionStarted = getState('setup.sessionStarted');
   _desktopSessionFollowPending = _desktopSessionStarted && isDesktopPlaylistLayout();
+  _desktopSessionFollowAwaitingEntrance = _desktopSessionFollowPending && setupOverlayIsActive();
+  _playButtonLoading =
+    document.getElementById('play-btn')?.classList.contains('yt-syncing') ?? false;
 
   const list = document.getElementById('playlist-ui');
   if (list) {
@@ -1107,6 +1179,10 @@ export function initPlaylistView(): void {
     schedulePlaylistUpdate();
   });
   _busScope.on('state:playback.activity', () => syncPlaylistPlaybackIndicator());
+  _busScope.on('ui:play-loading-state', (loading) => {
+    _playButtonLoading = loading;
+    syncPlaylistPlaybackIndicator();
+  });
   _busScope.on('ui:update-play-state', (playing) => {
     if (getState('playback.mode') === 'youtube') {
       syncPlaylistPlaybackIndicator(undefined, playing);
@@ -1116,12 +1192,23 @@ export function initPlaylistView(): void {
     const isStarted = started === true;
     if (isStarted && !_desktopSessionStarted && isDesktopPlaylistLayout()) {
       _desktopSessionFollowPending = true;
+      _desktopSessionFollowAwaitingEntrance = setupOverlayIsActive();
+      cancelDesktopSessionFollowFrame();
+      _followController?.reset();
       schedulePlaylistUpdate();
     } else if (!isStarted) {
       _desktopSessionFollowPending = false;
+      _desktopSessionFollowAwaitingEntrance = false;
+      cancelDesktopSessionFollowFrame();
     }
     _desktopSessionStarted = isStarted;
   });
+  _busScope.on('setup:app-entrance', () => {
+    if (!_desktopSessionFollowPending) return;
+    _desktopSessionFollowAwaitingEntrance = false;
+    scheduleDesktopSessionFollowAttempt(true);
+  });
+  _busScope.on('visualizer:start', () => scheduleDesktopSessionFollowAttempt(true));
   _busScope.on('i18n:changed', schedulePlaylistUpdate);
   _busScope.on('playlist:items-added', () => _reorderController?.notifyItemsAdded());
   _unsubscribeProRoomUploadRows = subscribeProRoomUploadRows(schedulePlaylistUpdate);
@@ -1149,6 +1236,9 @@ export function initPlaylistView(): void {
   });
   _busScope.on('state:network.appRole', (role: unknown) => {
     if (role === 'idle') {
+      _desktopSessionFollowPending = false;
+      _desktopSessionFollowAwaitingEntrance = false;
+      cancelDesktopSessionFollowFrame();
       _followController?.reset();
       _expansionOverrides.clear();
       _reorderController?.cancel();

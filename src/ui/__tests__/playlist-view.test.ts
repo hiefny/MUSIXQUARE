@@ -350,6 +350,40 @@ describe('playlist queue identity rendering and actions', () => {
     expect(replaceChildren).toHaveBeenCalledOnce();
   });
 
+  it('mirrors the main play spinner and keeps loading above play/pause state', async () => {
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      '<button id="play-btn" class="yt-syncing" aria-busy="true"></button>',
+    );
+    setState('playlist.items', sampleItems());
+    setState('playlist.currentQueueItemId', FILE_A);
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'paused');
+    initPlaylistView();
+
+    const list = document.getElementById('playlist-ui')!;
+    const replaceChildren = vi.spyOn(list, 'replaceChildren');
+    const currentLeading = list.querySelector<HTMLElement>('.playlist-current-leading')!;
+    expect(currentLeading.classList).toContain('is-current-loading');
+    expect(currentLeading.classList).not.toContain('is-current-paused');
+    expect(currentLeading.querySelector('.track-playback-loading-indicator')).not.toBeNull();
+
+    bus.emit('ui:play-loading-state', false);
+    expect(currentLeading.classList).not.toContain('is-current-loading');
+    expect(currentLeading.classList).toContain('is-current-paused');
+
+    bus.emit('ui:play-loading-state', true);
+    setState('playback.activity', 'playing');
+    await nextAnimationFrame();
+    expect(currentLeading.classList).toContain('is-current-loading');
+    expect(currentLeading.classList).not.toContain('is-current-playing');
+
+    bus.emit('ui:play-loading-state', false);
+    expect(currentLeading.classList).not.toContain('is-current-loading');
+    expect(currentLeading.classList).toContain('is-current-playing');
+    expect(replaceChildren).not.toHaveBeenCalled();
+  });
+
   it('patches the current ordinal from YouTube play-state events without rebuilding rows', () => {
     setState('playlist.items', sampleItems());
     setState('playlist.currentQueueItemId', YT_B);
@@ -1009,6 +1043,7 @@ describe('playlist queue identity rendering and actions', () => {
       await nextAnimationFrame();
       scrollTo = configurePlaylistFollowLayout();
       await nextAnimationFrame();
+      await nextAnimationFrame();
 
       expect(scrollTo).toHaveBeenCalledOnce();
       expect(scrollTo).toHaveBeenCalledWith({ top: 170, behavior: 'smooth' });
@@ -1022,6 +1057,50 @@ describe('playlist queue identity rendering and actions', () => {
 
       expect(scrollTo).not.toHaveBeenCalled();
       expect(scroller.scrollTop).toBe(0);
+    } finally {
+      if (originalMatchMedia) Object.defineProperty(window, 'matchMedia', originalMatchMedia);
+      else Reflect.deleteProperty(window, 'matchMedia');
+    }
+  });
+
+  it('waits for the real desktop setup entrance before consuming its initial follow', async () => {
+    const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn((query: string) => ({ matches: query === '(min-width: 1280px)' })),
+    });
+
+    try {
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        '<div id="setup-overlay" class="active"></div>',
+      );
+      setState('playlist.items', sampleItems());
+      setState('playlist.currentQueueItemId', YT_B);
+      initPlaylistView();
+      await nextAnimationFrame();
+
+      setState('setup.sessionStarted', true);
+      await nextAnimationFrame();
+      const scrollTo = configurePlaylistFollowLayout();
+
+      // hideSetupOverlay removes the class synchronously, then publishes the
+      // entrance boundary on the following animation frame.
+      document.getElementById('setup-overlay')!.classList.remove('active');
+      await nextAnimationFrame();
+      expect(scrollTo).not.toHaveBeenCalled();
+
+      bus.emit('setup:app-entrance');
+      await nextAnimationFrame();
+      await nextAnimationFrame();
+      expect(scrollTo).toHaveBeenCalledOnce();
+      expect(scrollTo).toHaveBeenCalledWith({ top: 170, behavior: 'smooth' });
+
+      bus.emit('setup:app-entrance');
+      bus.emit('visualizer:start');
+      await nextAnimationFrame();
+      await nextAnimationFrame();
+      expect(scrollTo).toHaveBeenCalledOnce();
     } finally {
       if (originalMatchMedia) Object.defineProperty(window, 'matchMedia', originalMatchMedia);
       else Reflect.deleteProperty(window, 'matchMedia');

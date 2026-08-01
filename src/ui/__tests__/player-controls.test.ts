@@ -1025,18 +1025,23 @@ describe('initPlayerControls playback mode rendering', () => {
 
   it('shows the loading play button for every participant in a PRO rendezvous', () => {
     renderPlaybackControls();
+    const loadingStates: boolean[] = [];
+    bus.on('ui:play-loading-state', (loading) => loadingStates.push(loading));
     initPlayerControls();
 
     const playBtn = document.getElementById('play-btn');
+    expect(loadingStates.at(-1)).toBe(false);
     bus.emit('pro-playback:transition-loading', true);
 
     expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
     expect(playBtn?.getAttribute('aria-busy')).toBe('true');
+    expect(loadingStates.at(-1)).toBe(true);
 
     bus.emit('pro-playback:transition-loading', false);
 
     expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
     expect(playBtn?.getAttribute('aria-busy')).toBe('false');
+    expect(loadingStates.at(-1)).toBe(false);
   });
 
   it('keeps the spinner after local selection intent yields to the shared PRO transition', () => {

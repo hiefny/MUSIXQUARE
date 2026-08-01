@@ -1952,11 +1952,26 @@
       transform 0.14s ease;
   }
 
-  .playlist-current-leading:is(.is-current-playing, .is-current-paused) .track-idx {
+  .track-playing-indicator {
+    width: 18px;
+    height: 18px;
+  }
+
+  .track-playback-loading-indicator {
+    box-sizing: border-box;
+    border: 2px solid transparent;
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: yt-spin 0.8s linear infinite;
+  }
+
+  .playlist-current-leading:is(.is-current-loading, .is-current-playing, .is-current-paused)
+    .track-idx {
     opacity: 0;
     transform: scale(0.82);
   }
 
+  .playlist-current-leading.is-current-loading .track-playback-loading-indicator,
   .playlist-current-leading.is-current-playing .track-playing-indicator,
   .playlist-current-leading.is-current-paused .track-paused-indicator {
     opacity: 1;
@@ -2070,12 +2085,16 @@
 
   .playlist-ul:is(.is-reordering, .is-keyboard-reordering)
     .playlist-entry:not(.is-reorder-source)
-    .playlist-current-leading:is(.is-current-playing, .is-current-paused)
+    .playlist-current-leading:is(.is-current-loading, .is-current-playing, .is-current-paused)
     .track-idx {
     opacity: 0;
     transform: scale(0.82);
   }
 
+  .playlist-ul:is(.is-reordering, .is-keyboard-reordering)
+    .playlist-entry:not(.is-reorder-source)
+    .playlist-current-leading.is-current-loading
+    .track-playback-loading-indicator,
   .playlist-ul:is(.is-reordering, .is-keyboard-reordering)
     .playlist-entry:not(.is-reorder-source)
     .playlist-current-leading.is-current-playing
@@ -2697,12 +2716,15 @@
   }
 
   .playlist-ul.has-removal-selection
-    .playlist-current-leading:is(.is-current-playing, .is-current-paused)
+    .playlist-current-leading:is(.is-current-loading, .is-current-playing, .is-current-paused)
     .track-idx {
     opacity: 0;
     transform: scale(0.82);
   }
 
+  .playlist-ul.has-removal-selection
+    .playlist-current-leading.is-current-loading
+    .track-playback-loading-indicator,
   .playlist-ul.has-removal-selection
     .playlist-current-leading.is-current-playing
     .track-playing-indicator,

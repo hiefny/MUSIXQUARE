@@ -120,6 +120,7 @@ function syncPlayButtonLoadingClass(): void {
     btn.classList.toggle('yt-syncing', loading);
     btn.setAttribute('aria-busy', String(loading));
   }
+  bus.emit('ui:play-loading-state', loading);
 
   const videoWrapper = document.querySelector<HTMLElement>('.video-wrapper');
   const youtubeContainer = document.getElementById('youtube-player-container');

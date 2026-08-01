@@ -778,12 +778,14 @@ describe('optional account UI', () => {
     };
 
     runNextFrame(100);
-    runNextFrame(150);
-    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('5');
-    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe('1 hr 5 min');
-    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('21');
+    runNextFrame(220);
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('3');
+    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe(
+      '0 hr 30 min',
+    );
+    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('10');
 
-    runNextFrame(267);
+    runNextFrame(500);
     const intermediateSessions = Number(
       document.getElementById('account-stats-session-count')?.textContent,
     );
@@ -795,19 +797,19 @@ describe('optional account UI', () => {
     expect(intermediateTracks).toBeGreaterThan(0);
     expect(intermediateTracks).toBeLessThan(53);
     expect(document.getElementById('account-stats-listening-time')?.textContent).toBe(
-      '2 hr 18 min',
+      '1 hr 28 min',
     );
 
-    runNextFrame(475);
+    runNextFrame(1_180);
 
-    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('13');
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('14');
     expect(document.getElementById('account-stats-listening-time')?.textContent).toBe(
-      '2 hr 38 min',
+      '2 hr 37 min',
     );
     expect(document.getElementById('account-stats-track-count')?.textContent).toBe('52');
     expect(document.getElementById('account-dialog-stats')?.getAttribute('aria-busy')).toBe('true');
 
-    runNextFrame(600);
+    runNextFrame(1_300);
 
     expect(document.getElementById('account-stats-session-count')?.textContent).toBe('14');
     expect(document.getElementById('account-stats-listening-time')?.textContent).toBe(

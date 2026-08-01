@@ -38,7 +38,7 @@ const ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
 const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
 const ACCOUNT_LOGIN_POPUP_POLL_MS = 250;
 const ACCOUNT_STATS_PLACEHOLDER = '—';
-const ACCOUNT_STATS_COUNT_UP_DURATION_MS = 800;
+const ACCOUNT_STATS_COUNT_UP_DURATION_MS = 1_200;
 type AccountAuthOutcome = 'cancelled' | 'error';
 type CompletedAccount = NonNullable<AccountSnapshot['account']>;
 type AccountStatValueElements = {
@@ -234,13 +234,17 @@ function animateAccountStatValues(
       1,
       Math.max(0, (now - startedAt) / ACCOUNT_STATS_COUNT_UP_DURATION_MS),
     );
-    const easedProgress = 1 - Math.pow(1 - progress, 3);
+    // Front-load the count, then stretch the final few increments so the
+    // values visibly settle instead of reaching their rounded targets early.
+    const easedProgress = 1 - Math.pow(1 - progress, 5);
+    const countTo = (value: number): number =>
+      progress === 1 ? value : Math.floor(value * easedProgress);
     renderAccountStatValues(
       elements,
       {
-        sessionCount: Math.round(target.sessionCount * easedProgress),
-        listeningSeconds: Math.round(target.listeningSeconds * easedProgress),
-        trackCount: Math.round(target.trackCount * easedProgress),
+        sessionCount: countTo(target.sessionCount),
+        listeningSeconds: countTo(target.listeningSeconds),
+        trackCount: countTo(target.trackCount),
       },
       target.listeningSeconds,
     );

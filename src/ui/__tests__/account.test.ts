@@ -106,6 +106,10 @@ beforeEach(() => {
   vi.mocked(flushAccountActivityStatsForRead).mockResolvedValue({ status: 'idle' });
   renderAccountDialog();
   vi.stubGlobal('fetch', vi.fn());
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((query: string) => ({ matches: query === '(prefers-reduced-motion: reduce)' })),
+  );
   document.documentElement.lang = 'en-US';
   sessionStorage.clear();
   localStorage.clear();
@@ -774,6 +778,11 @@ describe('optional account UI', () => {
     };
 
     runNextFrame(100);
+    runNextFrame(220);
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('5');
+    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe('1 hr 5 min');
+    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('21');
+
     runNextFrame(500);
     const intermediateSessions = Number(
       document.getElementById('account-stats-session-count')?.textContent,
@@ -786,10 +795,19 @@ describe('optional account UI', () => {
     expect(intermediateTracks).toBeGreaterThan(0);
     expect(intermediateTracks).toBeLessThan(53);
     expect(document.getElementById('account-stats-listening-time')?.textContent).toBe(
-      '2 hr 19 min',
+      '2 hr 18 min',
     );
 
-    runNextFrame(900);
+    runNextFrame(1_000);
+
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('13');
+    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe(
+      '2 hr 38 min',
+    );
+    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('52');
+    expect(document.getElementById('account-dialog-stats')?.getAttribute('aria-busy')).toBe('true');
+
+    runNextFrame(1_300);
 
     expect(document.getElementById('account-stats-session-count')?.textContent).toBe('14');
     expect(document.getElementById('account-stats-listening-time')?.textContent).toBe(
@@ -803,7 +821,7 @@ describe('optional account UI', () => {
 
     document.getElementById('btn-account-center-close')?.click();
     openAccountDialog();
-    await vi.waitFor(() => expect(requestAnimationFrameMock).toHaveBeenCalledTimes(4));
+    await vi.waitFor(() => expect(requestAnimationFrameMock).toHaveBeenCalledTimes(6));
     expect(pendingFrames.size).toBe(1);
 
     document.getElementById('btn-account-center-close')?.click();

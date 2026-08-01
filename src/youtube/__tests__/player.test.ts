@@ -8,10 +8,7 @@ import { MSG } from '../../core/constants.ts';
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
-import {
-  registerProRoomLegacyMediaHooks,
-  type ProRoomLegacyMediaHooks,
-} from '../../pro-room/legacy-media-hooks.ts';
+import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import {
   createProPlaybackAuthorityToken,
   getProPlaybackAuthorityKey,
@@ -132,7 +129,7 @@ beforeEach(() => {
   resetState();
   bus.clear();
   vi.useFakeTimers();
-  registerProRoomLegacyMediaHooks(null);
+  registerProRoomMediaHooks(null);
   registerProPlaybackCommandHandler(null);
   resetProPlaybackAuthorityHooks();
 
@@ -146,7 +143,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  registerProRoomLegacyMediaHooks(null);
+  registerProRoomMediaHooks(null);
   registerProPlaybackCommandHandler(null);
   resetProPlaybackAuthorityHooks();
   vi.useRealTimers();
@@ -156,7 +153,7 @@ afterEach(() => {
   delete (window as unknown as { onYouTubeIframeAPIReady?: unknown }).onYouTubeIframeAPIReady;
 });
 
-function proMediaHooks(overrides: Partial<ProRoomLegacyMediaHooks> = {}): ProRoomLegacyMediaHooks {
+function proMediaHooks(overrides: Partial<ProRoomMediaHooks> = {}): ProRoomMediaHooks {
   return {
     addFiles: () => false,
     addYouTube: () => false,
@@ -1270,9 +1267,9 @@ describe('YouTube Player', () => {
     });
 
     it('delegates a stable queue occurrence and title patch for a PRO member', async () => {
-      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>(() => true);
+      const addYouTube = vi.fn<ProRoomMediaHooks['addYouTube']>(() => true);
       const updateTrackMetadata = vi.fn(() => true);
-      registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube, updateTrackMetadata }));
+      registerProRoomMediaHooks(proMediaHooks({ addYouTube, updateTrackMetadata }));
       setState('room.context', {
         kind: 'pro',
         roomId: '000001',
@@ -1309,7 +1306,7 @@ describe('YouTube Player', () => {
     });
 
     it('never applies a failed PRO title patch through the legacy local queue path', async () => {
-      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>((item) => {
+      const addYouTube = vi.fn<ProRoomMediaHooks['addYouTube']>((item) => {
         setState('playlist.items', [
           {
             ...item,
@@ -1320,7 +1317,7 @@ describe('YouTube Player', () => {
         return true;
       });
       const updateTrackMetadata = vi.fn(() => false);
-      registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube, updateTrackMetadata }));
+      registerProRoomMediaHooks(proMediaHooks({ addYouTube, updateTrackMetadata }));
       setState('room.context', {
         kind: 'pro',
         roomId: '000001',
@@ -1346,8 +1343,8 @@ describe('YouTube Player', () => {
     });
 
     it('fails closed for PRO media adds without media-management authority', async () => {
-      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>(() => true);
-      registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube }));
+      const addYouTube = vi.fn<ProRoomMediaHooks['addYouTube']>(() => true);
+      registerProRoomMediaHooks(proMediaHooks({ addYouTube }));
       setState('room.context', {
         kind: 'pro',
         roomId: '000001',
@@ -1417,8 +1414,8 @@ describe('YouTube Player', () => {
     });
 
     it('uses the requested video from a prefetched playlist without changing manifest order', async () => {
-      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>(() => true);
-      registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube }));
+      const addYouTube = vi.fn<ProRoomMediaHooks['addYouTube']>(() => true);
+      registerProRoomMediaHooks(proMediaHooks({ addYouTube }));
       setState('room.context', {
         kind: 'pro',
         roomId: '000001',
@@ -1514,8 +1511,8 @@ describe('YouTube Player', () => {
     });
 
     it('resolves a playlist-only PRO add without interrupting current playback', async () => {
-      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>(() => true);
-      registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube }));
+      const addYouTube = vi.fn<ProRoomMediaHooks['addYouTube']>(() => true);
+      registerProRoomMediaHooks(proMediaHooks({ addYouTube }));
       setState('room.context', {
         kind: 'pro',
         roomId: '000001',
@@ -1578,8 +1575,8 @@ describe('YouTube Player', () => {
     });
 
     it('keeps a PRO video-plus-playlist entry while preserving canonical manifest order', async () => {
-      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>(() => true);
-      registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube }));
+      const addYouTube = vi.fn<ProRoomMediaHooks['addYouTube']>(() => true);
+      registerProRoomMediaHooks(proMediaHooks({ addYouTube }));
       setState('room.context', {
         kind: 'pro',
         roomId: '000001',
@@ -1632,8 +1629,8 @@ describe('YouTube Player', () => {
     });
 
     it('drops a resolved PRO manifest after the room lease changes', async () => {
-      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>(() => true);
-      registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube }));
+      const addYouTube = vi.fn<ProRoomMediaHooks['addYouTube']>(() => true);
+      registerProRoomMediaHooks(proMediaHooks({ addYouTube }));
       setState('room.context', {
         kind: 'pro',
         roomId: '000001',
@@ -1694,8 +1691,8 @@ describe('YouTube Player', () => {
     });
 
     it('reports a playlist-only PRO resolution failure without mutating the queue', async () => {
-      const addYouTube = vi.fn<ProRoomLegacyMediaHooks['addYouTube']>(() => true);
-      registerProRoomLegacyMediaHooks(proMediaHooks({ addYouTube }));
+      const addYouTube = vi.fn<ProRoomMediaHooks['addYouTube']>(() => true);
+      registerProRoomMediaHooks(proMediaHooks({ addYouTube }));
       setState('room.context', {
         kind: 'pro',
         roomId: '000001',
@@ -2037,7 +2034,7 @@ describe('YouTube Player', () => {
   describe('PRO iframe title persistence', () => {
     it('persists a coordinator placeholder with bounded retries', async () => {
       const updateTrackMetadata = vi.fn(() => true);
-      registerProRoomLegacyMediaHooks(proMediaHooks({ updateTrackMetadata }));
+      registerProRoomMediaHooks(proMediaHooks({ updateTrackMetadata }));
       setState('room.context', {
         kind: 'pro',
         roomId: '000001',
@@ -2120,7 +2117,7 @@ describe('YouTube Player', () => {
 
     it('protects explicit titles and mismatched sources while allowing capable PRO members', async () => {
       const updateTrackMetadata = vi.fn(() => true);
-      registerProRoomLegacyMediaHooks(proMediaHooks({ updateTrackMetadata }));
+      registerProRoomMediaHooks(proMediaHooks({ updateTrackMetadata }));
       const { persistResolvedProYouTubeTitleForTests } = await import('../iframe.ts');
       setState('room.context', {
         kind: 'pro',

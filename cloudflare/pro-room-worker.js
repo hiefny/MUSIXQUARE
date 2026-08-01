@@ -8,7 +8,6 @@ import {
   initialEffectsState,
   mergeRoomEffectsPatch,
   normalizeStoredEffects,
-  parseLegacyRoomEffects,
   parseRoomEffects,
   parseRoomEffectsPatch,
   publicEffects,
@@ -26,7 +25,7 @@ import {
 import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.js';
 import { isSafeVisibleDisplayName } from './display-name-policy.js';
 import {
-  LEGACY_PRO_ROOM_GENERATION,
+  INITIAL_PRO_ROOM_GENERATION,
   isProRoomGeneration,
   proRoomGenerationHeaderValue,
   proRoomMediaPrefix,
@@ -85,61 +84,40 @@ const BOT_REQUEST_ID_RE = IDEMPOTENCY_KEY_RE;
 // nondeterministically on its next request.
 const BOT_LEASE_TOKEN_RE = /^[A-Za-z0-9_-]{32}$/;
 
-// Generation zero is the pre-incarnation wire/storage shape. Keep emitting
-// that exact shape while old Workers can still be present during a rolling
-// deploy; newer receivers normalize an absent generation to zero. Reusable
-// generations are always explicit and exact.
 function proRoomGenerationWireFields(roomGeneration) {
   if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
-  return roomGeneration === LEGACY_PRO_ROOM_GENERATION ? {} : { roomGeneration };
+  return { roomGeneration };
 }
 
 function proRoomGenerationWireHeaders(roomGeneration) {
   if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
-  return roomGeneration === LEGACY_PRO_ROOM_GENERATION
-    ? {}
-    : { [PRO_ROOM_GENERATION_HEADER]: proRoomGenerationHeaderValue(roomGeneration) };
+  return { [PRO_ROOM_GENERATION_HEADER]: proRoomGenerationHeaderValue(roomGeneration) };
 }
 
 function proRoomGenerationUploadMetadataHeaders(roomGeneration) {
   if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
-  // The pre-generation Developer facade/API exact allowlists reject unknown
-  // signed headers. Keep generation zero byte-for-byte compatible across both
-  // upload producers while every reusable incarnation remains bound in its
-  // isolated R2 prefix and mandatory signed generation metadata.
-  return roomGeneration === LEGACY_PRO_ROOM_GENERATION
-    ? {}
-    : { 'x-amz-meta-mxqr-generation': proRoomGenerationHeaderValue(roomGeneration) };
+  return { 'x-amz-meta-mxqr-generation': proRoomGenerationHeaderValue(roomGeneration) };
 }
 
 function responseRoomGenerationMatches(payload, roomGeneration) {
   if (!payload || typeof payload !== 'object' || !isProRoomGeneration(roomGeneration)) return false;
-  const hasGeneration = Object.prototype.hasOwnProperty.call(payload, 'roomGeneration');
-  return roomGeneration === LEGACY_PRO_ROOM_GENERATION
-    ? !hasGeneration || payload.roomGeneration === LEGACY_PRO_ROOM_GENERATION
-    : hasGeneration && payload.roomGeneration === roomGeneration;
+  return payload.roomGeneration === roomGeneration;
 }
 
 function exactInternalRoomGeneration(request, payload) {
-  const hasBodyGeneration = Object.prototype.hasOwnProperty.call(payload || {}, 'roomGeneration');
   const header = request.headers.get(PRO_ROOM_GENERATION_HEADER);
-  if (!hasBodyGeneration && header === null) return LEGACY_PRO_ROOM_GENERATION;
-  const roomGeneration = payload?.roomGeneration;
-  return hasBodyGeneration &&
-    isProRoomGeneration(roomGeneration) &&
-    header === proRoomGenerationHeaderValue(roomGeneration)
+  if (!/^(?:0|[1-9]\d*)$/.test(header || '')) return null;
+  const roomGeneration = Number(header);
+  if (!isProRoomGeneration(roomGeneration)) return null;
+  return payload?.roomGeneration === undefined || payload.roomGeneration === roomGeneration
     ? roomGeneration
     : null;
 }
 
 const SCHEMA_VERSION = 1;
-// `pro-room:v1` remains a rollback shadow for rooms that still fit in the old
-// single-record budget. The live v2 representation keeps the bounded core and
-// playlist rows in separate keys so a large queue cannot crowd media
-// completion metadata out of the Durable Object record.
-const STORAGE_KEY = 'pro-room:v1';
+// Keep the bounded core and playlist rows in separate keys so a large queue
+// cannot crowd media completion metadata out of the Durable Object record.
 const STORAGE_V2_CORE_KEY = 'pro-room:v2:core';
-const STORAGE_V2_VIRTUAL_TREBLE_KEY = 'pro-room:v2:effects:virtual-treble';
 const STORAGE_V2_PLAYLIST_PREFIX = 'pro-room:v2:playlist:';
 const STORAGE_V2_SCHEMA_VERSION = 2;
 const ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
@@ -224,10 +202,6 @@ const PLAYBACK_BROADCAST_RETRY_MAX_ATTEMPTS = 16;
 // CANCEL. Newer COMMITs supersede both, so the durable playback outbox never
 // needs more than these two ordered records.
 const PLAYBACK_BROADCAST_OUTBOX_MAX_ITEMS = 2;
-// Keep the single-record rollback shadow fresh enough that an immediately
-// rolled-back Worker still sees a live participant, without rewriting a
-// potentially large legacy playlist on every 15-second heartbeat.
-const LEGACY_SHADOW_HEARTBEAT_INTERVAL_MS = 30_000;
 const RESERVATION_TTL_SECONDS = 15 * 60;
 // A completed upload is deliberately retained long enough for the client to
 // append it to the authoritative playlist. If that never happens, the asset is
@@ -419,54 +393,6 @@ function configuredNumber(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGE
   return Number.isSafeInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
 }
 
-function isMissingDeveloperGenerationSchemaError(error) {
-  let current = error;
-  for (let depth = 0; current && depth < 4; depth += 1) {
-    const message = String(current?.message || current);
-    if (
-      /no such table:\s*mxqr_developer_api_room_generation_tombstones/i.test(message) ||
-      /no such column:\s*room_generation/i.test(message) ||
-      /has no column named room_generation/i.test(message)
-    ) {
-      return true;
-    }
-    current = current?.cause;
-  }
-  return false;
-}
-
-function isMissingAdminGenerationSchemaError(error) {
-  let current = error;
-  for (let depth = 0; current && depth < 4; depth += 1) {
-    const message = String(current?.message || current);
-    if (
-      /no such table:\s*mxqr_pro_room_generation_history/i.test(message) ||
-      /no such column:\s*room_generation/i.test(message) ||
-      /has no column named room_generation/i.test(message)
-    ) {
-      return true;
-    }
-    current = current?.cause;
-  }
-  return false;
-}
-
-function isMissingAccountGenerationSchemaError(error) {
-  let current = error;
-  for (let depth = 0; current && depth < 4; depth += 1) {
-    const message = String(current?.message || current);
-    if (
-      /no such table:\s*mxqr_account_pro_room_generations/i.test(message) ||
-      /no such column:\s*room_generation/i.test(message) ||
-      /has no column named room_generation/i.test(message)
-    ) {
-      return true;
-    }
-    current = current?.cause;
-  }
-  return false;
-}
-
 function isProRoomCode(value) {
   return typeof value === 'string' && PRO_ROOM_CODE_RE.test(value);
 }
@@ -492,7 +418,7 @@ async function frontProvisionedRoomGeneration(roomCode, env, nowMs = Date.now())
   // rooms. Production always binds D1 so a decommission tombstone can close
   // those launch codes just like every dynamically provisioned room.
   if (!db?.prepare) {
-    return INITIAL_PRO_ROOM_CODES.has(roomCode) ? LEGACY_PRO_ROOM_GENERATION : null;
+    return INITIAL_PRO_ROOM_CODES.has(roomCode) ? INITIAL_PRO_ROOM_GENERATION : null;
   }
   const cache = registryCacheFor(db);
   if (nowMs - cache.refreshedAtMs < PRO_ROOM_REGISTRY_REFRESH_MS) {
@@ -500,40 +426,21 @@ async function frontProvisionedRoomGeneration(roomCode, env, nowMs = Date.now())
   }
   if (!cache.refreshPromise) {
     cache.refreshPromise = (async () => {
-      let result;
-      try {
-        result = await db
-          .prepare(
-            `SELECT room_code, room_generation FROM mxqr_pro_room_registry
-             WHERE status = 'registered'
-             ORDER BY room_code ASC LIMIT ?1`,
-          )
-          .bind(PRO_ROOM_REGISTRY_MAX_ITEMS + 1)
-          .all();
-      } catch (error) {
-        // Rolling-deploy compatibility: the generation-zero registry existed
-        // before the additive D1 migration. Never infer a later generation
-        // when that column is unavailable.
-        if (!isMissingAdminGenerationSchemaError(error)) throw error;
-        result = await db
-          .prepare(
-            `SELECT room_code FROM mxqr_pro_room_registry
-             WHERE status = 'registered'
-             ORDER BY room_code ASC LIMIT ?1`,
-          )
-          .bind(PRO_ROOM_REGISTRY_MAX_ITEMS + 1)
-          .all();
-      }
+      const result = await db
+        .prepare(
+          `SELECT room_code, room_generation FROM mxqr_pro_room_registry
+           WHERE status = 'registered'
+           ORDER BY room_code ASC LIMIT ?1`,
+        )
+        .bind(PRO_ROOM_REGISTRY_MAX_ITEMS + 1)
+        .all();
       const rows = Array.isArray(result?.results) ? result.results : [];
       if (rows.length > PRO_ROOM_REGISTRY_MAX_ITEMS) {
         throw new Error('PRO room registry exceeds its bounded cache capacity');
       }
       const registered = new Map();
       for (const row of rows) {
-        const generation =
-          row?.room_generation === undefined
-            ? LEGACY_PRO_ROOM_GENERATION
-            : Number(row.room_generation);
+        const generation = Number(row?.room_generation);
         if (isProRoomCode(row?.room_code) && isProRoomGeneration(generation)) {
           registered.set(row.room_code, generation);
         }
@@ -804,7 +711,7 @@ export async function issueProRoomActivationClaim(roomCode, secret, options = {}
   }
   const generation = options.generation ?? 0;
   if (!Number.isSafeInteger(generation) || generation < 0) throw new Error('Invalid generation');
-  const roomGeneration = options.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION;
+  const roomGeneration = options.roomGeneration ?? INITIAL_PRO_ROOM_GENERATION;
   if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
   const nonce = options.nonce ?? randomToken(18);
   if (typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) {
@@ -841,11 +748,8 @@ async function verifyActivationClaim(token, roomCode, secret, nowMs) {
     payload.nonce.length >= 16 &&
     Number.isSafeInteger(payload.generation) &&
     payload.generation >= 0 &&
-    (payload.roomGeneration === undefined || isProRoomGeneration(payload.roomGeneration))
-    ? {
-        ...payload,
-        roomGeneration: payload.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION,
-      }
+    isProRoomGeneration(payload.roomGeneration)
+    ? payload
     : null;
 }
 
@@ -863,7 +767,7 @@ export async function issueProRoomOwnerRecoveryClaim(roomCode, secret, options =
     throw new Error('Invalid expiry');
   }
   const nonce = options.nonce ?? randomToken(18);
-  const roomGeneration = options.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION;
+  const roomGeneration = options.roomGeneration ?? INITIAL_PRO_ROOM_GENERATION;
   if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
   if (typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) {
     throw new Error('Invalid nonce');
@@ -895,16 +799,13 @@ async function verifyOwnerRecoveryClaim(token, roomCode, secret, nowMs) {
     !Number.isSafeInteger(payload.exp) ||
     payload.exp <= nowMs ||
     payload.exp - payload.iat > RECOVERY_CLAIM_MAX_LIFETIME_MS ||
-    (payload.roomGeneration !== undefined && !isProRoomGeneration(payload.roomGeneration)) ||
+    !isProRoomGeneration(payload.roomGeneration) ||
     typeof payload.nonce !== 'string' ||
     !/^[A-Za-z0-9_-]{16,128}$/.test(payload.nonce)
   ) {
     return null;
   }
-  return {
-    ...payload,
-    roomGeneration: payload.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION,
-  };
+  return payload;
 }
 
 async function derivePinHash(pin, salt, pepper, iterations = PBKDF2_ITERATIONS) {
@@ -1117,7 +1018,7 @@ function ownerCookie(roomCode, token) {
 function initialRoomState(
   roomCode,
   provisioned = INITIAL_PRO_ROOM_CODES.has(roomCode),
-  roomGeneration = LEGACY_PRO_ROOM_GENERATION,
+  roomGeneration = INITIAL_PRO_ROOM_GENERATION,
 ) {
   return {
     v: 1,
@@ -2737,10 +2638,6 @@ class RoomStateStorageCommitError extends Error {
   }
 }
 
-function serializedStateByteLength(room) {
-  return encoder.encode(JSON.stringify(room)).byteLength;
-}
-
 function playlistStorageKey(queueItemId) {
   return `${STORAGE_V2_PLAYLIST_PREFIX}${queueItemId}`;
 }
@@ -2762,49 +2659,11 @@ function parseStoredPlaylistItem(value) {
 
 function splitPersistentRoomState(room) {
   const { playlist: _playlist, ...core } = room;
-  const rollbackEffects = rollbackCompatibleEffectsEnvelope(room.effects);
   return {
     schemaVersion: STORAGE_V2_SCHEMA_VERSION,
-    core: {
-      ...core,
-      ...(rollbackEffects === undefined ? {} : { effects: rollbackEffects }),
-    },
+    core,
     playlistOrder: room.playlist.map((item) => item.queueItemId),
   };
-}
-
-function legacyShadowRoomState(room) {
-  const rollbackEffects = rollbackCompatibleEffectsEnvelope(room.effects);
-  return {
-    ...room,
-    ...(rollbackEffects === undefined ? {} : { effects: rollbackEffects }),
-  };
-}
-
-function rollbackCompatibleEffectsEnvelope(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  if (!value.effects || typeof value.effects !== 'object' || Array.isArray(value.effects)) {
-    return value;
-  }
-  const { virtualTreble: _virtualTreble, ...legacyEffects } = value.effects;
-  return { ...value, effects: legacyEffects };
-}
-
-function virtualTrebleStorageState(room) {
-  return {
-    schemaVersion: 1,
-    roomCode: room.roomCode,
-    enabled: room.effects.effects.virtualTreble.enabled,
-  };
-}
-
-function parseVirtualTrebleStorageState(value, roomCode) {
-  return hasExactKeys(value, ['schemaVersion', 'roomCode', 'enabled']) &&
-    value.schemaVersion === 1 &&
-    value.roomCode === roomCode &&
-    typeof value.enabled === 'boolean'
-    ? { enabled: value.enabled }
-    : null;
 }
 
 function serializedCoreStateByteLength(room) {
@@ -2998,7 +2857,6 @@ export class MusixquareProRoom {
     this.persistedPlaylistSignatures = new Map();
     this.persistedPresenceLastSeenAtMs = new Map();
     this.hasV2Persistence = false;
-    this.lastLegacyShadowPersistedAtMs = 0;
     this.heartbeatDurabilityDirty = false;
     this.lastHeartbeatDurabilityPersistedAtMs = null;
     this.heartbeatFlushGeneration = 0;
@@ -3036,20 +2894,16 @@ export class MusixquareProRoom {
     if (!isProRoomCode(roomCode)) return false;
     const generationHeader = request.headers.get(PRO_ROOM_GENERATION_HEADER);
     const roomGeneration =
-      generationHeader === null || generationHeader === ''
-        ? LEGACY_PRO_ROOM_GENERATION
-        : Number(generationHeader);
+      generationHeader === null || generationHeader === '' ? NaN : Number(generationHeader);
     if (!isProRoomGeneration(roomGeneration)) return false;
     if (!this.room) {
       this.room = initialRoomState(
         roomCode,
-        roomGeneration === LEGACY_PRO_ROOM_GENERATION && INITIAL_PRO_ROOM_CODES.has(roomCode),
+        roomGeneration === INITIAL_PRO_ROOM_GENERATION && INITIAL_PRO_ROOM_CODES.has(roomCode),
         roomGeneration,
       );
     }
-    if (!Object.prototype.hasOwnProperty.call(this.room, 'roomGeneration')) {
-      this.room.roomGeneration = LEGACY_PRO_ROOM_GENERATION;
-    }
+    if (!isProRoomGeneration(this.room.roomGeneration)) return false;
     if (!Object.prototype.hasOwnProperty.call(this.room, 'provisioned')) {
       // v1 launch rooms predate the dynamic registry. No other room could have
       // persisted state before this field existed.
@@ -3089,9 +2943,6 @@ export class MusixquareProRoom {
       this.room.playback.youtubeSubIndex = null;
     }
     for (const session of Object.values(this.room.sessions)) {
-      if (!Object.prototype.hasOwnProperty.call(session, 'roomGeneration')) {
-        session.roomGeneration = LEGACY_PRO_ROOM_GENERATION;
-      }
       if (!Number.isSafeInteger(session.signalingTicketSequence)) {
         session.signalingTicketSequence = 0;
       }
@@ -3594,7 +3445,6 @@ export class MusixquareProRoom {
       persistedPlaylistSignatures: new Map(this.persistedPlaylistSignatures),
       persistedPresenceLastSeenAtMs: new Map(this.persistedPresenceLastSeenAtMs),
       hasV2Persistence: this.hasV2Persistence,
-      lastLegacyShadowPersistedAtMs: this.lastLegacyShadowPersistedAtMs,
       heartbeatDurabilityDirty: this.heartbeatDurabilityDirty,
       lastHeartbeatDurabilityPersistedAtMs: this.lastHeartbeatDurabilityPersistedAtMs,
       heartbeatFlushGeneration: this.heartbeatFlushGeneration,
@@ -3630,7 +3480,6 @@ export class MusixquareProRoom {
     this.persistedPlaylistSignatures = checkpoint.persistedPlaylistSignatures;
     this.persistedPresenceLastSeenAtMs = checkpoint.persistedPresenceLastSeenAtMs;
     this.hasV2Persistence = checkpoint.hasV2Persistence;
-    this.lastLegacyShadowPersistedAtMs = checkpoint.lastLegacyShadowPersistedAtMs;
     this.heartbeatDurabilityDirty = checkpoint.heartbeatDurabilityDirty;
     this.lastHeartbeatDurabilityPersistedAtMs = checkpoint.lastHeartbeatDurabilityPersistedAtMs;
     this.heartbeatFlushGeneration = checkpoint.heartbeatFlushGeneration;
@@ -3691,16 +3540,6 @@ export class MusixquareProRoom {
         playlist.push(item);
       }
       const room = { ...storedV2.core, playlist };
-      const storedVirtualTreble = parseVirtualTrebleStorageState(
-        await this.storage.get(STORAGE_V2_VIRTUAL_TREBLE_KEY),
-        room.roomCode,
-      );
-      if (storedVirtualTreble && room.effects?.effects) {
-        room.effects = {
-          ...room.effects,
-          effects: { ...room.effects.effects, virtualTreble: storedVirtualTreble },
-        };
-      }
       assertBoundedRoomState(room);
       this.room = room;
       this.persistedPlaylistSignatures = new Map(
@@ -3716,19 +3555,7 @@ export class MusixquareProRoom {
       return;
     }
 
-    this.room = (await this.storage.get(STORAGE_KEY)) || null;
-    if (this.room) {
-      const storedVirtualTreble = parseVirtualTrebleStorageState(
-        await this.storage.get(STORAGE_V2_VIRTUAL_TREBLE_KEY),
-        this.room.roomCode,
-      );
-      if (storedVirtualTreble && this.room.effects?.effects) {
-        this.room.effects = {
-          ...this.room.effects,
-          effects: { ...this.room.effects.effects, virtualTreble: storedVirtualTreble },
-        };
-      }
-    }
+    this.room = null;
     this.persistedPlaylistSignatures = new Map();
     this.persistedPresenceLastSeenAtMs = new Map(
       Object.values(this.room?.presence?.participants || {}).map((participant) => [
@@ -3774,7 +3601,6 @@ export class MusixquareProRoom {
     if (!this.heartbeatDurabilityDirty) return;
     try {
       await this.persist({
-        writeLegacyShadow: false,
         retainEarlierAlarm: true,
         heartbeatFlushGeneration: generation,
       });
@@ -3856,10 +3682,7 @@ export class MusixquareProRoom {
 
   async persistRoom(options = {}) {
     assertBoundedRoomState(this.room);
-    const writeLegacyShadow = options.writeLegacyShadow !== false;
     const storedCore = splitPersistentRoomState(this.room);
-    const storedVirtualTreble = virtualTrebleStorageState(this.room);
-    const legacyShadow = legacyShadowRoomState(this.room);
     const nextSignatures = new Map(
       this.room.playlist.map((item) => [item.queueItemId, playlistItemSignature(item)]),
     );
@@ -3874,17 +3697,10 @@ export class MusixquareProRoom {
     const removedKeys = [...this.persistedPlaylistSignatures.keys()]
       .filter((queueItemId) => !nextSignatures.has(queueItemId))
       .map(playlistStorageKey);
-    const legacyShadowFits =
-      writeLegacyShadow && serializedStateByteLength(legacyShadow) <= STATE_MAX_BYTES;
     const write = async (storage) => {
       await putStorageEntries(storage, changedEntries);
       await deleteStorageKeys(storage, removedKeys);
       await storage.put(STORAGE_V2_CORE_KEY, storedCore);
-      await storage.put(STORAGE_V2_VIRTUAL_TREBLE_KEY, storedVirtualTreble);
-      // Keep an exact rollback shadow while it is representable by the old
-      // single-record format. Once it no longer fits, retain the last valid
-      // shadow instead of deleting the only state an older Worker understands.
-      if (legacyShadowFits) await storage.put(STORAGE_KEY, legacyShadow);
     };
     try {
       if (typeof this.storage.transaction === 'function') {
@@ -3906,15 +3722,6 @@ export class MusixquareProRoom {
       ]),
     );
     this.hasV2Persistence = true;
-    // A v2 room can deliberately exceed the rollback shadow's single-record
-    // budget. A successful representability check is still a completed
-    // checkpoint attempt; throttle the next check even when the last valid v1
-    // shadow must be retained unchanged. A restarted isolate conservatively
-    // performs one fresh attempt because this timestamp is intentionally not
-    // part of the durable schema.
-    if (writeLegacyShadow) {
-      this.lastLegacyShadowPersistedAtMs = Date.now();
-    }
     // The room transaction above is already authoritative. Alarm maintenance
     // is a post-commit scheduling concern: a transient setAlarm/deleteAlarm
     // failure must not turn a committed mutation into an apparent failed one.
@@ -4518,11 +4325,9 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request, 2 * 1024);
     if (
       parsed.response ||
-      !hasExactKeys(parsed.value, ['roomCode', 'requestId', 'prompt'], ['roomGeneration']) ||
+      !hasExactKeys(parsed.value, ['roomCode', 'roomGeneration', 'requestId', 'prompt']) ||
       parsed.value.roomCode !== this.room.roomCode ||
-      (this.room.roomGeneration !== LEGACY_PRO_ROOM_GENERATION &&
-        parsed.value.roomGeneration === undefined) ||
-      (parsed.value.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION) !== this.room.roomGeneration ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       !BOT_REQUEST_ID_RE.test(parsed.value.requestId || '') ||
       boundedString(parsed.value.prompt, 500) === null
     ) {
@@ -4640,15 +4445,16 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request, 64 * 1024);
     if (
       parsed.response ||
-      !hasExactKeys(
-        parsed.value,
-        ['roomCode', 'requestId', 'leaseToken', 'plan', 'tracks'],
-        ['roomGeneration'],
-      ) ||
+      !hasExactKeys(parsed.value, [
+        'roomCode',
+        'roomGeneration',
+        'requestId',
+        'leaseToken',
+        'plan',
+        'tracks',
+      ]) ||
       parsed.value.roomCode !== this.room.roomCode ||
-      (this.room.roomGeneration !== LEGACY_PRO_ROOM_GENERATION &&
-        parsed.value.roomGeneration === undefined) ||
-      (parsed.value.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION) !== this.room.roomGeneration ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       !BOT_REQUEST_ID_RE.test(parsed.value.requestId || '') ||
       !BOT_LEASE_TOKEN_RE.test(parsed.value.leaseToken || '') ||
       !Array.isArray(parsed.value.tracks)
@@ -4736,9 +4542,13 @@ export class MusixquareProRoom {
       const queueResponse = await this.handleInternalDeveloperQueueMutation(
         new Request('https://pro-room.internal/internal/developer/v1/queue/mutate', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            ...proRoomGenerationWireHeaders(this.room.roomGeneration),
+          },
           body: JSON.stringify({
             roomCode: this.room.roomCode,
+            ...proRoomGenerationWireFields(this.room.roomGeneration),
             keyId: BOT_DEVELOPER_KEY_ID,
             idempotencyKey: queueIdempotencyKey,
             actorName: queueAdditionActorName(`${auth.session.displayName} · BOT`, 'BOT'),
@@ -4779,9 +4589,13 @@ export class MusixquareProRoom {
       const queueResponse = await this.handleInternalDeveloperQueueMutation(
         new Request('https://pro-room.internal/internal/developer/v1/queue/mutate', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            ...proRoomGenerationWireHeaders(this.room.roomGeneration),
+          },
           body: JSON.stringify({
             roomCode: this.room.roomCode,
+            ...proRoomGenerationWireFields(this.room.roomGeneration),
             keyId: BOT_DEVELOPER_KEY_ID,
             idempotencyKey: queueIdempotencyKey,
             mutation:
@@ -4821,9 +4635,13 @@ export class MusixquareProRoom {
       const queueModeResponse = await this.handleInternalDeveloperQueueModeUpdate(
         new Request('https://pro-room.internal/internal/developer/v1/queue-mode/update', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            ...proRoomGenerationWireHeaders(this.room.roomGeneration),
+          },
           body: JSON.stringify({
             roomCode: this.room.roomCode,
+            ...proRoomGenerationWireFields(this.room.roomGeneration),
             keyId: BOT_DEVELOPER_KEY_ID,
             idempotencyKey: modeIdempotencyKey,
             queueMode: {
@@ -4882,9 +4700,9 @@ export class MusixquareProRoom {
       exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       (parsed.value.keyId !== undefined &&
         !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '')) ||
-      (parsed.value.effectsVersion !== undefined &&
-        ![1, 2].includes(parsed.value.effectsVersion)) ||
-      (parsed.value.projection !== 'effects' && parsed.value.effectsVersion !== undefined) ||
+      (parsed.value.projection === 'effects'
+        ? parsed.value.effectsVersion !== 2
+        : parsed.value.effectsVersion !== undefined) ||
       !['room', 'playback', 'queue', 'effects', 'queue-mode'].includes(parsed.value.projection)
     ) {
       return errorResponse('INVALID_REQUEST', 400);
@@ -4894,7 +4712,7 @@ export class MusixquareProRoom {
       parsed.value.projection,
       Date.now(),
       parsed.value.keyId,
-      parsed.value.effectsVersion || 1,
+      parsed.value.projection === 'effects' ? 2 : 1,
     );
     return projection ? jsonResponse(projection) : errorResponse('ROOM_STATE_INVALID', 503);
   }
@@ -5685,16 +5503,13 @@ export class MusixquareProRoom {
     if (serializedCoreStateByteLength(this.room) > STATE_MAX_BYTES - 32 * 1024) {
       return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
     }
-    const assetRoomGeneration =
-      asset.roomGeneration === undefined ? LEGACY_PRO_ROOM_GENERATION : asset.roomGeneration;
+    const assetRoomGeneration = asset.roomGeneration;
     if (assetRoomGeneration !== this.room.roomGeneration) {
       return errorResponse('ROOM_STATE_INVALID', 503);
     }
     const expectedObjectMetadata = {
       'mxqr-room': this.room.roomCode,
-      ...(assetRoomGeneration === LEGACY_PRO_ROOM_GENERATION
-        ? {}
-        : { 'mxqr-generation': String(assetRoomGeneration) }),
+      'mxqr-generation': String(assetRoomGeneration),
       'mxqr-asset': asset.assetId,
       'mxqr-version': String(asset.version),
       'mxqr-bytes': String(asset.byteLength),
@@ -6029,31 +5844,14 @@ export class MusixquareProRoom {
     const db = this.env?.MUSIXQUARE_ADMIN_DB || this.env?.ADMIN_METRICS_DB || null;
     if (!db?.prepare) return;
     const update = (async () => {
-      try {
-        await db
-          .prepare(
-            `UPDATE mxqr_pro_room_registry
-             SET activation_state = 'active', updated_at = ?3
-             WHERE room_code = ?1 AND room_generation = ?2 AND status = 'registered'`,
-          )
-          .bind(this.room.roomCode, this.room.roomGeneration, Date.now())
-          .run();
-      } catch (error) {
-        if (
-          this.room.roomGeneration !== LEGACY_PRO_ROOM_GENERATION ||
-          !isMissingAdminGenerationSchemaError(error)
-        ) {
-          throw error;
-        }
-        await db
-          .prepare(
-            `UPDATE mxqr_pro_room_registry
-             SET activation_state = 'active', updated_at = ?2
-             WHERE room_code = ?1 AND status = 'registered'`,
-          )
-          .bind(this.room.roomCode, Date.now())
-          .run();
-      }
+      await db
+        .prepare(
+          `UPDATE mxqr_pro_room_registry
+           SET activation_state = 'active', updated_at = ?3
+           WHERE room_code = ?1 AND room_generation = ?2 AND status = 'registered'`,
+        )
+        .bind(this.room.roomCode, this.room.roomGeneration, Date.now())
+        .run();
     })().catch((error) => {
       console.warn('[PRO registry] activation-state update failed', error);
     });
@@ -6803,10 +6601,8 @@ export class MusixquareProRoom {
           : ['participantId', 'presenceIncarnationId', 'permission'];
     if (
       parsed.response ||
-      !hasExactKeys(parsed.value, expectedKeys, ['roomGeneration']) ||
-      (this.room.roomGeneration !== LEGACY_PRO_ROOM_GENERATION &&
-        parsed.value?.roomGeneration === undefined) ||
-      (parsed.value?.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION) !== this.room.roomGeneration ||
+      !hasExactKeys(parsed.value, [...expectedKeys, 'roomGeneration']) ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       !OPAQUE_ID_RE.test(parsed.value.participantId || '') ||
       !OPAQUE_ID_RE.test(parsed.value.presenceIncarnationId || '') ||
       !PRO_INTERNAL_AUTHORITY_PERMISSIONS.has(permission)
@@ -7225,7 +7021,7 @@ export class MusixquareProRoom {
     const contractVersion = effectsContractVersion(request);
     return contractVersion === null
       ? errorResponse('INVALID_REQUEST', 400)
-      : jsonResponse(publicEffects(this.room, contractVersion));
+      : jsonResponse(publicEffects(this.room));
   }
 
   async handleUpdateEffects(request) {
@@ -7243,22 +7039,7 @@ export class MusixquareProRoom {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const contractVersion = effectsContractVersion(request);
-    const parsedEffects =
-      contractVersion === 2
-        ? parseRoomEffects(parsed.value.effects)
-        : contractVersion === 1
-          ? parseLegacyRoomEffects(parsed.value.effects)
-          : null;
-    // A legacy full-form update knows nothing about virtual treble. Preserve
-    // the canonical value so an already-open v1 client cannot erase a v2
-    // participant's room-wide setting while changing an unrelated effect.
-    const effects =
-      contractVersion === 1 && parsedEffects
-        ? {
-            ...parsedEffects,
-            virtualTreble: { ...this.room.effects.effects.virtualTreble },
-          }
-        : parsedEffects;
+    const effects = contractVersion === 2 ? parseRoomEffects(parsed.value.effects) : null;
     if (
       !isSafeNonNegativeInteger(parsed.value.coordinatorEpoch) ||
       !isSafeNonNegativeInteger(parsed.value.baseRevision) ||
@@ -7273,13 +7054,13 @@ export class MusixquareProRoom {
       return jsonResponse(
         {
           error: 'EFFECTS_REVISION_CONFLICT',
-          effects: publicEffects(this.room, contractVersion),
+          effects: publicEffects(this.room),
         },
         409,
       );
     }
     if (JSON.stringify(effects) === JSON.stringify(this.room.effects.effects)) {
-      return jsonResponse(publicEffects(this.room, contractVersion));
+      return jsonResponse(publicEffects(this.room));
     }
     if (
       this.room.effects.revision >= Number.MAX_SAFE_INTEGER ||
@@ -7300,7 +7081,7 @@ export class MusixquareProRoom {
     await this.broadcastServerEvent(
       this.invalidationEvent({ effectsRevision: this.room.effects.revision }),
     );
-    return jsonResponse(publicEffects(this.room, contractVersion));
+    return jsonResponse(publicEffects(this.room));
   }
 
   async handleGetQueueMode(request) {
@@ -7958,7 +7739,6 @@ export class MusixquareProRoom {
         this.room.pendingPlaybackBroadcasts.shift();
         try {
           await this.persist({
-            writeLegacyShadow: false,
             flushPlaybackOutbox: false,
           });
         } catch {
@@ -7981,7 +7761,6 @@ export class MusixquareProRoom {
       }
       try {
         await this.persist({
-          writeLegacyShadow: false,
           flushPlaybackOutbox: false,
         });
       } catch {
@@ -8049,7 +7828,7 @@ export class MusixquareProRoom {
       this.room.pendingPresenceBroadcast = next;
       // The retry marker and its alarm must survive isolate eviction. It is an
       // internal delivery concern, so avoid rewriting the legacy shadow.
-      await this.persist({ writeLegacyShadow: false, retainEarlierAlarm: true });
+      await this.persist({ retainEarlierAlarm: true });
     });
   }
 
@@ -8063,7 +7842,7 @@ export class MusixquareProRoom {
       };
       if (this.comparePresenceBroadcastRevision(deliveredRevision, pending) < 0) return;
       this.room.pendingPresenceBroadcast = null;
-      await this.persist({ writeLegacyShadow: false, retainEarlierAlarm: true });
+      await this.persist({ retainEarlierAlarm: true });
     });
   }
 
@@ -8099,7 +7878,7 @@ export class MusixquareProRoom {
       const nextAttempts = Math.min(PRESENCE_BROADCAST_RETRY_MAX_ATTEMPTS, attempts + 1);
       this.room.pendingPresenceBroadcast = this.currentPresenceBroadcastRecord(nowMs, nextAttempts);
     }
-    await this.persist({ writeLegacyShadow: false });
+    await this.persist();
     return delivered;
   }
 
@@ -8746,24 +8525,6 @@ export class MusixquareProRoom {
         )
         .bind(this.room.roomCode, this.room.roomGeneration, requestId, nowMs)
         .run();
-      if (this.room.roomGeneration === LEGACY_PRO_ROOM_GENERATION) {
-        // Retain the legacy code-level fence while generation-zero consumers
-        // still exist during the additive migration.
-        await db
-          .prepare(
-            `INSERT INTO mxqr_developer_api_room_tombstones
-              (room_code, request_id, decommissioned_at)
-             VALUES (?1, ?2, ?3)
-             ON CONFLICT(room_code) DO UPDATE SET
-               request_id = excluded.request_id,
-               decommissioned_at = MIN(
-                 mxqr_developer_api_room_tombstones.decommissioned_at,
-                 excluded.decommissioned_at
-               )`,
-          )
-          .bind(this.room.roomCode, requestId, nowMs)
-          .run();
-      }
       for (const table of [
         'mxqr_developer_api_keys',
         'mxqr_developer_api_audit',
@@ -8778,44 +8539,8 @@ export class MusixquareProRoom {
           .run();
       }
       return true;
-    } catch (error) {
-      if (
-        this.room.roomGeneration !== LEGACY_PRO_ROOM_GENERATION ||
-        !isMissingDeveloperGenerationSchemaError(error)
-      ) {
-        return false;
-      }
-      try {
-        // Compatibility with the pre-generation schema during a staged
-        // rollout. This branch is forbidden for reusable generations.
-        await db
-          .prepare(
-            `INSERT INTO mxqr_developer_api_room_tombstones
-              (room_code, request_id, decommissioned_at)
-             VALUES (?1, ?2, ?3)
-             ON CONFLICT(room_code) DO UPDATE SET
-               request_id = excluded.request_id,
-               decommissioned_at = MIN(
-                 mxqr_developer_api_room_tombstones.decommissioned_at,
-                 excluded.decommissioned_at
-               )`,
-          )
-          .bind(this.room.roomCode, requestId, nowMs)
-          .run();
-        for (const table of [
-          'mxqr_developer_api_keys',
-          'mxqr_developer_api_audit',
-          'mxqr_developer_api_admin_audit',
-        ]) {
-          await db
-            .prepare(`DELETE FROM ${table} WHERE room_code = ?1`)
-            .bind(this.room.roomCode)
-            .run();
-        }
-        return true;
-      } catch {
-        return false;
-      }
+    } catch {
+      return false;
     }
   }
 
@@ -8823,10 +8548,7 @@ export class MusixquareProRoom {
     const namespace = this.env.DEVELOPER_API_LIMITERS;
     if (!namespace || typeof namespace.idFromName !== 'function') return false;
     try {
-      const limiterName =
-        this.room.roomGeneration === LEGACY_PRO_ROOM_GENERATION
-          ? `room:${this.room.roomCode}`
-          : `room:${proRoomObjectName(this.room.roomCode, this.room.roomGeneration)}`;
+      const limiterName = `room:${proRoomObjectName(this.room.roomCode, this.room.roomGeneration)}`;
       const stub = namespace.get(namespace.idFromName(limiterName));
       const response = await stub.fetch(
         new Request('https://developer-api.internal/internal/admin/v1/decommission', {
@@ -8901,37 +8623,8 @@ export class MusixquareProRoom {
         (currentGeneration === this.room.roomGeneration && row?.status === 'decommissioned') ||
         (isProRoomGeneration(currentGeneration) && currentGeneration > this.room.roomGeneration)
       );
-    } catch (error) {
-      if (
-        this.room.roomGeneration !== LEGACY_PRO_ROOM_GENERATION ||
-        !isMissingAdminGenerationSchemaError(error)
-      ) {
-        return false;
-      }
-      try {
-        // Pre-migration fallback for generation zero only.
-        await db
-          .prepare(
-            `UPDATE mxqr_pro_room_registry
-             SET label = 'Decommissioned PRO room',
-                 status = 'decommissioned',
-                 activation_state = 'unactivated',
-                 updated_at = ?2
-             WHERE room_code = ?1`,
-          )
-          .bind(this.room.roomCode, nowMs)
-          .run();
-        const row = await db
-          .prepare(
-            `SELECT status FROM mxqr_pro_room_registry
-             WHERE room_code = ?1 LIMIT 1`,
-          )
-          .bind(this.room.roomCode)
-          .first();
-        return row?.status === 'decommissioned';
-      } catch {
-        return false;
-      }
+    } catch {
+      return false;
     }
   }
 
@@ -8950,29 +8643,9 @@ export class MusixquareProRoom {
         )
         .bind(roomCode, roomGeneration)
         .run();
-      if (roomGeneration === LEGACY_PRO_ROOM_GENERATION) {
-        await db
-          .prepare(`DELETE FROM mxqr_account_pro_rooms WHERE room_code = ?1`)
-          .bind(roomCode)
-          .run();
-      }
       return true;
-    } catch (error) {
-      if (
-        roomGeneration !== LEGACY_PRO_ROOM_GENERATION ||
-        !isMissingAccountGenerationSchemaError(error)
-      ) {
-        return false;
-      }
-      try {
-        await db
-          .prepare(`DELETE FROM mxqr_account_pro_rooms WHERE room_code = ?1`)
-          .bind(roomCode)
-          .run();
-        return true;
-      } catch {
-        return false;
-      }
+    } catch {
+      return false;
     }
   }
 
@@ -9080,9 +8753,9 @@ export class MusixquareProRoom {
     const parsed = await readJsonBody(request, SMALL_REQUEST_MAX_BYTES);
     if (
       parsed.error ||
-      !hasExactKeys(parsed.value, ['roomCode', 'requestId'], ['roomGeneration']) ||
+      !hasExactKeys(parsed.value, ['roomCode', 'roomGeneration', 'requestId']) ||
       parsed.value.roomCode !== this.room.roomCode ||
-      (parsed.value.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION) !== this.room.roomGeneration ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       !ADMIN_REQUEST_ID_RE.test(parsed.value.requestId)
     ) {
       return errorResponse(parsed.error || 'INVALID_REQUEST', parsed.status || 400);
@@ -9634,7 +9307,7 @@ export class MusixquareProRoom {
         auth.session.accountLeaseExpiresAtMs <= nowMs + ACCOUNT_IDENTITY_LEASE_RENEW_THRESHOLD_MS
       ) {
         auth.session.accountLeaseExpiresAtMs = this.accountIdentityLeaseExpiresAt(nowMs);
-        await this.persist({ writeLegacyShadow: false, retainEarlierAlarm: true });
+        await this.persist({ retainEarlierAlarm: true });
       }
       return jsonResponse(
         {
@@ -9718,7 +9391,7 @@ export class MusixquareProRoom {
       // This endpoint cannot create an account-room relationship and changes no
       // public revision. Keep the durable proof, but avoid rewriting the v1
       // rollback shadow or moving an already-earlier alarm on every renewal.
-      await this.persist({ writeLegacyShadow: false, retainEarlierAlarm: true });
+      await this.persist({ retainEarlierAlarm: true });
     }
     return jsonResponse({
       ok: true,
@@ -9988,21 +9661,15 @@ export class MusixquareProRoom {
     auth.participant.lastSeenAtMs = nowMs;
     this.heartbeatDurabilityDirty = true;
     const developerCommandsChanged = await this.processDeveloperCommands(nowMs);
-    const refreshLegacyShadow =
+    if (
       displayIdentityChanged ||
       canonicalPeerIdentity.stateChanged ||
       developerCommandsChanged ||
-      nowMs - this.lastLegacyShadowPersistedAtMs >= LEGACY_SHADOW_HEARTBEAT_INTERVAL_MS;
-    if (
-      refreshLegacyShadow ||
       nearPersistedExpiry ||
       recoveringUnscheduledHeartbeat ||
       !this.scheduleHeartbeatDurability(nowMs)
     ) {
-      await this.persist({
-        writeLegacyShadow: refreshLegacyShadow,
-        retainEarlierAlarm: true,
-      });
+      await this.persist({ retainEarlierAlarm: true });
     }
     if (displayIdentityChanged) this.scheduleServerEvent(this.presenceEvent());
     if (
@@ -11058,16 +10725,13 @@ export class MusixquareProRoom {
     if (serializedCoreStateByteLength(this.room) > STATE_MAX_BYTES - 8 * 1024) {
       return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
     }
-    const assetRoomGeneration =
-      asset.roomGeneration === undefined ? LEGACY_PRO_ROOM_GENERATION : asset.roomGeneration;
+    const assetRoomGeneration = asset.roomGeneration;
     if (assetRoomGeneration !== this.room.roomGeneration) {
       return errorResponse('ROOM_STATE_INVALID', 503);
     }
     const finalMetadata = {
       'mxqr-room': this.room.roomCode,
-      ...(assetRoomGeneration === LEGACY_PRO_ROOM_GENERATION
-        ? {}
-        : { 'mxqr-generation': String(assetRoomGeneration) }),
+      'mxqr-generation': String(assetRoomGeneration),
       'mxqr-asset': asset.assetId,
       'mxqr-version': String(asset.version),
       'mxqr-bytes': String(asset.byteLength),
@@ -11488,10 +11152,7 @@ export class MusixquareProRoom {
       await this.prune(nowMs);
       if (this.heartbeatDurabilityDirty) {
         try {
-          await this.persist({
-            writeLegacyShadow:
-              nowMs - this.lastLegacyShadowPersistedAtMs >= LEGACY_SHADOW_HEARTBEAT_INTERVAL_MS,
-          });
+          await this.persist();
         } catch {
           await this.scheduleHeartbeatPersistRetryAlarm();
           return;

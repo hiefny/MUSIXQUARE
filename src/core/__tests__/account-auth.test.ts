@@ -61,6 +61,7 @@ interface FlowRow {
 interface ProRoomLinkRow {
   account_id: string;
   room_code: string;
+  room_generation?: number;
   first_linked_at: number;
   last_seen_at: number;
 }
@@ -145,7 +146,19 @@ class FakeAuthDb {
     this.boundValues.push([...values]);
     const normalized = normalizeSql(sql);
     if (normalized.includes('from mxqr_account_pro_room_generations')) {
-      throw new Error('no such table: mxqr_account_pro_room_generations');
+      const accountId = String(values[0]);
+      return [...this.proRoomLinks.values()]
+        .filter((row) => row.account_id === accountId)
+        .sort(
+          (left, right) =>
+            left.room_code.localeCompare(right.room_code) ||
+            (left.room_generation ?? 0) - (right.room_generation ?? 0),
+        )
+        .slice(0, Number(values[1]) || 1001)
+        .map((row) => ({
+          room_code: row.room_code,
+          room_generation: row.room_generation ?? 0,
+        }));
     }
     if (normalized.includes('from mxqr_account_pro_rooms')) {
       const accountId = String(values[0]);
@@ -326,14 +339,23 @@ class FakeAuthDb {
       }
       return changed(count);
     }
-    if (normalized.startsWith('insert into mxqr_account_pro_rooms')) {
-      const [accountId, roomCode, now, maxLinks] = values as [string, string, number, number];
+    if (normalized.startsWith('insert into mxqr_account_pro_room_generations')) {
+      const [accountId, roomCode, roomGeneration, now, maxLinks] = values as [
+        string,
+        string,
+        number,
+        number,
+        number,
+      ];
       const account = this.accounts.get(accountId);
       const deletionStartedAt = this.accountDeletions.get(accountId);
       if (!account || account.status !== 'active' || deletionStartedAt !== undefined) {
         return changed(0);
       }
-      const key = `${accountId}:${roomCode}`;
+      const key =
+        roomGeneration === 0
+          ? `${accountId}:${roomCode}`
+          : `${accountId}:${roomCode}:${roomGeneration}`;
       const existing = this.proRoomLinks.get(key);
       const accountLinkCount = [...this.proRoomLinks.values()].filter(
         (row) => row.account_id === accountId,
@@ -342,10 +364,31 @@ class FakeAuthDb {
       this.proRoomLinks.set(key, {
         account_id: accountId,
         room_code: roomCode,
+        room_generation: roomGeneration,
         first_linked_at: existing?.first_linked_at ?? now,
         last_seen_at: now,
       });
       return changed(1);
+    }
+    if (normalized.startsWith('delete from mxqr_account_pro_room_generations')) {
+      const accountId = String(values[0]);
+      const exactRoomCode = normalized.includes('room_code = ?2') ? String(values[1]) : null;
+      const exactGeneration = normalized.includes('room_generation = ?3')
+        ? Number(values[2])
+        : null;
+      let count = 0;
+      for (const [key, row] of this.proRoomLinks) {
+        if (
+          row.account_id !== accountId ||
+          (exactRoomCode !== null && row.room_code !== exactRoomCode) ||
+          (exactGeneration !== null && (row.room_generation ?? 0) !== exactGeneration)
+        ) {
+          continue;
+        }
+        this.proRoomLinks.delete(key);
+        count += 1;
+      }
+      return changed(count);
     }
     if (normalized.startsWith('insert into mxqr_account_deletions')) {
       const [accountId, startedAt, staleBefore] = values as [string, number, number];
@@ -524,7 +567,7 @@ function createProRoomRegistryDb(registeredRoomCodes: readonly string[] = ['0000
           if (!normalizeSql(sql).includes('from mxqr_pro_room_registry')) {
             throw new Error(`Unexpected registry query: ${normalizeSql(sql)}`);
           }
-          return registered.has(roomCode) ? { status: 'registered' } : null;
+          return registered.has(roomCode) ? { status: 'registered', room_generation: 0 } : null;
         }),
       }),
     })),
@@ -2097,7 +2140,9 @@ describe('account session mutations', () => {
       purgeProRoomAccountAuthority: async (input: { accountId: string; roomCode: string }) => {
         expect(input.accountId).toBe(accountId);
         if (purged.length === 0) {
-          await expect(recordAccountProRoomLink(env, accountId, '000009')).resolves.toBe(false);
+          await expect(
+            recordAccountProRoomLink(env, accountId, '000009', Date.now(), 0),
+          ).resolves.toBe(false);
         }
         purged.push(input.roomCode);
         return true;
@@ -2152,7 +2197,7 @@ describe('account session mutations', () => {
     // A stale fence may be taken over by a later deletion attempt, but it must
     // never let an ordinary room-link request reopen the deletion boundary.
     db.accountDeletions.set(accountId, 1);
-    await expect(recordAccountProRoomLink(env, accountId, '000001', Date.now())).resolves.toBe(
+    await expect(recordAccountProRoomLink(env, accountId, '000001', Date.now(), 0)).resolves.toBe(
       false,
     );
     expect(db.proRoomLinks.size).toBe(0);
@@ -2286,10 +2331,10 @@ describe('account session mutations', () => {
       });
     }
 
-    await expect(recordAccountProRoomLink(env, accountId, '001000', 10)).resolves.toBe(false);
+    await expect(recordAccountProRoomLink(env, accountId, '001000', 10, 0)).resolves.toBe(false);
     expect(db.proRoomLinks.size).toBe(1_000);
 
-    await expect(recordAccountProRoomLink(env, accountId, '000123', 20)).resolves.toBe(true);
+    await expect(recordAccountProRoomLink(env, accountId, '000123', 20, 0)).resolves.toBe(true);
     expect(db.proRoomLinks.get(`${accountId}:000123`)).toMatchObject({
       first_linked_at: 1,
       last_seen_at: 20,

@@ -31,7 +31,6 @@ const ACCOUNT_SCHEMA_PATH = 'cloudflare/auth.schema.sql';
 export const EXPECTED_ACCOUNT_SCHEMA_OBJECTS = [
   'idx_mxqr_account_deleted_sessions_expiry',
   'idx_mxqr_account_pro_room_generations_account',
-  'idx_mxqr_account_pro_rooms_account',
   'idx_mxqr_account_sessions_account',
   'idx_mxqr_account_sessions_expiry',
   'idx_mxqr_accounts_nickname_key',
@@ -39,7 +38,6 @@ export const EXPECTED_ACCOUNT_SCHEMA_OBJECTS = [
   'mxqr_account_deleted_sessions',
   'mxqr_account_deletions',
   'mxqr_account_pro_room_generations',
-  'mxqr_account_pro_rooms',
   'mxqr_account_sessions',
   'mxqr_account_stats',
   'mxqr_accounts',
@@ -352,6 +350,7 @@ export async function verifyLocalAssertionRoundTrips() {
       accountId,
       nickname: 'Preflight',
       roomCode: '000001',
+      roomGeneration: 0,
       audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
     },
     secret,
@@ -360,6 +359,7 @@ export async function verifyLocalAssertionRoundTrips() {
   const proVerified = await verifyAccountAssertion(proToken, secret, {
     audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
     roomCode: '000001',
+    roomGeneration: 0,
     nowSeconds: nowSeconds + 1,
   });
 

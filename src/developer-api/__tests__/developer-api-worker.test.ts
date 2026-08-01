@@ -178,6 +178,7 @@ function uploadPayload() {
         'content-length': '4096',
         'content-type': 'audio/flac',
         'x-amz-meta-mxqr-room': ROOM_CODE,
+        'x-amz-meta-mxqr-generation': '0',
         'x-amz-meta-mxqr-asset': ASSET_ID,
         'x-amz-meta-mxqr-version': '1',
         'x-amz-meta-mxqr-bytes': '4096',
@@ -207,6 +208,7 @@ function uploadCompletionPayload() {
       queueItemId: QUEUE_ITEM_ID,
       kind: 'audio',
       name: 'Orchestra.flac',
+      addedBy: 'current_api_key',
       title: 'Orchestra',
       byteLength: 4_096,
     },
@@ -322,7 +324,7 @@ async function createEnvironment(
                     : body.projection === 'queue'
                       ? queuePayload()
                       : body.projection === 'effects'
-                        ? effectsPayload()
+                        ? effectsPayloadV2()
                         : body.projection === 'queue-mode'
                           ? queueModePayload()
                           : roomPayload());
@@ -486,9 +488,6 @@ describe('Developer API key expiry maintenance', () => {
       /CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_natural_expiry_audit[\s\S]*?OLD\.status = 'active'[\s\S]*?NEW\.status = 'revoked'[\s\S]*?NEW\.revoked_at = OLD\.expires_at[\s\S]*?INSERT OR IGNORE INTO mxqr_developer_api_admin_audit/,
     );
     expect(schema).toMatch(
-      /CREATE TABLE IF NOT EXISTS mxqr_developer_api_room_tombstones[\s\S]*?room_code TEXT PRIMARY KEY/,
-    );
-    expect(schema).toMatch(
       /CREATE TABLE IF NOT EXISTS mxqr_developer_api_room_generation_tombstones[\s\S]*?PRIMARY KEY \(room_code, room_generation\)/,
     );
     expect(schema).toMatch(
@@ -520,17 +519,12 @@ describe('Developer API key expiry maintenance', () => {
     );
     for (const trigger of [
       'trg_mxqr_developer_api_keys_incarnation_immutable',
-      'trg_mxqr_developer_api_room_tombstones_monotonic',
-      'trg_mxqr_developer_api_room_tombstones_no_delete',
       'trg_mxqr_developer_api_room_generation_tombstones_monotonic',
       'trg_mxqr_developer_api_room_generation_tombstones_no_delete',
     ]) {
       expect(schema).toContain(`CREATE TRIGGER IF NOT EXISTS ${trigger}`);
       expect(generationMigration).toContain(`CREATE TRIGGER ${trigger}`);
     }
-    expect(generationMigration).toMatch(
-      /NEW\.room_generation = 0[\s\S]*?mxqr_developer_api_room_tombstones/,
-    );
   });
 });
 
@@ -564,10 +558,11 @@ describe('Developer API read-only public Worker', () => {
     expect(limiter.calls).toHaveLength(2);
     expect(limiter.calls[0]?.name).toMatch(/^ingress:[A-Za-z0-9_-]{43}$/);
     expect(limiter.calls[0]?.name).not.toContain('203.0.113.10');
-    expect(limiter.calls[1]?.name).toBe(`room:${ROOM_CODE}`);
+    expect(limiter.calls[1]?.name).toBe(`room:${ROOM_CODE}:generation:0`);
     expect(limiter.calls[1]?.body).toEqual({
       operation: 'authenticated-read',
       keyId: KEY_ID,
+      roomGeneration: 0,
     });
     expect(facadeFetch).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(facadeFetch.mock.calls)).not.toContain(API_KEY);
@@ -575,6 +570,7 @@ describe('Developer API read-only public Worker', () => {
     expect(new URL(String(facadeInput)).pathname).toBe('/internal/v1/read');
     expect(JSON.parse(String(facadeInit?.body))).toEqual({
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       keyId: KEY_ID,
       projection: 'room',
     });
@@ -640,35 +636,41 @@ describe('Developer API read-only public Worker', () => {
     await expect(queue.json()).resolves.toEqual(queuePayload());
   });
 
-  it('returns a strictly bounded effects projection through effects:read', async () => {
+  it('returns a strictly bounded effects v2 projection through effects:read', async () => {
     const setup = await createEnvironment({ scopeMask: developerApiScopes['effects:read'] });
     const response = await developerApiWorker.fetch(
-      apiRequest(`/v1/rooms/${ROOM_CODE}/effects`),
+      apiRequest(`/v1/rooms/${ROOM_CODE}/effects`, {
+        headers: { 'x-mxqr-effects-version': '2' },
+      }),
       setup.env,
     );
 
     expect(response.status).toBe(200);
     expect(response.headers.get('etag')).toMatch(/^"mxqr-effects-[A-Za-z0-9_-]{43}"$/);
     expect(response.headers.get('vary')).toBe('X-MXQR-Effects-Version');
-    await expect(response.json()).resolves.toEqual(effectsPayload());
+    await expect(response.json()).resolves.toEqual(effectsPayloadV2());
     expect(JSON.parse(String(setup.facadeFetch.mock.calls[0]?.[1]?.body))).toEqual({
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       keyId: KEY_ID,
       projection: 'effects',
+      effectsVersion: 2,
     });
 
     const playbackOnly = await createEnvironment({
       scopeMask: developerApiScopes['playback:read'],
     });
     const forbidden = await developerApiWorker.fetch(
-      apiRequest(`/v1/rooms/${ROOM_CODE}/effects`),
+      apiRequest(`/v1/rooms/${ROOM_CODE}/effects`, {
+        headers: { 'x-mxqr-effects-version': '2' },
+      }),
       playbackOnly.env,
     );
     expect(forbidden.status).toBe(403);
     expect(playbackOnly.facadeFetch).not.toHaveBeenCalled();
   });
 
-  it('opts into the five-field effects v2 projection without changing the default v1 wire', async () => {
+  it('rejects a downgraded effects backend response', async () => {
     const setup = await createEnvironment({
       scopeMask: developerApiScopes['effects:read'],
       facadePayload: effectsPayloadV2(),
@@ -681,14 +683,6 @@ describe('Developer API read-only public Worker', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('vary')).toBe('X-MXQR-Effects-Version');
-    await expect(response.json()).resolves.toEqual(effectsPayloadV2());
-    expect(JSON.parse(String(setup.facadeFetch.mock.calls[0]?.[1]?.body))).toEqual({
-      roomCode: ROOM_CODE,
-      keyId: KEY_ID,
-      projection: 'effects',
-      effectsVersion: 2,
-    });
 
     const mismatched = await createEnvironment({
       scopeMask: developerApiScopes['effects:read'],
@@ -733,6 +727,7 @@ describe('Developer API read-only public Worker', () => {
     await expect(response.json()).resolves.toEqual(queueModePayload());
     expect(JSON.parse(String(setup.facadeFetch.mock.calls[0]?.[1]?.body))).toEqual({
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       keyId: KEY_ID,
       projection: 'queue-mode',
     });
@@ -764,21 +759,23 @@ describe('Developer API read-only public Worker', () => {
   it('fails closed when the effects facade projection is partial or carries private fields', async () => {
     for (const payload of [
       {
-        ...effectsPayload(),
-        effects: { ...effectsPayload().effects, equalizer: { bandsDb: [0, 0, 0, 0] } },
+        ...effectsPayloadV2(),
+        effects: { ...effectsPayloadV2().effects, equalizer: { bandsDb: [0, 0, 0, 0] } },
       },
       {
-        ...effectsPayload(),
-        effects: { ...effectsPayload().effects, privatePresetId: 'secret' },
+        ...effectsPayloadV2(),
+        effects: { ...effectsPayloadV2().effects, privatePresetId: 'secret' },
       },
-      { ...effectsPayload(), revision: -1 },
+      { ...effectsPayloadV2(), revision: -1 },
     ]) {
       const setup = await createEnvironment({
         scopeMask: developerApiScopes['effects:read'],
         facadePayload: payload,
       });
       const response = await developerApiWorker.fetch(
-        apiRequest(`/v1/rooms/${ROOM_CODE}/effects`),
+        apiRequest(`/v1/rooms/${ROOM_CODE}/effects`, {
+          headers: { 'x-mxqr-effects-version': '2' },
+        }),
         setup.env,
       );
       expect(response.status).toBe(503);
@@ -1071,6 +1068,7 @@ describe('Developer API read-only public Worker', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       actorName: 'Friend integration',
       idempotencyKey: 'request.queue-add-0001',
       mutation: { type: 'add_youtube', ...item },
@@ -1129,6 +1127,7 @@ describe('Developer API read-only public Worker', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       actorName: 'Friend integration',
       idempotencyKey: 'request.queue-batch-0001',
       mutation: { type: 'add_youtube_batch', items },
@@ -1198,6 +1197,7 @@ describe('Developer API read-only public Worker', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       actorName: 'Friend integration',
       idempotencyKey: 'request.queue-batch-playlist-dedupe',
       mutation: {
@@ -1432,6 +1432,7 @@ describe('Developer API read-only public Worker', () => {
         body: {
           keyId: KEY_ID,
           roomCode: ROOM_CODE,
+          roomGeneration: 0,
           idempotencyKey: 'request.queue-remove-0001',
           mutation: { type: 'remove', queueItemId: QUEUE_ITEM_ID },
         },
@@ -1441,6 +1442,7 @@ describe('Developer API read-only public Worker', () => {
         body: {
           keyId: KEY_ID,
           roomCode: ROOM_CODE,
+          roomGeneration: 0,
           idempotencyKey: 'request.queue-reorder-0001',
           mutation: {
             type: 'reorder',
@@ -1476,6 +1478,7 @@ describe('Developer API read-only public Worker', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       idempotencyKey: 'request.queue-clear-0001',
       mutation: { type: 'clear' },
     });
@@ -1529,6 +1532,7 @@ describe('Developer API read-only public Worker', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       idempotencyKey: 'request.queue-clear-owned-0001',
       mutation: { type: 'clear_owned' },
     });
@@ -1627,7 +1631,9 @@ describe('Developer API read-only public Worker', () => {
     expect(bodyful.database.first).not.toHaveBeenCalled();
     expect(bodyful.facadeFetch).not.toHaveBeenCalled();
 
-    const limiter = limiterNamespace({ block: (name) => name === `room:${ROOM_CODE}` });
+    const limiter = limiterNamespace({
+      block: (name) => name === `room:${ROOM_CODE}:generation:0`,
+    });
     const rateLimited = await createEnvironment({
       scopeMask: developerApiScopes['queue:write'],
       limiter,
@@ -1781,6 +1787,7 @@ describe('Developer API read-only public Worker', () => {
         body: {
           keyId: KEY_ID,
           roomCode: ROOM_CODE,
+          roomGeneration: 0,
           idempotencyKey: 'request.upload-reserve-0001',
           media,
         },
@@ -1790,6 +1797,7 @@ describe('Developer API read-only public Worker', () => {
         body: {
           keyId: KEY_ID,
           roomCode: ROOM_CODE,
+          roomGeneration: 0,
           actorName: 'Friend integration',
           idempotencyKey: 'request.upload-complete-0001',
           assetId: ASSET_ID,
@@ -1951,6 +1959,7 @@ describe('Developer API read-only public Worker', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       idempotencyKey: IDEMPOTENCY_KEY,
       queueMode,
     });
@@ -2072,6 +2081,7 @@ describe('Developer API read-only public Worker', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       idempotencyKey: IDEMPOTENCY_KEY,
       command: { type: 'seek', positionSeconds: 42.5 },
     });
@@ -2104,6 +2114,7 @@ describe('Developer API read-only public Worker', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       idempotencyKey: 'request.playback-next-0001',
       command: { type: 'next' },
     });
@@ -2160,6 +2171,7 @@ describe('Developer API read-only public Worker', () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       idempotencyKey: IDEMPOTENCY_KEY,
       command,
     });
@@ -2379,6 +2391,7 @@ describe('Developer API read-only public Worker', () => {
     expect(new URL(String(input)).pathname).toBe('/internal/v1/commands/status');
     await expect(Promise.resolve(JSON.parse(String(init?.body)))).resolves.toEqual({
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       keyId: KEY_ID,
       commandId: COMMAND_ID,
     });
@@ -2491,7 +2504,7 @@ describe('Developer API atomic room limiter', () => {
     vi.setSystemTime(new Date('2026-07-17T00:00:00.000Z'));
     const storage = new FakeStorage();
     const limiter = new DeveloperApiRateLimiter({ storage } as never);
-    const body = { operation: 'authenticated-read', keyId: KEY_ID };
+    const body = { operation: 'authenticated-read', keyId: KEY_ID, roomGeneration: 0 };
     const request = () =>
       new Request('https://developer-api-rate.internal/check', {
         method: 'POST',
@@ -2540,7 +2553,11 @@ describe('Developer API atomic room limiter', () => {
       new Request('https://developer-api-rate.internal/check', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ operation: 'authenticated-command', keyId: KEY_ID }),
+        body: JSON.stringify({
+          operation: 'authenticated-command',
+          keyId: KEY_ID,
+          roomGeneration: 0,
+        }),
       });
 
     for (let index = 0; index < 30; index += 1) {
@@ -2593,7 +2610,7 @@ describe('Developer API atomic room limiter', () => {
         new Request('https://developer-api-rate.internal/check', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ operation: policy.operation, keyId: KEY_ID }),
+          body: JSON.stringify({ operation: policy.operation, keyId: KEY_ID, roomGeneration: 0 }),
         });
 
       for (let index = 0; index < policy.keyLimit; index += 1) {
@@ -2655,11 +2672,11 @@ describe('Developer API atomic room limiter', () => {
       new Request('https://developer-api-rate.internal/check', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ operation: 'authenticated-read', keyId: KEY_ID }),
+        body: JSON.stringify({ operation: 'authenticated-read', keyId: KEY_ID, roomGeneration: 0 }),
       }),
     );
     expect(charged.status).toBe(200);
-    expect(storage.values.get('roomIdentity')).toEqual({ v: 1 });
+    expect(storage.values.get('roomIdentity')).toEqual({ v: 1, roomGeneration: 0 });
     expect(storage.values.has('buckets')).toBe(true);
     expect(storage.alarmAt).not.toBeNull();
 
@@ -2669,9 +2686,11 @@ describe('Developer API atomic room limiter', () => {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
         },
         body: JSON.stringify({
           roomCode: '000001',
+          roomGeneration: 0,
           requestId: '12345678-1234-4123-8123-123456789abc',
         }),
       }),
@@ -2681,6 +2700,7 @@ describe('Developer API atomic room limiter', () => {
     expect(await response.json()).toEqual({
       ok: true,
       roomCode: '000001',
+      roomGeneration: 0,
       status: 'decommissioned',
     });
     expect([...storage.values.keys()]).toEqual(['decommissioned']);
@@ -2695,7 +2715,7 @@ describe('Developer API atomic room limiter', () => {
       new Request('https://developer-api-rate.internal/check', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ operation: 'authenticated-read', keyId: KEY_ID }),
+        body: JSON.stringify({ operation: 'authenticated-read', keyId: KEY_ID, roomGeneration: 0 }),
       }),
     );
     expect(rejected.status).toBe(410);

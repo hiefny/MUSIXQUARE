@@ -4,14 +4,14 @@ import {
   cancelProRoomPlaylistFilePreload,
   hasProRoomPlaylistFilePreload,
   preloadProRoomPlaylistFile,
-  registerProRoomLegacyMediaHooks,
+  registerProRoomMediaHooks,
   resolveProRoomPlaylistFile,
-  type ProRoomLegacyMediaHooks,
-} from '../legacy-media-hooks.ts';
+  type ProRoomMediaHooks,
+} from '../media-hooks.ts';
 
 const Q1 = '10000000-0000-4000-8000-000000000001' as QueueItemId;
 
-function hooks(overrides: Partial<ProRoomLegacyMediaHooks>): ProRoomLegacyMediaHooks {
+function hooks(overrides: Partial<ProRoomMediaHooks>): ProRoomMediaHooks {
   return {
     addFiles: () => false,
     addYouTube: () => false,
@@ -23,13 +23,13 @@ function hooks(overrides: Partial<ProRoomLegacyMediaHooks>): ProRoomLegacyMediaH
   };
 }
 
-afterEach(() => registerProRoomLegacyMediaHooks(null));
+afterEach(() => registerProRoomMediaHooks(null));
 
-describe('PRO room legacy self-preload seam', () => {
+describe('PRO room media self-preload seam', () => {
   it('returns the runtime-owned preload promise without wrapping its identity', () => {
     const promise = Promise.resolve(new File(['audio'], 'next.flac', { type: 'audio/flac' }));
     const preloadFile = vi.fn(() => promise);
-    registerProRoomLegacyMediaHooks(hooks({ preloadFile }));
+    registerProRoomMediaHooks(hooks({ preloadFile }));
 
     expect(preloadProRoomPlaylistFile(Q1)).toBe(promise);
     expect(preloadFile).toHaveBeenCalledWith(Q1);
@@ -39,7 +39,7 @@ describe('PRO room legacy self-preload seam', () => {
     const foreground = Promise.resolve(new File(['current'], 'current.flac'));
     const resolveFile = vi.fn(() => foreground);
     const cancelPreload = vi.fn();
-    registerProRoomLegacyMediaHooks(hooks({ resolveFile, cancelPreload }));
+    registerProRoomMediaHooks(hooks({ resolveFile, cancelPreload }));
 
     expect(resolveProRoomPlaylistFile(Q1)).toBe(foreground);
     cancelProRoomPlaylistFilePreload(Q1);
@@ -50,7 +50,7 @@ describe('PRO room legacy self-preload seam', () => {
 
   it('lets the scheduler verify that completed metadata still owns cache bytes', () => {
     const hasPreloadedFile = vi.fn(() => true);
-    registerProRoomLegacyMediaHooks(hooks({ hasPreloadedFile }));
+    registerProRoomMediaHooks(hooks({ hasPreloadedFile }));
 
     expect(hasProRoomPlaylistFilePreload(Q1)).toBe(true);
     expect(hasPreloadedFile).toHaveBeenCalledWith(Q1);

@@ -15,10 +15,7 @@ import {
   getCurrentFileRequestOwnerForTests,
   resetFileRequestAuthority,
 } from '../../network/file-request-authority.ts';
-import {
-  registerProRoomLegacyMediaHooks,
-  type ProRoomLegacyMediaHooks,
-} from '../../pro-room/legacy-media-hooks.ts';
+import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import {
   freezeFileDeliveryMode,
   markLocalFileR2Capable,
@@ -164,7 +161,7 @@ function arrangeStoreChunks(name: string, sid: number, count: number, queueItemI
 }
 
 afterEach(() => {
-  registerProRoomLegacyMediaHooks(null);
+  registerProRoomMediaHooks(null);
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -616,7 +613,7 @@ describe('host cached-blob recovery identity', () => {
   it('serves persistent PRO recovery as FILE_PREPARE control without relaying bytes', async () => {
     const currentBlob = new Blob(['canonical-pro-r2'], { type: 'audio/flac' });
     setResident(Q2, 'persistent.flac', currentBlob, 17);
-    const hooks: ProRoomLegacyMediaHooks = {
+    const hooks: ProRoomMediaHooks = {
       addFiles: () => false,
       addYouTube: () => false,
       updateTrackMetadata: () => false,
@@ -625,7 +622,7 @@ describe('host cached-blob recovery identity', () => {
       resolveFile: () => null,
       handlesPersistentFile: (queueItemId) => queueItemId === Q2,
     };
-    registerProRoomLegacyMediaHooks(hooks);
+    registerProRoomMediaHooks(hooks);
 
     const conn = makeGuestConn('remote');
     await invokeRecoveryHandler(MSG.REQUEST_CURRENT_FILE, { queueItemId: Q2 }, conn);

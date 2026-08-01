@@ -33,7 +33,7 @@ type ProTicketPayload = {
   v: 1;
   kind: 'pro-signaling';
   roomCode: string;
-  roomGeneration?: number;
+  roomGeneration: number;
   participantId: string;
   memberId?: string;
   displayName: string;
@@ -48,6 +48,7 @@ type ProTicketPayload = {
 };
 
 const originalResponse = globalThis.Response;
+const NEGOTIATION_ID = 'negotiation_test_000001';
 const originalWebSocketPair = (globalThis as typeof globalThis & { WebSocketPair?: unknown })
   .WebSocketPair;
 let workerModule: WorkerModule;
@@ -267,6 +268,7 @@ async function proTicket(
     v: 1,
     kind: 'pro-signaling',
     roomCode: '000001',
+    roomGeneration: 0,
     participantId: 'pro-member-1',
     displayName: 'Peer 1',
     role: 'member',
@@ -730,7 +732,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     );
 
     expect(response.status).toBe(101);
-    expect(idFromName).toHaveBeenCalledWith('000001');
+    expect(idFromName).toHaveBeenCalledWith('000001:generation:0');
     expect(roomFetch).toHaveBeenCalledTimes(1);
   });
 
@@ -785,7 +787,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     );
 
     expect(response.status).toBe(101);
-    expect(idFromName).toHaveBeenCalledWith('000002');
+    expect(idFromName).toHaveBeenCalledWith('000002:generation:0');
     expect(roomFetch).toHaveBeenCalledTimes(1);
   });
 
@@ -878,38 +880,39 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       roomKind: 'pro',
       role: 'member',
       roomId: '000001',
+      roomGeneration: 0,
       peerId: 'coordinator-device',
       participantId: 'coordinator-device',
       displayName: 'Room owner',
       coordinatorEpoch: 1,
     });
-    expect(coordinator.deserializeAttachment()).not.toHaveProperty('roomGeneration');
     expect(member.deserializeAttachment()).toMatchObject({
       roomKind: 'pro',
       role: 'member',
       peerId: 'signed-member',
       participantId: 'signed-member',
       displayName: 'Peer 1',
+      roomGeneration: 0,
       coordinatorEpoch: 1,
       auth: 'ok',
     });
-    expect(member.deserializeAttachment()).not.toHaveProperty('roomGeneration');
     expect(sent(member)[0]).toMatchObject({
       type: 'peer-open',
       peerId: 'signed-member',
       roomId: '000001',
+      roomGeneration: 0,
     });
     expect(await state.storage.get('proRoomMeta')).toMatchObject({
       v: 2,
       kind: 'pro',
       roomId: '000001',
+      roomGeneration: 0,
       coordinatorEpoch: 1,
     });
-    expect(await state.storage.get('proRoomMeta')).not.toHaveProperty('roomGeneration');
-    expect(await state.storage.get('proSignalingTicketUses')).not.toHaveProperty('roomGeneration');
-    expect(await state.storage.get('proSignalingParticipantHighWater')).not.toHaveProperty(
-      'roomGeneration',
-    );
+    expect(await state.storage.get('proSignalingTicketUses')).toMatchObject({ roomGeneration: 0 });
+    expect(await state.storage.get('proSignalingParticipantHighWater')).toMatchObject({
+      roomGeneration: 0,
+    });
   });
 
   it('binds PRO signaling state, broadcasts, and decommission tombstones to one generation', async () => {
@@ -1024,7 +1027,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const initialized = await room.fetch(
       new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 3,
@@ -1044,11 +1051,13 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       v: 2,
       kind: 'pro',
       roomId: '000001',
+      roomGeneration: 0,
       coordinatorEpoch: 3,
     });
     expect(await state.storage.get('proSignalingPresenceAuthority')).toEqual({
       v: 1,
       roomId: '000001',
+      roomGeneration: 0,
       coordinatorEpoch: 3,
       presenceRevision: 7,
       activeIncarnationIds: [presenceIncarnationId],
@@ -1109,7 +1118,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     await room.fetch(
       new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 1,
@@ -1122,7 +1135,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const rejectedFutureEvent = await room.fetch(
       new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 2,
@@ -1139,7 +1156,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const advanced = await room.fetch(
       new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 2,
@@ -1158,11 +1179,13 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       v: 2,
       kind: 'pro',
       roomId: '000001',
+      roomGeneration: 0,
       coordinatorEpoch: 2,
     });
     expect(await state.storage.get('proSignalingPresenceAuthority')).toEqual({
       v: 1,
       roomId: '000001',
+      roomGeneration: 0,
       coordinatorEpoch: 2,
       presenceRevision: 1,
       activeIncarnationIds: [newIncarnationId],
@@ -1226,7 +1249,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const response = await rehydratedRoom.fetch(
       new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 1,
@@ -1273,7 +1300,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const response = await room.fetch(
       new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 1,
@@ -1310,7 +1341,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const snapshot = await room.fetch(
       new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 1,
@@ -1346,7 +1381,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     await room.fetch(
       new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 1,
@@ -1384,7 +1423,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     await room.fetch(
       new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 1,
@@ -1422,7 +1465,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const snapshot = await room.fetch(
       new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 1,
@@ -1437,6 +1484,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(await state.storage.get('proSignalingPresenceAuthority')).toEqual({
       v: 1,
       roomId: '000001',
+      roomGeneration: 0,
       coordinatorEpoch: 1,
       presenceRevision: 9,
       activeIncarnationIds: ['race-presence-alice-0001', 'race-presence-bob-000001'],
@@ -1445,7 +1493,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const rejectedRollback = await room.fetch(
       new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 1,
@@ -1457,7 +1509,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const rejectedFork = await room.fetch(
       new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 1,
@@ -1484,7 +1540,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     await room.fetch(
       new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 1,
@@ -1526,7 +1586,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       room.fetch(
         new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': '000001',
+            'x-mxqr-pro-room-generation': '0',
+          },
           body: JSON.stringify(body),
         }),
       );
@@ -1666,8 +1730,9 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       expect(new URL(request.url).pathname).toBe('/internal/authority/check');
       expect(request.method).toBe('POST');
       expect(request.headers.get('x-mxqr-pro-room-code')).toBe('000001');
-      expect(request.headers.get('x-mxqr-pro-room-generation')).toBeNull();
+      expect(request.headers.get('x-mxqr-pro-room-generation')).toBe('0');
       expect(await request.json()).toEqual({
+        roomGeneration: 0,
         participantId: 'notice-authorized',
         presenceIncarnationId: 'notice-presence-authorized',
         permission: 'chat.notice',
@@ -1675,6 +1740,8 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       return new originalResponse(
         JSON.stringify({
           allowed: true,
+          roomCode: '000001',
+          roomGeneration: 0,
           memberId: 'member_noticeauthorized001',
           role: 'controller',
           permission: 'chat.notice',
@@ -1712,7 +1779,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       }),
     );
 
-    expect(authority.binding.idFromName).toHaveBeenCalledWith('000001');
+    expect(authority.binding.idFromName).toHaveBeenCalledWith('000001:generation:0');
     expect(authority.roomFetch).toHaveBeenCalledTimes(1);
     expect(sender.sent).toHaveLength(senderCount);
     expect(sent(recipient).at(-1)).toMatchObject({
@@ -2212,6 +2279,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(await state.storage.get('proChatControlState')).toEqual({
       v: 1,
       roomId: '000001',
+      roomGeneration: 0,
       coordinatorEpoch: 1,
       revision: 4,
       frozen: true,
@@ -2326,7 +2394,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       room.fetch(
         new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': '000001',
+            'x-mxqr-pro-room-generation': '0',
+          },
           body: JSON.stringify({
             roomCode: '000001',
             coordinatorEpoch: 1,
@@ -2440,12 +2512,14 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     expect(recipient.sent).toHaveLength(start + 2);
     expect(authorityBodies).toContainEqual({
+      roomGeneration: 0,
       participantId: 'provenance-sender',
       presenceIncarnationId: 'provenance-presence-send',
       permission: 'system.broadcast',
       i18nKey: 'chat.decode_skip_system_message',
     });
     expect(authorityBodies).toContainEqual({
+      roomGeneration: 0,
       participantId: 'provenance-sender',
       presenceIncarnationId: 'provenance-presence-send',
       permission: 'bot.result',
@@ -2458,6 +2532,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     await state.storage.put('proChatControlState', {
       v: 1,
       roomId: '000001',
+      roomGeneration: 0,
       coordinatorEpoch: 1,
       revision: 1,
       frozen: true,
@@ -2468,7 +2543,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const advanced = await room.fetch(
       new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 2,
@@ -2534,6 +2613,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(recipient.sent).toHaveLength(recipientStart + 1);
     expect(await state.storage.get('proBotRequestProofs')).toMatchObject({
       roomId: '000001',
+      roomGeneration: 0,
       coordinatorEpoch: 1,
       entries: [{ requestId, participantId: 'bot-failure-sender', status: 'pending' }],
     });
@@ -2679,7 +2759,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     await room.fetch(
       new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 1,
@@ -2697,6 +2781,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
         },
         body: JSON.stringify({ roomCode: '000001', requestId }),
       });
@@ -2707,6 +2792,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
         },
         body: JSON.stringify({ roomCode: '000001', requestId }),
       }),
@@ -2721,6 +2807,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(JSON.parse(String(first.body))).toEqual({
       ok: true,
       roomCode: '000001',
+      roomGeneration: 0,
       status: 'decommissioned',
       changed: true,
     });
@@ -2732,6 +2819,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(await state.storage.get('proRoomDecommissioned')).toEqual({
       v: 1,
       roomCode: '000001',
+      roomGeneration: 0,
       requestId,
       decommissionedAtMs: Date.now(),
     });
@@ -2748,6 +2836,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       role: 'guest',
       roomKind: 'pro',
       roomId: '000001',
+      roomGeneration: 0,
       peerId: 'late-residue',
     });
     state.sockets.push(residueSocket);
@@ -2759,6 +2848,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(JSON.parse(String(repeated.body))).toEqual({
       ok: true,
       roomCode: '000001',
+      roomGeneration: 0,
       status: 'decommissioned',
       changed: false,
     });
@@ -2795,6 +2885,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
         },
         body: JSON.stringify({ roomCode: '000001', requestId }),
       }),
@@ -2856,7 +2947,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       room.fetch(
         new Request('https://signaling.internal/internal/developer/v1/dispatch', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': '000001',
+            'x-mxqr-pro-room-generation': '0',
+          },
           body: JSON.stringify({
             roomCode: '000001',
             coordinatorEpoch: 1,
@@ -2909,7 +3004,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const accepted = await room.fetch(
       new Request('https://signaling.internal/internal/developer/v1/dispatch', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: '000001',
           coordinatorEpoch: 1,
@@ -2965,7 +3064,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       room.fetch(
         new Request('https://signaling.internal/internal/developer/v1/invalidate', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': '000001',
+            'x-mxqr-pro-room-generation': '0',
+          },
           body: JSON.stringify({
             roomCode: '000001',
             coordinatorEpoch: 1,
@@ -3372,6 +3475,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       roomKind: 'pro',
       role: 'member',
       roomId: '000001',
+      roomGeneration: 0,
       peerId: 'rehydrated-coordinator',
       participantId: 'rehydrated-coordinator',
       displayName: 'Peer 0',
@@ -3388,6 +3492,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         roomKind: 'pro',
         role: 'member',
         roomId: '000001',
+        roomGeneration: 0,
         peerId: `rehydrated-member-${index}`,
         participantId: `rehydrated-member-${index}`,
         displayName: `Peer ${index + 1}`,
@@ -3453,6 +3558,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       roomKind: 'pro',
       role: 'host',
       roomId: '000001',
+      roomGeneration: 0,
       peerId: '000001',
       participantId: 'legacy-coordinator',
       coordinatorEpoch: 1,
@@ -3476,6 +3582,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       roomKind: 'pro',
       role: 'member',
       roomId: '000001',
+      roomGeneration: 0,
       peerId: 'hidden-name-member',
       participantId: 'hidden-name-member',
       displayName: '\u3164',
@@ -3500,6 +3607,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       v: 2,
       kind: 'pro',
       roomId: '000001',
+      roomGeneration: 0,
       coordinatorEpoch: 2,
     });
     const staleCoordinator = new FakeSocket();
@@ -3508,6 +3616,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       roomKind: 'pro',
       role: 'member',
       roomId: '000001',
+      roomGeneration: 0,
       peerId: 'old-coordinator',
       participantId: 'old-coordinator',
       displayName: 'Old peer 0',
@@ -3523,6 +3632,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       roomKind: 'pro',
       role: 'member',
       roomId: '000001',
+      roomGeneration: 0,
       peerId: 'old-member',
       participantId: 'old-member',
       displayName: 'Old peer 1',
@@ -3942,6 +4052,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       JSON.stringify({
         type: 'signal-offer',
         to: 'host',
+        negotiationId: NEGOTIATION_ID,
         sdp: { type: 'offer', sdp: 'offer-sdp' },
         metadata: { label: 'data' },
         memberIdentity: {
@@ -3956,6 +4067,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(sent(host).at(-1)).toEqual({
       type: 'signal-offer',
       from: 'minsu-phone',
+      negotiationId: NEGOTIATION_ID,
       sdp: { type: 'offer', sdp: 'offer-sdp' },
       metadata: { label: 'data' },
       memberIdentity: {
@@ -4465,6 +4577,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       JSON.stringify({
         type: 'signal-offer',
         to: 'host',
+        negotiationId: NEGOTIATION_ID,
         sdp: { type: 'offer', sdp: 'offer-sdp' },
         metadata: { label: 'data' },
       }),
@@ -4474,6 +4587,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       JSON.stringify({
         type: 'signal-answer',
         to: 'guest-1',
+        negotiationId: NEGOTIATION_ID,
         sdp: { type: 'answer', sdp: 'answer-sdp' },
       }),
     );
@@ -4482,6 +4596,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       JSON.stringify({
         type: 'media-offer',
         to: 'guest-1',
+        negotiationId: NEGOTIATION_ID,
         callId: 'call-1',
         sdp: { type: 'offer', sdp: 'media-sdp' },
       }),
@@ -4490,6 +4605,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(sent(host).at(-1)).toEqual({
       type: 'signal-offer',
       from: 'guest-1',
+      negotiationId: NEGOTIATION_ID,
       sdp: { type: 'offer', sdp: 'offer-sdp' },
       metadata: { label: 'data' },
     });
@@ -4497,11 +4613,13 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       {
         type: 'signal-answer',
         from: 'host-1',
+        negotiationId: NEGOTIATION_ID,
         sdp: { type: 'answer', sdp: 'answer-sdp' },
       },
       {
         type: 'media-offer',
         from: 'host-1',
+        negotiationId: NEGOTIATION_ID,
         callId: 'call-1',
         sdp: { type: 'offer', sdp: 'media-sdp' },
       },
@@ -4593,6 +4711,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       JSON.stringify({
         type: 'signal-offer',
         to: 'host',
+        negotiationId: NEGOTIATION_ID,
         sdp: { type: 'answer', sdp: 'wrong-required-type' },
       }),
     );
@@ -4605,6 +4724,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       JSON.stringify({
         type: 'signal-offer',
         to: 'host',
+        negotiationId: NEGOTIATION_ID,
         sdp: { type: 'offer', sdp: 'offer-sdp', futureSdpField: true },
         metadata: { label: 'data' },
         futureMessageField: 'preserved',
@@ -4615,6 +4735,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(sent(host).at(-1)).toEqual({
       type: 'signal-offer',
       from: 'guest-1',
+      negotiationId: NEGOTIATION_ID,
       sdp: { type: 'offer', sdp: 'offer-sdp', futureSdpField: true },
       metadata: { label: 'data' },
       futureMessageField: 'preserved',
@@ -4625,6 +4746,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       JSON.stringify({
         type: 'signal-answer',
         to: 'guest-1',
+        negotiationId: NEGOTIATION_ID,
         sdp: { type: 'answer', sdp: 'answer-sdp', futureSdpField: true },
         futureMessageField: 'preserved',
       }),
@@ -4632,6 +4754,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(sent(guest).at(-1)).toEqual({
       type: 'signal-answer',
       from: 'host-1',
+      negotiationId: NEGOTIATION_ID,
       sdp: { type: 'answer', sdp: 'answer-sdp', futureSdpField: true },
       futureMessageField: 'preserved',
     });
@@ -4664,6 +4787,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       message: {
         type: 'signal-offer',
         to: 'host',
+        negotiationId: NEGOTIATION_ID,
         sdp: { type: 'offer', sdp: 's'.repeat(48 * 1024 + 1) },
       },
     },
@@ -4672,6 +4796,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       message: {
         type: 'signal-candidate',
         to: 'host',
+        negotiationId: NEGOTIATION_ID,
         candidate: { candidate: 'c'.repeat(4 * 1024 + 1) },
       },
     },
@@ -4680,6 +4805,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       message: {
         type: 'signal-candidate',
         to: 'host',
+        negotiationId: NEGOTIATION_ID,
         candidate: { candidate: 'candidate:1', sdpMid: 'm'.repeat(4 * 1024) },
       },
     },
@@ -4714,6 +4840,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         JSON.stringify({
           type: 'signal-candidate',
           to: 'host',
+          negotiationId: NEGOTIATION_ID,
           candidate: { candidate: `candidate-${index}` },
         }),
       );
@@ -4724,6 +4851,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       JSON.stringify({
         type: 'signal-candidate',
         to: 'host',
+        negotiationId: NEGOTIATION_ID,
         candidate: { candidate: 'candidate-after-refill' },
       }),
     );
@@ -4734,6 +4862,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       JSON.stringify({
         type: 'signal-candidate',
         to: 'host',
+        negotiationId: NEGOTIATION_ID,
         candidate: { candidate: 'candidate-over-limit' },
       }),
     );
@@ -4750,6 +4879,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       JSON.stringify({
         type: 'signal-candidate',
         to: 'host',
+        negotiationId: NEGOTIATION_ID,
         candidate: { candidate: 'healthy-candidate' },
       }),
     );
@@ -4800,7 +4930,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     });
   });
 
-  it('rejects a same-peer replacement without its guest reconnect secret', async () => {
+  it('rejects a guest auth frame without its reconnect secret', async () => {
     const { room, host } = await createHostRoom();
     const original = await joinGuest(room, 'guest-1');
     const attacker = await joinGuest(room, 'guest-1', { reconnectSecret: null });
@@ -4808,12 +4938,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(original.closed).toBe(false);
     expect(sent(attacker).at(-1)).toEqual({
       type: 'error',
-      errorType: 'guest-reconnect-denied',
-      message: 'GUEST_RECONNECT_DENIED',
+      errorType: 'invalid-id',
+      message: 'GUEST_AUTH_FIRST_FRAME_INVALID',
     });
     expect(attacker.closeEvents.at(-1)).toEqual({
       code: 1008,
-      reason: 'GUEST_RECONNECT_DENIED',
+      reason: 'GUEST_AUTH_FIRST_FRAME_INVALID',
     });
 
     await room.webSocketMessage(
@@ -4821,6 +4951,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       JSON.stringify({
         type: 'signal-candidate',
         to: 'host',
+        negotiationId: NEGOTIATION_ID,
         candidate: { candidate: 'original-still-live' },
       }),
     );
@@ -4860,7 +4991,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const legacyDowngrade = await joinGuest(rehydratedRoom, 'guest-1', {
       reconnectSecret: null,
     });
-    expect(legacyDowngrade.closeEvents.at(-1)?.reason).toBe('GUEST_RECONNECT_DENIED');
+    expect(legacyDowngrade.closeEvents.at(-1)?.reason).toBe('GUEST_AUTH_FIRST_FRAME_INVALID');
 
     const replacement = await joinGuest(rehydratedRoom, 'guest-1');
 
@@ -4986,39 +5117,6 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       reconnectSecret: OTHER_RECONNECT_SECRET,
     });
     expect(reclaimed.closed).toBe(false);
-  });
-
-  it('returns a retryable conflict while a rolling-deploy legacy guest owns the live ID', async () => {
-    const { room } = await createHostRoom();
-    const legacy = await joinGuest(room, 'legacy-guest', { reconnectSecret: null });
-    const liveReplacement = await joinGuest(room, 'legacy-guest');
-
-    expect(sent(liveReplacement).at(-1)).toEqual({
-      type: 'error',
-      errorType: 'guest-reconnect-conflict',
-      message: 'GUEST_RECONNECT_CONFLICT',
-    });
-    expect(liveReplacement.closeEvents.at(-1)).toEqual({
-      code: 1013,
-      reason: 'GUEST_RECONNECT_CONFLICT',
-    });
-    expect(legacy.closed).toBe(false);
-
-    legacy.close();
-    await room.webSocketClose(legacy);
-    const replacement = await joinGuest(room, 'legacy-guest');
-
-    expect(replacement.closed).toBe(false);
-  });
-
-  it('keeps legacy-to-legacy reconnect compatible after the old socket is gone', async () => {
-    const { room } = await createHostRoom();
-    const legacy = await joinGuest(room, 'legacy-guest', { reconnectSecret: null });
-    legacy.close();
-    await room.webSocketClose(legacy);
-
-    const replacement = await joinGuest(room, 'legacy-guest', { reconnectSecret: null });
-    expect(replacement.closed).toBe(false);
   });
 
   it('fails closed at identity capacity, then admits new guests after inactive bindings expire', async () => {
@@ -5482,11 +5580,25 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     await room.fetch(wsRequest('123456', 'guest', 'missing'));
     const missing = lastServer();
-    await room.webSocketMessage(missing, JSON.stringify({ type: 'guest-auth', password: '' }));
+    await room.webSocketMessage(
+      missing,
+      JSON.stringify({
+        type: 'guest-auth',
+        password: '',
+        reconnectSecret: DEFAULT_RECONNECT_SECRET,
+      }),
+    );
 
     await room.fetch(wsRequest('123456', 'guest', 'invalid'));
     const invalid = lastServer();
-    await room.webSocketMessage(invalid, JSON.stringify({ type: 'guest-auth', password: 'bad' }));
+    await room.webSocketMessage(
+      invalid,
+      JSON.stringify({
+        type: 'guest-auth',
+        password: 'bad',
+        reconnectSecret: DEFAULT_RECONNECT_SECRET,
+      }),
+    );
 
     await room.fetch(wsRequest('123456', 'guest', 'expired'));
     const expired = lastServer();
@@ -5496,7 +5608,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     });
     await room.webSocketMessage(
       expired,
-      JSON.stringify({ type: 'guest-auth', password: '12345678' }),
+      JSON.stringify({
+        type: 'guest-auth',
+        password: '12345678',
+        reconnectSecret: DEFAULT_RECONNECT_SECRET,
+      }),
     );
 
     expect(sent(missing).at(-1)).toEqual({
@@ -5589,12 +5705,18 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const room = new workerModule.MusixquareRoom(state);
     await room.webSocketMessage(
       guest,
-      JSON.stringify({ type: 'signal-offer', to: 'host', sdp: { type: 'offer', sdp: 'x' } }),
+      JSON.stringify({
+        type: 'signal-offer',
+        to: 'host',
+        negotiationId: NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'x' },
+      }),
     );
 
     expect(sent(host).at(-1)).toEqual({
       type: 'signal-offer',
       from: 'guest-1',
+      negotiationId: NEGOTIATION_ID,
       sdp: { type: 'offer', sdp: 'x' },
     });
   });

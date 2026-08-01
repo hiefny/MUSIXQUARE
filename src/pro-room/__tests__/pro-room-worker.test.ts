@@ -2174,6 +2174,7 @@ describe('PRO room server-authoritative playback', () => {
       equalizer: { bandsDb: [0, 0, 0, 0, 0] },
       virtualBass: { strengthPercent: 40 },
       virtualSurround: { widthPercent: 120 },
+      virtualTreble: { enabled: false },
     };
     const updated = await context.worker.fetch(
       jsonRequest(
@@ -2315,6 +2316,21 @@ class FakeState {
   readonly storage = new FakeStorage();
 }
 
+function storedCanonicalRoom(state: FakeState): StoredRoom & Record<string, any> {
+  const stored = state.storage.data.get('pro-room:v2:core') as
+    | { core?: Record<string, any>; playlistOrder?: string[] }
+    | undefined;
+  if (!stored?.core || !Array.isArray(stored.playlistOrder)) {
+    throw new Error('canonical PRO room state is missing');
+  }
+  return {
+    ...structuredClone(stored.core),
+    playlist: stored.playlistOrder.map((queueItemId) =>
+      structuredClone(state.storage.data.get(`pro-room:v2:playlist:${queueItemId}`)),
+    ),
+  } as StoredRoom & Record<string, any>;
+}
+
 class FakeR2Bucket {
   readonly objects = new Map<string, any>();
   readonly deleted: string[] = [];
@@ -2431,6 +2447,12 @@ function requestForRoom(
 ): Request {
   const headers = new Headers(init.headers);
   headers.set('x-mxqr-pro-room-code', roomCode);
+  if (!headers.has('x-mxqr-pro-room-generation')) {
+    headers.set('x-mxqr-pro-room-generation', '0');
+  }
+  if (path === '/effects' && !headers.has('x-mxqr-pro-effects-version')) {
+    headers.set('x-mxqr-pro-effects-version', '2');
+  }
   headers.set('x-mxqr-pro-ip-hash', 'hashed-client-address');
   if (cookie) headers.set('cookie', cookie);
   const presence = cookie ? presenceByCookie.get(cookie) : null;
@@ -2467,6 +2489,7 @@ async function withAccountAssertion(
       accountId,
       nickname,
       roomCode,
+      roomGeneration: 0,
       audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
     },
     ACCOUNT_ASSERTION_SECRET,
@@ -2547,7 +2570,12 @@ async function activatedRoom(roomCode = ROOM_CODE) {
     const provision = await worker.fetch(
       new Request('https://pro-room.internal/internal/admin/provision', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': roomCode },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': roomCode,
+          'x-mxqr-pro-room-generation': '0',
+        },
+        body: JSON.stringify({ roomGeneration: 0 }),
       }),
     );
     expect(provision.status).toBe(200);
@@ -2962,8 +2990,14 @@ function internalDeveloperRead(
       headers: {
         'content-type': 'application/json',
         'x-mxqr-pro-room-code': ROOM_CODE,
+        'x-mxqr-pro-room-generation': '0',
       },
-      body: JSON.stringify({ projection, keyId }),
+      body: JSON.stringify({
+        projection,
+        keyId,
+        roomGeneration: 0,
+        ...(projection === 'effects' ? { effectsVersion: 2 } : {}),
+      }),
     }),
   );
 }
@@ -2980,8 +3014,15 @@ function updateInternalDeveloperQueueMode(
       headers: {
         'content-type': 'application/json',
         'x-mxqr-pro-room-code': ROOM_CODE,
+        'x-mxqr-pro-room-generation': '0',
       },
-      body: JSON.stringify({ roomCode: ROOM_CODE, keyId, idempotencyKey, queueMode }),
+      body: JSON.stringify({
+        roomCode: ROOM_CODE,
+        roomGeneration: 0,
+        keyId,
+        idempotencyKey,
+        queueMode,
+      }),
     }),
   );
 }
@@ -3039,8 +3080,15 @@ function createInternalDeveloperCommand(
       headers: {
         'content-type': 'application/json',
         'x-mxqr-pro-room-code': ROOM_CODE,
+        'x-mxqr-pro-room-generation': '0',
       },
-      body: JSON.stringify({ roomCode: ROOM_CODE, keyId, idempotencyKey, command }),
+      body: JSON.stringify({
+        roomCode: ROOM_CODE,
+        roomGeneration: 0,
+        keyId,
+        idempotencyKey,
+        command,
+      }),
     }),
   );
 }
@@ -3058,9 +3106,11 @@ function mutateInternalDeveloperQueue(
       headers: {
         'content-type': 'application/json',
         'x-mxqr-pro-room-code': ROOM_CODE,
+        'x-mxqr-pro-room-generation': '0',
       },
       body: JSON.stringify({
         roomCode: ROOM_CODE,
+        roomGeneration: 0,
         keyId,
         ...(actorName === undefined ? {} : { actorName }),
         idempotencyKey,
@@ -3082,8 +3132,15 @@ function createInternalDeveloperUpload(
       headers: {
         'content-type': 'application/json',
         'x-mxqr-pro-room-code': ROOM_CODE,
+        'x-mxqr-pro-room-generation': '0',
       },
-      body: JSON.stringify({ roomCode: ROOM_CODE, keyId, idempotencyKey, media }),
+      body: JSON.stringify({
+        roomCode: ROOM_CODE,
+        roomGeneration: 0,
+        keyId,
+        idempotencyKey,
+        media,
+      }),
     }),
   );
 }
@@ -3101,9 +3158,11 @@ function completeInternalDeveloperUpload(
       headers: {
         'content-type': 'application/json',
         'x-mxqr-pro-room-code': ROOM_CODE,
+        'x-mxqr-pro-room-generation': '0',
       },
       body: JSON.stringify({
         roomCode: ROOM_CODE,
+        roomGeneration: 0,
         keyId,
         idempotencyKey,
         assetId,
@@ -3125,6 +3184,7 @@ function internalBotRequest(
     'content-type': 'application/json',
     cookie,
     'x-mxqr-pro-room-code': roomCode,
+    'x-mxqr-pro-room-generation': '0',
   });
   if (options.includePresence !== false) {
     const presence = presenceByCookie.get(cookie);
@@ -3136,7 +3196,7 @@ function internalBotRequest(
     new Request(`https://pro-room.internal/internal/bot/${path}`, {
       method: 'POST',
       headers,
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, roomGeneration: 0 }),
     }),
   );
 }
@@ -3400,6 +3460,7 @@ describe('PRO room server BOT boundary', () => {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
           'x-mxqr-pro-ip-hash': 'new-client-at-capacity',
         },
         body: JSON.stringify({ pin: '12345678' }),
@@ -3815,9 +3876,13 @@ describe('PRO room server BOT boundary', () => {
     const response = await internal.handleInternalDeveloperQueueMutation(
       new Request('https://pro-room.internal/internal/developer/v1/queue/mutate', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-generation': '0',
+        },
         body: JSON.stringify({
           roomCode: ROOM_CODE,
+          roomGeneration: 0,
           keyId: 'MxqrGeminiBot001',
           idempotencyKey: requestId,
           mutation: { type: 'clear' },
@@ -4029,7 +4094,7 @@ describe('PRO room private Developer API projections', () => {
     internal.room.assets[assetId] = {
       status: 'ready',
       assetId,
-      objectKey: 'rooms/000001/private-object.flac',
+      objectKey: 'pro-room-incarnations/000001/generation-0/private-object.flac',
       stagingObjectKey: 'staging/000001/private-object.flac',
       version: 1,
       byteLength: 1_024,
@@ -4143,6 +4208,7 @@ describe('PRO room private Developer API projections', () => {
           first: vi.fn(async () => ({
             key_id: keyId,
             room_code: roomCode,
+            room_generation: 0,
             label: 'Composed API',
             secret_digest: secretDigest,
             digest_version: 1,
@@ -4282,7 +4348,7 @@ describe('PRO room private Developer API projections', () => {
 
   it('rejects non-active rooms and exact-body violations', async () => {
     const { worker } = await activatedRoom();
-    const rollingCompatibleRead = await worker.fetch(
+    const missingGenerationRead = await worker.fetch(
       new Request('https://pro-room.internal/internal/developer/v1/read', {
         method: 'POST',
         headers: {
@@ -4292,10 +4358,9 @@ describe('PRO room private Developer API projections', () => {
         body: JSON.stringify({ projection: 'room' }),
       }),
     );
-    expect(rollingCompatibleRead.status).toBe(200);
-    await expect(responseJson(rollingCompatibleRead)).resolves.toMatchObject({
-      view: 'room',
-      roomCode: ROOM_CODE,
+    expect(missingGenerationRead.status).toBe(404);
+    await expect(responseJson(missingGenerationRead)).resolves.toEqual({
+      error: 'ROOM_NOT_FOUND',
     });
 
     const invalid = await worker.fetch(
@@ -4304,6 +4369,7 @@ describe('PRO room private Developer API projections', () => {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
         },
         body: JSON.stringify({ projection: 'room', keyId: DEVELOPER_KEY_ID, admin: true }),
       }),
@@ -4938,8 +5004,6 @@ describe('PRO room private Developer API projections', () => {
     expect(new TextEncoder().encode(JSON.stringify(internal.room)).byteLength).toBeLessThan(
       stateLimitBytes,
     );
-    await state.storage.put('pro-room:v1', structuredClone(internal.room));
-
     const before = {
       playlist: structuredClone(internal.room.playlist),
       revision: internal.room.revision,
@@ -4986,7 +5050,7 @@ describe('PRO room private Developer API projections', () => {
       ),
     ).toBe(false);
 
-    const persisted = state.storage.data.get('pro-room:v1') as Record<string, any>;
+    const persisted = storedCanonicalRoom(state);
     expect(persisted.playlist).toEqual(before.playlist);
     expect(persisted.revision).toBe(before.revision);
     expect(persisted.playlistRevision).toBe(before.playlistRevision);
@@ -5036,6 +5100,7 @@ describe('PRO room private Developer API projections', () => {
     };
     const facadeBody = {
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       keyId: 'B'.repeat(16),
       actorName: 'Large response bot',
       idempotencyKey: 'developer-queue-batch-large-response',
@@ -5051,7 +5116,10 @@ describe('PRO room private Developer API projections', () => {
       developerApiFacadeWorker.fetch(
         new Request('https://developer-api-facade.internal/internal/v1/queue/mutate', {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-generation': '0',
+          },
           body: JSON.stringify(facadeBody),
         }),
         { PRO_ROOM_DEVELOPER_ROOMS: rooms },
@@ -5202,20 +5270,21 @@ describe('PRO room private Developer API projections', () => {
       [participantQueueItemId, 'participant'],
     ]);
 
-    const rollingCompatibleView = await responseJson(
+    const keylessView = await responseJson(
       await worker.fetch(
         new Request('https://pro-room.internal/internal/developer/v1/read', {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
             'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
           },
           body: JSON.stringify({ projection: 'queue' }),
         }),
       ),
     );
     expect(
-      rollingCompatibleView.items.every(
+      keylessView.items.every(
         (item: Record<string, unknown>) => !Object.prototype.hasOwnProperty.call(item, 'addedBy'),
       ),
     ).toBe(true);
@@ -5477,7 +5546,7 @@ describe('PRO room private Developer API projections', () => {
       youtubeSubIndex: null,
     });
     expect(asset.gcAfterMs).toBe(Date.now() + 15 * 60 * 1_000);
-    expect((state.storage.data.get('pro-room:v1') as Record<string, any>).playlist).toEqual([]);
+    expect(storedCanonicalRoom(state).playlist).toEqual([]);
     await vi.waitFor(() => expect(dispatchedBodies).toHaveLength(2));
     expect(dispatchedBodies).toEqual(
       expect.arrayContaining([
@@ -5919,6 +5988,7 @@ describe('PRO room private Developer API projections', () => {
           'content-length': String(media.byteLength),
           'content-type': media.mime,
           'x-amz-meta-mxqr-room': ROOM_CODE,
+          'x-amz-meta-mxqr-generation': '0',
           'x-amz-meta-mxqr-asset': expect.any(String),
           'x-amz-meta-mxqr-bytes': String(media.byteLength),
           'x-amz-meta-mxqr-sha256': media.sha256,
@@ -5926,20 +5996,19 @@ describe('PRO room private Developer API projections', () => {
       },
       quota: { reservedBytes: media.byteLength, usedBytes: 0 },
     });
-    const legacyDeveloperUploadHeaderNames = new Set([
+    const developerUploadHeaderNames = new Set([
       'content-length',
       'content-type',
       'x-amz-meta-mxqr-room',
+      'x-amz-meta-mxqr-generation',
       'x-amz-meta-mxqr-asset',
       'x-amz-meta-mxqr-version',
       'x-amz-meta-mxqr-bytes',
       'x-amz-meta-mxqr-sha256',
     ]);
-    expect(reservation.upload.headers).not.toHaveProperty('x-amz-meta-mxqr-generation');
+    expect(reservation.upload.headers).toHaveProperty('x-amz-meta-mxqr-generation', '0');
     expect(
-      Object.keys(reservation.upload.headers).every((name) =>
-        legacyDeveloperUploadHeaderNames.has(name),
-      ),
+      Object.keys(reservation.upload.headers).every((name) => developerUploadHeaderNames.has(name)),
     ).toBe(true);
     expect(reservation.uploadExpiresAtMs).toBeLessThan(reservation.completionExpiresAtMs);
 
@@ -5956,6 +6025,7 @@ describe('PRO room private Developer API projections', () => {
       httpMetadata: { contentType: asset.mime },
       customMetadata: {
         'mxqr-room': ROOM_CODE,
+        'mxqr-generation': '0',
         'mxqr-asset': asset.assetId,
         'mxqr-version': String(asset.version),
         'mxqr-bytes': String(asset.byteLength),
@@ -6045,7 +6115,7 @@ describe('PRO room private Developer API projections', () => {
     const dispatchFetch = vi.fn(async (request: Request) => {
       const body = (await request.json()) as Record<string, any>;
       dispatchedBodies.push(body);
-      const persisted = state.storage.data.get('pro-room:v1') as Record<string, any>;
+      const persisted = storedCanonicalRoom(state);
       expect(persisted.revision).toBe(body.event.roomRevision);
       expect(persisted.playlistRevision).toBe(body.event.playlistRevision);
       return Response.json({ dispatched: true });
@@ -6318,6 +6388,7 @@ describe('PRO room private Developer API projections', () => {
           headers: {
             'content-type': 'application/json',
             'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
           },
           body: JSON.stringify({ roomCode: ROOM_CODE, keyId, idempotencyKey, command }),
         }),
@@ -6325,7 +6396,7 @@ describe('PRO room private Developer API projections', () => {
     const persistedSizes: number[] = [];
     const originalPut = state.storage.put.bind(state.storage);
     const putSpy = vi.spyOn(state.storage, 'put').mockImplementation(async (key, value) => {
-      if (key === 'pro-room:v1') {
+      if (key === 'pro-room:v2:core') {
         persistedSizes.push(new TextEncoder().encode(JSON.stringify(value)).byteLength);
       }
       await originalPut(key, value);
@@ -6342,7 +6413,7 @@ describe('PRO room private Developer API projections', () => {
     expect(created).not.toHaveProperty('resultCode');
     expect(created.commandId).toMatch(/^cmd_[A-Za-z0-9_-]{22}$/);
     expect(dispatchFetch).toHaveBeenCalledTimes(1);
-    expect(persistedSizes).toHaveLength(1);
+    expect(persistedSizes).toHaveLength(2);
     const dispatchedRequest = dispatchFetch.mock.calls[0]?.[0] as Request;
     await expect(dispatchedRequest.json()).resolves.toMatchObject({
       roomCode: ROOM_CODE,
@@ -6409,6 +6480,7 @@ describe('PRO room private Developer API projections', () => {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
         },
         body: JSON.stringify({ roomCode: ROOM_CODE, keyId, commandId: created.commandId }),
       }),
@@ -6551,6 +6623,7 @@ describe('PRO room private Developer API projections', () => {
           headers: {
             'content-type': 'application/json',
             'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
           },
           body: JSON.stringify({
             roomCode: ROOM_CODE,
@@ -6711,7 +6784,10 @@ describe('persistent PRO room bootstrap and activation', () => {
     const suspend = await context.worker.fetch(
       new Request('https://pro-room.internal/internal/admin/suspend', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+        headers: {
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
     expect(suspend.status).toBe(200);
@@ -6769,7 +6845,10 @@ describe('persistent PRO room bootstrap and activation', () => {
     const repeatedSuspend = await context.worker.fetch(
       new Request('https://pro-room.internal/internal/admin/suspend', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+        headers: {
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
     expect(await responseJson(repeatedSuspend)).toEqual({
@@ -6784,7 +6863,10 @@ describe('persistent PRO room bootstrap and activation', () => {
     const resume = await context.worker.fetch(
       new Request('https://pro-room.internal/internal/admin/resume', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+        headers: {
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
     expect(await responseJson(resume)).toEqual({
@@ -6808,7 +6890,10 @@ describe('persistent PRO room bootstrap and activation', () => {
     const repeatedResume = await context.worker.fetch(
       new Request('https://pro-room.internal/internal/admin/resume', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+        headers: {
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
     expect(await responseJson(repeatedResume)).toEqual({
@@ -6856,9 +6941,11 @@ describe('persistent PRO room bootstrap and activation', () => {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
         },
         body: JSON.stringify({
           roomCode: ROOM_CODE,
+          roomGeneration: 0,
           requestId: '018f977e-5df5-4c8f-bb80-55d847ddec9d',
         }),
       }),
@@ -6970,9 +7057,11 @@ describe('persistent PRO room bootstrap and activation', () => {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
         },
         body: JSON.stringify({
           roomCode: ROOM_CODE,
+          roomGeneration: 0,
           requestId: '018f977e-5df5-4c8f-bb80-55d847ddec9e',
         }),
       });
@@ -7022,7 +7111,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(memberResponse.status).toBe(200);
     bindCookiePresence(cookieFrom(memberResponse), await responseJson(memberResponse));
 
-    const orphanKey = `rooms/${ROOM_CODE}/assets/orphan/v1/staging_orphan`;
+    const orphanKey = `pro-room-incarnations/${ROOM_CODE}/generation-0/assets/orphan/v1/staging_orphan`;
     const otherRoomKey = 'rooms/000002/assets/keep/v1/object_keep';
     context.bucket.objects.set(orphanKey, { size: 17 });
     context.bucket.objects.set(otherRoomKey, { size: 23 });
@@ -7050,11 +7139,13 @@ describe('persistent PRO room bootstrap and activation', () => {
       expect(new URL(request.url).pathname).toBe('/internal/admin/v1/decommission');
       await expect(request.json()).resolves.toEqual({
         roomCode: ROOM_CODE,
+        roomGeneration: 0,
         requestId: '018f977e-5df5-4c8f-bb80-55d847ddec9f',
       });
       return Response.json({
         ok: true,
         roomCode: ROOM_CODE,
+        roomGeneration: 0,
         status: 'decommissioned',
       });
     });
@@ -7072,12 +7163,13 @@ describe('persistent PRO room bootstrap and activation', () => {
     const limiterFetch = vi.fn(async (request: Request) => {
       expect(new URL(request.url).pathname).toBe('/internal/admin/v1/decommission');
       expect(request.headers.get('x-mxqr-pro-room-code')).toBe(ROOM_CODE);
-      expect(request.headers.get('x-mxqr-pro-room-generation')).toBeNull();
+      expect(request.headers.get('x-mxqr-pro-room-generation')).toBe('0');
       await expect(request.json()).resolves.toEqual({
         roomCode: ROOM_CODE,
+        roomGeneration: 0,
         requestId: '018f977e-5df5-4c8f-bb80-55d847ddec9f',
       });
-      return Response.json({ ok: true, roomCode: ROOM_CODE });
+      return Response.json({ ok: true, roomCode: ROOM_CODE, roomGeneration: 0 });
     });
     const limiterIdFromName = vi.fn((name: string) => name);
     const internal = context.worker as unknown as {
@@ -7112,9 +7204,11 @@ describe('persistent PRO room bootstrap and activation', () => {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
         },
         body: JSON.stringify({
           roomCode: ROOM_CODE,
+          roomGeneration: 0,
           requestId: '018f977e-5df5-4c8f-bb80-55d847ddec9f',
         }),
       });
@@ -7156,7 +7250,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(initialDeveloperDeletes).toHaveLength(3);
     expect(
       developerQueries.filter(({ sql }) =>
-        /INSERT INTO mxqr_developer_api_room_tombstones/.test(sql),
+        /INSERT INTO mxqr_developer_api_room_generation_tombstones/.test(sql),
       ),
     ).toHaveLength(1);
     expect(initialDeveloperDeletes.map(({ sql }) => sql.match(/^DELETE FROM (\S+)/)?.[1])).toEqual([
@@ -7168,11 +7262,11 @@ describe('persistent PRO room bootstrap and activation', () => {
       initialDeveloperDeletes.every(({ values }) => values[0] === ROOM_CODE && values[1] === 0),
     ).toBe(true);
     expect(limiterIdFromName).toHaveBeenCalledOnce();
-    expect(limiterIdFromName).toHaveBeenCalledWith(`room:${ROOM_CODE}`);
+    expect(limiterIdFromName).toHaveBeenCalledWith(`room:${ROOM_CODE}:generation:0`);
     expect(limiterFetch).toHaveBeenCalledTimes(1);
     expect(registryStatus).toBe('decommissioning');
 
-    const lateObjectKey = `rooms/${ROOM_CODE}/assets/late/v1/staging_late`;
+    const lateObjectKey = `pro-room-incarnations/${ROOM_CODE}/generation-0/assets/late/v1/staging_late`;
     context.bucket.objects.set(lateObjectKey, { size: 29 });
     const purgeAfterMs = internal.room.decommission.purgeAfterMs as number;
     expect(context.state.storage.alarm).toBe(purgeAfterMs);
@@ -7184,7 +7278,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(registryStatus).toBe('decommissioning');
     expect(internal.room.status).toBe('decommissioning');
 
-    const quietWindowLateKey = `rooms/${ROOM_CODE}/assets/quiet-window/v1/staging_late`;
+    const quietWindowLateKey = `pro-room-incarnations/${ROOM_CODE}/generation-0/assets/quiet-window/v1/staging_late`;
     context.bucket.objects.set(quietWindowLateKey, { size: 31 });
     vi.setSystemTime(purgeAfterMs + 60_001);
     await internal.alarm();
@@ -7211,7 +7305,7 @@ describe('persistent PRO room bootstrap and activation', () => {
       },
     });
 
-    const postCompletionKey = `rooms/${ROOM_CODE}/assets/post-completion/v1/straggler`;
+    const postCompletionKey = `pro-room-incarnations/${ROOM_CODE}/generation-0/assets/post-completion/v1/straggler`;
     context.bucket.objects.set(postCompletionKey, { size: 37 });
     const maintenanceAtMs = internal.room.decommission.maintenanceAtMs as number;
     vi.setSystemTime(maintenanceAtMs);
@@ -7238,17 +7332,20 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(signalingFetch).toHaveBeenCalledTimes(5);
     expect(
       developerQueries.filter(({ sql }) =>
-        /INSERT INTO mxqr_developer_api_room_tombstones/.test(sql),
+        /INSERT INTO mxqr_developer_api_room_generation_tombstones/.test(sql),
       ),
     ).toHaveLength(5);
-    expect(developerApiDb.prepare).toHaveBeenCalledTimes(25);
+    expect(developerApiDb.prepare).toHaveBeenCalledTimes(20);
     expect(limiterFetch).toHaveBeenCalledTimes(5);
 
     const restarted = new MusixquareProRoom(context.state as never, internal.env as never);
     const reprovision = await restarted.fetch(
       new Request('https://pro-room.internal/internal/admin/provision', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+        headers: {
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
     expect(reprovision.status).toBe(410);
@@ -7262,7 +7359,10 @@ describe('persistent PRO room bootstrap and activation', () => {
     const internalRequest = (roomCode: string, operation: 'suspend' | 'resume') =>
       new Request(`https://pro-room.internal/internal/admin/${operation}`, {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': roomCode },
+        headers: {
+          'x-mxqr-pro-room-code': roomCode,
+          'x-mxqr-pro-room-generation': '0',
+        },
       });
 
     const inactiveSuspend = await worker.fetch(internalRequest(ROOM_CODE, 'suspend'));
@@ -7291,7 +7391,10 @@ describe('persistent PRO room bootstrap and activation', () => {
     const response = await worker.fetch(
       new Request('https://pro-room.internal/internal/admin/suspend', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+        headers: {
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
 
@@ -7376,7 +7479,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     });
     expect(JSON.stringify(envelope)).not.toContain('objectKey');
     expect(JSON.stringify(envelope)).not.toContain(ACTIVATION_SECRET);
-    const stored = state.storage.data.get('pro-room:v1') as StoredRoom;
+    const stored = storedCanonicalRoom(state);
     expect(stored.pin?.iterations).toBe(100_000);
   });
 
@@ -7408,7 +7511,10 @@ describe('persistent PRO room bootstrap and activation', () => {
     const provision = await worker.fetch(
       new Request('https://pro-room.internal/internal/admin/provision', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': roomCode },
+        headers: {
+          'x-mxqr-pro-room-code': roomCode,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
     expect(provision.status).toBe(200);
@@ -7431,7 +7537,10 @@ describe('persistent PRO room bootstrap and activation', () => {
     await worker.fetch(
       new Request('https://pro-room.internal/internal/admin/provision', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': roomCode },
+        headers: {
+          'x-mxqr-pro-room-code': roomCode,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
 
@@ -7440,7 +7549,10 @@ describe('persistent PRO room bootstrap and activation', () => {
       await worker.fetch(
         new Request('https://pro-room.internal/internal/admin/activation-claim', {
           method: 'POST',
-          headers: { 'x-mxqr-pro-room-code': roomCode },
+          headers: {
+            'x-mxqr-pro-room-code': roomCode,
+            'x-mxqr-pro-room-generation': '0',
+          },
         }),
       ),
     );
@@ -7448,7 +7560,10 @@ describe('persistent PRO room bootstrap and activation', () => {
       await worker.fetch(
         new Request('https://pro-room.internal/internal/admin/activation-claim', {
           method: 'POST',
-          headers: { 'x-mxqr-pro-room-code': roomCode },
+          headers: {
+            'x-mxqr-pro-room-code': roomCode,
+            'x-mxqr-pro-room-generation': '0',
+          },
         }),
       ),
     );
@@ -7486,7 +7601,10 @@ describe('persistent PRO room bootstrap and activation', () => {
     const issuedAt = Date.now();
     const statusResponse = await worker.fetch(
       new Request('https://pro-room.internal/internal/admin/status', {
-        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+        headers: {
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
     expect(statusResponse.status).toBe(200);
@@ -7500,7 +7618,10 @@ describe('persistent PRO room bootstrap and activation', () => {
     const response = await worker.fetch(
       new Request('https://pro-room.internal/internal/admin/owner-recovery-claim', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+        headers: {
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
     expect(response.status).toBe(200);
@@ -7535,14 +7656,20 @@ describe('persistent PRO room bootstrap and activation', () => {
     const recoveryResponse = worker.fetch(
       new Request('https://pro-room.internal/internal/admin/owner-recovery-claim', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+        headers: {
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
     await vi.waitFor(() => expect(recovery).toHaveBeenCalledOnce());
     const suspendResponse = worker.fetch(
       new Request('https://pro-room.internal/internal/admin/suspend', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+        headers: {
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
     await Promise.resolve();
@@ -7560,14 +7687,20 @@ describe('persistent PRO room bootstrap and activation', () => {
     await worker.fetch(
       new Request('https://pro-room.internal/internal/admin/provision', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': roomCode },
+        headers: {
+          'x-mxqr-pro-room-code': roomCode,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
 
     const unactivated = await worker.fetch(
       new Request('https://pro-room.internal/internal/admin/owner-recovery-claim', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': roomCode },
+        headers: {
+          'x-mxqr-pro-room-code': roomCode,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
     expect(unactivated.status).toBe(409);
@@ -7582,7 +7715,10 @@ describe('persistent PRO room bootstrap and activation', () => {
     const suspended = await worker.fetch(
       new Request('https://pro-room.internal/internal/admin/owner-recovery-claim', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': roomCode },
+        headers: {
+          'x-mxqr-pro-room-code': roomCode,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
     expect(suspended.status).toBe(409);
@@ -7653,9 +7789,9 @@ describe('persistent PRO room bootstrap and activation', () => {
             registryReads += 1;
             return {
               results: [
-                { room_code: '000010' },
+                { room_code: '000010', room_generation: 0 },
                 // A half-finished admin registration must not reach a DO.
-                { room_code: '000011', status: 'provisioning' },
+                { room_code: '000011', room_generation: 0, status: 'provisioning' },
               ].filter((row) => row.status === undefined),
             };
           },
@@ -7693,7 +7829,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect((await publicBootstrap('000011')).status).toBe(404);
     expect((await publicBootstrap('000010')).status).toBe(200);
     expect(registryReads).toBe(1);
-    expect(forwardedCodes).toEqual(['000010', '000010']);
+    expect(forwardedCodes).toEqual(['000010:generation:0', '000010:generation:0']);
   });
 
   it('scopes session and owner cookies per room so fixed rooms can coexist', async () => {
@@ -8712,8 +8848,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
         },
         body: JSON.stringify({
+          roomGeneration: 0,
           participantId: friend.envelope.snapshot.viewer.participantId,
           presenceIncarnationId: friend.envelope.snapshot.viewer.presenceIncarnationId,
           permission: 'chat.notice',
@@ -8921,8 +9059,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
         },
         body: JSON.stringify({
+          roomGeneration: 0,
           participantId: current.snapshot.viewer.participantId,
           presenceIncarnationId: current.snapshot.viewer.presenceIncarnationId,
           permission: 'chat.notice',
@@ -9093,8 +9233,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
           headers: {
             'content-type': 'application/json',
             'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
           },
           body: JSON.stringify({
+            roomGeneration: 0,
             participantId: viewer.participantId,
             presenceIncarnationId: viewer.presenceIncarnationId,
             permission,
@@ -10384,6 +10526,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
         },
         body: JSON.stringify({ accountId }),
       }),
@@ -10442,6 +10585,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
         },
         body: JSON.stringify({ accountId }),
       }),
@@ -10482,6 +10626,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
         },
         body: JSON.stringify({ accountId }),
       }),
@@ -11529,6 +11674,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       'v',
       'kind',
       'roomCode',
+      'roomGeneration',
       'participantId',
       'memberId',
       'displayName',
@@ -11545,6 +11691,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       v: 1,
       kind: 'pro-signaling',
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       displayName: 'Owner',
       role: 'member',
       coordinatorEpoch: 3,
@@ -11724,7 +11871,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     });
   });
 
-  it('checkpoints the legacy shadow and alarm without rewriting both on every heartbeat', async () => {
+  it('persists canonical heartbeat state without recreating obsolete storage keys', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-19T06:00:00.000Z'));
     const { worker, state, ownerCookie } = await activatedRoom();
@@ -11734,14 +11881,16 @@ describe('persistent PRO room authentication, presence, and state', () => {
     await expect(
       worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
     ).resolves.toMatchObject({ status: 200 });
-    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v1')).toHaveLength(0);
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(1);
+    expect(state.storage.data.has('pro-room:v1')).toBe(false);
     expect(setAlarm).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(30_001);
     await expect(
       worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
     ).resolves.toMatchObject({ status: 200 });
-    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v1')).toHaveLength(1);
+    expect(put.mock.calls.filter(([key]) => key === 'pro-room:v2:core')).toHaveLength(2);
+    expect(state.storage.data.has('pro-room:v1')).toBe(false);
     expect(setAlarm).not.toHaveBeenCalled();
   });
 
@@ -11890,6 +12039,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
             equalizer: { bandsDb: [0, 0, 0, 0, 0] },
             virtualBass: { strengthPercent: 0 },
             virtualSurround: { widthPercent: 100 },
+            virtualTreble: { enabled: false },
           },
         },
         ownerCookie,
@@ -11975,6 +12125,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       equalizer: { bandsDb: [0, 0, 0, 0, 0] },
       virtualBass: { strengthPercent: 0 },
       virtualSurround: { widthPercent: 100 },
+      virtualTreble: { enabled: false },
     };
 
     await expect(
@@ -12062,6 +12213,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
               equalizer: { bandsDb: [0, 0, 0, 0, 0] },
               virtualBass: { strengthPercent: 0 },
               virtualSurround: { widthPercent: 100 },
+              virtualTreble: { enabled: false },
             },
           },
           ownerCookie,
@@ -12099,6 +12251,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
             equalizer: { bandsDb: [0, 0, 0, 0, 0] },
             virtualBass: { strengthPercent: 0 },
             virtualSurround: { widthPercent: 100 },
+            virtualTreble: { enabled: false },
           },
         },
         ownerCookie,
@@ -12148,6 +12301,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
             equalizer: { bandsDb: [0, 0, 0, 0, 0] },
             virtualBass: { strengthPercent: 0 },
             virtualSurround: { widthPercent: 100 },
+            virtualTreble: { enabled: false },
           },
         },
         ownerCookie,
@@ -12449,7 +12603,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const suspended = await worker.fetch(
       new Request('https://pro-room.internal/internal/admin/suspend', {
         method: 'POST',
-        headers: { 'x-mxqr-pro-room-code': ROOM_CODE },
+        headers: {
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
       }),
     );
     expect(suspended.status).toBe(200);
@@ -13399,11 +13556,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const after = await responseJson(accepted);
     expect(after.snapshot.playlist).toHaveLength(220);
     expect(state.storage.data.get('pro-room:v2:core')).toBeDefined();
-    // The old record remains the last exact rollback shadow instead of being
-    // overwritten with an over-budget value.
-    const legacyShadow = state.storage.data.get('pro-room:v1') as StoredRoom;
-    expect(legacyShadow.revision).toBe(before.snapshot.revision);
-    expect(legacyShadow.playlist).toEqual([]);
+    expect(state.storage.data.has('pro-room:v1')).toBe(false);
 
     const put = vi.spyOn(state.storage, 'put');
     await expect(
@@ -13426,40 +13579,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
       await restarted.fetch(request('/snapshot', {}, ownerCookie)),
     );
     expect(restored.snapshot.playlist).toEqual(playlist);
-  });
-
-  it('migrates a legacy v1 room on its next successful mutation', async () => {
-    const { state, bucket, ownerCookie } = await activatedRoom();
-    for (const key of [...state.storage.data.keys()]) {
-      if (key.startsWith('pro-room:v2:')) state.storage.data.delete(key);
-    }
-    const restarted = new MusixquareProRoom(state as never, environment(bucket) as never);
-    const before = await responseJson(await restarted.fetch(request('/snapshot', {}, ownerCookie)));
-    const item = {
-      queueItemId: 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa',
-      name: 'Migrated row',
-      source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
-    };
-    const mutated = await restarted.fetch(
-      jsonRequest(
-        '/snapshot/compact',
-        'POST',
-        {
-          baseRevision: before.snapshot.revision,
-          playlistOrder: [item.queueItemId],
-          upserts: [item],
-          currentQueueItemId: null,
-          playback: before.snapshot.playback,
-        },
-        ownerCookie,
-        `${IDEMPOTENCY_KEY}-v1-migration`,
-      ),
-    );
-
-    expect(mutated.status).toBe(200);
-    expect(state.storage.data.get('pro-room:v2:core')).toBeDefined();
-    expect(state.storage.data.get(`pro-room:v2:playlist:${item.queueItemId}`)).toEqual(item);
-    expect((state.storage.data.get('pro-room:v1') as StoredRoom).playlist).toEqual([item]);
   });
 
   it('rejects a playlist above the bounded public snapshot budget before writing v2 rows', async () => {
@@ -13881,10 +14000,13 @@ describe('persistent PRO room private media accounting', () => {
         .get('X-Amz-SignedHeaders')
         ?.split(';'),
     ).toContain('content-length');
-    expect(reservation.reservation.upload.headers).not.toHaveProperty('x-amz-meta-mxqr-generation');
+    expect(reservation.reservation.upload.headers).toHaveProperty(
+      'x-amz-meta-mxqr-generation',
+      '0',
+    );
     expect(JSON.stringify(reservation)).not.toContain('objectKey');
 
-    const stored = state.storage.data.get('pro-room:v1') as StoredRoom;
+    const stored = storedCanonicalRoom(state);
     const asset = stored.assets[reservation.reservation.assetId];
     bucket.objects.set(asset.stagingObjectKey, {
       size: asset.byteLength,
@@ -13969,7 +14091,7 @@ describe('persistent PRO room private media accounting', () => {
       ),
     );
     const assetId = reservation.reservation.assetId as string;
-    const asset = (state.storage.data.get('pro-room:v1') as StoredRoom).assets[assetId]!;
+    const asset = storedCanonicalRoom(state).assets[assetId]!;
     bucket.objects.set(asset.stagingObjectKey, { staged: true });
 
     const remove = await worker.fetch(
@@ -13988,7 +14110,7 @@ describe('persistent PRO room private media accounting', () => {
     });
     expect(bucket.deleted).toContain(asset.stagingObjectKey);
     expect(bucket.objects.has(asset.stagingObjectKey)).toBe(false);
-    const stored = state.storage.data.get('pro-room:v1') as StoredRoom & {
+    const stored = storedCanonicalRoom(state) as StoredRoom & {
       quota: { usedBytes: number; reservedBytes: number };
     };
     expect(stored.assets[assetId]).toBeUndefined();
@@ -14130,7 +14252,7 @@ describe('persistent PRO room private media accounting', () => {
       ),
     );
     const assetId = reservation.reservation.assetId as string;
-    const asset = (state.storage.data.get('pro-room:v1') as StoredRoom).assets[assetId]!;
+    const asset = storedCanonicalRoom(state).assets[assetId]!;
     bucket.objects.set(asset.stagingObjectKey, { staged: true });
     bucket.deleteError = new Error('temporary R2 failure');
 
@@ -14143,7 +14265,7 @@ describe('persistent PRO room private media accounting', () => {
     );
     expect(failed.status).toBe(503);
     expect(await responseJson(failed)).toEqual({ error: 'MEDIA_STORAGE_UNAVAILABLE' });
-    let stored = state.storage.data.get('pro-room:v1') as StoredRoom & {
+    let stored = storedCanonicalRoom(state) as StoredRoom & {
       quota: { usedBytes: number; reservedBytes: number };
     };
     expect(stored.assets[assetId]).toBeDefined();
@@ -14162,7 +14284,7 @@ describe('persistent PRO room private media accounting', () => {
     internal.room.assets[assetId]!.expiresAtMs = Date.now() - 1;
     bucket.deleteError = null;
     await internal.alarm();
-    stored = state.storage.data.get('pro-room:v1') as StoredRoom & {
+    stored = storedCanonicalRoom(state) as StoredRoom & {
       quota: { usedBytes: number; reservedBytes: number };
     };
     expect(stored.assets[assetId]).toBeUndefined();
@@ -14447,43 +14569,13 @@ describe('PRO room system-audio ownership lease', () => {
         publication: null,
       },
     });
-    const stored = (await state.storage.get('pro-room:v1')) as {
+    const stored = storedCanonicalRoom(state) as unknown as {
       systemAudio: Record<string, unknown>;
     };
     expect(stored.systemAudio).toEqual(
       expect.objectContaining({ generation: 12, status: 'idle', leaseId: null }),
     );
     expect(JSON.stringify(stored.systemAudio)).not.toContain('sessionOwnerToken');
-  });
-
-  it('migrates an old stored room when its alarm fires before any HTTP request', async () => {
-    const context = await activatedRoom();
-    const legacyRoom = (await context.state.storage.get('pro-room:v1')) as Record<string, unknown>;
-    delete legacyRoom.systemAudio;
-
-    const reloadedState = new FakeState();
-    reloadedState.storage.data.set('pro-room:v1', legacyRoom);
-    const reloadedWorker = new MusixquareProRoom(
-      reloadedState as never,
-      environment(context.bucket) as never,
-    ) as MusixquareProRoom & { alarm(): Promise<void> };
-
-    await expect(reloadedWorker.alarm()).resolves.toBeUndefined();
-
-    const migrated = (await reloadedState.storage.get('pro-room:v1')) as {
-      systemAudio: Record<string, unknown>;
-    };
-    expect(migrated.systemAudio).toEqual({
-      generation: 0,
-      status: 'idle',
-      ownerParticipantId: null,
-      ownerPresenceIncarnationId: null,
-      leaseId: null,
-      claimExpiresAt: null,
-      liveExpiresAt: null,
-      publication: null,
-    });
-    expect(reloadedState.storage.alarm).toEqual(expect.any(Number));
   });
 
   it('holds preparing for at most 45 seconds and live for at most two hours without heartbeat extension', async () => {
@@ -14794,6 +14886,7 @@ describe('persistent PRO room audio effects', () => {
     equalizer: { bandsDb: [0, 0, 0, 0, 0] },
     virtualBass: { strengthPercent: 0 },
     virtualSurround: { widthPercent: 100 },
+    virtualTreble: { enabled: false },
   };
   const configuredEffects = {
     reverb: {
@@ -14806,13 +14899,14 @@ describe('persistent PRO room audio effects', () => {
     equalizer: { bandsDb: [0, -2, 0, 4, 6] },
     virtualBass: { strengthPercent: 60 },
     virtualSurround: { widthPercent: 120 },
+    virtualTreble: { enabled: false },
   };
   const configuredEffectsV2 = {
     ...configuredEffects,
     virtualTreble: { enabled: true },
   };
 
-  it('negotiates virtual treble v2 while legacy full updates preserve the canonical value', async () => {
+  it('uses only the complete effects v2 contract', async () => {
     const context = await activatedRoom();
     const epoch = context.activationEnvelope.snapshot.presence.coordinatorEpoch as number;
     const v2Get = request(
@@ -14828,7 +14922,7 @@ describe('persistent PRO room audio effects', () => {
       roomCode: ROOM_CODE,
       revision: 0,
       updatedAtMs: 0,
-      effects: { ...defaultEffects, virtualTreble: { enabled: false } },
+      effects: defaultEffects,
     });
 
     const v2Update = jsonRequest(
@@ -14844,49 +14938,41 @@ describe('persistent PRO room audio effects', () => {
       effects: configuredEffectsV2,
     });
 
-    const legacyUpdate = await context.worker.fetch(
-      jsonRequest(
-        '/effects',
-        'PUT',
-        {
-          coordinatorEpoch: epoch,
-          baseRevision: 1,
-          effects: { ...configuredEffects, virtualBass: { strengthPercent: 25 } },
-        },
-        context.ownerCookie,
-      ),
+    const retiredUpdate = jsonRequest(
+      '/effects',
+      'PUT',
+      {
+        coordinatorEpoch: epoch,
+        baseRevision: 1,
+        effects: { ...configuredEffects, virtualBass: { strengthPercent: 25 } },
+      },
+      context.ownerCookie,
     );
-    const legacyPayload = await responseJson(legacyUpdate);
-    expect(legacyPayload).toMatchObject({
-      schemaVersion: 1,
-      effects: { ...configuredEffects, virtualBass: { strengthPercent: 25 } },
-    });
-    expect(legacyPayload.effects).toEqual({
-      ...configuredEffects,
-      virtualBass: { strengthPercent: 25 },
-    });
-    expect(legacyPayload.effects).not.toHaveProperty('virtualTreble');
+    retiredUpdate.headers.delete('x-mxqr-pro-effects-version');
+    expect((await context.worker.fetch(retiredUpdate)).status).toBe(400);
     const internal = context.worker as unknown as { room: Record<string, any> };
     expect(internal.room.effects.effects.virtualTreble).toEqual({ enabled: true });
 
-    const v2AfterLegacy = request(
+    const v2AfterRejectedRequest = request(
       '/effects',
       {
         headers: { 'x-mxqr-pro-effects-version': '2' },
       },
       context.ownerCookie,
     );
-    await expect((await context.worker.fetch(v2AfterLegacy)).json()).resolves.toMatchObject({
+    await expect(
+      (await context.worker.fetch(v2AfterRejectedRequest)).json(),
+    ).resolves.toMatchObject({
       schemaVersion: 2,
-      revision: 2,
+      revision: 1,
       effects: {
-        virtualBass: { strengthPercent: 25 },
+        virtualBass: { strengthPercent: 60 },
         virtualTreble: { enabled: true },
       },
     });
   });
 
-  it('keeps rollback-readable effects in core and restores virtual treble from its sidecar', async () => {
+  it('stores the complete effects resource in canonical state', async () => {
     const context = await activatedRoom();
     const epoch = context.activationEnvelope.snapshot.presence.coordinatorEpoch as number;
     const update = jsonRequest(
@@ -14901,26 +14987,10 @@ describe('persistent PRO room audio effects', () => {
     const storedCore = structuredClone(context.state.storage.data.get('pro-room:v2:core')) as {
       core: Record<string, any>;
     };
-    const legacyShadow = context.state.storage.data.get('pro-room:v1') as Record<string, any>;
-    expect(storedCore.core.effects.effects).toEqual(configuredEffects);
-    expect(legacyShadow.effects.effects).toEqual(configuredEffects);
-    expect(context.state.storage.data.get('pro-room:v2:effects:virtual-treble')).toEqual({
-      schemaVersion: 1,
-      roomCode: ROOM_CODE,
-      enabled: true,
-    });
+    expect(storedCore.core.effects.effects).toEqual(configuredEffectsV2);
+    expect(context.state.storage.data.has('pro-room:v1')).toBe(false);
+    expect(context.state.storage.data.has('pro-room:v2:effects:virtual-treble')).toBe(false);
 
-    // Simulate an old Worker changing a legacy effect while leaving the
-    // unknown sidecar untouched, then roll forward to the new Worker again.
-    storedCore.core.effects = {
-      revision: 2,
-      updatedAtMs: 4321,
-      effects: {
-        ...configuredEffects,
-        reverb: { ...configuredEffects.reverb, mixPercent: 15 },
-      },
-    };
-    context.state.storage.data.set('pro-room:v2:core', storedCore);
     const restarted = new MusixquareProRoom(
       context.state as never,
       environment(context.bucket) as never,
@@ -14934,15 +15004,12 @@ describe('persistent PRO room audio effects', () => {
     );
     await expect((await restarted.fetch(get)).json()).resolves.toMatchObject({
       schemaVersion: 2,
-      revision: 2,
-      effects: {
-        reverb: { mixPercent: 15 },
-        virtualTreble: { enabled: true },
-      },
+      revision: 1,
+      effects: configuredEffectsV2,
     });
   });
 
-  it('persists one strict effects resource and publishes its revision head in snapshot v1', async () => {
+  it('persists one strict effects resource and publishes its revision head in snapshots', async () => {
     const context = await activatedRoom();
     const beforeSnapshot = context.activationEnvelope.snapshot;
     const dispatchFetch = vi.fn<(request: Request) => Promise<Response>>(async () =>
@@ -14957,7 +15024,7 @@ describe('persistent PRO room audio effects', () => {
       await context.worker.fetch(request('/effects', {}, context.ownerCookie)),
     );
     expect(before).toEqual({
-      schemaVersion: 1,
+      schemaVersion: 2,
       view: 'effects',
       roomCode: ROOM_CODE,
       revision: 0,
@@ -14977,7 +15044,7 @@ describe('persistent PRO room audio effects', () => {
     expect(updatedResponse.status).toBe(200);
     const updated = await responseJson(updatedResponse);
     expect(updated).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       view: 'effects',
       revision: 1,
       effects: configuredEffects,
@@ -15140,70 +15207,6 @@ describe('persistent PRO room audio effects', () => {
       await context.worker.fetch(request('/effects', {}, context.ownerCookie)),
     );
     expect(unchanged).toMatchObject({ revision: 0, effects: defaultEffects });
-  });
-
-  it('migrates pre-effects rooms to a neutral dedicated resource', async () => {
-    const context = await activatedRoom();
-    const stored = structuredClone(context.state.storage.data.get('pro-room:v2:core')) as {
-      core: Record<string, unknown>;
-    };
-    delete stored.core.effects;
-    context.state.storage.data.set('pro-room:v2:core', stored);
-
-    const restarted = new MusixquareProRoom(
-      context.state as never,
-      environment(context.bucket) as never,
-    );
-    const response = await restarted.fetch(request('/effects', {}, context.ownerCookie));
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      revision: 0,
-      effects: defaultEffects,
-    });
-    expect(
-      (
-        context.state.storage.data.get('pro-room:v2:core') as {
-          core: Record<string, unknown>;
-        }
-      ).core.effects,
-    ).toBeDefined();
-  });
-
-  it('migrates stored effects without virtual treble to off without losing the revision', async () => {
-    const context = await activatedRoom();
-    const stored = structuredClone(context.state.storage.data.get('pro-room:v2:core')) as {
-      core: Record<string, any>;
-    };
-    stored.core.effects = {
-      revision: 7,
-      updatedAtMs: 1234,
-      effects: configuredEffects,
-    };
-    context.state.storage.data.set('pro-room:v2:core', stored);
-    context.state.storage.data.delete('pro-room:v2:effects:virtual-treble');
-
-    const restarted = new MusixquareProRoom(
-      context.state as never,
-      environment(context.bucket) as never,
-    );
-    const get = request(
-      '/effects',
-      {
-        headers: { 'x-mxqr-pro-effects-version': '2' },
-      },
-      context.ownerCookie,
-    );
-    await expect((await restarted.fetch(get)).json()).resolves.toMatchObject({
-      schemaVersion: 2,
-      revision: 7,
-      updatedAtMs: 1234,
-      effects: { ...configuredEffects, virtualTreble: { enabled: false } },
-    });
-    expect(context.state.storage.data.get('pro-room:v2:effects:virtual-treble')).toMatchObject({
-      schemaVersion: 1,
-      roomCode: ROOM_CODE,
-      enabled: false,
-    });
   });
 
   it('applies set_effects on the server without a browser control capability', async () => {
@@ -15749,7 +15752,7 @@ describe('PRO room immutable generation isolation', () => {
     const legacyActivationPayload = JSON.parse(
       Buffer.from(legacyActivationClaim.split('.')[1]!, 'base64url').toString('utf8'),
     ) as Record<string, unknown>;
-    expect(legacyActivationPayload).not.toHaveProperty('roomGeneration');
+    expect(legacyActivationPayload.roomGeneration).toBe(0);
     const rejectedActivation = await replacement.fetch(
       jsonRequestForGeneration(1, '/activation', 'POST', {
         claimToken: legacyActivationClaim,
@@ -15791,7 +15794,7 @@ describe('PRO room immutable generation isolation', () => {
     const legacyRecoveryPayload = JSON.parse(
       Buffer.from(legacyRecoveryClaim.split('.')[1]!, 'base64url').toString('utf8'),
     ) as Record<string, unknown>;
-    expect(legacyRecoveryPayload).not.toHaveProperty('roomGeneration');
+    expect(legacyRecoveryPayload.roomGeneration).toBe(0);
     const accountAssertion = await createAccountAssertion(
       {
         accountId: 'acct_0123456789abcdefghijkl',
@@ -15842,7 +15845,7 @@ describe('PRO room immutable generation isolation', () => {
     expect(replacementInternal.room.sessions[legacyHash]).toBeUndefined();
   });
 
-  it('keeps generation-one uploads outside the legacy prefix and legacy sweeps', async () => {
+  it('keeps each generation in its own media prefix and sweep', async () => {
     const legacy = await activatedRoom();
     const replacement = await activatedGenerationOne(legacy.bucket);
     const reservation = await replacement.worker.fetch(
@@ -15874,10 +15877,10 @@ describe('PRO room immutable generation isolation', () => {
     expect(asset.stagingObjectKey).toMatch(
       /^pro-room-incarnations\/000001\/generation-1\/assets\/.*\/staging_/,
     );
-    expect(asset.objectKey).not.toContain('rooms/000001/');
+    expect(asset.objectKey).not.toContain('/generation-0/');
 
-    const lateLegacyKey = `rooms/${ROOM_CODE}/assets/late-generation-zero/v1/object`;
-    legacy.bucket.objects.set(lateLegacyKey, { size: 1 });
+    const lateGenerationZeroKey = `pro-room-incarnations/${ROOM_CODE}/generation-0/assets/late/v1/object`;
+    legacy.bucket.objects.set(lateGenerationZeroKey, { size: 1 });
     legacy.bucket.objects.set(asset.stagingObjectKey, { size: 4096 });
     const legacyInternal = legacy.worker as unknown as {
       purgeDecommissionedMediaPrefix(): Promise<{ ok: boolean; deletedAny: boolean }>;
@@ -15887,7 +15890,7 @@ describe('PRO room immutable generation isolation', () => {
       deletedAny: true,
     });
 
-    expect(legacy.bucket.objects.has(lateLegacyKey)).toBe(false);
+    expect(legacy.bucket.objects.has(lateGenerationZeroKey)).toBe(false);
     expect(legacy.bucket.objects.has(asset.stagingObjectKey)).toBe(true);
     expect(legacy.bucket.deleted).not.toContain(asset.stagingObjectKey);
   });
@@ -15912,10 +15915,10 @@ describe('PRO room immutable generation isolation', () => {
     expect(
       (await read({ projection: 'room', keyId: DEVELOPER_KEY_ID, roomGeneration: 1 }, '1')).status,
     ).toBe(200);
+    expect((await read({ projection: 'room', keyId: DEVELOPER_KEY_ID }, '1')).status).toBe(200);
     for (const [body, header, status] of [
       [{ projection: 'room', keyId: DEVELOPER_KEY_ID }, null, 404],
       [{ projection: 'room', keyId: DEVELOPER_KEY_ID, roomGeneration: 1 }, null, 404],
-      [{ projection: 'room', keyId: DEVELOPER_KEY_ID }, '1', 400],
       [{ projection: 'room', keyId: DEVELOPER_KEY_ID, roomGeneration: 1 }, '0', 404],
       [{ projection: 'room', keyId: DEVELOPER_KEY_ID, roomGeneration: 0 }, '0', 404],
       [{ projection: 'room', keyId: DEVELOPER_KEY_ID, roomGeneration: 0 }, '1', 400],
@@ -16018,7 +16021,7 @@ describe('PRO room immutable generation isolation', () => {
     expect(update?.values).toEqual([ROOM_CODE, 0, 1_784_524_800_000]);
   });
 
-  it('fails closed on transient Developer D1 errors and only uses the legacy fallback for a missing generation schema', async () => {
+  it('fails closed on transient or missing Developer generation schema errors', async () => {
     const context = await activatedRoom();
     const internal = context.worker as unknown as {
       env: Record<string, unknown>;
@@ -16062,15 +16065,9 @@ describe('PRO room immutable generation isolation', () => {
     };
     await expect(
       internal.deleteDeveloperRoomData('admin-missing-generation-schema', 1_784_524_800_000),
-    ).resolves.toBe(true);
+    ).resolves.toBe(false);
 
-    expect(missingSchemaSql).toHaveLength(5);
-    expect(missingSchemaSql[1]?.sql).toContain('mxqr_developer_api_room_tombstones');
-    for (const statement of missingSchemaSql.slice(2)) {
-      expect(statement.sql).toMatch(
-        /^DELETE FROM mxqr_developer_api_(?:keys|audit|admin_audit) WHERE room_code = \?1$/,
-      );
-      expect(statement.values).toEqual([ROOM_CODE]);
-    }
+    expect(missingSchemaSql).toHaveLength(1);
+    expect(missingSchemaSql[0]?.sql).toContain('mxqr_developer_api_room_generation_tombstones');
   });
 });

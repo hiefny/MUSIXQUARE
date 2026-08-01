@@ -68,23 +68,6 @@ SELECT CASE
   AND EXISTS (
     SELECT 1 FROM sqlite_schema
     WHERE type = 'trigger'
-      AND name = 'trg_mxqr_developer_api_room_tombstones_monotonic'
-      AND instr(lower(sql), 'on mxqr_developer_api_room_tombstones') > 0
-      AND instr(lower(sql), 'new.room_code <> old.room_code') > 0
-      AND instr(lower(sql), 'new.request_id <> old.request_id') > 0
-      AND instr(lower(sql), 'new.decommissioned_at > old.decommissioned_at') > 0
-      AND instr(lower(sql), 'developer_api_room_tombstone_immutable') > 0
-  )
-  AND EXISTS (
-    SELECT 1 FROM sqlite_schema
-    WHERE type = 'trigger'
-      AND name = 'trg_mxqr_developer_api_room_tombstones_no_delete'
-      AND instr(lower(sql), 'before delete on mxqr_developer_api_room_tombstones') > 0
-      AND instr(lower(sql), 'developer_api_room_tombstone_immutable') > 0
-  )
-  AND EXISTS (
-    SELECT 1 FROM sqlite_schema
-    WHERE type = 'trigger'
       AND name = 'trg_mxqr_developer_api_room_generation_tombstones_monotonic'
       AND instr(lower(sql), 'on mxqr_developer_api_room_generation_tombstones') > 0
       AND instr(lower(sql), 'new.room_code <> old.room_code') > 0

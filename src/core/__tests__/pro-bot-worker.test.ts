@@ -184,7 +184,7 @@ describe('server-only PRO BOT app boundary', () => {
     }
   });
 
-  it('keeps a legacy null preflight on the original generation-zero room object', async () => {
+  it('fails closed when preflight does not resolve an explicit room generation', async () => {
     const terminalResult = {
       ok: true,
       summary: 'Already completed.',
@@ -202,14 +202,10 @@ describe('server-only PRO BOT app boundary', () => {
       },
     );
 
-    expect(response.status).toBe(200);
-    expect(namespace.objectNames).toEqual([ROOM_CODE]);
-    expect(namespace.requests[0]?.headers.get('x-mxqr-pro-room-generation')).toBeNull();
-    await expect(namespace.requests[0]?.clone().json()).resolves.toEqual({
-      roomCode: ROOM_CODE,
-      requestId: REQUEST_ID,
-      prompt: 'Add one test song',
-    });
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: 'BOT_UNAVAILABLE' });
+    expect(namespace.objectNames).toHaveLength(0);
+    expect(namespace.requests).toHaveLength(0);
   });
 
   it('fails closed before room access when preflight returns an invalid explicit generation', async () => {
@@ -309,6 +305,7 @@ describe('server-only PRO BOT app boundary', () => {
     expect(forwarded.headers.get('x-goog-api-key')).toBeNull();
     await expect(forwarded.json()).resolves.toEqual({
       roomCode,
+      roomGeneration: 0,
       requestId: REQUEST_ID,
       prompt: 'Add one test song',
     });
@@ -443,6 +440,7 @@ describe('server-only PRO BOT app boundary', () => {
     expect(executionText).not.toContain(YOUTUBE_KEY);
     await expect(execution.json()).resolves.toEqual({
       roomCode: ROOM_CODE,
+      roomGeneration: 0,
       requestId: REQUEST_ID,
       leaseToken: LEASE_TOKEN,
       plan: {
@@ -520,6 +518,7 @@ describe('server-only PRO BOT app boundary', () => {
       if (path === '/internal/bot/execute') {
         await expect(request.json()).resolves.toEqual({
           roomCode: ROOM_CODE,
+          roomGeneration: 0,
           requestId: REQUEST_ID,
           leaseToken: LEASE_TOKEN,
           plan: { intent: 'answer', answer },

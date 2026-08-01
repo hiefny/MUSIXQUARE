@@ -78,17 +78,6 @@ function parseEffectsVirtualTreble(value) {
     : null;
 }
 
-export function parseLegacyRoomEffects(value) {
-  if (!hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'])) return null;
-  const reverb = parseEffectsReverb(value.reverb);
-  const equalizer = parseEffectsEqualizer(value.equalizer);
-  const virtualBass = parseEffectsVirtualBass(value.virtualBass);
-  const virtualSurround = parseEffectsVirtualSurround(value.virtualSurround);
-  return reverb && equalizer && virtualBass && virtualSurround
-    ? { reverb, equalizer, virtualBass, virtualSurround }
-    : null;
-}
-
 export function parseRoomEffects(value) {
   if (
     !hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround', 'virtualTreble'])
@@ -147,40 +136,26 @@ export function normalizeStoredEffects(value) {
     return null;
   }
   const effects = parseRoomEffects(value.effects);
-  if (effects) {
-    return {
-      state: { revision: value.revision, updatedAtMs: value.updatedAtMs, effects },
-      migrated: false,
-    };
-  }
-  const legacy = parseLegacyRoomEffects(value.effects);
-  return legacy
+  return effects
     ? {
-        state: {
-          revision: value.revision,
-          updatedAtMs: value.updatedAtMs,
-          effects: { ...legacy, virtualTreble: { enabled: false } },
-        },
-        migrated: true,
+        state: { revision: value.revision, updatedAtMs: value.updatedAtMs, effects },
+        migrated: false,
       }
     : null;
 }
 
 export function effectsContractVersion(request) {
   const version = request.headers.get('x-mxqr-pro-effects-version');
-  if (version === null || version === '1') return 1;
   return version === '2' ? 2 : null;
 }
 
-export function publicEffects(room, contractVersion = 2) {
-  const effects = structuredClone(room.effects.effects);
-  if (contractVersion === 1) delete effects.virtualTreble;
+export function publicEffects(room) {
   return {
-    schemaVersion: contractVersion,
+    schemaVersion: 2,
     view: 'effects',
     roomCode: room.roomCode,
     revision: room.effects.revision,
     updatedAtMs: room.effects.updatedAtMs,
-    effects,
+    effects: structuredClone(room.effects.effects),
   };
 }

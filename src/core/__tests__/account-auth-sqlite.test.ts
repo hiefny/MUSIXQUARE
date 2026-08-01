@@ -404,25 +404,20 @@ afterEach(() => {
     }
   });
 
-  it('enforces one 1000-edge cap across legacy and generation-scoped PRO links', async () => {
+  it('enforces one 1000-edge cap across generation-scoped PRO links', async () => {
     const db = new SqliteD1();
     try {
       await seedAccount(db, []);
-      const insertLegacy = db.database.prepare(
-        `INSERT INTO mxqr_account_pro_rooms
-           (account_id, room_code, first_linked_at, last_seen_at)
-         VALUES (?, ?, 1, 1)`,
-      );
       const insertGeneration = db.database.prepare(
         `INSERT INTO mxqr_account_pro_room_generations
            (account_id, room_code, room_generation, first_linked_at, last_seen_at)
-         VALUES (?, ?, 1, 1, 1)`,
+         VALUES (?, ?, ?, 1, 1)`,
       );
       for (let index = 0; index < 500; index += 1) {
-        insertLegacy.run(ACCOUNT_ID, String(index).padStart(6, '0'));
+        insertGeneration.run(ACCOUNT_ID, String(index).padStart(6, '0'), 0);
       }
       for (let index = 500; index < 1_000; index += 1) {
-        insertGeneration.run(ACCOUNT_ID, String(index).padStart(6, '0'));
+        insertGeneration.run(ACCOUNT_ID, String(index).padStart(6, '0'), 1);
       }
 
       const env = authEnv(db);
@@ -432,17 +427,11 @@ afterEach(() => {
 
       const total = db.database
         .prepare(
-          `SELECT COUNT(*) AS count FROM (
-             SELECT room_code, 0 AS room_generation
-               FROM mxqr_account_pro_rooms
-              WHERE account_id = ?
-             UNION
-             SELECT room_code, room_generation
-               FROM mxqr_account_pro_room_generations
-              WHERE account_id = ?
-           )`,
+          `SELECT COUNT(*) AS count
+             FROM mxqr_account_pro_room_generations
+            WHERE account_id = ?`,
         )
-        .get(ACCOUNT_ID, ACCOUNT_ID);
+        .get(ACCOUNT_ID);
       expect(Number(total?.count)).toBe(1_000);
     } finally {
       db.close();

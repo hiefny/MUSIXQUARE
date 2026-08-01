@@ -24,7 +24,7 @@ export function changedAppRuntimeDependencies(
   headSha: string,
   options?: CommandRunnerOptions,
 ): string[];
-export function deploymentMessage(target: string, commitSha: string): string;
+export function deploymentMessage(deployment: unknown): string | null;
 export function npmInvocation(
   platform?: string,
   options?: {
@@ -46,10 +46,6 @@ export function queryCurrent(
   options?: CommandRunnerOptions,
 ): DeploymentVersion;
 export function releaseGitSha(message: string | null): string | null;
-export function remoteShareQuotaMigrationBridgeRequired(
-  deployment: unknown,
-  options?: CommandRunnerOptions,
-): boolean;
 export function releaseTargetWorkers(target: string): ReadonlySet<string>;
 export function runtimePathsForWorker(worker: string): string[];
 export function rollbackDeploymentMessage(state: Record<string, unknown>, fallback: string): string;

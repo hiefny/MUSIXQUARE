@@ -1,6 +1,6 @@
 import type { PlaylistItem, PlaylistRevision, QueueItemId } from '../types/index.ts';
 
-export interface ProRoomLegacyMediaHooks {
+export interface ProRoomMediaHooks {
   addFiles(files: readonly File[], rejectedCount: number): boolean;
   addYouTube(item: PlaylistItem, sourceUrl: string, videoIds?: readonly string[]): boolean;
   updateTrackMetadata(
@@ -29,32 +29,21 @@ export interface ProRoomLegacyMediaHooks {
   cancelFileResolution?(): void;
 }
 
-export interface ProRoomLegacyPlaybackRestore {
-  queueItemId: QueueItemId;
-  positionSeconds: number;
-  state: 'playing' | 'paused';
-}
-
-type ProRoomLegacyPlaybackRestoreHandler = (
-  checkpoint: ProRoomLegacyPlaybackRestore,
-) => Promise<boolean>;
-
-type ProRoomLegacyDirectFileHandler = (
+type ProRoomDirectFileHandler = (
   file: File,
   queueItemId: QueueItemId,
   sessionId: number,
 ) => Promise<void>;
 
-let activeHooks: ProRoomLegacyMediaHooks | null = null;
-let activePlaybackRestoreHandler: ProRoomLegacyPlaybackRestoreHandler | null = null;
-let activeDirectFileHandler: ProRoomLegacyDirectFileHandler | null = null;
+let activeHooks: ProRoomMediaHooks | null = null;
+let activeDirectFileHandler: ProRoomDirectFileHandler | null = null;
 
 /**
- * Late-bound seam between the legacy player graph and the persistent PRO
+ * Late-bound seam between the player graph and the persistent PRO
  * runtime. Keeping the seam data-only avoids importing the networking graph
  * back into playlist/decode modules during application bootstrap.
  */
-export function registerProRoomLegacyMediaHooks(hooks: ProRoomLegacyMediaHooks | null): void {
+export function registerProRoomMediaHooks(hooks: ProRoomMediaHooks | null): void {
   activeHooks = hooks;
 }
 
@@ -107,7 +96,7 @@ export function cancelProRoomPlaylistFilePreload(queueItemId?: QueueItemId): voi
 
 /**
  * True only while the active room owns this queue occurrence as persistent
- * PRO media. Legacy callers use this as a routing decision; the runtime still
+ * PRO media. Callers use this as a routing decision; the runtime still
  * resolves and validates the canonical R2 source before returning any bytes.
  */
 export function isProRoomPersistentPlaylistFile(queueItemId: QueueItemId): boolean {
@@ -118,32 +107,14 @@ export function cancelProRoomPlaylistFileResolution(): void {
   activeHooks?.cancelFileResolution?.();
 }
 
-export function registerProRoomLegacyDirectFileHandler(
-  handler: ProRoomLegacyDirectFileHandler | null,
-): void {
+export function registerProRoomDirectFileHandler(handler: ProRoomDirectFileHandler | null): void {
   activeDirectFileHandler = handler;
 }
 
-export function finalizeProRoomLegacyDirectFile(
+export function finalizeProRoomDirectFile(
   file: File,
   queueItemId: QueueItemId,
   sessionId: number,
 ): Promise<void> {
   return activeDirectFileHandler?.(file, queueItemId, sessionId) ?? Promise.resolve();
-}
-
-/**
- * Register the player-owned inverse bridge used by the PRO runtime to restore
- * a persistent file checkpoint without importing the player graph directly.
- */
-export function registerProRoomLegacyPlaybackRestoreHandler(
-  handler: ProRoomLegacyPlaybackRestoreHandler | null,
-): void {
-  activePlaybackRestoreHandler = handler;
-}
-
-export function restoreProRoomLegacyPlayback(
-  checkpoint: ProRoomLegacyPlaybackRestore,
-): Promise<boolean> {
-  return activePlaybackRestoreHandler?.(checkpoint) ?? Promise.resolve(false);
 }

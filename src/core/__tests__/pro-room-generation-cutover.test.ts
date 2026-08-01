@@ -37,9 +37,6 @@ function initialDeletionEvidence() {
   const developer = d1(
     ['000002', '000003'].map((roomCode) => ({
       room_code: roomCode,
-      legacy_tombstone_count: 1,
-      legacy_request_id: `delete-${roomCode}`,
-      legacy_decommissioned_at: 4_900_000,
       generation_tombstone_count: 1,
       generation_request_id: `delete-${roomCode}`,
       generation_decommissioned_at: 4_900_000,

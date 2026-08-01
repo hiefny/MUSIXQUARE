@@ -10,6 +10,8 @@ import type { TransportDataConnection, TransportMediaConnection } from '../types
 const originalWebSocket = globalThis.WebSocket;
 const originalRTCPeerConnection = globalThis.RTCPeerConnection;
 const originalMediaStream = globalThis.MediaStream;
+const NEGOTIATION_ID = 'negotiation_test_000001';
+const NEXT_NEGOTIATION_ID = 'negotiation_test_000002';
 
 type FakeSocketListener = (event: { data?: unknown; reason?: string }) => void;
 type FakeChannelListener = (event: { data?: unknown; error?: unknown }) => void;
@@ -1587,6 +1589,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     const offer = {
       type: 'signal-offer',
       from: 'guest-reconnect',
+      negotiationId: NEGOTIATION_ID,
       sdp: { type: 'offer', sdp: 'guest-offer' },
     };
     socket.dispatch('message', JSON.stringify(offer));
@@ -1692,6 +1695,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       JSON.stringify({
         type: 'signal-offer',
         from: 'guest-identity-race',
+        negotiationId: NEGOTIATION_ID,
         sdp: { type: 'offer', sdp: 'guest-offer' },
         memberIdentity: {
           memberId: 'member_abcdefghijklmnopqrstuv',
@@ -1738,6 +1742,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     const authenticatedOffer = {
       type: 'signal-offer',
       from: 'guest-identity-replacement',
+      negotiationId: NEGOTIATION_ID,
       sdp: { type: 'offer', sdp: 'authenticated-offer' },
       memberIdentity: {
         memberId: 'member_abcdefghijklmnopqrstuv',
@@ -1765,6 +1770,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       JSON.stringify({
         type: 'signal-offer',
         from: 'guest-identity-replacement',
+        negotiationId: NEXT_NEGOTIATION_ID,
         sdp: { type: 'offer', sdp: 'anonymous-replacement-offer' },
       }),
     );
@@ -1814,6 +1820,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       JSON.stringify({
         type: 'signal-offer',
         from: 'guest-departed-in-flight',
+        negotiationId: NEGOTIATION_ID,
         sdp: { type: 'offer', sdp: 'guest-offer' },
       }),
     );
@@ -1858,6 +1865,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     const offer = {
       type: 'signal-offer',
       from: 'guest-reconnect',
+      negotiationId: NEGOTIATION_ID,
       sdp: { type: 'offer', sdp: 'guest-offer' },
     };
     socket.dispatch('message', JSON.stringify(offer));
@@ -1924,6 +1932,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       JSON.stringify({
         type: 'signal-offer',
         from: 'guest-overlap',
+        negotiationId: NEGOTIATION_ID,
         sdp: { type: 'offer', sdp: 'v=0\r\na=ice-ufrag:first' },
       }),
     );
@@ -1935,6 +1944,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       JSON.stringify({
         type: 'signal-offer',
         from: 'guest-overlap',
+        negotiationId: NEXT_NEGOTIATION_ID,
         sdp: { type: 'offer', sdp: 'v=0\r\na=ice-ufrag:second' },
       }),
     );
@@ -1943,6 +1953,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       JSON.stringify({
         type: 'signal-candidate',
         from: 'guest-overlap',
+        negotiationId: NEXT_NEGOTIATION_ID,
         candidate: {
           candidate: 'candidate:2 1 udp 1 192.0.2.2 5000 typ host ufrag second',
           usernameFragment: 'second',
@@ -2090,7 +2101,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     peer.destroy();
   });
 
-  it('falls back to ufrag-only ICE when an older answer omits the negotiation token', async () => {
+  it('ignores tokenless ICE and answers after emitting a token-aware offer', async () => {
     installFakeWebSocket();
     installFakeRTCPeerConnection();
     const peer = createGuestPeer();
@@ -2103,7 +2114,8 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     );
     await flushAsync();
 
-    expect(sentOfType(socket, 'signal-offer')[0]?.negotiationId).toEqual(expect.any(String));
+    const negotiationId = sentOfType(socket, 'signal-offer')[0]?.negotiationId;
+    expect(negotiationId).toEqual(expect.any(String));
     socket.dispatch(
       'message',
       JSON.stringify({
@@ -2122,13 +2134,12 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     );
     await flushAsync();
 
-    expect(FakeRTCPeerConnection.instances[0]?.addedCandidates).toEqual([
-      { candidate: 'candidate:legacy-host' },
-    ]);
+    expect(FakeRTCPeerConnection.instances[0]?.addedCandidates).toEqual([]);
+    expect(FakeRTCPeerConnection.instances[0]?.remoteDescription).toBeNull();
     peer.destroy();
   });
 
-  it('does not let a late legacy data answer overwrite the active media negotiation', async () => {
+  it('does not let a late tokenless data answer overwrite the active media negotiation', async () => {
     const { peer, socket, pc } = await establishGuest();
     const onCall = vi.fn();
     peer.on('call', onCall);
@@ -2137,6 +2148,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       JSON.stringify({
         type: 'media-offer',
         from: 'host',
+        negotiationId: NEGOTIATION_ID,
         callId: 'legacy-media-call',
         sdp: { type: 'offer', sdp: 'current-media-offer' },
         audioTrackCount: 1,
@@ -2154,7 +2166,6 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       JSON.stringify({
         type: 'signal-answer',
         from: 'host',
-        // A rolling-deploy legacy peer has no negotiationId.
         sdp: { type: 'answer', sdp: 'late-legacy-data-answer' },
       }),
     );
@@ -2540,6 +2551,7 @@ describe('Cloudflare guest signaling reconnect', () => {
       JSON.stringify({
         type: 'media-offer',
         from: 'host',
+        negotiationId: NEGOTIATION_ID,
         callId: 'call-1',
         sdp: { type: 'offer', sdp: 'host-media-offer' },
         audioTrackCount: 1,
@@ -2580,6 +2592,7 @@ describe('Cloudflare guest signaling reconnect', () => {
       JSON.stringify({
         type: 'signal-offer',
         from: 'guest-1',
+        negotiationId: NEGOTIATION_ID,
         sdp: { type: 'offer', sdp: 'guest-offer' },
       }),
     );

@@ -6,7 +6,7 @@ import {
   expectedEmergencyDeployConfirmation,
 } from './guard-emergency-deploy.mjs';
 import { executeNpm, npmInvocation } from './npm-invocation.mjs';
-import { queryCurrent, verifyPartialReleaseCompatibility } from './release-deployment-state.mjs';
+import { verifyPartialReleaseCompatibility } from './release-deployment-state.mjs';
 
 const WORKER_CONFIGS = Object.freeze({
   'remote-share': 'cloudflare/wrangler.remote-share.toml',
@@ -99,28 +99,6 @@ export function emergencyCompatibilityTarget(target) {
   }
 }
 
-export function assertEmergencyRemoteShareLifecycleEstablished(target, commitSha, options = {}) {
-  if (target !== 'remote-share' && target !== 'all-workers') return null;
-  const query = options.queryCurrent || queryCurrent;
-  const bridgeRequired = options.bridgeRequired;
-  if (typeof bridgeRequired !== 'function') {
-    throw new Error(
-      'Emergency remote-share deployment is unavailable because its legacy lifecycle guard is no longer exported.',
-    );
-  }
-  const outputPath =
-    `release-artifacts/emergency-deployments/${commitSha}-${target}-` +
-    'remote-share-lifecycle.json';
-  const current = query('remote-share', WORKER_CONFIGS['remote-share'], outputPath);
-  if (bridgeRequired(current.deployment)) {
-    throw new Error(
-      'Emergency remote-share deployment is blocked until the RemoteShareQuota ' +
-        'Durable Object lifecycle is established by the rollback-safe production release bridge.',
-    );
-  }
-  return current;
-}
-
 export function parseEmergencyDeploymentArgs(args) {
   if (args.length !== 1 || !EMERGENCY_DEPLOY_TARGETS.includes(args[0])) {
     throw new Error(
@@ -140,14 +118,12 @@ export function runEmergencyDeployment({
   authorize = authorizeEmergencyDeploy,
   runner = runNpm,
   compatibilityCheck = verifyPartialReleaseCompatibility,
-  remoteShareLifecycleCheck = assertEmergencyRemoteShareLifecycleEstablished,
 } = {}) {
   const authorization = authorize(target);
   if (authorization?.target !== target || typeof authorization?.commitSha !== 'string') {
     throw new Error('Emergency deployment authorization returned an invalid result.');
   }
   const message = emergencyDeploymentMessage(target, authorization.commitSha);
-  remoteShareLifecycleCheck(target, authorization.commitSha);
   const compatibilityTarget = emergencyCompatibilityTarget(target);
   if (compatibilityTarget) {
     compatibilityCheck(

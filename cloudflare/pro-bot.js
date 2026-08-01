@@ -1,5 +1,4 @@
 import {
-  LEGACY_PRO_ROOM_GENERATION,
   isProRoomGeneration,
   proRoomGenerationHeaderValue,
   proRoomObjectName,
@@ -1242,10 +1241,8 @@ function forwardedHeaders(request, roomCode, roomGeneration, forwardedCookies) {
   const headers = new Headers({
     'content-type': 'application/json',
     'x-mxqr-pro-room-code': roomCode,
+    'x-mxqr-pro-room-generation': proRoomGenerationHeaderValue(roomGeneration),
   });
-  if (roomGeneration !== LEGACY_PRO_ROOM_GENERATION) {
-    headers.set('x-mxqr-pro-room-generation', proRoomGenerationHeaderValue(roomGeneration));
-  }
   if (forwardedCookies) headers.set('cookie', forwardedCookies);
   for (const name of ['x-mxqr-pro-participant-id', 'x-mxqr-pro-presence-incarnation']) {
     const value = request.headers.get(name);
@@ -1268,17 +1265,13 @@ async function callRoomInternal(
     throw new BotUpstreamError('BOT_NOT_CONFIGURED', 503);
   }
   const stub = namespace.get(namespace.idFromName(proRoomObjectName(roomCode, roomGeneration)));
-  const wireBody =
-    roomGeneration === LEGACY_PRO_ROOM_GENERATION && Object.hasOwn(body, 'roomGeneration')
-      ? Object.fromEntries(Object.entries(body).filter(([key]) => key !== 'roomGeneration'))
-      : body;
   let response;
   try {
     response = await stub.fetch(
       new Request(`https://pro-room.internal${path}`, {
         method: 'POST',
         headers: forwardedHeaders(request, roomCode, roomGeneration, forwardedCookies),
-        body: JSON.stringify(wireBody),
+        body: JSON.stringify(body),
       }),
     );
   } catch {
@@ -1355,28 +1348,22 @@ export async function handleProBotRequest(request, env, options) {
   ) {
     return publicError('INVALID_REQUEST');
   }
-  let roomGeneration = LEGACY_PRO_ROOM_GENERATION;
-  if (typeof options?.preflightRoom === 'function') {
-    let preflightResult = null;
-    try {
-      preflightResult = await options.preflightRoom();
-    } catch {
-      preflightResult = 'BOT_UNAVAILABLE';
-    }
-    if (typeof preflightResult === 'string') return publicError(preflightResult);
-    // A null result is the rolling-deployment contract used before reusable
-    // room codes existed. It remains generation zero so existing rooms keep
-    // their original Durable Object identity.
-    if (preflightResult !== null && preflightResult !== undefined) {
-      if (
-        typeof preflightResult !== 'object' ||
-        !isProRoomGeneration(preflightResult.roomGeneration)
-      ) {
-        return publicError('BOT_UNAVAILABLE');
-      }
-      roomGeneration = preflightResult.roomGeneration;
-    }
+  if (typeof options?.preflightRoom !== 'function') return publicError('BOT_UNAVAILABLE');
+  let preflightResult = null;
+  try {
+    preflightResult = await options.preflightRoom();
+  } catch {
+    preflightResult = 'BOT_UNAVAILABLE';
   }
+  if (typeof preflightResult === 'string') return publicError(preflightResult);
+  if (
+    !preflightResult ||
+    typeof preflightResult !== 'object' ||
+    !isProRoomGeneration(preflightResult.roomGeneration)
+  ) {
+    return publicError('BOT_UNAVAILABLE');
+  }
+  const roomGeneration = preflightResult.roomGeneration;
 
   const total = timeoutSignal(BOT_TOTAL_TIMEOUT_MS, request.signal);
   try {

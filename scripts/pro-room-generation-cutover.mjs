@@ -104,10 +104,7 @@ function binaryFlag(row, name, label) {
 }
 
 function removeAlterColumn(sql, table, column) {
-  const pattern = new RegExp(
-    `ALTER TABLE ${table}\\s+ADD COLUMN ${column}[\\s\\S]*?;\\s*`,
-    'u',
-  );
+  const pattern = new RegExp(`ALTER TABLE ${table}\\s+ADD COLUMN ${column}[\\s\\S]*?;\\s*`, 'u');
   if (!pattern.test(sql)) {
     throw new Error(`Tracked migration is missing ${table}.${column}.`);
   }
@@ -128,15 +125,9 @@ export function renderForwardCompletionSql(database, statePayload, sourceSql) {
       sql = removeAlterColumn(sql, 'mxqr_pro_room_admin_audit', 'room_generation');
     }
     sql = sql
-      .replace(
-        /^CREATE TABLE (mxqr_pro_room_[a-z0-9_]+)/gmu,
-        'CREATE TABLE IF NOT EXISTS $1',
-      )
+      .replace(/^CREATE TABLE (mxqr_pro_room_[a-z0-9_]+)/gmu, 'CREATE TABLE IF NOT EXISTS $1')
       .replace(/^CREATE INDEX ([a-z0-9_]+)/gmu, 'CREATE INDEX IF NOT EXISTS $1')
-      .replace(
-        /^CREATE TRIGGER ([a-z0-9_]+)/gmu,
-        'DROP TRIGGER IF EXISTS $1;\n\nCREATE TRIGGER $1',
-      )
+      .replace(/^CREATE TRIGGER ([a-z0-9_]+)/gmu, 'DROP TRIGGER IF EXISTS $1;\n\nCREATE TRIGGER $1')
       .replace(
         'INSERT INTO mxqr_pro_room_generation_allocations',
         'INSERT OR IGNORE INTO mxqr_pro_room_generation_allocations',
@@ -260,11 +251,7 @@ function assertPublicDeletionEvidence(payload) {
   return true;
 }
 
-export function assertInitialDeletionEvidence(
-  adminPayload,
-  developerPayload,
-  publicPayload,
-) {
+export function assertInitialDeletionEvidence(adminPayload, developerPayload, publicPayload) {
   const adminRows = exactRoomRows(
     lastResultRows(adminPayload, 'Admin deletion evidence'),
     'Admin deletion evidence',
@@ -278,17 +265,9 @@ export function assertInitialDeletionEvidence(
   for (const roomCode of INITIAL_DELETION_ROOM_CODES) {
     const admin = adminRows.get(roomCode);
     const generation = safeInteger(admin, 'registry_generation', `Admin room ${roomCode}`);
-    const completedAt = safeInteger(
-      admin,
-      'history_decommissioned_at',
-      `Admin room ${roomCode}`,
-    );
+    const completedAt = safeInteger(admin, 'history_decommissioned_at', `Admin room ${roomCode}`);
     const observedAt = safeInteger(admin, 'observed_at', `Admin room ${roomCode}`);
-    const registryUpdatedAt = safeInteger(
-      admin,
-      'registry_updated_at',
-      `Admin room ${roomCode}`,
-    );
+    const registryUpdatedAt = safeInteger(admin, 'registry_updated_at', `Admin room ${roomCode}`);
     const authorizedDeleteAuditCount = safeInteger(
       admin,
       'authorized_delete_audit_count',
@@ -317,34 +296,21 @@ export function assertInitialDeletionEvidence(
     }
 
     const developer = developerRows.get(roomCode);
-    const legacyRequestId = String(developer?.legacy_request_id || '');
     const generationRequestId = String(developer?.generation_request_id || '');
-    const legacyDecommissionedAt = safeInteger(
-      developer,
-      'legacy_decommissioned_at',
-      `Developer room ${roomCode}`,
-    );
     const generationDecommissionedAt = safeInteger(
       developer,
       'generation_decommissioned_at',
       `Developer room ${roomCode}`,
     );
     if (
-      safeInteger(developer, 'legacy_tombstone_count', `Developer room ${roomCode}`) !== 1 ||
       safeInteger(developer, 'generation_tombstone_count', `Developer room ${roomCode}`) !== 1 ||
-      safeInteger(
-        developer,
-        'other_generation_tombstone_count',
-        `Developer room ${roomCode}`,
-      ) !== 0 ||
+      safeInteger(developer, 'other_generation_tombstone_count', `Developer room ${roomCode}`) !==
+        0 ||
       safeInteger(developer, 'key_count', `Developer room ${roomCode}`) !== 0 ||
       safeInteger(developer, 'api_audit_count', `Developer room ${roomCode}`) !== 0 ||
       safeInteger(developer, 'admin_audit_count', `Developer room ${roomCode}`) !== 0 ||
-      !legacyRequestId ||
-      legacyRequestId !== generationRequestId ||
-      legacyDecommissionedAt < 0 ||
+      !generationRequestId ||
       generationDecommissionedAt < 0 ||
-      legacyDecommissionedAt > observedAt ||
       generationDecommissionedAt > observedAt
     ) {
       throw new Error(`Developer credential deletion evidence is incomplete for room ${roomCode}.`);
@@ -431,7 +397,11 @@ function usage() {
 async function main(args = process.argv.slice(2)) {
   const [command, ...rest] = args;
   if (command === 'verify-schema' && rest.length === 3) {
-    const labels = ['Admin registry schema', 'Account reverse-index schema', 'Developer API schema'];
+    const labels = [
+      'Admin registry schema',
+      'Account reverse-index schema',
+      'Developer API schema',
+    ];
     const result = rest.map((path, index) =>
       assertGenerationSchemaVerification(labels[index], readJson(path, labels[index])),
     );
@@ -440,12 +410,13 @@ async function main(args = process.argv.slice(2)) {
   }
   if (command === 'plan-migrations' && rest.length === 3) {
     const names = ['admin', 'auth', 'developer'];
-    const labels = ['Admin registry migration', 'Account reverse-index migration', 'Developer API migration'];
+    const labels = [
+      'Admin registry migration',
+      'Account reverse-index migration',
+      'Developer API migration',
+    ];
     for (let index = 0; index < rest.length; index += 1) {
-      const state = generationMigrationState(
-        labels[index],
-        readJson(rest[index], labels[index]),
-      );
+      const state = generationMigrationState(labels[index], readJson(rest[index], labels[index]));
       process.stdout.write(`${names[index]}=${state}\n`);
     }
     return;

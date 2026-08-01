@@ -7,7 +7,7 @@
  */
 
 import {
-  LEGACY_PRO_ROOM_GENERATION,
+  INITIAL_PRO_ROOM_GENERATION,
   isProRoomGeneration,
   proRoomGenerationHeaderValue,
   proRoomObjectName,
@@ -229,7 +229,7 @@ function sanitizeQueueItem(value) {
   ) {
     return null;
   }
-  if (value.addedBy !== undefined && !QUEUE_ITEM_ADDED_BY_VALUES.has(value.addedBy)) return null;
+  if (!QUEUE_ITEM_ADDED_BY_VALUES.has(value.addedBy)) return null;
   const optional = {};
   for (const key of ['title', 'artist']) {
     if (value[key] !== undefined) {
@@ -243,7 +243,7 @@ function sanitizeQueueItem(value) {
     if (thumbnail === null) return null;
     optional.thumbnail = thumbnail;
   }
-  if (value.addedBy !== undefined) optional.addedBy = value.addedBy;
+  optional.addedBy = value.addedBy;
   if (value.kind === 'audio') {
     if (!Number.isSafeInteger(value.byteLength) || value.byteLength <= 0) return null;
     return {
@@ -855,10 +855,7 @@ function sanitizeUpload(value, roomCode, roomGeneration, expectedMedia) {
     Object.keys(headers).some((key) => !allowedHeaders.has(key)) ||
     headers['content-length'] !== String(value.byteLength) ||
     headers['x-amz-meta-mxqr-room'] !== roomCode ||
-    (roomGeneration === LEGACY_PRO_ROOM_GENERATION
-      ? headers['x-amz-meta-mxqr-generation'] !== undefined &&
-        headers['x-amz-meta-mxqr-generation'] !== String(LEGACY_PRO_ROOM_GENERATION)
-      : headers['x-amz-meta-mxqr-generation'] !== String(roomGeneration)) ||
+    headers['x-amz-meta-mxqr-generation'] !== String(roomGeneration) ||
     headers['x-amz-meta-mxqr-asset'] !== value.assetId ||
     headers['x-amz-meta-mxqr-version'] !== '1' ||
     headers['x-amz-meta-mxqr-bytes'] !== String(value.byteLength) ||
@@ -987,17 +984,10 @@ function backendError(value, status) {
 }
 
 function exactFacadeRoomGeneration(request, body) {
-  const hasBodyGeneration = Object.prototype.hasOwnProperty.call(body || {}, 'roomGeneration');
   const header = request.headers.get(PRO_ROOM_GENERATION_HEADER);
-  if (!hasBodyGeneration && header === null) {
-    return { valid: true, roomGeneration: LEGACY_PRO_ROOM_GENERATION };
-  }
-  const roomGeneration = body?.roomGeneration;
+  const roomGeneration = /^(?:0|[1-9]\d*)$/.test(header || '') ? Number(header) : null;
   return {
-    valid:
-      hasBodyGeneration &&
-      isProRoomGeneration(roomGeneration) &&
-      header === proRoomGenerationHeaderValue(roomGeneration),
+    valid: isProRoomGeneration(roomGeneration) && body?.roomGeneration === roomGeneration,
     roomGeneration,
   };
 }
@@ -1012,14 +1002,9 @@ async function callRoom(namespace, roomCode, roomGeneration, path, body) {
         headers: {
           'content-type': 'application/json',
           'x-mxqr-pro-room-code': roomCode,
-          ...(roomGeneration === LEGACY_PRO_ROOM_GENERATION
-            ? {}
-            : { [PRO_ROOM_GENERATION_HEADER]: proRoomGenerationHeaderValue(roomGeneration) }),
+          [PRO_ROOM_GENERATION_HEADER]: proRoomGenerationHeaderValue(roomGeneration),
         },
-        body: JSON.stringify({
-          ...body,
-          ...(roomGeneration === LEGACY_PRO_ROOM_GENERATION ? {} : { roomGeneration }),
-        }),
+        body: JSON.stringify(body),
       }),
     );
   } catch {
@@ -1070,13 +1055,14 @@ export default {
       if (
         !hasExactKeys(
           body,
-          ['roomCode', 'projection'],
-          ['keyId', 'effectsVersion', 'roomGeneration'],
+          ['roomCode', 'roomGeneration', 'projection'],
+          ['keyId', 'effectsVersion'],
         ) ||
         !ROOM_CODE_RE.test(body.roomCode) ||
         (body.keyId !== undefined && !API_KEY_ID_RE.test(body.keyId || '')) ||
-        (body.effectsVersion !== undefined && ![1, 2].includes(body.effectsVersion)) ||
-        (body.projection !== 'effects' && body.effectsVersion !== undefined) ||
+        (body.projection === 'effects'
+          ? body.effectsVersion !== 2
+          : body.effectsVersion !== undefined) ||
         !['room', 'playback', 'queue', 'effects', 'queue-mode'].includes(body.projection)
       ) {
         return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
@@ -1088,7 +1074,7 @@ export default {
         '/internal/developer/v1/read',
         {
           ...(body.keyId === undefined ? {} : { keyId: body.keyId }),
-          ...(body.effectsVersion === 2 ? { effectsVersion: 2 } : {}),
+          ...(body.projection === 'effects' ? { effectsVersion: 2 } : {}),
           projection: body.projection,
         },
       );
@@ -1102,7 +1088,7 @@ export default {
         value,
         body.projection,
         body.roomCode,
-        body.effectsVersion || 1,
+        body.projection === 'effects' ? 2 : 1,
       );
       return sanitized
         ? jsonResponse(sanitized)
@@ -1111,11 +1097,13 @@ export default {
 
     if (url.pathname === '/internal/v1/queue-mode/update') {
       if (
-        !hasExactKeys(
-          body,
-          ['keyId', 'roomCode', 'idempotencyKey', 'queueMode'],
-          ['roomGeneration'],
-        ) ||
+        !hasExactKeys(body, [
+          'keyId',
+          'roomCode',
+          'roomGeneration',
+          'idempotencyKey',
+          'queueMode',
+        ]) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
         !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '')
@@ -1152,11 +1140,7 @@ export default {
 
     if (url.pathname === '/internal/v1/commands/create') {
       if (
-        !hasExactKeys(
-          body,
-          ['keyId', 'roomCode', 'idempotencyKey', 'command'],
-          ['roomGeneration'],
-        ) ||
+        !hasExactKeys(body, ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'command']) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
         !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '')
@@ -1201,8 +1185,8 @@ export default {
       if (
         !hasExactKeys(
           body,
-          ['keyId', 'roomCode', 'idempotencyKey', 'mutation'],
-          ['actorName', 'roomGeneration'],
+          ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'mutation'],
+          ['actorName'],
         ) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
@@ -1244,7 +1228,7 @@ export default {
 
     if (url.pathname === '/internal/v1/media/uploads/create') {
       if (
-        !hasExactKeys(body, ['keyId', 'roomCode', 'idempotencyKey', 'media'], ['roomGeneration']) ||
+        !hasExactKeys(body, ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'media']) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
         !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '')
@@ -1258,7 +1242,12 @@ export default {
         body.roomCode,
         roomGeneration,
         '/internal/developer/v1/media/uploads/create',
-        { roomCode: body.roomCode, keyId: body.keyId, idempotencyKey: body.idempotencyKey, media },
+        {
+          roomCode: body.roomCode,
+          keyId: body.keyId,
+          idempotencyKey: body.idempotencyKey,
+          media,
+        },
       );
       if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
       const value = await readJsonResponse(called.response, MUTATION_RESPONSE_MAX_BYTES);
@@ -1278,8 +1267,8 @@ export default {
       if (
         !hasExactKeys(
           body,
-          ['keyId', 'roomCode', 'idempotencyKey', 'assetId'],
-          ['actorName', 'roomGeneration'],
+          ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'assetId'],
+          ['actorName'],
         ) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
@@ -1317,7 +1306,7 @@ export default {
     }
 
     if (
-      !hasExactKeys(body, ['roomCode', 'keyId', 'commandId'], ['roomGeneration']) ||
+      !hasExactKeys(body, ['roomCode', 'roomGeneration', 'keyId', 'commandId']) ||
       !ROOM_CODE_RE.test(body.roomCode || '') ||
       !API_KEY_ID_RE.test(body.keyId || '') ||
       !COMMAND_ID_RE.test(body.commandId || '')

@@ -42,10 +42,7 @@ import { broadcast, sendToHost } from '../../network/peer.ts';
 import { handleData } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
-import {
-  registerProRoomLegacyMediaHooks,
-  type ProRoomLegacyMediaHooks,
-} from '../../pro-room/legacy-media-hooks.ts';
+import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 
 const QID_OLD = '00000000-0000-4000-8000-000000000001';
 const QID_NEW = '00000000-0000-4000-8000-000000000002';
@@ -128,10 +125,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  registerProRoomLegacyMediaHooks(null);
+  registerProRoomMediaHooks(null);
 });
 
-function persistentProMediaHooks(queueItemId: string): ProRoomLegacyMediaHooks {
+function persistentProMediaHooks(queueItemId: string): ProRoomMediaHooks {
   return {
     addFiles: () => false,
     addYouTube: () => false,
@@ -501,7 +498,7 @@ describe('handlePlayMsg orphaned-pipeline recovery', () => {
     setState('playlist.items', [playlistItem(QID_NEW, 'persistent.flac', 'Persistent')]);
     setState('playlist.currentQueueItemId', QID_NEW);
     setCurrentAudioBuffer(null);
-    registerProRoomLegacyMediaHooks(persistentProMediaHooks(QID_NEW));
+    registerProRoomMediaHooks(persistentProMediaHooks(QID_NEW));
 
     initPlayback();
     await handleData(

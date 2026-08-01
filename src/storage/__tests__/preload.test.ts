@@ -76,8 +76,8 @@ vi.mock('../storage.ts', async (importOriginal) => {
   };
 });
 
-vi.mock('../../pro-room/legacy-media-hooks.ts', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../pro-room/legacy-media-hooks.ts')>();
+vi.mock('../../pro-room/media-hooks.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../pro-room/media-hooks.ts')>();
   return {
     ...actual,
     preloadProRoomPlaylistFile: proRoomMocks.preloadFile,

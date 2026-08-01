@@ -57,8 +57,8 @@ import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from '
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
 import {
   isProRoomPersistentPlaylistFile,
-  registerProRoomLegacyDirectFileHandler,
-} from '../pro-room/legacy-media-hooks.ts';
+  registerProRoomDirectFileHandler,
+} from '../pro-room/media-hooks.ts';
 import {
   createFileTrackMeta,
   getPlaybackModeActivity,
@@ -688,7 +688,7 @@ function handleRequestSkipTime(data: Record<string, unknown>, conn: DataConnecti
 // ─── Init ──────────────────────────────────────────────────────────
 
 export function initPlayback(): void {
-  registerProRoomLegacyDirectFileHandler((file, queueItemId, sessionId) =>
+  registerProRoomDirectFileHandler((file, queueItemId, sessionId) =>
     finalizeGuestFile(file, queueItemId, sessionId),
   );
   registerHandlers({

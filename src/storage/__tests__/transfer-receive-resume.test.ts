@@ -18,10 +18,10 @@ import { bus } from '../../core/events.ts';
 import { CHUNK_SIZE, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import type { DataConnection } from '../../types/index.ts';
 import {
-  registerProRoomLegacyDirectFileHandler,
-  registerProRoomLegacyMediaHooks,
-  type ProRoomLegacyMediaHooks,
-} from '../../pro-room/legacy-media-hooks.ts';
+  registerProRoomDirectFileHandler,
+  registerProRoomMediaHooks,
+  type ProRoomMediaHooks,
+} from '../../pro-room/media-hooks.ts';
 import {
   ramStart as rawRamStart,
   ramWrite as rawRamWrite,
@@ -108,8 +108,8 @@ const FOUR_CHUNK_FILE_SIZE = 3 * CHUNK_SIZE + 1;
 const TWO_CHUNK_FILE_SIZE = CHUNK_SIZE + 1;
 
 afterEach(() => {
-  registerProRoomLegacyDirectFileHandler(null);
-  registerProRoomLegacyMediaHooks(null);
+  registerProRoomDirectFileHandler(null);
+  registerProRoomMediaHooks(null);
 });
 
 async function expectCompletedMime(
@@ -836,7 +836,7 @@ describe('handleFileWait - identity repair isolation', () => {
     const { handleFileWait } = await import('../transfer-receive.ts');
     const { beginFileRequest } = await import('../../network/file-request-authority.ts');
     const { setManagedTimer } = await import('../../core/timers.ts');
-    const hooks: ProRoomLegacyMediaHooks = {
+    const hooks: ProRoomMediaHooks = {
       addFiles: () => false,
       addYouTube: () => false,
       updateTrackMetadata: () => false,
@@ -845,7 +845,7 @@ describe('handleFileWait - identity repair isolation', () => {
       resolveFile: () => null,
       handlesPersistentFile: (queueItemId) => queueItemId === Q[0],
     };
-    registerProRoomLegacyMediaHooks(hooks);
+    registerProRoomMediaHooks(hooks);
     setState('network.connectionType', 'remote');
     const owner = beginFileRequest(conn, Q[0]!, 7);
 
@@ -1310,7 +1310,7 @@ describe('persistent PRO file receive routing', () => {
     const download = new Promise<File>((resolve) => {
       finishDownload = resolve;
     });
-    const hooks: ProRoomLegacyMediaHooks = {
+    const hooks: ProRoomMediaHooks = {
       addFiles: () => false,
       addYouTube: () => false,
       updateTrackMetadata: () => false,
@@ -1320,8 +1320,8 @@ describe('persistent PRO file receive routing', () => {
       handlesPersistentFile: (queueItemId) => queueItemId === Q[0],
     };
     const finalize = vi.fn(async () => undefined);
-    registerProRoomLegacyMediaHooks(hooks);
-    registerProRoomLegacyDirectFileHandler(finalize);
+    registerProRoomMediaHooks(hooks);
+    registerProRoomDirectFileHandler(finalize);
 
     const { handleFilePrepare, handleFileStart } = await import('../transfer-receive.ts');
     const { postCommand } = await import('../storage.ts');

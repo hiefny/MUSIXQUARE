@@ -78,7 +78,7 @@ import { isFilePipelineBusyForPlay, play, stopAllMedia, stopPlayerNode } from '.
 
 import { getAudioContext, ensureRunning } from '../audio/context.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
-import { isProRoomPersistentPlaylistFile } from '../pro-room/legacy-media-hooks.ts';
+import { isProRoomPersistentPlaylistFile } from '../pro-room/media-hooks.ts';
 import { transition } from './lifecycle.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
 import {

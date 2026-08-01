@@ -233,6 +233,7 @@ function environment() {
 function request(pathname, init = {}, cookie = null, identity = null) {
   const headers = new Headers(init.headers);
   headers.set('x-mxqr-pro-room-code', ROOM_CODE);
+  headers.set('x-mxqr-pro-room-generation', '0');
   headers.set('x-mxqr-pro-ip-hash', 'benchmark-client-address');
   if (cookie) headers.set('cookie', cookie);
   if (identity) {
@@ -356,6 +357,7 @@ async function createSeed(module) {
     nowMs: nowMs - 1_000,
     expiresAtMs: nowMs + 60_000,
     nonce: 'benchmark-activation-nonce',
+    roomGeneration: 0,
   });
   const activation = await worker.fetch(
     jsonRequest('/activation', {
@@ -387,6 +389,7 @@ async function createSeed(module) {
       memberId,
       participantId,
       presenceIncarnationId,
+      roomGeneration: 0,
       signalingTicketSequence: 0,
       displayName,
       role: 'controller',
@@ -444,7 +447,6 @@ async function workerFromSeed(module, seed) {
   // heartbeat comparison rather than counting startup repair as a heartbeat
   // durability flush.
   await worker.prune(Date.now());
-  worker.lastLegacyShadowPersistedAtMs = Date.now();
   worker.scheduledAlarmMs = storage.alarm;
   storage.resetMetrics();
   return { worker, storage };
@@ -485,8 +487,11 @@ async function runImmediateBaseline(module, seed) {
       ),
     );
     responseElapsedMs += performance.now() - startedAt;
-    if (responses.some((response) => response.status !== 200)) {
-      throw new Error('Baseline heartbeat workload returned a non-200 response');
+    const failed = responses.find((response) => response.status !== 200);
+    if (failed) {
+      throw new Error(
+        `Baseline heartbeat workload returned ${failed.status}: ${await failed.text()}`,
+      );
     }
   }
   return summarizeRun('baseline-immediate-persist', responseElapsedMs, storage, timings, {
@@ -518,8 +523,9 @@ async function runHybridCurrent(module, seed) {
       ),
     );
     responseElapsedMs += performance.now() - responseStartedAt;
-    if (responses.some((response) => response.status !== 200)) {
-      throw new Error('Hybrid heartbeat workload returned a non-200 response');
+    const failed = responses.find((response) => response.status !== 200);
+    if (failed) {
+      throw new Error(`Hybrid heartbeat workload returned ${failed.status}: ${await failed.text()}`);
     }
     if (worker.pendingHeartbeatFlushGeneration === null) {
       throw new Error('Hybrid heartbeat burst did not schedule its trailing flush');
@@ -556,10 +562,6 @@ function summarizeRun(name, elapsedMs, storage, timings, extra) {
       core: {
         calls: storage.metrics.callsByKey['pro-room:v2:core'] || 0,
         bytes: storage.metrics.bytesByKey['pro-room:v2:core'] || 0,
-      },
-      legacyShadow: {
-        calls: storage.metrics.callsByKey['pro-room:v1'] || 0,
-        bytes: storage.metrics.bytesByKey['pro-room:v1'] || 0,
       },
       playlistRows: {
         calls: Object.entries(storage.metrics.callsByKey)
@@ -685,9 +687,10 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   const modules = await loadBenchmarkModules();
   try {
-    const seed = await createSeed(modules.baseline);
-    const baseline = await runImmediateBaseline(modules.baseline, seed);
-    const currentHybrid = await runHybridCurrent(modules.current, seed);
+    const baselineSeed = await createSeed(modules.baseline);
+    const currentSeed = await createSeed(modules.current);
+    const baseline = await runImmediateBaseline(modules.baseline, baselineSeed);
+    const currentHybrid = await runHybridCurrent(modules.current, currentSeed);
     if (baseline.durabilityFlushes !== HEARTBEAT_COUNT) {
       throw new Error(
         `Baseline wrote ${baseline.durabilityFlushes} times; expected ${HEARTBEAT_COUNT}`,
@@ -698,7 +701,7 @@ async function main() {
         `Hybrid wrote ${currentHybrid.durabilityFlushes} times; expected ${HEARTBEAT_ROUNDS * 2}`,
       );
     }
-    const isolatedPhases = await measureIsolatedPhases(modules.current, seed);
+    const isolatedPhases = await measureIsolatedPhases(modules.current, currentSeed);
     const clusteredTheoreticalFlushes = theoreticalHybridFlushes(
       (participantIndex) => participantIndex * 5,
     );

@@ -1,29 +1,11 @@
 -- Developer-credential deletion evidence for the two generation-zero rooms
--- covered by the initial room-code reuse cutover. Both the permanent legacy
--- fence and the generation-scoped fence must remain, while every credential
--- and credential audit row for either public code must be gone.
+-- covered by the initial room-code reuse cutover. The generation-scoped fence
+-- must remain while every credential and audit row is gone.
 WITH required_room_codes(room_code) AS (
   VALUES ('000002'), ('000003')
 )
 SELECT
   required.room_code,
-  (
-    SELECT COUNT(*)
-    FROM mxqr_developer_api_room_tombstones AS tombstone
-    WHERE tombstone.room_code = required.room_code
-  ) AS legacy_tombstone_count,
-  (
-    SELECT tombstone.request_id
-    FROM mxqr_developer_api_room_tombstones AS tombstone
-    WHERE tombstone.room_code = required.room_code
-    LIMIT 1
-  ) AS legacy_request_id,
-  (
-    SELECT tombstone.decommissioned_at
-    FROM mxqr_developer_api_room_tombstones AS tombstone
-    WHERE tombstone.room_code = required.room_code
-    LIMIT 1
-  ) AS legacy_decommissioned_at,
   (
     SELECT COUNT(*)
     FROM mxqr_developer_api_room_generation_tombstones AS tombstone

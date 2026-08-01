@@ -2,17 +2,6 @@
 -- tables into the admin metrics database: key revocation and audit retention
 -- are a separate security boundary.
 
--- Legacy generation-zero authorization fence. Keep this table permanently for
--- compatibility with already deleted rooms and credentials issued before room
--- numbers became reusable. New incarnations use the generation tombstone
--- below, so a deleted generation never blocks a later generation.
-CREATE TABLE IF NOT EXISTS mxqr_developer_api_room_tombstones (
-  room_code TEXT PRIMARY KEY NOT NULL
-    CHECK (length(room_code) = 6 AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'),
-  request_id TEXT NOT NULL,
-  decommissioned_at INTEGER NOT NULL CHECK (decommissioned_at >= 0)
-);
-
 CREATE TABLE IF NOT EXISTS mxqr_developer_api_room_generation_tombstones (
   room_code TEXT NOT NULL
     CHECK (length(room_code) = 6 AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'),
@@ -25,21 +14,6 @@ CREATE TABLE IF NOT EXISTS mxqr_developer_api_room_generation_tombstones (
 -- Decommission fences are permanent. Idempotent repair may move the observed
 -- deletion time earlier, but it may never rename an incarnation, replace the
 -- originating request, postpone its fence, or remove the row.
-CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_room_tombstones_monotonic
-BEFORE UPDATE ON mxqr_developer_api_room_tombstones
-WHEN NEW.room_code <> OLD.room_code
-  OR NEW.request_id <> OLD.request_id
-  OR NEW.decommissioned_at > OLD.decommissioned_at
-BEGIN
-  SELECT RAISE(ABORT, 'developer_api_room_tombstone_immutable');
-END;
-
-CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_room_tombstones_no_delete
-BEFORE DELETE ON mxqr_developer_api_room_tombstones
-BEGIN
-  SELECT RAISE(ABORT, 'developer_api_room_tombstone_immutable');
-END;
-
 CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_room_generation_tombstones_monotonic
 BEFORE UPDATE ON mxqr_developer_api_room_generation_tombstones
 WHEN NEW.room_code <> OLD.room_code
@@ -101,17 +75,11 @@ WHEN EXISTS (
   SELECT 1 FROM mxqr_developer_api_room_generation_tombstones
   WHERE room_code = NEW.room_code AND room_generation = NEW.room_generation
 )
-OR (
-  NEW.room_generation = 0 AND EXISTS (
-    SELECT 1 FROM mxqr_developer_api_room_tombstones
-    WHERE room_code = NEW.room_code
-  )
-)
 BEGIN
   SELECT RAISE(ABORT, 'PRO_ROOM_DECOMMISSIONED');
 END;
 
--- The private beta intentionally caps credential fan-out. Rotation must
+-- Credential fan-out is deliberately bounded. Rotation must
 -- revoke an old key before issuing a fourth active key for the same room.
 CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_active_insert
 BEFORE INSERT ON mxqr_developer_api_keys
@@ -167,12 +135,6 @@ WHEN EXISTS (
   SELECT 1 FROM mxqr_developer_api_room_generation_tombstones
   WHERE room_code = NEW.room_code AND room_generation = NEW.room_generation
 )
-OR (
-  NEW.room_generation = 0 AND EXISTS (
-    SELECT 1 FROM mxqr_developer_api_room_tombstones
-    WHERE room_code = NEW.room_code
-  )
-)
 BEGIN
   SELECT RAISE(IGNORE);
 END;
@@ -198,12 +160,6 @@ BEFORE INSERT ON mxqr_developer_api_admin_audit
 WHEN EXISTS (
   SELECT 1 FROM mxqr_developer_api_room_generation_tombstones
   WHERE room_code = NEW.room_code AND room_generation = NEW.room_generation
-)
-OR (
-  NEW.room_generation = 0 AND EXISTS (
-    SELECT 1 FROM mxqr_developer_api_room_tombstones
-    WHERE room_code = NEW.room_code
-  )
 )
 BEGIN
   SELECT RAISE(IGNORE);

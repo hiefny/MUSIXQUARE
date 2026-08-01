@@ -35,7 +35,7 @@ type SignalingMessage =
       type: 'signal-offer';
       from: string;
       sdp: RTCSessionDescriptionInit;
-      negotiationId?: string;
+      negotiationId: string;
       metadata?: unknown;
       memberIdentity?: StandardRoomMemberIdentity;
     }
@@ -43,20 +43,20 @@ type SignalingMessage =
       type: 'signal-answer';
       from: string;
       sdp: RTCSessionDescriptionInit;
-      negotiationId?: string;
+      negotiationId: string;
     }
   | {
       type: 'signal-candidate';
       from: string;
       candidate: RTCIceCandidateInit;
-      negotiationId?: string;
+      negotiationId: string;
     }
   | {
       type: 'media-offer';
       from: string;
       callId: string;
       sdp: RTCSessionDescriptionInit;
-      negotiationId?: string;
+      negotiationId: string;
       metadata?: Record<string, unknown>;
       audioTrackCount?: number;
     }
@@ -65,7 +65,7 @@ type SignalingMessage =
       from: string;
       callId: string;
       sdp: RTCSessionDescriptionInit;
-      negotiationId?: string;
+      negotiationId: string;
     }
   | { type: 'media-close'; from: string; callId: string }
   | { type: 'peer-left'; peerId: string }
@@ -98,13 +98,13 @@ type OutgoingSignal =
       type: 'signal-answer';
       to: string;
       sdp: RTCSessionDescriptionInit;
-      negotiationId?: string;
+      negotiationId: string;
     }
   | {
       type: 'signal-candidate';
       to: string;
       candidate: RTCIceCandidateInit;
-      negotiationId?: string;
+      negotiationId: string;
     }
   | {
       type: 'media-offer';
@@ -120,7 +120,7 @@ type OutgoingSignal =
       to: 'host';
       callId: string;
       sdp: RTCSessionDescriptionInit;
-      negotiationId?: string;
+      negotiationId: string;
     }
   | { type: 'media-close'; to: string | 'host'; callId: string };
 
@@ -199,7 +199,7 @@ interface GuestRoomRecord {
 
 interface QueuedIceCandidate {
   candidate: RTCIceCandidateInit;
-  negotiationId: string | null;
+  negotiationId: string;
   receivedAt: number;
   bytes: number;
 }
@@ -216,10 +216,7 @@ interface IceNegotiationOwner {
   pc: RTCPeerConnection;
   purpose: 'signal' | 'media';
   callId: string | null;
-  /** Null denotes a rolling-deploy peer using the legacy ufrag-only contract. */
-  negotiationId: string | null;
-  /** Local offers become strict only after the remote answer echoes the token. */
-  requireNegotiationId: boolean;
+  negotiationId: string;
   remoteUfrag: string | null;
   candidates: QueuedIceCandidate[];
   bytes: number;
@@ -236,17 +233,8 @@ const ICE_QUEUE_MEMORY_RETAIN_BYTES = 3 * 1024 * 1024;
 const ICE_QUEUE_PRUNE_INTERVAL_MS = 5_000;
 const ICE_NEGOTIATION_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
-interface ParsedIceNegotiationId {
-  valid: boolean;
-  value: string | null;
-}
-
-function parseIceNegotiationId(value: unknown): ParsedIceNegotiationId {
-  if (value === undefined) return { valid: true, value: null };
-  if (typeof value === 'string' && ICE_NEGOTIATION_ID_RE.test(value)) {
-    return { valid: true, value };
-  }
-  return { valid: false, value: null };
+function parseIceNegotiationId(value: unknown): string | null {
+  return typeof value === 'string' && ICE_NEGOTIATION_ID_RE.test(value) ? value : null;
 }
 
 function remoteIceUfrag(description: RTCSessionDescriptionInit): string | null {
@@ -730,8 +718,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   private readonly connections = new Map<string, CloudflareDataConnection>();
   private readonly mediaCalls = new Map<string, CloudflareMediaConnection>();
-  // Early candidates are isolated by both peer and optional rolling-deploy
-  // negotiation token. Tokenless peers retain the legacy ufrag fallback.
+  // Early candidates are isolated by both peer and mandatory negotiation ID.
   private readonly pendingCandidates = new Map<string, Map<string, PendingIceBucket>>();
   private readonly iceNegotiations = new Map<string, IceNegotiationOwner>();
   private iceNegotiationGeneration = 0;
@@ -874,11 +861,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
     const record = this.guestRooms.get(roomId);
     if (!record) return;
+    const reconnectSecret = this.guestReconnectSecrets.get(roomId);
+    if (!reconnectSecret) return;
     socket.send(
       JSON.stringify({
         type: 'guest-auth',
         password: record.password || '',
-        reconnectSecret: this.guestReconnectSecrets.get(roomId) || '',
+        reconnectSecret,
         ...(assertions?.accountAssertion ? { accountAssertion: assertions.accountAssertion } : {}),
       }),
     );
@@ -1417,7 +1406,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
     if (message.type === 'signal-offer') {
       const negotiationId = parseIceNegotiationId(message.negotiationId);
-      if (!negotiationId.valid) return;
+      if (negotiationId === null) return;
       if (sequence > (this.peerDepartureSequences.get(message.from) ?? -1)) {
         this.peerDepartureSequences.delete(message.from);
       }
@@ -1430,7 +1419,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       await this.handleHostOffer(
         message.from,
         message.sdp,
-        negotiationId.value,
+        negotiationId,
         message.metadata,
         offerIdentity,
         sequence,
@@ -1459,14 +1448,14 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
     if (message.type === 'signal-candidate') {
       const negotiationId = parseIceNegotiationId(message.negotiationId);
-      if (!negotiationId.valid) return;
-      await this.addRemoteCandidate(message.from, message.candidate, negotiationId.value);
+      if (negotiationId === null) return;
+      await this.addRemoteCandidate(message.from, message.candidate, negotiationId);
       return;
     }
     if (message.type === 'media-answer') {
       const negotiationId = parseIceNegotiationId(message.negotiationId);
-      if (!negotiationId.valid) return;
-      await this.handleMediaAnswer(message.callId, message.sdp, negotiationId.value);
+      if (negotiationId === null) return;
+      await this.handleMediaAnswer(message.callId, message.sdp, negotiationId);
       return;
     }
     if (message.type === 'media-close') {
@@ -1564,18 +1553,18 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
     if (message.type === 'signal-answer') {
       const negotiationId = parseIceNegotiationId(message.negotiationId);
-      if (!negotiationId.valid) return;
-      await this.handleGuestAnswer(roomId, message.sdp, negotiationId.value);
+      if (negotiationId === null) return;
+      await this.handleGuestAnswer(roomId, message.sdp, negotiationId);
       return;
     }
     if (message.type === 'signal-candidate') {
       const negotiationId = parseIceNegotiationId(message.negotiationId);
-      if (!negotiationId.valid) return;
-      await this.addRemoteCandidate(roomId, message.candidate, negotiationId.value);
+      if (negotiationId === null) return;
+      await this.addRemoteCandidate(roomId, message.candidate, negotiationId);
       return;
     }
     if (message.type === 'media-offer') {
-      if (!parseIceNegotiationId(message.negotiationId).valid) return;
+      if (parseIceNegotiationId(message.negotiationId) === null) return;
       this.handleMediaOffer(roomId, message).catch((error) => conn.emit('error', error));
       return;
     }
@@ -1616,7 +1605,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           type: 'signal-candidate',
           to: this.hostRoomId ? peerId : 'host',
           candidate: event.candidate.toJSON(),
-          ...(negotiation.negotiationId ? { negotiationId: negotiation.negotiationId } : {}),
+          negotiationId: negotiation.negotiationId,
         });
       } catch (error) {
         this.emit('error', error);
@@ -1628,7 +1617,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private async handleHostOffer(
     peerId: string,
     sdp: RTCSessionDescriptionInit,
-    negotiationId: string | null,
+    negotiationId: string,
     metadata: unknown,
     roomIdentity: StandardRoomMemberIdentity | null,
     offerSequence: number,
@@ -1708,7 +1697,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         type: 'signal-answer',
         to: peerId,
         sdp: pc.localDescription.toJSON(),
-        ...(negotiation.negotiationId ? { negotiationId: negotiation.negotiationId } : {}),
+        negotiationId: negotiation.negotiationId,
       });
     } catch (error) {
       const stillCurrent = this.isIceNegotiationCurrent(negotiation);
@@ -1760,7 +1749,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private async handleGuestAnswer(
     roomId: string,
     sdp: RTCSessionDescriptionInit,
-    negotiationId: string | null,
+    negotiationId: string,
   ): Promise<void> {
     const conn = this.connections.get(roomId);
     const pc = conn?.peerConnection;
@@ -1845,7 +1834,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       peerId,
       pc,
       undefined,
-      null,
+      undefined,
       'media',
       mediaConn.callId,
     );
@@ -1870,7 +1859,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     message: Extract<SignalingMessage, { type: 'media-offer' }>,
   ): Promise<void> {
     const parsedNegotiationId = parseIceNegotiationId(message.negotiationId);
-    if (!parsedNegotiationId.valid) return;
+    if (parsedNegotiationId === null) return;
     const conn = this.connections.get(roomId);
     const pc = conn?.peerConnection;
     if (!pc) throw createTransportError('webrtc', 'MEDIA_PEER_CONNECTION_MISSING');
@@ -1896,7 +1885,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         roomId,
         pc,
         offer,
-        parsedNegotiationId.value,
+        parsedNegotiationId,
         'media',
         incomingConn.callId,
       );
@@ -1917,7 +1906,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         to: 'host',
         callId: incomingConn.callId,
         sdp: pc.localDescription.toJSON(),
-        ...(negotiation.negotiationId ? { negotiationId: negotiation.negotiationId } : {}),
+        negotiationId: negotiation.negotiationId,
       });
     });
     mediaConn.setCloseHandler((closedConn, notifyRemote) =>
@@ -1930,7 +1919,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private async handleMediaAnswer(
     callId: string,
     sdp: RTCSessionDescriptionInit,
-    negotiationId: string | null,
+    negotiationId: string,
   ): Promise<void> {
     const mediaConn = this.mediaCalls.get(callId);
     const pc = mediaConn?.peerConnection;
@@ -1996,31 +1985,15 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     owner: IceNegotiationOwner,
   ): boolean {
     if (!candidateMatchesRemoteUfrag(entry.candidate, owner.remoteUfrag)) return false;
-    if (owner.negotiationId === null) return entry.negotiationId === null;
-    if (entry.negotiationId === owner.negotiationId) return true;
-    // Until a locally-created offer receives an answer, retain tokenless ICE
-    // provisionally so an old client can negotiate through the rolling deploy.
-    return entry.negotiationId === null && !owner.requireNegotiationId;
+    return entry.negotiationId === owner.negotiationId;
   }
 
-  private confirmRemoteNegotiationId(
-    owner: IceNegotiationOwner,
-    negotiationId: string | null,
-  ): boolean {
-    if (owner.negotiationId === null) return negotiationId === null;
-    if (negotiationId !== null && negotiationId !== owner.negotiationId) {
+  private confirmRemoteNegotiationId(owner: IceNegotiationOwner, negotiationId: string): boolean {
+    if (negotiationId !== owner.negotiationId) {
       log.warn(
         `[Transport] Ignoring answer with mismatched ICE negotiation token for ${owner.peerId}`,
       );
       return false;
-    }
-    if (negotiationId === owner.negotiationId) {
-      owner.requireNegotiationId = true;
-    } else {
-      // A tokenless answer proves this is an older peer. From this point its
-      // candidates use the established ufrag-only compatibility path.
-      owner.negotiationId = null;
-      owner.requireNegotiationId = false;
     }
     owner.candidates = owner.candidates.filter((entry) =>
       this.candidateMatchesNegotiation(entry, owner),
@@ -2029,10 +2002,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     return true;
   }
 
-  private candidateBytes(
-    candidate: RTCIceCandidateInit,
-    negotiationId: string | null,
-  ): number | null {
+  private candidateBytes(candidate: RTCIceCandidateInit, negotiationId: string): number | null {
     try {
       return textEncoder.encode(JSON.stringify({ candidate, negotiationId })).byteLength;
     } catch {
@@ -2042,7 +2012,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   }
 
   private queuePendingCandidate(peerId: string, entry: QueuedIceCandidate): void {
-    const tokenKey = entry.negotiationId ?? '';
+    const tokenKey = entry.negotiationId;
     const peerBuckets = this.pendingCandidates.get(peerId) ?? new Map<string, PendingIceBucket>();
     const bucket = peerBuckets.get(tokenKey) ?? {
       candidates: [],
@@ -2135,7 +2105,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     peerId: string,
     pc: RTCPeerConnection,
     remoteDescription?: RTCSessionDescriptionInit,
-    remoteNegotiationId: string | null = null,
+    remoteNegotiationId?: string,
     purpose: 'signal' | 'media' = 'signal',
     callId: string | null = null,
   ): IceNegotiationOwner {
@@ -2154,7 +2124,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
 
     const answeringRemoteOffer = remoteDescription !== undefined;
-    const negotiationId = answeringRemoteOffer ? remoteNegotiationId : randomBase64Url(18);
+    if (answeringRemoteOffer && !remoteNegotiationId) {
+      throw createTransportError('webrtc', 'MISSING_NEGOTIATION_ID');
+    }
+    const negotiationId = remoteNegotiationId ?? randomBase64Url(18);
     const remoteUfrag = remoteDescription ? remoteIceUfrag(remoteDescription) : null;
     const owner: IceNegotiationOwner = {
       generation: ++this.iceNegotiationGeneration,
@@ -2163,7 +2136,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       purpose,
       callId,
       negotiationId,
-      requireNegotiationId: answeringRemoteOffer && negotiationId !== null,
       remoteUfrag,
       candidates: [],
       bytes: 0,
@@ -2172,7 +2144,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     };
     if (answeringRemoteOffer) {
       const peerBuckets = this.pendingCandidates.get(peerId);
-      const tokenKey = negotiationId ?? '';
+      const tokenKey = negotiationId;
       const early = peerBuckets?.get(tokenKey);
       peerBuckets?.delete(tokenKey);
       if (peerBuckets?.size === 0) this.pendingCandidates.delete(peerId);
@@ -2203,7 +2175,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private async addRemoteCandidate(
     peerId: string,
     candidate: RTCIceCandidateInit,
-    negotiationId: string | null,
+    negotiationId: string,
   ): Promise<void> {
     const bytes = this.candidateBytes(candidate, negotiationId);
     if (bytes === null) return;

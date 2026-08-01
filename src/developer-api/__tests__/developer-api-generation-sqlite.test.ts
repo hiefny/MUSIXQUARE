@@ -61,49 +61,22 @@ function insertKey(db: DatabaseSync): void {
 (sqlite ? describe : describe.skip)(
   'Developer API incarnation fences against tracked SQLite/D1 schema',
   () => {
-    it('keeps legacy and generation tombstones permanent while allowing an earlier same-request repair', () => {
+    it('keeps generation tombstones permanent while allowing an earlier same-request repair', () => {
       const db = openDatabase();
       try {
         db.exec(DEVELOPER_SCHEMA);
         db.exec(
-          `INSERT INTO mxqr_developer_api_room_tombstones
-             (room_code, request_id, decommissioned_at)
-           VALUES ('000010', 'request-a', 200);
-           INSERT INTO mxqr_developer_api_room_generation_tombstones
+          `INSERT INTO mxqr_developer_api_room_generation_tombstones
              (room_code, room_generation, request_id, decommissioned_at)
            VALUES ('000010', 2, 'request-a', 200);`,
         );
 
         db.exec(
-          `UPDATE mxqr_developer_api_room_tombstones
-           SET decommissioned_at = 150
-           WHERE room_code = '000010';
-           UPDATE mxqr_developer_api_room_generation_tombstones
+          `UPDATE mxqr_developer_api_room_generation_tombstones
            SET decommissioned_at = 150
            WHERE room_code = '000010' AND room_generation = 2;`,
         );
 
-        expect(() =>
-          db.exec(
-            `UPDATE mxqr_developer_api_room_tombstones
-             SET decommissioned_at = 151
-             WHERE room_code = '000010'`,
-          ),
-        ).toThrow(/tombstone_immutable/i);
-        expect(() =>
-          db.exec(
-            `UPDATE mxqr_developer_api_room_tombstones
-             SET request_id = 'request-b'
-             WHERE room_code = '000010'`,
-          ),
-        ).toThrow(/tombstone_immutable/i);
-        expect(() =>
-          db.exec(
-            `UPDATE mxqr_developer_api_room_tombstones
-             SET room_code = '000011'
-             WHERE room_code = '000010'`,
-          ),
-        ).toThrow(/tombstone_immutable/i);
         expect(() =>
           db.exec(
             `UPDATE mxqr_developer_api_room_generation_tombstones
@@ -111,10 +84,6 @@ function insertKey(db: DatabaseSync): void {
              WHERE room_code = '000010' AND room_generation = 2`,
           ),
         ).toThrow(/tombstone_immutable/i);
-        expect(() =>
-          db.exec(`DELETE FROM mxqr_developer_api_room_tombstones WHERE room_code = '000010'`),
-        ).toThrow(/tombstone_immutable/i);
-
         expect(() =>
           db.exec(
             `UPDATE mxqr_developer_api_room_generation_tombstones
@@ -222,16 +191,11 @@ function insertKey(db: DatabaseSync): void {
       }
     });
 
-    it('queries both permanent tombstones and zero remaining credential rows', () => {
+    it('queries permanent generation tombstones and zero remaining credential rows', () => {
       const db = openDatabase();
       try {
         db.exec(DEVELOPER_SCHEMA);
         for (const roomCode of ['000002', '000003']) {
-          db.prepare(
-            `INSERT INTO mxqr_developer_api_room_tombstones
-               (room_code, request_id, decommissioned_at)
-             VALUES (?, ?, 100)`,
-          ).run(roomCode, `delete-${roomCode}`);
           db.prepare(
             `INSERT INTO mxqr_developer_api_room_generation_tombstones
                (room_code, room_generation, request_id, decommissioned_at)
@@ -242,7 +206,6 @@ function insertKey(db: DatabaseSync): void {
         expect(db.prepare(DEVELOPER_DELETION_EVIDENCE).all()).toEqual([
           expect.objectContaining({
             room_code: '000002',
-            legacy_tombstone_count: 1,
             generation_tombstone_count: 1,
             other_generation_tombstone_count: 0,
             key_count: 0,
@@ -251,7 +214,6 @@ function insertKey(db: DatabaseSync): void {
           }),
           expect.objectContaining({
             room_code: '000003',
-            legacy_tombstone_count: 1,
             generation_tombstone_count: 1,
             other_generation_tombstone_count: 0,
             key_count: 0,
@@ -274,7 +236,7 @@ function insertKey(db: DatabaseSync): void {
           features_expected: number;
         };
         expect(readiness.schema_ready).toBe(1);
-        expect(state).toMatchObject({ features_present: 16, features_expected: 16 });
+        expect(state).toMatchObject({ features_present: 14, features_expected: 14 });
       } finally {
         db.close();
       }

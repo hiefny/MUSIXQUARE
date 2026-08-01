@@ -60,11 +60,18 @@ function queueModePayload() {
 function request(body: unknown, options: RequestInit = {}, path = '/internal/v1/read'): Request {
   const headers = new Headers(options.headers);
   if (!headers.has('content-type')) headers.set('content-type', 'application/json');
+  if (!headers.has('x-mxqr-pro-room-generation')) {
+    headers.set('x-mxqr-pro-room-generation', '0');
+  }
+  const canonicalBody =
+    body && typeof body === 'object' && !Array.isArray(body)
+      ? { roomGeneration: 0, ...body }
+      : body;
   return new Request(`https://developer-api-facade.internal${path}`, {
     method: 'POST',
     ...options,
     headers,
-    body: JSON.stringify(body),
+    body: JSON.stringify(canonicalBody),
   });
 }
 
@@ -125,7 +132,7 @@ describe('private Developer API facade', () => {
         reservedBytes: 0,
       },
     });
-    expect(rooms.idFromName).toHaveBeenCalledWith(ROOM_CODE);
+    expect(rooms.idFromName).toHaveBeenCalledWith(`${ROOM_CODE}:generation:0`);
     expect(rooms.seen).toHaveLength(1);
     const forwarded = rooms.seen[0]!;
     expect(new URL(forwarded.url).pathname).toBe('/internal/developer/v1/read');
@@ -166,7 +173,6 @@ describe('private Developer API facade', () => {
     expect(rooms.idFromName).toHaveBeenCalledWith(`${ROOM_CODE}:generation:7`);
     expect(rooms.seen[0]?.headers.get('x-mxqr-pro-room-generation')).toBe('7');
     await expect(rooms.seen[0]?.json()).resolves.toEqual({
-      roomGeneration: 7,
       keyId: KEY_ID,
       projection: 'room',
     });
@@ -182,7 +188,7 @@ describe('private Developer API facade', () => {
     expect(rooms.get).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps read forwarding compatible while the public API rolls out caller-relative provenance', async () => {
+  it('forwards caller-relative read provenance', async () => {
     const rooms = namespace(() =>
       Response.json({
         schemaVersion: 1,
@@ -208,31 +214,6 @@ describe('private Developer API facade', () => {
 
     expect(response.status).toBe(200);
     await expect(rooms.seen[0]!.json()).resolves.toEqual({ projection: 'room' });
-  });
-
-  it('forwards and sanitizes the exact effects projection', async () => {
-    const rooms = namespace(() =>
-      Response.json({ ...effectsPayload(), privatePresetId: 'never-public' }),
-    );
-    const response = await facadeWorker.fetch(
-      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'effects' }),
-      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
-    );
-
-    expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toEqual({ error: 'INVALID_BACKEND_RESPONSE' });
-
-    const validRooms = namespace(() => Response.json(effectsPayload()));
-    const valid = await facadeWorker.fetch(
-      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'effects' }),
-      { PRO_ROOM_DEVELOPER_ROOMS: validRooms },
-    );
-    expect(valid.status).toBe(200);
-    await expect(valid.json()).resolves.toEqual(effectsPayload());
-    await expect(validRooms.seen[0]!.json()).resolves.toEqual({
-      keyId: KEY_ID,
-      projection: 'effects',
-    });
   });
 
   it('forwards an explicit effects v2 negotiation and rejects a downgraded backend', async () => {
@@ -263,7 +244,7 @@ describe('private Developer API facade', () => {
     await expect(downgraded.json()).resolves.toEqual({ error: 'INVALID_BACKEND_RESPONSE' });
   });
 
-  it('normalizes an explicit effects v1 request to the rollback-compatible room hop', async () => {
+  it('rejects the retired effects v1 contract', async () => {
     const rooms = namespace(() => Response.json(effectsPayload()));
     const response = await facadeWorker.fetch(
       request({
@@ -275,12 +256,8 @@ describe('private Developer API facade', () => {
       { PRO_ROOM_DEVELOPER_ROOMS: rooms },
     );
 
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual(effectsPayload());
-    await expect(rooms.seen[0]!.json()).resolves.toEqual({
-      keyId: KEY_ID,
-      projection: 'effects',
-    });
+    expect(response.status).toBe(400);
+    expect(rooms.seen).toHaveLength(0);
   });
 
   it('forwards and sanitizes the exact queue-mode projection', async () => {
@@ -315,7 +292,11 @@ describe('private Developer API facade', () => {
     expect(rooms.seen).toHaveLength(1);
     const forwarded = rooms.seen[0]!;
     expect(new URL(forwarded.url).pathname).toBe('/internal/developer/v1/queue-mode/update');
-    expect([...forwarded.headers.keys()].sort()).toEqual(['content-type', 'x-mxqr-pro-room-code']);
+    expect([...forwarded.headers.keys()].sort()).toEqual([
+      'content-type',
+      'x-mxqr-pro-room-code',
+      'x-mxqr-pro-room-generation',
+    ]);
     await expect(forwarded.json()).resolves.toEqual({
       roomCode: ROOM_CODE,
       keyId: KEY_ID,
@@ -449,7 +430,11 @@ describe('private Developer API facade', () => {
     const forwarded = rooms.seen[0]!;
     expect(new URL(forwarded.url).pathname).toBe('/internal/developer/v1/commands/create');
     expect(forwarded.headers.get('x-mxqr-pro-room-code')).toBe(ROOM_CODE);
-    expect([...forwarded.headers.keys()].sort()).toEqual(['content-type', 'x-mxqr-pro-room-code']);
+    expect([...forwarded.headers.keys()].sort()).toEqual([
+      'content-type',
+      'x-mxqr-pro-room-code',
+      'x-mxqr-pro-room-generation',
+    ]);
     await expect(forwarded.json()).resolves.toEqual({
       roomCode: ROOM_CODE,
       keyId: KEY_ID,
@@ -681,7 +666,11 @@ describe('private Developer API facade', () => {
     expect(rooms.seen).toHaveLength(1);
     const forwarded = rooms.seen[0]!;
     expect(new URL(forwarded.url).pathname).toBe('/internal/developer/v1/queue/mutate');
-    expect([...forwarded.headers.keys()].sort()).toEqual(['content-type', 'x-mxqr-pro-room-code']);
+    expect([...forwarded.headers.keys()].sort()).toEqual([
+      'content-type',
+      'x-mxqr-pro-room-code',
+      'x-mxqr-pro-room-generation',
+    ]);
     await expect(forwarded.json()).resolves.toEqual({
       roomCode: ROOM_CODE,
       keyId: KEY_ID,
@@ -1215,6 +1204,7 @@ describe('private Developer API facade', () => {
                 'content-length': '4096',
                 'content-type': 'audio/flac',
                 'x-amz-meta-mxqr-room': ROOM_CODE,
+                'x-amz-meta-mxqr-generation': '0',
                 'x-amz-meta-mxqr-asset': ASSET_ID,
                 'x-amz-meta-mxqr-version': '1',
                 'x-amz-meta-mxqr-bytes': '4096',
@@ -1240,6 +1230,7 @@ describe('private Developer API facade', () => {
             queueItemId: QUEUE_ITEM_ID,
             kind: 'audio',
             name: 'Orchestra.flac',
+            addedBy: 'current_api_key',
             byteLength: 4_096,
           },
           playlistRevision: 8,
@@ -1603,6 +1594,7 @@ describe('private Developer API facade', () => {
             queueItemId: 'queue_item_000001',
             kind: 'audio',
             name: 'Music.flac',
+            addedBy: 'participant',
             title: 'Music',
             byteLength: 1_024,
             assetId: 'private-asset-id',
@@ -1629,6 +1621,7 @@ describe('private Developer API facade', () => {
           queueItemId: 'queue_item_000001',
           kind: 'audio',
           name: 'Music.flac',
+          addedBy: 'participant',
           title: 'Music',
           byteLength: 1_024,
         },
@@ -1669,7 +1662,7 @@ describe('private Developer API facade', () => {
     },
   );
 
-  it('accepts a rolling-deploy queue item without provenance but rejects an invalid value', async () => {
+  it('rejects queue items with missing or invalid provenance', async () => {
     const payload = {
       schemaVersion: 1,
       view: 'queue',
@@ -1684,13 +1677,13 @@ describe('private Developer API facade', () => {
         },
       ],
     };
-    const legacyRooms = namespace(() => Response.json(payload));
-    const compatible = await facadeWorker.fetch(
+    const missingRooms = namespace(() => Response.json(payload));
+    const missing = await facadeWorker.fetch(
       request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'queue' }),
-      { PRO_ROOM_DEVELOPER_ROOMS: legacyRooms },
+      { PRO_ROOM_DEVELOPER_ROOMS: missingRooms },
     );
-    expect(compatible.status).toBe(200);
-    await expect(compatible.json()).resolves.toEqual(payload);
+    expect(missing.status).toBe(503);
+    await expect(missing.json()).resolves.toEqual({ error: 'INVALID_BACKEND_RESPONSE' });
 
     const invalidRooms = namespace(() =>
       Response.json({
@@ -1720,6 +1713,7 @@ describe('private Developer API facade', () => {
             queueItemId: 'queue_item_000001',
             kind: 'audio',
             name: longName,
+            addedBy: 'participant',
             title: 't'.repeat(2_048),
             byteLength: 1,
           },

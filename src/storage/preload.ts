@@ -64,7 +64,7 @@ import {
   cancelProRoomPlaylistFilePreload,
   hasProRoomPlaylistFilePreload,
   preloadProRoomPlaylistFile,
-} from '../pro-room/legacy-media-hooks.ts';
+} from '../pro-room/media-hooks.ts';
 import { isArrayBuffer } from './transfer-shared.ts';
 
 /**

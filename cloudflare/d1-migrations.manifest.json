@@ -31,9 +31,9 @@
     {
       "database": "musixquare-auth",
       "baseline": "cloudflare/auth.schema.sql",
-      "baselineRevision": 4,
-      "baselineSha256": "d5d1968b7c1376aaad7be271139d384f949738b335004f2cc727b7b5b8f9b382",
-      "baselineMigration": "auth-account-stats-v1",
+      "baselineRevision": 5,
+      "baselineSha256": "5e2b59171bd4c952266a96d7472483b25d80cec58eb0990ddc18f4e9e9f21ab9",
+      "baselineMigration": "auth-launch-cleanup-v1",
       "baselineRecovery": {
         "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
         "runbook": "docs/account-auth-operations.md",
@@ -78,15 +78,28 @@
             "runbook": "docs/account-auth-operations.md",
             "note": "The additive aggregate-only table is ignored by older App Workers; recovery keeps it in place, rolls forward, or restores the provider database."
           }
+        },
+        {
+          "id": "auth-launch-cleanup-v1",
+          "forward": "cloudflare/auth.launch-cleanup.migration.sql",
+          "forwardSha256": "8997f32616b31647cad7997a6c059efc61de1911ca43a7e9faa293f39ffca10e",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
+            "runbook": "docs/account-auth-operations.md",
+            "note": "The launch contract keeps only generation-aware PRO reverse edges; recovery rolls forward with the matched Worker set or restores the provider database."
+          }
         }
       ]
     },
     {
       "database": "musixquare-developer-api",
       "baseline": "cloudflare/developer-api.schema.sql",
-      "baselineRevision": 3,
-      "baselineSha256": "7cedf812c6729279fc506df22a157e65f5a3274e773918cfbf3a99241ceda1a1",
-      "baselineMigration": "developer-api-room-generation-v1",
+      "baselineRevision": 4,
+      "baselineSha256": "1e0ff710b62242edc2ee2bdf28f3ba2acfbdc1a30937ed0e77a69e0441f42c05",
+      "baselineMigration": "developer-api-launch-cleanup-v1",
       "baselineRecovery": {
         "strategy": "roll-forward-or-provider-restore",
         "runbook": "cloudflare/config-drift-ops.md",
@@ -117,6 +130,19 @@
             "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
             "runbook": "docs/hotfix-procedure.md",
             "note": "Generation-bound credentials and tombstones are a permanent authorization boundary; recovery keeps the matched Worker floor and never collapses later incarnations back into room-code-only authority."
+          }
+        },
+        {
+          "id": "developer-api-launch-cleanup-v1",
+          "forward": "cloudflare/developer-api.launch-cleanup.migration.sql",
+          "forwardSha256": "9957479df8082392ffa2f5ccc71961071ce35038112d7ae8f9c0511829789a4b",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
+            "runbook": "cloudflare/config-drift-ops.md",
+            "note": "The launch contract keeps only generation-aware Developer API tombstones; recovery rolls forward with the matched Worker set or restores the provider database."
           }
         }
       ]

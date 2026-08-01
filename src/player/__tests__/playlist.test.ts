@@ -54,11 +54,7 @@ import { findQueueItemIndex } from '../queue-model.ts';
 import { t } from '../../i18n/index.ts';
 import * as transport from '../transport.ts';
 import { transition } from '../lifecycle.ts';
-import {
-  registerProRoomLegacyMediaHooks,
-  restoreProRoomLegacyPlayback,
-  type ProRoomLegacyMediaHooks,
-} from '../../pro-room/legacy-media-hooks.ts';
+import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import {
   cancelProPlaybackPreparation,
   createProPlaybackAuthorityToken,
@@ -90,7 +86,7 @@ beforeEach(() => {
   resetState();
   bus.clear();
   setPendingAutoSyncOnReady(false);
-  registerProRoomLegacyMediaHooks(null);
+  registerProRoomMediaHooks(null);
   registerProPlaybackCommandHandler(null);
   registerProPlaybackMediaEndpoint(null);
   resetProPlaybackAuthorityHooks();
@@ -99,7 +95,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setYouTubePlayer(null);
-  registerProRoomLegacyMediaHooks(null);
+  registerProRoomMediaHooks(null);
   registerProPlaybackCommandHandler(null);
   registerProPlaybackMediaEndpoint(null);
   resetProPlaybackAuthorityHooks();
@@ -107,7 +103,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-function proMediaHooks(overrides: Partial<ProRoomLegacyMediaHooks> = {}): ProRoomLegacyMediaHooks {
+function proMediaHooks(overrides: Partial<ProRoomMediaHooks> = {}): ProRoomMediaHooks {
   return {
     addFiles: () => false,
     addYouTube: () => false,
@@ -580,7 +576,7 @@ describe('local file admission', () => {
 
   it('delegates filtered PRO uploads without mutating the legacy queue', async () => {
     const addFiles = vi.fn(() => true);
-    registerProRoomLegacyMediaHooks(proMediaHooks({ addFiles }));
+    registerProRoomMediaHooks(proMediaHooks({ addFiles }));
     enterProRoom(['asset.upload', 'queue.mutate']);
     setState('network.hostConn', null);
     initPlaylist();
@@ -594,7 +590,7 @@ describe('local file admission', () => {
 
   it('fails closed when a PRO file selection outlives media-management authority', async () => {
     const addFiles = vi.fn(() => true);
-    registerProRoomLegacyMediaHooks(proMediaHooks({ addFiles }));
+    registerProRoomMediaHooks(proMediaHooks({ addFiles }));
     enterProRoom([]);
     setState('network.hostConn', null);
     initPlaylist();
@@ -611,7 +607,7 @@ describe('local file admission', () => {
 
   it('fails closed when the PRO upload bridge is unavailable', async () => {
     const addFiles = vi.fn(() => false);
-    registerProRoomLegacyMediaHooks(proMediaHooks({ addFiles }));
+    registerProRoomMediaHooks(proMediaHooks({ addFiles }));
     enterProRoom(['asset.upload']);
     setState('network.hostConn', null);
     initPlaylist();
@@ -630,7 +626,7 @@ describe('PRO playlist mutation bridge', () => {
   it('delegates removal and reorder without applying local legacy revisions', () => {
     const removeTracks = vi.fn(() => true);
     const reorderTrack = vi.fn(() => true);
-    registerProRoomLegacyMediaHooks(proMediaHooks({ removeTracks, reorderTrack }));
+    registerProRoomMediaHooks(proMediaHooks({ removeTracks, reorderTrack }));
     enterProRoom(['queue.mutate']);
     setState('network.hostConn', null);
     const a = fileItem('a.flac');
@@ -651,7 +647,7 @@ describe('PRO playlist mutation bridge', () => {
   it('fails closed when revoked PRO queue mutations arrive through stale UI events', () => {
     const removeTracks = vi.fn(() => true);
     const reorderTrack = vi.fn(() => true);
-    registerProRoomLegacyMediaHooks(proMediaHooks({ removeTracks, reorderTrack }));
+    registerProRoomMediaHooks(proMediaHooks({ removeTracks, reorderTrack }));
     enterProRoom([]);
     setState('network.hostConn', null);
     const a = fileItem('a.flac');
@@ -674,7 +670,7 @@ describe('PRO playlist mutation bridge', () => {
   it('fails closed when capable PRO queue mutation bridges are unavailable', () => {
     const removeTracks = vi.fn(() => false);
     const reorderTrack = vi.fn(() => false);
-    registerProRoomLegacyMediaHooks(proMediaHooks({ removeTracks, reorderTrack }));
+    registerProRoomMediaHooks(proMediaHooks({ removeTracks, reorderTrack }));
     enterProRoom(['queue.mutate']);
     setState('network.hostConn', null);
     const a = fileItem('a.flac');
@@ -703,7 +699,7 @@ describe('PRO playlist mutation bridge', () => {
       setState('playlist.items', [{ ...unloaded, file: downloaded }]);
       return downloaded;
     });
-    registerProRoomLegacyMediaHooks(proMediaHooks({ resolveFile }));
+    registerProRoomMediaHooks(proMediaHooks({ resolveFile }));
 
     await playTrack(unloaded.queueItemId);
 
@@ -761,7 +757,7 @@ describe('PRO playlist mutation bridge', () => {
         return file;
       });
     });
-    registerProRoomLegacyMediaHooks(
+    registerProRoomMediaHooks(
       proMediaHooks({
         resolveFile,
         handlesPersistentFile: (queueItemId) => queueItemId === next.queueItemId,
@@ -819,7 +815,7 @@ describe('PRO playlist mutation bridge', () => {
       settleDownload = resolve;
     });
     const resolveFile = vi.fn(() => pendingDownload);
-    registerProRoomLegacyMediaHooks(proMediaHooks({ resolveFile }));
+    registerProRoomMediaHooks(proMediaHooks({ resolveFile }));
 
     const playPromise = playTrack(unloaded.queueItemId);
     await vi.waitFor(() => expect(resolveFile).toHaveBeenCalledWith(unloaded.queueItemId));
@@ -847,7 +843,7 @@ describe('PRO playlist mutation bridge', () => {
     const thirdDownload = new Promise<File | null>((resolve) => {
       settleThird = resolve;
     });
-    registerProRoomLegacyMediaHooks(
+    registerProRoomMediaHooks(
       proMediaHooks({
         resolveFile: (queueItemId) =>
           queueItemId === second.queueItemId ? secondDownload : thirdDownload,
@@ -878,7 +874,7 @@ describe('PRO playlist mutation bridge', () => {
     const pendingDownload = new Promise<File | null>((resolve) => {
       settleDownload = resolve;
     });
-    registerProRoomLegacyMediaHooks(proMediaHooks({ resolveFile: () => pendingDownload }));
+    registerProRoomMediaHooks(proMediaHooks({ resolveFile: () => pendingDownload }));
 
     const filePlay = playTrack(unloaded.queueItemId);
     await vi.waitFor(() => expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING));
@@ -895,7 +891,7 @@ describe('PRO playlist mutation bridge', () => {
 
   it('cancels a pending PRO resolver during an authoritative in-flight teardown', () => {
     const cancelFileResolution = vi.fn();
-    registerProRoomLegacyMediaHooks(proMediaHooks({ cancelFileResolution }));
+    registerProRoomMediaHooks(proMediaHooks({ cancelFileResolution }));
     transition({
       type: 'FILE_PREPARE',
       variant: 'fresh',
@@ -921,7 +917,7 @@ describe('PRO playlist mutation bridge', () => {
         setState('playlist.items', [{ ...unloaded, file: downloaded }]);
         return downloaded;
       });
-    registerProRoomLegacyMediaHooks(proMediaHooks({ resolveFile }));
+    registerProRoomMediaHooks(proMediaHooks({ resolveFile }));
     decodeMocks.loadAndBroadcastFile.mockResolvedValue(false);
 
     await playTrack(unloaded.queueItemId);
@@ -941,89 +937,6 @@ describe('PRO playlist mutation bridge', () => {
         expect.objectContaining({ queueItemId: unloaded.queueItemId }),
       );
     });
-  });
-
-  it('restores an unloaded persistent file as decoded and paused at its checkpoint', async () => {
-    const unloaded = fileItem('sleeping.flac');
-    const downloaded = new File(['audio'], 'sleeping.flac', { type: 'audio/flac' });
-    setState('playlist.items', [unloaded]);
-    enterProRoom(['playback.control'], 'coordinator');
-    const resolveFile = vi.fn(async () => {
-      setState('playlist.items', [{ ...unloaded, file: downloaded }]);
-      return downloaded;
-    });
-    registerProRoomLegacyMediaHooks(proMediaHooks({ resolveFile }));
-    decodeMocks.loadAndBroadcastFile.mockImplementation(async (_file, queueItemId, sessionId) => {
-      setCurrentAudioBuffer({ duration: 180 } as AudioBuffer);
-      setState('files.current', {
-        queueItemId,
-        indexHint: 0,
-        name: downloaded.name,
-        sessionId,
-        blob: downloaded,
-        mime: downloaded.type,
-        size: downloaded.size,
-      });
-      setState('playback.lifecycle', PLAYBACK_STATE.READY);
-      setState('playback.mode', 'file');
-      setState('playback.activity', 'pending');
-      return true;
-    });
-    initPlaylist();
-
-    await expect(
-      restoreProRoomLegacyPlayback({
-        queueItemId: unloaded.queueItemId,
-        positionSeconds: 42.25,
-        state: 'paused',
-      }),
-    ).resolves.toBe(true);
-
-    expect(resolveFile).toHaveBeenCalledOnce();
-    expect(getState('player.pausedAt')).toBe(42.25);
-    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.PAUSED);
-    expect(getState('playback.activity')).toBe('paused');
-  });
-
-  it('restores a decoded persistent file through the precise play path at its checkpoint', async () => {
-    const file = new File(['audio'], 'resume.flac', { type: 'audio/flac' });
-    const item = fileItem(file.name, file);
-    setState('playlist.items', [item]);
-    enterProRoom(['playback.control'], 'coordinator');
-    decodeMocks.loadAndBroadcastFile.mockImplementation(async (_file, queueItemId, sessionId) => {
-      setCurrentAudioBuffer({ duration: 180 } as AudioBuffer);
-      setState('files.current', {
-        queueItemId,
-        indexHint: 0,
-        name: file.name,
-        sessionId,
-        blob: file,
-        mime: file.type,
-        size: file.size,
-      });
-      setState('playback.lifecycle', PLAYBACK_STATE.READY);
-      setState('playback.mode', 'file');
-      setState('playback.activity', 'pending');
-      return true;
-    });
-    const playSpy = vi.spyOn(transport, 'play').mockImplementation(async (position) => {
-      setState('player.pausedAt', position);
-      setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
-      setState('playback.mode', 'file');
-      setState('playback.activity', 'playing');
-    });
-    initPlaylist();
-
-    await expect(
-      restoreProRoomLegacyPlayback({
-        queueItemId: item.queueItemId,
-        positionSeconds: 61.5,
-        state: 'playing',
-      }),
-    ).resolves.toBe(true);
-
-    expect(playSpy).toHaveBeenCalledWith(61.5);
-    expect(getState('playback.activity')).toBe('playing');
   });
 });
 
@@ -1227,7 +1140,7 @@ describe('playTrack YouTube auto-rendezvous', () => {
     selectIndex(0);
     setPlaybackTrackMeta(oldVideo);
     setPlaybackYouTubePlaying();
-    registerProRoomLegacyMediaHooks(
+    registerProRoomMediaHooks(
       proMediaHooks({
         handlesPersistentFile: (queueItemId) => queueItemId === persistentFile.queueItemId,
       }),

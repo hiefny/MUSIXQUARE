@@ -19,7 +19,7 @@ import { fmtTime } from '../player/transport.ts';
 import { setEngineMode } from '../player/video.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
-import { handleProRoomTrackMetadata } from '../pro-room/legacy-media-hooks.ts';
+import { handleProRoomTrackMetadata } from '../pro-room/media-hooks.ts';
 import { routeProPlaybackCommand } from '../pro-room/playback-authority-hooks.ts';
 import {
   isPlaybackModeYouTube,

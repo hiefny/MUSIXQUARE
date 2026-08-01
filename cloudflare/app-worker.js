@@ -14,7 +14,7 @@ import {
   createAccountAssertion,
 } from './account-assertion.js';
 import {
-  LEGACY_PRO_ROOM_GENERATION,
+  INITIAL_PRO_ROOM_GENERATION,
   MAX_PRO_ROOM_GENERATION,
   isProRoomGeneration,
   proRoomGenerationHeaderValue,
@@ -287,7 +287,7 @@ async function preflightRegisteredProBotRoom(env, roomCode) {
         ? await statement.first()
         : (await statement.all())?.results?.[0] || null;
     if (row?.status !== 'registered') return 'BOT_ROOM_ONLY';
-    const roomGeneration = Number(row.room_generation ?? LEGACY_PRO_ROOM_GENERATION);
+    const roomGeneration = Number(row.room_generation);
     return isProRoomGeneration(roomGeneration) ? { roomGeneration } : 'BOT_UNAVAILABLE';
   } catch {
     return 'BOT_UNAVAILABLE';
@@ -312,7 +312,7 @@ async function preflightRegisteredProRoomAccountLink(env, roomCode) {
   // suspended and permanently decommissioned rooms must never grow the
   // account reverse index.
   if (row?.status !== 'registered') return null;
-  const roomGeneration = Number(row.room_generation ?? LEGACY_PRO_ROOM_GENERATION);
+  const roomGeneration = Number(row.room_generation);
   return isProRoomGeneration(roomGeneration) ? { roomGeneration } : null;
 }
 
@@ -1571,7 +1571,7 @@ async function ensureAdminProRoomRegistry(db) {
              WHERE room_code = NEW.room_code
            )
            AND (
-             NEW.room_generation <> ${LEGACY_PRO_ROOM_GENERATION}
+             NEW.room_generation <> ${INITIAL_PRO_ROOM_GENERATION}
              OR EXISTS (
                SELECT 1
                FROM ${ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE}
@@ -1796,7 +1796,7 @@ async function ensureAdminProRoomRegistry(db) {
         .prepare(
           `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
             (room_code, label, status, activation_state, room_generation, created_at, updated_at)
-           VALUES (?1, ?2, 'registered', 'unactivated', ${LEGACY_PRO_ROOM_GENERATION}, ?3, ?3)`,
+           VALUES (?1, ?2, 'registered', 'unactivated', ${INITIAL_PRO_ROOM_GENERATION}, ?3, ?3)`,
         )
         .bind(room.roomCode, room.label, nowMs)
         .run();
@@ -1815,7 +1815,7 @@ async function ensureAdminProRoomRegistry(db) {
 function normalizeAdminProRoomRow(row) {
   if (!row || !ADMIN_PRO_ROOM_CODE_RE.test(row.room_code)) return null;
   const label = String(row.label || '').trim();
-  const roomGeneration = Number(row.room_generation ?? LEGACY_PRO_ROOM_GENERATION);
+  const roomGeneration = Number(row.room_generation);
   const status = String(row.status || '');
   if (!label || label.length > ADMIN_PRO_ROOM_LABEL_MAX_LENGTH) return null;
   if (!isProRoomGeneration(roomGeneration)) return null;
@@ -1955,7 +1955,7 @@ async function registerAdminProRoom(db, roomCode, label, nowMs = Date.now()) {
         `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
           (room_code, label, status, activation_state, room_generation, created_at, updated_at)
          SELECT ?1, ?2, 'provisioning', 'unactivated',
-                ${LEGACY_PRO_ROOM_GENERATION}, ?3, ?3
+                ${INITIAL_PRO_ROOM_GENERATION}, ?3, ?3
          WHERE (
            SELECT COUNT(*)
            FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
@@ -2279,14 +2279,7 @@ async function callProRoomAdminObject(
   }
   const stub = namespace.get(namespace.idFromName(proRoomObjectName(roomCode, roomGeneration)));
   const wireBody =
-    body !== undefined &&
-    roomGeneration === LEGACY_PRO_ROOM_GENERATION &&
-    body &&
-    typeof body === 'object' &&
-    !Array.isArray(body) &&
-    Object.prototype.hasOwnProperty.call(body, 'roomGeneration')
-      ? (({ roomGeneration: _legacyGeneration, ...legacyBody }) => legacyBody)(body)
-      : body;
+    body && typeof body === 'object' && !Array.isArray(body) ? { ...body, roomGeneration } : body;
   let response;
   try {
     response = await stub.fetch(
@@ -2294,9 +2287,7 @@ async function callProRoomAdminObject(
         method,
         headers: {
           'x-mxqr-pro-room-code': roomCode,
-          ...(roomGeneration === LEGACY_PRO_ROOM_GENERATION
-            ? {}
-            : { 'x-mxqr-pro-room-generation': proRoomGenerationHeaderValue(roomGeneration) }),
+          'x-mxqr-pro-room-generation': proRoomGenerationHeaderValue(roomGeneration),
           ...(wireBody === undefined ? {} : { 'content-type': 'application/json' }),
         },
         ...(wireBody === undefined ? {} : { body: JSON.stringify(wireBody) }),
@@ -2321,16 +2312,7 @@ function proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) 
   ) {
     return false;
   }
-  const hasGeneration = Object.prototype.hasOwnProperty.call(payload, 'roomGeneration');
-  if (roomGeneration === LEGACY_PRO_ROOM_GENERATION) {
-    return (
-      (payload.roomCode === undefined || payload.roomCode === roomCode) &&
-      (!hasGeneration || payload.roomGeneration === LEGACY_PRO_ROOM_GENERATION)
-    );
-  }
-  return (
-    payload.roomCode === roomCode && hasGeneration && payload.roomGeneration === roomGeneration
-  );
+  return payload.roomCode === roomCode && payload.roomGeneration === roomGeneration;
 }
 
 async function purgeProRoomAccountAuthority({ accountId, roomCode, roomGeneration }, env) {
@@ -2525,7 +2507,7 @@ function developerApiKeyStatus(row, nowMs) {
 function normalizeAdminDeveloperApiKeyRow(row, nowMs = Date.now(), expectedRoomGeneration = null) {
   const scopes = developerApiScopeNames(row?.scope_mask);
   const label = typeof row?.label === 'string' ? row.label : '';
-  const roomGeneration = Number(row?.room_generation ?? LEGACY_PRO_ROOM_GENERATION);
+  const roomGeneration = Number(row?.room_generation);
   if (
     !row ||
     !ADMIN_DEVELOPER_API_KEY_ID_RE.test(String(row.key_id || '')) ||
@@ -2657,16 +2639,14 @@ function parseAdminDeveloperApiKeyIssueBody(body) {
 
 async function deriveAdminDeveloperApiKeyMaterial(env, roomCode, roomGeneration, requestId) {
   const pepper = developerApiAdminPepper(env);
-  const generationDomain =
-    roomGeneration === LEGACY_PRO_ROOM_GENERATION ? roomCode : `${roomCode}\u0000${roomGeneration}`;
-  const version = roomGeneration === LEGACY_PRO_ROOM_GENERATION ? 'v1' : 'v2';
+  const generationDomain = `${roomCode}\u0000${roomGeneration}`;
   const keyIdMaterial = await hmacSha256(
     pepper,
-    `mxqr-developer-api-admin-issue-id:${version}\u0000${generationDomain}\u0000${requestId}`,
+    `mxqr-developer-api-admin-issue-id:v2\u0000${generationDomain}\u0000${requestId}`,
   );
   const secret = await hmacSha256(
     pepper,
-    `mxqr-developer-api-admin-issue-secret:${version}\u0000${generationDomain}\u0000${requestId}`,
+    `mxqr-developer-api-admin-issue-secret:v2\u0000${generationDomain}\u0000${requestId}`,
   );
   return { keyId: keyIdMaterial.slice(0, 16), secret };
 }
@@ -3199,7 +3179,7 @@ async function handleAdminProRooms(request, env, pathname) {
           'room.register',
           'generation_cutover_not_ready',
           roomCode,
-          registered.room?.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION,
+          registered.room?.roomGeneration ?? INITIAL_PRO_ROOM_GENERATION,
         );
         if (auditError) return auditError;
         return json({ error: 'PRO_ROOM_GENERATION_CUTOVER_NOT_READY' }, 503);
@@ -3212,7 +3192,7 @@ async function handleAdminProRooms(request, env, pathname) {
           'room.register',
           'registry_repair_required',
           roomCode,
-          registered.room?.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION,
+          registered.room?.roomGeneration ?? INITIAL_PRO_ROOM_GENERATION,
         );
         if (auditError) return auditError;
         return json({ error: 'PRO_ROOM_REGISTRY_REPAIR_REQUIRED' }, 409);
@@ -3225,7 +3205,7 @@ async function handleAdminProRooms(request, env, pathname) {
           'room.register',
           'registry_capacity_reached',
           roomCode,
-          registered.room?.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION,
+          registered.room?.roomGeneration ?? INITIAL_PRO_ROOM_GENERATION,
         );
         if (auditError) return auditError;
         return json({ error: 'PRO_ROOM_REGISTRY_CAPACITY_REACHED' }, 409);
@@ -3311,7 +3291,7 @@ async function handleAdminProRooms(request, env, pathname) {
       'activation_claim.issue',
       'invalid_request',
       activationClaimRoomCode,
-      isProRoomGeneration(body?.roomGeneration) ? body.roomGeneration : LEGACY_PRO_ROOM_GENERATION,
+      isProRoomGeneration(body?.roomGeneration) ? body.roomGeneration : INITIAL_PRO_ROOM_GENERATION,
     );
     if (auditError) return auditError;
     return json({ error: 'INVALID_REQUEST' }, 400);
@@ -3461,7 +3441,7 @@ async function handleAdminProRoomOwnerRecoveryClaim(request, env, pathname) {
       'owner_recovery_claim.issue',
       'invalid_request',
       roomCode,
-      isProRoomGeneration(body?.roomGeneration) ? body.roomGeneration : LEGACY_PRO_ROOM_GENERATION,
+      isProRoomGeneration(body?.roomGeneration) ? body.roomGeneration : INITIAL_PRO_ROOM_GENERATION,
     );
     if (auditError) return auditError;
     return json({ error: 'INVALID_REQUEST' }, 400);

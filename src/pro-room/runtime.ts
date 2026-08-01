@@ -84,10 +84,7 @@ import {
   hydrateProRoomYouTubeManifests,
   sameStringArray,
 } from './youtube-manifest-policy.ts';
-import {
-  registerProRoomLegacyMediaHooks,
-  type ProRoomLegacyMediaHooks,
-} from './legacy-media-hooks.ts';
+import { registerProRoomMediaHooks, type ProRoomMediaHooks } from './media-hooks.ts';
 import { waitForProRoomPresenceClose } from './hard-close.ts';
 import { createProRoomIdempotencyKey } from './idempotency.ts';
 import {
@@ -1254,7 +1251,7 @@ function publishProRoomAdministrators(snapshot: ProRoomSnapshot): void {
   publishProRoomAdministratorDirectory(administrators);
 }
 
-function installLegacyMediaHooks(
+function installMediaHooks(
   manager: ProRoomPlaylistStateManager,
   lease: PlaylistRuntimeLease,
 ): void {
@@ -1291,7 +1288,7 @@ function installLegacyMediaHooks(
   });
   proRoomUploadQueue = queue;
   setActiveProRoomUploadQueue(queue);
-  const hooks: ProRoomLegacyMediaHooks = {
+  const hooks: ProRoomMediaHooks = {
     addFiles(files, rejectedCount) {
       if (!isPlaylistLeaseCurrent(lease)) return true;
       if (files.length === 0) return true;
@@ -1472,7 +1469,7 @@ function installLegacyMediaHooks(
       pendingFileDownload?.controller.abort();
     },
   };
-  registerProRoomLegacyMediaHooks(hooks);
+  registerProRoomMediaHooks(hooks);
 }
 
 function resetPlaylistRuntime(): void {
@@ -1491,7 +1488,7 @@ function resetPlaylistRuntime(): void {
   closeAllTransferLoaders();
   youtubeManifestUpgradeTail = Promise.resolve();
   attemptedYouTubeManifestUpgrades.clear();
-  registerProRoomLegacyMediaHooks(null);
+  registerProRoomMediaHooks(null);
   mediaTransfer?.cache.clear();
   playlistManager = null;
   playlistProjection = null;
@@ -1568,7 +1565,7 @@ function ensurePlaylistManager(snapshot: ProRoomSnapshot): ProRoomPlaylistStateM
     },
   });
   playlistManager = manager;
-  installLegacyMediaHooks(manager, lease);
+  installMediaHooks(manager, lease);
   return manager;
 }
 

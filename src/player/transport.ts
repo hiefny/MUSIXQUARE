@@ -33,7 +33,7 @@ import { broadcast, sendToHost } from '../network/peer.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { getHostNow } from '../network/shared-clock.ts';
 import { getCurrentQueueItemId } from './queue-model.ts';
-import { cancelProRoomPlaylistFileResolution } from '../pro-room/legacy-media-hooks.ts';
+import { cancelProRoomPlaylistFileResolution } from '../pro-room/media-hooks.ts';
 import {
   isProPlaybackAuthorityToken,
   routeProPlaybackCommand,

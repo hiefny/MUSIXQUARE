@@ -41,8 +41,8 @@ export function recordAccountProRoomLink(
   env: unknown,
   accountId: string,
   roomCode: string,
-  nowMs?: number,
-  roomGeneration?: number,
+  nowMs: number,
+  roomGeneration: number,
 ): Promise<boolean>;
 export function retireAccountProRoomLinks(
   env: unknown,

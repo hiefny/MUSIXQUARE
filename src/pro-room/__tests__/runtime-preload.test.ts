@@ -18,7 +18,7 @@ import {
   handleProRoomTrackRemoval,
   preloadProRoomPlaylistFile,
   resolveProRoomPlaylistFile,
-} from '../legacy-media-hooks.ts';
+} from '../media-hooks.ts';
 import { ProRoomMediaTransfer } from '../media-transfer.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { requestProRoomLeave } from '../lifecycle-hook.ts';

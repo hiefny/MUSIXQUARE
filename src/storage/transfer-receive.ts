@@ -62,10 +62,10 @@ import {
   selectQueueItemById,
 } from '../player/queue-model.ts';
 import {
-  finalizeProRoomLegacyDirectFile,
+  finalizeProRoomDirectFile,
   isProRoomPersistentPlaylistFile,
   resolveProRoomPlaylistFile,
-} from '../pro-room/legacy-media-hooks.ts';
+} from '../pro-room/media-hooks.ts';
 import { isGuestR2FileDelivery, recordGuestFileDelivery } from '../share/file-delivery-policy.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
@@ -669,7 +669,7 @@ async function receiveProRoomFileDirectly(
     }
 
     transition({ type: 'FILE_END', queueItemId });
-    await finalizeProRoomLegacyDirectFile(file, queueItemId, sessionId);
+    await finalizeProRoomDirectFile(file, queueItemId, sessionId);
   } catch (error) {
     if (!isFilePrepareOwnerCurrent(ownerSnapshot, queueItemId, sessionId, conn)) return;
     log.warn('[PRO] Direct R2 receive failed', error);

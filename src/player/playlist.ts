@@ -101,10 +101,8 @@ import {
   handleProRoomTrackRemoval,
   handleProRoomTrackReorder,
   isProRoomPersistentPlaylistFile,
-  registerProRoomLegacyPlaybackRestoreHandler,
   resolveProRoomPlaylistFile,
-  type ProRoomLegacyPlaybackRestore,
-} from '../pro-room/legacy-media-hooks.ts';
+} from '../pro-room/media-hooks.ts';
 import { freezeFileDeliveryMode } from '../share/file-delivery-policy.ts';
 import {
   getProPlaybackAuthorityKey,
@@ -136,7 +134,7 @@ const LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS = 200;
 
 interface PlayTrackOptions {
   navigateToPlay?: boolean;
-  proRestore?: ProRoomLegacyPlaybackRestore;
+  proFilePreparation?: ProRoomFilePreparation;
   /** Treat the selection as an explicit play command, including the first file. */
   explicitPlaybackIntent?: boolean;
   /** Preserve a new same-video occurrence after its previous row was removed. */
@@ -153,6 +151,12 @@ interface PlayTrackOptions {
   };
 }
 
+interface ProRoomFilePreparation {
+  queueItemId: QueueItemId;
+  positionSeconds: number;
+  state: 'playing' | 'paused';
+}
+
 function getLocalFileHostPlayAt(): number {
   return getHostNow() + LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS;
 }
@@ -162,32 +166,6 @@ function clampRestorePosition(positionSeconds: number): number {
   const duration = getCurrentAudioBuffer()?.duration;
   if (!duration || !Number.isFinite(duration) || duration <= 0) return position;
   return Math.min(position, Math.max(0, duration - 0.001));
-}
-
-async function restoreProRoomFilePlayback(
-  checkpoint: ProRoomLegacyPlaybackRestore,
-): Promise<boolean> {
-  if (
-    getState('room.context').kind !== 'pro' ||
-    !Number.isFinite(checkpoint.positionSeconds) ||
-    checkpoint.positionSeconds < 0
-  ) {
-    return false;
-  }
-  const item = getQueueItemById(checkpoint.queueItemId);
-  if (!item || item.type !== 'file') return false;
-
-  await playTrack(checkpoint.queueItemId, undefined, {
-    navigateToPlay: false,
-    proRestore: checkpoint,
-  });
-
-  return (
-    getCurrentQueueItemId() === checkpoint.queueItemId &&
-    getState('files.current')?.queueItemId === checkpoint.queueItemId &&
-    !!getCurrentAudioBuffer() &&
-    getState('playback.activity') === checkpoint.state
-  );
 }
 
 // ─── Shuffle Order (Fisher-Yates) ──────────────────────────────────
@@ -611,7 +589,7 @@ export async function playTrack(
         : null;
 
   const appliesServerAuthority =
-    isProPlaybackAuthorityToken(options.proAuthority) || options.proRestore !== undefined;
+    isProPlaybackAuthorityToken(options.proAuthority) || options.proFilePreparation !== undefined;
   if (!appliesServerAuthority) {
     const requestedVideoId =
       item.type === 'youtube'
@@ -1237,7 +1215,7 @@ export async function playTrack(
     // Guests on the "same-file replay" path use this to defer their own
     // play(0), otherwise they ghost-play for 3s while the host is still
     // waiting on its autoPlayTimer.
-    const autoPlayDelayMs = options.proRestore || waitsForManualFirstStart ? 0 : 3000;
+    const autoPlayDelayMs = options.proFilePreparation || waitsForManualFirstStart ? 0 : 3000;
 
     // FILE_PREPARE is coalesced into the same debounce as broadcastFile.
     // Sending it eagerly here would flood guests with metadata updates for
@@ -1263,19 +1241,19 @@ export async function playTrack(
     );
     if (!didLoad) return;
 
-    if (options.proRestore) {
+    if (options.proFilePreparation) {
       if (
-        options.proRestore.queueItemId !== queueItemId ||
+        options.proFilePreparation.queueItemId !== queueItemId ||
         !isCurrentLoadEpoch(myLoadEpoch) ||
         getCurrentQueueItemId() !== queueItemId
       ) {
         return;
       }
 
-      const restorePosition = clampRestorePosition(options.proRestore.positionSeconds);
+      const restorePosition = clampRestorePosition(options.proFilePreparation.positionSeconds);
       setState('player.isFirstTrackLoad', false);
 
-      if (options.proRestore.state === 'paused') {
+      if (options.proFilePreparation.state === 'paused') {
         setState('player.pausedAt', restorePosition);
         transition({
           type: 'PAUSE',
@@ -2436,7 +2414,7 @@ async function prepareAuthoritativePlayback(
       },
       ...(item.type === 'file'
         ? {
-            proRestore: {
+            proFilePreparation: {
               queueItemId: request.queueItemId,
               positionSeconds,
               state: 'paused' as const,
@@ -2549,7 +2527,6 @@ export function initPlaylist(): void {
       cancelYouTubeAuthorityPreparation();
     },
   });
-  registerProRoomLegacyPlaybackRestoreHandler(restoreProRoomFilePlayback);
   registerHandlers({
     [MSG.REPEAT_MODE]: handleRepeatMode,
     [MSG.SHUFFLE_MODE]: handleShuffleMode,

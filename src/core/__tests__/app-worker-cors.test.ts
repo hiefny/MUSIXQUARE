@@ -31,6 +31,7 @@ describe('Cloudflare app Worker PRO activation projection repair', () => {
             statusReads.push(roomCode);
             return Response.json({
               roomCode,
+              roomGeneration: 0,
               provisioned: true,
               status: 'active',
             });
@@ -2446,7 +2447,7 @@ describe('Cloudflare app worker admin dashboard', () => {
           const roomCode = request.headers.get('x-mxqr-pro-room-code') || '';
           const generationHeader = request.headers.get('x-mxqr-pro-room-generation');
           const roomGeneration = Number(generationHeader ?? '0');
-          expect(generationHeader).toBeNull();
+          expect(generationHeader).toBe('0');
           seen.push({
             roomCode: objectName,
             roomGeneration: String(roomGeneration),
@@ -2462,12 +2463,14 @@ describe('Cloudflare app worker admin dashboard', () => {
             return Response.json({
               ok: true,
               roomCode,
+              roomGeneration,
               status: 'unactivated',
             });
           }
           if (url.pathname === '/internal/admin/status') {
             return Response.json({
               roomCode,
+              roomGeneration,
               provisioned: true,
               status: 'active',
             });
@@ -2476,6 +2479,7 @@ describe('Cloudflare app worker admin dashboard', () => {
             return Response.json({
               ok: true,
               roomCode,
+              roomGeneration,
               status: 'suspended',
               changed: true,
             });
@@ -2484,6 +2488,7 @@ describe('Cloudflare app worker admin dashboard', () => {
             return Response.json({
               ok: true,
               roomCode,
+              roomGeneration,
               status: 'active',
               changed: true,
             });
@@ -2491,6 +2496,7 @@ describe('Cloudflare app worker admin dashboard', () => {
           if (url.pathname === '/internal/admin/owner-recovery-claim') {
             return Response.json({
               roomCode,
+              roomGeneration,
               recoveryUrl:
                 roomCode === '000005'
                   ? `https://musixquare.com.evil/${roomCode}#pro-recovery=v1.payload.signature`
@@ -2504,6 +2510,7 @@ describe('Cloudflare app worker admin dashboard', () => {
           }
           return Response.json({
             roomCode,
+            roomGeneration,
             activationUrl: `https://musixquare.com/${roomCode}#pro-claim=secret-claim`,
             expiresAt: Date.now() + 15 * 60 * 1000,
           });
@@ -2749,67 +2756,67 @@ describe('Cloudflare app worker admin dashboard', () => {
 
     expect(seen).toEqual([
       {
-        roomCode: '000002',
+        roomCode: '000002:generation:0',
         roomGeneration: '0',
         url: '/internal/admin/provision',
         authorization: '',
       },
       {
-        roomCode: '000002',
+        roomCode: '000002:generation:0',
         roomGeneration: '0',
         url: '/internal/admin/activation-claim',
         authorization: '',
       },
       {
-        roomCode: '000002',
+        roomCode: '000002:generation:0',
         roomGeneration: '0',
         url: '/internal/admin/owner-recovery-claim',
         authorization: '',
       },
       {
-        roomCode: '000002',
+        roomCode: '000002:generation:0',
         roomGeneration: '0',
         url: '/internal/admin/suspend',
         authorization: '',
       },
       {
-        roomCode: '000002',
+        roomCode: '000002:generation:0',
         roomGeneration: '0',
         url: '/internal/admin/resume',
         authorization: '',
       },
       {
-        roomCode: '000002',
+        roomCode: '000002:generation:0',
         roomGeneration: '0',
         url: '/internal/admin/owner-recovery-claim',
         authorization: '',
       },
       {
-        roomCode: '000003',
+        roomCode: '000003:generation:0',
         roomGeneration: '0',
         url: '/internal/admin/provision',
         authorization: '',
       },
       {
-        roomCode: '000003',
+        roomCode: '000003:generation:0',
         roomGeneration: '0',
         url: '/internal/admin/provision',
         authorization: '',
       },
       {
-        roomCode: '000004',
+        roomCode: '000004:generation:0',
         roomGeneration: '0',
         url: '/internal/admin/activation-claim',
         authorization: '',
       },
       {
-        roomCode: '000004',
+        roomCode: '000004:generation:0',
         roomGeneration: '0',
         url: '/internal/admin/status',
         authorization: '',
       },
       {
-        roomCode: '000005',
+        roomCode: '000005:generation:0',
         roomGeneration: '0',
         url: '/internal/admin/owner-recovery-claim',
         authorization: '',
@@ -3383,7 +3390,7 @@ describe('Cloudflare app worker admin dashboard', () => {
         return Response.json({
           ok: true,
           roomCode,
-          ...(roomGeneration === 0 ? {} : { roomGeneration }),
+          roomGeneration,
           status: 'unactivated',
         });
       }
@@ -3398,7 +3405,7 @@ describe('Cloudflare app worker admin dashboard', () => {
         {
           ok: true,
           roomCode,
-          ...(roomGeneration === 0 ? {} : { roomGeneration }),
+          roomGeneration,
           status: proRoomStatus,
           purgeAfterMs: Date.now() + 600_000,
           completedAtMs: proRoomStatus === 'decommissioned' ? Date.now() : null,
@@ -3505,18 +3512,18 @@ describe('Cloudflare app worker admin dashboard', () => {
     });
     expect(proRoomCalls).toEqual([
       {
-        objectName: roomCode,
+        objectName: `${roomCode}:generation:0`,
         pathname: '/internal/admin/decommission',
         roomCodeHeader: roomCode,
         roomGenerationHeader: '0',
-        body: { roomCode, requestId },
+        body: { roomCode, roomGeneration: 0, requestId },
       },
       {
-        objectName: roomCode,
+        objectName: `${roomCode}:generation:0`,
         pathname: '/internal/admin/decommission',
         roomCodeHeader: roomCode,
         roomGenerationHeader: '0',
-        body: { roomCode, requestId },
+        body: { roomCode, roomGeneration: 0, requestId },
       },
     ]);
     expect(proAudits).toContainEqual({
@@ -4055,9 +4062,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
               const roomGeneration = Number(
                 request.headers.get('x-mxqr-pro-room-generation') ?? '0',
               );
-              expect(objectName).toBe(
-                roomGeneration === 0 ? roomCode : `${roomCode}:generation:${roomGeneration}`,
-              );
+              expect(objectName).toBe(`${roomCode}:generation:${roomGeneration}`);
               const row = registryRows.get(roomCode);
               if (!row) return Response.json({ error: 'ROOM_NOT_FOUND' }, { status: 404 });
               const status =
@@ -4068,7 +4073,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
                     : 'unactivated';
               return Response.json({
                 roomCode,
-                ...(roomGeneration === 0 ? {} : { roomGeneration }),
+                roomGeneration,
                 provisioned: true,
                 status,
               });

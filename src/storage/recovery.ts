@@ -47,7 +47,7 @@ import {
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import { setPendingRecoveryTarget } from '../player/_state.ts';
-import { isProRoomPersistentPlaylistFile } from '../pro-room/legacy-media-hooks.ts';
+import { isProRoomPersistentPlaylistFile } from '../pro-room/media-hooks.ts';
 
 let recoveryRequestGeneration = 0;
 

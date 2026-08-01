@@ -16,6 +16,7 @@ describe('account room assertions', () => {
         accountId: 'acct_0123456789abcdefghijkl',
         nickname: ' 민수 ',
         roomCode: '000001',
+        roomGeneration: 0,
         audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
       },
       secret,
@@ -42,6 +43,7 @@ describe('account room assertions', () => {
         accountId: 'acct_0123456789abcdefghijkl',
         nickname: 'Minsu',
         roomCode: '000001',
+        roomGeneration: 0,
         audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
       },
       secret,
@@ -72,10 +74,10 @@ describe('account room assertions', () => {
 
   it('binds an assertion to one immutable PRO room generation', async () => {
     const issuedAt = 1_784_524_800;
-    const legacy = await createAccountAssertion(
+    const initial = await createAccountAssertion(
       {
         accountId: 'acct_0123456789abcdefghijkl',
-        nickname: 'Legacy owner',
+        nickname: 'Initial owner',
         roomCode: '000001',
         roomGeneration: 0,
         audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
@@ -102,11 +104,11 @@ describe('account room assertions', () => {
           'base64',
         ).toString('utf8'),
       ) as Record<string, unknown>;
-    expect(decodePayload(legacy)).not.toHaveProperty('roomGeneration');
+    expect(decodePayload(initial)).toMatchObject({ roomGeneration: 0 });
     expect(decodePayload(replacement)).toMatchObject({ roomGeneration: 1 });
 
     await expect(
-      verifyAccountAssertion(legacy, secret, {
+      verifyAccountAssertion(initial, secret, {
         audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
         roomCode: '000001',
         roomGeneration: 1,

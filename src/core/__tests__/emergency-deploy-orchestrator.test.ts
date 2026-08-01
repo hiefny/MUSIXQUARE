@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  assertEmergencyRemoteShareLifecycleEstablished,
   emergencyCompatibilityTarget,
   emergencyDeploymentMessage,
   emergencyDeploymentPlan,
@@ -56,57 +55,6 @@ describe('emergency deployment orchestrator', () => {
     expect(emergencyCompatibilityTarget('signaling')).toBe('signaling');
     expect(emergencyCompatibilityTarget('app')).toBe('app');
     expect(emergencyCompatibilityTarget('all-workers')).toBeNull();
-  });
-
-  it('fails closed before a first-lifecycle emergency remote-share deployment', () => {
-    const queryCurrent = vi.fn(() => ({ deployment: { id: 'legacy' } }));
-    const bridgeRequired = vi.fn(() => true);
-
-    expect(() =>
-      assertEmergencyRemoteShareLifecycleEstablished('remote-share', COMMIT, {
-        queryCurrent,
-        bridgeRequired,
-      }),
-    ).toThrow('rollback-safe production release bridge');
-    expect(queryCurrent).toHaveBeenCalledWith(
-      'remote-share',
-      'cloudflare/wrangler.remote-share.toml',
-      `release-artifacts/emergency-deployments/${COMMIT}-remote-share-remote-share-lifecycle.json`,
-    );
-    expect(bridgeRequired).toHaveBeenCalledWith({ id: 'legacy' });
-
-    queryCurrent.mockClear();
-    expect(
-      assertEmergencyRemoteShareLifecycleEstablished('app', COMMIT, {
-        queryCurrent,
-        bridgeRequired,
-      }),
-    ).toBeNull();
-    expect(queryCurrent).not.toHaveBeenCalled();
-  });
-
-  it('runs emergency remote-share commands only after the lifecycle guard passes', () => {
-    for (const target of ['remote-share', 'all-workers']) {
-      const authorize = vi.fn(() => ({ target, commitSha: COMMIT }));
-      const runner = vi.fn();
-      const compatibilityCheck = vi.fn();
-      const remoteShareLifecycleCheck = vi.fn(() => {
-        throw new Error('lifecycle missing');
-      });
-
-      expect(() =>
-        runEmergencyDeployment({
-          target,
-          authorize,
-          runner,
-          compatibilityCheck,
-          remoteShareLifecycleCheck,
-        }),
-      ).toThrow('lifecycle missing');
-      expect(remoteShareLifecycleCheck).toHaveBeenCalledWith(target, COMMIT);
-      expect(compatibilityCheck).not.toHaveBeenCalled();
-      expect(runner).not.toHaveBeenCalled();
-    }
   });
 
   it('preserves the all-Worker validation, build, D1, and deployment order', () => {

@@ -93,28 +93,8 @@ CREATE TABLE IF NOT EXISTS mxqr_account_deletions (
 );
 
 -- Sparse reverse index used only to revoke persistent PRO authority when an
--- account is deleted. A row is created when a verified account is attached to
--- a PRO room; room content is deliberately not copied into this database.
-CREATE TABLE IF NOT EXISTS mxqr_account_pro_rooms (
-  account_id TEXT NOT NULL,
-  room_code TEXT NOT NULL,
-  first_linked_at INTEGER NOT NULL,
-  last_seen_at INTEGER NOT NULL,
-  PRIMARY KEY (account_id, room_code),
-  FOREIGN KEY (account_id) REFERENCES mxqr_accounts(account_id) ON DELETE CASCADE,
-  CHECK (length(room_code) = 6 AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'),
-  CHECK (first_linked_at > 0 AND last_seen_at >= first_linked_at)
-);
-
-CREATE INDEX IF NOT EXISTS idx_mxqr_account_pro_rooms_account
-  ON mxqr_account_pro_rooms(account_id);
-
--- Incarnation-aware reverse index. The legacy table above remains readable so
--- accounts linked before reusable PRO numbers can still be deleted safely.
--- Generation zero continues writing the legacy table during the additive
--- rollout; later generations use this table. Cleanup and capacity checks read
--- the union, preventing an old account deletion from revoking authority in a
--- later room that happens to reuse the same six-digit public code.
+-- account is deleted. Room content is deliberately not copied into this
+-- database, and every edge names the exact reusable room incarnation.
 CREATE TABLE IF NOT EXISTS mxqr_account_pro_room_generations (
   account_id TEXT NOT NULL,
   room_code TEXT NOT NULL,

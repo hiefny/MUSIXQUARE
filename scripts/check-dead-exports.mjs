@@ -6,7 +6,7 @@
  * unrelated exports that happen to share a name no longer keep each other
  * alive. Value/type space and prod/test/self evidence are reported separately.
  *
- * The binding-aware 27/95 count baselines record the reviewed runtime and
+ * The binding-aware 22/81 count baselines record the reviewed runtime and
  * server-authority surfaces. Fully-dead exports remain forbidden, and both
  * counts are shrink-only.
  * Module reachability is report-only and includes static value imports,
@@ -35,8 +35,8 @@ const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 // remote file delivery. The self-only additions are test-observed seams,
 // module-local API types, or the central event/type barrel; no fully-dead
 // export is allowed.
-const TEST_ONLY_BASELINE_COUNT = 27;
-const SELF_ONLY_BASELINE_COUNT = 95;
+const TEST_ONLY_BASELINE_COUNT = 22;
+const SELF_ONLY_BASELINE_COUNT = 81;
 
 function kindCounts(entries) {
   return entries.reduce(

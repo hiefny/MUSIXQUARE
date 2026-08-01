@@ -33,9 +33,9 @@ describe('D1 migration contract', () => {
     expect(assertD1MigrationContract()).toEqual({
       schemaVersion: 1,
       databaseCount: 3,
-      migrationCount: 6,
+      migrationCount: 8,
       pairedMigrationCount: 1,
-      forwardOnlyMigrationCount: 5,
+      forwardOnlyMigrationCount: 7,
     });
   });
 
@@ -46,6 +46,7 @@ describe('D1 migration contract', () => {
       'cloudflare/developer-api.effects-scopes.migration.sql',
       'cloudflare/developer-api.effects-scopes.rollback.sql',
       'cloudflare/developer-api-room-generation.migration.sql',
+      'cloudflare/developer-api.launch-cleanup.migration.sql',
     ]);
   });
 

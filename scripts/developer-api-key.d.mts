@@ -43,6 +43,7 @@ export interface RevokedDeveloperApiKey {
 export class DeveloperApiKeyCliError extends Error {}
 export function parseDeveloperApiKeyCommand(argv: readonly string[]): DeveloperApiKeyCommand;
 export function executeDeveloperApiD1(sql: string): DeveloperApiD1Row[];
+export function executeAdminD1(sql: string): DeveloperApiD1Row[];
 export function resolveCurrentProRoomGeneration(
   roomCode: string,
   execute?: (statement: string) => DeveloperApiD1Row[],

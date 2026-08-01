@@ -4,7 +4,7 @@ import {
   verifyStandardRoomAccountDeletionAssertion,
 } from './standard-room-account-assertion.js';
 import {
-  LEGACY_PRO_ROOM_GENERATION,
+  INITIAL_PRO_ROOM_GENERATION,
   isProRoomGeneration,
   proRoomGenerationHeaderValue,
   proRoomMediaPrefix,
@@ -54,10 +54,6 @@ const DECOMMISSION_EVIDENCE_OBSERVER_CONTRACT = 2;
 const DECOMMISSION_EVIDENCE_DO_PATH = '/internal/ops/v1/decommission-evidence';
 const DECOMMISSION_EVIDENCE_PATH_RE =
   /^\/internal\/ops\/v1\/decommission-evidence\/(000002|000003|099999)$/;
-const DECOMMISSION_EVIDENCE_LEGACY_REQUEST_IDS = Object.freeze({
-  '000002': '3756542c-9112-48ac-a672-7de17a71adb5',
-  '000003': '200455f7-9666-4ded-8e65-c24322f06fb3',
-});
 const PRO_SIGNALING_TICKET_KIND = 'pro-signaling';
 const PRO_SIGNALING_TICKET_VERSION = 1;
 const PRO_ROOM_GENERATION_HEADER = 'x-mxqr-pro-room-generation';
@@ -149,11 +145,10 @@ function isValidPeerId(peerId) {
   return typeof peerId === 'string' && /^[A-Za-z0-9_-]{1,96}$/.test(peerId);
 }
 
-function hasValidOptionalNegotiationId(message) {
+function hasValidNegotiationId(message) {
   return (
-    message.negotiationId === undefined ||
-    (typeof message.negotiationId === 'string' &&
-      /^[A-Za-z0-9_-]{16,64}$/.test(message.negotiationId))
+    typeof message.negotiationId === 'string' &&
+    /^[A-Za-z0-9_-]{16,64}$/.test(message.negotiationId)
   );
 }
 
@@ -165,37 +160,23 @@ function isProNamespaceRoomCode(roomId) {
   return typeof roomId === 'string' && PRO_ROOM_CODE_PATTERN.test(roomId);
 }
 
-function legacyCompatibleProRoomGeneration(value) {
-  return value === undefined
-    ? LEGACY_PRO_ROOM_GENERATION
-    : isProRoomGeneration(value)
-      ? value
-      : null;
+function exactProRoomGeneration(value) {
+  return isProRoomGeneration(value) ? value : null;
 }
 
 function internalProRoomGeneration(request, value) {
   if (!isRecord(value)) return null;
   const hasBodyGeneration = Object.prototype.hasOwnProperty.call(value, 'roomGeneration');
-  const bodyGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
-  if (bodyGeneration === null) return null;
-
   const header = request.headers.get(PRO_ROOM_GENERATION_HEADER);
-  // A missing generation in both places is the rolling-deploy/legacy-v1
-  // representation of generation zero. Once either side is explicit, require
-  // both representations and an exact numeric match.
-  if (header === null) {
-    return hasBodyGeneration ? null : LEGACY_PRO_ROOM_GENERATION;
-  }
-  if (!hasBodyGeneration || !/^(?:0|[1-9]\d*)$/.test(header)) return null;
+  if (!/^(?:0|[1-9]\d*)$/.test(header || '')) return null;
   const headerGeneration = Number(header);
-  return isProRoomGeneration(headerGeneration) && headerGeneration === bodyGeneration
-    ? bodyGeneration
-    : null;
+  if (!isProRoomGeneration(headerGeneration)) return null;
+  return !hasBodyGeneration || value.roomGeneration === headerGeneration ? headerGeneration : null;
 }
 
 function decommissionEvidenceRoomGeneration(request) {
   const header = request.headers.get(PRO_ROOM_GENERATION_HEADER);
-  if (header === null) return LEGACY_PRO_ROOM_GENERATION;
+  if (header === null) return null;
   if (!/^(?:0|[1-9]\d*)$/.test(header)) return null;
   const roomGeneration = Number(header);
   return isProRoomGeneration(roomGeneration) ? roomGeneration : null;
@@ -207,31 +188,24 @@ function proRoomInstanceId(roomCode, roomGeneration) {
 
 function proRoomGenerationWireFields(roomGeneration) {
   if (!isProRoomGeneration(roomGeneration)) throw new Error('INVALID_PRO_ROOM_GENERATION');
-  return roomGeneration === LEGACY_PRO_ROOM_GENERATION ? {} : { roomGeneration };
+  return { roomGeneration };
 }
 
 function proRoomGenerationWireHeaders(roomGeneration) {
   if (!isProRoomGeneration(roomGeneration)) throw new Error('INVALID_PRO_ROOM_GENERATION');
-  return roomGeneration === LEGACY_PRO_ROOM_GENERATION
-    ? {}
-    : { [PRO_ROOM_GENERATION_HEADER]: proRoomGenerationHeaderValue(roomGeneration) };
+  return { [PRO_ROOM_GENERATION_HEADER]: proRoomGenerationHeaderValue(roomGeneration) };
 }
 
 function responseRoomGenerationMatches(payload, roomGeneration) {
   if (!isRecord(payload) || !isProRoomGeneration(roomGeneration)) return false;
-  const hasGeneration = Object.prototype.hasOwnProperty.call(payload, 'roomGeneration');
-  return roomGeneration === LEGACY_PRO_ROOM_GENERATION
-    ? !hasGeneration || payload.roomGeneration === LEGACY_PRO_ROOM_GENERATION
-    : hasGeneration && payload.roomGeneration === roomGeneration;
+  return payload.roomGeneration === roomGeneration;
 }
 
 function persistedProGenerationRecord(value, roomGeneration) {
   if (!isRecord(value) || !isProRoomGeneration(roomGeneration)) {
     throw new Error('INVALID_PRO_ROOM_GENERATION_RECORD');
   }
-  if (roomGeneration !== LEGACY_PRO_ROOM_GENERATION) return value;
-  const { roomGeneration: _legacyGeneration, ...legacyShape } = value;
-  return legacyShape;
+  return value;
 }
 
 function isValidGuestReconnectSecret(secret) {
@@ -294,7 +268,7 @@ function normalizeProTicketPayload(value, expectedRoomId, nowSeconds) {
     return null;
   }
   if (value.roomCode !== expectedRoomId || !/^\d{6}$/.test(value.roomCode)) return null;
-  const roomGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
+  const roomGeneration = exactProRoomGeneration(value.roomGeneration);
   if (roomGeneration === null) return null;
   if (!isValidPeerId(value.participantId)) return null;
   if (
@@ -452,7 +426,7 @@ async function readBoundedJson(request, maxBytes) {
   }
 }
 
-function defaultProTicketUses(roomGeneration = LEGACY_PRO_ROOM_GENERATION) {
+function defaultProTicketUses(roomGeneration = INITIAL_PRO_ROOM_GENERATION) {
   return { v: 1, roomGeneration, entries: [] };
 }
 
@@ -464,7 +438,7 @@ function normalizeProTicketUses(value) {
   ) {
     return null;
   }
-  const roomGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
+  const roomGeneration = exactProRoomGeneration(value.roomGeneration);
   if (roomGeneration === null) return null;
   if (value.entries.length > MAX_PRO_TICKET_USES) return null;
   const entries = [];
@@ -479,7 +453,7 @@ function normalizeProTicketUses(value) {
   return { v: 1, roomGeneration, entries };
 }
 
-function defaultProParticipantHighWater(roomGeneration = LEGACY_PRO_ROOM_GENERATION) {
+function defaultProParticipantHighWater(roomGeneration = INITIAL_PRO_ROOM_GENERATION) {
   return { v: 1, roomGeneration, entries: [] };
 }
 
@@ -491,7 +465,7 @@ function normalizeProParticipantHighWater(value) {
   ) {
     return null;
   }
-  const roomGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
+  const roomGeneration = exactProRoomGeneration(value.roomGeneration);
   if (roomGeneration === null) return null;
   if (value.entries.length > MAX_PRO_PARTICIPANT_HIGH_WATER) return null;
   const entries = [];
@@ -536,7 +510,7 @@ function normalizeProPresenceAuthority(value) {
   ) {
     return null;
   }
-  const roomGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
+  const roomGeneration = exactProRoomGeneration(value.roomGeneration);
   if (roomGeneration === null) return null;
   const activeIncarnationIds = normalizeProBroadcastTargets(value.activeIncarnationIds);
   if (!activeIncarnationIds) return null;
@@ -565,7 +539,7 @@ function normalizeProDecommissioned(value) {
   ) {
     return null;
   }
-  const roomGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
+  const roomGeneration = exactProRoomGeneration(value.roomGeneration);
   if (roomGeneration === null) return null;
   return {
     v: 1,
@@ -947,10 +921,7 @@ function validateIncomingMessage(message, role) {
     ) {
       return 'ignore';
     }
-    if (
-      message.reconnectSecret !== undefined &&
-      !isValidGuestReconnectSecret(message.reconnectSecret)
-    ) {
+    if (!isValidGuestReconnectSecret(message.reconnectSecret)) {
       return 'ignore';
     }
     return 'valid';
@@ -981,13 +952,13 @@ function validateIncomingMessage(message, role) {
     if (message.to !== 'host') return 'ignore';
     if (message.type === 'signal-offer') {
       if (isOversizedSdp(message.sdp)) return 'oversized';
-      return isValidSdp(message.sdp, 'offer') && hasValidOptionalNegotiationId(message)
+      return isValidSdp(message.sdp, 'offer') && hasValidNegotiationId(message)
         ? 'valid'
         : 'ignore';
     }
     if (message.type === 'signal-candidate') {
       if (isOversizedIceCandidate(message.candidate)) return 'oversized';
-      return isValidIceCandidate(message.candidate) && hasValidOptionalNegotiationId(message)
+      return isValidIceCandidate(message.candidate) && hasValidNegotiationId(message)
         ? 'valid'
         : 'ignore';
     }
@@ -995,7 +966,7 @@ function validateIncomingMessage(message, role) {
       if (isOversizedSdp(message.sdp)) return 'oversized';
       return isValidPeerId(message.callId) &&
         isValidSdp(message.sdp, 'answer') &&
-        hasValidOptionalNegotiationId(message)
+        hasValidNegotiationId(message)
         ? 'valid'
         : 'ignore';
     }
@@ -1029,13 +1000,11 @@ function validateIncomingMessage(message, role) {
   if (!isValidPeerId(message.to)) return 'ignore';
   if (message.type === 'signal-answer') {
     if (isOversizedSdp(message.sdp)) return 'oversized';
-    return isValidSdp(message.sdp, 'answer') && hasValidOptionalNegotiationId(message)
-      ? 'valid'
-      : 'ignore';
+    return isValidSdp(message.sdp, 'answer') && hasValidNegotiationId(message) ? 'valid' : 'ignore';
   }
   if (message.type === 'signal-candidate') {
     if (isOversizedIceCandidate(message.candidate)) return 'oversized';
-    return isValidIceCandidate(message.candidate) && hasValidOptionalNegotiationId(message)
+    return isValidIceCandidate(message.candidate) && hasValidNegotiationId(message)
       ? 'valid'
       : 'ignore';
   }
@@ -1043,7 +1012,7 @@ function validateIncomingMessage(message, role) {
     if (isOversizedSdp(message.sdp)) return 'oversized';
     return isValidPeerId(message.callId) &&
       isValidSdp(message.sdp, 'offer') &&
-      hasValidOptionalNegotiationId(message)
+      hasValidNegotiationId(message)
       ? 'valid'
       : 'ignore';
   }
@@ -1244,7 +1213,7 @@ function normalizeProRoomMeta(value) {
   ) {
     return null;
   }
-  const roomGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
+  const roomGeneration = exactProRoomGeneration(value.roomGeneration);
   if (roomGeneration === null) return null;
   if (!isValidProEpoch(value.coordinatorEpoch)) return null;
   return {
@@ -1256,10 +1225,11 @@ function normalizeProRoomMeta(value) {
   };
 }
 
-function defaultProChatControlState(roomId, coordinatorEpoch) {
+function defaultProChatControlState(roomId, roomGeneration, coordinatorEpoch) {
   return {
     v: 1,
     roomId,
+    roomGeneration,
     coordinatorEpoch,
     revision: 0,
     frozen: false,
@@ -1274,6 +1244,7 @@ function normalizeProChatControlState(value) {
     !hasExactKeys(value, [
       'v',
       'roomId',
+      'roomGeneration',
       'coordinatorEpoch',
       'revision',
       'frozen',
@@ -1283,6 +1254,7 @@ function normalizeProChatControlState(value) {
     ]) ||
     value.v !== 1 ||
     !isProNamespaceRoomCode(value.roomId) ||
+    !isProRoomGeneration(value.roomGeneration) ||
     !isValidProEpoch(value.coordinatorEpoch) ||
     !Number.isSafeInteger(value.revision) ||
     value.revision < 0 ||
@@ -1307,6 +1279,7 @@ function normalizeProChatControlState(value) {
   return {
     v: 1,
     roomId: value.roomId,
+    roomGeneration: value.roomGeneration,
     coordinatorEpoch: value.coordinatorEpoch,
     revision: value.revision,
     frozen: value.frozen,
@@ -1316,15 +1289,16 @@ function normalizeProChatControlState(value) {
   };
 }
 
-function defaultProBotRequestProofs(roomId, coordinatorEpoch) {
-  return { v: 1, roomId, coordinatorEpoch, entries: [] };
+function defaultProBotRequestProofs(roomId, roomGeneration, coordinatorEpoch) {
+  return { v: 1, roomId, roomGeneration, coordinatorEpoch, entries: [] };
 }
 
 function normalizeProBotRequestProofs(value) {
   if (
-    !hasExactKeys(value, ['v', 'roomId', 'coordinatorEpoch', 'entries']) ||
+    !hasExactKeys(value, ['v', 'roomId', 'roomGeneration', 'coordinatorEpoch', 'entries']) ||
     value.v !== 1 ||
     !isProNamespaceRoomCode(value.roomId) ||
+    !isProRoomGeneration(value.roomGeneration) ||
     !isValidProEpoch(value.coordinatorEpoch) ||
     !Array.isArray(value.entries) ||
     value.entries.length > PRO_BOT_REQUEST_PROOF_MAX_ITEMS
@@ -1357,6 +1331,7 @@ function normalizeProBotRequestProofs(value) {
   return {
     v: 1,
     roomId: value.roomId,
+    roomGeneration: value.roomGeneration,
     coordinatorEpoch: value.coordinatorEpoch,
     entries,
   };
@@ -1407,7 +1382,7 @@ function normalizeAttachment(value) {
   if (value.roomKind === 'pro') {
     if (value.role !== 'member') return null;
     if (!isProNamespaceRoomCode(value.roomId) || value.peerId !== value.participantId) return null;
-    const roomGeneration = legacyCompatibleProRoomGeneration(value.roomGeneration);
+    const roomGeneration = exactProRoomGeneration(value.roomGeneration);
     if (roomGeneration === null) return null;
     if (!isValidProEpoch(value.coordinatorEpoch)) return null;
     if (!isValidPeerId(value.participantId)) return null;
@@ -1557,10 +1532,7 @@ function readAttachment(ws) {
 function serializeSocketAttachment(ws, attachment) {
   const stored =
     attachment?.roomKind === 'pro'
-      ? persistedProGenerationRecord(
-          attachment,
-          attachment.roomGeneration ?? LEGACY_PRO_ROOM_GENERATION,
-        )
+      ? persistedProGenerationRecord(attachment, attachment.roomGeneration)
       : attachment;
   ws.serializeAttachment(stored);
 }
@@ -1737,9 +1709,7 @@ export class MusixquareRoom {
       const allowed =
         isRecord(payload) &&
         payload.allowed === true &&
-        (attachment.roomGeneration === LEGACY_PRO_ROOM_GENERATION
-          ? payload.roomCode === undefined || payload.roomCode === attachment.roomId
-          : payload.roomCode === attachment.roomId) &&
+        payload.roomCode === attachment.roomId &&
         responseRoomGenerationMatches(payload, attachment.roomGeneration) &&
         payload.permission === permission &&
         typeof payload.memberId === 'string' &&
@@ -1860,23 +1830,34 @@ export class MusixquareRoom {
   }
 
   async loadProChatControlState(roomId, coordinatorEpoch) {
+    const roomGeneration = this.proRoomMeta?.roomGeneration;
+    if (!isProRoomGeneration(roomGeneration)) throw new Error('INVALID_PRO_ROOM_META');
     const cached = this.proChatControlState;
     if (cached !== undefined) {
-      if (cached?.roomId === roomId && cached.coordinatorEpoch === coordinatorEpoch) return cached;
-      const initial = defaultProChatControlState(roomId, coordinatorEpoch);
+      if (
+        cached?.roomId === roomId &&
+        cached.roomGeneration === roomGeneration &&
+        cached.coordinatorEpoch === coordinatorEpoch
+      )
+        return cached;
+      const initial = defaultProChatControlState(roomId, roomGeneration, coordinatorEpoch);
       this.proChatControlState = initial;
       return initial;
     }
     const stored = await this.state.storage.get(PRO_CHAT_CONTROL_STATE_KEY);
     if (stored === undefined || stored === null) {
-      const initial = defaultProChatControlState(roomId, coordinatorEpoch);
+      const initial = defaultProChatControlState(roomId, roomGeneration, coordinatorEpoch);
       this.proChatControlState = initial;
       return initial;
     }
     const normalized = normalizeProChatControlState(stored);
     if (!normalized) throw new Error('INVALID_PRO_CHAT_CONTROL_STATE');
-    if (normalized.roomId !== roomId || normalized.coordinatorEpoch !== coordinatorEpoch) {
-      const initial = defaultProChatControlState(roomId, coordinatorEpoch);
+    if (
+      normalized.roomId !== roomId ||
+      normalized.roomGeneration !== roomGeneration ||
+      normalized.coordinatorEpoch !== coordinatorEpoch
+    ) {
+      const initial = defaultProChatControlState(roomId, roomGeneration, coordinatorEpoch);
       this.proChatControlState = initial;
       return initial;
     }
@@ -1893,23 +1874,34 @@ export class MusixquareRoom {
   }
 
   async loadProBotRequestProofs(roomId, coordinatorEpoch) {
+    const roomGeneration = this.proRoomMeta?.roomGeneration;
+    if (!isProRoomGeneration(roomGeneration)) throw new Error('INVALID_PRO_ROOM_META');
     const cached = this.proBotRequestProofs;
     if (cached !== undefined) {
-      if (cached?.roomId === roomId && cached.coordinatorEpoch === coordinatorEpoch) return cached;
-      const initial = defaultProBotRequestProofs(roomId, coordinatorEpoch);
+      if (
+        cached?.roomId === roomId &&
+        cached.roomGeneration === roomGeneration &&
+        cached.coordinatorEpoch === coordinatorEpoch
+      )
+        return cached;
+      const initial = defaultProBotRequestProofs(roomId, roomGeneration, coordinatorEpoch);
       this.proBotRequestProofs = initial;
       return initial;
     }
     const stored = await this.state.storage.get(PRO_BOT_REQUEST_PROOFS_KEY);
     if (stored === undefined || stored === null) {
-      const initial = defaultProBotRequestProofs(roomId, coordinatorEpoch);
+      const initial = defaultProBotRequestProofs(roomId, roomGeneration, coordinatorEpoch);
       this.proBotRequestProofs = initial;
       return initial;
     }
     const normalized = normalizeProBotRequestProofs(stored);
     if (!normalized) throw new Error('INVALID_PRO_BOT_REQUEST_PROOFS');
-    if (normalized.roomId !== roomId || normalized.coordinatorEpoch !== coordinatorEpoch) {
-      const initial = defaultProBotRequestProofs(roomId, coordinatorEpoch);
+    if (
+      normalized.roomId !== roomId ||
+      normalized.roomGeneration !== roomGeneration ||
+      normalized.coordinatorEpoch !== coordinatorEpoch
+    ) {
+      const initial = defaultProBotRequestProofs(roomId, roomGeneration, coordinatorEpoch);
       this.proBotRequestProofs = initial;
       return initial;
     }
@@ -2039,23 +2031,6 @@ export class MusixquareRoom {
           .filter((entry) => activeIncarnations.has(entry.presenceIncarnationId))
           .map((entry) => entry.participantId),
       );
-      // Include current socket attachments as a rolling-deploy fallback for a
-      // hibernated namespace whose high-water ledger has not yet been seeded.
-      for (const [participantId, socket] of this.proMembers) {
-        const attachment = readAttachment(socket);
-        if (
-          attachment?.roomKind === 'pro' &&
-          attachment.auth === 'ok' &&
-          attachment.roomId === roomId &&
-          attachment.roomGeneration === roomGeneration &&
-          attachment.coordinatorEpoch === coordinatorEpoch &&
-          attachment.participantId === participantId &&
-          activeIncarnations.has(attachment.presenceIncarnationId)
-        ) {
-          activeParticipantIds.add(participantId);
-        }
-      }
-
       const mutedParticipantIds = state.mutedParticipantIds.filter((participantId) =>
         activeParticipantIds.has(participantId),
       );
@@ -2158,7 +2133,7 @@ export class MusixquareRoom {
     });
   }
 
-  async loadProTicketUses(roomGeneration, nowSeconds = Math.floor(Date.now() / 1000)) {
+  async loadProTicketUses(roomGeneration) {
     if (!isProRoomGeneration(roomGeneration)) {
       throw new Error('INVALID_PRO_ROOM_GENERATION');
     }
@@ -2179,37 +2154,13 @@ export class MusixquareRoom {
       return normalized;
     }
 
-    // Rolling-deploy safety: attachments created by the previous Worker already
-    // carry their JTI, while no persistent one-use ledger exists yet. Seed those
-    // live tickets for one maximum ticket lifetime so a replay cannot replace a
-    // hibernated participant immediately after deployment.
     const seeded = defaultProTicketUses(roomGeneration);
-    for (const socket of typeof this.state.getWebSockets === 'function'
-      ? this.state.getWebSockets()
-      : []) {
-      const attachment = readAttachment(socket);
-      if (attachment?.roomKind !== 'pro' || seeded.entries.length >= MAX_PRO_TICKET_USES) continue;
-      if (attachment.roomGeneration !== roomGeneration) {
-        throw new Error('PRO_SIGNALING_ATTACHMENT_GENERATION_MISMATCH');
-      }
-      if (seeded.entries.some((entry) => entry.jti === attachment.ticketJti)) continue;
-      seeded.entries.push({
-        jti: attachment.ticketJti,
-        exp: nowSeconds + PRO_SIGNALING_TICKET_MAX_SECONDS,
-      });
-    }
-    if (seeded.entries.length > 0) {
-      await this.state.storage.put(
-        PRO_TICKET_USES_KEY,
-        persistedProGenerationRecord(seeded, roomGeneration),
-      );
-    }
     this.proTicketUses = seeded;
     return seeded;
   }
 
   async consumeProTicket(ticket, nowSeconds = Math.floor(Date.now() / 1000)) {
-    const current = await this.loadProTicketUses(ticket.roomGeneration, nowSeconds);
+    const current = await this.loadProTicketUses(ticket.roomGeneration);
     const entries = current.entries.filter((entry) => entry.exp > nowSeconds);
     if (entries.some((entry) => entry.jti === ticket.jti)) return false;
     if (entries.length >= MAX_PRO_TICKET_USES) {
@@ -3227,8 +3178,16 @@ export class MusixquareRoom {
         await this.state.storage.delete(PRO_BOT_REQUEST_PROOFS_KEY);
       }
       this.proRoomMeta = nextMeta;
-      this.proChatControlState = defaultProChatControlState(roomCode, coordinatorEpoch);
-      this.proBotRequestProofs = defaultProBotRequestProofs(roomCode, coordinatorEpoch);
+      this.proChatControlState = defaultProChatControlState(
+        roomCode,
+        roomGeneration,
+        coordinatorEpoch,
+      );
+      this.proBotRequestProofs = defaultProBotRequestProofs(
+        roomCode,
+        roomGeneration,
+        coordinatorEpoch,
+      );
       return nextMeta;
     });
   }
@@ -4204,11 +4163,9 @@ export class MusixquareRoom {
     const storedBindings = await this.loadGuestBindings();
     let bindings = this.pruneGuestBindings(storedBindings);
     const existingBinding = bindings.entries.find((entry) => entry.peerId === attachment.peerId);
-    const reconnectSecret = isValidGuestReconnectSecret(message.reconnectSecret)
-      ? message.reconnectSecret
-      : '';
+    const reconnectSecret = message.reconnectSecret;
     if (existingBinding) {
-      const presentedHash = reconnectSecret ? await hashGuestReconnectSecret(reconnectSecret) : '';
+      const presentedHash = await hashGuestReconnectSecret(reconnectSecret);
       if (!constantTimeStringEqual(presentedHash, existingBinding.secretHash)) {
         this.pendingGuests.delete(ws);
         this.scheduleMaintenanceAlarm();
@@ -4222,17 +4179,7 @@ export class MusixquareRoom {
           entry.peerId === attachment.peerId ? { ...entry, updatedAt: Date.now() } : entry,
         ),
       });
-    } else if (this.guests.has(attachment.peerId)) {
-      // A rolling-deploy legacy guest has no persisted binding. Do not let a
-      // candidate retroactively claim and evict that live ID. Unlike a real
-      // secret mismatch, this is transient: the established client should retry
-      // after the legacy signaling socket has gone away.
-      this.pendingGuests.delete(ws);
-      this.scheduleMaintenanceAlarm();
-      this.recordMetric('guest_reconnect_conflict');
-      closeWithError(ws, 'guest-reconnect-conflict', 'GUEST_RECONNECT_CONFLICT', 1013);
-      return;
-    } else if (reconnectSecret) {
+    } else {
       if (bindings.entries.length >= MAX_GUEST_BINDINGS) {
         this.pendingGuests.delete(ws);
         this.scheduleMaintenanceAlarm();
@@ -4248,8 +4195,6 @@ export class MusixquareRoom {
           { peerId: attachment.peerId, secretHash, updatedAt: Date.now() },
         ],
       });
-    } else if (bindings.entries.length !== storedBindings.entries.length) {
-      await this.saveGuestBindings(bindings);
     }
 
     const identity = await this.resolveStandardRoomIdentity(
@@ -4626,7 +4571,7 @@ async function readAdminDecommissionEvidence(env, roomCode, roomGeneration, regi
 function normalizeDeveloperTombstone(row, roomCode, roomGeneration, generationAware) {
   const observedGeneration = generationAware
     ? Number(row?.room_generation)
-    : LEGACY_PRO_ROOM_GENERATION;
+    : INITIAL_PRO_ROOM_GENERATION;
   if (
     !isRecord(row) ||
     row.room_code !== roomCode ||
@@ -4649,75 +4594,50 @@ function normalizeDeveloperTombstone(row, roomCode, roomGeneration, generationAw
 async function readDeveloperDecommissionEvidence(env, roomCode, roomGeneration) {
   try {
     const db = env?.DEVELOPER_API_DB;
-    const [generationTombstoneRow, legacyTombstoneRow, keyRow, auditRow, adminAuditRow] =
-      await Promise.all([
-        d1First(
-          db,
-          `SELECT room_code, room_generation, request_id, decommissioned_at
+    const [generationTombstoneRow, keyRow, auditRow, adminAuditRow] = await Promise.all([
+      d1First(
+        db,
+        `SELECT room_code, room_generation, request_id, decommissioned_at
            FROM mxqr_developer_api_room_generation_tombstones
            WHERE room_code = ?1 AND room_generation = ?2
            LIMIT 1`,
-          [roomCode, roomGeneration],
-        ),
-        roomGeneration === LEGACY_PRO_ROOM_GENERATION
-          ? d1First(
-              db,
-              `SELECT room_code, request_id, decommissioned_at
-               FROM mxqr_developer_api_room_tombstones
-               WHERE room_code = ?1
-               LIMIT 1`,
-              [roomCode],
-            )
-          : Promise.resolve(null),
-        d1First(
-          db,
-          `SELECT COUNT(*) AS count
+        [roomCode, roomGeneration],
+      ),
+      d1First(
+        db,
+        `SELECT COUNT(*) AS count
            FROM mxqr_developer_api_keys
            WHERE room_code = ?1 AND room_generation = ?2`,
-          [roomCode, roomGeneration],
-        ),
-        d1First(
-          db,
-          `SELECT COUNT(*) AS count
+        [roomCode, roomGeneration],
+      ),
+      d1First(
+        db,
+        `SELECT COUNT(*) AS count
            FROM mxqr_developer_api_audit
            WHERE room_code = ?1 AND room_generation = ?2`,
-          [roomCode, roomGeneration],
-        ),
-        d1First(
-          db,
-          `SELECT COUNT(*) AS count
+        [roomCode, roomGeneration],
+      ),
+      d1First(
+        db,
+        `SELECT COUNT(*) AS count
            FROM mxqr_developer_api_admin_audit
            WHERE room_code = ?1 AND room_generation = ?2`,
-          [roomCode, roomGeneration],
-        ),
-      ]);
+        [roomCode, roomGeneration],
+      ),
+    ]);
     const tombstone = normalizeDeveloperTombstone(
       generationTombstoneRow,
       roomCode,
       roomGeneration,
       true,
     );
-    const legacyTombstone =
-      roomGeneration === LEGACY_PRO_ROOM_GENERATION
-        ? normalizeDeveloperTombstone(
-            legacyTombstoneRow,
-            roomCode,
-            LEGACY_PRO_ROOM_GENERATION,
-            false,
-          )
-        : null;
     const keyCount = d1Count(keyRow);
     const auditCount = d1Count(auditRow);
     const adminAuditCount = d1Count(adminAuditRow);
     return {
       readable:
-        tombstone !== null &&
-        (roomGeneration !== LEGACY_PRO_ROOM_GENERATION || legacyTombstone !== null) &&
-        keyCount !== null &&
-        auditCount !== null &&
-        adminAuditCount !== null,
+        tombstone !== null && keyCount !== null && auditCount !== null && adminAuditCount !== null,
       tombstone,
-      legacyTombstone,
       keyCount,
       auditCount,
       adminAuditCount,
@@ -4726,7 +4646,6 @@ async function readDeveloperDecommissionEvidence(env, roomCode, roomGeneration) 
     return {
       readable: false,
       tombstone: null,
-      legacyTombstone: null,
       keyCount: null,
       auditCount: null,
       adminAuditCount: null,
@@ -4837,13 +4756,7 @@ async function handleDecommissionEvidence(env, roomCode) {
     }
   };
   const registryPointer = await readAdminRegistryPointer(env, roomCode);
-  const forcedLegacyGeneration = Object.prototype.hasOwnProperty.call(
-    DECOMMISSION_EVIDENCE_LEGACY_REQUEST_IDS,
-    roomCode,
-  );
-  const targetGeneration = forcedLegacyGeneration
-    ? LEGACY_PRO_ROOM_GENERATION
-    : registryPointer?.roomGeneration;
+  const targetGeneration = registryPointer?.roomGeneration;
   const identity = exactDecommissionIdentity(roomCode, targetGeneration);
   const registryIdentityMatches =
     identity !== null &&
@@ -4865,7 +4778,6 @@ async function handleDecommissionEvidence(env, roomCode) {
   let developerDatabase = {
     readable: false,
     tombstone: null,
-    legacyTombstone: null,
     keyCount: null,
     auditCount: null,
     adminAuditCount: null,
@@ -4918,27 +4830,14 @@ async function handleDecommissionEvidence(env, roomCode) {
       ]);
   }
 
-  const fixedRequestId = DECOMMISSION_EVIDENCE_LEGACY_REQUEST_IDS[roomCode];
   const historyRequestId = adminDatabase?.history?.requestId;
   const developerRequestId = developerDatabase?.tombstone?.requestId;
   const expectedRequestId =
-    typeof fixedRequestId === 'string'
-      ? fixedRequestId
-      : ADMIN_REQUEST_ID_RE.test(historyRequestId || '')
-        ? historyRequestId
-        : ADMIN_REQUEST_ID_RE.test(developerRequestId || '')
-          ? developerRequestId
-          : null;
-  const generationZeroHistoryRequestCompatible =
-    identity?.roomGeneration === LEGACY_PRO_ROOM_GENERATION && historyRequestId === null;
+    ADMIN_REQUEST_ID_RE.test(historyRequestId || '') && historyRequestId === developerRequestId
+      ? historyRequestId
+      : null;
   const historyRequestMatches =
-    expectedRequestId !== null &&
-    (historyRequestId === expectedRequestId || generationZeroHistoryRequestCompatible);
-  const generationZeroDeveloperCompatibility =
-    identity?.roomGeneration !== LEGACY_PRO_ROOM_GENERATION ||
-    (developerDatabase?.legacyTombstone?.roomCode === identity?.roomCode &&
-      developerDatabase?.legacyTombstone?.roomGeneration === LEGACY_PRO_ROOM_GENERATION &&
-      developerDatabase?.legacyTombstone?.requestId === expectedRequestId);
+    expectedRequestId !== null && historyRequestId === expectedRequestId;
   const checks = {
     identity: registryIdentityMatches,
     observerVersion:
@@ -4990,7 +4889,6 @@ async function handleDecommissionEvidence(env, roomCode) {
       developerDatabase.tombstone?.roomGeneration === identity.roomGeneration &&
       developerDatabase.tombstone?.roomInstanceId === identity.roomInstanceId &&
       developerDatabase.tombstone?.requestId === expectedRequestId &&
-      generationZeroDeveloperCompatibility &&
       developerDatabase.keyCount === 0 &&
       developerDatabase.auditCount === 0 &&
       developerDatabase.adminAuditCount === 0,

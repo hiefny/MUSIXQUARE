@@ -60,7 +60,7 @@ class EvidenceStorage {
 }
 
 function generationFields(roomGeneration: number): Record<string, number> {
-  return roomGeneration === 0 ? {} : { roomGeneration };
+  return { roomGeneration };
 }
 
 function tombstone(
@@ -394,12 +394,12 @@ describe('generation-aware read-only PRO room decommission evidence', () => {
     expect(context.limiterStorage.mutationCalls).toEqual([]);
   });
 
-  it('keeps generation-zero evidence compatible with legacy tombstones and prefixes', async () => {
+  it('uses the canonical generation-aware evidence path for generation zero', async () => {
     const context = createEvidenceEnvironment({
       roomCode: LEGACY_ROOM_CODE,
       roomGeneration: 0,
       requestId: LEGACY_REQUEST_ID,
-      historyRequestId: null,
+      historyRequestId: LEGACY_REQUEST_ID,
     });
     const response = await signalingWorker.fetch(
       new Request(
@@ -418,11 +418,15 @@ describe('generation-aware read-only PRO room decommission evidence', () => {
     expect(payload.roomGeneration).toBe(0);
     expect(payload.expectedRequestId).toBe(LEGACY_REQUEST_ID);
     expect(payload.verified).toBe(true);
-    expect(context.proRooms.idFromName).toHaveBeenCalledWith(LEGACY_ROOM_CODE);
-    expect(context.signalingRooms.idFromName).toHaveBeenCalledWith(LEGACY_ROOM_CODE);
-    expect(context.limiters.idFromName).toHaveBeenCalledWith(`room:${LEGACY_ROOM_CODE}`);
+    expect(context.proRooms.idFromName).toHaveBeenCalledWith(`${LEGACY_ROOM_CODE}:generation:0`);
+    expect(context.signalingRooms.idFromName).toHaveBeenCalledWith(
+      `${LEGACY_ROOM_CODE}:generation:0`,
+    );
+    expect(context.limiters.idFromName).toHaveBeenCalledWith(
+      `room:${LEGACY_ROOM_CODE}:generation:0`,
+    );
     expect(context.bucket.list).toHaveBeenCalledWith({
-      prefix: `rooms/${LEGACY_ROOM_CODE}/`,
+      prefix: `pro-room-incarnations/${LEGACY_ROOM_CODE}/generation-0/`,
       limit: 1,
     });
   });
@@ -454,7 +458,7 @@ describe('generation-aware read-only PRO room decommission evidence', () => {
     expect(context.limiterStorage.mutationCalls).toEqual([]);
   });
 
-  it('never redirects fixed legacy evidence to a later registry generation', async () => {
+  it('follows the current registry generation and fails closed on stale evidence', async () => {
     const context = createEvidenceEnvironment({
       roomCode: LEGACY_ROOM_CODE,
       roomGeneration: 0,
@@ -475,10 +479,10 @@ describe('generation-aware read-only PRO room decommission evidence', () => {
       checks: Record<string, boolean>;
     };
 
-    expect(payload.roomGeneration).toBe(0);
+    expect(payload.roomGeneration).toBe(1);
     expect(payload.verified).toBe(false);
-    expect(payload.checks.identity).toBe(false);
-    expect(context.proRooms.idFromName).toHaveBeenCalledWith(LEGACY_ROOM_CODE);
+    expect(payload.checks.identity).toBe(true);
+    expect(context.proRooms.idFromName).toHaveBeenCalledWith(`${LEGACY_ROOM_CODE}:generation:1`);
   });
 
   it('requires an authorized delete audit before immutable completion', async () => {

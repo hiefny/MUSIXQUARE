@@ -43,10 +43,7 @@ import {
   settleStandardQueueMutationRequest,
   type StandardQueueMutationResultCode,
 } from '../network/queue-mutation-authority.ts';
-import {
-  handleProRoomTrackMetadata,
-  handleProRoomYouTube,
-} from '../pro-room/legacy-media-hooks.ts';
+import { handleProRoomTrackMetadata, handleProRoomYouTube } from '../pro-room/media-hooks.ts';
 import {
   getProPlaybackAuthorityKey,
   routeProPlaybackCommand,

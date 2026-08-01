@@ -16,10 +16,7 @@ import {
   setPendingPlayTime,
 } from '../_state.ts';
 import { broadcastFileDebounced } from '../../storage/transfer.ts';
-import {
-  registerProRoomLegacyMediaHooks,
-  type ProRoomLegacyMediaHooks,
-} from '../../pro-room/legacy-media-hooks.ts';
+import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import type {
   ConnectedPeer,
   DataConnection,
@@ -185,7 +182,7 @@ function makeFileTrack(file: File): PlaylistItem {
   };
 }
 
-function persistentProMediaHooks(queueItemId: QueueItemId): ProRoomLegacyMediaHooks {
+function persistentProMediaHooks(queueItemId: QueueItemId): ProRoomMediaHooks {
   return {
     addFiles: () => false,
     addYouTube: () => false,
@@ -240,7 +237,7 @@ function stageMainTransfer(item: PlaylistItem, file: Blob, sessionId: number): v
 }
 
 afterEach(() => {
-  registerProRoomLegacyMediaHooks(null);
+  registerProRoomMediaHooks(null);
   clearAllManagedTimers();
   vi.useRealTimers();
 });
@@ -983,7 +980,7 @@ describe('native decoder deadline policy', () => {
     setState('playlist.items', [item]);
     setCurrentIndex(0);
     setState('network.connectedPeers', [makeConnectedPeer('pro-member', false)]);
-    registerProRoomLegacyMediaHooks(persistentProMediaHooks(item.queueItemId));
+    registerProRoomMediaHooks(persistentProMediaHooks(item.queueItemId));
     mocks.decodeAudioData.mockResolvedValue({ duration: 120 });
 
     const { loadAndBroadcastFile } = await import('../decode.ts');

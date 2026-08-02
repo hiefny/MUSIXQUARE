@@ -647,6 +647,7 @@ const ja: Record<I18nKey, string> = {
   'pro.upload.batch_failed_message':
     'リクエストされた{{total}}曲のうち{{failed}}曲をアップロードできませんでした。',
   'pro.upload.cancel_file': '{{name}}のアップロードをキャンセル',
+  'pro.upload.confirming_file': '{{name}}のアップロードを確認中',
   'pro.downloading': 'ファイルを読み込み中...',
   'pro.quota_exceeded': 'このPROルームは1GBの保存上限に達しました。',
   'pro.file_too_large': 'このファイルは1ファイルあたり200MBの上限を超えています。',

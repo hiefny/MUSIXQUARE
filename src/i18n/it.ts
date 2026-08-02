@@ -728,6 +728,7 @@ const it: Record<I18nKey, string> = {
   'pro.upload.batch_failed_message':
     'Impossibile caricare {{failed}} delle {{total}} tracce richieste.',
   'pro.upload.cancel_file': 'Annulla il caricamento di {{name}}',
+  'pro.upload.confirming_file': 'Completamento del caricamento di {{name}}',
   'pro.downloading': 'Caricamento del file...',
   'pro.quota_exceeded': 'Questa stanza PRO ha raggiunto il limite di 1 GB.',
   'pro.file_too_large': 'Questo file supera il limite di 200 MB per file.',

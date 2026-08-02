@@ -613,6 +613,7 @@ const zhHans: Record<I18nKey, string> = {
   'pro.upload.batch_failed_title': '部分曲目无法上传',
   'pro.upload.batch_failed_message': '请求的 {{total}} 首曲目中有 {{failed}} 首无法上传。',
   'pro.upload.cancel_file': '取消上传 {{name}}',
+  'pro.upload.confirming_file': '正在确认上传 {{name}}',
   'pro.downloading': '正在加载文件...',
   'pro.quota_exceeded': '此 PRO 房间的 1 GB 存储空间已用完。',
   'pro.file_too_large': '此文件超过单个文件 200 MB 的上限。',

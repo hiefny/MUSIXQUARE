@@ -699,6 +699,7 @@ const th: Record<I18nKey, string> = {
   'pro.upload.batch_failed_title': 'อัปโหลดบางแทร็กไม่สำเร็จ',
   'pro.upload.batch_failed_message': 'อัปโหลดไม่สำเร็จ {{failed}} จาก {{total}} แทร็กที่ขอ',
   'pro.upload.cancel_file': 'ยกเลิกการอัปโหลด {{name}}',
+  'pro.upload.confirming_file': 'กำลังยืนยันการอัปโหลด {{name}}',
   'pro.downloading': 'กำลังโหลดไฟล์...',
   'pro.quota_exceeded': 'ห้อง PRO นี้ใช้พื้นที่จัดเก็บครบ 1 GB แล้ว',
   'pro.file_too_large': 'ไฟล์นี้เกินขีดจำกัด 200 MB ต่อไฟล์',

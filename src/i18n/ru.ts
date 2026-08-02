@@ -723,6 +723,7 @@ const ru: Record<I18nKey, string> = {
   'pro.upload.batch_failed_message':
     'Не удалось загрузить {{failed}} из {{total}} выбранных треков.',
   'pro.upload.cancel_file': 'Отменить загрузку {{name}}',
+  'pro.upload.confirming_file': 'Завершение загрузки {{name}}',
   'pro.downloading': 'Загрузка файла...',
   'pro.quota_exceeded': 'В PRO-комнате исчерпан лимит хранилища 1 ГБ.',
   'pro.file_too_large': 'Этот файл превышает лимит 200 МБ на файл.',

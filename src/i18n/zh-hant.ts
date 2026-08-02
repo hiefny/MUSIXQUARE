@@ -615,6 +615,7 @@ const zhHant: Record<I18nKey, string> = {
   'pro.upload.batch_failed_title': '部分曲目無法上傳',
   'pro.upload.batch_failed_message': '要求的 {{total}} 首曲目中有 {{failed}} 首無法上傳。',
   'pro.upload.cancel_file': '取消上傳 {{name}}',
+  'pro.upload.confirming_file': '正在確認上傳 {{name}}',
   'pro.downloading': '正在載入檔案...',
   'pro.quota_exceeded': '此 PRO 房間的 1 GB 儲存空間已用完。',
   'pro.file_too_large': '此檔案超過單一檔案 200 MB 的上限。',

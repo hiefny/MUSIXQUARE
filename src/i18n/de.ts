@@ -655,6 +655,7 @@ const de: Record<I18nKey, string> = {
   'pro.upload.batch_failed_message':
     '{{failed}} von {{total}} angeforderten Tracks konnten nicht hochgeladen werden.',
   'pro.upload.cancel_file': 'Upload von {{name}} abbrechen',
+  'pro.upload.confirming_file': 'Upload von {{name}} wird abgeschlossen',
   'pro.downloading': 'Datei wird geladen...',
   'pro.quota_exceeded': 'Der PRO-Raum hat sein Speicherlimit von 1 GB erreicht.',
   'pro.file_too_large': 'Diese Datei überschreitet das Limit von 200 MB pro Datei.',

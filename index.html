@@ -10,7 +10,7 @@
          code, then apply Android viewport, language, and theme preflight.
          Cloudflare Analytics is loaded by this bootstrap only after a safe
          scrub/handoff. Source: public/bootstrap.js -->
-    <script src="/bootstrap.js?cache=v354"></script>
+    <script src="/bootstrap.js?cache=v355"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -195,6 +195,9 @@
       </div>
 
       <div class="header-loading-text" id="header-loading-text">
+        <span class="material-elastic-spinner header-loading-spinner" aria-hidden="true">
+          <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"></circle></svg>
+        </span>
         <span class="header-loading-text-content">Loading...</span>
       </div>
 
@@ -255,6 +258,9 @@
             aria-hidden="true"
             hidden
           >
+            <span class="material-elastic-spinner youtube-sync-loading-spinner" aria-hidden="true">
+              <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"></circle></svg>
+            </span>
             <span data-i18n="toast.yt_sync_start">Syncing...</span>
           </div>
           <button
@@ -323,6 +329,9 @@
                 <svg id="icon-pause" viewBox="0 0 24 24" aria-hidden="true" display="none">
                   <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
                 </svg>
+                <span class="material-elastic-spinner play-loading-spinner" aria-hidden="true">
+                  <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"></circle></svg>
+                </span>
               </button>
               <button
                 class="ctrl-btn"
@@ -2708,11 +2717,7 @@
           <p class="account-dialog-message" id="account-dialog-message"></p>
           <strong class="account-dialog-nickname" id="account-dialog-nickname" hidden></strong>
         </div>
-        <div
-          class="account-dialog-login-actions"
-          id="account-dialog-login-actions"
-          hidden
-        >
+        <div class="account-dialog-login-actions" id="account-dialog-login-actions" hidden>
           <a class="account-google-button" id="btn-account-google" href="#" hidden>
             <span class="account-google-mark" aria-hidden="true">
               <!-- Standard-color Google G. Keep its colors and proportions unchanged. -->
@@ -2975,6 +2980,9 @@
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path data-demo-play-icon d="M8 5v14l11-7z" />
               </svg>
+              <span class="material-elastic-spinner demo-loading-spinner" aria-hidden="true">
+                <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"></circle></svg>
+              </span>
             </button>
             <div class="demo-track-copy">
               <div class="demo-track-title">Linelight OST - Adventure</div>
@@ -3289,6 +3297,12 @@
                   d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"
                 />
               </svg>
+              <span
+                class="material-elastic-spinner system-audio-loading-spinner"
+                aria-hidden="true"
+              >
+                <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"></circle></svg>
+              </span>
             </div>
             <span class="media-source-label-row">
               <span class="media-source-label-text" data-i18n="system_audio.button"></span>

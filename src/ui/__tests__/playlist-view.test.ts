@@ -182,7 +182,25 @@ describe('PRO upload rows', () => {
     expect(entries[0]?.querySelector('.pro-upload-name')?.textContent).toBe('one.flac');
     expect(entries[0]?.querySelector('.track-idx')?.textContent).toBe('1');
     expect(entries[1]?.querySelector('.track-idx')?.textContent).toBe('2');
-    expect(entries[0]?.querySelector('.type-icon')).not.toBeNull();
+    expect(entries[0]?.classList).toContain('is-uploading');
+    expect(entries[1]?.classList).toContain('is-waiting');
+    for (const entry of entries) {
+      const track = entry.querySelector<HTMLElement>('.pro-upload-track');
+      const spinner = entry.querySelector<HTMLElement>(
+        '.material-elastic-spinner.pro-upload-spinner',
+      );
+      expect(track).not.toBeNull();
+      expect(spinner).not.toBeNull();
+      expect(track?.firstElementChild).toBe(spinner);
+      expect(spinner?.getAttribute('aria-hidden')).toBe('true');
+      expect(spinner?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 44 44');
+      expect(spinner?.querySelector('circle')?.getAttribute('cx')).toBe('22');
+      expect(spinner?.querySelector('circle')?.getAttribute('cy')).toBe('22');
+      expect(spinner?.querySelector('circle')?.getAttribute('r')).toBe('18');
+      expect(entry.querySelector('.type-icon')).toBeNull();
+      const row = entry.querySelector('.pro-upload-row');
+      expect(row?.lastElementChild).toBe(entry.querySelector('[data-pro-upload-action="cancel"]'));
+    }
     expect(entries[0]?.querySelector('.pro-upload-leading')).toBeNull();
     expect(entries[0]?.querySelector('.pro-upload-status')).toBeNull();
     expect(entries[0]?.querySelector('.pro-upload-progress')).toBeNull();
@@ -192,6 +210,8 @@ describe('PRO upload rows', () => {
     );
     expect(cancel?.classList).toContain('btn-playlist-remove');
     expect(cancel?.textContent).toBe('');
+    expect(cancel?.disabled).toBe(false);
+    expect(cancel?.hasAttribute('aria-disabled')).toBe(false);
     expect(cancel?.getAttribute('aria-label')).toBe(
       t('pro.upload.cancel_file', { name: 'one.flac' }),
     );
@@ -213,15 +233,37 @@ describe('PRO upload rows', () => {
       `[data-pro-upload-id="${FILE_A}"].is-confirming`,
     );
     expect(confirming).not.toBeNull();
-    expect(confirming?.querySelector('[data-pro-upload-action="cancel"]')).toBeNull();
+    expect(
+      confirming?.querySelector('.material-elastic-spinner.pro-upload-spinner'),
+    ).not.toBeNull();
+    const confirmingCancel = confirming?.querySelector<HTMLButtonElement>(
+      '[data-pro-upload-action="cancel"]',
+    );
+    expect(confirmingCancel).not.toBeNull();
+    expect(confirmingCancel?.disabled).toBe(true);
+    expect(confirmingCancel?.tabIndex).toBe(-1);
+    expect(confirmingCancel?.getAttribute('aria-disabled')).toBe('true');
+    expect(confirmingCancel?.getAttribute('aria-label')).toBe(
+      t('pro.upload.confirming_file', { name: 'one.flac' }),
+    );
+    expect(confirmingCancel?.title).toBe(t('pro.upload.confirming_file', { name: 'one.flac' }));
     const confirmingRow = confirming?.querySelector<HTMLElement>('.track-item');
     expect(confirmingRow).not.toBeNull();
+    expect(confirmingRow?.lastElementChild).toBe(confirmingCancel);
     expect(confirmingRow?.tabIndex).toBe(-1);
     expect(document.activeElement).toBe(confirmingRow);
+    const cancelSpy = vi.spyOn(proRoomUploadQueue, 'cancel');
+    confirmingCancel?.click();
+    expect(cancelSpy).not.toHaveBeenCalled();
 
     const stylesheet = await readFile('css/style.css', 'utf8');
     expect(stylesheet).not.toContain('.pro-upload-progress');
     expect(stylesheet).not.toContain('.pro-upload-status');
+    expect(stylesheet).toContain('.pro-upload-entry .track-idx');
+    expect(stylesheet).toContain('.pro-upload-name');
+    expect(stylesheet).toContain('opacity: 0.58');
+    expect(stylesheet).toContain('.pro-upload-cancel:disabled');
+    expect(stylesheet).toContain('opacity: 0.32');
   });
 
   it('hides failed uploads and restores the empty state for batch-level failure handling', async () => {
@@ -428,23 +470,59 @@ describe('playlist queue identity rendering and actions', () => {
     expect(replaceChildren).not.toHaveBeenCalled();
   });
 
-  it('keeps playback spinners centered with a faint full track and matching rotation', async () => {
-    const stylesheet = await readFile('css/style.css', 'utf8');
-    const loadingRules =
-      stylesheet.match(/\.track-playback-loading-indicator\s*\{([^}]*)\}/)?.[1] ?? '';
-    const mainLoadingRules =
-      stylesheet.match(/\.play-fab\.yt-syncing::after\s*\{([^}]*)\}/)?.[1] ?? '';
-    const demoLoadingRules =
-      stylesheet.match(/\.demo-play-button\.is-loading::after\s*\{([^}]*)\}/)?.[1] ?? '';
+  it('uses the shared Material Elastic SVG contract for playlist playback loading', () => {
+    setState('playlist.items', sampleItems());
+    setState('playlist.currentQueueItemId', FILE_A);
+    setState('playback.mode', 'file');
+    initPlaylistView();
 
-    for (const rules of [loadingRules, mainLoadingRules, demoLoadingRules]) {
-      expect(rules).toContain('border-color: color-mix(in srgb, currentColor 20%, transparent);');
-      expect(rules).toContain('border-top-color: currentColor;');
-    }
-    expect(loadingRules).toContain('animation: track-playback-spin 0.8s linear infinite;');
-    expect(stylesheet).toMatch(
-      /@keyframes\s+track-playback-spin\s*\{\s*from\s*\{\s*transform:\s*rotate\(0deg\);\s*\}\s*to\s*\{\s*transform:\s*rotate\(360deg\);\s*\}\s*\}/s,
+    const spinner = document.querySelector<HTMLElement>(
+      '.track-playback-loading-indicator.material-elastic-spinner',
     );
+    expect(spinner).not.toBeNull();
+    expect(spinner?.getAttribute('aria-hidden')).toBe('true');
+    expect(spinner?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 44 44');
+    expect(spinner?.querySelector('circle')?.getAttribute('cx')).toBe('22');
+    expect(spinner?.querySelector('circle')?.getAttribute('cy')).toBe('22');
+    expect(spinner?.querySelector('circle')?.getAttribute('r')).toBe('18');
+  });
+
+  it('uses Material Elastic for every indeterminate app spinner while retaining determinate bars', async () => {
+    const [stylesheet, markup] = await Promise.all([
+      readFile('css/style.css', 'utf8'),
+      readFile('index.html', 'utf8'),
+    ]);
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+
+    for (const selector of [
+      '#header-loading-text .header-loading-spinner.material-elastic-spinner',
+      '#play-btn .play-loading-spinner.material-elastic-spinner',
+      '#youtube-sync-loading-overlay .youtube-sync-loading-spinner.material-elastic-spinner',
+      '.demo-play-button .demo-loading-spinner.material-elastic-spinner',
+      '#btn-system-audio .system-audio-loading-spinner.material-elastic-spinner',
+    ]) {
+      const spinner = parsed.querySelector(selector);
+      expect(spinner, selector).not.toBeNull();
+      expect(spinner?.getAttribute('aria-hidden')).toBe('true');
+      expect(spinner?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 44 44');
+      expect(spinner?.querySelector('circle')?.getAttribute('r')).toBe('18');
+    }
+
+    expect(stylesheet).toContain('animation: material-elastic-spin 1.85s linear infinite');
+    expect(stylesheet).toContain('animation: material-elastic-dash 1.45s ease-in-out infinite');
+    expect(stylesheet).toContain('@keyframes material-elastic-spin');
+    expect(stylesheet).toContain('@keyframes material-elastic-dash');
+    expect(stylesheet).toMatch(
+      /\.header-loading-spinner,\s*\.header-loading-spinner circle\s*\{[^}]*animation-play-state:\s*paused;/,
+    );
+    expect(stylesheet).toMatch(
+      /header\.loading \.header-loading-spinner,\s*header\.loading \.header-loading-spinner circle\s*\{[^}]*animation-play-state:\s*running;/,
+    );
+    expect(stylesheet).not.toContain('@keyframes yt-spin');
+    expect(stylesheet).not.toContain('@keyframes track-playback-spin');
+    expect(stylesheet).not.toContain('@keyframes pro-system-audio-spin');
+    expect(parsed.querySelector('#header-progress-bg')).not.toBeNull();
+    expect(parsed.querySelector('#seek-slider')).not.toBeNull();
   });
 
   it('patches the current ordinal from YouTube play-state events without rebuilding rows', () => {

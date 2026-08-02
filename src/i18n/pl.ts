@@ -723,6 +723,7 @@ const pl: Record<I18nKey, string> = {
   'pro.upload.batch_failed_message':
     'Nie udało się przesłać {{failed}} z {{total}} wybranych utworów.',
   'pro.upload.cancel_file': 'Anuluj przesyłanie {{name}}',
+  'pro.upload.confirming_file': 'Kończenie przesyłania {{name}}',
   'pro.downloading': 'Ładowanie pliku...',
   'pro.quota_exceeded': 'Ten pokój PRO wykorzystał limit 1 GB.',
   'pro.file_too_large': 'Ten plik przekracza limit 200 MB na plik.',

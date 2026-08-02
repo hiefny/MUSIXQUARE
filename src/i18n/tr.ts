@@ -717,6 +717,7 @@ const tr: Record<I18nKey, string> = {
   'pro.upload.batch_failed_title': 'Bazı parçalar yüklenemedi',
   'pro.upload.batch_failed_message': 'İstenen {{total}} parçanın {{failed}} tanesi yüklenemedi.',
   'pro.upload.cancel_file': '{{name}} yüklemesini iptal et',
+  'pro.upload.confirming_file': '{{name}} yüklemesi tamamlanıyor',
   'pro.downloading': 'Dosya yükleniyor...',
   'pro.quota_exceeded': 'Bu PRO odasının 1 GB depolama sınırı doldu.',
   'pro.file_too_large': 'Bu dosya, dosya başına 200 MB sınırını aşıyor.',

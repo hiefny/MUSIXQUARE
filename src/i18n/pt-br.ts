@@ -658,6 +658,7 @@ const ptBr: Record<I18nKey, string> = {
   'pro.upload.batch_failed_message':
     'Não foi possível enviar {{failed}} das {{total}} faixas solicitadas.',
   'pro.upload.cancel_file': 'Cancelar o upload de {{name}}',
+  'pro.upload.confirming_file': 'Finalizando o upload de {{name}}',
   'pro.downloading': 'Carregando arquivo...',
   'pro.quota_exceeded': 'Esta sala PRO atingiu o limite de 1 GB.',
   'pro.file_too_large': 'Este arquivo excede o limite de 200 MB por arquivo.',

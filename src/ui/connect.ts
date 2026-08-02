@@ -130,7 +130,7 @@ async function generateQR(containerId: string): Promise<void> {
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'btn-copy-invite-link';
-    copyBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${INVITE_LINK_ICON_PATH}"/></svg><span data-i18n="connect.copy_invite_link">${t('connect.copy_invite_link')}</span>`;
+    copyBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${INVITE_LINK_ICON_PATH}"/></svg><span class="material-elastic-spinner signaling-recovery-spinner" aria-hidden="true"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"></circle></svg></span><span data-i18n="connect.copy_invite_link">${t('connect.copy_invite_link')}</span>`;
     copyBtn.addEventListener('click', async () => {
       if (_manualSignalingRecovery) return;
       if (getState('network.signalingHealth').status === 'exhausted') {
@@ -265,7 +265,7 @@ function syncSignalingInviteButtons(): void {
     button.setAttribute('aria-busy', mode === 'recovering' ? 'true' : 'false');
     button.setAttribute('aria-label', label);
 
-    const text = button.querySelector<HTMLElement>('span');
+    const text = button.querySelector<HTMLElement>('span[data-i18n]');
     if (text) {
       text.setAttribute('data-i18n', labelKey);
       text.textContent = label;

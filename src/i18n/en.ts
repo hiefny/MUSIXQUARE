@@ -708,6 +708,7 @@ const en: Record<I18nKey, string> = {
   'pro.upload.batch_failed_message':
     "We couldn't upload {{failed}} of the {{total}} tracks you requested.",
   'pro.upload.cancel_file': 'Cancel upload of {{name}}',
+  'pro.upload.confirming_file': 'Finishing upload of {{name}}',
   'pro.downloading': 'Loading file...',
   'pro.quota_exceeded': 'This PRO room has reached its 1 GB storage limit.',
   'pro.file_too_large': 'This file is larger than the 200 MB per-file limit.',

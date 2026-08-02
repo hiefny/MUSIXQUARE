@@ -721,6 +721,7 @@ const nl: Record<I18nKey, string> = {
   'pro.upload.batch_failed_message':
     '{{failed}} van de {{total}} aangevraagde tracks konden niet worden geüpload.',
   'pro.upload.cancel_file': 'Upload van {{name}} annuleren',
+  'pro.upload.confirming_file': 'Upload van {{name}} afronden',
   'pro.downloading': 'Bestand laden...',
   'pro.quota_exceeded': 'Deze PRO-ruimte heeft de opslaglimiet van 1 GB bereikt.',
   'pro.file_too_large': 'Dit bestand overschrijdt de limiet van 200 MB per bestand.',

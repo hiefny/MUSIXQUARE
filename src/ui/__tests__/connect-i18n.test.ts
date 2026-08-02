@@ -175,6 +175,19 @@ async function startHostSessionWithQR(): Promise<HTMLButtonElement> {
 }
 
 describe('connect signaling health status', () => {
+  it('keeps a shared Material Elastic spinner in generated recovery buttons', async () => {
+    const button = await startHostSessionWithQR();
+    const spinner = button.querySelector<HTMLElement>(
+      '.signaling-recovery-spinner.material-elastic-spinner',
+    );
+
+    expect(spinner).not.toBeNull();
+    expect(spinner?.getAttribute('aria-hidden')).toBe('true');
+    expect(spinner?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 44 44');
+    expect(spinner?.querySelector('circle')?.getAttribute('r')).toBe('18');
+    expect(button.querySelector('span[data-i18n]')?.textContent).toBe('초대 링크 복사하기');
+  });
+
   it('shows a compact healthy status only while a room is active', () => {
     initConnect();
     const initialStatuses = document.querySelectorAll<HTMLElement>('.signaling-health-status');
@@ -285,11 +298,14 @@ describe('connect signaling health status', () => {
         /\.btn-copy-invite-link\[data-mode='recover'\],\s*\.btn-copy-invite-link\[data-mode='recovering'\]\s*\{([^}]*)\}/,
       )?.[1] ?? '';
     const recoveringIconRules =
-      stylesheet.match(/\.btn-copy-invite-link\[data-mode='recovering'\] svg\s*\{([^}]*)\}/)?.[1] ??
-      '';
-    const recoveringSpinnerRules =
       stylesheet.match(
-        /\.btn-copy-invite-link\[data-mode='recovering'\]::before\s*\{([^}]*)\}/,
+        /\.btn-copy-invite-link\[data-mode='recovering'\] > svg\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
+    const recoveringSpinnerRules =
+      stylesheet.match(/\.signaling-recovery-spinner\s*\{([^}]*)\}/)?.[1] ?? '';
+    const activeRecoveringSpinnerRules =
+      stylesheet.match(
+        /\.btn-copy-invite-link\[data-mode='recovering'\] \.signaling-recovery-spinner\s*\{([^}]*)\}/,
       )?.[1] ?? '';
 
     expect(qrContainerRules).toContain('gap: 12px');
@@ -320,14 +336,11 @@ describe('connect signaling health status', () => {
     );
     expect(recoveringIconRules).toContain('display: none');
     expect(recoveringIconRules).not.toContain('animation:');
-    expect(recoveringSpinnerRules).toContain("content: ''");
-    expect(recoveringSpinnerRules).toContain('width: 20px');
-    expect(recoveringSpinnerRules).toContain('height: 20px');
-    expect(recoveringSpinnerRules).toContain('border: 2px solid rgba(245, 158, 11, 0.2)');
-    expect(recoveringSpinnerRules).toContain('border-top-color: currentColor');
-    expect(recoveringSpinnerRules).toContain(
-      'animation: signaling-recovery-rotate 0.8s linear infinite',
-    );
+    expect(recoveringSpinnerRules).toContain('--material-elastic-size: 20px');
+    expect(recoveringSpinnerRules).toContain('display: none');
+    expect(activeRecoveringSpinnerRules).toContain('display: block');
+    expect(stylesheet).not.toContain(".btn-copy-invite-link[data-mode='recovering']::before");
+    expect(stylesheet).toContain('@keyframes material-elastic-dash');
     expect(markup).toContain('id="signaling-recovery-overlay"');
     expect(markup).toContain('aria-labelledby="signaling-recovery-title"');
     expect(markup).not.toContain('signaling-recovery-visual');

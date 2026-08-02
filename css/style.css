@@ -623,6 +623,69 @@
     opacity: 0.15;
   }
 
+  /* Shared indeterminate loader: Material Elastic (spinner lab preset 14).
+     Determinate progress surfaces keep their monotonic width/value behavior. */
+  .material-elastic-spinner {
+    --material-elastic-size: 24px;
+    --material-elastic-stroke: 4.5;
+    display: block;
+    width: var(--material-elastic-size);
+    height: var(--material-elastic-size);
+    flex: 0 0 var(--material-elastic-size);
+    color: currentColor;
+    animation: material-elastic-spin 1.85s linear infinite;
+  }
+
+  .material-elastic-spinner > svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  .material-elastic-spinner circle {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: var(--material-elastic-stroke);
+    stroke-linecap: round;
+    animation: material-elastic-dash 1.45s ease-in-out infinite;
+  }
+
+  @keyframes material-elastic-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes material-elastic-dash {
+    0% {
+      stroke-dasharray: 1 113;
+      stroke-dashoffset: 0;
+    }
+
+    48% {
+      stroke-dasharray: 82 113;
+      stroke-dashoffset: -24;
+    }
+
+    100% {
+      stroke-dasharray: 82 113;
+      stroke-dashoffset: -112;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .material-elastic-spinner,
+    .material-elastic-spinner circle {
+      animation: none !important;
+    }
+
+    .material-elastic-spinner circle {
+      stroke-dasharray: 46 113;
+      stroke-dashoffset: -18;
+    }
+  }
+
   .header-content-wrapper {
     position: relative;
     /* Keep content above the sibling progress surface. */
@@ -896,6 +959,18 @@
     pointer-events: none;
   }
 
+  .header-loading-spinner {
+    --material-elastic-size: 18px;
+    --material-elastic-stroke: 4;
+    margin-right: 8px;
+    color: var(--primary);
+  }
+
+  .header-loading-spinner,
+  .header-loading-spinner circle {
+    animation-play-state: paused;
+  }
+
   /* Apply ellipsis to a real flex child. Direct text becomes an anonymous
      flex item in Chromium, where text-overflow does not paint the ellipsis. */
   .header-loading-text-content {
@@ -917,6 +992,11 @@
   header.loading .header-loading-text {
     transform: translateY(0);
     opacity: 1;
+  }
+
+  header.loading .header-loading-spinner,
+  header.loading .header-loading-spinner circle {
+    animation-play-state: running;
   }
 
   /* Keep loader status visually stable on phones. Long translated messages
@@ -1443,6 +1523,8 @@
     z-index: 20;
     display: grid;
     place-items: center;
+    align-content: center;
+    gap: 12px;
     padding: 24px;
     box-sizing: border-box;
     background: rgba(0, 0, 0, 0.62);
@@ -1456,11 +1538,15 @@
     display: none;
   }
 
-  .youtube-sync-loading-overlay span {
+  .youtube-sync-loading-overlay > span:not(.material-elastic-spinner) {
     font-size: 15px;
     font-weight: 700;
     line-height: 1.5;
     text-align: center;
+  }
+
+  .youtube-sync-loading-spinner {
+    --material-elastic-size: 28px;
   }
 
   /* Mobile portrait: let the 16:9 YouTube frame span the viewport width.
@@ -1806,7 +1892,7 @@
     cursor: not-allowed;
   }
 
-  .play-fab svg {
+  .play-fab > svg {
     width: 28px;
     height: 28px;
     fill: currentColor;
@@ -1817,26 +1903,17 @@
     pointer-events: none;
   }
 
-  .play-fab.yt-syncing svg {
+  .play-fab.yt-syncing > svg {
     display: none;
   }
 
-  .play-fab.yt-syncing::after {
-    content: '';
-    display: block;
-    width: 24px;
-    height: 24px;
-    border: 3px solid transparent;
-    border-color: color-mix(in srgb, currentColor 20%, transparent);
-    border-top-color: currentColor;
-    border-radius: 50%;
-    animation: yt-spin 0.8s linear infinite;
+  .play-loading-spinner {
+    --material-elastic-size: 24px;
+    display: none;
   }
 
-  @keyframes yt-spin {
-    to {
-      transform: rotate(360deg);
-    }
+  .play-fab.yt-syncing .play-loading-spinner {
+    display: block;
   }
 
   .playlist-title-area {
@@ -1959,22 +2036,8 @@
   }
 
   .track-playback-loading-indicator {
-    box-sizing: border-box;
-    border: 2px solid transparent;
-    border-color: color-mix(in srgb, currentColor 20%, transparent);
-    border-top-color: currentColor;
-    border-radius: 50%;
-    animation: track-playback-spin 0.8s linear infinite;
-  }
-
-  @keyframes track-playback-spin {
-    from {
-      transform: rotate(0deg);
-    }
-
-    to {
-      transform: rotate(360deg);
-    }
+    --material-elastic-size: 16px;
+    --material-elastic-stroke: 4;
   }
 
   .playlist-current-leading:is(.is-current-loading, .is-current-playing, .is-current-paused)
@@ -2158,6 +2221,32 @@
 
   .pro-upload-track {
     cursor: default;
+  }
+
+  .pro-upload-entry .track-idx,
+  .pro-upload-name {
+    opacity: 0.58;
+  }
+
+  .pro-upload-name {
+    transition: opacity 0.18s ease;
+  }
+
+  .pro-upload-spinner {
+    --material-elastic-size: 18px;
+    --material-elastic-stroke: 4;
+    color: var(--primary);
+  }
+
+  .pro-upload-cancel:not(:disabled) {
+    color: var(--text-main);
+    background: color-mix(in srgb, var(--surface-3) 72%, transparent);
+  }
+
+  .pro-upload-cancel:disabled {
+    cursor: wait;
+    opacity: 0.32;
+    color: var(--text-muted);
   }
 
   .type-icon {
@@ -3642,7 +3731,7 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  .btn-copy-invite-link svg {
+  .btn-copy-invite-link > svg {
     width: 20px;
     height: 20px;
     fill: currentColor;
@@ -3679,21 +3768,18 @@
     cursor: wait;
   }
 
-  .btn-copy-invite-link[data-mode='recovering'] svg {
+  .btn-copy-invite-link[data-mode='recovering'] > svg {
     display: none;
   }
 
-  .btn-copy-invite-link[data-mode='recovering']::before {
-    content: '';
+  .signaling-recovery-spinner {
+    --material-elastic-size: 20px;
+    --material-elastic-stroke: 4;
+    display: none;
+  }
+
+  .btn-copy-invite-link[data-mode='recovering'] .signaling-recovery-spinner {
     display: block;
-    box-sizing: border-box;
-    width: 20px;
-    height: 20px;
-    flex: 0 0 20px;
-    border: 2px solid rgba(245, 158, 11, 0.2);
-    border-top-color: currentColor;
-    border-radius: 50%;
-    animation: signaling-recovery-rotate 0.8s linear infinite;
   }
 
   .btn-copy-invite-link:disabled {
@@ -3760,15 +3846,8 @@
     }
   }
 
-  @keyframes signaling-recovery-rotate {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
-    .signaling-health-status[data-status='reconnecting'] .signaling-health-indicator,
-    .btn-copy-invite-link[data-mode='recovering']::before {
+    .signaling-health-status[data-status='reconnecting'] .signaling-health-indicator {
       animation: none;
     }
   }
@@ -7552,7 +7631,7 @@
     transform: scale(0.92);
   }
 
-  .demo-play-button svg {
+  .demo-play-button > svg {
     width: 24px;
     height: 24px;
     fill: currentColor;
@@ -7562,20 +7641,18 @@
     pointer-events: none;
   }
 
-  .demo-play-button.is-loading svg {
+  .demo-play-button.is-loading > svg {
     display: none;
   }
 
-  .demo-play-button.is-loading::after {
-    content: '';
+  .demo-loading-spinner {
+    --material-elastic-size: 20px;
+    --material-elastic-stroke: 4;
+    display: none;
+  }
+
+  .demo-play-button.is-loading .demo-loading-spinner {
     display: block;
-    width: 20px;
-    height: 20px;
-    border: 2px solid transparent;
-    border-color: color-mix(in srgb, currentColor 20%, transparent);
-    border-top-color: currentColor;
-    border-radius: 50%;
-    animation: yt-spin 0.8s linear infinite;
   }
 
   .demo-control-stage {
@@ -8294,7 +8371,7 @@
     transform: none;
   }
 
-  #btn-system-audio[aria-busy='true'] .btn-icon-bg svg {
+  #btn-system-audio[aria-busy='true'] .btn-icon-bg > svg {
     visibility: hidden;
   }
 
@@ -8302,27 +8379,15 @@
     position: relative;
   }
 
-  #btn-system-audio[aria-busy='true'] .btn-icon-bg::after {
-    content: '';
+  .system-audio-loading-spinner {
+    --material-elastic-size: 16px;
+    --material-elastic-stroke: 4;
+    display: none;
+  }
+
+  #btn-system-audio[aria-busy='true'] .system-audio-loading-spinner {
+    display: block;
     position: absolute;
-    width: 16px;
-    height: 16px;
-    border: 2px solid currentColor;
-    border-right-color: transparent;
-    border-radius: 50%;
-    animation: pro-system-audio-spin 0.8s linear infinite;
-  }
-
-  @keyframes pro-system-audio-spin {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    #btn-system-audio[aria-busy='true'] .btn-icon-bg::after {
-      animation-duration: 1.8s;
-    }
   }
 
   .file-select-btn span {
@@ -8419,7 +8484,7 @@
     color: #ff0033;
   }
 
-  .btn-icon-bg svg {
+  .btn-icon-bg > svg {
     width: 24px;
     height: 24px;
     fill: currentColor;

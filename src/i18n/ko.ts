@@ -702,6 +702,7 @@ const ko = {
   'pro.upload.batch_failed_message':
     '요청하신 {{total}}개 트랙 중 {{failed}}개를 업로드하지 못했어요.',
   'pro.upload.cancel_file': '{{name}} 업로드 취소',
+  'pro.upload.confirming_file': '{{name}} 업로드 확정 중',
   'pro.downloading': '파일 불러오는 중...',
   'pro.quota_exceeded': 'PRO 방의 1GB 저장 공간을 모두 사용했어요.',
   'pro.file_too_large': '이 파일은 파일당 200MB 제한을 넘어요.',

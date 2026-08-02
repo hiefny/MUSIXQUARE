@@ -659,6 +659,7 @@ const es: Record<I18nKey, string> = {
   'pro.upload.batch_failed_message':
     'No se pudieron subir {{failed}} de las {{total}} pistas solicitadas.',
   'pro.upload.cancel_file': 'Cancelar la carga de {{name}}',
+  'pro.upload.confirming_file': 'Finalizando la carga de {{name}}',
   'pro.downloading': 'Cargando archivo...',
   'pro.quota_exceeded': 'Esta sala PRO alcanzó su límite de 1 GB.',
   'pro.file_too_large': 'Este archivo supera el límite de 200 MB por archivo.',

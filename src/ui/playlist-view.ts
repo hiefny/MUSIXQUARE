@@ -242,7 +242,9 @@ function renderPlaybackIndicatorIcons(): string {
     <svg class="track-playback-state-icon track-paused-indicator" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
     </svg>
-    <span class="track-playback-state-icon track-playback-loading-indicator" aria-hidden="true"></span>`;
+    <span class="track-playback-state-icon track-playback-loading-indicator material-elastic-spinner" aria-hidden="true">
+      <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"></circle></svg>
+    </span>`;
 }
 
 function syncPlaylistPlaybackIndicator(
@@ -559,7 +561,7 @@ function restorePlaylistFocus(list: HTMLElement, snapshot: PlaylistFocusSnapshot
         candidate instanceof HTMLElement && candidate.dataset.queueItemId === snapshot.uploadId,
     );
     const target =
-      entry?.querySelector<HTMLElement>('[data-pro-upload-action="cancel"]') ??
+      entry?.querySelector<HTMLElement>('[data-pro-upload-action="cancel"]:not(:disabled)') ??
       entry?.querySelector<HTMLElement>('.pro-upload-row') ??
       committedEntry?.querySelector<HTMLElement>('.track-name') ??
       document.getElementById('tab-playlist');
@@ -591,16 +593,32 @@ function restorePlaylistFocus(list: HTMLElement, snapshot: PlaylistFocusSnapshot
 
 function createProRoomUploadCancel(row: ProRoomUploadRow): HTMLButtonElement {
   const button = document.createElement('button');
+  const isConfirming = row.phase === 'confirming';
   button.type = 'button';
   button.className = 'btn-playlist-remove pro-upload-cancel';
   button.dataset.proUploadAction = 'cancel';
   button.dataset.proUploadId = row.id;
-  const label = t('pro.upload.cancel_file', { name: row.name });
+  button.disabled = isConfirming;
+  if (isConfirming) {
+    button.tabIndex = -1;
+    button.setAttribute('aria-disabled', 'true');
+  }
+  const label = t(isConfirming ? 'pro.upload.confirming_file' : 'pro.upload.cancel_file', {
+    name: row.name,
+  });
   button.setAttribute('aria-label', label);
   button.title = label;
   button.innerHTML =
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"/></svg>';
   return button;
+}
+
+function createProRoomUploadSpinner(): HTMLSpanElement {
+  const spinner = document.createElement('span');
+  spinner.className = 'material-elastic-spinner pro-upload-spinner';
+  spinner.setAttribute('aria-hidden', 'true');
+  spinner.innerHTML = '<svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"></circle></svg>';
+  return spinner;
 }
 
 function appendProRoomUploadRow(
@@ -628,20 +646,15 @@ function appendProRoomUploadRow(
 
   const track = document.createElement('span');
   track.className = 'track-name pro-upload-track';
-  track.innerHTML = renderFileTrackIcon();
   const name = document.createElement('span');
   name.className = 'track-name-text pro-upload-name';
   name.textContent = upload.name;
   applyUserTextFontFallback(name, upload.name);
-  track.appendChild(name);
+  track.append(createProRoomUploadSpinner(), name);
 
-  let cancel: HTMLButtonElement | null = null;
-  if (upload.phase === 'waiting' || upload.phase === 'uploading') {
-    cancel = createProRoomUploadCancel(upload);
-  }
+  const cancel = createProRoomUploadCancel(upload);
 
-  row.append(leading, track);
-  if (cancel) row.appendChild(cancel);
+  row.append(leading, track, cancel);
   entry.appendChild(row);
   list.appendChild(entry);
 }
@@ -820,6 +833,7 @@ function installDomDelegation(list: HTMLElement): void {
       if (uploadAction) {
         event.preventDefault();
         event.stopPropagation();
+        if (uploadAction instanceof HTMLButtonElement && uploadAction.disabled) return;
         const id = uploadAction.dataset.proUploadId;
         if (!id) return;
         switch (uploadAction.dataset.proUploadAction) {

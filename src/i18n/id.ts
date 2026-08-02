@@ -650,6 +650,7 @@ const id: Record<I18nKey, string> = {
   'pro.upload.batch_failed_message':
     '{{failed}} dari {{total}} trek yang diminta tidak dapat diunggah.',
   'pro.upload.cancel_file': 'Batalkan upload {{name}}',
+  'pro.upload.confirming_file': 'Menyelesaikan upload {{name}}',
   'pro.downloading': 'Memuat file...',
   'pro.quota_exceeded': 'Ruang PRO ini telah mencapai batas penyimpanan 1 GB.',
   'pro.file_too_large': 'File ini melebihi batas 200 MB per file.',

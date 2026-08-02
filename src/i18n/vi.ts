@@ -643,6 +643,7 @@ const vi: Record<I18nKey, string> = {
   'pro.upload.batch_failed_message':
     'Không thể tải lên {{failed}} trong số {{total}} bản nhạc đã yêu cầu.',
   'pro.upload.cancel_file': 'Hủy tải lên {{name}}',
+  'pro.upload.confirming_file': 'Đang hoàn tất tải lên {{name}}',
   'pro.downloading': 'Đang tải tệp...',
   'pro.quota_exceeded': 'Phòng PRO này đã dùng hết giới hạn lưu trữ 1 GB.',
   'pro.file_too_large': 'Tệp này vượt quá giới hạn 200 MB cho mỗi tệp.',

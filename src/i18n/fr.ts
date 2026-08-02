@@ -662,6 +662,7 @@ const fr: Record<I18nKey, string> = {
   'pro.upload.batch_failed_message':
     '{{failed}} des {{total}} pistes demandées n’ont pas pu être envoyées.',
   'pro.upload.cancel_file': 'Annuler l’envoi de {{name}}',
+  'pro.upload.confirming_file': 'Finalisation de l’envoi de {{name}}',
   'pro.downloading': 'Chargement du fichier...',
   'pro.quota_exceeded': 'Cette salle PRO a atteint sa limite de stockage de 1 Go.',
   'pro.file_too_large': 'Ce fichier dépasse la limite de 200 Mo par fichier.',

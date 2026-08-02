@@ -99,17 +99,29 @@ describe('PRO room setup flow', () => {
     expect(resumeSignal.current?.aborted).toBe(true);
   });
 
-  it('falls back to an eight-digit PIN only when the cookie session is missing', async () => {
+  it('routes active 000001 to the PIN prompt and normalizes grouped input', async () => {
     mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
     mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
-    mocks.showDialog.mockResolvedValue({ action: 'ok', inputValue: '1234-5678' });
+    mocks.showDialog.mockResolvedValue({ action: 'ok', inputValue: '2002-0924' });
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
 
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'pro.pin_title',
+        message: 'pro.pin_message',
+        inputField: expect.objectContaining({ autocomplete: 'current-password' }),
+      }),
+    );
+    expect(mocks.showDialog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'pro.activation_title' }),
+    );
+    expect(mocks.activate).not.toHaveBeenCalled();
     expect(mocks.join).toHaveBeenCalledWith(
       {
         code: ROOM_CODE,
-        pin: '12345678',
+        pin: '20020924',
       },
       expect.any(AbortSignal),
     );
@@ -320,6 +332,28 @@ describe('PRO room setup flow', () => {
       },
       expect.any(AbortSignal),
     );
+  });
+
+  it('keeps unclaimed 000000 at activation guidance without opening a PIN prompt', async () => {
+    const unclaimedRoomCode = '000000';
+    mocks.bootstrap.mockResolvedValue({
+      roomCode: unclaimedRoomCode,
+      status: 'activation_required',
+    });
+    mocks.showDialog.mockResolvedValue({ action: 'ok' });
+
+    await expect(enterProRoomFromSetup(unclaimedRoomCode)).resolves.toBe(false);
+
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenCalledWith({
+      title: 'pro.not_ready_title',
+      message: 'pro.not_ready_message',
+      buttonText: 'common.ok',
+    });
+    expect(mocks.showDialog.mock.calls[0]?.[0]).not.toHaveProperty('inputField');
+    expect(mocks.activate).not.toHaveBeenCalled();
+    expect(mocks.resume).not.toHaveBeenCalled();
+    expect(mocks.join).not.toHaveBeenCalled();
   });
 
   it('recovers an active owner before cookie resume or the normal PIN flow', async () => {
@@ -539,18 +573,9 @@ describe('PRO room setup flow', () => {
     expect(JSON.stringify(localStorage)).not.toContain(CLAIM);
   });
 
-  it('does not expose an unclaimed room or connect a suspended room', async () => {
-    mocks.bootstrap.mockResolvedValueOnce({
-      roomCode: ROOM_CODE,
-      status: 'activation_required',
-    });
-    mocks.showDialog.mockResolvedValueOnce({ action: 'ok' });
-
-    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
-    expect(mocks.activate).not.toHaveBeenCalled();
-
-    mocks.bootstrap.mockResolvedValueOnce({ roomCode: ROOM_CODE, status: 'suspended' });
-    mocks.showDialog.mockResolvedValueOnce({ action: 'ok' });
+  it('does not connect a suspended room', async () => {
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'suspended' });
+    mocks.showDialog.mockResolvedValue({ action: 'ok' });
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
     expect(mocks.resume).not.toHaveBeenCalled();

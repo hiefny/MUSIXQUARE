@@ -8,12 +8,16 @@ import {
 } from '../../../scripts/live-pro-room-smoke.mjs';
 
 describe('live PRO room smoke readiness', () => {
-  it('checks a real public bootstrap and keeps anonymous snapshots fail-closed', async () => {
+  it('requires the activation and PIN canaries to expose their exact public states', async () => {
     const read = vi
       .fn()
       .mockResolvedValueOnce({
         status: 200,
-        payload: { roomCode: '000000', status: 'pin_required' },
+        payload: { roomCode: '000000', status: 'activation_required' },
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        payload: { roomCode: '000001', status: 'pin_required' },
       })
       .mockResolvedValueOnce({
         status: 401,
@@ -22,11 +26,55 @@ describe('live PRO room smoke readiness', () => {
 
     await expect(verifyProRoomPublicBoundary({ read })).resolves.toEqual({
       roomCode: '000000',
-      roomStatus: 'pin_required',
+      roomStatus: 'activation_required',
+      pinRoomCode: '000001',
+      pinRoomStatus: 'pin_required',
       anonymousSnapshotRejected: true,
     });
-    expect(read).toHaveBeenNthCalledWith(1, '/bootstrap');
-    expect(read).toHaveBeenNthCalledWith(2, '/snapshot');
+    expect(read).toHaveBeenNthCalledWith(1, '/000000/bootstrap');
+    expect(read).toHaveBeenNthCalledWith(2, '/000001/bootstrap');
+    expect(read).toHaveBeenNthCalledWith(3, '/000000/snapshot');
+  });
+
+  it.each([
+    ['000000', 'pin_required', 'activation_required'],
+    ['000001', 'activation_required', 'pin_required'],
+  ])(
+    'fails when room %s reports %s instead of %s',
+    async (roomCode, actualStatus, expectedStatus) => {
+      const read = vi.fn();
+      if (roomCode === '000001') {
+        read.mockResolvedValueOnce({
+          status: 200,
+          payload: { roomCode: '000000', status: 'activation_required' },
+        });
+      }
+      read.mockResolvedValueOnce({
+        status: 200,
+        payload: { roomCode, status: actualStatus },
+      });
+
+      await expect(verifyProRoomPublicBoundary({ read })).rejects.toThrow(
+        `PRO room ${roomCode} bootstrap must return ${expectedStatus}`,
+      );
+    },
+  );
+
+  it('fails when either bootstrap response belongs to a different room', async () => {
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        payload: { roomCode: '000000', status: 'activation_required' },
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        payload: { roomCode: '000002', status: 'pin_required' },
+      });
+
+    await expect(verifyProRoomPublicBoundary({ read })).rejects.toThrow(
+      'PRO room 000001 bootstrap must return pin_required',
+    );
   });
 
   it('fails when a public PRO boundary becomes permissive or malformed', async () => {
@@ -35,6 +83,10 @@ describe('live PRO room smoke readiness', () => {
       .mockResolvedValueOnce({
         status: 200,
         payload: { roomCode: '000000', status: 'activation_required' },
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        payload: { roomCode: '000001', status: 'pin_required' },
       })
       .mockResolvedValueOnce({
         status: 200,

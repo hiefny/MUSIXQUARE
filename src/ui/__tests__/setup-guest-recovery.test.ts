@@ -4,13 +4,33 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   actions: [] as Array<Record<string, unknown>>,
+  busEmit: vi.fn(),
+  enterProRoomFromSetup: vi.fn(),
+  isProRoomCode: vi.fn(() => false),
   joinSession: vi.fn(),
   pendingAutoCode: null as string | null,
   pendingRole: 0 as number | null,
+  scheduleSessionReset: vi.fn(),
   setupRenderActions: vi.fn((buttons: Array<Record<string, unknown>>) => {
     mocks.actions = buttons;
   }),
-  setupSetGuestJoinError: vi.fn(),
+  setupSetGuestJoinError: vi.fn((message: string | null, inviteLink = false) => {
+    const renderError = (id: string, value: string | null): void => {
+      const error = document.getElementById(id);
+      if (!error) return;
+      const normalized = typeof value === 'string' ? value.trim() : '';
+      error.textContent = normalized;
+      error.hidden = normalized.length === 0;
+    };
+
+    renderError('setup-guest-error', inviteLink ? null : message);
+    renderError('setup-auto-join-error', inviteLink ? message : null);
+
+    const input = document.getElementById('setup-join-code');
+    if (!input) return;
+    if (message && !inviteLink) input.setAttribute('aria-invalid', 'true');
+    else input.removeAttribute('aria-invalid');
+  }),
   showToast: vi.fn(),
   state: new Map<string, unknown>(),
 }));
@@ -33,7 +53,7 @@ vi.mock('../dom.ts', () => ({
 }));
 
 vi.mock('../../core/session-reset.ts', () => ({
-  scheduleSessionReset: vi.fn(),
+  scheduleSessionReset: mocks.scheduleSessionReset,
 }));
 
 vi.mock('../dialog.ts', () => ({
@@ -49,16 +69,16 @@ vi.mock('../setup-start.ts', () => ({
 }));
 
 vi.mock('../../pro-room/room-code.ts', () => ({
-  isProRoomCode: vi.fn(() => false),
+  isProRoomCode: mocks.isProRoomCode,
 }));
 
 vi.mock('../../pro-room/setup-flow.ts', () => ({
-  enterProRoomFromSetup: vi.fn(),
+  enterProRoomFromSetup: mocks.enterProRoomFromSetup,
 }));
 
 vi.mock('../setup-shared.ts', () => ({
   t: (key: string) => key,
-  bus: { emit: vi.fn() },
+  bus: { emit: mocks.busEmit },
   showToast: mocks.showToast,
   updateRoleBadge: vi.fn(),
   updateInviteCodeUI: vi.fn(),
@@ -88,17 +108,24 @@ import {
   handleSetupJoinWithRole,
   restoreGuestJoinControlsAfterFailure,
   setGuestGoBack,
+  startGuestFlow,
 } from '../setup-guest.ts';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.busEmit.mockReset();
+  mocks.enterProRoomFromSetup.mockReset();
+  mocks.isProRoomCode.mockReset();
+  mocks.isProRoomCode.mockReturnValue(false);
   mocks.actions = [];
   mocks.pendingAutoCode = null;
   mocks.pendingRole = 0;
   mocks.state.clear();
   mocks.state.set('network.appRole', 'guest');
   document.body.innerHTML = `
-    <input id="setup-join-code" value="123456">
+    <input id="setup-join-code" value="123456" aria-describedby="setup-guest-error">
+    <p id="setup-guest-error" role="alert" hidden></p>
+    <p id="setup-auto-join-error" role="alert" hidden></p>
     <div id="ob-slider-area"></div>
   `;
 });
@@ -148,5 +175,59 @@ describe('guest setup recovery', () => {
     expect(mocks.showToast).not.toHaveBeenCalled();
     expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith('setup.six_digit_enter');
     expect(document.activeElement).toBe(input);
+  });
+
+  it('keeps a failed PRO invite join on its auto-join error and retries the same code', async () => {
+    const goBack = vi.fn();
+    const failure = new Error('PRO room unavailable');
+    setGuestGoBack(goBack);
+    mocks.pendingAutoCode = '000001';
+    mocks.isProRoomCode.mockReturnValue(true);
+    mocks.enterProRoomFromSetup.mockRejectedValue(failure);
+    mocks.busEmit.mockImplementation((event: string, payload?: unknown) => {
+      if (event !== 'setup:guest-join-failure') return;
+      restoreGuestJoinControlsAfterFailure(
+        (payload as { userMessage?: string } | undefined)?.userMessage ?? null,
+      );
+    });
+
+    startGuestFlow();
+    const start = mocks.actions[1]?.onClick as (() => Promise<void>) | undefined;
+    await start?.();
+
+    expect(mocks.enterProRoomFromSetup).toHaveBeenNthCalledWith(1, '000001');
+    expect(mocks.busEmit).toHaveBeenCalledWith('setup:guest-join-failure', {
+      error: failure,
+      userMessage: 'pro.connect_failed',
+    });
+    expect(mocks.setupSetGuestJoinError).toHaveBeenLastCalledWith('pro.connect_failed', true);
+
+    const guestError = document.getElementById('setup-guest-error') as HTMLElement;
+    const autoJoinError = document.getElementById('setup-auto-join-error') as HTMLElement;
+    expect(guestError.textContent).toBe('');
+    expect(guestError.hidden).toBe(true);
+    expect(autoJoinError.textContent).toBe('pro.connect_failed');
+    expect(autoJoinError.hidden).toBe(false);
+
+    expect(mocks.actions[0]).toMatchObject({
+      id: 'btn-setup-back',
+      ariaLabel: 'dialog.go_back',
+    });
+    expect(mocks.actions[1]).toMatchObject({
+      id: 'btn-setup-confirm',
+      text: 'common.retry',
+    });
+
+    const retry = mocks.actions[1]?.onClick as (() => Promise<void>) | undefined;
+    const back = mocks.actions[0]?.onClick as (() => void) | undefined;
+    await retry?.();
+    expect(mocks.enterProRoomFromSetup).toHaveBeenNthCalledWith(2, '000001');
+
+    back?.();
+    expect(mocks.scheduleSessionReset).toHaveBeenCalledWith(
+      'dialog.leaving_session',
+      expect.any(Function),
+    );
+    expect(goBack).not.toHaveBeenCalled();
   });
 });

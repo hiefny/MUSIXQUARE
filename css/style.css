@@ -9403,6 +9403,7 @@
     #setup-overlay #setup-welcome-area,
     #setup-overlay #setup-code-area,
     #setup-overlay #setup-join-area,
+    #setup-overlay #setup-auto-join-area,
     #setup-overlay #setup-role-area {
       flex: 1 !important;
       flex-direction: column !important;

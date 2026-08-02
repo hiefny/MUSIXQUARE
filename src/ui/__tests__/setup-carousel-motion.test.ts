@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 
+import { readFile } from 'node:fs/promises';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -111,5 +112,36 @@ describe('setup recovery accessibility', () => {
     setupSetGuestJoinError(null);
     expect(input?.hasAttribute('aria-invalid')).toBe(false);
     expect(error?.hidden).toBe(true);
+  });
+
+  it('keeps invite-link failures in the dedicated alert without invalidating the code field', () => {
+    document.body.innerHTML = `
+      <input id="setup-join-code" aria-describedby="setup-guest-error">
+      <p id="setup-guest-error" role="alert" hidden></p>
+      <p id="setup-auto-join-error" role="alert" hidden></p>
+    `;
+
+    setupSetGuestJoinError('Could not reach the PRO room.', true);
+
+    const input = document.getElementById('setup-join-code');
+    const codeError = document.getElementById('setup-guest-error');
+    const inviteError = document.getElementById('setup-auto-join-error');
+    expect(input?.hasAttribute('aria-invalid')).toBe(false);
+    expect(codeError?.hidden).toBe(true);
+    expect(inviteError?.hidden).toBe(false);
+    expect(inviteError?.textContent).toBe('Could not reach the PRO room.');
+    expect(inviteError?.getAttribute('role')).toBe('alert');
+  });
+
+  it('centers the invite-link failure panel in the desktop setup layout', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const desktopSetupStart = stylesheet.indexOf('/* Content areas: center vertically */');
+    const desktopSetupEnd = stylesheet.indexOf('/* Content padding inside right panel */');
+    expect(desktopSetupStart).toBeGreaterThanOrEqual(0);
+    expect(desktopSetupEnd).toBeGreaterThan(desktopSetupStart);
+
+    const centeredAreaRules = stylesheet.slice(desktopSetupStart, desktopSetupEnd);
+    expect(centeredAreaRules).toContain('#setup-overlay #setup-auto-join-area');
+    expect(centeredAreaRules).toContain('justify-content: center !important');
   });
 });

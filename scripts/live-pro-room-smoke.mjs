@@ -3,9 +3,15 @@
 import { pathToFileURL } from 'node:url';
 
 const PRO_ROOM_HEALTH_URL = 'https://musixquare.com/api/pro-room/health';
-const PRO_ROOM_CANARY_CODE = '000000';
-const PRO_ROOM_CANARY_BASE_URL =
-  `https://musixquare.com/api/pro-room/v1/rooms/${PRO_ROOM_CANARY_CODE}`;
+const PRO_ROOM_BOUNDARY_BASE_URL = 'https://musixquare.com/api/pro-room/v1/rooms';
+const PRO_ROOM_ACTIVATION_CANARY = Object.freeze({
+  roomCode: '000000',
+  expectedStatus: 'activation_required',
+});
+const PRO_ROOM_PIN_CANARY = Object.freeze({
+  roomCode: '000001',
+  expectedStatus: 'pin_required',
+});
 // A newly promoted Worker can become visible through the App Worker service
 // binding later than Cloudflare's control plane reports the 100% deployment.
 // Keep the exact version check, but allow enough time for that private
@@ -49,7 +55,7 @@ async function readHealth() {
 }
 
 async function readJsonBoundary(path) {
-  const response = await fetchWithTimeout(`${PRO_ROOM_CANARY_BASE_URL}${path}`, {
+  const response = await fetchWithTimeout(`${PRO_ROOM_BOUNDARY_BASE_URL}${path}`, {
     cache: 'no-store',
     headers: { Accept: 'application/json' },
   });
@@ -63,19 +69,23 @@ async function readJsonBoundary(path) {
   return { status: response.status, payload };
 }
 
-export async function verifyProRoomPublicBoundary({
-  read = readJsonBoundary,
-} = {}) {
-  const bootstrap = await read('/bootstrap');
+async function verifyBootstrapCanary(read, canary) {
+  const bootstrap = await read(`/${canary.roomCode}/bootstrap`);
   if (
     bootstrap?.status !== 200 ||
-    bootstrap.payload?.roomCode !== PRO_ROOM_CANARY_CODE ||
-    !['activation_required', 'pin_required'].includes(bootstrap.payload?.status)
+    bootstrap.payload?.roomCode !== canary.roomCode ||
+    bootstrap.payload?.status !== canary.expectedStatus
   ) {
-    throw new Error('PRO room bootstrap boundary returned an invalid public projection');
+    throw new Error(`PRO room ${canary.roomCode} bootstrap must return ${canary.expectedStatus}`);
   }
+  return bootstrap;
+}
 
-  const anonymousSnapshot = await read('/snapshot');
+export async function verifyProRoomPublicBoundary({ read = readJsonBoundary } = {}) {
+  const activationBootstrap = await verifyBootstrapCanary(read, PRO_ROOM_ACTIVATION_CANARY);
+  const pinBootstrap = await verifyBootstrapCanary(read, PRO_ROOM_PIN_CANARY);
+
+  const anonymousSnapshot = await read(`/${PRO_ROOM_ACTIVATION_CANARY.roomCode}/snapshot`);
   if (
     anonymousSnapshot?.status !== 401 ||
     anonymousSnapshot.payload?.error !== 'SESSION_REQUIRED'
@@ -84,8 +94,10 @@ export async function verifyProRoomPublicBoundary({
   }
 
   return {
-    roomCode: PRO_ROOM_CANARY_CODE,
-    roomStatus: bootstrap.payload.status,
+    roomCode: PRO_ROOM_ACTIVATION_CANARY.roomCode,
+    roomStatus: activationBootstrap.payload.status,
+    pinRoomCode: PRO_ROOM_PIN_CANARY.roomCode,
+    pinRoomStatus: pinBootstrap.payload.status,
     anonymousSnapshotRejected: true,
   };
 }

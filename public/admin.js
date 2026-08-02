@@ -1,4 +1,4 @@
-const ADMIN_SCRIPT_VERSION = '8.2.0';
+const ADMIN_SCRIPT_VERSION = '8.3.0';
 window.__MXQR_ADMIN_SCRIPT_VERSION__ = ADMIN_SCRIPT_VERSION;
 
 const root = document.querySelector('.admin-shell');
@@ -76,12 +76,15 @@ const adminRequestControllers = new Set();
 const adminLatestLoads = new Map();
 const issuedActivationLinks = new Set();
 const issuedOwnerRecoveryLinks = new Set();
+const issuedOwnerTransferLinks = new Set();
 const expandedProRooms = new Set();
 const proRoomApiCache = new Map();
 const proRoomApiSecrets = new Map();
 const proRoomApiRequestGenerations = new Map();
 let proRoomDestroyDialogElements = null;
 let proRoomDestroyTarget = null;
+let proRoomTransferDialogElements = null;
+let proRoomTransferTarget = null;
 let visibleProRoomClaimIncarnation = null;
 const developerApiScopeLabels = Object.freeze({
   'room:read': 'Room',
@@ -311,6 +314,7 @@ function showLogin(message = '', { invalidateSession = true } = {}) {
   if (invalidateSession) invalidateAdminSession();
   closeServiceStatusDialog({ restoreFocus: false, force: true });
   closeProRoomDestroyDialog({ restoreFocus: false });
+  closeProRoomTransferDialog({ restoreFocus: false });
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();
   expandedProRooms.clear();
@@ -823,11 +827,29 @@ function adminErrorMessage(error, fallback) {
   if (message === 'PRO_ROOM_GENERATION_CUTOVER_NOT_READY') {
     return 'Room-number reuse is temporarily unavailable until the generation safety rollout is verified.';
   }
+  if (message === 'OWNER_TRANSFER_TARGET_UNAVAILABLE') {
+    return 'That account is missing, disabled, incomplete, or being deleted.';
+  }
+  if (message === 'PRO_ROOM_OWNER_TRANSFER_RECONCILIATION_REQUIRED') {
+    return 'A transfer is already pending. The recipient must retry the same link, or wait for it to expire before issuing another.';
+  }
+  if (message === 'PRO_ROOM_OWNER_TRANSFER_UNAVAILABLE') {
+    return 'Ownership transfer is unavailable in this room state.';
+  }
+  if (message === 'PRO_ROOM_OWNER_RECOVERY_UNAVAILABLE') {
+    return 'Recovery requires the same linked owner account. Use ownership transfer to assign a different or previously unlinked account.';
+  }
+  if (message === 'PRO_ROOM_OWNERSHIP_RECOVERY_REQUIRED') {
+    return 'This room requires ownership recovery and cannot be resumed manually.';
+  }
   if (message === 'DEVELOPER_API_ADMIN_NOT_CONFIGURED') {
     return 'Developer API key management is not configured.';
   }
   if (message === 'DEVELOPER_API_ACTIVE_KEY_LIMIT') {
     return 'This room already has three active API keys. Revoke one before issuing another.';
+  }
+  if (message === 'DEVELOPER_API_AUTHORITY_FENCED') {
+    return 'API key issuance is blocked while room ownership is being recovered.';
   }
   if (message === 'DEVELOPER_API_KEY_NOT_FOUND') return 'This API key is no longer active.';
   if (message === 'DEVELOPER_API_IDEMPOTENCY_CONFLICT') {
@@ -894,9 +916,13 @@ function setProRoomStatus(message, isError = false) {
   proRoomStatusEl.classList.toggle('is-error', isError);
 }
 
-function formatProRoomStatus(status) {
+function formatProRoomStatus(status, suspensionReason = null) {
   if (status === 'active') return 'Active';
-  if (status === 'suspended') return 'Suspended';
+  if (status === 'suspended') {
+    if (suspensionReason === 'owner_account_deleted') return 'Ownership transfer required';
+    if (suspensionReason === 'ownership_transfer_pending') return 'Transfer pending';
+    return 'Suspended';
+  }
   if (status === 'decommissioning') return 'Deleting';
   if (status === 'decommissioned') return 'Permanently deleted';
   if (status === 'provisioning') return 'Provisioning incomplete';
@@ -918,6 +944,7 @@ function clearProRoomClaimState() {
   dismissProRoomClaim();
   issuedActivationLinks.clear();
   issuedOwnerRecoveryLinks.clear();
+  issuedOwnerTransferLinks.clear();
 }
 
 function showProRoomClaim(payload, kind = 'activation', expectedRoomGeneration = null) {
@@ -926,7 +953,12 @@ function showProRoomClaim(payload, kind = 'activation', expectedRoomGeneration =
   const roomGeneration = normalizeProRoomGeneration(payload.roomGeneration);
   const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
   const isRecovery = kind === 'recovery';
-  const claimUrl = isRecovery ? payload.recoveryUrl : payload.activationUrl;
+  const isTransfer = kind === 'transfer';
+  const claimUrl = isTransfer
+    ? payload.transferUrl
+    : isRecovery
+      ? payload.recoveryUrl
+      : payload.activationUrl;
   if (
     !roomCode ||
     roomGeneration === null ||
@@ -935,13 +967,22 @@ function showProRoomClaim(payload, kind = 'activation', expectedRoomGeneration =
     typeof claimUrl !== 'string' ||
     !claimUrl
   ) {
-    throw new Error(isRecovery ? 'INVALID_OWNER_RECOVERY_LINK' : 'INVALID_ACTIVATION_LINK');
+    throw new Error(
+      isTransfer
+        ? 'INVALID_OWNER_TRANSFER_LINK'
+        : isRecovery
+          ? 'INVALID_OWNER_RECOVERY_LINK'
+          : 'INVALID_ACTIVATION_LINK',
+    );
   }
-  if (isRecovery) issuedOwnerRecoveryLinks.add(incarnationKey);
+  if (isTransfer) issuedOwnerTransferLinks.add(incarnationKey);
+  else if (isRecovery) issuedOwnerRecoveryLinks.add(incarnationKey);
   else issuedActivationLinks.add(incarnationKey);
   visibleProRoomClaimIncarnation = incarnationKey;
   if (proRoomClaimTitleEl) {
-    proRoomClaimTitleEl.textContent = `${roomCode} owner ${isRecovery ? 'recovery' : 'activation'} link`;
+    proRoomClaimTitleEl.textContent = `${roomCode} owner ${
+      isTransfer ? 'transfer' : isRecovery ? 'recovery' : 'activation'
+    } link`;
   }
   if (proRoomClaimExpiryEl) {
     const expiry = formatAdminDateTime(payload.expiresAt);
@@ -950,7 +991,11 @@ function showProRoomClaim(payload, kind = 'activation', expectedRoomGeneration =
   proRoomClaimUrlEl.value = claimUrl;
   proRoomClaimUrlEl.setAttribute(
     'aria-label',
-    isRecovery ? 'Owner recovery link' : 'Owner activation link',
+    isTransfer
+      ? 'Owner transfer link'
+      : isRecovery
+        ? 'Owner recovery link'
+        : 'Owner activation link',
   );
   proRoomClaimEl.hidden = false;
   proRoomClaimEl.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
@@ -1078,6 +1123,7 @@ function clearDestroyedProRoomState(roomCode, roomGeneration) {
   expandedProRooms.delete(roomCode);
   issuedActivationLinks.delete(incarnationKey);
   issuedOwnerRecoveryLinks.delete(incarnationKey);
+  issuedOwnerTransferLinks.delete(incarnationKey);
   proRoomApiCache.delete(incarnationKey);
   proRoomApiRequestGenerations.set(
     incarnationKey,
@@ -1263,6 +1309,233 @@ function openProRoomDestroyDialog(roomCode, roomGeneration, trigger) {
   confirmButton.textContent = 'Delete permanently';
   error.textContent = '';
   dialog.dataset.roomCode = roomCode;
+  if (typeof dialog.showModal === 'function') {
+    try {
+      dialog.showModal();
+    } catch {
+      dialog.setAttribute('open', '');
+    }
+  } else {
+    dialog.setAttribute('open', '');
+  }
+  input.focus();
+}
+
+function resetProRoomTransferDialog() {
+  if (!proRoomTransferDialogElements) return;
+  const { form, input, error, issueButton } = proRoomTransferDialogElements;
+  const restoreFocus = proRoomTransferTarget?.restoreFocus;
+  proRoomTransferTarget = null;
+  form.reset();
+  form.removeAttribute('aria-busy');
+  input.disabled = false;
+  error.textContent = '';
+  issueButton.disabled = false;
+  issueButton.textContent = 'Issue transfer link';
+  restoreFocus?.focus?.({ preventScroll: true });
+}
+
+function closeProRoomTransferDialog({ restoreFocus = true } = {}) {
+  if (!proRoomTransferDialogElements) return;
+  const { dialog } = proRoomTransferDialogElements;
+  if (!restoreFocus && proRoomTransferTarget) proRoomTransferTarget.restoreFocus = null;
+  if (!dialog.open && !dialog.hasAttribute('open')) {
+    resetProRoomTransferDialog();
+    return;
+  }
+  if (typeof dialog.close === 'function') {
+    try {
+      dialog.close();
+      return;
+    } catch {
+      // Lightweight DOM implementations use the attribute fallback.
+    }
+  }
+  dialog.removeAttribute('open');
+  dialog.dispatchEvent(new Event('close'));
+}
+
+function syncProRoomTransferDialog() {
+  if (!proRoomTransferDialogElements) return;
+  const { input, error, issueButton } = proRoomTransferDialogElements;
+  const value = String(input.value || '').trim();
+  error.textContent = '';
+  const validAccountId = /^acct_[A-Za-z0-9_-]{22}$/.test(value);
+  const validNickname =
+    value.length >= 1 && value.length <= 128 && Array.from(value.normalize('NFC')).length <= 20;
+  issueButton.disabled = Boolean(proRoomTransferTarget?.busy) || !(validAccountId || validNickname);
+}
+
+async function issueProRoomOwnerTransfer() {
+  if (!proRoomTransferDialogElements || !proRoomTransferTarget) return;
+  const { input, error, cancelButton, issueButton, form } = proRoomTransferDialogElements;
+  const target = proRoomTransferTarget;
+  const targetAccount = String(input.value || '').trim();
+  const validAccountId = /^acct_[A-Za-z0-9_-]{22}$/.test(targetAccount);
+  const validNickname =
+    targetAccount.length >= 1 &&
+    targetAccount.length <= 128 &&
+    Array.from(targetAccount.normalize('NFC')).length <= 20;
+  if (target.busy || !(validAccountId || validNickname)) return;
+
+  target.busy = true;
+  form.setAttribute('aria-busy', 'true');
+  input.disabled = true;
+  cancelButton.disabled = true;
+  issueButton.disabled = true;
+  issueButton.textContent = 'Issuing...';
+  error.textContent = '';
+  try {
+    const payload = await fetchJson(
+      `/api/admin/pro-rooms/${target.roomCode}/owner-transfer-claim`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          roomGeneration: target.roomGeneration,
+          targetAccount,
+        }),
+      },
+    );
+    if (
+      payload?.roomCode !== target.roomCode ||
+      normalizeProRoomGeneration(payload?.roomGeneration) !== target.roomGeneration ||
+      !/^acct_[A-Za-z0-9_-]{22}$/.test(payload?.targetAccountId || '') ||
+      (validAccountId && payload.targetAccountId !== targetAccount) ||
+      typeof payload?.targetNickname !== 'string' ||
+      !payload.targetNickname.trim()
+    ) {
+      throw new Error('PRO_ROOM_GENERATION_MISMATCH');
+    }
+    closeProRoomTransferDialog({ restoreFocus: false });
+    showProRoomClaim(payload, 'transfer', target.roomGeneration);
+    setProRoomStatus(
+      `${target.roomCode} transfer link issued${
+        typeof payload.targetNickname === 'string' && payload.targetNickname
+          ? ` for ${payload.targetNickname}`
+          : ''
+      }.`,
+    );
+    proRoomClaimUrlEl?.focus({ preventScroll: true });
+  } catch (issueError) {
+    if (proRoomTransferTarget !== target) return;
+    target.busy = false;
+    form.removeAttribute('aria-busy');
+    input.disabled = false;
+    cancelButton.disabled = false;
+    issueButton.textContent = 'Issue transfer link';
+    syncProRoomTransferDialog();
+    error.textContent = adminErrorMessage(
+      issueError,
+      'The owner transfer link could not be issued.',
+    );
+    input.focus();
+  }
+}
+
+function ensureProRoomTransferDialog() {
+  if (proRoomTransferDialogElements) return proRoomTransferDialogElements;
+  const dialog = document.createElement('dialog');
+  dialog.className = 'pro-room-transfer-dialog';
+  dialog.setAttribute('aria-labelledby', 'pro-room-transfer-title');
+  dialog.setAttribute('aria-describedby', 'pro-room-transfer-description');
+
+  const form = document.createElement('form');
+  form.className = 'pro-room-transfer-form';
+  const eyebrow = document.createElement('span');
+  eyebrow.className = 'pro-room-transfer-eyebrow';
+  eyebrow.textContent = 'Ownership transfer';
+  const title = document.createElement('h2');
+  title.id = 'pro-room-transfer-title';
+  const description = document.createElement('p');
+  description.id = 'pro-room-transfer-description';
+  description.textContent =
+    'Bind a one-time link to one active, fully configured MUSIXQUARE account. When redeemed, the old owner is signed out and every existing Developer API key is revoked.';
+
+  const field = document.createElement('label');
+  field.className = 'pro-room-transfer-field';
+  const fieldLabel = document.createElement('span');
+  fieldLabel.textContent = 'Target nickname or account ID';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.maxLength = 128;
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.placeholder = 'Nickname or acct_…';
+  input.setAttribute('aria-describedby', 'pro-room-transfer-description pro-room-transfer-error');
+  field.append(fieldLabel, input);
+
+  const note = document.createElement('p');
+  note.className = 'pro-room-transfer-note';
+  note.textContent =
+    'Enter the exact unique nickname or immutable account ID. The recipient must sign in to the verified account before opening the link. No account search or suggestions are exposed, and the full link is shown only once.';
+  const error = document.createElement('p');
+  error.id = 'pro-room-transfer-error';
+  error.className = 'pro-room-transfer-error';
+  error.setAttribute('role', 'alert');
+  error.setAttribute('aria-live', 'assertive');
+
+  const actions = document.createElement('div');
+  actions.className = 'pro-room-transfer-actions';
+  const cancelButton = document.createElement('button');
+  cancelButton.type = 'button';
+  cancelButton.className = 'is-secondary';
+  cancelButton.textContent = 'Cancel';
+  const issueButton = document.createElement('button');
+  issueButton.type = 'submit';
+  issueButton.textContent = 'Issue transfer link';
+  issueButton.disabled = true;
+  actions.append(cancelButton, issueButton);
+  form.append(eyebrow, title, description, field, note, error, actions);
+  dialog.append(form);
+  document.body.append(dialog);
+  proRoomTransferDialogElements = {
+    dialog,
+    form,
+    title,
+    input,
+    error,
+    cancelButton,
+    issueButton,
+  };
+  input.addEventListener('input', syncProRoomTransferDialog);
+  cancelButton.addEventListener('click', () => closeProRoomTransferDialog());
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    issueProRoomOwnerTransfer().catch(() => {});
+  });
+  dialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    if (!proRoomTransferTarget?.busy) closeProRoomTransferDialog();
+  });
+  dialog.addEventListener('close', resetProRoomTransferDialog);
+  return proRoomTransferDialogElements;
+}
+
+function openProRoomTransferDialog(roomCode, roomGeneration, trigger) {
+  if (normalizeProRoomGeneration(roomGeneration) === null) {
+    setProRoomStatus('Room generation is unavailable. Refresh before making changes.', true);
+    return;
+  }
+  const elements = ensureProRoomTransferDialog();
+  const { dialog, form, title, input, error, cancelButton, issueButton } = elements;
+  proRoomTransferTarget = {
+    roomCode,
+    roomGeneration,
+    restoreFocus: trigger,
+    busy: false,
+  };
+  form.reset();
+  form.removeAttribute('aria-busy');
+  title.textContent = `Transfer PRO room ${roomCode}`;
+  input.disabled = false;
+  error.textContent = '';
+  cancelButton.disabled = false;
+  issueButton.disabled = true;
+  issueButton.textContent = issuedOwnerTransferLinks.has(
+    proRoomIncarnationKey(roomCode, roomGeneration),
+  )
+    ? 'Issue another link'
+    : 'Issue transfer link';
   if (typeof dialog.showModal === 'function') {
     try {
       dialog.showModal();
@@ -1844,6 +2117,8 @@ function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
   const actions = document.createElement('div');
   actions.className = 'pro-room-actions';
   const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
+  const suspensionReason =
+    typeof room?.suspensionReason === 'string' ? room.suspensionReason : null;
   if (!incarnationKey) {
     const message = document.createElement('p');
     message.className = 'pro-room-terminal-copy';
@@ -1902,7 +2177,7 @@ function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
       ? 'Issue another owner recovery link'
       : 'Issue owner recovery link';
     activation.title =
-      'Sign in to the intended owner account first, then open this one-time link in the same browser. It replaces the room owner credential; an already-linked room requires that same account.';
+      'Recovery works only for the same account already linked as owner. To assign a different or previously unlinked account, use ownership transfer.';
     activation.addEventListener('click', async () => {
       activation.disabled = true;
       activation.textContent = 'Issuing...';
@@ -1922,6 +2197,21 @@ function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
         loadProRooms({ updateTimestamp: false }).catch(() => {});
       }
     });
+  } else if (rawStatus === 'suspended' && suspensionReason === 'owner_account_deleted') {
+    activation.textContent = issuedOwnerTransferLinks.has(incarnationKey)
+      ? 'Issue another owner transfer link'
+      : 'Assign a new owner';
+    activation.title = 'Bind a one-time ownership transfer link to one active MUSIXQUARE account.';
+    activation.addEventListener('click', () =>
+      openProRoomTransferDialog(roomCode, roomGeneration, activation),
+    );
+  } else if (rawStatus === 'suspended' && suspensionReason === 'ownership_transfer_pending') {
+    activation.textContent = 'Replace expired transfer link';
+    activation.title =
+      'If the current transfer is still valid, the service will preserve it. Once it expires, this issues a replacement bound to the account you choose.';
+    activation.addEventListener('click', () =>
+      openProRoomTransferDialog(roomCode, roomGeneration, activation),
+    );
   } else {
     activation.textContent = issuedActivationLinks.has(incarnationKey)
       ? 'Reissue activation link'
@@ -1950,7 +2240,25 @@ function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
   }
   actions.append(activation);
 
-  if (rawStatus === 'active' || rawStatus === 'suspended') {
+  if (rawStatus === 'active') {
+    const transfer = document.createElement('button');
+    transfer.type = 'button';
+    transfer.className = 'is-secondary';
+    transfer.textContent = issuedOwnerTransferLinks.has(incarnationKey)
+      ? 'Issue another transfer link'
+      : 'Transfer ownership';
+    transfer.title =
+      'Bind a one-time link to the exact recipient account. Redemption signs out the old owner and revokes API keys.';
+    transfer.addEventListener('click', () =>
+      openProRoomTransferDialog(roomCode, roomGeneration, transfer),
+    );
+    actions.append(transfer);
+  }
+
+  if (
+    rawStatus === 'active' ||
+    (rawStatus === 'suspended' && suspensionReason === 'operator_suspended')
+  ) {
     const targetStatus = rawStatus === 'active' ? 'suspended' : 'active';
     const stateButton = document.createElement('button');
     stateButton.type = 'button';
@@ -2053,7 +2361,7 @@ function renderProRoomRow(room) {
   details.className = 'pro-room-details';
   const status = document.createElement('span');
   status.className = `pro-room-state is-${rawStatus.replace(/[^a-z-]/g, '')}`;
-  status.textContent = formatProRoomStatus(rawStatus);
+  status.textContent = formatProRoomStatus(rawStatus, room?.suspensionReason);
   const created = document.createElement('small');
   const createdAt = formatAdminDateTime(room.createdAt);
   created.textContent = createdAt ? `Created ${createdAt}` : 'Creation time unavailable';
@@ -2126,6 +2434,7 @@ function renderProRooms(payload) {
   for (const collection of [
     issuedActivationLinks,
     issuedOwnerRecoveryLinks,
+    issuedOwnerTransferLinks,
     proRoomApiCache,
     proRoomApiSecrets,
     proRoomApiRequestGenerations,
@@ -2752,10 +3061,7 @@ async function refreshAllDashboardData() {
 
 async function init() {
   const productionHost = /(^|\.)musixquare\.com$/i.test(window.location.hostname);
-  if (
-    productionHost &&
-    root?.dataset.adminAssetVersion !== ADMIN_SCRIPT_VERSION
-  ) {
+  if (productionHost && root?.dataset.adminAssetVersion !== ADMIN_SCRIPT_VERSION) {
     const retryKey = `mxqr-admin-asset-retry-${ADMIN_SCRIPT_VERSION}`;
     let attempts = 0;
     try {
@@ -2907,6 +3213,7 @@ window.addEventListener('pagehide', () => {
   clearServiceStatusSettleTimer();
   closeServiceStatusDialog({ restoreFocus: false, force: true });
   closeProRoomDestroyDialog({ restoreFocus: false });
+  closeProRoomTransferDialog({ restoreFocus: false });
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();
 });

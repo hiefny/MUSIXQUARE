@@ -8,9 +8,10 @@
 
 // Bump this whenever a stable-path app-shell asset changes so existing clients
 // migrate to a fresh cache.
-const CACHE_VERSION = 'v352';
+const CACHE_VERSION = 'v353';
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
+const BOOTSTRAP_CACHE_KEY = `./bootstrap.js?cache=${CACHE_VERSION}`;
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
 const CACHE_CLIENT_STATUS = 'MXQR_CACHE_CLIENT_STATUS';
 const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
@@ -23,6 +24,7 @@ const cacheReadyClientIds = new Set();
 // their first runtime request and then served cache-first by content hash.
 const APP_SHELL = [
   './index.html',
+  BOOTSTRAP_CACHE_KEY,
   './dummy_audio.mp3',
   './designsystem/fonts/PretendardVariable.woff2',
   './icons/icon-512.png',

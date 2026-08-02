@@ -75,6 +75,13 @@ name = "MUSIXQUARE_SERVICE_CONTROL"
 class_name = "MusixquareServiceControl"
 script_name = "musixquare-pro-room"
 
+# Direct fail-closed signaling fence used after an account deletion has been
+# durably committed but before the PRO room authority purge can yield.
+[[durable_objects.bindings]]
+name = "PRO_SIGNALING_ROOMS"
+class_name = "MusixquareRoom"
+script_name = "musixquare-signaling"
+
 # Same-origin public facade for browser PRO-room requests. Keeping the browser
 # on musixquare.com avoids exposing room entry to a separate custom-domain
 # transport path while the backend Worker remains independently deployable.

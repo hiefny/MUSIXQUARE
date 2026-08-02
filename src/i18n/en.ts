@@ -70,6 +70,8 @@ const en: Record<I18nKey, string> = {
   'account.delete_confirm_title': 'Delete your account?',
   'account.delete_confirm_message':
     "Your nickname, sign-in sessions, and account-linked room permissions will be deleted. Content shared in a room follows that room's retention policy.",
+  'account.delete_pending':
+    'Your account is being deleted. PRO permissions are being safely cleaned up, and deletion will finish automatically.',
   'common.previous': 'Previous',
   'common.next_desc': 'Next',
   'common.volume_percent': 'Volume: {{val}}%',
@@ -662,9 +664,27 @@ const en: Record<I18nKey, string> = {
   'pro.claim_retry_title': 'Try the PRO link again?',
   'pro.claim_retry_message':
     'The connection was interrupted. The link is kept safely on this screen, so you can retry.',
-  'pro.request_new_link': 'Request a new link',
   'pro.claim_unavailable_title': 'This link can no longer be used',
-  'pro.new_link_message': 'Ask the person who sent the link for a new activation or recovery link.',
+  'pro.claim_login_title': 'Sign in first',
+  'pro.claim_login_button': 'Sign in',
+  'pro.claim_login_message':
+    "Sign in with the account that will own this PRO room and finish setting its nickname. The link is kept only in this tab's memory while you continue.",
+  'pro.claim_popup_blocked_message':
+    'Your browser blocked the sign-in window. Allow pop-ups for MUSIXQUARE, then try again.',
+  'pro.claim_account_conflict_title': "This account can't use this room",
+  'pro.claim_account_conflict_message':
+    'This room is linked to another account. Ask an administrator to transfer ownership if you need to change it.',
+  'pro.claim_account_capacity_title': 'This account cannot link another room',
+  'pro.claim_account_capacity_message':
+    'This account has reached its PRO room link limit. Remove an existing link, then request a new one.',
+  'pro.claim_failed_title': 'This request could not be completed',
+  'pro.claim_failed_message':
+    'For safety, this link was not retried. Ask the room administrator for a new link.',
+  'pro.transfer_title': 'Take ownership of PRO room',
+  'pro.transfer_message':
+    "Set a new 8-digit password for this room. The previous owner's access will be revoked when this finishes.",
+  'pro.new_link_message':
+    'The link has expired or has already been used. Ask an administrator for a new link if needed.',
   'pro.not_ready_title': 'This PRO room is not ready yet',
   'pro.not_ready_message': 'The room owner needs to activate it first.',
   'pro.suspended_title': 'This PRO room is unavailable',

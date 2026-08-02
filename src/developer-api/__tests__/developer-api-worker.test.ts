@@ -8,6 +8,7 @@ import developerApiWorker, {
   isDeveloperApiRequestId,
   parseDeveloperApiKey,
 } from '../../../cloudflare/developer-api-worker.js';
+import developerApiFacadeWorker from '../../../cloudflare/developer-api-facade-worker.js';
 
 const ROOM_CODE = '000001';
 const KEY_ID = 'A'.repeat(16);
@@ -32,6 +33,7 @@ type KeyRow = {
   key_id: string;
   room_code: string;
   room_generation?: number;
+  authority_epoch: number;
   label: string;
   secret_digest: string;
   digest_version: number;
@@ -274,6 +276,7 @@ async function createEnvironment(
     mode?: string;
     label?: string;
     roomGeneration?: number;
+    authorityEpoch?: number;
   } = {},
 ) {
   const now = Date.now();
@@ -282,6 +285,7 @@ async function createEnvironment(
     key_id: KEY_ID,
     room_code: ROOM_CODE,
     room_generation: options.roomGeneration ?? 0,
+    authority_epoch: options.authorityEpoch ?? 0,
     label: options.label ?? 'Friend integration',
     secret_digest: digest,
     digest_version: 1,
@@ -572,6 +576,7 @@ describe('Developer API read-only public Worker', () => {
     expect(JSON.parse(String(facadeInit?.body))).toEqual({
       roomCode: ROOM_CODE,
       roomGeneration: 0,
+      developerAuthorityEpoch: 0,
       keyId: KEY_ID,
       projection: 'room',
     });
@@ -580,7 +585,7 @@ describe('Developer API read-only public Worker', () => {
   });
 
   it('binds a later-generation key to generation-specific limiter and facade identities', async () => {
-    const setup = await createEnvironment({ roomGeneration: 7 });
+    const setup = await createEnvironment({ roomGeneration: 7, authorityEpoch: 11 });
     const response = await developerApiWorker.fetch(apiRequest(), setup.env);
 
     expect(response.status).toBe(200);
@@ -597,6 +602,7 @@ describe('Developer API read-only public Worker', () => {
     expect(JSON.parse(String(facadeInit?.body))).toEqual({
       roomCode: ROOM_CODE,
       roomGeneration: 7,
+      developerAuthorityEpoch: 11,
       keyId: KEY_ID,
       projection: 'room',
     });
@@ -653,6 +659,7 @@ describe('Developer API read-only public Worker', () => {
     expect(JSON.parse(String(setup.facadeFetch.mock.calls[0]?.[1]?.body))).toEqual({
       roomCode: ROOM_CODE,
       roomGeneration: 0,
+      developerAuthorityEpoch: 0,
       keyId: KEY_ID,
       projection: 'effects',
       effectsVersion: 2,
@@ -729,6 +736,7 @@ describe('Developer API read-only public Worker', () => {
     expect(JSON.parse(String(setup.facadeFetch.mock.calls[0]?.[1]?.body))).toEqual({
       roomCode: ROOM_CODE,
       roomGeneration: 0,
+      developerAuthorityEpoch: 0,
       keyId: KEY_ID,
       projection: 'queue-mode',
     });
@@ -988,6 +996,9 @@ describe('Developer API read-only public Worker', () => {
       { scope_mask: 1.5 },
       { expires_at: null },
       { expires_at: now - 2_000, created_at: now - 1_000 },
+      { authority_epoch: null },
+      { authority_epoch: -1 },
+      { authority_epoch: 1.5 },
       { last_used_hour: -1 },
       { last_used_hour: 1.5 },
       { status: 'active', revoked_at: now },
@@ -1002,6 +1013,53 @@ describe('Developer API read-only public Worker', () => {
       expect(response.status).toBe(401);
       expect(await errorCode(response)).toBe('UNAUTHORIZED');
     }
+  });
+
+  it('rejects a principal when room authority advances after D1 authentication', async () => {
+    const staleResponse = { error: 'DEVELOPER_API_AUTHORITY_STALE' };
+    const read = await createEnvironment({
+      authorityEpoch: 7,
+      facadePayload: staleResponse,
+      facadeStatus: 409,
+    });
+    const readResponse = await developerApiWorker.fetch(apiRequest(), read.env);
+
+    expect(readResponse.status).toBe(409);
+    expect(await errorCode(readResponse)).toBe('DEVELOPER_API_AUTHORITY_STALE');
+    expect(JSON.parse(String(read.facadeFetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+      roomCode: ROOM_CODE,
+      roomGeneration: 0,
+      developerAuthorityEpoch: 7,
+      keyId: KEY_ID,
+    });
+
+    const command = await createEnvironment({
+      authorityEpoch: 7,
+      scopeMask: developerApiScopes['playback:control'],
+      facadePayload: staleResponse,
+      facadeStatus: 409,
+      mode: 'enabled',
+    });
+    const commandResponse = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.authority-stale-0001',
+        },
+        body: JSON.stringify({ type: 'play' }),
+      }),
+      command.env,
+    );
+
+    expect(commandResponse.status).toBe(409);
+    expect(await errorCode(commandResponse)).toBe('DEVELOPER_API_AUTHORITY_STALE');
+    expect(JSON.parse(String(command.facadeFetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+      roomCode: ROOM_CODE,
+      roomGeneration: 0,
+      developerAuthorityEpoch: 7,
+      keyId: KEY_ID,
+    });
   });
 
   it('hides room existence across room binding and enforces same-room scopes', async () => {
@@ -1065,6 +1123,7 @@ describe('Developer API read-only public Worker', () => {
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
       roomGeneration: 0,
+      developerAuthorityEpoch: 0,
       actorName: 'Friend integration',
       idempotencyKey: 'request.queue-add-0001',
       mutation: { type: 'add_youtube', ...item },
@@ -1124,6 +1183,7 @@ describe('Developer API read-only public Worker', () => {
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
       roomGeneration: 0,
+      developerAuthorityEpoch: 0,
       actorName: 'Friend integration',
       idempotencyKey: 'request.queue-batch-0001',
       mutation: { type: 'add_youtube_batch', items },
@@ -1194,6 +1254,7 @@ describe('Developer API read-only public Worker', () => {
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
       roomGeneration: 0,
+      developerAuthorityEpoch: 0,
       actorName: 'Friend integration',
       idempotencyKey: 'request.queue-batch-playlist-dedupe',
       mutation: {
@@ -1429,6 +1490,7 @@ describe('Developer API read-only public Worker', () => {
           keyId: KEY_ID,
           roomCode: ROOM_CODE,
           roomGeneration: 0,
+          developerAuthorityEpoch: 0,
           idempotencyKey: 'request.queue-remove-0001',
           mutation: { type: 'remove', queueItemId: QUEUE_ITEM_ID },
         },
@@ -1439,6 +1501,7 @@ describe('Developer API read-only public Worker', () => {
           keyId: KEY_ID,
           roomCode: ROOM_CODE,
           roomGeneration: 0,
+          developerAuthorityEpoch: 0,
           idempotencyKey: 'request.queue-reorder-0001',
           mutation: {
             type: 'reorder',
@@ -1475,6 +1538,7 @@ describe('Developer API read-only public Worker', () => {
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
       roomGeneration: 0,
+      developerAuthorityEpoch: 0,
       idempotencyKey: 'request.queue-clear-0001',
       mutation: { type: 'clear' },
     });
@@ -1529,6 +1593,7 @@ describe('Developer API read-only public Worker', () => {
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
       roomGeneration: 0,
+      developerAuthorityEpoch: 0,
       idempotencyKey: 'request.queue-clear-owned-0001',
       mutation: { type: 'clear_owned' },
     });
@@ -1784,6 +1849,7 @@ describe('Developer API read-only public Worker', () => {
           keyId: KEY_ID,
           roomCode: ROOM_CODE,
           roomGeneration: 0,
+          developerAuthorityEpoch: 0,
           idempotencyKey: 'request.upload-reserve-0001',
           media,
         },
@@ -1794,6 +1860,7 @@ describe('Developer API read-only public Worker', () => {
           keyId: KEY_ID,
           roomCode: ROOM_CODE,
           roomGeneration: 0,
+          developerAuthorityEpoch: 0,
           actorName: 'Friend integration',
           idempotencyKey: 'request.upload-complete-0001',
           assetId: ASSET_ID,
@@ -1956,6 +2023,7 @@ describe('Developer API read-only public Worker', () => {
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
       roomGeneration: 0,
+      developerAuthorityEpoch: 0,
       idempotencyKey: IDEMPOTENCY_KEY,
       queueMode,
     });
@@ -2078,6 +2146,7 @@ describe('Developer API read-only public Worker', () => {
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
       roomGeneration: 0,
+      developerAuthorityEpoch: 0,
       idempotencyKey: IDEMPOTENCY_KEY,
       command: { type: 'seek', positionSeconds: 42.5 },
     });
@@ -2111,6 +2180,7 @@ describe('Developer API read-only public Worker', () => {
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
       roomGeneration: 0,
+      developerAuthorityEpoch: 0,
       idempotencyKey: 'request.playback-next-0001',
       command: { type: 'next' },
     });
@@ -2168,6 +2238,7 @@ describe('Developer API read-only public Worker', () => {
       keyId: KEY_ID,
       roomCode: ROOM_CODE,
       roomGeneration: 0,
+      developerAuthorityEpoch: 0,
       idempotencyKey: IDEMPOTENCY_KEY,
       command,
     });
@@ -2388,6 +2459,7 @@ describe('Developer API read-only public Worker', () => {
     await expect(Promise.resolve(JSON.parse(String(init?.body)))).resolves.toEqual({
       roomCode: ROOM_CODE,
       roomGeneration: 0,
+      developerAuthorityEpoch: 0,
       keyId: KEY_ID,
       commandId: COMMAND_ID,
     });
@@ -2460,6 +2532,141 @@ describe('Developer API read-only public Worker', () => {
     expect(disabled.status).toBe(503);
     expect(await errorCode(disabled)).toBe('API_DISABLED');
     expect(off.database.first).not.toHaveBeenCalled();
+  });
+});
+
+function facadeRequest(path: string, body: Record<string, unknown>): Request {
+  return new Request(`https://developer-api-facade.internal${path}`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-mxqr-pro-room-generation': '0',
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+describe('Developer API authority epoch facade contract', () => {
+  it('forwards a present exact epoch and omits an absent mixed-rollout epoch', async () => {
+    const forwarded: unknown[] = [];
+    const roomFetch = vi.fn(async (request: Request) => {
+      forwarded.push(await request.json());
+      return jsonResponse(roomPayload());
+    });
+    const env = {
+      PRO_ROOM_DEVELOPER_ROOMS: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({ fetch: roomFetch })),
+      },
+    };
+    const valid = await developerApiFacadeWorker.fetch(
+      facadeRequest('/internal/v1/read', {
+        roomCode: ROOM_CODE,
+        roomGeneration: 0,
+        developerAuthorityEpoch: 9,
+        keyId: KEY_ID,
+        projection: 'room',
+      }),
+      env,
+    );
+
+    expect(valid.status).toBe(200);
+    expect(roomFetch).toHaveBeenCalledOnce();
+    expect(forwarded[0]).toEqual({
+      developerAuthorityEpoch: 9,
+      keyId: KEY_ID,
+      projection: 'room',
+    });
+
+    const omitted = await developerApiFacadeWorker.fetch(
+      facadeRequest('/internal/v1/read', {
+        roomCode: ROOM_CODE,
+        roomGeneration: 0,
+        keyId: KEY_ID,
+        projection: 'room',
+      }),
+      env,
+    );
+
+    expect(omitted.status).toBe(200);
+    expect(forwarded[1]).toEqual({ keyId: KEY_ID, projection: 'room' });
+
+    roomFetch.mockClear();
+
+    for (const developerAuthorityEpoch of [null, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      const body: Record<string, unknown> = {
+        roomCode: ROOM_CODE,
+        roomGeneration: 0,
+        developerAuthorityEpoch,
+        keyId: KEY_ID,
+        projection: 'room',
+      };
+      const invalid = await developerApiFacadeWorker.fetch(
+        facadeRequest('/internal/v1/read', body),
+        env,
+      );
+      expect(invalid.status).toBe(400);
+      await expect(invalid.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+      expect(roomFetch).not.toHaveBeenCalled();
+    }
+
+    const unknown = await developerApiFacadeWorker.fetch(
+      facadeRequest('/internal/v1/read', {
+        roomCode: ROOM_CODE,
+        roomGeneration: 0,
+        developerAuthorityEpoch: 9,
+        keyId: KEY_ID,
+        projection: 'room',
+        authorityEpoch: 9,
+      }),
+      env,
+    );
+    expect(unknown.status).toBe(400);
+    expect(roomFetch).not.toHaveBeenCalled();
+  });
+
+  it('maps a stale DO authority epoch without exposing another backend response', async () => {
+    const roomFetch = vi.fn(async () =>
+      jsonResponse({ error: 'DEVELOPER_API_AUTHORITY_STALE' }, 409),
+    );
+    const response = await developerApiFacadeWorker.fetch(
+      facadeRequest('/internal/v1/read', {
+        roomCode: ROOM_CODE,
+        roomGeneration: 0,
+        developerAuthorityEpoch: 3,
+        keyId: KEY_ID,
+        projection: 'room',
+      }),
+      {
+        PRO_ROOM_DEVELOPER_ROOMS: {
+          idFromName: vi.fn((name: string) => name),
+          get: vi.fn(() => ({ fetch: roomFetch })),
+        },
+      },
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'DEVELOPER_API_AUTHORITY_STALE' });
+
+    const command = await developerApiFacadeWorker.fetch(
+      facadeRequest('/internal/v1/commands/create', {
+        roomCode: ROOM_CODE,
+        roomGeneration: 0,
+        developerAuthorityEpoch: 3,
+        keyId: KEY_ID,
+        idempotencyKey: 'request.authority-stale-0002',
+        command: { type: 'play' },
+      }),
+      {
+        PRO_ROOM_DEVELOPER_ROOMS: {
+          idFromName: vi.fn((name: string) => name),
+          get: vi.fn(() => ({ fetch: roomFetch })),
+        },
+      },
+    );
+
+    expect(command.status).toBe(409);
+    await expect(command.json()).resolves.toEqual({ error: 'DEVELOPER_API_AUTHORITY_STALE' });
   });
 });
 

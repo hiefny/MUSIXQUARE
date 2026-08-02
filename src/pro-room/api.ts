@@ -16,6 +16,7 @@ import {
   isProRoomPin,
   parseProRoomClaimToken,
   parseProRoomOwnerRecoveryClaimToken,
+  parseProRoomOwnerTransferClaimToken,
   parseProRoomSignalingTicket,
   type ProRoomSignalingTicket,
 } from './credentials.ts';
@@ -70,6 +71,7 @@ const PLAYBACK_TRANSITION_ID_RE = /^transition_[A-Za-z0-9_-]{22}$/;
 const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
 const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
+const OWNER_TRANSFER_REQUEST_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
 const SYSTEM_AUDIO_LEASE_ID_RE = /^[A-Za-z0-9_-]{43}$/;
 const ERROR_CODE_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
@@ -273,6 +275,13 @@ export interface RecoverProRoomOwnerInput {
   claimToken: string;
 }
 
+export interface TransferProRoomOwnerInput {
+  code: string;
+  claimToken: string;
+  newPin: string;
+  requestId: string;
+}
+
 export interface CloseProRoomSessionFencedInput {
   code: string;
   expectedParticipantId: string;
@@ -441,6 +450,13 @@ function validatePin(pin: string): string {
 
 function validateIdempotencyKey(value: string): string {
   if (!IDEMPOTENCY_KEY_RE.test(value)) {
+    throw new ProRoomApiError('INVALID_IDEMPOTENCY_KEY');
+  }
+  return value;
+}
+
+function validateOwnerTransferRequestId(value: string): string {
+  if (!OWNER_TRANSFER_REQUEST_ID_RE.test(value)) {
     throw new ProRoomApiError('INVALID_IDEMPOTENCY_KEY');
   }
   return value;
@@ -1328,6 +1344,23 @@ export class ProRoomApiClient {
     return this.#request(`${path}/owner-recovery`, {
       method: 'POST',
       body: { claimToken: input.claimToken },
+      signal,
+      parser: (value) => parseSnapshotEnvelope(value, input.code),
+    }).then((snapshot) => this.#bindPresenceIdentity(input.code, snapshot));
+  }
+
+  transferOwner(input: TransferProRoomOwnerInput, signal?: AbortSignal): Promise<ProRoomSnapshot> {
+    const path = roomPath(input.code);
+    if (!parseProRoomOwnerTransferClaimToken(input.claimToken)) {
+      throw new ProRoomApiError('INVALID_TRANSFER_CLAIM_TOKEN');
+    }
+    return this.#request(`${path}/owner-transfer`, {
+      method: 'POST',
+      body: {
+        claimToken: input.claimToken,
+        newPin: validatePin(input.newPin),
+        requestId: validateOwnerTransferRequestId(input.requestId),
+      },
       signal,
       parser: (value) => parseSnapshotEnvelope(value, input.code),
     }).then((snapshot) => this.#bindPresenceIdentity(input.code, snapshot));

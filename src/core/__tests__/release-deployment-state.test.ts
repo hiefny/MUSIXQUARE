@@ -1213,6 +1213,99 @@ describe('release deployment rollback state', () => {
     expect(workerStep).toContain('rollback_skip_targets="developer-api-facade,developer-api"');
   });
 
+  it('applies the admin suspension-reason migration idempotently before the matched rollout', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const migrationStep = workflow.indexOf('Apply and verify PRO suspension-reason D1 contract');
+    const nextStep = workflow.indexOf('\n      - name:', migrationStep + 1);
+    const step = workflow.slice(migrationStep, nextStep);
+    const proDeploy = workflow.indexOf('Deploy and record PRO room Worker');
+    const appDeploy = workflow.indexOf('Deploy and record app Worker with immutable dist');
+
+    expect(migrationStep).toBeGreaterThan(-1);
+    expect(migrationStep).toBeLessThan(proDeploy);
+    expect(migrationStep).toBeLessThan(appDeploy);
+    expect(step).toContain("if: inputs.target == 'all'");
+    expect(step).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}');
+    expect(step).toContain("pragma_table_info('mxqr_pro_room_registry')");
+    expect(step).toContain('admin-metrics.suspension-reason.migration.sql');
+    expect(step).toContain('if [[ "$column_count" == \'0\' ]]');
+    expect(step).toContain('elif [[ "$column_count" == \'1\' ]]');
+    expect(step).toContain('DROP TRIGGER IF EXISTS mxqr_pro_room_registry_suspension_reason');
+    expect(step).toContain('null_guard_count');
+    expect(step).toContain('invalid_suspended_count');
+    expect(step).toContain('invalid_active_count');
+    expect(step).toContain('capture-wrangler-d1-json.mjs');
+  });
+
+  it('installs the secret-free owner-transfer journal before the matched Worker rollout', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const migrationStep = workflow.indexOf('Apply and verify owner-transfer saga D1 contract');
+    const nextStep = workflow.indexOf('\n      - name:', migrationStep + 1);
+    const step = workflow.slice(migrationStep, nextStep);
+    expect(migrationStep).toBeGreaterThan(-1);
+    expect(migrationStep).toBeLessThan(workflow.indexOf('Deploy and record PRO room Worker'));
+    expect(migrationStep).toBeLessThan(
+      workflow.indexOf('Deploy and record app Worker with immutable dist'),
+    );
+    expect(step).toContain('admin-metrics.owner-transfer-saga.migration.sql');
+    expect(step).toContain('mxqr_pro_room_owner_transfer_sagas');
+    expect(step).toContain('mxqr_pro_room_owner_transfer_issuances');
+    expect(step).toContain('trg_mxqr_pro_room_owner_transfer_issuance_expiry_audit');
+    expect(step).toContain('trg_mxqr_pro_room_owner_transfer_saga_expiry_audit');
+    expect(step).toContain('trigger_count');
+    expect(step).toContain('secret_column_count');
+    expect(step).toContain("if: inputs.target == 'all'");
+  });
+
+  it('migrates and verifies the Developer authority fence before every authority-aware deploy', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const migrationStep = workflow.indexOf(
+      'Apply and verify Developer API authority-fence D1 contract',
+    );
+    const nextStep = workflow.indexOf('\n      - name:', migrationStep + 1);
+    const step = workflow.slice(migrationStep, nextStep);
+    expect(migrationStep).toBeGreaterThan(-1);
+    for (const deploy of [
+      'Deploy and record PRO room Worker',
+      'Deploy and record Developer API facade Worker',
+      'Deploy and record Developer API Worker',
+      'Deploy and record app Worker with immutable dist',
+    ]) {
+      expect(migrationStep).toBeLessThan(workflow.indexOf(deploy));
+    }
+    expect(step).toContain('developer-api.authority-fence.migration.sql');
+    expect(step).toContain('mxqr_developer_api_room_authority_fences');
+    expect(step).toContain('trg_mxqr_developer_api_keys_authority_fenced_insert');
+    expect(step).toContain('trg_mxqr_developer_api_keys_authority_fenced_update');
+    expect(step).toContain('authority-fence-repair.sql');
+    expect(step).toContain('invalid_fence_count');
+    expect(step).toContain('apply_developer_api_d1');
+  });
+
+  it('migrates and verifies Developer authority epoch before PRO, facade, API and App deploys', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const migrationStep = workflow.indexOf(
+      'Apply and verify Developer API authority-epoch D1 contract',
+    );
+    const nextStep = workflow.indexOf('\n      - name:', migrationStep + 1);
+    const step = workflow.slice(migrationStep, nextStep);
+    expect(migrationStep).toBeGreaterThan(-1);
+    for (const deploy of [
+      'Deploy and record PRO room Worker',
+      'Deploy and record Developer API facade Worker',
+      'Deploy and record Developer API Worker',
+      'Deploy and record app Worker with immutable dist',
+    ]) {
+      expect(migrationStep).toBeLessThan(workflow.indexOf(deploy));
+    }
+    expect(step).toContain('developer-api.authority-epoch.migration.sql');
+    expect(step).toContain("pragma_table_info('mxqr_developer_api_keys')");
+    expect(step).toContain('authority_epoch');
+    expect(step).toContain('trg_mxqr_developer_api_keys_authority_epoch_immutable');
+    expect(step).toContain('invalid_epoch_count');
+    expect(step).toContain('apply_developer_api_d1');
+  });
+
   it('runs documented storage and playback static invariants once in main CI', () => {
     const ciWorkflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
     const releaseWorkflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');

@@ -1185,6 +1185,7 @@ interface SetupGuestJoinFailure {
 interface BaseEventMap {
   'account:open': [];
   'account:deleted': [];
+  'account:deletion-pending': [];
   // ── Audio ─────────────────────────────────────────────────────────
   'audio:ready': [];
   'audio:activate': [];

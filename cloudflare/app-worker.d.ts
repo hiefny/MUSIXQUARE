@@ -24,4 +24,17 @@ export function reconcileStaleAdminProRoomActivationsForTests(
   }>,
   nowMs?: number,
 ): Promise<boolean>;
+export function purgeProRoomAccountAuthorityForTests(
+  input: {
+    accountId: string;
+    roomCode: string;
+    roomGeneration: number;
+  },
+  env: Record<string, unknown>,
+): Promise<boolean>;
+export function reconcileOwnerTransferSagasForTests(
+  env: Record<string, unknown>,
+  db: unknown,
+  nowMs?: number,
+): Promise<number>;
 export default appWorker;

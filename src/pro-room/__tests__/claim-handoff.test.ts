@@ -14,8 +14,11 @@ describe('PRO claim module handoff', () => {
   it('consumes the bootstrap closure at module evaluation and releases it to setup once', async () => {
     const takeEarly = vi.fn(() => ({
       activationClaim: CLAIM,
+      activationPresent: true,
       recoveryClaim: null,
       recoveryPresent: false,
+      transferClaim: CLAIM,
+      transferPresent: true,
     }));
     Object.defineProperty(window, HANDOFF_KEY, {
       configurable: true,
@@ -29,13 +32,19 @@ describe('PRO claim module handoff', () => {
     expect(takeEarly).toHaveBeenCalledOnce();
     expect(takeProRoomClaimsFromFragment()).toEqual({
       activationClaimToken: CLAIM,
+      activationClaimPresent: true,
       ownerRecoveryClaimToken: null,
       ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: CLAIM,
+      ownerTransferClaimPresent: true,
     });
     expect(takeProRoomClaimsFromFragment()).toEqual({
       activationClaimToken: null,
+      activationClaimPresent: false,
       ownerRecoveryClaimToken: null,
       ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: false,
     });
   });
 });

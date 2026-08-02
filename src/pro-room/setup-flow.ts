@@ -3,9 +3,11 @@ import { t } from '../i18n/index.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { ProRoomApiError } from './api.ts';
 import { takeProRoomClaimsFromFragment } from './claim-fragment.ts';
+import { createProRoomIdempotencyKey } from './idempotency.ts';
 import { deriveTemporaryProRoomPin, isProRoomCode, normalizeProRoomPin } from './room-code.ts';
 import { announceProRoomTabTakeover } from './tab-handoff.ts';
 import { consumeAccountLoginReturnForRoom } from '../account/login-return.ts';
+import { requestAccountLoginPopup, type AccountLoginPopupOutcome } from '../account/session.ts';
 
 const PRO_ROOM_ENTRY_OPERATION_TIMEOUT_MS = 20_000;
 // A reload starts its keepalive presence-close request before the replacement
@@ -22,7 +24,18 @@ const TERMINAL_CLAIM_ERROR_CODES = new Set([
   'RECOVERY_CLAIM_USED',
   'RECOVERY_UNAVAILABLE',
   'INVALID_RECOVERY_CLAIM_TOKEN',
+  'OWNER_TRANSFER_CLAIM_EXPIRED',
+  'OWNER_TRANSFER_CLAIM_INVALID',
+  'OWNER_TRANSFER_CLAIM_STALE',
+  'OWNER_TRANSFER_CLAIM_USED',
+  'INVALID_TRANSFER_CLAIM_TOKEN',
 ]);
+const CLAIM_ACCOUNT_CONFLICT_ERROR_CODES = new Set([
+  'OWNER_ACCOUNT_LINK_CONFLICT',
+  'SESSION_ACCOUNT_CONFLICT',
+  'OWNER_TRANSFER_TARGET_ACCOUNT_MISMATCH',
+]);
+const CLAIM_ACCOUNT_CAPACITY_ERROR_CODES = new Set(['ACCOUNT_MEMBER_CAPACITY_EXCEEDED']);
 
 /**
  * Bound only one network-facing entry operation. Each prompt gets a fresh
@@ -59,7 +72,32 @@ async function showUnavailable(title: string, message: string): Promise<void> {
 }
 
 function isTerminalClaimFailure(error: unknown): boolean {
-  return error instanceof ProRoomApiError && TERMINAL_CLAIM_ERROR_CODES.has(error.code);
+  return (
+    error instanceof ProRoomApiError &&
+    (TERMINAL_CLAIM_ERROR_CODES.has(error.code) || error.status === 404 || error.status === 410)
+  );
+}
+
+function isClaimAccountRequired(error: unknown): boolean {
+  return error instanceof ProRoomApiError && error.code === 'ACCOUNT_SESSION_REQUIRED';
+}
+
+function isClaimAccountConflict(error: unknown): boolean {
+  return error instanceof ProRoomApiError && CLAIM_ACCOUNT_CONFLICT_ERROR_CODES.has(error.code);
+}
+
+function isClaimAccountCapacityFailure(error: unknown): boolean {
+  return error instanceof ProRoomApiError && CLAIM_ACCOUNT_CAPACITY_ERROR_CODES.has(error.code);
+}
+
+function isTransientClaimFailure(error: unknown): boolean {
+  if (error instanceof TypeError) return true;
+  return (
+    error instanceof ProRoomApiError &&
+    (error.code === 'NETWORK_ERROR' ||
+      error.status === 408 ||
+      (error.status >= 500 && error.status <= 599))
+  );
 }
 
 async function showNewClaimLinkGuidance(): Promise<void> {
@@ -70,9 +108,71 @@ async function showNewClaimLinkGuidance(): Promise<void> {
   });
 }
 
+async function showClaimAccountConflict(): Promise<void> {
+  await showDialog({
+    title: t('pro.claim_account_conflict_title'),
+    message: t('pro.claim_account_conflict_message'),
+    buttonText: t('common.ok'),
+  });
+}
+
+async function showClaimAccountCapacityFailure(): Promise<void> {
+  await showDialog({
+    title: t('pro.claim_account_capacity_title'),
+    message: t('pro.claim_account_capacity_message'),
+    buttonText: t('common.ok'),
+  });
+}
+
+async function showClaimRequestRejected(): Promise<void> {
+  await showDialog({
+    title: t('pro.claim_failed_title'),
+    message: t('pro.claim_failed_message'),
+    buttonText: t('common.ok'),
+  });
+}
+
+async function requestClaimAccountLogin(): Promise<boolean> {
+  let popupWasBlocked = false;
+  while (true) {
+    const loginAttempt: {
+      current: Promise<AccountLoginPopupOutcome> | null;
+    } = { current: null };
+    const result = await showDialog({
+      title: t('pro.claim_login_title'),
+      message: t(popupWasBlocked ? 'pro.claim_popup_blocked_message' : 'pro.claim_login_message'),
+      buttonText: t(popupWasBlocked ? 'common.retry' : 'pro.claim_login_button'),
+      secondaryText: t('common.cancel'),
+      dismissible: false,
+      defaultFocus: 'primary',
+      onPrimaryActivation: () => {
+        loginAttempt.current = requestAccountLoginPopup();
+      },
+    });
+    if (result.action !== 'ok') {
+      await showUnavailable(t('pro.claim_login_title'), t('account.login_cancelled'));
+      return false;
+    }
+
+    const outcome: AccountLoginPopupOutcome = await (loginAttempt.current ??
+      Promise.resolve('error' as const));
+    if (outcome === 'authenticated') return true;
+    if (outcome === 'blocked') {
+      popupWasBlocked = true;
+      continue;
+    }
+    await showUnavailable(
+      t('pro.claim_login_title'),
+      t(outcome === 'cancelled' ? 'account.login_cancelled' : 'account.login_failed'),
+    );
+    return false;
+  }
+}
+
 async function runClaimProtectedOperation<T>(
   operation: () => Promise<T>,
 ): Promise<{ ok: true; value: T } | { ok: false }> {
+  let accountLoginCompleted = false;
   while (true) {
     try {
       return { ok: true, value: await operation() };
@@ -84,6 +184,36 @@ async function runClaimProtectedOperation<T>(
         return { ok: false };
       }
 
+      if (isClaimAccountRequired(error)) {
+        // A completed profile is required for the account assertion. Do not
+        // spin forever if a supposedly completed login is still rejected.
+        if (accountLoginCompleted) {
+          await showUnavailable(t('pro.claim_login_title'), t('account.login_failed'));
+          return { ok: false };
+        }
+        if (!(await requestClaimAccountLogin())) return { ok: false };
+        accountLoginCompleted = true;
+        continue;
+      }
+
+      if (isClaimAccountConflict(error)) {
+        await showClaimAccountConflict();
+        return { ok: false };
+      }
+
+      if (isClaimAccountCapacityFailure(error)) {
+        await showClaimAccountCapacityFailure();
+        return { ok: false };
+      }
+
+      // 429 and unknown 4xx/409/423 responses are not safe to replay. Only a
+      // transport exception, explicit timeout, or 5xx service failure offers
+      // the one-time claim again.
+      if (!isTransientClaimFailure(error)) {
+        await showClaimRequestRejected();
+        return { ok: false };
+      }
+
       // A timeout or transport failure does not prove that the one-time
       // credential was consumed. Keep it only in this function closure while
       // the scrubbed setup screen offers an explicit retry.
@@ -91,12 +221,11 @@ async function runClaimProtectedOperation<T>(
         title: t('pro.claim_retry_title'),
         message: t('pro.claim_retry_message'),
         buttonText: t('common.retry'),
-        secondaryText: t('pro.request_new_link'),
+        secondaryText: t('common.close'),
         dismissible: false,
         defaultFocus: 'primary',
       });
       if (result.action === 'ok') continue;
-      await showNewClaimLinkGuidance();
       return { ok: false };
     }
   }
@@ -157,11 +286,34 @@ function waitForActiveTabRelease(): Promise<void> {
  */
 export async function enterProRoomFromSetup(code: string): Promise<boolean> {
   if (!isProRoomCode(code)) throw new Error('INVALID_PRO_ROOM_CODE');
-  // Consume and scrub both one-time credentials before the first dynamic
+  // Consume and scrub every one-time credential before the first dynamic
   // import, network request, or dialog turn can yield back to the browser.
   const fragmentClaims = takeProRoomClaimsFromFragment();
-  const hasClaimCredential =
-    !!fragmentClaims.activationClaimToken || fragmentClaims.ownerRecoveryClaimPresent;
+  const activationClaimPresent =
+    fragmentClaims.activationClaimPresent || !!fragmentClaims.activationClaimToken;
+  const ownerRecoveryClaimPresent =
+    fragmentClaims.ownerRecoveryClaimPresent || !!fragmentClaims.ownerRecoveryClaimToken;
+  const ownerTransferClaimPresent =
+    fragmentClaims.ownerTransferClaimPresent || !!fragmentClaims.ownerTransferClaimToken;
+  const claimPurposeCount =
+    Number(activationClaimPresent) +
+    Number(ownerRecoveryClaimPresent) +
+    Number(ownerTransferClaimPresent);
+
+  // Reject damaged, duplicated, or mixed one-time credentials locally. They
+  // must never encounter an outage retry dialog before their terminal result.
+  if (
+    claimPurposeCount > 1 ||
+    (activationClaimPresent && !fragmentClaims.activationClaimToken) ||
+    (ownerRecoveryClaimPresent && !fragmentClaims.ownerRecoveryClaimToken) ||
+    (ownerTransferClaimPresent && !fragmentClaims.ownerTransferClaimToken)
+  ) {
+    await showNewClaimLinkGuidance();
+    return false;
+  }
+
+  const ownerTransferRequestId = ownerTransferClaimPresent ? createProRoomIdempotencyKey() : null;
+  const hasClaimCredential = claimPurposeCount === 1;
   // Lazy-load the runtime after the setup/guest module graph has initialized;
   // the runtime bridges back into peer.ts and would otherwise form an eager
   // guest -> runtime -> peer -> guest evaluation cycle at app startup.
@@ -187,6 +339,86 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
   if (!bootstrapResult.ok) return false;
   const bootstrap = bootstrapResult.value;
 
+  if (ownerTransferClaimPresent) {
+    const ownerTransferClaimToken = fragmentClaims.ownerTransferClaimToken;
+    if (!ownerTransferClaimToken || !ownerTransferRequestId) {
+      await showNewClaimLinkGuidance();
+      return false;
+    }
+    const newPin = await promptPin({
+      title: t('pro.transfer_title'),
+      message: t('pro.transfer_message'),
+      autocomplete: 'new-password',
+    });
+    if (!newPin) return false;
+    // The App facade and room object replay this exact request id after an
+    // uncertain prepare/commit response. Retrying a different operation first
+    // could strand a completed transfer before its final cookies are released.
+    const transfer = await runClaimProtectedOperation(() =>
+      runEntryOperation((signal) =>
+        runtime.transferProRoomOwner(
+          {
+            code,
+            claimToken: ownerTransferClaimToken,
+            newPin,
+            requestId: ownerTransferRequestId,
+          },
+          signal,
+        ),
+      ),
+    );
+    return transfer.ok;
+  }
+
+  if (ownerRecoveryClaimPresent) {
+    // Recovery is meaningful only for the active incarnation that issued it.
+    // Resolve recycled, suspended, or otherwise stale links locally instead
+    // of turning a registry/account-assertion refusal into a retryable outage.
+    if (bootstrap.status !== 'pin_required') {
+      await showNewClaimLinkGuidance();
+      return false;
+    }
+    const ownerRecoveryClaimToken = fragmentClaims.ownerRecoveryClaimToken!;
+    let recoveryMayHaveCommitted = false;
+    const recovery = await runClaimProtectedOperation(async () => {
+      if (recoveryMayHaveCommitted) {
+        try {
+          return await runEntryOperation((signal) => runtime.resumeProRoom(code, { signal }));
+        } catch (error) {
+          if (!isMissingCookieSession(error)) throw error;
+          recoveryMayHaveCommitted = false;
+        }
+      }
+      try {
+        return await runEntryOperation((signal) =>
+          runtime.recoverProRoomOwner(
+            {
+              code,
+              claimToken: ownerRecoveryClaimToken,
+            },
+            signal,
+          ),
+        );
+      } catch (error) {
+        // Only an uncertain transport/service result may have committed while
+        // losing its response. ACCOUNT_SESSION_REQUIRED must retry the actual
+        // claim after login so an unrelated stale owner cookie cannot bypass
+        // the account-link conflict check.
+        recoveryMayHaveCommitted = isTransientClaimFailure(error);
+        throw error;
+      }
+    });
+    return recovery.ok;
+  }
+
+  // Activation claims are meaningful only while the room still awaits its
+  // first activation. A recycled or already-used link must not fall through
+  // to cookie resume/PIN entry or generic suspended-room guidance.
+  if (activationClaimPresent && bootstrap.status !== 'activation_required') {
+    await showNewClaimLinkGuidance();
+    return false;
+  }
+
   if (bootstrap.status === 'suspended') {
     await showUnavailable(t('pro.suspended_title'), t('pro.suspended_message'));
     return false;
@@ -195,7 +427,8 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
   if (bootstrap.status === 'activation_required') {
     const activationClaimToken = fragmentClaims.activationClaimToken;
     if (!activationClaimToken) {
-      await showUnavailable(t('pro.not_ready_title'), t('pro.not_ready_message'));
+      if (fragmentClaims.activationClaimPresent) await showNewClaimLinkGuidance();
+      else await showUnavailable(t('pro.not_ready_title'), t('pro.not_ready_message'));
       return false;
     }
     const temporaryPin = deriveTemporaryProRoomPin(code);
@@ -238,35 +471,6 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
       );
     });
     return activation.ok;
-  }
-
-  if (fragmentClaims.ownerRecoveryClaimPresent) {
-    const ownerRecoveryClaimToken = fragmentClaims.ownerRecoveryClaimToken;
-    if (!ownerRecoveryClaimToken) {
-      await showNewClaimLinkGuidance();
-      return false;
-    }
-    let recoveryAttempts = 0;
-    const recovery = await runClaimProtectedOperation(async () => {
-      if (recoveryAttempts > 0) {
-        try {
-          return await runEntryOperation((signal) => runtime.resumeProRoom(code, { signal }));
-        } catch (error) {
-          if (!isMissingCookieSession(error)) throw error;
-        }
-      }
-      recoveryAttempts += 1;
-      return runEntryOperation((signal) =>
-        runtime.recoverProRoomOwner(
-          {
-            code,
-            claimToken: ownerRecoveryClaimToken,
-          },
-          signal,
-        ),
-      );
-    });
-    return recovery.ok;
   }
 
   // A host-only HttpOnly cookie survives a reload. Try it before asking for

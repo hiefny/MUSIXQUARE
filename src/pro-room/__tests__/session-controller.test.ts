@@ -188,6 +188,7 @@ function fixtures() {
   const api = {
     activate: vi.fn(async () => initial),
     recoverOwner: vi.fn(async () => initial),
+    transferOwner: vi.fn(async () => initial),
     createSession: vi.fn<ProRoomSessionApi['createSession']>(async () => initial),
     enterPresence: vi.fn<ProRoomSessionApi['enterPresence']>(async () => initial),
     attachCurrentAccount: vi.fn(async () => initial),
@@ -595,6 +596,32 @@ describe('PRO room session controller', () => {
 
     expect(api.recoverOwner).toHaveBeenCalledWith(
       { code: ROOM_CODE, claimToken },
+      expect.any(AbortSignal),
+    );
+    expect(api.createSignalingTicket).toHaveBeenCalledOnce();
+    expect(transport.connect).toHaveBeenCalledOnce();
+  });
+
+  it('adopts an owner transfer through the same server-control-channel open lifecycle', async () => {
+    const { api, transport, controller } = fixtures();
+    const claimToken = `v1.${'t'.repeat(32)}.${'D'.repeat(43)}`;
+
+    await expect(
+      controller.transferOwner({
+        code: ROOM_CODE,
+        claimToken,
+        newPin: '87654321',
+        requestId: '018f977e-5df5-7c8f-bb80-55d847ddec0f',
+      }),
+    ).resolves.toEqual(snapshot());
+
+    expect(api.transferOwner).toHaveBeenCalledWith(
+      {
+        code: ROOM_CODE,
+        claimToken,
+        newPin: '87654321',
+        requestId: '018f977e-5df5-7c8f-bb80-55d847ddec0f',
+      },
       expect.any(AbortSignal),
     );
     expect(api.createSignalingTicket).toHaveBeenCalledOnce();

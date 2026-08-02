@@ -62,6 +62,7 @@ import {
   type ProRoomPlaybackCommitEvent,
   type ProRoomPlaybackPrepareEvent,
   type RecoverProRoomOwnerInput,
+  type TransferProRoomOwnerInput,
 } from './api.ts';
 import type {
   ProRoomAdministrator,
@@ -4004,6 +4005,14 @@ export async function recoverProRoomOwner(
   signal?: AbortSignal,
 ): Promise<ProRoomSnapshot> {
   const snapshot = await controller.recoverOwner(input, signal);
+  return finalizeOpenedRoom(snapshot);
+}
+
+export async function transferProRoomOwner(
+  input: TransferProRoomOwnerInput,
+  signal?: AbortSignal,
+): Promise<ProRoomSnapshot> {
+  const snapshot = await controller.transferOwner(input, signal);
   return finalizeOpenedRoom(snapshot);
 }
 

@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   join: vi.fn(),
   recoverOwner: vi.fn(),
   resume: vi.fn(),
+  transferOwner: vi.fn(),
+  loginPopup: vi.fn(),
   showDialog: vi.fn(),
   takeClaims: vi.fn(),
   announceTakeover: vi.fn(),
@@ -22,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../core/state.ts', () => ({ getState: mocks.getState }));
 vi.mock('../../i18n/index.ts', () => ({ t: (key: string) => key }));
 vi.mock('../../ui/dialog.ts', () => ({ showDialog: mocks.showDialog }));
+vi.mock('../../account/session.ts', () => ({ requestAccountLoginPopup: mocks.loginPopup }));
 vi.mock('../claim-fragment.ts', () => ({
   takeProRoomClaimsFromFragment: mocks.takeClaims,
 }));
@@ -34,6 +37,7 @@ vi.mock('../runtime.ts', () => ({
   joinProRoom: mocks.join,
   recoverProRoomOwner: mocks.recoverOwner,
   resumeProRoom: mocks.resume,
+  transferProRoomOwner: mocks.transferOwner,
 }));
 
 import { enterProRoomFromSetup } from '../setup-flow.ts';
@@ -46,13 +50,18 @@ beforeEach(() => {
   mocks.getState.mockReturnValue('Peer 1');
   mocks.takeClaims.mockReturnValue({
     activationClaimToken: null,
+    activationClaimPresent: false,
     ownerRecoveryClaimToken: null,
     ownerRecoveryClaimPresent: false,
+    ownerTransferClaimToken: null,
+    ownerTransferClaimPresent: false,
   });
   mocks.resume.mockResolvedValue({});
   mocks.join.mockResolvedValue({});
   mocks.activate.mockResolvedValue({});
   mocks.recoverOwner.mockResolvedValue({});
+  mocks.transferOwner.mockResolvedValue({});
+  mocks.loginPopup.mockResolvedValue('authenticated');
   sessionStorage.clear();
   localStorage.clear();
 });
@@ -334,6 +343,81 @@ describe('PRO room setup flow', () => {
     );
   });
 
+  it('keeps an activation claim in memory across popup login and retries it after profile completion', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: CLAIM,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: false,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'activation_required' });
+    mocks.activate
+      .mockRejectedValueOnce(new ProRoomApiError('ACCOUNT_SESSION_REQUIRED', 401))
+      .mockResolvedValueOnce({});
+    mocks.showDialog.mockImplementation(
+      async (options: { title?: string; onPrimaryActivation?: () => void }) => {
+        if (options.title === 'pro.activation_title') {
+          return { action: 'ok', inputValue: '87654321' };
+        }
+        if (options.title === 'pro.claim_login_title') {
+          options.onPrimaryActivation?.();
+          return { action: 'ok' };
+        }
+        return { action: 'ok' };
+      },
+    );
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+
+    expect(mocks.takeClaims).toHaveBeenCalledOnce();
+    expect(mocks.loginPopup).toHaveBeenCalledOnce();
+    expect(mocks.activate).toHaveBeenCalledTimes(2);
+    expect(mocks.activate.mock.calls.map(([input]) => input.claimToken)).toEqual([CLAIM, CLAIM]);
+    expect(JSON.stringify(sessionStorage)).not.toContain(CLAIM);
+    expect(JSON.stringify(localStorage)).not.toContain(CLAIM);
+  });
+
+  it('retains the claim after a blocked popup and allows an in-place login retry', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: CLAIM,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: false,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'activation_required' });
+    mocks.activate
+      .mockRejectedValueOnce(new ProRoomApiError('ACCOUNT_SESSION_REQUIRED', 401))
+      .mockResolvedValueOnce({});
+    mocks.loginPopup.mockResolvedValueOnce('blocked').mockResolvedValueOnce('authenticated');
+    mocks.showDialog.mockImplementation(
+      async (options: { title?: string; onPrimaryActivation?: () => void }) => {
+        if (options.title === 'pro.activation_title') {
+          return { action: 'ok', inputValue: '87654321' };
+        }
+        if (options.title === 'pro.claim_login_title') {
+          options.onPrimaryActivation?.();
+          return { action: 'ok' };
+        }
+        return { action: 'ok' };
+      },
+    );
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+
+    expect(mocks.loginPopup).toHaveBeenCalledTimes(2);
+    const loginDialogs = mocks.showDialog.mock.calls
+      .map(([options]) => options)
+      .filter((options) => options.title === 'pro.claim_login_title');
+    expect(loginDialogs.map((options) => options.message)).toEqual([
+      'pro.claim_login_message',
+      'pro.claim_popup_blocked_message',
+    ]);
+    expect(sessionStorage.length).toBe(0);
+    expect(localStorage.length).toBe(0);
+  });
+
   it('keeps unclaimed 000000 at activation guidance without opening a PIN prompt', async () => {
     const unclaimedRoomCode = '000000';
     mocks.bootstrap.mockResolvedValue({
@@ -354,6 +438,95 @@ describe('PRO room setup flow', () => {
     expect(mocks.activate).not.toHaveBeenCalled();
     expect(mocks.resume).not.toHaveBeenCalled();
     expect(mocks.join).not.toHaveBeenCalled();
+  });
+
+  it('treats an activation claim for an already-active room as a terminal used link', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: CLAIM,
+      activationClaimPresent: true,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: false,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.showDialog.mockResolvedValue({ action: 'ok' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenCalledWith({
+      title: 'pro.claim_unavailable_title',
+      message: 'pro.new_link_message',
+      buttonText: 'common.ok',
+    });
+    expect(mocks.activate).not.toHaveBeenCalled();
+    expect(mocks.resume).not.toHaveBeenCalled();
+    expect(mocks.join).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: 'malformed activation',
+      claims: {
+        activationClaimToken: null,
+        activationClaimPresent: true,
+        ownerRecoveryClaimToken: null,
+        ownerRecoveryClaimPresent: false,
+        ownerTransferClaimToken: null,
+        ownerTransferClaimPresent: false,
+      },
+    },
+    {
+      name: 'malformed recovery',
+      claims: {
+        activationClaimToken: null,
+        activationClaimPresent: false,
+        ownerRecoveryClaimToken: null,
+        ownerRecoveryClaimPresent: true,
+        ownerTransferClaimToken: null,
+        ownerTransferClaimPresent: false,
+      },
+    },
+    {
+      name: 'malformed transfer',
+      claims: {
+        activationClaimToken: null,
+        activationClaimPresent: false,
+        ownerRecoveryClaimToken: null,
+        ownerRecoveryClaimPresent: false,
+        ownerTransferClaimToken: null,
+        ownerTransferClaimPresent: true,
+      },
+    },
+    {
+      name: 'mixed purposes',
+      claims: {
+        activationClaimToken: CLAIM,
+        activationClaimPresent: true,
+        ownerRecoveryClaimToken: CLAIM,
+        ownerRecoveryClaimPresent: true,
+        ownerTransferClaimToken: null,
+        ownerTransferClaimPresent: false,
+      },
+    },
+  ])('rejects $name locally before bootstrap can fail', async ({ claims }) => {
+    mocks.takeClaims.mockReturnValue(claims);
+    mocks.bootstrap.mockRejectedValue(new ProRoomApiError('HTTP_503', 503));
+    mocks.showDialog.mockResolvedValue({ action: 'ok' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+    expect(mocks.bootstrap).not.toHaveBeenCalled();
+    expect(mocks.activate).not.toHaveBeenCalled();
+    expect(mocks.recoverOwner).not.toHaveBeenCalled();
+    expect(mocks.transferOwner).not.toHaveBeenCalled();
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenCalledWith({
+      title: 'pro.claim_unavailable_title',
+      message: 'pro.new_link_message',
+      buttonText: 'common.ok',
+    });
   });
 
   it('recovers an active owner before cookie resume or the normal PIN flow', async () => {
@@ -380,6 +553,240 @@ describe('PRO room setup flow', () => {
       mocks.bootstrap.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
     );
   });
+
+  it('rejects a recycled recovery claim before generic suspended-room guidance', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      activationClaimPresent: false,
+      ownerRecoveryClaimToken: CLAIM,
+      ownerRecoveryClaimPresent: true,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: false,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'suspended' });
+    mocks.showDialog.mockResolvedValue({ action: 'ok' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+    expect(mocks.recoverOwner).not.toHaveBeenCalled();
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenCalledWith({
+      title: 'pro.claim_unavailable_title',
+      message: 'pro.new_link_message',
+      buttonText: 'common.ok',
+    });
+    expect(mocks.showDialog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'pro.suspended_title' }),
+    );
+  });
+
+  it('continues the same recovery claim after login without probing a stale owner cookie', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      activationClaimPresent: false,
+      ownerRecoveryClaimToken: CLAIM,
+      ownerRecoveryClaimPresent: true,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: false,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.recoverOwner
+      .mockRejectedValueOnce(new ProRoomApiError('ACCOUNT_SESSION_REQUIRED', 401))
+      .mockResolvedValueOnce({});
+    mocks.showDialog.mockImplementation(
+      async (options: { title?: string; onPrimaryActivation?: () => void }) => {
+        if (options.title === 'pro.claim_login_title') {
+          options.onPrimaryActivation?.();
+          return { action: 'ok' };
+        }
+        return { action: 'ok' };
+      },
+    );
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+
+    expect(mocks.loginPopup).toHaveBeenCalledOnce();
+    expect(mocks.recoverOwner).toHaveBeenCalledTimes(2);
+    expect(mocks.recoverOwner.mock.calls.map(([input]) => input.claimToken)).toEqual([
+      CLAIM,
+      CLAIM,
+    ]);
+    expect(mocks.resume).not.toHaveBeenCalled();
+  });
+
+  it('continues the same transfer claim after login', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      activationClaimPresent: false,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: CLAIM,
+      ownerTransferClaimPresent: true,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'suspended' });
+    mocks.transferOwner
+      .mockRejectedValueOnce(new ProRoomApiError('ACCOUNT_SESSION_REQUIRED', 401))
+      .mockResolvedValueOnce({});
+    mocks.showDialog.mockImplementation(
+      async (options: { title?: string; onPrimaryActivation?: () => void }) => {
+        if (options.title === 'pro.transfer_title') {
+          return { action: 'ok', inputValue: '87654321' };
+        }
+        if (options.title === 'pro.claim_login_title') {
+          options.onPrimaryActivation?.();
+          return { action: 'ok' };
+        }
+        return { action: 'ok' };
+      },
+    );
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+
+    expect(mocks.loginPopup).toHaveBeenCalledOnce();
+    expect(mocks.transferOwner).toHaveBeenCalledTimes(2);
+    const inputs = mocks.transferOwner.mock.calls.map(([input]) => input);
+    expect(inputs.map((input) => input.claimToken)).toEqual([CLAIM, CLAIM]);
+    expect(inputs[1]?.requestId).toBe(inputs[0]?.requestId);
+    expect(mocks.resume).not.toHaveBeenCalled();
+  });
+
+  it('transfers ownership with a new PIN and one memory-only request id across retries', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: CLAIM,
+      ownerTransferClaimPresent: true,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.transferOwner
+      .mockRejectedValueOnce(new ProRoomApiError('HTTP_503', 503))
+      .mockResolvedValueOnce({});
+    mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+    mocks.showDialog
+      .mockResolvedValueOnce({ action: 'ok', inputValue: '8765-4321' })
+      .mockResolvedValueOnce({ action: 'ok' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+
+    expect(mocks.transferOwner).toHaveBeenCalledTimes(2);
+    const inputs = mocks.transferOwner.mock.calls.map(([input]) => input);
+    expect(inputs.map((input) => input.claimToken)).toEqual([CLAIM, CLAIM]);
+    expect(inputs.map((input) => input.newPin)).toEqual(['87654321', '87654321']);
+    expect(inputs[0]?.requestId).toMatch(/^mxqr-pro-[a-f0-9]{48}$/);
+    expect(inputs[1]?.requestId).toBe(inputs[0]?.requestId);
+    expect(mocks.resume).not.toHaveBeenCalled();
+    expect(mocks.takeClaims).toHaveBeenCalledOnce();
+    expect(JSON.stringify(sessionStorage)).not.toContain(CLAIM);
+    expect(JSON.stringify(localStorage)).not.toContain(CLAIM);
+  });
+
+  it('shows one account-conflict confirmation for a transfer target mismatch', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: CLAIM,
+      ownerTransferClaimPresent: true,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.transferOwner.mockRejectedValue(
+      new ProRoomApiError('OWNER_TRANSFER_TARGET_ACCOUNT_MISMATCH', 409),
+    );
+    mocks.showDialog
+      .mockResolvedValueOnce({ action: 'ok', inputValue: '87654321' })
+      .mockResolvedValueOnce({ action: 'ok' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+    expect(mocks.transferOwner).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenLastCalledWith({
+      title: 'pro.claim_account_conflict_title',
+      message: 'pro.claim_account_conflict_message',
+      buttonText: 'common.ok',
+    });
+  });
+
+  it('does not retry a transfer link rejected by an unknown 4xx or rate limit', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: CLAIM,
+      ownerTransferClaimPresent: true,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.transferOwner.mockRejectedValue(new ProRoomApiError('RATE_LIMITED', 429));
+    mocks.showDialog
+      .mockResolvedValueOnce({ action: 'ok', inputValue: '87654321' })
+      .mockResolvedValueOnce({ action: 'ok' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+    expect(mocks.transferOwner).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenLastCalledWith({
+      title: 'pro.claim_failed_title',
+      message: 'pro.claim_failed_message',
+      buttonText: 'common.ok',
+    });
+  });
+
+  it.each(['OWNER_TRANSFER_CLAIM_EXPIRED', 'OWNER_TRANSFER_CLAIM_USED'])(
+    'treats %s as terminal without retrying it',
+    async (errorCode) => {
+      mocks.takeClaims.mockReturnValue({
+        activationClaimToken: null,
+        ownerRecoveryClaimToken: null,
+        ownerRecoveryClaimPresent: false,
+        ownerTransferClaimToken: CLAIM,
+        ownerTransferClaimPresent: true,
+      });
+      mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+      mocks.transferOwner.mockRejectedValue(new ProRoomApiError(errorCode, 409));
+      mocks.showDialog
+        .mockResolvedValueOnce({ action: 'ok', inputValue: '87654321' })
+        .mockResolvedValueOnce({ action: 'ok' });
+
+      await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+      expect(mocks.transferOwner).toHaveBeenCalledOnce();
+      expect(mocks.showDialog).toHaveBeenLastCalledWith({
+        title: 'pro.claim_unavailable_title',
+        message: 'pro.new_link_message',
+        buttonText: 'common.ok',
+      });
+    },
+  );
+
+  it.each([
+    ['PRO_ROOM_NOT_FOUND', 404],
+    ['PRO_ROOM_DECOMMISSIONED', 410],
+  ])(
+    'treats claim HTTP %i responses as unavailable without retrying',
+    async (errorCode, status) => {
+      mocks.takeClaims.mockReturnValue({
+        activationClaimToken: null,
+        ownerRecoveryClaimToken: null,
+        ownerRecoveryClaimPresent: false,
+        ownerTransferClaimToken: CLAIM,
+        ownerTransferClaimPresent: true,
+      });
+      mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+      mocks.transferOwner.mockRejectedValue(new ProRoomApiError(errorCode, status));
+      mocks.showDialog
+        .mockResolvedValueOnce({ action: 'ok', inputValue: '87654321' })
+        .mockResolvedValueOnce({ action: 'ok' });
+
+      await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+      expect(mocks.transferOwner).toHaveBeenCalledOnce();
+      expect(mocks.showDialog).toHaveBeenLastCalledWith({
+        title: 'pro.claim_unavailable_title',
+        message: 'pro.new_link_message',
+        buttonText: 'common.ok',
+      });
+    },
+  );
 
   it('discards a used owner recovery claim and directs the user to a new link', async () => {
     mocks.takeClaims.mockReturnValue({
@@ -470,7 +877,7 @@ describe('PRO room setup flow', () => {
       title: 'pro.claim_retry_title',
       message: 'pro.claim_retry_message',
       buttonText: 'common.retry',
-      secondaryText: 'pro.request_new_link',
+      secondaryText: 'common.close',
       dismissible: false,
     });
     expect(JSON.stringify(sessionStorage)).not.toContain(CLAIM);
@@ -545,7 +952,7 @@ describe('PRO room setup flow', () => {
     ]);
   });
 
-  it('offers a new-link path without persisting a transient activation claim', async () => {
+  it('closes a transient retry prompt without adding terminal-link guidance', async () => {
     mocks.takeClaims.mockReturnValue({
       activationClaimToken: CLAIM,
       ownerRecoveryClaimToken: null,
@@ -557,17 +964,16 @@ describe('PRO room setup flow', () => {
     });
     mocks.showDialog
       .mockResolvedValueOnce({ action: 'ok', inputValue: '87654321' })
-      .mockResolvedValueOnce({ action: 'secondary' })
-      .mockResolvedValueOnce({ action: 'ok' });
+      .mockResolvedValueOnce({ action: 'secondary' });
     mocks.activate.mockRejectedValueOnce(new ProRoomApiError('HTTP_503', 503));
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
 
     expect(mocks.activate).toHaveBeenCalledOnce();
-    expect(mocks.showDialog.mock.calls[2]?.[0]).toEqual({
-      title: 'pro.claim_unavailable_title',
-      message: 'pro.new_link_message',
-      buttonText: 'common.ok',
+    expect(mocks.showDialog).toHaveBeenCalledTimes(2);
+    expect(mocks.showDialog.mock.calls[1]?.[0]).toMatchObject({
+      title: 'pro.claim_retry_title',
+      secondaryText: 'common.close',
     });
     expect(JSON.stringify(sessionStorage)).not.toContain(CLAIM);
     expect(JSON.stringify(localStorage)).not.toContain(CLAIM);
@@ -579,5 +985,49 @@ describe('PRO room setup flow', () => {
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
     expect(mocks.resume).not.toHaveBeenCalled();
+  });
+
+  it('allows a valid transfer claim to recover a suspended room', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: CLAIM,
+      ownerTransferClaimPresent: true,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'suspended' });
+    mocks.showDialog.mockResolvedValueOnce({ action: 'ok', inputValue: '87654321' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+
+    expect(mocks.transferOwner).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'pro.transfer_title' }),
+    );
+    expect(mocks.showDialog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'pro.suspended_title' }),
+    );
+  });
+
+  it('rejects a transfer URL that also carries another ownership claim', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      ownerRecoveryClaimToken: CLAIM,
+      ownerRecoveryClaimPresent: true,
+      ownerTransferClaimToken: CLAIM,
+      ownerTransferClaimPresent: true,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'suspended' });
+    mocks.showDialog.mockResolvedValueOnce({ action: 'ok' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+    expect(mocks.transferOwner).not.toHaveBeenCalled();
+    expect(mocks.recoverOwner).not.toHaveBeenCalled();
+    expect(mocks.showDialog).toHaveBeenCalledWith({
+      title: 'pro.claim_unavailable_title',
+      message: 'pro.new_link_message',
+      buttonText: 'common.ok',
+    });
   });
 });

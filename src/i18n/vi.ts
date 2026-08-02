@@ -71,6 +71,8 @@ const vi: Record<I18nKey, string> = {
   'account.delete_confirm_title': 'Xóa tài khoản của bạn?',
   'account.delete_confirm_message':
     'Biệt danh, các phiên đăng nhập và quyền trong phòng liên kết với tài khoản của bạn sẽ bị xóa. Nội dung đã chia sẻ trong phòng tuân theo chính sách lưu giữ của phòng đó.',
+  'account.delete_pending':
+    'Tài khoản của bạn đang được xóa. Quyền PRO đang được thu hồi an toàn và việc xóa sẽ tự động hoàn tất.',
   'common.previous': 'Trước',
   'common.next_desc': 'Tiếp',
   'common.volume_percent': 'Âm lượng: {{val}}%',
@@ -597,10 +599,27 @@ const vi: Record<I18nKey, string> = {
   'pro.claim_retry_title': 'Thử lại bằng liên kết PRO?',
   'pro.claim_retry_message':
     'Kết nối đã bị gián đoạn. Liên kết chỉ được giữ an toàn trên màn hình này nên bạn có thể thử lại.',
-  'pro.request_new_link': 'Yêu cầu liên kết mới',
   'pro.claim_unavailable_title': 'Liên kết này không còn sử dụng được',
+  'pro.claim_login_title': 'Hãy đăng nhập trước',
+  'pro.claim_login_button': 'Đăng nhập',
+  'pro.claim_login_message':
+    'Đăng nhập bằng tài khoản sẽ sở hữu phòng PRO này và hoàn tất thiết lập biệt danh. Liên kết chỉ được giữ trong bộ nhớ của thẻ này.',
+  'pro.claim_popup_blocked_message':
+    'Trình duyệt đã chặn cửa sổ đăng nhập. Hãy cho phép cửa sổ bật lên cho MUSIXQUARE rồi thử lại.',
+  'pro.claim_account_conflict_title': 'Tài khoản này không thể sử dụng phòng',
+  'pro.claim_account_conflict_message':
+    'Phòng này được liên kết với tài khoản khác. Nếu cần thay đổi, hãy yêu cầu quản trị viên chuyển quyền sở hữu.',
+  'pro.claim_account_capacity_title': 'Tài khoản này không thể liên kết thêm phòng',
+  'pro.claim_account_capacity_message':
+    'Tài khoản đã đạt giới hạn phòng PRO được liên kết. Hãy xóa một liên kết hiện có rồi yêu cầu liên kết mới.',
+  'pro.claim_failed_title': 'Không thể hoàn tất yêu cầu',
+  'pro.claim_failed_message':
+    'Để đảm bảo an toàn, liên kết này không được thử lại. Hãy yêu cầu quản trị viên phòng cấp liên kết mới.',
+  'pro.transfer_title': 'Nhận quyền sở hữu phòng PRO',
+  'pro.transfer_message':
+    'Đặt mật khẩu mới gồm 8 chữ số. Khi hoàn tất, quyền truy cập của chủ sở hữu trước sẽ bị thu hồi.',
   'pro.new_link_message':
-    'Hãy yêu cầu người đã gửi liên kết cung cấp liên kết kích hoạt hoặc khôi phục mới.',
+    'Liên kết đã hết hạn hoặc đã được sử dụng. Nếu cần, hãy yêu cầu quản trị viên cấp liên kết mới.',
   'pro.not_ready_title': 'Phòng PRO này chưa sẵn sàng',
   'pro.not_ready_message': 'Chủ phòng cần kích hoạt phòng trước.',
   'pro.suspended_title': 'Phòng PRO này hiện không khả dụng',

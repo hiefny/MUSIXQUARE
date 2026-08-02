@@ -11,10 +11,7 @@ import {
   proRoomObjectName,
 } from './pro-room-generation.js';
 import { isSafeVisibleDisplayName } from './display-name-policy.js';
-import {
-  gateServiceMaintenance,
-  readServiceMaintenance,
-} from './service-maintenance.js';
+import { gateServiceMaintenance, readServiceMaintenance } from './service-maintenance.js';
 
 const ROOM_PATH = /^\/api\/rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_PATH = /^\/api\/pro-rooms\/(\d{6})\/ws$/;
@@ -54,6 +51,7 @@ const PRO_PRESENCE_AUTHORITY_KEY = 'proSignalingPresenceAuthority';
 const PRO_CHAT_CONTROL_STATE_KEY = 'proChatControlState';
 const PRO_BOT_REQUEST_PROOFS_KEY = 'proBotRequestProofs';
 const PRO_DECOMMISSIONED_KEY = 'proRoomDecommissioned';
+const PRO_OWNER_ACCOUNT_DELETION_FENCE_KEY = 'proOwnerAccountDeletionFence';
 const PRO_SIGNALING_TICKET_KIND = 'pro-signaling';
 const PRO_SIGNALING_TICKET_VERSION = 1;
 const PRO_ROOM_GENERATION_HEADER = 'x-mxqr-pro-room-generation';
@@ -87,6 +85,7 @@ const PRO_SERVER_EVENT_TYPES = new Set([
 ]);
 const INTERNAL_ADMIN_BODY_MAX_BYTES = 1024;
 const ADMIN_REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const OWNER_AUTHORITY_REMOVAL_ID_RE = /^removal_[A-Za-z0-9_-]{22}$/;
 const MAX_PRO_TICKET_USES = 1024;
 const MAX_PRO_PARTICIPANT_HIGH_WATER = 256;
 const MAX_GUEST_BINDINGS = 256;
@@ -536,6 +535,64 @@ function normalizeProDecommissioned(value) {
     requestId: value.requestId,
     decommissionedAtMs: value.decommissionedAtMs,
   };
+}
+
+function normalizeProOwnerAccountDeletionFence(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const roomGeneration = exactProRoomGeneration(value.roomGeneration);
+  if (roomGeneration === null) return null;
+  const commonValid =
+    isProNamespaceRoomCode(value.roomCode) &&
+    Number.isSafeInteger(value.fencedCoordinatorEpoch) &&
+    value.fencedCoordinatorEpoch >= 0 &&
+    Number.isSafeInteger(value.installedAtMs) &&
+    value.installedAtMs > 0;
+  if (!commonValid) return null;
+  if (
+    value.v === 1 &&
+    hasExactKeys(
+      value,
+      ['v', 'roomCode', 'fencedCoordinatorEpoch', 'installedAtMs'],
+      ['roomGeneration'],
+    )
+  ) {
+    return {
+      v: 1,
+      roomCode: value.roomCode,
+      roomGeneration,
+      fencedCoordinatorEpoch: value.fencedCoordinatorEpoch,
+      installedAtMs: value.installedAtMs,
+    };
+  }
+  if (
+    value.v === 2 &&
+    hasExactKeys(
+      value,
+      [
+        'v',
+        'roomCode',
+        'removalId',
+        'removedOwnerAuthorityEpoch',
+        'fencedCoordinatorEpoch',
+        'installedAtMs',
+      ],
+      ['roomGeneration'],
+    ) &&
+    OWNER_AUTHORITY_REMOVAL_ID_RE.test(value.removalId || '') &&
+    Number.isSafeInteger(value.removedOwnerAuthorityEpoch) &&
+    value.removedOwnerAuthorityEpoch >= 0
+  ) {
+    return {
+      v: 2,
+      roomCode: value.roomCode,
+      roomGeneration,
+      removalId: value.removalId,
+      removedOwnerAuthorityEpoch: value.removedOwnerAuthorityEpoch,
+      fencedCoordinatorEpoch: value.fencedCoordinatorEpoch,
+      installedAtMs: value.installedAtMs,
+    };
+  }
+  return null;
 }
 
 function utf8ByteLength(value) {
@@ -1553,6 +1610,7 @@ export class MusixquareRoom {
     this.proPresenceAuthority = undefined;
     this.proChatControlState = undefined;
     this.proBotRequestProofs = undefined;
+    this.proOwnerAccountDeletionFence = undefined;
     // Standard-room host metadata and guest reconnect bindings describe one
     // room epoch. Serialize their admission/leave mutations together so an
     // awaited host reconnect write cannot be overwritten by a stale host close
@@ -1815,6 +1873,21 @@ export class MusixquareRoom {
       persistedProGenerationRecord(normalized, normalized.roomGeneration),
     );
     this.proRoomMeta = normalized;
+    return normalized;
+  }
+
+  async loadProOwnerAccountDeletionFence() {
+    if (this.proOwnerAccountDeletionFence !== undefined) {
+      return this.proOwnerAccountDeletionFence;
+    }
+    const stored = await this.state.storage.get(PRO_OWNER_ACCOUNT_DELETION_FENCE_KEY);
+    if (stored === undefined || stored === null) {
+      this.proOwnerAccountDeletionFence = null;
+      return null;
+    }
+    const normalized = normalizeProOwnerAccountDeletionFence(stored);
+    if (!normalized) throw new Error('INVALID_PRO_OWNER_ACCOUNT_DELETION_FENCE');
+    this.proOwnerAccountDeletionFence = normalized;
     return normalized;
   }
 
@@ -2772,6 +2845,11 @@ export class MusixquareRoom {
           this.enqueueProChatMutation(() => this.handleInternalAdminDecommission(request)),
         );
       }
+      if (url.pathname === '/internal/admin/v1/owner-account-deleted') {
+        return this.enqueueProAdmission(() =>
+          this.enqueueProChatMutation(() => this.handleInternalOwnerAccountDeletedFence(request)),
+        );
+      }
       return json({ error: 'NOT_FOUND' }, 404);
     }
     const upgrade = request.headers.get('Upgrade') || '';
@@ -2818,6 +2896,15 @@ export class MusixquareRoom {
         }
         if (decommissioned) {
           return json({ error: 'PRO_ROOM_DECOMMISSIONED' }, 410);
+        }
+        let ownerAccountDeletionFence;
+        try {
+          ownerAccountDeletionFence = await this.loadProOwnerAccountDeletionFence();
+        } catch {
+          return json({ error: 'PRO_SIGNALING_ROOM_STATE_UNAVAILABLE' }, 503);
+        }
+        if (ownerAccountDeletionFence) {
+          return json({ error: 'PRO_OWNER_ACCOUNT_DELETED' }, 423);
         }
         await this.validateRehydratedProSockets(ticket.roomGeneration);
         const pair = new WebSocketPair();
@@ -2921,6 +3008,7 @@ export class MusixquareRoom {
     this.proPresenceAuthority = undefined;
     this.proChatControlState = undefined;
     this.proBotRequestProofs = undefined;
+    this.proOwnerAccountDeletionFence = undefined;
     this.proSocketsValidated = true;
 
     const stored =
@@ -2936,6 +3024,7 @@ export class MusixquareRoom {
           PRO_PRESENCE_AUTHORITY_KEY,
           PRO_CHAT_CONTROL_STATE_KEY,
           PRO_BOT_REQUEST_PROOFS_KEY,
+          PRO_OWNER_ACCOUNT_DELETION_FENCE_KEY,
         ];
     for (const key of keys) {
       if (key !== PRO_DECOMMISSIONED_KEY && typeof this.state.storage.delete === 'function') {
@@ -2952,6 +3041,163 @@ export class MusixquareRoom {
       status: 'decommissioned',
       changed,
     });
+  }
+
+  async handleInternalOwnerAccountDeletedFence(request) {
+    const value = await readBoundedJson(request, INTERNAL_ADMIN_BODY_MAX_BYTES);
+    const roomGeneration = internalProRoomGeneration(request, value);
+    const legacyRequest = hasExactKeys(value, ['roomCode'], ['roomGeneration']);
+    const exactRequest = hasExactKeys(
+      value,
+      [
+        'roomCode',
+        'removalId',
+        'removedOwnerAuthorityEpoch',
+        'fencedCoordinatorEpoch',
+      ],
+      ['roomGeneration'],
+    );
+    if (
+      (!legacyRequest && !exactRequest) ||
+      !isProNamespaceRoomCode(value?.roomCode) ||
+      request.headers.get('x-mxqr-pro-room-code') !== value.roomCode ||
+      roomGeneration === null ||
+      (exactRequest &&
+        (!OWNER_AUTHORITY_REMOVAL_ID_RE.test(value.removalId || '') ||
+          !Number.isSafeInteger(value.removedOwnerAuthorityEpoch) ||
+          value.removedOwnerAuthorityEpoch < 0 ||
+          !isValidProEpoch(value.fencedCoordinatorEpoch)))
+    ) {
+      return json({ error: 'INVALID_REQUEST' }, 400);
+    }
+    const meta = await this.loadProRoomMeta();
+    if (meta && (meta.roomId !== value.roomCode || meta.roomGeneration !== roomGeneration)) {
+      return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
+    }
+    const existing = await this.loadProOwnerAccountDeletionFence();
+    if (
+      existing &&
+      (existing.roomCode !== value.roomCode || existing.roomGeneration !== roomGeneration)
+    ) {
+      return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
+    }
+    if (legacyRequest) {
+      // Rolling deploy compatibility: an older App Worker knows only the
+      // room/generation contract. Preserve its fail-closed behavior without
+      // pretending that it proved a specific PRO removal. A later exact
+      // request can atomically upgrade this v1 fence; same-epoch authority can
+      // never clear it in the meantime.
+      const changed = !existing;
+      const fence =
+        existing ||
+        normalizeProOwnerAccountDeletionFence({
+          v: 1,
+          roomCode: value.roomCode,
+          roomGeneration,
+          fencedCoordinatorEpoch: meta?.coordinatorEpoch || 0,
+          installedAtMs: Date.now(),
+        });
+      if (!fence) return json({ error: 'PRO_SIGNALING_ROOM_STATE_UNAVAILABLE' }, 503);
+      if (changed) {
+        // Publish the in-isolate fence before yielding to storage. A frame
+        // racing this write observes the fence synchronously; persistence keeps
+        // the same denial across hibernation and deployments.
+        this.proOwnerAccountDeletionFence = fence;
+        for (const socket of typeof this.state.getWebSockets === 'function'
+          ? this.state.getWebSockets()
+          : []) {
+          const attachment = readAttachment(socket);
+          if (attachment?.roomKind !== 'pro') continue;
+          closeSocket(socket, 1008, 'PRO_OWNER_ACCOUNT_DELETED');
+        }
+        this.proMembers.clear();
+        this.proSocketsValidated = true;
+        await this.state.storage.put(
+          PRO_OWNER_ACCOUNT_DELETION_FENCE_KEY,
+          persistedProGenerationRecord(fence, roomGeneration),
+        );
+      }
+      return json({
+        ok: true,
+        roomCode: value.roomCode,
+        ...proRoomGenerationWireFields(roomGeneration),
+        status: 'suspended',
+        reason: 'owner_account_deleted',
+        changed,
+      });
+    }
+
+    const requestedCoordinatorEpoch = value.fencedCoordinatorEpoch;
+    const observedCoordinatorEpoch = meta?.coordinatorEpoch || 0;
+    const effectiveCoordinatorEpoch = Math.max(
+      observedCoordinatorEpoch,
+      existing?.fencedCoordinatorEpoch || 0,
+    );
+    const exactResponse = (fenceStatus, changed, effectiveEpoch) =>
+      json({
+        ok: true,
+        roomCode: value.roomCode,
+        ...proRoomGenerationWireFields(roomGeneration),
+        status: 'suspended',
+        reason: 'owner_account_deleted',
+        fenceStatus,
+        changed,
+        removalId: value.removalId,
+        removedOwnerAuthorityEpoch: value.removedOwnerAuthorityEpoch,
+        fencedCoordinatorEpoch: requestedCoordinatorEpoch,
+        effectiveCoordinatorEpoch: effectiveEpoch,
+      });
+
+    // The signaling DO serializes this handler with admission and authoritative
+    // broadcasts. A strictly newer observed authority (or an already newer
+    // durable deletion fence) proves this removal request is stale, so it must
+    // not close the newer owner's sockets or overwrite the newer fence.
+    if (effectiveCoordinatorEpoch > requestedCoordinatorEpoch) {
+      return exactResponse('stale', false, effectiveCoordinatorEpoch);
+    }
+    const exactExisting =
+      existing?.v === 2 &&
+      existing.removalId === value.removalId &&
+      existing.removedOwnerAuthorityEpoch === value.removedOwnerAuthorityEpoch &&
+      existing.fencedCoordinatorEpoch === requestedCoordinatorEpoch;
+    if (exactExisting) {
+      return exactResponse('installed', false, requestedCoordinatorEpoch);
+    }
+    if (existing?.v === 2 && existing.fencedCoordinatorEpoch === requestedCoordinatorEpoch) {
+      return json({ error: 'PRO_OWNER_ACCOUNT_DELETION_FENCE_CONFLICT' }, 409);
+    }
+
+    // No fence, an older fence, or a rollout-era v1 fence can be upgraded only
+    // to the exact PRO-authoritative removal tuple. Never derive the boundary
+    // from signaling's mutable current metadata.
+    const fence = normalizeProOwnerAccountDeletionFence({
+      v: 2,
+      roomCode: value.roomCode,
+      roomGeneration,
+      removalId: value.removalId,
+      removedOwnerAuthorityEpoch: value.removedOwnerAuthorityEpoch,
+      fencedCoordinatorEpoch: requestedCoordinatorEpoch,
+      installedAtMs: Date.now(),
+    });
+    if (!fence) return json({ error: 'PRO_SIGNALING_ROOM_STATE_UNAVAILABLE' }, 503);
+    // Publish the in-isolate fence before yielding to storage. A frame racing
+    // this write observes the fence synchronously; persistence keeps the same
+    // denial across hibernation and deployments.
+    this.proOwnerAccountDeletionFence = fence;
+    for (const socket of typeof this.state.getWebSockets === 'function'
+      ? this.state.getWebSockets()
+      : []) {
+      const attachment = readAttachment(socket);
+      if (attachment?.roomKind !== 'pro') continue;
+      closeSocket(socket, 1008, 'PRO_OWNER_ACCOUNT_DELETED');
+    }
+    this.proMembers.clear();
+    this.proSocketsValidated = true;
+    await this.state.storage.put(
+      PRO_OWNER_ACCOUNT_DELETION_FENCE_KEY,
+      persistedProGenerationRecord(fence, roomGeneration),
+    );
+    return exactResponse('installed', true, requestedCoordinatorEpoch);
   }
 
   async handleInternalProRealtimeBroadcast(request) {
@@ -2978,6 +3224,17 @@ export class MusixquareRoom {
       return json({ error: 'INVALID_REQUEST' }, 400);
     }
 
+    let ownerAccountDeletionFence;
+    try {
+      ownerAccountDeletionFence = await this.loadProOwnerAccountDeletionFence();
+    } catch {
+      return json({ error: 'PRO_SIGNALING_ROOM_STATE_UNAVAILABLE' }, 503);
+    }
+    const restoresOwnerAuthority =
+      ownerAccountDeletionFence &&
+      event.type === 'pro-presence-snapshot' &&
+      targets.length > 0 &&
+      value.coordinatorEpoch > ownerAccountDeletionFence.fencedCoordinatorEpoch;
     await this.validateRehydratedProSockets(roomGeneration);
     let meta = await this.loadProRoomMeta();
     if (meta && (meta.roomId !== value.roomCode || meta.roomGeneration !== roomGeneration)) {
@@ -3018,6 +3275,13 @@ export class MusixquareRoom {
         value.coordinatorEpoch,
         targets,
       );
+      if (restoresOwnerAuthority) {
+        // Clear only after the exact room/generation/epoch snapshot has passed
+        // the monotonic presence-authority checks. A stale or conflicting
+        // cross-worker delivery can therefore never reopen admission.
+        await this.state.storage.delete(PRO_OWNER_ACCOUNT_DELETION_FENCE_KEY);
+        this.proOwnerAccountDeletionFence = null;
+      }
     }
 
     const targetSet = new Set(targets);
@@ -3752,6 +4016,17 @@ export class MusixquareRoom {
   }
 
   async handleProRealtimeMessage(ws, raw, attachment) {
+    let ownerAccountDeletionFence;
+    try {
+      ownerAccountDeletionFence = await this.loadProOwnerAccountDeletionFence();
+    } catch {
+      ownerAccountDeletionFence = { unavailable: true };
+    }
+    if (ownerAccountDeletionFence) {
+      closeSocket(ws, 1008, 'PRO_OWNER_ACCOUNT_DELETED');
+      await this.webSocketClose(ws);
+      return;
+    }
     const meta = await this.loadProRoomMeta();
     const authority = await this.loadProPresenceAuthority(attachment.roomGeneration);
     const current =
@@ -4334,7 +4609,6 @@ export class MusixquareRoom {
     }
   }
 }
-
 
 export default {
   async fetch(request, env) {

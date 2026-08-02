@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 const BOOTSTRAP_SOURCE = readFileSync(resolve('public/bootstrap.js'), 'utf8');
 const INDEX_SOURCE = readFileSync(resolve('index.html'), 'utf8');
+const SERVICE_WORKER_SOURCE = readFileSync(resolve('public/service-worker.js'), 'utf8');
 const CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
 const HANDOFF_KEY = '__mxqrTakeProRoomFragmentClaims';
 const ANALYTICS_SRC = 'https://static.cloudflareinsights.com/beacon.min.js';
@@ -18,18 +19,25 @@ interface FakeScript {
 
 function runBootstrap(
   hash: string,
-  options: { paramsFail?: boolean; replaceFails?: boolean } = {},
+  options: {
+    paramsFail?: boolean;
+    replaceFails?: boolean;
+    search?: string;
+    expectedScrubUrl?: string;
+  } = {},
 ) {
   const events: string[] = [];
   const appendedScripts: FakeScript[] = [];
-  const location = { hash, pathname: '/000001', search: '?lang=ko' };
+  const location = { hash, pathname: '/000001', search: options.search ?? '?lang=ko' };
   const history = {
     state: { test: true },
     replaceState(_state: unknown, _unused: string, url: string) {
       events.push('scrub');
       if (options.replaceFails) throw new Error('history unavailable');
-      expect(url).toBe('/000001?lang=ko');
-      location.hash = '';
+      expect(url).toBe(options.expectedScrubUrl ?? '/000001?lang=ko');
+      const parsed = new URL(url, 'https://musixquare.com');
+      location.search = parsed.search;
+      location.hash = parsed.hash;
     },
   };
   const documentElement = {
@@ -91,16 +99,25 @@ function runBootstrap(
 
 describe('early PRO claim bootstrap', () => {
   it('keeps the self-hosted scrubber ahead of app code and removes the static analytics tag', () => {
-    const bootstrapIndex = INDEX_SOURCE.indexOf('<script src="/bootstrap.js"></script>');
+    const cacheVersion = SERVICE_WORKER_SOURCE.match(/const CACHE_VERSION = '(v\d+)';/)?.[1];
+    const bootstrapSource = `/bootstrap.js?cache=${cacheVersion}`;
+    const bootstrapIndex = INDEX_SOURCE.indexOf(`<script src="${bootstrapSource}"></script>`);
     const appIndex = INDEX_SOURCE.indexOf('<script type="module" src="/src/app.ts"></script>');
 
+    expect(cacheVersion).toMatch(/^v\d+$/);
     expect(bootstrapIndex).toBeGreaterThan(-1);
     expect(bootstrapIndex).toBeLessThan(appIndex);
+    expect(SERVICE_WORKER_SOURCE).toContain(
+      'const BOOTSTRAP_CACHE_KEY = `./bootstrap.js?cache=${CACHE_VERSION}`;',
+    );
+    expect(SERVICE_WORKER_SOURCE).toContain('BOOTSTRAP_CACHE_KEY,');
     expect(INDEX_SOURCE).not.toContain(`src="${ANALYTICS_SRC}"`);
   });
 
   it('scrubs before exposing a one-use non-enumerable handoff or starting analytics', () => {
-    const harness = runBootstrap(`#view=setup&pro-claim=${CLAIM}&pro-recovery=${CLAIM}`);
+    const harness = runBootstrap(
+      `#view=setup&pro-claim=${CLAIM}&pro-recovery=${CLAIM}&pro-transfer=${CLAIM}`,
+    );
     const descriptor = Object.getOwnPropertyDescriptor(harness.windowObject, HANDOFF_KEY);
 
     expect(harness.location.hash).toBe('');
@@ -118,8 +135,11 @@ describe('early PRO claim bootstrap', () => {
     const take = descriptor?.value as () => unknown;
     expect(take()).toEqual({
       activationClaim: CLAIM,
+      activationPresent: true,
       recoveryClaim: CLAIM,
       recoveryPresent: true,
+      transferClaim: CLAIM,
+      transferPresent: true,
     });
     expect(harness.events).toEqual(['scrub', 'analytics']);
     expect(harness.appendedScripts).toHaveLength(1);
@@ -137,10 +157,71 @@ describe('early PRO claim bootstrap', () => {
   });
 
   it('does not start analytics for a credential-like hash when parsing is unavailable', () => {
-    const harness = runBootstrap(`#pro-recovery=${CLAIM}`, { paramsFail: true });
+    const harness = runBootstrap(`#pro-transfer=${CLAIM}`, { paramsFail: true });
 
     expect(harness.appendedScripts).toEqual([]);
-    expect(harness.location.hash).toBe(`#pro-recovery=${CLAIM}`);
+    expect(harness.location.hash).toBe(`#pro-transfer=${CLAIM}`);
+  });
+
+  it('rejects and scrubs query-string claims before analytics while preserving safe URL state', () => {
+    const harness = runBootstrap('#view=setup', {
+      search: `?lang=ko&pro-transfer=${CLAIM}`,
+      expectedScrubUrl: '/000001?lang=ko#view=setup',
+    });
+    const descriptor = Object.getOwnPropertyDescriptor(harness.windowObject, HANDOFF_KEY);
+
+    expect(harness.location.search).toBe('?lang=ko');
+    expect(harness.location.hash).toBe('#view=setup');
+    expect(harness.events).toEqual(['scrub']);
+    expect(harness.appendedScripts).toEqual([]);
+    expect(typeof descriptor?.value).toBe('function');
+
+    const take = descriptor?.value as () => unknown;
+    expect(take()).toEqual({
+      activationClaim: null,
+      activationPresent: false,
+      recoveryClaim: null,
+      recoveryPresent: false,
+      transferClaim: null,
+      transferPresent: true,
+    });
+    expect(harness.events).toEqual(['scrub', 'analytics']);
+  });
+
+  it('invalidates a fragment claim when any query credential contaminates the URL', () => {
+    const harness = runBootstrap(`#pro-transfer=${CLAIM}`, {
+      search: `?PRO-CLAIM=${CLAIM}&lang=ko`,
+      expectedScrubUrl: '/000001?lang=ko',
+    });
+    const take = Object.getOwnPropertyDescriptor(harness.windowObject, HANDOFF_KEY)
+      ?.value as () => Record<string, unknown> | null;
+
+    expect(harness.location.search).toBe('?lang=ko');
+    expect(harness.location.hash).toBe('');
+    expect(take()).toEqual({
+      activationClaim: null,
+      activationPresent: true,
+      recoveryClaim: null,
+      recoveryPresent: false,
+      transferClaim: null,
+      transferPresent: true,
+    });
+    expect(
+      Object.values(harness.windowObject).some(
+        (value) => typeof value === 'string' && value.includes(CLAIM),
+      ),
+    ).toBe(false);
+  });
+
+  it('keeps analytics and handoff disabled when a query credential cannot be scrubbed', () => {
+    const harness = runBootstrap('', {
+      search: `?pro-recovery=${CLAIM}`,
+      replaceFails: true,
+    });
+
+    expect(harness.location.search).toContain(CLAIM);
+    expect(harness.appendedScripts).toEqual([]);
+    expect(Object.prototype.hasOwnProperty.call(harness.windowObject, HANDOFF_KEY)).toBe(false);
   });
 
   it('preserves Cloudflare Analytics for ordinary URLs without installing a handoff', () => {

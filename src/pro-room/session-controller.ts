@@ -8,6 +8,7 @@ import {
   type EnterProRoomPresenceOptions,
   type ProRoomSignalingAccess,
   type RecoverProRoomOwnerInput,
+  type TransferProRoomOwnerInput,
 } from './api.ts';
 import type { ProRoomSnapshot } from './contracts.ts';
 import { projectProRoomContext } from './context.ts';
@@ -17,6 +18,7 @@ import type { RoomContext } from '../types/index.ts';
 interface ProRoomSessionApi {
   activate(input: ActivateProRoomInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   recoverOwner(input: RecoverProRoomOwnerInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
+  transferOwner(input: TransferProRoomOwnerInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   createSession(input: CreateProRoomSessionInput, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   enterPresence(code: string, options?: EnterProRoomPresenceOptions): Promise<ProRoomSnapshot>;
   attachCurrentAccount(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
@@ -156,6 +158,17 @@ export class ProRoomSessionController {
   ): Promise<ProRoomSnapshot> {
     return this.#open(
       (operationSignal) => this.api.recoverOwner(input, operationSignal),
+      input.code,
+      signal,
+    );
+  }
+
+  async transferOwner(
+    input: TransferProRoomOwnerInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomSnapshot> {
+    return this.#open(
+      (operationSignal) => this.api.transferOwner(input, operationSignal),
       input.code,
       signal,
     );

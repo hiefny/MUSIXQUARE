@@ -68,6 +68,8 @@ const ko = {
   'account.delete_confirm_title': '계정을 삭제할까요?',
   'account.delete_confirm_message':
     '닉네임, 로그인 세션, 계정에 연결된 방 권한이 삭제돼요. 방에 공유한 콘텐츠는 해당 방의 보관 정책을 따라요.',
+  'account.delete_pending':
+    '계정을 삭제하고 있어요. PRO 권한을 안전하게 정리 중이며 삭제는 자동으로 마무리돼요.',
   'common.previous': '이전 설명',
   'common.next_desc': '다음 설명',
   'common.volume_percent': '볼륨: {{val}}%',
@@ -656,9 +658,27 @@ const ko = {
   'pro.claim_retry_title': 'PRO 링크로 다시 시도할까요?',
   'pro.claim_retry_message':
     '연결이 중단됐어요. 이 화면에서 링크를 안전하게 유지하고 있으니 다시 시도할 수 있어요.',
-  'pro.request_new_link': '새 링크 요청하기',
   'pro.claim_unavailable_title': '이 링크는 더 이상 사용할 수 없어요',
-  'pro.new_link_message': '링크를 보내준 사람에게 새 활성화 또는 복구 링크를 요청해 주세요.',
+  'pro.claim_login_title': '먼저 로그인해 주세요',
+  'pro.claim_login_button': '로그인',
+  'pro.claim_login_message':
+    '계속하려면 이 PRO 방을 소유할 계정으로 로그인하고 닉네임 설정을 완료해 주세요. 링크는 이 탭의 메모리에만 잠시 유지돼요.',
+  'pro.claim_popup_blocked_message':
+    '브라우저가 로그인 창을 차단했어요. MUSIXQUARE의 팝업을 허용한 뒤 다시 시도해 주세요.',
+  'pro.claim_account_conflict_title': '이 계정에서는 사용할 수 없어요',
+  'pro.claim_account_conflict_message':
+    '이 방은 다른 계정에 연결되어 있어요. 소유권을 변경하려면 관리자에게 이전을 요청해 주세요.',
+  'pro.claim_account_capacity_title': '이 계정에 더 연결할 수 없어요',
+  'pro.claim_account_capacity_message':
+    '이 계정의 PRO 방 연결 한도에 도달했어요. 계정 연결을 정리한 뒤 새 링크를 요청해 주세요.',
+  'pro.claim_failed_title': '이 요청을 완료할 수 없어요',
+  'pro.claim_failed_message':
+    '안전을 위해 이 링크를 다시 시도하지 않았어요. 방 관리자에게 새 링크를 요청해 주세요.',
+  'pro.transfer_title': 'PRO 방 소유권 받기',
+  'pro.transfer_message':
+    '이 방에서 사용할 새 8자리 암호를 설정해 주세요. 완료되면 이전 소유자의 접근 권한은 해제돼요.',
+  'pro.new_link_message':
+    '링크가 만료되었거나 이미 사용되었어요. 필요하면 관리자에게 새 링크를 요청해 주세요.',
   'pro.not_ready_title': '아직 준비 중인 PRO 방이에요',
   'pro.not_ready_message': '방 소유자가 먼저 활성화해야 해요.',
   'pro.suspended_title': '현재 이용할 수 없는 PRO 방이에요',

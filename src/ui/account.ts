@@ -10,7 +10,13 @@ import {
   subscribeAccount,
   type AccountSnapshot,
 } from '../account/state.ts';
-import { removeAccount, signOutAccount, startAccountSessionRefresh } from '../account/session.ts';
+import {
+  removeAccount,
+  setAccountLoginPopupHandler,
+  signOutAccount,
+  startAccountSessionRefresh,
+  type AccountLoginPopupOutcome,
+} from '../account/session.ts';
 import {
   accountNicknameMutationErrorMessage,
   ACCOUNT_NICKNAME_MAX_CODE_POINTS,
@@ -41,6 +47,7 @@ const ACCOUNT_LOGIN_POPUP_POLL_MS = 250;
 const ACCOUNT_STATS_PLACEHOLDER = '—';
 const ACCOUNT_STATS_COUNT_UP_DURATION_MS = 1_200;
 type AccountAuthOutcome = 'cancelled' | 'error';
+type AccountNicknameChangeOutcome = 'completed' | 'cancelled' | 'error';
 type CompletedAccount = NonNullable<AccountSnapshot['account']>;
 type AccountStatsOwner = string;
 type AccountStatValueElements = {
@@ -69,6 +76,13 @@ let _profilePromptActive = false;
 let _accountActionPending = false;
 let _accountLoginPopup: Window | null = null;
 let _accountLoginPopupMonitor: ReturnType<typeof setInterval> | null = null;
+let _accountLoginPopupAttempt: {
+  popup: Window | null;
+  popupClosed: boolean;
+  promise: Promise<AccountLoginPopupOutcome>;
+  resolve: (outcome: AccountLoginPopupOutcome) => void;
+  unsubscribe: () => void;
+} | null = null;
 let _accountLoginNavigationGuard: ReturnType<typeof setTimeout> | null = null;
 let _accountResultChannel: BroadcastChannel | null = null;
 let _accountResultLifecycleBound = false;
@@ -434,8 +448,54 @@ function handleAccountAuthOutcome(outcome: AccountAuthOutcome, id: string): void
   }
   _accountLoginPopup = null;
   stopAccountLoginPopupMonitor();
+  if (_accountLoginPopupAttempt) {
+    settleAccountLoginPopupAttempt(outcome);
+    return;
+  }
   openAccountDialog();
   showToast(t(outcome === 'cancelled' ? 'account.login_cancelled' : 'account.login_failed'));
+}
+
+function settleAccountLoginPopupAttempt(outcome: AccountLoginPopupOutcome): void {
+  const attempt = _accountLoginPopupAttempt;
+  if (!attempt) return;
+  _accountLoginPopupAttempt = null;
+  if (attempt.popup && _accountLoginPopup === attempt.popup) {
+    _accountLoginPopup = null;
+    stopAccountLoginPopupMonitor();
+  }
+  attempt.unsubscribe();
+  attempt.resolve(outcome);
+}
+
+function observeAccountLoginPopupAttempt(snapshot: Readonly<AccountSnapshot>): void {
+  const attempt = _accountLoginPopupAttempt;
+  if (!attempt) return;
+  if (getCompletedAccount(snapshot)) {
+    _accountLoginPopup = null;
+    stopAccountLoginPopupMonitor();
+    settleAccountLoginPopupAttempt('authenticated');
+    return;
+  }
+  if (snapshot.status === 'authenticated' && snapshot.account) return;
+  if (!attempt.popupClosed || snapshot.status === 'loading') return;
+  settleAccountLoginPopupAttempt(snapshot.status === 'anonymous' ? 'cancelled' : 'error');
+}
+
+function createAccountLoginPopupAttempt(popup: Window | null): Promise<AccountLoginPopupOutcome> {
+  let resolveAttempt!: (outcome: AccountLoginPopupOutcome) => void;
+  const promise = new Promise<AccountLoginPopupOutcome>((resolve) => {
+    resolveAttempt = resolve;
+  });
+  _accountLoginPopupAttempt = {
+    popup,
+    popupClosed: false,
+    promise,
+    resolve: resolveAttempt,
+    unsubscribe: () => undefined,
+  };
+  _accountLoginPopupAttempt.unsubscribe = subscribeAccount(observeAccountLoginPopupAttempt);
+  return promise;
 }
 
 function stopAccountLoginPopupMonitor(): void {
@@ -520,6 +580,104 @@ function focusAccountLoginPopup(popup: Window): void {
   }
 }
 
+function openIsolatedAccountLoginPopup():
+  | { outcome: 'opened'; popup: Window }
+  | { outcome: 'blocked' | 'error' } {
+  let loginUrl: string;
+  let popup: Window | null;
+  try {
+    loginUrl = buildGoogleLoginUrl(
+      location,
+      `${ACCOUNT_COMPLETION_PATH}?accountClient=${encodeURIComponent(ACCOUNT_CLIENT_ID)}`,
+    );
+    // Start with a same-origin blank document so the opener can be severed
+    // before Google owns the popup.
+    popup = window.open(
+      'about:blank',
+      `mxqr-google-login-${ACCOUNT_CLIENT_ID}`,
+      'popup=yes,width=520,height=720,resizable=yes,scrollbars=yes',
+    );
+  } catch {
+    return { outcome: 'error' };
+  }
+  if (!popup) return { outcome: 'blocked' };
+
+  try {
+    // The completion page uses BroadcastChannel/storage, so it does not need
+    // a live opener reference while visiting the OAuth provider.
+    popup.opener = null;
+    popup.location.replace(loginUrl);
+  } catch {
+    try {
+      popup.close();
+    } catch {
+      // Best-effort cleanup only.
+    }
+    return { outcome: 'error' };
+  }
+  return { outcome: 'opened', popup };
+}
+
+/**
+ * Open the existing account OAuth popup without any same-tab fallback. This
+ * synchronous function is safe to call from a real click/Enter activation and
+ * lets security-sensitive callers retain one-time credentials only in memory.
+ */
+function requestAccountLoginPopupOnly(): Promise<AccountLoginPopupOutcome> {
+  bindAccountAuthResultLifecycle();
+  const snapshot = getAccountSnapshot();
+  if (getCompletedAccount(snapshot)) return Promise.resolve('authenticated');
+
+  const pending = _accountLoginPopupAttempt;
+  if (pending) {
+    if (pending.popup) focusAccountLoginPopup(pending.popup);
+    return pending.promise;
+  }
+
+  if (snapshot.status === 'authenticated' && snapshot.account) {
+    const promise = createAccountLoginPopupAttempt(null);
+    _profilePromptShown = true;
+    void requestAccountNicknameChange().then((outcome) => {
+      if (!_accountLoginPopupAttempt) return;
+      if (outcome === 'completed') {
+        observeAccountLoginPopupAttempt(getAccountSnapshot());
+        return;
+      }
+      settleAccountLoginPopupAttempt(outcome === 'cancelled' ? 'cancelled' : 'error');
+    });
+    return promise;
+  }
+
+  const existingPopup = _accountLoginPopup;
+  if (existingPopup) {
+    try {
+      if (!existingPopup.closed) {
+        const promise = createAccountLoginPopupAttempt(existingPopup);
+        focusAccountLoginPopup(existingPopup);
+        return promise;
+      }
+    } catch {
+      // An unreadable provider-owned handle is still live enough to await.
+      const promise = createAccountLoginPopupAttempt(existingPopup);
+      focusAccountLoginPopup(existingPopup);
+      return promise;
+    }
+    _accountLoginPopup = null;
+    stopAccountLoginPopupMonitor();
+  }
+
+  const opened = openIsolatedAccountLoginPopup();
+  if (opened.outcome !== 'opened') return Promise.resolve(opened.outcome);
+
+  const promise = createAccountLoginPopupAttempt(opened.popup);
+  _accountLoginPopup = opened.popup;
+  monitorAccountLoginPopup(opened.popup);
+  focusAccountLoginPopup(opened.popup);
+  return promise;
+}
+
+setAccountLoginPopupHandler(requestAccountLoginPopupOnly);
+
 function monitorAccountLoginPopup(popup: Window): void {
   stopAccountLoginPopupMonitor();
   const monitor = globalThis.setInterval(() => {
@@ -546,6 +704,9 @@ function monitorAccountLoginPopup(popup: Window): void {
     // emits no BroadcastChannel/storage pulse. Reconcile the HttpOnly cookie
     // directly; startAccountSessionRefresh also queues a follow-up if another
     // account read happens to be in flight.
+    if (_accountLoginPopupAttempt?.popup === popup) {
+      _accountLoginPopupAttempt.popupClosed = true;
+    }
     startAccountSessionRefresh();
   }, ACCOUNT_LOGIN_POPUP_POLL_MS);
   _accountLoginPopupMonitor = monitor;
@@ -790,12 +951,12 @@ export function openAccountDialog(): void {
   });
 }
 
-export async function requestAccountNicknameChange(): Promise<void> {
+export async function requestAccountNicknameChange(): Promise<AccountNicknameChangeOutcome> {
   if (!isAccountAuthenticated()) {
     openAccountDialog();
-    return;
+    return 'cancelled';
   }
-  if (_profilePromptActive) return;
+  if (_profilePromptActive) return 'cancelled';
   _profilePromptActive = true;
 
   try {
@@ -822,15 +983,15 @@ export async function requestAccountNicknameChange(): Promise<void> {
         defaultFocus: 'primary',
         dismissible: true,
       });
-      if (result.action !== 'ok') return;
+      if (result.action !== 'ok') return 'cancelled';
       try {
         const nickname = await updateCurrentAccountNickname(result.inputValue || '');
         showToast(t('account.nickname_saved', { name: nickname }));
-        return;
+        return 'completed';
       } catch (error) {
         const message = accountNicknameMutationErrorMessage(error);
         showToast(message);
-        if (!isAccountNicknameTakenError(error)) return;
+        if (!isAccountNicknameTakenError(error)) return 'error';
         // A race-safe UNIQUE constraint can reject a name after the local
         // validator passes. Keep the attempted spelling and immediately let
         // both first-login and later rename flows try another name.
@@ -877,49 +1038,15 @@ function bindAccountDialog(): void {
       stopAccountLoginPopupMonitor();
     }
 
-    let loginUrl: string;
-    let popup: Window | null;
-    try {
-      loginUrl = buildGoogleLoginUrl(
-        location,
-        `${ACCOUNT_COMPLETION_PATH}?accountClient=${encodeURIComponent(ACCOUNT_CLIENT_ID)}`,
-      );
-      // Start with a same-origin blank document so the opener can be severed
-      // before Google owns the popup. Opening the OAuth URL directly can race
-      // its redirect and make `popup.opener = null` a cross-origin access.
-      popup = window.open(
-        'about:blank',
-        `mxqr-google-login-${ACCOUNT_CLIENT_ID}`,
-        'popup=yes,width=520,height=720,resizable=yes,scrollbars=yes',
-      );
-    } catch {
-      preserveActiveRoomOrPrepareSameTabAccountLogin(anchor, event);
-      return;
-    }
-    if (!popup) {
-      preserveActiveRoomOrPrepareSameTabAccountLogin(anchor, event);
-      return;
-    }
-    try {
-      // The completion page uses BroadcastChannel/storage, so it does not
-      // need a live opener reference while visiting the OAuth provider.
-      popup.opener = null;
-      popup.location.replace(loginUrl);
-    } catch {
-      // If a constrained browser rejects the isolated-popup bootstrap, close
-      // its blank window before considering the same-tab fallback.
-      try {
-        popup.close();
-      } catch {
-        // Best-effort cleanup only.
-      }
+    const opened = openIsolatedAccountLoginPopup();
+    if (opened.outcome !== 'opened') {
       preserveActiveRoomOrPrepareSameTabAccountLogin(anchor, event);
       return;
     }
     event.preventDefault();
-    _accountLoginPopup = popup;
-    monitorAccountLoginPopup(popup);
-    focusAccountLoginPopup(popup);
+    _accountLoginPopup = opened.popup;
+    monitorAccountLoginPopup(opened.popup);
+    focusAccountLoginPopup(opened.popup);
   });
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) closeAccountDialog();
@@ -985,8 +1112,9 @@ function bindAccountDialog(): void {
     if (confirmation.action !== 'ok') return;
     setPending(true);
     try {
-      await removeAccount();
+      const result = await removeAccount();
       setPending(false);
+      if (result.pending) showToast(t('account.delete_pending'));
     } catch {
       setPending(false);
       showToast(t('account.action_failed'));
@@ -1040,7 +1168,10 @@ function handleAccountState(snapshot: Readonly<AccountSnapshot>): void {
     // it with the first-login nickname dialog instead of stacking two modal
     // focus traps over each other.
     closeAccountDialog();
-    void requestAccountNicknameChange();
+    void requestAccountNicknameChange().then((outcome) => {
+      if (!_accountLoginPopupAttempt || outcome === 'completed') return;
+      settleAccountLoginPopupAttempt(outcome === 'cancelled' ? 'cancelled' : 'error');
+    });
   }
 }
 
@@ -1091,6 +1222,7 @@ export function __resetAccountUiForTests(): void {
   _accountStatsNumberFormatterLocale = null;
   _accountStatsNumberFormatter = null;
   _accountLoginPopup = null;
+  if (_accountLoginPopupAttempt) settleAccountLoginPopupAttempt('error');
   stopAccountLoginPopupMonitor();
   stopAccountLoginNavigationGuard();
   _handledAccountResultIds.clear();

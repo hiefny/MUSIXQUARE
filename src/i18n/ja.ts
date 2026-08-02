@@ -70,6 +70,8 @@ const ja: Record<I18nKey, string> = {
   'account.delete_confirm_title': 'アカウントを削除しますか？',
   'account.delete_confirm_message':
     'ニックネーム、ログインセッション、アカウントに紐づくルーム権限が削除されます。ルームで共有したコンテンツには、そのルームの保存方針が適用されます。',
+  'account.delete_pending':
+    'アカウントを削除しています。PRO権限を安全に整理しており、削除は自動的に完了します。',
   'common.previous': '前へ',
   'common.next_desc': '次へ',
   'common.volume_percent': '音量: {{val}}%',
@@ -600,10 +602,27 @@ const ja: Record<I18nKey, string> = {
   'pro.claim_retry_title': 'PROリンクでもう一度試しますか？',
   'pro.claim_retry_message':
     '接続が中断されました。リンクはこの画面内だけで安全に保持されているため、再試行できます。',
-  'pro.request_new_link': '新しいリンクを依頼',
   'pro.claim_unavailable_title': 'このリンクはもう使用できません',
+  'pro.claim_login_title': '先にログインしてください',
+  'pro.claim_login_button': 'ログイン',
+  'pro.claim_login_message':
+    'このPROルームのオーナーになるアカウントでログインし、ニックネーム設定を完了してください。リンクはこのタブのメモリ内だけに保持されます。',
+  'pro.claim_popup_blocked_message':
+    'ブラウザがログインウィンドウをブロックしました。MUSIXQUAREのポップアップを許可して、もう一度お試しください。',
+  'pro.claim_account_conflict_title': 'このアカウントではルームを使用できません',
+  'pro.claim_account_conflict_message':
+    'このルームは別のアカウントに連携されています。変更する場合は、管理者に所有権の移行を依頼してください。',
+  'pro.claim_account_capacity_title': 'このアカウントには別のルームを連携できません',
+  'pro.claim_account_capacity_message':
+    '連携できるPROルームの上限に達しました。既存の連携を解除してから、新しいリンクを依頼してください。',
+  'pro.claim_failed_title': 'リクエストを完了できませんでした',
+  'pro.claim_failed_message':
+    '安全のため、このリンクでは再試行しませんでした。ルーム管理者に新しいリンクを依頼してください。',
+  'pro.transfer_title': 'PROルームの所有権を引き継ぐ',
+  'pro.transfer_message':
+    '新しい8桁のパスワードを設定してください。完了すると、以前のオーナーのアクセス権は無効になります。',
   'pro.new_link_message':
-    'リンクの送信者に、新しい有効化リンクまたは復旧リンクを依頼してください。',
+    'リンクの有効期限が切れているか、すでに使用されています。必要な場合は管理者に新しいリンクを依頼してください。',
   'pro.not_ready_title': 'まだ準備中のPROルームです',
   'pro.not_ready_message': 'ルームのオーナーが先に有効化する必要があります。',
   'pro.suspended_title': 'このPROルームは現在利用できません',

@@ -166,12 +166,18 @@ describe('account API client', () => {
   it('requires explicit confirmation for account deletion', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true }));
 
-    await deleteAccount();
+    await expect(deleteAccount()).resolves.toEqual({ pending: false });
 
     expect(fetch).toHaveBeenCalledWith(
       '/api/auth/account',
       expect.objectContaining({ method: 'DELETE', body: JSON.stringify({ confirm: true }) }),
     );
+  });
+
+  it('reports a 202 account deletion as pending instead of completed', async () => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true, pending: true }, 202));
+
+    await expect(deleteAccount()).resolves.toEqual({ pending: true });
   });
 
   it('parses attach and deletion room assertions without confusing their authority', async () => {

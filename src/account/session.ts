@@ -4,6 +4,7 @@ import {
   logoutAccount,
   logoutAllAccounts,
   updateAccountProfile,
+  type AccountDeletionResult,
   type AccountProfile,
 } from './api.ts';
 import {
@@ -26,6 +27,24 @@ let _syncChannel: BroadcastChannel | null = null;
 const ACCOUNT_REFRESH_DEBOUNCE_MS = 30_000;
 const ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
 const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
+
+export type AccountLoginPopupOutcome = 'authenticated' | 'cancelled' | 'error' | 'blocked';
+
+type AccountLoginPopupHandler = () => Promise<AccountLoginPopupOutcome>;
+let _accountLoginPopupHandler: AccountLoginPopupHandler | null = null;
+
+/**
+ * Register the UI-owned OAuth popup implementation behind an account-layer
+ * bridge. Security-sensitive room flows can invoke it from a real user gesture
+ * without importing a UI module back into the PRO domain.
+ */
+export function setAccountLoginPopupHandler(handler: AccountLoginPopupHandler): void {
+  _accountLoginPopupHandler = handler;
+}
+
+export function requestAccountLoginPopup(): Promise<AccountLoginPopupOutcome> {
+  return _accountLoginPopupHandler?.() ?? Promise.resolve('error');
+}
 
 function isAccountRefreshMessage(value: unknown): boolean {
   return !!value && typeof value === 'object' && (value as { type?: unknown }).type === 'refresh';
@@ -173,17 +192,19 @@ export async function signOutAccount(everywhere = false): Promise<void> {
   }
 }
 
-export async function removeAccount(): Promise<void> {
+export async function removeAccount(): Promise<AccountDeletionResult> {
   const generation = ++_operationGeneration;
   const sessionFence = _sessionFence;
   _mutationDepth += 1;
   try {
-    await deleteAccount();
+    const result = await deleteAccount();
     if (sessionFence === _sessionFence && generation === _operationGeneration) {
-      bus.emit('account:deleted');
+      if (result.pending) bus.emit('account:deletion-pending');
+      else bus.emit('account:deleted');
       setAccountAnonymous(true);
     }
     broadcastAccountChange();
+    return result;
   } finally {
     _mutationDepth -= 1;
     drainRefreshFollowUp();

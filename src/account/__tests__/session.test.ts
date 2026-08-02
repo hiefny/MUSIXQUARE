@@ -31,9 +31,9 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve };
 }
 
-function jsonResponse(value: unknown): Response {
+function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
-    status: 200,
+    status,
     headers: { 'Content-Type': 'application/json' },
   });
 }
@@ -197,12 +197,33 @@ describe('account session mutation ordering', () => {
     oldRead.resolve(jsonResponse(AUTHENTICATED_OLD));
     deletion.resolve(jsonResponse({ ok: true }));
 
-    await operation;
+    await expect(operation).resolves.toEqual({ pending: false });
     expect(deleted).toHaveBeenCalledOnce();
     expect(getAccountSnapshot().status).toBe('anonymous');
 
     reconciledRead.resolve(jsonResponse(ANONYMOUS));
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+  });
+
+  it('keeps a 202 deletion pending while revoking local account and room identity state', async () => {
+    applyAccountSession(AUTHENTICATED_NEW);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        expect(String(input)).toBe('/api/auth/account');
+        return jsonResponse({ ok: true, pending: true }, 202);
+      }),
+    );
+    const deleted = vi.fn();
+    const pending = vi.fn();
+    bus.on('account:deleted', deleted);
+    bus.on('account:deletion-pending', pending);
+
+    await expect(removeAccount()).resolves.toEqual({ pending: true });
+
+    expect(deleted).not.toHaveBeenCalled();
+    expect(pending).toHaveBeenCalledOnce();
+    expect(getAccountSnapshot().status).toBe('anonymous');
   });
 
   it('keeps a saved nickname authoritative over a read started before the save', async () => {

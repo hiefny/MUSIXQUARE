@@ -156,17 +156,17 @@ describe('account login return continuity', () => {
     expect(restoreAccountLoginReturnPath()).toBe(false);
     expect(localStorage.getItem(DURABLE_STORAGE_KEY)).toBeNull();
 
-    localStorage.setItem(
-      DURABLE_STORAGE_KEY,
-      JSON.stringify({
-        attemptId: 'attempt-secret-1234',
-        returnTo: '/000001#pro-recovery=secret',
-        roomCode: '000001',
-        createdAt: Date.now(),
-      }),
-    );
-    expect(restoreAccountLoginReturnPath()).toBe(false);
-    expect(localStorage.getItem(DURABLE_STORAGE_KEY)).toBeNull();
+    for (const [attemptId, returnTo] of [
+      ['attempt-recovery-1234', '/000001#pro-recovery=secret'],
+      ['attempt-transfer-1234', '/000001#pro-transfer=secret'],
+    ]) {
+      localStorage.setItem(
+        DURABLE_STORAGE_KEY,
+        JSON.stringify({ attemptId, returnTo, roomCode: '000001', createdAt: Date.now() }),
+      );
+      expect(restoreAccountLoginReturnPath()).toBe(false);
+      expect(localStorage.getItem(DURABLE_STORAGE_KEY)).toBeNull();
+    }
 
     sessionStorage.setItem(
       SESSION_STORAGE_KEY,

@@ -14,6 +14,7 @@ import {
   parseProRoomClaimToken,
   parseProRoomMemberTokenForTests as parseProRoomMemberToken,
   parseProRoomOwnerRecoveryClaimToken,
+  parseProRoomOwnerTransferClaimToken,
 } from '../credentials.ts';
 import { applyProRoomSnapshotMonotonically } from '../revision.ts';
 import { parseProRoomPlaylistItem, parseProRoomSnapshot } from '../snapshot.ts';
@@ -271,10 +272,12 @@ describe('PRO room roles and credentials', () => {
     expect(parseProRoomMemberToken(opaque)).toBe(opaque);
     expect(parseProRoomClaimToken(opaque)).toBe(opaque);
     expect(parseProRoomOwnerRecoveryClaimToken(opaque)).toBe(opaque);
+    expect(parseProRoomOwnerTransferClaimToken(opaque)).toBe(opaque);
     expect(parseProRoomMemberToken('short')).toBeNull();
     expect(parseProRoomMemberToken('a'.repeat(31) + '/')).toBeNull();
     expect(parseProRoomClaimToken('a'.repeat(2049))).toBeNull();
     expect(parseProRoomOwnerRecoveryClaimToken('short')).toBeNull();
+    expect(parseProRoomOwnerTransferClaimToken('short')).toBeNull();
   });
 });
 

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker, {
   readResponseBodyLimitedForTests,
+  purgeProRoomAccountAuthorityForTests,
+  reconcileOwnerTransferSagasForTests,
   reconcileStaleAdminProRoomActivationsForTests,
   sanitizeSoroArticleHtmlForTests,
 } from '../../../cloudflare/app-worker.js';
@@ -2344,6 +2346,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       room_code: string;
       label: string;
       status: string;
+      suspension_reason?: string | null;
       activation_state: string;
       room_generation: number;
       created_at: number;
@@ -2382,7 +2385,7 @@ describe('Cloudflare app worker admin dashboard', () => {
             });
             return { meta: { changes: 1 } };
           }
-          if (/INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
+          if (/^\s*INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
             if (failAudit) throw new Error('audit unavailable');
             const [actorId, action, result, roomCode, roomGeneration, createdAt] = values as [
               string,
@@ -2404,10 +2407,17 @@ describe('Cloudflare app worker admin dashboard', () => {
             ) {
               if (/SET status = 'registered'/i.test(sql)) {
                 row.status = 'registered';
+                row.suspension_reason = null;
                 row.activation_state = String(values[2]);
                 row.updated_at = Number(values[3]);
               } else if (/SET status = \?3/i.test(sql)) {
                 row.status = String(values[2]);
+                row.suspension_reason = values[3] == null ? null : String(values[3]);
+                row.activation_state = 'active';
+                row.updated_at = Number(values[4]);
+              } else if (/SET status = 'suspended'/i.test(sql)) {
+                row.status = 'suspended';
+                row.suspension_reason = String(values[2]);
                 row.activation_state = 'active';
                 row.updated_at = Number(values[3]);
               } else {
@@ -2485,6 +2495,7 @@ describe('Cloudflare app worker admin dashboard', () => {
               roomCode,
               roomGeneration,
               status: 'suspended',
+              suspensionReason: 'operator_suspended',
               changed: true,
             });
           }
@@ -2494,6 +2505,7 @@ describe('Cloudflare app worker admin dashboard', () => {
               roomCode,
               roomGeneration,
               status: 'active',
+              suspensionReason: null,
               changed: true,
             });
           }
@@ -2624,6 +2636,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       roomCode: '000002',
       roomGeneration: 0,
       status: 'suspended',
+      suspensionReason: 'operator_suspended',
       changed: true,
     });
     expect(rows.get('000002')).toMatchObject({ status: 'suspended', activation_state: 'active' });
@@ -2642,6 +2655,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       roomCode: '000002',
       roomGeneration: 0,
       status: 'active',
+      suspensionReason: null,
       changed: true,
     });
     expect(rows.get('000002')).toMatchObject({ status: 'registered', activation_state: 'active' });
@@ -2880,6 +2894,259 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(JSON.stringify(audits)).not.toContain('operator@example.com');
   });
 
+  it('preserves an unexpired owner transfer and reissues only after the authoritative claim expires', async () => {
+    const targetAccountId = 'acct_0123456789abcdefghijkl';
+    const room = {
+      room_code: '000002',
+      label: 'Pending transfer room',
+      status: 'suspended',
+      suspension_reason: 'ownership_transfer_pending' as string | null,
+      activation_state: 'active',
+      room_generation: 6,
+      created_at: Date.now() - 10_000,
+      updated_at: Date.now() - 1_000,
+    };
+    const auditResults: string[] = [];
+    let transferIssuance: {
+      target_account_id: string;
+      state: string;
+      expires_at: number;
+    } | null = null;
+    let issuanceLedgerConflict = false;
+    let issuanceLedgerThrows = false;
+    const registryDb = {
+      prepare: vi.fn((sql: string) => {
+        const executeRun = (...values: unknown[]) => {
+          if (/^\s*INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
+            auditResults.push(String(values[2]));
+            return { meta: { changes: 1 } };
+          }
+          if (/UPDATE mxqr_pro_room_registry/i.test(sql) && /SET status = 'suspended'/i.test(sql)) {
+            room.status = 'suspended';
+            room.suspension_reason = String(values[2]);
+            room.activation_state = 'active';
+            room.updated_at = Number(values[3]);
+            return { meta: { changes: 1 } };
+          }
+          if (/INSERT OR IGNORE INTO mxqr_pro_room_owner_transfer_issuances/i.test(sql)) {
+            if (issuanceLedgerThrows) throw new Error('simulated issuance ledger outage');
+            if (issuanceLedgerConflict) return { meta: { changes: 0 } };
+            transferIssuance = {
+              target_account_id: String(values[3]),
+              state: 'issued',
+              expires_at: Number(values[5]),
+            };
+            return { meta: { changes: 1 } };
+          }
+          return { meta: { changes: 0 } };
+        };
+        return {
+          run: vi.fn(async () => executeRun()),
+          all: vi.fn(async () => ({
+            results: /pragma table_info\(mxqr_pro_room_registry\)/i.test(sql)
+              ? [{ name: 'room_generation' }, { name: 'suspension_reason' }]
+              : /pragma table_info\(mxqr_pro_room_admin_audit\)/i.test(sql)
+                ? [{ name: 'room_generation' }]
+                : [],
+          })),
+          bind: vi.fn((...values: unknown[]) => ({
+            run: vi.fn(async () => executeRun(...values)),
+            first: vi.fn(async () => {
+              if (/FROM mxqr_pro_room_registry/i.test(sql) && values[0] === room.room_code) {
+                return { ...room };
+              }
+              if (/FROM mxqr_pro_room_owner_transfer_issuances/i.test(sql)) {
+                return transferIssuance ? { ...transferIssuance } : null;
+              }
+              return null;
+            }),
+            all: vi.fn(async () => ({ results: [] })),
+          })),
+        };
+      }),
+    };
+    let targetStoreThrows = false;
+    const authDb = {
+      prepare: vi.fn((sql: string) => ({
+        bind: vi.fn((targetKey: string) => ({
+          first: vi.fn(async () => {
+            if (targetStoreThrows) throw new Error('simulated account store outage');
+            return targetKey === targetAccountId ||
+              (/nickname_key = \?1/i.test(sql) && targetKey === 'new owner')
+              ? {
+                  account_id: targetAccountId,
+                  nickname: 'New owner',
+                  nickname_key: 'new owner',
+                }
+              : null;
+          }),
+        })),
+      })),
+    };
+    let existingTransferExpired = false;
+    const claimCalls: Array<{ targetAccountId?: string }> = [];
+    const namespace = {
+      idFromName: vi.fn((name: string) => name),
+      get: vi.fn(() => ({
+        fetch: vi.fn(async (request: Request) => {
+          const pathname = new URL(request.url).pathname;
+          if (pathname === '/internal/admin/status') {
+            return Response.json({
+              roomCode: room.room_code,
+              roomGeneration: room.room_generation,
+              provisioned: true,
+              status: 'suspended',
+              suspensionReason: 'ownership_transfer_pending',
+            });
+          }
+          expect(pathname).toBe('/internal/admin/owner-transfer-claim');
+          claimCalls.push((await request.json()) as { targetAccountId?: string });
+          if (!existingTransferExpired) {
+            return Response.json(
+              { error: 'OWNER_TRANSFER_RECONCILIATION_REQUIRED' },
+              { status: 409 },
+            );
+          }
+          return Response.json({
+            ok: true,
+            roomCode: room.room_code,
+            roomGeneration: room.room_generation,
+            status: 'suspended',
+            suspensionReason: 'ownership_transfer_pending',
+            targetAccountId,
+            claimGeneration: 7,
+            transferUrl: `https://musixquare.com/${room.room_code}#pro-transfer=v1.payload.signature`,
+            expiresAt: Date.now() + 5 * 60 * 1000,
+          });
+        }),
+      })),
+    };
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+      MUSIXQUARE_ADMIN_DB: registryDb,
+      MUSIXQUARE_AUTH_DB: authDb,
+      PRO_ROOM_ADMIN_ROOMS: namespace,
+    };
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.108' }),
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      env,
+    );
+    const cookie = (login.headers.get('Set-Cookie') || '').split(';')[0];
+    const issue = (targetAccount = targetAccountId) =>
+      appWorker.fetch(
+        new Request(
+          `https://musixquare.com/api/admin/pro-rooms/${room.room_code}/owner-transfer-claim`,
+          {
+            method: 'POST',
+            headers: adminMutationHeaders({ Cookie: cookie }),
+            body: JSON.stringify({ roomGeneration: room.room_generation, targetAccount }),
+          },
+        ),
+        env,
+      );
+
+    const malformed = await appWorker.fetch(
+      new Request(
+        `https://musixquare.com/api/admin/pro-rooms/${room.room_code}/owner-transfer-claim`,
+        {
+          method: 'POST',
+          headers: adminMutationHeaders({ Cookie: cookie }),
+          body: '{',
+        },
+      ),
+      env,
+    );
+    expect(malformed.status).toBe(400);
+    expect(auditResults).toEqual(['invalid_json']);
+
+    targetStoreThrows = true;
+    const targetStoreUnavailable = await issue();
+    targetStoreThrows = false;
+    expect(targetStoreUnavailable.status).toBe(503);
+    await expect(targetStoreUnavailable.json()).resolves.toEqual({
+      error: 'ACCOUNT_STORE_UNAVAILABLE',
+    });
+    expect(auditResults).toEqual(['invalid_json', 'target_store_unavailable']);
+
+    const unavailable = await issue('Unknown exact nickname');
+    expect(unavailable.status).toBe(409);
+    await expect(unavailable.json()).resolves.toEqual({
+      error: 'OWNER_TRANSFER_TARGET_UNAVAILABLE',
+    });
+    expect(claimCalls).toHaveLength(0);
+    expect(auditResults).toEqual([
+      'invalid_json',
+      'target_store_unavailable',
+      'target_unavailable',
+    ]);
+
+    const unexpired = await issue();
+    expect(unexpired.status).toBe(409);
+    expect(await unexpired.json()).toEqual({
+      error: 'PRO_ROOM_OWNER_TRANSFER_RECONCILIATION_REQUIRED',
+    });
+    expect(auditResults).toEqual([
+      'invalid_json',
+      'target_store_unavailable',
+      'target_unavailable',
+      'reconcile_required',
+    ]);
+
+    existingTransferExpired = true;
+    issuanceLedgerConflict = true;
+    const ledgerConflict = await issue('New owner');
+    issuanceLedgerConflict = false;
+    expect(ledgerConflict.status).toBe(503);
+    const ledgerConflictPayload = await ledgerConflict.json();
+    expect(ledgerConflictPayload).toEqual({
+      error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED',
+    });
+    expect(JSON.stringify(ledgerConflictPayload)).not.toContain('pro-transfer');
+    expect(auditResults.at(-1)).toBe('issuance_ledger_conflict');
+
+    issuanceLedgerThrows = true;
+    const ledgerUnavailable = await issue('New owner');
+    issuanceLedgerThrows = false;
+    expect(ledgerUnavailable.status).toBe(503);
+    const ledgerUnavailablePayload = await ledgerUnavailable.json();
+    expect(ledgerUnavailablePayload).toEqual({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' });
+    expect(JSON.stringify(ledgerUnavailablePayload)).not.toContain('pro-transfer');
+    expect(auditResults.at(-1)).toBe('issuance_ledger_unavailable');
+
+    const reissued = await issue('New owner');
+    expect(reissued.status).toBe(200);
+    expect(reissued.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    expect(await reissued.json()).toMatchObject({
+      roomCode: '000002',
+      roomGeneration: 6,
+      targetAccountId,
+      targetNickname: 'New owner',
+      transferUrl: 'https://musixquare.com/000002#pro-transfer=v1.payload.signature',
+    });
+    expect(claimCalls).toEqual(
+      Array.from({ length: 4 }, () => ({ targetAccountId, roomGeneration: 6 })),
+    );
+    expect(auditResults.slice(-3)).toEqual([
+      'issuance_ledger_conflict',
+      'issuance_ledger_unavailable',
+      'issued',
+    ]);
+
+    room.status = 'decommissioned';
+    room.suspension_reason = null;
+    const terminal = await issue();
+    expect(terminal.status).toBe(410);
+    await expect(terminal.json()).resolves.toEqual({
+      error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED',
+    });
+    expect(auditResults.at(-1)).toBe('permanently_decommissioned');
+  });
+
   it('updates only the current PRO room generation label with transactional audit', async () => {
     type RegistryRow = {
       room_code: string;
@@ -2931,7 +3198,7 @@ describe('Cloudflare app worker admin dashboard', () => {
         });
         return { meta: { changes: 1 } };
       }
-      if (/INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
+      if (/^\s*INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
         if (failAudit) throw new Error('audit unavailable');
         const [actorId, action, result, auditRoomCode, roomGeneration, createdAt] =
           values.length === 4 && /'room\.label\.update', 'authorized'/i.test(sql)
@@ -3231,7 +3498,7 @@ describe('Cloudflare app worker admin dashboard', () => {
             });
             return { meta: { changes: 1 } };
           }
-          if (/INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
+          if (/^\s*INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
             const [, action, result, code, roomGeneration] = values as [
               string,
               string,
@@ -3729,9 +3996,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.2.0');
-    expect(html).toContain('/admin.js?v=8.2.0');
-    expect(html).toContain('data-admin-asset-version="8.2.0"');
+    expect(html).toContain('/admin.css?v=8.3.0');
+    expect(html).toContain('/admin.js?v=8.3.0');
+    expect(html).toContain('data-admin-asset-version="8.3.0"');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
     expect(html).toContain('data-admin-tab="pro-rooms"');
     expect(html).toContain('data-pro-room-form');
@@ -3748,7 +4015,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.2.0', '/admin.css?v=8.2.0']) {
+    for (const path of ['/admin.js?v=8.3.0', '/admin.css?v=8.3.0']) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
@@ -3764,6 +4031,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
     key_id: string;
     room_code: string;
     room_generation: number;
+    authority_epoch: number;
     label: string;
     secret_digest: string;
     digest_version: number;
@@ -3781,6 +4049,8 @@ describe('Cloudflare app worker Developer API key administration', () => {
       roomStatus?: string;
       roomGeneration?: number;
       simulateConcurrentIssue?: boolean;
+      developerAuthorityEpoch?: number;
+      advanceAuthorityEpochAfterIssue?: boolean;
     } = {},
   ) {
     const now = Date.now();
@@ -3791,6 +4061,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
           room_code: '000001',
           label: 'Friends & Family',
           status: options.roomStatus || 'registered',
+          suspension_reason: options.roomStatus === 'suspended' ? 'operator_suspended' : null,
           activation_state: 'active',
           room_generation: options.roomGeneration ?? 0,
           created_at: now - 1_000,
@@ -3808,6 +4079,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
                 room_code: roomCode,
                 label,
                 status: 'registered',
+                suspension_reason: null,
                 activation_state: 'unactivated',
                 room_generation: 0,
                 created_at: createdAt,
@@ -3825,12 +4097,19 @@ describe('Cloudflare app worker Developer API key administration', () => {
             ) {
               if (/SET status = 'suspended'/i.test(sql)) {
                 row.status = 'suspended';
+                row.suspension_reason = String(values[2]);
                 row.activation_state = 'active';
-                row.updated_at = Number(values[2]);
+                row.updated_at = Number(values[3]);
               } else if (/SET status = 'registered'/i.test(sql)) {
                 row.status = 'registered';
+                row.suspension_reason = null;
                 row.activation_state = String(values[2]);
                 row.updated_at = Number(values[3]);
+              } else if (/SET status = \?3/i.test(sql)) {
+                row.status = String(values[2]);
+                row.suspension_reason = values[3] == null ? null : String(values[3]);
+                row.activation_state = 'active';
+                row.updated_at = Number(values[4]);
               }
               return { meta: { changes: 1 } };
             }
@@ -3860,6 +4139,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
     }> = [];
     let failAudit = false;
     let simulateConcurrentIssue = options.simulateConcurrentIssue === true;
+    let developerAuthorityEpoch = options.developerAuthorityEpoch ?? 0;
 
     const developerDb = {
       prepare: vi.fn((sql: string) => {
@@ -3909,16 +4189,18 @@ describe('Cloudflare app worker Developer API key administration', () => {
               keyId,
               roomCode,
               roomGeneration,
+              authorityEpoch,
               label,
               digest,
               scopeMask,
               createdAt,
               expiresAt,
-            ] = values as [string, string, number, string, string, number, number, number];
+            ] = values as [string, string, number, number, string, string, number, number, number];
             const concurrentRow: DeveloperKeyRow = {
               key_id: keyId,
               room_code: roomCode,
               room_generation: roomGeneration,
+              authority_epoch: authorityEpoch,
               label,
               secret_digest: digest,
               digest_version: 1,
@@ -3947,6 +4229,36 @@ describe('Cloudflare app worker Developer API key administration', () => {
             if (activeCount >= 3) throw new Error('developer_api_active_key_limit');
             if (keyRows.has(keyId)) throw new Error('duplicate key id');
             keyRows.set(keyId, concurrentRow);
+            if (options.advanceAuthorityEpochAfterIssue) developerAuthorityEpoch += 1;
+            return { meta: { changes: 1 } };
+          }
+          if (
+            /INSERT(?: OR IGNORE)? INTO mxqr_developer_api_admin_audit/i.test(sql) &&
+            /SELECT \?1, 'key\.issue', 'issued'/i.test(sql)
+          ) {
+            if (failAudit) throw new Error('audit unavailable');
+            const [actorId, keyId, roomCode, roomGeneration, digest, createdAt, auditAt] =
+              values as [string, string, string, number, string, number, number];
+            const row = keyRows.get(keyId);
+            if (
+              !row ||
+              row.room_code !== roomCode ||
+              row.room_generation !== roomGeneration ||
+              row.secret_digest !== digest ||
+              row.status !== 'active' ||
+              row.created_at !== createdAt
+            ) {
+              return { meta: { changes: 0 } };
+            }
+            audits.push({
+              actorId,
+              action: 'key.issue',
+              result: 'issued',
+              keyId,
+              roomCode,
+              roomGeneration,
+              createdAt: auditAt,
+            });
             return { meta: { changes: 1 } };
           }
           if (/INSERT(?: OR IGNORE)? INTO mxqr_developer_api_admin_audit/i.test(sql)) {
@@ -4104,6 +4416,8 @@ describe('Cloudflare app worker Developer API key administration', () => {
                 roomGeneration,
                 provisioned: true,
                 status,
+                suspensionReason: status === 'suspended' ? 'operator_suspended' : null,
+                developerAuthorityEpoch,
               });
             }),
           })),
@@ -4114,6 +4428,9 @@ describe('Cloudflare app worker Developer API key administration', () => {
       registryRows,
       setFailAudit(value: boolean) {
         failAudit = value;
+      },
+      setDeveloperAuthorityEpoch(value: number) {
+        developerAuthorityEpoch = value;
       },
     };
   }
@@ -4196,6 +4513,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
     expect(missingRoom.status).toBe(404);
 
     registryRows.get('000001')!.status = 'suspended';
+    registryRows.get('000001')!.suspension_reason = 'operator_suspended';
     const suspended = await appWorker.fetch(
       issueDeveloperApiKeyRequest(cookie, { label: 'Bot', scopes: ['room:read'] }),
       env,
@@ -4275,12 +4593,13 @@ describe('Cloudflare app worker Developer API key administration', () => {
     expect(audits).toHaveLength(1);
 
     registryRows.get('000001')!.status = 'suspended';
+    registryRows.get('000001')!.suspension_reason = 'operator_suspended';
     const suspendedReplay = await appWorker.fetch(
       issueDeveloperApiKeyRequest(cookie, issueBody, requestId),
       env,
     );
-    expect(suspendedReplay.status).toBe(200);
-    expect(((await suspendedReplay.json()) as { apiKey?: string }).apiKey).toBe(payload.apiKey);
+    expect(suspendedReplay.status).toBe(409);
+    await expect(suspendedReplay.json()).resolves.toEqual({ error: 'PRO_ROOM_NOT_READY' });
 
     const conflict = await appWorker.fetch(
       issueDeveloperApiKeyRequest(
@@ -4328,6 +4647,55 @@ describe('Cloudflare app worker Developer API key administration', () => {
     expect(listText).not.toContain('secret_digest');
   });
 
+  it('never exposes a key when owner authority advances across issuance or replay', async () => {
+    const raced = createDeveloperApiAdminEnv({ advanceAuthorityEpochAfterIssue: true });
+    const racedCookie = await loginDeveloperApiAdmin(raced.env);
+    const racedResponse = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(
+        racedCookie,
+        { label: 'Raced owner key', scopes: ['room:read'] },
+        crypto.randomUUID(),
+      ),
+      raced.env,
+    );
+    expect(racedResponse.status).toBe(409);
+    await expect(racedResponse.json()).resolves.toEqual({
+      error: 'DEVELOPER_API_AUTHORITY_CHANGED',
+    });
+    expect(raced.keyRows.size).toBe(0);
+    expect(raced.audits.map(({ action, result }) => ({ action, result }))).toEqual([
+      { action: 'key.issue', result: 'issued' },
+      { action: 'key.issue', result: 'authority_changed' },
+    ]);
+
+    const replayed = createDeveloperApiAdminEnv({ developerAuthorityEpoch: 4 });
+    const replayCookie = await loginDeveloperApiAdmin(replayed.env);
+    const requestId = crypto.randomUUID();
+    const body = { label: 'Replay-bound key', scopes: ['room:read'] };
+    const issued = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(replayCookie, body, requestId),
+      replayed.env,
+    );
+    expect(issued.status).toBe(201);
+    const issuedPayload = (await issued.json()) as { apiKey: string };
+    expect(issuedPayload.apiKey).toMatch(/^mxqr_live_/);
+    replayed.setDeveloperAuthorityEpoch(5);
+
+    const staleReplay = await appWorker.fetch(
+      issueDeveloperApiKeyRequest(replayCookie, body, requestId),
+      replayed.env,
+    );
+    expect(staleReplay.status).toBe(409);
+    await expect(staleReplay.json()).resolves.toEqual({
+      error: 'DEVELOPER_API_AUTHORITY_CHANGED',
+    });
+    expect(replayed.keyRows.size).toBe(0);
+    expect(replayed.audits.at(-1)).toMatchObject({
+      action: 'key.issue',
+      result: 'authority_changed',
+    });
+  });
+
   it('recovers the same raw key when an identical issuance wins a concurrent insert race', async () => {
     const { env, keyRows } = createDeveloperApiAdminEnv({ simulateConcurrentIssue: true });
     const cookie = await loginDeveloperApiAdmin(env);
@@ -4355,6 +4723,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
       key_id: 'LegacyKeyId00001',
       room_code: '000001',
       room_generation: 0,
+      authority_epoch: 0,
       label: 'Retired integration',
       secret_digest: 'L'.repeat(43),
       digest_version: 1,
@@ -4448,6 +4817,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
       key_id: 'ExpiredKeyId0001',
       room_code: '000001',
       room_generation: 0,
+      authority_epoch: 0,
       label: 'Expired bot',
       secret_digest: 'A'.repeat(43),
       digest_version: 1,
@@ -4463,6 +4833,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
       key_id: 'RevokedKeyId0001',
       room_code: '000001',
       room_generation: 0,
+      authority_epoch: 0,
       label: 'Revoked bot',
       secret_digest: 'B'.repeat(43),
       digest_version: 1,
@@ -4478,6 +4849,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
       key_id: 'ActiveKeyId00001',
       room_code: '000001',
       room_generation: 0,
+      authority_epoch: 0,
       label: 'Active bot',
       secret_digest: 'C'.repeat(43),
       digest_version: 1,
@@ -4574,6 +4946,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
       key_id: `ExistingKey0000${index}`,
       room_code: '000001',
       room_generation: 0,
+      authority_epoch: 0,
       label: `Existing ${index}`,
       secret_digest: String(index).repeat(43),
       digest_version: 1,
@@ -4620,6 +4993,1437 @@ describe('Cloudflare app worker Developer API key administration', () => {
 });
 
 describe('Cloudflare app worker PRO room facade', () => {
+  it('acks each exact owner-removal projection and never replays a stale deletion over a new owner', async () => {
+    const roomCode = '000020';
+    const roomGeneration = 6;
+    const accountId = 'acct_0123456789abcdefghijkl';
+    const registryRow: {
+      room_code: string;
+      label: string;
+      status: string;
+      suspension_reason: string | null;
+      activation_state: string;
+      room_generation: number;
+      created_at: number;
+      updated_at: number;
+    } = {
+      room_code: roomCode,
+      label: 'Owner removal race room',
+      status: 'registered',
+      suspension_reason: null,
+      activation_state: 'active',
+      room_generation: roomGeneration,
+      created_at: Date.now() - 10_000,
+      updated_at: Date.now() - 1_000,
+    };
+    let registryWrites = 0;
+    let auditWrites = 0;
+    const adminDb = {
+      prepare: vi.fn((sql: string) => {
+        const executeRun = (...values: unknown[]) => {
+          if (/^\s*INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
+            auditWrites += 1;
+            return { meta: { changes: 1 } };
+          }
+          if (/UPDATE mxqr_pro_room_registry/i.test(sql) && /SET status = \?3/i.test(sql)) {
+            registryWrites += 1;
+            registryRow.status = String(values[2]);
+            registryRow.suspension_reason = values[3] == null ? null : String(values[3]);
+            registryRow.activation_state = 'active';
+            registryRow.updated_at = Number(values[4]);
+            return { meta: { changes: 1 } };
+          }
+          return { meta: { changes: 0 } };
+        };
+        return {
+          run: vi.fn(async () => executeRun()),
+          all: vi.fn(async () => ({
+            results: /pragma table_info\(mxqr_pro_room_registry\)/i.test(sql)
+              ? [{ name: 'room_generation' }, { name: 'suspension_reason' }]
+              : /pragma table_info\(mxqr_pro_room_admin_audit\)/i.test(sql)
+                ? [{ name: 'room_generation' }]
+                : [],
+          })),
+          bind: vi.fn((...values: unknown[]) => ({
+            run: vi.fn(async () => executeRun(...values)),
+            first: vi.fn(async () =>
+              /FROM mxqr_pro_room_registry/i.test(sql) ? { ...registryRow } : null,
+            ),
+            all: vi.fn(async () => ({ results: [] })),
+          })),
+        };
+      }),
+    };
+
+    let developerKeyStatus: 'active' | 'revoked' = 'active';
+    let authorityFence: {
+      status: 'active' | 'cleared';
+      reason: string;
+      fence_digest: string;
+    } | null = null;
+    const fenceDigests: string[] = [];
+    const developerDb = {
+      prepare: vi.fn((sql: string) => {
+        const bound = (...values: unknown[]) => ({
+          run: vi.fn(async () => {
+            if (/INSERT INTO mxqr_developer_api_room_authority_fences/i.test(sql)) {
+              const nextDigest = String(values[3]);
+              fenceDigests.push(nextDigest);
+              authorityFence =
+                authorityFence?.fence_digest === nextDigest && authorityFence.status === 'cleared'
+                  ? authorityFence
+                  : { status: 'active', reason: String(values[2]), fence_digest: nextDigest };
+              return { meta: { changes: 1 } };
+            }
+            if (/UPDATE mxqr_developer_api_keys/i.test(sql)) {
+              const changed = developerKeyStatus === 'active' ? 1 : 0;
+              developerKeyStatus = 'revoked';
+              return { meta: { changes: changed } };
+            }
+            if (/INSERT OR IGNORE INTO mxqr_developer_api_admin_audit/i.test(sql)) {
+              return { meta: { changes: 1 } };
+            }
+            return { meta: { changes: 0 } };
+          }),
+          first: vi.fn(async () =>
+            /FROM mxqr_developer_api_room_authority_fences/i.test(sql) && authorityFence
+              ? { ...authorityFence, fenced_at: Date.now(), updated_at: Date.now() }
+              : null,
+          ),
+          all: vi.fn(async () => ({
+            results:
+              /FROM mxqr_developer_api_keys/i.test(sql) &&
+              developerKeyStatus === 'active' &&
+              authorityFence?.status === 'active'
+                ? [{ key_id: 'ActiveKey0000001' }]
+                : [],
+          })),
+        });
+        return { bind: vi.fn(bound), run: vi.fn(async () => bound().run()) };
+      }),
+      batch: vi.fn(async (statements: Array<{ run: () => Promise<unknown> }>) => {
+        const results = [];
+        for (const statement of statements) results.push(await statement.run());
+        return results;
+      }),
+    };
+
+    type Removal = { removalId: string; epoch: number; fencedEpoch: number; acked: boolean };
+    let roomStatus: 'active' | 'suspended' = 'suspended';
+    let removal: Removal | null = {
+      removalId: 'removal_abcdefghijklmnopqrstuv',
+      epoch: 2,
+      fencedEpoch: 3,
+      acked: false,
+    };
+    let failFirstAck = true;
+    const authorityCallOrder: string[] = [];
+    const adminFetch = vi.fn(async (request: Request) => {
+      const pathname = new URL(request.url).pathname;
+      if (pathname === '/internal/admin/account-authority/classify') {
+        throw new Error('owner deletion must not use a split classify request');
+      }
+      if (pathname === '/internal/admin/account-authority/purge') {
+        authorityCallOrder.push('purge');
+        if (!removal) {
+          return Response.json({
+            ok: true,
+            roomCode,
+            roomGeneration,
+            status: roomStatus,
+            suspensionReason: roomStatus === 'active' ? null : 'owner_account_deleted',
+            ownerAuthorityRemoved: false,
+            removalId: null,
+            removedOwnerAuthorityEpoch: null,
+            fencedCoordinatorEpoch: null,
+            projectionAcked: true,
+            removedSessions: 0,
+          });
+        }
+        return Response.json({
+          ok: true,
+          roomCode,
+          roomGeneration,
+          status: 'suspended',
+          suspensionReason: 'owner_account_deleted',
+          ownerAuthorityRemoved: true,
+          removalId: removal.removalId,
+          removedOwnerAuthorityEpoch: removal.epoch,
+          fencedCoordinatorEpoch: removal.fencedEpoch,
+          projectionAcked: removal.acked,
+          removedSessions: 1,
+        });
+      }
+      expect(pathname).toBe('/internal/admin/account-authority/purge/ack');
+      authorityCallOrder.push('ack');
+      const body = (await request.json()) as {
+        accountId: string;
+        removalId: string;
+        removedOwnerAuthorityEpoch: number;
+        fencedCoordinatorEpoch: number;
+      };
+      expect(body).toEqual({
+        accountId,
+        removalId: removal?.removalId,
+        removedOwnerAuthorityEpoch: removal?.epoch,
+        fencedCoordinatorEpoch: removal?.fencedEpoch,
+        roomGeneration,
+      });
+      if (failFirstAck) {
+        failFirstAck = false;
+        return Response.json({ error: 'ACK_UNAVAILABLE' }, { status: 503 });
+      }
+      if (!removal) {
+        return Response.json({ error: 'OWNER_AUTHORITY_REMOVAL_MISMATCH' }, { status: 409 });
+      }
+      const changed = !removal.acked;
+      removal.acked = true;
+      return Response.json({
+        ok: true,
+        roomCode,
+        roomGeneration,
+        status: 'suspended',
+        suspensionReason: 'owner_account_deleted',
+        ownerAuthorityRemoved: true,
+        removalId: removal.removalId,
+        removedOwnerAuthorityEpoch: removal.epoch,
+        fencedCoordinatorEpoch: removal.fencedEpoch,
+        projectionAcked: true,
+        changed,
+      });
+    });
+    let signalingAttempts = 0;
+    let forceInvalidStaleProof = false;
+    const signalingFetch = vi.fn(async (request: Request) => {
+      authorityCallOrder.push('signaling');
+      signalingAttempts += 1;
+      const body = (await request.json()) as {
+        roomCode: string;
+        roomGeneration: number;
+        removalId: string;
+        removedOwnerAuthorityEpoch: number;
+        fencedCoordinatorEpoch: number;
+      };
+      expect(body).toEqual({
+        roomCode,
+        roomGeneration,
+        removalId: removal?.removalId,
+        removedOwnerAuthorityEpoch: removal?.epoch,
+        fencedCoordinatorEpoch: removal?.fencedEpoch,
+      });
+      const staleProof = forceInvalidStaleProof || signalingAttempts === 2;
+      return Response.json({
+        ok: true,
+        roomCode,
+        roomGeneration,
+        status: 'suspended',
+        reason: 'owner_account_deleted',
+        fenceStatus: staleProof ? 'stale' : 'installed',
+        changed: !staleProof,
+        removalId: body.removalId,
+        removedOwnerAuthorityEpoch: body.removedOwnerAuthorityEpoch,
+        fencedCoordinatorEpoch: body.fencedCoordinatorEpoch,
+        effectiveCoordinatorEpoch:
+          body.fencedCoordinatorEpoch + (staleProof && !forceInvalidStaleProof ? 1 : 0),
+      });
+    });
+    const env = {
+      MUSIXQUARE_ADMIN_DB: adminDb,
+      DEVELOPER_API_DB: developerDb,
+      MXQR_DEVELOPER_API_KEY_PEPPER: 'developer-pepper-for-tests-at-least-32-bytes',
+      MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'assertion-secret-for-tests-at-least-32-bytes',
+      PRO_ROOM_ADMIN_ROOMS: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({ fetch: adminFetch })),
+      },
+      PRO_SIGNALING_ROOMS: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({ fetch: signalingFetch })),
+      },
+    };
+
+    await expect(
+      purgeProRoomAccountAuthorityForTests({ accountId, roomCode, roomGeneration }, env),
+    ).resolves.toBe(false);
+    expect(removal?.acked).toBe(false);
+    expect(registryRow).toMatchObject({
+      status: 'suspended',
+      suspension_reason: 'owner_account_deleted',
+    });
+    expect(authorityFence).toMatchObject({ status: 'active', reason: 'owner_account_deleted' });
+    expect(developerKeyStatus).toBe('revoked');
+    expect(authorityCallOrder.slice(0, 3)).toEqual(['purge', 'signaling', 'ack']);
+
+    await expect(
+      purgeProRoomAccountAuthorityForTests({ accountId, roomCode, roomGeneration }, env),
+    ).resolves.toBe(true);
+    expect(removal?.acked).toBe(true);
+    const firstRemovalDigest = fenceDigests.at(-1);
+
+    // A stale response is accepted only when it proves a strictly newer
+    // effective authority boundary. Merely labeling the same epoch as stale
+    // must stop before any D1 projection or acknowledgement write.
+    forceInvalidStaleProof = true;
+    const writesBeforeInvalidProof = {
+      registryWrites,
+      auditWrites,
+      fences: fenceDigests.length,
+    };
+    await expect(
+      purgeProRoomAccountAuthorityForTests({ accountId, roomCode, roomGeneration }, env),
+    ).resolves.toBe(false);
+    expect({ registryWrites, auditWrites, fences: fenceDigests.length }).toEqual(
+      writesBeforeInvalidProof,
+    );
+    forceInvalidStaleProof = false;
+
+    // A completed transfer clears the old removal tuple. A late account-delete
+    // retry for the previous owner must become a non-owner no-op and must not
+    // overwrite the new active registry/fence/key projection.
+    removal = null;
+    roomStatus = 'active';
+    registryRow.status = 'registered';
+    registryRow.suspension_reason = null;
+    const transferredFence = authorityFence as {
+      status: 'active' | 'cleared';
+      reason: string;
+      fence_digest: string;
+    } | null;
+    if (transferredFence) transferredFence.status = 'cleared';
+    developerKeyStatus = 'active';
+    const writesBeforeStaleRetry = {
+      registryWrites,
+      auditWrites,
+      fences: fenceDigests.length,
+      signalingCalls: signalingFetch.mock.calls.length,
+    };
+    await expect(
+      purgeProRoomAccountAuthorityForTests({ accountId, roomCode, roomGeneration }, env),
+    ).resolves.toBe(true);
+    expect({
+      registryWrites,
+      auditWrites,
+      fences: fenceDigests.length,
+      signalingCalls: signalingFetch.mock.calls.length,
+    }).toEqual(writesBeforeStaleRetry);
+    expect(registryRow.status).toBe('registered');
+    expect(developerKeyStatus).toBe('active');
+
+    // If the same account later owns the room and is deleted again, the new
+    // DO removal tuple must derive a fresh fence instead of replaying the old
+    // cleared digest.
+    removal = {
+      removalId: 'removal_qrstuvwxyzABCDEFGHIJKL',
+      epoch: 4,
+      fencedEpoch: 6,
+      acked: false,
+    };
+    roomStatus = 'suspended';
+    await expect(
+      purgeProRoomAccountAuthorityForTests({ accountId, roomCode, roomGeneration }, env),
+    ).resolves.toBe(true);
+    expect(fenceDigests.at(-1)).not.toBe(firstRemovalDigest);
+    expect(authorityFence).toMatchObject({ status: 'active', reason: 'owner_account_deleted' });
+    expect(developerKeyStatus).toBe('revoked');
+    expect(registryRow).toMatchObject({
+      status: 'suspended',
+      suspension_reason: 'owner_account_deleted',
+    });
+  });
+
+  it('re-suspends a committed transfer when the target account is deleted during finalization', async () => {
+    const roomCode = '000021';
+    const roomGeneration = 7;
+    const targetAccountId = 'acct_0123456789abcdefghijkl';
+    const previousOwnerAccountId = 'acct_abcdefghijkl0123456789';
+    const registryRow: {
+      room_code: string;
+      label: string;
+      status: string;
+      suspension_reason: string | null;
+      activation_state: string;
+      room_generation: number;
+      created_at: number;
+      updated_at: number;
+    } = {
+      room_code: roomCode,
+      label: 'Owner recovery room',
+      status: 'suspended',
+      suspension_reason: 'owner_account_deleted',
+      activation_state: 'active',
+      room_generation: roomGeneration,
+      created_at: Date.now() - 10_000,
+      updated_at: Date.now() - 1_000,
+    };
+    const registryAudits: Array<{ action: string; result: string }> = [];
+    let sagaRow: Record<string, unknown> | null = null;
+    let issuanceRow: Record<string, unknown> | null = null;
+    const adminDb = {
+      prepare: vi.fn((sql: string) => {
+        const executeRun = (...values: unknown[]) => {
+          if (/^\s*INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
+            registryAudits.push({ action: String(values[1]), result: String(values[2]) });
+            return { meta: { changes: 1 } };
+          }
+          if (/INSERT OR IGNORE INTO mxqr_pro_room_owner_transfer_sagas/i.test(sql)) {
+            sagaRow ||= {
+              room_code: values[0],
+              room_generation: values[1],
+              claim_generation: null,
+              transfer_id: null,
+              request_id: values[2],
+              target_account_id: values[3],
+              previous_owner_account_id: null,
+              fence_digest: null,
+              state: 'intent',
+              intent_at: values[4],
+              prepared_at: null,
+              expires_at: values[5],
+              updated_at: values[4],
+            };
+            return { meta: { changes: 1 } };
+          }
+          if (/INSERT OR IGNORE INTO mxqr_pro_room_owner_transfer_issuances/i.test(sql)) {
+            issuanceRow ||= {
+              room_code: values[0],
+              room_generation: values[1],
+              claim_generation: values[2],
+              target_account_id: values[3],
+              transfer_id: values[4],
+              request_id: values[5],
+              state: 'prepared',
+              issued_at: values[6],
+              expires_at: values[7],
+              updated_at: values[8],
+            };
+            return { meta: { changes: 1 } };
+          }
+          if (/UPDATE mxqr_pro_room_owner_transfer_issuances/i.test(sql)) {
+            if (issuanceRow) issuanceRow.state = 'prepared';
+            return { meta: { changes: issuanceRow ? 1 : 0 } };
+          }
+          if (/UPDATE mxqr_pro_room_owner_transfer_sagas/i.test(sql)) {
+            if (sagaRow) {
+              if (/SET claim_generation = \?4/i.test(sql)) {
+                sagaRow.claim_generation = values[3];
+                sagaRow.transfer_id = values[4];
+                sagaRow.previous_owner_account_id = values[6];
+                sagaRow.fence_digest = values[7];
+                sagaRow.state = 'prepared';
+                sagaRow.prepared_at = values[8];
+                sagaRow.expires_at = values[9];
+                sagaRow.updated_at = values[10];
+              } else {
+                sagaRow.state = String(values[4]);
+                sagaRow.updated_at = values[5];
+              }
+            }
+            return { meta: { changes: sagaRow ? 1 : 0 } };
+          }
+          if (/UPDATE mxqr_pro_room_registry/i.test(sql)) {
+            if (/SET status = 'suspended'/i.test(sql) && values.length >= 4) {
+              registryRow.status = 'suspended';
+              registryRow.suspension_reason = String(values[2]);
+              registryRow.activation_state = 'active';
+              registryRow.updated_at = Number(values[3]);
+              return { meta: { changes: 1 } };
+            }
+            if (/SET status = \?3/i.test(sql)) {
+              registryRow.status = String(values[2]);
+              registryRow.suspension_reason = values[3] == null ? null : String(values[3]);
+              registryRow.activation_state = 'active';
+              registryRow.updated_at = Number(values[4]);
+              return { meta: { changes: 1 } };
+            }
+          }
+          return { meta: { changes: 0 } };
+        };
+        return {
+          run: vi.fn(async () => executeRun()),
+          all: vi.fn(async () => ({
+            results: /pragma table_info\(mxqr_pro_room_registry\)/i.test(sql)
+              ? [{ name: 'room_generation' }, { name: 'suspension_reason' }]
+              : /pragma table_info\(mxqr_pro_room_admin_audit\)/i.test(sql)
+                ? [{ name: 'room_generation' }]
+                : [],
+          })),
+          bind: vi.fn((...values: unknown[]) => ({
+            run: vi.fn(async () => executeRun(...values)),
+            first: vi.fn(async () => {
+              if (/FROM mxqr_pro_room_registry/i.test(sql) && values[0] === roomCode) {
+                return { ...registryRow };
+              }
+              if (/FROM mxqr_pro_room_owner_transfer_sagas/i.test(sql)) {
+                return sagaRow ? { ...sagaRow } : null;
+              }
+              return null;
+            }),
+            all: vi.fn(async () => ({ results: [] })),
+          })),
+        };
+      }),
+    };
+
+    let targetChecks = 0;
+    const linkedAccounts = new Set([previousOwnerAccountId]);
+    const authDb = {
+      prepare: vi.fn((sql: string) => ({
+        bind: vi.fn((...values: unknown[]) => ({
+          first: vi.fn(async () => {
+            if (/FROM mxqr_account_sessions s/i.test(sql)) {
+              return {
+                session_hash: 'session-hash',
+                account_id: targetAccountId,
+                last_seen_at: Date.now(),
+                expires_at: Date.now() + 60_000,
+                nickname: 'Target owner',
+                profile_complete: 1,
+                status: 'active',
+              };
+            }
+            if (/FROM mxqr_accounts AS account/i.test(sql)) {
+              targetChecks += 1;
+              return targetChecks <= 2
+                ? { account_id: targetAccountId, nickname: 'Target owner' }
+                : null;
+            }
+            return null;
+          }),
+          run: vi.fn(async () => {
+            if (/INSERT INTO mxqr_account_pro_room_generations/i.test(sql)) {
+              linkedAccounts.add(String(values[0]));
+              return { meta: { changes: 1 } };
+            }
+            if (/DELETE FROM mxqr_account_pro_room_generations/i.test(sql)) {
+              linkedAccounts.delete(String(values[0]));
+              return { meta: { changes: 1 } };
+            }
+            return { meta: { changes: 0 } };
+          }),
+          all: vi.fn(async () => ({ results: [] })),
+        })),
+      })),
+    };
+
+    const developerKey = { status: 'active' as 'active' | 'revoked' };
+    let authorityFence: {
+      status: 'active' | 'cleared';
+      reason: string;
+      fence_digest: string;
+      fenced_at: number;
+      updated_at: number;
+    } | null = null;
+    const developerDb = {
+      prepare: vi.fn((sql: string) => {
+        const bound = (...values: unknown[]) => ({
+          run: vi.fn(async () => {
+            if (/INSERT INTO mxqr_developer_api_room_authority_fences/i.test(sql)) {
+              authorityFence = {
+                status: 'active',
+                reason: String(values[2]),
+                fence_digest: String(values[3]),
+                fenced_at: Number(values[4]),
+                updated_at: Number(values[4]),
+              };
+              return { meta: { changes: 1 } };
+            }
+            if (/UPDATE mxqr_developer_api_keys/i.test(sql)) {
+              const changed = developerKey.status === 'active' ? 1 : 0;
+              developerKey.status = 'revoked';
+              return { meta: { changes: changed } };
+            }
+            if (/INSERT OR IGNORE INTO mxqr_developer_api_admin_audit/i.test(sql)) {
+              return { meta: { changes: 1 } };
+            }
+            if (/SET status = 'cleared'/i.test(sql)) {
+              const currentFence = authorityFence;
+              if (currentFence && currentFence.fence_digest === values[2]) {
+                currentFence.status = 'cleared';
+              }
+              return { meta: { changes: 1 } };
+            }
+            return { meta: { changes: 0 } };
+          }),
+          first: vi.fn(async () =>
+            /FROM mxqr_developer_api_room_authority_fences/i.test(sql) && authorityFence
+              ? { ...authorityFence }
+              : null,
+          ),
+          all: vi.fn(async () => ({
+            results:
+              /FROM mxqr_developer_api_keys/i.test(sql) &&
+              developerKey.status === 'active' &&
+              authorityFence?.status === 'active'
+                ? [{ key_id: 'ActiveKey0000001' }]
+                : [],
+          })),
+        });
+        return { bind: vi.fn(bound), run: vi.fn(async () => bound().run()) };
+      }),
+      batch: vi.fn(async (statements: Array<{ run: () => Promise<unknown> }>) => {
+        const results = [];
+        for (const statement of statements) results.push(await statement.run());
+        return results;
+      }),
+    };
+
+    let durableStatus: 'suspended' | 'active' = 'suspended';
+    let durableSuspensionReason: string | null = 'ownership_transfer_pending';
+    const adminNamespace = {
+      idFromName: vi.fn((name: string) => name),
+      get: vi.fn(() => ({
+        fetch: vi.fn(async (request: Request) => {
+          const pathname = new URL(request.url).pathname;
+          if (pathname === '/internal/admin/status') {
+            return Response.json({
+              roomCode,
+              roomGeneration,
+              provisioned: true,
+              status: durableStatus,
+              suspensionReason: durableSuspensionReason,
+            });
+          }
+          if (pathname === '/internal/admin/owner-transfer/commit') {
+            expect(linkedAccounts.has(targetAccountId)).toBe(true);
+            durableStatus = 'active';
+            durableSuspensionReason = null;
+            const headers = new Headers({ 'Content-Type': 'application/json' });
+            headers.append(
+              'Set-Cookie',
+              `__Host-mxqr_pro_session_${roomCode}=session-secret; Path=/; HttpOnly; Secure`,
+            );
+            headers.append(
+              'Set-Cookie',
+              `__Host-mxqr_pro_owner_${roomCode}=owner-secret; Path=/; HttpOnly; Secure`,
+            );
+            return new Response(
+              JSON.stringify({
+                ok: true,
+                roomCode,
+                roomGeneration,
+                status: 'active',
+                suspensionReason: null,
+                transferId: 'transfer_abcdefghijklmnopqrstuv',
+                replayed: false,
+                snapshot: { roomCode, status: 'active' },
+                session: { expiresAtMs: Date.now() + 60_000 },
+              }),
+              { headers },
+            );
+          }
+          if (pathname === '/internal/admin/account-authority/classify') {
+            throw new Error('owner deletion must not use a split classify request');
+          }
+          if (pathname === '/internal/admin/account-authority/purge') {
+            durableStatus = 'suspended';
+            durableSuspensionReason = 'owner_account_deleted';
+            return Response.json({
+              ok: true,
+              roomCode,
+              roomGeneration,
+              status: 'suspended',
+              suspensionReason: 'owner_account_deleted',
+              ownerAuthorityRemoved: true,
+              removalId: 'removal_abcdefghijklmnopqrstuv',
+              removedOwnerAuthorityEpoch: 9,
+              fencedCoordinatorEpoch: 12,
+              projectionAcked: false,
+              removedSessions: 1,
+            });
+          }
+          expect(pathname).toBe('/internal/admin/account-authority/purge/ack');
+          return Response.json({
+            ok: true,
+            roomCode,
+            roomGeneration,
+            status: 'suspended',
+            suspensionReason: 'owner_account_deleted',
+            ownerAuthorityRemoved: true,
+            removalId: 'removal_abcdefghijklmnopqrstuv',
+            removedOwnerAuthorityEpoch: 9,
+            fencedCoordinatorEpoch: 12,
+            projectionAcked: true,
+            changed: true,
+          });
+        }),
+      })),
+    };
+    let forwardedPrepare: Request | null = null;
+    let prepareAttempts = 0;
+    const publicFetch = vi.fn(async (request: Request) => {
+      forwardedPrepare = request;
+      prepareAttempts += 1;
+      expect(linkedAccounts.has(targetAccountId)).toBe(false);
+      if (prepareAttempts === 1) {
+        return Response.json({ error: 'OWNER_TRANSFER_CLAIM_INVALID' }, { status: 401 });
+      }
+      if (prepareAttempts === 2) {
+        return Response.json({ error: 'OWNER_TRANSFER_TARGET_ACCOUNT_MISMATCH' }, { status: 409 });
+      }
+      const preparedAtMs = Date.now();
+      const expiresAtMs = preparedAtMs + 5 * 60 * 1000;
+      return Response.json({
+        ok: true,
+        roomCode,
+        roomGeneration,
+        status: 'suspended',
+        suspensionReason: 'ownership_transfer_pending',
+        transferId: 'transfer_abcdefghijklmnopqrstuv',
+        commitProof: 'P'.repeat(43),
+        targetAccountId,
+        previousOwnerAccountId,
+        claimGeneration: 11,
+        preparedAtMs,
+        expiresAtMs,
+        committedAtMs: null,
+        replayUntilMs: expiresAtMs,
+        replayed: false,
+      });
+    });
+    const env = {
+      GOOGLE_OAUTH_CLIENT_ID: 'test-client.apps.googleusercontent.com',
+      GOOGLE_OAUTH_CLIENT_SECRET: 'client-secret',
+      MXQR_AUTH_SESSION_PEPPER: 'session-pepper-for-tests-at-least-32-bytes',
+      MXQR_AUTH_SUBJECT_PEPPER: 'subject-pepper-for-tests-at-least-32-bytes',
+      MXQR_OAUTH_STATE_SECRET: 'state-secret-for-tests-at-least-32-bytes',
+      MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'assertion-secret-for-tests-at-least-32-bytes',
+      MXQR_DEVELOPER_API_KEY_PEPPER: 'developer-pepper-for-tests-at-least-32-bytes',
+      MUSIXQUARE_AUTH_DB: authDb,
+      MUSIXQUARE_ADMIN_DB: adminDb,
+      DEVELOPER_API_DB: developerDb,
+      PRO_ROOM_ADMIN_ROOMS: adminNamespace,
+      PRO_SIGNALING_ROOMS: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({
+          fetch: vi.fn(async (request: Request) => {
+            const body = (await request.json()) as {
+              removalId: string;
+              removedOwnerAuthorityEpoch: number;
+              fencedCoordinatorEpoch: number;
+            };
+            return Response.json({
+              ok: true,
+              roomCode,
+              roomGeneration,
+              status: 'suspended',
+              reason: 'owner_account_deleted',
+              fenceStatus: 'installed',
+              changed: true,
+              removalId: body.removalId,
+              removedOwnerAuthorityEpoch: body.removedOwnerAuthorityEpoch,
+              fencedCoordinatorEpoch: body.fencedCoordinatorEpoch,
+              effectiveCoordinatorEpoch: body.fencedCoordinatorEpoch,
+            });
+          }),
+        })),
+      },
+      PRO_ROOM_PUBLIC_API: { fetch: publicFetch },
+    };
+
+    const transferRequest = () =>
+      new Request(`https://musixquare.com/api/pro-room/v1/rooms/${roomCode}/owner-transfer`, {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          Cookie: `__Host-mxqr_account=${'S'.repeat(43)}`,
+        },
+        body: JSON.stringify({
+          claimToken: `v1.${'C'.repeat(43)}.${'D'.repeat(43)}`,
+          newPin: '20020924',
+          requestId: 'request_12345678',
+        }),
+      });
+
+    const invalid = await appWorker.fetch(transferRequest(), env);
+    expect(invalid.status).toBe(401);
+    await expect(invalid.json()).resolves.toEqual({ error: 'OWNER_TRANSFER_CLAIM_INVALID' });
+    expect(linkedAccounts.has(targetAccountId)).toBe(false);
+
+    const mismatch = await appWorker.fetch(transferRequest(), env);
+    expect(mismatch.status).toBe(409);
+    await expect(mismatch.json()).resolves.toEqual({
+      error: 'OWNER_TRANSFER_TARGET_ACCOUNT_MISMATCH',
+    });
+    expect(linkedAccounts.has(targetAccountId)).toBe(false);
+
+    const response = await appWorker.fetch(transferRequest(), env);
+
+    await expect(response.json()).resolves.toEqual({
+      error: 'OWNER_TRANSFER_TARGET_UNAVAILABLE',
+    });
+    expect(response.status).toBe(409);
+    expect(response.headers.get('Set-Cookie')).toBeNull();
+    expect(publicFetch).toHaveBeenCalledTimes(3);
+    expect(new URL(forwardedPrepare!.url).pathname).toBe(
+      `/v1/rooms/${roomCode}/owner-transfer/prepare`,
+    );
+    expect(forwardedPrepare!.headers.get('X-MXQR-Account-Assertion')).not.toBeNull();
+    expect(targetChecks).toBe(3);
+    expect(registryRow).toMatchObject({
+      status: 'suspended',
+      suspension_reason: 'owner_account_deleted',
+      activation_state: 'active',
+    });
+    expect(durableStatus).toBe('suspended');
+    expect(durableSuspensionReason).toBe('owner_account_deleted');
+    expect(authorityFence).toMatchObject({
+      status: 'active',
+      reason: 'owner_account_deleted',
+    });
+    expect(developerKey.status).toBe('revoked');
+    expect(linkedAccounts.has(previousOwnerAccountId)).toBe(false);
+    expect(linkedAccounts.has(targetAccountId)).toBe(true);
+    expect(registryAudits).toEqual(
+      expect.arrayContaining([
+        { action: 'owner_transfer.prepare', result: 'success' },
+        { action: 'room.suspend', result: 'owner_account_deleted' },
+        { action: 'owner_transfer.commit', result: 'target_deleted_during_finalize' },
+      ]),
+    );
+  });
+
+  it('adopts a prepared DO transfer after the D1 saga fill fails and reconciles without persisting secrets', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = Date.parse('2026-07-20T12:00:00.000Z');
+    vi.setSystemTime(startedAtMs);
+    const roomCode = '000022';
+    const roomGeneration = 8;
+    const targetAccountId = 'acct_0123456789abcdefghijkl';
+    const previousOwnerAccountId = 'acct_abcdefghijkl0123456789';
+    const transferId = 'transfer_abcdefghijklmnopqrstuv';
+    const originalRequestId = 'request_12345678';
+    const preparedAtMs = startedAtMs - 30_000;
+    const expiresAtMs = startedAtMs + 5 * 60_000;
+    const committedAtMs = startedAtMs;
+    const replayUntilMs = committedAtMs + 10 * 60 * 1000;
+    const registryRow: {
+      room_code: string;
+      label: string;
+      status: string;
+      suspension_reason: string | null;
+      activation_state: string;
+      room_generation: number;
+      created_at: number;
+      updated_at: number;
+    } = {
+      room_code: roomCode,
+      label: 'Replay recovery room',
+      status: 'suspended',
+      suspension_reason: 'owner_account_deleted',
+      activation_state: 'active',
+      room_generation: roomGeneration,
+      created_at: startedAtMs - 10_000,
+      updated_at: startedAtMs - 1_000,
+    };
+    const registryAudits: Array<{ action: string; result: string }> = [];
+    const adminDbBinds: unknown[][] = [];
+    let sagaRow: Record<string, unknown> | null = null;
+    let issuanceRow: Record<string, unknown> | null = null;
+    let failSagaFillOnce = true;
+    const adminDb = {
+      prepare: vi.fn((sql: string) => {
+        const executeRun = (...values: unknown[]) => {
+          if (/^\s*INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
+            registryAudits.push({ action: String(values[1]), result: String(values[2]) });
+            return { meta: { changes: 1 } };
+          }
+          if (/INSERT OR IGNORE INTO mxqr_pro_room_owner_transfer_sagas/i.test(sql)) {
+            sagaRow ||= {
+              room_code: values[0],
+              room_generation: values[1],
+              claim_generation: null,
+              transfer_id: null,
+              request_id: values[2],
+              target_account_id: values[3],
+              previous_owner_account_id: null,
+              fence_digest: null,
+              state: 'intent',
+              intent_at: values[4],
+              prepared_at: null,
+              expires_at: values[5],
+              updated_at: values[4],
+            };
+            return { meta: { changes: 1 } };
+          }
+          if (/INSERT OR IGNORE INTO mxqr_pro_room_owner_transfer_issuances/i.test(sql)) {
+            issuanceRow ||= {
+              room_code: values[0],
+              room_generation: values[1],
+              claim_generation: values[2],
+              target_account_id: values[3],
+              transfer_id: values[4],
+              request_id: values[5],
+              state: 'prepared',
+              issued_at: values[6],
+              expires_at: values[7],
+              updated_at: values[8],
+            };
+            return { meta: { changes: 1 } };
+          }
+          if (/UPDATE mxqr_pro_room_owner_transfer_issuances/i.test(sql)) {
+            if (issuanceRow) issuanceRow.state = 'prepared';
+            return { meta: { changes: issuanceRow ? 1 : 0 } };
+          }
+          if (/UPDATE mxqr_pro_room_owner_transfer_sagas/i.test(sql)) {
+            if (sagaRow) {
+              if (/SET claim_generation = \?4/i.test(sql)) {
+                if (failSagaFillOnce) {
+                  failSagaFillOnce = false;
+                  throw new Error('simulated saga fill failure after DO prepare');
+                }
+                sagaRow.claim_generation = values[3];
+                sagaRow.transfer_id = values[4];
+                sagaRow.previous_owner_account_id = values[6];
+                sagaRow.fence_digest = values[7];
+                sagaRow.state = 'prepared';
+                sagaRow.prepared_at = values[8];
+                sagaRow.expires_at = values[9];
+                sagaRow.updated_at = values[10];
+              } else {
+                sagaRow.state = String(values[4]);
+                sagaRow.updated_at = values[5];
+              }
+            }
+            return { meta: { changes: sagaRow ? 1 : 0 } };
+          }
+          if (/UPDATE mxqr_pro_room_registry/i.test(sql)) {
+            if (/SET status = 'suspended'/i.test(sql)) {
+              registryRow.status = 'suspended';
+              registryRow.suspension_reason = String(values[2]);
+              registryRow.activation_state = 'active';
+              registryRow.updated_at = Number(values[3]);
+              return { meta: { changes: 1 } };
+            }
+            if (/SET status = \?3/i.test(sql)) {
+              registryRow.status = String(values[2]);
+              registryRow.suspension_reason = values[3] == null ? null : String(values[3]);
+              registryRow.activation_state = 'active';
+              registryRow.updated_at = Number(values[4]);
+              return { meta: { changes: 1 } };
+            }
+          }
+          return { meta: { changes: 0 } };
+        };
+        return {
+          run: vi.fn(async () => executeRun()),
+          all: vi.fn(async () => ({
+            results: /pragma table_info\(mxqr_pro_room_registry\)/i.test(sql)
+              ? [{ name: 'room_generation' }, { name: 'suspension_reason' }]
+              : /pragma table_info\(mxqr_pro_room_admin_audit\)/i.test(sql)
+                ? [{ name: 'room_generation' }]
+                : /FROM mxqr_pro_room_owner_transfer_sagas/i.test(sql) &&
+                    /state NOT IN/i.test(sql) &&
+                    sagaRow &&
+                    !['complete', 'target_deleted', 'expired', 'superseded'].includes(
+                      String(sagaRow.state),
+                    )
+                  ? [{ ...sagaRow }]
+                  : [],
+          })),
+          bind: vi.fn((...values: unknown[]) => {
+            adminDbBinds.push(values);
+            return {
+              run: vi.fn(async () => executeRun(...values)),
+              first: vi.fn(async () => {
+                if (/FROM mxqr_pro_room_registry/i.test(sql) && values[0] === roomCode) {
+                  return { ...registryRow };
+                }
+                if (/FROM mxqr_pro_room_owner_transfer_sagas/i.test(sql)) {
+                  return sagaRow ? { ...sagaRow } : null;
+                }
+                return null;
+              }),
+              all: vi.fn(async () => ({ results: [] })),
+            };
+          }),
+        };
+      }),
+    };
+
+    const linkedAccounts = new Set([previousOwnerAccountId]);
+    let failPreviousOwnerCleanup = false;
+    const authDb = {
+      prepare: vi.fn((sql: string) => ({
+        bind: vi.fn((...values: unknown[]) => ({
+          first: vi.fn(async () => {
+            if (/FROM mxqr_account_sessions s/i.test(sql)) {
+              return {
+                session_hash: 'session-hash',
+                account_id: targetAccountId,
+                last_seen_at: Date.now(),
+                expires_at: Date.now() + 60_000,
+                nickname: 'Target owner',
+                profile_complete: 1,
+                status: 'active',
+              };
+            }
+            if (/FROM mxqr_accounts AS account/i.test(sql)) {
+              return { account_id: targetAccountId, nickname: 'Target owner' };
+            }
+            return null;
+          }),
+          run: vi.fn(async () => {
+            if (/INSERT INTO mxqr_account_pro_room_generations/i.test(sql)) {
+              linkedAccounts.add(String(values[0]));
+              return { meta: { changes: 1 } };
+            }
+            if (/DELETE FROM mxqr_account_pro_room_generations/i.test(sql)) {
+              const accountId = String(values[0]);
+              if (accountId === previousOwnerAccountId && failPreviousOwnerCleanup) {
+                failPreviousOwnerCleanup = false;
+                throw new Error('simulated response-loss boundary');
+              }
+              linkedAccounts.delete(accountId);
+              return { meta: { changes: 1 } };
+            }
+            return { meta: { changes: 0 } };
+          }),
+          all: vi.fn(async () => ({ results: [] })),
+        })),
+      })),
+    };
+
+    const developerKey = { status: 'active' as 'active' | 'revoked' };
+    let authorityFence: {
+      status: 'active' | 'cleared';
+      reason: string;
+      fence_digest: string;
+      fenced_at: number;
+      updated_at: number;
+    } | null = null;
+    const developerDb = {
+      prepare: vi.fn((sql: string) => {
+        const bound = (...values: unknown[]) => ({
+          run: vi.fn(async () => {
+            if (/INSERT INTO mxqr_developer_api_room_authority_fences/i.test(sql)) {
+              authorityFence = {
+                status: 'active',
+                reason: String(values[2]),
+                fence_digest: String(values[3]),
+                fenced_at: Number(values[4]),
+                updated_at: Number(values[4]),
+              };
+              return { meta: { changes: 1 } };
+            }
+            if (/UPDATE mxqr_developer_api_keys/i.test(sql)) {
+              const changed = developerKey.status === 'active' ? 1 : 0;
+              developerKey.status = 'revoked';
+              return { meta: { changes: changed } };
+            }
+            if (/INSERT OR IGNORE INTO mxqr_developer_api_admin_audit/i.test(sql)) {
+              return { meta: { changes: 1 } };
+            }
+            if (/SET status = 'cleared'/i.test(sql)) {
+              const currentFence = authorityFence;
+              if (currentFence && currentFence.fence_digest === values[2]) {
+                currentFence.status = 'cleared';
+              }
+              return { meta: { changes: 1 } };
+            }
+            return { meta: { changes: 0 } };
+          }),
+          first: vi.fn(async () =>
+            /FROM mxqr_developer_api_room_authority_fences/i.test(sql) && authorityFence
+              ? { ...authorityFence }
+              : null,
+          ),
+          all: vi.fn(async () => ({
+            results:
+              /FROM mxqr_developer_api_keys/i.test(sql) &&
+              developerKey.status === 'active' &&
+              authorityFence?.status === 'active'
+                ? [{ key_id: 'ActiveKey0000001' }]
+                : [],
+          })),
+        });
+        return { bind: vi.fn(bound), run: vi.fn(async () => bound().run()) };
+      }),
+      batch: vi.fn(async (statements: Array<{ run: () => Promise<unknown> }>) => {
+        const results = [];
+        for (const statement of statements) results.push(await statement.run());
+        return results;
+      }),
+    };
+
+    let durableStatus: 'suspended' | 'active' = 'suspended';
+    let durableSuspensionReason: string | null = 'ownership_transfer_pending';
+    let prepared = false;
+    let committed = false;
+    let commitCalls = 0;
+    let reconcileCalls = 0;
+    const adminNamespace = {
+      idFromName: vi.fn((name: string) => name),
+      get: vi.fn(() => ({
+        fetch: vi.fn(async (request: Request) => {
+          const pathname = new URL(request.url).pathname;
+          if (pathname === '/internal/admin/status') {
+            return Response.json({
+              roomCode,
+              roomGeneration,
+              provisioned: true,
+              status: durableStatus,
+              suspensionReason: durableSuspensionReason,
+              ownerTransferReconciliation: committed
+                ? {
+                    phase: 'completed',
+                    transferId,
+                    claimGeneration: null,
+                    requestId: originalRequestId,
+                    targetAccountId,
+                    previousOwnerAccountId,
+                    preparedAtMs,
+                    expiresAtMs,
+                    committedAtMs,
+                    replayUntilMs,
+                  }
+                : prepared
+                  ? {
+                      phase: 'pending',
+                      transferId,
+                      claimGeneration: 12,
+                      requestId: originalRequestId,
+                      targetAccountId,
+                      previousOwnerAccountId,
+                      preparedAtMs,
+                      expiresAtMs,
+                      committedAtMs: null,
+                      replayUntilMs: expiresAtMs,
+                    }
+                  : null,
+            });
+          }
+          expect([
+            '/internal/admin/owner-transfer/commit',
+            '/internal/admin/owner-transfer/reconcile',
+          ]).toContain(pathname);
+          const body = (await request.json()) as Record<string, unknown>;
+          expect(body.requestId).toBe(originalRequestId);
+          if (pathname === '/internal/admin/owner-transfer/reconcile') {
+            reconcileCalls += 1;
+            expect(Object.keys(body).sort()).toEqual(
+              [
+                'requestId',
+                'revocationReceipt',
+                'roomGeneration',
+                'targetAccountId',
+                'transferId',
+              ].sort(),
+            );
+            expect(body).not.toHaveProperty('commitProof');
+          } else {
+            commitCalls += 1;
+            expect(body.commitProof).toBe('P'.repeat(43));
+          }
+          committed = true;
+          durableStatus = 'active';
+          durableSuspensionReason = null;
+          if (pathname === '/internal/admin/owner-transfer/reconcile') {
+            return Response.json({
+              ok: true,
+              roomCode,
+              roomGeneration,
+              status: 'active',
+              suspensionReason: null,
+              transferId,
+              requestId: originalRequestId,
+              targetAccountId,
+              previousOwnerAccountId,
+              replayed: false,
+            });
+          }
+          const responseHeaders = new Headers({ 'Content-Type': 'application/json' });
+          responseHeaders.append(
+            'Set-Cookie',
+            `__Host-mxqr_pro_session_${roomCode}=session-secret; Path=/; HttpOnly; Secure`,
+          );
+          responseHeaders.append(
+            'Set-Cookie',
+            `__Host-mxqr_pro_owner_${roomCode}=owner-secret; Path=/; HttpOnly; Secure`,
+          );
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              roomCode,
+              roomGeneration,
+              status: 'active',
+              suspensionReason: null,
+              transferId,
+              replayed: commitCalls > 1,
+              snapshot: { roomCode, status: 'active' },
+              session: { expiresAtMs: Date.now() + 60 * 60 * 1000 },
+            }),
+            { headers: responseHeaders },
+          );
+        }),
+      })),
+    };
+    const prepareRequestIds: string[] = [];
+    const publicFetch = vi.fn(async (request: Request) => {
+      const body = (await request.json()) as { requestId: string };
+      prepareRequestIds.push(body.requestId);
+      if (!committed) {
+        expect(sagaRow).toMatchObject({
+          state: 'intent',
+          transfer_id: null,
+          request_id: originalRequestId,
+          target_account_id: targetAccountId,
+        });
+      }
+      if (committed && body.requestId !== originalRequestId) {
+        return Response.json({ error: 'OWNER_TRANSFER_CLAIM_USED' }, { status: 409 });
+      }
+      prepared = true;
+      return Response.json({
+        ok: true,
+        roomCode,
+        roomGeneration,
+        status: committed ? 'active' : 'suspended',
+        suspensionReason: committed ? null : 'ownership_transfer_pending',
+        transferId,
+        commitProof: 'P'.repeat(43),
+        targetAccountId,
+        previousOwnerAccountId,
+        claimGeneration: committed ? null : 12,
+        preparedAtMs,
+        expiresAtMs,
+        committedAtMs: committed ? committedAtMs : null,
+        replayUntilMs: committed ? replayUntilMs : expiresAtMs,
+        replayed: committed,
+      });
+    });
+    const env = {
+      GOOGLE_OAUTH_CLIENT_ID: 'test-client.apps.googleusercontent.com',
+      GOOGLE_OAUTH_CLIENT_SECRET: 'client-secret',
+      MXQR_AUTH_SESSION_PEPPER: 'session-pepper-for-tests-at-least-32-bytes',
+      MXQR_AUTH_SUBJECT_PEPPER: 'subject-pepper-for-tests-at-least-32-bytes',
+      MXQR_OAUTH_STATE_SECRET: 'state-secret-for-tests-at-least-32-bytes',
+      MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'assertion-secret-for-tests-at-least-32-bytes',
+      MXQR_DEVELOPER_API_KEY_PEPPER: 'developer-pepper-for-tests-at-least-32-bytes',
+      MUSIXQUARE_AUTH_DB: authDb,
+      MUSIXQUARE_ADMIN_DB: adminDb,
+      DEVELOPER_API_DB: developerDb,
+      PRO_ROOM_ADMIN_ROOMS: adminNamespace,
+      PRO_ROOM_PUBLIC_API: { fetch: publicFetch },
+    };
+    const transferRequest = (requestId = originalRequestId) =>
+      new Request(`https://musixquare.com/api/pro-room/v1/rooms/${roomCode}/owner-transfer`, {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          Cookie: `__Host-mxqr_account=${'S'.repeat(43)}`,
+        },
+        body: JSON.stringify({
+          claimToken: `v1.${'C'.repeat(43)}.${'D'.repeat(43)}`,
+          newPin: '20020924',
+          requestId,
+        }),
+      });
+
+    const lost = await appWorker.fetch(transferRequest(), env);
+    expect(lost.status).toBe(503);
+    await expect(lost.json()).resolves.toEqual({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' });
+    expect(lost.headers.get('Set-Cookie')).toBeNull();
+    expect(prepared).toBe(true);
+    expect(committed).toBe(false);
+    expect(commitCalls).toBe(0);
+    expect(reconcileCalls).toBe(0);
+    expect(sagaRow).toMatchObject({ state: 'intent', transfer_id: null });
+    expect(registryRow.status).toBe('suspended');
+    expect(linkedAccounts.has(previousOwnerAccountId)).toBe(true);
+    expect(authorityFence).toBeNull();
+
+    vi.setSystemTime(startedAtMs + 10_000);
+    const reconciliationCount = await reconcileOwnerTransferSagasForTests(
+      env,
+      adminDb,
+      startedAtMs + 10_000,
+    );
+    expect(reconciliationCount).toBe(1);
+    expect(committed).toBe(true);
+    expect(commitCalls).toBe(0);
+    expect(reconcileCalls).toBe(1);
+    expect(sagaRow).toMatchObject({ state: 'complete' });
+    expect(linkedAccounts.has(previousOwnerAccountId)).toBe(false);
+    expect(linkedAccounts.has(targetAccountId)).toBe(true);
+    expect(authorityFence).toMatchObject({ status: 'cleared' });
+
+    const replay = await appWorker.fetch(transferRequest(), env);
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toEqual({
+      snapshot: { roomCode, status: 'active' },
+    });
+    expect(replay.headers.get('Set-Cookie')).toContain(
+      `__Secure-mxqr_pro_session_${roomCode}=session-secret`,
+    );
+    expect(replay.headers.get('Set-Cookie')).toContain(
+      `__Secure-mxqr_pro_owner_${roomCode}=owner-secret`,
+    );
+    expect(commitCalls).toBe(1);
+    expect(reconcileCalls).toBe(1);
+    expect(linkedAccounts.has(previousOwnerAccountId)).toBe(false);
+    expect(linkedAccounts.has(targetAccountId)).toBe(true);
+    expect(authorityFence).toMatchObject({ status: 'cleared' });
+    expect(registryAudits).toEqual(
+      expect.arrayContaining([
+        { action: 'owner_transfer.prepare', result: 'reconcile_required' },
+        { action: 'owner_transfer.commit', result: 'success' },
+      ]),
+    );
+
+    const differentRequest = await appWorker.fetch(transferRequest('request_abcdefgh'), env);
+    expect(differentRequest.status).toBe(409);
+    await expect(differentRequest.json()).resolves.toEqual({
+      error: 'OWNER_TRANSFER_CLAIM_USED',
+    });
+    expect(differentRequest.headers.get('Set-Cookie')).toBeNull();
+    expect(commitCalls).toBe(1);
+    expect(reconcileCalls).toBe(1);
+    expect(authorityFence).toMatchObject({ status: 'cleared' });
+    expect(prepareRequestIds).toEqual([originalRequestId, originalRequestId, 'request_abcdefgh']);
+    const serializedBinds = JSON.stringify(adminDbBinds);
+    expect(serializedBinds).not.toContain('20020924');
+    expect(serializedBinds).not.toContain('P'.repeat(43));
+    expect(serializedBinds).not.toContain('session-secret');
+    expect(serializedBinds).not.toContain('owner-secret');
+    expect(serializedBinds).not.toContain('C'.repeat(43));
+  });
+
+  it('naturally expires unopened claims and pending sagas exactly once during cron reconciliation', async () => {
+    const nowMs = 300;
+    const issuance = {
+      room_code: '000023',
+      room_generation: 9,
+      claim_generation: 13,
+      target_account_id: 'acct_0123456789abcdefghijkl',
+      transfer_id: 'transfer_abcdefghijklmnopqrstuv',
+      request_id: 'request_12345678',
+      state: 'issued',
+      issued_at: 100,
+      expires_at: 200,
+      updated_at: 100,
+    };
+    const saga = {
+      room_code: issuance.room_code,
+      room_generation: issuance.room_generation,
+      claim_generation: issuance.claim_generation,
+      transfer_id: issuance.transfer_id,
+      request_id: issuance.request_id,
+      target_account_id: issuance.target_account_id,
+      previous_owner_account_id: 'acct_abcdefghijkl0123456789',
+      fence_digest: 'F'.repeat(43),
+      state: 'prepared',
+      intent_at: 90,
+      prepared_at: 100,
+      expires_at: 200,
+      updated_at: 100,
+    };
+    const audits: Array<{ action: string; result: string }> = [];
+    const db = {
+      prepare: vi.fn((sql: string) => {
+        const run = (...values: unknown[]) => {
+          if (/^\s*INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) {
+            audits.push({ action: String(values[1]), result: String(values[2]) });
+            return { meta: { changes: 1 } };
+          }
+          if (/UPDATE mxqr_pro_room_owner_transfer_issuances/i.test(sql)) {
+            if (issuance.state !== 'issued') return { meta: { changes: 0 } };
+            const nextState = /SET state = 'expired'/i.test(sql) ? 'expired' : String(values[3]);
+            if (issuance.state === 'issued' && nextState === 'expired') {
+              audits.push({ action: 'owner_transfer_claim.expire', result: 'expired' });
+            }
+            issuance.state = nextState;
+            issuance.updated_at = Number(values.at(-1));
+            return { meta: { changes: 1 } };
+          }
+          if (/UPDATE mxqr_pro_room_owner_transfer_sagas/i.test(sql)) {
+            const previousState = saga.state;
+            saga.state = String(values[4]);
+            saga.updated_at = Number(values[5]);
+            if (previousState === 'prepared' && saga.state === 'expired') {
+              audits.push({ action: 'owner_transfer.prepare', result: 'expired' });
+            }
+            return { meta: { changes: 1 } };
+          }
+          return { meta: { changes: 0 } };
+        };
+        const topLevelResults = () => {
+          if (/pragma table_info\(mxqr_pro_room_registry\)/i.test(sql)) {
+            return [{ name: 'room_generation' }, { name: 'suspension_reason' }];
+          }
+          if (/pragma table_info\(mxqr_pro_room_admin_audit\)/i.test(sql)) {
+            return [{ name: 'room_generation' }];
+          }
+          if (/FROM mxqr_pro_room_owner_transfer_sagas/i.test(sql) && /state NOT IN/i.test(sql)) {
+            return ['complete', 'target_deleted', 'expired', 'superseded'].includes(saga.state)
+              ? []
+              : [{ ...saga }];
+          }
+          return [];
+        };
+        return {
+          run: vi.fn(async () => run()),
+          all: vi.fn(async () => ({ results: topLevelResults() })),
+          bind: vi.fn((...values: unknown[]) => ({
+            run: vi.fn(async () => run(...values)),
+            first: vi.fn(async () =>
+              /FROM mxqr_pro_room_owner_transfer_sagas/i.test(sql) ? { ...saga } : null,
+            ),
+            all: vi.fn(async () => ({
+              results:
+                /FROM mxqr_pro_room_owner_transfer_issuances/i.test(sql) &&
+                /state = 'issued'/i.test(sql) &&
+                issuance.state === 'issued' &&
+                issuance.expires_at <= Number(values[0])
+                  ? [{ ...issuance }]
+                  : [],
+            })),
+          })),
+        };
+      }),
+    };
+    const env = {
+      MUSIXQUARE_ADMIN_DB: db,
+      PRO_ROOM_ADMIN_ROOMS: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({
+          fetch: vi.fn(async () =>
+            Response.json({
+              roomCode: saga.room_code,
+              roomGeneration: saga.room_generation,
+              provisioned: true,
+              status: 'suspended',
+              suspensionReason: 'ownership_transfer_pending',
+              ownerTransferReconciliation: {
+                phase: 'pending',
+                transferId: saga.transfer_id,
+                claimGeneration: saga.claim_generation,
+                requestId: saga.request_id,
+                targetAccountId: saga.target_account_id,
+                previousOwnerAccountId: saga.previous_owner_account_id,
+                preparedAtMs: saga.prepared_at,
+                expiresAtMs: saga.expires_at,
+                committedAtMs: null,
+                replayUntilMs: saga.expires_at,
+              },
+            }),
+          ),
+        })),
+      },
+    };
+
+    await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs)).resolves.toBe(1);
+    expect(issuance.state).toBe('expired');
+    expect(saga.state).toBe('expired');
+    expect(audits).toEqual([
+      { action: 'owner_transfer_claim.expire', result: 'expired' },
+      { action: 'owner_transfer.prepare', result: 'expired' },
+    ]);
+    await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs + 1)).resolves.toBe(0);
+    expect(audits).toHaveLength(2);
+  });
+
   it('exposes a cookie-free same-origin health check through the service binding', async () => {
     const upstreamFetch = vi.fn(async (request: Request) => {
       expect(request.url).toBe('https://pro-room.internal/health');

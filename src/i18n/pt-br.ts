@@ -71,6 +71,8 @@ const ptBr: Record<I18nKey, string> = {
   'account.delete_confirm_title': 'Excluir sua conta?',
   'account.delete_confirm_message':
     'Seu apelido, suas sessões de login e as permissões de sala vinculadas à conta serão excluídos. O conteúdo compartilhado em uma sala segue a política de retenção dessa sala.',
+  'account.delete_pending':
+    'Sua conta está sendo excluída. As permissões PRO estão sendo removidas com segurança e a exclusão será concluída automaticamente.',
   'common.previous': 'Anterior',
   'common.next_desc': 'Próximo',
   'common.volume_percent': 'Volume: {{val}}%',
@@ -611,10 +613,27 @@ const ptBr: Record<I18nKey, string> = {
   'pro.claim_retry_title': 'Tentar o link PRO novamente?',
   'pro.claim_retry_message':
     'A conexão foi interrompida. O link fica protegido somente nesta tela, então você pode tentar novamente.',
-  'pro.request_new_link': 'Solicitar novo link',
   'pro.claim_unavailable_title': 'Este link não pode mais ser usado',
+  'pro.claim_login_title': 'Entre primeiro',
+  'pro.claim_login_button': 'Entrar',
+  'pro.claim_login_message':
+    'Entre com a conta que será proprietária desta sala PRO e conclua a configuração do apelido. O link fica somente na memória desta aba.',
+  'pro.claim_popup_blocked_message':
+    'O navegador bloqueou a janela de login. Permita pop-ups para o MUSIXQUARE e tente novamente.',
+  'pro.claim_account_conflict_title': 'Esta conta não pode usar a sala',
+  'pro.claim_account_conflict_message':
+    'Esta sala está vinculada a outra conta. Se precisar mudar, peça a um administrador para transferir a propriedade.',
+  'pro.claim_account_capacity_title': 'Esta conta não pode vincular outra sala',
+  'pro.claim_account_capacity_message':
+    'Esta conta atingiu o limite de salas PRO vinculadas. Remova um vínculo existente e solicite um novo link.',
+  'pro.claim_failed_title': 'Não foi possível concluir a solicitação',
+  'pro.claim_failed_message':
+    'Por segurança, este link não foi tentado novamente. Peça um novo link ao administrador da sala.',
+  'pro.transfer_title': 'Assumir a propriedade da sala PRO',
+  'pro.transfer_message':
+    'Defina uma nova senha de 8 dígitos. Ao concluir, o acesso do proprietário anterior será revogado.',
   'pro.new_link_message':
-    'Peça à pessoa que enviou o link um novo link de ativação ou recuperação.',
+    'O link expirou ou já foi usado. Se necessário, peça um novo link a um administrador.',
   'pro.not_ready_title': 'Esta sala PRO ainda não está pronta',
   'pro.not_ready_message': 'O proprietário precisa ativá-la primeiro.',
   'pro.suspended_title': 'Esta sala PRO está indisponível',

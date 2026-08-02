@@ -16,6 +16,7 @@ import {
   openAccountDialog,
   requestAccountNicknameChange,
 } from '../account.ts';
+import { requestAccountLoginPopup } from '../../account/session.ts';
 import { updateCurrentAccountNickname } from '../../account/nickname.ts';
 import { clearIntentionalNav, isIntentionalNav } from '../../core/page-lifecycle.ts';
 import {
@@ -127,6 +128,85 @@ afterEach(() => {
 });
 
 describe('optional account UI', () => {
+  it('fails closed without same-tab storage when the protected login popup is blocked', async () => {
+    applyAccountSession({
+      configured: true,
+      authenticated: false,
+      account: null,
+      statsScope: null,
+    });
+    vi.spyOn(window, 'open').mockReturnValue(null);
+
+    await expect(requestAccountLoginPopup()).resolves.toBe('blocked');
+
+    expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
+    expect(isIntentionalNav()).toBe(false);
+  });
+
+  it('resolves protected popup login only after a completed account profile exists', async () => {
+    applyAccountSession({
+      configured: true,
+      authenticated: false,
+      account: null,
+      statsScope: null,
+    });
+    const popup = {
+      closed: false,
+      focus: vi.fn(),
+      location: { replace: vi.fn() },
+      opener: window,
+    } as unknown as Window;
+    vi.spyOn(window, 'open').mockReturnValue(popup);
+
+    const login = requestAccountLoginPopup();
+    let settled = false;
+    void login.then(() => {
+      settled = true;
+    });
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: {
+        nickname: '',
+        profileComplete: false,
+      },
+      statsScope: null,
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: {
+        nickname: 'Owner',
+        profileComplete: true,
+      },
+      statsScope: null,
+    });
+
+    await expect(login).resolves.toBe('authenticated');
+  });
+
+  it('treats declining nickname completion as a cancelled protected login', async () => {
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: {
+        nickname: '',
+        profileComplete: false,
+      },
+      statsScope: null,
+    });
+    vi.mocked(showDialog).mockResolvedValueOnce({ action: 'secondary' });
+    const open = vi.spyOn(window, 'open');
+
+    await expect(requestAccountLoginPopup()).resolves.toBe('cancelled');
+
+    expect(open).not.toHaveBeenCalled();
+  });
+
   it('renders Google login and legal links for an anonymous configured app', async () => {
     vi.mocked(fetch).mockResolvedValue(
       jsonResponse({ configured: true, authenticated: false, account: null }),
@@ -1147,6 +1227,44 @@ describe('optional account UI', () => {
 
     expect(document.getElementById('account-dialog-actions')?.hidden).toBe(true);
     expect(document.activeElement).toBe(document.getElementById('btn-account-google'));
+  });
+
+  it('shows safe in-progress copy when account deletion is accepted with 202', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/auth/session') {
+        return jsonResponse({
+          configured: true,
+          authenticated: true,
+          statsScope: STATS_SCOPE,
+          account: { nickname: 'Minsu', profileComplete: true },
+        });
+      }
+      if (path === '/api/auth/account') {
+        expect(init?.method).toBe('DELETE');
+        return jsonResponse({ ok: true, pending: true }, 202);
+      }
+      throw new Error(`unexpected request: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.mocked(showDialog).mockResolvedValueOnce({ action: 'ok' });
+    const deleted = vi.fn();
+    const pending = vi.fn();
+    bus.on('account:deleted', deleted);
+    bus.on('account:deletion-pending', pending);
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+
+    document.getElementById('btn-account-delete')?.click();
+
+    await vi.waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(
+        'Your account is being deleted. PRO permissions are being safely cleaned up, and deletion will finish automatically.',
+      ),
+    );
+    expect(deleted).not.toHaveBeenCalled();
+    expect(pending).toHaveBeenCalledOnce();
+    expect(getAccountSnapshot().status).toBe('anonymous');
   });
 
   it('closes with Escape and restores focus to the element that opened it', async () => {

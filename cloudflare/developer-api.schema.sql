@@ -30,12 +30,33 @@ BEGIN
   SELECT RAISE(ABORT, 'developer_api_room_generation_tombstone_immutable');
 END;
 
+-- Exact-incarnation fence shared by ownership transfer/account deletion and
+-- operator key issuance. Keeping the fence in the Developer D1 database makes
+-- "fence + revoke" and "issue only when unfenced" serialize atomically.
+CREATE TABLE IF NOT EXISTS mxqr_developer_api_room_authority_fences (
+  room_code TEXT NOT NULL
+    CHECK (length(room_code) = 6 AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'),
+  room_generation INTEGER NOT NULL DEFAULT 0 CHECK (room_generation >= 0),
+  status TEXT NOT NULL CHECK (status IN ('active', 'cleared')),
+  reason TEXT NOT NULL
+    CHECK (reason IN ('owner_account_deleted', 'ownership_transfer_pending')),
+  fence_digest TEXT NOT NULL
+    CHECK (length(fence_digest) = 43 AND fence_digest NOT GLOB '*[^A-Za-z0-9_-]*'),
+  fenced_at INTEGER NOT NULL CHECK (fenced_at >= 0),
+  updated_at INTEGER NOT NULL CHECK (updated_at >= fenced_at),
+  PRIMARY KEY (room_code, room_generation)
+);
+
+CREATE INDEX IF NOT EXISTS idx_mxqr_developer_api_room_authority_fences_status
+  ON mxqr_developer_api_room_authority_fences (status, room_code, room_generation);
+
 CREATE TABLE IF NOT EXISTS mxqr_developer_api_keys (
   key_id TEXT PRIMARY KEY NOT NULL
     CHECK (length(key_id) = 16 AND key_id NOT GLOB '*[^A-Za-z0-9_-]*'),
   room_code TEXT NOT NULL
     CHECK (length(room_code) = 6 AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'),
   room_generation INTEGER NOT NULL DEFAULT 0 CHECK (room_generation >= 0),
+  authority_epoch INTEGER NOT NULL DEFAULT 0 CHECK (authority_epoch >= 0),
   label TEXT NOT NULL CHECK (length(label) BETWEEN 1 AND 64),
   secret_digest TEXT NOT NULL UNIQUE
     CHECK (length(secret_digest) = 43 AND secret_digest NOT GLOB '*[^A-Za-z0-9_-]*'),
@@ -61,6 +82,13 @@ BEGIN
   SELECT RAISE(ABORT, 'developer_api_key_incarnation_immutable');
 END;
 
+CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_authority_epoch_immutable
+BEFORE UPDATE OF authority_epoch ON mxqr_developer_api_keys
+WHEN NEW.authority_epoch <> OLD.authority_epoch
+BEGIN
+  SELECT RAISE(ABORT, 'developer_api_key_authority_epoch_immutable');
+END;
+
 CREATE INDEX IF NOT EXISTS idx_mxqr_developer_api_keys_room_status_expiry
   ON mxqr_developer_api_keys (room_code, room_generation, status, expires_at);
 
@@ -77,6 +105,30 @@ WHEN EXISTS (
 )
 BEGIN
   SELECT RAISE(ABORT, 'PRO_ROOM_DECOMMISSIONED');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_authority_fenced_insert
+BEFORE INSERT ON mxqr_developer_api_keys
+WHEN EXISTS (
+  SELECT 1 FROM mxqr_developer_api_room_authority_fences
+  WHERE room_code = NEW.room_code
+    AND room_generation = NEW.room_generation
+    AND status = 'active'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'DEVELOPER_API_AUTHORITY_FENCED');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_authority_fenced_update
+BEFORE UPDATE OF status ON mxqr_developer_api_keys
+WHEN NEW.status = 'active' AND EXISTS (
+  SELECT 1 FROM mxqr_developer_api_room_authority_fences
+  WHERE room_code = NEW.room_code
+    AND room_generation = NEW.room_generation
+    AND status = 'active'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'DEVELOPER_API_AUTHORITY_FENCED');
 END;
 
 -- Credential fan-out is deliberately bounded. Rotation must

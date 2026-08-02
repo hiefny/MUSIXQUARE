@@ -3,7 +3,9 @@ import {
   cleanupPendingAccountDeletions,
   cleanupExpiredAccountSessions,
   handleAccountAuthRequest,
+  isAccountAuthConfigured,
   recordAccountProRoomLink,
+  retireAccountProRoomLinkForAccount,
   retireAccountProRoomLinkBatch,
   retireAccountProRoomLinks,
   resolveAccountSession,
@@ -25,6 +27,7 @@ import {
   readServiceMaintenance,
   updateServiceMaintenance,
 } from './service-maintenance.js';
+import { accountNicknameKey, normalizeAccountNickname } from './account-nickname.js';
 
 const YOUTUBE_SEARCH_API = 'https://www.googleapis.com/youtube/v3/search';
 const YOUTUBE_PLAYLIST_ITEMS_API = 'https://www.googleapis.com/youtube/v3/playlistItems';
@@ -83,7 +86,7 @@ const SORO_BLOG_CACHE_VERSION_KEY = 'soro-blog-cache-version.json';
 const ADMIN_ANNOUNCEMENT_KEY = 'admin-announcement.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
-const ADMIN_ASSET_VERSION = '8.2.0';
+const ADMIN_ASSET_VERSION = '8.3.0';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -104,6 +107,8 @@ const ADMIN_SESSION_TTL_SECONDS = 12 * 60 * 60;
 const ADMIN_PRO_ROOM_PATH_RE = /^\/api\/admin\/pro-rooms(?:\/(0\d{5})\/activation-claim)?$/;
 const ADMIN_PRO_ROOM_OWNER_RECOVERY_PATH_RE =
   /^\/api\/admin\/pro-rooms\/(0\d{5})\/owner-recovery-claim$/;
+const ADMIN_PRO_ROOM_OWNER_TRANSFER_PATH_RE =
+  /^\/api\/admin\/pro-rooms\/(0\d{5})\/owner-transfer-claim$/;
 const ADMIN_PRO_ROOM_STATE_PATH_RE = /^\/api\/admin\/pro-rooms\/(0\d{5})\/state$/;
 const ADMIN_PRO_ROOM_LABEL_PATH_RE = /^\/api\/admin\/pro-rooms\/(0\d{5})\/label$/;
 const ADMIN_PRO_ROOM_DELETE_PATH_RE = /^\/api\/admin\/pro-rooms\/(0\d{5})$/;
@@ -115,12 +120,22 @@ const ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE = 'mxqr_pro_room_generation_histor
 const ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE = 'mxqr_pro_room_generation_allocations';
 const ADMIN_PRO_ROOM_GENERATION_CUTOVER_TABLE = 'mxqr_pro_room_generation_cutover';
 const ADMIN_PRO_ROOM_AUDIT_TABLE = 'mxqr_pro_room_admin_audit';
+const ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE = 'mxqr_pro_room_owner_transfer_sagas';
+const ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE = 'mxqr_pro_room_owner_transfer_issuances';
 const ADMIN_PRO_ROOM_GENERATION_CONTRACT_VERSION = 1;
 const RELEASE_SHA_RE = /^[0-9a-f]{40}$/;
 const ADMIN_PRO_ROOM_REGISTRY_LIMIT = 1000;
 const ADMIN_PRO_ROOM_LABEL_MAX_LENGTH = 64;
 const ADMIN_PRO_ROOM_ACTIVATION_CLAIM_MAX_TTL_MS = 15 * 60 * 1000;
 const ADMIN_PRO_ROOM_OWNER_RECOVERY_CLAIM_MAX_TTL_MS = 10 * 60 * 1000;
+const ADMIN_PRO_ROOM_OWNER_TRANSFER_CLAIM_MAX_TTL_MS = 10 * 60 * 1000;
+const ADMIN_PRO_ROOM_OWNER_TRANSFER_INTENT_TTL_MS = 15 * 60 * 1000;
+const PRO_ROOM_OWNER_TRANSFER_RECEIPT_TTL_MS = 15 * 60 * 1000;
+const ACCOUNT_ID_RE = /^acct_[A-Za-z0-9_-]{22}$/;
+const OWNER_TRANSFER_ID_RE = /^transfer_[A-Za-z0-9_-]{22}$/;
+const OWNER_TRANSFER_REQUEST_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
+const OWNER_TRANSFER_COMMIT_PROOF_RE = /^[A-Za-z0-9._-]{32,2048}$/;
+const OWNER_AUTHORITY_REMOVAL_ID_RE = /^removal_[A-Za-z0-9_-]{22}$/;
 const ADMIN_PRO_ROOM_ACTIVATION_RECONCILE_MIN_AGE_MS = 60 * 1000;
 const ADMIN_PRO_ROOM_ACTIVATION_RECONCILE_BATCH_SIZE = 25;
 const ADMIN_DEVELOPER_API_KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
@@ -321,6 +336,29 @@ async function preflightRegisteredProRoomAccountLink(env, roomCode) {
   return isProRoomGeneration(roomGeneration) ? { roomGeneration } : null;
 }
 
+async function preflightOwnershipTransferAccountLink(env, roomCode) {
+  const db = getAdminDb(env);
+  if (!db?.prepare) return null;
+  const statement = db
+    .prepare(
+      `SELECT status, suspension_reason, room_generation
+         FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+        WHERE room_code = ?1 LIMIT 1`,
+    )
+    .bind(roomCode);
+  const row =
+    typeof statement.first === 'function'
+      ? await statement.first()
+      : (await statement.all())?.results?.[0] || null;
+  const allowed =
+    row?.status === 'registered' ||
+    (row?.status === 'suspended' &&
+      ['owner_account_deleted', 'ownership_transfer_pending'].includes(row?.suspension_reason));
+  if (!allowed) return null;
+  const roomGeneration = Number(row.room_generation);
+  return isProRoomGeneration(roomGeneration) ? { roomGeneration } : null;
+}
+
 async function repairUnforwardedAccountProRoomLink(env, roomCode, roomGeneration) {
   try {
     const current = await preflightRegisteredProRoomAccountLink(env, roomCode);
@@ -339,6 +377,35 @@ async function repairUnforwardedAccountProRoomLink(env, roomCode, roomGeneration
   } catch {
     // A registry outage is not proof that an edge is orphaned. Leave the
     // conservative edge for the scheduled decommission repair sweep.
+    return false;
+  }
+}
+
+async function repairUnforwardedOwnerTransferAccountLink(env, accountId, roomCode, roomGeneration) {
+  try {
+    const db = getAdminDb(env);
+    if (!db?.prepare) return false;
+    const statement = db
+      .prepare(
+        `SELECT status, room_generation
+           FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+          WHERE room_code = ?1 LIMIT 1`,
+      )
+      .bind(roomCode);
+    const row =
+      typeof statement.first === 'function'
+        ? await statement.first()
+        : (await statement.all())?.results?.[0] || null;
+    if (
+      Number(row?.room_generation) === roomGeneration &&
+      !['decommissioning', 'decommissioned'].includes(row?.status)
+    ) {
+      // The exact live incarnation may still complete the same transaction;
+      // retain only this target account's conservative deletion edge.
+      return false;
+    }
+    return await retireAccountProRoomLinkForAccount(env, accountId, roomCode, roomGeneration);
+  } catch {
     return false;
   }
 }
@@ -443,26 +510,46 @@ async function handleProRoomFacade(request, env, url) {
   // identity is resolved from the App Worker's host-only session cookie and
   // replaced with a short-lived room/audience-bound service assertion.
   headers.delete(ACCOUNT_ASSERTION_HEADER);
-  const accountLinkAssertionPaths = new Set([
+  const accountRequiredAssertionPaths = new Set([
     `/v1/rooms/${roomCode}/activation`,
     `/v1/rooms/${roomCode}/owner-recovery`,
+    `/v1/rooms/${roomCode}/owner-transfer`,
+  ]);
+  const accountLinkAssertionPaths = new Set([
+    ...accountRequiredAssertionPaths,
     `/v1/rooms/${roomCode}/sessions`,
     `/v1/rooms/${roomCode}/sessions/current/account`,
   ]);
   const accountLeaseAssertionPath = `/v1/rooms/${roomCode}/sessions/current/account/lease`;
+  const accountRequired = accountRequiredAssertionPaths.has(upstreamPath);
+  const ownershipTransferPath = upstreamPath === `/v1/rooms/${roomCode}/owner-transfer`;
+  let accountAssertionContext = null;
   if (accountLinkAssertionPaths.has(upstreamPath) || upstreamPath === accountLeaseAssertionPath) {
     let recordedRoomGeneration = null;
+    let assertedAccountId = null;
+    const assertionSecret = String(env.MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET || '');
+    if (
+      accountRequired &&
+      (!isAccountAuthConfigured(env) || assertionSecret.length < 32 || !getAdminDb(env)?.prepare)
+    ) {
+      return json({ error: 'PRO_ROOM_ACCOUNT_ASSERTION_UNAVAILABLE' }, 503);
+    }
     try {
       const account = await resolveAccountSession(request, env);
-      const assertionSecret = String(env.MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET || '');
+      assertedAccountId = account?.accountId || null;
+      if (accountRequired && (!account?.profileComplete || !account.nickname)) {
+        return json({ error: 'ACCOUNT_SESSION_REQUIRED' }, 401);
+      }
       if (account?.profileComplete && account.nickname && assertionSecret.length >= 32) {
         // A lease renewal skips the reverse-index write because the exact
         // physical session is already linked downstream, but it still resolves
         // the current immutable room generation so a recycled public code can
         // never turn an old account assertion into authority in its successor.
-        const roomLink = await preflightRegisteredProRoomAccountLink(env, roomCode);
+        const roomLink = ownershipTransferPath
+          ? await preflightOwnershipTransferAccountLink(env, roomCode)
+          : await preflightRegisteredProRoomAccountLink(env, roomCode);
         if (roomLink) {
-          let assertion = await createAccountAssertion(
+          const assertion = await createAccountAssertion(
             {
               accountId: account.accountId,
               nickname: account.nickname,
@@ -472,45 +559,89 @@ async function handleProRoomFacade(request, env, url) {
             },
             assertionSecret,
           );
+          if (!assertion) throw new Error('PRO_ACCOUNT_ASSERTION_UNAVAILABLE');
           if (assertion && upstreamPath !== accountLeaseAssertionPath) {
-            // Record the conservative cleanup edge before the downstream
-            // Worker can persist this account as an owner/administrator. The
-            // registry preflight bounds rejected-join edges to real rooms;
-            // a missing edge would be unsafe for account deletion.
-            const linked = await recordAccountProRoomLink(
-              env,
-              account.accountId,
-              roomCode,
-              Date.now(),
-              roomLink.roomGeneration,
-            );
-            if (!linked) throw new Error('PRO_ACCOUNT_LINK_UNAVAILABLE');
-            recordedRoomGeneration = roomLink.roomGeneration;
-            // Close the registry-preflight/write race. If decommission
-            // completed between those operations, remove the just-written
-            // exact-incarnation edge and forward no account authority.
-            const confirmedRoomLink = await preflightRegisteredProRoomAccountLink(env, roomCode);
+            const confirmedRoomLink = ownershipTransferPath
+              ? await preflightOwnershipTransferAccountLink(env, roomCode)
+              : await preflightRegisteredProRoomAccountLink(env, roomCode);
             if (confirmedRoomLink?.roomGeneration !== roomLink.roomGeneration) {
-              await retireAccountProRoomLinks(env, roomCode, roomLink.roomGeneration);
-              assertion = null;
+              throw new Error('PRO_ACCOUNT_LINK_CHANGED');
+            }
+            if (!ownershipTransferPath) {
+              // Ordinary activation/session routes can persist account
+              // authority in their first downstream call, so record the
+              // conservative cleanup edge before forwarding. Owner transfer
+              // is different: PREPARE verifies a bearer claim but grants no
+              // active target authority, so its edge is deferred until a
+              // successful validated PREPARE to prevent invalid claims from
+              // exhausting an account's 1,000-edge budget.
+              const linked = await recordAccountProRoomLink(
+                env,
+                account.accountId,
+                roomCode,
+                Date.now(),
+                roomLink.roomGeneration,
+              );
+              if (!linked) throw new Error('PRO_ACCOUNT_LINK_UNAVAILABLE');
+              recordedRoomGeneration = roomLink.roomGeneration;
+              const confirmedAfterWrite = await preflightRegisteredProRoomAccountLink(
+                env,
+                roomCode,
+              );
+              if (confirmedAfterWrite?.roomGeneration !== roomLink.roomGeneration) {
+                await retireAccountProRoomLinks(env, roomCode, roomLink.roomGeneration);
+                throw new Error('PRO_ACCOUNT_LINK_CHANGED');
+              }
             }
           }
-          if (assertion) headers.set(ACCOUNT_ASSERTION_HEADER, assertion);
+          headers.set(ACCOUNT_ASSERTION_HEADER, assertion);
+          accountAssertionContext = {
+            accountId: account.accountId,
+            roomGeneration: roomLink.roomGeneration,
+          };
+        } else if (accountRequired) {
+          return json({ error: 'PRO_ROOM_ACCOUNT_ASSERTION_UNAVAILABLE' }, 503);
         }
       }
     } catch (error) {
       if (isProRoomGeneration(recordedRoomGeneration)) {
-        await repairUnforwardedAccountProRoomLink(env, roomCode, recordedRoomGeneration);
+        if (ownershipTransferPath && ACCOUNT_ID_RE.test(assertedAccountId || '')) {
+          await repairUnforwardedOwnerTransferAccountLink(
+            env,
+            assertedAccountId,
+            roomCode,
+            recordedRoomGeneration,
+          );
+        } else {
+          await repairUnforwardedAccountProRoomLink(env, roomCode, recordedRoomGeneration);
+        }
       }
-      // Login is optional. An identity-store outage must not turn a valid room
-      // PIN into a playback outage; the PRO service will treat this request as
-      // anonymous and never trusts a client-claimed account.
+      if (accountRequired) {
+        return json({ error: 'PRO_ROOM_ACCOUNT_ASSERTION_UNAVAILABLE' }, 503);
+      }
+      // PIN sessions keep optional account linking. An identity-store outage
+      // must not turn an otherwise valid PIN into a playback outage.
       console.warn('[AccountAuth] PRO assertion unavailable', error);
+    }
+    if (accountRequired && !accountAssertionContext) {
+      return json({ error: 'PRO_ROOM_ACCOUNT_ASSERTION_UNAVAILABLE' }, 503);
     }
   }
   const cookies = forwardedProRoomCookies(headers.get('Cookie'), roomCode);
   if (cookies) headers.set('Cookie', cookies);
   else headers.delete('Cookie');
+
+  if (ownershipTransferPath) {
+    return handleProRoomOwnershipTransferSaga({
+      request,
+      env,
+      roomCode,
+      roomGeneration: accountAssertionContext.roomGeneration,
+      targetAccountId: accountAssertionContext.accountId,
+      headers,
+      body: bufferedMutationBody,
+    });
+  }
 
   const upstreamUrl = new URL(upstreamPath, PRO_ROOM_UPSTREAM_ORIGIN);
   upstreamUrl.search = url.search;
@@ -1363,6 +1494,7 @@ async function ensureAdminProRoomRegistry(db) {
           room_code TEXT PRIMARY KEY NOT NULL,
           label TEXT NOT NULL,
           status TEXT NOT NULL DEFAULT 'registered',
+          suspension_reason TEXT,
           activation_state TEXT NOT NULL DEFAULT 'unactivated',
           room_generation INTEGER NOT NULL DEFAULT 0 CHECK (room_generation >= 0),
           created_at INTEGER NOT NULL,
@@ -1399,6 +1531,40 @@ async function ensureAdminProRoomRegistry(db) {
         }
       }
     }
+    if (
+      !(registryColumns?.results || []).some(
+        (column) => String(column?.name || '') === 'suspension_reason',
+      )
+    ) {
+      try {
+        await db
+          .prepare(
+            `ALTER TABLE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+             ADD COLUMN suspension_reason TEXT`,
+          )
+          .run();
+      } catch (error) {
+        if (!/duplicate column name:\s*suspension_reason/i.test(String(error?.message || error))) {
+          throw error;
+        }
+      }
+    }
+    // Every pre-reason suspended row was created by the operator endpoint.
+    // Backfill before installing the strict transition triggers below.
+    await db
+      .prepare(
+        `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+         SET suspension_reason = 'operator_suspended'
+         WHERE status = 'suspended' AND suspension_reason IS NULL`,
+      )
+      .run();
+    await db
+      .prepare(
+        `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+         SET suspension_reason = NULL
+         WHERE status <> 'suspended' AND suspension_reason IS NOT NULL`,
+      )
+      .run();
     await db
       .prepare(
         `CREATE TABLE IF NOT EXISTS ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE} (
@@ -1563,6 +1729,46 @@ async function ensureAdminProRoomRegistry(db) {
              ABORT,
              'Invalid PRO room registry status or terminal evidence transition'
            );
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_suspension_reason_insert_guard
+         BEFORE INSERT ON ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+         WHEN (
+           NEW.status = 'suspended'
+           AND (
+             NEW.suspension_reason IS NULL
+             OR NEW.suspension_reason NOT IN (
+               'operator_suspended',
+               'owner_account_deleted',
+               'ownership_transfer_pending'
+             )
+           )
+         ) OR (NEW.status <> 'suspended' AND NEW.suspension_reason IS NOT NULL)
+         BEGIN
+           SELECT RAISE(ABORT, 'Invalid PRO room suspension reason');
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS mxqr_pro_room_registry_suspension_reason_update_guard
+         BEFORE UPDATE OF status, suspension_reason ON ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+         WHEN (
+           NEW.status = 'suspended'
+           AND (
+             NEW.suspension_reason IS NULL
+             OR NEW.suspension_reason NOT IN (
+               'operator_suspended',
+               'owner_account_deleted',
+               'ownership_transfer_pending'
+             )
+           )
+         ) OR (NEW.status <> 'suspended' AND NEW.suspension_reason IS NOT NULL)
+         BEGIN
+           SELECT RAISE(ABORT, 'Invalid PRO room suspension reason');
          END`,
       )
       .run();
@@ -1795,6 +2001,164 @@ async function ensureAdminProRoomRegistry(db) {
          ON ${ADMIN_PRO_ROOM_AUDIT_TABLE}(room_code, room_generation, created_at)`,
       )
       .run();
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE} (
+          room_code TEXT NOT NULL
+            CHECK (length(room_code) = 6 AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'),
+          room_generation INTEGER NOT NULL CHECK (room_generation >= 0),
+          claim_generation INTEGER CHECK (claim_generation IS NULL OR claim_generation >= 0),
+          transfer_id TEXT CHECK (
+            transfer_id IS NULL OR (
+            length(transfer_id) = 31
+            AND substr(transfer_id, 1, 9) = 'transfer_'
+            AND transfer_id NOT GLOB '*[^A-Za-z0-9_-]*'
+            )
+          ),
+          request_id TEXT NOT NULL CHECK (
+            length(request_id) BETWEEN 16 AND 64
+            AND request_id NOT GLOB '*[^A-Za-z0-9_-]*'
+          ),
+          target_account_id TEXT NOT NULL CHECK (
+            length(target_account_id) = 27
+            AND substr(target_account_id, 1, 5) = 'acct_'
+            AND target_account_id NOT GLOB '*[^A-Za-z0-9_-]*'
+          ),
+          previous_owner_account_id TEXT CHECK (
+            previous_owner_account_id IS NULL
+            OR (
+              length(previous_owner_account_id) = 27
+              AND substr(previous_owner_account_id, 1, 5) = 'acct_'
+              AND previous_owner_account_id NOT GLOB '*[^A-Za-z0-9_-]*'
+              AND previous_owner_account_id <> target_account_id
+            )
+          ),
+          fence_digest TEXT CHECK (
+            fence_digest IS NULL OR (
+            length(fence_digest) = 43
+            AND fence_digest NOT GLOB '*[^A-Za-z0-9_-]*'
+            )
+          ),
+          state TEXT NOT NULL CHECK (state IN (
+            'intent', 'prepared', 'committed', 'registry_active',
+            'old_owner_edge_retired', 'verified', 'complete',
+            'target_deleted', 'expired', 'superseded'
+          )),
+          intent_at INTEGER NOT NULL CHECK (intent_at >= 0),
+          prepared_at INTEGER CHECK (prepared_at IS NULL OR prepared_at >= 0),
+          expires_at INTEGER NOT NULL CHECK (
+            expires_at > 0 AND (prepared_at IS NULL OR expires_at > prepared_at)
+          ),
+          updated_at INTEGER NOT NULL CHECK (updated_at >= intent_at),
+          CHECK (
+            (transfer_id IS NULL AND claim_generation IS NULL
+             AND previous_owner_account_id IS NULL
+             AND fence_digest IS NULL AND prepared_at IS NULL
+             AND state IN ('intent', 'expired', 'superseded'))
+            OR
+            (transfer_id IS NOT NULL AND claim_generation IS NOT NULL
+             AND fence_digest IS NOT NULL AND prepared_at IS NOT NULL
+             AND state <> 'intent')
+          ),
+          PRIMARY KEY (room_code, room_generation, request_id)
+        )`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_mxqr_pro_room_owner_transfer_sagas_txn
+         ON ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE}
+           (room_code, room_generation, transfer_id)
+         WHERE transfer_id IS NOT NULL`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE INDEX IF NOT EXISTS idx_mxqr_pro_room_owner_transfer_sagas_state_updated
+         ON ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE}
+           (state, updated_at, room_code, room_generation)`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TABLE IF NOT EXISTS ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE} (
+          room_code TEXT NOT NULL
+            CHECK (length(room_code) = 6 AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'),
+          room_generation INTEGER NOT NULL CHECK (room_generation >= 0),
+          claim_generation INTEGER NOT NULL CHECK (claim_generation >= 0),
+          target_account_id TEXT NOT NULL CHECK (
+            length(target_account_id) = 27
+            AND substr(target_account_id, 1, 5) = 'acct_'
+            AND target_account_id NOT GLOB '*[^A-Za-z0-9_-]*'
+          ),
+          transfer_id TEXT CHECK (
+            transfer_id IS NULL
+            OR (
+              length(transfer_id) = 31
+              AND substr(transfer_id, 1, 9) = 'transfer_'
+              AND transfer_id NOT GLOB '*[^A-Za-z0-9_-]*'
+            )
+          ),
+          request_id TEXT CHECK (
+            request_id IS NULL
+            OR (
+              length(request_id) BETWEEN 16 AND 64
+              AND request_id NOT GLOB '*[^A-Za-z0-9_-]*'
+            )
+          ),
+          state TEXT NOT NULL CHECK (state IN ('issued', 'prepared', 'expired', 'superseded')),
+          issued_at INTEGER NOT NULL CHECK (issued_at >= 0),
+          expires_at INTEGER NOT NULL CHECK (expires_at > issued_at),
+          updated_at INTEGER NOT NULL CHECK (updated_at >= issued_at),
+          CHECK ((transfer_id IS NULL) = (request_id IS NULL)),
+          CHECK (state <> 'prepared' OR transfer_id IS NOT NULL),
+          PRIMARY KEY (room_code, room_generation, claim_generation)
+        )`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_mxqr_pro_room_owner_transfer_issuances_txn
+         ON ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+           (room_code, room_generation, transfer_id, request_id)
+         WHERE transfer_id IS NOT NULL`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE INDEX IF NOT EXISTS idx_mxqr_pro_room_owner_transfer_issuances_state_expiry
+         ON ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+           (state, expires_at, room_code, room_generation)`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS trg_mxqr_pro_room_owner_transfer_issuance_expiry_audit
+         AFTER UPDATE OF state ON ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+         WHEN OLD.state = 'issued' AND NEW.state = 'expired'
+         BEGIN
+           INSERT INTO ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+             (actor_id, action, result, room_code, room_generation, created_at)
+           VALUES
+             ('system:owner-transfer', 'owner_transfer_claim.expire', 'expired',
+              NEW.room_code, NEW.room_generation, NEW.updated_at);
+         END`,
+      )
+      .run();
+    await db
+      .prepare(
+        `CREATE TRIGGER IF NOT EXISTS trg_mxqr_pro_room_owner_transfer_saga_expiry_audit
+         AFTER UPDATE OF state ON ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE}
+         WHEN OLD.state IN ('intent', 'prepared') AND NEW.state = 'expired'
+         BEGIN
+           INSERT INTO ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+             (actor_id, action, result, room_code, room_generation, created_at)
+           VALUES
+             ('system:owner-transfer', 'owner_transfer.prepare', 'expired',
+              NEW.room_code, NEW.room_generation, NEW.updated_at);
+         END`,
+      )
+      .run();
     const nowMs = Date.now();
     for (const room of INITIAL_ADMIN_PRO_ROOMS) {
       await db
@@ -1822,6 +2186,7 @@ function normalizeAdminProRoomRow(row) {
   const label = String(row.label || '').trim();
   const roomGeneration = Number(row.room_generation);
   const status = String(row.status || '');
+  const suspensionReason = typeof row.suspension_reason === 'string' ? row.suspension_reason : null;
   if (!label || label.length > ADMIN_PRO_ROOM_LABEL_MAX_LENGTH) return null;
   if (!isProRoomGeneration(roomGeneration)) return null;
   if (
@@ -1831,11 +2196,21 @@ function normalizeAdminProRoomRow(row) {
   ) {
     return null;
   }
+  if (
+    (status === 'suspended' &&
+      !['operator_suspended', 'owner_account_deleted', 'ownership_transfer_pending'].includes(
+        suspensionReason,
+      )) ||
+    (status !== 'suspended' && suspensionReason !== null)
+  ) {
+    return null;
+  }
   return {
     roomCode: row.room_code,
     roomGeneration,
     label,
     status,
+    suspensionReason,
     // Display-only index. Every privileged decision is re-authorized against
     // the cross-script Durable Object, which owns the canonical room status.
     activationState: row.activation_state === 'active' ? 'active' : 'unactivated',
@@ -1857,7 +2232,7 @@ async function readAdminProRoom(db, roomCode) {
   await ensureAdminProRoomRegistry(db);
   const statement = db
     .prepare(
-      `SELECT room_code, label, status, activation_state, created_at, updated_at
+      `SELECT room_code, label, status, suspension_reason, activation_state, created_at, updated_at
               , room_generation
        FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
        WHERE room_code = ?1 LIMIT 1`,
@@ -1933,7 +2308,7 @@ async function listAdminProRooms(db) {
   await ensureAdminProRoomRegistry(db);
   const result = await db
     .prepare(
-      `SELECT room_code, label, status, activation_state, created_at, updated_at
+      `SELECT room_code, label, status, suspension_reason, activation_state, created_at, updated_at
               , room_generation
        FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
        ORDER BY CASE WHEN status = 'decommissioned' THEN 1 ELSE 0 END ASC,
@@ -2007,6 +2382,7 @@ async function registerAdminProRoom(db, roomCode, label, nowMs = Date.now()) {
           `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
            SET label = ?2,
                status = 'provisioning',
+               suspension_reason = NULL,
                activation_state = 'unactivated',
                room_generation = room_generation + 1,
                created_at = ?3,
@@ -2124,7 +2500,8 @@ async function markAdminProRoomRegistered(
   const result = await db
     .prepare(
       `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-       SET status = 'registered', activation_state = ?3, updated_at = ?4
+       SET status = 'registered', suspension_reason = NULL,
+           activation_state = ?3, updated_at = ?4
        WHERE room_code = ?1
          AND room_generation = ?2
          AND status NOT IN ('suspended', 'decommissioning', 'decommissioned')`,
@@ -2139,18 +2516,34 @@ async function markAdminProRoomOperationalState(
   roomCode,
   roomGeneration,
   status,
+  suspensionReason = status === 'suspended' ? 'operator_suspended' : null,
   nowMs = Date.now(),
 ) {
+  if (
+    status === 'suspended' &&
+    !['operator_suspended', 'owner_account_deleted', 'ownership_transfer_pending'].includes(
+      suspensionReason,
+    )
+  ) {
+    throw new Error('Invalid PRO room suspension reason');
+  }
   await ensureAdminProRoomRegistry(db);
   const result = await db
     .prepare(
       `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-       SET status = ?3, activation_state = 'active', updated_at = ?4
+       SET status = ?3, suspension_reason = ?4,
+           activation_state = 'active', updated_at = ?5
        WHERE room_code = ?1
          AND room_generation = ?2
          AND status NOT IN ('decommissioning', 'decommissioned')`,
     )
-    .bind(roomCode, roomGeneration, status === 'suspended' ? 'suspended' : 'registered', nowMs)
+    .bind(
+      roomCode,
+      roomGeneration,
+      status === 'suspended' ? 'suspended' : 'registered',
+      status === 'suspended' ? suspensionReason : null,
+      nowMs,
+    )
     .run();
   return Number(result?.meta?.changes || 0) === 1;
 }
@@ -2176,20 +2569,38 @@ async function reconcileAdminProRoomStatus(env, db, roomOrCode) {
   ) {
     return null;
   }
+  const suspensionReason =
+    payload.status === 'suspended' &&
+    ['operator_suspended', 'owner_account_deleted', 'ownership_transfer_pending'].includes(
+      payload.suspensionReason,
+    )
+      ? payload.suspensionReason
+      : null;
+  if (
+    (payload.status === 'suspended' && !suspensionReason) ||
+    (payload.status !== 'suspended' && payload.suspensionReason != null)
+  ) {
+    return null;
+  }
   if (payload.status === 'suspended') {
     await ensureAdminProRoomRegistry(db);
     await db
       .prepare(
         `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-         SET status = 'suspended', activation_state = 'active', updated_at = ?3
+         SET status = 'suspended', suspension_reason = ?3,
+             activation_state = 'active', updated_at = ?4
          WHERE room_code = ?1
            AND room_generation = ?2
            AND status NOT IN ('decommissioning', 'decommissioned')`,
       )
-      .bind(roomCode, roomGeneration, Date.now())
+      .bind(roomCode, roomGeneration, suspensionReason, Date.now())
       .run();
   } else {
-    await markAdminProRoomRegistered(db, roomCode, roomGeneration, payload.status);
+    if (room.status === 'suspended' && payload.status === 'active') {
+      await markAdminProRoomOperationalState(db, roomCode, roomGeneration, 'active');
+    } else {
+      await markAdminProRoomRegistered(db, roomCode, roomGeneration, payload.status);
+    }
   }
   return payload.status;
 }
@@ -2270,6 +2681,39 @@ async function writeAdminProRoomAuditOrFail(
   }
 }
 
+async function appendSystemAdminProRoomAudit(
+  db,
+  actorId,
+  action,
+  result,
+  roomCode,
+  roomGeneration,
+  { once = false } = {},
+) {
+  if (!/^system:[a-z0-9-]{1,64}$/.test(actorId || '') || !isProRoomGeneration(roomGeneration)) {
+    throw new Error('Invalid system PRO room audit identity');
+  }
+  await ensureAdminProRoomRegistry(db);
+  const createdAt = Date.now();
+  const statement = once
+    ? db.prepare(
+        `INSERT INTO ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+          (actor_id, action, result, room_code, room_generation, created_at)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6
+          WHERE NOT EXISTS (
+            SELECT 1 FROM ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+             WHERE actor_id = ?1 AND action = ?2 AND result = ?3
+               AND room_code = ?4 AND room_generation = ?5
+          )`,
+      )
+    : db.prepare(
+        `INSERT INTO ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+          (actor_id, action, result, room_code, room_generation, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+      );
+  await statement.bind(actorId, action, result, roomCode, roomGeneration, createdAt).run();
+}
+
 async function callProRoomAdminObject(
   env,
   roomCode,
@@ -2320,8 +2764,83 @@ function proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) 
   return payload.roomCode === roomCode && payload.roomGeneration === roomGeneration;
 }
 
+async function fenceProRoomSignalingForOwnerAccountDeletion(
+  {
+    roomCode,
+    roomGeneration,
+    removalId,
+    removedOwnerAuthorityEpoch,
+    fencedCoordinatorEpoch,
+  },
+  env,
+) {
+  const namespace = env?.PRO_SIGNALING_ROOMS;
+  if (
+    !namespace ||
+    typeof namespace.idFromName !== 'function' ||
+    typeof namespace.get !== 'function' ||
+    !isProRoomGeneration(roomGeneration) ||
+    !OWNER_AUTHORITY_REMOVAL_ID_RE.test(removalId || '') ||
+    !Number.isSafeInteger(removedOwnerAuthorityEpoch) ||
+    removedOwnerAuthorityEpoch < 0 ||
+    !Number.isSafeInteger(fencedCoordinatorEpoch) ||
+    fencedCoordinatorEpoch < 1
+  ) {
+    return false;
+  }
+  let response;
+  try {
+    const stub = namespace.get(namespace.idFromName(proRoomObjectName(roomCode, roomGeneration)));
+    response = await stub.fetch(
+      new Request('https://signaling.internal/internal/admin/v1/owner-account-deleted', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': roomCode,
+          'x-mxqr-pro-room-generation': proRoomGenerationHeaderValue(roomGeneration),
+        },
+        body: JSON.stringify({
+          roomCode,
+          roomGeneration,
+          removalId,
+          removedOwnerAuthorityEpoch,
+          fencedCoordinatorEpoch,
+        }),
+      }),
+    );
+  } catch {
+    return false;
+  }
+  if (!response.ok) return false;
+  const payload = await response.json().catch(() => null);
+  const commonValid =
+    payload?.ok === true &&
+    proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) &&
+    payload.status === 'suspended' &&
+    payload.reason === 'owner_account_deleted' &&
+    typeof payload.changed === 'boolean' &&
+    payload.removalId === removalId &&
+    payload.removedOwnerAuthorityEpoch === removedOwnerAuthorityEpoch &&
+    payload.fencedCoordinatorEpoch === fencedCoordinatorEpoch &&
+    Number.isSafeInteger(payload.effectiveCoordinatorEpoch);
+  if (!commonValid) return false;
+  if (payload.fenceStatus === 'installed') {
+    return payload.effectiveCoordinatorEpoch === fencedCoordinatorEpoch;
+  }
+  if (payload.fenceStatus === 'stale') {
+    return payload.changed === false && payload.effectiveCoordinatorEpoch > fencedCoordinatorEpoch;
+  }
+  return false;
+}
+
 async function purgeProRoomAccountAuthority({ accountId, roomCode, roomGeneration }, env) {
   if (!isProRoomGeneration(roomGeneration)) return false;
+  // The PRO Durable Object is the only authority that may decide whether this
+  // account is still the owner. Purge there first, in the same serialized
+  // mutation that revokes owner authority and leaves projectionAcked=false.
+  // This removes the classify -> transfer -> fence TOCTOU window: a transfer
+  // cannot commit between the decision and the purge, and cannot reactivate
+  // the room until the exact removal projection is acknowledged below.
   const result = await callProRoomAdminObject(
     env,
     roomCode,
@@ -2330,12 +2849,147 @@ async function purgeProRoomAccountAuthority({ accountId, roomCode, roomGeneratio
     'POST',
     { accountId },
   );
-  return (
+  const valid =
     result.response?.ok === true &&
     result.payload?.ok === true &&
-    proRoomAdminResponseIdentityMatches(result.payload, roomCode, roomGeneration)
-  );
+    proRoomAdminResponseIdentityMatches(result.payload, roomCode, roomGeneration) &&
+    typeof result.payload.ownerAuthorityRemoved === 'boolean' &&
+    (result.payload.removalId === null ||
+      OWNER_AUTHORITY_REMOVAL_ID_RE.test(result.payload.removalId || '')) &&
+    (result.payload.removedOwnerAuthorityEpoch === null ||
+      (Number.isSafeInteger(result.payload.removedOwnerAuthorityEpoch) &&
+        result.payload.removedOwnerAuthorityEpoch >= 0)) &&
+    (result.payload.fencedCoordinatorEpoch === null ||
+      (Number.isSafeInteger(result.payload.fencedCoordinatorEpoch) &&
+        result.payload.fencedCoordinatorEpoch >= 1)) &&
+    typeof result.payload.projectionAcked === 'boolean' &&
+    Number.isSafeInteger(result.payload.removedSessions) &&
+    result.payload.removedSessions >= 0 &&
+    ['unactivated', 'active', 'suspended'].includes(result.payload.status) &&
+    ((result.payload.status === 'suspended' &&
+      ['operator_suspended', 'owner_account_deleted', 'ownership_transfer_pending'].includes(
+        result.payload.suspensionReason,
+      )) ||
+      (result.payload.status !== 'suspended' && result.payload.suspensionReason == null));
+  if (!valid) return false;
+  if (!result.payload.ownerAuthorityRemoved) {
+    return (
+      result.payload.removalId === null &&
+      result.payload.removedOwnerAuthorityEpoch === null &&
+      result.payload.fencedCoordinatorEpoch === null &&
+      result.payload.projectionAcked === true
+    );
+  }
+  if (
+    result.payload.status !== 'suspended' ||
+    result.payload.suspensionReason !== 'owner_account_deleted' ||
+    !OWNER_AUTHORITY_REMOVAL_ID_RE.test(result.payload.removalId || '') ||
+    !Number.isSafeInteger(result.payload.removedOwnerAuthorityEpoch) ||
+    !Number.isSafeInteger(result.payload.fencedCoordinatorEpoch) ||
+    result.payload.fencedCoordinatorEpoch < 1
+  ) {
+    return false;
+  }
+  // Only an exact owner-removal result may fence signaling. Participant
+  // deletion and a stale retry after a completed transfer remain no-ops. If
+  // signaling is temporarily unavailable, the unacknowledged durable removal
+  // keeps the room suspended and blocks transfer until the minute retry
+  // installs this fence and completes the projection.
+  const removalId = result.payload.removalId;
+  const removedOwnerAuthorityEpoch = result.payload.removedOwnerAuthorityEpoch;
+  const fencedCoordinatorEpoch = result.payload.fencedCoordinatorEpoch;
+  if (
+    !(await fenceProRoomSignalingForOwnerAccountDeletion(
+      {
+        roomCode,
+        roomGeneration,
+        removalId,
+        removedOwnerAuthorityEpoch,
+        fencedCoordinatorEpoch,
+      },
+      env,
+    ))
+  ) {
+    return false;
+  }
+
+  const adminDb = getAdminDb(env);
+  if (!adminDb?.prepare) return false;
+  let room;
+  try {
+    room = await readAdminProRoom(adminDb, roomCode);
+  } catch {
+    return false;
+  }
+  if (
+    !room ||
+    room.roomGeneration !== roomGeneration ||
+    ['decommissioning', 'decommissioned'].includes(room.status)
+  ) {
+    return false;
+  }
+
+  try {
+    const fenceDigest = await developerApiAuthorityFenceDigest(
+      env,
+      'owner-account-deleted',
+      `${roomCode}\u0000${roomGeneration}\u0000${accountId}\u0000${removalId}\u0000${removedOwnerAuthorityEpoch}\u0000${fencedCoordinatorEpoch}`,
+    );
+    await revokeDeveloperApiKeysForAuthorityChange(
+      env,
+      roomCode,
+      roomGeneration,
+      'system:account-delete',
+      'owner_account_deleted',
+      'owner_account_deleted',
+      fenceDigest,
+    );
+    const projected = await markAdminProRoomOperationalState(
+      adminDb,
+      roomCode,
+      roomGeneration,
+      'suspended',
+      'owner_account_deleted',
+    );
+    if (!projected) return false;
+    await appendSystemAdminProRoomAudit(
+      adminDb,
+      'system:account-delete',
+      'room.suspend',
+      'owner_account_deleted',
+      roomCode,
+      roomGeneration,
+    );
+    const acknowledged = await callProRoomAdminObject(
+      env,
+      roomCode,
+      roomGeneration,
+      '/internal/admin/account-authority/purge/ack',
+      'POST',
+      { accountId, removalId, removedOwnerAuthorityEpoch, fencedCoordinatorEpoch },
+    );
+    const ackPayload = acknowledged.payload;
+    return (
+      acknowledged.response?.ok === true &&
+      ackPayload?.ok === true &&
+      proRoomAdminResponseIdentityMatches(ackPayload, roomCode, roomGeneration) &&
+      ackPayload.status === 'suspended' &&
+      ackPayload.suspensionReason === 'owner_account_deleted' &&
+      ackPayload.ownerAuthorityRemoved === true &&
+      ackPayload.removalId === removalId &&
+      ackPayload.removedOwnerAuthorityEpoch === removedOwnerAuthorityEpoch &&
+      ackPayload.fencedCoordinatorEpoch === fencedCoordinatorEpoch &&
+      ackPayload.projectionAcked === true &&
+      typeof ackPayload.changed === 'boolean'
+    );
+  } catch {
+    // Account deletion remains fenced and is retried by the minute cleanup
+    // job. The DO is already suspended, so failure cannot restore authority.
+    return false;
+  }
 }
+
+export const purgeProRoomAccountAuthorityForTests = purgeProRoomAccountAuthority;
 
 function proRoomObjectError(result) {
   if (!result.response) return json({ error: 'PRO_ROOM_ADMIN_UNAVAILABLE' }, 502);
@@ -2350,7 +3004,8 @@ async function markAdminProRoomDecommissioning(db, roomCode, roomGeneration, now
   const result = await db
     .prepare(
       `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-       SET status = 'decommissioning', activation_state = 'unactivated', updated_at = ?3
+       SET status = 'decommissioning', suspension_reason = NULL,
+           activation_state = 'unactivated', updated_at = ?3
        WHERE room_code = ?1
          AND room_generation = ?2
          AND status NOT IN ('decommissioning', 'decommissioned')`,
@@ -2380,7 +3035,7 @@ async function markAdminProRoomDecommissioned(
     .prepare(
       `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
        SET label = 'Decommissioned PRO room', status = 'decommissioned',
-           activation_state = 'unactivated', updated_at = ?3
+           suspension_reason = NULL, activation_state = 'unactivated', updated_at = ?3
        WHERE room_code = ?1 AND room_generation = ?2`,
     )
     .bind(roomCode, roomGeneration, nowMs)
@@ -2457,7 +3112,7 @@ function isValidAdminOwnerRecoveryLink(payload, roomCode, roomGeneration) {
     !payload ||
     !proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) ||
     typeof payload.recoveryUrl !== 'string' ||
-    typeof payload.ownerAccountLinked !== 'boolean' ||
+    payload.ownerAccountLinked !== true ||
     !Number.isSafeInteger(payload.expiresAt) ||
     payload.expiresAt <= nowMs ||
     payload.expiresAt > nowMs + ADMIN_PRO_ROOM_OWNER_RECOVERY_CLAIM_MAX_TTL_MS + 5_000
@@ -2479,6 +3134,114 @@ function isValidAdminOwnerRecoveryLink(payload, roomCode, roomGeneration) {
   } catch {
     return false;
   }
+}
+
+function isValidAdminOwnerTransferLink(payload, roomCode, roomGeneration, targetAccountId) {
+  const nowMs = Date.now();
+  if (
+    !payload ||
+    !proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) ||
+    payload.targetAccountId !== targetAccountId ||
+    !Number.isSafeInteger(payload.claimGeneration) ||
+    payload.claimGeneration < 0 ||
+    typeof payload.transferUrl !== 'string' ||
+    !Number.isSafeInteger(payload.expiresAt) ||
+    payload.expiresAt <= nowMs ||
+    payload.expiresAt > nowMs + ADMIN_PRO_ROOM_OWNER_TRANSFER_CLAIM_MAX_TTL_MS + 5_000
+  ) {
+    return false;
+  }
+  try {
+    const url = new URL(payload.transferUrl);
+    return (
+      url.protocol === 'https:' &&
+      url.username === '' &&
+      url.password === '' &&
+      url.hostname === 'musixquare.com' &&
+      url.port === '' &&
+      url.pathname === `/${roomCode}` &&
+      url.search === '' &&
+      /^#pro-transfer=v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(url.hash)
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function readActiveOwnerTransferTarget(env, targetAccountId) {
+  if (!ACCOUNT_ID_RE.test(targetAccountId || '')) return null;
+  const db = env.MUSIXQUARE_AUTH_DB;
+  if (!db?.prepare) throw new Error('Account store unavailable');
+  const statement = db
+    .prepare(
+      `SELECT account.account_id, account.nickname
+         FROM mxqr_accounts AS account
+        WHERE account.account_id = ?1
+          AND account.status = 'active'
+          AND account.profile_complete = 1
+          AND account.nickname IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM mxqr_account_deletions AS deletion
+             WHERE deletion.account_id = account.account_id
+          )
+        LIMIT 1`,
+    )
+    .bind(targetAccountId);
+  const row =
+    typeof statement.first === 'function'
+      ? await statement.first()
+      : (await statement.all())?.results?.[0] || null;
+  if (
+    row?.account_id !== targetAccountId ||
+    typeof row.nickname !== 'string' ||
+    !row.nickname.trim()
+  ) {
+    return null;
+  }
+  return { accountId: targetAccountId, nickname: row.nickname.trim() };
+}
+
+async function resolveActiveOwnerTransferTarget(env, targetReference) {
+  if (ACCOUNT_ID_RE.test(targetReference || '')) {
+    return readActiveOwnerTransferTarget(env, targetReference);
+  }
+  if (typeof targetReference !== 'string' || targetReference !== targetReference.trim()) {
+    return null;
+  }
+  const normalizedNickname = normalizeAccountNickname(targetReference);
+  const nicknameKey = normalizedNickname ? accountNicknameKey(normalizedNickname) : null;
+  if (!normalizedNickname || !nicknameKey) return null;
+  const db = env.MUSIXQUARE_AUTH_DB;
+  if (!db?.prepare) throw new Error('Account store unavailable');
+  const statement = db
+    .prepare(
+      `SELECT account.account_id, account.nickname, account.nickname_key
+         FROM mxqr_accounts AS account
+        WHERE account.nickname_key = ?1
+          AND account.status = 'active'
+          AND account.profile_complete = 1
+          AND account.nickname IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM mxqr_account_deletions AS deletion
+             WHERE deletion.account_id = account.account_id
+          )
+        LIMIT 1`,
+    )
+    .bind(nicknameKey);
+  const row =
+    typeof statement.first === 'function'
+      ? await statement.first()
+      : (await statement.all())?.results?.[0] || null;
+  const storedNickname = normalizeAccountNickname(row?.nickname);
+  if (
+    !ACCOUNT_ID_RE.test(row?.account_id || '') ||
+    !storedNickname ||
+    row?.nickname_key !== nicknameKey ||
+    accountNicknameKey(storedNickname) !== nicknameKey
+  ) {
+    return null;
+  }
+  return { accountId: row.account_id, nickname: storedNickname };
 }
 
 function getDeveloperApiAdminDb(env) {
@@ -2513,11 +3276,14 @@ function normalizeAdminDeveloperApiKeyRow(row, nowMs = Date.now(), expectedRoomG
   const scopes = developerApiScopeNames(row?.scope_mask);
   const label = typeof row?.label === 'string' ? row.label : '';
   const roomGeneration = Number(row?.room_generation);
+  const authorityEpoch = Number(row?.authority_epoch);
   if (
     !row ||
     !ADMIN_DEVELOPER_API_KEY_ID_RE.test(String(row.key_id || '')) ||
     !ADMIN_PRO_ROOM_CODE_RE.test(String(row.room_code || '')) ||
     !isProRoomGeneration(roomGeneration) ||
+    !Number.isSafeInteger(authorityEpoch) ||
+    authorityEpoch < 0 ||
     (expectedRoomGeneration !== null && roomGeneration !== expectedRoomGeneration) ||
     !label ||
     label.length > 64 ||
@@ -2571,7 +3337,7 @@ async function cleanupExpiredAdminDeveloperApiKeys(db, roomCode, roomGeneration,
 async function listAdminDeveloperApiKeys(db, roomCode, roomGeneration, nowMs) {
   const result = await db
     .prepare(
-      `SELECT key_id, room_code, room_generation, label, scope_mask, status,
+      `SELECT key_id, room_code, room_generation, authority_epoch, label, scope_mask, status,
               created_at, updated_at,
               expires_at, revoked_at, last_used_hour
        FROM mxqr_developer_api_keys
@@ -2659,7 +3425,7 @@ async function deriveAdminDeveloperApiKeyMaterial(env, roomCode, roomGeneration,
 async function readAdminDeveloperApiKey(db, roomCode, roomGeneration, keyId) {
   const statement = db
     .prepare(
-      `SELECT key_id, room_code, room_generation, label, secret_digest,
+      `SELECT key_id, room_code, room_generation, authority_epoch, label, secret_digest,
               digest_version, scope_mask, status,
               created_at, updated_at, expires_at, revoked_at, last_used_hour
        FROM mxqr_developer_api_keys
@@ -2686,6 +3452,101 @@ function recoverAdminDeveloperApiKeyReplay(row, issue, digest, nowMs, roomGenera
     return null;
   }
   return key;
+}
+
+async function readActiveProRoomDeveloperAuthority(env, roomCode, roomGeneration) {
+  const status = await callProRoomAdminObject(
+    env,
+    roomCode,
+    roomGeneration,
+    '/internal/admin/status',
+    'GET',
+  );
+  if (!status.response) return { state: 'unavailable', epoch: null };
+  const payload = status.payload;
+  if (
+    !status.response.ok ||
+    !proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) ||
+    payload?.provisioned !== true ||
+    !['unactivated', 'active', 'suspended'].includes(payload.status) ||
+    !Number.isSafeInteger(payload.developerAuthorityEpoch) ||
+    payload.developerAuthorityEpoch < 0 ||
+    (payload.status === 'suspended'
+      ? !['operator_suspended', 'owner_account_deleted', 'ownership_transfer_pending'].includes(
+          payload.suspensionReason,
+        )
+      : payload.suspensionReason !== null)
+  ) {
+    return { state: 'invalid', epoch: null };
+  }
+  return payload.status === 'active'
+    ? { state: 'active', epoch: payload.developerAuthorityEpoch }
+    : { state: 'inactive', epoch: payload.developerAuthorityEpoch };
+}
+
+async function developerApiAuthorityFenceIsActive(db, roomCode, roomGeneration) {
+  const statement = db
+    .prepare(
+      `SELECT status
+         FROM mxqr_developer_api_room_authority_fences
+        WHERE room_code = ?1 AND room_generation = ?2
+        LIMIT 1`,
+    )
+    .bind(roomCode, roomGeneration);
+  const row =
+    typeof statement.first === 'function'
+      ? await statement.first()
+      : (await statement.all())?.results?.[0] || null;
+  return row?.status === 'active';
+}
+
+async function removeDeveloperApiKeyAfterAuthorityChange(
+  db,
+  { actorId, keyId, roomCode, roomGeneration, authorityEpoch, digest, result },
+) {
+  const nowMs = Date.now();
+  const removal = db
+    .prepare(
+      `DELETE FROM mxqr_developer_api_keys
+        WHERE key_id = ?1 AND room_code = ?2 AND room_generation = ?3
+          AND secret_digest = ?4 AND authority_epoch = ?5`,
+    )
+    .bind(keyId, roomCode, roomGeneration, digest, authorityEpoch);
+  const audit = developerApiAdminAuditStatement(
+    db,
+    actorId,
+    'key.issue',
+    result,
+    keyId,
+    roomCode,
+    roomGeneration,
+    nowMs,
+  );
+  await runDeveloperApiAdminMutation(db, removal, audit, async () => {});
+}
+
+async function verifyAdminDeveloperApiKeyAuthority(env, db, row, roomCode, roomGeneration) {
+  const canonical = await readActiveProRoomDeveloperAuthority(env, roomCode, roomGeneration).catch(
+    () => ({ state: 'unavailable', epoch: null }),
+  );
+  if (canonical.state === 'unavailable' || canonical.state === 'invalid') {
+    return 'unavailable';
+  }
+  if (canonical.state !== 'active') return 'inactive';
+  if (
+    !Number.isSafeInteger(row?.authority_epoch) ||
+    row.authority_epoch < 0 ||
+    row.authority_epoch !== canonical.epoch
+  ) {
+    return 'changed';
+  }
+  try {
+    return (await developerApiAuthorityFenceIsActive(db, roomCode, roomGeneration))
+      ? 'changed'
+      : 'valid';
+  } catch {
+    return 'unavailable';
+  }
 }
 
 async function adminDeveloperApiAuditActor(request, env) {
@@ -2783,6 +3644,1662 @@ async function runDeveloperApiAdminMutation(db, mutation, audit, cleanupOnAuditF
   }
 }
 
+async function revokeDeveloperApiKeysForAuthorityChange(
+  env,
+  roomCode,
+  roomGeneration,
+  actorId,
+  result,
+  suspensionReason,
+  fenceDigest,
+) {
+  const db = getDeveloperApiAdminDb(env);
+  if (!db?.prepare || typeof db.batch !== 'function') {
+    throw new Error('Developer API admin database unavailable');
+  }
+  if (
+    !['owner_account_deleted', 'ownership_transfer_pending'].includes(suspensionReason) ||
+    !/^[A-Za-z0-9_-]{43}$/.test(fenceDigest || '')
+  ) {
+    throw new Error('Invalid Developer API authority fence');
+  }
+  const revokedAtMs = Date.now();
+  const statements = [
+    db
+      .prepare(
+        `INSERT INTO mxqr_developer_api_room_authority_fences
+          (room_code, room_generation, status, reason, fence_digest, fenced_at, updated_at)
+         VALUES (?1, ?2, 'active', ?3, ?4, ?5, ?5)
+         ON CONFLICT(room_code, room_generation) DO UPDATE SET
+           status = CASE
+             WHEN mxqr_developer_api_room_authority_fences.fence_digest = excluded.fence_digest
+              AND mxqr_developer_api_room_authority_fences.status = 'cleared'
+             THEN 'cleared'
+             ELSE 'active'
+           END,
+           reason = CASE
+             WHEN mxqr_developer_api_room_authority_fences.fence_digest = excluded.fence_digest
+              AND mxqr_developer_api_room_authority_fences.status = 'cleared'
+             THEN mxqr_developer_api_room_authority_fences.reason
+             ELSE excluded.reason
+           END,
+           fence_digest = excluded.fence_digest,
+           fenced_at = CASE
+             WHEN mxqr_developer_api_room_authority_fences.fence_digest = excluded.fence_digest
+             THEN mxqr_developer_api_room_authority_fences.fenced_at
+             ELSE excluded.fenced_at
+           END,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(roomCode, roomGeneration, suspensionReason, fenceDigest, revokedAtMs),
+    db
+      .prepare(
+        `UPDATE mxqr_developer_api_keys
+            SET status = 'revoked', revoked_at = ?3, updated_at = ?3
+          WHERE room_code = ?1 AND room_generation = ?2 AND status = 'active'
+            AND EXISTS (
+              SELECT 1 FROM mxqr_developer_api_room_authority_fences AS fence
+               WHERE fence.room_code = ?1 AND fence.room_generation = ?2
+                 AND fence.status = 'active' AND fence.fence_digest = ?4
+            )`,
+      )
+      .bind(roomCode, roomGeneration, revokedAtMs, fenceDigest),
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO mxqr_developer_api_admin_audit
+          (actor_id, action, result, key_id, room_code, room_generation, created_at)
+         SELECT ?1, 'key.revoke', ?2, key.key_id, key.room_code,
+                key.room_generation, ?5
+           FROM mxqr_developer_api_keys AS key
+          WHERE key.room_code = ?3 AND key.room_generation = ?4
+            AND key.status = 'revoked' AND key.revoked_at = ?5`,
+      )
+      .bind(actorId, result, roomCode, roomGeneration, revokedAtMs),
+  ];
+  const results = await db.batch(statements);
+  if (!Array.isArray(results) || results.length !== statements.length) {
+    throw new Error('Developer API authority revocation was not confirmed');
+  }
+
+  const fenceStatement = db
+    .prepare(
+      `SELECT status, reason, fence_digest, fenced_at, updated_at
+         FROM mxqr_developer_api_room_authority_fences
+        WHERE room_code = ?1 AND room_generation = ?2
+        LIMIT 1`,
+    )
+    .bind(roomCode, roomGeneration);
+  const fence =
+    typeof fenceStatement.first === 'function'
+      ? await fenceStatement.first()
+      : (await fenceStatement.all())?.results?.[0] || null;
+  if (
+    !fence ||
+    fence.fence_digest !== fenceDigest ||
+    !['active', 'cleared'].includes(fence.status)
+  ) {
+    throw new Error('Developer API authority fence was not confirmed');
+  }
+  const remaining = await db
+    .prepare(
+      `SELECT key_id FROM mxqr_developer_api_keys
+        WHERE room_code = ?1 AND room_generation = ?2 AND status = 'active'
+          AND EXISTS (
+            SELECT 1 FROM mxqr_developer_api_room_authority_fences AS fence
+             WHERE fence.room_code = ?1 AND fence.room_generation = ?2
+               AND fence.status = 'active' AND fence.fence_digest = ?3
+          )
+        LIMIT 1`,
+    )
+    .bind(roomCode, roomGeneration, fenceDigest)
+    .all();
+  if ((remaining?.results || []).length > 0) {
+    throw new Error('Developer API authority revocation is incomplete');
+  }
+  return {
+    revokedAtMs,
+    revokedKeyCount: Number(results[1]?.meta?.changes || 0),
+    fenceDigest,
+    fenceStatus: fence.status,
+  };
+}
+
+async function developerApiAuthorityFenceDigest(env, purpose, material) {
+  const secret = String(env.MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET || '');
+  if (secret.length < 32) throw new Error('PRO account assertion secret unavailable');
+  return hmacSha256(secret, `developer-api-authority-fence:v1\u0000${purpose}\u0000${material}`);
+}
+
+async function clearDeveloperApiAuthorityFence(env, roomCode, roomGeneration, fenceDigest) {
+  const db = getDeveloperApiAdminDb(env);
+  if (!db?.prepare || !/^[A-Za-z0-9_-]{43}$/.test(fenceDigest || '')) return false;
+  await db
+    .prepare(
+      `UPDATE mxqr_developer_api_room_authority_fences
+          SET status = 'cleared', updated_at = ?4
+        WHERE room_code = ?1 AND room_generation = ?2
+          AND fence_digest = ?3 AND status = 'active'`,
+    )
+    .bind(roomCode, roomGeneration, fenceDigest, Date.now())
+    .run();
+  const statement = db
+    .prepare(
+      `SELECT status, fence_digest
+         FROM mxqr_developer_api_room_authority_fences
+        WHERE room_code = ?1 AND room_generation = ?2
+        LIMIT 1`,
+    )
+    .bind(roomCode, roomGeneration);
+  const row =
+    typeof statement.first === 'function'
+      ? await statement.first()
+      : (await statement.all())?.results?.[0] || null;
+  return row?.status === 'cleared' && row?.fence_digest === fenceDigest;
+}
+
+function ownerTransferRequestIdFromBodyBytes(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) return null;
+  let body;
+  try {
+    body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    return null;
+  }
+  if (
+    !body ||
+    typeof body !== 'object' ||
+    Array.isArray(body) ||
+    Object.keys(body).length !== 3 ||
+    !Object.hasOwn(body, 'claimToken') ||
+    !Object.hasOwn(body, 'newPin') ||
+    !Object.hasOwn(body, 'requestId') ||
+    typeof body.claimToken !== 'string' ||
+    body.claimToken.length < 32 ||
+    body.claimToken.length > 4096 ||
+    typeof body.newPin !== 'string' ||
+    !/^\d{8}$/.test(body.newPin) ||
+    typeof body.requestId !== 'string' ||
+    !/^[A-Za-z0-9_-]{16,64}$/.test(body.requestId)
+  ) {
+    return null;
+  }
+  return body.requestId;
+}
+
+function validOwnerTransferPreparePayload(payload, roomCode, roomGeneration, targetAccountId) {
+  const nowMs = Date.now();
+  const previousOwnerAccountId = payload?.previousOwnerAccountId;
+  const pending =
+    payload?.status === 'suspended' && payload.suspensionReason === 'ownership_transfer_pending';
+  const completedReplay =
+    payload?.status === 'active' && payload.suspensionReason === null && payload.replayed === true;
+  const validCommonTiming =
+    Number.isSafeInteger(payload?.preparedAtMs) &&
+    payload.preparedAtMs > 0 &&
+    payload.preparedAtMs <= nowMs + 5_000 &&
+    Number.isSafeInteger(payload?.expiresAtMs) &&
+    payload.expiresAtMs > payload.preparedAtMs &&
+    payload.expiresAtMs <=
+      payload.preparedAtMs + ADMIN_PRO_ROOM_OWNER_TRANSFER_CLAIM_MAX_TTL_MS + 5_000;
+  const validPendingTiming =
+    pending &&
+    Number.isSafeInteger(payload.claimGeneration) &&
+    payload.claimGeneration >= 0 &&
+    payload.committedAtMs === null &&
+    Number.isSafeInteger(payload.replayUntilMs) &&
+    payload.replayUntilMs === payload.expiresAtMs &&
+    payload.expiresAtMs > nowMs;
+  const validCompletedReplayTiming =
+    completedReplay &&
+    payload.claimGeneration === null &&
+    Number.isSafeInteger(payload.committedAtMs) &&
+    payload.committedAtMs >= payload.preparedAtMs &&
+    payload.committedAtMs <= nowMs + 5_000 &&
+    Number.isSafeInteger(payload.replayUntilMs) &&
+    payload.replayUntilMs > nowMs &&
+    payload.replayUntilMs > payload.committedAtMs &&
+    payload.replayUntilMs <= payload.committedAtMs + PRO_ROOM_OWNER_TRANSFER_RECEIPT_TTL_MS + 5_000;
+  return (
+    payload?.ok === true &&
+    proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) &&
+    (pending || completedReplay) &&
+    OWNER_TRANSFER_ID_RE.test(payload.transferId || '') &&
+    OWNER_TRANSFER_COMMIT_PROOF_RE.test(payload.commitProof || '') &&
+    payload.targetAccountId === targetAccountId &&
+    (previousOwnerAccountId === null ||
+      (ACCOUNT_ID_RE.test(previousOwnerAccountId || '') &&
+        previousOwnerAccountId !== targetAccountId)) &&
+    typeof payload.replayed === 'boolean' &&
+    validCommonTiming &&
+    (validPendingTiming || validCompletedReplayTiming)
+  );
+}
+
+function validOwnerTransferCommitPayload(payload, prepared) {
+  return (
+    payload?.ok === true &&
+    proRoomAdminResponseIdentityMatches(payload, prepared.roomCode, prepared.roomGeneration) &&
+    payload.status === 'active' &&
+    payload.suspensionReason === null &&
+    payload.transferId === prepared.transferId &&
+    typeof payload.replayed === 'boolean' &&
+    payload.snapshot &&
+    typeof payload.snapshot === 'object' &&
+    !Array.isArray(payload.snapshot) &&
+    payload.snapshot.roomCode === prepared.roomCode &&
+    payload.session &&
+    typeof payload.session === 'object' &&
+    !Array.isArray(payload.session) &&
+    Number.isSafeInteger(payload.session.expiresAtMs) &&
+    payload.session.expiresAtMs > Date.now()
+  );
+}
+
+function validOwnerTransferReconcilePayload(payload, saga) {
+  return (
+    payload?.ok === true &&
+    proRoomAdminResponseIdentityMatches(payload, saga.roomCode, saga.roomGeneration) &&
+    payload.status === 'active' &&
+    payload.suspensionReason === null &&
+    payload.transferId === saga.transferId &&
+    payload.requestId === saga.requestId &&
+    payload.targetAccountId === saga.targetAccountId &&
+    payload.previousOwnerAccountId === saga.previousOwnerAccountId &&
+    typeof payload.replayed === 'boolean' &&
+    !Object.hasOwn(payload, 'snapshot') &&
+    !Object.hasOwn(payload, 'session')
+  );
+}
+
+async function createOwnerTransferRevocationReceipt(
+  env,
+  prepared,
+  targetAccountId,
+  requestId,
+  revokedAtMs,
+) {
+  const secret = String(env.MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET || '');
+  if (secret.length < 32) throw new Error('PRO account assertion secret unavailable');
+  const payloadPart = stringToBase64Url(
+    JSON.stringify({
+      purpose: 'pro-room-owner-transfer-revocation',
+      roomCode: prepared.roomCode,
+      roomGeneration: prepared.roomGeneration,
+      transferId: prepared.transferId,
+      targetAccountId,
+      requestId,
+      revokedAtMs,
+      expiresAtMs: revokedAtMs + PRO_ROOM_OWNER_TRANSFER_RECEIPT_TTL_MS,
+    }),
+  );
+  const signature = await hmacSha256(secret, `owner-transfer-revocation:v1\u0000${payloadPart}`);
+  return `v1.${payloadPart}.${signature}`;
+}
+
+function ownerTransferPrepareAuditResult(response, payload) {
+  const code = typeof payload?.error === 'string' ? payload.error : '';
+  if (code === 'OWNER_TRANSFER_CLAIM_EXPIRED') return 'expired';
+  if (code === 'OWNER_TRANSFER_TARGET_ACCOUNT_MISMATCH') return 'denied_target_mismatch';
+  if (code === 'OWNER_TRANSFER_CLAIM_STALE') return 'denied_stale';
+  if (code === 'OWNER_TRANSFER_CLAIM_USED') return 'denied_replay';
+  if (code === 'OWNER_TRANSFER_CLAIM_INVALID') return 'denied_invalid';
+  if (response && response.status >= 400 && response.status < 500) return 'denied';
+  return response ? 'service_rejected' : 'service_unavailable';
+}
+
+async function auditSystemOwnerTransfer(env, action, result, roomCode, roomGeneration) {
+  const db = getAdminDb(env);
+  if (!db?.prepare) throw new Error('PRO room registry unavailable');
+  await appendSystemAdminProRoomAudit(
+    db,
+    'system:owner-transfer',
+    action,
+    result,
+    roomCode,
+    roomGeneration,
+  );
+}
+
+const OWNER_TRANSFER_SAGA_STATE_RANK = Object.freeze({
+  prepared: 0,
+  committed: 1,
+  registry_active: 2,
+  old_owner_edge_retired: 3,
+  verified: 4,
+  complete: 5,
+});
+
+function normalizeOwnerTransferSagaRow(row) {
+  const roomGeneration = Number(row?.room_generation);
+  const claimGeneration = row?.claim_generation === null ? null : Number(row?.claim_generation);
+  const preparedAtMs = row?.prepared_at === null ? null : Number(row?.prepared_at);
+  const intentAtMs = Number(row?.intent_at);
+  const expiresAtMs = Number(row?.expires_at);
+  const updatedAtMs = Number(row?.updated_at);
+  const previousOwnerAccountId = row?.previous_owner_account_id ?? null;
+  const unfilled = row?.transfer_id === null;
+  const terminalUnfilled =
+    unfilled &&
+    claimGeneration === null &&
+    previousOwnerAccountId === null &&
+    row?.fence_digest === null &&
+    preparedAtMs === null &&
+    ['intent', 'expired', 'superseded'].includes(row?.state);
+  const filled =
+    !unfilled &&
+    Number.isSafeInteger(claimGeneration) &&
+    claimGeneration >= 0 &&
+    OWNER_TRANSFER_ID_RE.test(row?.transfer_id || '') &&
+    /^[A-Za-z0-9_-]{43}$/.test(row?.fence_digest || '') &&
+    Number.isSafeInteger(preparedAtMs) &&
+    preparedAtMs >= 0 &&
+    expiresAtMs > preparedAtMs;
+  if (
+    !ADMIN_PRO_ROOM_CODE_RE.test(row?.room_code || '') ||
+    !isProRoomGeneration(roomGeneration) ||
+    !OWNER_TRANSFER_REQUEST_ID_RE.test(row?.request_id || '') ||
+    !ACCOUNT_ID_RE.test(row?.target_account_id || '') ||
+    (previousOwnerAccountId !== null &&
+      (!ACCOUNT_ID_RE.test(previousOwnerAccountId || '') ||
+        previousOwnerAccountId === row.target_account_id)) ||
+    ![
+      'intent',
+      ...Object.keys(OWNER_TRANSFER_SAGA_STATE_RANK),
+      'target_deleted',
+      'expired',
+      'superseded',
+    ].includes(row?.state) ||
+    (!terminalUnfilled && !filled) ||
+    !Number.isSafeInteger(intentAtMs) ||
+    intentAtMs < 0 ||
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= 0 ||
+    !Number.isSafeInteger(updatedAtMs) ||
+    updatedAtMs < intentAtMs
+  ) {
+    return null;
+  }
+  return {
+    roomCode: row.room_code,
+    roomGeneration,
+    claimGeneration,
+    transferId: row.transfer_id,
+    requestId: row.request_id,
+    targetAccountId: row.target_account_id,
+    previousOwnerAccountId,
+    fenceDigest: row.fence_digest,
+    state: row.state,
+    intentAtMs,
+    preparedAtMs,
+    expiresAtMs,
+    updatedAtMs,
+  };
+}
+
+async function readOwnerTransferSaga(db, roomCode, roomGeneration, requestId, transferId = null) {
+  await ensureAdminProRoomRegistry(db);
+  const statement = transferId
+    ? db
+        .prepare(
+          `SELECT room_code, room_generation, claim_generation, transfer_id, request_id,
+                  target_account_id, previous_owner_account_id, fence_digest, state,
+                  intent_at, prepared_at, expires_at, updated_at
+             FROM ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE}
+            WHERE room_code = ?1 AND room_generation = ?2
+              AND request_id = ?3 AND transfer_id = ?4
+            LIMIT 1`,
+        )
+        .bind(roomCode, roomGeneration, requestId, transferId)
+    : db
+        .prepare(
+          `SELECT room_code, room_generation, claim_generation, transfer_id, request_id,
+                  target_account_id, previous_owner_account_id, fence_digest, state,
+                  intent_at, prepared_at, expires_at, updated_at
+             FROM ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE}
+            WHERE room_code = ?1 AND room_generation = ?2 AND request_id = ?3
+            LIMIT 1`,
+        )
+        .bind(roomCode, roomGeneration, requestId);
+  const row =
+    typeof statement.first === 'function'
+      ? await statement.first()
+      : (await statement.all())?.results?.[0] || null;
+  return normalizeOwnerTransferSagaRow(row);
+}
+
+async function recordOwnerTransferIntent(
+  db,
+  { roomCode, roomGeneration, requestId, targetAccountId },
+  nowMs = Date.now(),
+) {
+  await ensureAdminProRoomRegistry(db);
+  if (
+    !ADMIN_PRO_ROOM_CODE_RE.test(roomCode || '') ||
+    !isProRoomGeneration(roomGeneration) ||
+    !OWNER_TRANSFER_REQUEST_ID_RE.test(requestId || '') ||
+    !ACCOUNT_ID_RE.test(targetAccountId || '') ||
+    !Number.isSafeInteger(nowMs) ||
+    nowMs < 0
+  ) {
+    return null;
+  }
+  const expiresAtMs = nowMs + ADMIN_PRO_ROOM_OWNER_TRANSFER_INTENT_TTL_MS;
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE}
+        (room_code, room_generation, claim_generation, transfer_id, request_id,
+         target_account_id, previous_owner_account_id, fence_digest, state,
+         intent_at, prepared_at, expires_at, updated_at)
+       VALUES (?1, ?2, NULL, NULL, ?3, ?4, NULL, NULL, 'intent', ?5, NULL, ?6, ?5)`,
+    )
+    .bind(roomCode, roomGeneration, requestId, targetAccountId, nowMs, expiresAtMs)
+    .run();
+  const intent = await readOwnerTransferSaga(db, roomCode, roomGeneration, requestId);
+  return intent &&
+    intent.targetAccountId === targetAccountId &&
+    !['expired', 'superseded', 'target_deleted'].includes(intent.state)
+    ? intent
+    : null;
+}
+
+async function recordOwnerTransferIssuance(
+  db,
+  { roomCode, roomGeneration, claimGeneration, targetAccountId, expiresAtMs },
+  nowMs = Date.now(),
+) {
+  await ensureAdminProRoomRegistry(db);
+  if (
+    !Number.isSafeInteger(claimGeneration) ||
+    claimGeneration < 0 ||
+    !ACCOUNT_ID_RE.test(targetAccountId || '') ||
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= nowMs
+  ) {
+    return false;
+  }
+  await db
+    .prepare(
+      `UPDATE ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+          SET state = 'superseded', updated_at = ?4
+        WHERE room_code = ?1 AND room_generation = ?2
+          AND claim_generation <> ?3 AND state = 'issued'`,
+    )
+    .bind(roomCode, roomGeneration, claimGeneration, nowMs)
+    .run();
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+        (room_code, room_generation, claim_generation, target_account_id,
+         transfer_id, request_id, state, issued_at, expires_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, NULL, NULL, 'issued', ?5, ?6, ?5)`,
+    )
+    .bind(roomCode, roomGeneration, claimGeneration, targetAccountId, nowMs, expiresAtMs)
+    .run();
+  const statement = db
+    .prepare(
+      `SELECT target_account_id, state, expires_at
+         FROM ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+        WHERE room_code = ?1 AND room_generation = ?2 AND claim_generation = ?3
+        LIMIT 1`,
+    )
+    .bind(roomCode, roomGeneration, claimGeneration);
+  const row =
+    typeof statement.first === 'function'
+      ? await statement.first()
+      : (await statement.all())?.results?.[0] || null;
+  return (
+    row?.target_account_id === targetAccountId &&
+    row?.state === 'issued' &&
+    Number(row?.expires_at) === expiresAtMs
+  );
+}
+
+async function recordPreparedOwnerTransferSaga(
+  db,
+  {
+    roomCode,
+    roomGeneration,
+    claimGeneration,
+    transferId,
+    requestId,
+    targetAccountId,
+    previousOwnerAccountId,
+    fenceDigest,
+    preparedAtMs,
+    expiresAtMs,
+  },
+  nowMs = Date.now(),
+) {
+  await ensureAdminProRoomRegistry(db);
+  const existing = await readOwnerTransferSaga(db, roomCode, roomGeneration, requestId);
+  if (!existing || existing.targetAccountId !== targetAccountId) return null;
+  if (claimGeneration === null) {
+    return existing.transferId === transferId &&
+      existing.previousOwnerAccountId === previousOwnerAccountId &&
+      existing.fenceDigest === fenceDigest &&
+      existing.preparedAtMs === preparedAtMs &&
+      existing.expiresAtMs === expiresAtMs
+      ? existing
+      : null;
+  }
+  await db
+    .prepare(
+      `UPDATE ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE}
+          SET claim_generation = ?4, transfer_id = ?5,
+              previous_owner_account_id = ?7, fence_digest = ?8,
+              state = CASE WHEN state = 'intent' THEN 'prepared' ELSE state END,
+              prepared_at = ?9, expires_at = ?10,
+              updated_at = ?11
+        WHERE room_code = ?1 AND room_generation = ?2 AND request_id = ?3
+          AND target_account_id = ?6
+          AND (
+            (state = 'intent' AND claim_generation IS NULL AND transfer_id IS NULL
+              AND fence_digest IS NULL AND prepared_at IS NULL)
+            OR
+            (claim_generation = ?4 AND transfer_id = ?5
+              AND previous_owner_account_id IS ?7 AND fence_digest = ?8
+              AND prepared_at = ?9 AND expires_at = ?10
+              AND state IN ('prepared', 'committed', 'registry_active',
+                            'old_owner_edge_retired', 'verified', 'complete'))
+          )`,
+    )
+    .bind(
+      roomCode,
+      roomGeneration,
+      requestId,
+      claimGeneration,
+      transferId,
+      targetAccountId,
+      previousOwnerAccountId,
+      fenceDigest,
+      preparedAtMs,
+      expiresAtMs,
+      Math.max(nowMs, existing.intentAtMs, preparedAtMs),
+    )
+    .run();
+  // Rollout-safe inference: claims exposed by a previous matched App Worker
+  // can still be correlated without storing the bearer or nonce.
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+        (room_code, room_generation, claim_generation, target_account_id,
+         transfer_id, request_id, state, issued_at, expires_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'prepared', ?7, ?8, ?9)`,
+    )
+    .bind(
+      roomCode,
+      roomGeneration,
+      claimGeneration,
+      targetAccountId,
+      transferId,
+      requestId,
+      preparedAtMs,
+      expiresAtMs,
+      Math.max(nowMs, preparedAtMs),
+    )
+    .run();
+  await db
+    .prepare(
+      `UPDATE ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+          SET transfer_id = ?5, request_id = ?6, state = 'prepared', updated_at = ?9
+        WHERE room_code = ?1 AND room_generation = ?2 AND claim_generation = ?3
+          AND target_account_id = ?4 AND expires_at = ?8
+          AND state IN ('issued', 'prepared')
+          AND (transfer_id IS NULL OR (transfer_id = ?5 AND request_id = ?6))`,
+    )
+    .bind(
+      roomCode,
+      roomGeneration,
+      claimGeneration,
+      targetAccountId,
+      transferId,
+      requestId,
+      preparedAtMs,
+      expiresAtMs,
+      Math.max(nowMs, preparedAtMs),
+    )
+    .run();
+  const saga = await readOwnerTransferSaga(db, roomCode, roomGeneration, requestId, transferId);
+  return saga?.claimGeneration === claimGeneration &&
+    saga.targetAccountId === targetAccountId &&
+    saga.previousOwnerAccountId === previousOwnerAccountId &&
+    saga.fenceDigest === fenceDigest
+    ? saga
+    : null;
+}
+
+async function advanceOwnerTransferSagaState(db, saga, nextState, nowMs = Date.now()) {
+  if (
+    !Object.hasOwn(OWNER_TRANSFER_SAGA_STATE_RANK, nextState) &&
+    !['target_deleted', 'expired', 'superseded'].includes(nextState)
+  ) {
+    return false;
+  }
+  if (saga.state === 'intent') {
+    if (nextState !== 'expired' && nextState !== 'superseded') return false;
+    await db
+      .prepare(
+        `UPDATE ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE}
+            SET state = ?4, updated_at = ?5
+          WHERE room_code = ?1 AND room_generation = ?2 AND request_id = ?3
+            AND state = 'intent' AND transfer_id IS NULL`,
+      )
+      .bind(
+        saga.roomCode,
+        saga.roomGeneration,
+        saga.requestId,
+        nextState,
+        Math.max(nowMs, saga.intentAtMs),
+      )
+      .run();
+    const current = await readOwnerTransferSaga(
+      db,
+      saga.roomCode,
+      saga.roomGeneration,
+      saga.requestId,
+    );
+    return current?.state === nextState;
+  }
+  const nextRank = OWNER_TRANSFER_SAGA_STATE_RANK[nextState];
+  const allowedStates = Number.isInteger(nextRank)
+    ? Object.entries(OWNER_TRANSFER_SAGA_STATE_RANK)
+        .filter(([, rank]) => rank <= nextRank)
+        .map(([state]) => `'${state}'`)
+        .join(', ')
+    : Object.keys(OWNER_TRANSFER_SAGA_STATE_RANK)
+        .map((state) => `'${state}'`)
+        .join(', ');
+  await db
+    .prepare(
+      `UPDATE ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE}
+          SET state = ?5, updated_at = ?6
+        WHERE room_code = ?1 AND room_generation = ?2
+          AND transfer_id = ?3 AND request_id = ?4
+          AND state IN (${allowedStates})`,
+    )
+    .bind(
+      saga.roomCode,
+      saga.roomGeneration,
+      saga.transferId,
+      saga.requestId,
+      nextState,
+      Math.max(nowMs, saga.preparedAtMs),
+    )
+    .run();
+  const current = await readOwnerTransferSaga(
+    db,
+    saga.roomCode,
+    saga.roomGeneration,
+    saga.requestId,
+    saga.transferId,
+  );
+  if (!current) return false;
+  if (current.state === nextState) return true;
+  const currentRank = OWNER_TRANSFER_SAGA_STATE_RANK[current.state];
+  return Number.isInteger(currentRank) && Number.isInteger(nextRank) && currentRank >= nextRank;
+}
+
+function ownerTransferReconciliationMatchesSaga(meta, saga) {
+  if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return false;
+  const completed = meta.phase === 'completed';
+  const pending = meta.phase === 'pending';
+  return (
+    (completed || pending) &&
+    meta.transferId === saga.transferId &&
+    meta.requestId === saga.requestId &&
+    meta.targetAccountId === saga.targetAccountId &&
+    meta.previousOwnerAccountId === saga.previousOwnerAccountId &&
+    Number(meta.preparedAtMs) === saga.preparedAtMs &&
+    Number(meta.expiresAtMs) === saga.expiresAtMs &&
+    (completed
+      ? meta.claimGeneration === null &&
+        Number.isSafeInteger(meta.committedAtMs) &&
+        meta.committedAtMs >= saga.preparedAtMs &&
+        Number.isSafeInteger(meta.replayUntilMs) &&
+        meta.replayUntilMs > meta.committedAtMs
+      : meta.claimGeneration === saga.claimGeneration &&
+        meta.committedAtMs === null &&
+        Number(meta.replayUntilMs) === saga.expiresAtMs)
+  );
+}
+
+function ownerTransferReconciliationMatchesIntent(meta, intent) {
+  return (
+    intent?.state === 'intent' &&
+    meta &&
+    typeof meta === 'object' &&
+    !Array.isArray(meta) &&
+    meta.phase === 'pending' &&
+    OWNER_TRANSFER_ID_RE.test(meta.transferId || '') &&
+    meta.requestId === intent.requestId &&
+    meta.targetAccountId === intent.targetAccountId &&
+    Number.isSafeInteger(meta.claimGeneration) &&
+    meta.claimGeneration >= 0 &&
+    (meta.previousOwnerAccountId === null ||
+      (ACCOUNT_ID_RE.test(meta.previousOwnerAccountId || '') &&
+        meta.previousOwnerAccountId !== intent.targetAccountId)) &&
+    Number.isSafeInteger(meta.preparedAtMs) &&
+    meta.preparedAtMs >= 0 &&
+    Number.isSafeInteger(meta.expiresAtMs) &&
+    meta.expiresAtMs > meta.preparedAtMs &&
+    meta.committedAtMs === null &&
+    meta.replayUntilMs === meta.expiresAtMs
+  );
+}
+
+async function adoptOwnerTransferIntent(env, db, intent, meta, nowMs = Date.now()) {
+  if (!ownerTransferReconciliationMatchesIntent(meta, intent)) return null;
+  const fenceDigest = await developerApiAuthorityFenceDigest(
+    env,
+    'ownership-transfer',
+    `${intent.roomCode}\u0000${intent.roomGeneration}\u0000${meta.transferId}\u0000${intent.targetAccountId}\u0000${intent.requestId}`,
+  );
+  return recordPreparedOwnerTransferSaga(
+    db,
+    {
+      roomCode: intent.roomCode,
+      roomGeneration: intent.roomGeneration,
+      claimGeneration: meta.claimGeneration,
+      transferId: meta.transferId,
+      requestId: intent.requestId,
+      targetAccountId: intent.targetAccountId,
+      previousOwnerAccountId: meta.previousOwnerAccountId,
+      fenceDigest,
+      preparedAtMs: meta.preparedAtMs,
+      expiresAtMs: meta.expiresAtMs,
+    },
+    nowMs,
+  );
+}
+
+async function markOwnerTransferIssuanceState(db, saga, state, nowMs = Date.now()) {
+  if (!['expired', 'superseded'].includes(state)) return false;
+  const result = await db
+    .prepare(
+      `UPDATE ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+          SET state = ?4, updated_at = ?5
+        WHERE room_code = ?1 AND room_generation = ?2 AND claim_generation = ?3
+          AND state IN ('issued', 'prepared')`,
+    )
+    .bind(
+      saga.roomCode,
+      saga.roomGeneration,
+      saga.claimGeneration,
+      state,
+      Math.max(nowMs, saga.preparedAtMs),
+    )
+    .run();
+  return Number(result?.meta?.changes || 0) <= 1;
+}
+
+async function expireOwnerTransferIssuances(env, db, nowMs = Date.now()) {
+  await ensureAdminProRoomRegistry(db);
+  const result = await db
+    .prepare(
+      `SELECT room_code, room_generation, claim_generation
+         FROM ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+        WHERE state = 'issued' AND expires_at <= ?1
+        ORDER BY expires_at ASC, room_code ASC, room_generation ASC
+        LIMIT 50`,
+    )
+    .bind(nowMs)
+    .all();
+  let expired = 0;
+  for (const row of result?.results || []) {
+    const roomCode = row?.room_code;
+    const roomGeneration = Number(row?.room_generation);
+    const claimGeneration = Number(row?.claim_generation);
+    if (
+      !ADMIN_PRO_ROOM_CODE_RE.test(roomCode || '') ||
+      !isProRoomGeneration(roomGeneration) ||
+      !Number.isSafeInteger(claimGeneration) ||
+      claimGeneration < 0
+    ) {
+      continue;
+    }
+    const updated = await db
+      .prepare(
+        `UPDATE ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+            SET state = 'expired', updated_at = ?4
+          WHERE room_code = ?1 AND room_generation = ?2 AND claim_generation = ?3
+            AND state = 'issued' AND expires_at <= ?4`,
+      )
+      .bind(roomCode, roomGeneration, claimGeneration, nowMs)
+      .run();
+    if (Number(updated?.meta?.changes || 0) !== 1) continue;
+    expired += 1;
+  }
+  return expired;
+}
+
+async function listIncompleteOwnerTransferSagas(db) {
+  await ensureAdminProRoomRegistry(db);
+  const result = await db
+    .prepare(
+      `SELECT room_code, room_generation, claim_generation, transfer_id, request_id,
+              target_account_id, previous_owner_account_id, fence_digest, state,
+              intent_at, prepared_at, expires_at, updated_at
+         FROM ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE}
+        WHERE state NOT IN ('complete', 'target_deleted', 'expired', 'superseded')
+        ORDER BY updated_at ASC, room_code ASC, room_generation ASC
+        LIMIT 50`,
+    )
+    .all();
+  return (result?.results || []).map(normalizeOwnerTransferSagaRow).filter(Boolean);
+}
+
+async function commitAdoptedOwnerTransferSaga(env, saga, nowMs = Date.now()) {
+  let target;
+  try {
+    target = await readActiveOwnerTransferTarget(env, saga.targetAccountId);
+  } catch {
+    return false;
+  }
+  if (!target) return false;
+  try {
+    if (
+      !(await recordAccountProRoomLink(
+        env,
+        saga.targetAccountId,
+        saga.roomCode,
+        nowMs,
+        saga.roomGeneration,
+      ))
+    ) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  let revocation;
+  try {
+    revocation = await revokeDeveloperApiKeysForAuthorityChange(
+      env,
+      saga.roomCode,
+      saga.roomGeneration,
+      'system:owner-transfer',
+      'ownership_transfer',
+      'ownership_transfer_pending',
+      saga.fenceDigest,
+    );
+  } catch {
+    return false;
+  }
+  let revocationReceipt;
+  try {
+    revocationReceipt = await createOwnerTransferRevocationReceipt(
+      env,
+      {
+        roomCode: saga.roomCode,
+        roomGeneration: saga.roomGeneration,
+        transferId: saga.transferId,
+      },
+      saga.targetAccountId,
+      saga.requestId,
+      revocation.revokedAtMs,
+    );
+  } catch {
+    return false;
+  }
+  const committed = await callProRoomAdminObject(
+    env,
+    saga.roomCode,
+    saga.roomGeneration,
+    '/internal/admin/owner-transfer/reconcile',
+    'POST',
+    {
+      transferId: saga.transferId,
+      targetAccountId: saga.targetAccountId,
+      requestId: saga.requestId,
+      revocationReceipt,
+    },
+  );
+  return (
+    committed.response?.ok === true && validOwnerTransferReconcilePayload(committed.payload, saga)
+  );
+}
+
+async function reconcileOneOwnerTransferSaga(env, db, saga, nowMs = Date.now()) {
+  const status = await callProRoomAdminObject(
+    env,
+    saga.roomCode,
+    saga.roomGeneration,
+    '/internal/admin/status',
+    'GET',
+  );
+  if (
+    !status.response?.ok ||
+    status.payload?.provisioned !== true ||
+    !proRoomAdminResponseIdentityMatches(status.payload, saga.roomCode, saga.roomGeneration)
+  ) {
+    return false;
+  }
+  let meta = status.payload.ownerTransferReconciliation;
+  if (saga.state === 'intent') {
+    if (ownerTransferReconciliationMatchesIntent(meta, saga)) {
+      try {
+        saga = await adoptOwnerTransferIntent(env, db, saga, meta, nowMs);
+      } catch {
+        return false;
+      }
+      if (!saga) return false;
+    } else if (meta && typeof meta === 'object') {
+      return advanceOwnerTransferSagaState(db, saga, 'superseded', nowMs);
+    } else if (saga.expiresAtMs <= nowMs) {
+      return advanceOwnerTransferSagaState(db, saga, 'expired', nowMs);
+    } else {
+      return false;
+    }
+  }
+  if (!ownerTransferReconciliationMatchesSaga(meta, saga)) {
+    const committedOrLater =
+      Number(OWNER_TRANSFER_SAGA_STATE_RANK[saga.state]) >=
+      OWNER_TRANSFER_SAGA_STATE_RANK.committed;
+    if (
+      committedOrLater &&
+      status.payload.status === 'suspended' &&
+      status.payload.suspensionReason === 'owner_account_deleted'
+    ) {
+      let target;
+      try {
+        target = await readActiveOwnerTransferTarget(env, saga.targetAccountId);
+      } catch {
+        return false;
+      }
+      if (!target) {
+        await auditSystemOwnerTransfer(
+          env,
+          'owner_transfer.commit',
+          'target_deleted_during_reconcile',
+          saga.roomCode,
+          saga.roomGeneration,
+        );
+        return advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs);
+      }
+    }
+    if (meta && typeof meta === 'object') {
+      await markOwnerTransferIssuanceState(db, saga, 'superseded', nowMs);
+      return advanceOwnerTransferSagaState(db, saga, 'superseded', nowMs);
+    }
+    if (saga.expiresAtMs <= nowMs) {
+      await markOwnerTransferIssuanceState(db, saga, 'expired', nowMs);
+      const advanced = await advanceOwnerTransferSagaState(db, saga, 'expired', nowMs);
+      return advanced;
+    }
+    return false;
+  }
+  if (meta.phase === 'pending') {
+    if (saga.expiresAtMs <= nowMs) {
+      await markOwnerTransferIssuanceState(db, saga, 'expired', nowMs);
+      return advanceOwnerTransferSagaState(db, saga, 'expired', nowMs);
+    }
+    if (!(await commitAdoptedOwnerTransferSaga(env, saga, nowMs))) return false;
+    if (!(await advanceOwnerTransferSagaState(db, saga, 'committed', nowMs))) return false;
+    const refreshed = await callProRoomAdminObject(
+      env,
+      saga.roomCode,
+      saga.roomGeneration,
+      '/internal/admin/status',
+      'GET',
+    );
+    meta = refreshed.payload?.ownerTransferReconciliation;
+    if (
+      !refreshed.response?.ok ||
+      !ownerTransferReconciliationMatchesSaga(meta, {
+        ...saga,
+        state: 'committed',
+      }) ||
+      meta.phase !== 'completed'
+    ) {
+      return false;
+    }
+  }
+
+  if (!(await advanceOwnerTransferSagaState(db, saga, 'committed', nowMs))) return false;
+  let target;
+  try {
+    target = await readActiveOwnerTransferTarget(env, saga.targetAccountId);
+  } catch {
+    return false;
+  }
+  if (!target) {
+    const suspended = await purgeProRoomAccountAuthority(
+      {
+        accountId: saga.targetAccountId,
+        roomCode: saga.roomCode,
+        roomGeneration: saga.roomGeneration,
+      },
+      env,
+    ).catch(() => false);
+    if (!suspended) return false;
+    await auditSystemOwnerTransfer(
+      env,
+      'owner_transfer.commit',
+      'target_deleted_during_reconcile',
+      saga.roomCode,
+      saga.roomGeneration,
+    );
+    return advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs);
+  }
+
+  if (
+    !(await markAdminProRoomOperationalState(
+      db,
+      saga.roomCode,
+      saga.roomGeneration,
+      'active',
+      null,
+      nowMs,
+    )) ||
+    !(await advanceOwnerTransferSagaState(db, saga, 'registry_active', nowMs))
+  ) {
+    return false;
+  }
+  if (
+    saga.previousOwnerAccountId &&
+    !(await retireAccountProRoomLinkForAccount(
+      env,
+      saga.previousOwnerAccountId,
+      saga.roomCode,
+      saga.roomGeneration,
+    ))
+  ) {
+    return false;
+  }
+  if (!(await advanceOwnerTransferSagaState(db, saga, 'old_owner_edge_retired', nowMs))) {
+    return false;
+  }
+
+  try {
+    target = await readActiveOwnerTransferTarget(env, saga.targetAccountId);
+  } catch {
+    return false;
+  }
+  if (!target) {
+    const suspended = await purgeProRoomAccountAuthority(
+      {
+        accountId: saga.targetAccountId,
+        roomCode: saga.roomCode,
+        roomGeneration: saga.roomGeneration,
+      },
+      env,
+    ).catch(() => false);
+    return suspended ? advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs) : false;
+  }
+  let room = await readAdminProRoom(db, saga.roomCode);
+  if (!room || room.roomGeneration !== saga.roomGeneration) return false;
+  const canonicalStatus = await reconcileAdminProRoomStatus(env, db, room);
+  room = await readAdminProRoom(db, saga.roomCode);
+  if (
+    canonicalStatus !== 'active' ||
+    !room ||
+    room.roomGeneration !== saga.roomGeneration ||
+    room.status !== 'registered' ||
+    room.suspensionReason !== null ||
+    room.activationState !== 'active'
+  ) {
+    return false;
+  }
+  if (!(await advanceOwnerTransferSagaState(db, saga, 'verified', nowMs))) return false;
+  if (
+    !(await clearDeveloperApiAuthorityFence(
+      env,
+      saga.roomCode,
+      saga.roomGeneration,
+      saga.fenceDigest,
+    ))
+  ) {
+    return false;
+  }
+  await auditSystemOwnerTransfer(
+    env,
+    'owner_transfer.commit',
+    'success',
+    saga.roomCode,
+    saga.roomGeneration,
+  );
+  return advanceOwnerTransferSagaState(db, saga, 'complete', nowMs);
+}
+
+async function reconcileOwnerTransferSagas(env, db, nowMs = Date.now()) {
+  await expireOwnerTransferIssuances(env, db, nowMs);
+  const sagas = await listIncompleteOwnerTransferSagas(db);
+  const results = await Promise.allSettled(
+    sagas.map((saga) => reconcileOneOwnerTransferSaga(env, db, saga, nowMs)),
+  );
+  return results.filter((result) => result.status === 'fulfilled' && result.value === true).length;
+}
+
+export const reconcileOwnerTransferSagasForTests = reconcileOwnerTransferSagas;
+
+async function handleProRoomOwnershipTransferSaga({
+  request,
+  env,
+  roomCode,
+  roomGeneration,
+  targetAccountId,
+  headers,
+  body,
+}) {
+  const failAudit = async (result) => {
+    try {
+      await auditSystemOwnerTransfer(
+        env,
+        'owner_transfer.prepare',
+        result,
+        roomCode,
+        roomGeneration,
+      );
+      return null;
+    } catch {
+      return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
+    }
+  };
+
+  if (request.method !== 'POST' || new URL(request.url).search) {
+    const auditError = await failAudit('denied_invalid_request');
+    return (
+      auditError ||
+      json(
+        { error: request.method === 'POST' ? 'INVALID_REQUEST' : 'METHOD_NOT_ALLOWED' },
+        request.method === 'POST' ? 400 : 405,
+        request.method === 'POST' ? {} : { Allow: 'POST' },
+      )
+    );
+  }
+  const requestId = ownerTransferRequestIdFromBodyBytes(body);
+  if (!requestId) {
+    const auditError = await failAudit('denied_invalid_request');
+    return auditError || json({ error: 'INVALID_REQUEST' }, 400);
+  }
+
+  const adminDb = getAdminDb(env);
+  if (!adminDb?.prepare) {
+    const auditError = await failAudit('intent_unavailable');
+    return auditError || json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  let transferSaga;
+  try {
+    transferSaga = await recordOwnerTransferIntent(adminDb, {
+      roomCode,
+      roomGeneration,
+      requestId,
+      targetAccountId,
+    });
+  } catch {
+    const auditError = await failAudit('intent_unavailable');
+    return auditError || json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  if (!transferSaga) {
+    const auditError = await failAudit('intent_conflict');
+    return auditError || json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
+  }
+
+  const prepareUrl = new URL(
+    `/v1/rooms/${roomCode}/owner-transfer/prepare`,
+    PRO_ROOM_UPSTREAM_ORIGIN,
+  );
+  let prepareResponse;
+  try {
+    prepareResponse = await env.PRO_ROOM_PUBLIC_API.fetch(
+      new Request(prepareUrl, {
+        method: 'POST',
+        headers,
+        redirect: 'manual',
+        body,
+      }),
+    );
+  } catch {
+    const auditError = await failAudit('service_unavailable');
+    return auditError || json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502);
+  }
+  const preparePayload = await prepareResponse
+    .clone()
+    .json()
+    .catch(() => null);
+  if (!prepareResponse.ok) {
+    const auditError = await failAudit(
+      ownerTransferPrepareAuditResult(prepareResponse, preparePayload),
+    );
+    return auditError || withFacadeProRoomCookies(prepareResponse, roomCode);
+  }
+  if (
+    !validOwnerTransferPreparePayload(preparePayload, roomCode, roomGeneration, targetAccountId)
+  ) {
+    const auditError = await failAudit('invalid_service_response');
+    return auditError || json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
+  }
+  let fenceDigest;
+  try {
+    fenceDigest = await developerApiAuthorityFenceDigest(
+      env,
+      'ownership-transfer',
+      `${roomCode}\u0000${roomGeneration}\u0000${preparePayload.transferId}\u0000${targetAccountId}\u0000${requestId}`,
+    );
+    transferSaga = await recordPreparedOwnerTransferSaga(adminDb, {
+      roomCode,
+      roomGeneration,
+      claimGeneration: preparePayload.claimGeneration,
+      transferId: preparePayload.transferId,
+      requestId,
+      targetAccountId,
+      previousOwnerAccountId: preparePayload.previousOwnerAccountId,
+      fenceDigest,
+      preparedAtMs: preparePayload.preparedAtMs,
+      expiresAtMs: preparePayload.expiresAtMs,
+    });
+  } catch {
+    const auditError = await failAudit('reconcile_required');
+    return auditError || json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  if (!transferSaga) {
+    const auditError = await failAudit('reconcile_required');
+    return auditError || json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
+  }
+  try {
+    const linked = await recordAccountProRoomLink(
+      env,
+      targetAccountId,
+      roomCode,
+      Date.now(),
+      roomGeneration,
+    );
+    if (!linked) {
+      const auditError = await failAudit('target_link_unavailable');
+      return auditError || json({ error: 'OWNER_TRANSFER_TARGET_UNAVAILABLE' }, 409);
+    }
+  } catch {
+    const auditError = await failAudit('target_link_unavailable');
+    return auditError || json({ error: 'ACCOUNT_STORE_UNAVAILABLE' }, 503);
+  }
+  try {
+    await auditSystemOwnerTransfer(
+      env,
+      'owner_transfer.prepare',
+      'success',
+      roomCode,
+      roomGeneration,
+    );
+  } catch {
+    return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
+  }
+
+  let room;
+  let canonicalStatus;
+  try {
+    room = await readAdminProRoom(adminDb, roomCode);
+    if (!room || room.roomGeneration !== roomGeneration) {
+      return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
+    }
+    canonicalStatus = await reconcileAdminProRoomStatus(env, adminDb, room);
+    room = await readAdminProRoom(adminDb, roomCode);
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  const expectedSuspended = preparePayload.status === 'suspended';
+  if (
+    !room ||
+    room.roomGeneration !== roomGeneration ||
+    (expectedSuspended &&
+      (canonicalStatus !== 'suspended' ||
+        room.status !== 'suspended' ||
+        room.suspensionReason !== 'ownership_transfer_pending')) ||
+    (!expectedSuspended &&
+      (canonicalStatus !== 'active' ||
+        room.status !== 'registered' ||
+        room.suspensionReason !== null))
+  ) {
+    return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
+  }
+
+  // Close the target-account deletion race after the DO has fenced old
+  // authority but before App D1 authorizes the commit.
+  let currentTarget;
+  try {
+    currentTarget = await readActiveOwnerTransferTarget(env, targetAccountId);
+  } catch {
+    return json({ error: 'ACCOUNT_STORE_UNAVAILABLE' }, 503);
+  }
+  if (!currentTarget) {
+    try {
+      await auditSystemOwnerTransfer(
+        env,
+        'owner_transfer.commit',
+        'denied_target_unavailable',
+        roomCode,
+        roomGeneration,
+      );
+    } catch {
+      return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
+    }
+    return json({ error: 'OWNER_TRANSFER_TARGET_UNAVAILABLE' }, 409);
+  }
+
+  let revocation;
+  try {
+    revocation = await revokeDeveloperApiKeysForAuthorityChange(
+      env,
+      roomCode,
+      roomGeneration,
+      'system:owner-transfer',
+      'ownership_transfer',
+      'ownership_transfer_pending',
+      fenceDigest,
+    );
+  } catch {
+    try {
+      await auditSystemOwnerTransfer(
+        env,
+        'owner_transfer.commit',
+        'revocation_unavailable',
+        roomCode,
+        roomGeneration,
+      );
+    } catch {
+      return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
+    }
+    return json({ error: 'DEVELOPER_API_ADMIN_UNAVAILABLE' }, 503);
+  }
+
+  let revocationReceipt;
+  try {
+    revocationReceipt = await createOwnerTransferRevocationReceipt(
+      env,
+      preparePayload,
+      targetAccountId,
+      requestId,
+      revocation.revokedAtMs,
+    );
+  } catch {
+    return json({ error: 'PRO_ROOM_ACCOUNT_ASSERTION_UNAVAILABLE' }, 503);
+  }
+  const committed = await callProRoomAdminObject(
+    env,
+    roomCode,
+    roomGeneration,
+    '/internal/admin/owner-transfer/commit',
+    'POST',
+    {
+      transferId: preparePayload.transferId,
+      commitProof: preparePayload.commitProof,
+      targetAccountId,
+      requestId,
+      revocationReceipt,
+    },
+  );
+  if (!committed.response?.ok) {
+    try {
+      await auditSystemOwnerTransfer(
+        env,
+        'owner_transfer.commit',
+        committed.response ? 'denied' : 'service_unavailable',
+        roomCode,
+        roomGeneration,
+      );
+    } catch {
+      return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
+    }
+    return proRoomObjectError(committed);
+  }
+  if (!validOwnerTransferCommitPayload(committed.payload, preparePayload)) {
+    try {
+      await auditSystemOwnerTransfer(
+        env,
+        'owner_transfer.commit',
+        'invalid_service_response',
+        roomCode,
+        roomGeneration,
+      );
+    } catch {
+      return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
+    }
+    return json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
+  }
+  try {
+    if (!(await advanceOwnerTransferSagaState(adminDb, transferSaga, 'committed'))) {
+      return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
+    }
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+
+  const abortCommittedTransferForMissingTarget = async (result) => {
+    let suspended = false;
+    try {
+      suspended = await purgeProRoomAccountAuthority(
+        { accountId: targetAccountId, roomCode, roomGeneration },
+        env,
+      );
+    } catch {
+      suspended = false;
+    }
+    if (suspended) {
+      try {
+        if (!(await advanceOwnerTransferSagaState(adminDb, transferSaga, 'target_deleted'))) {
+          suspended = false;
+        }
+      } catch {
+        suspended = false;
+      }
+    }
+    try {
+      await auditSystemOwnerTransfer(
+        env,
+        'owner_transfer.commit',
+        suspended ? result : 'reconcile_required',
+        roomCode,
+        roomGeneration,
+      );
+    } catch {
+      return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
+    }
+    return suspended
+      ? json({ error: 'OWNER_TRANSFER_TARGET_UNAVAILABLE' }, 409)
+      : json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
+  };
+
+  // The target can start deletion while the commit is crossing the Worker
+  // boundary. If the DO already accepted ownership, immediately project the
+  // exact incarnation back to owner-deleted suspension before any active
+  // registry write can make it look usable.
+  let postCommitTarget;
+  try {
+    postCommitTarget = await readActiveOwnerTransferTarget(env, targetAccountId);
+  } catch {
+    await auditSystemOwnerTransfer(
+      env,
+      'owner_transfer.commit',
+      'reconcile_required',
+      roomCode,
+      roomGeneration,
+    ).catch(() => {});
+    return json({ error: 'ACCOUNT_STORE_UNAVAILABLE' }, 503);
+  }
+  if (!postCommitTarget) {
+    return abortCommittedTransferForMissingTarget('target_deleted_after_commit');
+  }
+
+  // Do not release the deterministic owner/session cookies until every D1
+  // projection, cleanup edge, authority fence and final audit confirms the
+  // completed ownership boundary.
+  try {
+    const updated = await markAdminProRoomOperationalState(
+      adminDb,
+      roomCode,
+      roomGeneration,
+      'active',
+      null,
+    );
+    if (!updated) return json({ error: 'PRO_ROOM_STATE_CONFLICT' }, 409);
+    if (!(await advanceOwnerTransferSagaState(adminDb, transferSaga, 'registry_active'))) {
+      return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
+    }
+  } catch {
+    await auditSystemOwnerTransfer(
+      env,
+      'owner_transfer.commit',
+      'reconcile_required',
+      roomCode,
+      roomGeneration,
+    ).catch(() => {});
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+
+  const previousOwnerAccountId = preparePayload.previousOwnerAccountId;
+  if (previousOwnerAccountId && previousOwnerAccountId !== targetAccountId) {
+    try {
+      if (
+        !(await retireAccountProRoomLinkForAccount(
+          env,
+          previousOwnerAccountId,
+          roomCode,
+          roomGeneration,
+        ))
+      ) {
+        await auditSystemOwnerTransfer(
+          env,
+          'owner_transfer.commit',
+          'reconcile_required',
+          roomCode,
+          roomGeneration,
+        ).catch(() => {});
+        return json({ error: 'ACCOUNT_STORE_UNAVAILABLE' }, 503);
+      }
+    } catch {
+      await auditSystemOwnerTransfer(
+        env,
+        'owner_transfer.commit',
+        'reconcile_required',
+        roomCode,
+        roomGeneration,
+      ).catch(() => {});
+      return json({ error: 'ACCOUNT_STORE_UNAVAILABLE' }, 503);
+    }
+  }
+  try {
+    if (!(await advanceOwnerTransferSagaState(adminDb, transferSaga, 'old_owner_edge_retired'))) {
+      return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
+    }
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+
+  // This is the last point at which the transfer saga may project the room as
+  // active. Recheck both account authority and the canonical DO after that
+  // write. A deletion purge that won before the write is repaired here; one
+  // that begins later has no subsequent transfer write that can overwrite it.
+  let finalTarget;
+  try {
+    finalTarget = await readActiveOwnerTransferTarget(env, targetAccountId);
+  } catch {
+    await auditSystemOwnerTransfer(
+      env,
+      'owner_transfer.commit',
+      'reconcile_required',
+      roomCode,
+      roomGeneration,
+    ).catch(() => {});
+    return json({ error: 'ACCOUNT_STORE_UNAVAILABLE' }, 503);
+  }
+  if (!finalTarget) {
+    return abortCommittedTransferForMissingTarget('target_deleted_during_finalize');
+  }
+
+  let finalRoom;
+  let finalCanonicalStatus;
+  try {
+    finalRoom = await readAdminProRoom(adminDb, roomCode);
+    if (!finalRoom || finalRoom.roomGeneration !== roomGeneration) {
+      return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
+    }
+    finalCanonicalStatus = await reconcileAdminProRoomStatus(env, adminDb, finalRoom);
+    finalRoom = await readAdminProRoom(adminDb, roomCode);
+  } catch {
+    await auditSystemOwnerTransfer(
+      env,
+      'owner_transfer.commit',
+      'reconcile_required',
+      roomCode,
+      roomGeneration,
+    ).catch(() => {});
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  if (
+    finalCanonicalStatus !== 'active' ||
+    !finalRoom ||
+    finalRoom.roomGeneration !== roomGeneration ||
+    finalRoom.status !== 'registered' ||
+    finalRoom.suspensionReason !== null ||
+    finalRoom.activationState !== 'active'
+  ) {
+    await auditSystemOwnerTransfer(
+      env,
+      'owner_transfer.commit',
+      'reconcile_required',
+      roomCode,
+      roomGeneration,
+    ).catch(() => {});
+    return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
+  }
+  try {
+    if (!(await advanceOwnerTransferSagaState(adminDb, transferSaga, 'verified'))) {
+      return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
+    }
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  try {
+    if (!(await clearDeveloperApiAuthorityFence(env, roomCode, roomGeneration, fenceDigest))) {
+      await auditSystemOwnerTransfer(
+        env,
+        'owner_transfer.commit',
+        'reconcile_required',
+        roomCode,
+        roomGeneration,
+      ).catch(() => {});
+      return json({ error: 'DEVELOPER_API_ADMIN_UNAVAILABLE' }, 503);
+    }
+  } catch {
+    await auditSystemOwnerTransfer(
+      env,
+      'owner_transfer.commit',
+      'reconcile_required',
+      roomCode,
+      roomGeneration,
+    ).catch(() => {});
+    return json({ error: 'DEVELOPER_API_ADMIN_UNAVAILABLE' }, 503);
+  }
+  try {
+    await auditSystemOwnerTransfer(
+      env,
+      'owner_transfer.commit',
+      'success',
+      roomCode,
+      roomGeneration,
+    );
+  } catch {
+    return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
+  }
+  try {
+    if (!(await advanceOwnerTransferSagaState(adminDb, transferSaga, 'complete'))) {
+      return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
+    }
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+
+  const publicResponse = json({ snapshot: committed.payload.snapshot });
+  const publicHeaders = new Headers(publicResponse.headers);
+  for (const cookie of splitSetCookieHeader(committed.response.headers)) {
+    publicHeaders.append('Set-Cookie', cookie);
+  }
+  return withFacadeProRoomCookies(
+    new Response(publicResponse.body, { status: 200, headers: publicHeaders }),
+    roomCode,
+  );
+}
+
 async function handleAdminDeveloperApiKeys(request, env, pathname) {
   const route = pathname.match(ADMIN_DEVELOPER_API_KEY_PATH_RE);
   if (!route) return json({ error: 'NOT_FOUND' }, 404);
@@ -2863,6 +5380,7 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
       developerApiAdminPepper(env),
       `mxqr-developer-api-key:v1\u0000${newKeyId}\u0000${secret}`,
     );
+    const actorId = await adminDeveloperApiAuditActor(request, env);
     let replayed;
     try {
       replayed = await readAdminDeveloperApiKey(
@@ -2885,6 +5403,41 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
       if (!replayedKey) {
         return json({ error: 'DEVELOPER_API_IDEMPOTENCY_CONFLICT' }, 409);
       }
+      const replayAuthority = await verifyAdminDeveloperApiKeyAuthority(
+        env,
+        developerDb,
+        replayed,
+        roomCode,
+        room.roomGeneration,
+      );
+      if (replayAuthority !== 'valid') {
+        if (replayAuthority === 'changed') {
+          try {
+            await removeDeveloperApiKeyAfterAuthorityChange(developerDb, {
+              actorId,
+              keyId: newKeyId,
+              roomCode,
+              roomGeneration: room.roomGeneration,
+              authorityEpoch: replayed.authority_epoch,
+              digest,
+              result: 'authority_changed',
+            });
+          } catch {
+            return json({ error: 'DEVELOPER_API_ADMIN_UNAVAILABLE' }, 503);
+          }
+        }
+        return replayAuthority === 'unavailable'
+          ? json({ error: 'PRO_ROOM_ADMIN_UNAVAILABLE' }, 502)
+          : json(
+              {
+                error:
+                  replayAuthority === 'inactive'
+                    ? 'PRO_ROOM_NOT_READY'
+                    : 'DEVELOPER_API_AUTHORITY_CHANGED',
+              },
+              409,
+            );
+      }
       return json({
         roomCode,
         roomGeneration: room.roomGeneration,
@@ -2906,36 +5459,56 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
       );
     }
 
+    const canonicalAuthority = await readActiveProRoomDeveloperAuthority(
+      env,
+      roomCode,
+      room.roomGeneration,
+    ).catch(() => ({ state: 'unavailable', epoch: null }));
+    if (canonicalAuthority.state === 'unavailable' || canonicalAuthority.state === 'invalid') {
+      return json({ error: 'PRO_ROOM_ADMIN_UNAVAILABLE' }, 502);
+    }
+    if (canonicalAuthority.state !== 'active') {
+      return json({ error: 'PRO_ROOM_NOT_READY' }, 409);
+    }
+    const authorityEpoch = canonicalAuthority.epoch;
+
     const expiresAt = nowMs + issue.days * ADMIN_DEVELOPER_API_DAY_MS;
     const mutation = developerDb
       .prepare(
         `INSERT INTO mxqr_developer_api_keys
-          (key_id, room_code, room_generation, label, secret_digest,
+          (key_id, room_code, room_generation, authority_epoch, label, secret_digest,
            digest_version, scope_mask, status, created_at, updated_at,
            expires_at, revoked_at, last_used_hour)
-         VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, 'active', ?7, ?7, ?8, NULL, NULL)`,
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6, 1, ?7, 'active', ?8, ?8, ?9, NULL, NULL
+          WHERE NOT EXISTS (
+            SELECT 1 FROM mxqr_developer_api_room_authority_fences AS fence
+             WHERE fence.room_code = ?2 AND fence.room_generation = ?3
+               AND fence.status = 'active'
+          )`,
       )
       .bind(
         newKeyId,
         roomCode,
         room.roomGeneration,
+        authorityEpoch,
         issue.label,
         digest,
         issue.scopeMask,
         nowMs,
         expiresAt,
       );
-    const actorId = await adminDeveloperApiAuditActor(request, env);
-    const audit = developerApiAdminAuditStatement(
-      developerDb,
-      actorId,
-      'key.issue',
-      'issued',
-      newKeyId,
-      roomCode,
-      room.roomGeneration,
-      nowMs,
-    );
+    const audit = developerDb
+      .prepare(
+        `INSERT INTO mxqr_developer_api_admin_audit
+          (actor_id, action, result, key_id, room_code, room_generation, created_at)
+         SELECT ?1, 'key.issue', 'issued', key.key_id, key.room_code,
+                key.room_generation, ?7
+           FROM mxqr_developer_api_keys AS key
+          WHERE key.key_id = ?2 AND key.room_code = ?3 AND key.room_generation = ?4
+            AND key.secret_digest = ?5 AND key.status = 'active'
+            AND key.created_at = ?6 AND key.authority_epoch = ?8`,
+      )
+      .bind(actorId, newKeyId, roomCode, room.roomGeneration, digest, nowMs, nowMs, authorityEpoch);
     try {
       await runDeveloperApiAdminMutation(developerDb, mutation, audit, async () => {
         await developerDb
@@ -2947,6 +5520,31 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
           .bind(newKeyId, roomCode, room.roomGeneration, digest)
           .run();
       });
+
+      const postIssueAuthority = await verifyAdminDeveloperApiKeyAuthority(
+        env,
+        developerDb,
+        { authority_epoch: authorityEpoch },
+        roomCode,
+        room.roomGeneration,
+      );
+      if (postIssueAuthority !== 'valid') {
+        await removeDeveloperApiKeyAfterAuthorityChange(developerDb, {
+          actorId,
+          keyId: newKeyId,
+          roomCode,
+          roomGeneration: room.roomGeneration,
+          authorityEpoch,
+          digest,
+          result:
+            postIssueAuthority === 'unavailable'
+              ? 'authority_recheck_unavailable'
+              : 'authority_changed',
+        });
+        return postIssueAuthority === 'unavailable'
+          ? json({ error: 'PRO_ROOM_ADMIN_UNAVAILABLE' }, 502)
+          : json({ error: 'DEVELOPER_API_AUTHORITY_CHANGED' }, 409);
+      }
     } catch (error) {
       try {
         const concurrent = await readAdminDeveloperApiKey(
@@ -2966,6 +5564,37 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
           if (!concurrentKey) {
             return json({ error: 'DEVELOPER_API_IDEMPOTENCY_CONFLICT' }, 409);
           }
+          const concurrentAuthority = await verifyAdminDeveloperApiKeyAuthority(
+            env,
+            developerDb,
+            concurrent,
+            roomCode,
+            room.roomGeneration,
+          );
+          if (concurrentAuthority !== 'valid') {
+            if (concurrentAuthority === 'changed') {
+              await removeDeveloperApiKeyAfterAuthorityChange(developerDb, {
+                actorId,
+                keyId: newKeyId,
+                roomCode,
+                roomGeneration: room.roomGeneration,
+                authorityEpoch: concurrent.authority_epoch,
+                digest,
+                result: 'authority_changed',
+              });
+            }
+            return concurrentAuthority === 'unavailable'
+              ? json({ error: 'PRO_ROOM_ADMIN_UNAVAILABLE' }, 502)
+              : json(
+                  {
+                    error:
+                      concurrentAuthority === 'inactive'
+                        ? 'PRO_ROOM_NOT_READY'
+                        : 'DEVELOPER_API_AUTHORITY_CHANGED',
+                  },
+                  409,
+                );
+          }
           return json({
             roomCode,
             roomGeneration: room.roomGeneration,
@@ -2978,6 +5607,25 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
       }
       if (isDeveloperApiActiveKeyLimitError(error)) {
         return json({ error: 'DEVELOPER_API_ACTIVE_KEY_LIMIT' }, 409);
+      }
+      try {
+        const fenceStatement = developerDb
+          .prepare(
+            `SELECT status
+               FROM mxqr_developer_api_room_authority_fences
+              WHERE room_code = ?1 AND room_generation = ?2
+              LIMIT 1`,
+          )
+          .bind(roomCode, room.roomGeneration);
+        const fence =
+          typeof fenceStatement.first === 'function'
+            ? await fenceStatement.first()
+            : (await fenceStatement.all())?.results?.[0] || null;
+        if (fence?.status === 'active') {
+          return json({ error: 'DEVELOPER_API_AUTHORITY_FENCED' }, 409);
+        }
+      } catch {
+        // Preserve the original fail-closed availability classification.
       }
       return json(
         {
@@ -2994,6 +5642,7 @@ async function handleAdminDeveloperApiKeys(request, env, pathname) {
         key_id: newKeyId,
         room_code: roomCode,
         room_generation: room.roomGeneration,
+        authority_epoch: authorityEpoch,
         label: issue.label,
         scope_mask: issue.scopeMask,
         status: 'active',
@@ -3132,6 +5781,11 @@ async function handleAdminProRooms(request, env, pathname) {
 
   if (!activationClaimRoomCode && (request.method === 'GET' || request.method === 'HEAD')) {
     try {
+      if (request.method === 'GET') {
+        await reconcileOwnerTransferSagas(env, db).catch((error) => {
+          console.warn('[PRO owner transfer] admin-list reconciliation failed', error);
+        });
+      }
       let rooms = await listAdminProRooms(db);
       // HEAD is a non-mutating availability probe. Only an operator's full
       // list read may repair the D1 projection from canonical room state.
@@ -3581,6 +6235,338 @@ async function handleAdminProRoomOwnerRecoveryClaim(request, env, pathname) {
   });
 }
 
+async function handleAdminProRoomOwnerTransferClaim(request, env, pathname) {
+  const route = pathname.match(ADMIN_PRO_ROOM_OWNER_TRANSFER_PATH_RE);
+  if (!route) return json({ error: 'NOT_FOUND' }, 404);
+  const roomCode = route[1];
+  const methodError = adminApiMethodAllowed(request, ['POST']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+
+  const db = getAdminDb(env);
+  if (!db?.prepare || !getProRoomAdminNamespace(env) || !env.MUSIXQUARE_AUTH_DB?.prepare) {
+    return json({ error: 'PRO_ROOM_OWNER_TRANSFER_NOT_CONFIGURED' }, 503);
+  }
+
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_transfer_claim.issue',
+      'invalid_json',
+      roomCode,
+      INITIAL_PRO_ROOM_GENERATION,
+    );
+    if (auditError) return auditError;
+    return jsonBodyError(parsedBody);
+  }
+  const body = parsedBody.value;
+  const validBody =
+    body &&
+    typeof body === 'object' &&
+    !Array.isArray(body) &&
+    Object.keys(body).length === 2 &&
+    Object.hasOwn(body, 'roomGeneration') &&
+    Object.hasOwn(body, 'targetAccount') &&
+    isProRoomGeneration(body.roomGeneration) &&
+    typeof body.targetAccount === 'string' &&
+    body.targetAccount === body.targetAccount.trim() &&
+    body.targetAccount.length >= 1 &&
+    body.targetAccount.length <= 128;
+  const auditGeneration = isProRoomGeneration(body?.roomGeneration)
+    ? body.roomGeneration
+    : INITIAL_PRO_ROOM_GENERATION;
+  if (!validBody) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_transfer_claim.issue',
+      'invalid_request',
+      roomCode,
+      auditGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'INVALID_REQUEST' }, 400);
+  }
+
+  let room;
+  try {
+    room = await readAdminProRoom(db, roomCode);
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  if (!room) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_transfer_claim.issue',
+      'room_not_found',
+      roomCode,
+      body.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  }
+  if (room.roomGeneration !== body.roomGeneration) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_transfer_claim.issue',
+      'generation_mismatch',
+      roomCode,
+      body.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
+  }
+  if (room.status === 'decommissioning' || room.status === 'decommissioned') {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_transfer_claim.issue',
+      'permanently_decommissioned',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED' }, 410);
+  }
+  if (
+    ((room.status === 'registered' && room.activationState !== 'active') ||
+      room.status === 'suspended') &&
+    (await reconcileAdminProRoomStatus(env, db, room).catch(() => null))
+  ) {
+    room = (await readAdminProRoom(db, roomCode).catch(() => null)) || room;
+  }
+  const transferIssuable =
+    room.activationState === 'active' &&
+    (room.status === 'registered' ||
+      (room.status === 'suspended' &&
+        ['owner_account_deleted', 'ownership_transfer_pending'].includes(room.suspensionReason)));
+  if (!transferIssuable) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_transfer_claim.issue',
+      room.status === 'suspended' && room.suspensionReason === 'operator_suspended'
+        ? 'operator_suspended'
+        : 'room_not_active',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json(
+      {
+        error: 'PRO_ROOM_OWNER_TRANSFER_UNAVAILABLE',
+      },
+      409,
+    );
+  }
+
+  let target;
+  try {
+    target = await resolveActiveOwnerTransferTarget(env, body.targetAccount);
+  } catch {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_transfer_claim.issue',
+      'target_store_unavailable',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'ACCOUNT_STORE_UNAVAILABLE' }, 503);
+  }
+  if (!target) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_transfer_claim.issue',
+      'target_unavailable',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'OWNER_TRANSFER_TARGET_UNAVAILABLE' }, 409);
+  }
+
+  const issued = await callProRoomAdminObject(
+    env,
+    roomCode,
+    room.roomGeneration,
+    '/internal/admin/owner-transfer-claim',
+    'POST',
+    { targetAccountId: target.accountId },
+  );
+  if (!issued.response?.ok) {
+    await reconcileAdminProRoomStatus(env, db, room).catch(() => {});
+    const reconciliationRequired =
+      issued.response?.status === 409 &&
+      issued.payload?.error === 'OWNER_TRANSFER_RECONCILIATION_REQUIRED';
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_transfer_claim.issue',
+      reconciliationRequired
+        ? 'reconcile_required'
+        : issued.response
+          ? 'service_rejected'
+          : 'service_unavailable',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (auditError) return auditError;
+    if (reconciliationRequired) {
+      return json({ error: 'PRO_ROOM_OWNER_TRANSFER_RECONCILIATION_REQUIRED' }, 409);
+    }
+    return proRoomObjectError(issued);
+  }
+  if (
+    !isValidAdminOwnerTransferLink(issued.payload, roomCode, room.roomGeneration, target.accountId)
+  ) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_transfer_claim.issue',
+      'invalid_service_response',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
+  }
+
+  let currentRoom;
+  try {
+    currentRoom = await readAdminProRoom(db, roomCode);
+  } catch {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_transfer_claim.issue',
+      'registry_unavailable',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  let currentTarget;
+  try {
+    currentTarget = await readActiveOwnerTransferTarget(env, target.accountId);
+  } catch {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_transfer_claim.issue',
+      'target_store_unavailable',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'ACCOUNT_STORE_UNAVAILABLE' }, 503);
+  }
+  if (
+    !currentRoom ||
+    currentRoom.roomGeneration !== room.roomGeneration ||
+    currentRoom.activationState !== 'active' ||
+    !(
+      currentRoom.status === 'registered' ||
+      (currentRoom.status === 'suspended' &&
+        ['owner_account_deleted', 'ownership_transfer_pending'].includes(
+          currentRoom.suspensionReason,
+        ))
+    ) ||
+    !currentTarget
+  ) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_transfer_claim.issue',
+      'state_changed',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_OWNER_TRANSFER_UNAVAILABLE' }, 409);
+  }
+
+  try {
+    if (
+      !(await recordOwnerTransferIssuance(db, {
+        roomCode,
+        roomGeneration: room.roomGeneration,
+        claimGeneration: issued.payload.claimGeneration,
+        targetAccountId: target.accountId,
+        expiresAtMs: issued.payload.expiresAt,
+      }))
+    ) {
+      const auditError = await writeAdminProRoomAuditOrFail(
+        db,
+        request,
+        env,
+        'owner_transfer_claim.issue',
+        'issuance_ledger_conflict',
+        roomCode,
+        room.roomGeneration,
+      );
+      if (auditError) return auditError;
+      return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
+    }
+  } catch {
+    // The URL remains only in this function's memory and is deliberately not
+    // exposed when its non-secret expiry ledger cannot be confirmed.
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_transfer_claim.issue',
+      'issuance_ledger_unavailable',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+
+  const auditError = await writeAdminProRoomAuditOrFail(
+    db,
+    request,
+    env,
+    'owner_transfer_claim.issue',
+    'issued',
+    roomCode,
+    room.roomGeneration,
+  );
+  // The URL is a one-time bearer credential. Never expose it unless the
+  // operator action was durably audited; the next issue rotates the claim.
+  if (auditError) return auditError;
+  return json({
+    roomCode,
+    roomGeneration: room.roomGeneration,
+    targetAccountId: target.accountId,
+    targetNickname: target.nickname,
+    claimGeneration: issued.payload.claimGeneration,
+    transferUrl: issued.payload.transferUrl,
+    expiresAt: issued.payload.expiresAt,
+  });
+}
+
 async function handleAdminProRoomState(request, env, pathname) {
   const route = pathname.match(ADMIN_PRO_ROOM_STATE_PATH_RE);
   if (!route) return json({ error: 'NOT_FOUND' }, 404);
@@ -3658,6 +6644,23 @@ async function handleAdminProRoomState(request, env, pathname) {
     if (auditError) return auditError;
     return json({ error: 'PRO_ROOM_PROVISIONING_INCOMPLETE' }, 409);
   }
+  if (
+    targetStatus === 'active' &&
+    room.status === 'suspended' &&
+    room.suspensionReason !== 'operator_suspended'
+  ) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'room.resume',
+      'ownership_recovery_required',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'PRO_ROOM_OWNERSHIP_RECOVERY_REQUIRED' }, 409);
+  }
 
   const action = targetStatus === 'suspended' ? 'room.suspend' : 'room.resume';
   const internalPath =
@@ -3683,6 +6686,8 @@ async function handleAdminProRoomState(request, env, pathname) {
     payload.ok !== true ||
     !proRoomAdminResponseIdentityMatches(payload, roomCode, room.roomGeneration) ||
     payload.status !== targetStatus ||
+    (targetStatus === 'suspended' && payload.suspensionReason !== 'operator_suspended') ||
+    (targetStatus === 'active' && payload.suspensionReason != null) ||
     typeof payload.changed !== 'boolean'
   ) {
     const auditError = await writeAdminProRoomAuditOrFail(
@@ -3704,6 +6709,7 @@ async function handleAdminProRoomState(request, env, pathname) {
       roomCode,
       room.roomGeneration,
       targetStatus,
+      targetStatus === 'suspended' ? 'operator_suspended' : null,
     );
     if (!updated) return json({ error: 'PRO_ROOM_STATE_CONFLICT' }, 409);
   } catch {
@@ -3724,6 +6730,7 @@ async function handleAdminProRoomState(request, env, pathname) {
     roomCode,
     roomGeneration: room.roomGeneration,
     status: targetStatus,
+    suspensionReason: targetStatus === 'suspended' ? 'operator_suspended' : null,
     changed: payload.changed,
   });
 }
@@ -4716,7 +7723,7 @@ function renderAdminPage(request, env) {
               <button type="button" data-pro-room-claim-copy>Copy link</button>
               <button class="is-secondary" type="button" aria-label="Dismiss activation link" data-pro-room-claim-dismiss>Dismiss</button>
             </div>
-            <p>This link grants ownership. Send it privately and do not paste it into chat.</p>
+            <p>This one-time ownership credential exists only in this page's memory. Copy it privately; dismissing or leaving this page clears it.</p>
           </section>
 
           <section class="pro-room-list-section">
@@ -7420,6 +10427,21 @@ export default {
         );
       }
     }
+    if (
+      (cron === null || cron === '* * * * *') &&
+      getAdminDb(env)?.prepare &&
+      getProRoomAdminNamespace(env)
+    ) {
+      ctx.waitUntil(
+        (async () => {
+          try {
+            await reconcileOwnerTransferSagas(env, getAdminDb(env));
+          } catch (error) {
+            console.warn('[PRO owner transfer] scheduled reconciliation failed', error);
+          }
+        })(),
+      );
+    }
   },
 
   async fetch(request, env, ctx) {
@@ -7521,6 +10543,10 @@ export default {
 
     if (ADMIN_PRO_ROOM_OWNER_RECOVERY_PATH_RE.test(url.pathname)) {
       return handleAdminProRoomOwnerRecoveryClaim(request, env, url.pathname);
+    }
+
+    if (ADMIN_PRO_ROOM_OWNER_TRANSFER_PATH_RE.test(url.pathname)) {
+      return handleAdminProRoomOwnerTransferClaim(request, env, url.pathname);
     }
 
     if (ADMIN_PRO_ROOM_STATE_PATH_RE.test(url.pathname)) {

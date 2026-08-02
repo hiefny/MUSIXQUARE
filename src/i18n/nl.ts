@@ -71,6 +71,8 @@ const nl: Record<I18nKey, string> = {
   'account.delete_confirm_title': 'Je account verwijderen?',
   'account.delete_confirm_message':
     'Je nickname, inlogsessies en aan je account gekoppelde kamerrechten worden verwijderd. In een kamer gedeelde inhoud volgt het bewaarbeleid van die kamer.',
+  'account.delete_pending':
+    'Je account wordt verwijderd. PRO-rechten worden veilig opgeruimd en de verwijdering wordt automatisch afgerond.',
   'common.previous': 'Vorige',
   'common.next_desc': 'Volgende',
   'common.volume_percent': 'Volume: {{val}}%',
@@ -674,10 +676,27 @@ const nl: Record<I18nKey, string> = {
   'pro.claim_retry_title': 'PRO-link opnieuw proberen?',
   'pro.claim_retry_message':
     'De verbinding werd onderbroken. De link wordt alleen op dit scherm veilig bewaard, zodat je opnieuw kunt proberen.',
-  'pro.request_new_link': 'Nieuwe link aanvragen',
   'pro.claim_unavailable_title': 'Deze link kan niet meer worden gebruikt',
+  'pro.claim_login_title': 'Log eerst in',
+  'pro.claim_login_button': 'Inloggen',
+  'pro.claim_login_message':
+    'Log in met het account dat eigenaar van deze PRO-ruimte wordt en rond de instelling van de nickname af. De link blijft alleen in het geheugen van dit tabblad.',
+  'pro.claim_popup_blocked_message':
+    'Je browser heeft het inlogvenster geblokkeerd. Sta pop-ups voor MUSIXQUARE toe en probeer het opnieuw.',
+  'pro.claim_account_conflict_title': 'Dit account kan de ruimte niet gebruiken',
+  'pro.claim_account_conflict_message':
+    'Deze ruimte is aan een ander account gekoppeld. Vraag een beheerder om het eigenaarschap over te dragen als je dit wilt wijzigen.',
+  'pro.claim_account_capacity_title': 'Dit account kan geen extra ruimte koppelen',
+  'pro.claim_account_capacity_message':
+    'Dit account heeft de limiet voor gekoppelde PRO-ruimtes bereikt. Verwijder een bestaande koppeling en vraag een nieuwe link aan.',
+  'pro.claim_failed_title': 'De aanvraag kon niet worden voltooid',
+  'pro.claim_failed_message':
+    'Voor de veiligheid is deze link niet opnieuw geprobeerd. Vraag de ruimtebeheerder om een nieuwe link.',
+  'pro.transfer_title': 'Eigenaarschap van PRO-ruimte overnemen',
+  'pro.transfer_message':
+    'Stel een nieuw wachtwoord van 8 cijfers in. Daarna wordt de toegang van de vorige eigenaar ingetrokken.',
   'pro.new_link_message':
-    'Vraag de persoon die de link heeft gestuurd om een nieuwe activerings- of herstellink.',
+    'De link is verlopen of al gebruikt. Vraag indien nodig een beheerder om een nieuwe link.',
   'pro.not_ready_title': 'Deze PRO-ruimte is nog niet klaar',
   'pro.not_ready_message': 'De eigenaar moet de ruimte eerst activeren.',
   'pro.suspended_title': 'Deze PRO-ruimte is niet beschikbaar',

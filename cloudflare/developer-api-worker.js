@@ -296,6 +296,7 @@ function normalizeKeyRow(value) {
     !/^[A-Za-z0-9_-]{16}$/.test(String(value.key_id || '')) ||
     !ROOM_CODE_RE.test(String(value.room_code || '')) ||
     !isProRoomGeneration(value.room_generation) ||
+    !isSafeNonNegativeInteger(value.authority_epoch) ||
     label === null ||
     !DIGEST_RE.test(String(value.secret_digest || '')) ||
     value.digest_version !== 1 ||
@@ -317,6 +318,7 @@ function normalizeKeyRow(value) {
     keyId: value.key_id,
     roomCode: value.room_code,
     roomGeneration: value.room_generation,
+    developerAuthorityEpoch: value.authority_epoch,
     label,
     digest: value.secret_digest,
     scopeMask: value.scope_mask,
@@ -329,7 +331,7 @@ function normalizeKeyRow(value) {
 async function lookupKey(env, keyId) {
   if (!env.DEVELOPER_API_DB?.prepare) throw new Error('Developer API D1 binding unavailable');
   return env.DEVELOPER_API_DB.prepare(
-    `SELECT key_id, room_code, room_generation, label, secret_digest, digest_version, scope_mask,
+    `SELECT key_id, room_code, room_generation, authority_epoch, label, secret_digest, digest_version, scope_mask,
             status, created_at, updated_at, expires_at, revoked_at, last_used_hour
      FROM mxqr_developer_api_keys
      WHERE key_id = ?1
@@ -1436,8 +1438,11 @@ function facadeGenerationHeaders(roomGeneration) {
   };
 }
 
-function facadeGenerationBody(roomGeneration) {
-  return { roomGeneration };
+function facadeAuthorityBody(roomGeneration, developerAuthorityEpoch) {
+  if (!isSafeNonNegativeInteger(developerAuthorityEpoch)) {
+    throw new Error('Invalid Developer API authority epoch');
+  }
+  return { roomGeneration, developerAuthorityEpoch };
 }
 
 async function facadeRead(env, route, principal, effectsVersion) {
@@ -1451,7 +1456,10 @@ async function facadeRead(env, route, principal, effectsVersion) {
         headers: facadeGenerationHeaders(principal.roomGeneration),
         body: JSON.stringify({
           roomCode: route.roomCode,
-          ...facadeGenerationBody(principal.roomGeneration),
+          ...facadeAuthorityBody(
+            principal.roomGeneration,
+            principal.developerAuthorityEpoch,
+          ),
           keyId: principal.keyId,
           projection: route.view,
           ...(route.view === 'effects' ? { effectsVersion } : {}),
@@ -1463,7 +1471,15 @@ async function facadeRead(env, route, principal, effectsVersion) {
   }
   const value = await readJsonLimited(response, FACADE_RESPONSE_MAX_BYTES);
   if (!response.ok) {
-    return response.status === 404 ? { notFound: true } : { backendError: true };
+    if (response.status === 404) return { notFound: true };
+    if (
+      hasExactKeys(value, ['error']) &&
+      value.error === 'DEVELOPER_API_AUTHORITY_STALE' &&
+      response.status === COMMAND_ERROR_STATUSES.DEVELOPER_API_AUTHORITY_STALE
+    ) {
+      return { errorCode: value.error, status: response.status };
+    }
+    return { backendError: true };
   }
   const payload = validateFacadePayload(value, route.view, route.roomCode);
   return payload ? { payload } : { invalidResponse: true };
@@ -1488,9 +1504,17 @@ const COMMAND_ERROR_STATUSES = Object.freeze({
   ROOM_STATE_CAPACITY_EXCEEDED: 409,
   UPLOAD_INCOMPLETE: 409,
   UPLOAD_MISMATCH: 409,
+  DEVELOPER_API_AUTHORITY_STALE: 409,
 });
 
-async function facadeCommand(env, path, body, roomCode, roomGeneration) {
+async function facadeCommand(
+  env,
+  path,
+  body,
+  roomCode,
+  roomGeneration,
+  developerAuthorityEpoch,
+) {
   if (!env.DEVELOPER_API_FACADE?.fetch) return { configurationError: true };
   let response;
   try {
@@ -1499,7 +1523,10 @@ async function facadeCommand(env, path, body, roomCode, roomGeneration) {
       {
         method: 'POST',
         headers: facadeGenerationHeaders(roomGeneration),
-        body: JSON.stringify({ ...body, ...facadeGenerationBody(roomGeneration) }),
+        body: JSON.stringify({
+          ...body,
+          ...facadeAuthorityBody(roomGeneration, developerAuthorityEpoch),
+        }),
       },
     );
   } catch {
@@ -1526,6 +1553,7 @@ async function facadeMutation(
   body,
   roomCode,
   roomGeneration,
+  developerAuthorityEpoch,
   expectedStatus,
   validator,
 ) {
@@ -1537,7 +1565,10 @@ async function facadeMutation(
       {
         method: 'POST',
         headers: facadeGenerationHeaders(roomGeneration),
-        body: JSON.stringify({ ...body, ...facadeGenerationBody(roomGeneration) }),
+        body: JSON.stringify({
+          ...body,
+          ...facadeAuthorityBody(roomGeneration, developerAuthorityEpoch),
+        }),
       },
     );
   } catch {
@@ -1919,6 +1950,7 @@ async function handleApiRequest(request, env, context, requestId) {
       body,
       route.roomCode,
       principal.roomGeneration,
+      principal.developerAuthorityEpoch,
       expectedStatus,
       validator,
     );
@@ -2015,6 +2047,7 @@ async function handleApiRequest(request, env, context, requestId) {
       },
       route.roomCode,
       principal.roomGeneration,
+      principal.developerAuthorityEpoch,
     );
     const auditAtMs = Date.now();
     if (facade.configurationError) {
@@ -2085,6 +2118,7 @@ async function handleApiRequest(request, env, context, requestId) {
       { roomCode: route.roomCode, keyId: principal.keyId, commandId: route.commandId },
       route.roomCode,
       principal.roomGeneration,
+      principal.developerAuthorityEpoch,
     );
     if (facade.configurationError) {
       return errorResponse('API_NOT_CONFIGURED', 503, requestId, { retryable: true });
@@ -2108,6 +2142,9 @@ async function handleApiRequest(request, env, context, requestId) {
   const facade = await facadeRead(env, route, principal, effectsVersion);
   if (facade.configurationError) {
     return errorResponse('API_NOT_CONFIGURED', 503, requestId, { retryable: true });
+  }
+  if (facade.errorCode) {
+    return errorResponse(facade.errorCode, facade.status, requestId);
   }
   if (facade.notFound) return errorResponse('NOT_FOUND', 404, requestId);
   if (facade.backendError) {

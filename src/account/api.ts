@@ -35,6 +35,10 @@ export interface AccountStatsDelta {
   trackCountDelta: number;
 }
 
+export interface AccountDeletionResult {
+  pending: boolean;
+}
+
 export interface StandardRoomAssertionRequest {
   roomCode: string;
   peerId: string;
@@ -160,7 +164,10 @@ async function readJson(response: Response, signal?: AbortSignal): Promise<unkno
   }
 }
 
-async function requestJson(path: string, init: RequestInit = {}): Promise<unknown> {
+async function requestJsonResponse(
+  path: string,
+  init: RequestInit = {},
+): Promise<{ payload: unknown; status: number }> {
   try {
     return await withRequestDeadline(
       async (signal) => {
@@ -186,7 +193,7 @@ async function requestJson(path: string, init: RequestInit = {}): Promise<unknow
               : 'ACCOUNT_REQUEST_FAILED';
           throw new AccountApiError(code, response.status);
         }
-        return payload;
+        return { payload, status: response.status };
       },
       {
         signal: init.signal ?? undefined,
@@ -198,6 +205,10 @@ async function requestJson(path: string, init: RequestInit = {}): Promise<unknow
     if (error instanceof AccountApiError) throw error;
     throw new AccountApiError('ACCOUNT_NETWORK_ERROR', 0);
   }
+}
+
+async function requestJson(path: string, init: RequestInit = {}): Promise<unknown> {
+  return (await requestJsonResponse(path, init)).payload;
 }
 
 function mutationHeaders(): HeadersInit {
@@ -294,12 +305,25 @@ export async function logoutAllAccounts(): Promise<void> {
   });
 }
 
-export async function deleteAccount(): Promise<void> {
-  await requestJson('/api/auth/account', {
+export async function deleteAccount(): Promise<AccountDeletionResult> {
+  const response = await requestJsonResponse('/api/auth/account', {
     method: 'DELETE',
     headers: mutationHeaders(),
     body: JSON.stringify({ confirm: true }),
   });
+  const payload = response.payload;
+  const deletion =
+    payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? (payload as { ok?: unknown; pending?: unknown })
+      : null;
+  const validCompleted =
+    response.status === 200 && deletion?.ok === true && deletion.pending !== true;
+  const validPending =
+    response.status === 202 && deletion?.ok === true && deletion.pending === true;
+  if (!validCompleted && !validPending) {
+    throw new AccountApiError('ACCOUNT_INVALID_RESPONSE', 502);
+  }
+  return { pending: validPending };
 }
 
 /** Build a same-origin OAuth start URL without accepting an external return URL. */

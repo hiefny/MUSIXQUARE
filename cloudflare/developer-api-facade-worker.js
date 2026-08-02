@@ -78,6 +78,7 @@ const BACKEND_ERROR_MAP = Object.freeze({
   UPLOAD_MISMATCH: { error: 'UPLOAD_MISMATCH', status: 409 },
   PLAYBACK_REVISION_EXHAUSTED: { error: 'ROOM_STATE_CAPACITY_EXCEEDED', status: 409 },
   ROOM_STATE_CAPACITY_EXCEEDED: { error: 'ROOM_STATE_CAPACITY_EXCEEDED', status: 409 },
+  DEVELOPER_API_AUTHORITY_STALE: { error: 'DEVELOPER_API_AUTHORITY_STALE', status: 409 },
   MEDIA_NOT_CONFIGURED: { error: 'BACKEND_UNAVAILABLE', status: 503 },
   MEDIA_STORAGE_UNAVAILABLE: { error: 'BACKEND_UNAVAILABLE', status: 503 },
   ROOM_STATE_INVALID: { error: 'BACKEND_UNAVAILABLE', status: 503 },
@@ -974,6 +975,10 @@ function exactFacadeRoomGeneration(request, body) {
   };
 }
 
+function developerAuthorityWireFields(developerAuthorityEpoch) {
+  return developerAuthorityEpoch === undefined ? {} : { developerAuthorityEpoch };
+}
+
 async function callRoom(namespace, roomCode, roomGeneration, path, body) {
   let response;
   try {
@@ -1034,13 +1039,20 @@ export default {
       return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
     }
     const roomGeneration = generation.roomGeneration;
+    if (
+      body?.developerAuthorityEpoch !== undefined &&
+      !isSafeNonNegativeInteger(body.developerAuthorityEpoch)
+    ) {
+      return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+    }
+    const developerAuthorityEpoch = body.developerAuthorityEpoch;
 
     if (url.pathname === '/internal/v1/read') {
       if (
         !hasExactKeys(
           body,
           ['roomCode', 'roomGeneration', 'projection'],
-          ['keyId', 'effectsVersion'],
+          ['developerAuthorityEpoch', 'keyId', 'effectsVersion'],
         ) ||
         !ROOM_CODE_RE.test(body.roomCode) ||
         (body.keyId !== undefined && !API_KEY_ID_RE.test(body.keyId || '')) ||
@@ -1057,6 +1069,7 @@ export default {
         roomGeneration,
         '/internal/developer/v1/read',
         {
+          ...developerAuthorityWireFields(developerAuthorityEpoch),
           ...(body.keyId === undefined ? {} : { keyId: body.keyId }),
           ...(body.projection === 'effects' ? { effectsVersion: 2 } : {}),
           projection: body.projection,
@@ -1065,7 +1078,13 @@ export default {
       if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
       const value = await readJsonResponse(called.response, PROJECTION_RESPONSE_MAX_BYTES);
       if (called.response.status === 404) return jsonResponse({ error: 'NOT_FOUND' }, 404);
-      if (!called.response.ok || !value) {
+      if (!called.response.ok) {
+        const mapped = backendError(value, called.response.status);
+        return mapped
+          ? jsonResponse({ error: mapped.error }, mapped.status)
+          : jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      }
+      if (!value) {
         return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
       }
       const sanitized = sanitizeProjection(value, body.projection, body.roomCode);
@@ -1076,13 +1095,11 @@ export default {
 
     if (url.pathname === '/internal/v1/queue-mode/update') {
       if (
-        !hasExactKeys(body, [
-          'keyId',
-          'roomCode',
-          'roomGeneration',
-          'idempotencyKey',
-          'queueMode',
-        ]) ||
+        !hasExactKeys(
+          body,
+          ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'queueMode'],
+          ['developerAuthorityEpoch'],
+        ) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
         !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '')
@@ -1098,6 +1115,7 @@ export default {
         '/internal/developer/v1/queue-mode/update',
         {
           roomCode: body.roomCode,
+          ...developerAuthorityWireFields(developerAuthorityEpoch),
           keyId: body.keyId,
           idempotencyKey: body.idempotencyKey,
           queueMode,
@@ -1119,7 +1137,11 @@ export default {
 
     if (url.pathname === '/internal/v1/commands/create') {
       if (
-        !hasExactKeys(body, ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'command']) ||
+        !hasExactKeys(
+          body,
+          ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'command'],
+          ['developerAuthorityEpoch'],
+        ) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
         !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '')
@@ -1135,6 +1157,7 @@ export default {
         '/internal/developer/v1/commands/create',
         {
           roomCode: body.roomCode,
+          ...developerAuthorityWireFields(developerAuthorityEpoch),
           keyId: body.keyId,
           idempotencyKey: body.idempotencyKey,
           command,
@@ -1165,7 +1188,7 @@ export default {
         !hasExactKeys(
           body,
           ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'mutation'],
-          ['actorName'],
+          ['developerAuthorityEpoch', 'actorName'],
         ) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
@@ -1183,6 +1206,7 @@ export default {
         '/internal/developer/v1/queue/mutate',
         {
           roomCode: body.roomCode,
+          ...developerAuthorityWireFields(developerAuthorityEpoch),
           keyId: body.keyId,
           ...(body.actorName === undefined ? {} : { actorName: body.actorName }),
           idempotencyKey: body.idempotencyKey,
@@ -1207,7 +1231,11 @@ export default {
 
     if (url.pathname === '/internal/v1/media/uploads/create') {
       if (
-        !hasExactKeys(body, ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'media']) ||
+        !hasExactKeys(
+          body,
+          ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'media'],
+          ['developerAuthorityEpoch'],
+        ) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
         !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey || '')
@@ -1223,6 +1251,7 @@ export default {
         '/internal/developer/v1/media/uploads/create',
         {
           roomCode: body.roomCode,
+          ...developerAuthorityWireFields(developerAuthorityEpoch),
           keyId: body.keyId,
           idempotencyKey: body.idempotencyKey,
           media,
@@ -1247,7 +1276,7 @@ export default {
         !hasExactKeys(
           body,
           ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'assetId'],
-          ['actorName'],
+          ['developerAuthorityEpoch', 'actorName'],
         ) ||
         !API_KEY_ID_RE.test(body.keyId || '') ||
         !ROOM_CODE_RE.test(body.roomCode || '') ||
@@ -1264,6 +1293,7 @@ export default {
         '/internal/developer/v1/media/uploads/complete',
         {
           roomCode: body.roomCode,
+          ...developerAuthorityWireFields(developerAuthorityEpoch),
           keyId: body.keyId,
           ...(body.actorName === undefined ? {} : { actorName: body.actorName }),
           idempotencyKey: body.idempotencyKey,
@@ -1285,7 +1315,11 @@ export default {
     }
 
     if (
-      !hasExactKeys(body, ['roomCode', 'roomGeneration', 'keyId', 'commandId']) ||
+      !hasExactKeys(
+        body,
+        ['roomCode', 'roomGeneration', 'keyId', 'commandId'],
+        ['developerAuthorityEpoch'],
+      ) ||
       !ROOM_CODE_RE.test(body.roomCode || '') ||
       !API_KEY_ID_RE.test(body.keyId || '') ||
       !COMMAND_ID_RE.test(body.commandId || '')
@@ -1297,7 +1331,12 @@ export default {
       body.roomCode,
       roomGeneration,
       '/internal/developer/v1/commands/status',
-      { roomCode: body.roomCode, keyId: body.keyId, commandId: body.commandId },
+      {
+        roomCode: body.roomCode,
+        ...developerAuthorityWireFields(developerAuthorityEpoch),
+        keyId: body.keyId,
+        commandId: body.commandId,
+      },
     );
     if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
     const value = await readJsonResponse(called.response, COMMAND_RESPONSE_MAX_BYTES);

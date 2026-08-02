@@ -11,6 +11,17 @@ export interface ProRoomOwnerRecoveryClaimOptions {
   expiresAtMs?: number;
   roomGeneration?: number;
   nonce?: string;
+  ownerAuthorityEpoch?: number;
+}
+
+export interface ProRoomOwnerTransferClaimOptions {
+  nowMs?: number;
+  expiresAtMs?: number;
+  roomGeneration?: number;
+  nonce?: string;
+  targetAccountId: string;
+  claimGeneration: number;
+  ownerAuthorityEpoch: number;
 }
 
 export function issueProRoomActivationClaim(
@@ -23,6 +34,12 @@ export function issueProRoomOwnerRecoveryClaim(
   roomCode: string,
   secret: string,
   options?: ProRoomOwnerRecoveryClaimOptions,
+): Promise<string>;
+
+export function issueProRoomOwnerTransferClaim(
+  roomCode: string,
+  secret: string,
+  options: ProRoomOwnerTransferClaimOptions,
 ): Promise<string>;
 
 export class MusixquareProRoom {

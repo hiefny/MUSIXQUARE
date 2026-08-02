@@ -444,7 +444,7 @@ describe('admin PRO room claim lifecycle', () => {
           roomGeneration: 4,
           recoveryUrl: 'https://musixquare.com/000001#pro-recovery=v1.payload.signature',
           expiresAt: Date.now() + 10 * 60 * 1000,
-          ownerAccountLinked: false,
+          ownerAccountLinked: true,
         });
       }
       if (url.pathname === '/api/admin/articles') {
@@ -474,7 +474,8 @@ describe('admin PRO room claim lifecycle', () => {
       expect(value).not.toBeUndefined();
       return value!;
     });
-    expect(issueButton.title).toContain('replaces the room owner credential');
+    expect(issueButton.title).toContain('same account already linked as owner');
+    expect(issueButton.title).toContain('use ownership transfer');
     issueButton.click();
 
     await vi.waitFor(() => {
@@ -491,6 +492,243 @@ describe('admin PRO room claim lifecycle', () => {
       ).toBe('Owner recovery link');
       expect(issueButton.textContent).toBe('Issue another owner recovery link');
     });
+  });
+
+  it('keeps a pending transfer visible and lets the operator replace it after expiry', async () => {
+    installAdminDom();
+    const targetAccountId = 'acct_0123456789abcdefghijkl';
+    let existingTransferExpired = false;
+    const submitted: unknown[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          rooms: [
+            {
+              roomCode: '000002',
+              roomGeneration: 6,
+              label: 'Pending transfer room',
+              status: 'suspended',
+              suspensionReason: 'ownership_transfer_pending',
+              activationState: 'active',
+              createdAt: Date.now(),
+            },
+          ],
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms/000002/owner-transfer-claim') {
+        expect(init?.method).toBe('POST');
+        expect(new Headers(init?.headers).get('X-MXQR-Admin-CSRF')).toBe('1');
+        submitted.push(JSON.parse(String(init?.body)));
+        if (!existingTransferExpired) {
+          return Response.json(
+            { error: 'PRO_ROOM_OWNER_TRANSFER_RECONCILIATION_REQUIRED' },
+            { status: 409 },
+          );
+        }
+        return Response.json({
+          roomCode: '000002',
+          roomGeneration: 6,
+          targetAccountId,
+          targetNickname: 'New owner',
+          transferUrl: 'https://musixquare.com/000002#pro-transfer=v1.payload.signature',
+          expiresAt: Date.now() + 5 * 60 * 1000,
+        });
+      }
+      if (url.pathname === '/api/admin/articles') {
+        return Response.json({ generatedAt: new Date().toISOString(), articles: [] });
+      }
+      if (url.pathname === '/api/admin/announcement') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          announcement: {},
+          history: [],
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+
+    const replaceButton = await vi.waitFor(() => {
+      const value = [
+        ...document.querySelectorAll<HTMLButtonElement>('.pro-room-actions button'),
+      ].find((button) => button.textContent === 'Replace expired transfer link');
+      expect(value).not.toBeUndefined();
+      return value!;
+    });
+    expect(replaceButton.disabled).toBe(false);
+    expect(replaceButton.title).toContain('still valid');
+    replaceButton.click();
+
+    const dialog = document.querySelector<HTMLDialogElement>('.pro-room-transfer-dialog')!;
+    const input = dialog.querySelector<HTMLInputElement>('input')!;
+    const form = dialog.querySelector<HTMLFormElement>('form')!;
+    input.value = targetAccountId;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(dialog.querySelector('.pro-room-transfer-error')?.textContent).toContain(
+        'already pending',
+      );
+      expect(dialog.hasAttribute('open')).toBe(true);
+    });
+
+    existingTransferExpired = true;
+    form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+    await vi.waitFor(() => {
+      expect(document.querySelector('[data-pro-room-claim-title]')?.textContent).toBe(
+        '000002 owner transfer link',
+      );
+      expect(document.querySelector<HTMLInputElement>('[data-pro-room-claim-url]')?.value).toBe(
+        'https://musixquare.com/000002#pro-transfer=v1.payload.signature',
+      );
+      expect(dialog.hasAttribute('open')).toBe(false);
+    });
+    expect(submitted).toEqual([
+      { roomGeneration: 6, targetAccount: targetAccountId },
+      { roomGeneration: 6, targetAccount: targetAccountId },
+    ]);
+  });
+
+  it('keeps an owner-deletion transfer secret in memory and clears it on dismiss', async () => {
+    installAdminDom();
+    localStorage.clear();
+    sessionStorage.clear();
+    const storageWrite = vi.spyOn(Storage.prototype, 'setItem');
+    const targetAccountId = 'acct_abcdefghijkl0123456789';
+    const transferUrl = 'https://musixquare.com/000003#pro-transfer=v1.private.signature';
+    let submittedBody: unknown;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          rooms: [
+            {
+              roomCode: '000003',
+              roomGeneration: 9,
+              label: 'Deleted owner room',
+              status: 'suspended',
+              suspensionReason: 'owner_account_deleted',
+              activationState: 'active',
+              createdAt: Date.now(),
+            },
+          ],
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms/000003/owner-transfer-claim') {
+        submittedBody = JSON.parse(String(init?.body));
+        return Response.json({
+          roomCode: '000003',
+          roomGeneration: 9,
+          targetAccountId,
+          targetNickname: 'Launch owner',
+          transferUrl,
+          expiresAt: Date.now() + 5 * 60 * 1000,
+        });
+      }
+      if (url.pathname === '/api/admin/articles') {
+        return Response.json({ generatedAt: new Date().toISOString(), articles: [] });
+      }
+      if (url.pathname === '/api/admin/announcement') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          announcement: {},
+          history: [],
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+    const assignButton = await vi.waitFor(() => {
+      const value = [
+        ...document.querySelectorAll<HTMLButtonElement>('.pro-room-actions button'),
+      ].find((button) => button.textContent === 'Assign a new owner');
+      expect(value).not.toBeUndefined();
+      return value!;
+    });
+    expect(document.body.textContent).toContain('Ownership transfer required');
+    expect(assignButton.title).toContain('ownership transfer link');
+    assignButton.click();
+
+    const dialog = document.querySelector<HTMLDialogElement>('.pro-room-transfer-dialog')!;
+    const input = dialog.querySelector<HTMLInputElement>('input')!;
+    const issueButton = dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    expect(document.activeElement).toBe(input);
+    expect(input.autocomplete).toBe('off');
+    expect(input.maxLength).toBe(128);
+    expect(input.placeholder).toContain('Nickname');
+    expect(dialog.textContent).toContain('Target nickname or account ID');
+    expect(dialog.textContent).toContain('No account search or suggestions');
+    expect(dialog.getAttribute('aria-labelledby')).toBe('pro-room-transfer-title');
+    expect(dialog.getAttribute('aria-describedby')).toBe('pro-room-transfer-description');
+    input.value = 'Launch owner';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(issueButton.disabled).toBe(false);
+    dialog
+      .querySelector<HTMLFormElement>('form')
+      ?.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(submittedBody).toEqual({ roomGeneration: 9, targetAccount: 'Launch owner' });
+      expect(document.querySelector<HTMLInputElement>('[data-pro-room-claim-url]')?.value).toBe(
+        transferUrl,
+      );
+      expect(input.value).toBe('');
+      expect(document.activeElement).toBe(
+        document.querySelector<HTMLInputElement>('[data-pro-room-claim-url]'),
+      );
+    });
+    const storedWrites = JSON.stringify(storageWrite.mock.calls);
+    expect(storedWrites).not.toContain(targetAccountId);
+    expect(storedWrites).not.toContain(transferUrl);
+    expect(localStorage.length).toBe(0);
+    expect(sessionStorage.length).toBe(0);
+
+    document.querySelector<HTMLButtonElement>('[data-pro-room-claim-dismiss]')?.click();
+    expect(document.querySelector<HTMLElement>('[data-pro-room-claim]')?.hidden).toBe(true);
+    expect(document.querySelector<HTMLInputElement>('[data-pro-room-claim-url]')?.value).toBe('');
+    expect(document.body.textContent).not.toContain(transferUrl);
+    expect(adminStyles).toMatch(
+      /@media \(max-width: 560px\)[\s\S]*\.pro-room-transfer-dialog\s*\{[\s\S]*width:\s*min\(100vw - 24px, 440px\);/,
+    );
+    expect(adminStyles).toMatch(
+      /\.pro-room-transfer-actions\s*\{[\s\S]*flex-direction:\s*column;[\s\S]*\.pro-room-transfer-actions button\s*\{[\s\S]*min-height:\s*44px;/,
+    );
   });
 });
 

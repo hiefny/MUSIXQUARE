@@ -2,8 +2,9 @@
  * MUSIXQUARE — early HTML bootstrap (index.html, head)
  *
  * Synchronous setup that must run before first paint:
- *   0. PRO owner claims: scrub fragment credentials before any third-party
- *      script, then hand them to the app through one in-memory closure.
+ *   0. PRO owner claims: scrub fragment credentials and reject/scrub query
+ *      lookalikes before any third-party script, then hand valid fragment
+ *      claims to the app through one in-memory closure.
  *   1. Android: strip viewport-fit=cover so the system nav bar doesn't
  *      clip bottom content on some Android tablets / WebViews.
  *   2. Language preflight: resolve localStorage + system language and set
@@ -22,6 +23,7 @@
   var HANDOFF_KEY = '__mxqrTakeProRoomFragmentClaims';
   var ACTIVATION_KEY = 'pro-claim';
   var RECOVERY_KEY = 'pro-recovery';
+  var TRANSFER_KEY = 'pro-transfer';
   var ANALYTICS_SRC = 'https://static.cloudflareinsights.com/beacon.min.js';
   var ANALYTICS_TOKEN = '80608f4cdc3849d589d14bdcf48f19f9';
   var analyticsStarted = false;
@@ -37,48 +39,124 @@
     document.head.appendChild(script);
   }
 
-  var rawHash = window.location.hash;
-  var fragment = rawHash && rawHash.charAt(0) === '#' ? rawHash.slice(1) : rawHash;
-  var params;
+  var rawHash = window.location.hash || '';
+  var fragment = rawHash.charAt(0) === '#' ? rawHash.slice(1) : rawHash;
+  var rawSearch = window.location.search || '';
+  var query = rawSearch.charAt(0) === '?' ? rawSearch.slice(1) : rawSearch;
+  var fragmentParams;
+  var queryParams;
 
   try {
-    params = new URLSearchParams(fragment || '');
+    fragmentParams = new URLSearchParams(fragment);
+    queryParams = new URLSearchParams(query);
   } catch (e) {
-    // URLSearchParams is universal in supported browsers. On an obsolete or
-    // tampered runtime, conservatively suppress analytics when the raw hash
-    // even resembles a credential instead of risking disclosure.
-    if (!/(?:^|&)(?:pro-claim|pro-recovery)(?:=|&|$)/i.test(fragment || '')) {
-      startAnalytics();
-    }
+    // URLSearchParams is universal in supported browsers. If parsing is
+    // unavailable, do not guess whether an encoded query/hash key is a
+    // credential: keep analytics disabled instead of risking disclosure.
     return;
   }
 
-  var activationClaims = params.getAll(ACTIVATION_KEY);
-  var recoveryClaims = params.getAll(RECOVERY_KEY);
-  var hasCredential = activationClaims.length > 0 || recoveryClaims.length > 0;
+  function claimPurpose(key) {
+    var normalized = String(key || '').toLowerCase();
+    if (normalized === ACTIVATION_KEY) return 'activation';
+    if (normalized === RECOVERY_KEY) return 'recovery';
+    if (normalized === TRANSFER_KEY) return 'transfer';
+    return '';
+  }
+
+  var fragmentCounts = { activation: 0, recovery: 0, transfer: 0 };
+  var activationClaims = [];
+  var recoveryClaims = [];
+  var transferClaims = [];
+  fragmentParams.forEach(function (value, key) {
+    var purpose = claimPurpose(key);
+    if (!purpose) return;
+    fragmentCounts[purpose] += 1;
+    // Only the canonical, case-sensitive fragment names are accepted. A
+    // lookalike is still scrubbed and surfaced as a damaged link marker.
+    if (key === ACTIVATION_KEY) activationClaims.push(value);
+    if (key === RECOVERY_KEY) recoveryClaims.push(value);
+    if (key === TRANSFER_KEY) transferClaims.push(value);
+  });
+
+  var queryCounts = { activation: 0, recovery: 0, transfer: 0 };
+  var queryClaimKeys = [];
+  queryParams.forEach(function (_value, key) {
+    var purpose = claimPurpose(key);
+    if (!purpose) return;
+    queryCounts[purpose] += 1;
+    queryClaimKeys.push(key);
+  });
+  for (var queryKeyIndex = 0; queryKeyIndex < queryClaimKeys.length; queryKeyIndex += 1) {
+    queryParams.delete(queryClaimKeys[queryKeyIndex]);
+  }
+
+  var hasFragmentCredential =
+    fragmentCounts.activation > 0 ||
+    fragmentCounts.recovery > 0 ||
+    fragmentCounts.transfer > 0;
+  var hasQueryCredential =
+    queryCounts.activation > 0 || queryCounts.recovery > 0 || queryCounts.transfer > 0;
+  var hasCredential = hasFragmentCredential || hasQueryCredential;
 
   if (!hasCredential) {
     startAnalytics();
     return;
   }
 
-  // Scrub before retaining or validating a credential. If History API
-  // replacement fails, fail closed: neither a handoff nor analytics is
-  // installed while the sensitive fragment remains visible.
+  // Query credentials are never accepted, even if their token shape is valid.
+  // Remove their keys while retaining unrelated query parameters. Fragment
+  // credentials retain the existing stronger rule of removing the whole
+  // fragment. If History API replacement fails, install neither a handoff nor
+  // analytics while any sensitive URL material remains visible.
+  var cleanQuery = queryParams.toString();
+  var cleanUrl = window.location.pathname + (cleanQuery ? '?' + cleanQuery : '');
+  if (!hasFragmentCredential) cleanUrl += rawHash;
   try {
-    window.history.replaceState(
-      window.history.state,
-      '',
-      window.location.pathname + window.location.search,
-    );
+    window.history.replaceState(window.history.state, '', cleanUrl);
   } catch (e) {
     return;
   }
-  if (window.location.hash) return;
+  if (hasFragmentCredential && window.location.hash) return;
 
-  var activationClaim = activationClaims.length === 1 ? activationClaims[0] : null;
-  var recoveryClaim = recoveryClaims.length === 1 ? recoveryClaims[0] : null;
-  var recoveryPresent = recoveryClaims.length > 0;
+  // Confirm that History API replacement actually removed every query claim
+  // key. Constrained shells can expose a no-op implementation without
+  // throwing; analytics must remain disabled in that case.
+  if (hasQueryCredential) {
+    try {
+      var remainingQuery = new URLSearchParams(
+        (window.location.search || '').replace(/^\?/, ''),
+      );
+      var queryStillSensitive = false;
+      remainingQuery.forEach(function (_value, key) {
+        if (claimPurpose(key)) queryStillSensitive = true;
+      });
+      if (queryStillSensitive) return;
+    } catch (e) {
+      return;
+    }
+  }
+
+  // The presence of any query credential invalidates the complete credential
+  // set. Retain purpose booleans only, so setup renders the terminal damaged
+  // link UX without ever accepting or preserving a query token value.
+  var activationClaim =
+    !hasQueryCredential &&
+    fragmentCounts.activation === 1 &&
+    activationClaims.length === 1
+      ? activationClaims[0]
+      : null;
+  var activationPresent = fragmentCounts.activation > 0 || queryCounts.activation > 0;
+  var recoveryClaim =
+    !hasQueryCredential && fragmentCounts.recovery === 1 && recoveryClaims.length === 1
+      ? recoveryClaims[0]
+      : null;
+  var recoveryPresent = fragmentCounts.recovery > 0 || queryCounts.recovery > 0;
+  var transferClaim =
+    !hasQueryCredential && fragmentCounts.transfer === 1 && transferClaims.length === 1
+      ? transferClaims[0]
+      : null;
+  var transferPresent = fragmentCounts.transfer > 0 || queryCounts.transfer > 0;
   var consumed = false;
 
   // Discard the parsed URL containers immediately. From this point until the
@@ -86,14 +164,22 @@
   // remains in the private closure.
   activationClaims.length = 0;
   recoveryClaims.length = 0;
-  params = null;
+  transferClaims.length = 0;
+  fragmentParams = null;
+  queryParams = null;
+  queryClaimKeys.length = 0;
   fragment = '';
   rawHash = '';
+  query = '';
+  rawSearch = '';
 
   function clearClaimMemory() {
     activationClaim = null;
+    activationPresent = false;
     recoveryClaim = null;
     recoveryPresent = false;
+    transferClaim = null;
+    transferPresent = false;
   }
 
   // No credential is stored in DOM, Web Storage, cookies, a query parameter,
@@ -110,8 +196,11 @@
 
         var handoff = Object.freeze({
           activationClaim: activationClaim,
+          activationPresent: activationPresent,
           recoveryClaim: recoveryClaim,
           recoveryPresent: recoveryPresent,
+          transferClaim: transferClaim,
+          transferPresent: transferPresent,
         });
         clearClaimMemory();
         startAnalytics();

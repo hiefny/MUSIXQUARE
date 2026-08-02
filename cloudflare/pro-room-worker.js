@@ -58,10 +58,21 @@ const INITIAL_PRO_ROOMS = Object.freeze([
 ]);
 const INITIAL_PRO_ROOM_CODES = new Set(INITIAL_PRO_ROOMS.map((room) => room.roomCode));
 const ACTIVATION_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
+const OWNER_TRANSFER_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
+const OWNER_TRANSFER_CLAIM_DEFAULT_LIFETIME_MS = 10 * 60 * 1000;
+const OWNER_TRANSFER_REVOCATION_RECEIPT_MAX_LIFETIME_MS = 15 * 60 * 1000;
+const OWNER_TRANSFER_COMPLETED_REPLAY_TTL_MS = 10 * 60 * 1000;
+const OWNER_TRANSFER_COMPLETED_REPLAY_MAX_LIFETIME_MS = 15 * 60 * 1000;
 const PRO_ROOM_REGISTRY_MAX_ITEMS = 1000;
 const PRO_ROOM_REGISTRY_REFRESH_MS = 5_000;
 const PRO_ROOM_GENERATION_HEADER = 'x-mxqr-pro-room-generation';
 const PIN_RE = /^\d{8}$/;
+const ACCOUNT_ID_RE = /^acct_[A-Za-z0-9_-]{22}$/;
+const ACCOUNT_TABLE = 'mxqr_accounts';
+const ACCOUNT_DELETION_TABLE = 'mxqr_account_deletions';
+const OWNER_TRANSFER_ID_RE = /^transfer_[A-Za-z0-9_-]{22}$/;
+const OWNER_TRANSFER_REQUEST_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
+const OWNER_AUTHORITY_REMOVAL_ID_RE = /^removal_[A-Za-z0-9_-]{22}$/;
 const OPAQUE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
 const ADMIN_REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -159,6 +170,7 @@ const DEVELOPER_MUTATION_IDEMPOTENCY_MAX_ITEMS = 256;
 const RATE_LIMIT_MAX_ITEMS = 512;
 const BOT_RATE_LIMIT_MAX_ITEMS = 512;
 const RECOVERY_NONCE_MAX_ITEMS = 128;
+const OWNER_TRANSFER_NONCE_MAX_ITEMS = 128;
 const STAGING_TOMBSTONE_MAX_ITEMS = ASSET_MAX_ITEMS;
 const DEVELOPER_COMMAND_MAX_ITEMS = 64;
 const DEVELOPER_COMMAND_MAX_ACTIVE_ITEMS = 8;
@@ -413,6 +425,8 @@ function registryCacheFor(db) {
   if (!cache) {
     cache = {
       registered: new Map(),
+      suspended: new Map(),
+      suspendedRechecks: new Map(),
       refreshedAtMs: 0,
       refreshPromise: null,
     };
@@ -421,7 +435,54 @@ function registryCacheFor(db) {
   return cache;
 }
 
-async function frontProvisionedRoomGeneration(roomCode, env, nowMs = Date.now()) {
+async function recheckSuspendedRoomGeneration(db, cache, roomCode, expectedGeneration) {
+  const key = `${roomCode}:${expectedGeneration}`;
+  if (!cache.suspendedRechecks.has(key)) {
+    const recheck = (async () => {
+      try {
+        const statement = db
+          .prepare(
+            `SELECT room_generation, status FROM mxqr_pro_room_registry
+             WHERE room_code = ?1 LIMIT 1`,
+          )
+          .bind(roomCode);
+        const row =
+          typeof statement.first === 'function'
+            ? await statement.first()
+            : (await statement.all())?.results?.[0] || null;
+        const generation = Number(row?.room_generation);
+        if (
+          row?.status === 'registered' &&
+          generation === expectedGeneration &&
+          cache.suspended.get(roomCode) === expectedGeneration
+        ) {
+          cache.suspended.delete(roomCode);
+          cache.registered.set(roomCode, expectedGeneration);
+          return expectedGeneration;
+        }
+        // A still-suspended row, a recycled generation, a missing row, and
+        // every other registry state remain closed at the public facade.
+        return null;
+      } catch {
+        return null;
+      }
+    })();
+    cache.suspendedRechecks.set(key, recheck);
+    recheck.finally(() => {
+      if (cache.suspendedRechecks.get(key) === recheck) {
+        cache.suspendedRechecks.delete(key);
+      }
+    });
+  }
+  return cache.suspendedRechecks.get(key);
+}
+
+async function frontProvisionedRoomGeneration(
+  roomCode,
+  env,
+  nowMs = Date.now(),
+  allowSuspended = false,
+) {
   const db = env?.MUSIXQUARE_ADMIN_DB || env?.ADMIN_METRICS_DB || null;
   // Local/test environments without the shared registry keep only the
   // developer canary. Production always binds D1 and resolves every room from
@@ -431,14 +492,23 @@ async function frontProvisionedRoomGeneration(roomCode, env, nowMs = Date.now())
   }
   const cache = registryCacheFor(db);
   if (nowMs - cache.refreshedAtMs < PRO_ROOM_REGISTRY_REFRESH_MS) {
-    return cache.registered.get(roomCode) ?? null;
+    const registeredGeneration = cache.registered.get(roomCode);
+    if (registeredGeneration !== undefined) return registeredGeneration;
+    const suspendedGeneration = cache.suspended.get(roomCode);
+    if (suspendedGeneration === undefined) return null;
+    if (allowSuspended) return suspendedGeneration;
+    // A transfer commit can promote D1 immediately after bootstrap populated
+    // this short-lived suspended cache. Re-read only this exact room before a
+    // non-allowlisted request so the new owner never inherits a five-second
+    // false 404, while a still-suspended/recycled/unreadable row stays closed.
+    return recheckSuspendedRoomGeneration(db, cache, roomCode, suspendedGeneration);
   }
   if (!cache.refreshPromise) {
     cache.refreshPromise = (async () => {
       const result = await db
         .prepare(
-          `SELECT room_code, room_generation FROM mxqr_pro_room_registry
-           WHERE status = 'registered'
+          `SELECT room_code, room_generation, status FROM mxqr_pro_room_registry
+           WHERE status IN ('registered', 'suspended')
            ORDER BY room_code ASC LIMIT ?1`,
         )
         .bind(PRO_ROOM_REGISTRY_MAX_ITEMS + 1)
@@ -448,13 +518,16 @@ async function frontProvisionedRoomGeneration(roomCode, env, nowMs = Date.now())
         throw new Error('PRO room registry exceeds its bounded cache capacity');
       }
       const registered = new Map();
+      const suspended = new Map();
       for (const row of rows) {
         const generation = Number(row?.room_generation);
         if (isProRoomCode(row?.room_code) && isProRoomGeneration(generation)) {
-          registered.set(row.room_code, generation);
+          if (row.status === 'registered') registered.set(row.room_code, generation);
+          else if (row.status === 'suspended') suspended.set(row.room_code, generation);
         }
       }
       cache.registered = registered;
+      cache.suspended = suspended;
       cache.refreshedAtMs = Date.now();
     })().finally(() => {
       cache.refreshPromise = null;
@@ -467,10 +540,15 @@ async function frontProvisionedRoomGeneration(roomCode, env, nowMs = Date.now())
     // keep a permanently deleted room open during a D1 incident.
     console.warn('[PRO registry] front-door refresh failed', error);
     cache.registered = new Map();
+    cache.suspended = new Map();
     cache.refreshedAtMs = Date.now();
     return null;
   }
-  return cache.registered.get(roomCode) ?? null;
+  return (
+    cache.registered.get(roomCode) ??
+    (allowSuspended ? cache.suspended.get(roomCode) : undefined) ??
+    null
+  );
 }
 
 function configuredAllowedOrigins(env) {
@@ -692,6 +770,11 @@ async function createOpaqueCredential(secret) {
   return `v1.${random}.${await hmacBase64Url(secret, `v1.${random}`)}`;
 }
 
+async function createDeterministicOpaqueCredential(secret, context) {
+  const deterministic = await hmacBase64Url(secret, `pro-room-credential\u0000${context}`);
+  return `v1.${deterministic}.${await hmacBase64Url(secret, `v1.${deterministic}`)}`;
+}
+
 async function verifyOpaqueCredential(token, secret) {
   if (!token || typeof secret !== 'string' || secret.length < 32) return false;
   const parts = token.split('.');
@@ -772,7 +855,13 @@ export async function issueProRoomOwnerRecoveryClaim(roomCode, secret, options =
   }
   const nonce = options.nonce ?? randomToken(18);
   const roomGeneration = options.roomGeneration ?? INITIAL_PRO_ROOM_GENERATION;
+  // The legacy offline helper can only describe the first activated owner
+  // incarnation. Runtime issuance always supplies the current durable fence.
+  const ownerAuthorityEpoch = options.ownerAuthorityEpoch ?? 1;
   if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
+  if (!isSafeNonNegativeInteger(ownerAuthorityEpoch)) {
+    throw new Error('Invalid owner authority epoch');
+  }
   if (typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) {
     throw new Error('Invalid nonce');
   }
@@ -784,6 +873,7 @@ export async function issueProRoomOwnerRecoveryClaim(roomCode, secret, options =
       iat: nowMs,
       exp: expiresAtMs,
       nonce,
+      ownerAuthorityEpoch,
       ...proRoomGenerationWireFields(roomGeneration),
     },
     secret,
@@ -795,6 +885,16 @@ async function verifyOwnerRecoveryClaim(token, roomCode, secret, nowMs) {
   const payload = await verifySignedToken(token, secret);
   if (
     !payload ||
+    !hasExactKeys(payload, [
+      'v',
+      'purpose',
+      'roomCode',
+      'iat',
+      'exp',
+      'nonce',
+      'ownerAuthorityEpoch',
+      'roomGeneration',
+    ]) ||
     payload.v !== 1 ||
     payload.purpose !== 'pro-room-owner-recovery' ||
     payload.roomCode !== roomCode ||
@@ -804,12 +904,161 @@ async function verifyOwnerRecoveryClaim(token, roomCode, secret, nowMs) {
     payload.exp <= nowMs ||
     payload.exp - payload.iat > RECOVERY_CLAIM_MAX_LIFETIME_MS ||
     !isProRoomGeneration(payload.roomGeneration) ||
+    !isSafeNonNegativeInteger(payload.ownerAuthorityEpoch) ||
     typeof payload.nonce !== 'string' ||
     !/^[A-Za-z0-9_-]{16,128}$/.test(payload.nonce)
   ) {
     return null;
   }
   return payload;
+}
+
+export async function issueProRoomOwnerTransferClaim(roomCode, secret, options = {}) {
+  if (!isProRoomCode(roomCode)) throw new Error('Unsupported PRO room code');
+  if (typeof secret !== 'string' || secret.length < 32) {
+    throw new Error('Activation secret too short');
+  }
+  if (!ACCOUNT_ID_RE.test(options.targetAccountId || '')) {
+    throw new Error('Invalid target account');
+  }
+  if (!isSafeNonNegativeInteger(options.claimGeneration)) {
+    throw new Error('Invalid claim generation');
+  }
+  if (!isSafeNonNegativeInteger(options.ownerAuthorityEpoch)) {
+    throw new Error('Invalid owner authority epoch');
+  }
+  const roomGeneration = options.roomGeneration ?? INITIAL_PRO_ROOM_GENERATION;
+  if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
+  const nowMs = options.nowMs ?? Date.now();
+  const expiresAtMs = options.expiresAtMs ?? nowMs + OWNER_TRANSFER_CLAIM_DEFAULT_LIFETIME_MS;
+  if (
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= nowMs ||
+    expiresAtMs - nowMs > OWNER_TRANSFER_CLAIM_MAX_LIFETIME_MS
+  ) {
+    throw new Error('Invalid expiry');
+  }
+  const nonce = options.nonce ?? randomToken(18);
+  if (typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) {
+    throw new Error('Invalid nonce');
+  }
+  return createSignedToken(
+    {
+      v: 1,
+      purpose: 'pro-room-owner-transfer',
+      roomCode,
+      roomGeneration,
+      targetAccountId: options.targetAccountId,
+      claimGeneration: options.claimGeneration,
+      ownerAuthorityEpoch: options.ownerAuthorityEpoch,
+      iat: nowMs,
+      exp: expiresAtMs,
+      nonce,
+    },
+    secret,
+  );
+}
+
+async function inspectOwnerTransferClaim(token, roomCode, secret, nowMs) {
+  if (typeof secret !== 'string' || secret.length < 32) {
+    return { error: 'OWNER_TRANSFER_CLAIM_INVALID' };
+  }
+  const payload = await verifySignedToken(token, secret);
+  if (
+    !payload ||
+    !hasExactKeys(payload, [
+      'v',
+      'purpose',
+      'roomCode',
+      'roomGeneration',
+      'targetAccountId',
+      'claimGeneration',
+      'ownerAuthorityEpoch',
+      'iat',
+      'exp',
+      'nonce',
+    ]) ||
+    payload.v !== 1 ||
+    payload.purpose !== 'pro-room-owner-transfer' ||
+    payload.roomCode !== roomCode ||
+    !isProRoomGeneration(payload.roomGeneration) ||
+    !ACCOUNT_ID_RE.test(payload.targetAccountId || '') ||
+    !isSafeNonNegativeInteger(payload.claimGeneration) ||
+    !isSafeNonNegativeInteger(payload.ownerAuthorityEpoch) ||
+    !Number.isSafeInteger(payload.iat) ||
+    payload.iat > nowMs + 60_000 ||
+    !Number.isSafeInteger(payload.exp) ||
+    payload.exp <= payload.iat ||
+    payload.exp - payload.iat > OWNER_TRANSFER_CLAIM_MAX_LIFETIME_MS ||
+    typeof payload.nonce !== 'string' ||
+    !/^[A-Za-z0-9_-]{16,128}$/.test(payload.nonce)
+  ) {
+    return { error: 'OWNER_TRANSFER_CLAIM_INVALID' };
+  }
+  return {
+    claim: payload,
+    expired: payload.exp <= nowMs,
+  };
+}
+
+async function ownerTransferCommitProof(room, pending, secret) {
+  return createSignedToken(
+    {
+      v: 1,
+      purpose: 'pro-room-owner-transfer-commit',
+      roomCode: room.roomCode,
+      roomGeneration: room.roomGeneration,
+      transferId: pending.transferId,
+      requestId: pending.requestId,
+      targetAccountId: pending.targetAccountId,
+      ownerAuthorityEpoch: pending.ownerAuthorityEpoch,
+      preparedAtMs: pending.preparedAtMs,
+    },
+    secret,
+  );
+}
+
+async function verifyOwnerTransferRevocationReceipt(token, expected, secret, nowMs) {
+  if (typeof token !== 'string' || typeof secret !== 'string' || secret.length < 32) return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3 || parts[0] !== 'v1' || !parts[1] || !parts[2]) return null;
+    const expectedMac = await hmacBase64Url(
+      secret,
+      `owner-transfer-revocation:v1\u0000${parts[1]}`,
+    );
+    if (!constantTimeEqual(expectedMac, parts[2])) return null;
+    const payload = JSON.parse(decoder.decode(base64UrlDecode(parts[1])));
+    if (
+      !hasExactKeys(payload, [
+        'purpose',
+        'roomCode',
+        'roomGeneration',
+        'transferId',
+        'targetAccountId',
+        'requestId',
+        'revokedAtMs',
+        'expiresAtMs',
+      ]) ||
+      payload.purpose !== 'pro-room-owner-transfer-revocation' ||
+      payload.roomCode !== expected.roomCode ||
+      payload.roomGeneration !== expected.roomGeneration ||
+      payload.transferId !== expected.transferId ||
+      payload.targetAccountId !== expected.targetAccountId ||
+      payload.requestId !== expected.requestId ||
+      !Number.isSafeInteger(payload.revokedAtMs) ||
+      payload.revokedAtMs > nowMs + 60_000 ||
+      !Number.isSafeInteger(payload.expiresAtMs) ||
+      payload.expiresAtMs <= nowMs ||
+      payload.expiresAtMs <= payload.revokedAtMs ||
+      payload.expiresAtMs - payload.revokedAtMs > OWNER_TRANSFER_REVOCATION_RECEIPT_MAX_LIFETIME_MS
+    ) {
+      return null;
+    }
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 async function derivePinHash(pin, salt, pepper, iterations = PBKDF2_ITERATIONS) {
@@ -1030,7 +1279,9 @@ function initialRoomState(
     roomGeneration,
     provisioned,
     activationClaimGeneration: 0,
+    ownershipTransferClaimGeneration: 0,
     status: 'unactivated',
+    suspensionReason: null,
     runtime: 'sleeping',
     revision: 0,
     playlistRevision: 0,
@@ -1066,6 +1317,8 @@ function initialRoomState(
     },
     pin: null,
     authEpoch: 0,
+    ownerAuthorityEpoch: 0,
+    developerAuthorityEpoch: 0,
     ownerMemberId: null,
     ownerAccountId: null,
     ownerDisplayName: null,
@@ -1074,6 +1327,9 @@ function initialRoomState(
     accountDeletionTombstones: {},
     nextMemberDisplayNumber: 1,
     ownerCredentialHash: null,
+    pendingOwnershipTransfer: null,
+    completedOwnershipTransfer: null,
+    ownerAuthorityRemoval: null,
     sessions: {},
     assets: {},
     idempotency: {},
@@ -1081,9 +1337,28 @@ function initialRoomState(
     rateLimits: {},
     botRateLimits: {},
     consumedRecoveryNonces: {},
+    consumedOwnershipTransferClaims: {},
     stagingTombstones: {},
     developerCommands: {},
     developerCommandIdempotency: {},
+  };
+}
+
+function internalOwnerTransferReconciliation(room) {
+  const record = room.pendingOwnershipTransfer || room.completedOwnershipTransfer || null;
+  if (!record) return null;
+  const completed = room.completedOwnershipTransfer === record;
+  return {
+    phase: completed ? 'completed' : 'pending',
+    transferId: record.transferId,
+    claimGeneration: completed ? null : record.claimGeneration,
+    requestId: record.requestId,
+    targetAccountId: record.targetAccountId,
+    previousOwnerAccountId: record.previousOwnerAccountId,
+    preparedAtMs: record.preparedAtMs,
+    expiresAtMs: record.expiresAtMs,
+    committedAtMs: completed ? record.committedAtMs : null,
+    replayUntilMs: completed ? record.replayUntilMs : record.expiresAtMs,
   };
 }
 
@@ -2723,6 +2998,8 @@ function assertBoundedRoomState(room) {
     Object.keys(room.rateLimits).length > RATE_LIMIT_MAX_ITEMS ||
     Object.keys(room.botRateLimits || {}).length > BOT_RATE_LIMIT_MAX_ITEMS ||
     Object.keys(room.consumedRecoveryNonces || {}).length > RECOVERY_NONCE_MAX_ITEMS ||
+    Object.keys(room.consumedOwnershipTransferClaims || {}).length >
+      OWNER_TRANSFER_NONCE_MAX_ITEMS ||
     Object.keys(room.stagingTombstones || {}).length > STAGING_TOMBSTONE_MAX_ITEMS ||
     Object.keys(room.developerCommands || {}).length > DEVELOPER_COMMAND_MAX_ITEMS ||
     Object.keys(room.developerCommandIdempotency || {}).length >
@@ -2758,8 +3035,9 @@ function canonicalServiceControlState(value) {
 }
 
 function publicServiceControlState(state) {
-  return normalizeServiceMaintenanceState(state) || normalizeServiceMaintenanceState(
-    initialServiceControlState(),
+  return (
+    normalizeServiceMaintenanceState(state) ||
+    normalizeServiceMaintenanceState(initialServiceControlState())
   );
 }
 
@@ -2971,7 +3249,16 @@ export default {
     if (url.pathname.startsWith(`/v1/rooms/${match[1]}/internal/`)) {
       return withPublicHeaders(errorResponse('ROOM_NOT_FOUND', 404), origin);
     }
-    const roomGeneration = await frontProvisionedRoomGeneration(match[1], env);
+    const ownerTransferPreparePath =
+      request.method === 'POST' && url.pathname === `/v1/rooms/${match[1]}/owner-transfer/prepare`;
+    const bootstrapPath =
+      request.method === 'GET' && url.pathname === `/v1/rooms/${match[1]}/bootstrap`;
+    const roomGeneration = await frontProvisionedRoomGeneration(
+      match[1],
+      env,
+      Date.now(),
+      ownerTransferPreparePath || bootstrapPath,
+    );
     if (roomGeneration === null) {
       return withPublicHeaders(errorResponse('ROOM_NOT_FOUND', 404), origin);
     }
@@ -3057,6 +3344,7 @@ export class MusixquareProRoom {
       this.normalizeLoadedSystemAudio();
       this.normalizeLoadedEffects();
       this.normalizeLoadedQueueMode();
+      this.normalizeLoadedOwnershipTransfer();
       this.normalizeLoadedAccountIdentity();
       this.normalizeLoadedDeveloperCommands();
       this.normalizeLoadedSecurityLedgers();
@@ -3090,11 +3378,30 @@ export class MusixquareProRoom {
     if (!Number.isSafeInteger(this.room.activationClaimGeneration)) {
       this.room.activationClaimGeneration = 0;
     }
+    if (!isSafeNonNegativeInteger(this.room.ownershipTransferClaimGeneration)) {
+      this.room.ownershipTransferClaimGeneration = 0;
+    }
+    if (!isSafeNonNegativeInteger(this.room.ownerAuthorityEpoch)) {
+      this.room.ownerAuthorityEpoch = isSafeNonNegativeInteger(this.room.authEpoch)
+        ? this.room.authEpoch
+        : 0;
+    }
+    if (!isSafeNonNegativeInteger(this.room.developerAuthorityEpoch)) {
+      this.room.developerAuthorityEpoch = 0;
+    }
     if (!this.room.consumedRecoveryNonces) this.room.consumedRecoveryNonces = {};
+    if (
+      !this.room.consumedOwnershipTransferClaims ||
+      typeof this.room.consumedOwnershipTransferClaims !== 'object' ||
+      Array.isArray(this.room.consumedOwnershipTransferClaims)
+    ) {
+      this.room.consumedOwnershipTransferClaims = {};
+    }
     if (!this.room.stagingTombstones) this.room.stagingTombstones = {};
     this.normalizeLoadedSystemAudio();
     this.normalizeLoadedEffects();
     this.normalizeLoadedQueueMode();
+    this.normalizeLoadedOwnershipTransfer();
     this.normalizeLoadedAccountIdentity();
     this.normalizeLoadedDeveloperCommands();
     this.normalizeLoadedSecurityLedgers();
@@ -3159,6 +3466,211 @@ export class MusixquareProRoom {
     // old product default until a coordinator explicitly changes it.
     this.room.queueMode = initialQueueModeState();
     this.queueModeMigrationPending = true;
+  }
+
+  normalizeLoadedOwnershipTransfer(nowMs = Date.now()) {
+    if (!this.room) return;
+    const rawClaims = this.room.consumedOwnershipTransferClaims;
+    const normalizedClaims = {};
+    if (rawClaims && typeof rawClaims === 'object' && !Array.isArray(rawClaims)) {
+      for (const [nonceHash, record] of Object.entries(rawClaims)) {
+        if (
+          Object.keys(normalizedClaims).length >= OWNER_TRANSFER_NONCE_MAX_ITEMS ||
+          !/^[A-Za-z0-9_-]{43}$/.test(nonceHash) ||
+          !record ||
+          typeof record !== 'object' ||
+          Array.isArray(record) ||
+          !hasExactKeys(record, ['requestId', 'expiresAtMs']) ||
+          !OWNER_TRANSFER_REQUEST_ID_RE.test(record.requestId || '') ||
+          !Number.isSafeInteger(record.expiresAtMs) ||
+          record.expiresAtMs <= nowMs
+        ) {
+          continue;
+        }
+        normalizedClaims[nonceHash] = record;
+      }
+    }
+    this.room.consumedOwnershipTransferClaims = normalizedClaims;
+    const allowedReasons = new Set([
+      'operator_suspended',
+      'owner_account_deleted',
+      'ownership_transfer_pending',
+    ]);
+    this.room.suspensionReason =
+      this.room.status === 'suspended'
+        ? allowedReasons.has(this.room.suspensionReason)
+          ? this.room.suspensionReason
+          : 'operator_suspended'
+        : null;
+
+    const pending = this.room.pendingOwnershipTransfer;
+    const validPending =
+      pending &&
+      typeof pending === 'object' &&
+      !Array.isArray(pending) &&
+      hasExactKeys(pending, [
+        'transferId',
+        'requestId',
+        'targetAccountId',
+        'targetDisplayName',
+        'previousOwnerAccountId',
+        'preservedOwnerMemberId',
+        'pin',
+        'claimNonceHash',
+        'claimGeneration',
+        'ownerAuthorityEpoch',
+        'preparedAtMs',
+        'expiresAtMs',
+        'devicePlatform',
+        'commitProofHash',
+      ]) &&
+      OWNER_TRANSFER_ID_RE.test(pending.transferId || '') &&
+      OWNER_TRANSFER_REQUEST_ID_RE.test(pending.requestId || '') &&
+      ACCOUNT_ID_RE.test(pending.targetAccountId || '') &&
+      validDeveloperActorName(pending.targetDisplayName) &&
+      (pending.previousOwnerAccountId === null ||
+        ACCOUNT_ID_RE.test(pending.previousOwnerAccountId || '')) &&
+      OPAQUE_ID_RE.test(pending.preservedOwnerMemberId || '') &&
+      this.room.ownerMemberId === pending.preservedOwnerMemberId &&
+      pending.pin &&
+      typeof pending.pin === 'object' &&
+      !Array.isArray(pending.pin) &&
+      typeof pending.pin.salt === 'string' &&
+      /^[A-Za-z0-9_-]{16,128}$/.test(pending.pin.salt) &&
+      Number.isSafeInteger(pending.pin.iterations) &&
+      pending.pin.iterations >= 1 &&
+      pending.pin.iterations <= PBKDF2_MAX_ITERATIONS &&
+      typeof pending.pin.hash === 'string' &&
+      /^[A-Za-z0-9_-]{43}$/.test(pending.pin.hash) &&
+      /^[A-Za-z0-9_-]{43}$/.test(pending.claimNonceHash || '') &&
+      isSafeNonNegativeInteger(pending.claimGeneration) &&
+      isSafeNonNegativeInteger(pending.ownerAuthorityEpoch) &&
+      Number.isSafeInteger(pending.preparedAtMs) &&
+      pending.preparedAtMs >= 0 &&
+      Number.isSafeInteger(pending.expiresAtMs) &&
+      pending.expiresAtMs > pending.preparedAtMs &&
+      ['ios', 'android', 'windows', 'macos', 'linux', 'other'].includes(pending.devicePlatform) &&
+      /^[A-Za-z0-9_-]{43}$/.test(pending.commitProofHash || '');
+    this.room.pendingOwnershipTransfer = validPending ? pending : null;
+
+    const completed = this.room.completedOwnershipTransfer;
+    const validCompleted =
+      completed &&
+      typeof completed === 'object' &&
+      !Array.isArray(completed) &&
+      hasExactKeys(completed, [
+        'transferId',
+        'requestId',
+        'targetAccountId',
+        'previousOwnerAccountId',
+        'preservedOwnerMemberId',
+        'claimNonceHash',
+        'commitProofHash',
+        'revocationReceiptHash',
+        'ownerAuthorityEpoch',
+        'authEpoch',
+        'preparedAtMs',
+        'expiresAtMs',
+        'committedAtMs',
+        'replayUntilMs',
+        'sessionTokenHash',
+        'ownerCredentialHash',
+      ]) &&
+      OWNER_TRANSFER_ID_RE.test(completed.transferId || '') &&
+      OWNER_TRANSFER_REQUEST_ID_RE.test(completed.requestId || '') &&
+      ACCOUNT_ID_RE.test(completed.targetAccountId || '') &&
+      (completed.previousOwnerAccountId === null ||
+        ACCOUNT_ID_RE.test(completed.previousOwnerAccountId || '')) &&
+      OPAQUE_ID_RE.test(completed.preservedOwnerMemberId || '') &&
+      this.room.ownerMemberId === completed.preservedOwnerMemberId &&
+      /^[A-Za-z0-9_-]{43}$/.test(completed.claimNonceHash || '') &&
+      /^[A-Za-z0-9_-]{43}$/.test(completed.commitProofHash || '') &&
+      /^[A-Za-z0-9_-]{43}$/.test(completed.revocationReceiptHash || '') &&
+      isSafeNonNegativeInteger(completed.ownerAuthorityEpoch) &&
+      isSafeNonNegativeInteger(completed.authEpoch) &&
+      Number.isSafeInteger(completed.preparedAtMs) &&
+      completed.preparedAtMs >= 0 &&
+      Number.isSafeInteger(completed.expiresAtMs) &&
+      completed.expiresAtMs > completed.preparedAtMs &&
+      Number.isSafeInteger(completed.committedAtMs) &&
+      completed.committedAtMs >= 0 &&
+      Number.isSafeInteger(completed.replayUntilMs) &&
+      completed.replayUntilMs > completed.committedAtMs &&
+      completed.replayUntilMs - completed.committedAtMs <=
+        OWNER_TRANSFER_COMPLETED_REPLAY_MAX_LIFETIME_MS &&
+      /^[A-Za-z0-9_-]{43}$/.test(completed.sessionTokenHash || '') &&
+      /^[A-Za-z0-9_-]{43}$/.test(completed.ownerCredentialHash || '');
+    this.room.completedOwnershipTransfer = validCompleted ? completed : null;
+
+    const removal = this.room.ownerAuthorityRemoval;
+    const validLegacyRemoval =
+      removal &&
+      typeof removal === 'object' &&
+      !Array.isArray(removal) &&
+      hasExactKeys(removal, ['accountId', 'removedAtMs', 'ownerAuthorityEpoch']) &&
+      ACCOUNT_ID_RE.test(removal.accountId || '') &&
+      Number.isSafeInteger(removal.removedAtMs) &&
+      removal.removedAtMs >= 0 &&
+      isSafeNonNegativeInteger(removal.ownerAuthorityEpoch);
+    const validRemovalWithoutCoordinatorEpoch =
+      removal &&
+      typeof removal === 'object' &&
+      !Array.isArray(removal) &&
+      hasExactKeys(removal, [
+        'accountId',
+        'removalId',
+        'removedAtMs',
+        'ownerAuthorityEpoch',
+        'projectionAcked',
+      ]) &&
+      ACCOUNT_ID_RE.test(removal.accountId || '') &&
+      OWNER_AUTHORITY_REMOVAL_ID_RE.test(removal.removalId || '') &&
+      Number.isSafeInteger(removal.removedAtMs) &&
+      removal.removedAtMs >= 0 &&
+      isSafeNonNegativeInteger(removal.ownerAuthorityEpoch) &&
+      typeof removal.projectionAcked === 'boolean';
+    const validRemoval =
+      removal &&
+      typeof removal === 'object' &&
+      !Array.isArray(removal) &&
+      hasExactKeys(removal, [
+        'accountId',
+        'removalId',
+        'removedAtMs',
+        'ownerAuthorityEpoch',
+        'fencedCoordinatorEpoch',
+        'projectionAcked',
+      ]) &&
+      ACCOUNT_ID_RE.test(removal.accountId || '') &&
+      OWNER_AUTHORITY_REMOVAL_ID_RE.test(removal.removalId || '') &&
+      Number.isSafeInteger(removal.removedAtMs) &&
+      removal.removedAtMs >= 0 &&
+      isSafeNonNegativeInteger(removal.ownerAuthorityEpoch) &&
+      isSafeNonNegativeInteger(removal.fencedCoordinatorEpoch) &&
+      typeof removal.projectionAcked === 'boolean';
+    if (validRemoval) {
+      this.room.ownerAuthorityRemoval = removal;
+    } else if (validRemovalWithoutCoordinatorEpoch || validLegacyRemoval) {
+      // A legacy single-phase purge cannot prove that its App-side D1
+      // projection completed. Give it a stable reconciliation identity and
+      // require the deletion saga to replay + acknowledge it before a new
+      // owner may be installed. The first projection-saga format already has
+      // that identity; preserve its acknowledgement while binding it to the
+      // room's current monotonic signaling epoch during this one-time upgrade.
+      this.room.ownerAuthorityRemoval = {
+        accountId: removal.accountId,
+        removalId: validRemovalWithoutCoordinatorEpoch
+          ? removal.removalId
+          : `removal_${randomToken(16)}`,
+        removedAtMs: removal.removedAtMs,
+        ownerAuthorityEpoch: removal.ownerAuthorityEpoch,
+        fencedCoordinatorEpoch: this.room.presence.coordinatorEpoch,
+        projectionAcked: validRemovalWithoutCoordinatorEpoch ? removal.projectionAcked : false,
+      };
+      this.accountIdentityMigrationPending = true;
+    } else {
+      this.room.ownerAuthorityRemoval = null;
+    }
   }
 
   normalizeLoadedAccountDeletionTombstones() {
@@ -3452,6 +3964,10 @@ export class MusixquareProRoom {
 
   normalizeLoadedSecurityLedgers() {
     if (!this.room) return;
+    if (!isSafeNonNegativeInteger(this.room.developerAuthorityEpoch)) {
+      this.room.developerAuthorityEpoch = 0;
+      this.developerCommandMigrationPending = true;
+    }
     if (
       !this.room.developerMutationIdempotency ||
       typeof this.room.developerMutationIdempotency !== 'object' ||
@@ -3982,6 +4498,9 @@ export class MusixquareProRoom {
     for (const expiresAtMs of Object.values(this.room.consumedRecoveryNonces || {})) {
       candidates.push(expiresAtMs);
     }
+    for (const record of Object.values(this.room.consumedOwnershipTransferClaims || {})) {
+      candidates.push(record.expiresAtMs);
+    }
     for (const expiresAtMs of Object.values(this.room.accountDeletionTombstones || {})) {
       candidates.push(expiresAtMs);
     }
@@ -4146,6 +4665,8 @@ export class MusixquareProRoom {
     if (url.pathname === '/internal/authority/check') {
       if (request.method !== 'POST') return errorResponse('NOT_FOUND', 404);
       return this.withMutation(async () => {
+        const accountDeletionResponse = await this.enforceOwnerAccountDeletionFence();
+        if (accountDeletionResponse) return accountDeletionResponse;
         await this.prune(Date.now());
         return this.handleInternalAuthorityCheck(request);
       });
@@ -4153,6 +4674,8 @@ export class MusixquareProRoom {
     if (url.pathname.startsWith('/internal/bot/')) {
       if (request.method !== 'POST') return errorResponse('NOT_FOUND', 404);
       return this.withMutation(async () => {
+        const accountDeletionResponse = await this.enforceOwnerAccountDeletionFence();
+        if (accountDeletionResponse) return accountDeletionResponse;
         await this.prune(Date.now());
         return this.withStateCapacityRollback(
           async () => {
@@ -4176,12 +4699,24 @@ export class MusixquareProRoom {
     }
     if (url.pathname.startsWith('/internal/admin/')) {
       if (request.method === 'GET' && url.pathname === '/internal/admin/status') {
-        return jsonResponse({
-          roomCode: this.room.roomCode,
-          roomGeneration: this.room.roomGeneration,
-          provisioned: this.room.provisioned,
-          status: this.room.status,
-          ownerAccountLinked: typeof this.room.ownerAccountId === 'string',
+        return this.withMutation(async () => {
+          const accountDeletionResponse = await this.enforceOwnerAccountDeletionFence();
+          // A terminal deletion may make this very status request perform the
+          // durable self-suspension. Return that new state to the control plane;
+          // an unverifiable Auth D1 verdict remains fail-closed.
+          if (accountDeletionResponse && accountDeletionResponse.status !== 423) {
+            return accountDeletionResponse;
+          }
+          return jsonResponse({
+            roomCode: this.room.roomCode,
+            roomGeneration: this.room.roomGeneration,
+            provisioned: this.room.provisioned,
+            status: this.room.status,
+            suspensionReason: this.room.suspensionReason,
+            ownerAccountLinked: typeof this.room.ownerAccountId === 'string',
+            developerAuthorityEpoch: this.room.developerAuthorityEpoch,
+            ownerTransferReconciliation: internalOwnerTransferReconciliation(this.room),
+          });
         });
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/provision') {
@@ -4217,7 +4752,43 @@ export class MusixquareProRoom {
         // Serialize issuance with suspend/decommission and other room
         // mutations. A recovery URL must reflect one stable canonical status,
         // never an in-flight pre-mutation snapshot.
-        return this.withMutation(() => this.handleInternalOwnerRecoveryClaim());
+        return this.withMutation(async () => {
+          const accountDeletionResponse = await this.enforceOwnerAccountDeletionFence();
+          if (accountDeletionResponse) return accountDeletionResponse;
+          return this.handleInternalOwnerRecoveryClaim();
+        });
+      }
+      if (request.method === 'POST' && url.pathname === '/internal/admin/owner-transfer-claim') {
+        return this.withMutation(async () => {
+          const accountDeletionResponse = await this.enforceOwnerAccountDeletionFence();
+          if (accountDeletionResponse) return accountDeletionResponse;
+          return this.withStateCapacityRollback(
+            () => this.handleInternalOwnerTransferClaim(request),
+            {
+              rollbackStorageFailure: true,
+            },
+          );
+        });
+      }
+      if (request.method === 'POST' && url.pathname === '/internal/admin/owner-transfer/commit') {
+        return this.withMutation(() =>
+          this.withStateCapacityRollback(() => this.handleInternalOwnerTransferCommit(request), {
+            rollbackStorageFailure: true,
+          }),
+        );
+      }
+      if (
+        request.method === 'POST' &&
+        url.pathname === '/internal/admin/owner-transfer/reconcile'
+      ) {
+        return this.withMutation(() =>
+          this.withStateCapacityRollback(
+            () => this.handleInternalOwnerTransferCommit(request, { reconcile: true }),
+            {
+              rollbackStorageFailure: true,
+            },
+          ),
+        );
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/suspend') {
         return this.withMutation(() =>
@@ -4243,6 +4814,23 @@ export class MusixquareProRoom {
           }),
         );
       }
+      if (
+        request.method === 'POST' &&
+        url.pathname === '/internal/admin/account-authority/classify'
+      ) {
+        return this.withMutation(() => this.handleInternalAccountAuthorityClassify(request));
+      }
+      if (
+        request.method === 'POST' &&
+        url.pathname === '/internal/admin/account-authority/purge/ack'
+      ) {
+        return this.withMutation(() =>
+          this.withStateCapacityRollback(
+            () => this.handleInternalAccountAuthorityPurgeAck(request),
+            { rollbackStorageFailure: true },
+          ),
+        );
+      }
       return errorResponse('NOT_FOUND', 404);
     }
     if (url.pathname.startsWith('/internal/developer/')) {
@@ -4250,6 +4838,8 @@ export class MusixquareProRoom {
         return errorResponse('NOT_FOUND', 404);
       }
       return this.withMutation(async () => {
+        const accountDeletionResponse = await this.enforceOwnerAccountDeletionFence();
+        if (accountDeletionResponse) return accountDeletionResponse;
         await this.prune(Date.now());
         // Authenticated projections are read-only. Keep them behind the
         // mutation queue for an atomic view, but do not clone the bounded
@@ -4296,9 +4886,21 @@ export class MusixquareProRoom {
     if (!url.pathname.startsWith(`${prefix}/`)) return errorResponse('ROOM_NOT_FOUND', 404);
     if (!this.room.provisioned) return errorResponse('ROOM_NOT_FOUND', 404);
     if (request.method === 'GET' && url.pathname === `${prefix}/bootstrap`) {
-      return this.handleBootstrap();
+      return this.withMutation(async () => {
+        const accountDeletionResponse = await this.enforceOwnerAccountDeletionFence();
+        // If this read discovered a terminal owner deletion, the room is
+        // already durably suspended. Expose that canonical bootstrap state so
+        // the browser renders the inactive-room UX instead of a one-off link
+        // or transport error. An unverifiable Auth D1 verdict stays closed.
+        if (accountDeletionResponse && accountDeletionResponse.status !== 423) {
+          return accountDeletionResponse;
+        }
+        return this.handleBootstrap();
+      });
     }
     return this.withMutation(async () => {
+      const accountDeletionResponse = await this.enforceOwnerAccountDeletionFence();
+      if (accountDeletionResponse) return accountDeletionResponse;
       await this.prune(Date.now());
       if (request.method === 'GET') {
         if (url.pathname === `${prefix}/snapshot`) return this.handleGetSnapshot(request);
@@ -4334,6 +4936,8 @@ export class MusixquareProRoom {
             return this.handleActivation(request);
           if (request.method === 'POST' && url.pathname === `${prefix}/owner-recovery`)
             return this.handleOwnerRecovery(request);
+          if (request.method === 'POST' && url.pathname === `${prefix}/owner-transfer/prepare`)
+            return this.handleOwnerTransferPrepare(request);
           if (request.method === 'POST' && url.pathname === `${prefix}/sessions`)
             return this.handleCreateSession(request);
           if (request.method === 'POST' && url.pathname === `${prefix}/sessions/current/account`)
@@ -4588,6 +5192,7 @@ export class MusixquareProRoom {
           roomCode: this.room.roomCode,
           ...proRoomGenerationWireFields(this.room.roomGeneration),
           keyId: BOT_DEVELOPER_KEY_ID,
+          developerAuthorityEpoch: this.room.developerAuthorityEpoch,
           idempotencyKey,
           command,
         }),
@@ -4718,6 +5323,7 @@ export class MusixquareProRoom {
             roomCode: this.room.roomCode,
             ...proRoomGenerationWireFields(this.room.roomGeneration),
             keyId: BOT_DEVELOPER_KEY_ID,
+            developerAuthorityEpoch: this.room.developerAuthorityEpoch,
             idempotencyKey: queueIdempotencyKey,
             actorName: queueAdditionActorName(`${auth.session.displayName} · BOT`, 'BOT'),
             mutation: { type: 'add_youtube_batch', items: tracks },
@@ -4765,6 +5371,7 @@ export class MusixquareProRoom {
             roomCode: this.room.roomCode,
             ...proRoomGenerationWireFields(this.room.roomGeneration),
             keyId: BOT_DEVELOPER_KEY_ID,
+            developerAuthorityEpoch: this.room.developerAuthorityEpoch,
             idempotencyKey: queueIdempotencyKey,
             mutation:
               plan.intent === 'remove_items'
@@ -4811,6 +5418,7 @@ export class MusixquareProRoom {
             roomCode: this.room.roomCode,
             ...proRoomGenerationWireFields(this.room.roomGeneration),
             keyId: BOT_DEVELOPER_KEY_ID,
+            developerAuthorityEpoch: this.room.developerAuthorityEpoch,
             idempotencyKey: modeIdempotencyKey,
             queueMode: {
               baseRevision: this.room.queueMode.revision,
@@ -4857,6 +5465,18 @@ export class MusixquareProRoom {
     return jsonResponse(responseBody);
   }
 
+  developerAuthorityEpochError(value) {
+    if (value === undefined) {
+      return this.room.developerAuthorityEpoch === 0
+        ? null
+        : errorResponse('DEVELOPER_API_AUTHORITY_STALE', 409);
+    }
+    if (!isSafeNonNegativeInteger(value)) return errorResponse('INVALID_REQUEST', 400);
+    return value === this.room.developerAuthorityEpoch
+      ? null
+      : errorResponse('DEVELOPER_API_AUTHORITY_STALE', 409);
+  }
+
   async handleInternalDeveloperRead(request) {
     if (!this.room.provisioned || this.room.status !== 'active') {
       return errorResponse('ROOM_NOT_FOUND', 404);
@@ -4864,7 +5484,11 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
     if (
-      !hasExactKeys(parsed.value, ['projection'], ['keyId', 'effectsVersion', 'roomGeneration']) ||
+      !hasExactKeys(
+        parsed.value,
+        ['projection'],
+        ['keyId', 'effectsVersion', 'roomGeneration', 'developerAuthorityEpoch'],
+      ) ||
       exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       (parsed.value.keyId !== undefined &&
         !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '')) ||
@@ -4875,6 +5499,8 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
+    const authorityError = this.developerAuthorityEpochError(parsed.value.developerAuthorityEpoch);
+    if (authorityError) return authorityError;
     const projection = developerProjection(
       this.room,
       parsed.value.projection,
@@ -4895,7 +5521,7 @@ export class MusixquareProRoom {
       !hasExactKeys(
         parsed.value,
         ['roomCode', 'keyId', 'idempotencyKey', 'command'],
-        ['roomGeneration'],
+        ['roomGeneration', 'developerAuthorityEpoch'],
       ) ||
       exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       parsed.value.roomCode !== this.room.roomCode ||
@@ -4904,6 +5530,8 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
+    const authorityError = this.developerAuthorityEpochError(parsed.value.developerAuthorityEpoch);
+    if (authorityError) return authorityError;
     const command = parseDeveloperCommand(parsed.value.command);
     if (!command) return errorResponse('INVALID_REQUEST', 400);
 
@@ -5032,7 +5660,11 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request, 1024);
     if (parsed.response) return parsed.response;
     if (
-      !hasExactKeys(parsed.value, ['roomCode', 'keyId', 'commandId'], ['roomGeneration']) ||
+      !hasExactKeys(
+        parsed.value,
+        ['roomCode', 'keyId', 'commandId'],
+        ['roomGeneration', 'developerAuthorityEpoch'],
+      ) ||
       exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       parsed.value.roomCode !== this.room.roomCode ||
       !DEVELOPER_API_KEY_ID_RE.test(parsed.value.keyId || '') ||
@@ -5040,6 +5672,8 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
+    const authorityError = this.developerAuthorityEpochError(parsed.value.developerAuthorityEpoch);
+    if (authorityError) return authorityError;
     const record = this.room.developerCommands[parsed.value.commandId];
     // A command created by another API key is deliberately indistinguishable
     // from an unknown ID.
@@ -5076,7 +5710,7 @@ export class MusixquareProRoom {
       !hasExactKeys(
         parsed.value,
         ['roomCode', 'keyId', 'idempotencyKey', 'mutation'],
-        ['actorName', 'roomGeneration'],
+        ['actorName', 'roomGeneration', 'developerAuthorityEpoch'],
       ) ||
       exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       parsed.value.roomCode !== this.room.roomCode ||
@@ -5086,6 +5720,8 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
+    const authorityError = this.developerAuthorityEpochError(parsed.value.developerAuthorityEpoch);
+    if (authorityError) return authorityError;
     const mutation = parseDeveloperQueueMutation(parsed.value.mutation);
     if (!mutation) return errorResponse('INVALID_REQUEST', 400);
     const botTerminalAction =
@@ -5420,7 +6056,7 @@ export class MusixquareProRoom {
       !hasExactKeys(
         parsed.value,
         ['roomCode', 'keyId', 'idempotencyKey', 'queueMode'],
-        ['roomGeneration'],
+        ['roomGeneration', 'developerAuthorityEpoch'],
       ) ||
       exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       parsed.value.roomCode !== this.room.roomCode ||
@@ -5436,6 +6072,8 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
+    const authorityError = this.developerAuthorityEpochError(parsed.value.developerAuthorityEpoch);
+    if (authorityError) return authorityError;
 
     const mutation = parsed.value.queueMode;
     const scope = `developer:${parsed.value.keyId}:queue-mode:update`;
@@ -5496,7 +6134,7 @@ export class MusixquareProRoom {
       !hasExactKeys(
         parsed.value,
         ['roomCode', 'keyId', 'idempotencyKey', 'media'],
-        ['roomGeneration'],
+        ['roomGeneration', 'developerAuthorityEpoch'],
       ) ||
       exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       parsed.value.roomCode !== this.room.roomCode ||
@@ -5505,6 +6143,8 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
+    const authorityError = this.developerAuthorityEpochError(parsed.value.developerAuthorityEpoch);
+    if (authorityError) return authorityError;
     const media = parseDeveloperMediaUpload(parsed.value.media);
     if (!media) return errorResponse('INVALID_MEDIA', 400);
     const scope = `developer:${parsed.value.keyId}:media:reserve`;
@@ -5637,7 +6277,7 @@ export class MusixquareProRoom {
       !hasExactKeys(
         parsed.value,
         ['roomCode', 'keyId', 'idempotencyKey', 'assetId'],
-        ['actorName', 'roomGeneration'],
+        ['actorName', 'roomGeneration', 'developerAuthorityEpoch'],
       ) ||
       exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       parsed.value.roomCode !== this.room.roomCode ||
@@ -5648,6 +6288,8 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
+    const authorityError = this.developerAuthorityEpochError(parsed.value.developerAuthorityEpoch);
+    if (authorityError) return authorityError;
     const assetId = parsed.value.assetId;
     const scope = `developer:${parsed.value.keyId}:media:complete:${assetId}`;
     const fingerprint = await this.idempotencyFingerprint(scope, { assetId });
@@ -5979,9 +6621,13 @@ export class MusixquareProRoom {
 
   async handleInternalOwnerRecoveryClaim() {
     if (!this.room.provisioned) return errorResponse('PRO_ROOM_NOT_FOUND', 404);
-    if (this.room.status !== 'active') {
+    if (this.room.status !== 'active' || !ACCOUNT_ID_RE.test(this.room.ownerAccountId || '')) {
       return jsonResponse(
-        { error: 'PRO_ROOM_OWNER_RECOVERY_UNAVAILABLE', status: this.room.status },
+        {
+          error: 'PRO_ROOM_OWNER_RECOVERY_UNAVAILABLE',
+          status: this.room.status,
+          reason: this.room.status === 'active' ? 'owner_account_not_linked' : 'room_not_active',
+        },
         409,
         { 'cache-control': 'no-store, max-age=0' },
       );
@@ -5994,6 +6640,7 @@ export class MusixquareProRoom {
       nowMs,
       expiresAtMs: expiresAt,
       roomGeneration: this.room.roomGeneration,
+      ownerAuthorityEpoch: this.room.ownerAuthorityEpoch,
     });
     return jsonResponse(
       {
@@ -6001,7 +6648,102 @@ export class MusixquareProRoom {
         roomGeneration: this.room.roomGeneration,
         recoveryUrl: `https://musixquare.com/${this.room.roomCode}#pro-recovery=${encodeURIComponent(claim)}`,
         expiresAt,
-        ownerAccountLinked: typeof this.room.ownerAccountId === 'string',
+        ownerAccountLinked: true,
+      },
+      200,
+      { 'cache-control': 'no-store, max-age=0' },
+    );
+  }
+
+  async handleInternalOwnerTransferClaim(request) {
+    if (!this.room.provisioned) return errorResponse('PRO_ROOM_NOT_FOUND', 404);
+    const nowMs = Date.now();
+    if (
+      (this.room.pendingOwnershipTransfer?.expiresAtMs || 0) > nowMs ||
+      (this.room.completedOwnershipTransfer?.replayUntilMs || 0) > nowMs
+    ) {
+      return errorResponse('OWNER_TRANSFER_RECONCILIATION_REQUIRED', 409);
+    }
+    if (
+      this.room.status !== 'active' &&
+      !(
+        this.room.status === 'suspended' &&
+        (this.room.suspensionReason === 'operator_suspended' ||
+          this.room.suspensionReason === 'owner_account_deleted' ||
+          this.room.suspensionReason === 'ownership_transfer_pending')
+      )
+    ) {
+      return jsonResponse(
+        {
+          error: 'PRO_ROOM_OWNER_TRANSFER_UNAVAILABLE',
+          status: this.room.status,
+          suspensionReason: this.room.suspensionReason,
+        },
+        409,
+        { 'cache-control': 'no-store, max-age=0' },
+      );
+    }
+    const parsed = await this.parseBody(request, 1024);
+    if (
+      parsed.response ||
+      !hasExactKeys(parsed.value, ['targetAccountId'], ['roomGeneration']) ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
+      !ACCOUNT_ID_RE.test(parsed.value.targetAccountId || '')
+    ) {
+      return parsed.response || errorResponse('INVALID_REQUEST', 400);
+    }
+    if (this.room.ownerAuthorityRemoval?.projectionAcked === false) {
+      return errorResponse('OWNER_AUTHORITY_PROJECTION_PENDING', 409);
+    }
+    if (
+      this.room.status === 'active' &&
+      this.room.ownerAccountId === parsed.value.targetAccountId
+    ) {
+      return errorResponse('OWNER_TRANSFER_TARGET_UNCHANGED', 409);
+    }
+    const secret = String(this.env.PRO_ROOM_ACTIVATION_SECRET || '');
+    if (secret.length < 32) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
+    if (this.room.ownershipTransferClaimGeneration >= Number.MAX_SAFE_INTEGER) {
+      return errorResponse('OWNER_TRANSFER_CLAIM_CAPACITY_EXCEEDED', 409);
+    }
+    if (
+      this.room.pendingOwnershipTransfer &&
+      (this.room.authEpoch >= Number.MAX_SAFE_INTEGER ||
+        this.room.ownerAuthorityEpoch >= Number.MAX_SAFE_INTEGER ||
+        this.room.revision >= Number.MAX_SAFE_INTEGER)
+    ) {
+      return errorResponse('REVISION_EXHAUSTED', 409);
+    }
+    const expiresAt = nowMs + OWNER_TRANSFER_CLAIM_DEFAULT_LIFETIME_MS;
+    if (this.room.pendingOwnershipTransfer) {
+      // The old transaction has expired, but preserve its previous-owner edge
+      // until the replacement PREPARE copies it. Advancing both authority
+      // fences makes every captured credential/proof unambiguously obsolete.
+      this.room.authEpoch += 1;
+      this.room.ownerAuthorityEpoch += 1;
+      this.room.revision += 1;
+    }
+    this.room.ownershipTransferClaimGeneration += 1;
+    await this.persist();
+    const claim = await issueProRoomOwnerTransferClaim(this.room.roomCode, secret, {
+      nowMs,
+      expiresAtMs: expiresAt,
+      roomGeneration: this.room.roomGeneration,
+      targetAccountId: parsed.value.targetAccountId,
+      claimGeneration: this.room.ownershipTransferClaimGeneration,
+      ownerAuthorityEpoch: this.room.ownerAuthorityEpoch,
+    });
+    return jsonResponse(
+      {
+        ok: true,
+        roomCode: this.room.roomCode,
+        roomGeneration: this.room.roomGeneration,
+        status: this.room.status,
+        suspensionReason: this.room.suspensionReason,
+        targetAccountId: parsed.value.targetAccountId,
+        claimGeneration: this.room.ownershipTransferClaimGeneration,
+        transferUrl: `https://musixquare.com/${this.room.roomCode}#pro-transfer=${encodeURIComponent(claim)}`,
+        expiresAt,
       },
       200,
       { 'cache-control': 'no-store, max-age=0' },
@@ -6102,7 +6844,18 @@ export class MusixquareProRoom {
       // that was issued before account deletion but arrived afterward.
       throw new RoomStateCapacityError();
     }
-    const expiresAtMs = nowMs + ACCOUNT_DELETION_TOMBSTONE_TTL_MS;
+    // A target deleted after transfer PREPARE must remain fenced for the
+    // entire transaction lifetime. The ordinary assertion tombstone can be
+    // shorter than an owner-transfer claim, and allowing it to expire first
+    // would let a later internal reconciliation install a deleted account.
+    const pendingTransferExpiry =
+      this.room.pendingOwnershipTransfer?.targetAccountId === accountId
+        ? this.room.pendingOwnershipTransfer.expiresAtMs
+        : 0;
+    const expiresAtMs = Math.max(
+      nowMs + ACCOUNT_DELETION_TOMBSTONE_TTL_MS,
+      Number.isSafeInteger(pendingTransferExpiry) ? pendingTransferExpiry : 0,
+    );
     const changed = tombstones[accountId] !== expiresAtMs;
     tombstones[accountId] = expiresAtMs;
     return pruned || changed;
@@ -6824,10 +7577,189 @@ export class MusixquareProRoom {
       : errorResponse('PERMISSION_REQUIRED', 403);
   }
 
+  async currentOwnerAccountDeletionState() {
+    const accountId = this.room.ownerAccountId;
+    if (!ACCOUNT_ID_RE.test(accountId || '')) return 'not-linked';
+    const db = this.env.MUSIXQUARE_AUTH_DB;
+    if (!db?.prepare) return 'unavailable';
+    try {
+      // This query always returns one row. The deletion fence is created before
+      // the account/session revocation batch, but that early fence is still
+      // reversible when deletion preflight fails. Therefore active+fenced may
+      // block a request, but must never destructively purge room authority.
+      // Only disabled/missing is terminal evidence for the self-purge below.
+      const statement = db
+        .prepare(
+          `SELECT
+             (SELECT status FROM ${ACCOUNT_TABLE}
+               WHERE account_id = ?1 LIMIT 1) AS account_status,
+             EXISTS(
+               SELECT 1 FROM ${ACCOUNT_DELETION_TABLE}
+                WHERE account_id = ?1
+             ) AS deletion_pending`,
+        )
+        .bind(accountId);
+      const row =
+        typeof statement.first === 'function'
+          ? await statement.first()
+          : (await statement.all())?.results?.[0] || null;
+      if (
+        !row ||
+        !hasExactKeys(row, ['account_status', 'deletion_pending']) ||
+        (row.deletion_pending !== 0 && row.deletion_pending !== 1)
+      ) {
+        return 'unavailable';
+      }
+      if (row.account_status === 'active') {
+        return row.deletion_pending === 1 ? 'deleting' : 'active';
+      }
+      if (row.account_status === 'disabled' || row.account_status === null) return 'deleted';
+      return 'unavailable';
+    } catch {
+      return 'unavailable';
+    }
+  }
+
+  async projectOwnerAccountDeletedSuspension(nowMs = Date.now()) {
+    const db = this.env.MUSIXQUARE_ADMIN_DB || this.env.ADMIN_METRICS_DB || null;
+    if (!db?.prepare) return false;
+    try {
+      const result = await db
+        .prepare(
+          `UPDATE mxqr_pro_room_registry
+              SET status = 'suspended', suspension_reason = 'owner_account_deleted',
+                  activation_state = 'active', updated_at = ?3
+            WHERE room_code = ?1 AND room_generation = ?2
+              AND status NOT IN ('decommissioning', 'decommissioned')`,
+        )
+        .bind(this.room.roomCode, this.room.roomGeneration, nowMs)
+        .run();
+      if (Number(result?.meta?.changes || 0) < 1) return false;
+      // Keep this isolate's public front-door cache consistent with the D1
+      // projection immediately. Other isolates re-read the same row on their
+      // bounded registry refresh, while this DO remains the final authority.
+      const cache = registryCacheFor(db);
+      cache.registered.delete(this.room.roomCode);
+      cache.suspended.set(this.room.roomCode, this.room.roomGeneration);
+      // This is only a one-room projection, not a complete registry refresh.
+      // Preserve the cache timestamp so an empty or stale cache cannot make
+      // unrelated rooms look absent (or extend stale entries) for another TTL.
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async enforceOwnerAccountDeletionFence(nowMs = Date.now()) {
+    if (
+      (this.room.status !== 'active' && this.room.status !== 'suspended') ||
+      !this.room.ownerAccountId
+    ) {
+      return null;
+    }
+    const deletionState = await this.currentOwnerAccountDeletionState();
+    if (deletionState === 'active' || deletionState === 'not-linked') return null;
+    if (deletionState === 'deleting' || deletionState === 'unavailable') {
+      // Do not execute an owner/session/developer mutation while the only
+      // service capable of proving that the linked account still exists is
+      // unavailable. Anonymous legacy rooms have no ownerAccountId and do not
+      // enter this branch. A reversible active+deletion-fence race also uses
+      // this response without destroying room authority; after rollback, the
+      // next request observes active+unfenced and proceeds normally.
+      return errorResponse('ACCOUNT_AUTHORITY_UNAVAILABLE', 503);
+    }
+
+    const accountId = this.room.ownerAccountId;
+    const purgeResponse = await this.withStateCapacityRollback(
+      async () => {
+        const result = this.purgeAccountAuthority(accountId, nowMs);
+        if (!result?.ownerAuthorityRemoved) {
+          return errorResponse('ACCOUNT_AUTHORITY_UNAVAILABLE', 503);
+        }
+        if (result.changed || this.accountIdentityMigrationPending) {
+          if (result.authorityChanged) this.room.revision += 1;
+          await this.persist();
+          this.accountIdentityMigrationPending = false;
+          if (result.authorityChanged) this.scheduleServerEvent(this.presenceEvent());
+        }
+        return null;
+      },
+      { rollbackStorageFailure: true },
+    );
+    if (purgeResponse) return purgeResponse;
+    // Projection is best-effort here because the durable room has already
+    // revoked every credential and is suspended. The account-deletion retry
+    // job will finish Developer-key revocation, audit and the exact projection
+    // ACK before an ownership transfer may reactivate the room.
+    await this.projectOwnerAccountDeletedSuspension(nowMs);
+    return errorResponse('ROOM_SUSPENDED', 423);
+  }
+
   purgeAccountAuthority(accountId, nowMs) {
-    if (!/^acct_[A-Za-z0-9_-]{22}$/.test(accountId)) return null;
+    if (!ACCOUNT_ID_RE.test(accountId)) return null;
     const tombstoneChanged = this.retainAccountDeletionTombstone(accountId, nowMs);
     const member = this.room.accountMembers?.[accountId] || null;
+    const replayedOwnerRemoval =
+      this.room.status === 'suspended' &&
+      this.room.suspensionReason === 'owner_account_deleted' &&
+      this.room.ownerAuthorityRemoval?.accountId === accountId;
+    const removingCurrentOwner = this.room.ownerAccountId === accountId || member?.role === 'owner';
+
+    if (removingCurrentOwner) {
+      const playbackRevisionSteps =
+        this.room.playback.state === 'playing' && this.room.playback.updatedAtMs > 0 ? 2 : 1;
+      if (
+        this.room.authEpoch >= Number.MAX_SAFE_INTEGER ||
+        this.room.ownerAuthorityEpoch >= Number.MAX_SAFE_INTEGER ||
+        this.room.developerAuthorityEpoch >= Number.MAX_SAFE_INTEGER ||
+        this.room.revision >= Number.MAX_SAFE_INTEGER ||
+        this.room.presence.revision >= Number.MAX_SAFE_INTEGER ||
+        this.room.presence.coordinatorEpoch >= Number.MAX_SAFE_INTEGER ||
+        this.room.playback.revision > Number.MAX_SAFE_INTEGER - playbackRevisionSteps
+      ) {
+        throw new RoomStateCapacityError();
+      }
+      const removedSessions = Object.keys(this.room.sessions || {}).length;
+      this.freezePlayback(nowMs);
+      this.room.sessions = {};
+      this.room.presence.participants = {};
+      this.room.presence.coordinatorParticipantId = null;
+      this.room.presence.revision += 1;
+      this.room.accountMembers = {};
+      this.room.anonymousAdministrators = {};
+      this.room.pin = null;
+      this.room.ownerCredentialHash = null;
+      this.room.ownerAccountId = null;
+      this.room.ownerDisplayName = null;
+      this.room.pendingOwnershipTransfer = null;
+      this.room.completedOwnershipTransfer = null;
+      this.room.developerCommands = {};
+      this.room.developerCommandIdempotency = {};
+      this.room.authEpoch += 1;
+      this.room.ownerAuthorityEpoch += 1;
+      this.room.developerAuthorityEpoch += 1;
+      this.room.runtime = 'sleeping';
+      this.reconcileSystemAudio(nowMs);
+      this.bumpRoomEpoch(nowMs);
+      this.room.ownerAuthorityRemoval = {
+        accountId,
+        removalId: `removal_${randomToken(16)}`,
+        removedAtMs: nowMs,
+        ownerAuthorityEpoch: this.room.ownerAuthorityEpoch,
+        fencedCoordinatorEpoch: this.room.presence.coordinatorEpoch,
+        projectionAcked: false,
+      };
+      this.room.status = 'suspended';
+      this.room.suspensionReason = 'owner_account_deleted';
+      return {
+        changed: true,
+        authorityChanged: true,
+        ownerAuthorityRemoved: true,
+        removal: this.room.ownerAuthorityRemoval,
+        removedSessions,
+      };
+    }
+
     let removedSessions = 0;
     for (const [tokenHash, session] of Object.entries(this.room.sessions || {})) {
       if (session.accountId !== accountId) continue;
@@ -6835,12 +7767,13 @@ export class MusixquareProRoom {
       delete this.room.sessions[tokenHash];
       removedSessions += 1;
     }
-    if (this.room.ownerAccountId === accountId) this.room.ownerAccountId = null;
     if (member) delete this.room.accountMembers[accountId];
     const authorityChanged = !!member || removedSessions > 0;
     return {
       changed: tombstoneChanged || authorityChanged,
       authorityChanged,
+      ownerAuthorityRemoved: replayedOwnerRemoval,
+      removal: replayedOwnerRemoval ? this.room.ownerAuthorityRemoval : null,
       removedSessions,
     };
   }
@@ -6849,22 +7782,109 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request, 1024);
     if (
       parsed.response ||
-      !hasExactKeys(parsed.value, ['accountId']) ||
-      !/^acct_[A-Za-z0-9_-]{22}$/.test(parsed.value.accountId || '')
+      !hasExactKeys(parsed.value, ['accountId'], ['roomGeneration']) ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
+      !ACCOUNT_ID_RE.test(parsed.value.accountId || '')
     ) {
       return parsed.response || errorResponse('INVALID_REQUEST', 400);
     }
     const result = this.purgeAccountAuthority(parsed.value.accountId, Date.now());
-    if (result?.changed) {
+    if (result?.changed || this.accountIdentityMigrationPending) {
       if (result.authorityChanged) this.room.revision += 1;
       await this.persist();
+      this.accountIdentityMigrationPending = false;
       if (result.authorityChanged) this.scheduleServerEvent(this.presenceEvent());
+    }
+    const removal = result?.ownerAuthorityRemoved ? result.removal : null;
+    return jsonResponse({
+      ok: true,
+      roomCode: this.room.roomCode,
+      roomGeneration: this.room.roomGeneration,
+      status: this.room.status,
+      suspensionReason: this.room.suspensionReason,
+      ownerAuthorityRemoved: result?.ownerAuthorityRemoved === true,
+      removalId: removal?.removalId || null,
+      removedOwnerAuthorityEpoch: removal?.ownerAuthorityEpoch ?? null,
+      fencedCoordinatorEpoch: removal?.fencedCoordinatorEpoch ?? null,
+      projectionAcked: removal?.projectionAcked ?? true,
+      removedSessions: result?.removedSessions || 0,
+    });
+  }
+
+  async handleInternalAccountAuthorityClassify(request) {
+    const parsed = await this.parseBody(request, 1024);
+    if (
+      parsed.response ||
+      !hasExactKeys(parsed.value, ['accountId'], ['roomGeneration']) ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
+      !ACCOUNT_ID_RE.test(parsed.value.accountId || '')
+    ) {
+      return parsed.response || errorResponse('INVALID_REQUEST', 400);
+    }
+    const ownerAuthority =
+      this.room.ownerAccountId === parsed.value.accountId ||
+      (this.room.status === 'suspended' &&
+        this.room.suspensionReason === 'owner_account_deleted' &&
+        this.room.ownerAuthorityRemoval?.accountId === parsed.value.accountId);
+    return jsonResponse({
+      ok: true,
+      roomCode: this.room.roomCode,
+      roomGeneration: this.room.roomGeneration,
+      ownerAuthority,
+    });
+  }
+
+  async handleInternalAccountAuthorityPurgeAck(request) {
+    const parsed = await this.parseBody(request, 1024);
+    if (
+      parsed.response ||
+      !hasExactKeys(
+        parsed.value,
+        [
+          'accountId',
+          'removalId',
+          'removedOwnerAuthorityEpoch',
+          'fencedCoordinatorEpoch',
+        ],
+        ['roomGeneration'],
+      ) ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
+      !ACCOUNT_ID_RE.test(parsed.value.accountId || '') ||
+      !OWNER_AUTHORITY_REMOVAL_ID_RE.test(parsed.value.removalId || '') ||
+      !isSafeNonNegativeInteger(parsed.value.removedOwnerAuthorityEpoch) ||
+      !isSafeNonNegativeInteger(parsed.value.fencedCoordinatorEpoch)
+    ) {
+      return parsed.response || errorResponse('INVALID_REQUEST', 400);
+    }
+    const removal = this.room.ownerAuthorityRemoval;
+    if (
+      this.room.status !== 'suspended' ||
+      this.room.suspensionReason !== 'owner_account_deleted' ||
+      !removal ||
+      removal.accountId !== parsed.value.accountId ||
+      removal.removalId !== parsed.value.removalId ||
+      removal.ownerAuthorityEpoch !== parsed.value.removedOwnerAuthorityEpoch ||
+      removal.fencedCoordinatorEpoch !== parsed.value.fencedCoordinatorEpoch
+    ) {
+      return errorResponse('OWNER_AUTHORITY_REMOVAL_MISMATCH', 409);
+    }
+    const changed = removal.projectionAcked !== true;
+    if (changed) {
+      removal.projectionAcked = true;
+      await this.persist();
     }
     return jsonResponse({
       ok: true,
       roomCode: this.room.roomCode,
       roomGeneration: this.room.roomGeneration,
-      removedSessions: result?.removedSessions || 0,
+      status: this.room.status,
+      suspensionReason: this.room.suspensionReason,
+      ownerAuthorityRemoved: true,
+      removalId: removal.removalId,
+      removedOwnerAuthorityEpoch: removal.ownerAuthorityEpoch,
+      fencedCoordinatorEpoch: removal.fencedCoordinatorEpoch,
+      projectionAcked: true,
+      changed,
     });
   }
 
@@ -8680,6 +9700,7 @@ export class MusixquareProRoom {
         'mxqr_developer_api_keys',
         'mxqr_developer_api_audit',
         'mxqr_developer_api_admin_audit',
+        'mxqr_developer_api_room_authority_fences',
       ]) {
         await db
           .prepare(
@@ -8689,6 +9710,16 @@ export class MusixquareProRoom {
           .bind(this.room.roomCode, this.room.roomGeneration)
           .run();
       }
+      const remainingFence = await db
+        .prepare(
+          `SELECT 1 AS present
+             FROM mxqr_developer_api_room_authority_fences
+            WHERE room_code = ?1 AND room_generation = ?2
+            LIMIT 1`,
+        )
+        .bind(this.room.roomCode, this.room.roomGeneration)
+        .all();
+      if ((remainingFence?.results || []).length > 0) return false;
       return true;
     } catch {
       return false;
@@ -9010,6 +10041,7 @@ export class MusixquareProRoom {
       roomCode: this.room.roomCode,
       roomGeneration: this.room.roomGeneration,
       status: this.room.status,
+      suspensionReason: this.room.suspensionReason,
       changed,
     });
   }
@@ -9022,6 +10054,7 @@ export class MusixquareProRoom {
       this.room.playback.state === 'playing' && this.room.playback.updatedAtMs > 0 ? 2 : 1;
     if (
       this.room.authEpoch >= Number.MAX_SAFE_INTEGER ||
+      this.room.ownerAuthorityEpoch >= Number.MAX_SAFE_INTEGER ||
       this.room.revision >= Number.MAX_SAFE_INTEGER ||
       this.room.presence.revision >= Number.MAX_SAFE_INTEGER ||
       this.room.presence.coordinatorEpoch >= Number.MAX_SAFE_INTEGER ||
@@ -9042,10 +10075,12 @@ export class MusixquareProRoom {
     this.room.presence.coordinatorParticipantId = null;
     this.room.presence.revision += 1;
     this.room.authEpoch += 1;
+    this.room.ownerAuthorityEpoch += 1;
     this.room.runtime = 'sleeping';
     this.reconcileSystemAudio(nowMs);
     this.bumpRoomEpoch(nowMs);
     this.room.status = 'suspended';
+    this.room.suspensionReason = 'operator_suspended';
     this.room.revision += 1;
     await this.persist();
     this.scheduleServerEvent(this.presenceEvent(), []);
@@ -9056,6 +10091,10 @@ export class MusixquareProRoom {
     if (!this.room.provisioned) return errorResponse('ROOM_NOT_FOUND', 404);
     if (this.room.status === 'active') return this.internalAdminStateResponse(false);
     if (this.room.status !== 'suspended') return errorResponse('ROOM_NOT_SUSPENDED', 409);
+    if (this.room.suspensionReason !== 'operator_suspended') {
+      return errorResponse('ROOM_OWNER_TRANSFER_REQUIRED', 409);
+    }
+    if (!this.room.pin) return errorResponse('ROOM_OWNER_TRANSFER_REQUIRED', 409);
     if (this.room.revision >= Number.MAX_SAFE_INTEGER) {
       return errorResponse('REVISION_EXHAUSTED', 409);
     }
@@ -9069,6 +10108,7 @@ export class MusixquareProRoom {
     this.room.runtime = 'sleeping';
     this.reconcileSystemAudio(Date.now());
     this.room.status = 'active';
+    this.room.suspensionReason = null;
     this.room.revision += 1;
     await this.persist();
     return this.internalAdminStateResponse(true);
@@ -9129,6 +10169,616 @@ export class MusixquareProRoom {
     return true;
   }
 
+  async ownerTransferPrepareResponse(record, replayed) {
+    const secret = String(this.env.PRO_ROOM_ACTIVATION_SECRET || '');
+    const commitProof = await ownerTransferCommitProof(this.room, record, secret);
+    if (!constantTimeEqual(await sha256Base64Url(commitProof), record.commitProofHash)) {
+      return errorResponse('OWNER_TRANSFER_STATE_INVALID', 409);
+    }
+    return jsonResponse(
+      {
+        ok: true,
+        roomCode: this.room.roomCode,
+        roomGeneration: this.room.roomGeneration,
+        status: this.room.status,
+        suspensionReason: this.room.suspensionReason,
+        transferId: record.transferId,
+        claimGeneration: record.claimGeneration ?? null,
+        commitProof,
+        requestId: record.requestId,
+        targetAccountId: record.targetAccountId,
+        // The App Worker consumes this field for exact reverse-edge cleanup
+        // and must remove it before returning the public facade response.
+        previousOwnerAccountId: record.previousOwnerAccountId,
+        preparedAtMs: record.preparedAtMs,
+        expiresAtMs: record.expiresAtMs,
+        committedAtMs: record.committedAtMs || null,
+        replayUntilMs: record.replayUntilMs || record.expiresAtMs,
+        replayed,
+      },
+      200,
+      { 'cache-control': 'no-store, max-age=0' },
+    );
+  }
+
+  async restoreCompletedOwnerTransferReplayAuthority(record, account, request, nowMs) {
+    const session = this.room.sessions[record.sessionTokenHash] || null;
+    if (
+      this.room.status !== 'active' ||
+      this.room.suspensionReason !== null ||
+      this.room.ownerAccountId !== record.targetAccountId ||
+      this.room.ownerMemberId !== record.preservedOwnerMemberId ||
+      this.room.authEpoch !== record.authEpoch ||
+      this.room.ownerAuthorityEpoch !== record.ownerAuthorityEpoch ||
+      !constantTimeEqual(this.room.ownerCredentialHash || '', record.ownerCredentialHash) ||
+      !session ||
+      session.roomGeneration !== this.room.roomGeneration ||
+      session.authEpoch !== this.room.authEpoch
+    ) {
+      return errorResponse('OWNER_TRANSFER_COMMIT_SUPERSEDED', 409);
+    }
+    const participant = this.room.presence.participants[session.participantId] || null;
+    const authorityCurrent =
+      session.role === 'owner' &&
+      session.accountId === record.targetAccountId &&
+      Number.isSafeInteger(session.accountLeaseExpiresAtMs) &&
+      session.accountLeaseExpiresAtMs > nowMs;
+    const presenceCurrent =
+      participant &&
+      participant.sessionHash === record.sessionTokenHash &&
+      participant.presenceIncarnationId === session.presenceIncarnationId &&
+      participant.memberId === record.preservedOwnerMemberId &&
+      participant.accountId === record.targetAccountId &&
+      participant.role === 'owner';
+    if (authorityCurrent && presenceCurrent) return null;
+    if (
+      this.room.revision >= Number.MAX_SAFE_INTEGER ||
+      this.room.presence.revision >= Number.MAX_SAFE_INTEGER ||
+      this.room.presence.coordinatorEpoch >= Number.MAX_SAFE_INTEGER ||
+      this.room.playback.revision >= Number.MAX_SAFE_INTEGER
+    ) {
+      return errorResponse('REVISION_EXHAUSTED', 409);
+    }
+    if (participant && participant.sessionHash !== record.sessionTokenHash) {
+      return errorResponse('OWNER_TRANSFER_COMMIT_SUPERSEDED', 409);
+    }
+    if (!participant && Object.keys(this.room.presence.participants).length >= PRESENCE_MAX_ITEMS) {
+      return errorResponse('ROOM_FULL', 409);
+    }
+    const accountMember = this.prepareOwnerAccountMember(account, nowMs);
+    if (!accountMember) return errorResponse('ACCOUNT_MEMBER_CAPACITY_EXCEEDED', 409);
+    session.accountId = record.targetAccountId;
+    session.accountLeaseExpiresAtMs = this.accountIdentityLeaseExpiresAt(nowMs);
+    session.memberId = record.preservedOwnerMemberId;
+    session.memberDisplayNumber = 0;
+    session.displayName = account.nickname;
+    session.role = 'owner';
+    this.commitOwnerAccountMember(accountMember);
+    if (participant) {
+      participant.lastSeenAtMs = nowMs;
+      participant.devicePlatform = devicePlatformFromRequest(request);
+      this.room.presence.revision += 1;
+      this.room.revision += 1;
+      this.reconcileSystemAudio(nowMs);
+      this.scheduleServerEvent(this.presenceEvent());
+    } else {
+      session.presenceIncarnationId = null;
+      if (
+        this.joinPresence(
+          session,
+          record.sessionTokenHash,
+          nowMs,
+          devicePlatformFromRequest(request),
+        ) === null
+      ) {
+        throw new RoomStateCapacityError();
+      }
+    }
+    await this.persist();
+    return null;
+  }
+
+  async handleOwnerTransferPrepare(request) {
+    const parsed = await this.parseBody(request);
+    if (
+      parsed.response ||
+      !hasExactKeys(parsed.value, ['claimToken', 'newPin', 'requestId']) ||
+      typeof parsed.value.claimToken !== 'string' ||
+      !PIN_RE.test(parsed.value.newPin || '') ||
+      !OWNER_TRANSFER_REQUEST_ID_RE.test(parsed.value.requestId || '')
+    ) {
+      return parsed.response || errorResponse('INVALID_REQUEST', 400);
+    }
+    const activationSecret = String(this.env.PRO_ROOM_ACTIVATION_SECRET || '');
+    const pepper = String(this.env.PRO_ROOM_PIN_PEPPER || '');
+    if (
+      activationSecret.length < 32 ||
+      pepper.length < 32 ||
+      String(this.env.PRO_ROOM_SESSION_SECRET || '').length < 32
+    ) {
+      return errorResponse('SERVICE_NOT_CONFIGURED', 503);
+    }
+    const rateError = await this.applyRateLimit(request, 'owner-transfer', 10, 60 * 60 * 1000);
+    if (rateError) return rateError;
+    const nowMs = Date.now();
+    const inspected = await inspectOwnerTransferClaim(
+      parsed.value.claimToken,
+      this.room.roomCode,
+      activationSecret,
+      nowMs,
+    );
+    if (!inspected.claim) return errorResponse(inspected.error, 401);
+    const claim = inspected.claim;
+    if (claim.roomGeneration !== this.room.roomGeneration) {
+      return errorResponse('OWNER_TRANSFER_CLAIM_INVALID', 401);
+    }
+    if (this.room.ownerAuthorityRemoval?.projectionAcked === false) {
+      return errorResponse('OWNER_AUTHORITY_PROJECTION_PENDING', 409);
+    }
+    const nonceHash = await sha256Base64Url(`owner-transfer:${claim.nonce}`);
+    const pending = this.room.pendingOwnershipTransfer;
+    const completed = this.room.completedOwnershipTransfer;
+    const matchingRecord =
+      pending?.claimNonceHash === nonceHash
+        ? pending
+        : completed?.claimNonceHash === nonceHash
+          ? completed
+          : null;
+    const consumedClaim = this.room.consumedOwnershipTransferClaims[nonceHash] || null;
+    if (consumedClaim && consumedClaim.requestId !== parsed.value.requestId) {
+      return errorResponse('OWNER_TRANSFER_CLAIM_USED', 409);
+    }
+    if (matchingRecord && matchingRecord.requestId !== parsed.value.requestId) {
+      return errorResponse('OWNER_TRANSFER_CLAIM_USED', 409);
+    }
+
+    // A completed exact transaction owns a separate short replay receipt.
+    // This is the sole exception to claim expiry: it lets the App finish D1
+    // reconciliation and return the already-committed deterministic cookies
+    // after response loss near the claim deadline. No different request,
+    // account, PIN, epoch, session, or nonce can enter this branch.
+    if (completed && matchingRecord === completed) {
+      if (completed.replayUntilMs <= nowMs) {
+        return errorResponse('OWNER_TRANSFER_CLAIM_EXPIRED', 410);
+      }
+      const asserted = await this.accountAssertion(request);
+      if (asserted.response) return asserted.response;
+      if (!asserted.account) return errorResponse('ACCOUNT_SESSION_REQUIRED', 401);
+      if (claim.targetAccountId !== asserted.account.accountId) {
+        return errorResponse('OWNER_TRANSFER_TARGET_ACCOUNT_MISMATCH', 409);
+      }
+      if (
+        matchingRecord.targetAccountId !== asserted.account.accountId ||
+        matchingRecord.claimNonceHash !== nonceHash
+      ) {
+        return errorResponse('OWNER_TRANSFER_CLAIM_USED', 409);
+      }
+      if (!(await verifyPin(parsed.value.newPin, this.room.pin, pepper))) {
+        return errorResponse('OWNER_TRANSFER_REPLAY_MISMATCH', 409);
+      }
+      const restoreError = await this.restoreCompletedOwnerTransferReplayAuthority(
+        completed,
+        asserted.account,
+        request,
+        nowMs,
+      );
+      if (restoreError) return restoreError;
+      return this.ownerTransferPrepareResponse(matchingRecord, true);
+    }
+
+    // Every non-completed claim keeps one canonical terminal expiry result,
+    // before target-account or stale-generation classification.
+    if (inspected.expired) return errorResponse('OWNER_TRANSFER_CLAIM_EXPIRED', 410);
+    const asserted = await this.accountAssertion(request);
+    if (asserted.response) return asserted.response;
+    if (!asserted.account) return errorResponse('ACCOUNT_SESSION_REQUIRED', 401);
+    if (claim.targetAccountId !== asserted.account.accountId) {
+      return errorResponse('OWNER_TRANSFER_TARGET_ACCOUNT_MISMATCH', 409);
+    }
+    if (matchingRecord) {
+      if (
+        matchingRecord.targetAccountId !== asserted.account.accountId ||
+        matchingRecord.claimNonceHash !== nonceHash
+      ) {
+        return errorResponse('OWNER_TRANSFER_CLAIM_USED', 409);
+      }
+      if (!(await verifyPin(parsed.value.newPin, pending.pin, pepper))) {
+        return errorResponse('OWNER_TRANSFER_REPLAY_MISMATCH', 409);
+      }
+      return this.ownerTransferPrepareResponse(matchingRecord, true);
+    }
+    if (this.room.status === 'active' && this.room.ownerAccountId === asserted.account.accountId) {
+      return errorResponse('OWNER_TRANSFER_TARGET_UNCHANGED', 409);
+    }
+    if (consumedClaim) return errorResponse('OWNER_TRANSFER_CLAIM_USED', 409);
+
+    if (
+      claim.claimGeneration !== this.room.ownershipTransferClaimGeneration ||
+      claim.ownerAuthorityEpoch !== this.room.ownerAuthorityEpoch
+    ) {
+      return errorResponse('OWNER_TRANSFER_CLAIM_STALE', 409);
+    }
+    if (
+      this.room.status !== 'active' &&
+      !(
+        this.room.status === 'suspended' &&
+        (this.room.suspensionReason === 'operator_suspended' ||
+          this.room.suspensionReason === 'owner_account_deleted' ||
+          this.room.suspensionReason === 'ownership_transfer_pending')
+      )
+    ) {
+      return errorResponse('OWNER_TRANSFER_UNAVAILABLE', 409);
+    }
+    if (this.room.pin && (await verifyPin(parsed.value.newPin, this.room.pin, pepper))) {
+      return errorResponse('OWNER_TRANSFER_PIN_REUSE', 409);
+    }
+    if (
+      Object.keys(this.room.consumedOwnershipTransferClaims).length >=
+      OWNER_TRANSFER_NONCE_MAX_ITEMS
+    ) {
+      return errorResponse('OWNER_TRANSFER_CLAIM_CAPACITY_EXCEEDED', 409);
+    }
+    const playbackRevisionSteps =
+      this.room.playback.state === 'playing' && this.room.playback.updatedAtMs > 0 ? 2 : 1;
+    if (
+      this.room.authEpoch >= Number.MAX_SAFE_INTEGER ||
+      this.room.ownerAuthorityEpoch >= Number.MAX_SAFE_INTEGER ||
+      this.room.developerAuthorityEpoch >= Number.MAX_SAFE_INTEGER ||
+      this.room.revision >= Number.MAX_SAFE_INTEGER ||
+      this.room.presence.revision >= Number.MAX_SAFE_INTEGER ||
+      this.room.presence.coordinatorEpoch >= Number.MAX_SAFE_INTEGER ||
+      this.room.playback.revision > Number.MAX_SAFE_INTEGER - playbackRevisionSteps
+    ) {
+      return errorResponse('REVISION_EXHAUSTED', 409);
+    }
+
+    if (!OPAQUE_ID_RE.test(this.room.ownerMemberId || '')) {
+      return errorResponse('OWNER_TRANSFER_OWNER_IDENTITY_INVALID', 409);
+    }
+    const nextPin = await createPinRecord(parsed.value.newPin, pepper);
+    const previousOwnerAccountId =
+      this.room.pendingOwnershipTransfer?.previousOwnerAccountId ||
+      this.room.ownerAccountId ||
+      null;
+    this.freezePlayback(nowMs);
+    this.room.sessions = {};
+    this.room.presence.participants = {};
+    this.room.presence.coordinatorParticipantId = null;
+    this.room.presence.revision += 1;
+    this.room.accountMembers = {};
+    this.room.anonymousAdministrators = {};
+    this.room.pin = null;
+    this.room.ownerCredentialHash = null;
+    this.room.ownerAccountId = null;
+    this.room.ownerDisplayName = null;
+    this.room.developerCommands = {};
+    this.room.developerCommandIdempotency = {};
+    this.room.authEpoch += 1;
+    this.room.ownerAuthorityEpoch += 1;
+    this.room.developerAuthorityEpoch += 1;
+    this.room.runtime = 'sleeping';
+    this.reconcileSystemAudio(nowMs);
+    this.bumpRoomEpoch(nowMs);
+    this.room.status = 'suspended';
+    this.room.suspensionReason = 'ownership_transfer_pending';
+    this.room.completedOwnershipTransfer = null;
+    const prepared = {
+      transferId: `transfer_${randomToken(16)}`,
+      requestId: parsed.value.requestId,
+      targetAccountId: asserted.account.accountId,
+      targetDisplayName: asserted.account.nickname,
+      previousOwnerAccountId,
+      preservedOwnerMemberId: this.room.ownerMemberId,
+      pin: nextPin,
+      claimNonceHash: nonceHash,
+      claimGeneration: claim.claimGeneration,
+      ownerAuthorityEpoch: this.room.ownerAuthorityEpoch,
+      preparedAtMs: nowMs,
+      expiresAtMs: claim.exp,
+      devicePlatform: devicePlatformFromRequest(request),
+      commitProofHash: '',
+    };
+    const commitProof = await ownerTransferCommitProof(this.room, prepared, activationSecret);
+    prepared.commitProofHash = await sha256Base64Url(commitProof);
+    this.room.pendingOwnershipTransfer = prepared;
+    this.room.consumedOwnershipTransferClaims[nonceHash] = {
+      requestId: parsed.value.requestId,
+      expiresAtMs: claim.exp,
+    };
+    this.room.revision += 1;
+    await this.persist();
+    this.scheduleServerEvent(this.presenceEvent(), []);
+    return this.ownerTransferPrepareResponse(prepared, false);
+  }
+
+  async ownerTransferCommitResponse(receipt, session, sessionToken, ownerToken, replayed) {
+    const response = jsonResponse(
+      {
+        ok: true,
+        roomCode: this.room.roomCode,
+        roomGeneration: this.room.roomGeneration,
+        status: this.room.status,
+        suspensionReason: this.room.suspensionReason,
+        transferId: receipt.transferId,
+        requestId: receipt.requestId,
+        targetAccountId: receipt.targetAccountId,
+        previousOwnerAccountId: receipt.previousOwnerAccountId,
+        replayed,
+        snapshot: publicSnapshot(this.room, session),
+        session: { expiresAtMs: session.expiresAtMs },
+      },
+      200,
+      {
+        'cache-control': 'no-store, max-age=0',
+        'set-cookie': sessionCookie(this.room.roomCode, sessionToken, this.sessionTtlSeconds()),
+      },
+    );
+    response.headers.append('set-cookie', ownerCookie(this.room.roomCode, ownerToken));
+    return response;
+  }
+
+  ownerTransferReconcileResponse(receipt, replayed) {
+    return jsonResponse(
+      {
+        ok: true,
+        roomCode: this.room.roomCode,
+        roomGeneration: this.room.roomGeneration,
+        status: this.room.status,
+        suspensionReason: this.room.suspensionReason,
+        transferId: receipt.transferId,
+        requestId: receipt.requestId,
+        targetAccountId: receipt.targetAccountId,
+        previousOwnerAccountId: receipt.previousOwnerAccountId,
+        replayed,
+      },
+      200,
+      { 'cache-control': 'no-store, max-age=0' },
+    );
+  }
+
+  async handleInternalOwnerTransferCommit(request, options = {}) {
+    const reconcile = options.reconcile === true;
+    const parsed = await this.parseBody(request, 16 * 1024);
+    const requiredKeys = reconcile
+      ? ['transferId', 'targetAccountId', 'requestId', 'revocationReceipt']
+      : ['transferId', 'commitProof', 'targetAccountId', 'requestId', 'revocationReceipt'];
+    if (
+      parsed.response ||
+      !hasExactKeys(parsed.value, requiredKeys, ['roomGeneration']) ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
+      !OWNER_TRANSFER_ID_RE.test(parsed.value.transferId || '') ||
+      (!reconcile && typeof parsed.value.commitProof !== 'string') ||
+      !ACCOUNT_ID_RE.test(parsed.value.targetAccountId || '') ||
+      !OWNER_TRANSFER_REQUEST_ID_RE.test(parsed.value.requestId || '') ||
+      typeof parsed.value.revocationReceipt !== 'string'
+    ) {
+      return parsed.response || errorResponse('INVALID_REQUEST', 400);
+    }
+    const nowMs = Date.now();
+    const activationSecret = String(this.env.PRO_ROOM_ACTIVATION_SECRET || '');
+    const sessionSecret = String(this.env.PRO_ROOM_SESSION_SECRET || '');
+    const assertionSecret = String(this.env.MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET || '');
+    if (activationSecret.length < 32 || sessionSecret.length < 32 || assertionSecret.length < 32) {
+      return errorResponse('SERVICE_NOT_CONFIGURED', 503);
+    }
+    const expected = {
+      roomCode: this.room.roomCode,
+      roomGeneration: this.room.roomGeneration,
+      transferId: parsed.value.transferId,
+      targetAccountId: parsed.value.targetAccountId,
+      requestId: parsed.value.requestId,
+    };
+    const revocation = await verifyOwnerTransferRevocationReceipt(
+      parsed.value.revocationReceipt,
+      expected,
+      assertionSecret,
+      nowMs,
+    );
+    if (!revocation) return errorResponse('OWNER_TRANSFER_REVOCATION_PROOF_INVALID', 401);
+    const matchingRevocationBoundary =
+      this.room.pendingOwnershipTransfer?.transferId === parsed.value.transferId
+        ? this.room.pendingOwnershipTransfer.preparedAtMs
+        : this.room.completedOwnershipTransfer?.transferId === parsed.value.transferId
+          ? this.room.completedOwnershipTransfer.preparedAtMs
+          : null;
+    if (
+      Number.isSafeInteger(matchingRevocationBoundary) &&
+      revocation.revokedAtMs < matchingRevocationBoundary
+    ) {
+      return errorResponse('OWNER_TRANSFER_REVOCATION_PROOF_INVALID', 401);
+    }
+    const proofHash = reconcile ? null : await sha256Base64Url(parsed.value.commitProof);
+    const completed = this.room.completedOwnershipTransfer;
+    if (completed?.transferId === parsed.value.transferId) {
+      if (
+        completed.requestId !== parsed.value.requestId ||
+        completed.targetAccountId !== parsed.value.targetAccountId ||
+        (!reconcile && !constantTimeEqual(completed.commitProofHash, proofHash))
+      ) {
+        return errorResponse('OWNER_TRANSFER_COMMIT_MISMATCH', 409);
+      }
+      if (reconcile) {
+        const expectedProof = await ownerTransferCommitProof(
+          this.room,
+          completed,
+          activationSecret,
+        );
+        if (!constantTimeEqual(completed.commitProofHash, await sha256Base64Url(expectedProof))) {
+          return errorResponse('OWNER_TRANSFER_COMMIT_MISMATCH', 409);
+        }
+      }
+      if (completed.replayUntilMs <= nowMs) {
+        return errorResponse('OWNER_TRANSFER_CLAIM_EXPIRED', 410);
+      }
+      const sessionToken = await createDeterministicOpaqueCredential(
+        sessionSecret,
+        `owner-transfer-session:${this.room.roomCode}:${this.room.roomGeneration}:${completed.transferId}:${completed.requestId}`,
+      );
+      const ownerToken = await createDeterministicOpaqueCredential(
+        sessionSecret,
+        `owner-transfer-owner:${this.room.roomCode}:${this.room.roomGeneration}:${completed.transferId}:${completed.requestId}`,
+      );
+      const [sessionTokenHash, ownerCredentialHash] = await Promise.all([
+        sha256Base64Url(sessionToken),
+        sha256Base64Url(ownerToken),
+      ]);
+      const session = this.room.sessions[sessionTokenHash];
+      const participant = session
+        ? this.room.presence.participants[session.participantId] || null
+        : null;
+      if (
+        this.room.status !== 'active' ||
+        this.room.suspensionReason !== null ||
+        this.room.ownerAccountId !== completed.targetAccountId ||
+        this.room.ownerMemberId !== completed.preservedOwnerMemberId ||
+        this.room.authEpoch !== completed.authEpoch ||
+        this.room.ownerAuthorityEpoch !== completed.ownerAuthorityEpoch ||
+        !constantTimeEqual(sessionTokenHash, completed.sessionTokenHash) ||
+        !constantTimeEqual(ownerCredentialHash, completed.ownerCredentialHash) ||
+        !constantTimeEqual(ownerCredentialHash, this.room.ownerCredentialHash || '') ||
+        !session ||
+        session.roomGeneration !== this.room.roomGeneration ||
+        session.authEpoch !== this.room.authEpoch ||
+        session.memberId !== completed.preservedOwnerMemberId ||
+        session.accountId !== completed.targetAccountId ||
+        session.role !== 'owner' ||
+        !Number.isSafeInteger(session.accountLeaseExpiresAtMs) ||
+        session.accountLeaseExpiresAtMs <= nowMs ||
+        !participant ||
+        participant.sessionHash !== sessionTokenHash ||
+        participant.presenceIncarnationId !== session.presenceIncarnationId ||
+        participant.memberId !== completed.preservedOwnerMemberId ||
+        participant.accountId !== completed.targetAccountId ||
+        participant.role !== 'owner'
+      ) {
+        return errorResponse('OWNER_TRANSFER_COMMIT_SUPERSEDED', 409);
+      }
+      return reconcile
+        ? this.ownerTransferReconcileResponse(completed, true)
+        : this.ownerTransferCommitResponse(completed, session, sessionToken, ownerToken, true);
+    }
+
+    const pending = this.room.pendingOwnershipTransfer;
+    if (
+      !pending ||
+      this.room.status !== 'suspended' ||
+      this.room.suspensionReason !== 'ownership_transfer_pending'
+    ) {
+      return errorResponse('OWNER_TRANSFER_NOT_PENDING', 409);
+    }
+    if (
+      pending.transferId !== parsed.value.transferId ||
+      pending.requestId !== parsed.value.requestId ||
+      pending.targetAccountId !== parsed.value.targetAccountId ||
+      (!reconcile && !constantTimeEqual(pending.commitProofHash, proofHash))
+    ) {
+      return errorResponse('OWNER_TRANSFER_COMMIT_MISMATCH', 409);
+    }
+    if (pending.expiresAtMs <= nowMs) return errorResponse('OWNER_TRANSFER_CLAIM_EXPIRED', 410);
+    if (this.isAccountDeletionTombstoned(pending.targetAccountId, nowMs)) {
+      return errorResponse('OWNER_TRANSFER_TARGET_ACCOUNT_DELETED', 409);
+    }
+    const expectedProof = await ownerTransferCommitProof(this.room, pending, activationSecret);
+    const proofMatches = reconcile
+      ? constantTimeEqual(pending.commitProofHash, await sha256Base64Url(expectedProof))
+      : constantTimeEqual(expectedProof, parsed.value.commitProof);
+    if (!proofMatches) {
+      return errorResponse('OWNER_TRANSFER_COMMIT_MISMATCH', 409);
+    }
+    if (
+      this.room.revision >= Number.MAX_SAFE_INTEGER ||
+      this.room.presence.revision >= Number.MAX_SAFE_INTEGER ||
+      this.room.presence.coordinatorEpoch >= Number.MAX_SAFE_INTEGER ||
+      this.room.playback.revision >= Number.MAX_SAFE_INTEGER
+    ) {
+      return errorResponse('REVISION_EXHAUSTED', 409);
+    }
+
+    const sessionToken = await createDeterministicOpaqueCredential(
+      sessionSecret,
+      `owner-transfer-session:${this.room.roomCode}:${this.room.roomGeneration}:${pending.transferId}:${pending.requestId}`,
+    );
+    const ownerToken = await createDeterministicOpaqueCredential(
+      sessionSecret,
+      `owner-transfer-owner:${this.room.roomCode}:${this.room.roomGeneration}:${pending.transferId}:${pending.requestId}`,
+    );
+    const [sessionTokenHash, ownerCredentialHash, revocationReceiptHash] = await Promise.all([
+      sha256Base64Url(sessionToken),
+      sha256Base64Url(ownerToken),
+      sha256Base64Url(parsed.value.revocationReceipt),
+    ]);
+    const session = {
+      roomGeneration: this.room.roomGeneration,
+      memberId: pending.preservedOwnerMemberId,
+      participantId: `participant_${randomToken(18)}`,
+      presenceIncarnationId: null,
+      signalingTicketSequence: 0,
+      displayName: pending.targetDisplayName,
+      memberDisplayNumber: 0,
+      accountId: pending.targetAccountId,
+      accountLeaseExpiresAtMs: this.accountIdentityLeaseExpiresAt(nowMs),
+      role: 'owner',
+      authEpoch: this.room.authEpoch,
+      createdAtMs: nowMs,
+      expiresAtMs: nowMs + this.sessionTtlSeconds() * 1000,
+    };
+    this.room.pin = pending.pin;
+    this.room.ownerMemberId = pending.preservedOwnerMemberId;
+    this.room.ownerAccountId = pending.targetAccountId;
+    this.room.ownerDisplayName = pending.targetDisplayName;
+    this.room.accountMembers = {
+      [pending.targetAccountId]: {
+        memberId: pending.preservedOwnerMemberId,
+        displayName: pending.targetDisplayName,
+        displayNumber: 0,
+        role: 'owner',
+        permissions: clonePermissionSet(OWNER_PERMISSIONS),
+        createdAtMs: nowMs,
+        updatedAtMs: nowMs,
+      },
+    };
+    this.room.anonymousAdministrators = {};
+    this.room.sessions = { [sessionTokenHash]: session };
+    this.room.presence.participants = {};
+    this.room.presence.coordinatorParticipantId = null;
+    this.room.ownerCredentialHash = ownerCredentialHash;
+    this.room.status = 'active';
+    this.room.suspensionReason = null;
+    this.room.runtime = 'sleeping';
+    if (this.joinPresence(session, sessionTokenHash, nowMs, pending.devicePlatform) === null) {
+      return errorResponse('ROOM_FULL', 409);
+    }
+    const receipt = {
+      transferId: pending.transferId,
+      requestId: pending.requestId,
+      targetAccountId: pending.targetAccountId,
+      previousOwnerAccountId: pending.previousOwnerAccountId,
+      preservedOwnerMemberId: pending.preservedOwnerMemberId,
+      claimNonceHash: pending.claimNonceHash,
+      commitProofHash: pending.commitProofHash,
+      revocationReceiptHash,
+      ownerAuthorityEpoch: this.room.ownerAuthorityEpoch,
+      authEpoch: this.room.authEpoch,
+      preparedAtMs: pending.preparedAtMs,
+      expiresAtMs: pending.expiresAtMs,
+      committedAtMs: nowMs,
+      replayUntilMs: nowMs + OWNER_TRANSFER_COMPLETED_REPLAY_TTL_MS,
+      sessionTokenHash,
+      ownerCredentialHash,
+    };
+    this.room.completedOwnershipTransfer = receipt;
+    this.room.pendingOwnershipTransfer = null;
+    this.room.ownerAuthorityRemoval = null;
+    await this.persist();
+    // A non-empty authoritative snapshot at the transfer's newer coordinator
+    // epoch releases the signaling-side owner-deletion admission fence. The
+    // existing durable retry path keeps signaling closed if delivery fails.
+    this.scheduleServerEvent(this.presenceEvent());
+    return reconcile
+      ? this.ownerTransferReconcileResponse(receipt, false)
+      : this.ownerTransferCommitResponse(receipt, session, sessionToken, ownerToken, false);
+  }
+
   async handleActivation(request) {
     if (this.room.status !== 'unactivated') return errorResponse('ACTIVATION_UNAVAILABLE', 409);
     const rateError = await this.applyRateLimit(request, 'activation', 10, 60 * 60 * 1000);
@@ -9181,9 +10831,12 @@ export class MusixquareProRoom {
 
     const asserted = await this.accountAssertion(request);
     if (asserted.response) return asserted.response;
+    if (!asserted.account) return errorResponse('ACCOUNT_SESSION_REQUIRED', 401);
     const pin = await createPinRecord(body.newPin, pepper);
     this.room.status = 'active';
+    this.room.suspensionReason = null;
     this.room.authEpoch = 1;
+    this.room.ownerAuthorityEpoch = 1;
     this.room.pin = pin;
     const ownerCredential = await this.createOwnerCredential();
     this.room.ownerMemberId = this.room.ownerMemberId || `owner_${randomToken(18)}`;
@@ -9248,7 +10901,11 @@ export class MusixquareProRoom {
       activationSecret,
       nowMs,
     );
-    if (!claim || claim.roomGeneration !== this.room.roomGeneration) {
+    if (
+      !claim ||
+      claim.roomGeneration !== this.room.roomGeneration ||
+      claim.ownerAuthorityEpoch !== this.room.ownerAuthorityEpoch
+    ) {
       return errorResponse('RECOVERY_INVALID', 401);
     }
     const nonceHash = await sha256Base64Url(`owner-recovery:${claim.nonce}`);
@@ -9263,13 +10920,19 @@ export class MusixquareProRoom {
     // to another account. A valid claim still cannot transfer a linked room,
     // and every account-capacity check remains non-mutating so the same claim
     // can be retried after the operator resolves the account condition.
-    if (this.room.ownerAccountId && this.room.ownerAccountId !== asserted.account.accountId) {
+    if (
+      !ACCOUNT_ID_RE.test(this.room.ownerAccountId || '') ||
+      this.room.ownerAccountId !== asserted.account.accountId
+    ) {
       return errorResponse('OWNER_ACCOUNT_LINK_CONFLICT', 409);
     }
     const accountMember = this.prepareOwnerAccountMember(asserted.account, nowMs);
     if (!accountMember) return errorResponse('ACCOUNT_MEMBER_CAPACITY_EXCEEDED', 409);
     const ownerCredential = await this.createOwnerCredential();
     if (!ownerCredential) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
+    if (this.room.ownerAuthorityEpoch >= Number.MAX_SAFE_INTEGER) {
+      return errorResponse('REVISION_EXHAUSTED', 409);
+    }
 
     // The recovery page can be opened from a browser that is already present
     // as an ordinary room member. Its response replaces that browser's
@@ -9295,6 +10958,7 @@ export class MusixquareProRoom {
     );
     if (!created) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
     this.commitOwnerAccountMember(accountMember);
+    this.room.ownerAuthorityEpoch += 1;
     this.room.ownerCredentialHash = ownerCredential.hash;
     this.room.ownerDisplayName = created.session.displayName;
     this.room.consumedRecoveryNonces[nonceHash] = claim.exp;
@@ -11116,6 +12780,14 @@ export class MusixquareProRoom {
         changed = true;
       }
     }
+    for (const [nonceHash, record] of Object.entries(
+      this.room.consumedOwnershipTransferClaims || {},
+    )) {
+      if (record.expiresAtMs <= nowMs) {
+        delete this.room.consumedOwnershipTransferClaims[nonceHash];
+        changed = true;
+      }
+    }
     changed = this.pruneAccountDeletionTombstones(nowMs) || changed;
     this.enqueuePlaybackOutcome(playbackTransitionOutcome, nowMs);
     if (changed) {
@@ -11154,6 +12826,7 @@ export class MusixquareProRoom {
       this.normalizeLoadedSystemAudio();
       this.normalizeLoadedEffects();
       this.normalizeLoadedQueueMode();
+      this.normalizeLoadedOwnershipTransfer();
       this.normalizeLoadedDeveloperCommands();
       this.normalizeLoadedSecurityLedgers();
       this.normalizeLoadedPlaybackAuthority();

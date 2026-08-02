@@ -5328,6 +5328,25 @@
     box-shadow: none;
   }
 
+  .dialog-primary,
+  .dialog-secondary {
+    white-space: nowrap;
+    overflow-wrap: normal;
+  }
+
+  @media (max-width: 420px) {
+    .dialog-actions {
+      flex-direction: column-reverse;
+      align-items: stretch;
+    }
+
+    .dialog-actions > .dialog-primary,
+    .dialog-actions > .dialog-secondary:not([hidden]) {
+      width: 100%;
+      flex: 0 0 auto;
+    }
+  }
+
   /* Dark theme toast */
   [data-theme='dark'] .toast > span {
     background: var(--surface-1);

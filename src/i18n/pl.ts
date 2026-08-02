@@ -67,6 +67,8 @@ const pl: Record<I18nKey, string> = {
   'account.delete_confirm_title': 'Usunąć konto?',
   'account.delete_confirm_message':
     'Twój pseudonim, sesje logowania i powiązane z kontem uprawnienia w pokojach zostaną usunięte. Treści udostępnione w pokoju podlegają zasadom przechowywania tego pokoju.',
+  'account.delete_pending':
+    'Twoje konto jest usuwane. Uprawnienia PRO są bezpiecznie porządkowane, a usuwanie zakończy się automatycznie.',
   'common.previous': 'Poprzedni',
   'common.next_desc': 'Następny',
   'common.volume_percent': 'Głośność: {{val}}%',
@@ -676,10 +678,27 @@ const pl: Record<I18nKey, string> = {
   'pro.claim_retry_title': 'Spróbować ponownie użyć linku PRO?',
   'pro.claim_retry_message':
     'Połączenie zostało przerwane. Link jest bezpiecznie przechowywany tylko na tym ekranie, więc możesz spróbować ponownie.',
-  'pro.request_new_link': 'Poproś o nowy link',
   'pro.claim_unavailable_title': 'Tego linku nie można już użyć',
+  'pro.claim_login_title': 'Najpierw się zaloguj',
+  'pro.claim_login_button': 'Zaloguj się',
+  'pro.claim_login_message':
+    'Zaloguj się na konto, które ma zostać właścicielem tego pokoju PRO, i dokończ ustawianie pseudonimu. Link pozostaje tylko w pamięci tej karty.',
+  'pro.claim_popup_blocked_message':
+    'Przeglądarka zablokowała okno logowania. Zezwól na wyskakujące okna dla MUSIXQUARE i spróbuj ponownie.',
+  'pro.claim_account_conflict_title': 'To konto nie może używać pokoju',
+  'pro.claim_account_conflict_message':
+    'Ten pokój jest połączony z innym kontem. Jeśli chcesz to zmienić, poproś administratora o przeniesienie własności.',
+  'pro.claim_account_capacity_title': 'Nie można połączyć kolejnego pokoju z tym kontem',
+  'pro.claim_account_capacity_message':
+    'Osiągnięto limit połączonych pokoi PRO. Usuń istniejące połączenie i poproś o nowy link.',
+  'pro.claim_failed_title': 'Nie udało się wykonać żądania',
+  'pro.claim_failed_message':
+    'Ze względów bezpieczeństwa link nie został użyty ponownie. Poproś administratora pokoju o nowy link.',
+  'pro.transfer_title': 'Przejmij własność pokoju PRO',
+  'pro.transfer_message':
+    'Ustaw nowe 8-cyfrowe hasło. Po zakończeniu dostęp poprzedniego właściciela zostanie cofnięty.',
   'pro.new_link_message':
-    'Poproś osobę, która wysłała link, o nowy link aktywacyjny lub odzyskiwania.',
+    'Link wygasł lub został już użyty. W razie potrzeby poproś administratora o nowy link.',
   'pro.not_ready_title': 'Ten pokój PRO nie jest jeszcze gotowy',
   'pro.not_ready_message': 'Właściciel musi go najpierw aktywować.',
   'pro.suspended_title': 'Ten pokój PRO jest obecnie niedostępny',

@@ -2024,6 +2024,36 @@ describe('account session mutations', () => {
     expect(setCookieValues(deleted!).join('\n')).toContain('Max-Age=600');
   });
 
+  it('keeps ordinary logout independent from account-deletion jobs and PRO authority', async () => {
+    const db = new FakeAuthDb();
+    const env = authEnv(db);
+    const login = await completeLogin(env);
+    const accountId = [...db.accounts.keys()][0]!;
+    db.proRoomLinks.set(`${accountId}:000001`, {
+      account_id: accountId,
+      room_code: '000001',
+      room_generation: 4,
+      first_linked_at: 1,
+      last_seen_at: 1,
+    });
+    vi.unstubAllGlobals();
+
+    const logout = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/logout', {
+        method: 'POST',
+        headers: mutationHeaders(login.sessionCookie!),
+        body: '{}',
+      }),
+      env,
+    );
+
+    expect(logout?.status).toBe(200);
+    expect(db.accounts.get(accountId)?.status).toBe('active');
+    expect(db.proRoomLinks.size).toBe(1);
+    expect(db.accountDeletions.size).toBe(0);
+    expect(db.deletedSessions.size).toBe(0);
+  });
+
   it('turns every deleted-account browser cookie into deletion-only Standard-room proof', async () => {
     const db = new FakeAuthDb();
     const env = authEnv(db);
@@ -2155,6 +2185,77 @@ describe('account session mutations', () => {
     expect(db.proRoomLinks.size).toBe(0);
   });
 
+  it('keeps deletion committed and resumable when D1 fails after an irreversible PRO purge', async () => {
+    const db = new FakeAuthDb();
+    const env = authEnv(db);
+    const login = await completeLogin(env);
+    const accountId = [...db.accounts.keys()][0]!;
+    db.proRoomLinks.set(`${accountId}:000001`, {
+      account_id: accountId,
+      room_code: '000001',
+      room_generation: 7,
+      first_linked_at: 1,
+      last_seen_at: 1,
+    });
+    vi.unstubAllGlobals();
+
+    const originalBatch = db.batch.bind(db);
+    let failExactEdgeDelete = true;
+    db.batch = async (statements: FakeStatement[]) => {
+      if (
+        failExactEdgeDelete &&
+        statements.some(
+          (statement) =>
+            normalizeSql(statement.sql).startsWith(
+              'delete from mxqr_account_pro_room_generations',
+            ) && statement.values.length === 3,
+        )
+      ) {
+        throw new Error('D1 failed after the remote authority purge');
+      }
+      return originalBatch(statements);
+    };
+
+    let purgeCalls = 0;
+    const purge = async () => {
+      purgeCalls += 1;
+      expect(db.accounts.get(accountId)?.status).toBe('disabled');
+      expect(db.sessions.size).toBe(0);
+      expect(db.accountDeletions.has(accountId)).toBe(true);
+      return true;
+    };
+    const accepted = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/account', {
+        method: 'DELETE',
+        headers: mutationHeaders(login.sessionCookie!),
+        body: JSON.stringify({ confirm: true }),
+      }),
+      env,
+      undefined,
+      { purgeProRoomAccountAuthority: purge },
+    );
+
+    expect(accepted?.status).toBe(202);
+    await expect(accepted!.json()).resolves.toEqual({ ok: true, pending: true });
+    expect(purgeCalls).toBe(1);
+    expect(db.accounts.get(accountId)?.status).toBe('disabled');
+    expect(db.proRoomLinks.size).toBe(1);
+    expect(db.accountDeletions.has(accountId)).toBe(true);
+
+    failExactEdgeDelete = false;
+    await expect(
+      cleanupPendingAccountDeletions(env, { purgeProRoomAccountAuthority: purge }),
+    ).resolves.toMatchObject({
+      purgedEdges: 1,
+      failedEdges: 0,
+      completedAccounts: 1,
+      pendingAccounts: 0,
+    });
+    expect(purgeCalls).toBe(2);
+    expect(db.accounts.has(accountId)).toBe(false);
+    expect(db.accountDeletions.has(accountId)).toBe(false);
+  });
+
   it('fails account deletion closed when the generation reverse index is transiently unavailable', async () => {
     const db = new FakeAuthDb();
     const env = authEnv(db);
@@ -2276,6 +2377,8 @@ describe('account session mutations', () => {
     }
     vi.unstubAllGlobals();
 
+    const failedRoom = roomCodes[7]!;
+    const attemptedRooms: string[] = [];
     const accepted = await handleAccountAuthRequest(
       new Request('https://musixquare.com/api/auth/account', {
         method: 'DELETE',
@@ -2284,22 +2387,16 @@ describe('account session mutations', () => {
       }),
       env,
       undefined,
-      { purgeProRoomAccountAuthority: async () => true },
+      {
+        purgeProRoomAccountAuthority: async ({ roomCode }: { roomCode: string }) => {
+          attemptedRooms.push(roomCode);
+          return roomCode !== failedRoom;
+        },
+      },
     );
     expect(accepted?.status).toBe(202);
-
-    const failedRoom = roomCodes[7]!;
-    const firstPass = await cleanupPendingAccountDeletions(env, {
-      purgeProRoomAccountAuthority: async ({ roomCode }: { roomCode: string }) =>
-        roomCode !== failedRoom,
-    });
-    expect(firstPass).toMatchObject({
-      processedAccounts: 1,
-      purgedEdges: 32,
-      failedEdges: 1,
-      completedAccounts: 0,
-      pendingAccounts: 1,
-    });
+    await expect(accepted!.json()).resolves.toEqual({ ok: true, pending: true });
+    expect(attemptedRooms).toEqual(roomCodes);
     expect(db.accounts.get(accountId)?.status).toBe('disabled');
     expect([...db.proRoomLinks.values()].map((row) => row.room_code)).toEqual([failedRoom]);
 
@@ -2359,29 +2456,12 @@ describe('account session mutations', () => {
       },
     );
 
-    expect(deletionAccepted?.status).toBe(202);
-    await expect(deletionAccepted!.json()).resolves.toEqual({ ok: true, pending: true });
-    expect(db.accounts.get(accountId)?.status).toBe('disabled');
-    expect(db.sessions.size).toBe(0);
-    expect(db.accountDeletions.has(accountId)).toBe(true);
-
-    for (let pass = 0; pass < 8; pass += 1) {
-      await expect(
-        cleanupPendingAccountDeletions(env, {
-          purgeProRoomAccountAuthority: async ({ roomCode }: { roomCode: string }) => {
-            purged.push(roomCode);
-            return true;
-          },
-        }),
-      ).resolves.toMatchObject({
-        configured: true,
-        processedAccounts: 1,
-        failedEdges: 0,
-      });
-    }
-
+    expect(deletionAccepted?.status).toBe(200);
+    await expect(deletionAccepted!.json()).resolves.toEqual({ ok: true });
     expect(purged).toEqual(roomCodes);
     expect(db.accounts.has(accountId)).toBe(false);
+    expect(db.sessions.size).toBe(0);
+    expect(db.accountDeletions.has(accountId)).toBe(false);
     expect(db.proRoomLinks.size).toBe(0);
   });
 
@@ -2416,9 +2496,9 @@ describe('account session mutations', () => {
       },
     );
 
-    expect(response?.status).toBe(503);
+    expect(response?.status).toBe(202);
     expect(db.accountDeletions.get(accountId)).toBe(takeoverFence);
-    expect(db.accounts.has(accountId)).toBe(true);
+    expect(db.accounts.get(accountId)?.status).toBe('disabled');
   });
 
   it('expires sessions and OAuth states in scheduled cleanup', async () => {

@@ -72,6 +72,8 @@ const fr: Record<I18nKey, string> = {
   'account.delete_confirm_title': 'Supprimer votre compte ?',
   'account.delete_confirm_message':
     'Votre pseudo, vos sessions de connexion et les droits de salon liés à votre compte seront supprimés. Le contenu partagé dans un salon suit la politique de conservation de ce salon.',
+  'account.delete_pending':
+    'Votre compte est en cours de suppression. Les droits PRO sont retirés en toute sécurité et la suppression se terminera automatiquement.',
   'common.previous': 'Précédent',
   'common.next_desc': 'Suivant',
   'common.volume_percent': 'Volume : {{val}}%',
@@ -615,10 +617,27 @@ const fr: Record<I18nKey, string> = {
   'pro.claim_retry_title': 'Réessayer avec le lien PRO ?',
   'pro.claim_retry_message':
     'La connexion a été interrompue. Le lien est conservé en sécurité uniquement sur cet écran, vous pouvez donc réessayer.',
-  'pro.request_new_link': 'Demander un nouveau lien',
   'pro.claim_unavailable_title': 'Ce lien ne peut plus être utilisé',
+  'pro.claim_login_title': 'Connectez-vous d’abord',
+  'pro.claim_login_button': 'Se connecter',
+  'pro.claim_login_message':
+    'Connectez-vous avec le compte qui possédera cette salle PRO et terminez la configuration du pseudo. Le lien reste uniquement dans la mémoire de cet onglet.',
+  'pro.claim_popup_blocked_message':
+    'Le navigateur a bloqué la fenêtre de connexion. Autorisez les fenêtres contextuelles pour MUSIXQUARE, puis réessayez.',
+  'pro.claim_account_conflict_title': 'Ce compte ne peut pas utiliser la salle',
+  'pro.claim_account_conflict_message':
+    'Cette salle est liée à un autre compte. Pour la modifier, demandez à un administrateur de transférer la propriété.',
+  'pro.claim_account_capacity_title': 'Ce compte ne peut pas lier une autre salle',
+  'pro.claim_account_capacity_message':
+    'Ce compte a atteint sa limite de salles PRO liées. Supprimez un lien existant, puis demandez-en un nouveau.',
+  'pro.claim_failed_title': 'Impossible de terminer la demande',
+  'pro.claim_failed_message':
+    'Par sécurité, ce lien n’a pas été réessayé. Demandez un nouveau lien à l’administrateur de la salle.',
+  'pro.transfer_title': 'Devenir propriétaire de la salle PRO',
+  'pro.transfer_message':
+    'Définissez un nouveau mot de passe à 8 chiffres. L’accès de l’ancien propriétaire sera révoqué à la fin.',
   'pro.new_link_message':
-    'Demandez à la personne qui vous a envoyé le lien un nouveau lien d’activation ou de récupération.',
+    'Le lien a expiré ou a déjà été utilisé. Si nécessaire, demandez-en un nouveau à un administrateur.',
   'pro.not_ready_title': 'Cette salle PRO n’est pas encore prête',
   'pro.not_ready_message': 'Le propriétaire doit d’abord l’activer.',
   'pro.suspended_title': 'Cette salle PRO est indisponible',

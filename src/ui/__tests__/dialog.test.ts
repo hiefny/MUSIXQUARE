@@ -2,6 +2,11 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const STYLE_SOURCE = readFileSync(resolve('css/style.css'), 'utf8');
+const INDEX_SOURCE = readFileSync(resolve('index.html'), 'utf8');
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -54,6 +59,27 @@ afterEach(() => {
 });
 
 describe('Dialog System', () => {
+  it('keeps the common modal accessible and stacks its primary action first on narrow screens', () => {
+    const dialogMarkup = INDEX_SOURCE.slice(
+      INDEX_SOURCE.indexOf('id="dialog-overlay"'),
+      INDEX_SOURCE.indexOf('id="signaling-recovery-overlay"'),
+    );
+    expect(dialogMarkup).toContain('role="dialog"');
+    expect(dialogMarkup).toContain('aria-modal="true"');
+    expect(dialogMarkup).toContain('aria-labelledby="dialog-title"');
+    expect(dialogMarkup).toContain('aria-describedby="dialog-message"');
+    expect(dialogMarkup.indexOf('id="btn-dialog-secondary"')).toBeLessThan(
+      dialogMarkup.indexOf('id="btn-dialog-ok"'),
+    );
+    expect(STYLE_SOURCE).toMatch(/\.dialog-message\s*\{[^}]*word-break:\s*keep-all;/s);
+    expect(STYLE_SOURCE).toMatch(
+      /@media \(max-width:\s*420px\)[\s\S]*?\.dialog-actions\s*\{[^}]*flex-direction:\s*column-reverse;[^}]*align-items:\s*stretch;/,
+    );
+    expect(STYLE_SOURCE).toMatch(
+      /\.dialog-primary,\s*\.dialog-secondary\s*\{[^}]*white-space:\s*nowrap;[^}]*overflow-wrap:\s*normal;/s,
+    );
+  });
+
   describe('showDialog()', () => {
     it('runs the primary activation hook synchronously before resolving', async () => {
       const { showDialog } = await import('../dialog.ts');

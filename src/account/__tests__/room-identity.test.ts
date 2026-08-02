@@ -110,6 +110,11 @@ describe('account identity room projection', () => {
     bus.emit('account:deleted');
 
     expect(deleteStandardRoomIdentity).toHaveBeenCalledOnce();
+
+    deleteStandardRoomIdentity.mockClear();
+    bus.emit('account:deletion-pending');
+
+    expect(deleteStandardRoomIdentity).toHaveBeenCalledOnce();
   });
 
   it('asks the server even after another tab became anonymous so tombstoned cookies can revoke', async () => {

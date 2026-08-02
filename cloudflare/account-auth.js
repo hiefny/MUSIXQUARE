@@ -38,7 +38,6 @@ const ACCOUNT_SESSION_MAX_PER_ACCOUNT = 128;
 // inline; larger jobs revoke login immediately and drain exact incarnation
 // edges from the scheduled App Worker continuation.
 const ACCOUNT_PRO_ROOM_LINK_MAX_PER_ACCOUNT = 1000;
-const ACCOUNT_DELETE_INLINE_LINK_LIMIT = 32;
 const ACCOUNT_DELETE_JOB_EDGE_LIMIT = 128;
 const ACCOUNT_DELETE_JOB_MAX_ACCOUNTS = 2;
 const ACCOUNT_DELETE_JOB_CONCURRENCY = 16;
@@ -402,6 +401,10 @@ function resolveAuthConfig(env) {
     stateSecret,
     redirectUri,
   };
+}
+
+export function isAccountAuthConfigured(env) {
+  return resolveAuthConfig(env).configured === true;
 }
 
 function sanitizeReturnTo(value, redirectUri) {
@@ -1438,12 +1441,16 @@ async function handleAccountDelete(request, config, integrations = {}) {
     return authJson({ error: 'ACCOUNT_DELETE_CONFIRMATION_REQUIRED' }, 400);
   }
   let fencedAccountId = null;
+  let deletingAccountId = null;
   let deletionStartedAt = null;
+  let deletionCommitted = false;
+  let deletionSessionToken = null;
   try {
     const resolved = await requireSession(request, config);
     if (resolved.error) return resolved.error;
     const accountId = resolved.session.accountId;
-    const deletionSessionToken = readCookie(request, AUTH_SESSION_COOKIE);
+    deletingAccountId = accountId;
+    deletionSessionToken = readCookie(request, AUTH_SESSION_COOKIE);
     deletionStartedAt = Date.now();
     const deletionFence = await d1Run(
       config.db,
@@ -1469,7 +1476,7 @@ async function handleAccountDelete(request, config, integrations = {}) {
     if (linkedRooms.length > 0 && typeof purgeProRoomAccountAuthority !== 'function') {
       throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
     }
-    if (linkedRooms.length > ACCOUNT_DELETE_INLINE_LINK_LIMIT) {
+    if (linkedRooms.length > 0) {
       const tombstoneExpiresAt = deletionStartedAt + ACCOUNT_DELETED_SESSION_TTL_SECONDS * 1000;
       const [disabled] = await d1Batch(config.db, [
         {
@@ -1483,11 +1490,21 @@ async function handleAccountDelete(request, config, integrations = {}) {
       if (d1ChangeCount(disabled) !== 1) {
         throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
       }
-      // From this point the deletion is committed from the user's perspective:
-      // sessions and attachment authority are revoked. The durable D1 fence
-      // remains until the scheduled continuation has purged every exact room
-      // incarnation and removed the account row.
+      // No irreversible external purge may run until account authority and all
+      // sessions have been durably revoked. From this point deletion is
+      // committed from the user's perspective and the D1 job fence must never
+      // be rolled back: scheduled cleanup can safely retry every exact room
+      // incarnation until the account row is finally removed.
+      deletionCommitted = true;
       fencedAccountId = null;
+    }
+    const cleanup = await purgeAccountProRoomLinks(
+      config.db,
+      accountId,
+      linkedRooms,
+      purgeProRoomAccountAuthority,
+    );
+    if (cleanup.failed !== 0 || cleanup.purged !== linkedRooms.length) {
       try {
         integrations?.deferAccountDeletion?.(accountId);
       } catch {
@@ -1499,15 +1516,6 @@ async function handleAccountDelete(request, config, integrations = {}) {
           : clearCookie(AUTH_SESSION_COOKIE),
       ]);
     }
-    const cleanup = await purgeAccountProRoomLinks(
-      config.db,
-      accountId,
-      linkedRooms,
-      purgeProRoomAccountAuthority,
-    );
-    if (cleanup.failed !== 0 || cleanup.purged !== linkedRooms.length) {
-      throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
-    }
     await finalizeAccountDeletion(config.db, accountId, deletionStartedAt);
     fencedAccountId = null;
     return appendSetCookies(authJson({ ok: true }), [
@@ -1516,6 +1524,18 @@ async function handleAccountDelete(request, config, integrations = {}) {
         : clearCookie(AUTH_SESSION_COOKIE),
     ]);
   } catch (error) {
+    if (deletionCommitted) {
+      try {
+        integrations?.deferAccountDeletion?.(deletingAccountId);
+      } catch {
+        // The minute cron independently resumes every durable deletion job.
+      }
+      return appendSetCookies(authJson({ ok: true, pending: true }, 202), [
+        deletionSessionToken && SESSION_TOKEN_RE.test(deletionSessionToken)
+          ? deletedSessionCookie(deletionSessionToken)
+          : clearCookie(AUTH_SESSION_COOKIE),
+      ]);
+    }
     if (fencedAccountId && Number.isSafeInteger(deletionStartedAt)) {
       await d1Run(
         config.db,
@@ -1728,6 +1748,37 @@ export async function retireAccountProRoomLinks(env, roomCode, roomGeneration) {
   return retireAccountProRoomLinkBatch(env, [{ roomCode, roomGeneration }]);
 }
 
+/**
+ * Retire one account's cleanup edge after an ownership transfer commits.
+ * Unlike retireAccountProRoomLinks(), this must never remove the target
+ * owner's edge (or another administrator's conservative cleanup edge) for the
+ * same live room incarnation.
+ */
+export async function retireAccountProRoomLinkForAccount(
+  env,
+  accountId,
+  roomCode,
+  roomGeneration,
+) {
+  const db = env?.MUSIXQUARE_AUTH_DB;
+  if (
+    !db ||
+    typeof db.prepare !== 'function' ||
+    !ACCOUNT_ID_RE.test(accountId || '') ||
+    !/^0\d{5}$/.test(roomCode || '') ||
+    !isProRoomGeneration(roomGeneration)
+  ) {
+    return false;
+  }
+  await d1Run(
+    db,
+    `DELETE FROM ${PRO_ROOM_GENERATION_LINK_TABLE}
+      WHERE account_id = ?1 AND room_code = ?2 AND room_generation = ?3`,
+    [accountId, roomCode, roomGeneration],
+  );
+  return true;
+}
+
 export async function retireAccountProRoomLinkBatch(env, incarnations) {
   const db = env?.MUSIXQUARE_AUTH_DB;
   if (!db || typeof db.prepare !== 'function') {
@@ -1765,11 +1816,11 @@ export async function retireAccountProRoomLinkBatch(env, incarnations) {
 }
 
 /**
- * Resume durable account-deletion jobs created when the reverse-index fan-out
- * is too large for a browser's request deadline. Login/session authority is
- * already revoked before a job is visible here. Every successful PRO purge is
- * followed by deletion of that exact generation edge; failures remain queued
- * and are retried by the next minute cron.
+ * Resume durable account-deletion jobs created for large reverse-index fan-out
+ * or retained after any partial inline cleanup. Login/session authority is
+ * already revoked before an irreversible PRO purge begins. Every successful
+ * purge is followed by deletion of that exact generation edge; failures remain
+ * queued and are retried by the next minute cron.
  */
 export async function cleanupPendingAccountDeletions(env, integrations = {}, options = {}) {
   const db = env?.MUSIXQUARE_AUTH_DB;

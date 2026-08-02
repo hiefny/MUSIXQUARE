@@ -68,6 +68,8 @@ const tr: Record<I18nKey, string> = {
   'account.delete_confirm_title': 'Hesabın silinsin mi?',
   'account.delete_confirm_message':
     'Takma adın, oturum açma oturumların ve hesaba bağlı oda izinlerin silinecek. Bir odada paylaşılan içerik o odanın saklama politikasına tabidir.',
+  'account.delete_pending':
+    'Hesabın siliniyor. PRO izinleri güvenli şekilde temizleniyor ve silme işlemi otomatik olarak tamamlanacak.',
   'common.previous': 'Önceki',
   'common.next_desc': 'Sonraki',
   'common.volume_percent': 'Ses Seviyesi: %{{val}}',
@@ -671,10 +673,27 @@ const tr: Record<I18nKey, string> = {
   'pro.claim_retry_title': 'PRO bağlantısıyla tekrar denensin mi?',
   'pro.claim_retry_message':
     'Bağlantı kesildi. Bağlantı yalnızca bu ekranda güvenle tutulduğu için tekrar deneyebilirsiniz.',
-  'pro.request_new_link': 'Yeni bağlantı iste',
   'pro.claim_unavailable_title': 'Bu bağlantı artık kullanılamaz',
+  'pro.claim_login_title': 'Önce giriş yapın',
+  'pro.claim_login_button': 'Giriş yap',
+  'pro.claim_login_message':
+    'Bu PRO odasının sahibi olacak hesapla giriş yapın ve takma ad ayarını tamamlayın. Bağlantı yalnızca bu sekmenin belleğinde tutulur.',
+  'pro.claim_popup_blocked_message':
+    'Tarayıcı giriş penceresini engelledi. MUSIXQUARE için açılır pencerelere izin verip tekrar deneyin.',
+  'pro.claim_account_conflict_title': 'Bu hesap odayı kullanamaz',
+  'pro.claim_account_conflict_message':
+    'Bu oda başka bir hesaba bağlı. Değiştirmeniz gerekiyorsa yöneticiden sahipliği aktarmasını isteyin.',
+  'pro.claim_account_capacity_title': 'Bu hesaba başka bir oda bağlanamıyor',
+  'pro.claim_account_capacity_message':
+    'Bu hesap PRO oda bağlantı sınırına ulaştı. Mevcut bir bağlantıyı kaldırıp yeni bağlantı isteyin.',
+  'pro.claim_failed_title': 'İstek tamamlanamadı',
+  'pro.claim_failed_message':
+    'Güvenlik için bu bağlantı yeniden denenmedi. Oda yöneticisinden yeni bir bağlantı isteyin.',
+  'pro.transfer_title': 'PRO odasının sahipliğini devral',
+  'pro.transfer_message':
+    'Yeni bir 8 haneli parola belirleyin. Tamamlandığında önceki sahibin erişimi kaldırılır.',
   'pro.new_link_message':
-    'Bağlantıyı gönderen kişiden yeni bir etkinleştirme veya kurtarma bağlantısı isteyin.',
+    'Bağlantının süresi dolmuş veya bağlantı daha önce kullanılmış. Gerekirse yöneticiden yeni bir bağlantı isteyin.',
   'pro.not_ready_title': 'Bu PRO odası henüz hazır değil',
   'pro.not_ready_message': 'Önce oda sahibinin etkinleştirmesi gerekiyor.',
   'pro.suspended_title': 'Bu PRO odası şu anda kullanılamıyor',

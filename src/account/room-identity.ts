@@ -48,10 +48,12 @@ export function initAccountRoomIdentity(): void {
   _busScope.dispose();
   _busScope.on('state:setup.sessionStarted', refreshCurrentStandardRoomIdentity);
   _busScope.on('setup:guest-join-success', refreshCurrentStandardRoomIdentity);
-  _busScope.on('account:deleted', () => {
+  const deleteCurrentStandardRoomIdentity = () => {
     if (!getState('setup.sessionStarted') || getRoomContext().kind === 'pro') return;
     getPeer()?.deleteStandardRoomIdentity?.();
-  });
+  };
+  _busScope.on('account:deleted', deleteCurrentStandardRoomIdentity);
+  _busScope.on('account:deletion-pending', deleteCurrentStandardRoomIdentity);
   refreshCurrentStandardRoomIdentity();
 }
 

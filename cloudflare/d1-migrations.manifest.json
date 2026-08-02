@@ -4,9 +4,9 @@
     {
       "database": "musixquare-admin-metrics",
       "baseline": "cloudflare/admin-metrics.schema.sql",
-      "baselineRevision": 2,
-      "baselineSha256": "1143796202947e9e2101d86c37a71e4a3b8032dfb2f2fdfdcdbe24b869ea9904",
-      "baselineMigration": "admin-pro-room-generation-v1",
+      "baselineRevision": 3,
+      "baselineSha256": "33a8afa18bd7aac20bcdf9be3ecc3755aee19d1c8f34a8dedc4471c44f2f9606",
+      "baselineMigration": "admin-pro-room-owner-transfer-saga-v1",
       "baselineRecovery": {
         "strategy": "roll-forward-or-provider-restore",
         "runbook": "cloudflare/admin-dashboard-ops.md",
@@ -24,6 +24,32 @@
             "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
             "runbook": "cloudflare/admin-dashboard-ops.md",
             "note": "Once the reuse cutover is enabled, every control-plane and data-plane Worker must remain generation-aware; recovery rolls forward or restores the provider database with the matched Worker floor."
+          }
+        },
+        {
+          "id": "admin-pro-room-suspension-reason-v1",
+          "forward": "cloudflare/admin-metrics.suspension-reason.migration.sql",
+          "forwardSha256": "f7fb36baa865a44ebd11dbcfcfc641ecbbc3406eb3d413091bb2f481145b2a35",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
+            "runbook": "cloudflare/admin-dashboard-ops.md",
+            "note": "Canonical suspension reasons prevent operator resume from crossing owner-deletion and ownership-transfer fences; recovery preserves the matched App and PRO Worker floor."
+          }
+        },
+        {
+          "id": "admin-pro-room-owner-transfer-saga-v1",
+          "forward": "cloudflare/admin-metrics.owner-transfer-saga.migration.sql",
+          "forwardSha256": "97c6d32b66e73e570bdc0032d1f0dde7bddb07e66640126f4bfc0ebc65c4702f",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
+            "runbook": "cloudflare/admin-dashboard-ops.md",
+            "note": "The secret-free transfer journal is required to finish committed ownership changes after response loss; recovery keeps it with the matched App and PRO Worker floor."
           }
         }
       ]
@@ -97,9 +123,9 @@
     {
       "database": "musixquare-developer-api",
       "baseline": "cloudflare/developer-api.schema.sql",
-      "baselineRevision": 4,
-      "baselineSha256": "1e0ff710b62242edc2ee2bdf28f3ba2acfbdc1a30937ed0e77a69e0441f42c05",
-      "baselineMigration": "developer-api-launch-cleanup-v1",
+      "baselineRevision": 5,
+      "baselineSha256": "0eec214999f873b12afab974744c0c549c34e6ef9fcf85564ab25d724dbe70d8",
+      "baselineMigration": "developer-api-authority-epoch-v1",
       "baselineRecovery": {
         "strategy": "roll-forward-or-provider-restore",
         "runbook": "cloudflare/config-drift-ops.md",
@@ -143,6 +169,32 @@
             "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
             "runbook": "cloudflare/config-drift-ops.md",
             "note": "The launch contract keeps only generation-aware Developer API tombstones; recovery rolls forward with the matched Worker set or restores the provider database."
+          }
+        },
+        {
+          "id": "developer-api-authority-fence-v1",
+          "forward": "cloudflare/developer-api.authority-fence.migration.sql",
+          "forwardSha256": "3961ac3ab769fc7e2693d67dcdc554b0aff488dd1f5d31a45cb5d9d28899cc7d",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
+            "runbook": "cloudflare/config-drift-ops.md",
+            "note": "Ownership authority fences serialize key issuance with transfer and account-deletion revocation; recovery keeps the matched App/PRO Worker floor and rolls forward."
+          }
+        },
+        {
+          "id": "developer-api-authority-epoch-v1",
+          "forward": "cloudflare/developer-api.authority-epoch.migration.sql",
+          "forwardSha256": "2210f66ea1fef80e43bf7b1f9dabf6f24c4100112c3763e79d180c71bc47ee2d",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
+            "runbook": "cloudflare/config-drift-ops.md",
+            "note": "Every Developer API key is permanently bound to the canonical PRO owner-authority epoch; recovery preserves the matched PRO, Facade, Developer API and App Worker floor."
           }
         }
       ]

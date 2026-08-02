@@ -270,6 +270,229 @@ jobs:
             release-artifacts/deployments/pro-room-generation-cutover-rollout-fenced.json \
             disabled
 
+      - name: Apply and verify PRO suspension-reason D1 contract
+        timeout-minutes: 10
+        if: inputs.target == 'all'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::The production environment secret CLOUDFLARE_D1_API_TOKEN is not configured."
+            exit 1
+          fi
+          probe_file='release-artifacts/deployments/admin-suspension-reason-before.json'
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "SELECT COUNT(*) AS column_count FROM pragma_table_info('mxqr_pro_room_registry') WHERE name = 'suspension_reason'" \
+            | node scripts/capture-wrangler-d1-json.mjs "$probe_file"
+          column_count="$(jq -er '.[0].results[0].column_count | tonumber' "$probe_file")"
+          if [[ "$column_count" == '0' ]]; then
+            npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+              --remote --config cloudflare/wrangler.app.toml \
+              --file cloudflare/admin-metrics.suspension-reason.migration.sql
+          elif [[ "$column_count" == '1' ]]; then
+            # A previous attempt can commit ALTER TABLE before a later
+            # statement fails. Rebuild the idempotent post-ALTER tail so a
+            # workflow rerun repairs/backfills instead of repeating ALTER.
+            repair_file='release-artifacts/deployments/admin-suspension-reason-repair.sql'
+            awk '
+              /^UPDATE mxqr_pro_room_registry$/ { emit = 1 }
+              emit {
+                if ($0 == "CREATE TRIGGER mxqr_pro_room_registry_suspension_reason_insert_guard") {
+                  print "DROP TRIGGER IF EXISTS mxqr_pro_room_registry_suspension_reason_insert_guard;"
+                }
+                if ($0 == "CREATE TRIGGER mxqr_pro_room_registry_suspension_reason_update_guard") {
+                  print "DROP TRIGGER IF EXISTS mxqr_pro_room_registry_suspension_reason_update_guard;"
+                }
+                print
+              }
+            ' cloudflare/admin-metrics.suspension-reason.migration.sql > "$repair_file"
+            grep -Fq 'DROP TRIGGER IF EXISTS mxqr_pro_room_registry_suspension_reason_insert_guard;' "$repair_file"
+            grep -Fq 'DROP TRIGGER IF EXISTS mxqr_pro_room_registry_suspension_reason_update_guard;' "$repair_file"
+            npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+              --remote --config cloudflare/wrangler.app.toml --file "$repair_file"
+          else
+            echo "::error::Unexpected suspension_reason column count: $column_count"
+            exit 1
+          fi
+
+          verify_file='release-artifacts/deployments/admin-suspension-reason-verified.json'
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "SELECT (SELECT COUNT(*) FROM pragma_table_info('mxqr_pro_room_registry') WHERE name = 'suspension_reason') AS column_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('mxqr_pro_room_registry_suspension_reason_insert_guard', 'mxqr_pro_room_registry_suspension_reason_update_guard')) AS trigger_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('mxqr_pro_room_registry_suspension_reason_insert_guard', 'mxqr_pro_room_registry_suspension_reason_update_guard') AND instr(lower(sql), 'new.suspension_reason is null') > 0) AS null_guard_count, (SELECT COUNT(*) FROM mxqr_pro_room_registry WHERE status = 'suspended' AND (suspension_reason IS NULL OR suspension_reason NOT IN ('operator_suspended', 'owner_account_deleted', 'ownership_transfer_pending'))) AS invalid_suspended_count, (SELECT COUNT(*) FROM mxqr_pro_room_registry WHERE status <> 'suspended' AND suspension_reason IS NOT NULL) AS invalid_active_count" \
+            | node scripts/capture-wrangler-d1-json.mjs "$verify_file"
+          jq -e '
+            .[0].results[0]
+            | (.column_count | tonumber) == 1
+              and (.trigger_count | tonumber) == 2
+              and (.null_guard_count | tonumber) == 2
+              and (.invalid_suspended_count | tonumber) == 0
+              and (.invalid_active_count | tonumber) == 0
+          ' "$verify_file" >/dev/null || {
+            echo '::error::The production suspension-reason schema/backfill contract is incomplete.'
+            jq '.[0].results[0]' "$verify_file"
+            exit 1
+          }
+
+      - name: Apply and verify owner-transfer saga D1 contract
+        timeout-minutes: 10
+        if: inputs.target == 'all'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::The production environment secret CLOUDFLARE_D1_API_TOKEN is not configured."
+            exit 1
+          fi
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --config cloudflare/wrangler.app.toml \
+            --file cloudflare/admin-metrics.owner-transfer-saga.migration.sql
+          verify_file='release-artifacts/deployments/admin-owner-transfer-saga-verified.json'
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('mxqr_pro_room_owner_transfer_sagas', 'mxqr_pro_room_owner_transfer_issuances')) AS table_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name IN ('idx_mxqr_pro_room_owner_transfer_sagas_txn', 'idx_mxqr_pro_room_owner_transfer_sagas_state_updated', 'idx_mxqr_pro_room_owner_transfer_issuances_txn', 'idx_mxqr_pro_room_owner_transfer_issuances_state_expiry')) AS index_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('trg_mxqr_pro_room_owner_transfer_issuance_expiry_audit', 'trg_mxqr_pro_room_owner_transfer_saga_expiry_audit') AND instr(lower(sql), 'new.state = ''expired''') > 0 AND instr(lower(sql), 'mxqr_pro_room_admin_audit') > 0) AS trigger_count, (SELECT COUNT(*) FROM pragma_table_info('mxqr_pro_room_owner_transfer_sagas') WHERE lower(name) IN ('claim_token', 'claim_nonce', 'commit_proof', 'pin', 'cookie', 'revocation_receipt')) + (SELECT COUNT(*) FROM pragma_table_info('mxqr_pro_room_owner_transfer_issuances') WHERE lower(name) IN ('claim_token', 'claim_nonce', 'commit_proof', 'pin', 'cookie', 'revocation_receipt')) AS secret_column_count" \
+            | node scripts/capture-wrangler-d1-json.mjs "$verify_file"
+          jq -e '
+            .[0].results[0]
+            | (.table_count | tonumber) == 2
+              and (.index_count | tonumber) == 4
+              and (.trigger_count | tonumber) == 2
+              and (.secret_column_count | tonumber) == 0
+          ' "$verify_file" >/dev/null || {
+            echo '::error::The production owner-transfer saga schema contract is incomplete.'
+            jq '.[0].results[0]' "$verify_file"
+            exit 1
+          }
+
+      - name: Apply and verify Developer API authority-fence D1 contract
+        timeout-minutes: 10
+        if: inputs.target == 'all' || inputs.target == 'developer-api'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::The production environment secret CLOUDFLARE_D1_API_TOKEN is not configured."
+            exit 1
+          fi
+          probe_file='release-artifacts/deployments/developer-api-authority-fence-before.json'
+          npm run --silent wrangler -- d1 execute musixquare-developer-api \
+            --remote --json --config cloudflare/wrangler.developer-api.toml \
+            --command "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'mxqr_developer_api_room_authority_fences') AS table_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_mxqr_developer_api_room_authority_fences_status') AS index_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('trg_mxqr_developer_api_keys_authority_fenced_insert', 'trg_mxqr_developer_api_keys_authority_fenced_update')) AS trigger_count" \
+            | node scripts/capture-wrangler-d1-json.mjs "$probe_file"
+          table_count="$(jq -er '.[0].results[0].table_count | tonumber' "$probe_file")"
+          index_count="$(jq -er '.[0].results[0].index_count | tonumber' "$probe_file")"
+          trigger_count="$(jq -er '.[0].results[0].trigger_count | tonumber' "$probe_file")"
+          if [[ "$table_count" == '0' ]]; then
+            if [[ "${{ inputs.apply_developer_api_d1 }}" != 'true' ]]; then
+              echo '::error::Developer API authority fence is missing; rerun with apply_developer_api_d1 enabled.'
+              exit 1
+            fi
+            npm run --silent wrangler -- d1 execute musixquare-developer-api \
+              --remote --config cloudflare/wrangler.developer-api.toml \
+              --file cloudflare/developer-api.authority-fence.migration.sql
+          elif [[ "$table_count" == '1' && ( "$index_count" != '1' || "$trigger_count" != '2' ) ]]; then
+            if [[ "${{ inputs.apply_developer_api_d1 }}" != 'true' ]]; then
+              echo '::error::Developer API authority fence is incomplete; rerun with apply_developer_api_d1 enabled.'
+              exit 1
+            fi
+            # CREATE TABLE can commit before a later statement fails. Repair
+            # only the idempotent tail on a workflow retry; never recreate or
+            # replace the authority rows themselves.
+            repair_file='release-artifacts/deployments/developer-api-authority-fence-repair.sql'
+            awk '
+              /^CREATE INDEX / { emit = 1 }
+              emit {
+                if ($0 ~ /^CREATE INDEX /) sub(/^CREATE INDEX /, "CREATE INDEX IF NOT EXISTS ");
+                if ($0 ~ /^CREATE TRIGGER /) sub(/^CREATE TRIGGER /, "CREATE TRIGGER IF NOT EXISTS ");
+                print
+              }
+            ' cloudflare/developer-api.authority-fence.migration.sql > "$repair_file"
+            grep -Fq 'CREATE INDEX IF NOT EXISTS idx_mxqr_developer_api_room_authority_fences_status' "$repair_file"
+            grep -Fq 'CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_authority_fenced_insert' "$repair_file"
+            grep -Fq 'CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_authority_fenced_update' "$repair_file"
+            npm run --silent wrangler -- d1 execute musixquare-developer-api \
+              --remote --config cloudflare/wrangler.developer-api.toml --file "$repair_file"
+          elif [[ "$table_count" != '1' || "$index_count" != '1' || "$trigger_count" != '2' ]]; then
+            echo "::error::Unexpected Developer API authority-fence schema state: table=$table_count index=$index_count triggers=$trigger_count"
+            exit 1
+          fi
+
+          verify_file='release-artifacts/deployments/developer-api-authority-fence-verified.json'
+          npm run --silent wrangler -- d1 execute musixquare-developer-api \
+            --remote --json --config cloudflare/wrangler.developer-api.toml \
+            --command "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'mxqr_developer_api_room_authority_fences' AND instr(lower(sql), 'primary key (room_code, room_generation)') > 0 AND instr(lower(sql), 'status in (''active'', ''cleared'')') > 0) AS table_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_mxqr_developer_api_room_authority_fences_status') AS index_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('trg_mxqr_developer_api_keys_authority_fenced_insert', 'trg_mxqr_developer_api_keys_authority_fenced_update') AND instr(lower(sql), 'developer_api_authority_fenced') > 0) AS trigger_count, (SELECT COUNT(*) FROM mxqr_developer_api_room_authority_fences WHERE status NOT IN ('active', 'cleared') OR reason NOT IN ('owner_account_deleted', 'ownership_transfer_pending')) AS invalid_fence_count" \
+            | node scripts/capture-wrangler-d1-json.mjs "$verify_file"
+          jq -e '
+            .[0].results[0]
+            | (.table_count | tonumber) == 1
+              and (.index_count | tonumber) == 1
+              and (.trigger_count | tonumber) == 2
+              and (.invalid_fence_count | tonumber) == 0
+          ' "$verify_file" >/dev/null || {
+            echo '::error::The production Developer API authority-fence contract is incomplete.'
+            jq '.[0].results[0]' "$verify_file"
+            exit 1
+          }
+
+      - name: Apply and verify Developer API authority-epoch D1 contract
+        timeout-minutes: 10
+        if: inputs.target == 'all' || inputs.target == 'developer-api'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::The production environment secret CLOUDFLARE_D1_API_TOKEN is not configured."
+            exit 1
+          fi
+          probe_file='release-artifacts/deployments/developer-api-authority-epoch-before.json'
+          npm run --silent wrangler -- d1 execute musixquare-developer-api \
+            --remote --json --config cloudflare/wrangler.developer-api.toml \
+            --command "SELECT (SELECT COUNT(*) FROM pragma_table_info('mxqr_developer_api_keys') WHERE name = 'authority_epoch') AS column_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'trg_mxqr_developer_api_keys_authority_epoch_immutable') AS trigger_count" \
+            | node scripts/capture-wrangler-d1-json.mjs "$probe_file"
+          column_count="$(jq -er '.[0].results[0].column_count | tonumber' "$probe_file")"
+          trigger_count="$(jq -er '.[0].results[0].trigger_count | tonumber' "$probe_file")"
+          if [[ "$column_count" == '0' ]]; then
+            if [[ "${{ inputs.apply_developer_api_d1 }}" != 'true' ]]; then
+              echo '::error::Developer API authority_epoch is missing; rerun with apply_developer_api_d1 enabled.'
+              exit 1
+            fi
+            npm run --silent wrangler -- d1 execute musixquare-developer-api \
+              --remote --config cloudflare/wrangler.developer-api.toml \
+              --file cloudflare/developer-api.authority-epoch.migration.sql
+          elif [[ "$column_count" == '1' && "$trigger_count" == '0' ]]; then
+            if [[ "${{ inputs.apply_developer_api_d1 }}" != 'true' ]]; then
+              echo '::error::Developer API authority_epoch trigger is missing; rerun with apply_developer_api_d1 enabled.'
+              exit 1
+            fi
+            npm run --silent wrangler -- d1 execute musixquare-developer-api \
+              --remote --config cloudflare/wrangler.developer-api.toml \
+              --command "CREATE TRIGGER IF NOT EXISTS trg_mxqr_developer_api_keys_authority_epoch_immutable BEFORE UPDATE OF authority_epoch ON mxqr_developer_api_keys WHEN NEW.authority_epoch <> OLD.authority_epoch BEGIN SELECT RAISE(ABORT, 'developer_api_key_authority_epoch_immutable'); END"
+          elif [[ "$column_count" != '1' || "$trigger_count" != '1' ]]; then
+            echo "::error::Unexpected Developer API authority epoch schema state: column=$column_count trigger=$trigger_count"
+            exit 1
+          fi
+
+          verify_file='release-artifacts/deployments/developer-api-authority-epoch-verified.json'
+          npm run --silent wrangler -- d1 execute musixquare-developer-api \
+            --remote --json --config cloudflare/wrangler.developer-api.toml \
+            --command "SELECT (SELECT COUNT(*) FROM pragma_table_info('mxqr_developer_api_keys') WHERE name = 'authority_epoch' AND \"notnull\" = 1 AND dflt_value = '0') AS column_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'mxqr_developer_api_keys' AND instr(lower(sql), 'authority_epoch integer not null default 0 check (authority_epoch >= 0)') > 0) AS constraint_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'trg_mxqr_developer_api_keys_authority_epoch_immutable' AND instr(lower(sql), 'new.authority_epoch <> old.authority_epoch') > 0) AS trigger_count, (SELECT COUNT(*) FROM mxqr_developer_api_keys WHERE authority_epoch < 0) AS invalid_epoch_count" \
+            | node scripts/capture-wrangler-d1-json.mjs "$verify_file"
+          jq -e '
+            .[0].results[0]
+            | (.column_count | tonumber) == 1
+              and (.constraint_count | tonumber) == 1
+              and (.trigger_count | tonumber) == 1
+              and (.invalid_epoch_count | tonumber) == 0
+          ' "$verify_file" >/dev/null || {
+            echo '::error::The production Developer API authority-epoch contract is incomplete.'
+            jq '.[0].results[0]' "$verify_file"
+            exit 1
+          }
+
       - name: Verify Developer API D1 migration credentials
         timeout-minutes: 10
         if: inputs.apply_developer_api_d1 && (inputs.target == 'all' || inputs.target == 'developer-api')

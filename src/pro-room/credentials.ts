@@ -4,6 +4,7 @@ const OPAQUE_TOKEN_RE = /^[A-Za-z0-9_-](?:[A-Za-z0-9._~-]{30,2046})[A-Za-z0-9_-]
 declare const memberTokenBrand: unique symbol;
 declare const claimTokenBrand: unique symbol;
 declare const ownerRecoveryClaimTokenBrand: unique symbol;
+declare const ownerTransferClaimTokenBrand: unique symbol;
 declare const signalingTicketBrand: unique symbol;
 
 /**
@@ -18,6 +19,11 @@ export type ProRoomClaimToken = string & { readonly [claimTokenBrand]: true };
 /** A one-time credential that replaces a lost owner browser session. */
 export type ProRoomOwnerRecoveryClaimToken = string & {
   readonly [ownerRecoveryClaimTokenBrand]: true;
+};
+
+/** A one-time credential that transfers room ownership to another account. */
+export type ProRoomOwnerTransferClaimToken = string & {
+  readonly [ownerTransferClaimTokenBrand]: true;
 };
 
 /** Short-lived, room/epoch-scoped credential consumed only by signaling. */
@@ -52,6 +58,13 @@ export function parseProRoomOwnerRecoveryClaimToken(
   value: unknown,
 ): ProRoomOwnerRecoveryClaimToken | null {
   return isOpaqueToken(value) ? (value as ProRoomOwnerRecoveryClaimToken) : null;
+}
+
+/** Format validation only; purpose, room binding, expiry, and replay stay server-owned. */
+export function parseProRoomOwnerTransferClaimToken(
+  value: unknown,
+): ProRoomOwnerTransferClaimToken | null {
+  return isOpaqueToken(value) ? (value as ProRoomOwnerTransferClaimToken) : null;
 }
 
 /** Format validation only; role, room, epoch, signature, and expiry stay server-owned. */

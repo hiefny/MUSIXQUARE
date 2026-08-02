@@ -78,7 +78,18 @@ describe('Translation key integrity', () => {
       'common.retry',
       'pro.claim_retry_title',
       'pro.claim_retry_message',
-      'pro.request_new_link',
+      'pro.claim_login_title',
+      'pro.claim_login_button',
+      'pro.claim_login_message',
+      'pro.claim_popup_blocked_message',
+      'pro.claim_account_conflict_title',
+      'pro.claim_account_conflict_message',
+      'pro.claim_account_capacity_title',
+      'pro.claim_account_capacity_message',
+      'pro.claim_failed_title',
+      'pro.claim_failed_message',
+      'pro.transfer_title',
+      'pro.transfer_message',
       'pro.claim_unavailable_title',
       'pro.new_link_message',
     ] as const;
@@ -445,6 +456,7 @@ describe('Translation key integrity', () => {
       'account.action_failed',
       'account.delete_confirm_title',
       'account.delete_confirm_message',
+      'account.delete_pending',
     ]);
 
     const placeholders = (value: string): string[] =>

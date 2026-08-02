@@ -70,6 +70,7 @@ const zhHant: Record<I18nKey, string> = {
   'account.delete_confirm_title': '刪除帳號？',
   'account.delete_confirm_message':
     '你的暱稱、登入工作階段以及與帳號連結的房間權限將被刪除。已在房間中分享的內容仍依該房間的保留政策處理。',
+  'account.delete_pending': '正在刪除你的帳號。系統正安全清理 PRO 權限，刪除作業將自動完成。',
   'common.previous': '上一個',
   'common.next_desc': '下一個',
   'common.volume_percent': '音量：{{val}}%',
@@ -575,9 +576,23 @@ const zhHant: Record<I18nKey, string> = {
   'pro.activation_pin_same': '請選擇與臨時密碼不同的密碼。',
   'pro.claim_retry_title': '要使用 PRO 連結重試嗎？',
   'pro.claim_retry_message': '連線已中斷。連結僅安全保留在此頁面中，你可以重試。',
-  'pro.request_new_link': '申請新連結',
   'pro.claim_unavailable_title': '此連結已無法使用',
-  'pro.new_link_message': '請向連結傳送者申請新的啟用或復原連結。',
+  'pro.claim_login_title': '請先登入',
+  'pro.claim_login_button': '登入',
+  'pro.claim_login_message':
+    '請使用將擁有此 PRO 房間的帳號登入，並完成暱稱設定。連結只會保留在此分頁的記憶體中。',
+  'pro.claim_popup_blocked_message':
+    '瀏覽器阻擋了登入視窗。請允許 MUSIXQUARE 彈出式視窗，然後重試。',
+  'pro.claim_account_conflict_title': '此帳號無法使用該房間',
+  'pro.claim_account_conflict_message': '此房間已連結其他帳號。如需變更，請聯絡管理員移轉所有權。',
+  'pro.claim_account_capacity_title': '此帳號無法再連結房間',
+  'pro.claim_account_capacity_message':
+    '此帳號已達 PRO 房間連結上限。請移除現有連結，然後申請新連結。',
+  'pro.claim_failed_title': '無法完成要求',
+  'pro.claim_failed_message': '為確保安全，系統未重試此連結。請向房間管理員申請新連結。',
+  'pro.transfer_title': '接管 PRO 房間所有權',
+  'pro.transfer_message': '請設定新的 8 位數密碼。完成後，原房主的存取權將被撤銷。',
+  'pro.new_link_message': '連結已過期或已被使用。如有需要，請向管理員申請新連結。',
   'pro.not_ready_title': '此 PRO 房間尚未準備好',
   'pro.not_ready_message': '房主需要先啟用房間。',
   'pro.suspended_title': '此 PRO 房間目前無法使用',

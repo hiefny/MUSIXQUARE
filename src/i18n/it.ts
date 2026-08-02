@@ -68,6 +68,8 @@ const it: Record<I18nKey, string> = {
   'account.delete_confirm_title': 'Eliminare il tuo account?',
   'account.delete_confirm_message':
     'Il nickname, le sessioni di accesso e i permessi delle stanze collegati all’account verranno eliminati. I contenuti condivisi in una stanza seguono la politica di conservazione di quella stanza.',
+  'account.delete_pending':
+    'Il tuo account è in fase di eliminazione. I permessi PRO vengono rimossi in sicurezza e l’eliminazione terminerà automaticamente.',
   'common.previous': 'Precedente',
   'common.next_desc': 'Successivo',
   'common.volume_percent': 'Volume: {{val}}%',
@@ -681,10 +683,27 @@ const it: Record<I18nKey, string> = {
   'pro.claim_retry_title': 'Riprovare con il link PRO?',
   'pro.claim_retry_message':
     'La connessione si è interrotta. Il link viene conservato in sicurezza solo in questa schermata, quindi puoi riprovare.',
-  'pro.request_new_link': 'Richiedi un nuovo link',
   'pro.claim_unavailable_title': 'Questo link non può più essere utilizzato',
+  'pro.claim_login_title': 'Prima accedi',
+  'pro.claim_login_button': 'Accedi',
+  'pro.claim_login_message':
+    "Accedi con l'account che sarà proprietario di questa stanza PRO e completa l'impostazione del nickname. Il link resta solo nella memoria di questa scheda.",
+  'pro.claim_popup_blocked_message':
+    'Il browser ha bloccato la finestra di accesso. Consenti i popup per MUSIXQUARE e riprova.',
+  'pro.claim_account_conflict_title': 'Questo account non può usare la stanza',
+  'pro.claim_account_conflict_message':
+    'Questa stanza è collegata a un altro account. Se vuoi cambiarlo, chiedi a un amministratore di trasferire la proprietà.',
+  'pro.claim_account_capacity_title': 'Questo account non può collegare un’altra stanza',
+  'pro.claim_account_capacity_message':
+    'Questo account ha raggiunto il limite di stanze PRO collegate. Rimuovi un collegamento esistente e richiedi un nuovo link.',
+  'pro.claim_failed_title': 'Impossibile completare la richiesta',
+  'pro.claim_failed_message':
+    'Per sicurezza, il link non è stato riprovato. Chiedi al gestore della stanza un nuovo link.',
+  'pro.transfer_title': 'Assumi la proprietà della stanza PRO',
+  'pro.transfer_message':
+    'Imposta una nuova password di 8 cifre. Al termine, l’accesso del precedente proprietario verrà revocato.',
   'pro.new_link_message':
-    'Chiedi a chi ti ha inviato il link un nuovo link di attivazione o recupero.',
+    'Il link è scaduto o è già stato usato. Se serve, chiedi a un amministratore un nuovo link.',
   'pro.not_ready_title': 'Questa stanza PRO non è ancora pronta',
   'pro.not_ready_message': 'Il proprietario deve prima attivarla.',
   'pro.suspended_title': 'Questa stanza PRO non è disponibile',

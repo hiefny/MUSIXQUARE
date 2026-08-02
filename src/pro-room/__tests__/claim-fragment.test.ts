@@ -16,22 +16,28 @@ describe('PRO room one-time claim fragments', () => {
 
     expect(takeProRoomClaimsFromFragment(location, history)).toEqual({
       activationClaimToken: VALID_CLAIM,
+      activationClaimPresent: true,
       ownerRecoveryClaimToken: null,
       ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: false,
     });
     expect(replaceState).toHaveBeenCalledWith({ test: true }, '', '/000001');
   });
 
-  it('consumes activation and recovery claims together while preserving the query', () => {
+  it('consumes activation, recovery, and transfer claims together while preserving the query', () => {
     const { location, history, replaceState } = harness(
-      `#view=setup&pro-claim=${VALID_CLAIM}&pro-recovery=${VALID_CLAIM}`,
+      `#view=setup&pro-claim=${VALID_CLAIM}&pro-recovery=${VALID_CLAIM}&pro-transfer=${VALID_CLAIM}`,
       '?lang=ko',
     );
 
     expect(takeProRoomClaimsFromFragment(location, history)).toEqual({
       activationClaimToken: VALID_CLAIM,
+      activationClaimPresent: true,
       ownerRecoveryClaimToken: VALID_CLAIM,
       ownerRecoveryClaimPresent: true,
+      ownerTransferClaimToken: VALID_CLAIM,
+      ownerTransferClaimPresent: true,
     });
     expect(replaceState).toHaveBeenCalledWith({ test: true }, '', '/000001?lang=ko');
   });
@@ -43,23 +49,76 @@ describe('PRO room one-time claim fragments', () => {
 
     expect(takeProRoomClaimsFromFragment(location, history)).toEqual({
       activationClaimToken: null,
+      activationClaimPresent: false,
       ownerRecoveryClaimToken: null,
       ownerRecoveryClaimPresent: true,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: false,
     });
     expect(replaceState).toHaveBeenCalledOnce();
   });
 
-  it('does not read either claim from the query string', () => {
+  it('scrubs a malformed activation claim while recording that activation was attempted', () => {
+    const { location, history, replaceState } = harness('#pro-claim=too-short');
+
+    expect(takeProRoomClaimsFromFragment(location, history)).toEqual({
+      activationClaimToken: null,
+      activationClaimPresent: true,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: false,
+    });
+    expect(replaceState).toHaveBeenCalledOnce();
+  });
+
+  it('rejects and scrubs every query-string claim without retaining its value', () => {
     const { location, history, replaceState } = harness(
       '',
-      `?pro-claim=${VALID_CLAIM}&pro-recovery=${VALID_CLAIM}`,
+      `?lang=ko&pro-claim=${VALID_CLAIM}&pro-recovery=${VALID_CLAIM}&pro-transfer=${VALID_CLAIM}`,
     );
 
     expect(takeProRoomClaimsFromFragment(location, history)).toEqual({
       activationClaimToken: null,
+      activationClaimPresent: true,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: true,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: true,
+    });
+    expect(replaceState).toHaveBeenCalledWith({ test: true }, '', '/000001?lang=ko');
+    expect(JSON.stringify(replaceState.mock.calls)).not.toContain(VALID_CLAIM);
+  });
+
+  it('rejects a valid fragment when a query claim is also present', () => {
+    const { location, history, replaceState } = harness(
+      `#pro-transfer=${VALID_CLAIM}`,
+      `?PRO-CLAIM=${VALID_CLAIM}&lang=ko`,
+    );
+
+    expect(takeProRoomClaimsFromFragment(location, history)).toEqual({
+      activationClaimToken: null,
+      activationClaimPresent: true,
       ownerRecoveryClaimToken: null,
       ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: true,
     });
-    expect(replaceState).not.toHaveBeenCalled();
+    expect(replaceState).toHaveBeenCalledWith({ test: true }, '', '/000001?lang=ko');
+    expect(JSON.stringify(replaceState.mock.calls)).not.toContain(VALID_CLAIM);
+  });
+
+  it('scrubs a malformed transfer claim while recording that the transfer path was attempted', () => {
+    const { location, history, replaceState } = harness('#pro-transfer=too-short');
+
+    expect(takeProRoomClaimsFromFragment(location, history)).toEqual({
+      activationClaimToken: null,
+      activationClaimPresent: false,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: true,
+    });
+    expect(replaceState).toHaveBeenCalledOnce();
   });
 });

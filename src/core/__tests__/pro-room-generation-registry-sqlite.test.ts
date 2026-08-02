@@ -11,6 +11,14 @@ const ADMIN_GENERATION_MIGRATION = readFileSync(
   new URL('../../../cloudflare/admin-metrics.pro-room-generation.migration.sql', import.meta.url),
   'utf8',
 );
+const ADMIN_SUSPENSION_REASON_MIGRATION = readFileSync(
+  new URL('../../../cloudflare/admin-metrics.suspension-reason.migration.sql', import.meta.url),
+  'utf8',
+);
+const ADMIN_OWNER_TRANSFER_SAGA_MIGRATION = readFileSync(
+  new URL('../../../cloudflare/admin-metrics.owner-transfer-saga.migration.sql', import.meta.url),
+  'utf8',
+);
 const RELEASE_SHA = '1234567890abcdef1234567890abcdef12345678';
 
 const sqlite = (() => {
@@ -331,10 +339,114 @@ function conditionalInitialRegistration(
         expect(() =>
           db.exec(
             `UPDATE mxqr_pro_room_registry
-             SET status = 'suspended'
+             SET status = 'suspended', suspension_reason = 'operator_suspended'
              WHERE room_code = '000012'`,
           ),
         ).toThrow(/terminal evidence transition/i);
+      } finally {
+        db.close();
+      }
+    });
+
+    it('requires a canonical suspension reason on every baseline insert and transition', () => {
+      const db = openDatabase();
+      try {
+        db.exec(ADMIN_SCHEMA);
+        insertRegistry(db, '000013');
+
+        expect(() =>
+          db.exec(
+            `UPDATE mxqr_pro_room_registry
+             SET status = 'suspended'
+             WHERE room_code = '000013'`,
+          ),
+        ).toThrow(/invalid pro room suspension reason/i);
+        expect(() =>
+          db.exec(
+            `UPDATE mxqr_pro_room_registry
+             SET status = 'suspended', suspension_reason = 'unknown_reason'
+             WHERE room_code = '000013'`,
+          ),
+        ).toThrow(/invalid pro room suspension reason/i);
+
+        for (const reason of [
+          'operator_suspended',
+          'owner_account_deleted',
+          'ownership_transfer_pending',
+        ]) {
+          db.prepare(
+            `UPDATE mxqr_pro_room_registry
+             SET status = 'suspended', suspension_reason = ?
+             WHERE room_code = '000013'`,
+          ).run(reason);
+          expect(
+            db
+              .prepare(
+                `SELECT status, suspension_reason
+                 FROM mxqr_pro_room_registry
+                 WHERE room_code = '000013'`,
+              )
+              .get(),
+          ).toEqual({ status: 'suspended', suspension_reason: reason });
+        }
+
+        expect(() =>
+          db.exec(
+            `UPDATE mxqr_pro_room_registry
+             SET status = 'registered'
+             WHERE room_code = '000013'`,
+          ),
+        ).toThrow(/invalid pro room suspension reason/i);
+        db.exec(
+          `UPDATE mxqr_pro_room_registry
+           SET status = 'registered', suspension_reason = NULL
+           WHERE room_code = '000013'`,
+        );
+      } finally {
+        db.close();
+      }
+    });
+
+    it('backfills legacy suspended rows before the reason migration installs strict guards', () => {
+      const db = openDatabase();
+      try {
+        db.exec(
+          `CREATE TABLE mxqr_pro_room_registry (
+             room_code TEXT PRIMARY KEY NOT NULL,
+             label TEXT NOT NULL,
+             status TEXT NOT NULL,
+             activation_state TEXT NOT NULL,
+             room_generation INTEGER NOT NULL DEFAULT 0,
+             created_at INTEGER NOT NULL,
+             updated_at INTEGER NOT NULL
+           );
+           INSERT INTO mxqr_pro_room_registry
+             (room_code, label, status, activation_state, room_generation, created_at, updated_at)
+           VALUES
+             ('000014', 'Legacy suspended', 'suspended', 'active', 0, 1, 1),
+             ('000015', 'Legacy active', 'registered', 'active', 0, 1, 1);`,
+        );
+        db.exec(ADMIN_SUSPENSION_REASON_MIGRATION);
+
+        expect(
+          db
+            .prepare(
+              `SELECT room_code, suspension_reason
+               FROM mxqr_pro_room_registry
+               ORDER BY room_code`,
+            )
+            .all(),
+        ).toEqual([
+          { room_code: '000014', suspension_reason: 'operator_suspended' },
+          { room_code: '000015', suspension_reason: null },
+        ]);
+        expect(() =>
+          db.exec(
+            `INSERT INTO mxqr_pro_room_registry
+               (room_code, label, status, activation_state, room_generation, created_at, updated_at)
+             VALUES ('000016', 'Missing reason', 'suspended', 'active', 0, 1, 1)`,
+          ),
+        ).toThrow(/invalid pro room suspension reason/i);
       } finally {
         db.close();
       }
@@ -529,6 +641,147 @@ function conditionalInitialRegistration(
         ).toThrow(/registry code is immutable/i);
       } finally {
         db.close();
+      }
+    });
+
+    it('keeps owner-transfer journals secret-free and strictly bound to exact identifiers', () => {
+      for (const schema of [ADMIN_SCHEMA, ADMIN_OWNER_TRANSFER_SAGA_MIGRATION]) {
+        const db = openDatabase();
+        try {
+          if (schema === ADMIN_OWNER_TRANSFER_SAGA_MIGRATION) {
+            db.exec(`CREATE TABLE mxqr_pro_room_admin_audit (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              actor_id TEXT NOT NULL,
+              action TEXT NOT NULL,
+              result TEXT NOT NULL,
+              room_code TEXT NOT NULL,
+              room_generation INTEGER NOT NULL,
+              created_at INTEGER NOT NULL
+            )`);
+          }
+          db.exec(schema);
+          db.exec(
+            `INSERT INTO mxqr_pro_room_owner_transfer_issuances
+               (room_code, room_generation, claim_generation, target_account_id,
+                transfer_id, request_id, state, issued_at, expires_at, updated_at)
+             VALUES
+               ('000021', 7, 11, 'acct_0123456789abcdefghijkl',
+                NULL, NULL, 'issued', 100, 200, 100);
+             INSERT INTO mxqr_pro_room_owner_transfer_sagas
+               (room_code, room_generation, claim_generation, transfer_id, request_id,
+                target_account_id, previous_owner_account_id, fence_digest, state,
+                intent_at, prepared_at, expires_at, updated_at)
+             VALUES
+               ('000021', 7, NULL, NULL, 'request_12345678',
+                'acct_0123456789abcdefghijkl', NULL,
+                NULL, 'intent', 90, NULL, 200, 90);
+             UPDATE mxqr_pro_room_owner_transfer_sagas
+                SET claim_generation = 11,
+                    transfer_id = 'transfer_abcdefghijklmnopqrstuv',
+                    previous_owner_account_id = 'acct_abcdefghijkl0123456789',
+                    fence_digest = '${'F'.repeat(43)}',
+                    state = 'prepared', prepared_at = 100, updated_at = 100
+              WHERE room_code = '000021' AND room_generation = 7
+                AND request_id = 'request_12345678';`,
+          );
+          expect(
+            db
+              .prepare(
+                `SELECT state, transfer_id, request_id
+                   FROM mxqr_pro_room_owner_transfer_issuances`,
+              )
+              .get(),
+          ).toEqual({ state: 'issued', transfer_id: null, request_id: null });
+          expect(
+            db
+              .prepare(`SELECT name FROM pragma_table_info('mxqr_pro_room_owner_transfer_sagas')`)
+              .all()
+              .map((row) => row.name),
+          ).not.toEqual(
+            expect.arrayContaining([
+              'claim_token',
+              'claim_nonce',
+              'commit_proof',
+              'pin',
+              'cookie',
+              'revocation_receipt',
+            ]),
+          );
+          db.exec(`
+            UPDATE mxqr_pro_room_owner_transfer_issuances
+               SET state = 'expired', updated_at = 200
+             WHERE room_code = '000021' AND room_generation = 7 AND claim_generation = 11;
+            UPDATE mxqr_pro_room_owner_transfer_issuances
+               SET state = 'expired', updated_at = 201
+             WHERE room_code = '000021' AND room_generation = 7 AND claim_generation = 11;
+            UPDATE mxqr_pro_room_owner_transfer_sagas
+               SET state = 'expired', updated_at = 200
+             WHERE room_code = '000021' AND room_generation = 7
+               AND request_id = 'request_12345678';
+            UPDATE mxqr_pro_room_owner_transfer_sagas
+               SET state = 'expired', updated_at = 201
+             WHERE room_code = '000021' AND room_generation = 7
+               AND request_id = 'request_12345678';
+          `);
+          expect(
+            db
+              .prepare(
+                `SELECT action, result, COUNT(*) AS count
+                   FROM mxqr_pro_room_admin_audit
+                  WHERE room_code = '000021' AND room_generation = 7
+                  GROUP BY action, result
+                  ORDER BY action`,
+              )
+              .all(),
+          ).toEqual([
+            { action: 'owner_transfer.prepare', result: 'expired', count: 1 },
+            { action: 'owner_transfer_claim.expire', result: 'expired', count: 1 },
+          ]);
+          for (const invalidSql of [
+            `INSERT INTO mxqr_pro_room_owner_transfer_sagas
+               (room_code, room_generation, claim_generation, transfer_id, request_id,
+                target_account_id, previous_owner_account_id, fence_digest, state,
+                intent_at, prepared_at, expires_at, updated_at)
+             VALUES ('000021', 7, -1, 'transfer_abcdefghijklmnopqrstuv', 'request_abcdefgh',
+                     'acct_0123456789abcdefghijkl', NULL, '${'G'.repeat(43)}',
+                     'prepared', 90, 100, 200, 100)`,
+            `INSERT INTO mxqr_pro_room_owner_transfer_sagas
+               (room_code, room_generation, claim_generation, transfer_id, request_id,
+                target_account_id, previous_owner_account_id, fence_digest, state,
+                intent_at, prepared_at, expires_at, updated_at)
+             VALUES ('000021', 7, 12, 'transfer_short', 'request_abcdefgh',
+                     'acct_0123456789abcdefghijkl', NULL, '${'H'.repeat(43)}',
+                     'prepared', 90, 100, 200, 100)`,
+            `INSERT INTO mxqr_pro_room_owner_transfer_sagas
+               (room_code, room_generation, claim_generation, transfer_id, request_id,
+                target_account_id, previous_owner_account_id, fence_digest, state,
+                intent_at, prepared_at, expires_at, updated_at)
+             VALUES ('000021', 7, 12, 'transfer_bcdefghijklmnopqrstuvw', 'request_abcdefgh',
+                     'acct_0123456789abcdefghijkl', 'acct_0123456789abcdefghijkl',
+                     '${'I'.repeat(43)}', 'prepared', 90, 100, 200, 100)`,
+            `INSERT INTO mxqr_pro_room_owner_transfer_sagas
+               (room_code, room_generation, claim_generation, transfer_id, request_id,
+                target_account_id, previous_owner_account_id, fence_digest, state,
+                intent_at, prepared_at, expires_at, updated_at)
+             VALUES ('000021', 7, NULL, NULL, 'request_unfilled_1',
+                     'acct_0123456789abcdefghijkl', 'acct_abcdefghijkl0123456789',
+                     NULL, 'intent', 100, NULL, 200, 100)`,
+            `INSERT INTO mxqr_pro_room_owner_transfer_issuances
+               (room_code, room_generation, claim_generation, target_account_id,
+                transfer_id, request_id, state, issued_at, expires_at, updated_at)
+             VALUES ('000021', 7, 13, 'acct_0123456789abcdefghijkl',
+                     NULL, NULL, 'prepared', 100, 200, 100)`,
+            `INSERT INTO mxqr_pro_room_owner_transfer_issuances
+               (room_code, room_generation, claim_generation, target_account_id,
+                transfer_id, request_id, state, issued_at, expires_at, updated_at)
+             VALUES ('000021', 7, 14, 'acct_short',
+                     NULL, NULL, 'issued', 100, 200, 100)`,
+          ]) {
+            expect(() => db.exec(invalidSql)).toThrow(/constraint/i);
+          }
+        } finally {
+          db.close();
+        }
       }
     });
   },

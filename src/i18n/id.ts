@@ -72,6 +72,8 @@ const id: Record<I18nKey, string> = {
   'account.delete_confirm_title': 'Hapus akun Anda?',
   'account.delete_confirm_message':
     'Nama panggilan, sesi masuk, dan izin ruang yang tertaut ke akun Anda akan dihapus. Konten yang dibagikan di ruang mengikuti kebijakan penyimpanan ruang tersebut.',
+  'account.delete_pending':
+    'Akun Anda sedang dihapus. Izin PRO sedang dibersihkan dengan aman dan penghapusan akan selesai secara otomatis.',
   'common.previous': 'Sebelumnya',
   'common.next_desc': 'Berikutnya',
   'common.volume_percent': 'Volume: {{val}}%',
@@ -604,10 +606,27 @@ const id: Record<I18nKey, string> = {
   'pro.claim_retry_title': 'Coba lagi dengan tautan PRO?',
   'pro.claim_retry_message':
     'Koneksi terputus. Tautan disimpan dengan aman hanya di layar ini, jadi Anda dapat mencoba lagi.',
-  'pro.request_new_link': 'Minta tautan baru',
   'pro.claim_unavailable_title': 'Tautan ini tidak dapat digunakan lagi',
+  'pro.claim_login_title': 'Masuk terlebih dahulu',
+  'pro.claim_login_button': 'Masuk',
+  'pro.claim_login_message':
+    'Masuk dengan akun yang akan memiliki ruang PRO ini dan selesaikan pengaturan nama panggilan. Tautan hanya disimpan dalam memori tab ini.',
+  'pro.claim_popup_blocked_message':
+    'Browser memblokir jendela masuk. Izinkan pop-up untuk MUSIXQUARE, lalu coba lagi.',
+  'pro.claim_account_conflict_title': 'Akun ini tidak dapat menggunakan ruang',
+  'pro.claim_account_conflict_message':
+    'Ruang ini terhubung ke akun lain. Minta administrator mentransfer kepemilikan jika Anda perlu mengubahnya.',
+  'pro.claim_account_capacity_title': 'Akun ini tidak dapat menautkan ruang lain',
+  'pro.claim_account_capacity_message':
+    'Akun ini telah mencapai batas ruang PRO tertaut. Hapus tautan yang ada, lalu minta tautan baru.',
+  'pro.claim_failed_title': 'Permintaan tidak dapat diselesaikan',
+  'pro.claim_failed_message':
+    'Demi keamanan, tautan ini tidak dicoba ulang. Minta tautan baru kepada administrator ruang.',
+  'pro.transfer_title': 'Ambil kepemilikan ruang PRO',
+  'pro.transfer_message':
+    'Tetapkan kata sandi baru 8 digit. Akses pemilik sebelumnya akan dicabut setelah selesai.',
   'pro.new_link_message':
-    'Minta tautan aktivasi atau pemulihan baru kepada orang yang mengirim tautan ini.',
+    'Tautan telah kedaluwarsa atau sudah digunakan. Jika perlu, minta tautan baru kepada administrator.',
   'pro.not_ready_title': 'Ruang PRO ini belum siap',
   'pro.not_ready_message': 'Pemilik ruang harus mengaktifkannya terlebih dahulu.',
   'pro.suspended_title': 'Ruang PRO ini sedang tidak tersedia',

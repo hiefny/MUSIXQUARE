@@ -33,20 +33,28 @@ describe('D1 migration contract', () => {
     expect(assertD1MigrationContract()).toEqual({
       schemaVersion: 1,
       databaseCount: 3,
-      migrationCount: 8,
+      migrationCount: 12,
       pairedMigrationCount: 1,
-      forwardOnlyMigrationCount: 7,
+      forwardOnlyMigrationCount: 11,
     });
   });
 
   it('derives Developer API release tracking from the manifest', () => {
     const manifest = loadD1MigrationManifest();
+    expect(trackedD1PathsForDatabase(manifest, 'musixquare-admin-metrics')).toEqual([
+      'cloudflare/admin-metrics.schema.sql',
+      'cloudflare/admin-metrics.pro-room-generation.migration.sql',
+      'cloudflare/admin-metrics.suspension-reason.migration.sql',
+      'cloudflare/admin-metrics.owner-transfer-saga.migration.sql',
+    ]);
     expect(trackedD1PathsForDatabase(manifest, 'musixquare-developer-api')).toEqual([
       'cloudflare/developer-api.schema.sql',
       'cloudflare/developer-api.effects-scopes.migration.sql',
       'cloudflare/developer-api.effects-scopes.rollback.sql',
       'cloudflare/developer-api-room-generation.migration.sql',
       'cloudflare/developer-api.launch-cleanup.migration.sql',
+      'cloudflare/developer-api.authority-fence.migration.sql',
+      'cloudflare/developer-api.authority-epoch.migration.sql',
     ]);
   });
 

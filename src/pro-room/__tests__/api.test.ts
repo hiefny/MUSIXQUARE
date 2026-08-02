@@ -432,6 +432,72 @@ describe('PRO room cookie session API', () => {
     ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
+  it('exchanges an owner-transfer claim and new PIN only in a strict POST body', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse({ snapshot: activeSnapshot() }));
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    await expect(
+      client.transferOwner({
+        code: ROOM_CODE,
+        claimToken: CLAIM_TOKEN,
+        newPin: '87654321',
+        requestId: IDEMPOTENCY_KEY,
+      }),
+    ).resolves.toEqual(activeSnapshot());
+
+    const { url, init } = requestParts(fetchMock);
+    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/owner-transfer`);
+    expect(url.search).toBe('');
+    expect(init).toMatchObject({ method: 'POST', credentials: 'include' });
+    expect(JSON.parse(String(init.body))).toEqual({
+      claimToken: CLAIM_TOKEN,
+      newPin: '87654321',
+      requestId: IDEMPOTENCY_KEY,
+    });
+    expect(url.toString()).not.toContain(CLAIM_TOKEN);
+  });
+
+  it('rejects malformed owner-transfer credentials and PINs before fetch', () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    expect(() =>
+      client.transferOwner({
+        code: ROOM_CODE,
+        claimToken: 'short',
+        newPin: '87654321',
+        requestId: IDEMPOTENCY_KEY,
+      }),
+    ).toThrow(expect.objectContaining({ code: 'INVALID_TRANSFER_CLAIM_TOKEN' }));
+    expect(() =>
+      client.transferOwner({
+        code: ROOM_CODE,
+        claimToken: CLAIM_TOKEN,
+        newPin: 'short',
+        requestId: IDEMPOTENCY_KEY,
+      }),
+    ).toThrow(expect.objectContaining({ code: 'INVALID_PIN' }));
+    expect(() =>
+      client.transferOwner({
+        code: ROOM_CODE,
+        claimToken: CLAIM_TOKEN,
+        newPin: '87654321',
+        requestId: 'short',
+      }),
+    ).toThrow(expect.objectContaining({ code: 'INVALID_IDEMPOTENCY_KEY' }));
+    expect(() =>
+      client.transferOwner({
+        code: ROOM_CODE,
+        claimToken: CLAIM_TOKEN,
+        newPin: '87654321',
+        requestId: 'request.id.with.dots',
+      }),
+    ).toThrow(expect.objectContaining({ code: 'INVALID_IDEMPOTENCY_KEY' }));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('creates a member session without exposing a token to browser code', async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({

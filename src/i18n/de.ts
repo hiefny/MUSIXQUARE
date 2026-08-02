@@ -72,6 +72,8 @@ const de: Record<I18nKey, string> = {
   'account.delete_confirm_title': 'Konto löschen?',
   'account.delete_confirm_message':
     'Dein Nickname, deine Anmeldesitzungen und deine kontoverknüpften Raumrechte werden gelöscht. Bereits in einem Raum geteilte Inhalte folgen dessen Aufbewahrungsregeln.',
+  'account.delete_pending':
+    'Dein Konto wird gelöscht. Die PRO-Berechtigungen werden sicher bereinigt und die Löschung wird automatisch abgeschlossen.',
   'common.previous': 'Zurück',
   'common.next_desc': 'Weiter',
   'common.volume_percent': 'Lautstärke: {{val}}%',
@@ -608,10 +610,27 @@ const de: Record<I18nKey, string> = {
   'pro.claim_retry_title': 'PRO-Link erneut versuchen?',
   'pro.claim_retry_message':
     'Die Verbindung wurde unterbrochen. Der Link wird nur auf diesem Bildschirm sicher aufbewahrt und kann erneut verwendet werden.',
-  'pro.request_new_link': 'Neuen Link anfordern',
   'pro.claim_unavailable_title': 'Dieser Link kann nicht mehr verwendet werden',
+  'pro.claim_login_title': 'Bitte zuerst anmelden',
+  'pro.claim_login_button': 'Anmelden',
+  'pro.claim_login_message':
+    'Melde dich mit dem Konto an, das diesen PRO-Raum besitzen soll, und schließe die Nickname-Einrichtung ab. Der Link bleibt nur im Speicher dieses Tabs.',
+  'pro.claim_popup_blocked_message':
+    'Dein Browser hat das Anmeldefenster blockiert. Erlaube Pop-ups für MUSIXQUARE und versuche es erneut.',
+  'pro.claim_account_conflict_title': 'Dieses Konto kann den Raum nicht verwenden',
+  'pro.claim_account_conflict_message':
+    'Dieser Raum ist mit einem anderen Konto verknüpft. Bitte einen Administrator um eine Eigentumsübertragung, wenn du das ändern möchtest.',
+  'pro.claim_account_capacity_title': 'Dieses Konto kann keinen weiteren Raum verknüpfen',
+  'pro.claim_account_capacity_message':
+    'Das Limit für verknüpfte PRO-Räume ist erreicht. Entferne eine bestehende Verknüpfung und fordere einen neuen Link an.',
+  'pro.claim_failed_title': 'Die Anfrage konnte nicht abgeschlossen werden',
+  'pro.claim_failed_message':
+    'Aus Sicherheitsgründen wurde der Link nicht erneut versucht. Bitte den Raumadministrator um einen neuen Link.',
+  'pro.transfer_title': 'PRO-Raum übernehmen',
+  'pro.transfer_message':
+    'Lege ein neues 8-stelliges Passwort fest. Danach wird der Zugriff des bisherigen Besitzers widerrufen.',
   'pro.new_link_message':
-    'Bitte die Person, die den Link gesendet hat, um einen neuen Aktivierungs- oder Wiederherstellungslink.',
+    'Der Link ist abgelaufen oder wurde bereits verwendet. Bitte bei Bedarf einen Administrator um einen neuen Link.',
   'pro.not_ready_title': 'Dieser PRO-Raum ist noch nicht bereit',
   'pro.not_ready_message': 'Der Raumbesitzer muss ihn zuerst aktivieren.',
   'pro.suspended_title': 'Dieser PRO-Raum ist derzeit nicht verfügbar',

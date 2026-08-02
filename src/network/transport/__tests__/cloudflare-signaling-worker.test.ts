@@ -2789,6 +2789,314 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(recipient.closed).toBe(false);
   });
 
+  it('durably fences owner-deleted PRO signaling until a newer non-empty authority snapshot', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-18T00:00:00.000Z'));
+    const state = new FakeDurableObjectState();
+    let room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const owner = await joinProMember(room, {
+      participantId: 'deleted-owner',
+      memberId: 'owner_0123456789abcdef',
+      coordinatorEpoch: 1,
+      presenceRevision: 1,
+      presenceIncarnationId: 'deleted-owner-presence',
+      jti: 'deleted-owner-ticket-01',
+    });
+    const removalId = 'removal_abcdefghijklmnopqrstuv';
+    const removedOwnerAuthorityEpoch = 7;
+    const fenceRequest = () =>
+      new Request('https://signaling.internal/internal/admin/v1/owner-account-deleted', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
+        body: JSON.stringify({
+          roomCode: '000001',
+          roomGeneration: 0,
+          removalId,
+          removedOwnerAuthorityEpoch,
+          fencedCoordinatorEpoch: 1,
+        }),
+      });
+
+    const fenced = await room.fetch(fenceRequest());
+    expect(fenced.status).toBe(200);
+    expect(JSON.parse(String(fenced.body))).toEqual({
+      ok: true,
+      roomCode: '000001',
+      roomGeneration: 0,
+      status: 'suspended',
+      reason: 'owner_account_deleted',
+      fenceStatus: 'installed',
+      changed: true,
+      removalId,
+      removedOwnerAuthorityEpoch,
+      fencedCoordinatorEpoch: 1,
+      effectiveCoordinatorEpoch: 1,
+    });
+    expect(owner.closeEvents).toEqual([{ code: 1008, reason: 'PRO_OWNER_ACCOUNT_DELETED' }]);
+    expect(await state.storage.get('proOwnerAccountDeletionFence')).toEqual({
+      v: 2,
+      roomCode: '000001',
+      roomGeneration: 0,
+      removalId,
+      removedOwnerAuthorityEpoch,
+      fencedCoordinatorEpoch: 1,
+      installedAtMs: Date.now(),
+    });
+    expect(JSON.parse(String((await room.fetch(fenceRequest())).body))).toMatchObject({
+      fenceStatus: 'installed',
+      changed: false,
+      removalId,
+      effectiveCoordinatorEpoch: 1,
+    });
+
+    room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const pairCount = FakeWebSocketPair.pairs.length;
+    const blocked = await room.fetch(
+      await proWsRequest({
+        participantId: 'future-owner',
+        coordinatorEpoch: 2,
+        presenceRevision: 2,
+        presenceIncarnationId: 'future-owner-presence',
+        jti: 'future-owner-ticket-001',
+      }),
+    );
+    expect(blocked.status).toBe(423);
+    expect(JSON.parse(String(blocked.body))).toEqual({ error: 'PRO_OWNER_ACCOUNT_DELETED' });
+    expect(FakeWebSocketPair.pairs).toHaveLength(pairCount);
+
+    const broadcast = (coordinatorEpoch: number, presenceRevision: number, targets: string[]) =>
+      room.fetch(
+        new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': '000001',
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify({
+            roomCode: '000001',
+            roomGeneration: 0,
+            coordinatorEpoch,
+            targets,
+            event: { type: 'pro-presence-snapshot', presenceRevision },
+          }),
+        }),
+      );
+
+    expect((await broadcast(1, 2, ['deleted-owner-presence'])).status).toBe(200);
+    expect(await state.storage.get('proOwnerAccountDeletionFence')).toBeTruthy();
+    expect((await broadcast(2, 3, [])).status).toBe(200);
+    expect(await state.storage.get('proOwnerAccountDeletionFence')).toBeTruthy();
+
+    expect((await broadcast(2, 4, ['future-owner-presence'])).status).toBe(200);
+    expect(await state.storage.get('proOwnerAccountDeletionFence')).toBeUndefined();
+    const admitted = await room.fetch(
+      await proWsRequest({
+        participantId: 'future-owner',
+        coordinatorEpoch: 2,
+        presenceRevision: 4,
+        presenceIncarnationId: 'future-owner-presence',
+        jti: 'future-owner-ticket-001',
+      }),
+    );
+    expect(admitted.status).toBe(101);
+  });
+
+  it('treats an exact removal behind newer signaling authority as a stale no-op', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const currentOwner = await joinProMember(room, {
+      participantId: 'current-owner',
+      memberId: 'owner_0123456789abcdef',
+      coordinatorEpoch: 3,
+      presenceRevision: 3,
+      presenceIncarnationId: 'current-owner-presence',
+      jti: 'current-owner-ticket-001',
+    });
+    const exactRequest = (
+      fencedCoordinatorEpoch: number,
+      removalId = 'removal_abcdefghijklmnopqrstuv',
+      removedOwnerAuthorityEpoch = 7,
+    ) =>
+      new Request('https://signaling.internal/internal/admin/v1/owner-account-deleted', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
+        body: JSON.stringify({
+          roomCode: '000001',
+          roomGeneration: 0,
+          removalId,
+          removedOwnerAuthorityEpoch,
+          fencedCoordinatorEpoch,
+        }),
+      });
+
+    const stale = await room.fetch(exactRequest(2));
+    expect(stale.status).toBe(200);
+    expect(JSON.parse(String(stale.body))).toMatchObject({
+      fenceStatus: 'stale',
+      changed: false,
+      removalId: 'removal_abcdefghijklmnopqrstuv',
+      fencedCoordinatorEpoch: 2,
+      effectiveCoordinatorEpoch: 3,
+    });
+    expect(currentOwner.closeEvents).toEqual([]);
+    expect(await state.storage.get('proOwnerAccountDeletionFence')).toBeUndefined();
+
+    const installed = await room.fetch(exactRequest(3));
+    expect(JSON.parse(String(installed.body))).toMatchObject({
+      fenceStatus: 'installed',
+      changed: true,
+      effectiveCoordinatorEpoch: 3,
+    });
+    expect(currentOwner.closeEvents).toEqual([{ code: 1008, reason: 'PRO_OWNER_ACCOUNT_DELETED' }]);
+    const stored = await state.storage.get('proOwnerAccountDeletionFence');
+
+    const conflict = await room.fetch(exactRequest(3, 'removal_qrstuvwxyzABCDEFGHIJKL', 8));
+    expect(conflict.status).toBe(409);
+    expect(JSON.parse(String(conflict.body))).toEqual({
+      error: 'PRO_OWNER_ACCOUNT_DELETION_FENCE_CONFLICT',
+    });
+    expect(await state.storage.get('proOwnerAccountDeletionFence')).toEqual(stored);
+  });
+
+  it('keeps rollout-era room-only deletion requests fail-closed until a newer epoch', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const owner = await joinProMember(room, {
+      participantId: 'legacy-owner',
+      memberId: 'owner_0123456789abcdef',
+      coordinatorEpoch: 4,
+      presenceRevision: 1,
+      presenceIncarnationId: 'legacy-owner-presence',
+      jti: 'legacy-owner-ticket-001',
+    });
+    const legacyRequest = new Request(
+      'https://signaling.internal/internal/admin/v1/owner-account-deleted',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
+        body: JSON.stringify({ roomCode: '000001', roomGeneration: 0 }),
+      },
+    );
+
+    const fenced = await room.fetch(legacyRequest);
+    expect(fenced.status).toBe(200);
+    expect(JSON.parse(String(fenced.body))).toEqual({
+      ok: true,
+      roomCode: '000001',
+      roomGeneration: 0,
+      status: 'suspended',
+      reason: 'owner_account_deleted',
+      changed: true,
+    });
+    expect(owner.closeEvents).toEqual([{ code: 1008, reason: 'PRO_OWNER_ACCOUNT_DELETED' }]);
+    expect(await state.storage.get('proOwnerAccountDeletionFence')).toMatchObject({
+      v: 1,
+      fencedCoordinatorEpoch: 4,
+    });
+
+    const broadcast = (coordinatorEpoch: number, presenceRevision: number) =>
+      room.fetch(
+        new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': '000001',
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify({
+            roomCode: '000001',
+            roomGeneration: 0,
+            coordinatorEpoch,
+            targets: ['replacement-owner-presence'],
+            event: { type: 'pro-presence-snapshot', presenceRevision },
+          }),
+        }),
+      );
+    expect((await broadcast(4, 2)).status).toBe(200);
+    expect(await state.storage.get('proOwnerAccountDeletionFence')).toBeTruthy();
+
+    const upgraded = await room.fetch(
+      new Request('https://signaling.internal/internal/admin/v1/owner-account-deleted', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
+        body: JSON.stringify({
+          roomCode: '000001',
+          roomGeneration: 0,
+          removalId: 'removal_abcdefghijklmnopqrstuv',
+          removedOwnerAuthorityEpoch: 7,
+          fencedCoordinatorEpoch: 4,
+        }),
+      }),
+    );
+    expect(JSON.parse(String(upgraded.body))).toMatchObject({
+      fenceStatus: 'installed',
+      changed: true,
+      effectiveCoordinatorEpoch: 4,
+    });
+    expect(await state.storage.get('proOwnerAccountDeletionFence')).toMatchObject({
+      v: 2,
+      removalId: 'removal_abcdefghijklmnopqrstuv',
+      removedOwnerAuthorityEpoch: 7,
+      fencedCoordinatorEpoch: 4,
+    });
+    expect((await broadcast(5, 3)).status).toBe(200);
+    expect(await state.storage.get('proOwnerAccountDeletionFence')).toBeUndefined();
+  });
+
+  it('closes existing PRO sockets even when persisting the deletion fence must be retried', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const owner = await joinProMember(room, {
+      participantId: 'deleted-owner',
+      memberId: 'owner_0123456789abcdef',
+      presenceIncarnationId: 'deleted-owner-presence',
+      jti: 'deleted-owner-ticket-01',
+    });
+    const originalPut = state.storage.put.bind(state.storage);
+    state.storage.put = vi.fn(async (key: string, value: unknown) => {
+      if (key === 'proOwnerAccountDeletionFence') throw new Error('transient storage failure');
+      return originalPut(key, value);
+    });
+    const request = new Request(
+      'https://signaling.internal/internal/admin/v1/owner-account-deleted',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
+        body: JSON.stringify({
+          roomCode: '000001',
+          roomGeneration: 0,
+          removalId: 'removal_abcdefghijklmnopqrstuv',
+          removedOwnerAuthorityEpoch: 7,
+          fencedCoordinatorEpoch: 1,
+        }),
+      },
+    );
+
+    await expect(room.fetch(request)).rejects.toThrow('transient storage failure');
+    expect(owner.closeEvents).toEqual([{ code: 1008, reason: 'PRO_OWNER_ACCOUNT_DELETED' }]);
+  });
+
   it('decommissions every PRO socket, leaves only a tombstone, and rejects old tickets idempotently', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-18T00:00:00.000Z'));

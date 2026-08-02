@@ -862,7 +862,8 @@ p {
 }
 
 .pro-room-danger-zone button,
-.pro-room-destroy-actions button {
+.pro-room-destroy-actions button,
+.pro-room-transfer-actions button {
   display: inline-flex;
   min-height: 36px;
   flex-shrink: 0;
@@ -996,9 +997,118 @@ p {
 
 .pro-room-danger-zone button:disabled,
 .pro-room-destroy-actions button:disabled,
-.pro-room-destroy-field input:disabled {
+.pro-room-destroy-field input:disabled,
+.pro-room-transfer-actions button:disabled,
+.pro-room-transfer-field input:disabled {
   cursor: not-allowed;
   opacity: 0.48;
+}
+
+.pro-room-transfer-dialog {
+  width: min(480px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  overflow: auto;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0;
+  background: var(--surface-1);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.48);
+}
+
+.pro-room-transfer-dialog:not([open]) {
+  display: none;
+}
+
+.pro-room-transfer-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.pro-room-transfer-form {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+}
+
+.pro-room-transfer-eyebrow {
+  color: var(--accent, var(--primary));
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pro-room-transfer-form h2 {
+  margin: -7px 0 0;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.pro-room-transfer-form > p {
+  color: var(--text-sub);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.pro-room-transfer-field {
+  display: grid;
+  gap: 7px;
+}
+
+.pro-room-transfer-field span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.pro-room-transfer-field input {
+  width: 100%;
+  height: 44px;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0 13px;
+  background: var(--surface-2);
+  color: var(--text-main);
+  outline: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+.pro-room-transfer-field input:focus {
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.5);
+}
+
+.pro-room-transfer-note {
+  border-left: 2px solid rgba(var(--primary-rgb), 0.55);
+  padding-left: 11px;
+  color: var(--text-muted) !important;
+  font-size: 11px !important;
+}
+
+.pro-room-transfer-error {
+  min-height: 1.4em;
+  color: var(--fail) !important;
+  font-size: 12px !important;
+}
+
+.pro-room-transfer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pro-room-transfer-actions button.is-secondary {
+  background: var(--surface-2);
+  color: var(--text-sub);
+}
+
+.pro-room-transfer-actions button:focus-visible {
+  outline: 2px solid rgba(var(--primary-rgb), 0.72);
+  outline-offset: 2px;
 }
 
 .pro-room-api-panel {
@@ -2174,22 +2284,26 @@ p {
     grid-template-columns: 1fr;
   }
 
-  .pro-room-destroy-dialog {
+  .pro-room-destroy-dialog,
+  .pro-room-transfer-dialog {
     width: min(100vw - 24px, 440px);
     max-height: calc(100vh - 24px);
     max-height: calc(100dvh - 24px);
   }
 
-  .pro-room-destroy-form {
+  .pro-room-destroy-form,
+  .pro-room-transfer-form {
     gap: 18px;
     padding: 20px;
   }
 
-  .pro-room-destroy-actions {
+  .pro-room-destroy-actions,
+  .pro-room-transfer-actions {
     flex-direction: column;
   }
 
-  .pro-room-destroy-actions button {
+  .pro-room-destroy-actions button,
+  .pro-room-transfer-actions button {
     width: 100%;
     min-height: 44px;
   }

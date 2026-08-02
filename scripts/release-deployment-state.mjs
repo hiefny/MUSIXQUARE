@@ -59,17 +59,17 @@ const APP_D1_PATHS = Object.freeze(
 );
 
 const TARGETS = {
+  'pro-room': {
+    config: 'cloudflare/wrangler.pro-room.toml',
+    rollbackOrder: 1,
+  },
   'remote-share': {
     config: 'cloudflare/wrangler.remote-share.toml',
-    rollbackOrder: 1,
+    rollbackOrder: 2,
   },
   signaling: {
     config: 'cloudflare/wrangler.signaling.toml',
     rollbackOrder: 3,
-  },
-  'pro-room': {
-    config: 'cloudflare/wrangler.pro-room.toml',
-    rollbackOrder: 2,
   },
   'developer-api-facade': {
     config: 'cloudflare/wrangler.developer-api-facade.toml',
@@ -102,10 +102,12 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
   'remote-share': [
     'cloudflare/remote-share-contract-version.txt',
     'cloudflare/remote-share-worker.js',
+    'cloudflare/service-maintenance.js',
     'cloudflare/wrangler.remote-share.toml',
   ],
   signaling: [
     'cloudflare/signaling-worker.js',
+    'cloudflare/service-maintenance.js',
     'cloudflare/pro-room-generation.js',
     'cloudflare/standard-room-account-assertion.js',
     'cloudflare/account-nickname.js',
@@ -115,6 +117,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
   ],
   'pro-room': [
     'cloudflare/pro-room-worker.js',
+    'cloudflare/service-maintenance.js',
     'cloudflare/pro-room-generation.js',
     'cloudflare/pro-room-effects.js',
     'cloudflare/pro-room-queue-mode.js',
@@ -128,11 +131,13 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
   ],
   'developer-api-facade': [
     'cloudflare/developer-api-facade-worker.js',
+    'cloudflare/service-maintenance.js',
     'cloudflare/pro-room-generation.js',
     'cloudflare/wrangler.developer-api-facade.toml',
   ],
   'developer-api': [
     'cloudflare/developer-api-worker.js',
+    'cloudflare/service-maintenance.js',
     'cloudflare/pro-room-generation.js',
     ...DEVELOPER_API_D1_PATHS,
     'cloudflare/wrangler.developer-api.toml',
@@ -156,6 +161,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/app-static-assets/_headers',
     'scripts/materialize-app-static-headers.mjs',
     'cloudflare/app-worker.js',
+    'cloudflare/service-maintenance.js',
     'cloudflare/pro-bot.js',
     'cloudflare/pro-room-generation.js',
     'cloudflare/account-auth.js',

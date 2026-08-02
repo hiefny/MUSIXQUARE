@@ -12,6 +12,7 @@ import {
   proRoomGenerationHeaderValue,
   proRoomObjectName,
 } from './pro-room-generation.js';
+import { gateServiceMaintenance } from './service-maintenance.js';
 
 const PRO_ROOM_GENERATION_HEADER = 'x-mxqr-pro-room-generation';
 const REQUEST_MAX_BYTES = 64 * 1024;
@@ -997,6 +998,8 @@ async function callRoom(namespace, roomCode, roomGeneration, path, body) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const maintenanceResponse = await gateServiceMaintenance(request, env, { format: 'json' });
+    if (maintenanceResponse) return maintenanceResponse;
     if (
       request.method !== 'POST' ||
       ![

@@ -1,3 +1,6 @@
+const ADMIN_SCRIPT_VERSION = '8.2.0';
+window.__MXQR_ADMIN_SCRIPT_VERSION__ = ADMIN_SCRIPT_VERSION;
+
 const root = document.querySelector('.admin-shell');
 const loginPanel = document.querySelector('[data-login-panel]');
 const dashboard = document.querySelector('[data-dashboard]');
@@ -35,6 +38,20 @@ const announcementPreviewEl = document.querySelector('[data-announcement-preview
 const announcementClearBtn = document.querySelector('[data-announcement-clear]');
 const announcementHistoryStatusEl = document.querySelector('[data-announcement-history-status]');
 const announcementHistoryListEl = document.querySelector('[data-announcement-history-list]');
+const announcementTabEl = document.querySelector('[data-admin-tab="announcements"]');
+const serviceStatusTrigger = document.querySelector('[data-service-status-trigger]');
+const serviceStatusDot = document.querySelector('[data-service-status-dot]');
+const serviceStatusLabel = document.querySelector('[data-service-status-label]');
+const serviceStatusDialog = document.querySelector('[data-service-status-dialog]');
+const serviceStatusForm =
+  document.querySelector('[data-service-status-form]') ||
+  document.querySelector('[data-service-status-confirm]')?.closest('form');
+const serviceStatusStateEl = document.querySelector('[data-service-status-state]');
+const serviceStatusDescriptionEl = document.querySelector('[data-service-status-description]');
+const serviceStatusUpdatedAtEl = document.querySelector('[data-service-status-updated]');
+const serviceStatusErrorEl = document.querySelector('[data-service-status-error]');
+const serviceStatusConfirmBtn = document.querySelector('[data-service-status-confirm]');
+const serviceStatusCancelBtns = [...document.querySelectorAll('[data-service-status-cancel]')];
 const updatedAtEl = document.querySelector('[data-updated-at]');
 const refreshBtn = document.querySelector('[data-refresh]');
 const logoutBtn = document.querySelector('[data-logout]');
@@ -46,6 +63,13 @@ let currentAdminTab = 'operations';
 let proRoomsLoaded = false;
 let articlesLoaded = false;
 let announcementLoaded = false;
+let serviceStatusLoaded = false;
+let currentServiceStatus = null;
+let serviceStatusBusy = false;
+let serviceStatusRestoreFocus = null;
+let serviceStatusRequestId = null;
+let serviceStatusSettleTimer = null;
+let announcementExpiryTimer = null;
 let adminSessionEpoch = 0;
 let adminLogoutInFlight = null;
 const adminRequestControllers = new Set();
@@ -285,6 +309,7 @@ async function fetchJson(url, options = {}) {
 
 function showLogin(message = '', { invalidateSession = true } = {}) {
   if (invalidateSession) invalidateAdminSession();
+  closeServiceStatusDialog({ restoreFocus: false, force: true });
   closeProRoomDestroyDialog({ restoreFocus: false });
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();
@@ -294,6 +319,11 @@ function showLogin(message = '', { invalidateSession = true } = {}) {
   proRoomsLoaded = false;
   articlesLoaded = false;
   announcementLoaded = false;
+  serviceStatusLoaded = false;
+  currentServiceStatus = null;
+  serviceStatusRequestId = null;
+  setAnnouncementActiveIndicator(false);
+  renderServiceStatusUnavailable('');
   root?.classList.add('is-login');
   root?.classList.remove('is-dashboard');
   loginPanel.hidden = false;
@@ -306,6 +336,382 @@ function showDashboard() {
   root?.classList.add('is-dashboard');
   loginPanel.hidden = true;
   dashboard.hidden = false;
+}
+
+function normalizeServiceStatusPayload(payload) {
+  const value = payload?.serviceStatus;
+  const revision = Number(value?.revision);
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    typeof value.enabled !== 'boolean' ||
+    !Number.isSafeInteger(revision) ||
+    revision < 0
+  ) {
+    throw adminRequestError(
+      'ADMIN_SERVICE_STATUS_INVALID',
+      'The server returned an invalid service status.',
+    );
+  }
+  const normalizeTimestamp = (timestamp) => {
+    if (typeof timestamp !== 'string' || !timestamp) return null;
+    return Number.isNaN(new Date(timestamp).getTime()) ? null : timestamp;
+  };
+  return {
+    enabled: value.enabled,
+    revision,
+    updatedAt: normalizeTimestamp(value.updatedAt),
+    activatedAt: normalizeTimestamp(value.activatedAt),
+    settlesAt: normalizeTimestamp(value.settlesAt),
+  };
+}
+
+function clearServiceStatusSettleTimer() {
+  if (serviceStatusSettleTimer !== null) {
+    window.clearTimeout(serviceStatusSettleTimer);
+    serviceStatusSettleTimer = null;
+  }
+}
+
+function isServiceStatusSettling(status = currentServiceStatus) {
+  if (!status?.settlesAt) return false;
+  const settlesAtMs = new Date(status.settlesAt).getTime();
+  return Number.isFinite(settlesAtMs) && settlesAtMs > Date.now();
+}
+
+function serviceStatusStateName(status = currentServiceStatus) {
+  if (!status) return 'unknown';
+  if (isServiceStatusSettling(status)) return status.enabled ? 'activating' : 'resuming';
+  return status.enabled ? 'maintenance' : 'operational';
+}
+
+function scheduleServiceStatusSettlement(status) {
+  clearServiceStatusSettleTimer();
+  if (!isServiceStatusSettling(status)) return;
+  const settlesAtMs = new Date(status.settlesAt).getTime();
+  const checkSettlement = () => {
+    const remainingMs = settlesAtMs - Date.now();
+    if (remainingMs > 0) {
+      serviceStatusSettleTimer = window.setTimeout(
+        checkSettlement,
+        Math.min(remainingMs + 50, 2_147_000_000),
+      );
+      return;
+    }
+    serviceStatusSettleTimer = null;
+    if (currentServiceStatus?.revision !== status.revision) return;
+    renderServiceStatus(currentServiceStatus);
+    if (currentServiceStatus.enabled) {
+      if (updatedAtEl) {
+        const statusTime = currentServiceStatus.activatedAt || currentServiceStatus.updatedAt;
+        updatedAtEl.textContent = `Maintenance active${
+          statusTime ? ` since ${formatAdminDateTime(statusTime)}` : ''
+        }`;
+      }
+    } else if (!dashboard?.hidden) {
+      refreshAllDashboardData().catch((error) => {
+        if (updatedAtEl) updatedAtEl.textContent = adminErrorMessage(error, 'Refresh failed.');
+      });
+    }
+  };
+  checkSettlement();
+}
+
+function renderServiceStatusUnavailable(message = 'Service status unavailable.') {
+  clearServiceStatusSettleTimer();
+  serviceStatusLoaded = false;
+  currentServiceStatus = null;
+  const state = 'unknown';
+  for (const element of [serviceStatusTrigger, serviceStatusDot, serviceStatusDialog]) {
+    if (element) element.dataset.state = state;
+  }
+  if (serviceStatusLabel) serviceStatusLabel.textContent = 'Status unavailable';
+  if (serviceStatusTrigger)
+    serviceStatusTrigger.setAttribute('aria-label', 'Service status unavailable');
+  if (serviceStatusStateEl) serviceStatusStateEl.textContent = 'Status unavailable';
+  if (serviceStatusDescriptionEl) {
+    serviceStatusDescriptionEl.textContent =
+      'The current service state could not be verified. Refresh before making a change.';
+  }
+  if (serviceStatusUpdatedAtEl) serviceStatusUpdatedAtEl.textContent = '';
+  if (serviceStatusErrorEl) {
+    serviceStatusErrorEl.textContent = message;
+    serviceStatusErrorEl.hidden = !message;
+  }
+  if (serviceStatusConfirmBtn) serviceStatusConfirmBtn.disabled = true;
+}
+
+function renderServiceStatus(status) {
+  currentServiceStatus = status;
+  serviceStatusLoaded = true;
+  serviceStatusRequestId = null;
+  const state = serviceStatusStateName(status);
+  const settling = isServiceStatusSettling(status);
+  const label =
+    state === 'activating'
+      ? 'Activating...'
+      : state === 'resuming'
+        ? 'Resuming...'
+        : status.enabled
+          ? 'Maintenance'
+          : 'Operational';
+  for (const element of [serviceStatusTrigger, serviceStatusDot, serviceStatusDialog]) {
+    if (element) element.dataset.state = state;
+  }
+  if (serviceStatusLabel) serviceStatusLabel.textContent = label;
+  if (serviceStatusTrigger) {
+    serviceStatusTrigger.setAttribute(
+      'aria-label',
+      state === 'activating'
+        ? 'Service status: activating maintenance mode'
+        : state === 'resuming'
+          ? 'Service status: resuming service'
+          : status.enabled
+            ? 'Service status: maintenance active'
+            : 'Service status: operational',
+    );
+  }
+  if (serviceStatusStateEl) {
+    serviceStatusStateEl.textContent =
+      state === 'activating'
+        ? 'Activating maintenance...'
+        : state === 'resuming'
+          ? 'Resuming service...'
+          : status.enabled
+            ? 'Maintenance active'
+            : 'Operational';
+  }
+  if (serviceStatusDescriptionEl) {
+    serviceStatusDescriptionEl.textContent =
+      state === 'activating'
+        ? 'The new-traffic gate is propagating across App, API, Signaling, and PRO services.'
+        : state === 'resuming'
+          ? 'Public traffic is resuming. Some edge requests may remain unavailable for a moment.'
+          : status.enabled
+            ? 'New public app, API, Signaling, and PRO traffic is blocked. Direct uploads authorized earlier may still finish.'
+            : 'Musixquare is available. Enter maintenance mode to block new public traffic.';
+  }
+  const statusTime = status.enabled ? status.activatedAt || status.updatedAt : status.updatedAt;
+  if (serviceStatusUpdatedAtEl) {
+    serviceStatusUpdatedAtEl.textContent = settling
+      ? `${status.enabled ? 'Traffic gate propagates by' : 'Public traffic resumes by'} ${formatAdminDateTime(status.settlesAt)}`
+      : statusTime
+        ? `${status.enabled ? 'Active since' : 'Last changed'} ${formatAdminDateTime(statusTime)}`
+        : '';
+  }
+  if (serviceStatusErrorEl) {
+    serviceStatusErrorEl.textContent = '';
+    serviceStatusErrorEl.hidden = true;
+  }
+  if (serviceStatusConfirmBtn) {
+    serviceStatusConfirmBtn.textContent = status.enabled
+      ? 'End maintenance mode'
+      : 'Enter maintenance mode';
+    serviceStatusConfirmBtn.dataset.action = status.enabled ? 'end' : 'enter';
+    serviceStatusConfirmBtn.disabled = serviceStatusBusy || settling;
+  }
+  scheduleServiceStatusSettlement(status);
+}
+
+function setServiceStatusBusy(busy, targetEnabled = null) {
+  serviceStatusBusy = busy;
+  const busyContainer = serviceStatusForm || serviceStatusDialog;
+  if (busyContainer) {
+    if (busy) busyContainer.setAttribute('aria-busy', 'true');
+    else busyContainer.removeAttribute('aria-busy');
+  }
+  if (serviceStatusTrigger) serviceStatusTrigger.disabled = busy;
+  for (const button of serviceStatusCancelBtns) button.disabled = busy;
+  if (serviceStatusConfirmBtn) {
+    serviceStatusConfirmBtn.disabled =
+      busy || !serviceStatusLoaded || isServiceStatusSettling(currentServiceStatus);
+    if (busy) {
+      serviceStatusConfirmBtn.textContent = targetEnabled ? 'Entering...' : 'Ending...';
+    } else if (currentServiceStatus) {
+      serviceStatusConfirmBtn.textContent = currentServiceStatus.enabled
+        ? 'End maintenance mode'
+        : 'Enter maintenance mode';
+    }
+  }
+}
+
+function finishServiceStatusDialogClose() {
+  const restoreFocus = serviceStatusRestoreFocus;
+  serviceStatusRestoreFocus = null;
+  if (serviceStatusErrorEl) {
+    serviceStatusErrorEl.textContent = '';
+    serviceStatusErrorEl.hidden = true;
+  }
+  if (restoreFocus?.isConnected) restoreFocus.focus();
+}
+
+function closeServiceStatusDialog({ restoreFocus = true, force = false } = {}) {
+  if (!serviceStatusDialog || (serviceStatusBusy && !force)) return;
+  if (!restoreFocus) serviceStatusRestoreFocus = null;
+  if (!serviceStatusDialog.open && !serviceStatusDialog.hasAttribute('open')) {
+    finishServiceStatusDialogClose();
+    return;
+  }
+  if (typeof serviceStatusDialog.close === 'function') {
+    try {
+      serviceStatusDialog.close();
+      return;
+    } catch {
+      // Lightweight DOM implementations may not implement the full dialog API.
+    }
+  }
+  serviceStatusDialog.removeAttribute('open');
+  serviceStatusDialog.dispatchEvent(new Event('close'));
+}
+
+async function loadServiceStatus(options = {}) {
+  const load = beginLatestAdminLoad('service-status');
+  if (!serviceStatusLoaded && serviceStatusLabel) serviceStatusLabel.textContent = 'Checking...';
+  try {
+    const payload = await fetchJson('/api/admin/service-status', {
+      signal: load.controller.signal,
+    });
+    throwIfAdminLoadStale(load);
+    const status = normalizeServiceStatusPayload(payload);
+    renderServiceStatus(status);
+    if (options.updateTimestamp !== false && updatedAtEl) {
+      const statusTime = status.enabled ? status.activatedAt || status.updatedAt : status.updatedAt;
+      const state = serviceStatusStateName(status);
+      updatedAtEl.textContent =
+        state === 'activating'
+          ? `Activating maintenance - traffic gate propagates by ${formatAdminDateTime(status.settlesAt)}`
+          : state === 'resuming'
+            ? `Resuming service - public traffic resumes by ${formatAdminDateTime(status.settlesAt)}`
+            : status.enabled
+              ? `Maintenance active${statusTime ? ` since ${formatAdminDateTime(statusTime)}` : ''}`
+              : `Updated ${formatAdminDateTime(payload.generatedAt || Date.now())}`;
+    }
+    return status;
+  } catch (error) {
+    if (isLatestAdminLoad(load)) {
+      renderServiceStatusUnavailable(adminErrorMessage(error, 'Service status refresh failed.'));
+    }
+    throw error;
+  } finally {
+    finishLatestAdminLoad(load);
+  }
+}
+
+async function openServiceStatusDialog(trigger = serviceStatusTrigger) {
+  if (!serviceStatusDialog || serviceStatusBusy) return;
+  serviceStatusRestoreFocus = trigger;
+  if (typeof serviceStatusDialog.showModal === 'function') {
+    try {
+      serviceStatusDialog.showModal();
+    } catch {
+      serviceStatusDialog.setAttribute('open', '');
+    }
+  } else {
+    serviceStatusDialog.setAttribute('open', '');
+  }
+  if (serviceStatusErrorEl) {
+    serviceStatusErrorEl.textContent = '';
+    serviceStatusErrorEl.hidden = true;
+  }
+  try {
+    await loadServiceStatus({ updateTimestamp: false });
+  } catch (error) {
+    if (serviceStatusErrorEl) {
+      serviceStatusErrorEl.textContent = adminErrorMessage(error, 'Service status refresh failed.');
+      serviceStatusErrorEl.hidden = false;
+    }
+  }
+  if (serviceStatusLoaded && serviceStatusConfirmBtn && !serviceStatusConfirmBtn.disabled) {
+    serviceStatusConfirmBtn.focus();
+  } else serviceStatusCancelBtns[0]?.focus();
+}
+
+function abortNonStatusDashboardLoads() {
+  for (const key of ['metrics', 'pro-rooms', 'articles', 'announcement']) {
+    adminLatestLoads.get(key)?.abort();
+  }
+}
+
+async function saveServiceStatus() {
+  if (!currentServiceStatus || !serviceStatusLoaded || serviceStatusBusy) return;
+  const previous = currentServiceStatus;
+  const targetEnabled = !previous.enabled;
+  const requestId = serviceStatusRequestId || createAdminRequestId();
+  serviceStatusRequestId = requestId;
+  setServiceStatusBusy(true, targetEnabled);
+  if (serviceStatusErrorEl) {
+    serviceStatusErrorEl.textContent = '';
+    serviceStatusErrorEl.hidden = true;
+  }
+  try {
+    const payload = await fetchJson('/api/admin/service-status', {
+      method: 'POST',
+      body: JSON.stringify({
+        enabled: targetEnabled,
+        expectedRevision: previous.revision,
+        requestId,
+      }),
+    });
+    const next = normalizeServiceStatusPayload(payload);
+    if (next.enabled !== targetEnabled) {
+      throw adminRequestError(
+        'ADMIN_SERVICE_STATUS_MISMATCH',
+        'The service returned an unexpected state. Refresh before retrying.',
+      );
+    }
+    renderServiceStatus(next);
+    if (targetEnabled) {
+      abortNonStatusDashboardLoads();
+    }
+    if (updatedAtEl) {
+      const state = serviceStatusStateName(next);
+      const statusTime = next.activatedAt || next.updatedAt;
+      updatedAtEl.textContent =
+        state === 'activating'
+          ? `Activating maintenance - traffic gate propagates by ${formatAdminDateTime(next.settlesAt)}`
+          : state === 'resuming'
+            ? `Resuming service - public traffic resumes by ${formatAdminDateTime(next.settlesAt)}`
+            : next.enabled
+              ? `Maintenance active${statusTime ? ` since ${formatAdminDateTime(statusTime)}` : ''}`
+              : `Updated ${formatAdminDateTime(next.updatedAt || Date.now())}`;
+    }
+    setServiceStatusBusy(false);
+    closeServiceStatusDialog();
+    if (!targetEnabled && !isServiceStatusSettling(next)) await refreshAllDashboardData();
+    return next;
+  } catch (error) {
+    const responseStatus = error?.payload?.serviceStatus;
+    if (responseStatus) {
+      try {
+        renderServiceStatus(normalizeServiceStatusPayload({ serviceStatus: responseStatus }));
+      } catch {
+        // A malformed conflict payload must not replace the last verified state.
+      }
+    }
+    if (
+      error?.code === 'ADMIN_MUTATION_OUTCOME_UNKNOWN' ||
+      error?.message === 'SERVICE_STATUS_REVISION_MISMATCH' ||
+      error?.message === 'SERVICE_STATUS_CONFLICT'
+    ) {
+      try {
+        await loadServiceStatus({ updateTimestamp: false });
+      } catch {
+        // Keep the original mutation error as the actionable message.
+      }
+    } else {
+      serviceStatusRequestId = null;
+    }
+    if (serviceStatusErrorEl) {
+      serviceStatusErrorEl.textContent = adminErrorMessage(
+        error,
+        'The service state could not be changed.',
+      );
+      serviceStatusErrorEl.hidden = false;
+    }
+    throw error;
+  } finally {
+    setServiceStatusBusy(false);
+  }
 }
 
 function formatDelta(value) {
@@ -386,6 +792,15 @@ function adminErrorMessage(error, fallback) {
   const message = error?.message || '';
   if (message === 'EXPIRES_AT_IN_PAST') return 'Expires must be in the future.';
   if (message === 'INVALID_EXPIRES_AT') return 'Use YYYY-MM-DD HH:MM for Expires.';
+  if (message === 'SERVICE_STATUS_REVISION_MISMATCH' || message === 'SERVICE_STATUS_CONFLICT') {
+    return 'Service status changed in another session. The latest state has been loaded.';
+  }
+  if (message === 'SERVICE_STATUS_AUDIT_UNAVAILABLE') {
+    return 'The change was withheld because the service-status audit is unavailable.';
+  }
+  if (message === 'SERVICE_STATUS_UNAVAILABLE' || message === 'SERVICE_CONTROL_UNAVAILABLE') {
+    return 'Service status is temporarily unavailable.';
+  }
   if (message === 'INVALID_PASSWORD') return 'Invalid password.';
   if (message === 'INVALID_PRO_ROOM') return 'Use a six-digit room number beginning with 0.';
   if (message === 'PRO_ROOM_NOT_FOUND') return 'This PRO room is not registered.';
@@ -448,7 +863,7 @@ function announcementTitle(tab) {
   if (tab === 'pro-rooms') return 'PRO Rooms';
   if (tab === 'articles') return 'Articles';
   if (tab === 'announcements') return 'Announcements';
-  return 'Operations';
+  return 'Analytics';
 }
 
 function normalizeProRoomCode(value) {
@@ -2074,16 +2489,62 @@ async function loadArticles(options = {}) {
   }
 }
 
+function clearAnnouncementExpiryTimer() {
+  if (announcementExpiryTimer !== null) {
+    window.clearTimeout(announcementExpiryTimer);
+    announcementExpiryTimer = null;
+  }
+}
+
+function setAnnouncementActiveIndicator(active, expiresAt = null) {
+  clearAnnouncementExpiryTimer();
+  const isActive = Boolean(active);
+  announcementTabEl?.classList.toggle('has-active-announcement', isActive);
+  if (announcementTabEl) {
+    announcementTabEl.setAttribute(
+      'aria-label',
+      isActive ? 'Announcements, active announcement' : 'Announcements',
+    );
+  }
+  if (!isActive || !expiresAt) return;
+
+  const expiryMs = new Date(expiresAt).getTime();
+  if (!Number.isFinite(expiryMs)) return;
+  const scheduleExpiryCheck = () => {
+    const remainingMs = expiryMs - Date.now();
+    if (remainingMs <= 0) {
+      setAnnouncementActiveIndicator(false);
+      return;
+    }
+    announcementExpiryTimer = window.setTimeout(
+      scheduleExpiryCheck,
+      Math.min(remainingMs + 50, 2_147_000_000),
+    );
+  };
+  scheduleExpiryCheck();
+}
+
+function isAnnouncementActiveForAdmin(payload, announcement) {
+  if (!announcement?.enabled || !announcement?.message) return false;
+  if (typeof payload?.active === 'boolean' && !payload.active) return false;
+  if (!announcement.expiresAt) return payload?.active !== false;
+  const expiryMs = new Date(announcement.expiresAt).getTime();
+  if (!Number.isFinite(expiryMs) || expiryMs <= Date.now()) return false;
+  return payload?.active !== false;
+}
+
 function renderAnnouncement(payload) {
   const announcement = payload.announcement || {};
   const message = announcement.message || '';
+  const active = isAnnouncementActiveForAdmin(payload, announcement);
+  setAnnouncementActiveIndicator(active, announcement.expiresAt);
   if (announcementMessageEl) announcementMessageEl.value = message;
   if (announcementEnabledEl) announcementEnabledEl.checked = Boolean(announcement.enabled);
   if (announcementExpiresEl)
     announcementExpiresEl.value = toDatetimeLocalValue(announcement.expiresAt);
 
   const statusParts = [];
-  statusParts.push(announcement.enabled ? 'Enabled' : 'Disabled');
+  statusParts.push(active ? 'Active' : announcement.enabled ? 'Expired' : 'Disabled');
   if (announcement.expiresAt)
     statusParts.push(`expires ${formatAdminDateTime(announcement.expiresAt)}`);
   if (announcement.updatedAt)
@@ -2191,9 +2652,88 @@ async function saveAnnouncement({ clear = false } = {}) {
   updatedAtEl.textContent = `Updated ${formatAdminDateTime(Date.now())}`;
 }
 
+async function loadAuthenticatedDashboard({ activateAnalytics = true } = {}) {
+  showDashboard();
+  if (activateAnalytics) setActiveTab('operations');
+  // Keep a rolling admin asset update usable if an older server-rendered shell
+  // is briefly paired with this script. Production shells expose the control.
+  if (!serviceStatusTrigger) {
+    await loadMetrics({ activateOperations: activateAnalytics });
+    return null;
+  }
+  if (updatedAtEl) updatedAtEl.textContent = 'Checking service status...';
+
+  let status = null;
+  try {
+    status = await loadServiceStatus({ updateTimestamp: false });
+  } catch {
+    // Keep the dashboard usable if the control plane is temporarily
+    // unavailable. Mutations remain disabled until a verified status loads.
+  }
+  if (!status) {
+    if (updatedAtEl) updatedAtEl.textContent = 'Service status unavailable';
+    return null;
+  }
+  if (status && (status.enabled || isServiceStatusSettling(status))) {
+    const state = serviceStatusStateName(status);
+    const statusTime = status.activatedAt || status.updatedAt;
+    if (updatedAtEl) {
+      updatedAtEl.textContent =
+        state === 'activating'
+          ? `Activating maintenance - traffic gate propagates by ${formatAdminDateTime(status.settlesAt)}`
+          : state === 'resuming'
+            ? `Resuming service - public traffic resumes by ${formatAdminDateTime(status.settlesAt)}`
+            : `Maintenance active${statusTime ? ` since ${formatAdminDateTime(statusTime)}` : ''}`;
+    }
+    return status;
+  }
+
+  try {
+    await loadMetrics({ activateOperations: activateAnalytics });
+  } catch (error) {
+    if (updatedAtEl)
+      updatedAtEl.textContent = adminErrorMessage(error, 'Analytics refresh failed.');
+  }
+  if (dashboard?.hidden) return status;
+  await loadAnnouncement({ updateTimestamp: false }).catch((error) => {
+    if (announcementStatusEl) {
+      announcementStatusEl.textContent = adminErrorMessage(error, 'Announcement refresh failed.');
+    }
+  });
+  return status;
+}
+
 async function refreshAllDashboardData() {
   const refreshEpoch = adminSessionEpoch;
   const activeTab = currentAdminTab;
+  if (serviceStatusTrigger) {
+    updatedAtEl.textContent = 'Checking service status...';
+    let status = null;
+    try {
+      status = await loadServiceStatus({ updateTimestamp: false });
+    } catch {
+      // Do not fan out requests while the control-plane state is unknown. This
+      // keeps the maintenance control available even if data APIs are gated.
+    }
+    if (refreshEpoch !== adminSessionEpoch || dashboard?.hidden) return;
+    if (!status) {
+      updatedAtEl.textContent = 'Service status unavailable';
+      setActiveTab(activeTab);
+      return;
+    }
+    if (status.enabled || isServiceStatusSettling(status)) {
+      const state = serviceStatusStateName(status);
+      const statusTime = status.activatedAt || status.updatedAt;
+      updatedAtEl.textContent =
+        state === 'activating'
+          ? `Activating maintenance - traffic gate propagates by ${formatAdminDateTime(status.settlesAt)}`
+          : state === 'resuming'
+            ? `Resuming service - public traffic resumes by ${formatAdminDateTime(status.settlesAt)}`
+            : `Maintenance active${statusTime ? ` since ${formatAdminDateTime(statusTime)}` : ''}`;
+      setActiveTab(activeTab);
+      return;
+    }
+  }
   updatedAtEl.textContent = 'Refreshing...';
   await Promise.all([
     loadMetrics({ updateTimestamp: false }),
@@ -2211,6 +2751,31 @@ async function refreshAllDashboardData() {
 }
 
 async function init() {
+  const productionHost = /(^|\.)musixquare\.com$/i.test(window.location.hostname);
+  if (
+    productionHost &&
+    root?.dataset.adminAssetVersion !== ADMIN_SCRIPT_VERSION
+  ) {
+    const retryKey = `mxqr-admin-asset-retry-${ADMIN_SCRIPT_VERSION}`;
+    let attempts = 0;
+    try {
+      attempts = Number(window.sessionStorage.getItem(retryKey) || 0);
+    } catch {
+      // Storage can be unavailable in hardened browser profiles.
+    }
+    if (attempts >= 8) {
+      setStatus('Admin update is still propagating. Refresh in a moment.');
+      return;
+    }
+    try {
+      window.sessionStorage.setItem(retryKey, String(attempts + 1));
+    } catch {
+      // Storage can be unavailable in hardened browser profiles.
+    }
+    setStatus('Synchronizing admin controls...');
+    window.setTimeout(() => window.location.reload(), 500 + attempts * 250);
+    return;
+  }
   if (root?.dataset.adminConfigured !== 'true') {
     showLogin('Admin secrets are not configured yet.');
     return;
@@ -2223,7 +2788,7 @@ async function init() {
       return;
     }
     beginAdminSession();
-    await loadMetrics({ activateOperations: true });
+    await loadAuthenticatedDashboard();
   } catch (error) {
     showLogin(error.message || 'Failed to load admin session.');
   }
@@ -2248,9 +2813,10 @@ loginForm?.addEventListener('submit', async (event) => {
     });
     loginForm.reset();
     beginAdminSession();
-    await loadMetrics({ activateOperations: true });
+    await loadAuthenticatedDashboard();
   } catch (error) {
-    setStatus(adminErrorMessage(error, 'Login failed.'), true);
+    if (!dashboard?.hidden) showLogin(adminErrorMessage(error, 'Dashboard load failed.'));
+    else setStatus(adminErrorMessage(error, 'Login failed.'), true);
   }
 });
 
@@ -2285,6 +2851,32 @@ adminTabs.forEach((button) => {
   });
 });
 
+serviceStatusTrigger?.addEventListener('click', () => {
+  openServiceStatusDialog(serviceStatusTrigger).catch(() => {});
+});
+
+for (const button of serviceStatusCancelBtns) {
+  button.addEventListener('click', () => closeServiceStatusDialog());
+}
+
+serviceStatusDialog?.addEventListener('cancel', (event) => {
+  event.preventDefault();
+  closeServiceStatusDialog();
+});
+
+serviceStatusDialog?.addEventListener('close', finishServiceStatusDialogClose);
+
+serviceStatusForm?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  saveServiceStatus().catch(() => {});
+});
+
+if (!serviceStatusForm || serviceStatusConfirmBtn?.type !== 'submit') {
+  serviceStatusConfirmBtn?.addEventListener('click', () => {
+    saveServiceStatus().catch(() => {});
+  });
+}
+
 proRoomCodeEl?.addEventListener('input', () => {
   const digits = String(proRoomCodeEl.value || '')
     .replace(/\D/g, '')
@@ -2311,11 +2903,17 @@ proRoomClaimCopyBtn?.addEventListener('click', () => {
 
 proRoomClaimDismissBtn?.addEventListener('click', dismissProRoomClaim);
 window.addEventListener('pagehide', () => {
+  clearAnnouncementExpiryTimer();
+  clearServiceStatusSettleTimer();
+  closeServiceStatusDialog({ restoreFocus: false, force: true });
   closeProRoomDestroyDialog({ restoreFocus: false });
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();
 });
 window.addEventListener('beforeunload', () => {
+  clearAnnouncementExpiryTimer();
+  clearServiceStatusSettleTimer();
+  closeServiceStatusDialog({ restoreFocus: false, force: true });
   closeProRoomDestroyDialog({ restoreFocus: false });
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();

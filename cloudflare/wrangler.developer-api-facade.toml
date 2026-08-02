@@ -19,3 +19,8 @@ head_sampling_rate = 0.01
 name = "PRO_ROOM_DEVELOPER_ROOMS"
 class_name = "MusixquareProRoom"
 script_name = "musixquare-pro-room"
+
+[[durable_objects.bindings]]
+name = "MUSIXQUARE_SERVICE_CONTROL"
+class_name = "MusixquareServiceControl"
+script_name = "musixquare-pro-room"

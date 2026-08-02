@@ -70,6 +70,11 @@ name = "PRO_ROOM_ADMIN_ROOMS"
 class_name = "MusixquareProRoom"
 script_name = "musixquare-pro-room"
 
+[[durable_objects.bindings]]
+name = "MUSIXQUARE_SERVICE_CONTROL"
+class_name = "MusixquareServiceControl"
+script_name = "musixquare-pro-room"
+
 # Same-origin public facade for browser PRO-room requests. Keeping the browser
 # on musixquare.com avoids exposing room entry to a separate custom-domain
 # transport path while the backend Worker remains independently deployable.

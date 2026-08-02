@@ -31,6 +31,13 @@ import {
   proRoomMediaPrefix,
   proRoomObjectName,
 } from './pro-room-generation.js';
+import {
+  SERVICE_CONTROL_STATE_PATH,
+  SERVICE_CONTROL_STATUS_PATH,
+  gateServiceMaintenance,
+  normalizeServiceMaintenanceState,
+  readServiceMaintenance,
+} from './service-maintenance.js';
 
 /**
  * MUSIXQUARE persistent PRO room service.
@@ -42,6 +49,10 @@ import {
  */
 
 const PRO_ROOM_CODE_RE = /^0\d{5}$/;
+const SERVICE_CONTROL_STATE_KEY = 'service-maintenance-state';
+const SERVICE_CONTROL_REQUESTS_KEY = 'service-maintenance-requests';
+const SERVICE_CONTROL_REQUEST_HISTORY_LIMIT = 64;
+const SERVICE_CONTROL_REQUEST_ID_RE = /^[A-Za-z0-9_-]{8,128}$/;
 const INITIAL_PRO_ROOMS = Object.freeze([
   Object.freeze({ roomCode: '000000', label: 'MUSIXQUARE Developer' }),
 ]);
@@ -2726,6 +2737,207 @@ function assertBoundedRoomState(room) {
   }
 }
 
+function initialServiceControlState() {
+  return {
+    enabled: false,
+    revision: 0,
+    updatedAt: null,
+    activatedAt: null,
+  };
+}
+
+function canonicalServiceControlState(value) {
+  const normalized = normalizeServiceMaintenanceState(value);
+  if (!normalized) return null;
+  return {
+    enabled: normalized.enabled,
+    revision: normalized.revision,
+    updatedAt: normalized.updatedAt,
+    activatedAt: normalized.activatedAt,
+  };
+}
+
+function publicServiceControlState(state) {
+  return normalizeServiceMaintenanceState(state) || normalizeServiceMaintenanceState(
+    initialServiceControlState(),
+  );
+}
+
+function normalizeServiceControlRequests(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (entry) =>
+        entry &&
+        typeof entry === 'object' &&
+        SERVICE_CONTROL_REQUEST_ID_RE.test(String(entry.requestId || '')) &&
+        typeof entry.enabled === 'boolean' &&
+        canonicalServiceControlState(entry.state),
+    )
+    .slice(0, SERVICE_CONTROL_REQUEST_HISTORY_LIMIT)
+    .map((entry) => ({
+      requestId: String(entry.requestId),
+      enabled: entry.enabled,
+      state: canonicalServiceControlState(entry.state),
+    }));
+}
+
+function serviceControlJson(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'Cache-Control': 'no-store, max-age=0',
+      'Content-Type': 'application/json; charset=utf-8',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+}
+
+export class MusixquareServiceControl {
+  constructor(state) {
+    this.state = state;
+    this.storage = state.storage;
+    this.serviceStatus = initialServiceControlState();
+    this.requests = [];
+    this.mutationTail = Promise.resolve();
+    const load = async () => {
+      const [storedState, storedRequests] = await Promise.all([
+        this.storage.get(SERVICE_CONTROL_STATE_KEY),
+        this.storage.get(SERVICE_CONTROL_REQUESTS_KEY),
+      ]);
+      const normalizedStoredState = canonicalServiceControlState(storedState);
+      if (storedState !== undefined && storedState !== null && !normalizedStoredState) {
+        throw new Error('SERVICE_MAINTENANCE_STATE_INVALID');
+      }
+      this.serviceStatus = normalizedStoredState || initialServiceControlState();
+      this.requests = normalizeServiceControlRequests(storedRequests);
+    };
+    this.ready =
+      typeof state.blockConcurrencyWhile === 'function'
+        ? state.blockConcurrencyWhile(load)
+        : load();
+  }
+
+  async withMutation(callback) {
+    const previous = this.mutationTail;
+    let release;
+    this.mutationTail = new Promise((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      return await callback();
+    } finally {
+      release();
+    }
+  }
+
+  response(state = this.serviceStatus, status = 200, extra = {}) {
+    return serviceControlJson(
+      {
+        ...extra,
+        serviceStatus: publicServiceControlState(state),
+      },
+      status,
+    );
+  }
+
+  async fetch(request) {
+    if (this.ready) await this.ready;
+    const url = new URL(request.url);
+    if (url.search || url.hash) return serviceControlJson({ error: 'NOT_FOUND' }, 404);
+    if (request.method === 'GET' && url.pathname === SERVICE_CONTROL_STATUS_PATH) {
+      return this.response();
+    }
+    if (request.method !== 'POST' || url.pathname !== SERVICE_CONTROL_STATE_PATH) {
+      return serviceControlJson({ error: 'NOT_FOUND' }, 404);
+    }
+
+    const contentType = String(request.headers.get('Content-Type') || '').toLowerCase();
+    if (!/^application\/json(?:\s*;|$)/.test(contentType)) {
+      return serviceControlJson({ error: 'JSON_REQUIRED' }, 415);
+    }
+    const contentLength = Number(request.headers.get('Content-Length'));
+    if (Number.isFinite(contentLength) && contentLength > 4096) {
+      return serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413);
+    }
+    let body;
+    try {
+      const text = await request.text();
+      if (new TextEncoder().encode(text).byteLength > 4096) {
+        return serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413);
+      }
+      body = JSON.parse(text);
+    } catch {
+      return serviceControlJson({ error: 'INVALID_JSON' }, 400);
+    }
+    if (
+      !body ||
+      typeof body !== 'object' ||
+      typeof body.enabled !== 'boolean' ||
+      !Number.isSafeInteger(body.expectedRevision) ||
+      body.expectedRevision < 0 ||
+      typeof body.requestId !== 'string' ||
+      !SERVICE_CONTROL_REQUEST_ID_RE.test(body.requestId)
+    ) {
+      return serviceControlJson({ error: 'INVALID_REQUEST' }, 400);
+    }
+
+    return this.withMutation(async () => {
+      const replay = this.requests.find((entry) => entry.requestId === body.requestId);
+      if (replay) {
+        if (replay.enabled !== body.enabled) {
+          return this.response(this.serviceStatus, 409, {
+            error: 'SERVICE_MAINTENANCE_REQUEST_ID_REUSED',
+          });
+        }
+        if (replay.state.revision !== this.serviceStatus.revision) {
+          return this.response(this.serviceStatus, 409, {
+            error: 'SERVICE_MAINTENANCE_REQUEST_SUPERSEDED',
+          });
+        }
+        return this.response(this.serviceStatus, 200, {
+          ok: true,
+          changed: false,
+          replayed: true,
+        });
+      }
+      if (body.expectedRevision !== this.serviceStatus.revision) {
+        return this.response(this.serviceStatus, 409, {
+          error: 'SERVICE_MAINTENANCE_REVISION_CONFLICT',
+        });
+      }
+
+      const changed = body.enabled !== this.serviceStatus.enabled;
+      const now = Date.now();
+      const next = changed
+        ? {
+            enabled: body.enabled,
+            revision: this.serviceStatus.revision + 1,
+            updatedAt: now,
+            activatedAt: body.enabled ? now : null,
+          }
+        : this.serviceStatus;
+      const requestRecord = {
+        requestId: body.requestId,
+        enabled: body.enabled,
+        state: next,
+      };
+      const nextRequests = [requestRecord, ...this.requests].slice(
+        0,
+        SERVICE_CONTROL_REQUEST_HISTORY_LIMIT,
+      );
+      await this.storage.put({
+        [SERVICE_CONTROL_STATE_KEY]: next,
+        [SERVICE_CONTROL_REQUESTS_KEY]: nextRequests,
+      });
+      this.serviceStatus = next;
+      this.requests = nextRequests;
+      return this.response(next, 200, { ok: true, changed, replayed: false });
+    });
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -2737,6 +2949,8 @@ export default {
         ...(typeof workerVersionId === 'string' && workerVersionId ? { workerVersionId } : {}),
       });
     }
+    const maintenanceResponse = await gateServiceMaintenance(request, env, { format: 'json' });
+    if (maintenanceResponse) return maintenanceResponse;
     const origin = allowedOrigin(request, env);
     if (request.method === 'OPTIONS') {
       return origin
@@ -3585,7 +3799,15 @@ export class MusixquareProRoom {
         if (this.pendingHeartbeatFlushGeneration === generation) {
           this.pendingHeartbeatFlushTimer = null;
         }
-        this.withMutation(() => this.flushHeartbeatDurability(generation)).catch(() => undefined);
+        readServiceMaintenance(this.env)
+          .then((maintenance) => {
+            if (maintenance.enabled) return undefined;
+            return this.withMutation(async () => {
+              if ((await readServiceMaintenance(this.env)).enabled) return;
+              await this.flushHeartbeatDurability(generation);
+            });
+          })
+          .catch(() => undefined);
       },
       Math.max(0, windowEndsAtMs - nowMs),
     );
@@ -3694,16 +3916,22 @@ export class MusixquareProRoom {
     this.alarmMaintenanceRetryAttempt += 1;
     this.alarmMaintenanceRetryTimer = setTimeout(() => {
       this.alarmMaintenanceRetryTimer = null;
-      this.withMutation(async () => {
-        if (!this.room || !this.alarmMaintenanceDirty) return;
-        await this.maintainAlarm();
-      }).catch(() => {
-        // maintainAlarm absorbs storage scheduling failures. Keep this guard
-        // for an unexpected mutation-queue failure so a timer callback never
-        // becomes an unhandled rejection and the maintenance work is retried.
-        this.alarmMaintenanceDirty = true;
-        this.scheduleAlarmMaintenanceRetry();
-      });
+      readServiceMaintenance(this.env)
+        .then((maintenance) => {
+          if (maintenance.enabled) return undefined;
+          return this.withMutation(async () => {
+            if ((await readServiceMaintenance(this.env)).enabled) return;
+            if (!this.room || !this.alarmMaintenanceDirty) return;
+            await this.maintainAlarm();
+          });
+        })
+        .catch(() => {
+          // maintainAlarm absorbs storage scheduling failures. Keep this guard
+          // for an unexpected mutation-queue failure so a timer callback never
+          // becomes an unhandled rejection and the maintenance work is retried.
+          this.alarmMaintenanceDirty = true;
+          this.scheduleAlarmMaintenanceRetry();
+        });
     }, delay);
   }
 
@@ -3908,6 +4136,8 @@ export class MusixquareProRoom {
   }
 
   async fetch(request) {
+    const maintenanceResponse = await gateServiceMaintenance(request, this.env, { format: 'json' });
+    if (maintenanceResponse) return maintenanceResponse;
     if (!(await this.ensureReady(request))) return errorResponse('ROOM_NOT_FOUND', 404);
     const url = new URL(request.url);
     if (url.search || url.hash || request.url.length > 8192) {
@@ -5782,6 +6012,7 @@ export class MusixquareProRoom {
     const db = this.env?.MUSIXQUARE_ADMIN_DB || this.env?.ADMIN_METRICS_DB || null;
     if (!db?.prepare) return;
     const update = (async () => {
+      if ((await readServiceMaintenance(this.env)).enabled) return;
       await db
         .prepare(
           `UPDATE mxqr_pro_room_registry
@@ -7711,7 +7942,9 @@ export class MusixquareProRoom {
   }
 
   async rememberFailedPresenceBroadcast(event, coordinatorEpoch) {
+    if ((await readServiceMaintenance(this.env)).enabled) return;
     await this.withMutation(async () => {
+      if ((await readServiceMaintenance(this.env)).enabled) return;
       if (!this.room || event?.type !== 'pro-presence-snapshot') return;
       const deliveredRevision = {
         coordinatorEpoch,
@@ -7743,7 +7976,9 @@ export class MusixquareProRoom {
   }
 
   async clearDeliveredPresenceBroadcast(event, coordinatorEpoch) {
+    if ((await readServiceMaintenance(this.env)).enabled) return;
     await this.withMutation(async () => {
+      if ((await readServiceMaintenance(this.env)).enabled) return;
       const pending = this.room?.pendingPresenceBroadcast;
       if (!pending || event?.type !== 'pro-presence-snapshot') return;
       const deliveredRevision = {
@@ -8353,6 +8588,7 @@ export class MusixquareProRoom {
   }
 
   async purgeDecommissionedMediaPrefix() {
+    if ((await readServiceMaintenance(this.env)).enabled) return { ok: false, deletedAny: false };
     const bucket = this.env.PRO_MEDIA_BUCKET;
     if (!bucket || typeof bucket.list !== 'function' || typeof bucket.delete !== 'function') {
       return { ok: false, deletedAny: false };
@@ -8363,6 +8599,9 @@ export class MusixquareProRoom {
       // Re-read the first page after every batch. Deleting while following an
       // old cursor can skip keys when the listing contracts underneath it.
       for (let round = 0; round < 32; round += 1) {
+        if ((await readServiceMaintenance(this.env)).enabled) {
+          return { ok: false, deletedAny };
+        }
         const page = await bucket.list({ prefix, limit: 1000 });
         const keys = Array.isArray(page?.objects)
           ? page.objects.map((object) => object?.key).filter((key) => typeof key === 'string')
@@ -8378,6 +8617,7 @@ export class MusixquareProRoom {
   }
 
   async decommissionSignaling(requestId) {
+    if ((await readServiceMaintenance(this.env)).enabled) return false;
     const namespace = this.env.PRO_SIGNALING_ROOMS;
     if (!namespace || typeof namespace.idFromName !== 'function') return false;
     try {
@@ -8416,6 +8656,7 @@ export class MusixquareProRoom {
   }
 
   async deleteDeveloperRoomData(requestId, nowMs = Date.now()) {
+    if ((await readServiceMaintenance(this.env)).enabled) return false;
     const db = this.env.DEVELOPER_API_DB;
     if (!db?.prepare) return false;
     try {
@@ -8455,6 +8696,7 @@ export class MusixquareProRoom {
   }
 
   async clearDeveloperRoomLimiter(requestId) {
+    if ((await readServiceMaintenance(this.env)).enabled) return false;
     const namespace = this.env.DEVELOPER_API_LIMITERS;
     if (!namespace || typeof namespace.idFromName !== 'function') return false;
     try {
@@ -8491,6 +8733,7 @@ export class MusixquareProRoom {
   }
 
   async markRegistryDecommissioned(nowMs) {
+    if ((await readServiceMaintenance(this.env)).enabled) return false;
     const db = this.env.MUSIXQUARE_ADMIN_DB || this.env.ADMIN_METRICS_DB || null;
     if (!db?.prepare) return false;
     try {
@@ -8539,6 +8782,7 @@ export class MusixquareProRoom {
   }
 
   async retireAccountReverseEdge() {
+    if ((await readServiceMaintenance(this.env)).enabled) return false;
     const db = this.env.MUSIXQUARE_AUTH_DB;
     // Decommission admission requires this production binding. Keep the guard
     // here as a fail-closed defense for rolling or malformed deployments.
@@ -10887,6 +11131,19 @@ export class MusixquareProRoom {
   }
 
   async alarm() {
+    if ((await readServiceMaintenance(this.env)).enabled) {
+      if (typeof this.storage.setAlarm === 'function') {
+        const retryAtMs = Date.now() + 60_000;
+        try {
+          await this.storage.setAlarm(retryAtMs);
+          this.scheduledAlarmMs = retryAtMs;
+        } catch {
+          // A later request or control-plane recovery can install the next
+          // ordinary alarm. Maintenance still fails closed for room mutation.
+        }
+      }
+      return;
+    }
     await this.withMutation(async () => {
       // Cloudflare removes the due alarm before invoking this callback. Clear
       // the in-memory hint so scheduleAlarm() can install the next deadline.

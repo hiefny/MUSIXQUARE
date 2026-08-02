@@ -37,6 +37,11 @@ database_id = "237d63d2-6eea-4b01-b396-7784b5b8b6f0"
 name = "DEVELOPER_API_LIMITERS"
 class_name = "DeveloperApiRateLimiter"
 
+[[durable_objects.bindings]]
+name = "MUSIXQUARE_SERVICE_CONTROL"
+class_name = "MusixquareServiceControl"
+script_name = "musixquare-pro-room"
+
 [[services]]
 binding = "DEVELOPER_API_FACADE"
 service = "musixquare-developer-api-facade"

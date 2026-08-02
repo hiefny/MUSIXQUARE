@@ -349,6 +349,20 @@ function workerEnv(): {
   };
 }
 
+function maintenanceBinding(enabled = true): Record<string, unknown> {
+  const serviceStatus = {
+    enabled,
+    revision: enabled ? 1 : 0,
+    updatedAt: enabled ? Date.now() : null,
+    activatedAt: enabled ? Date.now() : null,
+  };
+  return {
+    getByName: vi.fn(() => ({
+      fetch: vi.fn(async () => originalResponse.json({ serviceStatus })),
+    })),
+  };
+}
+
 function proAuthorityNamespace(
   handler: (request: Request) => Promise<Response> = async () =>
     new originalResponse(
@@ -543,6 +557,45 @@ afterAll(() => {
 });
 
 describe('Cloudflare signaling Worker hibernation behavior', () => {
+  it('blocks top-level and room-object admission while service maintenance is active', async () => {
+    const routed = workerEnv();
+    routed.env.MUSIXQUARE_SERVICE_CONTROL = maintenanceBinding();
+    const topLevel = await workerModule.default.fetch(
+      wsRequest('123456', 'host', 'host-maintenance'),
+      routed.env,
+    );
+    expect(topLevel.status).toBe(503);
+    expect(routed.idFromName).not.toHaveBeenCalled();
+
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MUSIXQUARE_SERVICE_CONTROL: maintenanceBinding(),
+    });
+    const objectResponse = await room.fetch(wsRequest('123456', 'host', 'host-maintenance'));
+    expect(objectResponse.status).toBe(503);
+    expect(FakeWebSocketPair.pairs).toHaveLength(0);
+  });
+
+  it('keeps an alarm alive but blocks websocket work and close persistence in maintenance', async () => {
+    const state = new FakeDurableObjectState();
+    const env: Record<string, unknown> = {};
+    const room = new workerModule.MusixquareRoom(state, env);
+    await room.fetch(wsRequest('123456', 'host', 'host-maintenance'));
+    const socket = lastServer();
+    const beforeStorage = structuredClone([...state.storage.data.entries()]);
+
+    env.MUSIXQUARE_SERVICE_CONTROL = maintenanceBinding();
+    await room.webSocketMessage(socket, JSON.stringify({ type: 'host-auth', secret: 'ignored' }));
+    expect(socket.closed).toBe(true);
+    expect(socket.closeEvents.at(-1)).toEqual({ code: 1012, reason: 'SERVICE_MAINTENANCE' });
+    await room.webSocketClose(socket);
+    expect([...state.storage.data.entries()]).toEqual(beforeStorage);
+
+    state.storage.alarmTime = null;
+    const beforeAlarm = Date.now();
+    await room.alarm();
+    expect(state.storage.alarmTime).toBeGreaterThanOrEqual(beforeAlarm + 59_000);
+  });
   it('rejects non-WebSocket room requests before Durable Object lookup', async () => {
     const { env, idFromName } = workerEnv();
     const response = await workerModule.default.fetch(

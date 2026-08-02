@@ -19,6 +19,7 @@ custom_domain = true
 [vars]
 R2_BUCKET_NAME = "musixquare-remote-share"
 OBJECT_TTL_SECONDS = "3600"
+UPLOAD_TOKEN_TTL_SECONDS = "600"
 RATE_LIMIT_WINDOW_SECONDS = "3600"
 IP_UPLOADS_PER_WINDOW = "60"
 ROOM_UPLOADS_PER_WINDOW = "0"
@@ -45,6 +46,11 @@ id = "ccf776d532e44e2daed916e7304542cd"
 [[durable_objects.bindings]]
 name = "REMOTE_SHARE_QUOTA"
 class_name = "RemoteShareQuota"
+
+[[durable_objects.bindings]]
+name = "MUSIXQUARE_SERVICE_CONTROL"
+class_name = "MusixquareServiceControl"
+script_name = "musixquare-pro-room"
 
 # Cloudflare requires this Durable Object migration history to remain
 # append-only. These provider-managed identifiers are immutable infrastructure

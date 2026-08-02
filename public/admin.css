@@ -253,6 +253,55 @@ p {
   color: var(--text-main);
 }
 
+.header-actions [data-service-status-trigger] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-main);
+}
+
+[data-service-status-trigger][data-state='maintenance'] {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--fail);
+}
+
+[data-service-status-trigger][data-state='activating'],
+[data-service-status-trigger][data-state='resuming'],
+[data-service-status-trigger][data-state='unknown'] {
+  color: var(--warn);
+}
+
+[data-service-status-trigger]:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+[data-service-status-dot] {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--text-muted);
+  box-shadow: 0 0 0 3px rgba(113, 113, 122, 0.12);
+}
+
+[data-service-status-dot][data-state='operational'] {
+  background: var(--pass);
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.12);
+}
+
+[data-service-status-dot][data-state='maintenance'] {
+  background: var(--fail);
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.14);
+}
+
+[data-service-status-dot][data-state='activating'],
+[data-service-status-dot][data-state='resuming'],
+[data-service-status-dot][data-state='unknown'] {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.12);
+}
+
 .admin-tabs {
   display: inline-flex;
   width: fit-content;
@@ -285,6 +334,27 @@ p {
 .admin-tabs button.is-active {
   background: var(--surface-2);
   color: var(--text-main);
+}
+
+[data-admin-tab='announcements'] {
+  position: relative;
+}
+
+[data-admin-tab='announcements'].has-active-announcement::after {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 7px;
+  width: 7px;
+  height: 7px;
+  border: 2px solid var(--surface-1);
+  border-radius: 50%;
+  background: var(--fail);
+  box-sizing: content-box;
+}
+
+[data-admin-tab='announcements'].is-active.has-active-announcement::after {
+  border-color: var(--surface-2);
 }
 
 .admin-view {
@@ -1301,6 +1371,211 @@ p {
   font-size: 13px;
 }
 
+[data-service-status-dialog] {
+  position: fixed;
+  inset: 0;
+  width: min(440px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(640px, calc(100dvh - 32px));
+  margin: auto;
+  border: 1px solid var(--surface-3);
+  border-radius: 16px;
+  padding: 0;
+  overflow: auto;
+  background: var(--surface-1);
+  color: var(--text-main);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+
+[data-service-status-dialog]:not([open]) {
+  display: none;
+}
+
+[data-service-status-dialog]::backdrop {
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.service-status-dialog-card {
+  display: grid;
+  gap: 18px;
+  padding: 24px;
+}
+
+.service-status-dialog-head,
+.service-status-heading,
+.service-status-dialog-actions {
+  display: flex;
+  align-items: center;
+}
+
+.service-status-dialog-head {
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.service-status-heading {
+  min-width: 0;
+  gap: 12px;
+}
+
+.service-status-heading > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.service-status-heading > div > span,
+.service-status-preview > span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.service-status-dialog-dot {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--pass);
+  box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.12);
+}
+
+[data-service-status-dialog][data-state='maintenance'] .service-status-dialog-dot {
+  background: var(--fail);
+  box-shadow: 0 0 0 4px rgba(248, 113, 113, 0.14);
+}
+
+[data-service-status-dialog][data-state='activating'] .service-status-dialog-dot,
+[data-service-status-dialog][data-state='resuming'] .service-status-dialog-dot,
+[data-service-status-dialog][data-state='unknown'] .service-status-dialog-dot {
+  background: var(--warn);
+  box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.12);
+}
+
+.service-status-close {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.service-status-close:hover {
+  background: var(--surface-2);
+  color: var(--text-main);
+}
+
+[data-service-status-dialog] h2 {
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+[data-service-status-state] {
+  color: var(--pass);
+  font-size: 15px;
+  font-weight: 900;
+}
+
+[data-service-status-dialog][data-state='maintenance'] [data-service-status-state] {
+  color: var(--fail);
+}
+
+[data-service-status-dialog][data-state='activating'] [data-service-status-state],
+[data-service-status-dialog][data-state='resuming'] [data-service-status-state],
+[data-service-status-dialog][data-state='unknown'] [data-service-status-state] {
+  color: var(--warn);
+}
+
+[data-service-status-description] {
+  color: var(--text-sub);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.service-status-preview {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  padding: 15px 16px;
+  background: var(--bg);
+}
+
+.service-status-preview strong {
+  color: var(--text-main);
+  font-size: 14px;
+}
+
+.service-status-preview p,
+.service-status-warning {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.service-status-warning {
+  border-left: 2px solid var(--warn);
+  padding-left: 12px;
+}
+
+[data-service-status-updated] {
+  min-height: 1.4em;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-service-status-error] {
+  min-height: 1.4em;
+  color: var(--fail);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.service-status-dialog-actions {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.service-status-dialog-actions button {
+  min-height: 38px;
+  border-radius: var(--radius-pill);
+  padding: 8px 16px;
+  background: var(--surface-2);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+[data-service-status-confirm][data-action='enter'] {
+  background: var(--fail);
+  color: #121212;
+}
+
+[data-service-status-confirm][data-action='end'] {
+  background: var(--primary);
+  color: #fff;
+}
+
+.service-status-dialog-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.service-status-dialog-actions button:focus-visible,
+.service-status-close:focus-visible,
+[data-service-status-trigger]:focus-visible {
+  outline: 2px solid rgba(var(--primary-rgb), 0.72);
+  outline-offset: 2px;
+}
+
 .announcement-management {
   display: grid;
   gap: 18px;
@@ -1792,6 +2067,39 @@ p {
   .admin-shell,
   .admin-shell.is-login {
     width: min(100vw - 24px, 1100px);
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .header-actions [data-service-status-trigger] {
+    margin-right: auto;
+  }
+
+  [data-service-status-dialog] {
+    inset: auto 0 0;
+    width: 100%;
+    max-height: calc(100dvh - 12px);
+    margin: 0;
+    border-width: 1px 0 0;
+    border-radius: 20px 20px 0 0;
+  }
+
+  .service-status-dialog-card {
+    gap: 16px;
+    padding: 20px 18px max(20px, env(safe-area-inset-bottom));
+  }
+
+  .service-status-dialog-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .service-status-dialog-actions button {
+    width: 100%;
+    min-height: 44px;
   }
 
   .metric-grid,

@@ -28,6 +28,10 @@ name = "PRO_ROOMS"
 class_name = "MusixquareProRoom"
 
 [[durable_objects.bindings]]
+name = "MUSIXQUARE_SERVICE_CONTROL"
+class_name = "MusixquareServiceControl"
+
+[[durable_objects.bindings]]
 name = "PRO_SIGNALING_ROOMS"
 class_name = "MusixquareRoom"
 script_name = "musixquare-signaling"
@@ -63,6 +67,10 @@ database_id = "a1284975-2dac-4dbb-b1cb-ff60375833ae"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["MusixquareProRoom"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["MusixquareServiceControl"]
 
 # Required secrets (never commit their values):
 # npm run wrangler -- secret put PRO_ROOM_ACTIVATION_SECRET --config cloudflare/wrangler.pro-room.toml

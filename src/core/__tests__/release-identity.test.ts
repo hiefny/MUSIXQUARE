@@ -57,6 +57,24 @@ describe('canonical release identity', () => {
     ).toThrow('exactly one numeric CACHE_VERSION');
   });
 
+  it('keeps both admin shell assets pinned to the product release', () => {
+    const versionedSources = {
+      ...sources(),
+      appWorkerSource: "const ADMIN_ASSET_VERSION = '8.1.2';",
+      adminScriptSource: "const ADMIN_SCRIPT_VERSION = '8.1.2';",
+    };
+    expect(parseReleaseIdentity(versionedSources)).toEqual({
+      productVersion: '8.1.2',
+      serviceWorkerCacheEpoch: 226,
+    });
+    expect(() =>
+      parseReleaseIdentity({
+        ...versionedSources,
+        adminScriptSource: "const ADMIN_SCRIPT_VERSION = '8.1.1';",
+      }),
+    ).toThrow('Admin asset versions must match');
+  });
+
   it('keeps the repository guard wired into checked builds', () => {
     const manifest = JSON.parse(readFileSync('package.json', 'utf8')) as {
       version: string;

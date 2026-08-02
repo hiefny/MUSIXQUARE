@@ -2256,11 +2256,13 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const saved = (await save.json()) as {
       announcement?: { id?: string; enabled?: boolean; message?: string };
+      active?: boolean;
       history?: Array<{ action?: string; enabled?: boolean; message?: string }>;
     };
 
     expect(save.status).toBe(200);
     expect(saved.announcement?.enabled).toBe(true);
+    expect(saved.active).toBe(true);
     expect(saved.announcement?.message).toBe('Maintenance starts in five minutes.');
     expect(saved.announcement?.id).toMatch(/^[A-Za-z0-9._:-]+$/);
     expect(saved.history?.[0]).toMatchObject({
@@ -2276,8 +2278,10 @@ describe('Cloudflare app worker admin dashboard', () => {
       env,
     );
     const adminPayload = (await adminRead.json()) as {
+      active?: boolean;
       history?: Array<{ action?: string; enabled?: boolean; message?: string }>;
     };
+    expect(adminPayload.active).toBe(true);
     expect(adminPayload.history?.[0]).toMatchObject({
       action: 'published',
       enabled: true,
@@ -3720,14 +3724,38 @@ describe('Cloudflare app worker admin dashboard', () => {
     const html = await response.text();
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
+    expect(response.headers.get('CDN-Cache-Control')).toBe('no-store');
+    expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.js');
+    expect(html).toContain('/admin.css?v=8.2.0');
+    expect(html).toContain('/admin.js?v=8.2.0');
+    expect(html).toContain('data-admin-asset-version="8.2.0"');
+    expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
     expect(html).toContain('data-admin-tab="pro-rooms"');
     expect(html).toContain('data-pro-room-form');
     expect(html).toContain('Reusing a deleted number creates a new, isolated room.');
     expect(html).not.toContain('Reserve a permanent room number');
+  });
+
+  it('forces admin assets through no-store browser and CDN caching', async () => {
+    const assetFetch = vi.fn(
+      async () =>
+        new Response('admin asset', {
+          headers: { 'Cache-Control': 'public, max-age=86400' },
+        }),
+    );
+    const env = { ASSETS: { fetch: assetFetch } };
+
+    for (const path of ['/admin.js?v=8.2.0', '/admin.css?v=8.2.0']) {
+      const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
+      expect(response.headers.get('CDN-Cache-Control')).toBe('no-store');
+      expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
+    }
+    expect(assetFetch).toHaveBeenCalledTimes(2);
   });
 });
 

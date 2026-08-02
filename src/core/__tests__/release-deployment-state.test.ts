@@ -90,8 +90,9 @@ describe('release deployment rollback state', () => {
     const app = workflow.indexOf('Deploy and record app Worker with immutable dist');
 
     expect(remoteShare).toBeGreaterThan(-1);
-    expect(proRoom).toBeGreaterThan(remoteShare);
-    expect(signaling).toBeGreaterThan(proRoom);
+    expect(proRoom).toBeGreaterThan(-1);
+    expect(remoteShare).toBeGreaterThan(proRoom);
+    expect(signaling).toBeGreaterThan(remoteShare);
     expect(facade).toBeGreaterThan(signaling);
     expect(developerApi).toBeGreaterThan(facade);
     expect(app).toBeGreaterThan(developerApi);
@@ -109,8 +110,9 @@ describe('release deployment rollback state', () => {
     const apiConfig = deployAll.indexOf('cloudflare/wrangler.developer-api.toml');
     const appConfig = deployAll.indexOf('cloudflare/wrangler.app.toml');
 
-    expect(proConfig).toBeGreaterThan(remoteConfig);
-    expect(signalingConfig).toBeGreaterThan(proConfig);
+    expect(proConfig).toBeGreaterThan(-1);
+    expect(remoteConfig).toBeGreaterThan(proConfig);
+    expect(signalingConfig).toBeGreaterThan(remoteConfig);
     expect(facadeConfig).toBeGreaterThan(signalingConfig);
     expect(apiConfig).toBeGreaterThan(facadeConfig);
     expect(appConfig).toBeGreaterThan(apiConfig);
@@ -123,9 +125,9 @@ describe('release deployment rollback state', () => {
       'developer-api',
     ]);
     expect([...releaseTargetWorkers('all')]).toEqual([
+      'pro-room',
       'remote-share',
       'signaling',
-      'pro-room',
       'developer-api-facade',
       'developer-api',
       'app',
@@ -168,6 +170,17 @@ describe('release deployment rollback state', () => {
         expect(covered, `${worker}: ${imported}`).toBe(true);
       }
     }
+  });
+
+  it('treats the shared service-maintenance gate as one cross-Worker release contract', () => {
+    const sharedGate = 'cloudflare/service-maintenance.js';
+
+    expect(runtimePathsForWorker('app')).toContain(sharedGate);
+    expect(runtimePathsForWorker('signaling')).toContain(sharedGate);
+    expect(runtimePathsForWorker('pro-room')).toContain(sharedGate);
+    expect(runtimePathsForWorker('remote-share')).toContain(sharedGate);
+    expect(runtimePathsForWorker('developer-api-facade')).toContain(sharedGate);
+    expect(runtimePathsForWorker('developer-api')).toContain(sharedGate);
   });
 
   it('derives each Worker D1 dependency set from the immutable manifest', () => {
@@ -990,8 +1003,8 @@ describe('release deployment rollback state', () => {
       'developer-api',
       'developer-api-facade',
       'signaling',
-      'pro-room',
       'remote-share',
+      'pro-room',
     ]);
   });
 

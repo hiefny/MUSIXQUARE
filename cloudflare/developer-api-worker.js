@@ -13,6 +13,10 @@ import {
   proRoomGenerationHeaderValue,
   proRoomObjectName,
 } from './pro-room-generation.js';
+import {
+  gateServiceMaintenance,
+  readServiceMaintenance,
+} from './service-maintenance.js';
 
 const PRO_ROOM_GENERATION_HEADER = 'x-mxqr-pro-room-generation';
 const API_KEY_RE = /^mxqr_live_([A-Za-z0-9_-]{16})\.([A-Za-z0-9_-]{43})$/;
@@ -2147,6 +2151,8 @@ export default {
         requestId,
       );
     }
+    const maintenanceResponse = await gateServiceMaintenance(request, env, { format: 'json' });
+    if (maintenanceResponse) return maintenanceResponse;
     try {
       return await handleApiRequest(request, env, context, requestId);
     } catch {
@@ -2157,7 +2163,12 @@ export default {
   scheduled(controller, env, context) {
     const scheduledTime = Number(controller?.scheduledTime);
     const nowMs = isSafeNonNegativeInteger(scheduledTime) ? scheduledTime : Date.now();
-    context.waitUntil(expireDeveloperApiKeys(env, nowMs));
+    context.waitUntil(
+      (async () => {
+        if ((await readServiceMaintenance(env)).enabled) return;
+        await expireDeveloperApiKeys(env, nowMs);
+      })(),
+    );
   },
 };
 
@@ -2333,8 +2344,9 @@ function exactInternalRoomGeneration(request, value) {
 }
 
 export class DeveloperApiRateLimiter {
-  constructor(state) {
+  constructor(state, env) {
     this.storage = state.storage;
+    this.env = env;
     this.mutationTail = Promise.resolve();
   }
 
@@ -2345,7 +2357,12 @@ export class DeveloperApiRateLimiter {
   }
 
   fetch(request) {
-    return this.enqueueMutation(() => this.handleFetch(request));
+    return this.enqueueMutation(async () => {
+      const maintenanceResponse = await gateServiceMaintenance(request, this.env, {
+        format: 'json',
+      });
+      return maintenanceResponse || this.handleFetch(request);
+    });
   }
 
   async handleFetch(request) {
@@ -2467,7 +2484,15 @@ export class DeveloperApiRateLimiter {
   }
 
   alarm() {
-    return this.enqueueMutation(() => this.handleAlarm());
+    return this.enqueueMutation(async () => {
+      if ((await readServiceMaintenance(this.env)).enabled) {
+        if (typeof this.storage.setAlarm === 'function') {
+          await this.storage.setAlarm(Date.now() + 60_000);
+        }
+        return;
+      }
+      await this.handleAlarm();
+    });
   }
 
   async handleAlarm() {

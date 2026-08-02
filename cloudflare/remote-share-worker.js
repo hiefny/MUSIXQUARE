@@ -29,6 +29,11 @@
  *     no secret is configured. Local/emergency only.
  */
 
+import {
+  gateServiceMaintenance,
+  readServiceMaintenance,
+} from './service-maintenance.js';
+
 // Cross-layer contract: client selection, protocol descriptors, and
 // stored-object validation all use this fixed 200 MiB whole-object ceiling.
 const REMOTE_SHARE_MAX_BYTES = 200 * 1024 * 1024;
@@ -189,6 +194,22 @@ function json(request, env, body, status = 200, extraHeaders = {}) {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
     },
+  });
+}
+
+function withRemoteShareHeaders(request, env, response) {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries({ ...SECURITY_HEADERS, ...corsHeaders(request, env) })) {
+    if (name.toLowerCase() === 'vary' && headers.has(name)) {
+      headers.set(name, `${headers.get(name)}, ${value}`);
+    } else {
+      headers.set(name, value);
+    }
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
   });
 }
 
@@ -1533,6 +1554,10 @@ export class RemoteShareQuota {
 
   fetch(request) {
     return this.enqueueMutation(async () => {
+      const maintenanceResponse = await gateServiceMaintenance(request, this.env, {
+        format: 'json',
+      });
+      if (maintenanceResponse) return maintenanceResponse;
       try {
         return await this.handleFetch(request);
       } catch (error) {
@@ -1787,6 +1812,12 @@ export class RemoteShareQuota {
   alarm() {
     return this.enqueueMutation(async () => {
       try {
+        if ((await readServiceMaintenance(this.env)).enabled) {
+          if (typeof this.storage.setAlarm === 'function') {
+            await this.storage.setAlarm(Date.now() + QUOTA_ALARM_RETRY_MS);
+          }
+          return;
+        }
         const stored = await this.storage.get(QUOTA_STATE_KEY);
         if (stored === undefined || stored === null) {
           if (typeof this.storage.deleteAll === 'function') await this.storage.deleteAll();
@@ -1824,6 +1855,12 @@ export default {
         status: 204,
         headers: { ...SECURITY_HEADERS, ...corsHeaders(request, env) },
       });
+    }
+
+    const isReadinessRequest = request.method === 'GET' && path === '/security-config';
+    if (!isReadinessRequest) {
+      const maintenanceResponse = await gateServiceMaintenance(request, env, { format: 'json' });
+      if (maintenanceResponse) return withRemoteShareHeaders(request, env, maintenanceResponse);
     }
 
     try {

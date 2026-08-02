@@ -64,8 +64,8 @@ describe('emergency deployment orchestrator', () => {
     const orderedTokens = [
       'check:workers',
       'build:checked',
-      'cloudflare/wrangler.remote-share.toml',
       'cloudflare/wrangler.pro-room.toml',
+      'cloudflare/wrangler.remote-share.toml',
       'cloudflare/wrangler.signaling.toml',
       'cloudflare/wrangler.developer-api-facade.toml',
       'developer-api:schema:remote',

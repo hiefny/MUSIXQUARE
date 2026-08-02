@@ -20,6 +20,11 @@ import {
   proRoomGenerationHeaderValue,
   proRoomObjectName,
 } from './pro-room-generation.js';
+import {
+  gateServiceMaintenance,
+  readServiceMaintenance,
+  updateServiceMaintenance,
+} from './service-maintenance.js';
 
 const YOUTUBE_SEARCH_API = 'https://www.googleapis.com/youtube/v3/search';
 const YOUTUBE_PLAYLIST_ITEMS_API = 'https://www.googleapis.com/youtube/v3/playlistItems';
@@ -78,6 +83,7 @@ const SORO_BLOG_CACHE_VERSION_KEY = 'soro-blog-cache-version.json';
 const ADMIN_ANNOUNCEMENT_KEY = 'admin-announcement.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
+const ADMIN_ASSET_VERSION = '8.2.0';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -4367,6 +4373,106 @@ function isAnnouncementActive(announcement, now = Date.now()) {
   return new Date(announcement.expiresAt).getTime() > now;
 }
 
+function isServiceMaintenanceAdminBypass(request, url) {
+  const pathname = url.pathname;
+  if (
+    (request.method === 'GET' || request.method === 'HEAD') &&
+    (pathname === '/admin' ||
+      pathname === '/admin/' ||
+      pathname === '/admin.js' ||
+      pathname === '/admin.css' ||
+      pathname === '/designsystem/assets/favicon.svg' ||
+      pathname === '/designsystem/assets/logo-wordmark.svg' ||
+      pathname === '/designsystem/fonts/PretendardVariable.woff2')
+  ) {
+    return true;
+  }
+  if (
+    pathname === '/api/admin/login' ||
+    pathname === '/api/admin/logout' ||
+    pathname === '/api/admin/session' ||
+    pathname === '/api/admin/service-status'
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function serviceStatusAdminPayload(state) {
+  const timestamp = (value) => {
+    if (typeof value === 'string' && !Number.isNaN(new Date(value).getTime())) {
+      return new Date(value).toISOString();
+    }
+    if (Number.isSafeInteger(value) && value > 0) return new Date(value).toISOString();
+    return null;
+  };
+  return {
+    enabled: state.enabled === true,
+    revision: Number.isSafeInteger(state.revision) && state.revision >= 0 ? state.revision : 0,
+    updatedAt: timestamp(state.updatedAt),
+    activatedAt: timestamp(state.activatedAt),
+    settlesAt: timestamp(state.settlesAt),
+  };
+}
+
+async function handleAdminServiceStatus(request, env) {
+  const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD', 'POST']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+
+  if (request.method === 'GET' || request.method === 'HEAD') {
+    const state = await readServiceMaintenance(env, { fresh: true });
+    if (state.controlUnavailable) {
+      return json({ error: 'SERVICE_CONTROL_UNAVAILABLE' }, 503);
+    }
+    return json({
+      generatedAt: new Date().toISOString(),
+      serviceStatus: serviceStatusAdminPayload(state),
+    });
+  }
+
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody);
+  const body = parsedBody.value;
+  const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : [];
+  if (
+    keys.length !== 3 ||
+    !keys.includes('enabled') ||
+    !keys.includes('expectedRevision') ||
+    !keys.includes('requestId') ||
+    typeof body.enabled !== 'boolean' ||
+    !Number.isSafeInteger(body.expectedRevision) ||
+    body.expectedRevision < 0 ||
+    typeof body.requestId !== 'string' ||
+    !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(body.requestId)
+  ) {
+    return json({ error: 'INVALID_REQUEST' }, 400);
+  }
+
+  const result = await updateServiceMaintenance(env, {
+    enabled: body.enabled,
+    expectedRevision: body.expectedRevision,
+    requestId: body.requestId,
+  });
+  if (result.status === 'unavailable') {
+    return json({ error: 'SERVICE_CONTROL_UNAVAILABLE' }, 503);
+  }
+  if (result.status === 'conflict') {
+    return json(
+      {
+        error: 'SERVICE_STATUS_CONFLICT',
+        serviceStatus: serviceStatusAdminPayload(result.state),
+      },
+      409,
+    );
+  }
+  return json({
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    serviceStatus: serviceStatusAdminPayload(result.state),
+  });
+}
+
 async function readAdminAnnouncement(env) {
   const store = getAdminConfigStore(env);
   if (!store) return { status: 'unbound', announcement: normalizeAnnouncementRecord({}) };
@@ -4413,6 +4519,7 @@ async function handleAdminAnnouncement(request, env) {
     return json({
       generatedAt: new Date().toISOString(),
       announcement,
+      active: isAnnouncementActive(announcement),
       history,
     });
   }
@@ -4446,6 +4553,7 @@ async function handleAdminAnnouncement(request, env) {
   return json({
     ok: true,
     announcement,
+    active: isAnnouncementActive(announcement),
     history,
   });
 }
@@ -4471,11 +4579,11 @@ function renderAdminPage(request, env) {
   <meta name="robots" content="noindex, nofollow">
   <title>MUSIXQUARE Admin</title>
   <link rel="icon" href="/designsystem/assets/favicon.svg">
-  <link rel="stylesheet" href="/admin.css">
-  <script src="/admin.js" defer></script>
+  <link rel="stylesheet" href="/admin.css?v=${ADMIN_ASSET_VERSION}">
+  <script src="/admin.js?v=${ADMIN_ASSET_VERSION}" defer></script>
 </head>
 <body>
-  <main class="admin-shell" data-admin-configured="${isAdminConfigured(env) ? 'true' : 'false'}">
+  <main class="admin-shell" data-admin-configured="${isAdminConfigured(env) ? 'true' : 'false'}" data-admin-asset-version="${ADMIN_ASSET_VERSION}">
     <section class="login-panel" data-login-panel>
       <span class="admin-wordmark" aria-label="MUSIXQUARE"></span>
       <h1>Admin Dashboard</h1>
@@ -4496,16 +4604,51 @@ function renderAdminPage(request, env) {
       <header class="dashboard-header">
         <div>
           <span class="admin-wordmark admin-wordmark-small" aria-label="MUSIXQUARE"></span>
-          <h1 data-dashboard-title>Operations</h1>
+          <h1 data-dashboard-title>Analytics</h1>
           <p data-updated-at>Loading metrics...</p>
         </div>
         <div class="header-actions">
+          <button class="service-status-trigger is-loading" type="button" aria-haspopup="dialog" data-service-status-trigger>
+            <span class="service-status-dot" aria-hidden="true" data-service-status-dot></span>
+            <span data-service-status-label>Checking status</span>
+          </button>
           <button type="button" data-refresh>Refresh</button>
           <button type="button" data-logout>Logout</button>
         </div>
       </header>
+      <dialog class="service-status-dialog" aria-labelledby="service-status-title" data-service-status-dialog>
+        <div class="service-status-dialog-card">
+          <div class="service-status-dialog-head">
+            <div class="service-status-heading">
+              <span class="service-status-dialog-dot" aria-hidden="true"></span>
+              <div>
+                <span>Global service status</span>
+                <h2 id="service-status-title" data-service-status-state>Checking status</h2>
+              </div>
+            </div>
+            <button class="service-status-close" type="button" aria-label="Close service status" data-service-status-cancel>&times;</button>
+          </div>
+          <p class="service-status-description" data-service-status-description>
+            Reading the current public service state.
+          </p>
+          <p data-service-status-updated></p>
+          <div class="service-status-preview" aria-label="Maintenance page preview">
+            <span>PUBLIC MESSAGE</span>
+            <strong>Musixquare is temporarily unavailable.</strong>
+            <p>Visitors receive this page in English with a second line in their system language.</p>
+          </div>
+          <p class="service-status-warning">
+            Maintenance mode blocks new public app, API, realtime, and scheduled work. Direct R2 uploads authorized before activation can still finish, so use a separate storage drain or credential rotation for a strict write freeze. This dashboard remains available so you can safely end maintenance.
+          </p>
+          <p class="service-status-error" role="alert" data-service-status-error></p>
+          <div class="service-status-dialog-actions">
+            <button class="is-secondary" type="button" data-service-status-cancel>Cancel</button>
+            <button class="service-status-confirm" type="button" data-service-status-confirm disabled>Enter maintenance mode</button>
+          </div>
+        </div>
+      </dialog>
       <nav class="admin-tabs" aria-label="Admin sections">
-        <button class="is-active" type="button" data-admin-tab="operations">Operations</button>
+        <button class="is-active" type="button" data-admin-tab="operations">Analytics</button>
         <button type="button" data-admin-tab="pro-rooms">PRO Rooms</button>
         <button type="button" data-admin-tab="articles">Articles</button>
         <button type="button" data-admin-tab="announcements">Announcements</button>
@@ -4630,6 +4773,28 @@ function renderAdminPage(request, env) {
       </section>
     </section>
   </main>
+  <script>
+    (() => {
+      const expected = ${JSON.stringify(ADMIN_ASSET_VERSION)};
+      const retryKey = 'mxqr-admin-asset-retry-' + expected;
+      document.addEventListener('DOMContentLoaded', () => {
+        if (window.__MXQR_ADMIN_SCRIPT_VERSION__ === expected) {
+          try { sessionStorage.removeItem(retryKey); } catch {}
+          return;
+        }
+        let attempts = 0;
+        try { attempts = Number(sessionStorage.getItem(retryKey) || 0); } catch {}
+        const status = document.querySelector('[data-updated-at], [data-login-status]');
+        if (attempts >= 8) {
+          if (status) status.textContent = 'Admin update is still propagating. Refresh in a moment.';
+          return;
+        }
+        try { sessionStorage.setItem(retryKey, String(attempts + 1)); } catch {}
+        if (status) status.textContent = 'Synchronizing admin controls...';
+        window.setTimeout(() => location.reload(), 500 + attempts * 250);
+      });
+    })();
+  </script>
 </body>
 </html>`;
 
@@ -4638,7 +4803,7 @@ function renderAdminPage(request, env) {
       status: 200,
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'no-store, max-age=0',
+        ...APP_SHELL_FRESH_CACHE_HEADERS,
       },
     }),
     {
@@ -7069,6 +7234,9 @@ function routeStaticPath(pathname) {
 }
 
 function cacheHeadersForPath(pathname, assetPathname = pathname) {
+  if (assetPathname === '/admin.js' || assetPathname === '/admin.css') {
+    return APP_SHELL_FRESH_CACHE_HEADERS;
+  }
   if (assetPathname === '/service-worker.js') return { 'Cache-Control': 'no-cache' };
   if (/^\/og-.+\.png$/.test(assetPathname)) {
     return { 'Cache-Control': 'public, max-age=86400, s-maxage=604800' };
@@ -7206,6 +7374,9 @@ async function serveStatic(request, env, ctx) {
 
 export default {
   async scheduled(event, env, ctx) {
+    const serviceStatus = await readServiceMaintenance(env);
+    if (serviceStatus.enabled) return;
+
     const cron = typeof event?.cron === 'string' ? event.cron : null;
     if (cron === null || cron === '0 */6 * * *') {
       ctx.waitUntil(loadSoroFeeds(env, { mirrorImages: true }));
@@ -7264,6 +7435,13 @@ export default {
       if (mustUseCanonicalHost) url.hostname = 'musixquare.com';
       if (trailingInviteMatch) url.pathname = `/${trailingInviteMatch[1]}`;
       return withSecurityHeaders(Response.redirect(url, 308));
+    }
+
+    if (!isServiceMaintenanceAdminBypass(request, url)) {
+      const maintenanceResponse = await gateServiceMaintenance(request, env, {
+        format: url.pathname.startsWith('/api/') ? 'json' : 'html',
+      });
+      if (maintenanceResponse) return withSecurityHeaders(maintenanceResponse);
     }
 
     if (url.pathname.startsWith('/api/auth/')) {
@@ -7386,6 +7564,8 @@ export default {
         return handleAdminLogout(request, env);
       case '/api/admin/session':
         return handleAdminSession(request, env);
+      case '/api/admin/service-status':
+        return handleAdminServiceStatus(request, env);
       case '/api/admin/metrics':
         return handleAdminMetrics(request, env);
       case '/api/admin/articles':

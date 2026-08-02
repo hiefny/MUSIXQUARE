@@ -378,51 +378,6 @@ jobs:
           done
           npm run smoke:live:pro-media-cors
 
-      - name: Record current remote-share deployment
-        timeout-minutes: 10
-        if: inputs.target == 'all' || inputs.target == 'remote-share'
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          npm run --silent wrangler -- deployments status \
-            --config cloudflare/wrangler.remote-share.toml --json \
-            > release-artifacts/deployments/remote-share-before.json
-          node scripts/release-deployment-state.mjs prepare remote-share
-
-      - name: Deploy and record remote-share Worker
-        timeout-minutes: 15
-        if: inputs.target == 'all' || inputs.target == 'remote-share'
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          node scripts/release-deployment-state.mjs preflight remote-share
-          node scripts/release-deployment-state.mjs attempt remote-share
-          set +e
-          npm run --silent wrangler -- deploy \
-            --config cloudflare/wrangler.remote-share.toml \
-            --message "$RELEASE_MESSAGE"
-          deploy_exit=$?
-          npm run --silent wrangler -- deployments status \
-            --config cloudflare/wrangler.remote-share.toml --json \
-            > release-artifacts/deployments/remote-share.json
-          status_exit=$?
-          record_exit=0
-          if (( status_exit == 0 )); then
-            node scripts/release-deployment-state.mjs record remote-share
-            record_exit=$?
-          fi
-          set -e
-          if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
-          if (( status_exit != 0 )); then exit "$status_exit"; fi
-          exit "$record_exit"
-
-      - name: Smoke remote-share Worker
-        if: inputs.target == 'all' || inputs.target == 'remote-share'
-        timeout-minutes: 5
-        run: npm run smoke:live:remote-share
-
       - name: Record current PRO room deployment
         timeout-minutes: 10
         if: inputs.target == 'all' || inputs.target == 'pro-room'
@@ -472,6 +427,53 @@ jobs:
         env:
           MXQR_EXPECTED_PRO_ROOM_VERSION: ${{ steps.pro_room_deployment.outputs.version_id }}
         run: npm run smoke:live:pro-room
+
+      # The global maintenance Durable Object is owned by the PRO Worker.
+      # Deploy it before every cross-script caller, including remote-share.
+      - name: Record current remote-share deployment
+        timeout-minutes: 10
+        if: inputs.target == 'all' || inputs.target == 'remote-share'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          npm run --silent wrangler -- deployments status \
+            --config cloudflare/wrangler.remote-share.toml --json \
+            > release-artifacts/deployments/remote-share-before.json
+          node scripts/release-deployment-state.mjs prepare remote-share
+
+      - name: Deploy and record remote-share Worker
+        timeout-minutes: 15
+        if: inputs.target == 'all' || inputs.target == 'remote-share'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          node scripts/release-deployment-state.mjs preflight remote-share
+          node scripts/release-deployment-state.mjs attempt remote-share
+          set +e
+          npm run --silent wrangler -- deploy \
+            --config cloudflare/wrangler.remote-share.toml \
+            --message "$RELEASE_MESSAGE"
+          deploy_exit=$?
+          npm run --silent wrangler -- deployments status \
+            --config cloudflare/wrangler.remote-share.toml --json \
+            > release-artifacts/deployments/remote-share.json
+          status_exit=$?
+          record_exit=0
+          if (( status_exit == 0 )); then
+            node scripts/release-deployment-state.mjs record remote-share
+            record_exit=$?
+          fi
+          set -e
+          if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
+          if (( status_exit != 0 )); then exit "$status_exit"; fi
+          exit "$record_exit"
+
+      - name: Smoke remote-share Worker
+        if: inputs.target == 'all' || inputs.target == 'remote-share'
+        timeout-minutes: 5
+        run: npm run smoke:live:remote-share
 
       - name: Record current signaling deployment
         timeout-minutes: 10

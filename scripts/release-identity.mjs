@@ -5,6 +5,10 @@ import { pathToFileURL } from 'node:url';
 const PRODUCT_VERSION_RE =
   /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const SERVICE_WORKER_CACHE_VERSION_RE = /\bconst\s+CACHE_VERSION\s*=\s*['"]v([1-9]\d*)['"]\s*;/gu;
+const ADMIN_WORKER_ASSET_VERSION_RE =
+  /\bconst\s+ADMIN_ASSET_VERSION\s*=\s*['"]([^'"]+)['"]\s*;/gu;
+const ADMIN_SCRIPT_VERSION_RE =
+  /\bconst\s+ADMIN_SCRIPT_VERSION\s*=\s*['"]([^'"]+)['"]\s*;/gu;
 
 function parseJson(source, label) {
   try {
@@ -20,7 +24,13 @@ function parseJson(source, label) {
  * - package.json is the single source of truth for the human product version.
  * - public/service-worker.js owns a monotonic cache epoch, not an app version.
  */
-export function parseReleaseIdentity({ packageSource, lockSource, serviceWorkerSource }) {
+export function parseReleaseIdentity({
+  packageSource,
+  lockSource,
+  serviceWorkerSource,
+  appWorkerSource,
+  adminScriptSource,
+}) {
   const manifest = parseJson(packageSource, 'package.json');
   const lock = parseJson(lockSource, 'package-lock.json');
   const productVersion = typeof manifest?.version === 'string' ? manifest.version : '';
@@ -49,6 +59,17 @@ export function parseReleaseIdentity({ packageSource, lockSource, serviceWorkerS
     throw new Error('Service-worker cache epoch must be a positive safe integer.');
   }
 
+  if (appWorkerSource !== undefined || adminScriptSource !== undefined) {
+    const workerMatches = [...String(appWorkerSource || '').matchAll(ADMIN_WORKER_ASSET_VERSION_RE)];
+    const scriptMatches = [...String(adminScriptSource || '').matchAll(ADMIN_SCRIPT_VERSION_RE)];
+    if (workerMatches.length !== 1 || scriptMatches.length !== 1) {
+      throw new Error('Admin shell and script must each declare exactly one asset version.');
+    }
+    if (workerMatches[0][1] !== productVersion || scriptMatches[0][1] !== productVersion) {
+      throw new Error('Admin asset versions must match the package.json product version.');
+    }
+  }
+
   return { productVersion, serviceWorkerCacheEpoch };
 }
 
@@ -60,6 +81,8 @@ export function readReleaseIdentity(repositoryRoot = process.cwd()) {
       resolve(repositoryRoot, 'public', 'service-worker.js'),
       'utf8',
     ),
+    appWorkerSource: readFileSync(resolve(repositoryRoot, 'cloudflare', 'app-worker.js'), 'utf8'),
+    adminScriptSource: readFileSync(resolve(repositoryRoot, 'public', 'admin.js'), 'utf8'),
   });
 }
 

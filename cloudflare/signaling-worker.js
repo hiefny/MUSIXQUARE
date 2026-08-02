@@ -11,6 +11,10 @@ import {
   proRoomObjectName,
 } from './pro-room-generation.js';
 import { isSafeVisibleDisplayName } from './display-name-policy.js';
+import {
+  gateServiceMaintenance,
+  readServiceMaintenance,
+} from './service-maintenance.js';
 
 const ROOM_PATH = /^\/api\/rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_PATH = /^\/api\/pro-rooms\/(\d{6})\/ws$/;
@@ -1070,6 +1074,7 @@ function getMetricsDb(env) {
 }
 
 async function recordMetric(env, event, now = Date.now()) {
+  if ((await readServiceMaintenance(env)).enabled) return;
   const db = getMetricsDb(env);
   if (!db?.prepare || typeof event !== 'string' || !event) return;
   const bucketMinute = Math.floor(now / 60000);
@@ -2746,6 +2751,8 @@ export class MusixquareRoom {
   }
 
   async fetch(request) {
+    const maintenanceResponse = await gateServiceMaintenance(request, this.env, { format: 'json' });
+    if (maintenanceResponse) return maintenanceResponse;
     const url = new URL(request.url);
     if (url.pathname.startsWith('/internal/')) {
       if (request.method !== 'POST' || url.search || url.hash) {
@@ -3405,6 +3412,17 @@ export class MusixquareRoom {
   }
 
   async alarm() {
+    if ((await readServiceMaintenance(this.env)).enabled) {
+      if (typeof this.state.storage.setAlarm === 'function') {
+        try {
+          await this.state.storage.setAlarm(Date.now() + 60_000);
+        } catch {
+          // Keep room mutations blocked. A later socket event or recovered
+          // control-plane check can reinstall ordinary maintenance scheduling.
+        }
+      }
+      return;
+    }
     const now = Date.now();
     await this.enqueueStandardAdmission(async () => {
       for (const sock of [...this.pendingHosts]) {
@@ -3621,6 +3639,10 @@ export class MusixquareRoom {
   }
 
   async webSocketMessage(ws, raw) {
+    if ((await readServiceMaintenance(this.env)).enabled) {
+      closeWithError(ws, 'service-maintenance', 'SERVICE_MAINTENANCE', 1012);
+      return;
+    }
     const attachment = readAttachment(ws);
     if (!attachment) return;
 
@@ -4174,6 +4196,26 @@ export class MusixquareRoom {
     const attachment = readAttachment(ws);
     if (!attachment) return;
 
+    if ((await readServiceMaintenance(this.env)).enabled) {
+      if (attachment.roomKind === 'pro') {
+        if (this.proMembers.get(attachment.participantId) === ws) {
+          this.proMembers.delete(attachment.participantId);
+        }
+        return;
+      }
+      if (attachment.role === 'host') {
+        this.pendingHosts.delete(ws);
+        if (this.host === ws) {
+          this.host = null;
+          this.hostPeerId = null;
+        }
+        return;
+      }
+      this.pendingGuests.delete(ws);
+      if (this.guests.get(attachment.peerId) === ws) this.guests.delete(attachment.peerId);
+      return;
+    }
+
     if (attachment.roomKind === 'pro') {
       if (this.proMembers.get(attachment.participantId) === ws) {
         this.proMembers.delete(attachment.participantId);
@@ -4300,6 +4342,8 @@ export default {
     if (url.pathname.startsWith('/internal/')) {
       return json({ error: 'NOT_FOUND' }, 404);
     }
+    const maintenanceResponse = await gateServiceMaintenance(request, env, { format: 'json' });
+    if (maintenanceResponse) return maintenanceResponse;
     const match = url.pathname.match(ROOM_PATH);
     const proMatch = url.pathname.match(PRO_ROOM_PATH);
     if (!match && !proMatch) {

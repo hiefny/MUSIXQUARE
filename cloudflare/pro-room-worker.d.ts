@@ -32,6 +32,12 @@ export class MusixquareProRoom {
   alarm(): Promise<void>;
 }
 
+export class MusixquareServiceControl {
+  constructor(state: unknown);
+
+  fetch(request: Request): Promise<Response>;
+}
+
 declare const proRoomWorker: {
   fetch(request: Request, env: unknown): Promise<Response>;
 };

@@ -63,8 +63,8 @@ export function emergencyDeploymentPlan(target, commitSha) {
       return [
         npmRun('check:workers'),
         npmRun('build:checked'),
-        deploy('remote-share'),
         deploy('pro-room'),
+        deploy('remote-share'),
         deploy('signaling'),
         deploy('developer-api-facade'),
         npmRun('developer-api:schema:remote'),

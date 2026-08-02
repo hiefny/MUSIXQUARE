@@ -1918,6 +1918,8 @@
   }
 
   .play-loading-spinner {
+    /* The r=18/stroke=4.75 arc renders at ~24px inside this 26px SVG,
+       matching the legacy 24px CSS-border spinner's visible diameter. */
     --material-elastic-size: 26px;
     display: none;
   }
@@ -2046,7 +2048,7 @@
   }
 
   .track-playback-loading-indicator {
-    --material-elastic-size: 18px;
+    --material-elastic-size: 16px;
     --material-elastic-stroke: 4.75;
     width: var(--material-elastic-size);
     height: var(--material-elastic-size);
@@ -2243,7 +2245,6 @@
     cursor: default;
   }
 
-  .pro-upload-entry .track-idx,
   .pro-upload-name {
     opacity: 0.58;
   }
@@ -2253,14 +2254,9 @@
   }
 
   .pro-upload-spinner {
-    --material-elastic-size: 18px;
+    --material-elastic-size: 16px;
     --material-elastic-stroke: 4.75;
     color: var(--primary);
-  }
-
-  .pro-upload-cancel:not(:disabled) {
-    color: var(--text-main);
-    background: color-mix(in srgb, var(--surface-3) 72%, transparent);
   }
 
   .pro-upload-cancel:disabled {
@@ -2554,17 +2550,17 @@
     transform: scale(0.92);
   }
 
-  .track-item:focus-within .btn-playlist-remove:not(.is-selected) {
+  .track-item:focus-within .btn-playlist-remove:not(.is-selected):not(:disabled) {
     opacity: 1;
   }
 
   @media (hover: hover) {
-    .btn-playlist-remove:hover {
+    .btn-playlist-remove:not(:disabled):hover {
       opacity: 1;
       color: #ff4d4f;
     }
 
-    .btn-playlist-remove.is-selected:hover {
+    .btn-playlist-remove.is-selected:not(:disabled):hover {
       color: #fff;
     }
   }

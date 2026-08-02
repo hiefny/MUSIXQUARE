@@ -180,8 +180,8 @@ describe('PRO upload rows', () => {
     expect(entries[0]?.dataset.queueItemId).toBeUndefined();
     expect(entries[0]?.dataset.proUploadId).toBe(FILE_A);
     expect(entries[0]?.querySelector('.pro-upload-name')?.textContent).toBe('one.flac');
-    expect(entries[0]?.querySelector('.track-idx')?.textContent).toBe('1');
-    expect(entries[1]?.querySelector('.track-idx')?.textContent).toBe('2');
+    expect(entries[0]?.querySelector('.track-idx')).toBeNull();
+    expect(entries[1]?.querySelector('.track-idx')).toBeNull();
     expect(entries[0]?.classList).toContain('is-uploading');
     expect(entries[1]?.classList).toContain('is-waiting');
     for (const entry of entries) {
@@ -191,7 +191,9 @@ describe('PRO upload rows', () => {
       );
       expect(track).not.toBeNull();
       expect(spinner).not.toBeNull();
-      expect(track?.firstElementChild).toBe(spinner);
+      expect(spinner?.parentElement).toBe(entry.querySelector('.track-leading'));
+      expect(track?.firstElementChild).toBe(entry.querySelector('.pro-upload-name'));
+      expect(track?.childElementCount).toBe(1);
       expect(spinner?.getAttribute('aria-hidden')).toBe('true');
       expect(spinner?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 44 44');
       expect(spinner?.querySelector('circle')?.getAttribute('cx')).toBe('22');
@@ -262,11 +264,17 @@ describe('PRO upload rows', () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     expect(stylesheet).not.toContain('.pro-upload-progress');
     expect(stylesheet).not.toContain('.pro-upload-status');
-    expect(stylesheet).toContain('.pro-upload-entry .track-idx');
+    expect(stylesheet).not.toContain('.pro-upload-entry .track-idx');
     expect(stylesheet).toContain('.pro-upload-name');
     expect(stylesheet).toContain('opacity: 0.58');
+    expect(stylesheet).not.toContain('.pro-upload-cancel:not(:disabled)');
     expect(stylesheet).toContain('.pro-upload-cancel:disabled');
     expect(stylesheet).toContain('opacity: 0.32');
+    expect(stylesheet).toContain(
+      '.track-item:focus-within .btn-playlist-remove:not(.is-selected):not(:disabled)',
+    );
+    expect(stylesheet).toContain('.btn-playlist-remove:not(:disabled):hover');
+    expect(stylesheet).not.toMatch(/\.btn-playlist-remove:hover\s*\{/);
   });
 
   it('keeps the elastic head/tail phase continuous when an upload row is rebuilt', async () => {
@@ -564,6 +572,10 @@ describe('playlist queue identity rendering and actions', () => {
       /\.material-elastic-spinner\s*\{[^}]*animation:\s*material-elastic-spin/s,
     );
     expect(stylesheet).toMatch(/\.play-loading-spinner\s*\{[^}]*--material-elastic-size:\s*26px;/);
+    expect(stylesheet).toMatch(
+      /\.track-playback-loading-indicator\s*\{[^}]*--material-elastic-size:\s*16px;/,
+    );
+    expect(stylesheet).toMatch(/\.pro-upload-spinner\s*\{[^}]*--material-elastic-size:\s*16px;/);
     expect(stylesheet).toMatch(
       /\.header-loading-spinner > svg,\s*\.header-loading-spinner circle\s*\{[^}]*animation-play-state:\s*paused;/,
     );

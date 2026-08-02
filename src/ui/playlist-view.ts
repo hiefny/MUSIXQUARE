@@ -636,11 +636,7 @@ function createProRoomUploadSpinner(): HTMLSpanElement {
   return spinner;
 }
 
-function appendProRoomUploadRow(
-  list: HTMLElement,
-  upload: ProRoomUploadRow,
-  position: number,
-): void {
+function appendProRoomUploadRow(list: HTMLElement, upload: ProRoomUploadRow): void {
   const entry = document.createElement('li');
   entry.className = `playlist-entry pro-upload-entry is-${upload.phase}`;
   entry.dataset.proUploadId = upload.id;
@@ -654,10 +650,7 @@ function appendProRoomUploadRow(
   const leading = document.createElement('div');
   leading.className = 'track-leading track-leading-static';
   leading.setAttribute('aria-hidden', 'true');
-  const ordinal = document.createElement('span');
-  ordinal.className = 'track-idx';
-  ordinal.textContent = String(position);
-  leading.appendChild(ordinal);
+  leading.appendChild(createProRoomUploadSpinner());
 
   const track = document.createElement('span');
   track.className = 'track-name pro-upload-track';
@@ -665,7 +658,7 @@ function appendProRoomUploadRow(
   name.className = 'track-name-text pro-upload-name';
   name.textContent = upload.name;
   applyUserTextFontFallback(name, upload.name);
-  track.append(createProRoomUploadSpinner(), name);
+  track.appendChild(name);
 
   const cancel = createProRoomUploadCancel(upload);
 
@@ -777,9 +770,7 @@ export function updatePlaylistUI(): void {
     appendSubPlaylist(entry, item, isCurrent, currentYouTubeSubIndex);
     list.appendChild(entry);
   });
-  uploads.forEach((upload, index) =>
-    appendProRoomUploadRow(list, upload, playlist.length + index + 1),
-  );
+  uploads.forEach((upload) => appendProRoomUploadRow(list, upload));
   syncPlaylistPlaybackIndicator(list);
   if (playlistIsVisible()) restorePlaylistFocus(list, focusSnapshot);
 

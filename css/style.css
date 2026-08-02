@@ -2154,140 +2154,10 @@
 
   .pro-upload-row {
     cursor: default;
-    gap: 12px;
   }
 
-  .pro-upload-entry.is-failed .pro-upload-row {
-    background: color-mix(in srgb, #ff4d4f 8%, transparent);
-  }
-
-  .pro-upload-leading {
-    width: 24px;
-    height: 24px;
-    flex: 0 0 24px;
-    display: grid;
-    place-items: center;
-    color: var(--primary);
-  }
-
-  .pro-upload-leading svg {
-    width: 20px;
-    height: 20px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.8;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  .pro-upload-entry:is(.is-waiting, .is-uploading, .is-confirming) .pro-upload-leading {
-    animation: pro-upload-pulse 1.4s ease-in-out infinite;
-  }
-
-  .pro-upload-entry.is-failed .pro-upload-leading {
-    color: #ff4d4f;
-  }
-
-  .pro-upload-copy {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .pro-upload-name {
-    color: var(--text-main);
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  .pro-upload-status {
-    color: var(--text-muted);
-    font-size: 11px;
-    line-height: 1.3;
-  }
-
-  .pro-upload-entry.is-failed .pro-upload-status {
-    color: #d9363e;
-  }
-
-  .pro-upload-progress {
-    appearance: none;
-    width: min(180px, 100%);
-    height: 3px;
-    overflow: hidden;
-    border: 0;
-    border-radius: 999px;
-    background: var(--surface-3);
-  }
-
-  .pro-upload-progress::-webkit-progress-bar {
-    border-radius: inherit;
-    background: var(--surface-3);
-  }
-
-  .pro-upload-progress::-webkit-progress-value {
-    border-radius: inherit;
-    background: var(--primary);
-  }
-
-  .pro-upload-progress::-moz-progress-bar {
-    border-radius: inherit;
-    background: var(--primary);
-  }
-
-  .pro-upload-actions {
-    flex: 0 0 auto;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .pro-upload-action {
-    min-width: 44px;
-    min-height: 44px;
-    padding: 7px 10px;
-    border: 0;
-    border-radius: 999px;
-    background: var(--surface-2);
-    color: var(--text-sub);
-    font: inherit;
-    font-size: 12px;
-    font-weight: 700;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-  }
-
-  .pro-upload-action:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
-    outline-offset: 2px;
-  }
-
-  .pro-upload-action-retry {
-    color: var(--primary);
-  }
-
-  .pro-upload-action-remove {
-    color: #d9363e;
-  }
-
-  @media (hover: hover) {
-    .pro-upload-action:hover {
-      background: var(--surface-3);
-    }
-  }
-
-  @keyframes pro-upload-pulse {
-    0%,
-    100% {
-      opacity: 0.55;
-      transform: translateY(1px);
-    }
-    50% {
-      opacity: 1;
-      transform: translateY(-1px);
-    }
+  .pro-upload-track {
+    cursor: default;
   }
 
   .type-icon {
@@ -2491,8 +2361,7 @@
     .playlist-ul,
     .btn-playlist-remove,
     .btn-playlist-remove svg,
-    .btn-playlist-remove::before,
-    .pro-upload-leading {
+    .btn-playlist-remove::before {
       transition: none !important;
       animation: none !important;
     }

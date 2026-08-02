@@ -42,8 +42,6 @@ import {
   acknowledgeCommittedProRoomUploads,
   cancelProRoomUpload,
   getProRoomUploadRows,
-  removeProRoomUpload,
-  retryProRoomUpload,
   subscribeProRoomUploadRows,
   type ProRoomUploadRow,
 } from '../pro-room/upload-queue.ts';
@@ -295,6 +293,10 @@ function renderTrackIcon(item: PlaylistItem): string {
       ? '<svg class="type-icon" viewBox="0 0 24 24" aria-hidden="true" style="fill:#FF0033; transform: scale(1.2);"><path d="M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z"/></svg>'
       : '<svg class="type-icon" viewBox="0 0 24 24" aria-hidden="true" style="fill:#FF0033;"><path d="M21.582 6.186a2.5 2.5 0 0 0-1.768-1.768C18.254 4 12 4 12 4s-6.254 0-7.814.418a2.5 2.5 0 0 0-1.768 1.768C2 7.746 2 12 2 12s0 4.254.418 5.814a2.5 2.5 0 0 0 1.768 1.768C5.746 20 12 20 12 20s6.254 0 7.814-.418a2.5 2.5 0 0 0 1.768-1.768C22 16.254 22 12 22 12s0-4.254-.418-5.814ZM10 15.464V8.536L16 12l-6 3.464Z"/></svg>';
   }
+  return renderFileTrackIcon();
+}
+
+function renderFileTrackIcon(): string {
   return '<svg class="type-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7Z"/></svg>';
 }
 
@@ -518,7 +520,6 @@ type PlaylistFocusSnapshot =
   | {
       owner: 'upload';
       uploadId: string;
-      action: string;
     };
 
 function capturePlaylistFocus(list: HTMLElement): PlaylistFocusSnapshot | null {
@@ -526,10 +527,8 @@ function capturePlaylistFocus(list: HTMLElement): PlaylistFocusSnapshot | null {
   if (!(active instanceof HTMLElement) || !list.contains(active)) return null;
   const uploadOwner = active.closest<HTMLElement>('[data-pro-upload-id]');
   const uploadId = uploadOwner?.dataset.proUploadId;
-  const uploadAction = active.closest<HTMLElement>('[data-pro-upload-action]')?.dataset
-    .proUploadAction;
-  if (uploadId && uploadAction) {
-    return { owner: 'upload', uploadId, action: uploadAction };
+  if (uploadId) {
+    return { owner: 'upload', uploadId };
   }
   const owner = active.closest<HTMLElement>('[data-queue-item-id]');
   const queueItemId = owner?.dataset.queueItemId as QueueItemId | undefined;
@@ -555,9 +554,15 @@ function restorePlaylistFocus(list: HTMLElement, snapshot: PlaylistFocusSnapshot
     const entry = Array.from(list.querySelectorAll<HTMLElement>('[data-pro-upload-id]')).find(
       (candidate) => candidate.dataset.proUploadId === snapshot.uploadId,
     );
-    const target = Array.from(
-      entry?.querySelectorAll<HTMLElement>('[data-pro-upload-action]') ?? [],
-    ).find((candidate) => candidate.dataset.proUploadAction === snapshot.action);
+    const committedEntry = Array.from(list.children).find(
+      (candidate): candidate is HTMLElement =>
+        candidate instanceof HTMLElement && candidate.dataset.queueItemId === snapshot.uploadId,
+    );
+    const target =
+      entry?.querySelector<HTMLElement>('[data-pro-upload-action="cancel"]') ??
+      entry?.querySelector<HTMLElement>('.pro-upload-row') ??
+      committedEntry?.querySelector<HTMLElement>('.track-name') ??
+      document.getElementById('tab-playlist');
     target?.focus({ preventScroll: true });
     return;
   }
@@ -584,42 +589,25 @@ function restorePlaylistFocus(list: HTMLElement, snapshot: PlaylistFocusSnapshot
   target?.focus({ preventScroll: true });
 }
 
-function proRoomUploadStatus(row: ProRoomUploadRow): string {
-  switch (row.phase) {
-    case 'waiting':
-      return t('pro.upload.waiting');
-    case 'uploading':
-      return t('pro.upload.progress', { percent: row.progressPercent });
-    case 'confirming':
-      return t('pro.upload.confirming');
-    case 'completed':
-      return t('pro.upload.completed');
-    case 'failed':
-      return t('pro.upload.failed');
-  }
-}
-
-function createProRoomUploadAction(
-  row: ProRoomUploadRow,
-  action: 'cancel' | 'retry' | 'remove',
-): HTMLButtonElement {
+function createProRoomUploadCancel(row: ProRoomUploadRow): HTMLButtonElement {
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = `pro-upload-action pro-upload-action-${action}`;
-  button.dataset.proUploadAction = action;
+  button.className = 'btn-playlist-remove pro-upload-cancel';
+  button.dataset.proUploadAction = 'cancel';
   button.dataset.proUploadId = row.id;
-  const visibleKey =
-    action === 'cancel' ? ('common.cancel' as const) : (`pro.upload.${action}` as const);
-  const labelKey = `pro.upload.${action}_file` as
-    | 'pro.upload.cancel_file'
-    | 'pro.upload.retry_file'
-    | 'pro.upload.remove_file';
-  button.textContent = t(visibleKey);
-  button.setAttribute('aria-label', t(labelKey, { name: row.name }));
+  const label = t('pro.upload.cancel_file', { name: row.name });
+  button.setAttribute('aria-label', label);
+  button.title = label;
+  button.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"/></svg>';
   return button;
 }
 
-function appendProRoomUploadRow(list: HTMLElement, upload: ProRoomUploadRow): void {
+function appendProRoomUploadRow(
+  list: HTMLElement,
+  upload: ProRoomUploadRow,
+  position: number,
+): void {
   const entry = document.createElement('li');
   entry.className = `playlist-entry pro-upload-entry is-${upload.phase}`;
   entry.dataset.proUploadId = upload.id;
@@ -627,57 +615,33 @@ function appendProRoomUploadRow(list: HTMLElement, upload: ProRoomUploadRow): vo
   const row = document.createElement('div');
   row.className = 'track-item pro-upload-row';
   row.dataset.proUploadId = upload.id;
-  row.setAttribute(
-    'aria-busy',
-    upload.phase === 'waiting' || upload.phase === 'uploading' || upload.phase === 'confirming'
-      ? 'true'
-      : 'false',
-  );
+  row.tabIndex = -1;
+  row.setAttribute('aria-busy', 'true');
 
-  const leading = document.createElement('span');
-  leading.className = 'pro-upload-leading';
+  const leading = document.createElement('div');
+  leading.className = 'track-leading track-leading-static';
   leading.setAttribute('aria-hidden', 'true');
-  leading.innerHTML =
-    '<svg viewBox="0 0 24 24"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 15.5v3A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-3"/></svg>';
+  const ordinal = document.createElement('span');
+  ordinal.className = 'track-idx';
+  ordinal.textContent = String(position);
+  leading.appendChild(ordinal);
 
-  const copy = document.createElement('span');
-  copy.className = 'pro-upload-copy';
+  const track = document.createElement('span');
+  track.className = 'track-name pro-upload-track';
+  track.innerHTML = renderFileTrackIcon();
   const name = document.createElement('span');
   name.className = 'track-name-text pro-upload-name';
   name.textContent = upload.name;
   applyUserTextFontFallback(name, upload.name);
-  const status = document.createElement('span');
-  status.className = 'pro-upload-status';
-  if (upload.phase === 'failed') {
-    status.setAttribute('role', 'alert');
-  } else if (upload.phase !== 'uploading') {
-    status.setAttribute('role', 'status');
-    status.setAttribute('aria-live', 'polite');
-  }
-  status.textContent = proRoomUploadStatus(upload);
-  copy.append(name, status);
+  track.appendChild(name);
 
-  if (upload.phase === 'uploading') {
-    const progress = document.createElement('progress');
-    progress.className = 'pro-upload-progress';
-    progress.max = 100;
-    progress.value = upload.progressPercent;
-    progress.setAttribute('aria-label', `${upload.name}: ${status.textContent}`);
-    copy.appendChild(progress);
-  }
-
-  const actions = document.createElement('span');
-  actions.className = 'pro-upload-actions';
+  let cancel: HTMLButtonElement | null = null;
   if (upload.phase === 'waiting' || upload.phase === 'uploading') {
-    actions.appendChild(createProRoomUploadAction(upload, 'cancel'));
-  } else if (upload.phase === 'failed') {
-    actions.append(
-      createProRoomUploadAction(upload, 'retry'),
-      createProRoomUploadAction(upload, 'remove'),
-    );
+    cancel = createProRoomUploadCancel(upload);
   }
 
-  row.append(leading, copy, actions);
+  row.append(leading, track);
+  if (cancel) row.appendChild(cancel);
   entry.appendChild(row);
   list.appendChild(entry);
 }
@@ -705,7 +669,10 @@ export function updatePlaylistUI(): void {
   // that ambiguous failure and owns the row, so retire the matching temporary
   // task instead of rendering a stale failed duplicate.
   acknowledgeCommittedProRoomUploads(committedIds);
-  const uploads = getProRoomUploadRows();
+  const uploads = getProRoomUploadRows().filter(
+    (upload) =>
+      upload.phase === 'waiting' || upload.phase === 'uploading' || upload.phase === 'confirming',
+  );
 
   pruneExpansionOverrides(playlist);
   const scrollContainer = list.closest<HTMLElement>('.tab-body') ?? list;
@@ -782,7 +749,9 @@ export function updatePlaylistUI(): void {
     appendSubPlaylist(entry, item, isCurrent, currentYouTubeSubIndex);
     list.appendChild(entry);
   });
-  for (const upload of uploads) appendProRoomUploadRow(list, upload);
+  uploads.forEach((upload, index) =>
+    appendProRoomUploadRow(list, upload, playlist.length + index + 1),
+  );
   syncPlaylistPlaybackIndicator(list);
   if (playlistIsVisible()) restorePlaylistFocus(list, focusSnapshot);
 
@@ -856,12 +825,6 @@ function installDomDelegation(list: HTMLElement): void {
         switch (uploadAction.dataset.proUploadAction) {
           case 'cancel':
             cancelProRoomUpload(id);
-            break;
-          case 'retry':
-            retryProRoomUpload(id);
-            break;
-          case 'remove':
-            removeProRoomUpload(id);
             break;
         }
         return;

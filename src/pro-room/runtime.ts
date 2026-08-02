@@ -13,6 +13,7 @@ import {
 } from './account-lease-policy.ts';
 import { announceTracksAddedLocally } from '../chat/queue-events.ts';
 import { announceSystemMessageLocally, receiveProRoomRealtimeChat } from '../chat/protocol.ts';
+import { showDialog } from '../ui/dialog.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
 import { applyRoomEffectsState, captureRoomEffectsState } from '../audio/effects.ts';
 import {
@@ -1259,33 +1260,75 @@ function installMediaHooks(
   const reportCurrentPlaylistError = (error: unknown) => {
     if (isPlaylistLeaseCurrent(lease)) reportPlaylistError(error);
   };
+  const uploadBatchLoaderIds = new Map<string, string>();
   const queue = new ProRoomUploadQueue({
     signal: playlistRuntimeAbort?.signal,
     run: async ({ id, file }, context) => {
       if (!isPlaylistLeaseCurrent(lease)) return;
-      const loaderId = openTransferLoader('upload', t('pro.uploading'));
-      let completed = false;
-      try {
-        await manager.addLocalFile(
-          {
-            queueItemId: id,
-            file,
-            onProgress: (fraction) => {
-              context.onProgress(fraction);
-              reportTransferProgress(loaderId, fraction);
-            },
+      const progressText = t('pro.upload.batch_progress', {
+        current: context.current,
+        total: context.total,
+      });
+      let loaderId = uploadBatchLoaderIds.get(context.batchId);
+      if (!loaderId) {
+        loaderId = openTransferLoader('upload', progressText);
+        uploadBatchLoaderIds.set(context.batchId, loaderId);
+      } else {
+        showLoader(true, progressText, loaderId);
+      }
+      reportTransferProgress(loaderId, (context.current - 1) / context.total);
+      await manager.addLocalFile(
+        {
+          queueItemId: id,
+          file,
+          onProgress: (fraction) => {
+            context.onProgress(fraction);
+            reportTransferProgress(
+              loaderId,
+              (context.current - 1 + Math.max(0, Math.min(1, fraction))) / context.total,
+            );
           },
-          {
-            signal: context.signal,
-            refreshBeforeUpload: context.isRetry,
-          },
-        );
-        completed = isPlaylistLeaseCurrent(lease) && !context.signal.aborted;
-      } finally {
-        closeTransferLoader(loaderId, completed);
+        },
+        {
+          signal: context.signal,
+          refreshBeforeUpload: context.isRetry,
+        },
+      );
+    },
+    reportFailure(error) {
+      if (isPlaylistLeaseCurrent(lease)) {
+        log.warn('[PRO] Persistent local upload failed', error);
       }
     },
-    reportFailure: reportCurrentPlaylistError,
+    onBatchSettled(result) {
+      const loaderId = uploadBatchLoaderIds.get(result.batchId);
+      if (loaderId) {
+        uploadBatchLoaderIds.delete(result.batchId);
+        closeTransferLoader(loaderId, result.failedCount === 0 && result.cancelledCount === 0);
+      }
+      if (result.failedCount === 0) return;
+      if (!isPlaylistLeaseCurrent(lease)) {
+        queue.dismissFailedBatch(result.batchId);
+        return;
+      }
+      void showDialog({
+        title: t('pro.upload.batch_failed_title'),
+        message: t('pro.upload.batch_failed_message', {
+          total: result.requestedCount,
+          failed: result.failedCount,
+        }),
+        buttonText: t('common.retry'),
+        secondaryText: t('common.close'),
+        defaultFocus: 'secondary',
+        dismissible: true,
+      }).then(({ action }) => {
+        if (action === 'ok' && isPlaylistLeaseCurrent(lease)) {
+          queue.retryFailedBatch(result.batchId);
+        } else {
+          queue.dismissFailedBatch(result.batchId);
+        }
+      });
+    },
   });
   proRoomUploadQueue = queue;
   setActiveProRoomUploadQueue(queue);

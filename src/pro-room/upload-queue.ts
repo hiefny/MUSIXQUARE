@@ -2,10 +2,10 @@ type ProRoomUploadPhase = 'waiting' | 'uploading' | 'confirming' | 'completed' |
 
 export interface ProRoomUploadRow {
   readonly id: string;
+  readonly batchId: string;
   readonly name: string;
   readonly size: number;
   readonly phase: ProRoomUploadPhase;
-  readonly progressPercent: number;
 }
 
 interface ProRoomUploadTask {
@@ -13,14 +13,31 @@ interface ProRoomUploadTask {
   readonly name: string;
   readonly size: number;
   readonly file: File;
+  readonly batchId: string;
+  batchRound: number;
   phase: ProRoomUploadPhase;
   progressPercent: number;
   attempt: number;
   controller: AbortController | null;
 }
 
+interface ProRoomUploadBatch {
+  readonly id: string;
+  round: number;
+  requestedCount: number;
+  roundTaskIds: string[];
+  pendingIds: Set<string>;
+  failedIds: Set<string>;
+  cancelledIds: Set<string>;
+  settled: boolean;
+}
+
 interface ProRoomUploadRunContext {
   readonly signal: AbortSignal;
+  readonly batchId: string;
+  readonly current: number;
+  readonly total: number;
+  readonly round: number;
   readonly isRetry: boolean;
   onProgress(fraction: number): void;
 }
@@ -30,8 +47,18 @@ interface ProRoomUploadRunInput {
   readonly file: File;
 }
 
+interface ProRoomUploadBatchSettledResult {
+  readonly batchId: string;
+  readonly round: number;
+  readonly requestedCount: number;
+  readonly failedCount: number;
+  readonly cancelledCount: number;
+  readonly failedIds: readonly string[];
+}
+
 interface ProRoomUploadQueueOptions {
   run(input: ProRoomUploadRunInput, context: ProRoomUploadRunContext): Promise<void>;
+  onBatchSettled?(result: ProRoomUploadBatchSettledResult): void;
   reportFailure?(error: unknown): void;
   signal?: AbortSignal;
   createId?: () => string;
@@ -54,10 +81,10 @@ function clampPercent(fraction: number): number {
 function publicRow(task: ProRoomUploadTask): ProRoomUploadRow {
   return {
     id: task.id,
+    batchId: task.batchId,
     name: task.name,
     size: task.size,
     phase: task.phase,
-    progressPercent: task.progressPercent,
   };
 }
 
@@ -70,16 +97,20 @@ function publicRow(task: ProRoomUploadTask): ProRoomUploadRow {
  */
 export class ProRoomUploadQueue {
   readonly #run: ProRoomUploadQueueOptions['run'];
+  readonly #onBatchSettled?: ProRoomUploadQueueOptions['onBatchSettled'];
   readonly #reportFailure?: ProRoomUploadQueueOptions['reportFailure'];
   readonly #createId: () => string;
   readonly #listeners = new Set<UploadQueueListener>();
   readonly #tasks: ProRoomUploadTask[] = [];
+  readonly #batches = new Map<string, ProRoomUploadBatch>();
   readonly #lifetimeSignal?: AbortSignal;
   #pumpPromise: Promise<void> | null = null;
+  #nextBatchSequence = 0;
   #disposed = false;
 
   constructor(options: ProRoomUploadQueueOptions) {
     this.#run = options.run;
+    this.#onBatchSettled = options.onBatchSettled;
     this.#reportFailure = options.reportFailure;
     this.#createId = options.createId ?? defaultUploadId;
     this.#lifetimeSignal = options.signal;
@@ -101,45 +132,93 @@ export class ProRoomUploadQueue {
 
   enqueueFiles(files: readonly File[]): string[] {
     if (this.#disposed || files.length === 0) return [];
-    const ids: string[] = [];
+    const batchId = `batch-${++this.#nextBatchSequence}`;
+    const tasks: ProRoomUploadTask[] = [];
+    const reservedIds = new Set(this.#tasks.map((task) => task.id));
     for (const file of files) {
       const id = this.#createId();
-      if (!id || this.#tasks.some((task) => task.id === id)) {
+      if (!id || reservedIds.has(id)) {
         throw new Error('PRO_ROOM_UPLOAD_ID_INVALID');
       }
-      this.#tasks.push({
+      reservedIds.add(id);
+      tasks.push({
         id,
         file,
         name: file.name,
         size: file.size,
+        batchId,
+        batchRound: 1,
         phase: 'waiting',
         progressPercent: 0,
         attempt: 0,
         controller: null,
       });
-      ids.push(id);
     }
+    const ids = tasks.map((task) => task.id);
+    this.#batches.set(batchId, {
+      id: batchId,
+      round: 1,
+      requestedCount: tasks.length,
+      roundTaskIds: [...ids],
+      pendingIds: new Set(ids),
+      failedIds: new Set(),
+      cancelledIds: new Set(),
+      settled: false,
+    });
+    this.#tasks.push(...tasks);
     this.#notify();
     this.#ensurePump();
     return ids;
   }
 
-  retry(id: string): boolean {
-    const task = this.#tasks.find((candidate) => candidate.id === id);
-    if (!task || task.phase !== 'failed' || this.#disposed) return false;
-    task.phase = 'waiting';
-    task.progressPercent = 0;
+  retryFailedBatch(batchId: string): boolean {
+    const batch = this.#batches.get(batchId);
+    if (!batch || !batch.settled || batch.failedIds.size === 0 || this.#disposed) return false;
+    const failedTasks = batch.roundTaskIds
+      .map((id) => this.#tasks.find((task) => task.id === id))
+      .filter((task): task is ProRoomUploadTask =>
+        Boolean(
+          task &&
+          task.batchId === batch.id &&
+          task.batchRound === batch.round &&
+          task.phase === 'failed' &&
+          batch.failedIds.has(task.id),
+        ),
+      );
+    if (failedTasks.length === 0) {
+      this.#batches.delete(batchId);
+      return false;
+    }
+
+    batch.round += 1;
+    batch.requestedCount = failedTasks.length;
+    batch.roundTaskIds = failedTasks.map((task) => task.id);
+    batch.pendingIds = new Set(batch.roundTaskIds);
+    batch.failedIds.clear();
+    batch.cancelledIds.clear();
+    batch.settled = false;
+    for (const task of failedTasks) {
+      task.batchRound = batch.round;
+      task.phase = 'waiting';
+      task.progressPercent = 0;
+    }
     this.#notify();
     this.#ensurePump();
     return true;
   }
 
-  remove(id: string): boolean {
-    const index = this.#tasks.findIndex((candidate) => candidate.id === id);
-    if (index < 0 || this.#tasks[index]?.phase !== 'failed') return false;
-    this.#tasks.splice(index, 1);
-    this.#notify();
-    return true;
+  dismissFailedBatch(batchId: string): boolean {
+    const batch = this.#batches.get(batchId);
+    if (!batch || !batch.settled || batch.failedIds.size === 0) return false;
+    const failedIds = new Set(batch.failedIds);
+    const retained = this.#tasks.filter(
+      (task) => task.batchId !== batchId || !failedIds.has(task.id) || task.phase !== 'failed',
+    );
+    const removed = retained.length !== this.#tasks.length;
+    this.#tasks.splice(0, this.#tasks.length, ...retained);
+    this.#batches.delete(batchId);
+    if (removed) this.#notify();
+    return removed;
   }
 
   acknowledgeCommitted(ids: ReadonlySet<string>): boolean {
@@ -151,6 +230,7 @@ export class ProRoomUploadQueue {
     }
     const retained = this.#tasks.filter((task) => !ids.has(task.id));
     this.#tasks.splice(0, this.#tasks.length, ...retained);
+    for (const task of committed) this.#acknowledgeBatchTask(task);
     this.#notify();
     return true;
   }
@@ -162,6 +242,7 @@ export class ProRoomUploadQueue {
     if (task.phase !== 'waiting' && task.phase !== 'uploading') return false;
     this.#tasks.splice(index, 1);
     task.controller?.abort(new DOMException('PRO upload cancelled', 'AbortError'));
+    this.#finishBatchTask(task, 'cancelled');
     this.#notify();
     return true;
   }
@@ -174,6 +255,7 @@ export class ProRoomUploadQueue {
       task.controller?.abort(new DOMException('PRO upload queue reset', 'AbortError'));
     }
     this.#tasks.length = 0;
+    this.#batches.clear();
     this.#notify();
   }
 
@@ -207,6 +289,21 @@ export class ProRoomUploadQueue {
       task.progressPercent = 0;
       this.#notify();
 
+      const batch = this.#batches.get(task.batchId);
+      if (
+        !batch ||
+        batch.settled ||
+        batch.round !== task.batchRound ||
+        !batch.pendingIds.has(task.id)
+      ) {
+        task.phase = 'failed';
+        this.#notify();
+        continue;
+      }
+      const round = batch.round;
+      const current = batch.roundTaskIds.indexOf(task.id) + 1;
+      const total = batch.requestedCount;
+
       const abortFromLifetime = () =>
         controller.abort(this.#lifetimeSignal?.reason ?? new DOMException('Aborted', 'AbortError'));
       this.#lifetimeSignal?.addEventListener('abort', abortFromLifetime, { once: true });
@@ -215,10 +312,15 @@ export class ProRoomUploadQueue {
           { id: task.id, file: task.file },
           {
             signal: controller.signal,
-            isRetry: attempt > 1,
+            batchId: batch.id,
+            current,
+            total,
+            round,
+            isRetry: round > 1 || attempt > 1,
             onProgress: (fraction) => {
               if (
                 controller.signal.aborted ||
+                task.controller !== controller ||
                 task.attempt !== attempt ||
                 !this.#tasks.includes(task)
               ) {
@@ -228,9 +330,10 @@ export class ProRoomUploadQueue {
               const nextPercent = Math.max(task.progressPercent, percent);
               const phase: ProRoomUploadPhase = nextPercent >= 100 ? 'confirming' : 'uploading';
               if (task.progressPercent === nextPercent && task.phase === phase) return;
+              const phaseChanged = task.phase !== phase;
               task.progressPercent = nextPercent;
               task.phase = phase;
-              this.#notify();
+              if (phaseChanged) this.#notify();
             },
           },
         );
@@ -241,6 +344,7 @@ export class ProRoomUploadQueue {
         task.progressPercent = 100;
         task.controller = null;
         this.#notify();
+        this.#finishBatchTask(task, 'completed');
         queueMicrotask(() => {
           const index = this.#tasks.indexOf(task);
           if (index < 0 || task.phase !== 'completed' || task.attempt !== attempt) return;
@@ -264,10 +368,58 @@ export class ProRoomUploadQueue {
         } catch {
           // Failure reporting is observational and cannot own queue progress.
         }
+        this.#finishBatchTask(task, 'failed');
       } finally {
         this.#lifetimeSignal?.removeEventListener('abort', abortFromLifetime);
         if (task.controller === controller) task.controller = null;
       }
+    }
+  }
+
+  #finishBatchTask(task: ProRoomUploadTask, outcome: 'completed' | 'failed' | 'cancelled'): void {
+    const batch = this.#batches.get(task.batchId);
+    if (
+      !batch ||
+      batch.settled ||
+      batch.round !== task.batchRound ||
+      !batch.pendingIds.delete(task.id)
+    ) {
+      return;
+    }
+    if (outcome === 'failed') batch.failedIds.add(task.id);
+    if (outcome === 'cancelled') batch.cancelledIds.add(task.id);
+    if (batch.pendingIds.size === 0) this.#settleBatch(batch);
+  }
+
+  #acknowledgeBatchTask(task: ProRoomUploadTask): void {
+    const batch = this.#batches.get(task.batchId);
+    if (!batch || batch.round !== task.batchRound) return;
+    if (!batch.settled && batch.pendingIds.has(task.id)) {
+      this.#finishBatchTask(task, 'completed');
+      return;
+    }
+    if (!batch.settled || !batch.failedIds.delete(task.id)) return;
+    if (batch.failedIds.size === 0) this.#batches.delete(batch.id);
+  }
+
+  #settleBatch(batch: ProRoomUploadBatch): void {
+    if (batch.settled || batch.pendingIds.size !== 0) return;
+    batch.settled = true;
+    const failedIds = batch.roundTaskIds.filter((id) => batch.failedIds.has(id));
+    batch.failedIds = new Set(failedIds);
+    const result: ProRoomUploadBatchSettledResult = {
+      batchId: batch.id,
+      round: batch.round,
+      requestedCount: batch.requestedCount,
+      failedCount: failedIds.length,
+      cancelledCount: batch.cancelledIds.size,
+      failedIds,
+    };
+    if (failedIds.length === 0) this.#batches.delete(batch.id);
+    try {
+      this.#onBatchSettled?.(result);
+    } catch {
+      // Batch observers cannot own upload integrity or queue progression.
     }
   }
 
@@ -312,14 +464,6 @@ export function getProRoomUploadRows(): readonly ProRoomUploadRow[] {
 export function subscribeProRoomUploadRows(listener: UploadQueueListener): () => void {
   activeQueueListeners.add(listener);
   return () => activeQueueListeners.delete(listener);
-}
-
-export function retryProRoomUpload(id: string): boolean {
-  return activeQueue?.retry(id) ?? false;
-}
-
-export function removeProRoomUpload(id: string): boolean {
-  return activeQueue?.remove(id) ?? false;
 }
 
 export function cancelProRoomUpload(id: string): boolean {

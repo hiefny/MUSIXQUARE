@@ -35,7 +35,7 @@ beforeEach(() => {
   localStorage.clear();
   setState('network.appRole', 'host');
   document.body.innerHTML =
-    '<section id="tab-playlist" class="tab-content active"><div class="tab-body"><ul id="playlist-ui"></ul></div></section>';
+    '<section id="tab-playlist" class="tab-content active" tabindex="-1"><div class="tab-body"><ul id="playlist-ui"></ul></div></section>';
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
     configurable: true,
     value: vi.fn(),
@@ -155,7 +155,7 @@ describe('playlist empty state i18n', () => {
 });
 
 describe('PRO upload rows', () => {
-  it('renders every selected file without projecting temporary rows as playlist items', async () => {
+  it('renders active uploads as compact file rows with icon-only cancel controls', async () => {
     const progressReporter: { current?: (fraction: number) => void } = {};
     proRoomUploadQueue = new ProRoomUploadQueue({
       createId: vi.fn().mockReturnValueOnce(FILE_A).mockReturnValueOnce(YT_B),
@@ -180,19 +180,22 @@ describe('PRO upload rows', () => {
     expect(entries[0]?.dataset.queueItemId).toBeUndefined();
     expect(entries[0]?.dataset.proUploadId).toBe(FILE_A);
     expect(entries[0]?.querySelector('.pro-upload-name')?.textContent).toBe('one.flac');
-    expect(entries[0]?.querySelector('.pro-upload-status')?.textContent).toBe(
-      t('pro.upload.progress', { percent: 0 }),
-    );
-    expect(entries[1]?.querySelector('.pro-upload-status')?.textContent).toBe(
-      t('pro.upload.waiting'),
-    );
+    expect(entries[0]?.querySelector('.track-idx')?.textContent).toBe('1');
+    expect(entries[1]?.querySelector('.track-idx')?.textContent).toBe('2');
+    expect(entries[0]?.querySelector('.type-icon')).not.toBeNull();
+    expect(entries[0]?.querySelector('.pro-upload-leading')).toBeNull();
+    expect(entries[0]?.querySelector('.pro-upload-status')).toBeNull();
+    expect(entries[0]?.querySelector('.pro-upload-progress')).toBeNull();
 
     const cancel = entries[0]?.querySelector<HTMLButtonElement>(
       '[data-pro-upload-action="cancel"]',
     );
+    expect(cancel?.classList).toContain('btn-playlist-remove');
+    expect(cancel?.textContent).toBe('');
     expect(cancel?.getAttribute('aria-label')).toBe(
       t('pro.upload.cancel_file', { name: 'one.flac' }),
     );
+    expect(cancel?.title).toBe(t('pro.upload.cancel_file', { name: 'one.flac' }));
     cancel?.focus();
     progressReporter.current?.(0.37);
     await nextAnimationFrame();
@@ -201,10 +204,27 @@ describe('PRO upload rows', () => {
       `[data-pro-upload-id="${FILE_A}"] [data-pro-upload-action="cancel"]`,
     );
     expect(document.activeElement).toBe(replacementCancel);
-    expect(document.querySelector<HTMLProgressElement>('.pro-upload-progress')?.value).toBe(37);
+    expect(document.querySelector('.pro-upload-status')).toBeNull();
+    expect(document.querySelector('.pro-upload-progress')).toBeNull();
+
+    progressReporter.current?.(1);
+    await nextAnimationFrame();
+    const confirming = document.querySelector<HTMLElement>(
+      `[data-pro-upload-id="${FILE_A}"].is-confirming`,
+    );
+    expect(confirming).not.toBeNull();
+    expect(confirming?.querySelector('[data-pro-upload-action="cancel"]')).toBeNull();
+    const confirmingRow = confirming?.querySelector<HTMLElement>('.track-item');
+    expect(confirmingRow).not.toBeNull();
+    expect(confirmingRow?.tabIndex).toBe(-1);
+    expect(document.activeElement).toBe(confirmingRow);
+
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    expect(stylesheet).not.toContain('.pro-upload-progress');
+    expect(stylesheet).not.toContain('.pro-upload-status');
   });
 
-  it('exposes failed uploads as accessible retry/remove actions and suppresses duplicate retries', async () => {
+  it('hides failed uploads and restores the empty state for batch-level failure handling', async () => {
     let attempts = 0;
     proRoomUploadQueue = new ProRoomUploadQueue({
       createId: () => FILE_A,
@@ -219,25 +239,39 @@ describe('PRO upload rows', () => {
     await proRoomUploadQueue.whenIdle();
     await nextAnimationFrame();
 
-    const status = document.querySelector<HTMLElement>('.pro-upload-status');
-    expect(status?.getAttribute('role')).toBe('alert');
-    expect(status?.textContent).toBe(t('pro.upload.failed'));
-    const retry = document.querySelector<HTMLButtonElement>('[data-pro-upload-action="retry"]')!;
-    const remove = document.querySelector<HTMLButtonElement>('[data-pro-upload-action="remove"]')!;
-    expect(retry.getAttribute('aria-label')).toBe(t('pro.upload.retry_file', { name: 'one.flac' }));
-    expect(remove.getAttribute('aria-label')).toBe(
-      t('pro.upload.remove_file', { name: 'one.flac' }),
-    );
-
-    retry.click();
-    retry.click();
-    await proRoomUploadQueue.whenIdle();
-    expect(attempts).toBe(2);
-    await nextAnimationFrame();
-
-    document.querySelector<HTMLButtonElement>('[data-pro-upload-action="remove"]')?.click();
-    await nextAnimationFrame();
+    expect(attempts).toBe(1);
     expect(document.querySelector('.pro-upload-entry')).toBeNull();
+    expect(document.querySelector('[data-pro-upload-action="retry"]')).toBeNull();
+    expect(document.querySelector('[data-pro-upload-action="remove"]')).toBeNull();
+    expect(document.querySelector('.list-empty-state')?.textContent).toBe(t('playlist.empty_hint'));
+    expect(proRoomUploadQueue.rows[0]?.phase).toBe('failed');
+  });
+
+  it('moves focus to the playlist panel when a focused upload fails beside existing tracks', async () => {
+    let rejectUpload: ((reason?: unknown) => void) | undefined;
+    proRoomUploadQueue = new ProRoomUploadQueue({
+      createId: () => '00000000-0000-4000-8000-000000000003',
+      run: () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectUpload = reject;
+        }),
+    });
+    setActiveProRoomUploadQueue(proRoomUploadQueue);
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+    proRoomUploadQueue.enqueueFiles([new File(['a'], 'one.flac')]);
+    await nextAnimationFrame();
+
+    const cancel = document.querySelector<HTMLButtonElement>('[data-pro-upload-action="cancel"]')!;
+    cancel.focus();
+    expect(document.activeElement).toBe(cancel);
+
+    rejectUpload?.(new Error('network'));
+    await proRoomUploadQueue.whenIdle();
+    await nextAnimationFrame();
+
+    expect(document.querySelector('.pro-upload-entry')).toBeNull();
+    expect(document.activeElement).toBe(document.getElementById('tab-playlist'));
   });
 
   it('never renders a completed temporary row beside its authoritative playlist row', async () => {
@@ -281,7 +315,9 @@ describe('PRO upload rows', () => {
     proRoomUploadQueue.enqueueFiles([new File(['a'], 'one.flac')]);
     await proRoomUploadQueue.whenIdle();
     await nextAnimationFrame();
-    expect(document.querySelector('.pro-upload-entry.is-failed')).not.toBeNull();
+    expect(document.querySelector('.pro-upload-entry')).toBeNull();
+    expect(document.querySelector('.list-empty-state')).not.toBeNull();
+    expect(proRoomUploadQueue.rows[0]?.phase).toBe('failed');
 
     setState('playlist.items', [
       {

@@ -75,9 +75,10 @@ return only to allowlisted local routes.
 - Login begins at the canonical apex origin. OAuth return paths must be local
   paths and are allowlisted against open redirects.
 
-The first successful login requires a MUSIXQUARE nickname. The nickname is
-stored on the account and projected into every room through signed account
-assertions.
+The first successful login prompts for a MUSIXQUARE nickname, but the user may
+defer it and remain authenticated with an incomplete profile. Once set, the
+nickname is stored on the account and projected into every room through signed
+account assertions.
 
 New and changed account nicknames are limited to 12 Unicode code points. The
 database and assertion readers retain a 20-code-point compatibility ceiling so
@@ -137,7 +138,10 @@ create this deletion handoff state.
 The existing header role badge becomes the account entry point:
 
 - anonymous: `LOGIN`;
-- authenticated: the account nickname, ellipsized within the available header;
+- authenticated with a completed profile: the account nickname, ellipsized
+  within the available header;
+- authenticated with nickname setup deferred: `HOST` for a standard-room host,
+  otherwise `PEER` (including PRO rooms);
 - connection health remains represented by the existing color/status treatment,
   not by replacing the account label.
 

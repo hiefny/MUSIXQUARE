@@ -377,18 +377,19 @@ export function updateRoleBadge(): void {
   if (!badge || !text) return;
 
   const snapshot = getAccountSnapshot();
+  const isAuthenticated = snapshot.status === 'authenticated' && snapshot.account !== null;
   const nickname =
-    snapshot.status === 'authenticated' && snapshot.account?.profileComplete
-      ? snapshot.account.nickname.trim()
-      : '';
+    isAuthenticated && snapshot.account.profileComplete ? snapshot.account.nickname.trim() : '';
+  const roleLabel = getRoomContext().kind !== 'pro' && isCoordinator() ? 'HOST' : 'PEER';
+  const displayText = nickname || (isAuthenticated ? roleLabel : 'LOGIN');
 
   badge.classList.remove('connected', 'remote', 'pro-equal', 'account-authenticated');
-  badge.classList.toggle('account-authenticated', nickname.length > 0);
-  text.textContent = nickname || 'LOGIN';
+  badge.classList.toggle('account-authenticated', isAuthenticated);
+  text.textContent = displayText;
   applyUserTextFontFallback(text, text.textContent);
   badge.setAttribute(
     'aria-label',
-    nickname ? `${t('account.account_title')}: ${nickname}` : t('account.login_title'),
+    isAuthenticated ? `${t('account.account_title')}: ${displayText}` : t('account.login_title'),
   );
   scheduleRoleClockPulse();
 }

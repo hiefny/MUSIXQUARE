@@ -258,6 +258,52 @@ describe('updateRoleBadge', () => {
     expect(document.getElementById('role-text')?.textContent).toBe('Minsu');
   });
 
+  it('keeps a nickname-deferred account visibly signed in as a standard-room host', () => {
+    const badge = renderBadge();
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: '', profileComplete: false },
+      statsScope: 's'.repeat(43),
+    });
+    setState('network.appRole', 'host');
+    setState('network.hostConn', null);
+
+    updateRoleBadge();
+
+    expect(badge.classList.contains('account-authenticated')).toBe(true);
+    expect(document.getElementById('role-text')?.textContent).toBe('HOST');
+    expect(badge.getAttribute('aria-label')).not.toBe(t('account.login_title'));
+  });
+
+  it('uses the equal PEER role for a nickname-deferred PRO member', () => {
+    const badge = renderBadge();
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: '', profileComplete: false },
+      statsScope: 's'.repeat(43),
+    });
+    // PRO reuses the legacy host role for media-engine compatibility. The
+    // account badge must still preserve the room's equal-peer presentation.
+    setState('network.appRole', 'host');
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+
+    updateRoleBadge();
+
+    expect(badge.classList.contains('account-authenticated')).toBe(true);
+    expect(document.getElementById('role-text')?.textContent).toBe('PEER');
+    expect(badge.getAttribute('aria-label')).not.toBe(t('account.login_title'));
+  });
+
   it('reacts to the account role-badge refresh event', () => {
     renderBadge();
     initPlayerControls();

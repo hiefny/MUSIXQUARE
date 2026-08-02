@@ -113,7 +113,17 @@ const id: Record<I18nKey, string> = {
   'settings.ui_sounds': 'Suara antarmuka',
   'settings.sync_settings': 'Sinkronisasi pengaturan',
   'settings.sync_settings_desc':
-    'Aktif mengikuti volume dan efek audio host atau admin yang terakhir menyinkronkan. Nonaktif memakai pengaturan perangkat ini sendiri.',
+    'Perangkat yang mengaktifkan opsi ini menyinkronkan volume dan efek audionya.',
+  'settings.language_desc': 'Pilih bahasa atau ikuti bahasa sistem.',
+  'settings.theme_desc': 'Pilih tema terang atau gelap.',
+  'settings.visualizer_desc': 'Pilih cara audio divisualisasikan.',
+  'settings.ui_sounds_desc':
+    'Aktifkan atau nonaktifkan suara pemberitahuan, masuk, keluar, dan sentuhan.',
+  'settings.reverb_desc': 'Atur gaung dan gema suara.',
+  'settings.eq_desc': 'Atur karakter suara. Gunakan bersama kontrol volume.',
+  'settings.surround_desc': 'Meningkatkan pemisahan untuk suara yang lebih imersif.',
+  'settings.bass_desc': 'Menyintesis frekuensi rendah agar suara lebih menghentak.',
+  'settings.exciter_desc': 'Menghasilkan frekuensi ultra-tinggi agar suara lebih jernih.',
   'settings.dark': 'Gelap',
   'settings.light': 'Terang',
   'settings.visualizer': 'Visualizer',

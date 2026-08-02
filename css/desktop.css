@@ -803,6 +803,12 @@
       letter-spacing: normal;
     }
 
+    /* Keep supporting copy on the same desktop inset as its title and
+       controls. Base/mobile already shares the section's 44px edge. */
+    .settings-option-description {
+      margin: -8px 20px 16px;
+    }
+
     .slider-wrap {
       padding: 6px 20px;
     }

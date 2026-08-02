@@ -1212,18 +1212,18 @@
     position: relative;
   }
 
-  #youtube-settings-disabled-wrap {
+  .youtube-settings-disabled-wrap {
     position: relative;
   }
 
-  body.mode-youtube #youtube-settings-disabled-wrap {
+  body.mode-youtube .youtube-settings-disabled-wrap {
     filter: blur(7px) saturate(0.95);
     opacity: 0.5;
     pointer-events: none;
     transform: translateZ(0);
   }
 
-  html[data-theme='light'] body.mode-youtube #youtube-settings-disabled-wrap {
+  html[data-theme='light'] body.mode-youtube .youtube-settings-disabled-wrap {
     filter: blur(6px) saturate(0.95);
     opacity: 0.6;
   }
@@ -2740,6 +2740,12 @@
     padding-bottom: 44px;
   }
 
+  /* The role and effect locks are split around settings sync. Preserve the
+     divider between the role section and the sync section. */
+  #youtube-settings-disabled-wrap > .section-group:last-of-type {
+    border-bottom: 1px solid var(--divider);
+  }
+
   /* Clip the final device row to the inherited section radius. */
   #device-list:last-child {
     border-bottom-left-radius: inherit;
@@ -2912,9 +2918,20 @@
 
   .settings-option-description {
     margin: -8px 0 16px;
+    max-width: 100%;
     color: var(--text-sub);
     font-size: 13px;
     line-height: 1.5;
+    text-wrap: pretty;
+    overflow-wrap: break-word;
+    word-break: keep-all;
+  }
+
+  .settings-option-description:lang(ja),
+  .settings-option-description:lang(zh-hans),
+  .settings-option-description:lang(zh-hant) {
+    word-break: normal;
+    line-break: strict;
   }
 
   .badge-host-ctrl {

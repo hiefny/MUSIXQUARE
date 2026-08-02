@@ -113,7 +113,17 @@ const fr: Record<I18nKey, string> = {
   'settings.ui_sounds': 'Sons de l’interface',
   'settings.sync_settings': 'Synchronisation des réglages',
   'settings.sync_settings_desc':
-    'Activée, suit le volume et les effets audio du dernier hôte ou administrateur à avoir synchronisé. Désactivée, utilise les réglages propres à cet appareil.',
+    'Les appareils avec cette option activée synchronisent leur volume et leurs effets audio.',
+  'settings.language_desc': 'Choisissez une langue ou utilisez celle du système.',
+  'settings.theme_desc': 'Choisissez un thème clair ou sombre.',
+  'settings.visualizer_desc': 'Choisissez le mode de visualisation du son.',
+  'settings.ui_sounds_desc':
+    'Activez ou désactivez les sons de notification, d’entrée, de sortie et de toucher.',
+  'settings.reverb_desc': 'Réglez la réverbération et la résonance du son.',
+  'settings.eq_desc': 'Réglez le timbre du son. Utilisez-le avec le contrôle du volume.',
+  'settings.surround_desc': 'Augmente la séparation pour donner plus de relief au son.',
+  'settings.bass_desc': 'Synthétise les basses fréquences pour renforcer l’impact.',
+  'settings.exciter_desc': 'Génère des fréquences ultra-aiguës pour apporter plus de clarté.',
   'settings.dark': 'Sombre',
   'settings.light': 'Clair',
   'settings.visualizer': 'Visualiseur',

@@ -209,21 +209,35 @@ describe('Translation key integrity', () => {
     expect(ko['connect.kick_yes']).toBe('내보내기');
   });
 
-  it('explains settings sync on and off behavior in every locale', () => {
+  it('describes every configurable general and audio setting in every locale', () => {
+    const descriptionKeys = [
+      'settings.language_desc',
+      'settings.theme_desc',
+      'settings.visualizer_desc',
+      'settings.ui_sounds_desc',
+      'settings.sync_settings_desc',
+      'settings.reverb_desc',
+      'settings.eq_desc',
+      'settings.surround_desc',
+      'settings.bass_desc',
+      'settings.exciter_desc',
+    ] as const;
+
     for (const [locale, dict] of Object.entries(locales)) {
       expect(dict['settings.sync_settings'], `${locale}.settings.sync_settings`).toBeTruthy();
-      expect(
-        dict['settings.sync_settings_desc'],
-        `${locale}.settings.sync_settings_desc`,
-      ).toBeTruthy();
+      for (const key of descriptionKeys) {
+        expect(dict[key], `${locale}.${key}`).toBeTruthy();
+        expect(dict[key], `${locale}.${key} surrounding whitespace`).toBe(dict[key].trim());
+        expect(dict[key], `${locale}.${key} should stay plain text`).not.toMatch(/<br|[\r\n]/i);
+      }
     }
 
     expect(en['settings.sync_settings']).toBe('Settings sync');
-    expect(en['settings.sync_settings_desc']).toContain('host or admin');
-    expect(en['settings.sync_settings_desc']).toContain('Off');
+    expect(en['settings.sync_settings_desc']).toContain('Devices with this option on');
     expect(ko['settings.sync_settings']).toBe('설정 동기화');
-    expect(ko['settings.sync_settings_desc']).toContain('방장·관리자');
-    expect(ko['settings.sync_settings_desc']).toContain('끄면');
+    expect(ko['settings.sync_settings_desc']).toBe(
+      '이 옵션이 켜진 기기들끼리 볼륨과 음향 효과가 동기화돼요.',
+    );
   });
 
   it('uses one consistent Korean honorific form for presence messages', () => {

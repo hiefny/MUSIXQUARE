@@ -162,7 +162,17 @@ const nl: Record<I18nKey, string> = {
   'settings.ui_sounds': 'UI-geluiden',
   'settings.sync_settings': 'Instellingen synchroniseren',
   'settings.sync_settings_desc':
-    'Aan volgt het volume en de audio-effecten van de host of beheerder die het laatst synchroniseerde. Uit gebruikt de eigen instellingen van dit apparaat.',
+    'Apparaten waarop deze optie aanstaat, synchroniseren volume en audio-effecten.',
+  'settings.language_desc': 'Kies een taal of volg de systeemtaal.',
+  'settings.theme_desc': 'Kies een licht of donker thema.',
+  'settings.visualizer_desc': 'Kies hoe het geluid wordt weergegeven.',
+  'settings.ui_sounds_desc':
+    'Schakel meldings-, binnenkomst-, vertrek- en aanraakgeluiden in of uit.',
+  'settings.reverb_desc': 'Pas de galm en resonantie van het geluid aan.',
+  'settings.eq_desc': 'Pas de klankkleur aan. Gebruik dit samen met de volumeregeling.',
+  'settings.surround_desc': 'Vergroot de scheiding voor een ruimtelijker geluid.',
+  'settings.bass_desc': 'Maakt lage frequenties aan voor meer impact.',
+  'settings.exciter_desc': 'Genereert ultrahoge frequenties voor meer helderheid.',
   'settings.dark': 'Donker',
   'settings.light': 'Licht',
   'settings.visualizer': 'Visualizer',

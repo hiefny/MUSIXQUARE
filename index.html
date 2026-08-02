@@ -10,7 +10,7 @@
          code, then apply Android viewport, language, and theme preflight.
          Cloudflare Analytics is loaded by this bootstrap only after a safe
          scrub/handoff. Source: public/bootstrap.js -->
-    <script src="/bootstrap.js?cache=v361"></script>
+    <script src="/bootstrap.js?cache=v362"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -738,9 +738,24 @@
         <div class="settings-subtab-panel active" data-panel="general">
           <div class="section-group">
             <div class="section-header-row">
-              <span class="section-title" data-i18n="settings.language"></span>
+              <span
+                class="section-title"
+                id="settings-language-title"
+                data-i18n="settings.language"
+              ></span>
             </div>
-            <div class="channel-grid language-mode-grid" id="grid-lang">
+            <p
+              class="settings-option-description"
+              id="settings-language-description"
+              data-i18n="settings.language_desc"
+            ></p>
+            <div
+              class="channel-grid language-mode-grid"
+              id="grid-lang"
+              role="group"
+              aria-labelledby="settings-language-title"
+              aria-describedby="settings-language-description"
+            >
               <button
                 type="button"
                 class="ch-opt"
@@ -798,49 +813,26 @@
             </div>
           </div>
 
-          <div class="section-group" id="settings-sync-section">
+          <div class="section-group" id="theme-section">
             <div class="section-header-row">
-              <span class="section-title" data-i18n="settings.sync_settings"></span>
+              <span
+                class="section-title"
+                id="settings-theme-title"
+                data-i18n="settings.theme"
+              ></span>
             </div>
             <p
               class="settings-option-description"
-              id="settings-sync-description"
-              data-i18n="settings.sync_settings_desc"
+              id="settings-theme-description"
+              data-i18n="settings.theme_desc"
             ></p>
             <div
               class="channel-grid"
-              id="grid-settings-sync"
-              aria-describedby="settings-sync-description"
+              id="grid-theme"
+              role="group"
+              aria-labelledby="settings-theme-title"
+              aria-describedby="settings-theme-description"
             >
-              <button
-                type="button"
-                class="ch-opt active"
-                data-settings-sync="on"
-                aria-pressed="true"
-              >
-                <svg viewBox="0 -960 960 960" aria-hidden="true">
-                  <path
-                    d="M120-160v-80h110l-16-14q-52-46-73-105t-21-119q0-111 66.5-197.5T360-790v84q-72 26-116 88.5T200-478q0 45 17 87.5t53 78.5l10 10v-98h80v240H120Zm717-360h-81q-5-35-21.5-67T690-648l-10-10v98h-80v-240h240v80H730l16 14q41 42 63 89t28 97ZM680-40l-12-60q-12-5-22.5-10.5T624-124l-58 18-40-68 46-40q-2-14-2-26t2-26l-46-40 40-68 58 18q11-8 21.5-13.5T668-380l12-60h80l12 60q12 5 22.5 11t21.5 15l58-20 40 70-46 40q2 12 2 25t-2 25l46 40-40 68-58-18q-11 8-21.5 13.5T772-100l-12 60h-80Zm40-120q33 0 56.5-23.5T800-240q0-33-23.5-56.5T720-320q-33 0-56.5 23.5T640-240q0 33 23.5 56.5T720-160Z"
-                  />
-                </svg>
-                <span data-i18n="common.on"></span>
-              </button>
-              <button type="button" class="ch-opt" data-settings-sync="off" aria-pressed="false">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
-                  />
-                </svg>
-                <span data-i18n="common.off"></span>
-              </button>
-            </div>
-          </div>
-
-          <div class="section-group" id="theme-section">
-            <div class="section-header-row">
-              <span class="section-title" data-i18n="settings.theme"></span>
-            </div>
-            <div class="channel-grid" id="grid-theme">
               <button type="button" class="ch-opt" data-theme="light">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path
@@ -862,9 +854,24 @@
 
           <div class="section-group" id="ui-sounds-section">
             <div class="section-header-row">
-              <span class="section-title" data-i18n="settings.ui_sounds"></span>
+              <span
+                class="section-title"
+                id="settings-ui-sounds-title"
+                data-i18n="settings.ui_sounds"
+              ></span>
             </div>
-            <div class="channel-grid" id="grid-ui-sounds">
+            <p
+              class="settings-option-description"
+              id="settings-ui-sounds-description"
+              data-i18n="settings.ui_sounds_desc"
+            ></p>
+            <div
+              class="channel-grid"
+              id="grid-ui-sounds"
+              role="group"
+              aria-labelledby="settings-ui-sounds-title"
+              aria-describedby="settings-ui-sounds-description"
+            >
               <button
                 type="button"
                 class="ch-opt"
@@ -898,9 +905,25 @@
 
           <div class="section-group">
             <div class="section-header-row">
-              <span class="section-title" data-i18n="settings.visualizer">비주얼라이저</span>
+              <span
+                class="section-title"
+                id="settings-visualizer-title"
+                data-i18n="settings.visualizer"
+                >비주얼라이저</span
+              >
             </div>
-            <div class="channel-grid" id="grid-visualizer">
+            <p
+              class="settings-option-description"
+              id="settings-visualizer-description"
+              data-i18n="settings.visualizer_desc"
+            ></p>
+            <div
+              class="channel-grid"
+              id="grid-visualizer"
+              role="group"
+              aria-labelledby="settings-visualizer-title"
+              aria-describedby="settings-visualizer-description"
+            >
               <button type="button" class="ch-opt active" data-viz="circular">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <circle
@@ -941,8 +964,9 @@
             data-i18n="help.youtube_no_effects"
           ></div>
 
-          <!-- File-only controls are disabled while YouTube owns playback. -->
-          <div id="youtube-settings-disabled-wrap">
+          <!-- File-only role/effect controls are disabled while YouTube owns playback;
+               settings sync stays available so the device can still leave or rejoin the sync group. -->
+          <div id="youtube-settings-disabled-wrap" class="youtube-settings-disabled-wrap">
             <div class="section-group">
               <div class="section-header-row">
                 <span class="section-title" data-i18n="setup.set_role"></span>
@@ -1059,13 +1083,74 @@
                 </div>
               </div>
             </div>
+          </div>
 
+          <div class="section-group" id="settings-sync-section">
+            <div class="section-header-row">
+              <span
+                class="section-title"
+                id="settings-sync-title"
+                data-i18n="settings.sync_settings"
+              ></span>
+            </div>
+            <p
+              class="settings-option-description"
+              id="settings-sync-description"
+              data-i18n="settings.sync_settings_desc"
+            ></p>
+            <div
+              class="channel-grid"
+              id="grid-settings-sync"
+              role="group"
+              aria-labelledby="settings-sync-title"
+              aria-describedby="settings-sync-description"
+            >
+              <button
+                type="button"
+                class="ch-opt active"
+                data-settings-sync="on"
+                aria-pressed="true"
+              >
+                <svg viewBox="0 -960 960 960" aria-hidden="true">
+                  <path
+                    d="M120-160v-80h110l-16-14q-52-46-73-105t-21-119q0-111 66.5-197.5T360-790v84q-72 26-116 88.5T200-478q0 45 17 87.5t53 78.5l10 10v-98h80v240H120Zm717-360h-81q-5-35-21.5-67T690-648l-10-10v98h-80v-240h240v80H730l16 14q41 42 63 89t28 97ZM680-40l-12-60q-12-5-22.5-10.5T624-124l-58 18-40-68 46-40q-2-14-2-26t2-26l-46-40 40-68 58 18q11-8 21.5-13.5T668-380l12-60h80l12 60q12 5 22.5 11t21.5 15l58-20 40 70-46 40q2 12 2 25t-2 25l46 40-40 68-58-18q-11 8-21.5 13.5T772-100l-12 60h-80Zm40-120q33 0 56.5-23.5T800-240q0-33-23.5-56.5T720-320q-33 0-56.5 23.5T640-240q0 33 23.5 56.5T720-160Z"
+                  />
+                </svg>
+                <span data-i18n="common.on"></span>
+              </button>
+              <button type="button" class="ch-opt" data-settings-sync="off" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
+                  />
+                </svg>
+                <span data-i18n="common.off"></span>
+              </button>
+            </div>
+          </div>
+
+          <div class="youtube-settings-disabled-wrap">
             <div class="section-group">
               <div class="section-header-row">
-                <span class="section-title" data-i18n="settings.reverb_title"></span>
+                <span
+                  class="section-title"
+                  id="settings-reverb-title"
+                  data-i18n="settings.reverb_title"
+                ></span>
                 <span class="badge-host-ctrl" data-i18n="settings.host_ctrl"></span>
               </div>
-              <div class="channel-grid" id="grid-reverb">
+              <p
+                class="settings-option-description"
+                id="settings-reverb-description"
+                data-i18n="settings.reverb_desc"
+              ></p>
+              <div
+                class="channel-grid"
+                id="grid-reverb"
+                role="group"
+                aria-labelledby="settings-reverb-title"
+                aria-describedby="settings-reverb-description"
+              >
                 <button type="button" class="ch-opt" data-rvb-type="studio">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
@@ -1199,10 +1284,25 @@
 
             <div class="section-group">
               <div class="section-header-row">
-                <span class="section-title" data-i18n="settings.eq_title"></span>
+                <span
+                  class="section-title"
+                  id="settings-eq-title"
+                  data-i18n="settings.eq_title"
+                ></span>
                 <span class="badge-host-ctrl" data-i18n="settings.host_ctrl"></span>
               </div>
-              <div class="channel-grid" id="grid-eq">
+              <p
+                class="settings-option-description"
+                id="settings-eq-description"
+                data-i18n="settings.eq_desc"
+              ></p>
+              <div
+                class="channel-grid"
+                id="grid-eq"
+                role="group"
+                aria-labelledby="settings-eq-title"
+                aria-describedby="settings-eq-description"
+              >
                 <button type="button" class="ch-opt" data-eq-type="bright">
                   <svg viewBox="0 -960 960 960" aria-hidden="true">
                     <path
@@ -1305,10 +1405,25 @@
 
             <div class="section-group">
               <div class="section-header-row">
-                <span class="section-title" data-i18n="settings.surround_title"></span>
+                <span
+                  class="section-title"
+                  id="settings-surround-title"
+                  data-i18n="settings.surround_title"
+                ></span>
                 <span class="badge-host-ctrl" data-i18n="settings.host_ctrl"></span>
               </div>
-              <div class="channel-grid" id="grid-surround">
+              <p
+                class="settings-option-description"
+                id="settings-surround-description"
+                data-i18n="settings.surround_desc"
+              ></p>
+              <div
+                class="channel-grid"
+                id="grid-surround"
+                role="group"
+                aria-labelledby="settings-surround-title"
+                aria-describedby="settings-surround-description"
+              >
                 <button type="button" class="ch-opt" data-toggle="on">
                   <svg viewBox="0 -960 960 960" aria-hidden="true">
                     <path
@@ -1328,10 +1443,25 @@
 
             <div class="section-group">
               <div class="section-header-row">
-                <span class="section-title" data-i18n="settings.bass_title"></span>
+                <span
+                  class="section-title"
+                  id="settings-bass-title"
+                  data-i18n="settings.bass_title"
+                ></span>
                 <span class="badge-host-ctrl" data-i18n="settings.host_ctrl"></span>
               </div>
-              <div class="channel-grid" id="grid-vbass">
+              <p
+                class="settings-option-description"
+                id="settings-bass-description"
+                data-i18n="settings.bass_desc"
+              ></p>
+              <div
+                class="channel-grid"
+                id="grid-vbass"
+                role="group"
+                aria-labelledby="settings-bass-title"
+                aria-describedby="settings-bass-description"
+              >
                 <button type="button" class="ch-opt" data-toggle="on">
                   <svg viewBox="0 -960 960 960" aria-hidden="true">
                     <path
@@ -1351,10 +1481,25 @@
 
             <div class="section-group" id="last-setting-section">
               <div class="section-header-row">
-                <span class="section-title" data-i18n="settings.exciter_title"></span>
+                <span
+                  class="section-title"
+                  id="settings-exciter-title"
+                  data-i18n="settings.exciter_title"
+                ></span>
                 <span class="badge-host-ctrl" data-i18n="settings.host_ctrl"></span>
               </div>
-              <div class="channel-grid" id="grid-exciter">
+              <p
+                class="settings-option-description"
+                id="settings-exciter-description"
+                data-i18n="settings.exciter_desc"
+              ></p>
+              <div
+                class="channel-grid"
+                id="grid-exciter"
+                role="group"
+                aria-labelledby="settings-exciter-title"
+                aria-describedby="settings-exciter-description"
+              >
                 <button type="button" class="ch-opt" data-toggle="on">
                   <svg viewBox="0 -960 960 960" aria-hidden="true">
                     <path

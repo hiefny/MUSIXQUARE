@@ -113,7 +113,17 @@ const de: Record<I18nKey, string> = {
   'settings.ui_sounds': 'UI-Töne',
   'settings.sync_settings': 'Einstellungen synchronisieren',
   'settings.sync_settings_desc':
-    'Ein übernimmt Lautstärke und Audioeffekte des Hosts oder Administrators, der zuletzt synchronisiert hat. Aus verwendet die eigenen Einstellungen dieses Geräts.',
+    'Geräte mit aktivierter Option synchronisieren Lautstärke und Audioeffekte.',
+  'settings.language_desc': 'Eine Sprache auswählen oder die Systemsprache übernehmen.',
+  'settings.theme_desc': 'Zwischen hellem und dunklem Design wählen.',
+  'settings.visualizer_desc': 'Die Art der Audio-Visualisierung auswählen.',
+  'settings.ui_sounds_desc':
+    'Hinweis-, Beitritts-, Austritts- und Berührungstöne ein- oder ausschalten.',
+  'settings.reverb_desc': 'Nachhall und Räumlichkeit des Klangs anpassen.',
+  'settings.eq_desc': 'Die Klangfarbe anpassen. Zusammen mit der Lautstärkeregelung verwenden.',
+  'settings.surround_desc': 'Erhöht die Trennung für einen räumlicheren Klang.',
+  'settings.bass_desc': 'Erzeugt tiefe Frequenzen für mehr Druck.',
+  'settings.exciter_desc': 'Erzeugt sehr hohe Frequenzen für mehr Klarheit.',
   'settings.dark': 'Dunkel',
   'settings.light': 'Hell',
   'settings.visualizer': 'Visualisierung',

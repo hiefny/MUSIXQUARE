@@ -6,10 +6,14 @@ import { resolve } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 let appDocument: Document;
+let appStylesheet: string;
+let desktopStylesheet: string;
 
 beforeAll(() => {
   const source = readFileSync(resolve('index.html'), 'utf8');
   appDocument = new DOMParser().parseFromString(source, 'text/html');
+  appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
+  desktopStylesheet = readFileSync(resolve('css/desktop.css'), 'utf8');
 });
 
 describe('app UX markup contract', () => {
@@ -34,5 +38,116 @@ describe('app UX markup contract', () => {
     const viewport = appDocument.querySelector<HTMLMetaElement>('meta[name="viewport"]');
     expect(viewport?.content).toContain('maximum-scale=1');
     expect(viewport?.content).toContain('user-scalable=no');
+  });
+
+  it('places settings sync between the device role and reverb sections', () => {
+    const generalPanel = appDocument.querySelector<HTMLElement>(
+      '.settings-subtab-panel[data-panel="general"]',
+    );
+    const audioPanel = appDocument.querySelector<HTMLElement>(
+      '.settings-subtab-panel[data-panel="audio"]',
+    );
+    const roleSection = audioPanel?.querySelector('#grid-standard')?.closest('.section-group');
+    const syncSection = appDocument.getElementById('settings-sync-section');
+    const reverbSection = audioPanel?.querySelector('#grid-reverb')?.closest('.section-group');
+
+    expect(generalPanel?.contains(syncSection)).toBe(false);
+    expect(audioPanel?.contains(syncSection)).toBe(true);
+    expect(syncSection?.closest('.youtube-settings-disabled-wrap')).toBeNull();
+    expect(roleSection?.closest('.youtube-settings-disabled-wrap')).not.toBeNull();
+    expect(reverbSection?.closest('.youtube-settings-disabled-wrap')).not.toBeNull();
+    expect(roleSection?.closest('.youtube-settings-disabled-wrap')).not.toBe(
+      reverbSection?.closest('.youtube-settings-disabled-wrap'),
+    );
+
+    const audioSections = [...(audioPanel?.querySelectorAll('.section-group') ?? [])];
+    const roleIndex = audioSections.indexOf(roleSection as Element);
+    const syncIndex = audioSections.indexOf(syncSection as Element);
+    const reverbIndex = audioSections.indexOf(reverbSection as Element);
+
+    expect(roleIndex).toBeGreaterThanOrEqual(0);
+    expect(syncIndex).toBe(roleIndex + 1);
+    expect(reverbIndex).toBe(syncIndex + 1);
+  });
+
+  it('associates every settings description with its own control group', () => {
+    const descriptions = [
+      [
+        '#grid-lang',
+        'settings-language-title',
+        'settings-language-description',
+        'settings.language_desc',
+      ],
+      ['#grid-theme', 'settings-theme-title', 'settings-theme-description', 'settings.theme_desc'],
+      [
+        '#grid-ui-sounds',
+        'settings-ui-sounds-title',
+        'settings-ui-sounds-description',
+        'settings.ui_sounds_desc',
+      ],
+      [
+        '#grid-visualizer',
+        'settings-visualizer-title',
+        'settings-visualizer-description',
+        'settings.visualizer_desc',
+      ],
+      [
+        '#grid-settings-sync',
+        'settings-sync-title',
+        'settings-sync-description',
+        'settings.sync_settings_desc',
+      ],
+      [
+        '#grid-reverb',
+        'settings-reverb-title',
+        'settings-reverb-description',
+        'settings.reverb_desc',
+      ],
+      ['#grid-eq', 'settings-eq-title', 'settings-eq-description', 'settings.eq_desc'],
+      [
+        '#grid-surround',
+        'settings-surround-title',
+        'settings-surround-description',
+        'settings.surround_desc',
+      ],
+      ['#grid-vbass', 'settings-bass-title', 'settings-bass-description', 'settings.bass_desc'],
+      [
+        '#grid-exciter',
+        'settings-exciter-title',
+        'settings-exciter-description',
+        'settings.exciter_desc',
+      ],
+    ] as const;
+
+    for (const [controlSelector, titleId, descriptionId, translationKey] of descriptions) {
+      const control = appDocument.querySelector<HTMLElement>(controlSelector);
+      const description = appDocument.getElementById(descriptionId);
+
+      expect(description?.getAttribute('data-i18n'), descriptionId).toBe(translationKey);
+      expect(control?.getAttribute('role'), controlSelector).toBe('group');
+      expect(control?.getAttribute('aria-labelledby'), controlSelector).toBe(titleId);
+      expect(control?.getAttribute('aria-describedby'), controlSelector).toBe(descriptionId);
+      expect(control?.closest('.section-group'), controlSelector).toBe(
+        description?.closest('.section-group'),
+      );
+    }
+
+    expect(appDocument.querySelectorAll('#tab-settings .settings-option-description')).toHaveLength(
+      descriptions.length,
+    );
+  });
+
+  it('keeps settings descriptions on the desktop title and control inset', () => {
+    const descriptionRule = desktopStylesheet.match(
+      /\.settings-option-description\s*\{([^}]*)\}/,
+    )?.[1];
+
+    expect(descriptionRule).toBeDefined();
+    expect(descriptionRule).toMatch(/margin:\s*-8px\s+20px\s+16px\s*;/);
+
+    const splitLockDividerRule = appStylesheet.match(
+      /#youtube-settings-disabled-wrap\s*>\s*\.section-group:last-of-type\s*\{([^}]*)\}/,
+    )?.[1];
+    expect(splitLockDividerRule).toMatch(/border-bottom:\s*1px\s+solid\s+var\(--divider\)/);
   });
 });

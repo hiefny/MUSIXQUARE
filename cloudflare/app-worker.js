@@ -86,7 +86,7 @@ const SORO_BLOG_CACHE_VERSION_KEY = 'soro-blog-cache-version.json';
 const ADMIN_ANNOUNCEMENT_KEY = 'admin-announcement.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
-const ADMIN_ASSET_VERSION = '8.3.4';
+const ADMIN_ASSET_VERSION = '8.3.5';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -138,6 +138,7 @@ const OWNER_TRANSFER_COMMIT_PROOF_RE = /^[A-Za-z0-9._-]{32,2048}$/;
 const OWNER_AUTHORITY_REMOVAL_ID_RE = /^removal_[A-Za-z0-9_-]{22}$/;
 const ADMIN_PRO_ROOM_ACTIVATION_RECONCILE_MIN_AGE_MS = 60 * 1000;
 const ADMIN_PRO_ROOM_ACTIVATION_RECONCILE_BATCH_SIZE = 25;
+const ADMIN_PRO_ROOM_OWNER_STATE_BATCH_SIZE = 25;
 const ADMIN_DEVELOPER_API_KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
 const ADMIN_DEVELOPER_API_KEY_SECRET_RE = /^[A-Za-z0-9_-]{43}$/;
 const ADMIN_DEVELOPER_API_KEY_DEFAULT_DAYS = 90;
@@ -2318,6 +2319,78 @@ async function listAdminProRooms(db) {
     .bind(ADMIN_PRO_ROOM_REGISTRY_LIMIT)
     .all();
   return (result?.results || []).map(normalizeAdminProRoomRow).filter(Boolean);
+}
+
+async function attachCanonicalAdminProRoomOwnerState(env, db, rooms) {
+  if (!Array.isArray(rooms)) return [];
+  const enriched = rooms.map((room) =>
+    room?.status === 'registered' && room.activationState === 'active'
+      ? { ...room, ownerAccountLinked: null }
+      : room,
+  );
+  const activeIndexes = enriched
+    .map((room, index) =>
+      room?.status === 'registered' && room.activationState === 'active' ? index : -1,
+    )
+    .filter((index) => index >= 0);
+
+  for (
+    let offset = 0;
+    offset < activeIndexes.length;
+    offset += ADMIN_PRO_ROOM_OWNER_STATE_BATCH_SIZE
+  ) {
+    const batch = activeIndexes.slice(offset, offset + ADMIN_PRO_ROOM_OWNER_STATE_BATCH_SIZE);
+    await Promise.all(
+      batch.map(async (index) => {
+        const room = enriched[index];
+        const result = await callProRoomAdminObject(
+          env,
+          room.roomCode,
+          room.roomGeneration,
+          '/internal/admin/status',
+          'GET',
+        );
+        const payload = result.payload;
+        if (
+          result.response?.ok !== true ||
+          !proRoomAdminResponseIdentityMatches(payload, room.roomCode, room.roomGeneration) ||
+          payload.provisioned !== true ||
+          typeof payload.ownerAccountLinked !== 'boolean'
+        ) {
+          return;
+        }
+        if (payload.status === 'active' && payload.suspensionReason == null) {
+          enriched[index] = { ...room, ownerAccountLinked: payload.ownerAccountLinked };
+          return;
+        }
+        if (
+          payload.status === 'suspended' &&
+          ['operator_suspended', 'owner_account_deleted', 'ownership_transfer_pending'].includes(
+            payload.suspensionReason,
+          )
+        ) {
+          enriched[index] = {
+            ...room,
+            status: 'suspended',
+            suspensionReason: payload.suspensionReason,
+            activationState: 'active',
+            ownerAccountLinked: payload.ownerAccountLinked,
+          };
+          // The canonical status response can itself discover a deleted owner
+          // and durably suspend the room. Preserve that state in this response
+          // even if the best-effort D1 projection repair is temporarily down.
+          await markAdminProRoomOperationalState(
+            db,
+            room.roomCode,
+            room.roomGeneration,
+            'suspended',
+            payload.suspensionReason,
+          ).catch(() => {});
+        }
+      }),
+    );
+  }
+  return enriched;
 }
 
 async function registerAdminProRoom(db, roomCode, label, nowMs = Date.now()) {
@@ -5800,6 +5873,7 @@ async function handleAdminProRooms(request, env, pathname) {
           'Cache-Control': 'no-store, max-age=0',
         });
       }
+      rooms = await attachCanonicalAdminProRoomOwnerState(env, db, rooms);
       return json({ generatedAt: new Date().toISOString(), rooms });
     } catch {
       return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);

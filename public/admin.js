@@ -1,4 +1,4 @@
-const ADMIN_SCRIPT_VERSION = '8.3.4';
+const ADMIN_SCRIPT_VERSION = '8.3.5';
 window.__MXQR_ADMIN_SCRIPT_VERSION__ = ADMIN_SCRIPT_VERSION;
 
 const root = document.querySelector('.admin-shell');
@@ -916,8 +916,12 @@ function setProRoomStatus(message, isError = false) {
   proRoomStatusEl.classList.toggle('is-error', isError);
 }
 
-function formatProRoomStatus(status, suspensionReason = null) {
-  if (status === 'active') return 'Active';
+function formatProRoomStatus(status, suspensionReason = null, ownerAccountLinked = null) {
+  if (status === 'active') {
+    if (ownerAccountLinked === false) return 'Ownership transfer required';
+    if (ownerAccountLinked !== true) return 'Owner status unavailable';
+    return 'Active';
+  }
   if (status === 'suspended') {
     if (suspensionReason === 'owner_account_deleted') return 'Ownership transfer required';
     if (suspensionReason === 'ownership_transfer_pending') return 'Transfer pending';
@@ -2119,6 +2123,10 @@ function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
   const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
   const suspensionReason =
     typeof room?.suspensionReason === 'string' ? room.suspensionReason : null;
+  const ownerAccountLinked =
+    rawStatus === 'active' && typeof room?.ownerAccountLinked === 'boolean'
+      ? room.ownerAccountLinked
+      : null;
   if (!incarnationKey) {
     const message = document.createElement('p');
     message.className = 'pro-room-terminal-copy';
@@ -2172,7 +2180,7 @@ function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
         setProRoomStatus(adminErrorMessage(error, 'Provisioning retry failed.'), true);
       }
     });
-  } else if (rawStatus === 'active') {
+  } else if (rawStatus === 'active' && ownerAccountLinked === true) {
     activation.textContent = issuedOwnerRecoveryLinks.has(incarnationKey)
       ? 'Issue another owner recovery link'
       : 'Issue owner recovery link';
@@ -2197,7 +2205,10 @@ function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
         loadProRooms({ updateTimestamp: false }).catch(() => {});
       }
     });
-  } else if (rawStatus === 'suspended' && suspensionReason === 'owner_account_deleted') {
+  } else if (
+    (rawStatus === 'active' && ownerAccountLinked === false) ||
+    (rawStatus === 'suspended' && suspensionReason === 'owner_account_deleted')
+  ) {
     activation.textContent = issuedOwnerTransferLinks.has(incarnationKey)
       ? 'Issue another owner transfer link'
       : 'Assign a new owner';
@@ -2205,6 +2216,10 @@ function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
     activation.addEventListener('click', () =>
       openProRoomTransferDialog(roomCode, roomGeneration, activation),
     );
+  } else if (rawStatus === 'active') {
+    activation.textContent = 'Owner status unavailable';
+    activation.title = 'Refresh the room list before issuing an owner-authority link.';
+    activation.disabled = true;
   } else if (rawStatus === 'suspended' && suspensionReason === 'ownership_transfer_pending') {
     activation.textContent = 'Replace expired transfer link';
     activation.title =
@@ -2240,7 +2255,7 @@ function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
   }
   actions.append(activation);
 
-  if (rawStatus === 'active') {
+  if (rawStatus === 'active' && ownerAccountLinked === true) {
     const transfer = document.createElement('button');
     transfer.type = 'button';
     transfer.className = 'is-secondary';
@@ -2340,6 +2355,10 @@ function renderProRoomRow(room) {
   const roomGeneration = normalizeProRoomGeneration(room?.roomGeneration);
   const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
   const rawStatus = proRoomRawStatus(room);
+  const ownerAccountLinked =
+    rawStatus === 'active' && typeof room?.ownerAccountLinked === 'boolean'
+      ? room.ownerAccountLinked
+      : null;
   const item = document.createElement('details');
   item.className = 'pro-room-item';
   item.dataset.proRoomItem = roomCode;
@@ -2360,8 +2379,14 @@ function renderProRoomRow(room) {
   const details = document.createElement('div');
   details.className = 'pro-room-details';
   const status = document.createElement('span');
-  status.className = `pro-room-state is-${rawStatus.replace(/[^a-z-]/g, '')}`;
-  status.textContent = formatProRoomStatus(rawStatus, room?.suspensionReason);
+  const displayStatus =
+    rawStatus === 'active' && ownerAccountLinked !== true
+      ? ownerAccountLinked === false
+        ? 'suspended'
+        : 'provisioning'
+      : rawStatus;
+  status.className = `pro-room-state is-${displayStatus.replace(/[^a-z-]/g, '')}`;
+  status.textContent = formatProRoomStatus(rawStatus, room?.suspensionReason, ownerAccountLinked);
   const created = document.createElement('small');
   const createdAt = formatAdminDateTime(room.createdAt);
   created.textContent = createdAt ? `Created ${createdAt}` : 'Creation time unavailable';

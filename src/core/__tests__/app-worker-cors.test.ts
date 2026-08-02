@@ -2354,6 +2354,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     };
     const rows = new Map<string, RegistryRow>();
     let failAudit = false;
+    let failOwnerStatusProjection = false;
     const audits: Array<{
       actorId: string;
       action: string;
@@ -2400,6 +2401,13 @@ describe('Cloudflare app worker admin dashboard', () => {
           }
           if (/UPDATE/i.test(sql)) {
             const roomCode = String(values[0]);
+            if (
+              failOwnerStatusProjection &&
+              roomCode === '000006' &&
+              /SET status = \?3/i.test(sql)
+            ) {
+              throw new Error('owner status projection unavailable');
+            }
             const row = rows.get(roomCode);
             if (
               row &&
@@ -2482,11 +2490,23 @@ describe('Cloudflare app worker admin dashboard', () => {
             });
           }
           if (url.pathname === '/internal/admin/status') {
+            if (roomCode === '000006') {
+              return Response.json({
+                roomCode,
+                roomGeneration,
+                provisioned: true,
+                status: 'suspended',
+                suspensionReason: 'owner_account_deleted',
+                ownerAccountLinked: false,
+              });
+            }
             return Response.json({
               roomCode,
               roomGeneration,
               provisioned: true,
               status: 'active',
+              suspensionReason: null,
+              ownerAccountLinked: roomCode !== '000002',
             });
           }
           if (url.pathname === '/internal/admin/suspend') {
@@ -2673,6 +2693,18 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(await withheldClaim.json()).toEqual({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' });
     failAudit = false;
 
+    rows.set('000006', {
+      room_code: '000006',
+      label: 'Owner deleted during status read',
+      status: 'registered',
+      suspension_reason: null,
+      activation_state: 'active',
+      room_generation: 0,
+      created_at: Date.now(),
+      updated_at: Date.now(),
+    });
+    failOwnerStatusProjection = true;
+
     const incomplete = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/pro-rooms', {
         method: 'POST',
@@ -2689,11 +2721,28 @@ describe('Cloudflare app worker admin dashboard', () => {
       env,
     );
     const pendingPayload = (await pendingList.json()) as { rooms?: unknown[] };
+    failOwnerStatusProjection = false;
     expect(pendingPayload.rooms).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ roomCode: '000003', status: 'provisioning' }),
+        expect.objectContaining({
+          roomCode: '000002',
+          activationState: 'active',
+          ownerAccountLinked: false,
+        }),
+        expect.objectContaining({
+          roomCode: '000006',
+          status: 'suspended',
+          suspensionReason: 'owner_account_deleted',
+          ownerAccountLinked: false,
+        }),
       ]),
     );
+    expect(rows.get('000006')).toMatchObject({
+      status: 'registered',
+      suspension_reason: null,
+      activation_state: 'active',
+    });
 
     const recovered = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/pro-rooms', {
@@ -2813,6 +2862,18 @@ describe('Cloudflare app worker admin dashboard', () => {
         roomCode: '000003:generation:0',
         roomGeneration: '0',
         url: '/internal/admin/provision',
+        authorization: '',
+      },
+      {
+        roomCode: '000002:generation:0',
+        roomGeneration: '0',
+        url: '/internal/admin/status',
+        authorization: '',
+      },
+      {
+        roomCode: '000006:generation:0',
+        roomGeneration: '0',
+        url: '/internal/admin/status',
         authorization: '',
       },
       {
@@ -3996,9 +4057,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.4');
-    expect(html).toContain('/admin.js?v=8.3.4');
-    expect(html).toContain('data-admin-asset-version="8.3.4"');
+    expect(html).toContain('/admin.css?v=8.3.5');
+    expect(html).toContain('/admin.js?v=8.3.5');
+    expect(html).toContain('data-admin-asset-version="8.3.5"');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
     expect(html).toContain('data-admin-tab="pro-rooms"');
     expect(html).toContain('data-pro-room-form');
@@ -4015,7 +4076,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.3.4', '/admin.css?v=8.3.4']) {
+    for (const path of ['/admin.js?v=8.3.5', '/admin.css?v=8.3.5']) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');

@@ -244,6 +244,7 @@ describe('admin PRO room claim lifecycle', () => {
               label: 'Latest room',
               status: 'registered',
               activationState: 'active',
+              ownerAccountLinked: true,
               createdAt: Date.now(),
             },
           ],
@@ -284,6 +285,7 @@ describe('admin PRO room claim lifecycle', () => {
             label: 'Stale room',
             status: 'registered',
             activationState: 'active',
+            ownerAccountLinked: true,
             createdAt: Date.now(),
           },
         ],
@@ -430,6 +432,7 @@ describe('admin PRO room claim lifecycle', () => {
               label: 'Friends room',
               status: 'registered',
               activationState: 'active',
+              ownerAccountLinked: true,
               createdAt: Date.now(),
             },
           ],
@@ -492,6 +495,75 @@ describe('admin PRO room claim lifecycle', () => {
       ).toBe('Owner recovery link');
       expect(issueButton.textContent).toBe('Issue another owner recovery link');
     });
+  });
+
+  it('routes an active room without a linked owner account directly to ownership assignment', async () => {
+    installAdminDom();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          rooms: [
+            {
+              roomCode: '000001',
+              roomGeneration: 0,
+              label: 'Legacy owner room',
+              status: 'registered',
+              activationState: 'active',
+              ownerAccountLinked: false,
+              createdAt: Date.now(),
+            },
+          ],
+        });
+      }
+      if (url.pathname === '/api/admin/articles') {
+        return Response.json({ generatedAt: new Date().toISOString(), articles: [] });
+      }
+      if (url.pathname === '/api/admin/announcement') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          announcement: {},
+          history: [],
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+
+    const assignButton = await vi.waitFor(() => {
+      const value = [
+        ...document.querySelectorAll<HTMLButtonElement>('.pro-room-actions button'),
+      ].find((button) => button.textContent === 'Assign a new owner');
+      expect(value).not.toBeUndefined();
+      return value!;
+    });
+    const roomState = document.querySelector<HTMLElement>('.pro-room-state');
+    expect(roomState?.textContent).toBe('Ownership transfer required');
+    expect(roomState?.classList.contains('is-suspended')).toBe(true);
+    expect(document.body.textContent).not.toContain('Issue owner recovery link');
+    expect(document.body.textContent).not.toContain('Transfer ownership');
+
+    assignButton.click();
+    const dialog = document.querySelector<HTMLDialogElement>('.pro-room-transfer-dialog');
+    expect(dialog?.hasAttribute('open')).toBe(true);
+    expect(document.activeElement).toBe(dialog?.querySelector('input'));
   });
 
   it('keeps a pending transfer visible and lets the operator replace it after expiry', async () => {
@@ -780,6 +852,7 @@ describe('admin PRO room operations dashboard', () => {
               label: currentLabel,
               status: 'registered',
               activationState: 'active',
+              ownerAccountLinked: true,
               createdAt: Date.now(),
             },
           ],
@@ -943,6 +1016,7 @@ describe('admin PRO room operations dashboard', () => {
               label: 'Invalid registry row',
               status: 'registered',
               activationState: 'active',
+              ownerAccountLinked: true,
               createdAt: Date.now(),
             },
           ],
@@ -1027,6 +1101,7 @@ describe('admin PRO room operations dashboard', () => {
               label: 'Friends room',
               status: 'registered',
               activationState: 'active',
+              ownerAccountLinked: true,
               createdAt: Date.now(),
             },
           ],
@@ -1205,6 +1280,7 @@ describe('admin PRO room operations dashboard', () => {
               label: 'Reused room',
               status: 'registered',
               activationState: 'active',
+              ownerAccountLinked: true,
               createdAt: Date.now(),
             },
           ],
@@ -1306,6 +1382,7 @@ describe('admin PRO room operations dashboard', () => {
                   label: 'Friends room',
                   status: 'registered',
                   activationState: 'active',
+                  ownerAccountLinked: true,
                   createdAt: Date.now(),
                 },
               ],

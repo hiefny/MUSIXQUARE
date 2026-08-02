@@ -67,6 +67,7 @@
 
     --header-height: calc(60px + var(--safe-top));
     --nav-height: 72px;
+    --list-row-height: 56px;
   }
 
   /* Force UA color scheme per app theme.
@@ -1971,7 +1972,7 @@
   .track-item {
     background: transparent;
     padding: 14px 16px;
-    min-height: 56px;
+    min-height: var(--list-row-height);
     box-sizing: border-box;
     border-radius: var(--radius-m);
     display: flex;
@@ -3240,10 +3241,10 @@
     display: flex;
     align-items: center;
     gap: 16px;
-    padding: 16px;
-    /* The disclosure control is 32px tall; keep single-device and
-       multi-device member rows on the same 64px rail. */
-    min-height: 64px;
+    padding: 12px 16px;
+    /* Keep administrator and connected-device rows on the same 56px rail as
+       playlist rows while preserving the 32px disclosure/action controls. */
+    min-height: var(--list-row-height);
     box-sizing: border-box;
     border-radius: var(--radius-m);
     background: transparent;

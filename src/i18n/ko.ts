@@ -254,7 +254,7 @@ const ko = {
   'connect.room_password_invalid': '8자리 숫자를 입력해 주세요',
   'connect.room_password_enabled': '이제 이 방에 참여하려면 암호를 입력해야 해요',
   'connect.room_password_disabled': '이제 이 방에 참여할 때 암호를 입력하지 않아도 돼요',
-  'connect.signaling_healthy': '연결 정상',
+  'connect.signaling_healthy': '연결 서버 정상',
   'connect.signaling_recovering': '연결 복구 중',
   'connect.signaling_failed': '연결 복구 실패',
   'connect.signaling_recover_action': '연결 복구하기',

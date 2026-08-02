@@ -2,12 +2,17 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
 describe('connected-device list layout', () => {
-  it('reserves stable row rails for disclosures and per-device removal', async () => {
+  it('matches administrator and connected-device rows to the playlist row rail', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
+    const rootRules = stylesheet.match(/:root\s*\{([^}]*)\}/)?.[1] ?? '';
+    const playlistRowRules = stylesheet.match(/\.track-item\s*\{([^}]*)\}/)?.[1] ?? '';
     const memberRowRules = stylesheet.match(/\.device-row\s*\{([^}]*)\}/)?.[1] ?? '';
     const deviceSubrowRules = stylesheet.match(/\.device-subrow\s*\{([^}]*)\}/)?.[1] ?? '';
 
-    expect(memberRowRules).toContain('min-height: 64px');
+    expect(rootRules).toContain('--list-row-height: 56px');
+    expect(playlistRowRules).toContain('min-height: var(--list-row-height)');
+    expect(memberRowRules).toContain('padding: 12px 16px');
+    expect(memberRowRules).toContain('min-height: var(--list-row-height)');
     expect(deviceSubrowRules).toContain('min-height: 44px');
     expect(deviceSubrowRules).toContain('box-sizing: border-box');
   });

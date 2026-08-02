@@ -203,7 +203,7 @@ describe('connect signaling health status', () => {
     for (const status of statuses) {
       expect(status.hidden).toBe(false);
       expect(status.dataset.status).toBe('healthy');
-      expect(status.textContent).toBe('연결 정상');
+      expect(status.textContent).toBe('연결 서버 정상');
     }
   });
 
@@ -243,7 +243,7 @@ describe('connect signaling health status', () => {
     for (const status of statuses) {
       expect(status.hidden).toBe(false);
       expect(status.dataset.status).toBe('healthy');
-      expect(status.textContent).toBe('연결 정상');
+      expect(status.textContent).toBe('연결 서버 정상');
       expect(
         status.querySelector<HTMLElement>('.signaling-health-message')?.getAttribute('aria-busy'),
       ).toBe('false');

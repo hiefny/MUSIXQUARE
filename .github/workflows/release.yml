@@ -132,8 +132,11 @@ jobs:
       url: https://musixquare.com
     env:
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-      RELEASE_MESSAGE: git:${{ github.sha }} run:${{ github.run_id }} source:${{ needs.validate.outputs.candidate_run_id }} target:${{ inputs.target }}
-      RELEASE_ROLLBACK_MESSAGE: rollback:${{ github.sha }} run:${{ github.run_id }} attempt:${{ github.run_attempt }}
+      # Cloudflare deployment status can return only the first 50 characters
+      # of an upload annotation. Keep exact-equality ownership inside that
+      # observed boundary instead of weakening the ownership comparison.
+      RELEASE_MESSAGE: git:${{ github.sha }}
+      RELEASE_ROLLBACK_MESSAGE: rollback:${{ github.run_id }}:${{ github.run_attempt }}
       RELEASE_TARGET: ${{ inputs.target }}
       RELEASE_SOURCE_RUN_ATTEMPT: ${{ needs.validate.outputs.candidate_run_attempt }}
       RELEASE_SOURCE_RUN_ID: ${{ needs.validate.outputs.candidate_run_id }}

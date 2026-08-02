@@ -176,6 +176,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
 });
 
 const RELEASE_GIT_SHA_RE = /(?:^|\s)git:([0-9a-f]{40})(?=\s|$)/i;
+const CANONICAL_RELEASE_MESSAGE_RE = /^git:[0-9a-f]{40}$/;
 
 function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, 'utf8'));
@@ -213,7 +214,7 @@ function releaseGitSha(message) {
 
 function rollbackDeploymentMessage(state, fallbackMessage) {
   const restoredGitSha = releaseGitSha(state?.beforeMessage);
-  return restoredGitSha ? `git:${restoredGitSha} ${fallbackMessage}` : fallbackMessage;
+  return restoredGitSha ? `git:${restoredGitSha}` : fallbackMessage;
 }
 
 function runGit(args, options = {}) {
@@ -378,6 +379,9 @@ function prepare(target, directory) {
   const before = readJson(paths.before);
   const releaseMessage = process.env.RELEASE_MESSAGE;
   if (!releaseMessage) throw new Error('RELEASE_MESSAGE is required to prepare a deployment.');
+  if (!CANONICAL_RELEASE_MESSAGE_RE.test(releaseMessage)) {
+    throw new Error('RELEASE_MESSAGE must be exactly git:<40-char-lowercase-sha>.');
+  }
 
   writeJson(paths.state, {
     schemaVersion: SCHEMA_VERSION,

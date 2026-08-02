@@ -28,6 +28,7 @@ import {
 import { emergencyDeploymentPlan } from '../../../scripts/emergency-deploy.mjs';
 
 const SCRIPT_PATH = resolve('scripts/release-deployment-state.mjs');
+const CANONICAL_RELEASE_MESSAGE = `git:${'a'.repeat(40)}`;
 const temporaryDirectories: string[] = [];
 
 function createDirectory(): string {
@@ -36,7 +37,7 @@ function createDirectory(): string {
   return directory;
 }
 
-function deployment(versionId: string, message = 'release-message') {
+function deployment(versionId: string, message = CANONICAL_RELEASE_MESSAGE) {
   return {
     id: `deployment-${versionId}`,
     annotations: { 'workers/message': message },
@@ -78,6 +79,15 @@ describe('release deployment rollback state', () => {
         ),
       );
     }
+  });
+
+  it('keeps Cloudflare deployment ownership messages canonical and below truncation', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    expect(workflow).toMatch(/^\s+RELEASE_MESSAGE: git:\$\{\{ github\.sha \}\}\s*$/mu);
+    expect(workflow).toMatch(
+      /^\s+RELEASE_ROLLBACK_MESSAGE: rollback:\$\{\{ github\.run_id \}\}:\$\{\{ github\.run_attempt \}\}\s*$/mu,
+    );
+    expect(CANONICAL_RELEASE_MESSAGE.length).toBe(44);
   });
 
   it('keeps the cross-Worker release chain in dependency order', () => {
@@ -216,7 +226,7 @@ describe('release deployment rollback state', () => {
         { beforeMessage: `git:${restoredSha} run:10 target:all` },
         `rollback:${'b'.repeat(40)} run:11`,
       ),
-    ).toBe(`git:${restoredSha} rollback:${'b'.repeat(40)} run:11`);
+    ).toBe(`git:${restoredSha}`);
     expect(
       rollbackDeploymentMessage({ beforeMessage: 'legacy manual deploy' }, 'rollback:unknown'),
     ).toBe('rollback:unknown');
@@ -619,7 +629,7 @@ describe('release deployment rollback state', () => {
     );
 
     const prepare = runScript(['prepare', 'signaling', directory], {
-      RELEASE_MESSAGE: 'release-message',
+      RELEASE_MESSAGE: CANONICAL_RELEASE_MESSAGE,
     });
     expect(prepare.status, String(prepare.stderr)).toBe(0);
     expect(runScript(['attempt', 'signaling', directory]).status).toBe(0);
@@ -657,8 +667,9 @@ describe('release deployment rollback state', () => {
         JSON.stringify(deployment('before')),
       );
       expect(
-        runScript(['prepare', 'signaling', directory], { RELEASE_MESSAGE: 'release-message' })
-          .status,
+        runScript(['prepare', 'signaling', directory], {
+          RELEASE_MESSAGE: CANONICAL_RELEASE_MESSAGE,
+        }).status,
       ).toBe(0);
 
       expect(() =>
@@ -678,7 +689,8 @@ describe('release deployment rollback state', () => {
     const directory = createDirectory();
     writeFileSync(resolve(directory, 'app-before.json'), JSON.stringify(deployment('before')));
     expect(
-      runScript(['prepare', 'app', directory], { RELEASE_MESSAGE: 'release-message' }).status,
+      runScript(['prepare', 'app', directory], { RELEASE_MESSAGE: CANONICAL_RELEASE_MESSAGE })
+        .status,
     ).toBe(0);
 
     preflight('app', directory, {
@@ -699,6 +711,21 @@ describe('release deployment rollback state', () => {
       preflightVersionId: 'before',
     });
     expect(state.preflightCheckedAt).toEqual(expect.any(String));
+  });
+
+  it('rejects a noncanonical ownership message before any deploy attempt', () => {
+    const directory = createDirectory();
+    writeFileSync(resolve(directory, 'app-before.json'), JSON.stringify(deployment('before')));
+
+    for (const message of [
+      `${CANONICAL_RELEASE_MESSAGE} run:123`,
+      `git:${'A'.repeat(40)}`,
+      'release-message',
+    ]) {
+      const result = runScript(['prepare', 'app', directory], { RELEASE_MESSAGE: message });
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('must be exactly git:<40-char-lowercase-sha>');
+    }
   });
 
   it('retries transient current-deployment queries with bounded backoff', () => {
@@ -928,7 +955,8 @@ describe('release deployment rollback state', () => {
       const directory = createDirectory();
       writeFileSync(resolve(directory, 'app-before.json'), JSON.stringify(deployment('before')));
       expect(
-        runScript(['prepare', 'app', directory], { RELEASE_MESSAGE: 'release-message' }).status,
+        runScript(['prepare', 'app', directory], { RELEASE_MESSAGE: CANONICAL_RELEASE_MESSAGE })
+          .status,
       ).toBe(0);
       expect(runScript(['attempt', 'app', directory]).status).toBe(0);
       writeFileSync(resolve(directory, 'app.json'), JSON.stringify(after));

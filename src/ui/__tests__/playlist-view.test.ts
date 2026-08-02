@@ -197,6 +197,9 @@ describe('PRO upload rows', () => {
       expect(spinner?.querySelector('circle')?.getAttribute('cx')).toBe('22');
       expect(spinner?.querySelector('circle')?.getAttribute('cy')).toBe('22');
       expect(spinner?.querySelector('circle')?.getAttribute('r')).toBe('18');
+      expect(spinner?.querySelector('circle')?.getAttribute('pathLength')).toBe('100');
+      expect(spinner?.style.getPropertyValue('--material-elastic-spin-delay')).toMatch(/^-\d+ms$/);
+      expect(spinner?.style.getPropertyValue('--material-elastic-dash-delay')).toMatch(/^-\d+ms$/);
       expect(entry.querySelector('.type-icon')).toBeNull();
       const row = entry.querySelector('.pro-upload-row');
       expect(row?.lastElementChild).toBe(entry.querySelector('[data-pro-upload-action="cancel"]'));
@@ -264,6 +267,40 @@ describe('PRO upload rows', () => {
     expect(stylesheet).toContain('opacity: 0.58');
     expect(stylesheet).toContain('.pro-upload-cancel:disabled');
     expect(stylesheet).toContain('opacity: 0.32');
+  });
+
+  it('keeps the elastic head/tail phase continuous when an upload row is rebuilt', async () => {
+    const performanceNow = vi.spyOn(performance, 'now');
+    try {
+      performanceNow.mockReturnValue(2000);
+      proRoomUploadQueue = new ProRoomUploadQueue({
+        createId: vi.fn().mockReturnValue(FILE_A),
+        run: async (_input, context) => {
+          await new Promise<void>((_resolve, reject) => {
+            context.signal.addEventListener('abort', () => reject(context.signal.reason), {
+              once: true,
+            });
+          });
+        },
+      });
+      setActiveProRoomUploadQueue(proRoomUploadQueue);
+      initPlaylistView();
+      proRoomUploadQueue.enqueueFiles([new File(['a'], 'continuous.flac')]);
+      await nextAnimationFrame();
+
+      const first = document.querySelector<HTMLElement>('.pro-upload-spinner');
+      expect(first?.style.getPropertyValue('--material-elastic-spin-delay')).toBe('-150ms');
+      expect(first?.style.getPropertyValue('--material-elastic-dash-delay')).toBe('-550ms');
+
+      performanceNow.mockReturnValue(2200);
+      updatePlaylistUI();
+      const replacement = document.querySelector<HTMLElement>('.pro-upload-spinner');
+      expect(replacement).not.toBe(first);
+      expect(replacement?.style.getPropertyValue('--material-elastic-spin-delay')).toBe('-350ms');
+      expect(replacement?.style.getPropertyValue('--material-elastic-dash-delay')).toBe('-750ms');
+    } finally {
+      performanceNow.mockRestore();
+    }
   });
 
   it('hides failed uploads and restores the empty state for batch-level failure handling', async () => {
@@ -485,6 +522,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(spinner?.querySelector('circle')?.getAttribute('cx')).toBe('22');
     expect(spinner?.querySelector('circle')?.getAttribute('cy')).toBe('22');
     expect(spinner?.querySelector('circle')?.getAttribute('r')).toBe('18');
+    expect(spinner?.querySelector('circle')?.getAttribute('pathLength')).toBe('100');
   });
 
   it('uses Material Elastic for every indeterminate app spinner while retaining determinate bars', async () => {
@@ -506,17 +544,37 @@ describe('playlist queue identity rendering and actions', () => {
       expect(spinner?.getAttribute('aria-hidden')).toBe('true');
       expect(spinner?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 44 44');
       expect(spinner?.querySelector('circle')?.getAttribute('r')).toBe('18');
+      expect(spinner?.querySelector('circle')?.getAttribute('pathLength')).toBe('100');
     }
 
     expect(stylesheet).toContain('animation: material-elastic-spin 1.85s linear infinite');
     expect(stylesheet).toContain('animation: material-elastic-dash 1.45s ease-in-out infinite');
+    expect(stylesheet).toContain('animation-delay: var(--material-elastic-spin-delay, 0ms)');
+    expect(stylesheet).toContain('animation-delay: var(--material-elastic-dash-delay, 0ms)');
     expect(stylesheet).toContain('@keyframes material-elastic-spin');
     expect(stylesheet).toContain('@keyframes material-elastic-dash');
+    expect(stylesheet).toContain('stroke-linecap: butt');
+    expect(stylesheet).toContain('stroke-dasharray: 74 26');
+    expect(stylesheet).toContain('stroke-dasharray: 2 98');
+    expect(stylesheet).toContain('stroke-dashoffset: -100');
     expect(stylesheet).toMatch(
-      /\.header-loading-spinner,\s*\.header-loading-spinner circle\s*\{[^}]*animation-play-state:\s*paused;/,
+      /\.material-elastic-spinner > svg\s*\{[^}]*animation:\s*material-elastic-spin/s,
+    );
+    expect(stylesheet).not.toMatch(
+      /\.material-elastic-spinner\s*\{[^}]*animation:\s*material-elastic-spin/s,
+    );
+    expect(stylesheet).toMatch(/\.play-loading-spinner\s*\{[^}]*--material-elastic-size:\s*26px;/);
+    expect(stylesheet).toMatch(
+      /\.header-loading-spinner > svg,\s*\.header-loading-spinner circle\s*\{[^}]*animation-play-state:\s*paused;/,
     );
     expect(stylesheet).toMatch(
-      /header\.loading \.header-loading-spinner,\s*header\.loading \.header-loading-spinner circle\s*\{[^}]*animation-play-state:\s*running;/,
+      /header\.loading \.header-loading-spinner > svg,\s*header\.loading \.header-loading-spinner circle\s*\{[^}]*animation-play-state:\s*running;/,
+    );
+    expect(stylesheet).toMatch(
+      /\.track-playback-loading-indicator > svg\s*\{[^}]*display:\s*none;/,
+    );
+    expect(stylesheet).toMatch(
+      /\.playlist-current-leading\.is-current-loading \.track-playback-loading-indicator > svg\s*\{[^}]*display:\s*block;/,
     );
     expect(stylesheet).not.toContain('@keyframes yt-spin');
     expect(stylesheet).not.toContain('@keyframes track-playback-spin');

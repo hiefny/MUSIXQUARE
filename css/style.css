@@ -623,17 +623,18 @@
     opacity: 0.15;
   }
 
-  /* Shared indeterminate loader: Material Elastic (spinner lab preset 14).
-     Determinate progress surfaces keep their monotonic width/value behavior. */
+  /* Shared indeterminate loader: refined Material Elastic motion.
+     The lab preset's approximate circumference and end-of-loop collapse are
+     replaced by a normalized, continuous grow/catch-up arc. Determinate
+     progress surfaces keep their monotonic width/value behavior. */
   .material-elastic-spinner {
     --material-elastic-size: 24px;
-    --material-elastic-stroke: 4.5;
+    --material-elastic-stroke: 4.75;
     display: block;
     width: var(--material-elastic-size);
     height: var(--material-elastic-size);
     flex: 0 0 var(--material-elastic-size);
     color: currentColor;
-    animation: material-elastic-spin 1.85s linear infinite;
   }
 
   .material-elastic-spinner > svg {
@@ -641,14 +642,23 @@
     width: 100%;
     height: 100%;
     overflow: visible;
+    transform-box: fill-box;
+    transform-origin: center;
+    shape-rendering: geometricPrecision;
+    animation: material-elastic-spin 1.85s linear infinite;
+    animation-delay: var(--material-elastic-spin-delay, 0ms);
   }
 
   .material-elastic-spinner circle {
     fill: none;
     stroke: currentColor;
     stroke-width: var(--material-elastic-stroke);
-    stroke-linecap: round;
+    stroke-linecap: butt;
+    stroke-dasharray: 2 98;
+    stroke-dashoffset: 0;
+    shape-rendering: geometricPrecision;
     animation: material-elastic-dash 1.45s ease-in-out infinite;
+    animation-delay: var(--material-elastic-dash-delay, 0ms);
   }
 
   @keyframes material-elastic-spin {
@@ -659,29 +669,29 @@
 
   @keyframes material-elastic-dash {
     0% {
-      stroke-dasharray: 1 113;
+      stroke-dasharray: 2 98;
       stroke-dashoffset: 0;
     }
 
     48% {
-      stroke-dasharray: 82 113;
-      stroke-dashoffset: -24;
+      stroke-dasharray: 74 26;
+      stroke-dashoffset: -12;
     }
 
     100% {
-      stroke-dasharray: 82 113;
-      stroke-dashoffset: -112;
+      stroke-dasharray: 2 98;
+      stroke-dashoffset: -100;
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .material-elastic-spinner,
+    .material-elastic-spinner > svg,
     .material-elastic-spinner circle {
       animation: none !important;
     }
 
     .material-elastic-spinner circle {
-      stroke-dasharray: 46 113;
+      stroke-dasharray: 58 42;
       stroke-dashoffset: -18;
     }
   }
@@ -961,12 +971,12 @@
 
   .header-loading-spinner {
     --material-elastic-size: 18px;
-    --material-elastic-stroke: 4;
+    --material-elastic-stroke: 4.75;
     margin-right: 8px;
     color: var(--primary);
   }
 
-  .header-loading-spinner,
+  .header-loading-spinner > svg,
   .header-loading-spinner circle {
     animation-play-state: paused;
   }
@@ -994,7 +1004,7 @@
     opacity: 1;
   }
 
-  header.loading .header-loading-spinner,
+  header.loading .header-loading-spinner > svg,
   header.loading .header-loading-spinner circle {
     animation-play-state: running;
   }
@@ -1908,7 +1918,7 @@
   }
 
   .play-loading-spinner {
-    --material-elastic-size: 24px;
+    --material-elastic-size: 26px;
     display: none;
   }
 
@@ -2036,8 +2046,14 @@
   }
 
   .track-playback-loading-indicator {
-    --material-elastic-size: 16px;
-    --material-elastic-stroke: 4;
+    --material-elastic-size: 18px;
+    --material-elastic-stroke: 4.75;
+    width: var(--material-elastic-size);
+    height: var(--material-elastic-size);
+  }
+
+  .track-playback-loading-indicator > svg {
+    display: none;
   }
 
   .playlist-current-leading:is(.is-current-loading, .is-current-playing, .is-current-paused)
@@ -2051,6 +2067,10 @@
   .playlist-current-leading.is-current-paused .track-paused-indicator {
     opacity: 1;
     transform: scale(1);
+  }
+
+  .playlist-current-leading.is-current-loading .track-playback-loading-indicator > svg {
+    display: block;
   }
 
   .playlist-reorder-handle {
@@ -2234,7 +2254,7 @@
 
   .pro-upload-spinner {
     --material-elastic-size: 18px;
-    --material-elastic-stroke: 4;
+    --material-elastic-stroke: 4.75;
     color: var(--primary);
   }
 
@@ -3774,7 +3794,7 @@
 
   .signaling-recovery-spinner {
     --material-elastic-size: 20px;
-    --material-elastic-stroke: 4;
+    --material-elastic-stroke: 4.75;
     display: none;
   }
 
@@ -7647,7 +7667,7 @@
 
   .demo-loading-spinner {
     --material-elastic-size: 20px;
-    --material-elastic-stroke: 4;
+    --material-elastic-stroke: 4.75;
     display: none;
   }
 
@@ -8381,7 +8401,7 @@
 
   .system-audio-loading-spinner {
     --material-elastic-size: 16px;
-    --material-elastic-stroke: 4;
+    --material-elastic-stroke: 4.75;
     display: none;
   }
 

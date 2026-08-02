@@ -185,6 +185,7 @@ describe('connect signaling health status', () => {
     expect(spinner?.getAttribute('aria-hidden')).toBe('true');
     expect(spinner?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 44 44');
     expect(spinner?.querySelector('circle')?.getAttribute('r')).toBe('18');
+    expect(spinner?.querySelector('circle')?.getAttribute('pathLength')).toBe('100');
     expect(button.querySelector('span[data-i18n]')?.textContent).toBe('초대 링크 복사하기');
   });
 

@@ -52,6 +52,8 @@ const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
 // immediately and yield between the remaining batches.
 const SUB_ITEMS_INITIAL_RENDER_COUNT = 240;
 const SUB_ITEMS_RENDER_BATCH_SIZE = 240;
+const MATERIAL_ELASTIC_SPIN_DURATION_MS = 1850;
+const MATERIAL_ELASTIC_DASH_DURATION_MS = 1450;
 
 let _pendingPlaylistUpdate = false;
 let _deferredPlaylistUpdate = false;
@@ -243,7 +245,7 @@ function renderPlaybackIndicatorIcons(): string {
       <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
     </svg>
     <span class="track-playback-state-icon track-playback-loading-indicator material-elastic-spinner" aria-hidden="true">
-      <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"></circle></svg>
+      <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" pathLength="100"></circle></svg>
     </span>`;
 }
 
@@ -617,7 +619,20 @@ function createProRoomUploadSpinner(): HTMLSpanElement {
   const spinner = document.createElement('span');
   spinner.className = 'material-elastic-spinner pro-upload-spinner';
   spinner.setAttribute('aria-hidden', 'true');
-  spinner.innerHTML = '<svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"></circle></svg>';
+  spinner.innerHTML =
+    '<svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" pathLength="100"></circle></svg>';
+  // Upload rows can be rebuilt when their phase or an authoritative playlist
+  // snapshot changes. Anchor new SVG instances to the document clock so those
+  // renders do not visibly restart the elastic head/tail motion.
+  const now = performance.now();
+  spinner.style.setProperty(
+    '--material-elastic-spin-delay',
+    `${-Math.round(now % MATERIAL_ELASTIC_SPIN_DURATION_MS)}ms`,
+  );
+  spinner.style.setProperty(
+    '--material-elastic-dash-delay',
+    `${-Math.round(now % MATERIAL_ELASTIC_DASH_DURATION_MS)}ms`,
+  );
   return spinner;
 }
 

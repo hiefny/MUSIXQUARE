@@ -176,12 +176,11 @@ describe('BOT chat frame validation', () => {
       { kind: 'added', count: 3, playbackChanged: true },
       { kind: 'failed' },
       { kind: 'rate_limited', retryAfterSeconds: 30 },
-      { kind: 'rate_limited', retryAfterSeconds: 3_601 },
-      { kind: 'rate_limited', retryAfterSeconds: 86_400 },
+      { kind: 'rate_limited', retryAfterSeconds: 3_600 },
     ]) {
       await handleData({ ...base, result }, conn);
     }
-    expect(handler).toHaveBeenCalledTimes(6);
+    expect(handler).toHaveBeenCalledTimes(5);
 
     for (const invalid of [
       { ...base, result: { kind: 'answer', text: '' } },
@@ -190,14 +189,15 @@ describe('BOT chat frame validation', () => {
       { ...base, result: { kind: 'failed', text: 'smuggled' } },
       { ...base, result: { kind: 'rate_limited', retryAfterSeconds: 0 } },
       { ...base, result: { kind: 'rate_limited', retryAfterSeconds: 1.5 } },
-      { ...base, result: { kind: 'rate_limited', retryAfterSeconds: 86_401 } },
+      { ...base, result: { kind: 'rate_limited', retryAfterSeconds: 3_601 } },
+      { ...base, result: { kind: 'rate_limited', retryAfterSeconds: 86_400 } },
       { ...base, senderId: '<spoof>', result: { kind: 'failed' } },
       { ...base, requestId: 'short', result: { kind: 'failed' } },
       { ...base, result: { kind: 'failed' }, extra: true },
     ]) {
       await handleData(invalid, conn);
     }
-    expect(handler).toHaveBeenCalledTimes(6);
+    expect(handler).toHaveBeenCalledTimes(5);
   });
 });
 

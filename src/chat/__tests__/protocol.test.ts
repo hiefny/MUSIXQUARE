@@ -879,9 +879,9 @@ describe('PRO BOT chat correlation', () => {
     });
   });
 
-  it('completes a typing bubble for a bounded legacy rate-limit response', () => {
+  it('rejects an over-one-hour retry and completes for the exact maximum', () => {
     enterBotRoom('member');
-    setState('network.myId', 'member-daily-limit');
+    setState('network.myId', 'member-hourly-limit');
     const send = vi.fn();
     setState('network.hostConn', {
       peer: 'remote-host',
@@ -891,9 +891,10 @@ describe('PRO BOT chat correlation', () => {
     const id = requestId('j');
 
     expect(beginLocalBotChatRequest(id)).toBe(true);
-    expect(publishBotChatResult(id, { kind: 'rate_limited', retryAfterSeconds: 70_000 })).toBe(
-      true,
+    expect(publishBotChatResult(id, { kind: 'rate_limited', retryAfterSeconds: 3_601 })).toBe(
+      false,
     );
+    expect(publishBotChatResult(id, { kind: 'rate_limited', retryAfterSeconds: 3_600 })).toBe(true);
 
     expect(upsertBotChatMessage).toHaveBeenNthCalledWith(1, id, 'typing');
     expect(upsertBotChatMessage).toHaveBeenNthCalledWith(2, id, 'complete', expect.any(String));
@@ -901,7 +902,7 @@ describe('PRO BOT chat correlation', () => {
     expect(realtimeMocks.send).toHaveBeenCalledWith('chat', {
       kind: 'bot-result',
       requestId: id,
-      result: { kind: 'rate_limited', retryAfterSeconds: 70_000 },
+      result: { kind: 'rate_limited', retryAfterSeconds: 3_600 },
     });
   });
 

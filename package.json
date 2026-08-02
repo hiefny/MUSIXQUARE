@@ -1,6 +1,6 @@
 {
   "name": "musixquare",
-  "version": "8.1.31",
+  "version": "8.1.32",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -20,6 +20,8 @@
     "guard:chunk-pump": "node scripts/check-chunk-pump.mjs",
     "guard:import-graph": "node scripts/check-import-graph.mjs",
     "generate:profanity-patterns": "node scripts/generate-profanity-patterns.mjs",
+    "generate:og-fonts": "node scripts/subset-og-fonts.mjs",
+    "generate:og-assets": "node scripts/generate-static-og.mjs",
     "guard:profanity-patterns": "node scripts/generate-profanity-patterns.mjs --check",
     "guard:lifecycle-writes": "node scripts/check-lifecycle-writes.mjs",
     "guard:dead-exports": "node scripts/check-dead-exports.mjs",
@@ -50,15 +52,9 @@
     "release:verify": "node scripts/release-manifest.mjs verify",
     "version:status": "node scripts/release-identity.mjs",
     "pro-room:issue-claim": "node scripts/issue-pro-room-activation-claim.mjs",
-    "account:stage2:preflight": "node scripts/account-stage2-preflight.mjs",
-    "account:nickname-key:migrate:remote": "npm run wrangler -- d1 execute musixquare-auth --remote --config cloudflare/wrangler.app.toml --file cloudflare/auth.nickname-key.migration.sql",
-    "launch:schema-cleanup:remote": "npm run wrangler -- d1 execute musixquare-auth --remote --config cloudflare/wrangler.app.toml --file cloudflare/auth.launch-cleanup.migration.sql && npm run wrangler -- d1 execute musixquare-developer-api --remote --config cloudflare/wrangler.developer-api.toml --file cloudflare/developer-api.launch-cleanup.migration.sql",
     "developer-api:key": "node scripts/developer-api-key.mjs",
     "developer-api:admin-secret:sync": "node scripts/sync-developer-api-admin-secret.mjs",
     "developer-api:schema:remote": "npm run wrangler -- d1 execute musixquare-developer-api --remote --file cloudflare/developer-api.schema.sql --config cloudflare/wrangler.developer-api.toml",
-    "developer-api:effects-scopes:remote": "node scripts/developer-api-effects-scope-migration.mjs apply",
-    "developer-api:effects-scopes:rollback:remote": "node scripts/developer-api-effects-scope-migration.mjs rollback",
-    "developer-api:effects-scopes:release-rollback": "node scripts/developer-api-effects-scope-migration.mjs release-rollback",
     "deploy:remote-share": "node scripts/guard-emergency-deploy.mjs reject remote-share",
     "deploy:pro-room": "node scripts/guard-emergency-deploy.mjs reject pro-room",
     "deploy:developer-api-facade": "node scripts/guard-emergency-deploy.mjs reject developer-api-facade",
@@ -106,6 +102,7 @@
     "@types/node": "^25.9.5",
     "@types/qrcode": "^1.5.6",
     "@vitest/coverage-v8": "^4.0.18",
+    "content-shield": "^0.1.1",
     "eslint": "^10.0.2",
     "eslint-config-prettier": "^10.1.8",
     "jsdom": "^28.1.0",
@@ -123,7 +120,6 @@
     "ws": "^8.21.0"
   },
   "dependencies": {
-    "content-shield": "^0.1.1",
     "peerjs": "^1.5.5",
     "qrcode": "^1.5.4"
   }

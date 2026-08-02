@@ -19,8 +19,9 @@ asset types can be served directly by Static Assets while retaining the current
 immutable cache policy, MIME types, security headers, CSP, and same-origin CORS
 behavior. A 100-participant benchmark also showed that one-second heartbeat
 coalescing substantially reduces v2 core writes without changing request
-authentication, validation, or responses. Reproduction notes and raw evidence
-live in [the static-asset probe](../app-static-assets-staging.md) and
+authentication, validation, or responses. The production asset contract is
+kept executable by the checked build and response-header guards; heartbeat
+reproduction notes and raw evidence live in
 [the heartbeat benchmark](../performance/pro-room-heartbeat-benchmark.md).
 
 ## Decision
@@ -121,7 +122,7 @@ interval contract.
 Separating stable room state from presence into new persistence keys could
 reduce write amplification further, but it is not unfinished work required by
 this decision. It would introduce a new schema, migration, rollback, and
-cross-record consistency contract while PRO rooms remain a private beta.
+cross-record consistency contract across the production PRO-room fleet.
 
 Reconsider that split only if production evidence shows at least one of these
 conditions:

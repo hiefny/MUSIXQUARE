@@ -19,10 +19,8 @@ export interface AccountSessionResponse {
   account: AccountProfile | null;
   /**
    * Opaque, non-authorizing fence for the current HttpOnly account session.
-   * Older Workers may omit it during a rolling deployment; activity writes
-   * remain disabled until a scoped response is available.
    */
-  statsScope?: string | null;
+  statsScope: string | null;
 }
 
 export interface AccountStats {
@@ -256,14 +254,13 @@ export async function getStandardRoomIdentityAssertions(
     !payload ||
     typeof payload !== 'object' ||
     Array.isArray(payload) ||
-    !Object.prototype.hasOwnProperty.call(payload, 'assertion')
+    !Object.prototype.hasOwnProperty.call(payload, 'assertion') ||
+    !Object.prototype.hasOwnProperty.call(payload, 'deletionAssertion')
   ) {
     throw new AccountApiError('ACCOUNT_INVALID_RESPONSE', 502);
   }
-  const raw = payload as { assertion: unknown; deletionAssertion?: unknown };
+  const raw = payload as { assertion: unknown; deletionAssertion: unknown };
   const accountAssertion = normalizeRoomAssertionToken(raw.assertion);
-  // Older Stage-1 App Workers return only { assertion }. Missing deletion
-  // proof is deliberately equivalent to null during a rolling deployment.
   const deletionAssertion = normalizeRoomAssertionToken(raw.deletionAssertion);
   if (accountAssertion && deletionAssertion) {
     throw new AccountApiError('ACCOUNT_INVALID_RESPONSE', 502);

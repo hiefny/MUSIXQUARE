@@ -70,7 +70,6 @@ describe('emergency deployment orchestrator', () => {
       'cloudflare/wrangler.developer-api-facade.toml',
       'developer-api:schema:remote',
       'cloudflare/wrangler.developer-api.toml',
-      'developer-api:effects-scopes:remote',
       'cloudflare/wrangler.app.toml',
     ];
     let previous = -1;

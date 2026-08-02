@@ -67,6 +67,15 @@ class FakeWebSocket {
 const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_00001';
 const INCARNATION_ID = 'presence_0000000001';
+const MEMBER_ID = 'member_0000000001';
+const OWNER_CAPABILITIES = [
+  'queue.mutate',
+  'playback.control',
+  'effects.control',
+  'asset.upload',
+  'members.manage',
+  'room.configure',
+] as const;
 
 function snapshot(): ProRoomSnapshot {
   return {
@@ -97,8 +106,13 @@ function snapshot(): ProRoomSnapshot {
       participants: [
         {
           participantId: PARTICIPANT_ID,
+          memberId: MEMBER_ID,
+          memberDisplayNumber: 0,
+          isAuthenticated: true,
           displayName: 'Equal member',
-          role: 'controller',
+          devicePlatform: 'other',
+          role: 'owner',
+          capabilities: [...OWNER_CAPABILITIES],
           joinedAtMs: 1,
         },
       ],
@@ -110,20 +124,35 @@ function snapshot(): ProRoomSnapshot {
       reservedBytes: 0,
     },
     viewer: {
-      memberId: 'member_0000000001',
+      memberId: MEMBER_ID,
+      memberDisplayNumber: 0,
+      isAuthenticated: true,
       participantId: PARTICIPANT_ID,
       presenceIncarnationId: INCARNATION_ID,
       displayName: 'Equal member',
-      role: 'controller',
-      capabilities: [
-        'queue.mutate',
-        'playback.control',
-        'effects.control',
-        'asset.upload',
-        'members.manage',
-      ],
+      role: 'owner',
+      capabilities: [...OWNER_CAPABILITIES],
       coordinatorEligible: false,
     },
+    memberIdentityVersion: 1,
+    authorityVersion: 1,
+    administrators: [
+      {
+        memberId: MEMBER_ID,
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Equal member',
+        role: 'owner',
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': true,
+          'chat.notice': true,
+        },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+    ],
   };
 }
 

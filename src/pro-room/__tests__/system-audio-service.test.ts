@@ -141,14 +141,30 @@ function snapshot(incarnation = 'presence_local_01', roomCode = '000001'): ProRo
       participants: [
         {
           participantId: LOCAL_ID,
+          memberId: 'member_local_0001',
+          memberDisplayNumber: 1,
+          isAuthenticated: true,
           displayName: 'Local member',
+          devicePlatform: 'other',
           role: 'member',
+          capabilities: [
+            'queue.mutate',
+            'playback.control',
+            'effects.control',
+            'asset.upload',
+            'members.manage',
+          ],
           joinedAtMs: 1,
         },
         {
           participantId: REMOTE_ID,
+          memberId: 'member_remote_0001',
+          memberDisplayNumber: 2,
+          isAuthenticated: false,
           displayName: 'Remote member',
+          devicePlatform: 'other',
           role: 'member',
+          capabilities: [],
           joinedAtMs: 2,
         },
       ],
@@ -161,6 +177,8 @@ function snapshot(incarnation = 'presence_local_01', roomCode = '000001'): ProRo
     },
     viewer: {
       memberId: 'member_local_0001',
+      memberDisplayNumber: 1,
+      isAuthenticated: true,
       participantId: LOCAL_ID,
       presenceIncarnationId: incarnation,
       displayName: 'Local member',
@@ -174,6 +192,25 @@ function snapshot(incarnation = 'presence_local_01', roomCode = '000001'): ProRo
       ],
       coordinatorEligible: false,
     },
+    memberIdentityVersion: 1,
+    authorityVersion: 1,
+    administrators: [
+      {
+        memberId: 'member_owner_0001',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': true,
+          'chat.notice': true,
+        },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 0,
+      },
+    ],
   };
 }
 

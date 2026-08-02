@@ -18,10 +18,10 @@ const SENSITIVE_RETURN_PARAMETER_RE =
   /^(?:pin|pro[-_]?pin|password|passcode|token|access[-_]?token|refresh[-_]?token|id[-_]?token|claim(?:token)?|pro-claim|pro-recovery|session(?:[-_]?(?:id|secret|token))?|secret|credential|authorization|auth[-_]?code|oauth[-_]?code|code|state|nonce|api[-_]?key|jwt)$/i;
 
 interface AccountLoginReturnIntent {
-  attemptId: string | null;
+  attemptId: string;
   allowSilentTakeover: boolean;
   returnTo: string;
-  roomCode: string | null;
+  roomCode: string;
   createdAt: number;
 }
 
@@ -80,19 +80,13 @@ function parseIntent(
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<AccountLoginReturnIntent>;
-    const attemptId = parsed.attemptId ?? null;
-    const allowSilentTakeover =
-      parsed.allowSilentTakeover === undefined
-        ? // Version-1 session records were created only for the old
-          // same-context reclaim contract. Keep a bounded rollout bridge.
-          attemptId === null && !durable
-        : parsed.allowSilentTakeover;
     if (
       !isSafeReturnPath(parsed.returnTo) ||
-      (parsed.roomCode !== null &&
-        (typeof parsed.roomCode !== 'string' || !PRO_ROOM_CODE_RE.test(parsed.roomCode))) ||
-      (attemptId !== null && (typeof attemptId !== 'string' || !ATTEMPT_ID_RE.test(attemptId))) ||
-      typeof allowSilentTakeover !== 'boolean' ||
+      typeof parsed.roomCode !== 'string' ||
+      !PRO_ROOM_CODE_RE.test(parsed.roomCode) ||
+      typeof parsed.attemptId !== 'string' ||
+      !ATTEMPT_ID_RE.test(parsed.attemptId) ||
+      typeof parsed.allowSilentTakeover !== 'boolean' ||
       typeof parsed.createdAt !== 'number' ||
       !Number.isFinite(parsed.createdAt) ||
       parsed.createdAt > now + MAX_FUTURE_SKEW_MS ||
@@ -101,22 +95,18 @@ function parseIntent(
       return null;
     }
 
-    const roomCode = parsed.roomCode ?? null;
     // Durable storage is intentionally an exact, credential-free room path.
-    // Legacy/session records may keep harmless UI query/hash state, but no
-    // query, fragment, PIN, claim, or account material is persisted here.
-    if (
-      durable &&
-      (!attemptId || allowSilentTakeover || roomCode === null || parsed.returnTo !== `/${roomCode}`)
-    ) {
+    // Session records may keep harmless UI query/hash state, but no query,
+    // fragment, PIN, claim, or account material is persisted durably.
+    if (durable && (parsed.allowSilentTakeover || parsed.returnTo !== `/${parsed.roomCode}`)) {
       return null;
     }
 
     return {
-      attemptId,
-      allowSilentTakeover,
+      attemptId: parsed.attemptId,
+      allowSilentTakeover: parsed.allowSilentTakeover,
       returnTo: parsed.returnTo,
-      roomCode,
+      roomCode: parsed.roomCode,
       createdAt: parsed.createdAt,
     };
   } catch {
@@ -277,17 +267,12 @@ export function restoreAccountLoginReturnPath(): boolean {
   // localStorage indefinitely simply because the next launch was not an
   // installed PWA.
   const durableIntent = readDurableIntent();
-  const intent = sessionIntent?.roomCode
-    ? sessionIntent
-    : isStandaloneAppContext()
-      ? durableIntent
-      : null;
-  if (!intent?.roomCode || !/^\/?$/.test(window.location.pathname)) return false;
+  const intent = sessionIntent ?? (isStandaloneAppContext() ? durableIntent : null);
+  if (!intent || !/^\/?$/.test(window.location.pathname)) return false;
 
   const target = new URL(intent.returnTo, window.location.origin);
   if (target.origin !== window.location.origin || target.pathname !== `/${intent.roomCode}`) {
-    if (intent.attemptId) clearAttempt(intent.attemptId);
-    else removeIntent(window.sessionStorage, SESSION_STORAGE_KEY);
+    clearAttempt(intent.attemptId);
     return false;
   }
 
@@ -316,8 +301,7 @@ export function consumeAccountLoginReturnForRoom(
 ): AccountLoginReturnRecovery | null {
   const sessionIntent = readSessionIntent();
   if (sessionIntent?.roomCode === roomCode) {
-    if (sessionIntent.attemptId) clearAttempt(sessionIntent.attemptId);
-    else removeIntent(window.sessionStorage, SESSION_STORAGE_KEY);
+    clearAttempt(sessionIntent.attemptId);
     return {
       allowSilentTakeover: sessionIntent.allowSilentTakeover,
       source: 'same-context',
@@ -337,12 +321,12 @@ export function consumeAccountLoginReturnForRoom(
 /** Clear only the OAuth attempt owned by this browsing context. */
 export function clearCurrentAccountLoginReturn(): void {
   const sessionIntent = readSessionIntent();
-  if (sessionIntent?.attemptId) {
+  if (sessionIntent) {
     clearAttempt(sessionIntent.attemptId);
     return;
   }
-  // A legacy session record has no durable counterpart. Never remove the
-  // shared durable slot here because it may belong to another active tab.
+  // Never remove the shared durable slot here because it may belong to another
+  // active tab.
   removeIntent(window.sessionStorage, SESSION_STORAGE_KEY);
 }
 

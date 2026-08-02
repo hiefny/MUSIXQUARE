@@ -119,17 +119,17 @@ export interface ProRoomPlaybackCheckpoint {
 
 export interface ProRoomPresenceParticipant {
   participantId: string;
-  /** Room-scoped person identity. Absent on the legacy participant projection. */
-  memberId?: string;
+  /** Room-scoped person identity. */
+  memberId: string;
   /** Stable room-member number; several devices may share it. */
-  memberDisplayNumber?: number;
-  isAuthenticated?: boolean;
+  memberDisplayNumber: number;
+  isAuthenticated: boolean;
   displayName: string;
   /** Coarse active-device OS category; no raw UA or hardware model. */
-  devicePlatform?: DevicePlatform;
+  devicePlatform: DevicePlatform;
   role: ProRoomRole;
-  /** Effective server authority. Present only with authority projection v1. */
-  capabilities?: ProRoomCapability[];
+  /** Effective server authority. */
+  capabilities: ProRoomCapability[];
   joinedAtMs: number;
 }
 
@@ -161,8 +161,8 @@ export interface ProRoomQuotaSnapshot {
 
 export interface ProRoomViewerSnapshot {
   memberId: string;
-  memberDisplayNumber?: number;
-  isAuthenticated?: boolean;
+  memberDisplayNumber: number;
+  isAuthenticated: boolean;
   participantId: string;
   /** Server-issued nonce identifying this tab/resume presence incarnation. */
   presenceIncarnationId: string;
@@ -247,11 +247,9 @@ interface ProRoomSnapshotV1 {
   presence: ProRoomPresenceSnapshot;
   quota: ProRoomQuotaSnapshot;
   viewer: ProRoomViewerSnapshot | null;
-  /** Additive v1 projection understood by account-aware clients. */
-  memberIdentityVersion?: 1;
-  /** Additive delegated-authority projection; absent for legacy clients. */
-  authorityVersion?: 1;
-  administrators?: ProRoomAdministrator[];
+  memberIdentityVersion: 1;
+  authorityVersion: 1;
+  administrators: ProRoomAdministrator[];
 }
 
 export type ProRoomSnapshot = ProRoomSnapshotV1;

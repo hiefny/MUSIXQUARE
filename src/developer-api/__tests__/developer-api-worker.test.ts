@@ -78,6 +78,7 @@ function playbackPayload() {
       queueItemId: 'queue_item_000001',
       kind: 'audio',
       name: 'Orchestra.flac',
+      addedBy: 'participant',
       title: 'Orchestra',
       byteLength: 1_024,
     },
@@ -803,16 +804,10 @@ describe('Developer API read-only public Worker', () => {
     },
   );
 
-  it('accepts missing queue provenance during a rolling deploy and rejects invalid or extra fields', async () => {
-    const compatible = await createEnvironment({ facadePayload: queuePayload() });
-    const compatibleResponse = await developerApiWorker.fetch(
-      apiRequest(`/v1/rooms/${ROOM_CODE}/queue`),
-      compatible.env,
-    );
-    expect(compatibleResponse.status).toBe(200);
-    await expect(compatibleResponse.json()).resolves.toEqual(queuePayload());
-
+  it('rejects missing, invalid, or extra queue provenance', async () => {
+    const { addedBy: _addedBy, ...missingProvenance } = queuePayload().items[0];
     for (const item of [
+      missingProvenance,
       { ...queuePayload().items[0], addedBy: KEY_ID },
       { ...queuePayload().items[0], addedBy: 'current_api_key', keyId: KEY_ID },
     ]) {
@@ -904,6 +899,7 @@ describe('Developer API read-only public Worker', () => {
       queueItemId: 'queue_item_000002',
       kind: 'youtube',
       name: 'Second item',
+      addedBy: 'participant',
     };
     const queueSetup = await createEnvironment({
       facadePayload: {

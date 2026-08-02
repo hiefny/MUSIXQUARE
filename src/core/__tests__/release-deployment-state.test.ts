@@ -170,13 +170,21 @@ describe('release deployment rollback state', () => {
     }
   });
 
-  it('maps the exact PRO generation migrations without treating the global D1 manifest as runtime', () => {
-    const paths = runtimePathsForWorker('pro-room');
-    expect(paths).toContain('cloudflare/admin-metrics.pro-room-generation.migration.sql');
-    expect(paths).toContain('cloudflare/auth.pro-room-generation.migration.sql');
-    expect(paths).toContain('cloudflare/developer-api-room-generation.migration.sql');
-    expect(paths).not.toContain('cloudflare/d1-migrations.manifest.json');
-    expect(paths).not.toContain('cloudflare/auth.account-stats.migration.sql');
+  it('derives each Worker D1 dependency set from the immutable manifest', () => {
+    const proPaths = runtimePathsForWorker('pro-room');
+    expect(proPaths).toContain('cloudflare/admin-metrics.pro-room-generation.migration.sql');
+    expect(proPaths).toContain('cloudflare/auth.pro-room-generation.migration.sql');
+    expect(proPaths).toContain('cloudflare/developer-api-room-generation.migration.sql');
+    expect(proPaths).not.toContain('cloudflare/d1-migrations.manifest.json');
+    expect(proPaths).not.toContain('cloudflare/auth.account-stats.migration.sql');
+
+    const developerPaths = runtimePathsForWorker('developer-api');
+    expect(developerPaths).toContain('cloudflare/developer-api.launch-cleanup.migration.sql');
+    expect(developerPaths).toContain('cloudflare/developer-api.effects-scopes.rollback.sql');
+
+    const appPaths = runtimePathsForWorker('app');
+    expect(appPaths).toContain('cloudflare/auth.launch-cleanup.migration.sql');
+    expect(appPaths).toContain('cloudflare/developer-api.launch-cleanup.migration.sql');
   });
 
   it('extracts only an exact release Git SHA from deployment messages', () => {
@@ -1142,20 +1150,26 @@ describe('release deployment rollback state', () => {
     const finalVerification = workflow.indexOf(
       'Verify release still owns current production deployments',
     );
-    const schemaRollback = workflow.indexOf('Restore Developer API schema after a failed release');
+    const generationFence = workflow.indexOf(
+      'Disable PRO room generation cutover before failed-release rollback',
+    );
     const workerRollback = workflow.indexOf('Restore Worker deployments after a failed release');
     expect(finalVerification).toBeGreaterThan(lastSmoke);
-    expect(schemaRollback).toBeGreaterThan(finalVerification);
-    expect(workerRollback).toBeGreaterThan(schemaRollback);
+    expect(generationFence).toBeGreaterThan(finalVerification);
+    expect(workerRollback).toBeGreaterThan(generationFence);
     expect(workflow).toContain("steps.final_verification.outcome || 'not-run'");
 
-    const schemaStep = workflow.slice(schemaRollback, workerRollback);
+    const generationFenceStep = workflow.slice(generationFence, workerRollback);
     const workerStepEnd = workflow.indexOf('\n      - name:', workerRollback + 1);
     const workerStep = workflow.slice(workerRollback, workerStepEnd);
-    expect(schemaStep).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}');
-    expect(schemaStep).not.toContain('secrets.CLOUDFLARE_API_TOKEN');
+    expect(generationFenceStep).toContain(
+      'CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}',
+    );
+    expect(generationFenceStep).not.toContain('secrets.CLOUDFLARE_API_TOKEN');
     expect(workerStep).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
     expect(workerStep).not.toContain('secrets.CLOUDFLARE_D1_API_TOKEN');
+    expect(workerStep).toContain('inputs.apply_developer_api_d1');
+    expect(workerStep).toContain('rollback_skip_targets="developer-api-facade,developer-api"');
   });
 
   it('runs documented storage and playback static invariants once in main CI', () => {
@@ -1174,14 +1188,16 @@ describe('release deployment rollback state', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
     const coverage = ciWorkflow.indexOf('run: npm run test:coverage:critical');
     const compatibility = workflow.indexOf('Verify partial release dependency compatibility');
-    const accountSchema = workflow.indexOf('Probe account stats migration state');
+    const generationFloor = workflow.indexOf(
+      'Read PRO room generation cutover before dependency rollout',
+    );
     const browserInstall = workflow.indexOf('Install app smoke browser');
     const firstDeploy = workflow.indexOf('Deploy and record remote-share Worker');
     expect(coverage).toBeGreaterThan(-1);
     expect(compatibility).toBeGreaterThan(-1);
-    expect(compatibility).toBeLessThan(accountSchema);
+    expect(compatibility).toBeLessThan(generationFloor);
     expect(compatibility).toBeLessThan(browserInstall);
-    expect(browserInstall).toBeLessThan(accountSchema);
+    expect(browserInstall).toBeLessThan(generationFloor);
     expect(compatibility).toBeLessThan(firstDeploy);
     const nextStep = workflow.indexOf('\n      - name:', compatibility + 1);
     const step = workflow.slice(compatibility, nextStep);
@@ -1323,7 +1339,7 @@ describe('release deployment rollback state', () => {
     }
 
     for (const stepName of [
-      'Probe PRO room generation migration state',
+      'Read PRO room generation cutover before dependency rollout',
       'Fence room-code reuse during dependency rollout',
       'Deploy and record remote-share Worker',
       'Deploy and record PRO room Worker',
@@ -1370,7 +1386,7 @@ describe('release deployment rollback state', () => {
     );
   });
 
-  it('records a schema-incompatible Worker as withheld from automatic rollback', () => {
+  it('records a compatibility-floored Worker as withheld from automatic rollback', () => {
     const directory = createDirectory();
     writeFileSync(
       resolve(directory, 'developer-api-state.json'),
@@ -1379,8 +1395,8 @@ describe('release deployment rollback state', () => {
         target: 'developer-api',
         config: 'cloudflare/wrangler.developer-api.toml',
         attempted: true,
-        beforeVersionId: 'legacy-before',
-        afterVersionId: 'effects-after',
+        beforeVersionId: 'previous-before',
+        afterVersionId: 'current-after',
       }),
     );
 
@@ -1397,8 +1413,8 @@ describe('release deployment rollback state', () => {
     expect(report.results).toEqual([
       expect.objectContaining({
         target: 'developer-api',
-        status: 'skipped-schema-incompatible',
-        error: expect.stringContaining('required schema rollback did not complete'),
+        status: 'skipped-compatibility-floor',
+        error: expect.stringContaining('schema or generation compatibility floor'),
       }),
     ]);
   });

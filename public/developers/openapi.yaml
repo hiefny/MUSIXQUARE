@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: MUSIXQUARE Developer API
-  version: 1.0.0-beta
+  version: 1.0.0
   description: |
     Server-to-server API for one room-bound MUSIXQUARE PRO room.
     The API can read and control persistent room-wide audio effects as well as playback and the playlist.
@@ -81,8 +81,7 @@ paths:
       description: |
         Returns the canonical full room-wide audio-effect state. Requires effects:read. The state remains
         readable while the PRO room is sleeping and persists across sleep/wake cycles and coordinator handoffs.
-        The default version 1 representation remains the four-effect compatibility contract. Send
-        X-MXQR-Effects-Version: 2 to read virtualTreble in the version 2 representation.
+        X-MXQR-Effects-Version: 2 is required. The version 2 representation includes virtualTreble.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
         - $ref: '#/components/parameters/IfNoneMatch'
@@ -95,10 +94,7 @@ paths:
             Vary: { schema: { const: X-MXQR-Effects-Version } }
           content:
             application/json:
-              schema:
-                oneOf:
-                  - $ref: '#/components/schemas/EffectsState'
-                  - $ref: '#/components/schemas/EffectsStateV2'
+              schema: { $ref: '#/components/schemas/EffectsState' }
         '304':
           description: Representation is unchanged.
           headers:
@@ -475,14 +471,11 @@ components:
     EffectsVersion:
       name: X-MXQR-Effects-Version
       in: header
-      required: false
-      description: |
-        Exact effects read representation. Omit this header or send 1 for the compatibility representation;
-        send 2 to include room-wide virtualTreble. Other values are rejected.
+      required: true
+      description: Required effects read representation. Only version 2 is supported.
       schema:
         type: string
-        enum: ['1', '2']
-        default: '1'
+        const: '2'
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -608,23 +601,12 @@ components:
       additionalProperties: false
       required: [schemaVersion, view, roomCode, revision, updatedAtMs, effects]
       properties:
-        schemaVersion: { const: 1 }
-        view: { const: effects }
-        roomCode: { type: string, pattern: '^0[0-9]{5}$' }
-        revision: { type: integer, minimum: 0 }
-        updatedAtMs: { type: integer, minimum: 0 }
-        effects: { $ref: '#/components/schemas/RoomEffects' }
-    EffectsStateV2:
-      type: object
-      additionalProperties: false
-      required: [schemaVersion, view, roomCode, revision, updatedAtMs, effects]
-      properties:
         schemaVersion: { const: 2 }
         view: { const: effects }
         roomCode: { type: string, pattern: '^0[0-9]{5}$' }
         revision: { type: integer, minimum: 0 }
         updatedAtMs: { type: integer, minimum: 0 }
-        effects: { $ref: '#/components/schemas/RoomEffectsV2' }
+        effects: { $ref: '#/components/schemas/RoomEffects' }
     QueueModeState:
       type: object
       additionalProperties: false
@@ -657,15 +639,6 @@ components:
         repeatMode: { enum: [off, all, one] }
         shuffleEnabled: { type: boolean }
     RoomEffects:
-      type: object
-      additionalProperties: false
-      required: [reverb, equalizer, virtualBass, virtualSurround]
-      properties:
-        reverb: { $ref: '#/components/schemas/ReverbEffects' }
-        equalizer: { $ref: '#/components/schemas/EqualizerEffects' }
-        virtualBass: { $ref: '#/components/schemas/VirtualBassEffects' }
-        virtualSurround: { $ref: '#/components/schemas/VirtualSurroundEffects' }
-    RoomEffectsV2:
       type: object
       additionalProperties: false
       required: [reverb, equalizer, virtualBass, virtualSurround, virtualTreble]
@@ -763,17 +736,16 @@ components:
     QueueItemAddedBy:
       type: string
       description: |
-        Optional privacy-preserving creation provenance relative to the credential reading this response.
-        participant means the item was added directly in the app or predates provenance tracking;
+        Required privacy-preserving creation provenance relative to the credential reading this response.
+        participant means the item was added directly in the app;
         current_api_key means this credential added it; another_api_key means a different Developer API
-        credential added it. Raw API key IDs are never exposed. For forward and legacy compatibility,
-        consumers must treat an omitted value as participant.
+        credential added it. Raw API key IDs are never exposed.
       enum: [participant, current_api_key, another_api_key]
     QueueItem:
       oneOf:
         - type: object
           additionalProperties: false
-          required: [queueItemId, kind, name]
+          required: [queueItemId, kind, name, addedBy]
           properties:
             queueItemId: { $ref: '#/components/schemas/QueueItemId' }
             kind: { const: youtube }
@@ -784,7 +756,7 @@ components:
             addedBy: { $ref: '#/components/schemas/QueueItemAddedBy' }
         - type: object
           additionalProperties: false
-          required: [queueItemId, kind, name, byteLength]
+          required: [queueItemId, kind, name, byteLength, addedBy]
           properties:
             queueItemId: { $ref: '#/components/schemas/QueueItemId' }
             kind: { const: audio }

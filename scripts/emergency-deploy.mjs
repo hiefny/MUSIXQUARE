@@ -54,7 +54,6 @@ export function emergencyDeploymentPlan(target, commitSha) {
         deploy('developer-api-facade'),
         npmRun('developer-api:schema:remote'),
         deploy('developer-api'),
-        npmRun('developer-api:effects-scopes:remote'),
       ];
     case 'signaling':
       return [deploy('signaling')];
@@ -70,7 +69,6 @@ export function emergencyDeploymentPlan(target, commitSha) {
         deploy('developer-api-facade'),
         npmRun('developer-api:schema:remote'),
         deploy('developer-api'),
-        npmRun('developer-api:effects-scopes:remote'),
         deploy('app'),
       ];
     default:

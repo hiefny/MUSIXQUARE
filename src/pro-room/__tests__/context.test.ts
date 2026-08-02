@@ -30,12 +30,24 @@ function snapshot(): ProRoomSnapshot {
     presence: {
       coordinatorEpoch: 3,
       revision: 2,
-      coordinatorParticipantId: PARTICIPANT_ID,
+      coordinatorParticipantId: null,
       participants: [
         {
           participantId: PARTICIPANT_ID,
+          memberId: 'member_0000000001',
+          memberDisplayNumber: 0,
+          isAuthenticated: true,
           displayName: 'Owner',
+          devicePlatform: 'other',
           role: 'owner',
+          capabilities: [
+            'queue.mutate',
+            'playback.control',
+            'effects.control',
+            'asset.upload',
+            'members.manage',
+            'room.configure',
+          ],
           joinedAtMs: 1,
         },
       ],
@@ -48,6 +60,8 @@ function snapshot(): ProRoomSnapshot {
     },
     viewer: {
       memberId: 'member_0000000001',
+      memberDisplayNumber: 0,
+      isAuthenticated: true,
       participantId: PARTICIPANT_ID,
       presenceIncarnationId: 'presence_0000000001',
       displayName: 'Owner',
@@ -57,17 +71,35 @@ function snapshot(): ProRoomSnapshot {
         'playback.control',
         'effects.control',
         'asset.upload',
-        'coordinator.eligible',
         'members.manage',
         'room.configure',
       ],
-      coordinatorEligible: true,
+      coordinatorEligible: false,
     },
+    memberIdentityVersion: 1,
+    authorityVersion: 1,
+    administrators: [
+      {
+        memberId: 'member_0000000001',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': true,
+          'chat.notice': true,
+        },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+    ],
   };
 }
 
 describe('PRO room authority projection', () => {
-  it('projects an elected owner as an equal member and strips legacy coordinator capability', () => {
+  it('projects the owner into the shared member-shaped application context', () => {
     const result = projectProRoomContext(snapshot());
     expect(result).toEqual({
       kind: 'pro',
@@ -83,39 +115,6 @@ describe('PRO room authority projection', () => {
         'asset.upload',
         'members.manage',
         'room.configure',
-        'media.add',
-        'chat.notice',
-        'system-audio.publish',
-      ],
-    });
-  });
-
-  it('projects every authenticated viewer identically regardless of persisted room role or leader residue', () => {
-    const value = snapshot();
-    value.viewer = {
-      ...value.viewer!,
-      role: 'controller',
-      capabilities: [
-        'queue.mutate',
-        'playback.control',
-        'effects.control',
-        'asset.upload',
-        'members.manage',
-        'coordinator.eligible',
-      ],
-      coordinatorEligible: false,
-    };
-    value.presence.coordinatorParticipantId = 'participant_legacy_leader';
-
-    expect(projectProRoomContext(value)).toMatchObject({
-      role: 'member',
-      coordinatorId: null,
-      capabilities: [
-        'queue.mutate',
-        'playback.control',
-        'effects.control',
-        'asset.upload',
-        'members.manage',
         'media.add',
         'chat.notice',
         'system-audio.publish',
@@ -139,7 +138,7 @@ describe('PRO room authority projection', () => {
           'members.kick': true,
           'chat.notice': true,
         },
-        inheritedPermissions: ['playback.control'],
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
         onlineDeviceCount: 1,
       },
     ];
@@ -179,7 +178,7 @@ describe('PRO room authority projection', () => {
           'members.kick': false,
           'chat.notice': false,
         },
-        inheritedPermissions: ['playback.control'],
+        inheritedPermissions: [],
         onlineDeviceCount: 2,
       },
     ];
@@ -217,38 +216,6 @@ describe('PRO room authority projection', () => {
     ];
 
     expect(projectProRoomContext(value)?.capabilities).toEqual([]);
-  });
-
-  it('preserves a legacy member playback capability until the server projection converges', () => {
-    const value = snapshot();
-    value.viewer = {
-      ...value.viewer!,
-      memberId: 'member_ordinary_0001',
-      memberDisplayNumber: 1,
-      role: 'member',
-      capabilities: ['playback.control'],
-      coordinatorEligible: false,
-    };
-    value.authorityVersion = 1;
-    value.administrators = [
-      {
-        memberId: 'member_owner_0000001',
-        memberDisplayNumber: 0,
-        isAuthenticated: true,
-        displayName: 'Owner',
-        role: 'owner',
-        permissions: {
-          'media.add': true,
-          'playback.control': true,
-          'members.kick': true,
-          'chat.notice': true,
-        },
-        inheritedPermissions: ['playback.control'],
-        onlineDeviceCount: 0,
-      },
-    ];
-
-    expect(projectProRoomContext(value)?.capabilities).toEqual(['playback.control']);
   });
 
   it('refuses unauthenticated or suspended snapshots', () => {

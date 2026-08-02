@@ -1,9 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
 import { connectHostAndGuest, setupGuest, setupHostAndStart } from './helpers/setup-flow.ts';
 import { cleanupContexts, createHostGuestContexts } from './helpers/context-factory.ts';
 import { readState, waitForToast } from './helpers/wait.ts';
 
 const DEMO_URL_PATTERN = 'https://demo.musixquare.com/linelight/*.m4a';
+const DEMO_TRACK_PATH = fileURLToPath(new URL('./fixtures/demo-track.mp3', import.meta.url));
 const INFO_URL = 'https://batzerk.bandcamp.com/album/linelight-ost';
 const INFO_ICON_PATH =
   'M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7zM19 19H5V5h5V3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-5h-2v5z';
@@ -20,7 +22,7 @@ async function mockDemoTrack(
       await new Promise((resolve) => setTimeout(resolve, options.delaySecondTrackMs));
     }
     await route.fulfill({
-      path: 'public/demo_track.mp3',
+      path: DEMO_TRACK_PATH,
       contentType: 'audio/mpeg',
       headers: {
         'cache-control': 'public, max-age=31536000, immutable',
@@ -104,9 +106,9 @@ test.describe('Linelight demo mode', () => {
     expect(playButtonThemeStyles.color).toBe(playButtonThemeStyles.bg);
     expect(playButtonThemeStyles.background).not.toBe('rgb(0, 122, 255)');
     await expect(page.locator('#demo-mini-seek')).toHaveCount(0);
-    await expect(
-      page.locator('[data-demo-step="1"] [data-i18n="demo.step_connect"]'),
-    ).toHaveText('1. Connect');
+    await expect(page.locator('[data-demo-step="1"] [data-i18n="demo.step_connect"]')).toHaveText(
+      '1. Connect',
+    );
     await expect(page.locator('[data-demo-step="4"]')).toHaveCount(0);
     await expect(page.locator('[data-demo-next] svg')).toBeVisible();
     const portraitNavLayout = await page.evaluate(() => {

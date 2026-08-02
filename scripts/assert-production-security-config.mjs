@@ -95,11 +95,10 @@ for (const file of configFiles) {
   }
 }
 
-// Account-aware PRO snapshots add fields that legacy strict clients reject.
-// Keep both projections atomic, and never let an enabled projection ship
-// without the App Worker's dedicated account database binding. Secrets are
-// verified at deploy/runbook time because Wrangler deliberately keeps them out
-// of the repository.
+// Account identity and least-privilege PRO authority are current-contract
+// invariants. Reject their retired rollout flags and require both Workers to
+// retain the dedicated account database binding. Secrets are verified at
+// deploy/runbook time because Wrangler keeps them out of the repository.
 const proConfigPath = path.join(repoRoot, 'cloudflare', 'wrangler.pro-room.toml');
 const appConfigPath = path.join(repoRoot, 'cloudflare', 'wrangler.app.toml');
 const [proConfig, appConfig] = await Promise.all([
@@ -123,4 +122,4 @@ if (hits.length > 0 || rolloutErrors.length > 0) {
   process.exit(1);
 }
 
-console.log('[prod-security-guard] OK: no unapproved bypass flags or account rollout mismatches.');
+console.log('[prod-security-guard] OK: no unapproved bypass or retired rollout flags.');

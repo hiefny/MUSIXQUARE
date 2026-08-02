@@ -55,6 +55,7 @@ function snapshot(presenceIncarnationId = PRESENCE_ID): ProRoomSnapshot {
           memberDisplayNumber: 0,
           isAuthenticated: true,
           displayName: 'Minsu',
+          devicePlatform: 'other',
           role: 'owner',
           capabilities: [...capabilitiesForProRoomRole('owner')],
           joinedAtMs: 1,
@@ -78,6 +79,24 @@ function snapshot(presenceIncarnationId = PRESENCE_ID): ProRoomSnapshot {
       capabilities: [...capabilitiesForProRoomRole('owner')],
       coordinatorEligible: false,
     },
+    authorityVersion: 1,
+    administrators: [
+      {
+        memberId: 'member_lease_0001',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Minsu',
+        role: 'owner',
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': true,
+          'chat.notice': true,
+        },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+    ],
   };
 }
 
@@ -110,7 +129,7 @@ function detachedSnapshot(): ProRoomSnapshot {
           isAuthenticated: false,
           displayName: 'Peer 1',
           role: 'member',
-          capabilities: ['playback.control'],
+          capabilities: [],
         },
       ],
     },
@@ -121,8 +140,12 @@ function detachedSnapshot(): ProRoomSnapshot {
       isAuthenticated: false,
       displayName: 'Peer 1',
       role: 'member',
-      capabilities: ['playback.control'],
+      capabilities: [],
     },
+    administrators: initial.administrators.map((administrator) => ({
+      ...administrator,
+      onlineDeviceCount: 0,
+    })),
   };
 }
 
@@ -147,6 +170,7 @@ describe.sequential('PRO runtime account identity lease', () => {
       configured: true,
       authenticated: true,
       account: { nickname: 'Minsu', profileComplete: true },
+      statsScope: 's'.repeat(43),
     });
     visibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
 
@@ -158,7 +182,7 @@ describe.sequential('PRO runtime account identity lease', () => {
     vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(initial);
     vi.spyOn(ProRoomApiClient.prototype, 'attachCurrentAccount').mockResolvedValue(initial);
     vi.spyOn(ProRoomApiClient.prototype, 'getEffects').mockResolvedValue({
-      schemaVersion: 1,
+      schemaVersion: 2,
       view: 'effects',
       roomCode: ROOM_CODE,
       revision: 0,
@@ -497,9 +521,7 @@ describe.sequential('PRO runtime account identity lease', () => {
 
     finishEnter(recovered);
     await vi.waitFor(() => expect(getState('network.myDeviceLabel')).toBe('Peer 1'));
-    await vi.waitFor(() =>
-      expect(getState('room.context').capabilities).toEqual(['playback.control']),
-    );
+    await vi.waitFor(() => expect(getState('room.context').capabilities).toEqual([]));
     expect(getState('network.myMemberAuthenticated')).toBe(false);
   });
 
@@ -522,6 +544,10 @@ describe.sequential('PRO runtime account identity lease', () => {
         ...snapshot().viewer!,
         memberId: 'member_lease_0002',
       },
+      administrators: snapshot().administrators.map((administrator) => ({
+        ...administrator,
+        memberId: 'member_lease_0002',
+      })),
     };
     vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount)
       .mockRejectedValueOnce(new ProRoomApiError('SESSION_ACCOUNT_CONFLICT', 409))
@@ -572,15 +598,13 @@ describe.sequential('PRO runtime account identity lease', () => {
     await vi.waitFor(() =>
       expect(ProRoomApiClient.prototype.detachCurrentAccount).toHaveBeenCalledOnce(),
     );
-    await vi.waitFor(() =>
-      expect(getState('room.context').capabilities).toContain('playback.control'),
-    );
+    await vi.waitFor(() => expect(getState('room.context').capabilities).toEqual([]));
 
     rejectRenewal?.(new ProRoomApiError('ACCOUNT_SESSION_REQUIRED', 401));
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(getState('room.context').capabilities).toContain('playback.control');
+    expect(getState('room.context').capabilities).toEqual([]);
   });
 
   it('does not let an old renewal finally release a new incarnation flight', async () => {

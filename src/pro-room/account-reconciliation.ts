@@ -14,7 +14,7 @@ interface AnonymousTarget {
 type ReconciliationTarget = AuthenticatedTarget | AnonymousTarget;
 
 interface ProRoomAccountReconciliationViewer {
-  isAuthenticated?: boolean;
+  isAuthenticated: boolean;
   displayName: string;
 }
 

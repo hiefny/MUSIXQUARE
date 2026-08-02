@@ -4,9 +4,9 @@
   `pro-room-server-authority.md`; production activation requires the real-device
   checklist below
 - **Decision date:** 2026-07-16
-- **Applies to:** the reserved `0xxxxx` namespace, initially provisioned room
-  codes `000000` and `000001`, the PRO control plane, dedicated PRO signaling,
-  and persistent PRO media
+- **Applies to:** the reserved `0xxxxx` namespace, the built-in `000000` launch
+  canary, the PRO control plane, dedicated PRO signaling, and persistent PRO
+  media
 
 ## Context
 
@@ -21,15 +21,14 @@ subscription, or automatic code allocation.
 
 ## Decision
 
-The first provisioned rooms are fixed:
+The registry seeds one launch canary:
 
-| Code     | Purpose                                          | Derived bootstrap value |
-| -------- | ------------------------------------------------ | ----------------------- |
-| `000000` | Developer room and the first MUSIXQUARE PRO room | `00000000`              |
-| `000001` | Friends-and-family pilot room                    | `00000001`              |
+| Code     | Purpose                | Derived bootstrap value |
+| -------- | ---------------------- | ----------------------- |
+| `000000` | Built-in launch canary | `00000000`              |
 
-Their natural invite URLs remain `https://musixquare.com/000000` and
-`https://musixquare.com/000001`. A six-digit `roomCode` is a reusable public
+Its natural invite URL is `https://musixquare.com/000000`. A six-digit
+`roomCode` is a reusable public
 address, not a secret, credential, or immutable room identity. Every
 registration resolves that address to an immutable non-negative
 `roomGeneration`. Existing rooms are generation `0`; a manually re-registered
@@ -48,8 +47,8 @@ code advances to a fresh generation and never revives the deleted incarnation.
 | App-to-PRO service binding               | Same-origin `/api/pro-room/*` browser facade over the public PRO router       |
 
 The regular signaling path reserves the complete `0xxxxx` namespace before
-Durable Object lookup. `000000` and `000001` are seeded in the admin registry;
-an operator may register another six-digit `0xxxxx` code. Registration writes
+Durable Object lookup. `000000` is seeded in the admin registry; an operator may
+register another six-digit `0xxxxx` code. Registration writes
 an idempotent provision bit into that room's Durable Object through a
 cross-script binding. An unprovisioned room rejects bootstrap, activation, and
 all authenticated APIs. No leading-zero code may ever fall through to a normal
@@ -67,30 +66,21 @@ backend's `__Host-` names only for the bound request. This prevents admin and
 unrelated-room cookies from crossing the service boundary or accumulating on
 ordinary app requests.
 
-The former custom-domain cookies are host-only and cannot migrate to the facade.
-On the first facade visit, an existing participant therefore enters the PIN
-once more. Existing room owners must redeem a one-time owner-recovery claim
-after the cutover to receive the new room-scoped owner cookie. For an active
-room, an operator issues the short-lived link from that room's controls in the
-Access-protected admin dashboard and redeems it only in the intended owner
-browser. The offline CLI remains an emergency fallback. The old browser cookies
-remain untouched, but redemption revokes the previous server-side owner
-credential; rolling back the client endpoint would therefore require another
-recovery on the old origin.
-
 The public PRO front door cold-loads a bounded map of `registered` D1 rows and
-their current `room_generation`, including the two launch rooms, and replaces
+their current `room_generation`, including the launch canary, and replaces
 that cache on a five-second refresh. Unknown-code probes are rejected before
 Durable Object lookup, preventing namespace scans from creating one object per
 guessed code. A bound registry fails closed when it cannot refresh; local test
-environments without D1 retain only the two launch-room defaults at generation
+environments without D1 retain only the launch-canary default at generation
 `0`. Replacing rather than extending the cache is essential: a suspended or
 permanently deleted code must disappear from the front door even when it is
-`000000` or `000001`.
+`000000`.
 
-Generation `0` preserves the original Durable Object name and legacy R2 prefix.
-Later generations use distinct Durable Object names in every participating
-Worker. The registry row is only the current public-address pointer; immutable
+Every generation, including generation `0`, uses an explicit incarnation name:
+`{roomCode}:generation:{roomGeneration}` for the PRO Durable Object and
+`room:{roomCode}:generation:{roomGeneration}` for signaling. Its media prefix is
+`pro-room-incarnations/{roomCode}/generation-{roomGeneration}/`. The registry
+row is only the current public-address pointer; immutable
 `mxqr_pro_room_generation_history` rows retain completed incarnation
 tombstones. A stale object, alarm, repair sweep, or registry update must compare
 both code and generation and is never allowed to mutate a later pointer.
@@ -112,12 +102,11 @@ An append-only allocation ledger records every `(roomCode, roomGeneration)`,
 including active and in-progress incarnations. Registry pointers cannot be
 deleted or renamed, and a missing pointer cannot silently recreate generation
 `0` while either allocation or history evidence remains.
-The singleton `mxqr_pro_room_generation_cutover` starts `disabled`; a
-decommissioned code cannot advance until the approved full release has verified
-all schemas, deployed every generation-aware Worker, completed live smokes, and
-recorded the exact 40-character release SHA as `ready`. Missing, malformed, or
-unavailable cutover state fails closed. Applying a migration alone never
-enables reuse. This global release marker proves protocol compatibility only;
+The singleton `mxqr_pro_room_generation_cutover` must be `ready` for the exact
+deployed release SHA before a decommissioned code can advance. A full release
+temporarily fences it as `disabled` until every generation-aware Worker, live
+smoke, and ownership check succeeds. Missing, malformed, stale, or unavailable
+cutover state fails closed. This global release marker proves protocol compatibility only;
 it never replaces the per-incarnation deletion evidence, tombstones, zero-key
 check, and empty-prefix verification required before re-registration.
 
@@ -154,8 +143,7 @@ inert strings on offline devices, but their server-side credentials no longer
 exist.
 
 Persistent media is deleted by repeatedly listing and removing every R2 object
-under the exact incarnation prefix: generation `0` uses the legacy
-`rooms/{roomCode}/` tree, while later generations use
+under the exact incarnation prefix:
 `pro-room-incarnations/{roomCode}/generation-{roomGeneration}/`. Individual
 asset ledgers are not trusted as a complete inventory. Reservations, object
 keys, presigned PUTs, and required upload metadata all bind the same
@@ -185,28 +173,25 @@ authority. Operator audit events remain under the existing 365-day retention
 policy; all incarnation-scoped Developer API audit detail is removed with the
 incarnation.
 
-For a release containing this protocol, first apply all three reviewed,
-forward-only D1 migrations: admin registry/history, account reverse index, and
-Developer API credential/tombstone generation columns. Do not enable
-re-registration yet. Then deploy the PRO Worker before signaling and deploy
-both the signaling and Developer API Workers before the app Worker. The
-checked-in all-workers command already satisfies those dependency edges. The
+Before release, verify that the admin, auth, and Developer API databases match
+their canonical generation-aware schemas. Then deploy the PRO Worker before
+signaling and deploy both the signaling and Developer API Workers before the app
+Worker. The checked-in all-workers command satisfies those dependency edges. The
 PRO Worker owns cross-script bindings to signaling and the room-scoped
 Developer API limiter so its alarm can finish every cleanup phase without an
 open admin tab. Deploying the app first would expose a re-registration action
 whose cleanup and generation-aware authorization dependencies are not ready.
-The migrations are additive for generation `0`, but the authorization boundary
-becomes irreversible as soon as the reuse cutover is marked `ready`: a
-concurrent administrator may create generation `1` immediately. From that
-moment, never roll any Worker below the matched generation-aware release;
-forward-fix or restore a matched provider data/code checkpoint.
+The authorization boundary is irreversible: a concurrent administrator may
+create a later generation whenever the release marker is `ready`. Never roll
+any Worker below the matched generation-aware release; forward-fix or restore a
+matched provider data/code checkpoint.
 
 ### Authorization model
 
 - Public bootstrap returns only `activation_required`, `pin_required`, or
   `suspended`. It never issues or returns an activation claim.
 - An owner activation claim is issued from the Access-protected admin screen
-  (with a fixed-room offline CLI retained for recovery operations), scoped to
+  (with a generation-`0` offline CLI retained for emergency operations), scoped to
   one room, signed with `PRO_ROOM_ACTIVATION_SECRET`, and delivered only in the
   URL fragment `#pro-claim=...`. It expires within fifteen minutes. Issuance
   atomically advances a room-local `activationClaimGeneration`, so issuing
@@ -235,7 +220,7 @@ forward-fix or restore a matched provider data/code checkpoint.
   verified owner account lets another physical session of that account recover
   owner authority, but a room code, PIN, or first-arrival position never creates
   ownership.
-- Under member-authority projection `1`, a PIN-admitted ordinary PRO member has
+- A PIN-admitted ordinary PRO member has
   no playback or mutation capability. The owner always retains playback
   control. A delegated administrator receives playback, media management,
   member removal, and chat-announcement capabilities only through their
@@ -369,14 +354,9 @@ retries of already accepted add, clear, media, and queue-mode operations remain
 replayable. This deliberately favors exactly-once behavior over accepting more
 than 256 distinct Developer API mutations inside one live window.
 
-The first successful mutation of a storage-v1 room writes v2 atomically. While
-the entire room still fits the old single-record budget, ordinary mutations
-refresh an exact `pro-room:v1` storage rollback shadow. This is a data-format
-safety aid, not permission to reconnect a former browser-coordinator client.
-Presence-only heartbeats check that large compatibility shadow at most once
-every 30 seconds. A successful check is throttled even after the room outgrows
-the legacy value budget; the last valid shadow is retained rather than
-repeatedly serialized, overwritten, or deleted.
+The v2 core and per-item playlist records are the only authoritative storage
+layout. A missing v2 core represents a fresh room incarnation; the Worker does
+not import a single-record predecessor or maintain a rollback shadow.
 
 The first pure heartbeat after a quiet period persists the authoritative v2
 core inline. If a second heartbeat arrives inside the following one-second
@@ -390,24 +370,20 @@ persisted liveness timestamp also forces an inline write near the 45-second
 expiry boundary. Reusing an already-earlier Durable Object alarm avoids another
 alarm write without delaying expiry.
 
-After a room grows beyond the legacy budget, v2 stays authoritative. A rollback
-to a pre-v2 Worker after that point therefore requires an operator data-restore
-decision and must not be treated as a routine code-only rollback.
+Rollback must use a Worker that understands the v2 core and per-item playlist
+layout. A pre-v2 Worker is never a routine code-only rollback target.
 
 Heartbeat clients send the public room revisions they last applied. An
 unchanged room returns only those revisions and `notModified`; any mismatch
-returns a complete snapshot for recovery. The empty-body/full-response fallback
-exists only for rolling Worker/schema compatibility within the current
-server-authority client family. It does **not** admit the former elected-browser
-coordinator protocol; that protocol is intentionally unsupported after cutover.
+returns a complete snapshot for recovery. A heartbeat without known revisions
+also returns a complete snapshot so a newly opened or state-lost client can
+recover. The former elected-browser coordinator protocol is unsupported.
 
 Browser queue mutations use the compact snapshot endpoint. It sends stable row
 order only when order changes and upserts only rows whose metadata/source
-changed. Playback-anchor and metadata-only changes omit order entirely. The
-full-snapshot endpoint remains available during a Worker-first rolling release
-for current server-authority clients, not as a compatibility path for a browser
-coordinator. Public Developer API routes and payloads are unchanged; their
-internal response bounds match the larger v2 queue projection.
+changed. Playback-anchor and metadata-only changes omit order entirely. There is
+no full-snapshot mutation endpoint or mutation fallback. Public Developer API
+routes use the same canonical v2 queue projection.
 
 When the final participant leaves, the room becomes `sleeping` and freezes the
 playing position at server time. If playback had been active, the first
@@ -487,11 +463,10 @@ path.
   and soak evidence justify doing so.
 - Every reservation maintains `usedBytes + reservedBytes <= 1 GiB` inside the
   serialized room object.
-- Generation `0` uses the legacy `rooms/{roomCode}/` R2 prefix. Generation `1`
-  and later use
+- Every generation uses
   `pro-room-incarnations/{roomCode}/generation-{roomGeneration}/`. Never place
-  a later generation below the legacy prefix: the generation-`0` daily repair
-  sweep intentionally owns and may delete that entire tree.
+  objects outside that exact incarnation prefix or move them between
+  generations.
 - The server chooses every object key. The client receives only short-lived
   presigned PUT/GET URLs for the private bucket. Upload URLs target disposable
   staging keys; completion verifies the staging object, streams it to a fresh
@@ -609,11 +584,10 @@ npm run build:checked
 
 Also verify:
 
-- the admin D1 registry seeds `000000` and `000001`, and registration accepts
+- the admin D1 registry seeds `000000`, and registration accepts
   only a textual room code matching `^0\d{5}$`;
-- all existing registry rows and account/Developer API reverse records read as
-  generation `0`, and the three forward migrations have been applied without
-  deleting legacy data;
+- the admin, auth, and Developer API databases match their tracked canonical
+  schemas, and every room-related row carries an explicit generation;
 - every current or historical incarnation has an immutable allocation-ledger
   row, and attempts to delete/rename a registry pointer, mutate allocation
   evidence, or recreate generation `0` behind missing evidence fail closed;
@@ -623,8 +597,9 @@ Also verify:
 - old-generation sessions, claims, WebSocket tickets, Developer API keys,
   account assertions, upload reservations, presigned PUTs, and limiter
   principals are rejected against a newly registered generation;
-- a late PUT to an old generation lands only in its old prefix, is removed by
-  its daily repair sweep, and cannot be observed by the new generation;
+- a late PUT to an old generation lands only in its exact incarnation prefix,
+  is removed by its daily repair sweep, and cannot be observed by the new
+  generation;
 - signaling reserves all `0xxxxx` codes from ordinary rooms and accepts the PRO
   path only with a valid PRO Worker-issued signed ticket;
 - the R2 bucket name is `musixquare-pro-media` in Wrangler, CORS, and the
@@ -634,111 +609,26 @@ Also verify:
 - the account Privacy Policy, Terms, FAQ, Google consent-screen links, and
   deletion-boundary copy match the deployed account behavior;
 - account deletion exercises the reverse-index purge, sleeping-room retry, and
-  stale-assertion tombstone described above before projection flags are enabled;
-- the checked-in compatibility checkpoint keeps
-  `PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION=0` and
-  `PRO_ROOM_MEMBER_AUTHORITY_PROJECTION=0`; changing both to `1` is a separate
-  reviewed activation step after the compatible client is live; and
+  stale-assertion tombstone described above;
+- the retired PRO account projection flags are absent; and
 - no test/debug bypass or secret value appears in the production diff.
 
 ## Deployment Order
 
-Account authority uses a two-stage rolling release. The repository intentionally
-ships the first stage with both PRO projection flags set to `0`.
+Production databases must already match the tracked canonical schemas before a
+release starts. The immutable `*.migration.sql` and `*.rollback.sql` files and
+the migration manifest are audit history, not launch-time upgrade steps.
 
-The reusable-code generation cutover has an additional schema floor. Before
-the Worker release, back up or confirm D1 Time Travel for all three databases.
-Run the approved `Production Release` workflow with target `all` and its
-dedicated PRO generation migration input. It probes each database, applies
-`cloudflare/admin-metrics.pro-room-generation.migration.sql`,
-`cloudflare/auth.pro-room-generation.migration.sql`, and
-`cloudflare/developer-api-room-generation.migration.sql` to a legacy schema or
-safely completes a recognized partial forward migration, then verifies the
-exact tables, columns, triggers, and immutable history. An unknown shape fails
-closed.
+Every full release proves that the immutable `floor_release_sha` commit is
+available and is an ancestor of the candidate commit. It then fences room-code
+reuse by changing the cutover marker from `ready` to `disabled`, deploys the
+matched dependency set, runs the final health, smoke, and ownership checks, and
+restores `ready` with the exact new release SHA. A failed release leaves the
+marker disabled without erasing the floor and requires forward repair whenever
+a generation-sensitive rollback cannot be proven safe.
 
-Keep the admin re-registration action unused until the full Worker release and
-post-deployment generation mismatch smokes have passed. The migrations are
-forward-only; do not drop their columns, history, or tombstones during Worker
-recovery. The admin cutover singleton remains `disabled` during this sequence.
-The older Developer API effects-scope scripts rebuild the key table and are not
-generation-safe: their runner refuses to apply or roll them back once
-`room_generation` exists. Any later scope-constraint change requires a new
-forward migration that preserves the generation binding and tombstone
-triggers.
-Only a separately confirmed workflow run may change it to `ready`, after the
-final generation-aware health/smoke and deployment-ownership gates and with the
-exact reviewed release SHA. That input requires the explicit
-`DIRECTLY_VERIFIED_000002_000003` attestation backed by direct external cleanup
-evidence; it is not a substitute for that evidence. For the first enable, the
-workflow independently checks their exact D1 registry/history/allocation rows,
-the generation-zero authorized-delete audit no later than immutable completion,
-a non-stale registry completion timestamp, Developer API tombstones with zero
-keys/audit residue, minimum completion age, and application-level public
-bootstrap rejection. R2, PRO/signaling Durable Object tombstones, and the
-limiter still require the direct read-only operator audit because those
-bindings are not covered by the D1/public probe.
-
-The first successful `ready` transition sets permanent
-`ever_enabled`/`floor_release_sha` evidence, and the first floor SHA must equal
-that transition's `release_sha`. Before changing the fence, every subsequent
-full release must prove that immutable floor commit is available and is an
-ancestor of the candidate commit; a missing, older, or divergent candidate
-fails closed. Subsequent full releases then fence an already-ready marker as
-`disabled` before the dependency rollout and restore `ready` with the new exact
-SHA only after final smoke and deployment-ownership checks. A failed release
-leaves the marker disabled but never erases that rollback floor; if the workflow
-cannot prove the fence or observes the floor or any generation above zero, it
-withholds every generation-sensitive Worker rollback and requires a forward
-fix.
-
-### Stage 1: compatibility baseline (historical v203 checkpoint)
-
-This sequence records how the original account rollout reached its compatibility
-floor; it is not a current rollback procedure. At that historical checkpoint,
-the account-aware App, signaling, and PRO code was deployed with
-`MUSIXQUARE_AUTH_DB` unbound and all account projection flags disabled.
-
-Current releases and rollbacks must keep the migrated auth D1 schema and the
-`MUSIXQUARE_AUTH_DB` binding on both App and PRO Workers, including while both
-projection flags are `0`. PRO permanent deletion always needs that binding to
-retire the exact account-to-room-generation reverse edge. To disable account
-projection or login during recovery, change the reviewed flags/secrets without
-removing the database binding or rolling back its forward-only schema.
-
-The remaining steps below describe the historical checkpoint:
-
-1. Deploy the account-aware App, signaling, and PRO code with all account
-   projection flags disabled.
-2. Publish the compatible static client as service-worker cache `v203`. The
-   client accepts both pre-account and account-aware snapshots, but the missing
-   auth binding keeps login unavailable and anonymous behavior unchanged.
-3. Verify `GET /api/auth/session` reports `configured:false`, ordinary rooms
-   still work anonymously, and PRO rooms retain the pre-account equal-member
-   compatibility behavior. Record the exact App, signaling, and PRO Worker
-   versions; together with `v203` they are the account rollout rollback floor.
-
-Do not provision OAuth or flip either projection flag during this stage. The
-point is to move every cached client and Worker onto schemas that understand the
-optional fields before any production room can emit or persist account-linked
-authority.
-
-### Stage 2: account activation
-
-1. Create and migrate the dedicated auth D1 database, bind it to the App Worker,
-   register the exact Google callback, and install the OAuth/session secrets.
-2. Install the independent standard-room assertion secret on App and signaling,
-   and the independent PRO assertion secret on App and PRO.
-3. Change both `PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION` and
-   `PRO_ROOM_MEMBER_AUTHORITY_PROJECTION` from `0` to `1` in the same reviewed
-   release. Do not operate indefinitely with only one flag enabled.
-4. Deploy PRO first, signaling second, and App/static last. Verify the account
-   session endpoint, one login/nickname flow, multi-device grouping, delegated
-   allow/deny boundaries, lease expiry/reattach, logout-all, and cross-room
-   deletion purge before inviting additional PRO users.
-
-Within either stage, use this Worker dependency order so the public app never
-advertises a dependency that is absent:
+Use this Worker dependency order so the public app never advertises a
+dependency that is absent:
 
 1. Remote-share Worker (independent baseline service).
 2. PRO Worker and Durable Object/R2 bindings, including the authority endpoint
@@ -748,19 +638,15 @@ advertises a dependency that is absent:
 5. App Worker, same-origin PRO service binding, admin control plane, and static
    build last.
 
-The room-effects version 2 rollout follows that same strict server-first order.
-The updated PRO Worker serves the original four-key version 1 projection to old
-clients and preserves `virtualTreble` when they write another effect; refreshed
-clients explicitly negotiate the five-key version 2 projection. Do not roll the
-PRO Worker back below that negotiation boundary while the version 2 app remains
-live: roll the App/static build back first, then the PRO Worker. The dedicated
-virtual-treble storage sidecar preserves state across an old-Worker rollback,
-but it does not make that old Worker's HTTP/CORS contract understand a version
-2 client.
+Room-effects reads have one launch contract: callers must send
+`X-MXQR-Effects-Version: 2`, and the response contains all five effect groups,
+including `virtualTreble`, in schema version 2. Effects live in the canonical v2
+room core; there is no version 1 projection or sidecar rollback path. Keep the
+App/static and PRO Worker on a matched version that implements this contract.
 
 Production releases use the repository's `Production Release` GitHub workflow
 for the exact reviewed `main` commit. Select `all` for a cross-Worker contract
-change or `pro-room` for a backward-compatible PRO-only change, and retain the
+change or `pro-room` for an isolated PRO-only change, and retain the
 recorded deployment IDs. Every target reuses the successful exact-SHA CI
 candidate, so validation and the production build run once per commit. The
 workflow owns the dependency order above, immutable app artifact, live smokes,
@@ -777,7 +663,6 @@ After deployment but before activation:
 ```powershell
 curl.exe https://musixquare.com/api/pro-room/health
 curl.exe https://musixquare.com/api/pro-room/v1/rooms/000000/bootstrap
-curl.exe https://musixquare.com/api/pro-room/v1/rooms/000001/bootstrap
 ```
 
 The health response must identify `musixquare-pro-room`. A never-activated room
@@ -801,15 +686,14 @@ only in a `Cache-Control: no-store` response, is never written to D1 or a log,
 expires within fifteen minutes, and becomes stale immediately if an operator
 issues another link. Copy it directly to the intended owner.
 
-For the two initial fixed rooms, the offline issuer remains available only as a
-generation-`0` bootstrap compatibility tool before the admin has ever issued a
-link for that room. It creates `activationClaimGeneration=0` and does not
-allocate or advance immutable `roomGeneration`; therefore it cannot activate a
-re-registered incarnation. Once the admin screen issues or reissues a link, the
-room advances its authoritative activation-claim counter and any offline
-activation link is intentionally rejected. Use the admin screen for normal
-activation, every retry, and every room generation greater than zero. The CLI
-accepts one fixed room code, reads the signing secret only from
+The offline issuer is an emergency generation-`0` tool for a registered
+`0xxxxx` room before the admin has issued a link for that incarnation. It
+creates `activationClaimGeneration=0` and does not allocate or advance immutable
+`roomGeneration`; therefore it cannot activate a re-registered incarnation.
+Once the admin screen issues or reissues a link, the room advances its
+authoritative activation-claim counter and any offline activation link is
+intentionally rejected. Use the admin screen for normal activation, every
+retry, and every room generation greater than zero. The CLI reads the signing secret only from
 `PRO_ROOM_ACTIVATION_SECRET`, writes only a URL fragment to stdout, and gives
 that fragment a fifteen-minute lifetime.
 
@@ -834,7 +718,7 @@ npm run pro-room:issue-claim -- 000000
 unset PRO_ROOM_ACTIVATION_SECRET
 ```
 
-Append the printed fragment to the matching fixed invite URL:
+Append the printed fragment to the matching room URL:
 
 ```text
 https://musixquare.com/000000#pro-claim=<opaque-claim>
@@ -844,9 +728,8 @@ The claim itself is sensitive. Deliver it out of band to the intended owner;
 do not paste it into a query string, analytics tool, chat transcript, issue, or
 support log. Confirm that opening the URL removes the fragment immediately.
 The client supplies the derived bootstrap value automatically; the owner only
-chooses a different eight-digit room PIN. Activate `000000` first, complete its
-short smoke check, and then activate the friends-and-family pilot room `000001`
-with its own owner browser.
+chooses a different eight-digit room PIN. Complete a health/bootstrap smoke for
+that exact room before sharing its invite.
 
 ## Owner Recovery After Browser Data Loss
 
@@ -882,7 +765,7 @@ from the operator workstation as an emergency fallback:
 $secure = Read-Host "PRO room activation secret" -AsSecureString
 $env:PRO_ROOM_ACTIVATION_SECRET = [System.Net.NetworkCredential]::new('', $secure).Password
 try {
-  npm run pro-room:issue-claim -- --recovery 000001
+  npm run pro-room:issue-claim -- --recovery 000000
 } finally {
   Remove-Item Env:PRO_ROOM_ACTIVATION_SECRET
 }
@@ -891,7 +774,7 @@ try {
 Append the single printed line to the matching room URL:
 
 ```text
-https://musixquare.com/000001#pro-recovery=<opaque-claim>
+https://musixquare.com/000000#pro-recovery=<opaque-claim>
 ```
 
 The default recovery lifetime is ten minutes and the Worker rejects any claim
@@ -905,39 +788,28 @@ suspected, and verify the old recovery link cannot be used again.
 Rollback must preserve data and keep PRO codes unavailable to the ordinary
 host-claim path.
 
-The first successful `ready` cutover permanently raises the rollback floor to
-the matched generation-aware App, PRO, signaling, Developer API facade, and
-Developer API Workers plus all three D1 migrations. A generation-blind Worker
+The immutable generation floor requires a matched generation-aware App, PRO,
+signaling, Developer API facade, and Developer API Workers plus the canonical
+D1 schemas. A generation-blind Worker
 can confuse a reusable public address with immutable authority and is therefore
-never a valid rollback target after that point, even if no generation-`1` row
-has yet been observed.
+never a valid rollback target.
 Leave entry fail-closed and forward-fix, or restore a matched provider
 data/code checkpoint. Never delete a generation-history row or tombstone,
-decrement `room_generation`, rename a later R2 prefix into the legacy tree, or
+decrement `room_generation`, move objects between incarnation prefixes, or
 authorize a request from `roomCode` alone.
 
 After the coordinator-free cutover, “last known-good” means a matched
 server-authority app, PRO Worker, and signaling Worker checkpoint. Never roll a
-live room back to an elected-browser coordinator merely because a v1 storage
-shadow exists. If no compatible checkpoint is available, keep PRO entry in
+live room back to an elected-browser coordinator or a pre-v2 storage Worker. If
+no compatible checkpoint is available, keep PRO entry in
 maintenance and forward-fix or restore the whole matched data/code checkpoint.
 
-For the account rollout, the minimum supported code rollback is the recorded
-Stage-1 compatibility baseline: service-worker `v203` plus the account-aware App,
-PRO, and signaling Workers with both projection flags at `0`. Once Stage 2 has
-written account members, authority records, deletion tombstones, or reverse
-edges, do not roll any Worker or cached client below that floor. Older code does
-not own those fields or their stale-write fences.
-
-If Stage 2 fails, first hide/disable login and set both PRO projection flags back
-to `0`, then redeploy the matched Stage-1 Worker versions if necessary. Keep the
-auth D1 binding, its schema, account-to-room reverse index, room tombstones, and
-all room/R2 data in place. Keeping D1 bound allows expiry and deletion cleanup to
-continue; removing an OAuth/session secret may make account routes report
-`configured:false` without deleting data. Do not rotate the subject pepper as a
-rollback. Projection `0` intentionally restores the former PIN-admitted
-equal-member behavior, so use PRO maintenance instead when that temporary
-authority expansion is unacceptable for the incident being handled.
+Account-aware rollback must also retain the auth D1 binding, canonical schema,
+account-to-room reverse index, room tombstones, and all room/R2 data. Removing
+an OAuth/session secret may make account routes report `configured:false`
+without deleting data. Do not rotate the subject pepper or reintroduce projection
+flags as a routine rollback; use PRO maintenance and forward repair when the
+least-privilege contract cannot be preserved.
 
 1. Stop the rollout and record the Worker versions and observed symptom. Do not
    delete the R2 bucket, Durable Object binding, class migration, or room data.
@@ -947,13 +819,12 @@ authority expansion is unacceptable for the incident being handled.
    place.
 4. Keep a signaling version that reserves the full `0xxxxx` namespace. Never
    restore an older version that exposes a future PRO code as an ordinary room.
-5. Re-run health/bootstrap checks and open both fixed invite routes without an
+5. Re-run health/bootstrap checks and open both seeded invite routes without an
    activation claim. Existing PRO data should remain dormant and recoverable.
 
-A PRO Worker rollback predating dynamic provisioning may temporarily make
-`000002+` unavailable. Keep those codes reserved, keep their Durable Object and
-R2 data intact, and never reinterpret them as ordinary rooms. The D1 registry
-is an operator index and should be retained for forward recovery.
+Never roll back to a PRO Worker that predates dynamic provisioning. Keep every
+`0xxxxx` code reserved, retain the D1 registry, Durable Objects, and R2 data, and
+forward-repair the matched Worker set.
 
 For a signaling-ticket incident, coordinate the PRO and signaling rollback so
 both verify the same `PRO_SIGNALING_SECRET`. For a secret incident, restore or
@@ -986,10 +857,8 @@ OS, browser/PWA mode, network, room code, build/version, and observed result.
 2. Activate with the fragment, confirm the fragment is immediately scrubbed,
    set a new PIN, then join from two additional physical devices through the
    same fixed link and QR code.
-3. At the Stage-1 checkpoint, confirm each PIN-admitted device retains the
-   pre-account equal-member compatibility behavior and none is exposed as a
-   browser host/coordinator. At Stage 2, confirm an ordinary member cannot
-   control playback, the owner always can, and a delegated administrator can do
+3. Confirm no participant is exposed as a browser host/coordinator. Confirm an
+   ordinary member cannot control playback, the owner always can, and a delegated administrator can do
    so only while its playback toggle is enabled. Confirm media addition,
    deletion/clearing, reordering, repeat, and shuffle follow the media-management
    toggle; member removal and announcements follow their independent toggles,
@@ -1026,7 +895,7 @@ OS, browser/PWA mode, network, room code, build/version, and observed result.
 11. Inspect browser storage and network behavior. PRO media bodies must not be
     written to OPFS or IndexedDB, internal R2 keys must not appear in snapshots,
     and signed URLs must target only the configured R2 account host.
-12. With Stage 2 enabled, sign one account into several physical devices and
+12. Sign one account into several physical devices and
     confirm they group under one room member without transport takeover. Revoke
     or logout-all from another device: the affected physical session must lose
     account-only controls immediately when notified and in all cases within the
@@ -1042,13 +911,13 @@ OS, browser/PWA mode, network, room code, build/version, and observed result.
 - No unexplained tab reload, PWA termination, WebContent crash, stuck loader,
   duplicate playback, or browser-manager dependency.
 - No playlist/revision loss across an empty-room sleep and later wake.
-- A queue above the legacy 1.2 MiB single-record budget survives Worker restart,
+- A queue above 1.2 MiB survives Worker restart,
   accepts local-file completion, and remains readable through the Developer API.
 - No unauthorized access with a room code alone, and no claim/PIN in logs or
   query strings.
 - `usedBytes + reservedBytes` never exceeds 1 GiB and never decreases before a
   corresponding R2 deletion succeeds.
-- The fixed link and QR remain identical across leave/rejoin and deployment.
+- The room link and QR remain identical across leave/rejoin and deployment.
 
-Do not invite the friends-and-family group into `000001` until `000000` passes
-this gate and a rollback rehearsal preserves its Durable Object and R2 data.
+Do not direct launch traffic to either seeded room until both pass this gate and
+a rollback rehearsal preserves their Durable Object and R2 data.

@@ -490,11 +490,17 @@ export function parseProRoomPlaybackCheckpoint(value: unknown): ProRoomPlaybackC
 function parsePresenceParticipant(value: unknown): ProRoomPresenceParticipant | null {
   if (!isRecord(value)) return null;
   if (
-    !hasExactKeysWithOptionals(
-      value,
-      ['participantId', 'displayName', 'role', 'joinedAtMs'],
-      ['memberId', 'memberDisplayNumber', 'isAuthenticated', 'capabilities', 'devicePlatform'],
-    )
+    !hasExactKeys(value, [
+      'participantId',
+      'memberId',
+      'memberDisplayNumber',
+      'isAuthenticated',
+      'displayName',
+      'devicePlatform',
+      'role',
+      'capabilities',
+      'joinedAtMs',
+    ])
   ) {
     return null;
   }
@@ -503,45 +509,33 @@ function parsePresenceParticipant(value: unknown): ProRoomPresenceParticipant | 
   }
   if (!isBoundedString(value.displayName, MAX_DISPLAY_NAME_LENGTH)) return null;
   if (!isRole(value.role) || !isTimestampMs(value.joinedAtMs)) return null;
-  const capabilities =
-    value.capabilities === undefined ? undefined : parseCapabilities(value.capabilities);
-  if (capabilities === null) return null;
+  const capabilities = parseCapabilities(value.capabilities);
+  if (!capabilities) return null;
   if (
-    value.devicePlatform !== undefined &&
-    (typeof value.devicePlatform !== 'string' ||
-      !DEVICE_PLATFORMS.has(value.devicePlatform as DevicePlatform))
+    typeof value.devicePlatform !== 'string' ||
+    !DEVICE_PLATFORMS.has(value.devicePlatform as DevicePlatform)
   ) {
     return null;
   }
-  const hasMemberIdentity = value.memberId !== undefined;
   if (
-    hasMemberIdentity !== (value.memberDisplayNumber !== undefined) ||
-    hasMemberIdentity !== (value.isAuthenticated !== undefined) ||
-    (hasMemberIdentity &&
-      (typeof value.memberId !== 'string' ||
-        !OPAQUE_ID_RE.test(value.memberId) ||
-        !Number.isSafeInteger(value.memberDisplayNumber) ||
-        (value.memberDisplayNumber as number) < 0 ||
-        (value.memberDisplayNumber as number) > PRO_ROOM_MAX_PRESENCE_ITEMS ||
-        typeof value.isAuthenticated !== 'boolean'))
+    typeof value.memberId !== 'string' ||
+    !OPAQUE_ID_RE.test(value.memberId) ||
+    !Number.isSafeInteger(value.memberDisplayNumber) ||
+    (value.memberDisplayNumber as number) < 0 ||
+    (value.memberDisplayNumber as number) > PRO_ROOM_MAX_PRESENCE_ITEMS ||
+    typeof value.isAuthenticated !== 'boolean'
   ) {
     return null;
   }
   return {
     participantId: value.participantId,
-    ...(hasMemberIdentity
-      ? {
-          memberId: value.memberId as string,
-          memberDisplayNumber: value.memberDisplayNumber as number,
-          isAuthenticated: value.isAuthenticated as boolean,
-        }
-      : {}),
+    memberId: value.memberId,
+    memberDisplayNumber: value.memberDisplayNumber as number,
+    isAuthenticated: value.isAuthenticated,
     displayName: value.displayName,
-    ...(value.devicePlatform === undefined
-      ? {}
-      : { devicePlatform: value.devicePlatform as DevicePlatform }),
+    devicePlatform: value.devicePlatform as DevicePlatform,
     role: value.role,
-    ...(capabilities === undefined ? {} : { capabilities }),
+    capabilities,
     joinedAtMs: value.joinedAtMs,
   };
 }
@@ -618,19 +612,17 @@ function parseQuotaSnapshot(value: unknown): ProRoomQuotaSnapshot | null {
 function parseViewerSnapshot(value: unknown): ProRoomViewerSnapshot | null {
   if (!isRecord(value)) return null;
   if (
-    !hasExactKeysWithOptionals(
-      value,
-      [
-        'memberId',
-        'participantId',
-        'presenceIncarnationId',
-        'displayName',
-        'role',
-        'capabilities',
-        'coordinatorEligible',
-      ],
-      ['memberDisplayNumber', 'isAuthenticated'],
-    )
+    !hasExactKeys(value, [
+      'memberId',
+      'memberDisplayNumber',
+      'isAuthenticated',
+      'participantId',
+      'presenceIncarnationId',
+      'displayName',
+      'role',
+      'capabilities',
+      'coordinatorEligible',
+    ])
   ) {
     return null;
   }
@@ -644,14 +636,11 @@ function parseViewerSnapshot(value: unknown): ProRoomViewerSnapshot | null {
   ) {
     return null;
   }
-  const hasMemberIdentity = value.memberDisplayNumber !== undefined;
   if (
-    hasMemberIdentity !== (value.isAuthenticated !== undefined) ||
-    (hasMemberIdentity &&
-      (!Number.isSafeInteger(value.memberDisplayNumber) ||
-        (value.memberDisplayNumber as number) < 0 ||
-        (value.memberDisplayNumber as number) > PRO_ROOM_MAX_PRESENCE_ITEMS ||
-        typeof value.isAuthenticated !== 'boolean'))
+    !Number.isSafeInteger(value.memberDisplayNumber) ||
+    (value.memberDisplayNumber as number) < 0 ||
+    (value.memberDisplayNumber as number) > PRO_ROOM_MAX_PRESENCE_ITEMS ||
+    typeof value.isAuthenticated !== 'boolean'
   ) {
     return null;
   }
@@ -670,12 +659,8 @@ function parseViewerSnapshot(value: unknown): ProRoomViewerSnapshot | null {
 
   return {
     memberId: value.memberId,
-    ...(hasMemberIdentity
-      ? {
-          memberDisplayNumber: value.memberDisplayNumber as number,
-          isAuthenticated: value.isAuthenticated as boolean,
-        }
-      : {}),
+    memberDisplayNumber: value.memberDisplayNumber as number,
+    isAuthenticated: value.isAuthenticated,
     participantId: value.participantId,
     presenceIncarnationId: value.presenceIncarnationId,
     displayName: value.displayName,
@@ -704,8 +689,6 @@ export function parseProRoomAdministrator(value: unknown): ProRoomAdministrator 
   const permissions = parsePermissionSet(value.permissions);
   const inheritedPermissions = parseInheritedPermissions(value.inheritedPermissions);
   const hasNoInheritedPermissions = inheritedPermissions?.length === 0;
-  const hasLegacyPlaybackInheritance =
-    inheritedPermissions?.length === 1 && inheritedPermissions[0] === 'playback.control';
   const hasFullOwnerInheritance =
     inheritedPermissions?.length === PERMISSION_KEYS.length &&
     PERMISSION_KEYS.every((permission) => inheritedPermissions.includes(permission));
@@ -731,16 +714,10 @@ export function parseProRoomAdministrator(value: unknown): ProRoomAdministrator 
   if (value.role === 'owner' && PERMISSION_KEYS.some((permission) => !permissions[permission])) {
     return null;
   }
-  if (value.role === 'owner' && !hasLegacyPlaybackInheritance && !hasFullOwnerInheritance) {
+  if (value.role === 'owner' && !hasFullOwnerInheritance) {
     return null;
   }
-  if (
-    value.role === 'controller' &&
-    !(
-      hasNoInheritedPermissions ||
-      (hasLegacyPlaybackInheritance && permissions['playback.control'])
-    )
-  ) {
+  if (value.role === 'controller' && !hasNoInheritedPermissions) {
     return null;
   }
   return {
@@ -766,53 +743,33 @@ function sameCapabilities(left: readonly ProRoomCapability[], right: readonly Pr
   return left.length === right.length && left.every((capability) => right.includes(capability));
 }
 
-function matchesAuthorityCapabilities(
-  role: ProRoomRole,
-  actual: readonly ProRoomCapability[],
-  expected: readonly ProRoomCapability[],
-  allowLegacyMemberPlayback: boolean,
-): boolean {
-  if (sameCapabilities(actual, expected)) return true;
-  return (
-    allowLegacyMemberPlayback &&
-    role === 'member' &&
-    expected.length === 0 &&
-    sameCapabilities(actual, ['playback.control'])
-  );
-}
-
 export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
   if (!isRecord(value)) return null;
   if (
-    !hasExactKeysWithOptionals(
-      value,
-      [
-        'schemaVersion',
-        'roomCode',
-        'status',
-        'runtime',
-        'revision',
-        'playlistRevision',
-        'effectsRevision',
-        'queueModeRevision',
-        'playlist',
-        'currentQueueItemId',
-        'playback',
-        'presence',
-        'quota',
-        'viewer',
-      ],
-      ['memberIdentityVersion', 'authorityVersion', 'administrators'],
-    )
+    !hasExactKeys(value, [
+      'schemaVersion',
+      'roomCode',
+      'status',
+      'runtime',
+      'revision',
+      'playlistRevision',
+      'effectsRevision',
+      'queueModeRevision',
+      'playlist',
+      'currentQueueItemId',
+      'playback',
+      'presence',
+      'quota',
+      'viewer',
+      'memberIdentityVersion',
+      'authorityVersion',
+      'administrators',
+    ])
   ) {
     return null;
   }
   if (value.schemaVersion !== PRO_ROOM_SNAPSHOT_SCHEMA_VERSION) return null;
-  if (value.memberIdentityVersion !== undefined && value.memberIdentityVersion !== 1) return null;
-  if (value.authorityVersion !== undefined && value.authorityVersion !== 1) return null;
-  const hasAuthorityProjection = value.authorityVersion === 1;
-  if (hasAuthorityProjection !== (value.administrators !== undefined)) return null;
-  if (hasAuthorityProjection && value.memberIdentityVersion !== 1) return null;
+  if (value.memberIdentityVersion !== 1 || value.authorityVersion !== 1) return null;
   if (
     !isProRoomCode(value.roomCode) ||
     !isStatus(value.status) ||
@@ -854,23 +811,21 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
   const quota = parseQuotaSnapshot(value.quota);
   if (!playback || !presence || !quota) return null;
   const administrators: ProRoomAdministrator[] = [];
-  if (hasAuthorityProjection) {
-    if (
-      !Array.isArray(value.administrators) ||
-      value.administrators.length > PRO_ROOM_MAX_PRESENCE_ITEMS
-    ) {
-      return null;
-    }
-    const memberIds = new Set<string>();
-    for (const rawAdministrator of value.administrators) {
-      const administrator = parseProRoomAdministrator(rawAdministrator);
-      if (!administrator || memberIds.has(administrator.memberId)) return null;
-      memberIds.add(administrator.memberId);
-      administrators.push(administrator);
-    }
-    if (administrators.filter((administrator) => administrator.role === 'owner').length !== 1) {
-      return null;
-    }
+  if (
+    !Array.isArray(value.administrators) ||
+    value.administrators.length > PRO_ROOM_MAX_PRESENCE_ITEMS
+  ) {
+    return null;
+  }
+  const memberIds = new Set<string>();
+  for (const rawAdministrator of value.administrators) {
+    const administrator = parseProRoomAdministrator(rawAdministrator);
+    if (!administrator || memberIds.has(administrator.memberId)) return null;
+    memberIds.add(administrator.memberId);
+    administrators.push(administrator);
+  }
+  if (administrators.filter((administrator) => administrator.role === 'owner').length !== 1) {
+    return null;
   }
   // PRO v1 is coordinator-free as a protocol invariant. Retaining the field
   // name avoids a mixed-schema rollout, but accepting a non-null participant
@@ -946,139 +901,64 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
   }
   if (value.runtime === 'awake' && presence.participants.length === 0) return null;
 
-  const hasMemberProjection = value.memberIdentityVersion === 1;
-  if (
-    hasMemberProjection &&
-    (presence.participants.some(
-      (participant) =>
-        participant.memberId === undefined ||
-        participant.memberDisplayNumber === undefined ||
-        participant.isAuthenticated === undefined,
-    ) ||
-      (viewer !== null &&
-        (viewer.memberDisplayNumber === undefined || viewer.isAuthenticated === undefined)))
-  ) {
-    return null;
-  }
-  if (
-    !hasMemberProjection &&
-    (presence.participants.some(
-      (participant) => participant.memberId !== undefined || participant.capabilities !== undefined,
-    ) ||
-      (viewer !== null && viewer.memberDisplayNumber !== undefined))
-  ) {
-    return null;
-  }
-
-  if (
-    hasAuthorityProjection &&
-    presence.participants.some((participant) => participant.capabilities === undefined)
-  ) {
-    return null;
-  }
-
-  if (hasAuthorityProjection) {
-    const administratorsByMemberId = new Map(
-      administrators.map((administrator) => [administrator.memberId, administrator]),
-    );
-    const memberProjection = new Map<
-      string,
-      Pick<
-        ProRoomPresenceParticipant,
-        'memberDisplayNumber' | 'isAuthenticated' | 'displayName' | 'role' | 'capabilities'
-      >
-    >();
-    for (const participant of presence.participants) {
-      const memberId = participant.memberId as string;
-      const previous = memberProjection.get(memberId);
-      if (
-        previous &&
-        (previous.memberDisplayNumber !== participant.memberDisplayNumber ||
-          previous.isAuthenticated !== participant.isAuthenticated ||
-          previous.displayName !== participant.displayName ||
-          previous.role !== participant.role ||
-          !sameCapabilities(previous.capabilities || [], participant.capabilities || []))
-      ) {
-        return null;
-      }
-      memberProjection.set(memberId, participant);
-      const administrator = administratorsByMemberId.get(memberId);
-      if ((participant.role === 'owner' || participant.role === 'controller') !== !!administrator) {
-        return null;
-      }
-      const expectedCapabilities =
-        value.status === 'active'
-          ? expectedAuthorityCapabilities(participant.role, administrator?.permissions || null)
-          : [];
-      if (
-        !matchesAuthorityCapabilities(
-          participant.role,
-          participant.capabilities || [],
-          expectedCapabilities,
-          value.status === 'active',
-        )
-      ) {
-        return null;
-      }
-      if (
-        administrator &&
-        (administrator.memberDisplayNumber !== participant.memberDisplayNumber ||
-          administrator.isAuthenticated !== participant.isAuthenticated ||
-          administrator.displayName !== participant.displayName ||
-          administrator.role !== participant.role)
-      ) {
-        return null;
-      }
-    }
-    for (const administrator of administrators) {
-      const onlineDeviceCount = presence.participants.filter(
-        (participant) => participant.memberId === administrator.memberId,
-      ).length;
-      if (administrator.onlineDeviceCount !== onlineDeviceCount) return null;
-    }
-  }
-
-  if (viewer) {
-    const administrator = hasAuthorityProjection
-      ? administrators.find((candidate) => candidate.memberId === viewer?.memberId) || null
-      : null;
-    const expectedCapabilities: ProRoomCapability[] =
-      value.status === 'suspended'
-        ? []
-        : hasAuthorityProjection
-          ? expectedAuthorityCapabilities(viewer.role, administrator?.permissions || null)
-          : viewer.role === 'owner'
-            ? [
-                'queue.mutate',
-                'playback.control',
-                'effects.control',
-                'asset.upload',
-                'members.manage',
-                'room.configure',
-              ]
-            : viewer.role === 'member'
-              ? ['playback.control']
-              : [
-                  'queue.mutate',
-                  'playback.control',
-                  'effects.control',
-                  'asset.upload',
-                  'members.manage',
-                ];
+  const administratorsByMemberId = new Map(
+    administrators.map((administrator) => [administrator.memberId, administrator]),
+  );
+  const memberProjection = new Map<
+    string,
+    Pick<
+      ProRoomPresenceParticipant,
+      'memberDisplayNumber' | 'isAuthenticated' | 'displayName' | 'role' | 'capabilities'
+    >
+  >();
+  for (const participant of presence.participants) {
+    const previous = memberProjection.get(participant.memberId);
     if (
-      !matchesAuthorityCapabilities(
-        viewer.role,
-        viewer.capabilities,
-        expectedCapabilities,
-        value.status === 'active' && hasAuthorityProjection,
-      )
+      previous &&
+      (previous.memberDisplayNumber !== participant.memberDisplayNumber ||
+        previous.isAuthenticated !== participant.isAuthenticated ||
+        previous.displayName !== participant.displayName ||
+        previous.role !== participant.role ||
+        !sameCapabilities(previous.capabilities, participant.capabilities))
     ) {
       return null;
     }
+    memberProjection.set(participant.memberId, participant);
+    const administrator = administratorsByMemberId.get(participant.memberId);
+    if ((participant.role === 'owner' || participant.role === 'controller') !== !!administrator) {
+      return null;
+    }
+    const expectedCapabilities =
+      value.status === 'active'
+        ? expectedAuthorityCapabilities(participant.role, administrator?.permissions || null)
+        : [];
+    if (!sameCapabilities(participant.capabilities, expectedCapabilities)) return null;
     if (
-      hasAuthorityProjection &&
-      (viewer.role === 'owner' || viewer.role === 'controller') !== !!administrator
+      administrator &&
+      (administrator.memberDisplayNumber !== participant.memberDisplayNumber ||
+        administrator.isAuthenticated !== participant.isAuthenticated ||
+        administrator.displayName !== participant.displayName ||
+        administrator.role !== participant.role)
     ) {
+      return null;
+    }
+  }
+  for (const administrator of administrators) {
+    const onlineDeviceCount = presence.participants.filter(
+      (participant) => participant.memberId === administrator.memberId,
+    ).length;
+    if (administrator.onlineDeviceCount !== onlineDeviceCount) return null;
+  }
+
+  if (viewer) {
+    const administrator =
+      administrators.find((candidate) => candidate.memberId === viewer.memberId) || null;
+    const expectedCapabilities: ProRoomCapability[] =
+      value.status === 'suspended'
+        ? []
+        : expectedAuthorityCapabilities(viewer.role, administrator?.permissions || null);
+    if (!sameCapabilities(viewer.capabilities, expectedCapabilities)) return null;
+    if ((viewer.role === 'owner' || viewer.role === 'controller') !== !!administrator) {
       return null;
     }
   }
@@ -1098,12 +978,8 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
     presence,
     quota,
     viewer,
-    ...(hasMemberProjection ? { memberIdentityVersion: 1 as const } : {}),
-    ...(hasAuthorityProjection
-      ? {
-          authorityVersion: 1 as const,
-          administrators,
-        }
-      : {}),
+    memberIdentityVersion: 1,
+    authorityVersion: 1,
+    administrators,
   };
 }

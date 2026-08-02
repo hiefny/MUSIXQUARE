@@ -18,9 +18,9 @@ function activeAssignment(text, flag) {
 }
 
 /**
- * Validate the atomic account-aware PRO rollout contract without consulting
- * process state. Keeping this portion pure lets CI exercise every flag/binding
- * combination while the executable guard remains the production entry point.
+ * Validate the launch-only account-aware PRO contract without consulting
+ * process state. Identity and least-privilege authority are unconditional;
+ * the only configurable boundary left here is the required D1 binding.
  */
 export function validateAccountRolloutConfig(proConfig, appConfig) {
   const errors = [];
@@ -28,39 +28,23 @@ export function validateAccountRolloutConfig(proConfig, appConfig) {
     .split(/\r?\n/)
     .filter((line) => !line.trimStart().startsWith('#'))
     .join('\n');
-  const accountIdentityProjection = activeAssignment(
-    proConfig,
-    'PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION',
-  );
-  const memberAuthorityProjection = activeAssignment(
-    proConfig,
-    'PRO_ROOM_MEMBER_AUTHORITY_PROJECTION',
-  );
-  const projectionValues = [accountIdentityProjection, memberAuthorityProjection];
-
-  if (projectionValues.some((value) => value !== '0' && value !== '1')) {
-    errors.push('Both PRO account projection flags must be explicitly set to "0" or "1".');
-    return errors;
-  }
-  if (accountIdentityProjection !== memberAuthorityProjection) {
-    errors.push('PRO account identity and member authority projections must change together.');
-    return errors;
+  if (
+    activeAssignment(proConfig, 'PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION') !== null ||
+    activeAssignment(proConfig, 'PRO_ROOM_MEMBER_AUTHORITY_PROJECTION') !== null
+  ) {
+    errors.push('Retired PRO account projection flags must not be present.');
   }
   if (!/^\s*binding\s*=\s*["']MUSIXQUARE_AUTH_DB["']\s*$/m.test(activeProConfig)) {
     errors.push(
       'PRO room decommissioning is enabled without an active MUSIXQUARE_AUTH_DB Worker binding.',
     );
   }
-  if (accountIdentityProjection !== '1') return errors;
-
   const activeAppConfig = appConfig
     .split(/\r?\n/)
     .filter((line) => !line.trimStart().startsWith('#'))
     .join('\n');
   if (!/^\s*binding\s*=\s*["']MUSIXQUARE_AUTH_DB["']\s*$/m.test(activeAppConfig)) {
-    errors.push(
-      'PRO account projection is enabled without an active MUSIXQUARE_AUTH_DB App binding.',
-    );
+    errors.push('Account identity is enabled without an active MUSIXQUARE_AUTH_DB App binding.');
   }
   return errors;
 }

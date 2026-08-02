@@ -1427,13 +1427,6 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
   syncDeviceExpansionRoomBoundary();
   const isProRoom = _isProRoom();
   const devices = list as unknown as DeviceInfo[];
-  // The coarse platform projection doubles as an additive rollout signal.
-  // Old standard hosts and old PRO Workers omit the field; hiding the exact
-  // action then prevents a silent no-op (standard) or the legacy account-wide
-  // participant kick semantics (PRO) during rolling deploys.
-  const supportsPhysicalDeviceKick = devices.some((device) =>
-    Object.prototype.hasOwnProperty.call(device, 'devicePlatform'),
-  );
   const currentDeviceId = getState('network.myId') || '';
   const deviceById = new Map(
     devices
@@ -1645,7 +1638,6 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
             member.isAuthenticated &&
             isAuthenticatedSiblingDevice(deviceById.get(currentDeviceId), device);
           const canKickPhysicalDevice =
-            supportsPhysicalDeviceKick &&
             hasRoomCapability('members.manage') &&
             !isCurrentDevice &&
             device.status === 'connected' &&
@@ -1689,10 +1681,7 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
               if (
                 !latestTarget ||
                 latestTarget.id === latestCurrentDeviceId ||
-                latestTarget.status !== 'connected' ||
-                !latestDevices.some((candidate) =>
-                  Object.prototype.hasOwnProperty.call(candidate, 'devicePlatform'),
-                )
+                latestTarget.status !== 'connected'
               ) {
                 return;
               }

@@ -58,6 +58,25 @@ function snapshot(videoIds: string[]): ProRoomSnapshot {
       reservedBytes: 0,
     },
     viewer: null,
+    memberIdentityVersion: 1,
+    authorityVersion: 1,
+    administrators: [
+      {
+        memberId: 'member_owner_0001',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': true,
+          'chat.notice': true,
+        },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 0,
+      },
+    ],
   };
 }
 

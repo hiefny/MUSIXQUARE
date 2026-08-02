@@ -2563,7 +2563,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(list.status).toBe(200);
     expect(list.headers.get('Cache-Control')).toBe('no-store, max-age=0');
     expect(await list.json()).toMatchObject({
-      rooms: [{ roomCode: '000000' }, { roomCode: '000001' }],
+      rooms: [{ roomCode: '000000' }],
     });
 
     const registered = await appWorker.fetch(
@@ -2730,7 +2730,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(invalidRecoveryClaim.status).toBe(502);
     expect(await invalidRecoveryClaim.json()).toEqual({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' });
 
-    for (let index = 4; index < 1000; index += 1) {
+    for (let index = 1; index < 1000; index += 1) {
       const roomCode = `0${String(index).padStart(5, '0')}`;
       rows.set(roomCode, {
         room_code: roomCode,
@@ -4688,7 +4688,6 @@ describe('Cloudflare app worker PRO room facade', () => {
           'CF-Connecting-IP': '203.0.113.10',
           'X-MXQR-Pro-Room-Code': '000999',
           'X-MXQR-Pro-IP-Hash': 'spoofed',
-          'X-MXQR-Pro-Detach-Version': '2',
         },
         body: JSON.stringify({ pin: '00000001', displayName: 'Peer 1' }),
       }),
@@ -4703,7 +4702,6 @@ describe('Cloudflare app worker PRO room facade', () => {
     expect(forwarded!.headers.get('CF-Connecting-IP')).toBe('203.0.113.10');
     expect(forwarded!.headers.get('X-MXQR-Pro-Room-Code')).toBeNull();
     expect(forwarded!.headers.get('X-MXQR-Pro-IP-Hash')).toBeNull();
-    expect(forwarded!.headers.get('X-MXQR-Pro-Detach-Version')).toBe('2');
     expect(forwarded!.headers.get('Cookie')).toBe(
       '__Host-mxqr_pro_session_000001=facade-session; __Host-mxqr_pro_owner_000001=facade-owner',
     );

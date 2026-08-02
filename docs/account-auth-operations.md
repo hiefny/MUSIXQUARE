@@ -14,25 +14,21 @@ entry, playback, and anonymous chat do not depend on this service. The identity,
 grouping, and capability contract is defined in the
 [account authority ADR](design/account-identity-and-room-authority.md).
 
-## Production activation checkpoint
+## Production configuration
 
-Account activation was deliberately split from compatible code delivery. The
-checked-in production configuration now enables Stage 2 accounts:
+Account identity and least-privilege PRO authority are current-contract
+invariants. They no longer have rollout flags. Anonymous users remain supported
+and receive session-scoped room membership. The production configuration keeps
+the dedicated account database bound:
 
 ```text
-service-worker cache at account cutover: v204
 MUSIXQUARE_AUTH_DB: musixquare-auth
-PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION: 1
-PRO_ROOM_MEMBER_AUTHORITY_PROJECTION: 1
 ```
 
-These are historical cache epochs, not the current product version or current
-cache epoch. Read current release identity with
-`npm run version:status`. The historical Stage-1 App, signaling, and PRO Worker
-checkpoint plus its `v203` client remain the minimum rollback floor. After
-account data has been written,
-never roll below that matched account-aware checkpoint; use the Stage-2 rollback
-procedure in Section 5 instead.
+Read current release identity with `npm run version:status`. Treat the deployed
+App, signaling, and PRO Workers plus the current client as one matched rollback
+unit. Once account data exists, never roll back to a pre-account schema or
+authorization model.
 
 ## 1. Create the dedicated D1 database
 
@@ -63,61 +59,23 @@ keeps the user's submitted casing. Nicknames are display identities only and
 must never replace `accountId` or a room member pseudonym as an authorization
 key.
 
-Keep the tracked schema's 20-character constraint and the read/assertion
-compatibility boundary unchanged: they grandfather pre-policy nicknames without
-making 13-to-20 characters writable again. Do not bulk-rewrite those rows or
-prompt merely because of length. There is currently no account-moderation flag
-or admin nickname directory; adding either is a separate privacy and audit
-design, not a nickname-limit migration step.
+The tracked schema includes `nickname_key` and its partial unique index. Verify
+that every named profile has a key and no key is duplicated before deployment.
+There is currently no account-moderation flag or admin nickname directory;
+adding either is a separate privacy and audit design.
 
-Existing production databases require the reviewed, one-time additive migration
-before the new nickname contract is considered active:
+Reusable PRO room codes use the generation-aware reverse index
+`mxqr_account_pro_room_generations` exclusively. A fresh database receives that
+table from `cloudflare/auth.schema.sql`. Verify its composite
+`(account_id, room_code, room_generation)` primary key and account index before
+enabling account-aware PRO traffic. Do not introduce a room-code-only reverse
+index: every write, deletion lookup, and cleanup must identify one exact room
+incarnation.
 
-```text
-npm run account:nickname-key:migrate:remote
-```
-
-Before applying it, audit completed profiles for normalized collisions and
-export the account table to an access-controlled, ignored release artifact.
-Deploy the compatible App Worker first, apply the migration, verify every named
-profile has a key and no key is duplicated, then run the Stage-2 preflight. An
-App version predating `nickname_key` is no longer a safe rollback target after
-the migration because an old nickname update would not maintain the key.
-
-Reusable PRO room codes add a separate forward-only reverse-index migration.
-Back up the auth database or confirm D1 Time Travel. The routine production path
-is the `Production Release` workflow with target `all` and its dedicated PRO
-generation migration input, which probes and migrates the admin, auth, and
-Developer API databases before Worker deployment. The following direct command
-is an emergency/operator recovery primitive only:
-
-```text
-npm run wrangler -- d1 execute musixquare-auth --remote --config cloudflare/wrangler.app.toml --file cloudflare/auth.pro-room-generation.migration.sql
-```
-
-The migration copies every legacy `mxqr_account_pro_rooms` edge into
-`mxqr_account_pro_room_generations` as generation `0`. Verify that every row
-which existed at migration time was backfilled, and verify the composite
-`(account_id, room_code, room_generation)` primary key and account index. This
-is one-time migration evidence, not a live parity invariant: generation-`0`
-traffic deliberately continues writing the legacy table and deletion reads the
-distinct union. Do not drop the legacy table during the rolling compatibility
-window and do not collapse generation-aware rows back to room-code-only edges.
-
-Account statistics use a separate additive, forward-only migration:
-
-```text
-cloudflare/auth.account-stats.migration.sql
-```
-
-The routine production path is the `Production Release` workflow with target
-`app` (or `all`) and `apply_account_stats_d1` enabled. The workflow first probes
-the one-to-one table shape, refuses a partially compatible table, applies the
-migration only when the table is absent, and verifies it again before deploying
-the App Worker. Do not expose `/api/auth/stats` before this verification passes.
-An older App Worker safely ignores the additive table, so a failed Worker
-rollout leaves the table in place and restores the previous Worker rather than
-dropping account data.
+The baseline schema also contains the one-to-one account statistics table. Do
+not expose `/api/auth/stats` when that table or its constraints do not match
+`cloudflare/auth.schema.sql`. Historical migration SQL remains immutable audit
+evidence; it is not part of a fresh launch deployment.
 
 ## 2. Configure Google OpenID Connect
 
@@ -184,11 +142,11 @@ MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET
 
 Never reuse the ordinary-room value. PRO assertions are likewise short-lived
 and bound to their public room code, immutable `roomGeneration`, and assertion
-audience. Existing rooms use generation `0`; a missing generation is accepted
-only at that legacy boundary. The trusted App facade injects the assertion into
-the exact room-incarnation request; the PRO Worker rejects any generation
-mismatch before binding the verified account to the participant represented by
-that room-session cookie. The PRO Durable Object also retains a short
+audience. The generation is required even when its value is `0`. The trusted
+App facade injects the assertion into the exact room-incarnation request; the
+PRO Worker rejects a missing or mismatched generation before binding the
+verified account to the participant represented by that room-session cookie.
+The PRO Durable Object also retains a short
 account-deletion tombstone so an assertion minted immediately before deletion
 cannot arrive late and recreate the purged member or authority record.
 
@@ -244,11 +202,9 @@ describe deletion from the active database and must not promise immediate
 erasure from every recovery copy.
 
 Before a signed-in account assertion can reach a PRO room, the App Worker writes
-a conservative account-to-room-incarnation edge. Generation `0` keeps writing
-the legacy `mxqr_account_pro_rooms` table during the additive compatibility
-window; later generations write `mxqr_account_pro_room_generations`. Both
-tables are read as one distinct generation-aware index. Account deletion
-enumerates the distinct `(roomCode, roomGeneration)` edges and wakes only that
+a conservative account-to-room-incarnation edge in
+`mxqr_account_pro_room_generations`. Account deletion enumerates the distinct
+`(roomCode, roomGeneration)` edges and wakes only that
 exact Durable Object to remove the account member, delegated authority, owner
 association, presence, and active room sessions. An old account edge can never
 purge a later owner who received the same public code. Cleanup of an already
@@ -333,12 +289,10 @@ authorization but does not delete the MUSIXQUARE account or immediately revoke
 an already-issued MUSIXQUARE session. Users must use the MUSIXQUARE account
 menu for account deletion.
 
-## 5. Activation, verification, and rollback
+## 5. Production verification and rollback
 
-### Stage 1: deploy the compatibility baseline
-
-Before any account infrastructure is enabled, run the focused Worker tests and
-production guards:
+Before every account release, run the focused Worker tests and production
+guards:
 
 ```text
 npm test -- src/core/__tests__/account-auth.test.ts
@@ -346,69 +300,20 @@ npm run check:workers
 npm run build:checked
 ```
 
-Deploy the account-aware App, signaling, and PRO Workers with auth D1 unbound and
-both projection flags at `0`, then publish service-worker `v203`. Verify the
-session endpoint reports `configured:false`, anonymous ordinary and PRO rooms
-remain functional, and PRO retains its pre-account equal-member compatibility
-behavior. Record the three Worker version IDs as the matched rollback floor.
+Use the checked-in schema and configuration as the launch baseline:
 
-### Stage 2: enable accounts
-
-Perform Sections 1-3, then apply the following as one reviewed activation:
-
-Before changing either projection flag, run the dedicated manual preflight:
-
-```text
-npm run account:stage2:preflight -- --remote --confirm-production --callback https://musixquare.com/api/auth/google/callback --ack-deploy-order pro-room,signaling,app
-```
-
-This command is intentionally absent from normal build, test, and deploy
-scripts. It refuses to contact Cloudflare unless both remote-production flags
-are present. Even then it performs only these read-only operations:
-
-- parse the checked-in App config and require one real, dedicated
-  `MUSIXQUARE_AUTH_DB` binding;
-- run a `SELECT` against remote D1 `sqlite_master` and compare the exact account
-  table/index set and normalized definitions with `cloudflare/auth.schema.sql`;
-- run `wrangler secret list --format json` for App, signaling, and PRO and check only
-  required secret **names**; secret values are never requested or printed;
-- exercise the PRO, Standard attach, and Standard deletion assertion codecs
-  locally with a one-use in-memory key; and
-- require an explicit acknowledgement of the only supported activation order:
-  PRO, then signaling, then App/static.
-
-Copy the callback argument from the production Google Web-client settings. The
-script verifies that the acknowledgement and the Worker's built-in default are
-exactly `https://musixquare.com/api/auth/google/callback`. It cannot read the
-Google console itself. It also rejects a production `MXQR_AUTH_REDIRECT_URI`
-Worker secret because Wrangler exposes only its name, making its value
-impossible to verify; production should use the reviewed built-in default.
-
-Secret-name presence cannot prove that the shared assertion values match. The
-local round trip proves codec compatibility without sending an account or
-writing a canary record, while the post-deployment login/room smoke below is the
-required end-to-end check for App↔signaling and App↔PRO secret equality. The
-preflight never creates a D1 database, applies schema, changes projection flags,
-or deploys a Worker.
-
-1. Confirm the D1 schema is current and the App binding is present.
+1. Confirm the D1 schema exactly matches `cloudflare/auth.schema.sql` and the
+   App binding is present.
 2. Confirm the exact Google callback and consent-screen links.
 3. Confirm App OAuth/session secrets, the shared App+signaling standard-room
    assertion secret, and the separate shared App+PRO assertion secret.
-4. Change both `PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION` and
-   `PRO_ROOM_MEMBER_AUTHORITY_PROJECTION` to `1`; do not operate indefinitely
-   with one flag enabled.
-5. Deploy PRO first, signaling second, and App/static last. Do not publish the
-   App while either downstream Worker is still on its pre-activation version.
+4. Confirm the retired PRO account projection flags are absent.
+5. Deploy PRO first, signaling second, and App/static last for a cross-service
+   account contract change.
 
-For an account-statistics release, use the dedicated workflow input described
-above. Its schema probe/apply/verify steps run before the App/static deployment;
-the ordinary fast `app` target remains sufficient because no signaling or PRO
-protocol contract changes.
-
-For the reusable-code release, apply the auth generation migration before the
-Worker release and use the broader dependency order in the PRO operations ADR:
-PRO, signaling, Developer API facade/API, then App/static. Keep manual
+For a reusable-code release, verify the canonical generation-aware auth schema
+before the Worker release and use the broader dependency order in the PRO
+operations ADR: PRO, signaling, Developer API facade/API, then App/static. Keep manual
 re-registration unused until every generation-aware smoke passes. Once the
 reuse cutover is marked `ready`, a concurrent administrator may create a later
 generation at any moment, so the matched generation-aware Worker set and D1
@@ -435,17 +340,16 @@ retention policy. Test deletion across both awake and sleeping PRO rooms,
 including partial failure/retry and a late assertion rejected by the room
 tombstone.
 
-To roll Stage 2 back, first hide/disable login and return **both** PRO projection
-flags to `0`. If code rollback is necessary, use only the matched Stage-1 App,
-PRO, signaling, and `v203` checkpoint. Never roll below that floor after account
-members, grants, reverse edges, or deletion tombstones have been written. Keep
+To disable login during an incident, remove or rotate the affected OAuth/session
+secret and deploy a matched account-aware Worker set. Never roll below the
+generation-aware account schema after members, grants, reverse edges, or
+deletion tombstones have been written. Keep
 `MUSIXQUARE_AUTH_DB` bound and retain its schema so scheduled expiry and account
 cleanup continue. Removing one OAuth/session secret makes account routes report
 `configured:false` without deleting room data. Do not delete D1, remove reverse
 indexes/tombstones, rotate the subject pepper, or delete PRO Durable Object/R2
 data as part of an application rollback.
 
-Projection `0` deliberately restores the historical PIN-admitted equal-member
-PRO policy. If that temporary authority expansion is unsafe for the incident,
-put PRO entry into maintenance instead of rolling past the least-privilege
-activation.
+Do not use projection `0` as a routine rollback: it expands PIN-admitted PRO
+authority. Put PRO entry into maintenance and forward-fix when the current
+least-privilege contract cannot be preserved safely.

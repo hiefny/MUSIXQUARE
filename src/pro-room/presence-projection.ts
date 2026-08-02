@@ -2,7 +2,7 @@ import type { ProRoomPresenceParticipant, ProRoomSnapshot } from './contracts.ts
 
 interface AcceptedProPresenceMember {
   key: string;
-  memberId: string | null;
+  memberId: string;
   displayName: string;
   joinedAtMs: number;
 }
@@ -18,8 +18,7 @@ interface ProPresenceMemberDelta {
 }
 
 function proPresenceMemberKey(participant: ProRoomPresenceParticipant): string {
-  const memberId = participant.memberId?.trim();
-  return memberId ? `member:${memberId}` : `participant:${participant.participantId}`;
+  return `member:${participant.memberId}`;
 }
 
 export function projectProPresenceMembers(
@@ -36,7 +35,7 @@ export function projectProPresenceMembers(
     if (!existing || participant.joinedAtMs < existing.joinedAtMs) {
       members.set(key, {
         key,
-        memberId: participant.memberId?.trim() || null,
+        memberId: participant.memberId,
         displayName: participant.displayName,
         joinedAtMs: participant.joinedAtMs,
       });
@@ -105,12 +104,12 @@ export function projectAuthoritativeProDevices(snapshot: ProRoomSnapshot) {
     status: 'connected',
     joinOrder: index,
     connectionType: 'remote' as const,
-    devicePlatform: participant.devicePlatform ?? 'other',
+    devicePlatform: participant.devicePlatform,
     memberId: participant.memberId,
     memberDisplayNumber: participant.memberDisplayNumber,
     isAuthenticated: participant.isAuthenticated === true,
     role: participant.role,
-    capabilities: participant.capabilities ? [...participant.capabilities] : undefined,
+    capabilities: [...participant.capabilities],
   }));
   const ownIndex = participants.findIndex((participant) => participant.participantId === viewerId);
   const ownParticipant = ownIndex >= 0 ? participants[ownIndex] : null;

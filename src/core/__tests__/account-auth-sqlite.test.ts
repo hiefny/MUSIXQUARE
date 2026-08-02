@@ -7,7 +7,7 @@ import {
   recordAccountProRoomLink,
   resetAccountAuthCachesForTests,
 } from '../../../cloudflare/account-auth.js';
-import { normalizeSchemaSql } from '../../../scripts/account-stage2-preflight.mjs';
+import { normalizeSchemaSql } from '../../../scripts/sql-schema-normalization.mjs';
 
 const ORIGIN = 'https://musixquare.com';
 const SESSION_PEPPER = 'sqlite-session-pepper-for-tests-at-least-32-bytes';
@@ -22,10 +22,6 @@ const NICKNAME_KEY_MIGRATION = readFileSync(
 );
 const ACCOUNT_STATS_MIGRATION = readFileSync(
   new URL('../../../cloudflare/auth.account-stats.migration.sql', import.meta.url),
-  'utf8',
-);
-const ACCOUNT_STATS_READINESS = readFileSync(
-  new URL('../../../scripts/sql/account-stats-auth-readiness.sql', import.meta.url),
   'utf8',
 );
 
@@ -280,12 +276,6 @@ afterEach(() => {
         throw new Error('Expected SQLite schema SQL for mxqr_account_stats');
       }
       expect(normalizeSchemaSql(migratedSql)).toBe(normalizeSchemaSql(canonicalSql));
-      expect(migrated.prepare(ACCOUNT_STATS_READINESS).get()).toEqual({
-        table_present: 1,
-        columns_ready: 1,
-        foreign_key_ready: 1,
-        schema_ready: 1,
-      });
     } finally {
       migrated.close();
       canonical.close();

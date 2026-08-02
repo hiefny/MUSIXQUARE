@@ -17,7 +17,7 @@ import developerApiWorker, {
   developerApiScopes,
 } from '../../../cloudflare/developer-api-worker.js';
 import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../core/constants.ts';
-import { ProRoomApiError, type UpdateProRoomSnapshotInput } from '../api.ts';
+import { ProRoomApiError, type UpdateProRoomCompactSnapshotInput } from '../api.ts';
 import type { ProRoomR2Source, ProRoomSnapshot } from '../contracts.ts';
 import {
   ProRoomPlaylistStateManager,
@@ -865,7 +865,7 @@ describe('PRO room server-authoritative playback', () => {
         '/playback/commands',
         'POST',
         endedBody,
-        friend.cookie,
+        context.ownerCookie,
         'authority-ended-command-0002',
       ),
     );
@@ -2158,7 +2158,7 @@ describe('PRO room server-authoritative playback', () => {
     expect(stored.playlistOrder).toEqual([firstQueueItemId, secondQueueItemId]);
   });
 
-  it('lets any active member change shared effects and remove another member', async () => {
+  it('keeps ordinary members read-only for shared effects and physical-device removal', async () => {
     const context = await activatedRoom();
     installRealtimeRecorder(context);
     const friend = await addMember(context);
@@ -2184,8 +2184,7 @@ describe('PRO room server-authoritative playback', () => {
         friend.cookie,
       ),
     );
-    expect(updated.status).toBe(200);
-    await expect(updated.json()).resolves.toMatchObject({ revision: 1, effects });
+    expect(updated.status).toBe(403);
 
     const ownerParticipantId = context.activationEnvelope.snapshot.viewer.participantId as string;
     const kicked = await context.worker.fetch(
@@ -2196,17 +2195,16 @@ describe('PRO room server-authoritative playback', () => {
         friend.cookie,
       ),
     );
-    expect(kicked.status).toBe(200);
-    const kickedEnvelope = await responseJson(kicked);
-    expect(kickedEnvelope.snapshot.presence.participants).toHaveLength(1);
-    expect(kickedEnvelope.snapshot.presence.coordinatorParticipantId).toBeNull();
+    expect(kicked.status).toBe(403);
 
-    const revokedOwner = await context.worker.fetch(request('/snapshot', {}, context.ownerCookie));
-    expect(revokedOwner.status).toBe(401);
+    const ownerView = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
+    );
+    expect(ownerView.snapshot.presence.participants).toHaveLength(2);
   });
 });
 
-const ROOM_CODE = '000001';
+const ROOM_CODE = '000000';
 const BASE_URL = `https://pro.musixquare.com/v1/rooms/${ROOM_CODE}`;
 const ACTIVATION_SECRET = 'activation-secret-'.padEnd(48, 'a');
 const PIN_PEPPER = 'pin-pepper-'.padEnd(48, 'p');
@@ -2403,12 +2401,8 @@ function request(path: string, init: RequestInit = {}, cookie?: string): Request
   return requestForRoom(ROOM_CODE, path, init, cookie);
 }
 
-function detachV2Request(cookie: string): Request {
-  return request(
-    '/sessions/current/account',
-    { method: 'DELETE', headers: { 'x-mxqr-pro-detach-version': '2' } },
-    cookie,
-  );
+function detachRequest(cookie: string): Request {
+  return request('/sessions/current/account', { method: 'DELETE' }, cookie);
 }
 
 describe('PRO room Worker health', () => {
@@ -2566,7 +2560,7 @@ async function activatedRoom(roomCode = ROOM_CODE) {
   const state = new FakeState();
   const bucket = new FakeR2Bucket();
   const worker = new MusixquareProRoom(state as never, environment(bucket) as never);
-  if (roomCode !== '000000' && roomCode !== '000001') {
+  if (roomCode !== '000000') {
     const provision = await worker.fetch(
       new Request('https://pro-room.internal/internal/admin/provision', {
         method: 'POST',
@@ -2666,11 +2660,12 @@ async function replacePlaylist(
   );
   return context.worker.fetch(
     jsonRequest(
-      '/snapshot',
-      'PUT',
+      '/snapshot/compact',
+      'POST',
       {
         baseRevision: current.snapshot.revision,
-        playlist,
+        playlistOrder: playlist.map((item: any) => item.queueItemId),
+        upserts: playlist,
         currentQueueItemId: null,
         playback: {
           coordinatorEpoch: current.snapshot.presence.coordinatorEpoch,
@@ -2721,15 +2716,16 @@ function realWorkerPlaylistApi(
   return {
     getSnapshot: async () =>
       readSnapshot(await context.worker.fetch(request('/snapshot', {}, cookie))),
-    updateSnapshot: async (input: UpdateProRoomSnapshotInput) =>
+    updateCompactSnapshot: async (input: UpdateProRoomCompactSnapshotInput) =>
       readSnapshot(
         await context.worker.fetch(
           jsonRequest(
-            '/snapshot',
-            'PUT',
+            '/snapshot/compact',
+            'POST',
             {
               baseRevision: input.baseRevision,
-              playlist: input.playlist,
+              playlistOrder: input.playlistOrder,
+              upserts: input.upserts,
               currentQueueItemId: input.currentQueueItemId,
               playback: input.playback,
             },
@@ -2896,7 +2892,24 @@ describe('PRO first-append client/Worker integration', () => {
       jsonRequest('/sessions', 'POST', { pin: '12345678' }),
     );
     const memberCookie = cookieFrom(memberResponse);
-    bindCookiePresence(memberCookie, await responseJson(memberResponse));
+    const memberEnvelope = await responseJson(memberResponse);
+    bindCookiePresence(memberCookie, memberEnvelope);
+    const delegated = await context.worker.fetch(
+      jsonRequest(
+        `/administrators/${memberEnvelope.snapshot.viewer.memberId}`,
+        'PUT',
+        {
+          permissions: {
+            'media.add': true,
+            'playback.control': true,
+            'members.kick': false,
+            'chat.notice': false,
+          },
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(delegated.status).toBe(200);
     const ownerInitial = parseProRoomSnapshot(
       (
         await responseJson(
@@ -5202,11 +5215,12 @@ describe('PRO room private Developer API projections', () => {
 
     const unchangedRoundTrip = await worker.fetch(
       jsonRequest(
-        '/snapshot',
-        'PUT',
+        '/snapshot/compact',
+        'POST',
         {
           baseRevision: publicBefore.snapshot.revision,
-          playlist: publicBefore.snapshot.playlist,
+          playlistOrder: null,
+          upserts: [],
           currentQueueItemId: publicBefore.snapshot.currentQueueItemId,
           playback: publicBefore.snapshot.playback,
         },
@@ -5230,11 +5244,12 @@ describe('PRO room private Developer API projections', () => {
     ];
     const roundTrip = await worker.fetch(
       jsonRequest(
-        '/snapshot',
-        'PUT',
+        '/snapshot/compact',
+        'POST',
         {
           baseRevision: unchangedEnvelope.snapshot.revision,
-          playlist: participantPlaylist,
+          playlistOrder: participantPlaylist.map((item) => item.queueItemId),
+          upserts: [participantPlaylist.at(-1)],
           currentQueueItemId: unchangedEnvelope.snapshot.currentQueueItemId,
           playback: unchangedEnvelope.snapshot.playback,
         },
@@ -5291,13 +5306,12 @@ describe('PRO room private Developer API projections', () => {
 
     const forged = await worker.fetch(
       jsonRequest(
-        '/snapshot',
-        'PUT',
+        '/snapshot/compact',
+        'POST',
         {
           baseRevision: roundTripEnvelope.snapshot.revision,
-          playlist: roundTripEnvelope.snapshot.playlist.map((item: any, index: number) =>
-            index === 0 ? { ...item, developerOwnerKeyId: firstKeyId } : item,
-          ),
+          playlistOrder: null,
+          upserts: [{ ...roundTripEnvelope.snapshot.playlist[0], developerOwnerKeyId: firstKeyId }],
           currentQueueItemId: roundTripEnvelope.snapshot.currentQueueItemId,
           playback: roundTripEnvelope.snapshot.playback,
         },
@@ -6158,7 +6172,7 @@ describe('PRO room private Developer API projections', () => {
       },
     });
     expect(firstBody.event.addition.actorName.length).toBe(30);
-    expect(firstBody.event.addition.eventId).toMatch(/^qa_000001_\d+_\d+$/);
+    expect(firstBody.event.addition.eventId).toMatch(new RegExp(`^qa_${ROOM_CODE}_[0-9]+_[0-9]+$`));
     expect(firstBody.targets).toHaveLength(1);
 
     const queueReplay = await mutateInternalDeveloperQueue(
@@ -6245,12 +6259,15 @@ describe('PRO room private Developer API projections', () => {
     const participantQueueItemId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
     const participantMutation = await worker.fetch(
       jsonRequest(
-        '/snapshot',
-        'PUT',
+        '/snapshot/compact',
+        'POST',
         {
           baseRevision: current.snapshot.revision,
-          playlist: [
-            ...current.snapshot.playlist,
+          playlistOrder: [
+            ...current.snapshot.playlist.map((item: any) => item.queueItemId),
+            participantQueueItemId,
+          ],
+          upserts: [
             {
               queueItemId: participantQueueItemId,
               name: 'Owner addition',
@@ -7444,7 +7461,7 @@ describe('persistent PRO room bootstrap and activation', () => {
       const response = await worker.fetch(
         jsonRequest('/activation', 'POST', {
           claimToken,
-          temporaryPin: '00000001',
+          temporaryPin: ROOM_CODE.padStart(8, '0'),
           newPin: '12345678',
           ownerName,
         }),
@@ -7456,7 +7473,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     const valid = await worker.fetch(
       jsonRequest('/activation', 'POST', {
         claimToken,
-        temporaryPin: '00000001',
+        temporaryPin: ROOM_CODE.padStart(8, '0'),
         newPin: '12345678',
         ownerName: 'Replacement owner',
       }),
@@ -7832,10 +7849,24 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(forwardedCodes).toEqual(['000010:generation:0', '000010:generation:0']);
   });
 
-  it('scopes session and owner cookies per room so fixed rooms can coexist', async () => {
+  it('scopes session and owner cookies across the canary and a provisioned room', async () => {
     const cookies: string[] = [];
     for (const roomCode of ['000000', '000001']) {
       const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
+      if (roomCode !== ROOM_CODE) {
+        const provision = await worker.fetch(
+          new Request('https://pro-room.internal/internal/admin/provision', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-mxqr-pro-room-code': roomCode,
+              'x-mxqr-pro-room-generation': '0',
+            },
+            body: JSON.stringify({ roomGeneration: 0 }),
+          }),
+        );
+        expect(provision.status).toBe(200);
+      }
       const claimToken = await issueProRoomActivationClaim(roomCode, ACTIVATION_SECRET, {
         nowMs: Date.now() - 1_000,
         expiresAtMs: Date.now() + 60_000,
@@ -7902,7 +7933,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     );
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get('access-control-allow-headers')).toBe(
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version,x-mxqr-pro-detach-version',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version',
     );
 
     for (const previewOrigin of ['http://localhost:4173', 'http://127.0.0.1:4173']) {
@@ -8024,11 +8055,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
     'chat.notice': true,
   };
 
-  function enableMemberAuthority(context: Awaited<ReturnType<typeof activatedRoom>>): void {
-    const internal = context.worker as unknown as { env: Record<string, string> };
-    internal.env.PRO_ROOM_MEMBER_AUTHORITY_PROJECTION = '1';
-  }
-
   async function addAuthorityMember(context: Awaited<ReturnType<typeof activatedRoom>>) {
     const response = await context.worker.fetch(
       jsonRequest('/sessions', 'POST', { pin: '12345678' }),
@@ -8040,10 +8066,9 @@ describe('persistent PRO room authentication, presence, and state', () => {
     return { response, envelope, cookie };
   }
 
-  it('negotiates coarse device platforms without breaking cached snapshot clients', async () => {
+  it('always projects the canonical coarse device platform', async () => {
     const context = await activatedRoom();
     const joinRequest = jsonRequest('/sessions', 'POST', { pin: '12345678' });
-    joinRequest.headers.set('accept', 'application/json; mxqr-device-platform=1');
     joinRequest.headers.set(
       'user-agent',
       'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
@@ -8059,41 +8084,20 @@ describe('persistent PRO room authentication, presence, and state', () => {
     ).toMatchObject({ devicePlatform: 'ios' });
     expect(parseProRoomSnapshot(joined.snapshot)).not.toBeNull();
 
-    const legacy = await responseJson(
+    const current = await responseJson(
       await context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
     );
     expect(
-      legacy.snapshot.presence.participants.every(
-        (participant: Record<string, unknown>) =>
-          !Object.prototype.hasOwnProperty.call(participant, 'devicePlatform'),
+      current.snapshot.presence.participants.every(
+        (participant: Record<string, unknown>) => typeof participant.devicePlatform === 'string',
       ),
     ).toBe(true);
-    expect(parseProRoomSnapshot(legacy.snapshot)).not.toBeNull();
-
-    const negotiated = await responseJson(
-      await context.worker.fetch(
-        request(
-          '/snapshot',
-          { headers: { accept: 'application/json; mxqr-device-platform=1' } },
-          context.ownerCookie,
-        ),
-      ),
-    );
-    expect(
-      negotiated.snapshot.presence.participants.find(
-        (participant: Record<string, unknown>) =>
-          participant.participantId === joined.snapshot.viewer.participantId,
-      ),
-    ).toMatchObject({ devicePlatform: 'ios' });
+    expect(parseProRoomSnapshot(current.snapshot)).not.toBeNull();
   });
 
   it('keeps one room member identity across several devices of the same account', async () => {
     const context = await activatedRoom();
-    const internal = context.worker as unknown as {
-      env: Record<string, string>;
-      room: Record<string, any>;
-    };
-    internal.env.PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION = '1';
+    const internal = context.worker as unknown as { room: Record<string, any> };
     const accountId = 'acct_0123456789abcdefghijkl';
 
     const firstResponse = await context.worker.fetch(
@@ -8185,7 +8189,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const startedAtMs = new Date('2026-07-20T08:00:00.000Z').getTime();
     vi.setSystemTime(startedAtMs);
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const internal = context.worker as unknown as { room: Record<string, any> };
     const accountId = 'acct_leaseaccount0123456789';
     const otherAccountId = 'acct_otheraccount0123456789';
@@ -8321,11 +8324,9 @@ describe('persistent PRO room authentication, presence, and state', () => {
   it('reserves physical admission slots while grouping every account device under its first number', async () => {
     const context = await activatedRoom();
     const internal = context.worker as unknown as {
-      env: Record<string, string>;
       room: Record<string, any>;
       persist(): Promise<void>;
     };
-    internal.env.PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION = '1';
     const minsuAccountId = 'acct_0123456789abcdefghijkl';
     const jisuAccountId = 'acct_abcdefghijkl0123456789';
 
@@ -8393,10 +8394,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     delete jisuSessions[1]!.peerOrdinal;
     await internal.persist();
 
-    const restartedEnv = environment(context.bucket) as ReturnType<typeof environment> & {
-      PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION: string;
-    };
-    restartedEnv.PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION = '1';
+    const restartedEnv = environment(context.bucket);
     const restarted = new MusixquareProRoom(context.state as never, restartedEnv as never);
     const restored = await restarted.fetch(request('/snapshot', {}, anonymousCookie));
     expect(restored.status).toBe(200);
@@ -8418,11 +8416,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('links the proven owner credential once and restores owner role on another account device', async () => {
     const context = await activatedRoom();
-    const internal = context.worker as unknown as {
-      env: Record<string, string>;
-      room: Record<string, any>;
-    };
-    internal.env.PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION = '1';
+    const internal = context.worker as unknown as { room: Record<string, any> };
     const accountId = 'acct_abcdefghijkl0123456789';
 
     const attachResponse = await context.worker.fetch(
@@ -8467,7 +8461,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('detaches only the current account device and preserves persistent member authority', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const internal = context.worker as unknown as { room: Record<string, any> };
     const accountId = 'acct_groupeddevices01234567';
     const createDevice = async () => {
@@ -8504,7 +8497,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       await context.worker.fetch(request('/snapshot', {}, first.cookie)),
     );
     const beforeRevision = internal.room.revision as number;
-    const detachedResponse = await context.worker.fetch(detachV2Request(first.cookie));
+    const detachedResponse = await context.worker.fetch(detachRequest(first.cookie));
     expect(detachedResponse.status).toBe(200);
     const detached = await responseJson(detachedResponse);
     expect(detached).toMatchObject({ ok: true, detached: true });
@@ -8571,7 +8564,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ),
     ).toHaveLength(1);
 
-    const idempotent = await context.worker.fetch(detachV2Request(first.cookie));
+    const idempotent = await context.worker.fetch(detachRequest(first.cookie));
     expect(idempotent.status).toBe(200);
     const idempotentEnvelope = await responseJson(idempotent);
     expect(idempotentEnvelope).toMatchObject({ ok: true, detached: true });
@@ -8583,10 +8576,10 @@ describe('persistent PRO room authentication, presence, and state', () => {
     });
     expect(internal.room.revision).toBe(beforeRevision + 1);
 
-    const legacy = await context.worker.fetch(
+    const repeated = await context.worker.fetch(
       request('/sessions/current/account', { method: 'DELETE' }, first.cookie),
     );
-    await expect(legacy.json()).resolves.toEqual({ snapshot: idempotentEnvelope.snapshot });
+    await expect(repeated.json()).resolves.toEqual(idempotentEnvelope);
 
     const secondSnapshot = await responseJson(
       await context.worker.fetch(request('/snapshot', {}, second.cookie)),
@@ -8601,7 +8594,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('detaches an account from an offline resumable session without deleting its grant', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const internal = context.worker as unknown as { room: Record<string, any> };
     const accountId = 'acct_persistent0123456789ab';
     const response = await context.worker.fetch(
@@ -8632,19 +8624,19 @@ describe('persistent PRO room authentication, presence, and state', () => {
         .status,
     ).toBe(200);
 
-    const detached = await context.worker.fetch(detachV2Request(cookie));
+    const detached = await context.worker.fetch(detachRequest(cookie));
     expect(detached.status).toBe(200);
     await expect(detached.json()).resolves.toEqual({
       ok: true,
       detached: true,
       snapshot: null,
     });
-    const legacyOffline = await context.worker.fetch(
+    const repeatedOffline = await context.worker.fetch(
       request('/sessions/current/account', { method: 'DELETE' }, cookie),
     );
-    const legacyOfflineEnvelope = await responseJson(legacyOffline);
-    expect(Object.keys(legacyOfflineEnvelope)).toEqual(['snapshot']);
-    expect(legacyOfflineEnvelope.snapshot.viewer).toBeNull();
+    const repeatedOfflineEnvelope = await responseJson(repeatedOffline);
+    expect(repeatedOfflineEnvelope).toMatchObject({ ok: true, detached: true });
+    expect(repeatedOfflineEnvelope.snapshot).toBeNull();
     expect(internal.room.accountMembers[accountId]).toMatchObject({
       memberId,
       role: 'controller',
@@ -8662,7 +8654,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('keeps the linked owner durable while logout demotes one device and disables legacy-cookie elevation', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const internal = context.worker as unknown as { room: Record<string, any> };
     const accountId = 'acct_abcdefghijkl0123456789';
     const attachedResponse = await context.worker.fetch(
@@ -8685,7 +8676,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const otherCookie = cookieFrom(otherDeviceResponse);
     bindCookiePresence(otherCookie, otherDevice);
 
-    const detachedResponse = await context.worker.fetch(detachV2Request(context.ownerCookie));
+    const detachedResponse = await context.worker.fetch(detachRequest(context.ownerCookie));
     expect(detachedResponse.status).toBe(200);
     const detached = await responseJson(detachedResponse);
     expect(detached).toMatchObject({ ok: true, detached: true });
@@ -8722,7 +8713,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('keeps an ordinary PRO member read-only, including end and unavailable observations', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const friend = await addAuthorityMember(context);
 
     expect(friend.envelope.snapshot).toMatchObject({
@@ -8905,7 +8895,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('lets only the owner delegate canonical permissions and exposes a chat-notice check seam', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const friend = await addAuthorityMember(context);
     const memberId = friend.envelope.snapshot.viewer.memberId as string;
 
@@ -9101,7 +9090,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('does not let BOT widen a delegated administrator playback permission', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const friend = await addAuthorityMember(context);
     const memberId = friend.envelope.snapshot.viewer.memberId as string;
     expect(
@@ -9205,7 +9193,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('authorizes privileged realtime chat from canonical server-side facts', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const friend = await addAuthorityMember(context);
     const memberId = friend.envelope.snapshot.viewer.memberId as string;
     expect(
@@ -9311,7 +9298,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('keeps system-audio publishing owner-only even when media addition is delegated', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const friend = await addAuthorityMember(context);
     const memberId = friend.envelope.snapshot.viewer.memberId as string;
     expect(
@@ -9341,7 +9327,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('grants add, remove, and reorder through the stable media permission', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const firstAuthorityQueueItemId = '61111111-1111-4111-8111-111111111111';
     const secondAuthorityQueueItemId = '62222222-2222-4222-8222-222222222222';
     const authorityPlaylist = [
@@ -9645,7 +9630,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('projects administrators as owner, online member number, then deterministic offline nickname', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
 
     const addAccountAdministrator = async (index: number, nickname: string) => {
       const accountId = `acct_${String(index).padStart(22, '0')}`;
@@ -9785,7 +9769,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('persists account delegation offline while anonymous delegation dies with its session', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const accountId = 'acct_persistent0123456789ab';
     const accountResponse = await context.worker.fetch(
       await withAccountAssertion(
@@ -9884,7 +9867,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('restores an authenticated administrator grant after a Durable Object restart', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const accountId = 'acct_restartadmin0123456789';
     const joinedResponse = await context.worker.fetch(
       await withAccountAssertion(
@@ -9915,10 +9897,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
         .status,
     ).toBe(200);
 
-    const restartedEnv = environment(context.bucket) as ReturnType<typeof environment> & {
-      PRO_ROOM_MEMBER_AUTHORITY_PROJECTION: string;
-    };
-    restartedEnv.PRO_ROOM_MEMBER_AUTHORITY_PROJECTION = '1';
+    const restartedEnv = environment(context.bucket);
     const restarted = new MusixquareProRoom(context.state as never, restartedEnv as never);
     const rejoinedResponse = await restarted.fetch(
       await withAccountAssertion(
@@ -9944,7 +9923,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-20T08:00:00.000Z'));
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const anonymous = await addAuthorityMember(context);
     const memberId = anonymous.envelope.snapshot.viewer.memberId as string;
     expect(
@@ -9984,7 +9962,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('keeps anonymous delegation until the same member final live device leaves', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const first = await addAuthorityMember(context);
     const second = await addAuthorityMember(context);
     const internal = context.worker as unknown as { room: Record<string, any> };
@@ -10038,7 +10015,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('does not promote an ephemeral anonymous grant into a persistent account grant on sign-in', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const anonymous = await addAuthorityMember(context);
     const anonymousMemberId = anonymous.envelope.snapshot.viewer.memberId as string;
     expect(
@@ -10082,7 +10058,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('applies an explicit owner grant after an anonymous participant signs in', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const anonymous = await addAuthorityMember(context);
     const attachedResponse = await context.worker.fetch(
       await withAccountAssertion(
@@ -10133,7 +10108,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('kicks every device in one account and prevents delegated admins from kicking peers', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const accountId = 'acct_groupeddevices01234567';
     const createAccountDevice = async () => {
       const response = await context.worker.fetch(
@@ -10224,7 +10198,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('lets a delegated controller disconnect its sibling device while preserving its current session and authority', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const internal = context.worker as unknown as { room: Record<string, any> };
     const accountId = 'acct_singledevice0123456789';
     const createAccountDevice = async () => {
@@ -10324,7 +10297,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('lets an account-linked owner disconnect a sibling owner device without weakening owner authority', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const internal = context.worker as unknown as { room: Record<string, any> };
     const accountId = 'acct_ownerdevices0123456789';
     const attachedResponse = await context.worker.fetch(
@@ -10429,7 +10401,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('revokes an authenticated administrator account when the owner kicks that member', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const internal = context.worker as unknown as { room: Record<string, any> };
     const accountId = 'acct_kickadmin0123456789abc';
     const createAccountDevice = async () => {
@@ -10495,7 +10466,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('purges account-bound authority through the internal account-deletion seam', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const accountId = 'acct_purgeauthority01234567';
     const response = await context.worker.fetch(
       await withAccountAssertion(
@@ -10552,7 +10522,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('purges every owner-account device and removes the durable owner association', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const internal = context.worker as unknown as { room: Record<string, any> };
     const accountId = 'acct_abcdefghijkl0123456789';
     const attachedResponse = await context.worker.fetch(
@@ -10804,8 +10773,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('preserves same-account grouping while restarting an empty presence epoch at one', async () => {
     const context = await activatedRoom();
-    const internal = context.worker as unknown as { env: Record<string, string> };
-    internal.env.PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION = '1';
     const accountId = 'acct_epochgroup0123456789AB';
     const accountDevices: Array<{ cookie: string; participantId: string }> = [];
     for (let index = 0; index < 2; index += 1) {
@@ -10875,11 +10842,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('keeps account rows unique when the representative device leaves before another account joins', async () => {
     const context = await activatedRoom();
-    const internal = context.worker as unknown as {
-      env: Record<string, string>;
-      room: Record<string, any>;
-    };
-    internal.env.PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION = '1';
+    const internal = context.worker as unknown as { room: Record<string, any> };
     const firstAccountId = 'acct_0123456789abcdefghijkl';
     const secondAccountId = 'acct_abcdefghijkl0123456789';
 
@@ -10949,7 +10912,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('fences and persists a stored anonymous identity migration across restart', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const memberResponse = await context.worker.fetch(
       jsonRequest('/sessions', 'POST', { pin: '12345678' }),
     );
@@ -11001,10 +10963,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     internal.room.anonymousAdministrators[memberId]!.displayName = 'Legacy Tablet';
     await internal.persist();
 
-    const restartedEnv = environment(context.bucket) as ReturnType<typeof environment> & {
-      PRO_ROOM_MEMBER_AUTHORITY_PROJECTION: string;
-    };
-    restartedEnv.PRO_ROOM_MEMBER_AUTHORITY_PROJECTION = '1';
+    const restartedEnv = environment(context.bucket);
     const restarted = new MusixquareProRoom(context.state as never, restartedEnv as never);
     const migratedResponse = await restarted.fetch(
       jsonRequest(
@@ -11099,7 +11058,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('rolls back every anonymous and account identity field when revisions are exhausted', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const anonymousResponse = await context.worker.fetch(
       jsonRequest('/sessions', 'POST', { pin: '12345678' }),
     );
@@ -11203,7 +11161,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('redeems a short-lived owner recovery claim once and revokes prior owner credentials', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const { worker, ownerCookie } = context;
     const recoveryAccountId = 'acct_recoverowner0123456789';
     const controllerResponse = await worker.fetch(
@@ -11212,7 +11169,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const controllerCookie = cookieFrom(controllerResponse);
     bindCookiePresence(controllerCookie, await responseJson(controllerResponse));
     const nowMs = Date.now();
-    const wrongRoomClaim = await issueProRoomOwnerRecoveryClaim('000000', ACTIVATION_SECRET, {
+    const wrongRoomClaim = await issueProRoomOwnerRecoveryClaim('000001', ACTIVATION_SECRET, {
       nowMs: nowMs - 1_000,
       expiresAtMs: nowMs + 60_000,
       nonce: 'wrong-room-recovery-nonce',
@@ -11277,8 +11234,8 @@ describe('persistent PRO room authentication, presence, and state', () => {
     });
     expect(recovered.headers.getSetCookie()).toEqual(
       expect.arrayContaining([
-        expect.stringMatching(/^__Host-mxqr_pro_session_000001=/),
-        expect.stringMatching(/^__Host-mxqr_pro_owner_000001=/),
+        expect.stringMatching(new RegExp(`^__Host-mxqr_pro_session_${ROOM_CODE}=`)),
+        expect.stringMatching(new RegExp(`^__Host-mxqr_pro_owner_${ROOM_CODE}=`)),
       ]),
     );
     expect((await worker.fetch(request('/snapshot', {}, ownerCookie))).status).toBe(401);
@@ -11297,7 +11254,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('promotes a signed-in member account through recovery without leaving a ghost device', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const accountId = 'acct_abcdefghijkl0123456789';
     const joinDevice = async () => {
       const response = await context.worker.fetch(
@@ -11368,7 +11324,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('does not recover an account-bound owner as a different signed-in account', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const ownerAccountId = 'acct_abcdefghijkl0123456789';
     const foreignAccountId = 'acct_ZYXWVUTSRQPO9876543210';
     const attached = await context.worker.fetch(
@@ -11431,7 +11386,6 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
   it('leaves the claim and existing owner untouched when owner account capacity is full', async () => {
     const context = await activatedRoom();
-    enableMemberAuthority(context);
     const internal = context.worker as unknown as { room: Record<string, any> };
     const nowMs = Date.now();
     for (let index = 1; index <= 100; index += 1) {
@@ -11497,26 +11451,20 @@ describe('persistent PRO room authentication, presence, and state', () => {
     });
   });
 
-  it('revokes controller sessions on owner PIN rotation while retaining the owner session', async () => {
+  it('revokes ordinary member sessions on owner PIN rotation while retaining the owner session', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const controller = await worker.fetch(jsonRequest('/sessions', 'POST', { pin: '12345678' }));
     expect(controller.status).toBe(200);
     const controllerCookie = cookieFrom(controller);
-    expect(controllerCookie).toMatch(/^__Host-mxqr_pro_session_000001=/);
+    expect(controllerCookie).toMatch(new RegExp(`^__Host-mxqr_pro_session_${ROOM_CODE}=`));
     expect(controller.headers.get('set-cookie')).not.toMatch(/Domain=/i);
     const sessionEnvelope = await responseJson(controller);
     bindCookiePresence(controllerCookie, sessionEnvelope);
     expect(Object.keys(sessionEnvelope)).toEqual(['snapshot', 'session']);
     expect(Object.keys(sessionEnvelope.session)).toEqual(['expiresAtMs']);
     expect(sessionEnvelope.snapshot.viewer).toMatchObject({
-      role: 'controller',
-      capabilities: [
-        'queue.mutate',
-        'playback.control',
-        'effects.control',
-        'asset.upload',
-        'members.manage',
-      ],
+      role: 'member',
+      capabilities: [],
     });
     expect(sessionEnvelope.snapshot.viewer.capabilities).not.toContain('room.configure');
     const epochBeforeRotation = sessionEnvelope.snapshot.presence.coordinatorEpoch as number;
@@ -11538,7 +11486,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(newPin.status).toBe(200);
   });
 
-  it('bulk-revokes multiple controllers with exactly one PIN security epoch advance', async () => {
+  it('bulk-revokes multiple members with exactly one PIN security epoch advance', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const firstMemberResponse = await worker.fetch(
       jsonRequest('/sessions', 'POST', { pin: '12345678' }),
@@ -12973,15 +12921,16 @@ describe('persistent PRO room authentication, presence, and state', () => {
         youtubeSubIndex: 7,
       },
     };
-    // A legacy periodic snapshot may still arrive during a rolling deploy,
-    // but it can only round-trip the canonical selection, never advance it.
+    // A periodic compact checkpoint can only round-trip the canonical
+    // selection; it cannot advance playback authority.
     const periodic = await worker.fetch(
       jsonRequest(
-        '/snapshot',
-        'PUT',
+        '/snapshot/compact',
+        'POST',
         {
           baseRevision: selected.snapshot.revision,
-          playlist: selected.snapshot.playlist,
+          playlistOrder: null,
+          upserts: [],
           currentQueueItemId: queueItemId,
           playback: selected.snapshot.playback,
         },
@@ -13245,7 +13194,24 @@ describe('persistent PRO room authentication, presence, and state', () => {
       jsonRequest('/sessions', 'POST', { pin: '12345678' }),
     );
     const controllerCookie = cookieFrom(controller);
-    bindCookiePresence(controllerCookie, await responseJson(controller));
+    const controllerEnvelope = await responseJson(controller);
+    bindCookiePresence(controllerCookie, controllerEnvelope);
+    const delegated = await context.worker.fetch(
+      jsonRequest(
+        `/administrators/${controllerEnvelope.snapshot.viewer.memberId}`,
+        'PUT',
+        {
+          permissions: {
+            'media.add': true,
+            'playback.control': false,
+            'members.kick': false,
+            'chat.notice': false,
+          },
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(delegated.status).toBe(200);
     const wrongCompleter = await context.worker.fetch(
       request(
         `/media/${assetId}/complete`,
@@ -13271,11 +13237,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(await responseJson(completeWhileAway)).toEqual({ error: 'PRESENCE_SUPERSEDED' });
     const mutateWhileAway = await context.worker.fetch(
       jsonRequest(
-        '/snapshot',
-        'PUT',
+        '/snapshot/compact',
+        'POST',
         {
           baseRevision: beforeLeave.snapshot.revision,
-          playlist: [],
+          playlistOrder: [],
+          upserts: [],
           currentQueueItemId: null,
           playback: beforeLeave.snapshot.playback,
         },
@@ -13310,7 +13277,8 @@ describe('persistent PRO room authentication, presence, and state', () => {
     const queueItemId = '11111111-1111-4111-8111-111111111111';
     const body = {
       baseRevision: current.snapshot.revision,
-      playlist: [
+      playlistOrder: [queueItemId],
+      upserts: [
         {
           queueItemId,
           name: 'Video',
@@ -13318,27 +13286,30 @@ describe('persistent PRO room authentication, presence, and state', () => {
         },
       ],
       currentQueueItemId: null,
-      // During the rolling cutover the field remains on the wire, but it is
-      // only an observation. Queue mutations cannot mint playback authority.
+      // Playback is observation-only. Queue mutations cannot mint playback authority.
       playback: current.snapshot.playback,
     };
     const first = await worker.fetch(
-      jsonRequest('/snapshot', 'PUT', body, ownerCookie, IDEMPOTENCY_KEY),
+      jsonRequest('/snapshot/compact', 'POST', body, ownerCookie, IDEMPOTENCY_KEY),
     );
     expect(first.status).toBe(200);
     const firstEnvelope = await responseJson(first);
     expect(firstEnvelope.snapshot.playback).toEqual(current.snapshot.playback);
     expect(
       firstEnvelope.snapshot.presence.participants.every(
-        (participant: Record<string, unknown>) =>
-          !Object.prototype.hasOwnProperty.call(participant, 'devicePlatform'),
+        (participant: Record<string, unknown>) => typeof participant.devicePlatform === 'string',
       ),
     ).toBe(true);
     const controller = await worker.fetch(jsonRequest('/sessions', 'POST', { pin: '12345678' }));
     expect(controller.status).toBe(200);
-    const negotiatedReplay = jsonRequest('/snapshot', 'PUT', body, ownerCookie, IDEMPOTENCY_KEY);
-    negotiatedReplay.headers.set('accept', 'application/json; mxqr-device-platform=1');
-    const replay = await worker.fetch(negotiatedReplay);
+    const replayRequest = jsonRequest(
+      '/snapshot/compact',
+      'POST',
+      body,
+      ownerCookie,
+      IDEMPOTENCY_KEY,
+    );
+    const replay = await worker.fetch(replayRequest);
     const replayEnvelope = await responseJson(replay);
     expect(replayEnvelope.snapshot.revision).toBeGreaterThan(firstEnvelope.snapshot.revision);
     expect(replayEnvelope.snapshot.playlist).toEqual(firstEnvelope.snapshot.playlist);
@@ -13347,13 +13318,14 @@ describe('persistent PRO room authentication, presence, and state', () => {
         (participant: Record<string, unknown>) => typeof participant.devicePlatform === 'string',
       ),
     ).toBe(true);
-    const legacyReplay = await responseJson(
-      await worker.fetch(jsonRequest('/snapshot', 'PUT', body, ownerCookie, IDEMPOTENCY_KEY)),
+    const canonicalReplay = await responseJson(
+      await worker.fetch(
+        jsonRequest('/snapshot/compact', 'POST', body, ownerCookie, IDEMPOTENCY_KEY),
+      ),
     );
     expect(
-      legacyReplay.snapshot.presence.participants.every(
-        (participant: Record<string, unknown>) =>
-          !Object.prototype.hasOwnProperty.call(participant, 'devicePlatform'),
+      canonicalReplay.snapshot.presence.participants.every(
+        (participant: Record<string, unknown>) => typeof participant.devicePlatform === 'string',
       ),
     ).toBe(true);
     const internal = worker as unknown as {
@@ -13389,11 +13361,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
 
     const forgedSnapshot = await context.worker.fetch(
       jsonRequest(
-        '/snapshot',
-        'PUT',
+        '/snapshot/compact',
+        'POST',
         {
           baseRevision: current.snapshot.revision,
-          playlist,
+          playlistOrder: null,
+          upserts: [],
           currentQueueItemId: queueItemId,
           playback: {
             ...current.snapshot.playback,
@@ -13541,7 +13514,8 @@ describe('persistent PRO room authentication, presence, and state', () => {
     }));
     const mutation = {
       baseRevision: before.snapshot.revision,
-      playlist,
+      playlistOrder: playlist.map((item) => item.queueItemId),
+      upserts: playlist,
       currentQueueItemId: null,
       playback: before.snapshot.playback,
     };
@@ -13550,7 +13524,13 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     await vi.advanceTimersByTimeAsync(30_001);
     const accepted = await worker.fetch(
-      jsonRequest('/snapshot', 'PUT', mutation, ownerCookie, `${IDEMPOTENCY_KEY}-state-budget`),
+      jsonRequest(
+        '/snapshot/compact',
+        'POST',
+        mutation,
+        ownerCookie,
+        `${IDEMPOTENCY_KEY}-state-budget`,
+      ),
     );
     expect(accepted.status).toBe(200);
     const after = await responseJson(accepted);
@@ -13699,11 +13679,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
     }));
     const populated = await worker.fetch(
       jsonRequest(
-        '/snapshot',
-        'PUT',
+        '/snapshot/compact',
+        'POST',
         {
           baseRevision: before.snapshot.revision,
-          playlist,
+          playlistOrder: playlist.map((item) => item.queueItemId),
+          upserts: playlist,
           currentQueueItemId: null,
           playback: before.snapshot.playback,
         },
@@ -13719,19 +13700,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ).byteLength,
     ).toBeGreaterThan(16 * 1024);
 
-    const staleRequests = [
-      jsonRequest(
-        '/snapshot',
-        'PUT',
-        {
-          baseRevision: before.snapshot.revision,
-          playlist: current.snapshot.playlist,
-          currentQueueItemId: current.snapshot.currentQueueItemId,
-          playback: current.snapshot.playback,
-        },
-        ownerCookie,
-        `${IDEMPOTENCY_KEY}-stale-legacy-budget`,
-      ),
+    const response = await worker.fetch(
       jsonRequest(
         '/snapshot/compact',
         'POST',
@@ -13745,14 +13714,11 @@ describe('persistent PRO room authentication, presence, and state', () => {
         ownerCookie,
         `${IDEMPOTENCY_KEY}-stale-compact-budget`,
       ),
-    ];
-    for (const staleRequest of staleRequests) {
-      const response = await worker.fetch(staleRequest);
-      expect(response.status).toBe(409);
-      const text = await response.text();
-      expect(new TextEncoder().encode(text).byteLength).toBeLessThan(16 * 1024);
-      expect(JSON.parse(text)).toEqual({ error: 'REVISION_CONFLICT' });
-    }
+    );
+    expect(response.status).toBe(409);
+    const text = await response.text();
+    expect(new TextEncoder().encode(text).byteLength).toBeLessThan(16 * 1024);
+    expect(JSON.parse(text)).toEqual({ error: 'REVISION_CONFLICT' });
   });
 
   it('accepts a bounded compact upsert batch above the retired 512 KiB ceiling', async () => {
@@ -14296,7 +14262,24 @@ describe('persistent PRO room private media accounting', () => {
     const { worker, ownerCookie } = await activatedRoom();
     const controller = await worker.fetch(jsonRequest('/sessions', 'POST', { pin: '12345678' }));
     const controllerCookie = cookieFrom(controller);
-    bindCookiePresence(controllerCookie, await responseJson(controller));
+    const controllerEnvelope = await responseJson(controller);
+    bindCookiePresence(controllerCookie, controllerEnvelope);
+    const delegated = await worker.fetch(
+      jsonRequest(
+        `/administrators/${controllerEnvelope.snapshot.viewer.memberId}`,
+        'PUT',
+        {
+          permissions: {
+            'media.add': true,
+            'playback.control': false,
+            'members.kick': false,
+            'chat.notice': false,
+          },
+        },
+        ownerCookie,
+      ),
+    );
+    expect(delegated.status).toBe(200);
     const body = { byteLength: 1024, name: 'same.wav', mime: 'audio/wav' };
     const ownerReservation = await responseJson(
       await worker.fetch(
@@ -14410,8 +14393,8 @@ describe('PRO room system-audio ownership lease', () => {
         memberCookie,
       ),
     );
-    expect(wrongOwner.status).toBe(409);
-    expect(await responseJson(wrongOwner)).toEqual({ error: 'SYSTEM_AUDIO_NOT_OWNER' });
+    expect(wrongOwner.status).toBe(403);
+    expect(await responseJson(wrongOwner)).toEqual({ error: 'CAPABILITY_REQUIRED' });
 
     const wrongGeneration = await worker.fetch(
       jsonRequest(
@@ -14646,7 +14629,7 @@ describe('PRO room system-audio ownership lease', () => {
     expect(state.storage.alarm).not.toBe(liveExpiresAt);
   });
 
-  it('expires an abandoned preparing claim and allows a new participant to acquire afterward', async () => {
+  it('expires an abandoned preparing claim and lets the owner acquire again', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const acquired = await acquireSystemAudio(worker, ownerCookie);
     const internal = worker as unknown as {
@@ -14662,12 +14645,7 @@ describe('PRO room system-audio ownership lease', () => {
       status: 'idle',
     });
 
-    const memberResponse = await worker.fetch(
-      jsonRequest('/sessions', 'POST', { pin: '12345678' }),
-    );
-    const memberCookie = cookieFrom(memberResponse);
-    bindCookiePresence(memberCookie, await responseJson(memberResponse));
-    const next = await acquireSystemAudio(worker, memberCookie);
+    const next = await acquireSystemAudio(worker, ownerCookie);
     expect(next.systemAudio).toMatchObject({
       generation: acquired.systemAudio.generation + 2,
       status: 'preparing',
@@ -14719,7 +14697,7 @@ describe('PRO room system-audio ownership lease', () => {
       publication: null,
     });
     const blocked = await worker.fetch(
-      jsonRequest('/system-audio/acquire', 'POST', {}, fifthCookie),
+      jsonRequest('/system-audio/acquire', 'POST', {}, ownerCookie),
     );
     expect(blocked.status).toBe(409);
     expect(await responseJson(blocked)).toEqual({ error: 'SYSTEM_AUDIO_DEVICE_LIMIT' });
@@ -15873,9 +15851,11 @@ describe('PRO room immutable generation isolation', () => {
     };
     const asset = replacementInternal.room.assets[assetId]!;
     expect(asset.roomGeneration).toBe(1);
-    expect(asset.objectKey).toMatch(/^pro-room-incarnations\/000001\/generation-1\/assets\//);
+    expect(asset.objectKey).toMatch(
+      new RegExp(`^pro-room-incarnations/${ROOM_CODE}/generation-1/assets/`),
+    );
     expect(asset.stagingObjectKey).toMatch(
-      /^pro-room-incarnations\/000001\/generation-1\/assets\/.*\/staging_/,
+      new RegExp(`^pro-room-incarnations/${ROOM_CODE}/generation-1/assets/.*/staging_`),
     );
     expect(asset.objectKey).not.toContain('/generation-0/');
 

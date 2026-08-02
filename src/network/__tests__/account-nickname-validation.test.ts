@@ -136,6 +136,7 @@ beforeEach(() => {
     configured: true,
     authenticated: true,
     account: { nickname: 'Current', profileComplete: true },
+    statsScope: 's'.repeat(43),
   });
   resetState();
   bus.clear();
@@ -149,6 +150,7 @@ beforeEach(() => {
           configured: true,
           authenticated: true,
           account: { nickname, profileComplete: true },
+          statsScope: 's'.repeat(43),
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );

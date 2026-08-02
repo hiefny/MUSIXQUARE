@@ -18,7 +18,6 @@ head_sampling_rate = 0.01
 # Required at deploy time and intentionally never committed:
 #   npx wrangler secret put PRO_SIGNALING_SECRET --config cloudflare/wrangler.signaling.toml
 #   npx wrangler secret put MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET --config cloudflare/wrangler.signaling.toml
-#   npx wrangler secret put PRO_ROOM_DECOMMISSION_VERIFY_SECRET --config cloudflare/wrangler.signaling.toml
 
 [[routes]]
 pattern = "signal.musixquare.com"
@@ -36,25 +35,11 @@ name = "PRO_ROOM_AUTHORITY_ROOMS"
 class_name = "MusixquareProRoom"
 script_name = "musixquare-pro-room"
 
-[[durable_objects.bindings]]
-name = "DEVELOPER_API_LIMITERS"
-class_name = "DeveloperApiRateLimiter"
-script_name = "musixquare-developer-api"
-
-[[r2_buckets]]
-binding = "PRO_MEDIA_BUCKET"
-bucket_name = "musixquare-pro-media"
-
-# Admin dashboard metrics shared with the app Worker.
+# Shared PRO-room registry used to resolve the current room generation.
 [[d1_databases]]
 binding = "MUSIXQUARE_ADMIN_DB"
 database_name = "musixquare-admin-metrics"
 database_id = "d6cc9ceb-f0b6-40e4-99aa-8f28bec412ed"
-
-[[d1_databases]]
-binding = "DEVELOPER_API_DB"
-database_name = "musixquare-developer-api"
-database_id = "237d63d2-6eea-4b01-b396-7784b5b8b6f0"
 
 [[migrations]]
 tag = "v1"

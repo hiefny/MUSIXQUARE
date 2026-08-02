@@ -92,8 +92,13 @@ function snapshot(currentPlayback = playback(0)): ProRoomSnapshot {
       participants: [
         {
           participantId: PARTICIPANT_ID,
+          memberId: 'member_0000000001',
+          memberDisplayNumber: 0,
+          isAuthenticated: true,
           displayName: 'Equal member',
+          devicePlatform: 'other',
           role: 'owner',
+          capabilities: [...capabilitiesForProRoomRole('owner')],
           joinedAtMs: 1,
         },
       ],
@@ -106,6 +111,8 @@ function snapshot(currentPlayback = playback(0)): ProRoomSnapshot {
     },
     viewer: {
       memberId: 'member_0000000001',
+      memberDisplayNumber: 0,
+      isAuthenticated: true,
       participantId: PARTICIPANT_ID,
       presenceIncarnationId: 'presence_0000000001',
       displayName: 'Equal member',
@@ -113,6 +120,25 @@ function snapshot(currentPlayback = playback(0)): ProRoomSnapshot {
       capabilities: [...capabilitiesForProRoomRole('owner')],
       coordinatorEligible: false,
     },
+    memberIdentityVersion: 1,
+    authorityVersion: 1,
+    administrators: [
+      {
+        memberId: 'member_0000000001',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Equal member',
+        role: 'owner',
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': true,
+          'chat.notice': true,
+        },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+    ],
   };
 }
 
@@ -197,7 +223,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
         .mockResolvedValue(signalingAccess()),
       vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(initial),
       vi.spyOn(ProRoomApiClient.prototype, 'getEffects').mockResolvedValue({
-        schemaVersion: 1,
+        schemaVersion: 2,
         view: 'effects',
         roomCode: ROOM_CODE,
         revision: 0,
@@ -878,7 +904,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
         }),
     );
     getEffects.mockResolvedValue({
-      schemaVersion: 1,
+      schemaVersion: 2,
       view: 'effects',
       roomCode: ROOM_CODE,
       revision: 2,
@@ -928,7 +954,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     expect(getQueueMode).toHaveBeenCalledOnce();
 
     resolveEffects({
-      schemaVersion: 1,
+      schemaVersion: 2,
       view: 'effects',
       roomCode: ROOM_CODE,
       revision: 1,
@@ -1013,7 +1039,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
           }),
       )
       .mockResolvedValue({
-        schemaVersion: 1,
+        schemaVersion: 2,
         view: 'effects',
         roomCode: ROOM_CODE,
         revision: 1,
@@ -1135,14 +1161,37 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     const off = bus.on('chat:system-message', (text) => messages.push(text));
     const peerTwo = {
       participantId: 'participant_00002',
+      memberId: 'member_0000000002',
+      memberDisplayNumber: 1,
+      isAuthenticated: true,
       displayName: 'Peer 2',
+      devicePlatform: 'other' as const,
       role: 'controller' as const,
+      capabilities: ['playback.control' as const],
       joinedAtMs: 2,
     };
     try {
       const joined: ProRoomSnapshot = {
         ...snapshot(),
         revision: 2,
+        administrators: [
+          ...snapshot().administrators,
+          {
+            memberId: peerTwo.memberId,
+            memberDisplayNumber: peerTwo.memberDisplayNumber,
+            isAuthenticated: peerTwo.isAuthenticated,
+            displayName: peerTwo.displayName,
+            role: 'controller',
+            permissions: {
+              'media.add': false,
+              'playback.control': true,
+              'members.kick': false,
+              'chat.notice': false,
+            },
+            inheritedPermissions: [],
+            onlineDeviceCount: 1,
+          },
+        ],
         presence: {
           ...snapshot().presence,
           revision: 2,
@@ -1167,6 +1216,11 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       const renamed: ProRoomSnapshot = {
         ...joined,
         revision: 3,
+        administrators: joined.administrators.map((administrator) =>
+          administrator.memberId === peerTwo.memberId
+            ? { ...administrator, displayName: 'Listening room' }
+            : administrator,
+        ),
         presence: {
           ...joined.presence,
           revision: 3,
@@ -1188,6 +1242,11 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       const departed: ProRoomSnapshot = {
         ...renamed,
         revision: 4,
+        administrators: renamed.administrators.map((administrator) =>
+          administrator.memberId === peerTwo.memberId
+            ? { ...administrator, onlineDeviceCount: 0 }
+            : administrator,
+        ),
         presence: {
           ...renamed.presence,
           revision: 4,

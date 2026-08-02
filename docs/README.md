@@ -13,7 +13,10 @@ or a substitute for the current source and tests.
 
 - [Optional account identity and room authority](design/account-identity-and-room-authority.md)
   and [account authentication provisioning](account-auth-operations.md) define
-  the additive account model, OAuth/D1 security boundary, and production setup.
+  the account model, OAuth/D1 security boundary, and production setup.
+
+- [Developer API OpenAPI contract](../public/developers/openapi.yaml) defines
+  the public server-to-server `/v1` route and payload surface.
 
 - [Full project audit — 2026-07-19](full-project-audit-2026-07-19.md) — current
   cross-domain audit method, confirmed corrections, and residual boundaries.

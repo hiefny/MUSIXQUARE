@@ -22,16 +22,17 @@ function diffProRoomPresenceMembersForTests(
 
 function participant(
   participantId: string,
-  memberId: string | undefined,
+  memberId: string,
   role: ProRoomPresenceParticipant['role'],
   memberDisplayNumber: number,
 ): ProRoomPresenceParticipant {
   return {
     participantId,
-    ...(memberId ? { memberId } : {}),
+    memberId,
     memberDisplayNumber,
-    isAuthenticated: !!memberId,
+    isAuthenticated: !memberId.startsWith('anonymous-member-'),
     displayName: memberId === 'member-owner' ? 'Owner' : 'Minsu',
+    devicePlatform: 'other',
     role,
     capabilities:
       role === 'owner'
@@ -139,9 +140,9 @@ describe('PRO physical-device member projection', () => {
     });
   });
 
-  it('keeps anonymous legacy participants device-scoped when no member id is projected', () => {
-    const first = participant('anonymous-1', undefined, 'member', 1);
-    const second = participant('anonymous-2', undefined, 'member', 2);
+  it('keeps distinct anonymous member identities device-scoped', () => {
+    const first = participant('anonymous-1', 'anonymous-member-1', 'member', 1);
+    const second = participant('anonymous-2', 'anonymous-member-2', 'member', 2);
 
     expect(diffProRoomPresenceMembersForTests([first], [first, second])).toEqual({
       joined: ['Minsu'],
@@ -150,7 +151,7 @@ describe('PRO physical-device member projection', () => {
   });
 
   it('does not announce login, logout, or account replacement as physical presence changes', () => {
-    const anonymous = participant('device-1', undefined, 'member', 1);
+    const anonymous = participant('device-1', 'anonymous-member-1', 'member', 1);
     const signedIn = participant('device-1', 'member-minsu', 'controller', 1);
     const replacementAccount = {
       ...participant('device-1', 'member-other', 'member', 2),
@@ -172,7 +173,7 @@ describe('PRO physical-device member projection', () => {
   });
 
   it('still announces real joins and leaves when another participant rebinds identity', () => {
-    const anonymous = participant('device-1', undefined, 'member', 1);
+    const anonymous = participant('device-1', 'anonymous-member-1', 'member', 1);
     const signedIn = participant('device-1', 'member-minsu', 'controller', 1);
     const genuinelyJoined = participant('device-2', 'member-jisu', 'member', 2);
 
@@ -183,7 +184,7 @@ describe('PRO physical-device member projection', () => {
     expect(
       diffProRoomPresenceMembersForTests(
         [signedIn, genuinelyJoined],
-        [participant('device-1', undefined, 'member', 1)],
+        [participant('device-1', 'anonymous-member-1', 'member', 1)],
       ),
     ).toEqual({
       joined: [],

@@ -16,7 +16,7 @@ const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_00001';
 
 function snapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
-  return {
+  const value: ProRoomSnapshot = {
     schemaVersion: 1,
     roomCode: ROOM_CODE,
     status: 'active',
@@ -44,8 +44,20 @@ function snapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
       participants: [
         {
           participantId: PARTICIPANT_ID,
+          memberId: 'member_0000000001',
+          memberDisplayNumber: 0,
+          isAuthenticated: true,
           displayName: 'Owner',
+          devicePlatform: 'other',
           role: 'owner',
+          capabilities: [
+            'queue.mutate',
+            'playback.control',
+            'effects.control',
+            'asset.upload',
+            'members.manage',
+            'room.configure',
+          ],
           joinedAtMs: 1,
         },
       ],
@@ -58,6 +70,8 @@ function snapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
     },
     viewer: {
       memberId: 'member_0000000001',
+      memberDisplayNumber: 0,
+      isAuthenticated: true,
       participantId: PARTICIPANT_ID,
       presenceIncarnationId: 'presence_0000000001',
       displayName: 'Owner',
@@ -72,8 +86,85 @@ function snapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapshot {
       ],
       coordinatorEligible: false,
     },
+    memberIdentityVersion: 1,
+    authorityVersion: 1,
+    administrators: [
+      {
+        memberId: 'member_0000000001',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': true,
+          'chat.notice': true,
+        },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+    ],
     ...overrides,
   };
+
+  if (!Object.prototype.hasOwnProperty.call(overrides, 'administrators')) {
+    const authorityParticipants = new Map(
+      value.presence.participants
+        .filter((participant) => participant.role !== 'member')
+        .map((participant) => [participant.memberId, participant]),
+    );
+    value.administrators = [...authorityParticipants.values()].map((participant) => {
+      const permissions =
+        participant.role === 'owner'
+          ? {
+              'media.add': true,
+              'playback.control': true,
+              'members.kick': true,
+              'chat.notice': true,
+            }
+          : {
+              'media.add': participant.capabilities.includes('queue.mutate'),
+              'playback.control': participant.capabilities.includes('playback.control'),
+              'members.kick': participant.capabilities.includes('members.manage'),
+              'chat.notice': false,
+            };
+      return {
+        memberId: participant.memberId,
+        memberDisplayNumber: participant.memberDisplayNumber,
+        isAuthenticated: participant.isAuthenticated,
+        displayName: participant.displayName,
+        role: participant.role === 'owner' ? ('owner' as const) : ('controller' as const),
+        permissions,
+        inheritedPermissions:
+          participant.role === 'owner'
+            ? (['media.add', 'playback.control', 'members.kick', 'chat.notice'] as const)
+            : ([] as const),
+        onlineDeviceCount: value.presence.participants.filter(
+          (candidate) => candidate.memberId === participant.memberId,
+        ).length,
+      };
+    });
+    if (!value.administrators.some((administrator) => administrator.role === 'owner')) {
+      value.administrators.unshift({
+        memberId: 'member_0000000001',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': true,
+          'chat.notice': true,
+        },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 0,
+      });
+    }
+  }
+
+  return value;
 }
 
 function signaling(
@@ -349,7 +440,7 @@ describe('PRO room session controller', () => {
             'members.kick': true,
             'chat.notice': true,
           },
-          inheritedPermissions: ['playback.control'],
+          inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
           onlineDeviceCount: 0,
         },
       ],
@@ -360,7 +451,7 @@ describe('PRO room session controller', () => {
         isAuthenticated: false,
         displayName: 'Peer 2',
         role: 'member',
-        capabilities: ['playback.control'],
+        capabilities: [],
       },
       presence: {
         ...snapshot().presence,
@@ -373,7 +464,7 @@ describe('PRO room session controller', () => {
             isAuthenticated: false,
             displayName: 'Peer 2',
             role: 'member',
-            capabilities: ['playback.control'],
+            capabilities: [],
           },
         ],
       },
@@ -417,11 +508,13 @@ describe('PRO room session controller', () => {
       viewer: {
         ...snapshot().viewer!,
         memberId: 'member_anonymous000000002',
+        memberDisplayNumber: 2,
+        isAuthenticated: false,
         participantId: 'participant_00002',
         presenceIncarnationId: 'presence_0000000002',
         displayName: 'Peer 1',
         role: 'member',
-        capabilities: ['playback.control'],
+        capabilities: [],
       },
       presence: {
         ...snapshot().presence,
@@ -430,8 +523,12 @@ describe('PRO room session controller', () => {
           {
             ...snapshot().presence.participants[0]!,
             participantId: 'participant_00002',
+            memberId: 'member_anonymous000000002',
+            memberDisplayNumber: 2,
+            isAuthenticated: false,
             displayName: 'Peer 1',
             role: 'member',
+            capabilities: [],
           },
         ],
       },
@@ -582,8 +679,13 @@ describe('PRO room session controller', () => {
           ...snapshot().presence.participants,
           {
             participantId: 'participant_00002',
+            memberId: 'member_0000000002',
+            memberDisplayNumber: 1,
+            isAuthenticated: true,
             displayName: 'Friend',
+            devicePlatform: 'other',
             role: 'controller',
+            capabilities: ['playback.control'],
             joinedAtMs: 2,
           },
         ],
@@ -726,8 +828,13 @@ describe('PRO room session controller', () => {
           ...snapshot().presence.participants,
           {
             participantId: 'participant_00002',
+            memberId: 'member_0000000002',
+            memberDisplayNumber: 1,
+            isAuthenticated: true,
             displayName: 'Friend',
+            devicePlatform: 'other',
             role: 'controller',
+            capabilities: ['playback.control'],
             joinedAtMs: 2,
           },
         ],

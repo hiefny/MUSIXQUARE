@@ -12,26 +12,25 @@ const SECRET = 'offline-activation-secret'.padEnd(48, 's');
 const CLAIM = `v1.${'a'.repeat(32)}.${'b'.repeat(43)}`;
 
 describe('offline PRO room activation-claim CLI', () => {
-  it('accepts only the two provisioned leading-zero room codes', () => {
+  it('accepts only the generation-zero developer canary', () => {
     expect(parseProRoomClaimRoomCode(['000000'])).toBe('000000');
-    expect(parseProRoomClaimRoomCode(['000001'])).toBe('000001');
-    for (const argv of [[], ['000002'], ['0'], ['000000', '000001']]) {
+    for (const argv of [[], ['000001'], ['099999'], ['0'], ['000000', '000001']]) {
       expect(() => parseProRoomClaimRoomCode(argv)).toThrow(
-        'Usage: npm run pro-room:issue-claim -- <000000|000001> | --recovery <000000|000001>',
+        'Usage: npm run pro-room:issue-claim -- 000000 | --recovery 000000',
       );
     }
   });
 
   it('keeps activation as the default and requires an explicit recovery mode', () => {
-    expect(parseProRoomClaimRequest(['000001'])).toEqual({
+    expect(parseProRoomClaimRequest(['000000'])).toEqual({
       mode: 'activation',
-      roomCode: '000001',
+      roomCode: '000000',
     });
-    expect(parseProRoomClaimRequest(['--recovery', '000001'])).toEqual({
+    expect(parseProRoomClaimRequest(['--recovery', '000000'])).toEqual({
       mode: 'recovery',
-      roomCode: '000001',
+      roomCode: '000000',
     });
-    for (const argv of [['recovery', '000001'], ['--recovery'], ['--recovery', '000002']]) {
+    for (const argv of [['recovery', '000000'], ['--recovery'], ['--recovery', '000001']]) {
       expect(() => parseProRoomClaimRequest(argv)).toThrow('Usage:');
     }
   });
@@ -62,7 +61,7 @@ describe('offline PRO room activation-claim CLI', () => {
     const write = vi.fn();
     await expect(
       runProRoomActivationClaimCli({
-        argv: ['000001'],
+        argv: ['000000'],
         env: {},
         stdout: { write },
         issueClaim,
@@ -76,13 +75,13 @@ describe('offline PRO room activation-claim CLI', () => {
     const write = vi.fn();
     const issueClaim = vi.fn();
     const issueRecoveryClaim = vi.fn(async (roomCode: string, secret: string) => {
-      expect(roomCode).toBe('000001');
+      expect(roomCode).toBe('000000');
       expect(secret).toBe(SECRET);
       return CLAIM;
     });
 
     const fragment = await runProRoomActivationClaimCli({
-      argv: ['--recovery', '000001'],
+      argv: ['--recovery', '000000'],
       env: { PRO_ROOM_ACTIVATION_SECRET: SECRET },
       stdout: { write },
       issueClaim,

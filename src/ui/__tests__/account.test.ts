@@ -25,6 +25,8 @@ import {
 import { flushAccountActivityStatsForRead } from '../../account/activity-stats.ts';
 import { resetState, setState } from '../../core/state.ts';
 
+const STATS_SCOPE = 's'.repeat(43);
+
 vi.mock('../dialog.ts', () => ({ showDialog: vi.fn() }));
 vi.mock('../toast.ts', () => ({ showToast: vi.fn() }));
 vi.mock('../../account/activity-stats.ts', () => ({
@@ -673,6 +675,7 @@ describe('optional account UI', () => {
         jsonResponse({
           configured: true,
           authenticated: true,
+          statsScope: STATS_SCOPE,
           account: { nickname: 'Minsu', profileComplete: true },
         }),
       )
@@ -753,6 +756,7 @@ describe('optional account UI', () => {
       jsonResponse({
         configured: true,
         authenticated: true,
+        statsScope: STATS_SCOPE,
         account: { nickname: 'Minsu', profileComplete: true },
       }),
     );
@@ -952,6 +956,7 @@ describe('optional account UI', () => {
       jsonResponse({
         configured: true,
         authenticated: true,
+        statsScope: STATS_SCOPE,
         account: { nickname: 'Minsu', profileComplete: true },
       }),
     );
@@ -982,6 +987,7 @@ describe('optional account UI', () => {
       jsonResponse({
         configured: true,
         authenticated: true,
+        statsScope: STATS_SCOPE,
         account: { nickname: 'Minsu', profileComplete: true },
       }),
     );
@@ -1056,6 +1062,7 @@ describe('optional account UI', () => {
       configured: true,
       authenticated: true,
       account: { nickname: '', profileComplete: false },
+      statsScope: 's'.repeat(43),
     });
 
     openAccountDialog();
@@ -1080,6 +1087,7 @@ describe('optional account UI', () => {
       configured: true,
       authenticated: true,
       account: { nickname: 'Minsu', profileComplete: true },
+      statsScope: 's'.repeat(43),
     });
     await Promise.resolve();
 
@@ -1097,7 +1105,12 @@ describe('optional account UI', () => {
     await Promise.resolve();
     expect(document.activeElement).toBe(document.getElementById('btn-account-google'));
 
-    applyAccountSession({ configured: false, authenticated: false, account: null });
+    applyAccountSession({
+      configured: false,
+      authenticated: false,
+      account: null,
+      statsScope: null,
+    });
     await Promise.resolve();
 
     const close = document.getElementById('btn-account-login-close') as HTMLButtonElement;
@@ -1124,7 +1137,12 @@ describe('optional account UI', () => {
     const remove = document.getElementById('btn-account-delete') as HTMLButtonElement;
     remove.focus();
 
-    applyAccountSession({ configured: true, authenticated: false, account: null });
+    applyAccountSession({
+      configured: true,
+      authenticated: false,
+      account: null,
+      statsScope: null,
+    });
     await Promise.resolve();
 
     expect(document.getElementById('account-dialog-actions')?.hidden).toBe(true);
@@ -1292,6 +1310,7 @@ describe('optional account UI', () => {
       configured: true,
       authenticated: true,
       account: { nickname: 'Old', profileComplete: true },
+      statsScope: 's'.repeat(43),
     });
     vi.mocked(showDialog)
       .mockResolvedValueOnce({ action: 'ok', inputValue: 'Taken' })
@@ -1366,6 +1385,7 @@ describe('optional account UI', () => {
       configured: true,
       authenticated: true,
       account: { nickname: '', profileComplete: false },
+      statsScope: 's'.repeat(43),
     });
 
     await vi.waitFor(() => expect(showDialog).toHaveBeenCalledTimes(1));

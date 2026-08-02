@@ -279,15 +279,6 @@ export interface CloseProRoomSessionFencedInput {
   expectedPresenceIncarnationId: string;
 }
 
-export interface UpdateProRoomSnapshotInput {
-  code: string;
-  baseRevision: number;
-  playlist: ProRoomPlaylistWireItem[];
-  currentQueueItemId: string | null;
-  playback: ProRoomPlaybackCheckpoint;
-  idempotencyKey: string;
-}
-
 export interface UpdateProRoomCompactSnapshotInput {
   code: string;
   baseRevision: number;
@@ -1192,11 +1183,6 @@ export class ProRoomApiClient {
     }
 
     const headers = new Headers(options.headers);
-    // Negotiate additive participant fields through the safelisted Accept
-    // header. A cached v1 client keeps receiving the exact legacy snapshot,
-    // while this client remains compatible with an older Worker that simply
-    // ignores the media-type parameter (no new CORS preflight header needed).
-    headers.set('Accept', 'application/json; mxqr-device-platform=1');
     let body: string | undefined;
     if (options.body !== undefined) {
       body = encodeRequestBody(options.body);
@@ -1412,7 +1398,6 @@ export class ProRoomApiClient {
     // live presence has expired, so do not attach the active-presence headers.
     return this.#request(`${path}/sessions/current/account`, {
       method: 'DELETE',
-      headers: { 'X-MXQR-Pro-Detach-Version': '2' },
       signal,
       parser: (value) => parseAccountDetachResult(value, code),
       maxResponseBytes: MAX_RESPONSE_JSON_BYTES,
@@ -1934,32 +1919,6 @@ export class ProRoomApiClient {
       activeRoomCode: input.code,
       parser: parseBotCommandResult,
       maxResponseBytes: MAX_BOT_RESPONSE_JSON_BYTES,
-    });
-  }
-
-  updateSnapshot(
-    input: UpdateProRoomSnapshotInput,
-    signal?: AbortSignal,
-  ): Promise<ProRoomSnapshot> {
-    const path = roomPath(input.code);
-    if (!isSafeNonNegativeInteger(input.baseRevision)) {
-      throw new ProRoomApiError('INVALID_REVISION');
-    }
-    if (input.currentQueueItemId !== null && !isProRoomQueueItemId(input.currentQueueItemId)) {
-      throw new ProRoomApiError('INVALID_QUEUE_ITEM_ID');
-    }
-    return this.#request(`${path}/snapshot`, {
-      method: 'PUT',
-      idempotencyKey: input.idempotencyKey,
-      body: {
-        baseRevision: input.baseRevision,
-        playlist: input.playlist,
-        currentQueueItemId: input.currentQueueItemId,
-        playback: input.playback,
-      },
-      signal,
-      activeRoomCode: input.code,
-      parser: (value) => parseSnapshotEnvelope(value, input.code),
     });
   }
 

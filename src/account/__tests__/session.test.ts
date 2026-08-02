@@ -42,13 +42,20 @@ const AUTHENTICATED_OLD = {
   configured: true,
   authenticated: true,
   account: { nickname: 'Old', profileComplete: true },
+  statsScope: 'o'.repeat(43),
 };
 const AUTHENTICATED_NEW = {
   configured: true,
   authenticated: true,
   account: { nickname: 'Minsu', profileComplete: true },
+  statsScope: 'n'.repeat(43),
 };
-const ANONYMOUS = { configured: true, authenticated: false, account: null };
+const ANONYMOUS = {
+  configured: true,
+  authenticated: false,
+  account: null,
+  statsScope: null,
+};
 
 beforeEach(() => {
   __resetAccountSessionForTests();

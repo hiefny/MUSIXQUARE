@@ -1,6 +1,6 @@
 # ADR: Optional accounts, room identities, and delegated authority
 
-- **Status:** Accepted and implemented behind a two-stage production rollout gate
+- **Status:** Accepted and implemented as the current production contract
 - **Decision date:** 2026-07-20
 - **Applies to:** optional Google accounts, ordinary rooms, and persistent PRO rooms
 - **Compatibility goal:** anonymous entry and chat continue to work when account services are unavailable
@@ -204,8 +204,8 @@ chat.notice
 room.configure       (owner-only room lifecycle and effect policy)
 ```
 
-The stored `media.add` key is retained for backwards compatibility, while its
-user-facing `미디어 관리` toggle grants local/YouTube addition, file upload,
+The canonical `media.add` key backs the user-facing `미디어 관리` toggle and
+grants local/YouTube addition, file upload,
 deleting or clearing items, reordering, and repeat/shuffle queue policy. Live
 system-audio publishing and changing room-wide effects remain
 owner/ordinary-host operations. BOT commands inherit the caller and must pass
@@ -220,8 +220,8 @@ transport: the room PIN, administrator grant editor, system-audio publisher,
 coordinator eligibility, host-only inbound trust, and teardown stay bound to
 the physical host browser. Logging out or losing the verified room identity on
 that second device removes the projection immediately; visually confusable
-nicknames are never authority evidence. Under PRO member-authority projection `1`, an
-ordinary PRO member receives no playback capability. The owner always retains
+nicknames are never authority evidence. An ordinary PRO member receives no
+playback capability. The owner always retains
 `playback.control`; a delegated PRO administrator receives it only when the
 owner explicitly enables the playback toggle, and revoking that toggle removes
 the capability. Other delegated capabilities remain independently selected by
@@ -275,82 +275,26 @@ PRO remains coordinator-free and server-authoritative. Its Durable Object owns
 persistent member grants and capability enforcement; signaling continues to own
 physical sockets and delivery.
 
-## Compatibility and release sequence
+## Release invariants
 
-PRO snapshots and signaling tickets use strict schemas. A Worker that emits new
-fields before a compatible client exists can make an old app reject the entire
-room. The production rollout therefore has two explicit stages.
+PRO snapshots, signaling tickets, and account assertions use their current
+strict schemas. Production does not retain a pre-account or dual-schema rollback
+path. Every release and rollback must preserve the migrated auth D1 schema,
+`MUSIXQUARE_AUTH_DB` bindings, account-to-room reverse index, deletion
+tombstones, and PRO data required for complete cleanup.
 
-### Stage 1: compatibility baseline (historical v203 checkpoint)
-
-This is a record of the original rollout floor, not an executable rollback
-recipe. At that historical checkpoint, account-aware App, signaling, and PRO
-code ran with `MUSIXQUARE_AUTH_DB` unbound, login unconfigured, and both
-projection flags disabled.
-
-Every current release and rollback must preserve the migrated auth D1 schema and
-keep `MUSIXQUARE_AUTH_DB` bound to both App and PRO Workers, even when both
-projection flags are `0`. The PRO Worker needs the binding independently of
-identity projection so permanent decommission can retire the exact
-account-to-room-generation reverse edge. Recovery may disable login or
-projection through reviewed flags and secrets; it must not remove the binding
-or reverse the forward-only schema.
-
-The remaining bullets describe the historical checkpoint:
-
-- Deploy account-aware App, signaling, and PRO code with login unconfigured and both
-  `PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION=0` and
-  `PRO_ROOM_MEMBER_AUTHORITY_PROJECTION=0`.
-- Publish the dual-schema client under service-worker cache `v203`.
-- Verify anonymous ordinary/PRO behavior and record the matched App, signaling,
-  and PRO Worker versions. This matched checkpoint, not pre-account code, is the
-  rollback floor for the feature.
-
-The repository intentionally checks in both projection flags as `0` for this
-stage. That is a rollout checkpoint, not the final authorization policy. PRO
-rooms temporarily retain the former equal-member compatibility behavior,
-including its shared-playback baseline, while cached clients converge.
-
-### Stage 2: account activation
-
-1. Create and migrate the dedicated auth D1 database and bind it to App.
-2. Configure the exact Google OAuth callback and all independent account,
-   standard-room assertion, and PRO-room assertion secrets.
-3. Change both PRO projection flags to `1` in the same reviewed release; do not
-   leave production indefinitely in a one-flag state.
-4. Deploy PRO first, signaling second, and App/static last.
-5. Verify login/nickname, ordinary and PRO multi-device grouping, persistent
-   delegation/offline revoke, account-wide kick, per-capability allow/deny,
-   physical-session lease expiry/reattach, and account deletion before widening
-   access.
-
-The deletion and public-copy gates are implemented, but they remain activation
-checks: the Privacy Policy, Terms, FAQ, login dialog, and every maintained locale
-must describe optional login and bounded account data; deletion must enumerate
-the account-to-PRO-room reverse index, purge awake and sleeping room objects,
-retry partial failure, and install a stale-assertion tombstone before removing
+The Privacy Policy, Terms, FAQ, login dialog, and every maintained locale must
+describe optional login and bounded account data. Account deletion enumerates
+the account-to-PRO-room reverse index, purges awake and sleeping room objects,
+retries partial failure, and installs a stale-assertion tombstone before removing
 the active account. Already-shared collaborative media continues under the
 room's normal retention policy.
 
-At every stage, account-service failure falls back to anonymous identity. It
-must not terminate an established ordinary room or make a PRO room inaccessible
-to a valid PIN holder.
-
-### Rollback floor
-
-After Stage 2 has written account members, grants, reverse edges, or deletion
-tombstones, never roll App, PRO, signaling, or cached clients below the recorded
-Stage-1 account-aware checkpoint. To withdraw Stage 2, hide/disable login, set
-both PRO projection flags back to `0`, and if necessary redeploy the matched
-Stage-1 Workers. Retain the auth D1 binding/schema, reverse index, room
-tombstones, and PRO data so cleanup remains possible. Removing an OAuth/session
-secret may make the service report `configured:false`; deleting D1 or rotating
-the subject pepper is not an application rollback.
-
-Projection `0` restores the historical PIN-admitted equal-member policy,
-including playback control for ordinary members. If an incident cannot safely
-tolerate that temporary authority expansion, put PRO entry into maintenance
-rather than rolling below the compatibility floor.
+An account-service failure falls back to anonymous identity. It must not
+terminate an established ordinary room or make a PRO room inaccessible to a
+valid PIN holder. A rollback uses a release that understands the current
+forward-only schemas; deleting D1 or rotating the subject pepper is not an
+application rollback.
 
 ## Required verification
 
@@ -370,7 +314,7 @@ rather than rolling below the compatibility floor.
   playback, effects, kick, announcement, and system audio.
 - Chat grouping/deduplication for one account across devices, plus defensive
   handling of duplicate display labels introduced by legacy or corrupted data.
-- New and cached-client compatibility during the additive deployment sequence.
+- Current strict account, member, and authority projection contracts.
 
 ## Rejected alternatives
 

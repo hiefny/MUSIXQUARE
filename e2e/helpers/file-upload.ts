@@ -3,25 +3,43 @@
  * Uses the hidden <input type="file" id="file-input"> element.
  */
 import type { Page } from '@playwright/test';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const FIXTURES_DIR = path.resolve(__dirname, '..', 'fixtures');
+const FIXTURE_AUDIO_PATH = fileURLToPath(new URL('../fixtures/test-01.mp3', import.meta.url));
 
+// The logical fixtures intentionally share one binary; their filenames are
+// what the playlist and transfer scenarios need to distinguish.
 export const FIXTURE_FILES = {
-  test01: path.join(FIXTURES_DIR, 'test-01.mp3'),
-  test02: path.join(FIXTURES_DIR, 'test-02.mp3'),
-  test03: path.join(FIXTURES_DIR, 'test-03.mp3'),
+  test01: 'test-01.mp3',
+  test02: 'test-02.mp3',
+  test03: 'test-03.mp3',
 } as const;
+
+let fixtureAudioBuffer: Promise<Buffer> | undefined;
+
+function readFixtureAudio(): Promise<Buffer> {
+  fixtureAudioBuffer ??= readFile(FIXTURE_AUDIO_PATH);
+  return fixtureAudioBuffer;
+}
 
 /**
  * Upload one or more fixture files to the app.
  * The hidden file input triggers the app's file handling pipeline.
  */
-async function uploadFiles(page: Page, ...filePaths: string[]): Promise<void> {
+async function uploadFiles(
+  page: Page,
+  ...fileNames: Array<(typeof FIXTURE_FILES)[keyof typeof FIXTURE_FILES]>
+): Promise<void> {
   const fileInput = page.locator('#file-input');
-  await fileInput.setInputFiles(filePaths);
+  const buffer = await readFixtureAudio();
+  await fileInput.setInputFiles(
+    fileNames.map((name) => ({
+      name,
+      mimeType: 'audio/mpeg',
+      buffer,
+    })),
+  );
 }
 
 /**
@@ -41,6 +59,6 @@ export async function uploadFixtures(
   page: Page,
   fixtures: Array<keyof typeof FIXTURE_FILES>,
 ): Promise<void> {
-  const paths = fixtures.map((f) => FIXTURE_FILES[f]);
-  await uploadFiles(page, ...paths);
+  const names = fixtures.map((fixture) => FIXTURE_FILES[fixture]);
+  await uploadFiles(page, ...names);
 }

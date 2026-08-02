@@ -201,7 +201,7 @@ function assertNoPrivateFields(value, label) {
 }
 
 export async function assertDeveloperApiOff() {
-  const response = await fetchWithTimeout(`${API_ORIGIN}/v1/rooms/000001`, {
+  const response = await fetchWithTimeout(`${API_ORIGIN}/v1/rooms/000000`, {
     cache: 'no-store',
     headers: { Accept: 'application/json' },
   });

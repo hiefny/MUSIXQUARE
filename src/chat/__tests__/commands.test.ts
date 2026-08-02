@@ -587,11 +587,11 @@ describe('/bot PRO-room command', () => {
     });
   });
 
-  it('settles a cached old Worker response during the rolling policy update', async () => {
+  it('accepts the exact one-hour rate-limit delay', async () => {
     enterBotRoom();
     mocks.requestActiveProRoomBotCommand.mockRejectedValueOnce({
       code: 'RATE_LIMITED',
-      retryAfterSeconds: 70_000.2,
+      retryAfterSeconds: 3_600,
     });
 
     executeCommand({ name: 'bot', args: ['next'], rawArgs: 'next' }, { botRequestId: requestId });
@@ -599,7 +599,7 @@ describe('/bot PRO-room command', () => {
     await vi.waitFor(() => {
       expect(mocks.publishBotChatResult).toHaveBeenCalledWith(requestId, {
         kind: 'rate_limited',
-        retryAfterSeconds: 70_001,
+        retryAfterSeconds: 3_600,
       });
     });
   });
@@ -608,7 +608,7 @@ describe('/bot PRO-room command', () => {
     enterBotRoom();
     mocks.requestActiveProRoomBotCommand.mockRejectedValueOnce({
       code: 'RATE_LIMITED',
-      retryAfterSeconds: 86_401,
+      retryAfterSeconds: 3_601,
     });
 
     executeCommand({ name: 'bot', args: ['next'], rawArgs: 'next' }, { botRequestId: requestId });

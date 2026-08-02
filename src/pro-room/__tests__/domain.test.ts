@@ -33,6 +33,13 @@ const OWNER_CAPABILITIES: ProRoomCapability[] = [
   'room.configure',
 ];
 
+const OWNER_PERMISSIONS = {
+  'media.add': true,
+  'playback.control': true,
+  'members.kick': true,
+  'chat.notice': true,
+} as const;
+
 function activeSnapshot(): ProRoomSnapshot {
   return {
     schemaVersion: 1,
@@ -85,8 +92,13 @@ function activeSnapshot(): ProRoomSnapshot {
       participants: [
         {
           participantId: PARTICIPANT_ID,
+          memberId: MEMBER_ID,
+          memberDisplayNumber: 0,
+          isAuthenticated: true,
           displayName: 'Owner',
+          devicePlatform: 'other',
           role: 'owner',
+          capabilities: [...OWNER_CAPABILITIES],
           joinedAtMs: 1_800_000_000_000,
         },
       ],
@@ -99,6 +111,8 @@ function activeSnapshot(): ProRoomSnapshot {
     },
     viewer: {
       memberId: MEMBER_ID,
+      memberDisplayNumber: 0,
+      isAuthenticated: true,
       participantId: PARTICIPANT_ID,
       presenceIncarnationId: 'presence_0000000001',
       displayName: 'Owner',
@@ -106,6 +120,20 @@ function activeSnapshot(): ProRoomSnapshot {
       capabilities: [...OWNER_CAPABILITIES],
       coordinatorEligible: false,
     },
+    memberIdentityVersion: 1,
+    authorityVersion: 1,
+    administrators: [
+      {
+        memberId: MEMBER_ID,
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: { ...OWNER_PERMISSIONS },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+    ],
   };
 }
 
@@ -144,6 +172,20 @@ function unactivatedSnapshot(): ProRoomSnapshot {
       reservedBytes: 0,
     },
     viewer: null,
+    memberIdentityVersion: 1,
+    authorityVersion: 1,
+    administrators: [
+      {
+        memberId: MEMBER_ID,
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: { ...OWNER_PERMISSIONS },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 0,
+      },
+    ],
   };
 }
 
@@ -343,31 +385,30 @@ describe('PRO room snapshot validation', () => {
     expect(parseProRoomSnapshot(nonString)).toBeNull();
   });
 
-  it('accepts both new member denial and legacy member playback without widening either', () => {
+  it('accepts least-privilege members and rejects the retired playback-capable member shape', () => {
     const denied = parseProRoomSnapshot(authorityMemberSnapshot([]));
     expect(denied?.viewer?.capabilities).toEqual([]);
     expect(denied?.presence.participants[0]?.capabilities).toEqual([]);
 
-    const legacy = parseProRoomSnapshot(authorityMemberSnapshot(['playback.control']));
-    expect(legacy?.viewer?.capabilities).toEqual(['playback.control']);
-    expect(legacy?.presence.participants[0]?.capabilities).toEqual(['playback.control']);
-
+    expect(parseProRoomSnapshot(authorityMemberSnapshot(['playback.control']))).toBeNull();
     expect(parseProRoomSnapshot(authorityMemberSnapshot(['queue.mutate']))).toBeNull();
   });
 
-  it('accepts a persisted member when authority projection rolls back to legacy playback', () => {
-    const rolledBack = authorityMemberSnapshot(['playback.control']);
-    delete rolledBack.authorityVersion;
-    delete rolledBack.administrators;
-    delete rolledBack.presence.participants[0]!.capabilities;
+  it('rejects snapshots missing any launch authority projection field', () => {
+    for (const field of ['authorityVersion', 'administrators'] as const) {
+      const incomplete = structuredClone(activeSnapshot()) as unknown as Record<string, unknown>;
+      delete incomplete[field];
+      expect(parseProRoomSnapshot(incomplete)).toBeNull();
+    }
 
-    const parsed = parseProRoomSnapshot(rolledBack);
-    expect(parsed?.viewer).toMatchObject({
-      role: 'member',
-      capabilities: ['playback.control'],
-    });
-    expect(parsed?.presence.participants[0]).toMatchObject({ role: 'member' });
-    expect(parsed?.presence.participants[0]?.capabilities).toBeUndefined();
+    const participantWithoutCapabilities = structuredClone(activeSnapshot()) as unknown as Record<
+      string,
+      unknown
+    >;
+    const presence = participantWithoutCapabilities.presence as Record<string, unknown>;
+    const participants = presence.participants as Record<string, unknown>[];
+    delete participants[0]!.capabilities;
+    expect(parseProRoomSnapshot(participantWithoutCapabilities)).toBeNull();
   });
 
   it('requires non-negative safe effects and queue-mode revision heads', () => {
@@ -397,6 +438,7 @@ describe('PRO room snapshot validation', () => {
     sleeping.runtime = 'sleeping';
     sleeping.presence.participants = [];
     sleeping.presence.coordinatorParticipantId = null;
+    sleeping.administrators[0]!.onlineDeviceCount = 0;
     expect(parseProRoomSnapshot(sleeping)).not.toBeNull();
   });
 
@@ -414,6 +456,7 @@ describe('PRO room snapshot validation', () => {
     suspended.runtime = 'sleeping';
     suspended.presence.participants = [];
     suspended.presence.coordinatorParticipantId = null;
+    suspended.administrators[0]!.onlineDeviceCount = 0;
     if (!suspended.viewer) throw new Error('fixture');
     suspended.viewer.capabilities = [];
     suspended.viewer.coordinatorEligible = false;
@@ -452,8 +495,13 @@ describe('PRO room snapshot validation', () => {
           ? coordinator
           : {
               participantId: `capacity_participant_${String(index).padStart(5, '0')}`,
+              memberId: `capacity_member_${String(index).padStart(5, '0')}`,
+              memberDisplayNumber: index,
+              isAuthenticated: true,
               displayName: `Member ${index}`,
-              role: 'controller' as const,
+              devicePlatform: 'other' as const,
+              role: 'member' as const,
+              capabilities: [],
               joinedAtMs: coordinator.joinedAtMs + index,
             },
     );
@@ -461,8 +509,13 @@ describe('PRO room snapshot validation', () => {
 
     atCapacity.presence.participants.push({
       participantId: 'capacity_participant_00100',
+      memberId: 'capacity_member_00100',
+      memberDisplayNumber: 100,
+      isAuthenticated: true,
       displayName: 'Over capacity',
-      role: 'controller',
+      devicePlatform: 'other',
+      role: 'member',
+      capabilities: [],
       joinedAtMs: coordinator.joinedAtMs + PRO_ROOM_MAX_PRESENCE_ITEMS,
     });
     expect(parseProRoomSnapshot(atCapacity)).toBeNull();
@@ -527,11 +580,36 @@ describe('PRO room snapshot validation', () => {
 
     const controller = activeSnapshot();
     if (!controller.viewer) throw new Error('fixture');
+    const controllerMemberId = 'member_controller_0001';
+    const delegatedPermissions = {
+      'media.add': true,
+      'playback.control': true,
+      'members.kick': true,
+      'chat.notice': false,
+    } as const;
+    const delegatedCapabilities = capabilitiesForProRoomRole('controller', delegatedPermissions);
+    controller.viewer.memberId = controllerMemberId;
+    controller.viewer.memberDisplayNumber = 1;
     controller.viewer.role = 'controller';
-    controller.viewer.capabilities = OWNER_CAPABILITIES.filter(
-      (capability) => capability !== 'room.configure',
-    );
-    controller.presence.participants[0]!.role = 'controller';
+    controller.viewer.capabilities = [...delegatedCapabilities];
+    controller.presence.participants[0] = {
+      ...controller.presence.participants[0]!,
+      memberId: controllerMemberId,
+      memberDisplayNumber: 1,
+      role: 'controller',
+      capabilities: [...delegatedCapabilities],
+    };
+    controller.administrators[0]!.onlineDeviceCount = 0;
+    controller.administrators.push({
+      memberId: controllerMemberId,
+      memberDisplayNumber: 1,
+      isAuthenticated: true,
+      displayName: 'Owner',
+      role: 'controller',
+      permissions: { ...delegatedPermissions },
+      inheritedPermissions: [],
+      onlineDeviceCount: 1,
+    });
     expect(parseProRoomSnapshot(controller)).not.toBeNull();
 
     controller.viewer.capabilities.push('room.configure');

@@ -23,12 +23,6 @@ PRESENCE_TTL_SECONDS = "45"
 RESERVATION_TTL_SECONDS = "900"
 ASSET_GC_GRACE_SECONDS = "900"
 PRESIGN_TTL_SECONDS = "600"
-# Account identity is optional for participants, but when present the room
-# projects stable members and the owner-managed least-privilege permissions.
-# Anonymous users remain supported and receive session-scoped membership.
-PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION = "1"
-PRO_ROOM_MEMBER_AUTHORITY_PROJECTION = "1"
-
 [[durable_objects.bindings]]
 name = "PRO_ROOMS"
 class_name = "MusixquareProRoom"

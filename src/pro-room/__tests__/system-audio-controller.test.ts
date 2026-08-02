@@ -46,14 +46,38 @@ function sessionSnapshot(coordinatorParticipantId = COORDINATOR_ID): ProRoomSnap
       participants: [
         {
           participantId: COORDINATOR_ID,
+          memberId: 'member_coord_0001',
+          memberDisplayNumber: 1,
+          isAuthenticated: true,
           displayName: 'Coordinator',
+          devicePlatform: 'other',
           role: 'controller',
+          capabilities: [
+            'queue.mutate',
+            'playback.control',
+            'effects.control',
+            'asset.upload',
+            'coordinator.eligible',
+            'members.manage',
+          ],
           joinedAtMs: 1,
         },
         {
           participantId: LOCAL_ID,
+          memberId: 'member_local_0001',
+          memberDisplayNumber: 2,
+          isAuthenticated: true,
           displayName: 'Local member',
+          devicePlatform: 'other',
           role: 'controller',
+          capabilities: [
+            'queue.mutate',
+            'playback.control',
+            'effects.control',
+            'asset.upload',
+            'coordinator.eligible',
+            'members.manage',
+          ],
           joinedAtMs: 2,
         },
       ],
@@ -66,6 +90,8 @@ function sessionSnapshot(coordinatorParticipantId = COORDINATOR_ID): ProRoomSnap
     },
     viewer: {
       memberId: 'member_local_0001',
+      memberDisplayNumber: 2,
+      isAuthenticated: true,
       participantId: LOCAL_ID,
       presenceIncarnationId: 'presence_local_01',
       displayName: 'Local member',
@@ -80,6 +106,25 @@ function sessionSnapshot(coordinatorParticipantId = COORDINATOR_ID): ProRoomSnap
       ],
       coordinatorEligible: true,
     },
+    memberIdentityVersion: 1,
+    authorityVersion: 1,
+    administrators: [
+      {
+        memberId: 'member_owner_0001',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': true,
+          'chat.notice': true,
+        },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 0,
+      },
+    ],
   };
 }
 

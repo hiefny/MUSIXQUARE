@@ -1,6 +1,5 @@
 import { REVERB_DEFAULT_DECAY, REVERB_DEFAULT_PREDELAY } from './constants.ts';
 
-const LEGACY_ROOM_EFFECTS_SCHEMA_VERSION = 1 as const;
 const ROOM_EFFECTS_SCHEMA_VERSION = 2 as const;
 
 interface RoomReverbState {
@@ -36,7 +35,7 @@ export interface RoomEffectsPatch {
 }
 
 export interface ProRoomEffectsSnapshot {
-  schemaVersion: typeof LEGACY_ROOM_EFFECTS_SCHEMA_VERSION | typeof ROOM_EFFECTS_SCHEMA_VERSION;
+  schemaVersion: typeof ROOM_EFFECTS_SCHEMA_VERSION;
   view: 'effects';
   roomCode: string;
   revision: number;
@@ -124,28 +123,6 @@ function parseVirtualSurroundState(value: unknown): RoomEffectsState['virtualSur
 function parseVirtualTrebleState(value: unknown): RoomEffectsState['virtualTreble'] | null {
   return isRecord(value) && hasExactKeys(value, ['enabled']) && typeof value.enabled === 'boolean'
     ? { enabled: value.enabled }
-    : null;
-}
-
-function parseLegacyRoomEffectsState(value: unknown): RoomEffectsState | null {
-  if (
-    !isRecord(value) ||
-    !hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'])
-  ) {
-    return null;
-  }
-  const reverb = parseReverbState(value.reverb);
-  const equalizer = parseEqualizerState(value.equalizer);
-  const virtualBass = parseVirtualBassState(value.virtualBass);
-  const virtualSurround = parseVirtualSurroundState(value.virtualSurround);
-  return reverb && equalizer && virtualBass && virtualSurround
-    ? {
-        reverb,
-        equalizer,
-        virtualBass,
-        virtualSurround,
-        virtualTreble: { enabled: false },
-      }
     : null;
 }
 
@@ -289,8 +266,7 @@ export function parseProRoomEffectsSnapshot(
       'updatedAtMs',
       'effects',
     ]) ||
-    (value.schemaVersion !== LEGACY_ROOM_EFFECTS_SCHEMA_VERSION &&
-      value.schemaVersion !== ROOM_EFFECTS_SCHEMA_VERSION) ||
+    value.schemaVersion !== ROOM_EFFECTS_SCHEMA_VERSION ||
     value.view !== 'effects' ||
     typeof value.roomCode !== 'string' ||
     !/^0\d{5}$/.test(value.roomCode) ||
@@ -302,10 +278,7 @@ export function parseProRoomEffectsSnapshot(
   ) {
     return null;
   }
-  const effects =
-    value.schemaVersion === ROOM_EFFECTS_SCHEMA_VERSION
-      ? parseRoomEffectsState(value.effects)
-      : parseLegacyRoomEffectsState(value.effects);
+  const effects = parseRoomEffectsState(value.effects);
   return effects
     ? {
         schemaVersion: value.schemaVersion,

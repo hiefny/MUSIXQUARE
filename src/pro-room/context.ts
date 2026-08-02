@@ -12,24 +12,12 @@ function projectClientCapabilities(snapshot: ProRoomSnapshot): RoomCapability[] 
     ),
   );
 
-  if (snapshot.authorityVersion === 1 && snapshot.administrators) {
-    const administrator = snapshot.administrators.find(
-      (candidate) => candidate.memberId === viewer.memberId,
-    );
-    if (administrator?.permissions['media.add']) capabilities.add('media.add');
-    if (administrator?.permissions['chat.notice']) capabilities.add('chat.notice');
-    if (administrator?.role === 'owner') capabilities.add('system-audio.publish');
-  } else {
-    // During a rolling deployment, the previous PRO worker can only project
-    // its coarse capability vocabulary. Preserve that worker's established
-    // authority without widening the new member model: upload authority maps
-    // to media.add, and member-management authority maps to chat.notice.
-    if (capabilities.has('asset.upload')) capabilities.add('media.add');
-    if (capabilities.has('members.manage')) capabilities.add('chat.notice');
-    // Preserve the pre-authority equal-member live-capture contract while
-    // cached clients converge. Authority v1 narrows this to the owner above.
-    if (capabilities.has('media.add')) capabilities.add('system-audio.publish');
-  }
+  const administrator = snapshot.administrators.find(
+    (candidate) => candidate.memberId === viewer.memberId,
+  );
+  if (administrator?.permissions['media.add']) capabilities.add('media.add');
+  if (administrator?.permissions['chat.notice']) capabilities.add('chat.notice');
+  if (administrator?.role === 'owner') capabilities.add('system-audio.publish');
 
   return [...capabilities];
 }

@@ -262,13 +262,11 @@ function sanitizeQueueItem(value) {
   };
 }
 
-function sanitizeProjection(value, projection, roomCode, expectedEffectsVersion = 1) {
+function sanitizeProjection(value, projection, roomCode) {
   if (!value || typeof value !== 'object' || value.roomCode !== roomCode) return null;
   if (
     value.view !== projection ||
-    (projection === 'effects'
-      ? value.schemaVersion !== expectedEffectsVersion
-      : value.schemaVersion !== 1)
+    (projection === 'effects' ? value.schemaVersion !== 2 : value.schemaVersion !== 1)
   ) {
     return null;
   }
@@ -365,10 +363,7 @@ function sanitizeProjection(value, projection, roomCode, expectedEffectsVersion 
     };
   }
   if (projection === 'effects') {
-    const effects =
-      value.schemaVersion === 2
-        ? parseEffectsState(value.effects)
-        : parseLegacyEffectsState(value.effects);
+    const effects = parseEffectsState(value.effects);
     if (
       !hasExactKeys(value, [
         'schemaVersion',
@@ -572,20 +567,6 @@ function parseEffectsPatch(value) {
 
 function parseEffectsState(value) {
   return parseEffects(value, true);
-}
-
-function parseLegacyEffectsState(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  if (!hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'])) {
-    return null;
-  }
-  const reverb = parseReverbPatch(value.reverb, true);
-  const equalizer = parseEqualizer(value.equalizer);
-  const virtualBass = parseVirtualBass(value.virtualBass);
-  const virtualSurround = parseVirtualSurround(value.virtualSurround);
-  return reverb && equalizer && virtualBass && virtualSurround
-    ? { reverb, equalizer, virtualBass, virtualSurround }
-    : null;
 }
 
 function parseMetadata(value) {
@@ -1084,12 +1065,7 @@ export default {
       if (!called.response.ok || !value) {
         return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
       }
-      const sanitized = sanitizeProjection(
-        value,
-        body.projection,
-        body.roomCode,
-        body.projection === 'effects' ? 2 : 1,
-      );
+      const sanitized = sanitizeProjection(value, body.projection, body.roomCode);
       return sanitized
         ? jsonResponse(sanitized)
         : jsonResponse({ error: 'INVALID_BACKEND_RESPONSE' }, 503);

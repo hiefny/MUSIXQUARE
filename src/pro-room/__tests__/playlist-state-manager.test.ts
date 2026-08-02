@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  ProRoomApiError,
-  type UpdateProRoomCompactSnapshotInput,
-  type UpdateProRoomSnapshotInput,
-} from '../api.ts';
+import { ProRoomApiError, type UpdateProRoomCompactSnapshotInput } from '../api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
   PRO_ROOM_MAX_PLAYLIST_ITEMS,
@@ -23,6 +19,15 @@ const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
 const C = '33333333-3333-4333-8333-333333333333';
 const D = '44444444-4444-4444-8444-444444444444';
+const MEMBER_ID = 'member_0000000001';
+const OWNER_CAPABILITIES = [
+  'queue.mutate',
+  'playback.control',
+  'effects.control',
+  'asset.upload',
+  'members.manage',
+  'room.configure',
+] as const;
 
 function youtube(
   queueItemId: string,
@@ -79,8 +84,13 @@ function activeSnapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapsh
       participants: [
         {
           participantId: 'participant_00001',
+          memberId: MEMBER_ID,
+          memberDisplayNumber: 0,
+          isAuthenticated: true,
           displayName: 'Developer',
+          devicePlatform: 'other',
           role: 'owner',
+          capabilities: [...OWNER_CAPABILITIES],
           joinedAtMs: 1,
         },
       ],
@@ -92,21 +102,35 @@ function activeSnapshot(overrides: Partial<ProRoomSnapshot> = {}): ProRoomSnapsh
       reservedBytes: 0,
     },
     viewer: {
-      memberId: 'member_0000000001',
+      memberId: MEMBER_ID,
+      memberDisplayNumber: 0,
+      isAuthenticated: true,
       participantId: 'participant_00001',
       presenceIncarnationId: 'presence_0000000001',
       displayName: 'Developer',
       role: 'owner',
-      capabilities: [
-        'queue.mutate',
-        'playback.control',
-        'effects.control',
-        'asset.upload',
-        'members.manage',
-        'room.configure',
-      ],
+      capabilities: [...OWNER_CAPABILITIES],
       coordinatorEligible: false,
     },
+    memberIdentityVersion: 1,
+    authorityVersion: 1,
+    administrators: [
+      {
+        memberId: MEMBER_ID,
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Developer',
+        role: 'owner',
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': true,
+          'chat.notice': true,
+        },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+    ],
     ...overrides,
   };
 }
@@ -139,18 +163,29 @@ function mediaTransfer(
   };
 }
 
+function applyCompactPlaylist(
+  snapshot: ProRoomSnapshot,
+  input: UpdateProRoomCompactSnapshotInput,
+): ProRoomPlaylistWireItem[] {
+  const itemById = new Map(snapshot.playlist.map((item) => [item.queueItemId, item]));
+  for (const item of input.upserts) itemById.set(item.queueItemId, item);
+  const order = input.playlistOrder ?? snapshot.playlist.map((item) => item.queueItemId);
+  return order.map((queueItemId) => itemById.get(queueItemId)!);
+}
+
 function updatingApi(initial: ProRoomSnapshot, events?: string[]) {
   let server = initial;
   const api = {
     getSnapshot: vi.fn(async () => server),
-    updateSnapshot: vi.fn(async (input: UpdateProRoomSnapshotInput) => {
-      events?.push(`update:${input.playlist.at(-1)?.name ?? 'empty'}`);
-      const playlistChanged = JSON.stringify(server.playlist) !== JSON.stringify(input.playlist);
+    updateCompactSnapshot: vi.fn(async (input: UpdateProRoomCompactSnapshotInput) => {
+      const playlist = applyCompactPlaylist(server, input);
+      events?.push(`update:${playlist.at(-1)?.name ?? 'empty'}`);
+      const playlistChanged = JSON.stringify(server.playlist) !== JSON.stringify(playlist);
       server = activeSnapshot({
         ...server,
         revision: server.revision + 1,
         playlistRevision: server.playlistRevision + (playlistChanged ? 1 : 0),
-        playlist: input.playlist,
+        playlist,
         currentQueueItemId: input.currentQueueItemId,
         playback: input.playback,
       });
@@ -175,7 +210,6 @@ describe('PRO room playlist state manager', () => {
       playlistRevision: 1,
       playlist: [youtube(A), youtube(B, 'bbbbbbbbbbb')],
     });
-    const updateSnapshot = vi.fn();
     const updateCompactSnapshot = vi.fn(
       async (input: UpdateProRoomCompactSnapshotInput): Promise<ProRoomSnapshot> => {
         const existing = new Map(initial.playlist.map((item) => [item.queueItemId, item]));
@@ -194,7 +228,6 @@ describe('PRO room playlist state manager', () => {
     );
     const api = {
       getSnapshot: vi.fn(async () => initial),
-      updateSnapshot,
       updateCompactSnapshot,
     } satisfies ProRoomPlaylistStateApi;
     const manager = new ProRoomPlaylistStateManager({
@@ -208,7 +241,6 @@ describe('PRO room playlist state manager', () => {
 
     await manager.updateMetadata(B, { title: 'Changed title' });
 
-    expect(updateSnapshot).not.toHaveBeenCalled();
     expect(updateCompactSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({
         playlistOrder: null,
@@ -218,24 +250,13 @@ describe('PRO room playlist state manager', () => {
     );
   });
 
-  it('falls back once when a cached client reaches a pre-compact Worker', async () => {
+  it('propagates a compact endpoint failure without retrying a retired full mutation', async () => {
     const initial = activeSnapshot({ playlistRevision: 1, playlist: [youtube(A)] });
     const updateCompactSnapshot = vi.fn(async () => {
       throw new ProRoomApiError('NOT_FOUND', 404);
     });
-    const updateSnapshot = vi.fn(async (input: UpdateProRoomSnapshotInput) =>
-      activeSnapshot({
-        ...initial,
-        revision: initial.revision + 1,
-        playlistRevision: initial.playlistRevision + 1,
-        playlist: input.playlist,
-        currentQueueItemId: input.currentQueueItemId,
-        playback: input.playback,
-      }),
-    );
     const api = {
       getSnapshot: vi.fn(async () => initial),
-      updateSnapshot,
       updateCompactSnapshot,
     } satisfies ProRoomPlaylistStateApi;
     const manager = new ProRoomPlaylistStateManager({
@@ -247,14 +268,12 @@ describe('PRO room playlist state manager', () => {
     });
     await manager.acceptSnapshot(initial);
 
-    await manager.updateMetadata(A, { title: 'Legacy bridge' });
+    await expect(manager.updateMetadata(A, { title: 'Changed title' })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+      status: 404,
+    });
 
     expect(updateCompactSnapshot).toHaveBeenCalledOnce();
-    expect(updateSnapshot).toHaveBeenCalledOnce();
-    expect(updateSnapshot.mock.calls[0]![0].playlist[0]).toMatchObject({
-      queueItemId: A,
-      title: 'Legacy bridge',
-    });
   });
 
   it('projects every accepted authoritative snapshot through the injected sink', async () => {
@@ -322,7 +341,7 @@ describe('PRO room playlist state manager', () => {
 
     expect(accepted.currentQueueItemId).toBeNull();
     expect(accepted.playback).toEqual(initial.playback);
-    expect(api.updateSnapshot).toHaveBeenCalledWith(
+    expect(api.updateCompactSnapshot).toHaveBeenCalledWith(
       expect.objectContaining({ currentQueueItemId: null, playback: initial.playback }),
       undefined,
     );
@@ -448,7 +467,7 @@ describe('PRO room playlist state manager', () => {
     expect(upgraded.playlist[0]?.source).toMatchObject({
       videoIds: ['dQw4w9WgXcQ', 'aaaaaaaaaaa'],
     });
-    expect(api.updateSnapshot).toHaveBeenCalledOnce();
+    expect(api.updateCompactSnapshot).toHaveBeenCalledOnce();
 
     const unchanged = await manager.updateYouTubeManifest(A, {
       playlistId: 'PL1234567890',
@@ -456,7 +475,7 @@ describe('PRO room playlist state manager', () => {
       videoIds: ['dQw4w9WgXcQ', 'bbbbbbbbbbb'],
     });
     expect(unchanged.playlist[0]?.source).toEqual(upgraded.playlist[0]?.source);
-    expect(api.updateSnapshot).toHaveBeenCalledOnce();
+    expect(api.updateCompactSnapshot).toHaveBeenCalledOnce();
   });
 
   it('drops a stale manifest upgrade after a CAS refresh replaces the source identity', async () => {
@@ -488,12 +507,12 @@ describe('PRO room playlist state manager', () => {
         },
       ],
     });
-    const updateSnapshot = vi.fn(async () => {
+    const updateCompactSnapshot = vi.fn(async () => {
       throw new ProRoomApiError('REVISION_CONFLICT', 409);
     });
     const api = {
       getSnapshot: vi.fn(async () => replaced),
-      updateSnapshot,
+      updateCompactSnapshot,
     } satisfies ProRoomPlaylistStateApi;
     const manager = new ProRoomPlaylistStateManager({
       code: ROOM_CODE,
@@ -511,7 +530,7 @@ describe('PRO room playlist state manager', () => {
     });
 
     expect(accepted.playlist[0]?.source).toEqual(replaced.playlist[0]?.source);
-    expect(updateSnapshot).toHaveBeenCalledOnce();
+    expect(updateCompactSnapshot).toHaveBeenCalledOnce();
     expect(api.getSnapshot).toHaveBeenCalledOnce();
   });
 
@@ -572,14 +591,14 @@ describe('PRO room playlist state manager', () => {
     const requestFirstAppendSelection = vi.fn(async () => undefined);
     const api = {
       getSnapshot: vi.fn(async () => remote),
-      updateSnapshot: vi.fn(async (input: UpdateProRoomSnapshotInput) => {
+      updateCompactSnapshot: vi.fn(async (input: UpdateProRoomCompactSnapshotInput) => {
         calls += 1;
         if (calls === 1) throw new ProRoomApiError('REVISION_CONFLICT', 409);
         return activeSnapshot({
           ...remote,
           revision: 3,
           playlistRevision: 2,
-          playlist: input.playlist,
+          playlist: applyCompactPlaylist(remote, input),
           currentQueueItemId: input.currentQueueItemId,
           playback: input.playback,
         });
@@ -616,14 +635,14 @@ describe('PRO room playlist state manager', () => {
     let calls = 0;
     const api = {
       getSnapshot: vi.fn(async () => remote),
-      updateSnapshot: vi.fn(async (input: UpdateProRoomSnapshotInput) => {
+      updateCompactSnapshot: vi.fn(async (input: UpdateProRoomCompactSnapshotInput) => {
         calls += 1;
         if (calls === 1) throw new ProRoomApiError('REVISION_CONFLICT', 409);
         return activeSnapshot({
           ...remote,
           revision: 3,
           playlistRevision: 2,
-          playlist: input.playlist,
+          playlist: applyCompactPlaylist(remote, input),
           currentQueueItemId: input.currentQueueItemId,
           playback: input.playback,
         });
@@ -658,17 +677,17 @@ describe('PRO room playlist state manager', () => {
       playlistRevision: 2,
       playlist: [youtube(A), youtube(C, 'aaaaaaaaaaa', 'remote')],
     });
-    const requests: UpdateProRoomSnapshotInput[] = [];
+    const requests: UpdateProRoomCompactSnapshotInput[] = [];
     const api = {
       getSnapshot: vi.fn(async () => remote),
-      updateSnapshot: vi.fn(async (input: UpdateProRoomSnapshotInput) => {
+      updateCompactSnapshot: vi.fn(async (input: UpdateProRoomCompactSnapshotInput) => {
         requests.push(input);
         if (requests.length === 1) throw new ProRoomApiError('REVISION_CONFLICT', 409);
         return activeSnapshot({
           ...remote,
           revision: 3,
           playlistRevision: 3,
-          playlist: input.playlist,
+          playlist: applyCompactPlaylist(remote, input),
           currentQueueItemId: input.currentQueueItemId,
           playback: input.playback,
         });
@@ -694,9 +713,9 @@ describe('PRO room playlist state manager', () => {
     expect(api.getSnapshot).toHaveBeenCalledOnce();
     expect(requests).toHaveLength(2);
     expect(requests[0]!.baseRevision).toBe(1);
-    expect(requests[0]!.playlist.map((item) => item.queueItemId)).toEqual([A, B]);
+    expect(requests[0]!.playlistOrder).toEqual([A, B]);
     expect(requests[1]!.baseRevision).toBe(2);
-    expect(requests[1]!.playlist.map((item) => item.queueItemId)).toEqual([A, C, B]);
+    expect(requests[1]!.playlistOrder).toEqual([A, C, B]);
     expect(requests[1]!.idempotencyKey).not.toBe(requests[0]!.idempotencyKey);
     expect(result.playlist.map((item) => item.queueItemId)).toEqual([A, C, B]);
     // Appending alone intentionally does not invent a playback transition;
@@ -712,7 +731,7 @@ describe('PRO room playlist state manager', () => {
     const remote = activeSnapshot({ revision: 2 });
     const api = {
       getSnapshot: vi.fn(async () => remote),
-      updateSnapshot: vi.fn(async () => {
+      updateCompactSnapshot: vi.fn(async () => {
         throw new ProRoomApiError('REVISION_CONFLICT', 409);
       }),
     } satisfies ProRoomPlaylistStateApi;
@@ -728,7 +747,7 @@ describe('PRO room playlist state manager', () => {
     await expect(
       manager.addYouTube({ name: 'local', videoId: 'bbbbbbbbbbb' }),
     ).rejects.toMatchObject({ code: 'REVISION_CONFLICT' });
-    expect(api.updateSnapshot).toHaveBeenCalledTimes(2);
+    expect(api.updateCompactSnapshot).toHaveBeenCalledTimes(2);
     expect(api.getSnapshot).toHaveBeenCalledOnce();
   });
 
@@ -775,7 +794,7 @@ describe('PRO room playlist state manager', () => {
       asset('asset_00000000001'),
       asset('asset_00000000002'),
     ]);
-    expect(api.updateSnapshot).toHaveBeenCalledTimes(2);
+    expect(api.updateCompactSnapshot).toHaveBeenCalledTimes(2);
     expect(media.deleteAsset).not.toHaveBeenCalled();
   });
 
@@ -785,7 +804,7 @@ describe('PRO room playlist state manager', () => {
     const cleanupFailure = new ProRoomApiError('ASSET_IN_USE', 409);
     const api = {
       getSnapshot: vi.fn(async () => initial),
-      updateSnapshot: vi.fn(async () => {
+      updateCompactSnapshot: vi.fn(async () => {
         throw originalFailure;
       }),
     } satisfies ProRoomPlaylistStateApi;
@@ -825,12 +844,12 @@ describe('PRO room playlist state manager', () => {
     const responseLost = new Error('connection-lost-after-commit');
     const api = {
       getSnapshot: vi.fn(async () => server),
-      updateSnapshot: vi.fn(async (input: UpdateProRoomSnapshotInput) => {
+      updateCompactSnapshot: vi.fn(async (input: UpdateProRoomCompactSnapshotInput) => {
         server = activeSnapshot({
           ...server,
           revision: server.revision + 1,
           playlistRevision: server.playlistRevision + 1,
-          playlist: input.playlist,
+          playlist: applyCompactPlaylist(server, input),
           currentQueueItemId: input.currentQueueItemId,
           playback: input.playback,
         });
@@ -873,7 +892,7 @@ describe('PRO room playlist state manager', () => {
     });
     const api = {
       getSnapshot: vi.fn(async () => committed),
-      updateSnapshot: vi.fn(),
+      updateCompactSnapshot: vi.fn(),
     } satisfies ProRoomPlaylistStateApi;
     const media = mediaTransfer();
     const manager = new ProRoomPlaylistStateManager({
@@ -896,7 +915,7 @@ describe('PRO room playlist state manager', () => {
     expect(result.queueItemId).toBe(A);
     expect(result.snapshot.playlist[0]?.queueItemId).toBe(A);
     expect(media.upload).not.toHaveBeenCalled();
-    expect(api.updateSnapshot).not.toHaveBeenCalled();
+    expect(api.updateCompactSnapshot).not.toHaveBeenCalled();
   });
 
   it('removes multiple rows in one CAS, clears the current checkpoint, and frees unreferenced assets', async () => {
@@ -938,9 +957,10 @@ describe('PRO room playlist state manager', () => {
 
     const result = await manager.removeMany([A, C]);
 
-    expect(api.updateSnapshot).toHaveBeenCalledOnce();
-    const request = api.updateSnapshot.mock.calls[0]![0];
-    expect(request.playlist.map((item) => item.queueItemId)).toEqual([B]);
+    expect(api.updateCompactSnapshot).toHaveBeenCalledOnce();
+    const request = api.updateCompactSnapshot.mock.calls[0]![0];
+    expect(request.playlistOrder).toEqual([B]);
+    expect(request.upserts).toEqual([]);
     expect(request.currentQueueItemId).toBeNull();
     expect(request.playback).toEqual({
       coordinatorEpoch: 1,
@@ -1012,8 +1032,8 @@ describe('PRO room playlist state manager', () => {
 
     await manager.reorder([B, A]);
 
-    const request = api.updateSnapshot.mock.calls[0]![0];
-    expect(request.playlist.map((item) => item.queueItemId)).toEqual([B, A]);
+    const request = api.updateCompactSnapshot.mock.calls[0]![0];
+    expect(request.playlistOrder).toEqual([B, A]);
     expect(request.currentQueueItemId).toBe(A);
     expect(request.playback).toEqual(playback);
   });
@@ -1031,12 +1051,12 @@ describe('PRO room playlist state manager', () => {
     });
     const api = {
       getSnapshot: vi.fn(async () => relayed),
-      updateSnapshot: vi.fn(async (input: UpdateProRoomSnapshotInput) =>
+      updateCompactSnapshot: vi.fn(async (input: UpdateProRoomCompactSnapshotInput) =>
         activeSnapshot({
           ...relayed,
           revision: 3,
           playlistRevision: 3,
-          playlist: input.playlist,
+          playlist: applyCompactPlaylist(relayed, input),
           currentQueueItemId: input.currentQueueItemId,
           playback: input.playback,
         }),
@@ -1054,10 +1074,11 @@ describe('PRO room playlist state manager', () => {
     const accepted = await manager.reorder([B, A, C], { baseRevision: relayed.revision });
 
     expect(api.getSnapshot).toHaveBeenCalledOnce();
-    expect(api.updateSnapshot).toHaveBeenCalledOnce();
-    expect(api.updateSnapshot.mock.calls[0]![0]).toMatchObject({
+    expect(api.updateCompactSnapshot).toHaveBeenCalledOnce();
+    expect(api.updateCompactSnapshot.mock.calls[0]![0]).toMatchObject({
       baseRevision: relayed.revision,
-      playlist: [youtube(B), youtube(A), youtube(C)],
+      playlistOrder: [B, A, C],
+      upserts: [],
     });
     expect(accepted.playlist.map((item) => item.queueItemId)).toEqual([B, A, C]);
   });
@@ -1081,8 +1102,8 @@ describe('PRO room playlist state manager', () => {
     await manager.reorder([B, A], { baseRevision: 2 });
 
     expect(api.getSnapshot).not.toHaveBeenCalled();
-    expect(api.updateSnapshot).toHaveBeenCalledOnce();
-    expect(api.updateSnapshot.mock.calls[0]![0].baseRevision).toBe(initial.revision);
+    expect(api.updateCompactSnapshot).toHaveBeenCalledOnce();
+    expect(api.updateCompactSnapshot.mock.calls[0]![0].baseRevision).toBe(initial.revision);
   });
 
   it('rebases a trailing manager reorder over a concurrent appended row', async () => {
@@ -1098,12 +1119,12 @@ describe('PRO room playlist state manager', () => {
     });
     const api = {
       getSnapshot: vi.fn(async () => concurrent),
-      updateSnapshot: vi.fn(async (input: UpdateProRoomSnapshotInput) =>
+      updateCompactSnapshot: vi.fn(async (input: UpdateProRoomCompactSnapshotInput) =>
         activeSnapshot({
           ...concurrent,
           revision: 4,
           playlistRevision: 4,
-          playlist: input.playlist,
+          playlist: applyCompactPlaylist(concurrent, input),
           currentQueueItemId: input.currentQueueItemId,
           playback: input.playback,
         }),
@@ -1121,12 +1142,7 @@ describe('PRO room playlist state manager', () => {
     const accepted = await manager.reorder([B, A, C], { baseRevision: 2 });
 
     expect(api.getSnapshot).toHaveBeenCalledOnce();
-    expect(api.updateSnapshot.mock.calls[0]![0].playlist.map((item) => item.queueItemId)).toEqual([
-      B,
-      A,
-      C,
-      D,
-    ]);
+    expect(api.updateCompactSnapshot.mock.calls[0]![0].playlistOrder).toEqual([B, A, C, D]);
     expect(accepted.playlist.map((item) => item.queueItemId)).toEqual([B, A, C, D]);
   });
 
@@ -1216,9 +1232,10 @@ describe('PRO room playlist state manager', () => {
       youtubeSubIndex: 3,
     });
 
-    expect(api.updateSnapshot).toHaveBeenCalledOnce();
-    const request = api.updateSnapshot.mock.calls[0]![0];
-    expect(request.playlist).toEqual(initial.playlist);
+    expect(api.updateCompactSnapshot).toHaveBeenCalledOnce();
+    const request = api.updateCompactSnapshot.mock.calls[0]![0];
+    expect(request.playlistOrder).toBeNull();
+    expect(request.upserts).toEqual([]);
     expect(request.currentQueueItemId).toBe(B);
     expect(request.playback).toEqual({
       coordinatorEpoch: 3,
@@ -1271,7 +1288,7 @@ describe('PRO room playlist state manager', () => {
     });
 
     expect(result.playback).toEqual(playback);
-    expect(api.updateSnapshot).not.toHaveBeenCalled();
+    expect(api.updateCompactSnapshot).not.toHaveBeenCalled();
     expect(now).not.toHaveBeenCalled();
   });
 
@@ -1359,10 +1376,10 @@ describe('PRO room playlist state manager', () => {
         revision: 2,
       },
     });
-    const requests: UpdateProRoomSnapshotInput[] = [];
+    const requests: UpdateProRoomCompactSnapshotInput[] = [];
     const api = {
       getSnapshot: vi.fn(async () => remote),
-      updateSnapshot: vi.fn(async (input: UpdateProRoomSnapshotInput) => {
+      updateCompactSnapshot: vi.fn(async (input: UpdateProRoomCompactSnapshotInput) => {
         requests.push(input);
         if (requests.length === 1) throw new ProRoomApiError('REVISION_CONFLICT', 409);
         return activeSnapshot({
@@ -1466,7 +1483,7 @@ describe('PRO room playlist state manager', () => {
     ).rejects.toMatchObject({
       code: 'PRO_ROOM_PLAYLIST_PLAYBACK_COORDINATOR_EPOCH_MISMATCH',
     });
-    expect(api.updateSnapshot).not.toHaveBeenCalled();
+    expect(api.updateCompactSnapshot).not.toHaveBeenCalled();
   });
 
   it('enforces the 1000-row limit before upload or snapshot mutation', async () => {
@@ -1494,7 +1511,7 @@ describe('PRO room playlist state manager', () => {
       manager.addYouTube({ name: 'overflow', videoId: 'bbbbbbbbbbb' }),
     ).rejects.toMatchObject({ code: 'PRO_ROOM_PLAYLIST_LIMIT_REACHED' });
     expect(media.upload).not.toHaveBeenCalled();
-    expect(api.updateSnapshot).not.toHaveBeenCalled();
+    expect(api.updateCompactSnapshot).not.toHaveBeenCalled();
     expect(createIdempotencyKey).not.toHaveBeenCalled();
   });
 });

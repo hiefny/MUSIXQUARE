@@ -95,10 +95,8 @@ export const PEER_NAME_PREFIX = 'Peer';
 // frames; these cap rendered/relayed payloads).
 export const MAX_MSG_LENGTH = 500;
 export const MAX_SENDER_LABEL_LENGTH = 30;
-/** Keep one-version rolling-deploy compatibility with the former 24-hour BOT
- * window. The live room now returns at most one hour, while cached clients and
- * a briefly older Worker can still exchange the previous bounded response. */
-export const BOT_RATE_LIMIT_MAX_RETRY_SECONDS = 24 * 60 * 60;
+/** Maximum BOT retry delay accepted from the Worker and on the chat wire. */
+export const BOT_RATE_LIMIT_MAX_RETRY_SECONDS = 60 * 60;
 
 // ─── Message Types (P2P Protocol) ──────────────────────────────────
 export const MSG = {

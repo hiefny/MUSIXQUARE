@@ -1,6 +1,4 @@
 /** E2E coverage for the production YouTube entry UI and host/guest mode handoff. */
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import {
   createHostGuestContexts,
@@ -8,6 +6,7 @@ import {
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
+import { uploadFixture } from './helpers/file-upload.ts';
 import {
   readPlaybackProjection,
   waitForClass,
@@ -127,12 +126,7 @@ test.describe('YouTube Integration', () => {
     await submitYouTubeUrl(pair.hostPage, YT_VIDEO);
     await waitForPlaybackProjection(pair.hostPage, 'PLAYING_YOUTUBE', 15_000);
 
-    const fixturePath = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      'fixtures',
-      'test-01.mp3',
-    );
-    await pair.hostPage.locator('#file-input').setInputFiles(fixturePath);
+    await uploadFixture(pair.hostPage, 'test01');
 
     // Uploading while another track is active appends to the queue and warms
     // its preload; it does not implicitly interrupt the active YouTube item.

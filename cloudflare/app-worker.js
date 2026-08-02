@@ -152,7 +152,6 @@ const PRO_ROOM_FACADE_BODY_MAX_BYTES = 4 * 1024 * 1024;
 const PRO_ROOM_FACADE_BODY_TIMEOUT_MS = 10_000;
 const INITIAL_ADMIN_PRO_ROOMS = Object.freeze([
   Object.freeze({ roomCode: '000000', label: 'MUSIXQUARE Developer' }),
-  Object.freeze({ roomCode: '000001', label: 'Friends & Family' }),
 ]);
 const ADMIN_METRICS_TABLE = 'mxqr_metric_buckets';
 const ADMIN_METRICS_RETENTION_DAYS = 90;

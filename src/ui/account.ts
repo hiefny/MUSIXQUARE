@@ -99,15 +99,10 @@ function getCompletedAccount(snapshot: Readonly<AccountSnapshot>): CompletedAcco
 }
 
 function getAccountStatsOwner(snapshot: Readonly<AccountSnapshot>): AccountStatsOwner | null {
-  const account = getCompletedAccount(snapshot);
-  if (!account) return null;
+  if (!getCompletedAccount(snapshot)) return null;
 
   const statsScope = getAccountStatsScope();
-  if (statsScope) return `scope:${statsScope}`;
-
-  // A rolling deployment can briefly omit statsScope. Keep identical legacy
-  // profiles stable across refresh objects while the scoped response arrives.
-  return `legacy:${JSON.stringify([account.nickname, account.profileComplete])}`;
+  return statsScope ? `scope:${statsScope}` : null;
 }
 
 function focusWithoutScroll(element: HTMLElement | null): void {

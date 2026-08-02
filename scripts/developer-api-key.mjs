@@ -35,8 +35,8 @@ const DEFAULT_DAYS = 90;
 const MAX_DAYS = 365;
 const USAGE = [
   'Usage:',
-  '  npm run developer-api:key -- issue --room 000001 --label "Friend API" [--days 90] [--scopes room:read,playback:read,playback:control,queue:read,queue:write,media:upload,effects:read,effects:control]',
-  '  npm run developer-api:key -- list [--room 000001]',
+  '  npm run developer-api:key -- issue --room 000000 --label "Launch canary" [--days 90] [--scopes room:read,playback:read,playback:control,queue:read,queue:write,media:upload,effects:read,effects:control]',
+  '  npm run developer-api:key -- list [--room 000000]',
   '  npm run developer-api:key -- revoke --id <16-character-key-id>',
 ].join('\n');
 

@@ -85,7 +85,7 @@ describe('room-wide effects contract', () => {
     ).toBeNull();
   });
 
-  it('normalizes a negotiated legacy projection to virtual treble off', () => {
+  it('rejects the retired effects v1 projection', () => {
     const effects = createDefaultRoomEffectsState();
     const { virtualTreble: _virtualTreble, ...legacyEffects } = effects;
 
@@ -98,6 +98,6 @@ describe('room-wide effects contract', () => {
         updatedAtMs: 4,
         effects: legacyEffects,
       }),
-    ).toEqual(expect.objectContaining({ effects, schemaVersion: 1 }));
+    ).toBeNull();
   });
 });

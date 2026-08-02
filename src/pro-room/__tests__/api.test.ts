@@ -54,7 +54,7 @@ function administratorDirectory() {
         displayName: 'Owner',
         role: 'owner' as const,
         permissions: OWNER_PERMISSIONS,
-        inheritedPermissions: ['playback.control'] as Array<keyof ProRoomPermissionSet>,
+        inheritedPermissions: Object.keys(OWNER_PERMISSIONS) as Array<keyof ProRoomPermissionSet>,
         onlineDeviceCount: 1,
       },
       {
@@ -64,7 +64,7 @@ function administratorDirectory() {
         displayName: 'Friend',
         role: 'controller' as const,
         permissions: DELEGATED_PERMISSIONS,
-        inheritedPermissions: ['playback.control'] as Array<keyof ProRoomPermissionSet>,
+        inheritedPermissions: [] as Array<keyof ProRoomPermissionSet>,
         onlineDeviceCount: 2,
       },
     ],
@@ -106,8 +106,13 @@ function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
       participants: [
         {
           participantId: 'participant_00001',
+          memberId: 'member_0000000001',
+          memberDisplayNumber: 0,
+          isAuthenticated: true,
           displayName: 'Owner',
+          devicePlatform: 'other',
           role: 'owner',
+          capabilities: [...OWNER_CAPABILITIES],
           joinedAtMs: 1_800_000_000_000,
         },
       ],
@@ -120,6 +125,8 @@ function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
     },
     viewer: {
       memberId: 'member_0000000001',
+      memberDisplayNumber: 0,
+      isAuthenticated: true,
       participantId: 'participant_00001',
       presenceIncarnationId: 'presence_0000000001',
       displayName: 'Owner',
@@ -127,6 +134,20 @@ function activeSnapshot(roomCode = ROOM_CODE): ProRoomSnapshot {
       capabilities: [...OWNER_CAPABILITIES],
       coordinatorEligible: false,
     },
+    memberIdentityVersion: 1,
+    authorityVersion: 1,
+    administrators: [
+      {
+        memberId: 'member_0000000001',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: OWNER_PERMISSIONS,
+        inheritedPermissions: Object.keys(OWNER_PERMISSIONS) as Array<keyof ProRoomPermissionSet>,
+        onlineDeviceCount: 1,
+      },
+    ],
   };
 }
 
@@ -254,7 +275,7 @@ describe('PRO room endpoint boundary', () => {
     expect(init.signal).not.toBe(signal);
     const headers = new Headers(init.headers);
     expect(headers.get('authorization')).toBeNull();
-    expect(headers.get('accept')).toBe('application/json; mxqr-device-platform=1');
+    expect(headers.get('accept')).toBeNull();
   });
 
   it('rejects a bootstrap body that exceeds its declared bound before parsing it', async () => {
@@ -496,6 +517,11 @@ describe('PRO room cookie session API', () => {
         },
       ],
     };
+    linked.administrators = linked.administrators.map((administrator) => ({
+      ...administrator,
+      displayName:
+        administrator.memberId === linked.viewer?.memberId ? 'Minsu' : administrator.displayName,
+    }));
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);
@@ -549,7 +575,7 @@ describe('PRO room cookie session API', () => {
         displayName: 'Owner',
         role: 'owner',
         permissions: OWNER_PERMISSIONS,
-        inheritedPermissions: ['playback.control'],
+        inheritedPermissions: Object.keys(OWNER_PERMISSIONS) as Array<keyof ProRoomPermissionSet>,
         onlineDeviceCount: 0,
       },
     ];
@@ -560,7 +586,7 @@ describe('PRO room cookie session API', () => {
       isAuthenticated: false,
       displayName: 'Peer 2',
       role: 'member',
-      capabilities: ['playback.control'],
+      capabilities: [],
     };
     detached.presence = {
       ...detached.presence,
@@ -573,7 +599,7 @@ describe('PRO room cookie session API', () => {
           isAuthenticated: false,
           displayName: 'Peer 2',
           role: 'member',
-          capabilities: ['playback.control'],
+          capabilities: [],
         },
       ],
     };
@@ -597,7 +623,7 @@ describe('PRO room cookie session API', () => {
     const headers = new Headers(init.headers);
     expect(headers.get('x-mxqr-pro-participant-id')).toBeNull();
     expect(headers.get('x-mxqr-pro-presence-incarnation')).toBeNull();
-    expect(headers.get('x-mxqr-pro-detach-version')).toBe('2');
+    expect(headers.get('x-mxqr-pro-detach-version')).toBeNull();
   });
 
   it('accepts a detached account result with no snapshot when presence already expired', async () => {
@@ -1079,35 +1105,7 @@ describe('PRO room cookie session API', () => {
     });
   });
 
-  it('sends snapshot revisions with the caller-stable idempotency key', async () => {
-    const snapshot = activeSnapshot();
-    const fetchMock = vi.fn<typeof fetch>();
-    const client = new ProRoomApiClient({ fetch: fetchMock });
-    await establishPresence(client, fetchMock);
-    fetchMock.mockResolvedValue(jsonResponse({ snapshot: { ...snapshot, revision: 4 } }));
-
-    await client.updateSnapshot({
-      code: ROOM_CODE,
-      baseRevision: snapshot.revision,
-      playlist: snapshot.playlist,
-      currentQueueItemId: snapshot.currentQueueItemId,
-      playback: snapshot.playback,
-      idempotencyKey: IDEMPOTENCY_KEY,
-    });
-
-    const { url, init } = requestParts(fetchMock);
-    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/snapshot`);
-    expect(init.method).toBe('PUT');
-    expect(new Headers(init.headers).get('idempotency-key')).toBe(IDEMPOTENCY_KEY);
-    expect(JSON.parse(String(init.body))).toEqual({
-      baseRevision: snapshot.revision,
-      playlist: snapshot.playlist,
-      currentQueueItemId: snapshot.currentQueueItemId,
-      playback: snapshot.playback,
-    });
-  });
-
-  it('sends compact snapshot mutations with only stable order and changed rows', async () => {
+  it('sends compact snapshot mutations with stable order, changed rows, and caller idempotency', async () => {
     const snapshot = activeSnapshot();
     const changed = { ...snapshot.playlist[0]!, title: 'Resolved title' };
     const fetchMock = vi.fn<typeof fetch>();
@@ -1162,13 +1160,13 @@ describe('PRO room cookie session API', () => {
     expect(JSON.stringify(error)).not.toContain('private claim');
   });
 
-  it('preserves a bounded old-Worker response during a rolling policy update', async () => {
+  it('accepts the exact one-hour retry boundary', async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValue(
         jsonResponse(
           { error: 'RATE_LIMITED' },
-          { status: 429, headers: { 'retry-after': '86400' } },
+          { status: 429, headers: { 'retry-after': '3600' } },
         ),
       );
     const client = new ProRoomApiClient({ fetch: fetchMock });
@@ -1180,7 +1178,7 @@ describe('PRO room cookie session API', () => {
     expect(error).toMatchObject({
       code: 'RATE_LIMITED',
       status: 429,
-      retryAfterSeconds: 86_400,
+      retryAfterSeconds: 3_600,
     });
   });
 
@@ -1190,7 +1188,7 @@ describe('PRO room cookie session API', () => {
       .mockResolvedValue(
         jsonResponse(
           { error: 'RATE_LIMITED' },
-          { status: 429, headers: { 'retry-after': '86401' } },
+          { status: 429, headers: { 'retry-after': '3601' } },
         ),
       );
     const client = new ProRoomApiClient({ fetch: fetchMock });

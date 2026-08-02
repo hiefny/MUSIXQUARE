@@ -11,14 +11,6 @@ const ADMIN_GENERATION_MIGRATION = readFileSync(
   new URL('../../../cloudflare/admin-metrics.pro-room-generation.migration.sql', import.meta.url),
   'utf8',
 );
-const ADMIN_GENERATION_READINESS = readFileSync(
-  new URL('../../../scripts/sql/pro-room-generation-admin-readiness.sql', import.meta.url),
-  'utf8',
-);
-const ADMIN_DELETION_EVIDENCE = readFileSync(
-  new URL('../../../scripts/sql/pro-room-generation-admin-deletion-evidence.sql', import.meta.url),
-  'utf8',
-);
 const RELEASE_SHA = '1234567890abcdef1234567890abcdef12345678';
 
 const sqlite = (() => {
@@ -416,53 +408,6 @@ function conditionalInitialRegistration(
       }
     });
 
-    it('queries exact registry, history, allocation, and authorized-delete cutover evidence', () => {
-      const db = openDatabase();
-      try {
-        db.exec(ADMIN_SCHEMA);
-        for (const roomCode of ['000002', '000003']) {
-          insertRegistry(db, roomCode, 'decommissioned');
-          db.prepare(
-            `INSERT INTO mxqr_pro_room_generation_history
-               (room_code, room_generation, status, decommissioned_at, request_id)
-             VALUES (?, 0, 'decommissioned', 100, ?)`,
-          ).run(roomCode, `delete-${roomCode}`);
-          db.prepare(
-            `INSERT INTO mxqr_pro_room_admin_audit
-               (actor_id, action, result, room_code, room_generation, created_at)
-             VALUES ('operator', 'room.delete', 'authorized', ?, 0, 90)`,
-          ).run(roomCode);
-        }
-
-        expect(db.prepare(ADMIN_DELETION_EVIDENCE).all()).toEqual([
-          expect.objectContaining({
-            room_code: '000002',
-            registry_status: 'decommissioned',
-            registry_generation: 0,
-            history_count: 1,
-            history_decommissioned_at: 100,
-            allocation_count: 1,
-            other_allocation_count: 0,
-            authorized_delete_audit_count: 1,
-            authorized_delete_audit_latest_at: 90,
-          }),
-          expect.objectContaining({
-            room_code: '000003',
-            registry_status: 'decommissioned',
-            registry_generation: 0,
-            history_count: 1,
-            history_decommissioned_at: 100,
-            allocation_count: 1,
-            other_allocation_count: 0,
-            authorized_delete_audit_count: 1,
-            authorized_delete_audit_latest_at: 90,
-          }),
-        ]);
-      } finally {
-        db.close();
-      }
-    });
-
     it('fails closed when a pointer is missing but immutable incarnation evidence remains', () => {
       const db = openDatabase();
       try {
@@ -582,86 +527,6 @@ function conditionalInitialRegistration(
              WHERE room_code = '000030'`,
           ),
         ).toThrow(/registry code is immutable/i);
-      } finally {
-        db.close();
-      }
-    });
-
-    it('fails schema readiness when immutable allocation or terminal history data is missing', () => {
-      const db = openDatabase();
-      try {
-        db.exec(ADMIN_SCHEMA);
-        insertRegistry(db, '000040');
-        expect(db.prepare(ADMIN_GENERATION_READINESS).get()).toMatchObject({ schema_ready: 1 });
-
-        db.exec(
-          `DROP TRIGGER mxqr_pro_room_generation_allocations_no_delete;
-           DELETE FROM mxqr_pro_room_generation_allocations
-           WHERE room_code = '000040' AND room_generation = 0;
-           CREATE TRIGGER mxqr_pro_room_generation_allocations_no_delete
-           BEFORE DELETE ON mxqr_pro_room_generation_allocations
-           BEGIN
-             SELECT RAISE(ABORT, 'PRO room generation allocation is immutable');
-           END;`,
-        );
-        expect(db.prepare(ADMIN_GENERATION_READINESS).get()).toMatchObject({ schema_ready: 0 });
-
-        db.exec(
-          `INSERT INTO mxqr_pro_room_generation_allocations
-             (room_code, room_generation, allocated_at)
-           VALUES ('000040', 0, 100);
-           DROP TRIGGER mxqr_pro_room_registry_status_transition_guard;
-           UPDATE mxqr_pro_room_registry
-           SET status = 'decommissioned', updated_at = 200
-           WHERE room_code = '000040';`,
-        );
-        db.exec(ADMIN_SCHEMA);
-        expect(db.prepare(ADMIN_GENERATION_READINESS).get()).toMatchObject({ schema_ready: 0 });
-
-        db.exec(
-          `INSERT INTO mxqr_pro_room_generation_history
-             (room_code, room_generation, status, decommissioned_at)
-           VALUES ('000040', 0, 'decommissioned', 200);`,
-        );
-        expect(db.prepare(ADMIN_GENERATION_READINESS).get()).toMatchObject({ schema_ready: 1 });
-      } finally {
-        db.close();
-      }
-    });
-
-    it('fails readiness on a legacy malformed status until an explicit repair', () => {
-      const db = openDatabase();
-      try {
-        db.exec(
-          `CREATE TABLE mxqr_pro_room_registry (
-             room_code TEXT PRIMARY KEY NOT NULL,
-             label TEXT NOT NULL,
-             status TEXT NOT NULL DEFAULT 'registered',
-             activation_state TEXT NOT NULL DEFAULT 'unactivated',
-             created_at INTEGER NOT NULL,
-             updated_at INTEGER NOT NULL
-           );
-           CREATE TABLE mxqr_pro_room_admin_audit (
-             id INTEGER PRIMARY KEY AUTOINCREMENT,
-             actor_id TEXT NOT NULL,
-             action TEXT NOT NULL,
-             result TEXT NOT NULL,
-             room_code TEXT NOT NULL,
-             created_at INTEGER NOT NULL
-           );
-           INSERT INTO mxqr_pro_room_registry
-             (room_code, label, status, activation_state, created_at, updated_at)
-           VALUES ('000041', 'Malformed legacy', 'mystery', 'unactivated', 40, 41);`,
-        );
-        db.exec(ADMIN_GENERATION_MIGRATION);
-
-        expect(db.prepare(ADMIN_GENERATION_READINESS).get()).toMatchObject({ schema_ready: 0 });
-        db.exec(
-          `UPDATE mxqr_pro_room_registry
-           SET status = 'registered', updated_at = 42
-           WHERE room_code = '000041'`,
-        );
-        expect(db.prepare(ADMIN_GENERATION_READINESS).get()).toMatchObject({ schema_ready: 1 });
       } finally {
         db.close();
       }

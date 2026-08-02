@@ -1,4 +1,4 @@
-export type ProvisionedProRoomCode = '000000' | '000001';
+export type ProvisionedProRoomCode = '000000';
 export type ProRoomClaimMode = 'activation' | 'recovery';
 
 export class ProRoomClaimCliError extends Error {}

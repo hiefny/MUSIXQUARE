@@ -37,49 +37,25 @@ hotfix. Every target reuses that exact-SHA CI candidate without a second
 validation pass or environment self-approval, then runs its live smokes with
 conflict-aware rollback.
 
-Leave `Apply Developer API D1 schema and one-time migrations` disabled for an
-ordinary Worker release. Enable it only when the approved commit intentionally
-changes the Developer API database schema or its tracked migration SQL.
-Infrastructure releases make read-only D1 schema and cutover-state probes and
-do not apply schema or application-data migrations unless the corresponding
-reviewed input is enabled. A full-stack `all` rollout is the deliberate exception for
-cutover-control state: it temporarily writes the room-code reuse fence to
-`disabled` while dependencies change, then restores verified readiness after
-the new stack owns production.
+Leave `Apply the current Developer API D1 baseline` disabled for an ordinary
+Worker release. Enable it only when the approved commit intentionally changes
+the Developer API database contract and carries the required manifest entry
+and recovery decision. The release workflow no longer runs completed beta
+migrations or launch-cleanup commands.
 
-The reusable PRO-room-code cutover is not an ordinary code-only release. First
-take or confirm provider recovery points. Run the `Production Release` workflow
-with target `all` and enable
-`Apply the forward-only admin/auth/Developer PRO generation migrations`. The
-workflow probes each database, applies a legacy schema or safely completes a
-recognized partial forward migration, verifies the exact generation objects,
-and requires the new global cutover marker to remain `disabled` before any
-Worker changes. An unknown schema shape fails closed. Keep admin
-re-registration unused until every Worker, final deployment-ownership check,
-and live smoke passes.
+The reusable PRO-room generation floor is already permanent. Every full-stack
+`all` release reads its immutable `floor_release_sha`, proves that commit is an
+ancestor of the candidate, and writes the room-code reuse marker to `disabled`
+before any dependency changes. After every Worker, live smoke, and final
+deployment-ownership check succeeds, the workflow restores `ready` for the
+exact release SHA. There is no first-room enable input or deletion-evidence
+ceremony to replay.
 
-Enabling same-code reuse is a separate explicit input. Use it only after direct
-external evidence for `000002` and `000003` proves the old R2 prefixes empty,
-Developer API keys absent, and all PRO/signaling/limiter/registry tombstones
-complete; type the workflow's exact confirmation phrase. That attestation
-cannot be inferred from the registry status. The first-enable run also checks
-exact admin/Developer D1 evidence, including a generation-zero authorized
-delete audit dated no later than immutable completion and a non-stale registry
-timestamp, plus application-level bootstrap rejection for both codes; it still
-cannot inspect R2, signaling, or limiter storage, so the manual direct-evidence
-requirement remains. Only then may the workflow write `ready` together with its
-exact 40-character release SHA. Leave the ordinary
-Developer API schema option disabled unless the same release independently
-requires its base/effects-scope path; the generation option already authorizes
-the reviewed generation migration.
-
-The legacy effects-scope migration and rollback rebuild the Developer API key
-table and therefore may run only before `room_generation` exists. The migration
-runner detects that column and refuses either rebuild before writing a journal
-or mutating D1. After the generation migration, any scope-constraint change
-must be a new forward migration that explicitly preserves
-`(room_code, room_generation)`, key tombstones, and their triggers; never force
-the legacy effects-scope rollback during release recovery.
+The checked-in effects-scope forward/rollback SQL pair is immutable migration
+history, not an active release runner. Any future scope-constraint change must
+be a new reviewed migration that explicitly preserves
+`(room_code, room_generation)`, key tombstones, and their triggers. Never run
+the historical table rebuild as launch-era recovery.
 
 Once the reuse cutover has ever been marked `ready`, a later generation may be
 created concurrently at any moment and automatic rollback to any
@@ -93,10 +69,9 @@ If a full release fails, recovery first returns the global cutover marker to
 `disabled`; it preserves `ever_enabled` and the first
 `floor_release_sha`. If that fence cannot be proven, or if the permanent floor
 or any generation above zero exists, it withholds rollback of every
-generation-sensitive Worker. A later full release may temporarily fence and
-then automatically restore a marker that was already `ready`; restoring a
-marker left disabled by a failed release requires the explicit enable input and
-confirmation again.
+generation-sensitive Worker. A later successful full release can restore a
+marker left disabled by a failed release, but only after the same floor, smoke,
+and deployment-ownership checks pass.
 
 The complete serial Playwright suite is intentionally not a production deploy
 gate or a scheduled job. Start it manually from the `Full E2E` workflow when a
@@ -142,15 +117,12 @@ timeouts. These limits are intentionally far above the tiny synthetic payloads'
 normal latency, but prevent a half-open response from delaying automatic
 recovery for the runner's six-hour default job lifetime.
 
-When a release includes a Developer API D1 migration, recovery runs the schema
-rollback and Worker rollback as separate steps. Each step receives only its own
-least-privilege token; neither recovery script can read the other's credential.
-Both recovery commands are attempted even if the first one fails. If the
-effects-scope schema cannot be restored, recovery leaves the public Developer
-API Worker on its schema-compatible version instead of restoring a legacy
-Worker that rejects the remaining scope bits; independent Workers still return
-to their previous versions. The release remains failed and reports the withheld
-target for operator review.
+The release workflow does not attempt an automatic down migration after the
+Developer API baseline is applied. A failed schema-bearing release keeps the
+Developer API facade/backend pair on the forward-compatible release floor and
+requires a reviewed roll-forward or provider restore. The historical paired
+effects-scope SQL remains recorded in the D1 manifest only as immutable audit
+history; it is not invoked by current recovery automation.
 
 The app and signaling rollback floor is first-frame host authentication. Every
 signaling version eligible for routine rollback must accept the `host-auth`
@@ -300,16 +272,13 @@ follow the coordinated deployment contract in
 [`design/queue-item-identity-and-reorder.md`](design/queue-item-identity-and-reorder.md); a mixed
 old/new app and Worker pair is unsupported and must not be rolled out as an ordinary hotfix.
 
-The PRO room persistence-v2 rollout is backward-compatible only in the forward
-direction: deploy the PRO Worker before the app so cached clients can continue
-using the legacy full-snapshot route while updated clients begin using compact
-mutations. The public Developer API contract is unchanged, but deploy its
-facade and public Worker before the app whenever their larger queue-response
-bounds are part of the release. After any room has exceeded the legacy 1.2 MiB
-single-record budget, do not roll the PRO Worker back to a pre-v2 version as a
-routine code-only rollback. That older Worker can read only the last exact v1
-shadow, which may be stale; use a v2-aware forward fix or an explicit operator
-data-restore procedure instead.
+The PRO room persistence-v2 contract is a coordinated hard cut. Deploy the PRO
+Worker before the app and deploy the Developer API facade/public Worker before
+the app whenever their queue-response contract is part of the release. Current
+clients mutate playlists only through the compact endpoint; there is no legacy
+full-snapshot mutation route. Cached pre-cut clients are unsupported and must
+reload. Do not roll the PRO Worker back to a pre-v2 version: use a v2-aware
+forward fix or an explicit operator data-restore procedure instead.
 
 Before an emergency local deploy, save the version reported by
 `npm run wrangler -- deployments status --config <config> --json`. Confirm that the

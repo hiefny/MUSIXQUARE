@@ -289,7 +289,7 @@ describe('Developer API live canary smoke', () => {
     expect(calls).toContain(`GET https://api.musixquare.com/v1/rooms/${ROOM}/effects`);
     expect(
       calls.filter((call) => call === `GET https://api.musixquare.com/v1/rooms/${ROOM}/effects`),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     expect(calls).toContain(`GET https://api.musixquare.com/v1/rooms/${ROOM}/queue-mode`);
     expect(calls).toContain('PUT https://storage.example/upload');
     expect(calls.at(-1)).toBe(

@@ -110,11 +110,12 @@ first PRO-room admin rollout. Use the drift and retention procedure in
 `admin-dashboard-ops.md` before changing any other table found in production.
 
 The independent `musixquare-auth` and `musixquare-developer-api` databases must
-also match `auth.schema.sql` plus its tracked nickname migration, and
-`developer-api.schema.sql` plus the effects-scope forward/rollback pair. A
-Developer API release now compares the deployed Worker's recorded git SHA with
-these tracked files and refuses a schema-changing release unless the explicit
-D1 option is enabled.
+match their current declarative baselines. A Developer API release compares the
+deployed Worker's recorded git SHA with the database paths derived from the D1
+manifest and refuses a schema-changing release unless the explicit D1 option is
+enabled. Completed nickname, launch-cleanup, generation, and effects-scope SQL
+remain in the manifest as immutable history; they are not routine release
+runners.
 
 `cloudflare/d1-migrations.manifest.json` is the fail-closed inventory for all
 checked-in D1 baselines and migrations. `scripts/check-d1-migration-contract.mjs`

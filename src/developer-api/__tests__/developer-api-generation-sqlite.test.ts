@@ -7,24 +7,6 @@ const DEVELOPER_SCHEMA = readFileSync(
   new URL('../../../cloudflare/developer-api.schema.sql', import.meta.url),
   'utf8',
 );
-const DEVELOPER_READINESS = readFileSync(
-  new URL('../../../scripts/sql/pro-room-generation-developer-readiness.sql', import.meta.url),
-  'utf8',
-);
-const DEVELOPER_MIGRATION_STATE = readFileSync(
-  new URL(
-    '../../../scripts/sql/pro-room-generation-developer-migration-state.sql',
-    import.meta.url,
-  ),
-  'utf8',
-);
-const DEVELOPER_DELETION_EVIDENCE = readFileSync(
-  new URL(
-    '../../../scripts/sql/pro-room-generation-developer-deletion-evidence.sql',
-    import.meta.url,
-  ),
-  'utf8',
-);
 
 const sqlite = (() => {
   try {
@@ -186,57 +168,6 @@ function insertKey(db: DatabaseSync): void {
           room_generation: 2,
           created_at: 1000,
         });
-      } finally {
-        db.close();
-      }
-    });
-
-    it('queries permanent generation tombstones and zero remaining credential rows', () => {
-      const db = openDatabase();
-      try {
-        db.exec(DEVELOPER_SCHEMA);
-        for (const roomCode of ['000002', '000003']) {
-          db.prepare(
-            `INSERT INTO mxqr_developer_api_room_generation_tombstones
-               (room_code, room_generation, request_id, decommissioned_at)
-             VALUES (?, 0, ?, 100)`,
-          ).run(roomCode, `delete-${roomCode}`);
-        }
-
-        expect(db.prepare(DEVELOPER_DELETION_EVIDENCE).all()).toEqual([
-          expect.objectContaining({
-            room_code: '000002',
-            generation_tombstone_count: 1,
-            other_generation_tombstone_count: 0,
-            key_count: 0,
-            api_audit_count: 0,
-            admin_audit_count: 0,
-          }),
-          expect.objectContaining({
-            room_code: '000003',
-            generation_tombstone_count: 1,
-            other_generation_tombstone_count: 0,
-            key_count: 0,
-            api_audit_count: 0,
-            admin_audit_count: 0,
-          }),
-        ]);
-      } finally {
-        db.close();
-      }
-    });
-
-    it('reports the immutable fence set as release-ready', () => {
-      const db = openDatabase();
-      try {
-        db.exec(DEVELOPER_SCHEMA);
-        const readiness = db.prepare(DEVELOPER_READINESS).get() as { schema_ready: number };
-        const state = db.prepare(DEVELOPER_MIGRATION_STATE).get() as {
-          features_present: number;
-          features_expected: number;
-        };
-        expect(readiness.schema_ready).toBe(1);
-        expect(state).toMatchObject({ features_present: 14, features_expected: 14 });
       } finally {
         db.close();
       }

@@ -248,6 +248,7 @@ describe('updateRoleBadge', () => {
       configured: true,
       authenticated: true,
       account: { nickname: 'Minsu', profileComplete: true },
+      statsScope: 's'.repeat(43),
     });
 
     updateRoleBadge();
@@ -265,6 +266,7 @@ describe('updateRoleBadge', () => {
       configured: true,
       authenticated: true,
       account: { nickname: 'Living Room', profileComplete: true },
+      statsScope: 's'.repeat(43),
     });
     bus.emit('network:role-badge-update');
 
@@ -277,6 +279,7 @@ describe('updateRoleBadge', () => {
       configured: true,
       authenticated: true,
       account: { nickname: 'Account Name', profileComplete: true },
+      statsScope: 's'.repeat(43),
     });
     setState('network.appRole', 'host');
     setState('network.hostConn', null);
@@ -356,6 +359,7 @@ describe('updateRoleBadge', () => {
         configured: true,
         authenticated: true,
         account: { nickname: 'Minsu', profileComplete: true },
+        statsScope: 's'.repeat(43),
       });
 
       updateRoleBadge();

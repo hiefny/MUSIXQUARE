@@ -116,33 +116,18 @@ Apply or re-apply the schema:
 npx wrangler d1 execute musixquare-admin-metrics --remote --file cloudflare/admin-metrics.schema.sql
 ```
 
-For an existing database that predates reusable room codes, do not apply the
-new baseline as a substitute for migration. First export the database or
-confirm D1 Time Travel. The routine production path is the `Production Release`
-workflow with target `all` and its dedicated PRO generation migration input;
-it probes all three databases, applies a legacy schema or safely completes a
-recognized partial forward migration, and then verifies the exact
-post-migration contract. An unknown shape fails closed. The following direct
-command is an emergency/operator recovery primitive only, not a parallel
-routine path. Release probes send read-only SQL with Wrangler `--command` so
-the returned envelope contains the query rows (remote `--file` uses D1's import
-path instead). Every `--json` result is piped through
-`scripts/capture-wrangler-d1-json.mjs`, which accepts one successful D1
-execution envelope and only Wrangler's known non-TTY progress prefix; do not
-replace it with raw stdout redirection.
+The private-beta generation migration is complete and is not a routine or
+replayable production path. Its checked-in SQL remains immutable audit history;
+do not execute it against launch production. If the live database loses any
+generation allocation, history, registry-pointer, or cutover object, restore a
+matched D1 Time Travel/provider checkpoint and repair forward.
 
-```powershell
-npm run wrangler -- d1 execute musixquare-admin-metrics --remote --config cloudflare/wrangler.app.toml --file cloudflare/admin-metrics.pro-room-generation.migration.sql
-```
-
-Verify that every registry row reads as generation `0`, every current and
-historical incarnation has an allocation-ledger row, every already
-`decommissioned` row has a matching generation-history row, and all allocation,
-history, registry-pointer, and cutover immutability triggers exist. The singleton
-`mxqr_pro_room_generation_cutover` must exist with status `disabled`, a null
-release SHA, `ever_enabled=0`, a null `floor_release_sha`, and timestamp `0`;
-migration success alone must not enable reuse. Do not delete a tombstone or
-decrement a generation to recover from an operator error.
+Launch production must retain `ever_enabled=1` and a valid immutable
+`floor_release_sha` on the `mxqr_pro_room_generation_cutover` singleton. The
+release workflow deliberately refuses a full rollout when that floor is missing
+or is not an ancestor of the candidate. Do not recreate it by replaying the old
+room ceremony, delete a tombstone, or decrement a generation to recover from an
+operator error.
 
 Set or rotate the admin secrets on the app Worker:
 
@@ -155,36 +140,15 @@ npx wrangler secret put MXQR_ADMIN_SESSION_SECRET --config cloudflare/wrangler.a
 HttpOnly admin session cookie.
 
 After the schema and D1 bindings are committed, push the reviewed commit to
-`main` and run the `Production Release` GitHub workflow with target `all`. The
-generation release also requires the auth and Developer API forward migrations
-documented in `docs/account-auth-operations.md` and
-`docs/design/pro-room-architecture-and-operations.md`. Enable the dedicated
-generation migration input so the workflow applies and verifies all three
-before the Worker release, but do not re-register a code until every
-generation-aware Worker and smoke is complete. The workflow deploys PRO,
-signaling, both Developer API Workers, and App in dependency order, reuses the
-validated immutable Static Assets artifact, runs live smokes, records every
-version ID, and owns rollback. Only after those gates and a separate exact
-external-cleanup confirmation may that workflow set the cutover singleton to
-`ready` with the exact reviewed 40-character release SHA.
-On the first enable, the workflow also read-only verifies `000002` and `000003`
-registry/history/allocation state, a generation-zero `room.delete` /
-`authorized` admin audit no later than immutable deletion completion, a
-non-stale registry completion timestamp, zero Developer API credentials with
-both retained tombstones, the minimum completion age, and public bootstrap
-rejection. Those automated checks do not see R2, signaling, or the limiter and
-therefore do not replace the operator's direct evidence for those bindings.
-That first successful `ready` transition permanently raises the rollback floor
-to the matched generation-aware Worker set and records it in `ever_enabled` and
-`floor_release_sha`; the database requires that first floor SHA to equal the
-then-current `release_sha`. A later generation can be created concurrently
-from that moment even if none is yet visible. Before a later full release
-changes the fence, the workflow requires `floor_release_sha` to be an ancestor
-of the exact candidate commit; missing or divergent history aborts the release.
-The release then temporarily fences an already-ready cutover as `disabled`
-while dependencies roll and restores `ready` only after its own smokes and
-ownership checks. A failed release leaves the status disabled without clearing
-the permanent floor.
+`main` and run the `Production Release` workflow with target `all`. The workflow
+first proves the immutable `floor_release_sha` is an ancestor of the candidate,
+then temporarily sets the cutover to `disabled`. It deploys PRO, signaling, both
+Developer API Workers, and App in dependency order, reuses the validated Static
+Assets artifact, runs live smokes, and verifies final deployment ownership.
+Only after every gate succeeds does it restore `ready` with the exact reviewed
+40-character release SHA. A failed release leaves the status disabled without
+clearing `ever_enabled` or the permanent floor; a later successful full release
+may restore readiness after repeating the same floor and ownership checks.
 Do not hand-edit it merely to unblock an operator action. Do not deploy the
 Wrangler configs directly or use the local `deploy:*` primitives for routine
 releases; the exceptional operator path is documented in
@@ -203,12 +167,13 @@ There is no automatic room-code recycling. Before an administrator selects
 3. Confirm the generation-history and allocation-ledger rows both exist for
    that exact pair and the history records the same completed deletion. Do not
    infer completion from elapsed wall-clock time.
-4. Directly inspect the old generation's PRO and signaling tombstones, zero
-   Developer API keys, Developer API tombstone, limiter tombstone, and empty R2
-   prefix after the presigned-URL fence and one-hour continuous-empty window.
-   The terminal registry status is necessary but not a substitute for this
-   read-only evidence. If any binding cannot be inspected, stop rather than
-   deleting a tombstone to force registration.
+4. Inspect the old generation's PRO/signaling/limiter state, Developer API keys
+   and tombstone, and R2 prefix directly in the relevant Cloudflare provider
+   views after the presigned-URL fence and one-hour continuous-empty window.
+   Launch runtime exposes no combined deletion-evidence endpoint. The terminal
+   registry status is necessary but not a substitute for provider evidence; if
+   any store cannot be inspected, stop rather than deleting a tombstone to force
+   registration.
 5. Register through the Access-protected dashboard. The D1 transaction inserts
    the next immutable allocation and increments `room_generation` exactly once
    before provisioning the distinct Durable Object. Retry a failed

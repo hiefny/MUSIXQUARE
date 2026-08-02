@@ -3,7 +3,7 @@ import type { AccountSnapshot } from '../../account/state.ts';
 import { ProRoomAccountReconciler } from '../account-reconciliation.ts';
 
 interface ProRoomAccountReconciliationViewer {
-  isAuthenticated?: boolean;
+  isAuthenticated: boolean;
   displayName: string;
 }
 
@@ -209,16 +209,5 @@ describe('PRO account-session reconciliation', () => {
     expect(anonymous.adapter.detach).not.toHaveBeenCalled();
     expect(anonymous.adapter.failClosed).not.toHaveBeenCalled();
     expect(anonymous.adapter.acceptAnonymous).toHaveBeenCalledOnce();
-  });
-
-  it('proves detachment when a legacy viewer omits authentication state', async () => {
-    const { adapter, reconciler } = fixture({ displayName: 'Legacy member' });
-
-    reconciler.update(accountSnapshot('anonymous'));
-    await reconciler.idle();
-
-    expect(adapter.failClosed).toHaveBeenCalledOnce();
-    expect(adapter.detach).toHaveBeenCalledOnce();
-    expect(adapter.acceptAnonymous).toHaveBeenCalledOnce();
   });
 });

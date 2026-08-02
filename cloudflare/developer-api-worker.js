@@ -59,8 +59,6 @@ const KEY_QUEUE_WRITE_LIMIT_PER_MINUTE = 10;
 const ROOM_QUEUE_WRITE_LIMIT_PER_MINUTE = 30;
 const KEY_MEDIA_UPLOAD_LIMIT_PER_HOUR = 10;
 const ROOM_MEDIA_UPLOAD_LIMIT_PER_HOUR = 30;
-const DECOMMISSION_EVIDENCE_OBSERVER_CONTRACT = 2;
-const DECOMMISSION_EVIDENCE_PATH = '/internal/ops/v1/decommission-evidence';
 const SCOPE_ROOM_READ = 1;
 const SCOPE_PLAYBACK_READ = 2;
 const SCOPE_PLAYBACK_CONTROL = 4;
@@ -662,20 +660,6 @@ function parseEffectsState(value) {
   return parseEffects(value, true);
 }
 
-function parseLegacyEffectsState(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  if (!hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround'])) {
-    return null;
-  }
-  const reverb = parseReverbPatch(value.reverb, true);
-  const equalizer = parseEqualizer(value.equalizer);
-  const virtualBass = parseVirtualBass(value.virtualBass);
-  const virtualSurround = parseVirtualSurround(value.virtualSurround);
-  return reverb && equalizer && virtualBass && virtualSurround
-    ? { reverb, equalizer, virtualBass, virtualSurround }
-    : null;
-}
-
 function parseMetadata(value) {
   const name = boundedString(value?.name, 512);
   if (!name) return null;
@@ -918,8 +902,8 @@ function validQueueItem(value) {
   if (
     !hasExactKeys(
       value,
-      ['queueItemId', 'kind', 'name'],
-      ['title', 'artist', 'thumbnail', 'byteLength', 'addedBy'],
+      ['queueItemId', 'kind', 'name', 'addedBy'],
+      ['title', 'artist', 'thumbnail', 'byteLength'],
     ) ||
     typeof value.queueItemId !== 'string' ||
     !/^[A-Za-z0-9_-]{16,128}$/.test(value.queueItemId) ||
@@ -928,7 +912,7 @@ function validQueueItem(value) {
   ) {
     return false;
   }
-  if (value.addedBy !== undefined && !QUEUE_ITEM_ADDED_BY_VALUES.has(value.addedBy)) return false;
+  if (!QUEUE_ITEM_ADDED_BY_VALUES.has(value.addedBy)) return false;
   for (const key of ['title', 'artist']) {
     if (value[key] !== undefined && boundedString(value[key], 512) === null) return false;
   }
@@ -939,13 +923,11 @@ function validQueueItem(value) {
   return value.byteLength === undefined;
 }
 
-function validateFacadePayload(value, expectedView, roomCode, expectedEffectsVersion = 1) {
+function validateFacadePayload(value, expectedView, roomCode) {
   if (
     !value ||
     typeof value !== 'object' ||
-    (expectedView === 'effects'
-      ? value.schemaVersion !== expectedEffectsVersion
-      : value.schemaVersion !== 1)
+    (expectedView === 'effects' ? value.schemaVersion !== 2 : value.schemaVersion !== 1)
   ) {
     return null;
   }
@@ -1050,9 +1032,7 @@ function validateFacadePayload(value, expectedView, roomCode, expectedEffectsVer
       ]) ||
       !isSafeNonNegativeInteger(value.revision) ||
       !isSafeNonNegativeInteger(value.updatedAtMs) ||
-      !(value.schemaVersion === 2
-        ? parseEffectsState(value.effects)
-        : parseLegacyEffectsState(value.effects))
+      !parseEffectsState(value.effects)
     ) {
       return null;
     }
@@ -1481,7 +1461,7 @@ async function facadeRead(env, route, principal, effectsVersion) {
   if (!response.ok) {
     return response.status === 404 ? { notFound: true } : { backendError: true };
   }
-  const payload = validateFacadePayload(value, route.view, route.roomCode, effectsVersion);
+  const payload = validateFacadePayload(value, route.view, route.roomCode);
   return payload ? { payload } : { invalidResponse: true };
 }
 
@@ -2352,22 +2332,9 @@ function exactInternalRoomGeneration(request, value) {
   };
 }
 
-function decommissionEvidenceRoomGeneration(request) {
-  const header = request.headers.get(PRO_ROOM_GENERATION_HEADER);
-  if (header === null) return null;
-  if (!/^(?:0|[1-9]\d*)$/.test(header)) return null;
-  const roomGeneration = Number(header);
-  return isProRoomGeneration(roomGeneration) ? roomGeneration : null;
-}
-
-function proRoomInstanceId(roomCode, roomGeneration) {
-  return `${roomCode}:generation:${roomGeneration}`;
-}
-
 export class DeveloperApiRateLimiter {
-  constructor(state, env = {}) {
+  constructor(state) {
     this.storage = state.storage;
-    this.env = env;
     this.mutationTail = Promise.resolve();
   }
 
@@ -2383,21 +2350,6 @@ export class DeveloperApiRateLimiter {
 
   async handleFetch(request) {
     const url = new URL(request.url);
-    if (url.pathname === DECOMMISSION_EVIDENCE_PATH) {
-      const roomCode = request.headers.get('x-mxqr-pro-room-code') || '';
-      const roomGeneration = decommissionEvidenceRoomGeneration(request);
-      if (
-        request.method !== 'GET' ||
-        url.search ||
-        url.hash ||
-        request.body !== null ||
-        !ROOM_CODE_RE.test(roomCode) ||
-        roomGeneration === null
-      ) {
-        return Response.json({ error: 'NOT_FOUND' }, { status: 404 });
-      }
-      return this.readDecommissionEvidence(roomCode, roomGeneration);
-    }
     if (url.pathname === '/internal/admin/v1/decommission') {
       const value = await readRequestJsonLimited(request, 1024);
       const generation = exactInternalRoomGeneration(request, value);
@@ -2512,69 +2464,6 @@ export class DeveloperApiRateLimiter {
       resetAtMs: narrowest.resetAtMs,
       retryAfterSeconds: 0,
     });
-  }
-
-  async readDecommissionEvidence(roomCode, roomGeneration) {
-    const tombstoneValue = await this.storage.get('decommissioned');
-    const tombstoneGeneration = tombstoneValue?.roomGeneration;
-    const tombstone =
-      tombstoneValue &&
-      tombstoneValue.v === 1 &&
-      tombstoneValue.roomCode === roomCode &&
-      tombstoneGeneration === roomGeneration &&
-      DECOMMISSION_REQUEST_ID_RE.test(tombstoneValue.requestId) &&
-      Number.isSafeInteger(tombstoneValue.decommissionedAtMs) &&
-      tombstoneValue.decommissionedAtMs >= 0
-        ? {
-            v: 1,
-            roomCode: tombstoneValue.roomCode,
-            roomGeneration: tombstoneGeneration,
-            requestId: tombstoneValue.requestId,
-            decommissionedAtMs: tombstoneValue.decommissionedAtMs,
-          }
-        : null;
-    const stored = typeof this.storage.list === 'function' ? await this.storage.list() : undefined;
-    const remainingKeys =
-      stored instanceof Map
-        ? [...stored.keys()].filter((key) => typeof key === 'string').sort()
-        : [];
-    const alarmValue =
-      typeof this.storage.getAlarm === 'function' ? await this.storage.getAlarm() : undefined;
-    const alarmAtMs =
-      alarmValue === null || (Number.isSafeInteger(alarmValue) && alarmValue >= 0)
-        ? alarmValue
-        : null;
-    const storageReadable = stored instanceof Map && alarmValue !== undefined;
-    const workerVersionId = this.env?.CF_VERSION_METADATA?.id;
-    const durableObjectName = `room:${proRoomObjectName(roomCode, roomGeneration)}`;
-    const clean =
-      storageReadable &&
-      tombstone !== null &&
-      remainingKeys.length === 1 &&
-      remainingKeys[0] === 'decommissioned' &&
-      alarmValue === null;
-    return Response.json(
-      {
-        observerContract: DECOMMISSION_EVIDENCE_OBSERVER_CONTRACT,
-        component: 'developer-api-rate-limiter',
-        ...(typeof workerVersionId === 'string' && workerVersionId ? { workerVersionId } : {}),
-        roomCode,
-        roomGeneration,
-        roomInstanceId: proRoomInstanceId(roomCode, roomGeneration),
-        durableObjectName,
-        tombstone,
-        remainingKeys,
-        alarmAtMs,
-        storageReadable,
-        clean,
-      },
-      {
-        headers: {
-          'cache-control': 'no-store',
-          'content-type': 'application/json; charset=utf-8',
-        },
-      },
-    );
   }
 
   alarm() {

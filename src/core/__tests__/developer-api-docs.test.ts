@@ -53,6 +53,8 @@ describe('Developer API public documentation', () => {
     expect(html).toContain('<article class="policy-doc">');
     expect(html).toContain('<footer class="policy-footer">');
     expect(html).toContain('href="/developers/openapi.yaml"');
+    expect(html).toContain('<p class="policy-kicker">PUBLIC API</p>');
+    expect(html).not.toMatch(/private beta/i);
   });
 
   it('documents every enabled public route and the server-only security boundary', async () => {
@@ -117,6 +119,8 @@ describe('Developer API public documentation', () => {
     ];
 
     expect(spec).toMatch(/^openapi: 3\.1\.0/m);
+    expect(spec).toMatch(/^  version: 1\.0\.0$/m);
+    expect(spec).not.toMatch(/^  version: .*beta/im);
     expect(spec).toContain('url: https://api.musixquare.com');
     expect(spec).toContain('developerApiKey: []');
     expect(spec).toContain('highest-privilege room credential within its assigned scopes');
@@ -180,8 +184,9 @@ describe('Developer API public documentation', () => {
 
     expect(spec).toContain('operationId: getEffects');
     expect(spec).toContain('EffectsState:');
-    expect(spec).toContain('EffectsStateV2:');
     expect(spec).toContain('RoomEffects:');
+    expect(spec).not.toContain('EffectsStateV2:');
+    expect(spec).not.toContain('RoomEffectsV2:');
     expect(spec).toContain('SetEffectsCommand:');
     expect(spec).toContain('EffectsPatch:');
     expect(spec).toContain('type: { const: set_effects }');
@@ -189,12 +194,20 @@ describe('Developer API public documentation', () => {
     expect(spec).toContain(
       'required: [schemaVersion, view, roomCode, revision, updatedAtMs, effects]',
     );
-    expect(spec).toContain('required: [reverb, equalizer, virtualBass, virtualSurround]');
     expect(spec).toContain(
       'required: [reverb, equalizer, virtualBass, virtualSurround, virtualTreble]',
     );
     expect(spec).toContain('virtualTreble: { $ref:');
-    expect(spec).toContain("enum: ['1', '2']");
+    expect(spec).toContain('X-MXQR-Effects-Version: 2 is required');
+    const effectsVersion = extractDeclarationBlock(
+      spec,
+      '    EffectsVersion:\n',
+      '    IdempotencyKey:\n',
+    );
+    expect(effectsVersion).toContain('required: true');
+    expect(effectsVersion).toContain("const: '2'");
+    expect(effectsVersion).not.toContain('default:');
+    expect(effectsVersion).not.toContain('enum:');
     expect(spec).toContain(
       "'304':\n          description: Representation is unchanged.\n          headers:\n            Vary: { schema: { const: X-MXQR-Effects-Version } }",
     );
@@ -286,7 +299,7 @@ describe('Developer API public documentation', () => {
     expect(spec).toContain("- $ref: '#/components/parameters/IdempotencyKey'");
   });
 
-  it('documents privacy-preserving queue provenance as an additive optional field', async () => {
+  it('documents privacy-preserving queue provenance as a required field', async () => {
     const [html, spec] = await Promise.all([
       readFile(DOC_PATH, 'utf8'),
       readFile(OPENAPI_PATH, 'utf8'),
@@ -296,11 +309,14 @@ describe('Developer API public documentation', () => {
       expect(html).toContain(`<code>${value}</code>`);
       expect(spec).toContain(value);
     }
-    expect(html).toContain('before provenance tracking may omit this optional field');
-    expect(html).toContain('Raw API key IDs are');
+    expect(html).toContain('<code>addedBy</code> is always present');
+    expect(html).not.toMatch(/addedBy<\/code>[^.]*optional/i);
+    expect(html).toMatch(/Raw API key IDs\s+are/);
     expect(spec).toContain('QueueItemAddedBy:');
     expect(spec).toContain("addedBy: { $ref: '#/components/schemas/QueueItemAddedBy' }");
-    expect(spec).not.toMatch(/required: \[[^\]]*addedBy/);
+    expect(spec).toContain('required: [queueItemId, kind, name, addedBy]');
+    expect(spec).toContain('required: [queueItemId, kind, name, byteLength, addedBy]');
+    expect(spec).not.toContain('consumers must treat an omitted value as participant');
   });
 
   it('publishes the complete runtime error and asynchronous command result catalogs', async () => {

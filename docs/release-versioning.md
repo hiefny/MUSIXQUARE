@@ -29,10 +29,6 @@ value such as `v226` means "the 226th app-shell cache boundary," not
 requires existing clients to migrate. `guard:sw-cache-version` independently
 checks its history and monotonicity.
 
-`public/designsystem/src_ref/service-worker.js` is an archived extraction
-snapshot. Its old cache number is intentionally inert and is never a release
-source.
-
 ## API, protocol, and storage schemas
 
 OpenAPI `info.version`, URL majors such as `/v1`, frame versions, D1 schema

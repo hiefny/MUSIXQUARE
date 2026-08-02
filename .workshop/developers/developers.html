@@ -48,10 +48,10 @@
 
   <main class="policy-shell">
     <section class="policy-hero">
-      <p class="policy-kicker">PRIVATE BETA</p>
+      <p class="policy-kicker">PUBLIC API</p>
       <h1>Developer API</h1>
       <p>Connect a server, bot, or integration to one MUSIXQUARE PRO room.</p>
-      <p class="policy-date">API version: v1 · Updated July 22, 2026</p>
+      <p class="policy-date">API version: v1 · Updated August 2, 2026</p>
     </section>
 
     <article class="policy-doc">
@@ -141,7 +141,7 @@ console.log(await response.json());</code></pre>
           <div>
             <dt class="api-endpoint"><span class="api-method">GET</span><span class="api-path">/rooms/{roomCode}/queue</span></dt>
             <dd>
-              Persistent playlist, current item, playlist revision, and each item's optional <code>addedBy</code>
+              Persistent playlist, current item, playlist revision, and each item's required <code>addedBy</code>
               provenance without private R2 identifiers, API key IDs, or URLs.
             </dd>
           </div>
@@ -149,9 +149,8 @@ console.log(await response.json());</code></pre>
             <dt class="api-endpoint"><span class="api-method">GET</span><span class="api-path">/rooms/{roomCode}/effects</span></dt>
             <dd>
               Canonical full room-wide effect state, its revision, and last update time. This state remains available
-              while the PRO room is sleeping. The default version 1 response keeps the original four-effect shape.
-              Send <code>X-MXQR-Effects-Version: 2</code> to receive version 2, which also includes
-              <code>virtualTreble</code>.
+              while the PRO room is sleeping. Send the required <code>X-MXQR-Effects-Version: 2</code> header. The
+              response uses schema version 2 and includes <code>virtualTreble</code> with the other four effects.
             </dd>
           </div>
           <div>
@@ -163,12 +162,10 @@ console.log(await response.json());</code></pre>
           </div>
         </dl>
         <p>
-          When present, <code>addedBy</code> is <code>participant</code> for an item added directly in the app,
+          <code>addedBy</code> is always present: <code>participant</code> for an item added directly in the app,
           <code>current_api_key</code> for an item added with the credential making this request, or
-          <code>another_api_key</code> for an item added with a different Developer API credential. Items created
-          before provenance tracking may omit this optional field; treat an omitted value like
-          <code>participant</code> so an integration never deletes a person's track by mistake. Raw API key IDs are
-          never exposed.
+          <code>another_api_key</code> for an item added with a different Developer API credential. Raw API key IDs
+          are never exposed.
         </p>
         <p>
           Read responses include an <code>ETag</code>. Send it later as <code>If-None-Match</code>; an unchanged
@@ -296,7 +293,7 @@ console.log(command.commandId, command.status);</code></pre>
             <dt>Virtual treble</dt>
             <dd>
               <code>enabled</code> is a boolean. Use <code>true</code> to turn the room-wide exciter on and
-              <code>false</code> to turn it off. To read it, request effects version 2.
+              <code>false</code> to turn it off. Every effects read uses version 2 and includes this field.
             </dd>
           </div>
         </dl>

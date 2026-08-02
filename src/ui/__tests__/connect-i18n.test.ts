@@ -85,6 +85,7 @@ beforeEach(() => {
     configured: true,
     authenticated: true,
     account: { nickname: 'Tester', profileComplete: true },
+    statsScope: 's'.repeat(43),
   });
   resetState();
   bus.clear();
@@ -1259,6 +1260,7 @@ describe('member-level connection and administrator UI', () => {
         memberId: 'owner-member',
         memberDisplayNumber: 0,
         isAuthenticated: true,
+        devicePlatform: 'windows',
       },
       {
         id: 'friend-ios-A7F2',
@@ -1285,23 +1287,11 @@ describe('member-level connection and administrator UI', () => {
         devicePlatform: 'windows',
       },
     ];
-    const legacyDeviceList = supportedDeviceList.map((device) => {
-      const legacy = { ...device };
-      delete legacy.devicePlatform;
-      return legacy;
-    });
-    bus.emit('network:device-list-update', legacyDeviceList);
-
-    let targetEntry = document.querySelector<HTMLElement>(
+    bus.emit('network:device-list-update', supportedDeviceList);
+    const targetEntry = document.querySelector<HTMLElement>(
       '#connect-device-list [data-member-id="friend-member"].device-entry',
     );
     targetEntry?.querySelector<HTMLButtonElement>('.device-expand-toggle')?.click();
-    expect(targetEntry?.querySelector('.btn-kick-physical-device')).toBeNull();
-
-    bus.emit('network:device-list-update', supportedDeviceList);
-    targetEntry = document.querySelector<HTMLElement>(
-      '#connect-device-list [data-member-id="friend-member"].device-entry',
-    );
     expect(targetEntry?.querySelector('.device-expand-toggle')?.getAttribute('aria-expanded')).toBe(
       'true',
     );

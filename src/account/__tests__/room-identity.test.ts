@@ -17,6 +17,7 @@ function authenticate(nickname = 'Minsu'): void {
     configured: true,
     authenticated: true,
     account: { nickname, profileComplete: true },
+    statsScope: 's'.repeat(43),
   });
 }
 
@@ -112,7 +113,12 @@ describe('account identity room projection', () => {
   });
 
   it('asks the server even after another tab became anonymous so tombstoned cookies can revoke', async () => {
-    applyAccountSession({ configured: true, authenticated: false, account: null });
+    applyAccountSession({
+      configured: true,
+      authenticated: false,
+      account: null,
+      statsScope: null,
+    });
     const input = { roomCode: '123456', peerId: 'guest-a', role: 'guest' as const };
     const deletion = {
       accountAssertion: null,
@@ -124,7 +130,12 @@ describe('account identity room projection', () => {
   });
 
   it('keeps the Stage-1 flags-off path anonymous without calling an unavailable auth route', async () => {
-    applyAccountSession({ configured: false, authenticated: false, account: null });
+    applyAccountSession({
+      configured: false,
+      authenticated: false,
+      account: null,
+      statsScope: null,
+    });
     const request = vi.spyOn(accountApi, 'getStandardRoomIdentityAssertions');
 
     await expect(

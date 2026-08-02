@@ -4,6 +4,10 @@ import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
+import {
+  loadD1MigrationManifest,
+  trackedD1PathsForDatabase,
+} from './check-d1-migration-contract.mjs';
 import { executeNpm, npmInvocation } from './npm-invocation.mjs';
 
 const SCHEMA_VERSION = 1;
@@ -11,6 +15,48 @@ const DEFAULT_DIRECTORY = 'release-artifacts/deployments';
 const QUERY_RETRY = Object.freeze({ maxAttempts: 4, baseDelayMs: 500, maxDelayMs: 2_000 });
 const ROLLBACK_RETRY = Object.freeze({ maxAttempts: 3, baseDelayMs: 750, maxDelayMs: 2_000 });
 const VERIFY_RETRY = Object.freeze({ maxAttempts: 6, baseDelayMs: 500, maxDelayMs: 4_000 });
+const D1_MIGRATION_MANIFEST = loadD1MigrationManifest();
+
+function trackedD1Paths(databaseNames) {
+  return [
+    ...new Set(
+      databaseNames.flatMap((databaseName) =>
+        trackedD1PathsForDatabase(D1_MIGRATION_MANIFEST, databaseName),
+      ),
+    ),
+  ];
+}
+
+function trackedD1MigrationPaths(migrationIds) {
+  const requested = new Set(migrationIds);
+  const paths = [];
+  for (const database of D1_MIGRATION_MANIFEST.databases) {
+    for (const migration of database.migrations) {
+      if (!requested.delete(migration.id)) continue;
+      paths.push(migration.forward);
+      if (migration.rollback !== null) paths.push(migration.rollback);
+    }
+  }
+  if (requested.size > 0) {
+    throw new Error(`Unknown tracked D1 migration: ${[...requested].join(', ')}.`);
+  }
+  return paths;
+}
+
+const PRO_ROOM_D1_PATHS = Object.freeze([
+  ...trackedD1MigrationPaths([
+    'admin-pro-room-generation-v1',
+    'auth-pro-room-generation-v1',
+    'developer-api-room-generation-v1',
+  ]),
+  ...trackedD1Paths(['musixquare-admin-metrics', 'musixquare-developer-api']).filter((path) =>
+    path.endsWith('.schema.sql'),
+  ),
+]);
+const DEVELOPER_API_D1_PATHS = Object.freeze(trackedD1Paths(['musixquare-developer-api']));
+const APP_D1_PATHS = Object.freeze(
+  trackedD1Paths(['musixquare-admin-metrics', 'musixquare-auth', 'musixquare-developer-api']),
+);
 
 const TARGETS = {
   'remote-share': {
@@ -76,11 +122,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/account-assertion.js',
     'cloudflare/account-nickname.js',
     'cloudflare/display-name-policy.js',
-    'cloudflare/admin-metrics.schema.sql',
-    'cloudflare/admin-metrics.pro-room-generation.migration.sql',
-    'cloudflare/developer-api.schema.sql',
-    'cloudflare/developer-api-room-generation.migration.sql',
-    'cloudflare/auth.pro-room-generation.migration.sql',
+    ...PRO_ROOM_D1_PATHS,
     'src/chat/profanity-patterns.generated.json',
     'cloudflare/wrangler.pro-room.toml',
   ],
@@ -92,10 +134,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
   'developer-api': [
     'cloudflare/developer-api-worker.js',
     'cloudflare/pro-room-generation.js',
-    'cloudflare/developer-api.schema.sql',
-    'cloudflare/developer-api.effects-scopes.migration.sql',
-    'cloudflare/developer-api.effects-scopes.rollback.sql',
-    'cloudflare/developer-api-room-generation.migration.sql',
+    ...DEVELOPER_API_D1_PATHS,
     'cloudflare/wrangler.developer-api.toml',
   ],
   app: [
@@ -120,14 +159,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/pro-bot.js',
     'cloudflare/pro-room-generation.js',
     'cloudflare/account-auth.js',
-    'cloudflare/auth.schema.sql',
-    'cloudflare/auth.account-stats.migration.sql',
-    'cloudflare/auth.nickname-key.migration.sql',
-    'cloudflare/auth.pro-room-generation.migration.sql',
-    'cloudflare/admin-metrics.schema.sql',
-    'cloudflare/admin-metrics.pro-room-generation.migration.sql',
-    'cloudflare/developer-api.schema.sql',
-    'cloudflare/developer-api-room-generation.migration.sql',
+    ...APP_D1_PATHS,
     'cloudflare/d1-migrations.manifest.json',
     'cloudflare/account-assertion.js',
     'cloudflare/standard-room-account-assertion.js',
@@ -800,9 +832,9 @@ function rollback(directory) {
     report.results.push(result);
 
     if (skipTargets.has(state.target)) {
-      result.status = 'skipped-schema-incompatible';
+      result.status = 'skipped-compatibility-floor';
       result.error =
-        'Automatic Worker rollback was skipped because its required schema rollback did not complete.';
+        'Automatic Worker rollback was skipped to preserve the active schema or generation compatibility floor.';
       failed = true;
       continue;
     }

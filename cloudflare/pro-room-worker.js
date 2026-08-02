@@ -44,7 +44,6 @@ import {
 const PRO_ROOM_CODE_RE = /^0\d{5}$/;
 const INITIAL_PRO_ROOMS = Object.freeze([
   Object.freeze({ roomCode: '000000', label: 'MUSIXQUARE Developer' }),
-  Object.freeze({ roomCode: '000001', label: 'Friends & Family' }),
 ]);
 const INITIAL_PRO_ROOM_CODES = new Set(INITIAL_PRO_ROOMS.map((room) => room.roomCode));
 const ACTIVATION_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
@@ -166,9 +165,9 @@ const DEVELOPER_COMMAND_IDEMPOTENCY_MAX_ITEMS = 384;
 const STATE_MAX_BYTES = 1200 * 1024;
 const PLAYLIST_STATE_MAX_BYTES = 3 * 1024 * 1024;
 const PLAYLIST_ITEM_MAX_BYTES = 128 * 1024;
-// Both the rolling-release full snapshot and the v2 compact mutation must be
-// able to carry every playlist accepted by the 3 MiB persisted-state budget.
-// Keep the endpoint bounded while matching the browser client's JSON ceiling.
+// Compact mutations must be able to carry every playlist accepted by the
+// 3 MiB persisted-state budget. Keep the endpoint bounded while matching the
+// browser client's JSON ceiling.
 const REQUEST_MAX_BYTES = 4 * 1024 * 1024;
 const PUBLIC_MUTATION_BODY_TIMEOUT_MS = 10_000;
 const SMALL_REQUEST_MAX_BYTES = 16 * 1024;
@@ -302,7 +301,6 @@ const CONTROLLER_CAPABILITIES = [
   'members.manage',
 ];
 const MEMBER_CAPABILITIES = [];
-const LEGACY_MEMBER_CAPABILITIES = ['playback.control'];
 const OWNER_CAPABILITIES = [...CONTROLLER_CAPABILITIES, 'room.configure'];
 const PRO_ROOM_PERMISSION_KEYS = ['media.add', 'playback.control', 'members.kick', 'chat.notice'];
 const PRO_INTERNAL_AUTHORITY_PERMISSIONS = new Set([
@@ -414,9 +412,9 @@ function registryCacheFor(db) {
 
 async function frontProvisionedRoomGeneration(roomCode, env, nowMs = Date.now()) {
   const db = env?.MUSIXQUARE_ADMIN_DB || env?.ADMIN_METRICS_DB || null;
-  // Local/test environments without the shared registry keep the two launch
-  // rooms. Production always binds D1 so a decommission tombstone can close
-  // those launch codes just like every dynamically provisioned room.
+  // Local/test environments without the shared registry keep only the
+  // developer canary. Production always binds D1 and resolves every room from
+  // the canonical registry.
   if (!db?.prepare) {
     return INITIAL_PRO_ROOM_CODES.has(roomCode) ? INITIAL_PRO_ROOM_GENERATION : null;
   }
@@ -492,18 +490,13 @@ function devicePlatformFromRequest(request) {
   return 'other';
 }
 
-function requestSupportsDevicePlatformProjection(request) {
-  const accept = String(request.headers.get('accept') || '');
-  return /(?:^|[;,]\s*)mxqr-device-platform\s*=\s*1(?:\s*(?:[;,]|$))/i.test(accept);
-}
-
 function corsHeaders(origin) {
   return {
     'access-control-allow-origin': origin,
     'access-control-allow-credentials': 'true',
     'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'access-control-allow-headers':
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version,x-mxqr-pro-detach-version',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version',
     'access-control-max-age': '86400',
     vary: 'origin',
   };
@@ -1309,15 +1302,6 @@ function sessionPermissionSet(room, session) {
 }
 
 function sessionCapabilities(room, session) {
-  if (room.__memberAuthorityProjectionEnabled !== true) {
-    return [
-      ...(session.role === 'owner'
-        ? OWNER_CAPABILITIES
-        : session.role === 'member'
-          ? LEGACY_MEMBER_CAPABILITIES
-          : CONTROLLER_CAPABILITIES),
-    ];
-  }
   return capabilitiesFromPermissions(session.role, sessionPermissionSet(room, session));
 }
 
@@ -1393,9 +1377,7 @@ function publicAdministrators(room) {
   });
 }
 
-function publicSnapshot(room, session = null, includeDevicePlatform = false) {
-  const memberIdentityEnabled = room.__memberIdentityProjectionEnabled === true;
-  const memberAuthorityEnabled = room.__memberAuthorityProjectionEnabled === true;
+function publicSnapshot(room, session = null) {
   const participants = Object.values(room.presence.participants)
     .sort(
       (left, right) =>
@@ -1410,22 +1392,16 @@ function publicSnapshot(room, session = null, includeDevicePlatform = false) {
         (participant.role === 'owner' ? 0 : null);
       return {
         participantId: participant.participantId,
-        ...(memberIdentityEnabled && Number.isSafeInteger(memberDisplayNumber)
-          ? {
-              memberId: participant.memberId,
-              memberDisplayNumber,
-              isAuthenticated: typeof participant.accountId === 'string',
-            }
-          : {}),
+        memberId: participant.memberId,
+        memberDisplayNumber,
+        isAuthenticated: typeof participant.accountId === 'string',
         displayName: participant.displayName,
-        ...(includeDevicePlatform ? { devicePlatform: participant.devicePlatform || 'other' } : {}),
+        devicePlatform: participant.devicePlatform || 'other',
         role: participant.role,
-        ...(memberAuthorityEnabled && participantSession
-          ? {
-              capabilities:
-                room.status === 'active' ? sessionCapabilities(room, participantSession) : [],
-            }
-          : {}),
+        capabilities:
+          participantSession && room.status === 'active'
+            ? sessionCapabilities(room, participantSession)
+            : [],
         joinedAtMs: participant.joinedAtMs,
       };
     });
@@ -1433,15 +1409,9 @@ function publicSnapshot(room, session = null, includeDevicePlatform = false) {
   const viewer = session
     ? {
         memberId: session.memberId,
-        ...(memberIdentityEnabled
-          ? {
-              memberDisplayNumber:
-                session.memberDisplayNumber ??
-                session.peerOrdinal ??
-                (session.role === 'owner' ? 0 : 1),
-              isAuthenticated: typeof session.accountId === 'string',
-            }
-          : {}),
+        memberDisplayNumber:
+          session.memberDisplayNumber ?? session.peerOrdinal ?? (session.role === 'owner' ? 0 : 1),
+        isAuthenticated: typeof session.accountId === 'string',
         participantId: session.participantId,
         presenceIncarnationId: participant?.presenceIncarnationId || session.presenceIncarnationId,
         displayName: session.displayName,
@@ -1475,10 +1445,9 @@ function publicSnapshot(room, session = null, includeDevicePlatform = false) {
     },
     quota: { ...room.quota },
     viewer: safeViewer,
-    ...(memberIdentityEnabled ? { memberIdentityVersion: 1 } : {}),
-    ...(memberAuthorityEnabled
-      ? { authorityVersion: 1, administrators: publicAdministrators(room) }
-      : {}),
+    memberIdentityVersion: 1,
+    authorityVersion: 1,
+    administrators: publicAdministrators(room),
   };
 }
 
@@ -2904,11 +2873,6 @@ export class MusixquareProRoom {
       );
     }
     if (!isProRoomGeneration(this.room.roomGeneration)) return false;
-    if (!Object.prototype.hasOwnProperty.call(this.room, 'provisioned')) {
-      // v1 launch rooms predate the dynamic registry. No other room could have
-      // persisted state before this field existed.
-      this.room.provisioned = INITIAL_PRO_ROOM_CODES.has(roomCode);
-    }
     if (!Number.isSafeInteger(this.room.activationClaimGeneration)) {
       this.room.activationClaimGeneration = 0;
     }
@@ -2923,20 +2887,6 @@ export class MusixquareProRoom {
     this.normalizeLoadedPlaybackAuthority();
     this.normalizeLoadedPlaybackBroadcasts();
     this.normalizeLoadedPresenceBroadcast();
-    Object.defineProperty(this.room, '__memberIdentityProjectionEnabled', {
-      value:
-        String(this.env.PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION || '') === '1' ||
-        String(this.env.PRO_ROOM_MEMBER_AUTHORITY_PROJECTION || '') === '1',
-      writable: true,
-      configurable: true,
-      enumerable: false,
-    });
-    Object.defineProperty(this.room, '__memberAuthorityProjectionEnabled', {
-      value: String(this.env.PRO_ROOM_MEMBER_AUTHORITY_PROJECTION || '') === '1',
-      writable: true,
-      configurable: true,
-      enumerable: false,
-    });
     this.reconcileMemberAuthoritySessions();
     if (!Object.prototype.hasOwnProperty.call(this.room.playback, 'youtubeVideoId')) {
       this.room.playback.youtubeVideoId = null;
@@ -3234,7 +3184,6 @@ export class MusixquareProRoom {
   }
 
   reconcileMemberAuthoritySessions() {
-    if (!this.room?.__memberAuthorityProjectionEnabled) return;
     for (const session of Object.values(this.room.sessions || {})) {
       if (session.role === 'owner' || session.memberId === this.room.ownerMemberId) {
         session.role = 'owner';
@@ -4216,8 +4165,6 @@ export class MusixquareProRoom {
             return this.handleHeartbeatSystemAudio(request);
           if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/release`)
             return this.handleReleaseSystemAudio(request);
-          if (request.method === 'PUT' && url.pathname === `${prefix}/snapshot`)
-            return this.handleUpdateSnapshot(request);
           if (request.method === 'POST' && url.pathname === `${prefix}/snapshot/compact`)
             return this.handleCompactSnapshotMutation(request);
           if (request.method === 'POST' && url.pathname === `${prefix}/media/reservations`)
@@ -4319,7 +4266,7 @@ export class MusixquareProRoom {
     }
     const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
-    if (this.authorityProjectionEnabled() && auth.session.role === 'member') {
+    if (auth.session.role === 'member') {
       return errorResponse('ADMINISTRATOR_REQUIRED', 403);
     }
     const parsed = await this.parseBody(request, 2 * 1024);
@@ -4439,7 +4386,7 @@ export class MusixquareProRoom {
     }
     const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
-    if (this.authorityProjectionEnabled() && auth.session.role === 'member') {
+    if (auth.session.role === 'member') {
       return errorResponse('ADMINISTRATOR_REQUIRED', 403);
     }
     const parsed = await this.parseBody(request, 64 * 1024);
@@ -4479,24 +4426,15 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('PERMISSION_REQUIRED', 403);
     }
-    if (this.authorityProjectionEnabled()) {
-      if (
-        (plan.intent === 'remove_items' ||
-          plan.intent === 'clear_queue' ||
-          plan.intent === 'queue_mode') &&
-        !this.sessionHasPermission(auth.session, 'media.add')
-      ) {
-        return errorResponse('PERMISSION_REQUIRED', 403);
-      }
-      if (plan.intent === 'virtual_treble' && auth.session.role !== 'owner') {
-        return errorResponse('OWNER_REQUIRED', 403);
-      }
-    } else if (
-      (plan.intent === 'remove_items' || plan.intent === 'clear_queue') &&
-      auth.session.role !== 'owner'
+    if (
+      (plan.intent === 'remove_items' ||
+        plan.intent === 'clear_queue' ||
+        plan.intent === 'queue_mode') &&
+      !this.sessionHasPermission(auth.session, 'media.add')
     ) {
-      // Preserve the pre-authority destructive BOT contract while old rooms
-      // and cached clients complete their rolling migration.
+      return errorResponse('PERMISSION_REQUIRED', 403);
+    }
+    if (plan.intent === 'virtual_treble' && auth.session.role !== 'owner') {
       return errorResponse('OWNER_REQUIRED', 403);
     }
     const tracks =
@@ -6344,18 +6282,11 @@ export class MusixquareProRoom {
           linkingOwner || linkedOwner ? this.room.ownerMemberId : `member_${randomToken(18)}`,
         displayName: account.nickname,
         displayNumber,
-        role:
-          linkingOwner || linkedOwner
-            ? 'owner'
-            : this.room.__memberAuthorityProjectionEnabled
-              ? 'member'
-              : 'controller',
+        role: linkingOwner || linkedOwner ? 'owner' : 'member',
         permissions:
           linkingOwner || linkedOwner
             ? clonePermissionSet(OWNER_PERMISSIONS)
-            : this.room.__memberAuthorityProjectionEnabled
-              ? clonePermissionSet(MEMBER_PERMISSIONS)
-              : clonePermissionSet(DELEGATED_ADMIN_PERMISSIONS),
+            : clonePermissionSet(MEMBER_PERMISSIONS),
         createdAtMs: nowMs,
         updatedAtMs: nowMs,
       };
@@ -6409,10 +6340,6 @@ export class MusixquareProRoom {
     this.room.ownerAccountId = accountId;
     this.room.ownerDisplayName = member.displayName;
     this.syncAccountMemberSessions(accountId, member);
-  }
-
-  authorityProjectionEnabled() {
-    return this.room.__memberAuthorityProjectionEnabled === true;
   }
 
   findAccountMemberByMemberId(memberId) {
@@ -6488,18 +6415,12 @@ export class MusixquareProRoom {
   }
 
   async handleGetAdministrators(request) {
-    if (!this.authorityProjectionEnabled()) {
-      return errorResponse('MEMBER_AUTHORITY_NOT_ENABLED', 409);
-    }
     const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
     return this.administratorResponse();
   }
 
   async handlePutAdministrator(request, memberId) {
-    if (!this.authorityProjectionEnabled()) {
-      return errorResponse('MEMBER_AUTHORITY_NOT_ENABLED', 409);
-    }
     const auth = await this.requireSession(request, { owner: true, activePresence: true });
     if (auth.response) return auth.response;
     if (!OPAQUE_ID_RE.test(memberId || '') || memberId === this.room.ownerMemberId) {
@@ -6555,9 +6476,6 @@ export class MusixquareProRoom {
   }
 
   async handleDeleteAdministrator(request, memberId) {
-    if (!this.authorityProjectionEnabled()) {
-      return errorResponse('MEMBER_AUTHORITY_NOT_ENABLED', 409);
-    }
     const auth = await this.requireSession(request, { owner: true, activePresence: true });
     if (auth.response) return auth.response;
     if (!OPAQUE_ID_RE.test(memberId || '') || memberId === this.room.ownerMemberId) {
@@ -7001,13 +6919,6 @@ export class MusixquareProRoom {
 
   sessionHasPermission(session, permission) {
     if (!PRO_ROOM_PERMISSION_KEYS.includes(permission)) return false;
-    if (!this.authorityProjectionEnabled()) {
-      return (
-        session.role === 'owner' ||
-        session.role === 'controller' ||
-        permission === 'playback.control'
-      );
-    }
     if (session.role === 'owner') return true;
     return sessionPermissionSet(this.room, session)[permission] === true;
   }
@@ -7030,7 +6941,7 @@ export class MusixquareProRoom {
       capability: 'playback.control',
     });
     if (auth.response) return auth.response;
-    if (this.authorityProjectionEnabled() && auth.session.role !== 'owner') {
+    if (auth.session.role !== 'owner') {
       return errorResponse('OWNER_REQUIRED', 403);
     }
     const parsed = await this.parseBody(request);
@@ -7243,9 +7154,8 @@ export class MusixquareProRoom {
     const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
     // Live capture is deliberately outside the four delegated administrator
-    // toggles. Preserve the legacy equal-member behavior until authority v1 is
-    // enabled, then keep the cost-bearing publisher lease with the room owner.
-    if (this.authorityProjectionEnabled() && auth.session.role !== 'owner') {
+    // toggles, so the cost-bearing publisher lease stays with the room owner.
+    if (auth.session.role !== 'owner') {
       return errorResponse('OWNER_REQUIRED', 403);
     }
     const parsed = await this.parseBody(request);
@@ -8927,7 +8837,6 @@ export class MusixquareProRoom {
     delete this.room.presence.participants[participantId];
     this.reclaimLiveAccountRepresentativeOrdinal(departed);
     if (
-      this.authorityProjectionEnabled() &&
       !departed.accountId &&
       this.room.anonymousAdministrators?.[departed.memberId] &&
       !Object.values(this.room.presence.participants).some(
@@ -9055,11 +8964,7 @@ export class MusixquareProRoom {
     this.markRegistryActivationActive();
     const response = jsonResponse(
       {
-        snapshot: publicSnapshot(
-          this.room,
-          created.session,
-          requestSupportsDevicePlatformProjection(request),
-        ),
+        snapshot: publicSnapshot(this.room, created.session),
       },
       200,
       {
@@ -9158,11 +9063,7 @@ export class MusixquareProRoom {
     await this.persist();
     const response = jsonResponse(
       {
-        snapshot: publicSnapshot(
-          this.room,
-          created.session,
-          requestSupportsDevicePlatformProjection(request),
-        ),
+        snapshot: publicSnapshot(this.room, created.session),
       },
       200,
       {
@@ -9201,9 +9102,7 @@ export class MusixquareProRoom {
       (ownerCredential && this.room.ownerAccountId === null) ||
       (asserted.account && this.room.ownerAccountId === asserted.account.accountId)
         ? 'owner'
-        : this.room.__memberAuthorityProjectionEnabled
-          ? 'member'
-          : 'controller';
+        : 'member';
     const accountMember = this.resolveAccountMember(asserted.account, role, nowMs);
     if (
       asserted.account &&
@@ -9235,11 +9134,7 @@ export class MusixquareProRoom {
     await this.persist();
     return jsonResponse(
       {
-        snapshot: publicSnapshot(
-          this.room,
-          created.session,
-          requestSupportsDevicePlatformProjection(request),
-        ),
+        snapshot: publicSnapshot(this.room, created.session),
         session: { expiresAtMs: created.session.expiresAtMs },
       },
       200,
@@ -9254,11 +9149,7 @@ export class MusixquareProRoom {
     const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
     return jsonResponse({
-      snapshot: publicSnapshot(
-        this.room,
-        auth.session,
-        requestSupportsDevicePlatformProjection(request),
-      ),
+      snapshot: publicSnapshot(this.room, auth.session),
     });
   }
 
@@ -9311,11 +9202,7 @@ export class MusixquareProRoom {
       }
       return jsonResponse(
         {
-          snapshot: publicSnapshot(
-            this.room,
-            auth.session,
-            requestSupportsDevicePlatformProjection(request),
-          ),
+          snapshot: publicSnapshot(this.room, auth.session),
         },
         200,
         {
@@ -9326,13 +9213,11 @@ export class MusixquareProRoom {
     const role =
       auth.session.role === 'owner' || this.room.ownerAccountId === asserted.account.accountId
         ? 'owner'
-        : this.room.__memberAuthorityProjectionEnabled
-          ? 'member'
-          : 'controller';
+        : 'member';
     const accountMember = this.resolveAccountMember(asserted.account, role, nowMs);
     if (!accountMember) return errorResponse('ACCOUNT_MEMBER_CAPACITY_EXCEEDED', 409);
     const previousAnonymousMemberId = auth.session.accountId ? null : auth.session.memberId;
-    if (this.authorityProjectionEnabled() && previousAnonymousMemberId) {
+    if (previousAnonymousMemberId) {
       // An ephemeral anonymous grant must never become a persistent account
       // grant merely because the same tab signs in. The owner can delegate to
       // the newly proven account explicitly after attachment.
@@ -9351,11 +9236,7 @@ export class MusixquareProRoom {
     this.scheduleServerEvent(this.presenceEvent());
     return jsonResponse(
       {
-        snapshot: publicSnapshot(
-          this.room,
-          auth.session,
-          requestSupportsDevicePlatformProjection(request),
-        ),
+        snapshot: publicSnapshot(this.room, auth.session),
       },
       200,
       {
@@ -9409,20 +9290,9 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request, SMALL_REQUEST_MAX_BYTES, false, true);
     if (parsed.response) return parsed.response;
     if (!parsed.empty) return errorResponse('INVALID_REQUEST', 400);
-    const explicitEnvelope = request.headers.get('x-mxqr-pro-detach-version') === '2';
     const detachResponse = (session, participant) => {
-      const includeDevicePlatform = requestSupportsDevicePlatformProjection(request);
-      const snapshot = participant
-        ? publicSnapshot(this.room, session, includeDevicePlatform)
-        : null;
-      // Cached v1 clients parse an exact `{ snapshot }` envelope and may remain
-      // active while a new Worker deploys. Negotiate the nullable, explicit
-      // result so rolling deployment cannot turn logout into a protocol error.
-      return explicitEnvelope
-        ? jsonResponse({ ok: true, detached: true, snapshot })
-        : jsonResponse({
-            snapshot: snapshot || publicSnapshot(this.room, session, includeDevicePlatform),
-          });
+      const snapshot = participant ? publicSnapshot(this.room, session) : null;
+      return jsonResponse({ ok: true, detached: true, snapshot });
     };
 
     // Repeated logout/cross-tab reconciliation is deliberately idempotent.
@@ -9480,11 +9350,7 @@ export class MusixquareProRoom {
     }
     await this.persist();
     return jsonResponse({
-      snapshot: publicSnapshot(
-        this.room,
-        auth.session,
-        requestSupportsDevicePlatformProjection(request),
-      ),
+      snapshot: publicSnapshot(this.room, auth.session),
     });
   }
 
@@ -9690,11 +9556,7 @@ export class MusixquareProRoom {
       });
     }
     return jsonResponse({
-      snapshot: publicSnapshot(
-        this.room,
-        auth.session,
-        requestSupportsDevicePlatformProjection(request),
-      ),
+      snapshot: publicSnapshot(this.room, auth.session),
     });
   }
 
@@ -9705,15 +9567,12 @@ export class MusixquareProRoom {
     // its presence list. When other peers remain, return the last internally
     // consistent departing snapshot while persisting the newer server state;
     // the caller is leaving and must not apply a phantom post-leave viewer.
-    const includeDevicePlatform = requestSupportsDevicePlatformProjection(request);
-    const departingSnapshot = publicSnapshot(this.room, auth.session, includeDevicePlatform);
+    const departingSnapshot = publicSnapshot(this.room, auth.session);
     const hadOtherParticipants = Object.keys(this.room.presence.participants).length > 1;
     this.removePresence(auth.session.participantId, Date.now());
     await this.persist();
     return jsonResponse({
-      snapshot: hadOtherParticipants
-        ? departingSnapshot
-        : publicSnapshot(this.room, auth.session, includeDevicePlatform),
+      snapshot: hadOtherParticipants ? departingSnapshot : publicSnapshot(this.room, auth.session),
     });
   }
 
@@ -9760,14 +9619,7 @@ export class MusixquareProRoom {
     // while a never-processed old request cannot target the new incarnation.
     const scope = `participant:${body.expectedParticipantId}:incarnation:${body.expectedPresenceIncarnationId}:session:${auth.tokenHash}:presence-close`;
     const fingerprint = await this.idempotencyFingerprint(scope, mutation);
-    const replay = this.replayIdempotency(
-      scope,
-      key,
-      fingerprint,
-      auth.session,
-      null,
-      requestSupportsDevicePlatformProjection(request),
-    );
+    const replay = this.replayIdempotency(scope, key, fingerprint, auth.session, null);
     if (replay) return replay;
     const participant = this.room.presence.participants[body.expectedParticipantId];
     if (
@@ -9814,9 +9666,6 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
-    if (targetsMember && !this.authorityProjectionEnabled()) {
-      return errorResponse('MEMBER_AUTHORITY_NOT_ENABLED', 409);
-    }
     const target = targetsParticipant
       ? this.room.presence.participants[parsed.value.targetParticipantId]
       : Object.values(this.room.presence.participants).find(
@@ -9828,48 +9677,36 @@ export class MusixquareProRoom {
     if (!targetSession) return errorResponse('PARTICIPANT_NOT_FOUND', 404);
     if (
       targetParticipantId === auth.session.participantId ||
-      (this.authorityProjectionEnabled() && targetSession.memberId === auth.session.memberId)
+      targetSession.memberId === auth.session.memberId
     ) {
       return errorResponse('CANNOT_KICK_SELF', 409);
     }
-    if (this.authorityProjectionEnabled()) {
-      if (targetSession.role === 'owner') return errorResponse('OWNER_AUTHORITY_IMMUTABLE', 409);
-      if (auth.session.role !== 'owner' && targetSession.role === 'controller') {
-        return errorResponse('ADMINISTRATOR_TARGET_FORBIDDEN', 403);
-      }
+    if (targetSession.role === 'owner') return errorResponse('OWNER_AUTHORITY_IMMUTABLE', 409);
+    if (auth.session.role !== 'owner' && targetSession.role === 'controller') {
+      return errorResponse('ADMINISTRATOR_TARGET_FORBIDDEN', 403);
     }
-    if (this.authorityProjectionEnabled()) {
-      // Preserve the legacy /presence/kick contract during rolling deploys:
-      // either legacy target shape means an account-wide authority removal.
-      // Exact transport removal lives exclusively at /presence/kick-device.
-      if (targetSession.accountId) {
-        const member = this.room.accountMembers?.[targetSession.accountId];
-        if (member?.role === 'controller') {
-          member.role = 'member';
-          member.permissions = clonePermissionSet(MEMBER_PERMISSIONS);
-          member.updatedAtMs = Date.now();
-          this.syncAccountMemberSessions(targetSession.accountId, member);
-        }
-      } else {
-        this.removeAnonymousAdministrator(targetSession.memberId);
-      }
-      const memberSessions = this.memberSessionRecords(targetSession.memberId);
-      const nowMs = Date.now();
-      for (const [tokenHash, session] of memberSessions) {
-        this.removePresence(session.participantId, nowMs);
-        this.removeSessionRecord(tokenHash);
+    // Member kick revokes delegated authority and removes every live session
+    // for that room member. Exact transport removal is `/presence/kick-device`.
+    if (targetSession.accountId) {
+      const member = this.room.accountMembers?.[targetSession.accountId];
+      if (member?.role === 'controller') {
+        member.role = 'member';
+        member.permissions = clonePermissionSet(MEMBER_PERMISSIONS);
+        member.updatedAtMs = Date.now();
+        this.syncAccountMemberSessions(targetSession.accountId, member);
       }
     } else {
-      this.removeSessionRecord(target.sessionHash);
-      this.removePresence(targetParticipantId, Date.now());
+      this.removeAnonymousAdministrator(targetSession.memberId);
+    }
+    const memberSessions = this.memberSessionRecords(targetSession.memberId);
+    const nowMs = Date.now();
+    for (const [tokenHash, session] of memberSessions) {
+      this.removePresence(session.participantId, nowMs);
+      this.removeSessionRecord(tokenHash);
     }
     await this.persist();
     return jsonResponse({
-      snapshot: publicSnapshot(
-        this.room,
-        auth.session,
-        requestSupportsDevicePlatformProjection(request),
-      ),
+      snapshot: publicSnapshot(this.room, auth.session),
     });
   }
 
@@ -9898,7 +9735,6 @@ export class MusixquareProRoom {
       return errorResponse('CANNOT_KICK_SELF', 409);
     }
     const isVerifiedAccountSibling =
-      this.authorityProjectionEnabled() &&
       typeof auth.session.accountId === 'string' &&
       auth.session.accountId.length > 0 &&
       targetSession.accountId === auth.session.accountId &&
@@ -9908,17 +9744,15 @@ export class MusixquareProRoom {
       target.memberId === targetSession.memberId &&
       targetSession.memberId === auth.session.memberId &&
       target.sessionHash !== auth.tokenHash;
-    if (this.authorityProjectionEnabled()) {
-      if (!isVerifiedAccountSibling && targetSession.role === 'owner') {
-        return errorResponse('OWNER_AUTHORITY_IMMUTABLE', 409);
-      }
-      if (
-        !isVerifiedAccountSibling &&
-        auth.session.role !== 'owner' &&
-        targetSession.role === 'controller'
-      ) {
-        return errorResponse('ADMINISTRATOR_TARGET_FORBIDDEN', 403);
-      }
+    if (!isVerifiedAccountSibling && targetSession.role === 'owner') {
+      return errorResponse('OWNER_AUTHORITY_IMMUTABLE', 409);
+    }
+    if (
+      !isVerifiedAccountSibling &&
+      auth.session.role !== 'owner' &&
+      targetSession.role === 'controller'
+    ) {
+      return errorResponse('ADMINISTRATOR_TARGET_FORBIDDEN', 403);
     }
 
     // This endpoint is intentionally exact and transport-scoped. Sibling
@@ -9927,11 +9761,7 @@ export class MusixquareProRoom {
     this.removePresence(target.participantId, Date.now());
     await this.persist();
     return jsonResponse({
-      snapshot: publicSnapshot(
-        this.room,
-        auth.session,
-        requestSupportsDevicePlatformProjection(request),
-      ),
+      snapshot: publicSnapshot(this.room, auth.session),
     });
   }
 
@@ -10023,14 +9853,7 @@ export class MusixquareProRoom {
     }
     const scope = `participant:${auth.session.participantId}:playback-authority`;
     const fingerprint = await this.idempotencyFingerprint(scope, command);
-    const replay = this.replayIdempotency(
-      scope,
-      key,
-      fingerprint,
-      auth.session,
-      null,
-      requestSupportsDevicePlatformProjection(request),
-    );
+    const replay = this.replayIdempotency(scope, key, fingerprint, auth.session, null);
     if (replay) return replay;
 
     const nowMs = Date.now();
@@ -10191,24 +10014,14 @@ export class MusixquareProRoom {
     return records;
   }
 
-  replayIdempotency(
-    scope,
-    key,
-    fingerprint,
-    session = null,
-    developerRequesterKeyId = null,
-    includeDevicePlatform = false,
-  ) {
+  replayIdempotency(scope, key, fingerprint, session = null, developerRequesterKeyId = null) {
     const record = this.idempotencyRecord(scope, key);
     if (!record) return null;
     if (!constantTimeEqual(record.fingerprint, fingerprint)) {
       return errorResponse('IDEMPOTENCY_CONFLICT', 409);
     }
     if (record.kind === 'snapshot') {
-      return jsonResponse(
-        { snapshot: publicSnapshot(this.room, session, includeDevicePlatform) },
-        record.status,
-      );
+      return jsonResponse({ snapshot: publicSnapshot(this.room, session) }, record.status);
     }
     if (record.kind === 'developer-queue') {
       // The action is replayed from a compact receipt, while the response is
@@ -10286,55 +10099,6 @@ export class MusixquareProRoom {
     return true;
   }
 
-  async handleUpdateSnapshot(request) {
-    const auth = await this.requireSession(request, {
-      activePresence: true,
-      capability: 'queue.mutate',
-    });
-    if (auth.response) return auth.response;
-    const key = this.readIdempotencyKey(request);
-    if (!key) return errorResponse('IDEMPOTENCY_KEY_REQUIRED', 400);
-    const parsed = await this.parseBody(request, REQUEST_MAX_BYTES);
-    if (parsed.response) return parsed.response;
-    const body = parsed.value;
-    if (!hasExactKeys(body, ['baseRevision', 'playlist', 'currentQueueItemId', 'playback'])) {
-      return errorResponse('INVALID_REQUEST', 400);
-    }
-    const scope = `participant:${auth.session.participantId}:snapshot`;
-    const fingerprint = await this.idempotencyFingerprint(scope, body);
-    const includeDevicePlatform = requestSupportsDevicePlatformProjection(request);
-    const replay = this.replayIdempotency(
-      scope,
-      key,
-      fingerprint,
-      auth.session,
-      null,
-      includeDevicePlatform,
-    );
-    if (replay) return replay;
-    if (!isSafeNonNegativeInteger(body.baseRevision)) return errorResponse('INVALID_REVISION', 400);
-    if (body.baseRevision !== this.room.revision) {
-      // Playlist clients refresh the authoritative snapshot after this code.
-      // Returning that same (potentially multi-megabyte) snapshot inside the
-      // error envelope is both redundant and unsafe: the browser deliberately
-      // caps error bodies at 16 KiB, so a sufficiently populated playlist
-      // would be reduced to a generic HTTP_409 and never enter the CAS retry.
-      return errorResponse('REVISION_CONFLICT', 409);
-    }
-    const parsedPlaylist = parsePlaylist(body.playlist);
-    if (!parsedPlaylist) return errorResponse('INVALID_PLAYLIST', 400);
-    return this.commitParticipantSnapshot({
-      auth,
-      key,
-      scope,
-      fingerprint,
-      playlist: parsedPlaylist,
-      currentQueueItemId: body.currentQueueItemId,
-      playbackInput: body.playback,
-      includeDevicePlatform,
-    });
-  }
-
   async handleCompactSnapshotMutation(request) {
     const auth = await this.requireSession(request, {
       activePresence: true,
@@ -10359,20 +10123,12 @@ export class MusixquareProRoom {
     }
     const scope = `participant:${auth.session.participantId}:snapshot`;
     const fingerprint = await this.idempotencyFingerprint(scope, body);
-    const includeDevicePlatform = requestSupportsDevicePlatformProjection(request);
-    const replay = this.replayIdempotency(
-      scope,
-      key,
-      fingerprint,
-      auth.session,
-      null,
-      includeDevicePlatform,
-    );
+    const replay = this.replayIdempotency(scope, key, fingerprint, auth.session, null);
     if (replay) return replay;
     if (!isSafeNonNegativeInteger(body.baseRevision)) return errorResponse('INVALID_REVISION', 400);
     if (body.baseRevision !== this.room.revision) {
-      // Keep the CAS error envelope bounded for the same reason as the legacy
-      // snapshot endpoint above. The following explicit GET is authoritative.
+      // Keep the CAS error envelope bounded. The following explicit GET is
+      // authoritative and can carry a multi-megabyte playlist safely.
       return errorResponse('REVISION_CONFLICT', 409);
     }
     if (
@@ -10418,7 +10174,6 @@ export class MusixquareProRoom {
       playlist,
       currentQueueItemId: body.currentQueueItemId,
       playbackInput: body.playback,
-      includeDevicePlatform,
     });
   }
 
@@ -10430,7 +10185,6 @@ export class MusixquareProRoom {
     playlist: parsedPlaylist,
     currentQueueItemId,
     playbackInput,
-    includeDevicePlatform,
   }) {
     const previousPlaylistById = new Map(
       this.room.playlist.map((item) => [item.queueItemId, item]),
@@ -10452,7 +10206,7 @@ export class MusixquareProRoom {
     if (addedCount > 0 && !this.sessionHasPermission(auth.session, 'media.add')) {
       return errorResponse('PERMISSION_REQUIRED', 403);
     }
-    if (this.authorityProjectionEnabled() && auth.session.role !== 'owner') {
+    if (auth.session.role !== 'owner') {
       const changesExistingItem = playlist.some((item) => {
         const previous = previousPlaylistById.get(item.queueItemId);
         return (
@@ -10537,7 +10291,7 @@ export class MusixquareProRoom {
     }
     this.room.revision += 1;
     const responseBody = {
-      snapshot: publicSnapshot(this.room, auth.session, includeDevicePlatform),
+      snapshot: publicSnapshot(this.room, auth.session),
     };
     this.storeSnapshotIdempotency(scope, key, fingerprint, this.room.revision);
     if (pendingCancelEvent) this.enqueuePlaybackBroadcast(pendingCancelEvent);

@@ -6,9 +6,9 @@ import {
   issueProRoomOwnerRecoveryClaim,
 } from '../cloudflare/pro-room-worker.js';
 
-const SUPPORTED_ROOM_CODES = new Set(['000000', '000001']);
+const SUPPORTED_ROOM_CODES = new Set(['000000']);
 const CLAIM_TOKEN_RE = /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
-const USAGE = 'Usage: npm run pro-room:issue-claim -- <000000|000001> | --recovery <000000|000001>';
+const USAGE = 'Usage: npm run pro-room:issue-claim -- 000000 | --recovery 000000';
 
 export class ProRoomClaimCliError extends Error {
   constructor(message) {

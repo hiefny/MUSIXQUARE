@@ -15,10 +15,9 @@ assertD1MigrationContract({ manifest });
 const DEVELOPER_API_DATABASE = 'musixquare-developer-api';
 const DEVELOPER_API_BASELINE_PATH = 'cloudflare/developer-api.schema.sql';
 
-export const TRACKED_SCHEMA_PATHS = Object.freeze([
-  ...trackedD1PathsForDatabase(manifest, DEVELOPER_API_DATABASE),
-  'scripts/developer-api-effects-scope-migration.mjs',
-]);
+export const TRACKED_SCHEMA_PATHS = Object.freeze(
+  trackedD1PathsForDatabase(manifest, DEVELOPER_API_DATABASE),
+);
 
 export function releaseCommitFromDeployment(deployment) {
   const message = deployment?.annotations?.['workers/message'];

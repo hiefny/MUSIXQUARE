@@ -176,7 +176,7 @@ describe('account API client', () => {
 
   it('parses attach and deletion room assertions without confusing their authority', async () => {
     vi.mocked(fetch)
-      .mockResolvedValueOnce(jsonResponse({ assertion: 'attach-proof' }))
+      .mockResolvedValueOnce(jsonResponse({ assertion: 'attach-proof', deletionAssertion: null }))
       .mockResolvedValueOnce(jsonResponse({ assertion: null, deletionAssertion: 'delete-proof' }));
     const request = { roomCode: '123456', peerId: 'guest-a', role: 'guest' as const };
 

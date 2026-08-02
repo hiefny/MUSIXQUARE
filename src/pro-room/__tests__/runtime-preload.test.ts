@@ -91,8 +91,13 @@ function roomSnapshot(): ProRoomSnapshot {
       participants: [
         {
           participantId: PARTICIPANT_ID,
+          memberId: 'member_0000000001',
+          memberDisplayNumber: 0,
+          isAuthenticated: true,
           displayName: 'Owner',
+          devicePlatform: 'other',
           role: 'owner',
+          capabilities: [...capabilitiesForProRoomRole('owner')],
           joinedAtMs: 1,
         },
       ],
@@ -105,6 +110,8 @@ function roomSnapshot(): ProRoomSnapshot {
     },
     viewer: {
       memberId: 'member_0000000001',
+      memberDisplayNumber: 0,
+      isAuthenticated: true,
       participantId: PARTICIPANT_ID,
       presenceIncarnationId: 'presence_0000000001',
       displayName: 'Owner',
@@ -112,6 +119,25 @@ function roomSnapshot(): ProRoomSnapshot {
       capabilities: [...capabilitiesForProRoomRole('owner')],
       coordinatorEligible: false,
     },
+    memberIdentityVersion: 1,
+    authorityVersion: 1,
+    administrators: [
+      {
+        memberId: 'member_0000000001',
+        memberDisplayNumber: 0,
+        isAuthenticated: true,
+        displayName: 'Owner',
+        role: 'owner',
+        permissions: {
+          'media.add': true,
+          'playback.control': true,
+          'members.kick': true,
+          'chat.notice': true,
+        },
+        inheritedPermissions: ['media.add', 'playback.control', 'members.kick', 'chat.notice'],
+        onlineDeviceCount: 1,
+      },
+    ],
   };
 }
 

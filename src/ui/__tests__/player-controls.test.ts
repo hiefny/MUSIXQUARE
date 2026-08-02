@@ -178,6 +178,12 @@ describe('getStandardRolePreset', () => {
     expect(preset.placementToastKey).toBe('role.right_placement');
   });
 
+  it('returns a dedicated subwoofer placement preset for mode 2', () => {
+    const preset = getStandardRolePreset(2);
+    expect(preset.labelKey).toBe('common.woofer');
+    expect(preset.placementToastKey).toBe('role.subwoofer_placement');
+  });
+
   it('falls back to Original preset for unknown mode', () => {
     const preset = getStandardRolePreset(99);
     expect(preset.labelKey).toBe('common.original');

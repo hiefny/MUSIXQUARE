@@ -10,7 +10,7 @@
          code, then apply Android viewport, language, and theme preflight.
          Cloudflare Analytics is loaded by this bootstrap only after a safe
          scrub/handoff. Source: public/bootstrap.js -->
-    <script src="/bootstrap.js?cache=v362"></script>
+    <script src="/bootstrap.js?cache=v363"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -969,9 +969,21 @@
           <div id="youtube-settings-disabled-wrap" class="youtube-settings-disabled-wrap">
             <div class="section-group">
               <div class="section-header-row">
-                <span class="section-title" data-i18n="setup.set_role"></span>
+                <span
+                  class="section-title"
+                  id="settings-role-title"
+                  data-i18n="setup.set_role"
+                ></span>
                 <span class="badge-host-ctrl" data-i18n="settings.self_ctrl"></span>
               </div>
+
+              <p
+                class="settings-option-description settings-role-description"
+                id="settings-role-description"
+                data-i18n="settings.role_center_desc"
+                aria-live="polite"
+                aria-atomic="true"
+              ></p>
 
               <div
                 class="setup-graphic-container settings-role-diagram"
@@ -1038,7 +1050,13 @@
                   </g>
                 </svg>
               </div>
-              <div class="channel-grid" id="grid-standard">
+              <div
+                class="channel-grid"
+                id="grid-standard"
+                role="group"
+                aria-labelledby="settings-role-title"
+                aria-describedby="settings-role-description"
+              >
                 <button type="button" class="ch-opt" data-ch="-1">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" /></svg

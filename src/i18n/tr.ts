@@ -153,13 +153,14 @@ const tr: Record<I18nKey, string> = {
   'role.center_placement': 'Cihazı merkeze yerleştirin',
   'role.left_placement': 'Cihazı sola yerleştirin',
   'role.right_placement': 'Cihazı sağa yerleştirin',
+  'role.subwoofer_placement': 'Cihazı basın iyi yayıldığı bir yere yerleştirin',
 
   // ─── Settings ────────────────────────────────────────────────────
   'settings.theme': 'Tema',
   'settings.ui_sounds': 'Arayüz sesleri',
   'settings.sync_settings': 'Ayarları eşitle',
   'settings.sync_settings_desc':
-    'Bu seçenek açık olan cihazlar ses düzeyini ve ses efektlerini eşitler.',
+    'Bu ayarın açık olduğu cihazlar ses düzeyini ve ses efektlerini eşitler.',
   'settings.language_desc': 'Bir dil seçebilir veya sistem dilini kullanabilirsiniz.',
   'settings.theme_desc': 'Açık veya koyu temayı seçebilirsiniz.',
   'settings.visualizer_desc': 'Sesin nasıl görselleştirileceğini seçebilirsiniz.',
@@ -169,6 +170,12 @@ const tr: Record<I18nKey, string> = {
   'settings.surround_desc': 'Daha boyutlu bir ses için ayrımı artırır.',
   'settings.bass_desc': 'Daha güçlü bir etki için düşük frekanslar üretir.',
   'settings.exciter_desc': 'Daha berrak bir ses için ultra yüksek frekanslar üretir.',
+  'settings.role_center_desc':
+    'Bu cihaz merkez hoparlör görevi görüyor.\nCihazı merkeze yerleştirin.',
+  'settings.role_left_desc': 'Bu cihaz sol hoparlör görevi görüyor.\nCihazı sola yerleştirin.',
+  'settings.role_right_desc': 'Bu cihaz sağ hoparlör görevi görüyor.\nCihazı sağa yerleştirin.',
+  'settings.role_subwoofer_desc':
+    'Bu cihaz subwoofer görevi görüyor.\nBasın iyi yayıldığı bir yere yerleştirin.',
   'settings.dark': 'Karanlık',
   'settings.light': 'Aydınlık',
   'settings.visualizer': 'Görselleştirici',

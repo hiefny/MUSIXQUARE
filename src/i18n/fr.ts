@@ -107,13 +107,14 @@ const fr: Record<I18nKey, string> = {
   'role.center_placement': 'Placez l’appareil au centre',
   'role.left_placement': 'Placez l’appareil à gauche',
   'role.right_placement': 'Placez l’appareil à droite',
+  'role.subwoofer_placement': 'Placez l’appareil là où les basses se diffusent bien',
 
   // Settings
   'settings.theme': 'Thème',
   'settings.ui_sounds': 'Sons de l’interface',
   'settings.sync_settings': 'Synchronisation des réglages',
   'settings.sync_settings_desc':
-    'Les appareils avec cette option activée synchronisent leur volume et leurs effets audio.',
+    'Les appareils avec ce réglage activé synchronisent leur volume et leurs effets audio.',
   'settings.language_desc': 'Choisissez une langue ou utilisez celle du système.',
   'settings.theme_desc': 'Choisissez un thème clair ou sombre.',
   'settings.visualizer_desc': 'Choisissez le mode de visualisation du son.',
@@ -124,6 +125,11 @@ const fr: Record<I18nKey, string> = {
   'settings.surround_desc': 'Augmente la séparation pour donner plus de relief au son.',
   'settings.bass_desc': 'Synthétise les basses fréquences pour renforcer l’impact.',
   'settings.exciter_desc': 'Génère des fréquences ultra-aiguës pour apporter plus de clarté.',
+  'settings.role_center_desc': 'Cet appareil sert d’enceinte centrale.\nPlacez-le au centre.',
+  'settings.role_left_desc': 'Cet appareil sert d’enceinte gauche.\nPlacez-le à gauche.',
+  'settings.role_right_desc': 'Cet appareil sert d’enceinte droite.\nPlacez-le à droite.',
+  'settings.role_subwoofer_desc':
+    'Cet appareil sert de subwoofer.\nPlacez-le là où les basses se diffusent bien.',
   'settings.dark': 'Sombre',
   'settings.light': 'Clair',
   'settings.visualizer': 'Visualiseur',

@@ -107,13 +107,14 @@ const de: Record<I18nKey, string> = {
   'role.center_placement': 'Platziere das Gerät in der Mitte',
   'role.left_placement': 'Platziere das Gerät links',
   'role.right_placement': 'Platziere das Gerät rechts',
+  'role.subwoofer_placement': 'Platziere das Gerät dort, wo sich tiefe Töne gut verteilen',
 
   // Settings
   'settings.theme': 'Design',
   'settings.ui_sounds': 'UI-Töne',
   'settings.sync_settings': 'Einstellungen synchronisieren',
   'settings.sync_settings_desc':
-    'Geräte mit aktivierter Option synchronisieren Lautstärke und Audioeffekte.',
+    'Geräte mit aktivierter Einstellung synchronisieren Lautstärke und Audioeffekte.',
   'settings.language_desc': 'Eine Sprache auswählen oder die Systemsprache übernehmen.',
   'settings.theme_desc': 'Zwischen hellem und dunklem Design wählen.',
   'settings.visualizer_desc': 'Die Art der Audio-Visualisierung auswählen.',
@@ -124,6 +125,14 @@ const de: Record<I18nKey, string> = {
   'settings.surround_desc': 'Erhöht die Trennung für einen räumlicheren Klang.',
   'settings.bass_desc': 'Erzeugt tiefe Frequenzen für mehr Druck.',
   'settings.exciter_desc': 'Erzeugt sehr hohe Frequenzen für mehr Klarheit.',
+  'settings.role_center_desc':
+    'Dieses Gerät dient als Center-Lautsprecher.\nStellen Sie es in die Mitte.',
+  'settings.role_left_desc':
+    'Dieses Gerät dient als linker Lautsprecher.\nStellen Sie es links auf.',
+  'settings.role_right_desc':
+    'Dieses Gerät dient als rechter Lautsprecher.\nStellen Sie es rechts auf.',
+  'settings.role_subwoofer_desc':
+    'Dieses Gerät dient als Subwoofer.\nStellen Sie es dort auf, wo sich tiefe Töne gut verteilen.',
   'settings.dark': 'Dunkel',
   'settings.light': 'Hell',
   'settings.visualizer': 'Visualisierung',

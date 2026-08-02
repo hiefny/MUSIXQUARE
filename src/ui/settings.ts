@@ -26,6 +26,7 @@ import {
   LANGUAGE_OPTIONS,
   setLanguageMode,
   t,
+  type I18nKey,
   type LanguageCode,
 } from '../i18n/index.ts';
 import { getStandardRolePreset } from './player-controls.ts';
@@ -160,12 +161,38 @@ function syncRoleDiagrams(mode: number): void {
     });
 }
 
+let selectedStandardRoleMode = 0;
+
+function standardRoleDescriptionKey(mode: number): I18nKey {
+  switch (mode) {
+    case -1:
+      return 'settings.role_left_desc';
+    case 1:
+      return 'settings.role_right_desc';
+    case 2:
+      return 'settings.role_subwoofer_desc';
+    default:
+      return 'settings.role_center_desc';
+  }
+}
+
+function syncStandardRoleDescription(mode = selectedStandardRoleMode): void {
+  selectedStandardRoleMode = [-1, 0, 1, 2].includes(mode) ? mode : 0;
+  const description = document.getElementById('settings-role-description');
+  if (!description) return;
+
+  const key = standardRoleDescriptionKey(selectedStandardRoleMode);
+  description.dataset.i18n = key;
+  description.textContent = t(key);
+}
+
 export function selectStandardChannelButton(mode: number): void {
   const all = document.querySelectorAll('#grid-standard .ch-opt[data-ch]');
   all.forEach((e) => e.classList.remove('active'));
   const el = document.querySelector(`#grid-standard .ch-opt[data-ch="${mode}"]`);
   if (el) el.classList.add('active');
   syncRoleDiagrams(mode);
+  syncStandardRoleDescription(mode);
 
   const wooferCtrl = document.getElementById('woofer-cutoff-control');
   if (wooferCtrl) {
@@ -1116,6 +1143,7 @@ export function initSettings(): void {
     renderDeviceList(list.filter(isDeviceListRow));
     refreshLanguageControls();
     updateLanguageScrollMask();
+    syncStandardRoleDescription();
   });
 
   // Initial theme: restore from localStorage (defaults to system; 'system' auto-resolves)

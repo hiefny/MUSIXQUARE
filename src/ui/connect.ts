@@ -736,10 +736,10 @@ const FULL_ADMIN_PERMISSIONS: Readonly<ProRoomPermissionSet> = Object.freeze({
 });
 const CROWN_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm1 2h12v2H6z"/></svg>';
+const CROWN_SLASHED_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm1 2h12v2H6z"/><path class="administrator-crown-slash" d="M4.5 19.5 19.5 4.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>';
 const SETTINGS_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.1 7.1 0 0 0-1.62-.94L14.38 2.8A.49.49 0 0 0 13.89 2h-3.84a.49.49 0 0 0-.49.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.49.49 0 0 0-.61.22L2.66 8.47a.5.5 0 0 0 .12.64l2.03 1.58c-.05.31-.09.65-.09.98s.03.66.08.97l-2.02 1.58a.49.49 0 0 0-.12.64l1.92 3.32c.13.23.4.31.63.22l2.37-.96c.49.38 1.03.7 1.62.94l.36 2.54c.04.24.24.41.49.41h3.84c.25 0 .46-.17.49-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.37.96c.23.09.5.01.63-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.02-1.58zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/></svg>';
-const REVOKE_ICON =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.41 4.29 19.71 2.88 18.3 9.17 12 2.88 5.7 4.29 4.29 10.59 10.59 16.89 4.29z"/></svg>';
 
 interface AdministratorView {
   memberId: string;
@@ -917,6 +917,7 @@ function _administratorActionButton(
   button.type = 'button';
   button.className = `administrator-action-button ${className}`;
   button.setAttribute('aria-label', ariaLabel);
+  button.title = ariaLabel;
   button.innerHTML = icon;
   button.addEventListener('click', (event) => {
     event.preventDefault();
@@ -988,14 +989,14 @@ function renderAdministratorLists(members: readonly ConnectedRoomMember[]): void
             () => openAdministratorPermissionsDialog(administrator),
           ),
         );
-        actions.appendChild(
-          _administratorActionButton(
-            'revoke',
-            t('connect.administrator_revoke_aria', { name: administrator.displayName }),
-            REVOKE_ICON,
-            () => void confirmRevokeAdministrator(administrator),
-          ),
+        const revokeButton = _administratorActionButton(
+          'revoke administrator-state-button',
+          t('connect.administrator_revoke_aria', { name: administrator.displayName }),
+          CROWN_ICON,
+          () => void confirmRevokeAdministrator(administrator),
         );
+        revokeButton.dataset.administratorState = 'active';
+        actions.appendChild(revokeButton);
         row.appendChild(actions);
       }
 
@@ -1520,8 +1521,12 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
         if (canGrant) {
           const opBtn = document.createElement('button');
           opBtn.type = 'button';
-          opBtn.className = 'd-op-btn';
-          opBtn.textContent = t('common.grant');
+          opBtn.className = 'd-op-btn administrator-action-button administrator-state-button grant';
+          opBtn.dataset.administratorState = 'inactive';
+          const grantLabel = t('common.grant');
+          opBtn.setAttribute('aria-label', grantLabel);
+          opBtn.title = grantLabel;
+          opBtn.innerHTML = CROWN_SLASHED_ICON;
           opBtn.addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();

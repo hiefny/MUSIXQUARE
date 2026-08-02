@@ -156,13 +156,14 @@ const nl: Record<I18nKey, string> = {
   'role.center_placement': 'Plaats dit apparaat in het midden',
   'role.left_placement': 'Plaats dit apparaat links',
   'role.right_placement': 'Plaats dit apparaat rechts',
+  'role.subwoofer_placement': 'Plaats dit apparaat waar de lage tonen zich goed verspreiden',
 
   // Settings
   'settings.theme': 'Thema',
   'settings.ui_sounds': 'UI-geluiden',
   'settings.sync_settings': 'Instellingen synchroniseren',
   'settings.sync_settings_desc':
-    'Apparaten waarop deze optie aanstaat, synchroniseren volume en audio-effecten.',
+    'Apparaten waarop deze instelling aanstaat, synchroniseren volume en audio-effecten.',
   'settings.language_desc': 'Kies een taal of volg de systeemtaal.',
   'settings.theme_desc': 'Kies een licht of donker thema.',
   'settings.visualizer_desc': 'Kies hoe het geluid wordt weergegeven.',
@@ -173,6 +174,13 @@ const nl: Record<I18nKey, string> = {
   'settings.surround_desc': 'Vergroot de scheiding voor een ruimtelijker geluid.',
   'settings.bass_desc': 'Maakt lage frequenties aan voor meer impact.',
   'settings.exciter_desc': 'Genereert ultrahoge frequenties voor meer helderheid.',
+  'settings.role_center_desc': 'Dit apparaat dient als center-speaker.\nPlaats het in het midden.',
+  'settings.role_left_desc':
+    'Dit apparaat dient als linker speaker.\nPlaats het aan de linkerkant.',
+  'settings.role_right_desc':
+    'Dit apparaat dient als rechter speaker.\nPlaats het aan de rechterkant.',
+  'settings.role_subwoofer_desc':
+    'Dit apparaat dient als subwoofer.\nPlaats het waar de lage tonen zich goed verspreiden.',
   'settings.dark': 'Donker',
   'settings.light': 'Licht',
   'settings.visualizer': 'Visualizer',

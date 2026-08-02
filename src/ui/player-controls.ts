@@ -81,7 +81,7 @@ const STANDARD_ROLE_MAP: Record<string, { labelKey: I18nKey; placementToastKey: 
   '0': { labelKey: 'common.original', placementToastKey: 'role.center_placement' },
   '-1': { labelKey: 'common.left', placementToastKey: 'role.left_placement' },
   '1': { labelKey: 'common.right', placementToastKey: 'role.right_placement' },
-  '2': { labelKey: 'common.woofer', placementToastKey: 'role.center_placement' },
+  '2': { labelKey: 'common.woofer', placementToastKey: 'role.subwoofer_placement' },
 };
 
 const ROLE_CLOCK_SECOND_MS = 1000;

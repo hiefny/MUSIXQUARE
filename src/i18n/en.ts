@@ -155,12 +155,14 @@ const en: Record<I18nKey, string> = {
   'role.center_placement': 'Place the device in the center',
   'role.left_placement': 'Place the device on the left',
   'role.right_placement': 'Place the device on the right',
+  'role.subwoofer_placement': 'Place the device where the bass carries well',
 
   // ─── Settings ────────────────────────────────────────────────────
   'settings.theme': 'Theme',
   'settings.ui_sounds': 'UI Sounds',
   'settings.sync_settings': 'Settings sync',
-  'settings.sync_settings_desc': 'Devices with this option on sync their volume and audio effects.',
+  'settings.sync_settings_desc':
+    'Devices with this setting on sync their volume and audio effects.',
   'settings.language_desc': 'Choose a language or follow your system language.',
   'settings.theme_desc': 'Choose a light or dark theme.',
   'settings.visualizer_desc': 'Choose how sound is visualized.',
@@ -170,6 +172,12 @@ const en: Record<I18nKey, string> = {
   'settings.surround_desc': 'Increase separation for a more immersive sound.',
   'settings.bass_desc': 'Synthesize low frequencies for more impact.',
   'settings.exciter_desc': 'Generate ultra-high frequencies for greater clarity.',
+  'settings.role_center_desc':
+    'This device is acting as the center speaker.\nPlace it in the center.',
+  'settings.role_left_desc': 'This device is acting as the left speaker.\nPlace it on the left.',
+  'settings.role_right_desc': 'This device is acting as the right speaker.\nPlace it on the right.',
+  'settings.role_subwoofer_desc':
+    'This device is acting as the subwoofer.\nPlace it where the bass carries well.',
   'settings.dark': 'Dark',
   'settings.light': 'Light',
   'settings.visualizer': 'Visualizer',

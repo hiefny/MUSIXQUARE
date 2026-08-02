@@ -154,13 +154,14 @@ const it: Record<I18nKey, string> = {
   'role.center_placement': 'Posiziona il dispositivo al centro',
   'role.left_placement': 'Posiziona il dispositivo a sinistra',
   'role.right_placement': 'Posiziona il dispositivo a destra',
+  'role.subwoofer_placement': 'Posiziona il dispositivo dove i bassi si diffondono bene',
 
   // ─── Settings ────────────────────────────────────────────────────
   'settings.theme': 'Tema',
   'settings.ui_sounds': 'Suoni interfaccia',
   'settings.sync_settings': 'Sincronizza impostazioni',
   'settings.sync_settings_desc':
-    'I dispositivi con questa opzione attiva sincronizzano volume ed effetti audio.',
+    'I dispositivi con questa impostazione attiva sincronizzano volume ed effetti audio.',
   'settings.language_desc': 'Scegli una lingua o usa quella del sistema.',
   'settings.theme_desc': 'Scegli un tema chiaro o scuro.',
   'settings.visualizer_desc': 'Scegli come visualizzare l’audio.',
@@ -170,6 +171,14 @@ const it: Record<I18nKey, string> = {
   'settings.surround_desc': 'Aumenta la separazione per un suono più avvolgente.',
   'settings.bass_desc': 'Sintetizza le basse frequenze per dare più impatto.',
   'settings.exciter_desc': 'Genera frequenze ultra-alte per dare più brillantezza.',
+  'settings.role_center_desc':
+    'Questo dispositivo funge da altoparlante centrale.\nPosizionalo al centro.',
+  'settings.role_left_desc':
+    'Questo dispositivo funge da altoparlante sinistro.\nPosizionalo a sinistra.',
+  'settings.role_right_desc':
+    'Questo dispositivo funge da altoparlante destro.\nPosizionalo a destra.',
+  'settings.role_subwoofer_desc':
+    'Questo dispositivo funge da subwoofer.\nPosizionalo dove i bassi si diffondono bene.',
   'settings.dark': 'Scuro',
   'settings.light': 'Chiaro',
   'settings.visualizer': 'Visualizzatore',

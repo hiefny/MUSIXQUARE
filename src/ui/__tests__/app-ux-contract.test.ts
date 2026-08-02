@@ -98,6 +98,12 @@ describe('app UX markup contract', () => {
         'settings.sync_settings_desc',
       ],
       [
+        '#grid-standard',
+        'settings-role-title',
+        'settings-role-description',
+        'settings.role_center_desc',
+      ],
+      [
         '#grid-reverb',
         'settings-reverb-title',
         'settings-reverb-description',
@@ -137,6 +143,30 @@ describe('app UX markup contract', () => {
     );
   });
 
+  it('announces the currently selected device role from the role control group', () => {
+    const title = appDocument.getElementById('settings-role-title');
+    const description = appDocument.getElementById('settings-role-description');
+    const roleGroup = appDocument.getElementById('grid-standard');
+
+    expect(title).not.toBeNull();
+    expect(description?.getAttribute('data-i18n')).toBe('settings.role_center_desc');
+    expect(description?.getAttribute('aria-live')).toBe('polite');
+    expect(description?.getAttribute('aria-atomic')).toBe('true');
+    expect(roleGroup?.getAttribute('role')).toBe('group');
+    expect(roleGroup?.getAttribute('aria-labelledby')).toBe('settings-role-title');
+    expect(roleGroup?.getAttribute('aria-describedby')).toBe('settings-role-description');
+  });
+
+  it('preserves role-description line breaks with supporting-copy spacing', () => {
+    const roleDescriptionRule = appStylesheet.match(
+      /\.settings-option-description\.settings-role-description\s*\{([^}]*)\}/,
+    )?.[1];
+
+    expect(roleDescriptionRule).toBeDefined();
+    expect(roleDescriptionRule).toMatch(/white-space:\s*pre-line\s*;/);
+    expect(roleDescriptionRule).toMatch(/margin-bottom:\s*24px\s*;/);
+  });
+
   it('keeps settings descriptions on the desktop title and control inset', () => {
     const descriptionRule = desktopStylesheet.match(
       /\.settings-option-description\s*\{([^}]*)\}/,
@@ -149,5 +179,10 @@ describe('app UX markup contract', () => {
       /#youtube-settings-disabled-wrap\s*>\s*\.section-group:last-of-type\s*\{([^}]*)\}/,
     )?.[1];
     expect(splitLockDividerRule).toMatch(/border-bottom:\s*1px\s+solid\s+var\(--divider\)/);
+
+    const desktopSplitLockDividerRule = desktopStylesheet.match(
+      /#youtube-settings-disabled-wrap\s*>\s*\.section-group:last-of-type\s*\{([^}]*)\}/,
+    )?.[1];
+    expect(desktopSplitLockDividerRule).toMatch(/border-bottom:\s*1px\s+solid\s+var\(--divider\)/);
   });
 });

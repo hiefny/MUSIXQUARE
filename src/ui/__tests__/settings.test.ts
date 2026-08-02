@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { showToast } from '../toast.ts';
-import { LANGUAGE_OPTIONS, setLanguageMode } from '../../i18n/index.ts';
+import { LANGUAGE_OPTIONS, setLanguageMode, t } from '../../i18n/index.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 const preloadLocaleFontGlyphsMock = vi.hoisted(() =>
@@ -199,7 +199,19 @@ beforeEach(() => {
       <div class="ch-opt" data-theme="light" id="theme-light">Light</div>
       <div class="ch-opt" data-theme="dark" id="theme-dark">Dark</div>
     </div>
-    <div id="grid-standard">
+    <span id="settings-role-title">Set this device role</span>
+    <p
+      id="settings-role-description"
+      data-i18n="settings.role_center_desc"
+      aria-live="polite"
+      aria-atomic="true"
+    ></p>
+    <div
+      id="grid-standard"
+      role="group"
+      aria-labelledby="settings-role-title"
+      aria-describedby="settings-role-description"
+    >
       <button class="ch-opt" data-ch="0">Stereo</button>
       <button class="ch-opt" data-ch="-1">Left</button>
       <button class="ch-opt" data-ch="1">Right</button>
@@ -289,6 +301,19 @@ describe('selectStandardChannelButton', () => {
     selectStandardChannelButton(-1);
     const stereo = document.querySelector('.ch-opt[data-ch="0"]')!;
     expect(stereo.classList.contains('active')).toBe(false);
+  });
+
+  it.each([
+    [-1, 'settings.role_left_desc'],
+    [0, 'settings.role_center_desc'],
+    [1, 'settings.role_right_desc'],
+    [2, 'settings.role_subwoofer_desc'],
+  ] as const)('updates the live role description for channel mode %i', (mode, translationKey) => {
+    selectStandardChannelButton(mode);
+
+    const description = document.getElementById('settings-role-description');
+    expect(description?.getAttribute('data-i18n')).toBe(translationKey);
+    expect(description?.textContent).toBe(t(translationKey));
   });
 });
 

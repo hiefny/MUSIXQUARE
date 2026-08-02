@@ -15,6 +15,7 @@ const GENERAL_SETTINGS: DescribedSetting[] = [
 ];
 
 const AUDIO_SETTINGS: DescribedSetting[] = [
+  { description: '#settings-role-description', control: '#grid-standard' },
   { description: '#settings-sync-description', control: '#grid-settings-sync' },
   { description: '#settings-reverb-description', control: '#grid-reverb' },
   { description: '#settings-eq-description', control: '#grid-eq' },
@@ -132,7 +133,7 @@ async function expectMobileDescriptions(page: Page, requireWrapping: boolean): P
     { settings: ALL_SETTINGS, shouldWrap: requireWrapping },
   );
 
-  expect(results).toHaveLength(10);
+  expect(results).toHaveLength(11);
   for (const result of results) {
     expect(
       result,
@@ -164,6 +165,7 @@ test.describe('settings description layout', () => {
     test.use({ viewport: { width: 1280, height: 800 } });
 
     test('aligns supporting copy and keeps role, sync, and reverb in order', async ({ page }) => {
+      await page.addInitScript(() => localStorage.setItem('musixquare-lang', 'en'));
       await openSettings(page);
 
       await expectDesktopAlignment(page, GENERAL_SETTINGS);
@@ -185,10 +187,65 @@ test.describe('settings description layout', () => {
             Boolean(role.compareDocumentPosition(sync) & Node.DOCUMENT_POSITION_FOLLOWING) &&
             Boolean(sync.compareDocumentPosition(reverb) & Node.DOCUMENT_POSITION_FOLLOWING),
           rendered: roleRect.bottom <= syncRect.top + 1 && syncRect.bottom <= reverbRect.top + 1,
+          roleDividerWidth: Number.parseFloat(getComputedStyle(role).borderBottomWidth),
         };
       });
 
-      expect(order).toEqual({ dom: true, rendered: true });
+      expect(order?.dom).toBe(true);
+      expect(order?.rendered).toBe(true);
+      expect(order?.roleDividerWidth).toBeGreaterThan(0);
+
+      const roleDescriptionGap = await page.locator('#settings-role-description').evaluate((el) => {
+        const diagram = el.parentElement?.querySelector<HTMLElement>('.settings-role-diagram');
+        if (!diagram) return null;
+        return diagram.getBoundingClientRect().top - el.getBoundingClientRect().bottom;
+      });
+      expect(roleDescriptionGap).not.toBeNull();
+      expect(roleDescriptionGap ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual(23);
+      expect(roleDescriptionGap ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(25);
+
+      const roleDescriptionLayout = await page
+        .locator('#settings-role-description')
+        .evaluate((el) => {
+          const computed = getComputedStyle(el);
+          const lineHeight = Number.parseFloat(computed.lineHeight);
+          return {
+            whiteSpace: computed.whiteSpace,
+            renderedLines: el.getBoundingClientRect().height / lineHeight,
+          };
+        });
+      expect(roleDescriptionLayout.whiteSpace).toBe('pre-line');
+      expect(roleDescriptionLayout.renderedLines).toBeGreaterThanOrEqual(1.75);
+
+      const roleCases = [
+        {
+          mode: '-1',
+          key: 'settings.role_left_desc',
+          text: 'This device is acting as the left speaker.\nPlace it on the left.',
+        },
+        {
+          mode: '0',
+          key: 'settings.role_center_desc',
+          text: 'This device is acting as the center speaker.\nPlace it in the center.',
+        },
+        {
+          mode: '1',
+          key: 'settings.role_right_desc',
+          text: 'This device is acting as the right speaker.\nPlace it on the right.',
+        },
+        {
+          mode: '2',
+          key: 'settings.role_subwoofer_desc',
+          text: 'This device is acting as the subwoofer.\nPlace it where the bass carries well.',
+        },
+      ] as const;
+
+      const roleDescription = page.locator('#settings-role-description');
+      for (const { mode, key, text } of roleCases) {
+        await page.locator(`#grid-standard .ch-opt[data-ch="${mode}"]`).click();
+        await expect(roleDescription).toHaveAttribute('data-i18n', key);
+        expect(await roleDescription.textContent()).toBe(text);
+      }
     });
   });
 

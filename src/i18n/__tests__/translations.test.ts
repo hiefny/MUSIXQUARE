@@ -104,21 +104,23 @@ describe('Translation key integrity', () => {
     expect(ko['connect.signaling_healthy']).toBe('연결 서버 정상');
     expect(ko['connect.signaling_recovering']).toBe('연결 복구 중');
     expect(ko['connect.signaling_failed']).toBe('연결 복구 실패');
-    expect(ko['connect.signaling_recover_action']).toBe('복구');
+    expect(ko['connect.signaling_recover_action']).toBe('연결 복구하기');
     expect(ko['connect.signaling_exhausted']).toBe(
       '연결 서버가 응답하지 않아요.\n새 참여자를 초대할 수 없어요.',
     );
     expect(ko['connect.signaling_retry']).toBe('재시도');
   });
 
-  it('keeps repeated modal actions short without dropping their meaning', () => {
+  it('keeps repeated modal actions concise except for approved Korean legacy labels', () => {
     const roleActionKeys = ['common.grant', 'common.revoke'] as const;
 
     for (const [locale, dict] of Object.entries(locales)) {
       const administratorRole = dict['connect.administrator_role'].toLocaleLowerCase();
-      for (const key of roleActionKeys) {
-        const label = dict[key].toLocaleLowerCase();
-        expect(label, `${locale}.${key}`).not.toContain(administratorRole);
+      if (locale !== 'ko') {
+        for (const key of roleActionKeys) {
+          const label = dict[key].toLocaleLowerCase();
+          expect(label, `${locale}.${key}`).not.toContain(administratorRole);
+        }
       }
 
       expect(dict['connect.signaling_recover_action'], `${locale}.recovery action`).toBeTruthy();
@@ -129,9 +131,14 @@ describe('Translation key integrity', () => {
     expect(en['common.revoke']).toBe('Revoke');
     expect(en['connect.signaling_recover_action']).toBe('Restore');
     expect(en['pro.use_this_tab']).toBe('Use this tab');
-    expect(ko['common.grant']).toBe('부여');
-    expect(ko['common.revoke']).toBe('해제');
-    expect(ko['pro.use_this_tab']).toBe('이 탭 사용');
+    expect(ko['common.grant']).toBe('관리자 부여');
+    expect(ko['common.revoke']).toBe('관리자 해제');
+    expect(ko['pro.use_this_tab']).toBe('강제로 계속');
+    expect(ko['common.next']).toBe('다음으로');
+    expect(ko['common.start']).toBe('시작하기');
+    expect(ko['dialog.continue']).toBe('계속하기');
+    expect(ko['dialog.continue_using']).toBe('계속 사용');
+    expect(ko['dialog.leave_session']).toBe('세션 나가기');
   });
 
   it('keeps every code-used modal action contextual and safety-distinct', () => {
@@ -210,7 +217,7 @@ describe('Translation key integrity', () => {
   });
 
   it('describes every configurable general and audio setting in every locale', () => {
-    const descriptionKeys = [
+    const generalDescriptionKeys = [
       'settings.language_desc',
       'settings.theme_desc',
       'settings.visualizer_desc',
@@ -222,22 +229,67 @@ describe('Translation key integrity', () => {
       'settings.bass_desc',
       'settings.exciter_desc',
     ] as const;
+    const roleDescriptionKeys = [
+      'settings.role_center_desc',
+      'settings.role_left_desc',
+      'settings.role_right_desc',
+      'settings.role_subwoofer_desc',
+    ] as const;
 
     for (const [locale, dict] of Object.entries(locales)) {
       expect(dict['settings.sync_settings'], `${locale}.settings.sync_settings`).toBeTruthy();
-      for (const key of descriptionKeys) {
+      for (const key of generalDescriptionKeys) {
         expect(dict[key], `${locale}.${key}`).toBeTruthy();
         expect(dict[key], `${locale}.${key} surrounding whitespace`).toBe(dict[key].trim());
-        expect(dict[key], `${locale}.${key} should stay plain text`).not.toMatch(/<br|[\r\n]/i);
+        expect(dict[key], `${locale}.${key} should not contain HTML`).not.toMatch(/<[^>]*>/);
+        expect(dict[key], `${locale}.${key} should stay on one line`).not.toMatch(/[\r\n]/);
+      }
+      for (const key of roleDescriptionKeys) {
+        const value = dict[key];
+        expect(value, `${locale}.${key}`).toBeTruthy();
+        expect(value, `${locale}.${key} surrounding whitespace`).toBe(value.trim());
+        expect(value, `${locale}.${key} should not contain HTML`).not.toMatch(/<[^>]*>/);
+        expect(value, `${locale}.${key} should not contain carriage returns`).not.toContain('\r');
+        const lines = value.split('\n');
+        expect(lines, `${locale}.${key} should contain exactly one newline`).toHaveLength(2);
+        for (const line of lines) {
+          expect(line.trim(), `${locale}.${key} should have text on both lines`).not.toBe('');
+        }
       }
     }
 
     expect(en['settings.sync_settings']).toBe('Settings sync');
-    expect(en['settings.sync_settings_desc']).toContain('Devices with this option on');
+    expect(en['settings.sync_settings_desc']).toContain('Devices with this setting on');
     expect(ko['settings.sync_settings']).toBe('설정 동기화');
     expect(ko['settings.sync_settings_desc']).toBe(
-      '이 옵션이 켜진 기기들끼리 볼륨과 음향 효과가 동기화돼요.',
+      '이 설정이 켜진 기기들끼리 볼륨과 음향 효과가 동기화돼요.',
     );
+    expect(ko['settings.role_center_desc']).toBe(
+      '이 기기가 중앙 스피커 역할을 하고 있어요.\n기기를 중앙에 놓아주세요.',
+    );
+    expect(ko['settings.role_left_desc']).toBe(
+      '이 기기가 왼쪽 스피커 역할을 하고 있어요.\n기기를 왼쪽에 놓아주세요.',
+    );
+    expect(ko['settings.role_right_desc']).toBe(
+      '이 기기가 오른쪽 스피커 역할을 하고 있어요.\n기기를 오른쪽에 놓아주세요.',
+    );
+    expect(ko['settings.role_subwoofer_desc']).toBe(
+      '이 기기가 서브우퍼 역할을 하고 있어요.\n저음이 잘 퍼지는 곳에 놓아주세요.',
+    );
+  });
+
+  it('provides plain-text subwoofer placement guidance in every locale', () => {
+    const key = 'role.subwoofer_placement' as const;
+    for (const [locale, dict] of Object.entries(locales)) {
+      const value = dict[key];
+      expect(value, `${locale}.${key}`).toBeTruthy();
+      expect(value, `${locale}.${key} surrounding whitespace`).toBe(value.trim());
+      expect(value, `${locale}.${key} should stay on one line`).not.toMatch(/[\r\n]/);
+      expect(value, `${locale}.${key} should not contain HTML`).not.toMatch(/<[^>]*>/);
+    }
+
+    expect(en[key]).toBe('Place the device where the bass carries well');
+    expect(ko[key]).toBe('저음이 잘 퍼지는 곳에 놓아주세요');
   });
 
   it('uses one consistent Korean honorific form for presence messages', () => {

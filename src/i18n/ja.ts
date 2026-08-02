@@ -105,6 +105,7 @@ const ja: Record<I18nKey, string> = {
   'role.center_placement': 'デバイスを中央に配置してください',
   'role.left_placement': 'デバイスを左側に配置してください',
   'role.right_placement': 'デバイスを右側に配置してください',
+  'role.subwoofer_placement': 'デバイスを低音がよく広がる場所に配置してください',
 
   // Settings
   'settings.theme': 'テーマ',
@@ -121,6 +122,14 @@ const ja: Record<I18nKey, string> = {
   'settings.surround_desc': '分離感を高め、立体感を増します。',
   'settings.bass_desc': '低音を生成し、迫力を高めます。',
   'settings.exciter_desc': '超高域を生成し、透明感を高めます。',
+  'settings.role_center_desc':
+    'このデバイスは中央スピーカーとして動作しています。\n中央に置いてください。',
+  'settings.role_left_desc':
+    'このデバイスは左スピーカーとして動作しています。\n左側に置いてください。',
+  'settings.role_right_desc':
+    'このデバイスは右スピーカーとして動作しています。\n右側に置いてください。',
+  'settings.role_subwoofer_desc':
+    'このデバイスはサブウーファーとして動作しています。\n低音がよく広がる場所に置いてください。',
   'settings.dark': 'ダーク',
   'settings.light': 'ライト',
   'settings.visualizer': 'ビジュアライザー',

@@ -152,13 +152,14 @@ const th: Record<I18nKey, string> = {
   'role.center_placement': 'วางอุปกรณ์ไว้ตรงกลาง',
   'role.left_placement': 'วางอุปกรณ์ไว้ด้านซ้าย',
   'role.right_placement': 'วางอุปกรณ์ไว้ด้านขวา',
+  'role.subwoofer_placement': 'วางอุปกรณ์ในจุดที่เสียงเบสกระจายได้ดี',
 
   // ─── Settings ────────────────────────────────────────────────────
   'settings.theme': 'ธีม',
   'settings.ui_sounds': 'เสียงอินเทอร์เฟซ',
   'settings.sync_settings': 'ซิงค์การตั้งค่า',
   'settings.sync_settings_desc':
-    'อุปกรณ์ที่เปิดตัวเลือกนี้จะซิงค์ระดับเสียงและเอฟเฟกต์เสียงระหว่างกัน',
+    'อุปกรณ์ที่เปิดการตั้งค่านี้จะซิงค์ระดับเสียงและเอฟเฟกต์เสียงระหว่างกัน',
   'settings.language_desc': 'เลือกภาษาหรือใช้ภาษาของระบบได้',
   'settings.theme_desc': 'เลือกธีมสว่างหรือธีมมืดได้',
   'settings.visualizer_desc': 'เลือกรูปแบบการแสดงภาพเสียงได้',
@@ -168,6 +169,11 @@ const th: Record<I18nKey, string> = {
   'settings.surround_desc': 'เพิ่มการแยกเสียงเพื่อให้เสียงมีมิติมากขึ้น',
   'settings.bass_desc': 'สังเคราะห์ความถี่ต่ำเพื่อเพิ่มแรงปะทะ',
   'settings.exciter_desc': 'สร้างความถี่สูงพิเศษเพื่อเพิ่มความใส',
+  'settings.role_center_desc': 'อุปกรณ์นี้ทำหน้าที่เป็นลำโพงกลาง\nโปรดวางไว้ตรงกลาง',
+  'settings.role_left_desc': 'อุปกรณ์นี้ทำหน้าที่เป็นลำโพงซ้าย\nโปรดวางไว้ด้านซ้าย',
+  'settings.role_right_desc': 'อุปกรณ์นี้ทำหน้าที่เป็นลำโพงขวา\nโปรดวางไว้ด้านขวา',
+  'settings.role_subwoofer_desc':
+    'อุปกรณ์นี้ทำหน้าที่เป็นซับวูฟเฟอร์\nโปรดวางในจุดที่เสียงเบสกระจายได้ดี',
   'settings.dark': 'มืด',
   'settings.light': 'สว่าง',
   'settings.visualizer': 'วิชวลไลเซอร์',

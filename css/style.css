@@ -2927,6 +2927,13 @@
     word-break: keep-all;
   }
 
+  /* The role copy introduces the diagram rather than a button grid, so keep
+     the two visually connected without changing the shared description rhythm. */
+  .settings-option-description.settings-role-description {
+    margin-bottom: 24px;
+    white-space: pre-line;
+  }
+
   .settings-option-description:lang(ja),
   .settings-option-description:lang(zh-hans),
   .settings-option-description:lang(zh-hant) {
@@ -3508,7 +3515,7 @@
     border-radius: 100px;
     border: 1px solid transparent;
     background: var(--surface-2);
-    color: var(--text-sub);
+    color: var(--text-muted);
     cursor: pointer;
     transition: all 0.15s;
   }
@@ -3517,6 +3524,36 @@
     background: var(--primary-filled);
     color: white;
     border-color: rgba(var(--primary-rgb), 0.75);
+  }
+
+  /* Administrator membership is a compact state action: a slashed crown
+     grants access, while the intact crown revokes the current grant. */
+  .d-op-btn.administrator-state-button,
+  .administrator-action-button.revoke.administrator-state-button {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-muted);
+  }
+
+  .d-op-btn.administrator-state-button svg,
+  .administrator-action-button.revoke.administrator-state-button svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .administrator-action-button.administrator-state-button:hover,
+  .administrator-action-button.administrator-state-button:focus-visible {
+    background: var(--surface-2);
+    color: var(--text-sub);
+  }
+
+  .administrator-state-button:disabled {
+    cursor: wait;
+    opacity: 0.45;
   }
 
   .d-status {

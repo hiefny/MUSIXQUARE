@@ -107,13 +107,14 @@ const id: Record<I18nKey, string> = {
   'role.center_placement': 'Letakkan perangkat di tengah',
   'role.left_placement': 'Letakkan perangkat di kiri',
   'role.right_placement': 'Letakkan perangkat di kanan',
+  'role.subwoofer_placement': 'Letakkan perangkat di tempat bass dapat menyebar dengan baik',
 
   // Settings
   'settings.theme': 'Tema',
   'settings.ui_sounds': 'Suara antarmuka',
   'settings.sync_settings': 'Sinkronisasi pengaturan',
   'settings.sync_settings_desc':
-    'Perangkat yang mengaktifkan opsi ini menyinkronkan volume dan efek audionya.',
+    'Perangkat yang mengaktifkan pengaturan ini menyinkronkan volume dan efek audionya.',
   'settings.language_desc': 'Pilih bahasa atau ikuti bahasa sistem.',
   'settings.theme_desc': 'Pilih tema terang atau gelap.',
   'settings.visualizer_desc': 'Pilih cara audio divisualisasikan.',
@@ -124,6 +125,14 @@ const id: Record<I18nKey, string> = {
   'settings.surround_desc': 'Meningkatkan pemisahan untuk suara yang lebih imersif.',
   'settings.bass_desc': 'Menyintesis frekuensi rendah agar suara lebih menghentak.',
   'settings.exciter_desc': 'Menghasilkan frekuensi ultra-tinggi agar suara lebih jernih.',
+  'settings.role_center_desc':
+    'Perangkat ini berfungsi sebagai speaker tengah.\nLetakkan di tengah.',
+  'settings.role_left_desc':
+    'Perangkat ini berfungsi sebagai speaker kiri.\nLetakkan di sebelah kiri.',
+  'settings.role_right_desc':
+    'Perangkat ini berfungsi sebagai speaker kanan.\nLetakkan di sebelah kanan.',
+  'settings.role_subwoofer_desc':
+    'Perangkat ini berfungsi sebagai subwoofer.\nLetakkan di tempat bass dapat menyebar dengan baik.',
   'settings.dark': 'Gelap',
   'settings.light': 'Terang',
   'settings.visualizer': 'Visualizer',

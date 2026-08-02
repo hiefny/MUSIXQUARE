@@ -106,13 +106,14 @@ const vi: Record<I18nKey, string> = {
   'role.center_placement': 'Đặt thiết bị ở giữa',
   'role.left_placement': 'Đặt thiết bị bên trái',
   'role.right_placement': 'Đặt thiết bị bên phải',
+  'role.subwoofer_placement': 'Đặt thiết bị ở nơi âm trầm lan tỏa tốt',
 
   // Settings
   'settings.theme': 'Giao diện',
   'settings.ui_sounds': 'Âm thanh giao diện',
   'settings.sync_settings': 'Đồng bộ cài đặt',
   'settings.sync_settings_desc':
-    'Các thiết bị bật tùy chọn này sẽ đồng bộ âm lượng và hiệu ứng âm thanh.',
+    'Các thiết bị bật cài đặt này sẽ đồng bộ âm lượng và hiệu ứng âm thanh.',
   'settings.language_desc': 'Chọn ngôn ngữ hoặc dùng ngôn ngữ hệ thống.',
   'settings.theme_desc': 'Chọn giao diện sáng hoặc tối.',
   'settings.visualizer_desc': 'Chọn cách hiển thị âm thanh.',
@@ -122,6 +123,12 @@ const vi: Record<I18nKey, string> = {
   'settings.surround_desc': 'Tăng độ tách để âm thanh có chiều sâu hơn.',
   'settings.bass_desc': 'Tổng hợp tần số thấp để âm thanh mạnh mẽ hơn.',
   'settings.exciter_desc': 'Tạo tần số siêu cao để âm thanh trong trẻo hơn.',
+  'settings.role_center_desc': 'Thiết bị này đang đóng vai trò loa giữa.\nHãy đặt thiết bị ở giữa.',
+  'settings.role_left_desc': 'Thiết bị này đang đóng vai trò loa trái.\nHãy đặt thiết bị bên trái.',
+  'settings.role_right_desc':
+    'Thiết bị này đang đóng vai trò loa phải.\nHãy đặt thiết bị bên phải.',
+  'settings.role_subwoofer_desc':
+    'Thiết bị này đang đóng vai trò subwoofer.\nHãy đặt ở nơi âm trầm lan tỏa tốt.',
   'settings.dark': 'Tối',
   'settings.light': 'Sáng',
   'settings.visualizer': 'Hiển thị âm thanh',

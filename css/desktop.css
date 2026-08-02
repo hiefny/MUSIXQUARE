@@ -757,6 +757,13 @@
       border-bottom: none;
     }
 
+    /* Settings sync sits between two independently locked YouTube groups.
+       Restore the divider that the desktop :last-of-type rule removes from
+       the device-role section. */
+    #youtube-settings-disabled-wrap > .section-group:last-of-type {
+      border-bottom: 1px solid var(--divider);
+    }
+
     #tab-settings .channel-grid {
       padding: 12px 20px 12px;
     }
@@ -807,6 +814,10 @@
        controls. Base/mobile already shares the section's 44px edge. */
     .settings-option-description {
       margin: -8px 20px 16px;
+    }
+
+    .settings-option-description.settings-role-description {
+      margin-bottom: 24px;
     }
 
     .slider-wrap {

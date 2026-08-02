@@ -153,13 +153,14 @@ const pl: Record<I18nKey, string> = {
   'role.center_placement': 'Umieść urządzenie na środku',
   'role.left_placement': 'Umieść urządzenie po lewej stronie',
   'role.right_placement': 'Umieść urządzenie po prawej stronie',
+  'role.subwoofer_placement': 'Umieść urządzenie tam, skąd bas dobrze się rozchodzi',
 
   // ─── Settings ────────────────────────────────────────────────────
   'settings.theme': 'Motyw',
   'settings.ui_sounds': 'Dźwięki interfejsu',
   'settings.sync_settings': 'Synchronizacja ustawień',
   'settings.sync_settings_desc':
-    'Urządzenia z włączoną tą opcją synchronizują głośność i efekty dźwiękowe.',
+    'Urządzenia, na których to ustawienie jest włączone, synchronizują głośność i efekty dźwiękowe.',
   'settings.language_desc': 'Wybierz język lub używaj języka systemu.',
   'settings.theme_desc': 'Wybierz jasny lub ciemny motyw.',
   'settings.visualizer_desc': 'Wybierz sposób wizualizacji dźwięku.',
@@ -169,6 +170,14 @@ const pl: Record<I18nKey, string> = {
   'settings.surround_desc': 'Zwiększa separację, aby nadać dźwiękowi więcej przestrzeni.',
   'settings.bass_desc': 'Syntezuje niskie częstotliwości, aby dodać dźwiękowi mocy.',
   'settings.exciter_desc': 'Generuje ultrawysokie częstotliwości, aby zwiększyć klarowność.',
+  'settings.role_center_desc':
+    'To urządzenie pełni rolę głośnika centralnego.\nUmieść je pośrodku.',
+  'settings.role_left_desc':
+    'To urządzenie pełni rolę lewego głośnika.\nUmieść je po lewej stronie.',
+  'settings.role_right_desc':
+    'To urządzenie pełni rolę prawego głośnika.\nUmieść je po prawej stronie.',
+  'settings.role_subwoofer_desc':
+    'To urządzenie pełni rolę subwoofera.\nUmieść je tam, skąd bas dobrze się rozchodzi.',
   'settings.dark': 'Ciemny',
   'settings.light': 'Jasny',
   'settings.visualizer': 'Wizualizator',

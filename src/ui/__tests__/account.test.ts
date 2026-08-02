@@ -1586,6 +1586,16 @@ describe('optional account UI', () => {
       [...stylesheet.matchAll(/\.account-dialog-stat-row dd\s*\{([^}]*)\}/g)].at(-1)?.[1] ?? '';
     const accountActionsRules =
       stylesheet.match(/\.account-dialog-actions\s*\{([^}]*)\}/)?.[1] ?? '';
+    const adaptiveActionsRules =
+      stylesheet.match(/\.adaptive-action-group\s*\{([^}]*)\}/)?.[1] ?? '';
+    const adaptiveButtonRules =
+      stylesheet.match(
+        /\.adaptive-action-group\s*>\s*:is\(button, a\):not\(\[hidden\]\)\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
+    const adaptiveFullRules =
+      stylesheet.match(
+        /\.adaptive-action-group\s*>\s*\.adaptive-action-group-full:not\(\[hidden\]\)\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
     const titleEditRules = stylesheet.match(/\.account-dialog-title-edit\s*\{([^}]*)\}/)?.[1] ?? '';
     const titleEditFocusRules =
       stylesheet.match(/\.account-dialog-title-edit:focus-visible\s*\{([^}]*)\}/)?.[1] ?? '';
@@ -1593,6 +1603,7 @@ describe('optional account UI', () => {
       stylesheet.match(/\.account-dialog-title-edit-label\s*\{([^}]*)\}/)?.[1] ?? '';
     const loginCloseRules =
       stylesheet.match(/\.account-dialog-login-close\s*\{([^}]*)\}/)?.[1] ?? '';
+    const googleLabelRules = stylesheet.match(/\.account-google-label\s*\{([^}]*)\}/)?.[1] ?? '';
     const primaryLoginCloseRules =
       stylesheet.match(/\.account-dialog-login-close\.dialog-primary\s*\{([^}]*)\}/)?.[1] ?? '';
     const accountCloseRules =
@@ -1622,6 +1633,13 @@ describe('optional account UI', () => {
     expect(loginContentRules).toContain('padding-bottom: 10px');
     expect(loginActionsRules).toContain('padding: 0 32px 30px');
     expect(loginCloseRules).toContain('width: 100%');
+    expect(loginCloseRules).toContain('max-width: 100%');
+    expect(loginCloseRules).toContain('white-space: normal');
+    expect(loginCloseRules).toContain('overflow-wrap: anywhere');
+    expect(googleLabelRules).toContain('white-space: normal');
+    expect(googleLabelRules).toContain('hyphens: auto');
+    expect(googleLabelRules).toContain('overflow-wrap: anywhere');
+    expect(googleLabelRules).not.toContain('text-overflow: ellipsis');
     expect(primaryLoginCloseRules).toContain('margin-top: 0');
     expect(statsRules).toContain('flex: 1 1 auto');
     expect(statsRules).toContain('min-height: 0');
@@ -1632,8 +1650,16 @@ describe('optional account UI', () => {
     expect(statRowRules).toContain('border-bottom: 1px solid var(--divider)');
     expect(statValueRules).toContain('font-variant-numeric: tabular-nums');
     expect(statValueRules).toContain('white-space: nowrap');
-    expect(accountActionsRules).toContain('grid-template-columns: 1fr 1fr');
-    expect(accountCloseRules).toContain('grid-column: 1 / -1');
+    expect(accountActionsRules).not.toContain('grid-template-columns');
+    expect(adaptiveActionsRules).toContain('flex-wrap: wrap');
+    expect(adaptiveActionsRules).toContain('align-items: stretch');
+    expect(adaptiveButtonRules).toContain('flex: 1 1 max-content');
+    expect(adaptiveButtonRules).toContain('max-width: 100%');
+    expect(adaptiveButtonRules).toContain('white-space: normal');
+    expect(adaptiveButtonRules).toContain('hyphens: auto');
+    expect(adaptiveButtonRules).toContain('overflow-wrap: anywhere');
+    expect(adaptiveButtonRules).toContain('word-break: keep-all');
+    expect(adaptiveFullRules).toContain('flex-basis: 100%');
     expect(accountCloseRules).toContain('width: 100%');
     expect(deleteRules).toContain('min-height: 54px');
     expect(deleteRules).toContain('border-radius: 18px');
@@ -1669,6 +1695,12 @@ describe('optional account UI', () => {
       accountDialog?.querySelector('#account-dialog-content #btn-account-login-close'),
     ).toBeNull();
     expect(accountDialog?.querySelector('#btn-account-center-close')).not.toBeNull();
+    expect(
+      accountDialog?.querySelector('#account-dialog-actions.adaptive-action-group'),
+    ).not.toBeNull();
+    expect(
+      accountDialog?.querySelector('#btn-account-center-close.adaptive-action-group-full'),
+    ).not.toBeNull();
   });
 
   it('inverts the borderless Google button against the active app theme', async () => {

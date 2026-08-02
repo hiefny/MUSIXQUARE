@@ -638,9 +638,12 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     const connected = getState('network.connectedPeers').find(
       (peer) => peer.id === peerId && peer.conn === conn,
     );
-    if (!isProRoom && connected?.isOp) {
-      // Identity projection may settle before RTC open. Re-send after the
-      // live connection boundary so no grant disappears during setup.
+    if (!isProRoom && connected) {
+      // Identity projection may settle before RTC open. Re-send the complete
+      // grant/revoke projection after the live connection boundary so the
+      // guest can definitively discard any authority intent retained while
+      // disconnected. WELCOME's initial non-operator value is not sufficient:
+      // it also precedes a legitimate reconnecting administrator's grant.
       sendStandardAuthorityProjection(connected, true);
     }
 

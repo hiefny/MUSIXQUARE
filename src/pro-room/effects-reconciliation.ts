@@ -17,7 +17,7 @@ function cloneRoomEffects(effects: RoomEffectsState): RoomEffectsState {
  * snapshot. Two participants can therefore adjust unrelated controls without
  * a stale full-form write erasing either change.
  */
-export function rebaseRoomEffectsIntent(
+function rebaseRoomEffectsIntent(
   base: RoomEffectsState,
   desired: RoomEffectsState,
   canonical: RoomEffectsState,
@@ -42,3 +42,52 @@ export function rebaseRoomEffectsIntent(
   }
   return rebased;
 }
+
+/**
+ * Reapply a scalar local intent over a newer canonical value. Volume shares
+ * the effects resource revision, so an EQ-only stale writer must not also
+ * restore its old volume.
+ */
+function rebaseRoomScalarIntent(base: number, desired: number, canonical: number): number {
+  return desired === base ? canonical : desired;
+}
+
+interface RoomSettingsIntent {
+  masterVolume: number;
+  effects: RoomEffectsState;
+}
+
+/** Reconcile the atomic volume + DSP resource, including explicit takeover. */
+export function rebaseRoomSettingsIntent(
+  base: RoomSettingsIntent | null,
+  desired: RoomSettingsIntent,
+  canonical: RoomSettingsIntent,
+  forceFull = false,
+): RoomSettingsIntent {
+  if (forceFull) {
+    return { masterVolume: desired.masterVolume, effects: cloneRoomEffects(desired.effects) };
+  }
+  // With no accepted base, local values are merely device defaults, not an
+  // attributable edit. Initial PRO hydration must adopt server canonical;
+  // only an explicit OFF-to-ON takeover may replace the whole resource.
+  if (!base) {
+    return {
+      masterVolume: canonical.masterVolume,
+      effects: cloneRoomEffects(canonical.effects),
+    };
+  }
+  return {
+    masterVolume: rebaseRoomScalarIntent(
+      base.masterVolume,
+      desired.masterVolume,
+      canonical.masterVolume,
+    ),
+    effects: rebaseRoomEffectsIntent(base.effects, desired.effects, canonical.effects),
+  };
+}
+
+/** @internal Focused reconciliation tests only. */
+export {
+  rebaseRoomEffectsIntent as rebaseRoomEffectsIntentForTests,
+  rebaseRoomScalarIntent as rebaseRoomScalarIntentForTests,
+};

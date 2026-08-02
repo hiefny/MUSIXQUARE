@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { bus } from '../../core/events.ts';
-import { resetState, setState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import { showToast } from '../toast.ts';
 import { LANGUAGE_OPTIONS, setLanguageMode } from '../../i18n/index.ts';
 import type { DataConnection } from '../../types/index.ts';
@@ -155,13 +155,23 @@ function installUiSoundsDom(): void {
   );
 }
 
+function installSettingsSyncDom(): void {
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    `<div class="channel-grid" id="grid-settings-sync">
+      <button class="ch-opt active" data-settings-sync="on" aria-pressed="true">On</button>
+      <button class="ch-opt" data-settings-sync="off" aria-pressed="false">Off</button>
+    </div>`,
+  );
+}
+
 beforeEach(() => {
   vi.restoreAllMocks();
+  localStorage.clear();
   resetState();
   bus.clear();
   vi.mocked(showToast).mockClear();
   preloadLocaleFontGlyphsMock.mockReset().mockResolvedValue(true);
-  localStorage.clear();
   // Polyfill matchMedia for jsdom
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
@@ -294,6 +304,31 @@ describe('initSettings playback mode guards', () => {
 
     expect(setChannel).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledWith('Cannot change roles during system audio sharing.');
+  });
+});
+
+describe('settings synchronization preference', () => {
+  it('defaults ON, persists OFF, and unlocks follower-local effect controls', () => {
+    installSettingsSyncDom();
+    installEffectSettingsDom();
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { peer: 'host', open: true } as DataConnection);
+
+    initSettings();
+    expect(getState('audio.settingsSyncEnabled')).toBe(true);
+    expect(document.querySelector('[data-settings-sync="on"]')?.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(document.getElementById('grid-reverb')?.classList).toContain('host-ctrl-locked');
+
+    document.querySelector<HTMLElement>('[data-settings-sync="off"]')?.click();
+    expect(getState('audio.settingsSyncEnabled')).toBe(false);
+    expect(localStorage.getItem('musixquare-settings-sync')).toBe('off');
+    expect(document.querySelector('[data-settings-sync="off"]')?.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(document.getElementById('grid-reverb')?.classList).not.toContain('host-ctrl-locked');
   });
 });
 

@@ -41,8 +41,12 @@ export function capabilitiesForProRoomRole(
   permissions: Readonly<ProRoomPermissionSet> | null = null,
 ): readonly ProRoomCapability[] {
   if (role === 'owner') return OWNER_CAPABILITIES;
-  if (role === 'member' || !permissions) return MEMBER_CAPABILITIES;
+  if (role === 'member') return MEMBER_CAPABILITIES;
+  if (!permissions) return ['effects.control'];
   return [
+    // Every controller is a settings authority. This is intentionally not a
+    // fifth administrator permission toggle.
+    'effects.control',
     // `media.add` is retained as the v1 permission key, but represents the
     // complete media-management surface: add/upload, remove, and reorder.
     ...(permissions['media.add'] ? (['queue.mutate'] as const) : []),

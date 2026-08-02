@@ -11,6 +11,7 @@ import {
   parseRoomEffects,
   parseRoomEffectsPatch,
   publicEffects,
+  publicSettingsSync,
 } from './pro-room-effects.js';
 import {
   developerQueueMode,
@@ -380,7 +381,9 @@ function capabilitiesFromPermissions(role, permissions) {
   // Project queue.mutate for add, remove, and reorder while retaining the
   // existing key across rolling clients. Playback remains an independent
   // delegated permission.
-  const effective = permissions['media.add'] ? ['queue.mutate'] : [];
+  const effective = permissions['media.add']
+    ? ['effects.control', 'queue.mutate']
+    : ['effects.control'];
   if (permissions['playback.control']) effective.push('playback.control');
   if (permissions['media.add']) effective.push('asset.upload');
   if (permissions['members.kick']) effective.push('members.manage');
@@ -4907,6 +4910,7 @@ export class MusixquareProRoom {
         if (url.pathname === `${prefix}/administrators`)
           return this.handleGetAdministrators(request);
         if (url.pathname === `${prefix}/effects`) return this.handleGetEffects(request);
+        if (url.pathname === `${prefix}/settings-sync`) return this.handleGetSettingsSync(request);
         if (url.pathname === `${prefix}/queue-mode`) return this.handleGetQueueMode(request);
         if (url.pathname === `${prefix}/system-audio`) return this.handleGetSystemAudio(request);
         const readDownload = url.pathname.match(
@@ -4989,6 +4993,8 @@ export class MusixquareProRoom {
           }
           if (request.method === 'PUT' && url.pathname === `${prefix}/effects`)
             return this.handleUpdateEffects(request);
+          if (request.method === 'PUT' && url.pathname === `${prefix}/settings-sync`)
+            return this.handleUpdateSettingsSync(request);
           if (request.method === 'PUT' && url.pathname === `${prefix}/queue-mode`)
             return this.handleUpdateQueueMode(request);
           if (request.method === 'POST' && url.pathname === `${prefix}/system-audio/acquire`)
@@ -5609,6 +5615,7 @@ export class MusixquareProRoom {
           this.room.effects = {
             revision: this.room.effects.revision + 1,
             updatedAtMs: nowMs,
+            masterVolume: this.room.effects.masterVolume ?? 1,
             effects,
           };
           this.room.revision += 1;
@@ -7840,12 +7847,7 @@ export class MusixquareProRoom {
       parsed.response ||
       !hasExactKeys(
         parsed.value,
-        [
-          'accountId',
-          'removalId',
-          'removedOwnerAuthorityEpoch',
-          'fencedCoordinatorEpoch',
-        ],
+        ['accountId', 'removalId', 'removedOwnerAuthorityEpoch', 'fencedCoordinatorEpoch'],
         ['roomGeneration'],
       ) ||
       exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
@@ -8233,6 +8235,7 @@ export class MusixquareProRoom {
     this.room.effects = {
       revision: this.room.effects.revision + 1,
       updatedAtMs: Date.now(),
+      masterVolume: this.room.effects.masterVolume ?? 1,
       effects,
     };
     // room.revision is the heartbeat's aggregate change detector. Keep it in
@@ -8244,6 +8247,78 @@ export class MusixquareProRoom {
       this.invalidationEvent({ effectsRevision: this.room.effects.revision }),
     );
     return jsonResponse(publicEffects(this.room));
+  }
+
+  async handleGetSettingsSync(request) {
+    const auth = await this.requireSession(request, { activePresence: true });
+    if (auth.response) return auth.response;
+    if (request.body && (request.headers.get('content-length') || '') !== '0') {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    return jsonResponse(publicSettingsSync(this.room));
+  }
+
+  async handleUpdateSettingsSync(request) {
+    const auth = await this.requireSession(request, {
+      activePresence: true,
+      capability: 'effects.control',
+    });
+    if (auth.response) return auth.response;
+    const parsed = await this.parseBody(request);
+    if (
+      parsed.response ||
+      !hasExactKeys(parsed.value, ['coordinatorEpoch', 'baseRevision', 'masterVolume', 'effects'])
+    ) {
+      return parsed.response || errorResponse('INVALID_REQUEST', 400);
+    }
+    const effects = parseRoomEffects(parsed.value.effects);
+    if (
+      !isSafeNonNegativeInteger(parsed.value.coordinatorEpoch) ||
+      !isSafeNonNegativeInteger(parsed.value.baseRevision) ||
+      typeof parsed.value.masterVolume !== 'number' ||
+      !Number.isFinite(parsed.value.masterVolume) ||
+      parsed.value.masterVolume < 0 ||
+      parsed.value.masterVolume > 1 ||
+      !effects
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    if (this.room.presence.coordinatorEpoch !== parsed.value.coordinatorEpoch) {
+      return errorResponse('ROOM_EPOCH_MISMATCH', 409);
+    }
+    if (parsed.value.baseRevision !== this.room.effects.revision) {
+      return jsonResponse(
+        {
+          error: 'SETTINGS_SYNC_REVISION_CONFLICT',
+          settings: publicSettingsSync(this.room),
+        },
+        409,
+      );
+    }
+    if (
+      parsed.value.masterVolume === (this.room.effects.masterVolume ?? 1) &&
+      JSON.stringify(effects) === JSON.stringify(this.room.effects.effects)
+    ) {
+      return jsonResponse(publicSettingsSync(this.room));
+    }
+    if (
+      this.room.effects.revision >= Number.MAX_SAFE_INTEGER ||
+      this.room.revision >= Number.MAX_SAFE_INTEGER
+    ) {
+      return errorResponse('REVISION_EXHAUSTED', 409);
+    }
+    this.room.effects = {
+      revision: this.room.effects.revision + 1,
+      updatedAtMs: Date.now(),
+      masterVolume: parsed.value.masterVolume,
+      effects,
+    };
+    this.room.revision += 1;
+    await this.persist();
+    await this.broadcastServerEvent(
+      this.invalidationEvent({ effectsRevision: this.room.effects.revision }),
+    );
+    return jsonResponse(publicSettingsSync(this.room));
   }
 
   async handleGetQueueMode(request) {

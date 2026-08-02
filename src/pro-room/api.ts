@@ -32,8 +32,10 @@ import {
 import type { DeveloperCommandResultCode } from '../network/transport/types.ts';
 import {
   parseProRoomEffectsSnapshot,
+  parseProRoomSettingsSyncSnapshot,
   parseRoomEffectsState,
   type ProRoomEffectsSnapshot,
+  type ProRoomSettingsSyncSnapshot,
   type RoomEffectsState,
 } from '../core/room-effects.ts';
 import {
@@ -304,6 +306,14 @@ interface UpdateProRoomEffectsInput {
   code: string;
   coordinatorEpoch: number;
   baseRevision: number;
+  effects: RoomEffectsState;
+}
+
+interface UpdateProRoomSettingsSyncInput {
+  code: string;
+  coordinatorEpoch: number;
+  baseRevision: number;
+  masterVolume: number;
   effects: RoomEffectsState;
 }
 
@@ -1682,6 +1692,47 @@ export class ProRoomApiClient {
       activeRoomCode: input.code,
       maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
       parser: (value) => parseProRoomEffectsSnapshot(value, input.code),
+    });
+  }
+
+  getSettingsSync(code: string, signal?: AbortSignal): Promise<ProRoomSettingsSyncSnapshot> {
+    const path = roomPath(code);
+    return this.#request(`${path}/settings-sync`, {
+      signal,
+      activeRoomCode: code,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+      parser: (value) => parseProRoomSettingsSyncSnapshot(value, code),
+    });
+  }
+
+  updateSettingsSync(
+    input: UpdateProRoomSettingsSyncInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomSettingsSyncSnapshot> {
+    const path = roomPath(input.code);
+    if (!Number.isSafeInteger(input.coordinatorEpoch) || input.coordinatorEpoch < 1) {
+      throw new ProRoomApiError('INVALID_COORDINATOR_EPOCH');
+    }
+    if (!Number.isSafeInteger(input.baseRevision) || input.baseRevision < 0) {
+      throw new ProRoomApiError('INVALID_REVISION');
+    }
+    if (!Number.isFinite(input.masterVolume) || input.masterVolume < 0 || input.masterVolume > 1) {
+      throw new ProRoomApiError('INVALID_VOLUME');
+    }
+    const effects = parseRoomEffectsState(input.effects);
+    if (!effects) throw new ProRoomApiError('INVALID_EFFECTS');
+    return this.#request(`${path}/settings-sync`, {
+      method: 'PUT',
+      body: {
+        coordinatorEpoch: input.coordinatorEpoch,
+        baseRevision: input.baseRevision,
+        masterVolume: input.masterVolume,
+        effects,
+      },
+      signal,
+      activeRoomCode: input.code,
+      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+      parser: (value) => parseProRoomSettingsSyncSnapshot(value, input.code),
     });
   }
 

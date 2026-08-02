@@ -6879,7 +6879,8 @@ describe('persistent PRO room bootstrap and activation', () => {
     );
     expect(memberResponse.status).toBe(200);
     const memberCookie = cookieFrom(memberResponse);
-    bindCookiePresence(memberCookie, await responseJson(memberResponse));
+    const memberEnvelope = await responseJson(memberResponse);
+    bindCookiePresence(memberCookie, memberEnvelope);
 
     const acquiredResponse = await context.worker.fetch(
       jsonRequest('/system-audio/acquire', 'POST', {}, context.ownerCookie),
@@ -9301,7 +9302,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     expect(playbackDisabled.snapshot.viewer).toMatchObject({
       role: 'controller',
-      capabilities: ['queue.mutate', 'asset.upload', 'members.manage'],
+      capabilities: ['effects.control', 'queue.mutate', 'asset.upload', 'members.manage'],
     });
 
     const delegated = await context.worker.fetch(
@@ -9331,7 +9332,13 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     expect(current.snapshot.viewer).toMatchObject({
       role: 'controller',
-      capabilities: ['queue.mutate', 'playback.control', 'asset.upload', 'members.manage'],
+      capabilities: [
+        'effects.control',
+        'queue.mutate',
+        'playback.control',
+        'asset.upload',
+        'members.manage',
+      ],
     });
     expect(parseProRoomSnapshot(current.snapshot)).not.toBeNull();
 
@@ -9885,7 +9892,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     );
     expect(afterGrant.snapshot.viewer.capabilities).toContain('queue.mutate');
     expect(afterGrant.snapshot.viewer.capabilities).not.toContain('playback.control');
-    expect(afterGrant.snapshot.viewer.capabilities).not.toContain('effects.control');
+    expect(afterGrant.snapshot.viewer.capabilities).toContain('effects.control');
     const initialQueueMode = await responseJson(
       await context.worker.fetch(request('/queue-mode', {}, friend.cookie)),
     );
@@ -10288,7 +10295,13 @@ describe('persistent PRO room authentication, presence, and state', () => {
       memberId,
       role: 'controller',
       isAuthenticated: true,
-      capabilities: ['queue.mutate', 'playback.control', 'asset.upload', 'members.manage'],
+      capabilities: [
+        'effects.control',
+        'queue.mutate',
+        'playback.control',
+        'asset.upload',
+        'members.manage',
+      ],
     });
     expect(rejoined.snapshot.administrators).toContainEqual(
       expect.objectContaining({ memberId, role: 'controller', isAuthenticated: true }),
@@ -10469,7 +10482,13 @@ describe('persistent PRO room authentication, presence, and state', () => {
       memberId: accountMemberId,
       role: 'controller',
       isAuthenticated: true,
-      capabilities: ['queue.mutate', 'playback.control', 'asset.upload', 'members.manage'],
+      capabilities: [
+        'effects.control',
+        'queue.mutate',
+        'playback.control',
+        'asset.upload',
+        'members.manage',
+      ],
     });
     expect(targetView.snapshot.administrators).toContainEqual(
       expect.objectContaining({
@@ -10654,7 +10673,13 @@ describe('persistent PRO room authentication, presence, and state', () => {
       memberId,
       role: 'controller',
       isAuthenticated: true,
-      capabilities: ['queue.mutate', 'playback.control', 'asset.upload', 'members.manage'],
+      capabilities: [
+        'effects.control',
+        'queue.mutate',
+        'playback.control',
+        'asset.upload',
+        'members.manage',
+      ],
     });
     expect(sibling.snapshot.administrators).toContainEqual(
       expect.objectContaining({
@@ -16713,6 +16738,196 @@ describe('persistent PRO room audio effects', () => {
     ...configuredEffects,
     virtualTreble: { enabled: true },
   };
+
+  it('persists volume and DSP as one capability-gated settings-sync CAS resource', async () => {
+    const context = await activatedRoom();
+    const dispatchFetch = vi.fn<(request: Request) => Promise<Response>>(async () =>
+      Response.json({ broadcast: true, eligible: 1, sent: 1 }),
+    );
+    const internal = context.worker as unknown as {
+      env: Record<string, any>;
+      room: Record<string, any>;
+    };
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({ fetch: dispatchFetch })),
+    };
+    const epoch = context.activationEnvelope.snapshot.presence.coordinatorEpoch as number;
+
+    await expect(
+      (await context.worker.fetch(request('/settings-sync', {}, context.ownerCookie))).json(),
+    ).resolves.toEqual({
+      schemaVersion: 1,
+      view: 'settings-sync',
+      roomCode: ROOM_CODE,
+      revision: 0,
+      updatedAtMs: 0,
+      masterVolume: 1,
+      effects: defaultEffects,
+    });
+
+    const updated = await context.worker.fetch(
+      jsonRequest(
+        '/settings-sync',
+        'PUT',
+        {
+          coordinatorEpoch: epoch,
+          baseRevision: 0,
+          masterVolume: 0.35,
+          effects: configuredEffectsV2,
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(updated.status).toBe(200);
+    await expect(updated.json()).resolves.toMatchObject({
+      schemaVersion: 1,
+      view: 'settings-sync',
+      revision: 1,
+      masterVolume: 0.35,
+      effects: configuredEffectsV2,
+    });
+    expect(internal.room.effects).toMatchObject({
+      revision: 1,
+      masterVolume: 0.35,
+      effects: configuredEffectsV2,
+    });
+    expect(dispatchFetch).toHaveBeenCalledOnce();
+    await expect(
+      (dispatchFetch.mock.calls[0]?.[0] as Request).clone().json(),
+    ).resolves.toMatchObject({
+      event: { type: 'pro-room-invalidated', effectsRevision: 1 },
+    });
+
+    const stale = await context.worker.fetch(
+      jsonRequest(
+        '/settings-sync',
+        'PUT',
+        {
+          coordinatorEpoch: epoch,
+          baseRevision: 0,
+          masterVolume: 0.8,
+          effects: configuredEffects,
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(stale.status).toBe(409);
+    await expect(stale.json()).resolves.toEqual({
+      error: 'SETTINGS_SYNC_REVISION_CONFLICT',
+      settings: expect.objectContaining({
+        revision: 1,
+        masterVolume: 0.35,
+        effects: configuredEffectsV2,
+      }),
+    });
+
+    const memberResponse = await context.worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678' }),
+    );
+    const memberCookie = cookieFrom(memberResponse);
+    const memberEnvelope = await responseJson(memberResponse);
+    bindCookiePresence(memberCookie, memberEnvelope);
+    const denied = await context.worker.fetch(
+      jsonRequest(
+        '/settings-sync',
+        'PUT',
+        {
+          coordinatorEpoch: epoch,
+          baseRevision: 1,
+          masterVolume: 0.8,
+          effects: configuredEffects,
+        },
+        memberCookie,
+      ),
+    );
+    expect(denied.status).toBe(403);
+    await expect(denied.json()).resolves.toEqual({ error: 'CAPABILITY_REQUIRED' });
+
+    const memberId = memberEnvelope.snapshot.viewer.memberId as string;
+    const delegated = await context.worker.fetch(
+      jsonRequest(
+        `/administrators/${memberId}`,
+        'PUT',
+        {
+          permissions: {
+            'media.add': false,
+            'playback.control': false,
+            'members.kick': false,
+            'chat.notice': false,
+          },
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(delegated.status).toBe(200);
+    const controllerSnapshot = await responseJson(
+      await context.worker.fetch(request('/snapshot', {}, memberCookie)),
+    );
+    expect(controllerSnapshot.snapshot.viewer.capabilities).toEqual(['effects.control']);
+    const controllerUpdate = await context.worker.fetch(
+      jsonRequest(
+        '/settings-sync',
+        'PUT',
+        {
+          coordinatorEpoch: controllerSnapshot.snapshot.presence.coordinatorEpoch,
+          baseRevision: 1,
+          masterVolume: 0.8,
+          effects: configuredEffects,
+        },
+        memberCookie,
+      ),
+    );
+    expect(controllerUpdate.status).toBe(200);
+    await expect(controllerUpdate.json()).resolves.toMatchObject({
+      revision: 2,
+      masterVolume: 0.8,
+      effects: configuredEffects,
+    });
+
+    const effectsOnlyUpdate = jsonRequest(
+      '/effects',
+      'PUT',
+      {
+        coordinatorEpoch: controllerSnapshot.snapshot.presence.coordinatorEpoch,
+        baseRevision: 2,
+        effects: configuredEffectsV2,
+      },
+      context.ownerCookie,
+    );
+    effectsOnlyUpdate.headers.set('x-mxqr-pro-effects-version', '2');
+    expect((await context.worker.fetch(effectsOnlyUpdate)).status).toBe(200);
+    await expect(
+      (await context.worker.fetch(request('/settings-sync', {}, context.ownerCookie))).json(),
+    ).resolves.toMatchObject({
+      revision: 3,
+      masterVolume: 0.8,
+      effects: configuredEffectsV2,
+    });
+  });
+
+  it('migrates a legacy effects resource without volume to the neutral default', async () => {
+    const context = await activatedRoom();
+    const stored = structuredClone(context.state.storage.data.get('pro-room:v2:core')) as {
+      core: Record<string, any>;
+    };
+    delete stored.core.effects.masterVolume;
+    context.state.storage.data.set('pro-room:v2:core', stored);
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const response = await restarted.fetch(request('/settings-sync', {}, context.ownerCookie));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      revision: 0,
+      masterVolume: 1,
+      effects: defaultEffects,
+    });
+    const migrated = restarted as unknown as { room: Record<string, any> };
+    expect(migrated.room.effects.masterVolume).toBe(1);
+  });
 
   it('uses only the complete effects v2 contract', async () => {
     const context = await activatedRoom();

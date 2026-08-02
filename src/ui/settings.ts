@@ -39,6 +39,7 @@ import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audio/ui-sounds.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { hasLocaleFont, preloadLocaleFontGlyphs } from '../i18n/locale-fonts.ts';
+import { isSettingsSyncEnabled, setSettingsSyncEnabled } from '../audio/effects.ts';
 
 // ─── Host-Ctrl Lock (Guest cannot change host-controlled settings) ──
 
@@ -53,9 +54,20 @@ const HOST_CTRL_LOCK_IDS = [
 ] as const;
 
 function _isGuestLocked(): boolean {
+  if (!isSettingsSyncEnabled()) return false;
   if (getRoomContext().kind === 'pro') return !hasRoomCapability('effects.control');
   const hostConn = getState('network.hostConn');
   return !!hostConn && !hasRoomCapability('effects.control');
+}
+
+function syncSettingsSyncControls(enabled = isSettingsSyncEnabled()): void {
+  document
+    .querySelectorAll<HTMLElement>('#grid-settings-sync [data-settings-sync]')
+    .forEach((button) => {
+      const active = (button.dataset.settingsSync === 'on') === enabled;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
 }
 
 function _showHostCtrlLockedToast(): void {
@@ -794,6 +806,19 @@ export function initSettings(): void {
   };
 
   _bindHostCtrlLockedAttemptToasts();
+
+  document
+    .querySelectorAll<HTMLElement>('#grid-settings-sync [data-settings-sync]')
+    .forEach((button) => {
+      button.addEventListener('click', () => {
+        setSettingsSyncEnabled(button.dataset.settingsSync === 'on');
+      });
+    });
+  _busScope.on('settings-sync:changed', (enabled) => {
+    syncSettingsSyncControls(enabled);
+    _updateHostCtrlLockUI();
+  });
+  syncSettingsSyncControls();
 
   // UI sounds are a local-only preference and default to off. The buttons
   // opt out of the global click sound so enabling produces exactly one preview.

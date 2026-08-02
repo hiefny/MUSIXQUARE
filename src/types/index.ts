@@ -12,6 +12,7 @@ import type {
   PlaybackModeValue,
   PlaybackActivityValue,
 } from '../core/constants.ts';
+import type { RoomEffectsState } from '../core/room-effects.ts';
 
 // ─── Peer / Network ────────────────────────────────────────────────
 
@@ -121,6 +122,12 @@ export interface StandardOperatorFileUplinkProgress {
 
 // ─── Playlist ──────────────────────────────────────────────────────
 export type QueueItemId = string;
+
+/** Atomic volume + room-wide DSP payload for opt-in device synchronization. */
+export interface RoomSettingsSyncState {
+  masterVolume: number;
+  effects: RoomEffectsState;
+}
 
 /** Independent producers that can keep YouTube synchronization UI busy. */
 export type YouTubeSyncLoadingOwner = 'rendezvous' | 'clock-action' | 'zero-start';
@@ -361,6 +368,18 @@ export interface ProtocolMap {
 
   // ── Audio Control ────────────────────────────────────────────────
   volume: { value: number };
+  /** Atomic coordinator-sequenced volume + DSP authority snapshot. */
+  'settings-sync-snapshot': {
+    version: 1;
+    epoch: number;
+    sequence: number;
+    settings: RoomSettingsSyncState;
+    _bootstrap?: true;
+  };
+  /** Any follower may ask the coordinator to replay the canonical snapshot. */
+  'request-settings-sync-snapshot': { version: 1 };
+  /** Only an effects controller may replace the canonical snapshot. */
+  'publish-settings-sync-snapshot': { version: 1; settings: RoomSettingsSyncState };
   'eq-update': { band: number; value: number };
   'eq-reset': NoPayload;
   preamp: { value: number };
@@ -929,6 +948,7 @@ export interface StateTree {
   };
   audio: {
     masterVolume: number;
+    settingsSyncEnabled: boolean;
     channelMode: number;
     isSurroundMode: boolean;
     surroundChannelIndex: number;
@@ -1200,6 +1220,9 @@ interface BaseEventMap {
   'audio:reverb-type-change': [type: string];
   'audio:reset-eq': [];
   'audio:surround-toggled': [];
+  'settings-sync:publish-local': [];
+  'settings-sync:changed': [enabled: boolean];
+  'settings-sync:authority-revoked': [];
   // Host → effects.ts: resend the effect-settings snapshot to one peer
   // (fired on OPERATOR_REVOKE to re-baseline a demoted OP's optimistic applies)
   'effects:resync-peer': [conn: DataConnection];

@@ -48,6 +48,17 @@ function readStoredGuestPlayLatency(): number {
   }
 }
 
+/** Per-device preference; absence intentionally preserves the default-on behavior. */
+const SETTINGS_SYNC_STORAGE_KEY = 'musixquare-settings-sync';
+function readStoredSettingsSyncEnabled(): boolean {
+  try {
+    if (typeof localStorage === 'undefined') return true;
+    return localStorage.getItem(SETTINGS_SYNC_STORAGE_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
+
 // ─── Initial State ─────────────────────────────────────────────────
 
 function createInitialState(): StateTree {
@@ -124,6 +135,7 @@ function createInitialState(): StateTree {
 
     audio: {
       masterVolume: 1.0,
+      settingsSyncEnabled: readStoredSettingsSyncEnabled(),
       channelMode: 0,
       isSurroundMode: false,
       surroundChannelIndex: -1,

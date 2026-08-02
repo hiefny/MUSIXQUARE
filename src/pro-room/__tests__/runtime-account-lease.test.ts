@@ -181,12 +181,13 @@ describe.sequential('PRO runtime account identity lease', () => {
     );
     vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(initial);
     vi.spyOn(ProRoomApiClient.prototype, 'attachCurrentAccount').mockResolvedValue(initial);
-    vi.spyOn(ProRoomApiClient.prototype, 'getEffects').mockResolvedValue({
-      schemaVersion: 2,
-      view: 'effects',
+    vi.spyOn(ProRoomApiClient.prototype, 'getSettingsSync').mockResolvedValue({
+      schemaVersion: 1,
+      view: 'settings-sync',
       roomCode: ROOM_CODE,
       revision: 0,
       updatedAtMs: 1,
+      masterVolume: 1,
       effects: createDefaultRoomEffectsState(),
     });
     vi.spyOn(ProRoomApiClient.prototype, 'getQueueMode').mockResolvedValue({
@@ -255,7 +256,7 @@ describe.sequential('PRO runtime account identity lease', () => {
   });
 
   it('does not gate room entry on optional initial adjunct reads', async () => {
-    vi.mocked(ProRoomApiClient.prototype.getEffects).mockReturnValue(
+    vi.mocked(ProRoomApiClient.prototype.getSettingsSync).mockReturnValue(
       new Promise<never>(() => undefined),
     );
     vi.mocked(ProRoomApiClient.prototype.getQueueMode).mockReturnValue(
@@ -266,7 +267,7 @@ describe.sequential('PRO runtime account identity lease', () => {
       roomCode: ROOM_CODE,
     });
 
-    expect(ProRoomApiClient.prototype.getEffects).toHaveBeenCalledWith(
+    expect(ProRoomApiClient.prototype.getSettingsSync).toHaveBeenCalledWith(
       ROOM_CODE,
       expect.any(AbortSignal),
     );
@@ -363,6 +364,7 @@ describe.sequential('PRO runtime account identity lease', () => {
     } as const;
     const memberId = 'member_anonymous_0002';
     const capabilities = [
+      'effects.control',
       'queue.mutate',
       'playback.control',
       'asset.upload',

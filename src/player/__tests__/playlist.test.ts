@@ -2681,7 +2681,7 @@ describe('request-setting authorization', () => {
     expect(getState('playlist.isShuffle')).toBe(true);
   });
 
-  it('keeps full room effects host-only for standard administrators', async () => {
+  it('lets standard administrators control full room effects', async () => {
     const conn = makeConnection('guest-op');
     setState('network.appRole', 'host');
     setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
@@ -2689,6 +2689,6 @@ describe('request-setting authorization', () => {
 
     await handleData({ type: MSG.REQUEST_SETTING, settingType: MSG.REVERB_DECAY, value: 8 }, conn);
 
-    expect(getState('audio.reverbDecay')).not.toBe(8);
+    expect(getState('audio.reverbDecay')).toBe(8);
   });
 });

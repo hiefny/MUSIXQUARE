@@ -69,6 +69,11 @@ import {
 import { getAccountSnapshot } from '../account/state.ts';
 import { openAccountDialog } from './account.ts';
 import { getProRoomServerNow, proRoomServerBridge } from '../pro-room/network-bridge.ts';
+import {
+  canPublishSynchronizedSettings,
+  isSettingsSyncEnabled,
+  isSynchronizedVolumeLocked,
+} from '../audio/effects.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 
@@ -264,31 +269,38 @@ function getTabTitleSnapshot(): { track: string; playing?: boolean } {
 }
 
 function onVolInput(val: number): void {
+  if (isSynchronizedVolumeLocked()) {
+    syncVolumeSlider();
+    return;
+  }
   bus.emit('audio:set-volume', val / 100);
 }
 
 function onVolChange(val: number): void {
-  const hostConn = getState('network.hostConn');
-  if (!hostConn) {
-    bus.emit('network:broadcast', { type: MSG.VOLUME, value: val / 100 });
-    showToast(t('common.volume_percent', { val: Math.round(val) }));
+  if (isSynchronizedVolumeLocked()) {
+    syncVolumeSlider();
+    return;
+  }
+  showToast(t('common.volume_percent', { val: Math.round(val) }));
+  if (isSettingsSyncEnabled() && canPublishSynchronizedSettings()) {
+    bus.emit('settings-sync:publish-local');
   }
 }
 
 function toggleMute(): void {
+  if (isSynchronizedVolumeLocked()) return;
   const masterVolume = getState('audio.masterVolume') ?? 1;
   if (masterVolume > 0) {
     _preMuteVolume = masterVolume;
     bus.emit('audio:set-volume', 0);
     showToast(t('common.muted'));
-    const hostConn = getState('network.hostConn');
-    if (!hostConn) bus.emit('network:broadcast', { type: MSG.VOLUME, value: 0 });
   } else {
     bus.emit('audio:set-volume', _preMuteVolume || 0.5);
     const newVol = _preMuteVolume || 0.5;
     showToast(t('common.volume_percent', { val: Math.round(newVol * 100) }));
-    const hostConn = getState('network.hostConn');
-    if (!hostConn) bus.emit('network:broadcast', { type: MSG.VOLUME, value: newVol });
+  }
+  if (isSettingsSyncEnabled() && canPublishSynchronizedSettings()) {
+    bus.emit('settings-sync:publish-local');
   }
 }
 
@@ -1131,6 +1143,20 @@ function syncVolumeSlider(): void {
   updateVolumeIcon();
 }
 
+function syncVolumeAuthorityUI(): void {
+  const locked = isSynchronizedVolumeLocked();
+  const slider = document.getElementById('volume-slider') as HTMLInputElement | null;
+  const mute = document.getElementById('vol-icon-btn') as HTMLButtonElement | null;
+  if (slider) {
+    slider.disabled = locked;
+    slider.setAttribute('aria-disabled', locked ? 'true' : 'false');
+  }
+  if (mute) {
+    mute.disabled = locked;
+    mute.setAttribute('aria-disabled', locked ? 'true' : 'false');
+  }
+}
+
 // ─── Module State ───────────────────────────────────────────────
 
 // ─── Init ────────────────────────────────────────────────────────
@@ -1409,6 +1435,7 @@ export function initPlayerControls(): void {
   installRangeDragGuard();
 
   syncVolumeSlider();
+  syncVolumeAuthorityUI();
 
   // Prevent range drags from scrolling the containing tab on Android.
   installAndroidRangeScrollFix();
@@ -1417,10 +1444,15 @@ export function initPlayerControls(): void {
   _busScope.on('audio:volume-changed', () => {
     syncVolumeSlider();
   });
+  _busScope.on('settings-sync:changed', () => syncVolumeAuthorityUI());
+  _busScope.on('state:network.standardRoomCapabilities', () => syncVolumeAuthorityUI());
+  _busScope.on('state:room.context', () => syncVolumeAuthorityUI());
+  _busScope.on('state:setup.sessionStarted', () => syncVolumeAuthorityUI());
 
   // Role badge update events
   _busScope.on('network:role-badge-update', () => {
     updateRoleBadge();
+    syncVolumeAuthorityUI();
   });
   _busScope.on('state:network.myDeviceLabel', () => {
     updateRoleBadge();

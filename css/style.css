@@ -2910,6 +2910,13 @@
     letter-spacing: -0.5px;
   }
 
+  .settings-option-description {
+    margin: -8px 0 16px;
+    color: var(--text-sub);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
   .badge-host-ctrl {
     font-size: 11px;
     font-weight: 600;
@@ -4674,15 +4681,24 @@
 
   .account-google-label {
     min-width: 0;
-    overflow: hidden;
     text-align: center;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 1.35;
+    white-space: normal;
+    -webkit-hyphens: auto;
+    hyphens: auto;
+    overflow-wrap: anywhere;
+    word-break: keep-all;
   }
 
   .account-dialog-login-close {
+    max-width: 100%;
     width: 100%;
     margin-top: 10px;
+    white-space: normal;
+    -webkit-hyphens: auto;
+    hyphens: auto;
+    overflow-wrap: anywhere;
+    word-break: keep-all;
   }
 
   .account-dialog-login-close.dialog-primary {
@@ -4707,9 +4723,6 @@
   .account-dialog-actions {
     flex: 0 0 auto;
     padding: 0 32px 30px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
   }
 
   .account-dialog-actions .dialog-primary,
@@ -4720,7 +4733,6 @@
   }
 
   .account-dialog-account-close {
-    grid-column: 1 / -1;
     width: 100%;
   }
 
@@ -5036,20 +5048,35 @@
 
   .dialog-actions {
     padding: 0 32px 30px;
+  }
+
+  /* Let the browser's intrinsic sizing decide whether localized actions fit.
+     max-content keeps short pairs together; flex wrapping gives each action a
+     full row only when their rendered text and padding no longer fit. */
+  .adaptive-action-group {
     display: flex;
-    justify-content: flex-end;
+    flex-wrap: wrap;
+    align-items: stretch;
     gap: 10px;
   }
 
-  .dialog-secondary[hidden] + .dialog-primary {
-    flex: 1 1 auto;
+  .adaptive-action-group > :is(button, a):not([hidden]) {
+    max-width: 100%;
+    flex: 1 1 max-content;
     min-width: 0;
+    white-space: normal;
+    /* Prefer normal word boundaries and language-aware hyphenation. The
+       anywhere fallback is reached only by an otherwise unbreakable token,
+       preventing zoomed labels from escaping the button. */
+    -webkit-hyphens: auto;
+    hyphens: auto;
+    overflow-wrap: anywhere;
+    word-break: keep-all;
   }
 
-  .dialog-actions > .dialog-secondary:not([hidden]),
-  .dialog-actions > .dialog-secondary:not([hidden]) + .dialog-primary {
-    flex: 1 1 0;
-    min-width: 0;
+  .adaptive-action-group > .adaptive-action-group-full:not([hidden]) {
+    width: 100%;
+    flex-basis: 100%;
   }
 
   .language-dialog {
@@ -5286,25 +5313,6 @@
   .dialog-primary:active {
     transform: scale(0.97);
     box-shadow: none;
-  }
-
-  .dialog-primary,
-  .dialog-secondary {
-    white-space: nowrap;
-    overflow-wrap: normal;
-  }
-
-  @media (max-width: 420px) {
-    .dialog-actions {
-      flex-direction: column-reverse;
-      align-items: stretch;
-    }
-
-    .dialog-actions > .dialog-primary,
-    .dialog-actions > .dialog-secondary:not([hidden]) {
-      width: 100%;
-      flex: 0 0 auto;
-    }
   }
 
   /* Dark theme toast */

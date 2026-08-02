@@ -466,6 +466,7 @@ describe('host operator toggle', () => {
     expect(send).toHaveBeenNthCalledWith(1, {
       type: MSG.OPERATOR_GRANT,
       capabilities: [
+        'effects.control',
         'media.add',
         'queue.mutate',
         'asset.upload',
@@ -603,6 +604,28 @@ describe('standard-room account authority', () => {
     expect(reconnected.send).toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.OPERATOR_GRANT, silent: true }),
     );
+  });
+
+  it('sends a definitive silent revoke after an ordinary member reconnects', () => {
+    const identity = verifiedIdentity();
+    const reconnected = makeVerifiedIncomingConn('revoked-member-reconnect', identity);
+
+    handleHostIncomingConnection(reconnected);
+    // Clear projections produced while identity was resolved before RTC open.
+    // The post-open frame is the definitive acknowledgement that lets a guest
+    // discard any disconnected settings takeover it may have retained.
+    reconnected.send.mockClear();
+    reconnected.fire('open');
+
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      id: 'revoked-member-reconnect',
+      memberId: identity.memberId,
+      isOp: false,
+    });
+    expect(reconnected.send).toHaveBeenCalledWith({
+      type: MSG.OPERATOR_REVOKE,
+      silent: true,
+    });
   });
 
   it('revokes one account grant from every live device at once', () => {
@@ -788,6 +811,7 @@ describe('standard-room account authority', () => {
     expect(getState('network.connectedPeers')[0]).toMatchObject({
       isOp: true,
       roomCapabilities: [
+        'effects.control',
         'media.add',
         'queue.mutate',
         'asset.upload',
@@ -1012,6 +1036,7 @@ describe('standard-room account authority', () => {
     });
 
     expect(getState('network.connectedPeers')[0].roomCapabilities).toEqual([
+      'effects.control',
       'media.add',
       'queue.mutate',
       'asset.upload',
@@ -1027,10 +1052,13 @@ describe('standard-room account authority', () => {
       },
     });
 
-    expect(getState('network.connectedPeers')[0].roomCapabilities).toEqual(['playback.control']);
+    expect(getState('network.connectedPeers')[0].roomCapabilities).toEqual([
+      'effects.control',
+      'playback.control',
+    ]);
     expect(conn.send).toHaveBeenLastCalledWith({
       type: MSG.OPERATOR_GRANT,
-      capabilities: ['playback.control'],
+      capabilities: ['effects.control', 'playback.control'],
       silent: true,
     });
   });

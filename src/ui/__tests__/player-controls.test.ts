@@ -1340,6 +1340,24 @@ describe('initPlayerControls volume icon', () => {
       document.getElementById('volume-slider')?.style.getPropertyValue('--range-progress'),
     ).toBe('65%');
   });
+
+  it('locks follower volume while sync is ON and restores local control when OFF', () => {
+    const button = renderVolumeControls() as HTMLButtonElement;
+    const slider = document.getElementById('volume-slider') as HTMLInputElement;
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', makeConnection('host'));
+    setState('audio.settingsSyncEnabled', true);
+
+    initPlayerControls();
+    expect(button.disabled).toBe(true);
+    expect(slider.disabled).toBe(true);
+
+    setState('audio.settingsSyncEnabled', false);
+    bus.emit('settings-sync:changed', false);
+    expect(button.disabled).toBe(false);
+    expect(slider.disabled).toBe(false);
+  });
 });
 
 describe('initPlayerControls sync button', () => {

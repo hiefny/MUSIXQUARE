@@ -1768,6 +1768,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
   }
 
   const val = data.value;
+  let appliedSynchronizedEffect = false;
   switch (st) {
     case 'repeat-mode': {
       const mode = Number(val) || 0;
@@ -1788,6 +1789,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       if (!Number.isFinite(band) || !Number.isFinite(v)) break;
       setEQ(band, v);
       broadcast({ type: MSG.EQ_UPDATE, band, value: v });
+      appliedSynchronizedEffect = true;
       break;
     }
     case MSG.PREAMP: {
@@ -1807,6 +1809,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       setStereoWidth(v);
       bus.emit('ui:sync-surround', v > 100);
       broadcast({ type: MSG.STEREO_WIDTH, value: v });
+      appliedSynchronizedEffect = true;
       break;
     }
     case MSG.VBASS: {
@@ -1815,6 +1818,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       setVirtualBass(v);
       bus.emit('ui:sync-vbass', v > 0);
       broadcast({ type: MSG.VBASS, value: v });
+      appliedSynchronizedEffect = true;
       break;
     }
     case MSG.EXCITER: {
@@ -1825,6 +1829,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       setExciter(v === 1);
       bus.emit('ui:sync-exciter', v === 1);
       broadcast({ type: MSG.EXCITER, value: v });
+      appliedSynchronizedEffect = true;
       break;
     }
     case MSG.REVERB: {
@@ -1833,6 +1838,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       setReverbParam('mix', v);
       bus.emit('ui:sync-reverb-param', 'mix', v);
       broadcast({ type: MSG.REVERB, value: v });
+      appliedSynchronizedEffect = true;
       break;
     }
     case MSG.REVERB_TYPE: {
@@ -1846,6 +1852,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       setReverbParam('decay', v);
       bus.emit('ui:sync-reverb-param', 'decay', v);
       broadcast({ type: MSG.REVERB_DECAY, value: v });
+      appliedSynchronizedEffect = true;
       break;
     }
     case MSG.REVERB_PREDELAY: {
@@ -1854,6 +1861,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       setReverbParam('predelay', v);
       bus.emit('ui:sync-reverb-param', 'predelay', v);
       broadcast({ type: MSG.REVERB_PREDELAY, value: v });
+      appliedSynchronizedEffect = true;
       break;
     }
     case MSG.REVERB_LOWCUT: {
@@ -1862,6 +1870,7 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       setReverbParam('lowcut', v);
       bus.emit('ui:sync-reverb-param', 'lowcut', v);
       broadcast({ type: MSG.REVERB_LOWCUT, value: v });
+      appliedSynchronizedEffect = true;
       break;
     }
     case MSG.REVERB_HIGHCUT: {
@@ -1870,9 +1879,14 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
       setReverbParam('highcut', v);
       bus.emit('ui:sync-reverb-param', 'highcut', v);
       broadcast({ type: MSG.REVERB_HIGHCUT, value: v });
+      appliedSynchronizedEffect = true;
       break;
     }
   }
+  // Rolling clients still send partial request-setting frames. After applying
+  // one, advance the modern atomic authority snapshot so later joins and
+  // modern followers cannot observe a stale full-state cache.
+  if (appliedSynchronizedEffect) bus.emit('settings-sync:publish-local');
 }
 
 // ─── Load Demo Media ──────────────────────────────────────────────

@@ -24,6 +24,7 @@ import type {
 import { hasQueueAuthority } from './queue-authority.ts';
 import { verifyPeerCapability } from '../rooms/authority.ts';
 import { isFileRequestId } from './file-request-authority.ts';
+import { parseRoomEffectsState } from '../core/room-effects.ts';
 
 // ─── Message Validation ─────────────────────────────────────────────
 
@@ -428,7 +429,30 @@ function isValidRequestSetting(data: Record<string, unknown>): boolean {
   }
 }
 
+function isValidSettingsSyncState(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const settings = value as Record<string, unknown>;
+  return (
+    hasExactKeys(settings, ['masterVolume', 'effects']) &&
+    isBoundedNumber(settings.masterVolume, 0, 1) &&
+    parseRoomEffectsState(settings.effects) !== null
+  );
+}
+
 const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown>) => boolean>> = {
+  [MSG.SETTINGS_SYNC_SNAPSHOT]: (d) =>
+    hasExactKeys(d, ['type', 'version', 'epoch', 'sequence', 'settings'], ['_bootstrap']) &&
+    d.version === 1 &&
+    isNonNegSafeInt(d.epoch) &&
+    isNonNegSafeInt(d.sequence) &&
+    isValidSettingsSyncState(d.settings) &&
+    (d._bootstrap === undefined || d._bootstrap === true),
+  [MSG.REQUEST_SETTINGS_SYNC_SNAPSHOT]: (d) =>
+    hasExactKeys(d, ['type', 'version']) && d.version === 1,
+  [MSG.PUBLISH_SETTINGS_SYNC_SNAPSHOT]: (d) =>
+    hasExactKeys(d, ['type', 'version', 'settings']) &&
+    d.version === 1 &&
+    isValidSettingsSyncState(d.settings),
   [MSG.PRO_ROOM_INVALIDATED]: (d) =>
     isNonNegSafeInt(d.revision) && isNonNegSafeInt(d.playlistRevision),
   [MSG.PRO_SYSTEM_AUDIO_HINT]: (d) =>

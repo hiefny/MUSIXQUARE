@@ -17,6 +17,7 @@ const STANDARD_HOST_CAPABILITIES = new Set<RoomCapability>([
 const STANDARD_OPERATOR_CAPABILITIES = new Set<RoomCapability>([
   'media.add',
   'playback.control',
+  'effects.control',
   'asset.upload',
 ]);
 

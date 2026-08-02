@@ -615,6 +615,7 @@ function handleOperatorRevoke(data: Record<string, unknown>, conn?: DataConnecti
     getState('network.standardRoomCapabilities')?.includes('room.configure') === true;
   setState('network.standardRoomCapabilities', null);
   setState('network.isOperator', false);
+  bus.emit('settings-sync:authority-revoked');
   // Always fail closed first. The toast belongs only to a real administrator
   // transition, not an ordinary guest's repeated projection or a transient
   // identity lease expiry that the refresh loop can restore.

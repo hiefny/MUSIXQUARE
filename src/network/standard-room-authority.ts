@@ -53,7 +53,9 @@ export function standardRoomAuthorityKey(
 }
 
 export function standardRoomCapabilities(permissions: StandardRoomPermissionSet): RoomCapability[] {
-  const capabilities: RoomCapability[] = [];
+  // Settings authority is part of being an administrator, not an independent
+  // permission toggle. The existing four toggles keep their current meaning.
+  const capabilities: RoomCapability[] = ['effects.control'];
   // `media.add` is the stable wire/storage key for the user-facing media
   // management permission. Keep the key for backwards compatibility while
   // projecting every queue-management capability granted by that permission.

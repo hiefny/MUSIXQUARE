@@ -59,7 +59,7 @@ afterEach(() => {
 });
 
 describe('Dialog System', () => {
-  it('keeps the common modal accessible and stacks its primary action first on narrow screens', () => {
+  it('keeps common actions accessible and lets intrinsic text width choose row wrapping', () => {
     const dialogMarkup = INDEX_SOURCE.slice(
       INDEX_SOURCE.indexOf('id="dialog-overlay"'),
       INDEX_SOURCE.indexOf('id="signaling-recovery-overlay"'),
@@ -71,13 +71,29 @@ describe('Dialog System', () => {
     expect(dialogMarkup.indexOf('id="btn-dialog-secondary"')).toBeLessThan(
       dialogMarkup.indexOf('id="btn-dialog-ok"'),
     );
+    expect(dialogMarkup).toContain('class="dialog-actions adaptive-action-group"');
+    const parsedMarkup = new DOMParser().parseFromString(INDEX_SOURCE, 'text/html');
+    expect(
+      parsedMarkup
+        .getElementById('signaling-recovery-actions')
+        ?.classList.contains('adaptive-action-group'),
+    ).toBe(true);
+    expect(
+      parsedMarkup
+        .getElementById('btn-administrator-permissions-save')
+        ?.parentElement?.classList.contains('adaptive-action-group'),
+    ).toBe(true);
     expect(STYLE_SOURCE).toMatch(/\.dialog-message\s*\{[^}]*word-break:\s*keep-all;/s);
     expect(STYLE_SOURCE).toMatch(
-      /@media \(max-width:\s*420px\)[\s\S]*?\.dialog-actions\s*\{[^}]*flex-direction:\s*column-reverse;[^}]*align-items:\s*stretch;/,
+      /\.adaptive-action-group\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;[^}]*align-items:\s*stretch;/s,
     );
     expect(STYLE_SOURCE).toMatch(
-      /\.dialog-primary,\s*\.dialog-secondary\s*\{[^}]*white-space:\s*nowrap;[^}]*overflow-wrap:\s*normal;/s,
+      /\.adaptive-action-group\s*>\s*:is\(button, a\):not\(\[hidden\]\)\s*\{[^}]*max-width:\s*100%;[^}]*flex:\s*1 1 max-content;[^}]*white-space:\s*normal;[^}]*hyphens:\s*auto;[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*keep-all;/s,
     );
+    expect(STYLE_SOURCE).not.toMatch(
+      /@media \(max-width:\s*420px\)[\s\S]*?\.dialog-actions\s*\{[^}]*flex-direction:/,
+    );
+    expect(STYLE_SOURCE).not.toMatch(/\.adaptive-action-group\s*\{[^}]*column-reverse;/s);
   });
 
   describe('showDialog()', () => {

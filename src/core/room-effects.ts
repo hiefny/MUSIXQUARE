@@ -43,6 +43,17 @@ export interface ProRoomEffectsSnapshot {
   effects: RoomEffectsState;
 }
 
+/** Atomic PRO room authority used by the per-device settings-sync option. */
+export interface ProRoomSettingsSyncSnapshot {
+  schemaVersion: 1;
+  view: 'settings-sync';
+  roomCode: string;
+  revision: number;
+  updatedAtMs: number;
+  masterVolume: number;
+  effects: RoomEffectsState;
+}
+
 type JsonRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -286,6 +297,51 @@ export function parseProRoomEffectsSnapshot(
         roomCode: value.roomCode,
         revision: value.revision as number,
         updatedAtMs: value.updatedAtMs as number,
+        effects,
+      }
+    : null;
+}
+
+export function parseProRoomSettingsSyncSnapshot(
+  value: unknown,
+  expectedRoomCode?: string,
+): ProRoomSettingsSyncSnapshot | null {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      'schemaVersion',
+      'view',
+      'roomCode',
+      'revision',
+      'updatedAtMs',
+      'masterVolume',
+      'effects',
+    ]) ||
+    value.schemaVersion !== 1 ||
+    value.view !== 'settings-sync' ||
+    typeof value.roomCode !== 'string' ||
+    !/^0\d{5}$/.test(value.roomCode) ||
+    (expectedRoomCode !== undefined && value.roomCode !== expectedRoomCode) ||
+    !Number.isSafeInteger(value.revision) ||
+    (value.revision as number) < 0 ||
+    !Number.isSafeInteger(value.updatedAtMs) ||
+    (value.updatedAtMs as number) < 0 ||
+    typeof value.masterVolume !== 'number' ||
+    !Number.isFinite(value.masterVolume) ||
+    value.masterVolume < 0 ||
+    value.masterVolume > 1
+  ) {
+    return null;
+  }
+  const effects = parseRoomEffectsState(value.effects);
+  return effects
+    ? {
+        schemaVersion: 1,
+        view: 'settings-sync',
+        roomCode: value.roomCode,
+        revision: value.revision as number,
+        updatedAtMs: value.updatedAtMs as number,
+        masterVolume: value.masterVolume,
         effects,
       }
     : null;

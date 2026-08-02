@@ -1538,6 +1538,69 @@ describe('PRO room effects API', () => {
       status: 409,
     });
   });
+
+  it('reads and atomically updates the settings-sync volume plus DSP resource', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    const settings = {
+      schemaVersion: 1 as const,
+      view: 'settings-sync' as const,
+      roomCode: ROOM_CODE,
+      revision: 4,
+      updatedAtMs: 1_800_000_000_001,
+      masterVolume: 0.45,
+      effects,
+    };
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(settings))
+      .mockResolvedValueOnce(jsonResponse({ ...settings, revision: 5, masterVolume: 0.7 }));
+
+    await expect(client.getSettingsSync(ROOM_CODE)).resolves.toEqual(settings);
+    await expect(
+      client.updateSettingsSync({
+        code: ROOM_CODE,
+        coordinatorEpoch: 1,
+        baseRevision: 4,
+        masterVolume: 0.7,
+        effects,
+      }),
+    ).resolves.toEqual({ ...settings, revision: 5, masterVolume: 0.7 });
+    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+      coordinatorEpoch: 1,
+      baseRevision: 4,
+      masterVolume: 0.7,
+      effects,
+    });
+  });
+
+  it('rejects invalid settings-sync volume and surfaces its CAS conflict', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+
+    expect(() =>
+      client.updateSettingsSync({
+        code: ROOM_CODE,
+        coordinatorEpoch: 1,
+        baseRevision: 1,
+        masterVolume: 2,
+        effects,
+      }),
+    ).toThrow('PRO_ROOM_API_INVALID_VOLUME');
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ error: 'SETTINGS_SYNC_REVISION_CONFLICT' }, { status: 409 }),
+    );
+    await expect(
+      client.updateSettingsSync({
+        code: ROOM_CODE,
+        coordinatorEpoch: 1,
+        baseRevision: 1,
+        masterVolume: 0.5,
+        effects,
+      }),
+    ).rejects.toMatchObject({ code: 'SETTINGS_SYNC_REVISION_CONFLICT', status: 409 });
+  });
 });
 
 describe('PRO room queue mode API', () => {

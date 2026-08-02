@@ -4,6 +4,7 @@ export function initialEffectsState() {
   return {
     revision: 0,
     updatedAtMs: 0,
+    masterVolume: 1,
     effects: {
       reverb: {
         mixPercent: 0,
@@ -129,17 +130,23 @@ export function mergeRoomEffectsPatch(current, patch) {
 
 export function normalizeStoredEffects(value) {
   if (
-    !hasExactKeys(value, ['revision', 'updatedAtMs', 'effects']) ||
+    !hasExactKeys(value, ['revision', 'updatedAtMs', 'effects'], ['masterVolume']) ||
     !isSafeNonNegativeInteger(value.revision) ||
-    !isSafeNonNegativeInteger(value.updatedAtMs)
+    !isSafeNonNegativeInteger(value.updatedAtMs) ||
+    (value.masterVolume !== undefined && !boundedEffectNumber(value.masterVolume, 0, 1))
   ) {
     return null;
   }
   const effects = parseRoomEffects(value.effects);
   return effects
     ? {
-        state: { revision: value.revision, updatedAtMs: value.updatedAtMs, effects },
-        migrated: false,
+        state: {
+          revision: value.revision,
+          updatedAtMs: value.updatedAtMs,
+          masterVolume: value.masterVolume ?? 1,
+          effects,
+        },
+        migrated: value.masterVolume === undefined,
       }
     : null;
 }
@@ -156,6 +163,18 @@ export function publicEffects(room) {
     roomCode: room.roomCode,
     revision: room.effects.revision,
     updatedAtMs: room.effects.updatedAtMs,
+    effects: structuredClone(room.effects.effects),
+  };
+}
+
+export function publicSettingsSync(room) {
+  return {
+    schemaVersion: 1,
+    view: 'settings-sync',
+    roomCode: room.roomCode,
+    revision: room.effects.revision,
+    updatedAtMs: room.effects.updatedAtMs,
+    masterVolume: room.effects.masterVolume ?? 1,
     effects: structuredClone(room.effects.effects),
   };
 }

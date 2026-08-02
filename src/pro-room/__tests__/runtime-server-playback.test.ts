@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { bus } from '../../core/events.ts';
-import { getState, resetState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import { getManagedTimer } from '../../core/timers.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import {
@@ -222,12 +222,13 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
         .spyOn(ProRoomApiClient.prototype, 'createSignalingTicket')
         .mockResolvedValue(signalingAccess()),
       vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(initial),
-      vi.spyOn(ProRoomApiClient.prototype, 'getEffects').mockResolvedValue({
-        schemaVersion: 2,
-        view: 'effects',
+      vi.spyOn(ProRoomApiClient.prototype, 'getSettingsSync').mockResolvedValue({
+        schemaVersion: 1,
+        view: 'settings-sync',
         roomCode: ROOM_CODE,
         revision: 0,
         updatedAtMs: 1,
+        masterVolume: 1,
         effects: createDefaultRoomEffectsState(),
       }),
       vi.spyOn(ProRoomApiClient.prototype, 'getQueueMode').mockResolvedValue({
@@ -881,17 +882,17 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
 
   it('coalesces pending effects and queue-mode GETs then follows the newest revision once', async () => {
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
-    const getEffects = vi.mocked(ProRoomApiClient.prototype.getEffects);
+    const getSettingsSync = vi.mocked(ProRoomApiClient.prototype.getSettingsSync);
     const getQueueMode = vi.mocked(ProRoomApiClient.prototype.getQueueMode);
     await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
     await new Promise((resolve) => setTimeout(resolve, 0));
     heartbeat.mockClear();
-    getEffects.mockClear();
+    getSettingsSync.mockClear();
     getQueueMode.mockClear();
 
-    let resolveEffects!: (value: Awaited<ReturnType<ProRoomApiClient['getEffects']>>) => void;
+    let resolveEffects!: (value: Awaited<ReturnType<ProRoomApiClient['getSettingsSync']>>) => void;
     let resolveQueueMode!: (value: Awaited<ReturnType<ProRoomApiClient['getQueueMode']>>) => void;
-    getEffects.mockImplementationOnce(
+    getSettingsSync.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
           resolveEffects = resolve;
@@ -903,12 +904,13 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
           resolveQueueMode = resolve;
         }),
     );
-    getEffects.mockResolvedValue({
-      schemaVersion: 2,
-      view: 'effects',
+    getSettingsSync.mockResolvedValue({
+      schemaVersion: 1,
+      view: 'settings-sync',
       roomCode: ROOM_CODE,
       revision: 2,
       updatedAtMs: 3,
+      masterVolume: 1,
       effects: createDefaultRoomEffectsState(),
     });
     getQueueMode.mockResolvedValue({
@@ -941,7 +943,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
     );
-    await vi.waitFor(() => expect(getEffects).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(getSettingsSync).toHaveBeenCalledOnce());
     await vi.waitFor(() => expect(getQueueMode).toHaveBeenCalledOnce());
 
     acceptProRoomRealtimeFrameForTests(
@@ -950,15 +952,16 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledTimes(2));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(getEffects).toHaveBeenCalledOnce();
+    expect(getSettingsSync).toHaveBeenCalledOnce();
     expect(getQueueMode).toHaveBeenCalledOnce();
 
     resolveEffects({
-      schemaVersion: 2,
-      view: 'effects',
+      schemaVersion: 1,
+      view: 'settings-sync',
       roomCode: ROOM_CODE,
       revision: 1,
       updatedAtMs: 2,
+      masterVolume: 1,
       effects: createDefaultRoomEffectsState(),
     });
     resolveQueueMode({
@@ -972,34 +975,35 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       shuffleEnabled: false,
       shuffleOrder: [],
     });
-    await vi.waitFor(() => expect(getEffects).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(getSettingsSync).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(getQueueMode).toHaveBeenCalledTimes(2));
 
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 4 }),
     );
     await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledTimes(3));
-    expect(getEffects).toHaveBeenCalledTimes(2);
+    expect(getSettingsSync).toHaveBeenCalledTimes(2);
     expect(getQueueMode).toHaveBeenCalledTimes(2);
   });
 
   it('applies virtual treble when a server invalidation advances the effects revision', async () => {
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
-    const getEffects = vi.mocked(ProRoomApiClient.prototype.getEffects);
+    const getSettingsSync = vi.mocked(ProRoomApiClient.prototype.getSettingsSync);
     await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
-    await vi.waitFor(() => expect(getEffects).toHaveBeenCalled());
+    await vi.waitFor(() => expect(getSettingsSync).toHaveBeenCalled());
     await new Promise((resolve) => setTimeout(resolve, 0));
     heartbeat.mockClear();
-    getEffects.mockClear();
+    getSettingsSync.mockClear();
 
     const effects = createDefaultRoomEffectsState();
     effects.virtualTreble.enabled = true;
-    getEffects.mockResolvedValueOnce({
-      schemaVersion: 2,
-      view: 'effects',
+    getSettingsSync.mockResolvedValueOnce({
+      schemaVersion: 1,
+      view: 'settings-sync',
       roomCode: ROOM_CODE,
       revision: 1,
       updatedAtMs: 2,
+      masterVolume: 1,
       effects,
     });
     heartbeat.mockResolvedValueOnce({
@@ -1015,23 +1019,94 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     );
 
     await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
-    await vi.waitFor(() => expect(getEffects).toHaveBeenCalled());
+    await vi.waitFor(() => expect(getSettingsSync).toHaveBeenCalled());
     await vi.waitFor(() => expect(getState('audio.exciter')).toBe(true));
+  });
+
+  it('preserves a newer settings edit when an older PUT repairs an epoch mismatch', async () => {
+    const getSettingsSync = vi.mocked(ProRoomApiClient.prototype.getSettingsSync);
+    await vi.waitFor(() => expect(getSettingsSync).toHaveBeenCalled());
+    setState('setup.sessionStarted', true);
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    heartbeat.mockClear();
+
+    let rejectFirst!: (error: unknown) => void;
+    const updateSettingsSync = vi
+      .spyOn(ProRoomApiClient.prototype, 'updateSettingsSync')
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectFirst = reject;
+          }),
+      )
+      .mockImplementation(async (input) => ({
+        schemaVersion: 1,
+        view: 'settings-sync',
+        roomCode: ROOM_CODE,
+        revision: 1,
+        updatedAtMs: 2,
+        masterVolume: input.masterVolume,
+        effects: input.effects,
+      }));
+    restoreSpies.push(updateSettingsSync);
+
+    setState('audio.masterVolume', 0.51);
+    await vi.waitFor(() => expect(updateSettingsSync).toHaveBeenCalledOnce());
+    setState('audio.masterVolume', 0.62);
+    rejectFirst(new ProRoomApiError('ROOM_EPOCH_MISMATCH', 409));
+
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    await vi.waitFor(() => expect(updateSettingsSync).toHaveBeenCalledTimes(2));
+    expect(updateSettingsSync.mock.calls[1]?.[0]).toMatchObject({ masterVolume: 0.62 });
+  });
+
+  it('preserves a newer settings edit when an older PUT fails terminally', async () => {
+    const getSettingsSync = vi.mocked(ProRoomApiClient.prototype.getSettingsSync);
+    await vi.waitFor(() => expect(getSettingsSync).toHaveBeenCalled());
+    setState('setup.sessionStarted', true);
+
+    let rejectFirst!: (error: unknown) => void;
+    const updateSettingsSync = vi
+      .spyOn(ProRoomApiClient.prototype, 'updateSettingsSync')
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectFirst = reject;
+          }),
+      )
+      .mockImplementation(async (input) => ({
+        schemaVersion: 1,
+        view: 'settings-sync',
+        roomCode: ROOM_CODE,
+        revision: 1,
+        updatedAtMs: 2,
+        masterVolume: input.masterVolume,
+        effects: input.effects,
+      }));
+    restoreSpies.push(updateSettingsSync);
+
+    setState('audio.masterVolume', 0.41);
+    await vi.waitFor(() => expect(updateSettingsSync).toHaveBeenCalledOnce());
+    setState('audio.masterVolume', 0.73);
+    rejectFirst(new ProRoomApiError('INVALID_EFFECTS', 400));
+
+    await vi.waitFor(() => expect(updateSettingsSync).toHaveBeenCalledTimes(2));
+    expect(updateSettingsSync.mock.calls[1]?.[0]).toMatchObject({ masterVolume: 0.73 });
   });
 
   it('retries one pending effects and queue-mode refresh after the first GET rejects', async () => {
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
-    const getEffects = vi.mocked(ProRoomApiClient.prototype.getEffects);
+    const getSettingsSync = vi.mocked(ProRoomApiClient.prototype.getSettingsSync);
     const getQueueMode = vi.mocked(ProRoomApiClient.prototype.getQueueMode);
     await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
     await new Promise((resolve) => setTimeout(resolve, 0));
     heartbeat.mockClear();
-    getEffects.mockClear();
+    getSettingsSync.mockClear();
     getQueueMode.mockClear();
 
     let rejectEffects!: (error: unknown) => void;
     let rejectQueueMode!: (error: unknown) => void;
-    getEffects
+    getSettingsSync
       .mockImplementationOnce(
         () =>
           new Promise((_resolve, reject) => {
@@ -1039,11 +1114,12 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
           }),
       )
       .mockResolvedValue({
-        schemaVersion: 2,
-        view: 'effects',
+        schemaVersion: 1,
+        view: 'settings-sync',
         roomCode: ROOM_CODE,
         revision: 1,
         updatedAtMs: 2,
+        masterVolume: 1,
         effects: createDefaultRoomEffectsState(),
       });
     getQueueMode
@@ -1080,7 +1156,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
     );
-    await vi.waitFor(() => expect(getEffects).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(getSettingsSync).toHaveBeenCalledOnce());
     await vi.waitFor(() => expect(getQueueMode).toHaveBeenCalledOnce());
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 3 }),
@@ -1089,14 +1165,14 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
 
     rejectEffects(new Error('effects unavailable'));
     rejectQueueMode(new Error('queue mode unavailable'));
-    await vi.waitFor(() => expect(getEffects).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(getSettingsSync).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(getQueueMode).toHaveBeenCalledTimes(2));
 
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 4 }),
     );
     await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledTimes(3));
-    expect(getEffects).toHaveBeenCalledTimes(2);
+    expect(getSettingsSync).toHaveBeenCalledTimes(2);
     expect(getQueueMode).toHaveBeenCalledTimes(2);
   });
 
@@ -1167,7 +1243,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       displayName: 'Peer 2',
       devicePlatform: 'other' as const,
       role: 'controller' as const,
-      capabilities: ['playback.control' as const],
+      capabilities: ['effects.control' as const, 'playback.control' as const],
       joinedAtMs: 2,
     };
     try {

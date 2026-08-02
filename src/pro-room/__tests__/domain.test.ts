@@ -243,8 +243,9 @@ describe('PRO room roles and credentials', () => {
       'members.kick': true,
       'chat.notice': false,
     } as const;
-    expect(capabilitiesForProRoomRole('controller')).toEqual([]);
+    expect(capabilitiesForProRoomRole('controller')).toEqual(['effects.control']);
     expect(capabilitiesForProRoomRole('controller', delegatedPermissions)).toEqual([
+      'effects.control',
       'queue.mutate',
       'playback.control',
       'asset.upload',

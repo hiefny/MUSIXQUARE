@@ -104,11 +104,126 @@ describe('Translation key integrity', () => {
     expect(ko['connect.signaling_healthy']).toBe('연결 서버 정상');
     expect(ko['connect.signaling_recovering']).toBe('연결 복구 중');
     expect(ko['connect.signaling_failed']).toBe('연결 복구 실패');
-    expect(ko['connect.signaling_recover_action']).toBe('연결 복구하기');
+    expect(ko['connect.signaling_recover_action']).toBe('복구');
     expect(ko['connect.signaling_exhausted']).toBe(
       '연결 서버가 응답하지 않아요.\n새 참여자를 초대할 수 없어요.',
     );
     expect(ko['connect.signaling_retry']).toBe('재시도');
+  });
+
+  it('keeps repeated modal actions short without dropping their meaning', () => {
+    const roleActionKeys = ['common.grant', 'common.revoke'] as const;
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      const administratorRole = dict['connect.administrator_role'].toLocaleLowerCase();
+      for (const key of roleActionKeys) {
+        const label = dict[key].toLocaleLowerCase();
+        expect(label, `${locale}.${key}`).not.toContain(administratorRole);
+      }
+
+      expect(dict['connect.signaling_recover_action'], `${locale}.recovery action`).toBeTruthy();
+      expect(dict['pro.use_this_tab'], `${locale}.PRO tab action`).toBeTruthy();
+    }
+
+    expect(en['common.grant']).toBe('Grant');
+    expect(en['common.revoke']).toBe('Revoke');
+    expect(en['connect.signaling_recover_action']).toBe('Restore');
+    expect(en['pro.use_this_tab']).toBe('Use this tab');
+    expect(ko['common.grant']).toBe('부여');
+    expect(ko['common.revoke']).toBe('해제');
+    expect(ko['pro.use_this_tab']).toBe('이 탭 사용');
+  });
+
+  it('keeps every code-used modal action contextual and safety-distinct', () => {
+    // Inventory from the actual dialog/account/connect/PRO button call sites.
+    // These labels may wrap responsively, but the translation itself must stay
+    // a clean action rather than carrying title/body copy or interpolation.
+    const actionKeys = [
+      'common.ok',
+      'common.cancel',
+      'common.close',
+      'common.retry',
+      'common.later',
+      'common.refresh',
+      'common.reset',
+      'common.leave',
+      'common.stay',
+      'common.next',
+      'common.start',
+      'common.done',
+      'common.grant',
+      'common.revoke',
+      'connect.signaling_recover_action',
+      'connect.signaling_retry',
+      'connect.kick_yes',
+      'dialog.got_it',
+      'dialog.continue',
+      'dialog.reconnect',
+      'dialog.go_back',
+      'dialog.session_lost_btn',
+      'account.google_continue',
+      'account.change_nickname',
+      'account.logout',
+      'account.delete_account',
+      'pro.claim_login_button',
+      'pro.use_this_tab',
+    ] as const;
+    const safetyDistinctPairs = [
+      ['common.grant', 'common.revoke'],
+      ['connect.signaling_recover_action', 'connect.signaling_retry'],
+      ['connect.kick_yes', 'common.cancel'],
+      ['account.logout', 'account.delete_account'],
+      ['account.delete_account', 'common.ok'],
+      ['account.delete_account', 'common.cancel'],
+      ['account.delete_account', 'common.close'],
+      ['pro.claim_login_button', 'common.cancel'],
+      ['pro.use_this_tab', 'common.cancel'],
+    ] as const;
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      for (const key of actionKeys) {
+        const label = dict[key];
+        expect(label, `${locale}.${key} surrounding whitespace`).toBe(label.trim());
+        expect(label, `${locale}.${key} multiline copy`).not.toMatch(/[\r\n]/);
+        expect(label, `${locale}.${key} interpolation`).not.toContain('{{');
+      }
+
+      expect(dict['account.google_continue'], `${locale}.account.google_continue`).toContain(
+        'Google',
+      );
+      for (const [leftKey, rightKey] of safetyDistinctPairs) {
+        expect(
+          dict[leftKey].toLocaleLowerCase(),
+          `${locale}.${leftKey} must differ from ${rightKey}`,
+        ).not.toBe(dict[rightKey].toLocaleLowerCase());
+      }
+    }
+
+    // Destructive and authentication actions deliberately retain their
+    // explicit object/intent even though contextual role actions got shorter.
+    expect(en['account.delete_account']).toBe('Delete account');
+    expect(en['pro.claim_login_button']).toBe('Sign in');
+    expect(en['connect.kick_yes']).toBe('Kick');
+    expect(ko['account.delete_account']).toBe('계정 삭제');
+    expect(ko['pro.claim_login_button']).toBe('로그인');
+    expect(ko['connect.kick_yes']).toBe('내보내기');
+  });
+
+  it('explains settings sync on and off behavior in every locale', () => {
+    for (const [locale, dict] of Object.entries(locales)) {
+      expect(dict['settings.sync_settings'], `${locale}.settings.sync_settings`).toBeTruthy();
+      expect(
+        dict['settings.sync_settings_desc'],
+        `${locale}.settings.sync_settings_desc`,
+      ).toBeTruthy();
+    }
+
+    expect(en['settings.sync_settings']).toBe('Settings sync');
+    expect(en['settings.sync_settings_desc']).toContain('host or admin');
+    expect(en['settings.sync_settings_desc']).toContain('Off');
+    expect(ko['settings.sync_settings']).toBe('설정 동기화');
+    expect(ko['settings.sync_settings_desc']).toContain('방장·관리자');
+    expect(ko['settings.sync_settings_desc']).toContain('끄면');
   });
 
   it('uses one consistent Korean honorific form for presence messages', () => {

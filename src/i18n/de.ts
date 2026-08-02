@@ -84,8 +84,8 @@ const de: Record<I18nKey, string> = {
   'common.woofer': 'Woofer',
   'common.connected': 'Verbunden',
   'common.disconnected': 'Getrennt',
-  'common.revoke': 'Administrator-Rechte entziehen',
-  'common.grant': 'Administrator-Rechte erteilen',
+  'common.revoke': 'Entziehen',
+  'common.grant': 'Erteilen',
   'common.system': 'System',
   'common.unknown': 'Unbekannt',
   'common.youtube_video': 'YouTube-Video',
@@ -111,6 +111,9 @@ const de: Record<I18nKey, string> = {
   // Settings
   'settings.theme': 'Design',
   'settings.ui_sounds': 'UI-Töne',
+  'settings.sync_settings': 'Einstellungen synchronisieren',
+  'settings.sync_settings_desc':
+    'Ein übernimmt Lautstärke und Audioeffekte des Hosts oder Administrators, der zuletzt synchronisiert hat. Aus verwendet die eigenen Einstellungen dieses Geräts.',
   'settings.dark': 'Dunkel',
   'settings.light': 'Hell',
   'settings.visualizer': 'Visualisierung',
@@ -262,7 +265,7 @@ const de: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Raumserver online',
   'connect.signaling_recovering': 'Serververbindung wird wiederhergestellt',
   'connect.signaling_failed': 'Serververbindung fehlgeschlagen',
-  'connect.signaling_recover_action': 'Serververbindung wiederherstellen',
+  'connect.signaling_recover_action': 'Wiederherstellen',
   'connect.signaling_recovery_wait': 'Der Raumserver wird erneut geprüft.',
   'connect.signaling_reconnecting':
     'Verbindung zum Raumserver wird wiederhergestellt · {{attempt}}/{{max}}',
@@ -587,8 +590,8 @@ const de: Record<I18nKey, string> = {
   'dialog.background_resume_sync_fallback_message':
     'Wenn Sync nicht stimmt oder kein Audio spielt, schließe die App vollständig und öffne sie erneut.',
   'dialog.got_it': 'Verstanden',
-  'dialog.continue_using': 'Weiter verwenden',
-  'dialog.leave_session': 'Raum verlassen',
+  'dialog.continue_using': 'Weiter',
+  'dialog.leave_session': 'Verlassen',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'Eine neue Version ist bereit. Lade die Seite neu, um sie anzuwenden.',
   'dialog.reconnect_ask': 'Möchtest du dich erneut verbinden?',
@@ -649,7 +652,7 @@ const de: Record<I18nKey, string> = {
   'pro.connect_failed': 'Verbindung zum PRO-Raum fehlgeschlagen.',
   'pro.active_tab_title': 'Dieser PRO-Raum ist bereits in einem anderen Tab geöffnet',
   'pro.active_tab_message': 'Wenn du hier fortfährst, wird der bisherige Tab getrennt.',
-  'pro.use_this_tab': 'Übernehmen',
+  'pro.use_this_tab': 'Diesen Tab nutzen',
   'pro.upload.batch_progress': 'Tracks werden hochgeladen {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Einige Tracks konnten nicht hochgeladen werden',
   'pro.upload.batch_failed_message':

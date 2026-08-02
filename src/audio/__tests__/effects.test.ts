@@ -13,15 +13,22 @@ import {
   resetStereoWidth,
   setVirtualBass,
   resetVirtualBass,
-  applyRoomEffectsState,
+  applyRoomEffectsStateForTests as applyRoomEffectsState,
   captureRoomEffectsState,
+  captureRoomSettingsSyncState,
   initEffectsHandlers,
+  isDeviceLocalEffectTypeForTests as isDeviceLocalEffectType,
+  publishLocalSettingsAuthorityForTests as publishLocalSettingsAuthority,
+  resetSettingsSyncAuthorityForTests,
+  setSettingsSyncEnabled,
 } from '../effects.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
 beforeEach(() => {
+  localStorage.clear();
   resetState();
   bus.clear();
+  resetSettingsSyncAuthorityForTests();
 });
 
 afterEach(() => {
@@ -47,6 +54,20 @@ function makeConnectedPeer(id: string, isOp: boolean): ConnectedPeer {
     lastHeartbeat: 0,
   };
 }
+
+const synchronizedEffects = {
+  reverb: {
+    mixPercent: 40,
+    decaySeconds: 1,
+    preDelaySeconds: 0.02,
+    lowCutPercent: 10,
+    highCutPercent: 30,
+  },
+  equalizer: { bandsDb: [0, -2, 0, 4, 6] as [number, number, number, number, number] },
+  virtualBass: { strengthPercent: 60 },
+  virtualSurround: { widthPercent: 120 },
+  virtualTreble: { enabled: true },
+};
 
 describe('setPreamp', () => {
   it('0 dB → gain 1.0', () => {
@@ -179,6 +200,446 @@ describe('standard-room virtual treble synchronization', () => {
   });
 });
 
+describe('atomic settings synchronization', () => {
+  beforeEach(() => {
+    initEffectsHandlers();
+    setState('setup.sessionStarted', true);
+  });
+
+  it('defaults ON and restores an explicit per-device OFF preference', () => {
+    expect(getState('audio.settingsSyncEnabled')).toBe(true);
+    setSettingsSyncEnabled(false);
+    expect(localStorage.getItem('musixquare-settings-sync')).toBe('off');
+
+    resetState();
+    expect(getState('audio.settingsSyncEnabled')).toBe(false);
+  });
+
+  it('lets sequence zero bootstrap a fresh follower and applies volume plus every effect', async () => {
+    const host = { peer: 'host', open: true, send: vi.fn() } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    resetSettingsSyncAuthorityForTests();
+
+    await handleData(
+      {
+        type: MSG.SETTINGS_SYNC_SNAPSHOT,
+        version: 1,
+        epoch: 0,
+        sequence: 0,
+        settings: { masterVolume: 0.42, effects: synchronizedEffects },
+      },
+      host,
+    );
+
+    expect(getState('audio.masterVolume')).toBe(0.42);
+    expect(captureRoomEffectsState()).toEqual(synchronizedEffects);
+  });
+
+  it('caches while OFF and safely reapplies the same canonical sequence after opt-in', async () => {
+    const host = { peer: 'host', open: true, send: vi.fn() } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    setSettingsSyncEnabled(false);
+    const frame = {
+      type: MSG.SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+      epoch: 0,
+      sequence: 3,
+      settings: { masterVolume: 0.35, effects: synchronizedEffects },
+    } as const;
+
+    await handleData(frame, host);
+    expect(getState('audio.masterVolume')).toBe(1);
+    expect(getState('audio.virtualBass')).toBe(0);
+
+    setSettingsSyncEnabled(true);
+    expect(host.send).toHaveBeenCalledWith({
+      type: MSG.REQUEST_SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+    });
+    await handleData(frame, host);
+    expect(getState('audio.masterVolume')).toBe(0.35);
+    expect(getState('audio.virtualBass')).toBe(0.6);
+  });
+
+  it('keeps an OFF administrator local, then publishes one complete snapshot when ON', () => {
+    const send = vi.fn();
+    const host = { peer: 'host', open: true, send } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['effects.control']);
+    setSettingsSyncEnabled(false);
+    setState('audio.masterVolume', 0.28);
+    applyRoomEffectsState(synchronizedEffects);
+
+    expect(publishLocalSettingsAuthority()).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+
+    const publishEvent = vi.fn();
+    bus.on('settings-sync:publish-local', publishEvent);
+    setSettingsSyncEnabled(true);
+    expect(publishEvent).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith({
+      type: MSG.PUBLISH_SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+      settings: { masterVolume: 0.28, effects: synchronizedEffects },
+    });
+  });
+
+  it('retains one room-bound full publish across a closed host connection and bootstrap', async () => {
+    const send = vi.fn();
+    const host = { peer: 'host', open: false, send } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['effects.control']);
+    resetSettingsSyncAuthorityForTests();
+    setSettingsSyncEnabled(false);
+    setState('audio.masterVolume', 0.28);
+    applyRoomEffectsState(synchronizedEffects);
+
+    setSettingsSyncEnabled(true);
+    expect(send).not.toHaveBeenCalled();
+
+    await handleData(
+      {
+        type: MSG.SETTINGS_SYNC_SNAPSHOT,
+        version: 1,
+        epoch: 0,
+        sequence: 0,
+        settings: {
+          masterVolume: 0.75,
+          effects: {
+            ...synchronizedEffects,
+            virtualBass: { strengthPercent: 10 },
+          },
+        },
+      },
+      host,
+    );
+    expect(getState('audio.masterVolume')).toBe(0.28);
+    setState('audio.masterVolume', 0.31);
+    expect(publishLocalSettingsAuthority()).toBe(false);
+
+    setState('network.standardRoomCapabilities', null);
+    setState('network.isOperator', false);
+    (host as { open: boolean }).open = true;
+    bus.emit('network:peer-connected', host);
+    expect(send).not.toHaveBeenCalled();
+    setState('network.isOperator', true);
+    expect(send).not.toHaveBeenCalled();
+    setState('network.standardRoomCapabilities', ['effects.control']);
+    bus.emit('network:peer-connected', host);
+
+    expect(send).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith({
+      type: MSG.PUBLISH_SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+      settings: { masterVolume: 0.31, effects: synchronizedEffects },
+    });
+  });
+
+  it('replaces a retained takeover with the latest edit before an early-open flush', () => {
+    const send = vi.fn();
+    const host = { peer: 'host', open: false, send } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['effects.control']);
+    setSettingsSyncEnabled(false);
+    setState('audio.masterVolume', 0.28);
+    applyRoomEffectsState(synchronizedEffects);
+    setSettingsSyncEnabled(true);
+
+    // RTC open can precede peer-connected and the host's definitive grant or
+    // revoke projection. The explicit edit in this window must replace, not
+    // trail, the retained 0.28 takeover.
+    (host as { open: boolean }).open = true;
+    setState('audio.masterVolume', 0.44);
+    expect(publishLocalSettingsAuthority()).toBe(true);
+
+    expect(send).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith({
+      type: MSG.PUBLISH_SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+      settings: { masterVolume: 0.44, effects: synchronizedEffects },
+    });
+  });
+
+  it('retains the latest administrator publish when an open channel send throws', () => {
+    const send = vi.fn<(value: unknown) => void>().mockImplementationOnce(() => {
+      throw new Error('data channel closing');
+    });
+    const host = { peer: 'host', open: true, send } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['effects.control']);
+    setState('audio.masterVolume', 0.46);
+    applyRoomEffectsState(synchronizedEffects);
+
+    expect(publishLocalSettingsAuthority()).toBe(false);
+    expect(send).toHaveBeenCalledOnce();
+
+    bus.emit('network:peer-connected', host);
+
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenLastCalledWith({
+      type: MSG.PUBLISH_SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+      settings: { masterVolume: 0.46, effects: synchronizedEffects },
+    });
+  });
+
+  it('retains a follower canonical request when an open channel send throws', async () => {
+    const send = vi.fn<(value: unknown) => void>().mockImplementationOnce(() => {
+      throw new Error('data channel closing');
+    });
+    const host = { peer: 'host', open: true, send } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    setState('network.isOperator', false);
+    setState('network.standardRoomCapabilities', null);
+    setSettingsSyncEnabled(false);
+    setState('audio.masterVolume', 0.19);
+
+    expect(() => setSettingsSyncEnabled(true)).not.toThrow();
+    expect(send).toHaveBeenCalledOnce();
+    // The retained canonical baseline replaces divergent OFF-local state while
+    // the re-request waits for the replacement data channel.
+    expect(getState('audio.masterVolume')).toBe(1);
+
+    bus.emit('network:peer-connected', host);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenLastCalledWith({
+      type: MSG.REQUEST_SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+    });
+
+    await handleData(
+      {
+        type: MSG.SETTINGS_SYNC_SNAPSHOT,
+        version: 1,
+        epoch: 0,
+        sequence: 1,
+        settings: { masterVolume: 0.63, effects: synchronizedEffects },
+      },
+      host,
+    );
+    expect(getState('audio.masterVolume')).toBe(0.63);
+  });
+
+  it('discards a disconnected pending publish on explicit revoke or room change', () => {
+    const send = vi.fn();
+    const host = { peer: 'host', open: false, send } as unknown as DataConnection;
+    setState('room.context', { ...getState('room.context'), roomId: '123456' });
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['effects.control']);
+    setSettingsSyncEnabled(false);
+    setSettingsSyncEnabled(true);
+
+    bus.emit('settings-sync:authority-revoked');
+    (host as { open: boolean }).open = true;
+    bus.emit('network:peer-connected', host);
+    expect(send).not.toHaveBeenCalled();
+
+    (host as { open: boolean }).open = false;
+    setSettingsSyncEnabled(false);
+    setSettingsSyncEnabled(true);
+    setState('room.context', { ...getState('room.context'), roomId: '654321' });
+    (host as { open: boolean }).open = true;
+    bus.emit('network:peer-connected', host);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('preserves a bootstrap accepted before sessionStarted and resets it only on leave', async () => {
+    const host = { peer: 'host', open: true, send: vi.fn() } as unknown as DataConnection;
+    setState('setup.sessionStarted', false);
+    resetSettingsSyncAuthorityForTests();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    const bootstrap = {
+      type: MSG.SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+      epoch: 0,
+      sequence: 0,
+      settings: { masterVolume: 0.42, effects: synchronizedEffects },
+    } as const;
+    await handleData(bootstrap, host);
+
+    setState('setup.sessionStarted', true);
+    await handleData(
+      { ...bootstrap, settings: { ...bootstrap.settings, masterVolume: 0.9 } },
+      host,
+    );
+    expect(getState('audio.masterVolume')).toBe(0.42);
+
+    setState('setup.sessionStarted', false);
+    setState('audio.masterVolume', 0.7);
+    setState('setup.sessionStarted', true);
+    await handleData(
+      { ...bootstrap, settings: { ...bootstrap.settings, masterVolume: 0.9 } },
+      host,
+    );
+    expect(getState('audio.masterVolume')).toBe(0.9);
+  });
+
+  it('never uses the standard P2P settings authority transport in a PRO room', async () => {
+    const send = vi.fn();
+    const peer = { peer: 'pro-peer', open: true, send } as unknown as DataConnection;
+    setState('room.context', {
+      ...getState('room.context'),
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      capabilities: ['effects.control'],
+    });
+    setState('network.appRole', 'host');
+    setState('network.isOperator', true);
+    setState('network.connectedPeers', [
+      {
+        ...makeConnectedPeer(peer.peer, true),
+        conn: peer,
+        roomCapabilities: ['effects.control'],
+      },
+    ]);
+    setState('network.activeHostConnByPeerId', new Map([[peer.peer, peer]]));
+
+    expect(publishLocalSettingsAuthority()).toBe(true);
+    bus.emit('network:peer-connected', peer);
+    await handleData(
+      {
+        type: MSG.PUBLISH_SETTINGS_SYNC_SNAPSHOT,
+        version: 1,
+        settings: { masterVolume: 0.2, effects: synchronizedEffects },
+      },
+      peer,
+    );
+
+    expect(send).not.toHaveBeenCalled();
+    expect(getState('audio.masterVolume')).toBe(1);
+    expect(captureRoomEffectsState()).not.toEqual(synchronizedEffects);
+  });
+
+  it('classifies subwoofer cutoff as a device-local effect', () => {
+    expect(isDeviceLocalEffectType('cutoff')).toBe(true);
+    expect(isDeviceLocalEffectType('reverb')).toBe(false);
+  });
+
+  it('lets an OFF host relay successive admins without applying their canonical state locally', async () => {
+    const adminA = { peer: 'admin-a', open: true, send: vi.fn() } as unknown as DataConnection;
+    const adminB = { peer: 'admin-b', open: true, send: vi.fn() } as unknown as DataConnection;
+    const followerSend = vi.fn();
+    const follower = {
+      peer: 'follower',
+      open: true,
+      send: followerSend,
+    } as unknown as DataConnection;
+    const peers = [adminA, adminB, follower].map((conn) => ({
+      ...makeConnectedPeer(conn.peer, conn !== follower),
+      conn,
+      roomCapabilities: conn === follower ? [] : ['effects.control' as const],
+    }));
+    setState('network.appRole', 'host');
+    setState('network.connectedPeers', peers);
+    setState('network.activeHostConnByPeerId', new Map(peers.map((peer) => [peer.id, peer.conn!])));
+    setSettingsSyncEnabled(false);
+    setState('audio.masterVolume', 0.91);
+
+    await handleData(
+      {
+        type: MSG.PUBLISH_SETTINGS_SYNC_SNAPSHOT,
+        version: 1,
+        settings: { masterVolume: 0.2, effects: synchronizedEffects },
+      },
+      adminA,
+    );
+    const newerEffects = {
+      ...synchronizedEffects,
+      virtualBass: { strengthPercent: 25 },
+    };
+    await handleData(
+      {
+        type: MSG.PUBLISH_SETTINGS_SYNC_SNAPSHOT,
+        version: 1,
+        settings: { masterVolume: 0.7, effects: newerEffects },
+      },
+      adminB,
+    );
+
+    expect(getState('audio.masterVolume')).toBe(0.91);
+    const atomicFrames = followerSend.mock.calls
+      .map(([value]) => value)
+      .filter((value) => value.type === MSG.SETTINGS_SYNC_SNAPSHOT);
+    expect(atomicFrames).toHaveLength(2);
+    expect(atomicFrames[0]).toMatchObject({ sequence: 1, settings: { masterVolume: 0.2 } });
+    expect(atomicFrames[1]).toMatchObject({
+      sequence: 2,
+      settings: { masterVolume: 0.7, effects: newerEffects },
+    });
+  });
+
+  it('never seeds a fresh OFF coordinator cache from its private local settings', () => {
+    const send = vi.fn();
+    const follower = { peer: 'follower', open: true, send } as unknown as DataConnection;
+    setState('network.appRole', 'host');
+    setSettingsSyncEnabled(false);
+    resetSettingsSyncAuthorityForTests();
+    setState('audio.masterVolume', 0.17);
+    applyRoomEffectsState(synchronizedEffects);
+
+    bus.emit('network:peer-connected', follower);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.SETTINGS_SYNC_SNAPSHOT,
+        settings: {
+          masterVolume: 1,
+          effects: expect.objectContaining({
+            equalizer: { bandsDb: [0, 0, 0, 0, 0] },
+            virtualBass: { strengthPercent: 0 },
+          }),
+        },
+      }),
+    );
+  });
+
+  it('rejects stale, equal-sequence conflicting, malformed, and non-host snapshots', async () => {
+    const host = { peer: 'host', open: true, send: vi.fn() } as unknown as DataConnection;
+    const attacker = makeConnection('attacker');
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    const accepted = {
+      type: MSG.SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+      epoch: 2,
+      sequence: 5,
+      settings: { masterVolume: 0.4, effects: synchronizedEffects },
+    } as const;
+    await handleData(accepted, host);
+
+    await handleData(
+      { ...accepted, sequence: 4, settings: { ...accepted.settings, masterVolume: 0.1 } },
+      host,
+    );
+    await handleData({ ...accepted, settings: { ...accepted.settings, masterVolume: 0.8 } }, host);
+    await handleData(
+      { ...accepted, sequence: 6, settings: { ...accepted.settings, masterVolume: 2 } },
+      host,
+    );
+    await handleData(
+      { ...accepted, sequence: 7, settings: { ...accepted.settings, masterVolume: 0.9 } },
+      attacker,
+    );
+
+    expect(captureRoomSettingsSyncState()).toEqual(accepted.settings);
+  });
+});
+
 describe('request-eq-reset authorization', () => {
   beforeEach(() => {
     initEffectsHandlers();
@@ -194,7 +655,7 @@ describe('request-eq-reset authorization', () => {
     expect(getState('audio.eqValues')).toEqual([1, 2, 3, 4, 5]);
   });
 
-  it('keeps room effects host-only for standard administrators', async () => {
+  it('allows a standard administrator to reset synchronized room effects', async () => {
     const conn = makeConnection('guest-op');
     setState('network.appRole', 'host');
     setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
@@ -204,7 +665,7 @@ describe('request-eq-reset authorization', () => {
 
     await handleData({ type: MSG.REQUEST_EQ_RESET }, conn);
 
-    expect(getState('audio.eqValues')).toEqual([1, 2, 3, 4, 5]);
-    expect(getState('audio.userPreampGain')).toBe(2);
+    expect(getState('audio.eqValues')).toEqual([0, 0, 0, 0, 0]);
+    expect(getState('audio.userPreampGain')).toBe(1);
   });
 });

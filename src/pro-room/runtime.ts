@@ -15,10 +15,16 @@ import { announceTracksAddedLocally } from '../chat/queue-events.ts';
 import { announceSystemMessageLocally, receiveProRoomRealtimeChat } from '../chat/protocol.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { showLoader, updateLoader } from '../ui/toast.ts';
-import { applyRoomEffectsState, captureRoomEffectsState } from '../audio/effects.ts';
+import {
+  acceptCanonicalRoomSettings,
+  canPublishSynchronizedSettings,
+  captureRoomEffectsState,
+  captureRoomSettingsSyncState,
+  isSettingsSyncEnabled,
+} from '../audio/effects.ts';
 import {
   roomEffectsEqual,
-  type ProRoomEffectsSnapshot,
+  type ProRoomSettingsSyncSnapshot,
   type RoomEffectsState,
 } from '../core/room-effects.ts';
 import { applyPlaylistSnapshot, moveQueueItemBefore } from '../player/queue-model.ts';
@@ -74,7 +80,12 @@ import type {
   ProRoomSnapshot,
 } from './contracts.ts';
 import { queueModeMatchesPlaylist, type ProRoomQueueModeSnapshot } from './queue-mode.ts';
-import { rebaseRoomEffectsIntent } from './effects-reconciliation.ts';
+import { rebaseRoomSettingsIntent } from './effects-reconciliation.ts';
+import {
+  isTransientSettingsSyncFailure,
+  SettingsSyncCheckpointState,
+  type SettingsSyncCheckpointToken,
+} from './settings-sync-retry.ts';
 import {
   diffProPresenceMembers,
   projectAuthoritativeProDevices,
@@ -199,8 +210,10 @@ let playlistRuntimeGeneration = 0;
 let playlistRuntimeLease: PlaylistRuntimeLease | null = null;
 let effectsMutationTail: Promise<void> = Promise.resolve();
 let effectsRefreshInFlight: PersistedStateRefreshFlight | null = null;
-let acceptedEffects: ProRoomEffectsSnapshot | null = null;
+let acceptedEffects: ProRoomSettingsSyncSnapshot | null = null;
 let suppressEffectsCheckpoint = false;
+let effectsSessionBaseline: ReturnType<typeof captureRoomSettingsSyncState> | null = null;
+const effectsCheckpointState = new SettingsSyncCheckpointState();
 let queueModeMutationTail: Promise<void> = Promise.resolve();
 let queueModeRefreshInFlight: PersistedStateRefreshFlight | null = null;
 let acceptedQueueMode: ProRoomQueueModeSnapshot | null = null;
@@ -1547,6 +1560,8 @@ function resetPlaylistRuntime(): void {
   effectsRefreshInFlight = null;
   acceptedEffects = null;
   suppressEffectsCheckpoint = false;
+  effectsSessionBaseline = null;
+  effectsCheckpointState.cancel();
   clearManagedTimer(EFFECTS_CHECKPOINT_DEBOUNCE_TIMER);
   queueModeMutationTail = Promise.resolve();
   queueModeRefreshInFlight = null;
@@ -1577,6 +1592,10 @@ function resetPlaylistRuntime(): void {
 function ensurePlaylistManager(snapshot: ProRoomSnapshot): ProRoomPlaylistStateManager {
   if (playlistManager && playlistRoomCode === snapshot.roomCode) return playlistManager;
   resetPlaylistRuntime();
+  // This is the pre-hydration device baseline. If the initial GET fails and
+  // the user edits a control, only the delta from this baseline is rebased
+  // onto canonical state; untouched local defaults never overwrite the room.
+  effectsSessionBaseline = captureRoomSettingsSyncState();
   playlistRuntimeAbort = new AbortController();
   playlistRoomCode = snapshot.roomCode;
   const lease: PlaylistRuntimeLease = {
@@ -1693,83 +1712,302 @@ function effectsRuntimeSnapshot(): ProRoomSnapshot | null {
   return playlistManager?.snapshot ?? controller.snapshot;
 }
 
-function applyCanonicalRoomEffects(effects: RoomEffectsState): boolean {
+function applyCanonicalRoomEffects(effects: RoomEffectsState, masterVolume: number): boolean {
   suppressEffectsCheckpoint = true;
   try {
-    // PRO effect state is server-fanned-out. Applying it locally must never
+    // PRO settings state is server-fanned-out. Applying it locally must never
     // create a second browser-originated broadcast path.
-    return applyRoomEffectsState(effects, { broadcast: false });
+    return acceptCanonicalRoomSettings(effects, masterVolume);
   } finally {
     suppressEffectsCheckpoint = false;
   }
 }
 
+function cancelEffectsCheckpoint(): void {
+  clearManagedTimer(EFFECTS_CHECKPOINT_DEBOUNCE_TIMER);
+  effectsCheckpointState.cancel();
+}
+
+function isCurrentEffectsCheckpointToken(token: SettingsSyncCheckpointToken): boolean {
+  return effectsCheckpointState.dirty && token.revision === effectsCheckpointState.revision;
+}
+
+/**
+ * Cancel only the attempt that still owns the current local intent. An older
+ * request may settle after a newer audio edit has already installed its own
+ * dirty revision and debounce timer; that stale result must be a no-op.
+ */
+function cancelCurrentEffectsCheckpoint(token: SettingsSyncCheckpointToken): boolean {
+  if (!isCurrentEffectsCheckpointToken(token)) return false;
+  cancelEffectsCheckpoint();
+  return true;
+}
+
+function hasEffectsCheckpointAuthority(lease: PlaylistRuntimeLease | null): boolean {
+  return !!(
+    active &&
+    lease &&
+    isPlaylistLeaseCurrent(lease) &&
+    isSettingsSyncEnabled() &&
+    canPublishSynchronizedSettings()
+  );
+}
+
+function armEffectsCheckpoint(delayMs: number, lease = playlistRuntimeLease): void {
+  if (!hasEffectsCheckpointAuthority(lease) || !lease || !effectsCheckpointState.dirty) {
+    cancelEffectsCheckpoint();
+    return;
+  }
+  const generation = lease.generation;
+  const roomCode = lease.roomCode;
+  setManagedTimer(
+    EFFECTS_CHECKPOINT_DEBOUNCE_TIMER,
+    () => {
+      const currentLease = playlistRuntimeLease;
+      if (
+        !currentLease ||
+        currentLease.generation !== generation ||
+        currentLease.roomCode !== roomCode ||
+        !hasEffectsCheckpointAuthority(currentLease)
+      ) {
+        cancelEffectsCheckpoint();
+        return;
+      }
+      void persistRoomEffects();
+    },
+    delayMs,
+  );
+}
+
+function scheduleEffectsCheckpointRetry(
+  token: SettingsSyncCheckpointToken,
+  error: unknown,
+  lease: PlaylistRuntimeLease,
+): void {
+  if (!hasEffectsCheckpointAuthority(lease)) {
+    cancelEffectsCheckpoint();
+    return;
+  }
+  // A newer edit already installed its own debounce timer and reset backoff.
+  if (token.revision !== effectsCheckpointState.revision) return;
+  const retryAfterMs =
+    error instanceof ProRoomApiError && error.retryAfterSeconds !== null
+      ? error.retryAfterSeconds * 1_000
+      : 0;
+  const delay = effectsCheckpointState.nextRetryDelay(token, retryAfterMs);
+  if (delay === null) return;
+  armEffectsCheckpoint(delay, lease);
+}
+
+function reconcileEffectsCheckpointEpoch(
+  token: SettingsSyncCheckpointToken,
+  error: ProRoomApiError,
+  lease: PlaylistRuntimeLease,
+): void {
+  void runHeartbeat(true, true)
+    .then(() => {
+      if (!hasEffectsCheckpointAuthority(lease)) {
+        cancelEffectsCheckpoint();
+        return;
+      }
+      // The heartbeat repaired room authority for the runtime, but this
+      // request no longer owns retry scheduling when a newer edit exists.
+      if (!isCurrentEffectsCheckpointToken(token)) return;
+      armEffectsCheckpoint(EFFECTS_CHECKPOINT_DEBOUNCE_MS, lease);
+    })
+    .catch((heartbeatError) => {
+      if (hasEffectsCheckpointAuthority(lease)) {
+        scheduleEffectsCheckpointRetry(token, heartbeatError, lease);
+      } else {
+        cancelEffectsCheckpoint();
+      }
+      log.warn('[PRO] Settings checkpoint epoch reconciliation failed', error);
+    });
+}
+
+function rebaseEffectsCheckpointIntent(
+  previousBase: ProRoomSettingsSyncSnapshot | null,
+  desiredBeforeRead: RoomEffectsState,
+  desiredVolumeBeforeRead: number,
+  canonical: ProRoomSettingsSyncSnapshot,
+  latestLocal: RoomEffectsState,
+  latestLocalVolume: number,
+  forceFullPublish: boolean,
+): { effects: RoomEffectsState; masterVolume: number } {
+  const attributableBase = previousBase ?? effectsSessionBaseline;
+  const rebased = rebaseRoomSettingsIntent(
+    attributableBase,
+    { effects: desiredBeforeRead, masterVolume: desiredVolumeBeforeRead },
+    canonical,
+    forceFullPublish,
+  );
+  return rebaseRoomSettingsIntent(
+    { effects: desiredBeforeRead, masterVolume: desiredVolumeBeforeRead },
+    { effects: latestLocal, masterVolume: latestLocalVolume },
+    rebased,
+  );
+}
+
 async function persistRoomEffects(): Promise<void> {
   const lease = playlistRuntimeLease;
-  if (!active || suppressEffectsCheckpoint || !lease) return;
+  if (!hasEffectsCheckpointAuthority(lease) || !lease || suppressEffectsCheckpoint) {
+    cancelEffectsCheckpoint();
+    return;
+  }
+  const token = effectsCheckpointState.begin();
+  if (!token) return;
   await enqueueEffectsMutation(async () => {
     const snapshot = effectsRuntimeSnapshot();
-    if (!active || !isPlaylistLeaseCurrent(lease) || snapshot?.roomCode !== lease.roomCode) {
+    if (
+      !hasEffectsCheckpointAuthority(lease) ||
+      suppressEffectsCheckpoint ||
+      snapshot?.roomCode !== lease.roomCode
+    ) {
+      cancelEffectsCheckpoint();
       return;
     }
     let desired = captureRoomEffectsState();
+    let desiredVolume = getState('audio.masterVolume');
+    const forceFullPublish = token.fullPublishIntent !== 0;
     let base = acceptedEffects?.roomCode === snapshot.roomCode ? acceptedEffects : null;
     try {
       if (!base || snapshot.effectsRevision > base.revision) {
         const previousBase = base;
         const desiredBeforeRead = desired;
-        const canonical = await api.getEffects(snapshot.roomCode, playlistRuntimeAbort?.signal);
-        if (!active || !isPlaylistLeaseCurrent(lease)) return;
+        const desiredVolumeBeforeRead = desiredVolume;
+        const canonical = await api.getSettingsSync(
+          snapshot.roomCode,
+          playlistRuntimeAbort?.signal,
+        );
+        if (!hasEffectsCheckpointAuthority(lease)) {
+          cancelEffectsCheckpoint();
+          return;
+        }
         const latestLocal = captureRoomEffectsState();
-        desired = previousBase
-          ? rebaseRoomEffectsIntent(previousBase.effects, desiredBeforeRead, canonical.effects)
-          : desiredBeforeRead;
-        // Preserve adjustments made while the canonical GET was in flight.
-        desired = rebaseRoomEffectsIntent(desiredBeforeRead, latestLocal, desired);
+        const latestLocalVolume = getState('audio.masterVolume');
+        const rebased = rebaseEffectsCheckpointIntent(
+          previousBase,
+          desiredBeforeRead,
+          desiredVolumeBeforeRead,
+          canonical,
+          latestLocal,
+          latestLocalVolume,
+          forceFullPublish,
+        );
+        desired = rebased.effects;
+        desiredVolume = rebased.masterVolume;
         base = canonical;
         acceptedEffects = canonical;
-        if (!roomEffectsEqual(latestLocal, desired)) applyCanonicalRoomEffects(desired);
+        if (!roomEffectsEqual(latestLocal, desired) || latestLocalVolume !== desiredVolume) {
+          applyCanonicalRoomEffects(desired, desiredVolume);
+        }
       }
 
       for (let attempt = 0; attempt < 2; attempt += 1) {
-        if (roomEffectsEqual(base.effects, desired)) return;
+        if (!hasEffectsCheckpointAuthority(lease)) {
+          cancelEffectsCheckpoint();
+          return;
+        }
+        if (roomEffectsEqual(base.effects, desired) && base.masterVolume === desiredVolume) {
+          effectsCheckpointState.succeed(token);
+          return;
+        }
         try {
-          const accepted = await api.updateEffects(
+          const accepted = await api.updateSettingsSync(
             {
               code: snapshot.roomCode,
               coordinatorEpoch: snapshot.presence.coordinatorEpoch,
               baseRevision: base.revision,
+              masterVolume: desiredVolume,
               effects: desired,
             },
             playlistRuntimeAbort?.signal,
           );
-          if (active && isPlaylistLeaseCurrent(lease)) acceptedEffects = accepted;
+          if (hasEffectsCheckpointAuthority(lease)) {
+            acceptedEffects = accepted;
+            effectsCheckpointState.succeed(token);
+          } else {
+            cancelEffectsCheckpoint();
+          }
           return;
         } catch (error) {
-          if (
-            attempt !== 0 ||
-            !(error instanceof ProRoomApiError) ||
-            error.code !== 'EFFECTS_REVISION_CONFLICT'
-          ) {
+          const revisionConflict =
+            error instanceof ProRoomApiError && error.code === 'SETTINGS_SYNC_REVISION_CONFLICT';
+          const transient = isTransientSettingsSyncFailure(error);
+          if (!revisionConflict && !transient) {
+            if (error instanceof ProRoomApiError && error.code === 'ROOM_EPOCH_MISMATCH') {
+              reconcileEffectsCheckpointEpoch(token, error, lease);
+              return;
+            }
+            if (!cancelCurrentEffectsCheckpoint(token)) return;
             throw error;
           }
+          if (revisionConflict && attempt !== 0) {
+            scheduleEffectsCheckpointRetry(token, error, lease);
+            return;
+          }
+
           const previousBase = base;
           const desiredBeforeRead = desired;
-          const canonical = await api.getEffects(snapshot.roomCode, playlistRuntimeAbort?.signal);
-          if (!active || !isPlaylistLeaseCurrent(lease)) return;
+          const desiredVolumeBeforeRead = desiredVolume;
+          let canonical: ProRoomSettingsSyncSnapshot;
+          try {
+            // A transient PUT may have committed before its response was lost.
+            // Read canonical first; only retry if local intent is still absent.
+            canonical = await api.getSettingsSync(snapshot.roomCode, playlistRuntimeAbort?.signal);
+          } catch (reconcileError) {
+            if (transient && isTransientSettingsSyncFailure(reconcileError)) {
+              scheduleEffectsCheckpointRetry(token, error, lease);
+              return;
+            }
+            if (!cancelCurrentEffectsCheckpoint(token)) return;
+            throw reconcileError;
+          }
+          if (!hasEffectsCheckpointAuthority(lease)) {
+            cancelEffectsCheckpoint();
+            return;
+          }
           const latestLocal = captureRoomEffectsState();
-          desired = rebaseRoomEffectsIntent(
-            previousBase.effects,
+          const latestLocalVolume = getState('audio.masterVolume');
+          const rebased = rebaseEffectsCheckpointIntent(
+            previousBase,
             desiredBeforeRead,
-            canonical.effects,
+            desiredVolumeBeforeRead,
+            canonical,
+            latestLocal,
+            latestLocalVolume,
+            forceFullPublish,
           );
-          desired = rebaseRoomEffectsIntent(desiredBeforeRead, latestLocal, desired);
+          desired = rebased.effects;
+          desiredVolume = rebased.masterVolume;
           base = canonical;
           acceptedEffects = canonical;
-          if (!roomEffectsEqual(latestLocal, desired)) applyCanonicalRoomEffects(desired);
+          if (!roomEffectsEqual(latestLocal, desired) || latestLocalVolume !== desiredVolume) {
+            applyCanonicalRoomEffects(desired, desiredVolume);
+          }
+          if (transient) {
+            if (roomEffectsEqual(base.effects, desired) && base.masterVolume === desiredVolume) {
+              effectsCheckpointState.succeed(token);
+            } else {
+              scheduleEffectsCheckpointRetry(token, error, lease);
+            }
+            return;
+          }
+          // A true CAS conflict gets one immediate retry against the accepted
+          // canonical revision; repeated conflict is terminal for this pass.
         }
       }
     } catch (error) {
+      if (!hasEffectsCheckpointAuthority(lease)) {
+        // Actual authority/room-lease loss invalidates every pending intent.
+        cancelEffectsCheckpoint();
+      } else if (!isCurrentEffectsCheckpointToken(token)) {
+        // A newer edit owns dirty state and retry scheduling.
+      } else if (isTransientSettingsSyncFailure(error)) {
+        scheduleEffectsCheckpointRetry(token, error, lease);
+      } else {
+        cancelCurrentEffectsCheckpoint(token);
+      }
       if (active && isPlaylistLeaseCurrent(lease)) {
         log.warn('[PRO] Room effects checkpoint failed', error);
       }
@@ -1778,24 +2016,54 @@ async function persistRoomEffects(): Promise<void> {
 }
 
 function scheduleEffectsCheckpoint(): void {
-  if (!active || suppressEffectsCheckpoint) return;
-  clearManagedTimer(EFFECTS_CHECKPOINT_DEBOUNCE_TIMER);
-  setManagedTimer(
-    EFFECTS_CHECKPOINT_DEBOUNCE_TIMER,
-    () => void persistRoomEffects(),
-    EFFECTS_CHECKPOINT_DEBOUNCE_MS,
-  );
+  if (suppressEffectsCheckpoint) return;
+  const lease = playlistRuntimeLease;
+  if (!hasEffectsCheckpointAuthority(lease)) {
+    if (effectsCheckpointState.dirty) cancelEffectsCheckpoint();
+    return;
+  }
+  effectsCheckpointState.markDirty();
+  armEffectsCheckpoint(EFFECTS_CHECKPOINT_DEBOUNCE_MS, lease);
 }
 
 async function refreshPersistedEffectsUnlocked(snapshot: ProRoomSnapshot): Promise<boolean> {
   const lease = playlistRuntimeLease;
   if (!lease || !isPlaylistLeaseCurrent(lease) || lease.roomCode !== snapshot.roomCode)
     return false;
-  const accepted = await api.getEffects(snapshot.roomCode, playlistRuntimeAbort?.signal);
+  const previousBase = acceptedEffects?.roomCode === snapshot.roomCode ? acceptedEffects : null;
+  const localBeforeRead = captureRoomEffectsState();
+  const localVolumeBeforeRead = getState('audio.masterVolume');
+  const accepted = await api.getSettingsSync(snapshot.roomCode, playlistRuntimeAbort?.signal);
   const current = effectsRuntimeSnapshot();
   if (!isPlaylistLeaseCurrent(lease) || current?.roomCode !== snapshot.roomCode) return false;
-  if (!applyCanonicalRoomEffects(accepted.effects)) return false;
+  const latestLocal = captureRoomEffectsState();
+  const latestLocalVolume = getState('audio.masterVolume');
+  let desired = accepted.effects;
+  let desiredVolume = accepted.masterVolume;
+  // A controller can have a debounced local edit while an invalidation GET is
+  // queued ahead of its checkpoint. Rebase that intent instead of erasing it.
+  if (isSettingsSyncEnabled() && canPublishSynchronizedSettings() && effectsCheckpointState.dirty) {
+    const rebased = rebaseEffectsCheckpointIntent(
+      previousBase,
+      localBeforeRead,
+      localVolumeBeforeRead,
+      accepted,
+      latestLocal,
+      latestLocalVolume,
+      effectsCheckpointState.pendingFullPublishIntent !== 0,
+    );
+    desired = rebased.effects;
+    desiredVolume = rebased.masterVolume;
+  }
   acceptedEffects = accepted;
+  if (!applyCanonicalRoomEffects(desired, desiredVolume)) return false;
+  if (
+    isSettingsSyncEnabled() &&
+    canPublishSynchronizedSettings() &&
+    (!roomEffectsEqual(desired, accepted.effects) || desiredVolume !== accepted.masterVolume)
+  ) {
+    armEffectsCheckpoint(EFFECTS_CHECKPOINT_DEBOUNCE_MS, lease);
+  }
   return true;
 }
 
@@ -4183,6 +4451,7 @@ subscribeAccount((snapshot) => {
 });
 
 for (const event of [
+  'state:audio.masterVolume',
   'state:audio.reverbMix',
   'state:audio.reverbDecay',
   'state:audio.reverbPreDelay',
@@ -4195,6 +4464,43 @@ for (const event of [
 ] as const) {
   bus.on(event, () => scheduleEffectsCheckpoint());
 }
+
+// A controller switching ON publishes its complete local snapshot even when
+// none of the individual audio fields changed at toggle time.
+bus.on('settings-sync:publish-local', () => scheduleEffectsCheckpoint());
+
+bus.on('settings-sync:changed', (enabled) => {
+  if (!enabled) {
+    cancelEffectsCheckpoint();
+    return;
+  }
+  if (!active) return;
+  // Controllers publish their retained local state; applying the previous
+  // canonical snapshot here would erase the very state they are promoting.
+  if (canPublishSynchronizedSettings()) {
+    effectsCheckpointState.beginFullPublishIntent();
+    return;
+  }
+  const snapshot = effectsRuntimeSnapshot();
+  if (!snapshot) return;
+  if (acceptedEffects?.roomCode === snapshot.roomCode) {
+    applyCanonicalRoomEffects(acceptedEffects.effects, acceptedEffects.masterVolume);
+    return;
+  }
+  void refreshPersistedEffects(snapshot).catch((error) => {
+    log.warn('[PRO] Settings sync refresh failed', error);
+  });
+});
+
+bus.on('state:room.context', () => {
+  if (
+    active &&
+    effectsCheckpointState.dirty &&
+    !hasEffectsCheckpointAuthority(playlistRuntimeLease)
+  ) {
+    cancelEffectsCheckpoint();
+  }
+});
 
 function acceptQueueAddition(frame: ProQueueAdditionFrame): void {
   const context = getState('room.context');

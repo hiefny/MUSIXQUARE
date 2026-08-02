@@ -79,8 +79,8 @@ const pl: Record<I18nKey, string> = {
   'common.woofer': 'Woofer',
   'common.connected': 'Połączono',
   'common.disconnected': 'Rozłączono',
-  'common.revoke': 'Odbierz uprawnienia administratora',
-  'common.grant': 'Nadaj uprawnienia administratora',
+  'common.revoke': 'Odbierz',
+  'common.grant': 'Nadaj',
   'common.system': 'System',
   'common.unknown': 'Nieznany',
   'common.youtube_video': 'Wideo z YouTube',
@@ -157,6 +157,9 @@ const pl: Record<I18nKey, string> = {
   // ─── Settings ────────────────────────────────────────────────────
   'settings.theme': 'Motyw',
   'settings.ui_sounds': 'Dźwięki interfejsu',
+  'settings.sync_settings': 'Synchronizacja ustawień',
+  'settings.sync_settings_desc':
+    'Włączone używa głośności i efektów hosta lub administratora, który ostatnio zsynchronizował ustawienia. Wyłączone używa własnych ustawień tego urządzenia.',
   'settings.dark': 'Ciemny',
   'settings.light': 'Jasny',
   'settings.visualizer': 'Wizualizator',
@@ -258,7 +261,7 @@ const pl: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Serwer pokoju jest online',
   'connect.signaling_recovering': 'Przywracanie połączenia z serwerem',
   'connect.signaling_failed': 'Połączenie z serwerem nie powiodło się',
-  'connect.signaling_recover_action': 'Przywróć połączenie',
+  'connect.signaling_recover_action': 'Przywróć',
   'connect.signaling_recovery_wait': 'Ponowne sprawdzanie serwera pokoju.',
   'connect.signaling_reconnecting': 'Ponowne łączenie z serwerem pokoju · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Połączenie z serwerem pokoju zostało przywrócone.',
@@ -655,8 +658,8 @@ const pl: Record<I18nKey, string> = {
   'dialog.background_resume_sync_fallback_message':
     'Jeśli zauważysz problemy z synchronizacją lub brak dźwięku, zrestartuj całkowicie aplikację.',
   'dialog.got_it': 'Rozumiem',
-  'dialog.continue_using': 'Kontynuuj korzystanie',
-  'dialog.leave_session': 'Wyjdź z pokoju',
+  'dialog.continue_using': 'Kontynuuj',
+  'dialog.leave_session': 'Wyjdź',
   'dialog.sw_update_title': 'Nowa aktualizacja',
   'dialog.sw_update_msg': 'Dostępna jest nowa wersja. Odśwież stronę, aby ją zastosować.',
   'dialog.reconnect_ask': 'Czy chcesz spróbować połączyć się ponownie?',
@@ -717,7 +720,7 @@ const pl: Record<I18nKey, string> = {
   'pro.active_tab_title': 'Ten pokój PRO jest już otwarty w innej karcie',
   'pro.active_tab_message':
     'Jeśli będziesz kontynuować tutaj, dotychczasowa karta zostanie rozłączona.',
-  'pro.use_this_tab': 'Przejmij',
+  'pro.use_this_tab': 'Użyj tej karty',
   'pro.upload.batch_progress': 'Przesyłanie utworów {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Nie udało się przesłać części utworów',
   'pro.upload.batch_failed_message':

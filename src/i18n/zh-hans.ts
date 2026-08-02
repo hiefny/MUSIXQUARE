@@ -237,7 +237,7 @@ const zhHans: Record<I18nKey, string> = {
   'connect.no_session': '请先创建房间',
   'connect.generating_qr': '正在生成二维码...',
   'connect.kick_title': '移除设备',
-  'connect.kick_message': '要将此设备从房间中移除吗？',
+  'connect.kick_message': '要将 {{name}} 从房间中移除吗？',
   'connect.kick_yes': '移除',
   'connect.kick_no': '否',
   'connect.kicked_title': '已被移除',

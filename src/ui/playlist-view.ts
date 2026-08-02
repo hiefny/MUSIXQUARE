@@ -244,7 +244,7 @@ function renderPlaybackIndicatorIcons(): string {
     <svg class="track-playback-state-icon track-paused-indicator" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
     </svg>
-    <span class="track-playback-state-icon track-playback-loading-indicator material-elastic-spinner" aria-hidden="true">
+    <span class="track-playback-state-icon track-playback-loading-indicator material-elastic-spinner playlist-row-spinner" aria-hidden="true">
       <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" pathLength="100"></circle></svg>
     </span>`;
 }
@@ -617,7 +617,7 @@ function createProRoomUploadCancel(row: ProRoomUploadRow): HTMLButtonElement {
 
 function createProRoomUploadSpinner(): HTMLSpanElement {
   const spinner = document.createElement('span');
-  spinner.className = 'material-elastic-spinner pro-upload-spinner';
+  spinner.className = 'material-elastic-spinner playlist-row-spinner pro-upload-spinner';
   spinner.setAttribute('aria-hidden', 'true');
   spinner.innerHTML =
     '<svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" pathLength="100"></circle></svg>';

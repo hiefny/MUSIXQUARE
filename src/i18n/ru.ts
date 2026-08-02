@@ -236,7 +236,7 @@ const ru: Record<I18nKey, string> = {
   'connect.no_session': 'Сначала создайте комнату',
   'connect.generating_qr': 'Генерация QR-кода...',
   'connect.kick_title': 'Исключить устройство',
-  'connect.kick_message': 'Исключить это устройство из комнаты?',
+  'connect.kick_message': 'Исключить {{name}} из комнаты?',
   'connect.kick_yes': 'Исключить',
   'connect.kick_no': 'Нет',
   'connect.kicked_title': 'Вы исключены',

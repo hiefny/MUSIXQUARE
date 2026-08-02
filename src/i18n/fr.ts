@@ -240,7 +240,7 @@ const fr: Record<I18nKey, string> = {
   'connect.no_session': 'Créez d’abord une salle',
   'connect.generating_qr': 'Génération du code QR...',
   'connect.kick_title': 'Expulser un appareil',
-  'connect.kick_message': 'Retirer cet appareil de la salle ?',
+  'connect.kick_message': 'Retirer {{name}} de la salle ?',
   'connect.kick_yes': 'Expulser',
   'connect.kick_no': 'Non',
   'connect.kicked_title': 'Expulsé',

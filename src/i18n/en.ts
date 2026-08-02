@@ -238,7 +238,7 @@ const en: Record<I18nKey, string> = {
   'connect.no_session': 'Start a session first',
   'connect.generating_qr': 'Generating QR code...',
   'connect.kick_title': 'Kick device',
-  'connect.kick_message': 'Remove this device from the session?',
+  'connect.kick_message': 'Remove {{name}} from the session?',
   'connect.kick_yes': 'Kick',
   'connect.kick_no': 'No',
   'connect.kicked_title': 'Kicked',

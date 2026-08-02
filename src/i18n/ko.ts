@@ -236,7 +236,7 @@ const ko = {
   'connect.no_session': '세션을 먼저 시작하세요',
   'connect.generating_qr': 'QR 코드 생성 중...',
   'connect.kick_title': '강제퇴장 시키기',
-  'connect.kick_message': '이 기기를 내보낼까요?',
+  'connect.kick_message': '{{name}}를 내보낼까요?',
   'connect.kick_yes': '내보내기',
   'connect.kick_no': '아니요',
   'connect.kicked_title': '강제퇴장',

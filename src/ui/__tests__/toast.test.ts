@@ -37,6 +37,9 @@ beforeEach(() => {
     <div id="toast"><span id="toast-msg"></span></div>
     <header id="main-header">
       <span id="header-loading-text">
+        <span class="material-elastic-spinner header-loading-spinner" aria-hidden="true">
+          <svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18"></circle></svg>
+        </span>
         <span class="header-loading-text-content"></span>
       </span>
       <div id="header-progress-bg" style="width: 0%"></div>
@@ -359,6 +362,17 @@ describe('showToast', () => {
 });
 
 describe('showLoader', () => {
+  it('keeps header progress text-only and removes reintroduced spinners', () => {
+    const spinner = document.createElement('span');
+    spinner.className = 'material-elastic-spinner header-loading-spinner';
+    document.getElementById('main-header')?.appendChild(spinner);
+
+    showLoader(true, 'Uploading 1/3');
+
+    expect(document.querySelector('#main-header .material-elastic-spinner')).toBeNull();
+    expect(headerLoaderText()).toBe('Uploading 1/3');
+  });
+
   it('adds loading class when show=true', () => {
     showLoader(true, 'Loading...');
     const header = document.getElementById('main-header')!;
@@ -448,6 +462,17 @@ describe('showLoader', () => {
 });
 
 describe('header loader layout contract', () => {
+  it('forbids loading spinners throughout the app header', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const headerSpinnerRules =
+      stylesheet.match(
+        /#main-header \.material-elastic-spinner,\s*#main-header \.header-loading-spinner\s*\{([^}]*)\}/,
+      )?.[1] ?? '';
+
+    expect(headerSpinnerRules).toMatch(/display:\s*none\s*!important;/);
+    expect(stylesheet).not.toMatch(/header\.loading \.header-loading-spinner/);
+  });
+
   it('keeps the portrait loading text on the logo rail below the iOS safe area', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const compactStart = stylesheet.indexOf('@media (min-width: 720px) and (max-width: 1279px) {');

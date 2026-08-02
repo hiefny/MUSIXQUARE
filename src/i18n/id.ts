@@ -240,7 +240,7 @@ const id: Record<I18nKey, string> = {
   'connect.no_session': 'Buat ruang terlebih dahulu',
   'connect.generating_qr': 'Membuat kode QR...',
   'connect.kick_title': 'Keluarkan perangkat',
-  'connect.kick_message': 'Hapus perangkat ini dari ruang?',
+  'connect.kick_message': 'Keluarkan {{name}} dari ruang?',
   'connect.kick_yes': 'Keluarkan',
   'connect.kick_no': 'Tidak',
   'connect.kicked_title': 'Dikeluarkan',

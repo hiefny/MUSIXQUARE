@@ -241,7 +241,7 @@ const de: Record<I18nKey, string> = {
   'connect.no_session': 'Starte zuerst einen Raum',
   'connect.generating_qr': 'QR-Code wird erstellt...',
   'connect.kick_title': 'Gerät entfernen',
-  'connect.kick_message': 'Dieses Gerät aus dem Raum entfernen?',
+  'connect.kick_message': '{{name}} aus dem Raum entfernen?',
   'connect.kick_yes': 'Entfernen',
   'connect.kick_no': 'Nein',
   'connect.kicked_title': 'Entfernt',

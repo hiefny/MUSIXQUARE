@@ -19,6 +19,8 @@ const DEFAULT_LOADER_ID = '_default';
 const OPERATOR_UPLINK_LOADER_PREFIX = 'standard-operator-file-uplink:';
 const MAX_REMEMBERED_UPLINK_TERMINALS = 64;
 const OPERATOR_UPLINK_FILE_NAME_CHARS = 22;
+const HEADER_LOADING_INDICATOR_SELECTOR =
+  '#main-header .material-elastic-spinner, #main-header .header-loading-spinner';
 
 interface LoaderHolder {
   text: string;
@@ -41,6 +43,15 @@ function displayedProgress(progressBg: HTMLElement | null): number {
   if (!progressBg) return 0;
   const parsed = Number.parseFloat(progressBg.style.width);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function removeHeaderLoadingIndicators(): void {
+  // Header progress stays intentionally text + determinate background only.
+  // Remove stale or dynamically reintroduced spinners in addition to the CSS
+  // guard so they cannot keep animating while visually hidden.
+  document.querySelectorAll(HEADER_LOADING_INDICATOR_SELECTOR).forEach((indicator) => {
+    indicator.remove();
+  });
 }
 
 function foregroundLoader(): [string, LoaderHolder] | null {
@@ -104,6 +115,7 @@ export function updateLoader(percent: number, id?: string): void {
 }
 
 export function showLoader(show: boolean, txt?: string, id?: string): void {
+  removeHeaderLoadingIndicators();
   const key = id ?? DEFAULT_LOADER_ID;
   const header = document.getElementById('main-header');
   const loadingText = document.getElementById('header-loading-text');
@@ -367,6 +379,7 @@ function handleOperatorFileUplinkProgress(progress: StandardOperatorFileUplinkPr
 }
 
 export function initToast(): void {
+  removeHeaderLoadingIndicators();
   _toastBusScope.dispose();
   for (const loaderId of _operatorUplinkLoaderIds) showLoader(false, undefined, loaderId);
   _operatorUplinkLoaderIds.clear();

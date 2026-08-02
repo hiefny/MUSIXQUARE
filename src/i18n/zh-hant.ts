@@ -237,7 +237,7 @@ const zhHant: Record<I18nKey, string> = {
   'connect.no_session': '請先建立房間',
   'connect.generating_qr': '正在產生 QR 碼...',
   'connect.kick_title': '移除裝置',
-  'connect.kick_message': '要將此裝置從房間中移除嗎？',
+  'connect.kick_message': '要將 {{name}} 從房間中移除嗎？',
   'connect.kick_yes': '移除',
   'connect.kick_no': '否',
   'connect.kicked_title': '已被移除',

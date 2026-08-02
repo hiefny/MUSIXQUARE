@@ -237,7 +237,7 @@ const tr: Record<I18nKey, string> = {
   'connect.no_session': 'Lütfen önce bir oda oluşturun',
   'connect.generating_qr': 'QR kodu oluşturuluyor...',
   'connect.kick_title': 'Cihazı Odadan Çıkar',
-  'connect.kick_message': 'Bu cihazı odadan çıkarmak istiyor musunuz?',
+  'connect.kick_message': '{{name}} odadan çıkarılsın mı?',
   'connect.kick_yes': 'Çıkar',
   'connect.kick_no': 'Hayır',
   'connect.kicked_title': 'Odadan Çıkarıldınız',

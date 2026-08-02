@@ -970,16 +970,11 @@
     pointer-events: none;
   }
 
-  .header-loading-spinner {
-    --material-elastic-size: 18px;
-    --material-elastic-stroke: 4.75;
-    margin-right: 8px;
-    color: var(--primary);
-  }
-
-  .header-loading-spinner > svg,
-  .header-loading-spinner circle {
-    animation-play-state: paused;
+  /* Header progress is deliberately text + determinate background only. Keep
+     accidental or pre-JS spinner markup out of every responsive header. */
+  #main-header .material-elastic-spinner,
+  #main-header .header-loading-spinner {
+    display: none !important;
   }
 
   /* Apply ellipsis to a real flex child. Direct text becomes an anonymous
@@ -1003,11 +998,6 @@
   header.loading .header-loading-text {
     transform: translateY(0);
     opacity: 1;
-  }
-
-  header.loading .header-loading-spinner > svg,
-  header.loading .header-loading-spinner circle {
-    animation-play-state: running;
   }
 
   /* Keep loader status visually stable on phones. Long translated messages
@@ -1970,6 +1960,7 @@
   }
 
   .track-item {
+    --playlist-indicator-color: var(--text-muted);
     background: transparent;
     padding: 14px 16px;
     min-height: var(--list-row-height);
@@ -1991,6 +1982,10 @@
 
   .track-item:active {
     background: var(--surface-2);
+  }
+
+  .track-item.active {
+    --playlist-indicator-color: var(--primary);
   }
 
   .track-item.active .track-idx,
@@ -2033,7 +2028,7 @@
     grid-area: 1 / 1;
     width: 16px;
     height: 16px;
-    color: var(--primary);
+    color: var(--playlist-indicator-color, currentColor);
     fill: currentColor;
     opacity: 0;
     transform: scale(0.82);
@@ -2247,17 +2242,17 @@
   }
 
   .pro-upload-name {
-    opacity: 0.58;
+    color: var(--text-muted);
+    transition: color 0.18s ease;
   }
 
-  .pro-upload-name {
-    transition: opacity 0.18s ease;
+  .playlist-row-spinner {
+    color: var(--playlist-indicator-color, currentColor);
   }
 
   .pro-upload-spinner {
     --material-elastic-size: 16px;
     --material-elastic-stroke: 4.75;
-    color: var(--primary);
   }
 
   .pro-upload-cancel:disabled {

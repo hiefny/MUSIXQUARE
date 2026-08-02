@@ -235,7 +235,7 @@ const th: Record<I18nKey, string> = {
   'connect.no_session': 'โปรดสร้างห้องก่อน',
   'connect.generating_qr': 'กำลังสร้างรหัส QR...',
   'connect.kick_title': 'นำอุปกรณ์ออก',
-  'connect.kick_message': 'ต้องการนำอุปกรณ์นี้ออกจากห้องหรือไม่?',
+  'connect.kick_message': 'ต้องการนำ {{name}} ออกจากห้องหรือไม่?',
   'connect.kick_yes': 'นำออก',
   'connect.kick_no': 'ยกเลิก',
   'connect.kicked_title': 'ถูกนำออกจากห้อง',

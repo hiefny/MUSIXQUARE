@@ -239,7 +239,7 @@ const ja: Record<I18nKey, string> = {
   'connect.no_session': '先にルームを作成してください',
   'connect.generating_qr': 'QRコードを生成中...',
   'connect.kick_title': 'デバイスを退出させる',
-  'connect.kick_message': 'このデバイスをルームから削除しますか？',
+  'connect.kick_message': '{{name}}をルームから退出させますか？',
   'connect.kick_yes': '退出させる',
   'connect.kick_no': 'いいえ',
   'connect.kicked_title': '退出させられました',

@@ -237,7 +237,7 @@ const pl: Record<I18nKey, string> = {
   'connect.no_session': 'Najpierw utwórz pokój',
   'connect.generating_qr': 'Generowanie kodu QR...',
   'connect.kick_title': 'Usuń urządzenie',
-  'connect.kick_message': 'Czy chcesz usunąć to urządzenie z pokoju?',
+  'connect.kick_message': 'Usunąć {{name}} z pokoju?',
   'connect.kick_yes': 'Usuń',
   'connect.kick_no': 'Nie',
   'connect.kicked_title': 'Usunięto z pokoju',

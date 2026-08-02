@@ -239,7 +239,7 @@ const nl: Record<I18nKey, string> = {
   'connect.no_session': 'Start eerst een sessie',
   'connect.generating_qr': 'QR-code maken...',
   'connect.kick_title': 'Apparaat verwijderen',
-  'connect.kick_message': 'Dit apparaat uit de sessie verwijderen?',
+  'connect.kick_message': '{{name}} uit de sessie verwijderen?',
   'connect.kick_yes': 'Verwijderen',
   'connect.kick_no': 'Nee',
   'connect.kicked_title': 'Verwijderd',

@@ -716,6 +716,13 @@ describe('connect i18n refresh', () => {
     expect(kickButtons).toHaveLength(2);
     kickButtons[0]?.click();
 
+    expect(mockedShowDialog).toHaveBeenCalledWith({
+      title: '강제퇴장 시키기',
+      message: 'Friend 님과 연결된 모든 기기를 내보낼까요?',
+      buttonText: '내보내기',
+      secondaryText: '취소',
+    });
+
     await vi.waitFor(() =>
       expect(mockedKickActiveProRoomMember).toHaveBeenCalledWith('target-member'),
     );
@@ -1314,6 +1321,13 @@ describe('member-level connection and administrator UI', () => {
     );
     expect(kickPhysicalDeviceButton?.getAttribute('aria-label')).toContain('iOS 기기 (A7F2)');
     kickPhysicalDeviceButton?.click();
+
+    expect(mockedShowDialog).toHaveBeenCalledWith({
+      title: '강제퇴장 시키기',
+      message: 'iOS 기기 (A7F2)를 내보낼까요?',
+      buttonText: '내보내기',
+      secondaryText: '취소',
+    });
 
     await vi.waitFor(() =>
       expect(mockedKickActiveProRoomPresence).toHaveBeenCalledWith('friend-ios-A7F2'),

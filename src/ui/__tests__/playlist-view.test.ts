@@ -191,6 +191,7 @@ describe('PRO upload rows', () => {
       );
       expect(track).not.toBeNull();
       expect(spinner).not.toBeNull();
+      expect(spinner?.classList).toContain('playlist-row-spinner');
       expect(spinner?.parentElement).toBe(entry.querySelector('.track-leading'));
       expect(track?.firstElementChild).toBe(entry.querySelector('.pro-upload-name'));
       expect(track?.childElementCount).toBe(1);
@@ -266,7 +267,17 @@ describe('PRO upload rows', () => {
     expect(stylesheet).not.toContain('.pro-upload-status');
     expect(stylesheet).not.toContain('.pro-upload-entry .track-idx');
     expect(stylesheet).toContain('.pro-upload-name');
-    expect(stylesheet).toContain('opacity: 0.58');
+    const rowRules = stylesheet.match(/\.track-item\s*\{([^}]*)\}/)?.[1] ?? '';
+    const trackNameRules = stylesheet.match(/^\s*\.track-name\s*\{([^}]*)\}/m)?.[1] ?? '';
+    const uploadNameRules = stylesheet.match(/\.pro-upload-name\s*\{([^}]*)\}/)?.[1] ?? '';
+    const rowSpinnerRules = stylesheet.match(/\.playlist-row-spinner\s*\{([^}]*)\}/)?.[1] ?? '';
+    const uploadSpinnerRules = stylesheet.match(/\.pro-upload-spinner\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(rowRules).toContain('--playlist-indicator-color: var(--text-muted)');
+    expect(trackNameRules).toContain('color: var(--text-main)');
+    expect(uploadNameRules).toContain('color: var(--text-muted)');
+    expect(rowSpinnerRules).toContain('color: var(--playlist-indicator-color, currentColor)');
+    expect(uploadSpinnerRules).not.toContain('color: var(--primary)');
+    expect(stylesheet).not.toMatch(/\.pro-upload-name\s*\{[^}]*opacity:/s);
     expect(stylesheet).not.toContain('.pro-upload-cancel:not(:disabled)');
     expect(stylesheet).toContain('.pro-upload-cancel:disabled');
     expect(stylesheet).toContain('opacity: 0.32');
@@ -515,7 +526,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(replaceChildren).not.toHaveBeenCalled();
   });
 
-  it('uses the shared Material Elastic SVG contract for playlist playback loading', () => {
+  it('uses the shared Material Elastic SVG contract for playlist playback loading', async () => {
     setState('playlist.items', sampleItems());
     setState('playlist.currentQueueItemId', FILE_A);
     setState('playback.mode', 'file');
@@ -525,15 +536,23 @@ describe('playlist queue identity rendering and actions', () => {
       '.track-playback-loading-indicator.material-elastic-spinner',
     );
     expect(spinner).not.toBeNull();
+    expect(spinner?.classList).toContain('playlist-row-spinner');
     expect(spinner?.getAttribute('aria-hidden')).toBe('true');
     expect(spinner?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 44 44');
     expect(spinner?.querySelector('circle')?.getAttribute('cx')).toBe('22');
     expect(spinner?.querySelector('circle')?.getAttribute('cy')).toBe('22');
     expect(spinner?.querySelector('circle')?.getAttribute('r')).toBe('18');
     expect(spinner?.querySelector('circle')?.getAttribute('pathLength')).toBe('100');
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const activeRowRules = stylesheet.match(/\.track-item\.active\s*\{([^}]*)\}/)?.[1] ?? '';
+    const playbackIconRules =
+      stylesheet.match(/\.track-playback-state-icon\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(activeRowRules).toContain('--playlist-indicator-color: var(--primary)');
+    expect(playbackIconRules).toContain('color: var(--playlist-indicator-color, currentColor)');
+    expect(playbackIconRules).not.toContain('color: var(--primary)');
   });
 
-  it('uses Material Elastic for every indeterminate app spinner while retaining determinate bars', async () => {
+  it('uses Material Elastic for every remaining indeterminate spinner and keeps the header text-only', async () => {
     const [stylesheet, markup] = await Promise.all([
       readFile('css/style.css', 'utf8'),
       readFile('index.html', 'utf8'),
@@ -541,7 +560,6 @@ describe('playlist queue identity rendering and actions', () => {
     const parsed = new DOMParser().parseFromString(markup, 'text/html');
 
     for (const selector of [
-      '#header-loading-text .header-loading-spinner.material-elastic-spinner',
       '#play-btn .play-loading-spinner.material-elastic-spinner',
       '#youtube-sync-loading-overlay .youtube-sync-loading-spinner.material-elastic-spinner',
       '.demo-play-button .demo-loading-spinner.material-elastic-spinner',
@@ -576,12 +594,10 @@ describe('playlist queue identity rendering and actions', () => {
       /\.track-playback-loading-indicator\s*\{[^}]*--material-elastic-size:\s*16px;/,
     );
     expect(stylesheet).toMatch(/\.pro-upload-spinner\s*\{[^}]*--material-elastic-size:\s*16px;/);
-    expect(stylesheet).toMatch(
-      /\.header-loading-spinner > svg,\s*\.header-loading-spinner circle\s*\{[^}]*animation-play-state:\s*paused;/,
-    );
-    expect(stylesheet).toMatch(
-      /header\.loading \.header-loading-spinner > svg,\s*header\.loading \.header-loading-spinner circle\s*\{[^}]*animation-play-state:\s*running;/,
-    );
+    expect(parsed.querySelector('#main-header .material-elastic-spinner')).toBeNull();
+    expect(
+      parsed.querySelector('#header-loading-text .header-loading-text-content'),
+    ).not.toBeNull();
     expect(stylesheet).toMatch(
       /\.track-playback-loading-indicator > svg\s*\{[^}]*display:\s*none;/,
     );

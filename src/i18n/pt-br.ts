@@ -239,7 +239,7 @@ const ptBr: Record<I18nKey, string> = {
   'connect.no_session': 'Crie uma sala primeiro',
   'connect.generating_qr': 'Gerando código QR...',
   'connect.kick_title': 'Expulsar dispositivo',
-  'connect.kick_message': 'Remover este dispositivo da sala?',
+  'connect.kick_message': 'Remover {{name}} da sala?',
   'connect.kick_yes': 'Expulsar',
   'connect.kick_no': 'Não',
   'connect.kicked_title': 'Expulso',

@@ -239,7 +239,7 @@ const vi: Record<I18nKey, string> = {
   'connect.no_session': 'Hãy tạo phòng trước',
   'connect.generating_qr': 'Đang tạo mã QR...',
   'connect.kick_title': 'Đẩy thiết bị ra',
-  'connect.kick_message': 'Xóa thiết bị này khỏi phòng?',
+  'connect.kick_message': 'Xóa {{name}} khỏi phòng?',
   'connect.kick_yes': 'Đẩy ra',
   'connect.kick_no': 'Không',
   'connect.kicked_title': 'Đã bị đẩy ra',

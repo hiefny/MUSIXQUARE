@@ -140,6 +140,13 @@ describe('Translation key integrity', () => {
     expect(mismatched).toEqual([]);
   });
 
+  it('names the selected physical device in every kick confirmation message', () => {
+    expect(ko['connect.kick_message']).toBe('{{name}}를 내보낼까요?');
+    for (const [locale, dict] of Object.entries(locales)) {
+      expect(dict['connect.kick_message'], `${locale}.connect.kick_message`).toContain('{{name}}');
+    }
+  });
+
   it('HTML tag sequences match Korean in every locale', () => {
     const tagRe = /<\/?([a-z][\w:-]*)\b[^>]*>/gi;
     const tagSequence = (value: string): string[] =>

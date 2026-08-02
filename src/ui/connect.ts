@@ -1654,8 +1654,8 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
               event.stopPropagation();
               if (deviceExpansionRoomBoundary() !== renderBoundary) return;
               const result = await showDialog({
-                title: `${t('connect.kick_title')} · ${displayName}`,
-                message: t('connect.kick_message'),
+                title: t('connect.kick_title'),
+                message: t('connect.kick_message', { name: displayName }),
                 buttonText: t('connect.kick_yes'),
                 secondaryText: t('common.cancel'),
               });

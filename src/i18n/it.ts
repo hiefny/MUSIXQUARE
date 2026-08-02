@@ -237,7 +237,7 @@ const it: Record<I18nKey, string> = {
   'connect.no_session': 'Avvia prima una sessione',
   'connect.generating_qr': 'Generazione codice QR...',
   'connect.kick_title': 'Espelli dispositivo',
-  'connect.kick_message': 'Vuoi espellere questo dispositivo?',
+  'connect.kick_message': 'Vuoi espellere {{name}}?',
   'connect.kick_yes': 'Espelli',
   'connect.kick_no': 'No',
   'connect.kicked_title': 'Espulso',

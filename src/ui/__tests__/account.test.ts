@@ -1635,10 +1635,10 @@ describe('optional account UI', () => {
     expect(loginCloseRules).toContain('width: 100%');
     expect(loginCloseRules).toContain('max-width: 100%');
     expect(loginCloseRules).toContain('white-space: normal');
-    expect(loginCloseRules).toContain('overflow-wrap: anywhere');
+    expect(loginCloseRules).toContain('overflow-wrap: normal');
     expect(googleLabelRules).toContain('white-space: normal');
     expect(googleLabelRules).toContain('hyphens: auto');
-    expect(googleLabelRules).toContain('overflow-wrap: anywhere');
+    expect(googleLabelRules).toContain('overflow-wrap: normal');
     expect(googleLabelRules).not.toContain('text-overflow: ellipsis');
     expect(primaryLoginCloseRules).toContain('margin-top: 0');
     expect(statsRules).toContain('flex: 1 1 auto');
@@ -1657,7 +1657,7 @@ describe('optional account UI', () => {
     expect(adaptiveButtonRules).toContain('max-width: 100%');
     expect(adaptiveButtonRules).toContain('white-space: normal');
     expect(adaptiveButtonRules).toContain('hyphens: auto');
-    expect(adaptiveButtonRules).toContain('overflow-wrap: anywhere');
+    expect(adaptiveButtonRules).toContain('overflow-wrap: normal');
     expect(adaptiveButtonRules).toContain('word-break: keep-all');
     expect(adaptiveFullRules).toContain('flex-basis: 100%');
     expect(accountCloseRules).toContain('width: 100%');

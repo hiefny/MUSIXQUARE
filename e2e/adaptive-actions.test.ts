@@ -177,7 +177,7 @@ test.describe('content-based adaptive action groups', () => {
     await expect(page.locator('#short-primary')).toBeFocused();
   });
 
-  test('stacks long actions at full width and contains zoomed unbreakable labels', async ({
+  test('stacks long actions at full width and wraps only at natural word boundaries', async ({
     page,
   }) => {
     await installLayoutProbe(
@@ -199,7 +199,7 @@ test.describe('content-based adaptive action groups', () => {
         lang="de"
       >
         <button id="fallback-primary" class="dialog-primary">
-          Administrationsberechtigungsverwaltung
+          Berechtigung jetzt verwalten
         </button>
       </div>`,
     );
@@ -213,6 +213,11 @@ test.describe('content-based adaptive action groups', () => {
     const fallback = await actionMetrics(page, '#fallback-actions');
     expect(fallback[0]!.height).toBeGreaterThan(54);
     expectNoActionOverflow([secondary!, primary!, ...fallback]);
+    const wrapRules = await page.locator('#fallback-primary').evaluate((action) => {
+      const style = getComputedStyle(action);
+      return { overflowWrap: style.overflowWrap, wordBreak: style.wordBreak };
+    });
+    expect(wrapRules).toEqual({ overflowWrap: 'normal', wordBreak: 'keep-all' });
   });
 
   test('keeps the account close action on its own full-width row', async ({ page }) => {
@@ -336,6 +341,13 @@ test.describe('content-based adaptive action groups', () => {
       }),
     );
     expectNoActionOverflow(allActions);
+
+    const arbitraryBreakFallbacks = await page
+      .locator('#locale-probes :is(button, a)')
+      .evaluateAll((actions) =>
+        actions.filter((action) => getComputedStyle(action).overflowWrap === 'anywhere').length,
+      );
+    expect(arbitraryBreakFallbacks).toBe(0);
 
     const pairLayouts = await page.locator('.locale-action-pair').evaluateAll((groups) =>
       groups.map((group) =>

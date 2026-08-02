@@ -88,7 +88,10 @@ describe('Dialog System', () => {
       /\.adaptive-action-group\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;[^}]*align-items:\s*stretch;/s,
     );
     expect(STYLE_SOURCE).toMatch(
-      /\.adaptive-action-group\s*>\s*:is\(button, a\):not\(\[hidden\]\)\s*\{[^}]*max-width:\s*100%;[^}]*flex:\s*1 1 max-content;[^}]*white-space:\s*normal;[^}]*hyphens:\s*auto;[^}]*overflow-wrap:\s*anywhere;[^}]*word-break:\s*keep-all;/s,
+      /\.adaptive-action-group\s*>\s*:is\(button, a\):not\(\[hidden\]\)\s*\{[^}]*max-width:\s*100%;[^}]*flex:\s*1 1 max-content;[^}]*white-space:\s*normal;[^}]*hyphens:\s*auto;[^}]*overflow-wrap:\s*normal;[^}]*word-break:\s*keep-all;/s,
+    );
+    expect(STYLE_SOURCE).toMatch(
+      /\.adaptive-action-group\s*>\s*:is\(button, a\):not\(\[hidden\]\):lang\(ja\)[^{]*\{[^}]*overflow-wrap:\s*normal;[^}]*word-break:\s*normal;[^}]*line-break:\s*strict;/s,
     );
     expect(STYLE_SOURCE).not.toMatch(
       /@media \(max-width:\s*420px\)[\s\S]*?\.dialog-actions\s*\{[^}]*flex-direction:/,

@@ -4686,7 +4686,7 @@
     white-space: normal;
     -webkit-hyphens: auto;
     hyphens: auto;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
     word-break: keep-all;
   }
 
@@ -4697,7 +4697,7 @@
     white-space: normal;
     -webkit-hyphens: auto;
     hyphens: auto;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
     word-break: keep-all;
   }
 
@@ -5065,13 +5065,30 @@
     flex: 1 1 max-content;
     min-width: 0;
     white-space: normal;
-    /* Prefer normal word boundaries and language-aware hyphenation. The
-       anywhere fallback is reached only by an otherwise unbreakable token,
-       preventing zoomed labels from escaping the button. */
+    /* Wrap only at natural word boundaries, with language-aware hyphenation
+       where the browser supports it. Never split an action label at an
+       arbitrary character just to make it fit. */
     -webkit-hyphens: auto;
     hyphens: auto;
-    overflow-wrap: anywhere;
+    overflow-wrap: normal;
     word-break: keep-all;
+  }
+
+  /* Japanese and Chinese do not rely on spaces for word boundaries. Let the
+     browser use their native strict line-breaking rules while keeping the
+     arbitrary-character fallback disabled. */
+  .adaptive-action-group > :is(button, a):not([hidden]):lang(ja),
+  .adaptive-action-group > :is(button, a):not([hidden]):lang(zh-hans),
+  .adaptive-action-group > :is(button, a):not([hidden]):lang(zh-hant),
+  .account-google-label:lang(ja),
+  .account-google-label:lang(zh-hans),
+  .account-google-label:lang(zh-hant),
+  .account-dialog-login-close:lang(ja),
+  .account-dialog-login-close:lang(zh-hans),
+  .account-dialog-login-close:lang(zh-hant) {
+    overflow-wrap: normal;
+    word-break: normal;
+    line-break: strict;
   }
 
   .adaptive-action-group > .adaptive-action-group-full:not([hidden]) {

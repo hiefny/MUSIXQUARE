@@ -2,6 +2,49 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
 describe('filled UI brand colors', () => {
+  it('keeps the balanced surface-2 palette synchronized across public surfaces', async () => {
+    const sources = await Promise.all(
+      [
+        'css/style.css',
+        'e2e/report-viewer.html',
+        'public/editorial-base.css',
+        'public/admin.css',
+        'public/legal-pages.css',
+        'public/designsystem/colors_and_type.css',
+        'public/designsystem/index.html',
+        'public/designsystem/preview/colors-dark.html',
+        'public/designsystem/preview/colors-light.html',
+      ].map(async (path) => [path, (await readFile(path, 'utf8')).toLowerCase()] as const),
+    );
+    const sourceByPath = new Map(sources);
+
+    for (const path of [
+      'css/style.css',
+      'e2e/report-viewer.html',
+      'public/editorial-base.css',
+      'public/admin.css',
+      'public/legal-pages.css',
+      'public/designsystem/colors_and_type.css',
+      'public/designsystem/index.html',
+      'public/designsystem/preview/colors-dark.html',
+    ]) {
+      expect(sourceByPath.get(path), `${path} dark surface-2`).toContain('#202020');
+    }
+
+    for (const path of [
+      'css/style.css',
+      'public/designsystem/colors_and_type.css',
+      'public/designsystem/index.html',
+      'public/designsystem/preview/colors-light.html',
+    ]) {
+      expect(sourceByPath.get(path), `${path} light surface-2`).toContain('#eff1f3');
+    }
+
+    const combined = sources.map(([, source]) => source).join('\n');
+    expect(combined).not.toContain('#222222');
+    expect(combined).not.toContain('#f1f3f5');
+  });
+
   it('keeps the original MUSIXQUARE brand and semantic palette', async () => {
     const css = await readFile('css/style.css', 'utf8');
     const expected = {

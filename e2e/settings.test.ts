@@ -66,6 +66,32 @@ test.describe('Settings Panel', () => {
     expect(theme).toBe('light');
   });
 
+  test('resolves the balanced surface-2 token in both themes', async () => {
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await navigateToTab(pair.hostPage, 'settings');
+
+    const readSurface = async (): Promise<{ token: string; resolved: string }> =>
+      pair.hostPage.evaluate(() => {
+        const probe = document.createElement('span');
+        probe.style.backgroundColor = 'var(--surface-2)';
+        document.body.append(probe);
+        const resolved = getComputedStyle(probe).backgroundColor;
+        probe.remove();
+        return {
+          token: getComputedStyle(document.documentElement).getPropertyValue('--surface-2').trim(),
+          resolved,
+        };
+      });
+
+    await clickAndWaitActive(pair.hostPage, '.ch-opt[data-theme="dark"]');
+    await waitForTheme(pair.hostPage, 'dark');
+    expect(await readSurface()).toEqual({ token: '#202020', resolved: 'rgb(32, 32, 32)' });
+
+    await clickAndWaitActive(pair.hostPage, '.ch-opt[data-theme="light"]');
+    await waitForTheme(pair.hostPage, 'light');
+    expect(await readSurface()).toEqual({ token: '#eff1f3', resolved: 'rgb(239, 241, 243)' });
+  });
+
   test('theme selection persists with active class', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 

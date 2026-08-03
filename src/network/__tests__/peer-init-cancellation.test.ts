@@ -48,6 +48,7 @@ import {
   createHostSessionWithShortCode,
   joinSession,
   leaveSession,
+  recoverPeerAfterBackground,
 } from '../peer.ts';
 
 type Deferred<T> = {
@@ -70,6 +71,7 @@ type FiringPeer = PeerInstance & {
   fire: (event: string, ...args: unknown[]) => void;
   destroy: ReturnType<typeof vi.fn>;
   reconnect: ReturnType<typeof vi.fn>;
+  recoverAfterBackground: ReturnType<typeof vi.fn>;
 };
 
 function makePeer(id: string, initiallyOpen: boolean): FiringPeer {
@@ -81,6 +83,7 @@ function makePeer(id: string, initiallyOpen: boolean): FiringPeer {
     disconnected: false,
     connect: vi.fn(),
     reconnect: vi.fn(),
+    recoverAfterBackground: vi.fn(() => ({ status: 'not-applicable' as const })),
     destroy: vi.fn(() => {
       peer.destroyed = true;
       peer.open = false;
@@ -220,6 +223,48 @@ describe('network initialization ownership', () => {
       status: 'reconnecting',
       maxAttempts: 5,
     });
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+  });
+
+  it('re-evaluates a signaling-loss check that skipped a stale-open guest connection', async () => {
+    vi.useFakeTimers();
+    const peer = makePeer('STANDARD-GUEST', true);
+    peer.recoverAfterBackground.mockReturnValue({ status: 'monitoring' });
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    await createHostSessionWithShortCode(1);
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true } as DataConnection);
+
+    peer.fire('disconnected');
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+
+    expect(recoverPeerAfterBackground(60_000)).toEqual({ status: 'monitoring' });
+    expect(peer.recoverAfterBackground).toHaveBeenCalledWith(60_000);
+    setState('network.hostConn', null);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+  });
+
+  it('cancels the generic signaling-loss dialog when foreground recovery closes the guest RTC', async () => {
+    vi.useFakeTimers();
+    const peer = makePeer('STANDARD-GUEST', true);
+    peer.recoverAfterBackground.mockReturnValue({ status: 'stale-connection-closed' });
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    await createHostSessionWithShortCode(1);
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true } as DataConnection);
+
+    peer.fire('disconnected');
+    expect(recoverPeerAfterBackground(60_000)).toEqual({
+      status: 'stale-connection-closed',
+    });
+    setState('network.hostConn', null);
+    await vi.advanceTimersByTimeAsync(5_000);
+
     expect(mocks.showDialog).not.toHaveBeenCalled();
   });
 

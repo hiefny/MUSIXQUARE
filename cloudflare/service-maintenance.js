@@ -3,6 +3,7 @@ export const SERVICE_CONTROL_STATUS_PATH = '/internal/service-maintenance/v1/sta
 export const SERVICE_CONTROL_STATE_PATH = '/internal/service-maintenance/v1/state';
 
 const SERVICE_CONTROL_CACHE_TTL_MS = 1_000;
+export const SERVICE_CONTROL_READ_TIMEOUT_MS = 2_000;
 // This is only the worst-case edge/isolate cache propagation window. It is
 // deliberately not presented as a storage-write drain: an R2 PUT authorized
 // before maintenance begins bypasses Workers and may still finish afterward.
@@ -86,13 +87,42 @@ function unavailableServiceMaintenanceState() {
   };
 }
 
+async function fetchServiceControlStatus(stub) {
+  let timeoutId = null;
+  const responseOutcome = Promise.resolve()
+    .then(() =>
+      stub.fetch(
+        new Request(`${SERVICE_CONTROL_ORIGIN}${SERVICE_CONTROL_STATUS_PATH}`, { method: 'GET' }),
+      ),
+    )
+    // Promise.race keeps handlers on the losing promise, but normalize both
+    // branches explicitly so a binding that rejects after the timeout can
+    // never surface as an unhandled rejection.
+    .then(
+      (response) => ({ kind: 'response', response }),
+      () => ({ kind: 'unavailable' }),
+    );
+  const timeoutOutcome = new Promise((resolve) => {
+    timeoutId = setTimeout(
+      () => resolve({ kind: 'unavailable' }),
+      SERVICE_CONTROL_READ_TIMEOUT_MS,
+    );
+  });
+
+  try {
+    return await Promise.race([responseOutcome, timeoutOutcome]);
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  }
+}
+
 async function fetchServiceMaintenanceState(binding) {
   try {
     const stub = serviceControlStub(binding);
     if (!stub || typeof stub.fetch !== 'function') return unavailableServiceMaintenanceState();
-    const response = await stub.fetch(
-      new Request(`${SERVICE_CONTROL_ORIGIN}${SERVICE_CONTROL_STATUS_PATH}`, { method: 'GET' }),
-    );
+    const outcome = await fetchServiceControlStatus(stub);
+    if (outcome.kind !== 'response') return unavailableServiceMaintenanceState();
+    const { response } = outcome;
     if (!response.ok) return unavailableServiceMaintenanceState();
     const payload = await response.json().catch(() => null);
     const normalized = normalizeServiceMaintenanceState(payload?.serviceStatus || payload);

@@ -12,6 +12,20 @@ const ACTIVE_CACHE_VERSION = /^const CACHE_VERSION = '([^']+)';$/mu.exec(
 if (!ACTIVE_CACHE_VERSION) {
   throw new Error('Unable to resolve the active service worker cache version');
 }
+const NAVIGATION_NETWORK_TIMEOUT_MS = Number(
+  /^const NAVIGATION_NETWORK_TIMEOUT_MS = ([\d_]+);$/mu
+    .exec(SERVICE_WORKER_SOURCE)?.[1]
+    ?.replaceAll('_', ''),
+);
+if (!Number.isFinite(NAVIGATION_NETWORK_TIMEOUT_MS)) {
+  throw new Error('Unable to resolve the service worker navigation timeout');
+}
+const APP_SHELL_SOURCE = /\bconst\s+APP_SHELL\s*=\s*\[([\s\S]*?)\]\s*;/u.exec(
+  SERVICE_WORKER_SOURCE,
+)?.[1];
+if (!APP_SHELL_SOURCE) {
+  throw new Error('Unable to resolve the service worker app shell');
+}
 const RETIRED_CACHE_VERSION = 'v194';
 
 type FetchListener = (event: {
@@ -41,6 +55,10 @@ describe('service worker cache policy', () => {
   let clientsClaim: ReturnType<typeof vi.fn>;
   let skipWaiting: ReturnType<typeof vi.fn>;
   let windowClients: Array<{ id: string; postMessage: ReturnType<typeof vi.fn> }>;
+
+  it('precaches the stable FOUC recovery script with the navigation shell', () => {
+    expect(APP_SHELL_SOURCE).toContain("'./fouc-cleanup.js'");
+  });
 
   beforeEach(async () => {
     const listeners = new Map<string, (event: never) => void>();
@@ -81,6 +99,10 @@ describe('service worker cache policy', () => {
       self,
       caches,
       fetch: fetchMock,
+      AbortController,
+      setTimeout: (callback: (...args: unknown[]) => void, delay?: number) =>
+        setTimeout(callback, delay),
+      clearTimeout: (timer: ReturnType<typeof setTimeout>) => clearTimeout(timer),
       URL,
       Request,
       Response,
@@ -314,6 +336,52 @@ describe('service worker cache policy', () => {
 
     expect(await response.text()).toBe('canonical room shell');
     expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it('bounds a stalled navigation and falls back only to the active canonical shell', async () => {
+    vi.useFakeTimers();
+    let fetchSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation(
+      (_request: Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          fetchSignal = init?.signal ?? undefined;
+          fetchSignal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('navigation timed out', 'AbortError')),
+            { once: true },
+          );
+        }),
+    );
+    cacheMatch.mockImplementation(
+      async (request: RequestInfo, options?: { cacheName?: string }) => {
+        const requestUrl = typeof request === 'string' ? request : request.url;
+        return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+          requestUrl.endsWith('index.html')
+          ? new Response('bounded cached shell', { status: 200 })
+          : undefined;
+      },
+    );
+
+    try {
+      const responsePromise = dispatch(
+        new Request('https://musixquare.com/123456', { headers: { accept: 'text/html' } }),
+      );
+      await vi.advanceTimersByTimeAsync(NAVIGATION_NETWORK_TIMEOUT_MS - 1);
+      expect(fetchSignal?.aborted).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      const response = await responsePromise;
+
+      expect(fetchSignal?.aborted).toBe(true);
+      expect(await response.text()).toBe('bounded cached shell');
+      expect(cacheMatch).toHaveBeenCalledTimes(1);
+      expect(cacheMatch).toHaveBeenCalledWith('./index.html', {
+        cacheName: `musixquare-static-${ACTIVE_CACHE_VERSION}`,
+      });
+      expect(cachePut).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each(['mp3', 'wav', 'flac', 'm4a', 'aac', 'ogg', 'aif', 'aiff', 'caf'])(

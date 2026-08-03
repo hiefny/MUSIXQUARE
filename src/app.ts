@@ -54,7 +54,7 @@ import {
 // ── Network ──
 import { initProtocol } from './network/protocol.ts';
 import { initStandardQueueMutationAuthority } from './network/queue-mutation-authority.ts';
-import { initPeerHandlers, leaveSession } from './network/peer.ts';
+import { initPeerHandlers, leaveSession, recoverPeerAfterBackground } from './network/peer.ts';
 import { initSync } from './network/sync.ts';
 import { initOrchestrator } from './network/orchestrator.ts';
 import { registerSystemCaptureListeners } from './audio/system-capture.ts';
@@ -241,6 +241,11 @@ async function resumeAudioForBackgroundRecovery(): Promise<void> {
 async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
   log.warn(`[App] Background resume (${Math.round(hiddenMs / 1000)}s) — attempting recovery`);
 
+  // Reconcile suspended RTC state before awaiting audio recovery. Mobile
+  // WebKit can dispatch the queued connection-state event immediately after
+  // visibilitychange, so this explicit hook owns the elapsed hidden time.
+  const peerRecovery = recoverPeerAfterBackground(hiddenMs);
+
   reacquireWakeLockIfActive();
   await resumeAudioForBackgroundRecovery();
 
@@ -248,6 +253,12 @@ async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
   // Its endpoints intentionally have no hostConn, so falling through would
   // misclassify every member as a legacy host and broadcast a stale snapshot.
   if (getRoomContext().kind === 'pro') return;
+
+  // While the short foreground probe owns a possibly stale guest connection,
+  // do not enqueue sync work through the old hostConn. A confirmed survivor
+  // resumes on its next heartbeat; a stale connection closes within the
+  // bounded probe and follows the normal HOST_DISCONNECTED path.
+  if (peerRecovery.status !== 'not-applicable') return;
 
   const hostConn = getState('network.hostConn');
 

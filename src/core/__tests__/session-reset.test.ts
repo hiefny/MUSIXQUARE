@@ -202,6 +202,57 @@ describe('session reset coordinator', () => {
     expect(lifecycleMocks.clearIntentionalNav).not.toHaveBeenCalled();
   });
 
+  it('restores a committed reset when Safari returns the old document via pageshow', async () => {
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: undefined,
+    });
+    const app = document.getElementById('app') as HTMLElement;
+    const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+
+    scheduleSessionReset('Reloading', vi.fn());
+    vi.advanceTimersByTime(120);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(isSessionResetPending()).toBe(true);
+    expect(app.inert).toBe(true);
+
+    window.dispatchEvent(new Event('pageshow'));
+
+    expect(isSessionResetPending()).toBe(false);
+    expect(app.inert).not.toBe(true);
+    expect(document.getElementById('session-reset-overlay')?.hidden).toBe(true);
+    expect(lifecycleMocks.clearIntentionalNav).toHaveBeenCalledOnce();
+  });
+
+  it('restores a committed reset when iOS only foregrounds the old document', async () => {
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: undefined,
+    });
+    const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+
+    try {
+      scheduleSessionReset('Reloading', vi.fn());
+      vi.advanceTimersByTime(120);
+      window.dispatchEvent(new Event('pagehide'));
+      expect(isSessionResetPending()).toBe(true);
+
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      document.dispatchEvent(new Event('visibilitychange'));
+
+      expect(isSessionResetPending()).toBe(false);
+      expect(document.getElementById('session-reset-overlay')?.hidden).toBe(true);
+    } finally {
+      if (originalVisibility) {
+        Object.defineProperty(document, 'visibilityState', originalVisibility);
+      } else {
+        Reflect.deleteProperty(document, 'visibilityState');
+      }
+    }
+  });
+
   it('restores exact inert state and removes blockers during explicit cleanup', async () => {
     const alreadyInert = document.createElement('aside');
     alreadyInert.inert = true;

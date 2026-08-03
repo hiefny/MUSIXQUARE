@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  SERVICE_CONTROL_READ_TIMEOUT_MS,
   SERVICE_CONTROL_STATE_PATH,
   SERVICE_CONTROL_STATUS_PATH,
   clearServiceMaintenanceCacheForTests,
@@ -41,6 +42,7 @@ function serviceControlEnv(
 
 afterEach(() => {
   clearServiceMaintenanceCacheForTests();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -122,6 +124,57 @@ describe('shared service-maintenance control', () => {
       settlesAt: null,
       controlUnavailable: true,
     });
+  });
+
+  it('fails closed within a bounded interval when the control read never settles', async () => {
+    vi.useFakeTimers();
+    const control = serviceControlEnv(() => new Promise<Response>(() => {}));
+    let settled = false;
+    const read = readServiceMaintenance(control.env).then((state) => {
+      settled = true;
+      return state;
+    });
+
+    await vi.advanceTimersByTimeAsync(SERVICE_CONTROL_READ_TIMEOUT_MS - 1);
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(read).resolves.toEqual({
+      enabled: true,
+      revision: 0,
+      updatedAt: null,
+      activatedAt: null,
+      settlesAt: null,
+      controlUnavailable: true,
+    });
+    expect(control.fetch).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('consumes a late control rejection after timeout and clears the deadline timer', async () => {
+    vi.useFakeTimers();
+    let rejectControl!: (error: Error) => void;
+    const control = serviceControlEnv(
+      () =>
+        new Promise<Response>((_resolve, reject) => {
+          rejectControl = reject;
+        }),
+    );
+
+    const read = readServiceMaintenance(control.env);
+    await vi.advanceTimersByTimeAsync(SERVICE_CONTROL_READ_TIMEOUT_MS);
+    await expect(read).resolves.toMatchObject({ enabled: true, controlUnavailable: true });
+
+    rejectControl(new Error('late control failure'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await expect(readServiceMaintenance(control.env)).resolves.toMatchObject({
+      enabled: true,
+      controlUnavailable: true,
+    });
+    expect(control.fetch).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('forwards a bounded desired-state update and records successful and conflicting read-back', async () => {

@@ -94,6 +94,18 @@ export interface PageLifecycleHandle {
 export function initPageLifecycleHandlers(deps: PageLifecycleDeps): PageLifecycleHandle {
   const controller = new AbortController();
   const opts = { signal: controller.signal };
+  // A failed reload can return the same document from bfcache. Retrying on
+  // every pageshow creates an endless reset-overlay/navigation loop, so one
+  // document gets one automatic bfcache recovery navigation.
+  let bfcacheReloadAttempted = false;
+
+  const revealLiveShell = (): void => {
+    try {
+      document.body?.classList.add('fouc-loaded');
+    } catch {
+      /* a lifecycle recovery must never fail on a detached body */
+    }
+  };
 
   // ── beforeunload ──
   // Show the native "Changes you made may not be saved" confirm when a
@@ -148,6 +160,10 @@ export function initPageLifecycleHandlers(deps: PageLifecycleDeps): PageLifecycl
   window.addEventListener(
     'pageshow',
     (e) => {
+      // Fresh and bfcache pageshows both prove that this document is the live
+      // surface again. Repair the FOUC class before any reload decision so an
+      // abandoned navigation cannot leave only the themed body background.
+      revealLiveShell();
       if (!e.persisted) return;
       const role = deps.getRole();
       const resetPending = deps.hasPendingReset?.() === true;
@@ -158,8 +174,24 @@ export function initPageLifecycleHandlers(deps: PageLifecycleDeps): PageLifecycl
         // cached document legitimately has role=idle. Remove the cached inert
         // UI first: even if reload is rejected, the restored page remains
         // interactive instead of being trapped behind the reset overlay.
-        deps.restorePendingReset?.();
+        try {
+          deps.restorePendingReset?.();
+        } catch {
+          /* keep the live document visible even if reset cleanup is partial */
+        }
       }
+
+      if (bfcacheReloadAttempted) {
+        // The prior reload left and returned to this exact document. Restore
+        // interaction above, then stop retrying automatically; the service
+        // worker's bounded navigation fallback or a later user action can
+        // recover without trapping the PWA in a reload loop.
+        clearIntentionalNav();
+        deps.log?.info('[PageLifecycle] bfcache reload returned; keeping recovered shell visible');
+        return;
+      }
+
+      bfcacheReloadAttempted = true;
 
       deps.log?.info(
         resetPending

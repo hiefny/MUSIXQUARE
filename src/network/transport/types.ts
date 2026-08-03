@@ -363,6 +363,20 @@ export interface TransportMediaConnection {
   off?(event: 'error', callback: (error: unknown) => void): void;
 }
 
+export type TransportBackgroundRecoveryStatus =
+  | 'not-applicable'
+  | 'monitoring'
+  | 'stale-connection-closed';
+
+/**
+ * Result of a provider-specific foreground reconciliation after the document
+ * spent time hidden. Providers that do not retain suspendable transports can
+ * omit the hook entirely.
+ */
+export interface TransportBackgroundRecoveryResult {
+  status: TransportBackgroundRecoveryStatus;
+}
+
 export interface TransportPeer {
   id?: string;
   open: boolean;
@@ -376,6 +390,14 @@ export interface TransportPeer {
     options?: TransportCallOptions,
   ): TransportMediaConnection;
   reconnect?(): void;
+  /**
+   * Reconcile transport state after a hidden-to-visible transition. This is an
+   * explicit lifecycle hook so providers never need to observe document
+   * visibility themselves. Implementations must preserve ordinary transient
+   * disconnect grace unless the elapsed hidden time and transport state prove
+   * that an already-expired outage was resumed.
+   */
+  recoverAfterBackground?(hiddenMs: number): TransportBackgroundRecoveryResult;
   setRoomPassword?(password: string | null): void;
   setProSignalingAccess?(access: ProSignalingOptions): boolean;
   refreshStandardRoomIdentity?(): Promise<void>;

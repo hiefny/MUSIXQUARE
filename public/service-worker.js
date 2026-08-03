@@ -8,10 +8,14 @@
 
 // Bump this whenever a stable-path app-shell asset changes so existing clients
 // migrate to a fresh cache.
-const CACHE_VERSION = 'v365';
+const CACHE_VERSION = 'v366';
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 const BOOTSTRAP_CACHE_KEY = `./bootstrap.js?cache=${CACHE_VERSION}`;
+// iOS can resume a standalone app with a half-open radio path where fetch()
+// neither succeeds nor rejects for a long time. A navigation must reach the
+// active cached shell instead of leaving WebKit on its blank provisional page.
+const NAVIGATION_NETWORK_TIMEOUT_MS = 8_000;
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
 const CACHE_CLIENT_STATUS = 'MXQR_CACHE_CLIENT_STATUS';
 const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
@@ -20,11 +24,12 @@ const cacheReadyClientIds = new Set();
 // Only list assets that keep stable paths after Vite build. index.html is the
 // canonical navigation shell; caching './' as well would store the same body
 // twice under different keys.
-// Vite-hashed assets (CSS, JS bundles, icons, fonts, manifest) are cached on
-// their first runtime request and then served cache-first by content hash.
+// Other Vite-hashed assets are cached on their first runtime request and then
+// served cache-first by content hash.
 const APP_SHELL = [
   './index.html',
   BOOTSTRAP_CACHE_KEY,
+  './fouc-cleanup.js',
   './dummy_audio.mp3',
   './designsystem/fonts/PretendardVariable.woff2',
   './icons/icon-512.png',
@@ -267,6 +272,56 @@ async function cacheResponse(cacheName, request, response) {
   }
 }
 
+function fetchNavigationWithTimeout(request) {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  let timeoutId;
+  let removeRequestAbortListener = () => undefined;
+
+  if (controller && request.signal) {
+    // Avoid AbortSignal.reason here: older WebKit releases support aborting a
+    // fetch but do not expose the reason property consistently.
+    const abortFromRequest = () => controller.abort();
+    if (request.signal.aborted) abortFromRequest();
+    else {
+      request.signal.addEventListener('abort', abortFromRequest, { once: true });
+      removeRequestAbortListener = () =>
+        request.signal.removeEventListener('abort', abortFromRequest);
+    }
+  }
+
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      try {
+        controller?.abort();
+      } catch (_) {
+        /* an already-settled fetch needs no further cancellation */
+      }
+      reject(new Error('NAVIGATION_NETWORK_TIMEOUT'));
+    }, NAVIGATION_NETWORK_TIMEOUT_MS);
+  });
+  const network = controller ? fetch(request, { signal: controller.signal }) : fetch(request);
+
+  return Promise.race([network, timeout]).finally(() => {
+    clearTimeout(timeoutId);
+    removeRequestAbortListener();
+  });
+}
+
+async function matchActiveNavigationShell(request) {
+  try {
+    // Only the active cache generation is safe for HTML. Falling through to an
+    // unrestricted caches.match() can combine a retired index with current
+    // stable assets while an update-aware room tab is still alive.
+    if (!isRoomNavigation(request)) {
+      const cachedNavigation = await caches.match(request, { cacheName: RUNTIME_CACHE });
+      if (cachedNavigation) return cachedNavigation;
+    }
+    return (await caches.match('./index.html', { cacheName: STATIC_CACHE })) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 // Network-first for navigations, cache-first for static assets
 self.addEventListener('fetch', (event) => {
   const request = event.request;
@@ -274,7 +329,10 @@ self.addEventListener('fetch', (event) => {
 
   // Navigation (HTML): network-first, fallback to cached index
   if (request.mode === 'navigate' || (request.headers.get('accept') || '').includes('text/html')) {
-    const networkResponse = fetch(request);
+    const networkResponse = fetchNavigationWithTimeout(request);
+    // Start CacheStorage lookup while the radio fetch is in flight. If the
+    // timeout wins, the already-resolved active shell can paint immediately.
+    const cachedShell = matchActiveNavigationShell(request);
     // Six-digit room URLs all execute the installed SPA shell. Their online
     // responses differ only in invite metadata, so storing each URL creates
     // duplicate cache entries. index.html is already the canonical offline
@@ -303,11 +361,8 @@ self.addEventListener('fetch', (event) => {
           // network response returned to the navigation.
           return await networkResponse;
         } catch (_) {
-          // Fallback to cached index or cached navigation
-          const cached = await caches.match(request, { cacheName: RUNTIME_CACHE });
           return (
-            cached ||
-            (await caches.match('./index.html', { cacheName: STATIC_CACHE })) ||
+            (await cachedShell) ||
             new Response('Offline', { status: 503, statusText: 'Service Unavailable' })
           );
         }

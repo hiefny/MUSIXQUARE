@@ -18,6 +18,7 @@ import { stopWorkerTimer } from './sync-worker.ts';
 import type { DataConnection, AnyProtocolMsg, PeerInstance } from '../types/index.ts';
 import { getRuntimeTransportConfig } from './transport/config.ts';
 import { createTransportPeer, type TransportPeerOptions } from './transport/index.ts';
+import type { TransportBackgroundRecoveryResult } from './transport/types.ts';
 import { setPlaybackIdle } from '../player/ownership.ts';
 import {
   requestProRoomLeave,
@@ -537,6 +538,91 @@ export function retryPeerSignalingConnection(): boolean {
   return true;
 }
 
+function schedulePeerDisconnectGrace(peer: PeerInstance): void {
+  setManagedTimer(
+    'peer-disconnect-grace',
+    () => {
+      const currentPeer = getPeer();
+      // Scope the grace period to the peer whose disconnect created it.
+      // A replacement peer must be evaluated only by its own events.
+      if (currentPeer !== peer || peer.destroyed || !peer.disconnected) return;
+
+      // Skip the dialog if we still have a working channel ??the session
+      // is functional even without signaling (no new peers can join, but
+      // sync/playback for existing peers continues normally).
+      const role = getState('network.appRole');
+      if (role !== 'host' && role !== 'guest') return;
+      if (role === 'host') {
+        const peers = getState('network.connectedPeers') || [];
+        const hasLive = peers.some((p) => (p.conn as DataConnection)?.open);
+        if (hasLive) {
+          log.info(
+            '[Transport] Signaling disconnected but host has live data channels ??skipping dialog',
+          );
+          return;
+        }
+      } else if (role === 'guest') {
+        const hostConn = getState('network.hostConn');
+        if (hostConn?.open) {
+          log.info(
+            '[Transport] Signaling disconnected but guest hostConn still open ??skipping dialog',
+          );
+          return;
+        }
+      }
+
+      if (getRoomContext().kind === 'standard' && canRecoverSignalingInPlace()) {
+        log.info(
+          '[Transport] Standard room can recover signaling in place ??skipping lost-session dialog',
+        );
+        return;
+      }
+
+      if (requestProRoomTransportRecovery()) {
+        log.info('[Transport] PRO signaling is unavailable; topology recovery requested');
+        return;
+      }
+
+      // No data channel or local media survived, so this is a full session
+      // loss rather than the partial signaling state shown in Connect.
+      resetSignalingHealth();
+      showDialog({
+        title: t('network.disconnected'),
+        message: t('dialog.session_lost_msg'),
+        buttonText: t('dialog.session_lost_btn'),
+      }).then((res) => {
+        if (res.action !== 'ok') return; // ESC / background dismiss
+        scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
+      });
+    },
+    5000,
+  );
+}
+
+/**
+ * Explicit hidden-to-visible transport reconciliation. The lifecycle owner
+ * supplies elapsed time; providers remain independent of document visibility.
+ */
+export function recoverPeerAfterBackground(hiddenMs: number): TransportBackgroundRecoveryResult {
+  const peer = getPeer();
+  if (!peer || peer.destroyed || !Number.isFinite(hiddenMs)) {
+    return { status: 'not-applicable' };
+  }
+
+  const result = peer.recoverAfterBackground?.(hiddenMs) ?? { status: 'not-applicable' };
+  if (result.status === 'stale-connection-closed') {
+    // guest.ts owns the specific HOST_DISCONNECTED surface. Do not leave a
+    // queued generic signaling-loss dialog behind it.
+    clearManagedTimer('peer-disconnect-grace');
+  } else if (result.status === 'monitoring' && peer.disconnected) {
+    // The original one-shot signaling check may have fired while iOS still
+    // exposed a stale-open hostConn. Re-arm it from the explicit foreground
+    // recovery boundary so the post-resume state is evaluated once more.
+    schedulePeerDisconnectGrace(peer);
+  }
+  return result;
+}
+
 function setupPeerEvents(peer: PeerInstance): void {
   peer.on('open', () => {
     if (getPeer() !== peer || getState('network.signalingHealth').status === 'healthy') return;
@@ -638,64 +724,7 @@ function setupPeerEvents(peer: PeerInstance): void {
     const appRole = getState('network.appRole');
     if (appRole !== 'host' && appRole !== 'guest') return;
 
-    setManagedTimer(
-      'peer-disconnect-grace',
-      () => {
-        const currentPeer = getPeer();
-        // Scope the grace period to the peer whose disconnect created it.
-        // A replacement peer must be evaluated only by its own events.
-        if (currentPeer !== peer || peer.destroyed || !peer.disconnected) return;
-
-        // Skip the dialog if we still have a working channel — the session
-        // is functional even without signaling (no new peers can join, but
-        // sync/playback for existing peers continues normally).
-        const role = getState('network.appRole');
-        if (role !== 'host' && role !== 'guest') return;
-        if (role === 'host') {
-          const peers = getState('network.connectedPeers') || [];
-          const hasLive = peers.some((p) => (p.conn as DataConnection)?.open);
-          if (hasLive) {
-            log.info(
-              '[Transport] Signaling disconnected but host has live data channels — skipping dialog',
-            );
-            return;
-          }
-        } else if (role === 'guest') {
-          const hostConn = getState('network.hostConn');
-          if (hostConn?.open) {
-            log.info(
-              '[Transport] Signaling disconnected but guest hostConn still open — skipping dialog',
-            );
-            return;
-          }
-        }
-
-        if (getRoomContext().kind === 'standard' && canRecoverSignalingInPlace()) {
-          log.info(
-            '[Transport] Standard room can recover signaling in place — skipping lost-session dialog',
-          );
-          return;
-        }
-
-        if (requestProRoomTransportRecovery()) {
-          log.info('[Transport] PRO signaling is unavailable; topology recovery requested');
-          return;
-        }
-
-        // No data channel or local media survived, so this is a full session
-        // loss rather than the partial signaling state shown in Connect.
-        resetSignalingHealth();
-        showDialog({
-          title: t('network.disconnected'),
-          message: t('dialog.session_lost_msg'),
-          buttonText: t('dialog.session_lost_btn'),
-        }).then((res) => {
-          if (res.action !== 'ok') return; // ESC / background dismiss
-          scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
-        });
-      },
-      5000,
-    );
+    schedulePeerDisconnectGrace(peer);
   });
 
   // System Audio: handle incoming media calls (WebRTC audio stream)

@@ -9,6 +9,8 @@ import type {
   ProSignalingOptions,
   TransportConnectOptions,
   TransportDataConnection,
+  TransportBackgroundRecoveryResult,
+  TransportBackgroundRecoveryStatus,
   TransportMediaConnection,
   TransportPeer,
   TransportPeerOptions,
@@ -272,6 +274,14 @@ function randomBase64Url(bytes = 18): string {
   return btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
+function randomResumeProbePingId(): number {
+  const words = new Uint32Array(2);
+  crypto.getRandomValues(words);
+  // Reserve the upper half of the safe-integer range so this transport-owned
+  // probe cannot realistically collide with the app sync counter.
+  return 2 ** 52 + ((words[0] ?? 0) & 0xfffff) * 2 ** 32 + (words[1] ?? 0);
+}
+
 interface ProTicketClaims {
   roomCode: string;
   participantId: string;
@@ -396,6 +406,10 @@ function isBenignDataChannelCloseError(event: Event): boolean {
 
 let cloudflareDataConnectionSequence = 0;
 
+const DATA_CONNECTION_DISCONNECTED_GRACE_MS = 15_000;
+const BACKGROUND_RESUME_DISCONNECTED_PROBE_MS = 1_000;
+const BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS = 3_000;
+
 export class CloudflareDataConnection extends TinyEmitter implements TransportDataConnection {
   open = false;
   peerConnection?: RTCPeerConnection;
@@ -406,11 +420,17 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   private pcListenersAttached = false;
   private resourcesDisposed = false;
   private readonly disconnectedGraceTimerKey = `cloudflare-data-disconnected-grace-${++cloudflareDataConnectionSequence}`;
+  private readonly backgroundResumeLivenessTimerKey = `${this.disconnectedGraceTimerKey}-background-resume-liveness`;
+  private readonly backgroundResumeDisconnectedTimerKey = `${this.disconnectedGraceTimerKey}-background-resume-disconnected`;
+  private backgroundResumeRecoveryArmed = false;
+  private backgroundResumeProbePingId: number | null = null;
+  private backgroundResumeSawDisconnected = false;
 
   constructor(
     readonly peer: string,
     readonly metadata?: unknown,
     public roomIdentity: StandardRoomMemberIdentity | null = null,
+    private readonly onConnectionStateChange?: () => void,
   ) {
     super();
   }
@@ -435,7 +455,16 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     });
     channel.addEventListener('message', (event) => {
       decodePayload(event.data)
-        .then((payload) => this.emit('data', payload))
+        .then((payload) => {
+          // A connection that WebKit reports as connected/open can still be a
+          // frozen SCTP association. Only the exact reply to our post-resume
+          // challenge proves that this connection reaches the live host. Other
+          // frames may have been queued before the app was suspended.
+          if (this.isBackgroundResumeProbePong(payload)) {
+            this.clearBackgroundResumeRecovery();
+          }
+          this.emit('data', payload);
+        })
         .catch((error) => this.emit('error', error));
     });
     channel.addEventListener('close', () => {
@@ -463,9 +492,21 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
       pc.addEventListener('connectionstatechange', () => {
         if (pc.connectionState === 'connected') {
           this.cancelDisconnectedGrace();
+          // A genuine disconnected -> connected transition is ICE-level proof.
+          // A redundant connected event on a stale WebKit object is not.
+          if (!this.backgroundResumeRecoveryArmed || this.backgroundResumeSawDisconnected) {
+            this.clearBackgroundResumeRecovery();
+          }
+          this.onConnectionStateChange?.();
           return;
         }
         if (pc.connectionState === 'disconnected') {
+          // Let the peer combine this RTC transition with its signaling state
+          // before granting a fresh grace period. A long-hidden outage may
+          // already have consumed the entire grace while WebKit was suspended.
+          this.reconcileBackgroundResumeRecovery(false);
+          this.onConnectionStateChange?.();
+          if (this.closed) return;
           this.scheduleDisconnectedGrace(pc);
           return;
         }
@@ -499,8 +540,122 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     this.terminate();
   }
 
+  recoverAfterBackground(
+    hiddenMs: number,
+    signalingDisconnected: boolean,
+  ): TransportBackgroundRecoveryStatus {
+    if (
+      this.closed ||
+      !this.open ||
+      !Number.isFinite(hiddenMs) ||
+      hiddenMs < DATA_CONNECTION_DISCONNECTED_GRACE_MS
+    ) {
+      return 'not-applicable';
+    }
+
+    this.backgroundResumeRecoveryArmed = true;
+    this.backgroundResumeSawDisconnected = false;
+    this.backgroundResumeProbePingId = randomResumeProbePingId();
+    // visibilitychange can run while WebKit still reports a dead RTC object as
+    // connected/open. Require a bounded, connection-bound SYNC_PONG instead of
+    // trusting that cached state. Existing hosts already answer SYNC_PING, so
+    // the liveness challenge remains compatible across a rolling static deploy.
+    setManagedTimer(
+      this.backgroundResumeLivenessTimerKey,
+      () => {
+        if (this.backgroundResumeRecoveryArmed && !this.closed) this.terminate();
+      },
+      BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS,
+    );
+    const status = this.reconcileBackgroundResumeRecovery(signalingDisconnected);
+    if (status === 'stale-connection-closed') return status;
+
+    try {
+      this.send({
+        type: MSG.SYNC_PING,
+        pingId: this.backgroundResumeProbePingId,
+        guestTime: Date.now(),
+      });
+    } catch {
+      this.terminate();
+      return 'stale-connection-closed';
+    }
+    return status;
+  }
+
+  reconcileBackgroundResumeRecovery(
+    signalingDisconnected: boolean,
+  ): TransportBackgroundRecoveryStatus {
+    if (this.closed || !this.backgroundResumeRecoveryArmed) return 'not-applicable';
+
+    const rtcState = this.peerConnection?.connectionState;
+    const rtcTerminal = !this.peerConnection || rtcState === 'failed' || rtcState === 'closed';
+    const dataChannelsUnhealthy =
+      this.dataChannel?.readyState !== 'open' || this.controlChannel?.readyState !== 'open';
+
+    // Terminal RTC/data-channel state is already conclusive after an absence
+    // longer than the ordinary grace. A disconnected PC with open channels is
+    // less certain: iOS can briefly report it while restoring the radio, so
+    // give that foreground hand-off one bounded probe instead of another full
+    // 15-second grace. Lost signaling strengthens the stale-session evidence
+    // and makes that probe unnecessary, but is deliberately not required: the
+    // room worker retains guest signaling for the host's 60-second reclaim
+    // window even after the host transport has gone away.
+    if (rtcTerminal || dataChannelsUnhealthy) {
+      this.terminate();
+      return 'stale-connection-closed';
+    }
+
+    if (rtcState === 'connected') {
+      return 'monitoring';
+    }
+
+    if (rtcState === 'disconnected') {
+      this.backgroundResumeSawDisconnected = true;
+      if (signalingDisconnected) {
+        this.terminate();
+        return 'stale-connection-closed';
+      }
+      setManagedTimer(
+        this.backgroundResumeDisconnectedTimerKey,
+        () => {
+          if (!this.backgroundResumeRecoveryArmed || this.closed) return;
+          const currentState = this.peerConnection?.connectionState;
+          const channelsOpen =
+            this.dataChannel?.readyState === 'open' && this.controlChannel?.readyState === 'open';
+          if (currentState === 'connected' && channelsOpen) {
+            // A state transition event or the nonce reply clears recovery. If
+            // WebKit silently mutates the property, keep waiting for the reply.
+            return;
+          }
+          this.terminate();
+        },
+        BACKGROUND_RESUME_DISCONNECTED_PROBE_MS,
+      );
+    }
+
+    return 'monitoring';
+  }
+
+  clearBackgroundResumeRecovery(): void {
+    this.backgroundResumeRecoveryArmed = false;
+    this.backgroundResumeProbePingId = null;
+    this.backgroundResumeSawDisconnected = false;
+    clearManagedTimer(this.backgroundResumeLivenessTimerKey);
+    clearManagedTimer(this.backgroundResumeDisconnectedTimerKey);
+  }
+
+  private isBackgroundResumeProbePong(payload: unknown): boolean {
+    if (this.backgroundResumeProbePingId === null || !payload || typeof payload !== 'object') {
+      return false;
+    }
+    const record = payload as Record<string, unknown>;
+    return record.type === MSG.SYNC_PONG && record.pingId === this.backgroundResumeProbePingId;
+  }
+
   private terminate(): void {
     this.cancelDisconnectedGrace();
+    this.clearBackgroundResumeRecovery();
     this.disposeResources();
     this.markClosed();
   }
@@ -533,7 +688,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
         if (pc !== this.peerConnection || pc.connectionState !== 'disconnected') return;
         this.terminate();
       },
-      15_000,
+      DATA_CONNECTION_DISCONNECTED_GRACE_MS,
     );
   }
 
@@ -945,7 +1100,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     ) {
       throw createTransportError('invalid-id', 'PRO_SIGNALING_ROOM_MISMATCH');
     }
-    const conn = new CloudflareDataConnection(roomId, options?.metadata);
+    const conn = new CloudflareDataConnection(roomId, options?.metadata, null, () => {
+      this.reconcileGuestBackgroundRecovery(roomId);
+    });
     const roomPassword =
       typeof options?.roomPassword === 'string' ? options.roomPassword.trim() : '';
     if (!this.proSignalingAccess && !this.guestReconnectSecrets.has(roomId)) {
@@ -1022,6 +1179,26 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       if (!this.isDataConnectionAlive(record.conn)) continue;
       this.ensureGuestSocket(roomId);
     }
+  }
+
+  recoverAfterBackground(hiddenMs: number): TransportBackgroundRecoveryResult {
+    if (
+      this.destroyed ||
+      this.hostRoomId !== null ||
+      this.proSignalingAccess ||
+      !Number.isFinite(hiddenMs) ||
+      hiddenMs < DATA_CONNECTION_DISCONNECTED_GRACE_MS
+    ) {
+      return { status: 'not-applicable' };
+    }
+
+    let status: TransportBackgroundRecoveryStatus = 'not-applicable';
+    for (const record of this.guestRooms.values()) {
+      const next = record.conn.recoverAfterBackground(hiddenMs, this.disconnected);
+      if (next === 'stale-connection-closed') return { status: next };
+      if (next === 'monitoring') status = next;
+    }
+    return { status };
   }
 
   setRoomPassword(password: string | null): void {
@@ -1233,6 +1410,15 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
    * 'disconnected', resets the outer retry budget, and causes a permanent
    * open/close oscillation.
    */
+  private reconcileGuestBackgroundRecovery(
+    roomId: string,
+    signalingDisconnected = this.disconnected,
+  ): TransportBackgroundRecoveryStatus {
+    const record = this.guestRooms.get(roomId);
+    if (!record) return 'not-applicable';
+    return record.conn.reconcileBackgroundResumeRecovery(signalingDisconnected);
+  }
+
   private ensureGuestSocket(roomId: string): void {
     const record = this.guestRooms.get(roomId);
     if (!record || record.authFailed) return;
@@ -1281,6 +1467,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         if (conn.peerConnection) {
           const wasDisconnected = this.disconnected;
           this.disconnected = true;
+          this.reconcileGuestBackgroundRecovery(roomId, true);
           if (!wasDisconnected) this.emit('disconnected');
         }
       }
@@ -1537,6 +1724,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           const record = this.guestRooms.get(roomId);
           if (record?.conn === conn) record.authFailed = true;
         }
+        this.reconcileGuestBackgroundRecovery(roomId, true);
         log.warn(
           '[Transport] Guest signaling rejected after establishment; preserving data channel',
           error,

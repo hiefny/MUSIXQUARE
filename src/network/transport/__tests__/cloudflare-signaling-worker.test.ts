@@ -5,6 +5,7 @@ import {
   createStandardRoomAccountAssertion,
   createStandardRoomAccountDeletionAssertion,
 } from '../../../../cloudflare/standard-room-account-assertion.js';
+import { SERVICE_CONTROL_READ_TIMEOUT_MS } from '../../../../cloudflare/service-maintenance.js';
 
 type WorkerModule = {
   MusixquareRoom: new (
@@ -363,6 +364,19 @@ function maintenanceBinding(enabled = true): Record<string, unknown> {
   };
 }
 
+function hangingMaintenanceBinding(): {
+  binding: Record<string, unknown>;
+  fetch: ReturnType<typeof vi.fn>;
+} {
+  const fetch = vi.fn(() => new Promise<Response>(() => {}));
+  return {
+    binding: {
+      getByName: vi.fn(() => ({ fetch })),
+    },
+    fetch,
+  };
+}
+
 function proAuthorityNamespace(
   handler: (request: Request) => Promise<Response> = async () =>
     new originalResponse(
@@ -576,7 +590,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(FakeWebSocketPair.pairs).toHaveLength(0);
   });
 
-  it('keeps an alarm alive but blocks websocket work and close persistence in maintenance', async () => {
+  it('keeps an alarm alive while blocking pending websocket work in maintenance', async () => {
     const state = new FakeDurableObjectState();
     const env: Record<string, unknown> = {};
     const room = new workerModule.MusixquareRoom(state, env);
@@ -596,6 +610,104 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     await room.alarm();
     expect(state.storage.alarmTime).toBeGreaterThanOrEqual(beforeAlarm + 59_000);
   });
+
+  it('persists host departure and expires stale guests during maintenance idempotently', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-03T00:00:00.000Z'));
+    const state = new FakeDurableObjectState();
+    const env: Record<string, unknown> = {};
+    const room = new workerModule.MusixquareRoom(state, env);
+    const host = await authenticateHost(room, 'host-maintenance', 'secret-maintenance');
+    const guest = await joinGuest(room, 'guest-maintenance');
+    env.MUSIXQUARE_SERVICE_CONTROL = maintenanceBinding();
+
+    host.close();
+    await room.webSocketClose(host);
+    const released = (await state.storage.get('roomMeta')) as RoomMeta;
+    expect(released).toMatchObject({
+      roomSecret: 'secret-maintenance',
+      hostPeerId: null,
+      hostReleaseAt: Date.now() + 60_000,
+    });
+    expect(state.storage.alarmTime).toBe(released.hostReleaseAt);
+
+    await room.webSocketClose(host);
+    expect(await state.storage.get('roomMeta')).toEqual(released);
+    expect(state.storage.alarmTime).toBe(released.hostReleaseAt);
+
+    vi.advanceTimersByTime(60_000);
+    await room.alarm();
+
+    expect(guest.closeEvents.at(-1)).toEqual({ code: 1012, reason: 'ROOM_EXPIRED' });
+    expect(await state.storage.get('roomMeta')).toEqual({
+      v: 1,
+      roomSecret: null,
+      roomPassword: '',
+      hostPeerId: null,
+      hostReleaseAt: 0,
+    });
+    expect(await state.storage.get('guestReconnectBindings')).toEqual({ v: 1, entries: [] });
+    expect(state.storage.alarmTime).toBe(Date.now() + 60_000);
+  });
+
+  it('does not wait for service control on close and converges after a bounded failed read', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-03T01:00:00.000Z'));
+    const state = new FakeDurableObjectState();
+    const env: Record<string, unknown> = {};
+    const room = new workerModule.MusixquareRoom(state, env);
+    const host = await authenticateHost(room, 'host-hanging-control', 'secret-hanging-control');
+    const guest = await joinGuest(room, 'guest-hanging-control');
+    const hanging = hangingMaintenanceBinding();
+    env.MUSIXQUARE_SERVICE_CONTROL = hanging.binding;
+
+    host.close();
+    await room.webSocketClose(host);
+    expect(hanging.fetch).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(60_000);
+    const alarm = room.alarm();
+    await Promise.resolve();
+    expect(hanging.fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(SERVICE_CONTROL_READ_TIMEOUT_MS);
+    await alarm;
+
+    expect(guest.closeEvents.at(-1)).toEqual({ code: 1012, reason: 'ROOM_EXPIRED' });
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      roomSecret: null,
+      hostPeerId: null,
+      hostReleaseAt: 0,
+    });
+    expect(state.storage.alarmTime).toBe(Date.now() + 60_000);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('retries host close persistence after an interrupted storage write', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-03T02:00:00.000Z'));
+    const { room, state, host } = await createHostRoom();
+    const internals = room as unknown as {
+      saveRoomMeta(meta: RoomMeta): Promise<RoomMeta>;
+    };
+    vi.spyOn(internals, 'saveRoomMeta').mockRejectedValueOnce(
+      new Error('simulated close persistence failure'),
+    );
+
+    host.close();
+    await expect(room.webSocketClose(host)).rejects.toThrow('simulated close persistence failure');
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      hostPeerId: 'host-1',
+      hostReleaseAt: 0,
+    });
+
+    await expect(room.webSocketClose(host)).resolves.toBeUndefined();
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      hostPeerId: null,
+      hostReleaseAt: Date.now() + 60_000,
+    });
+    expect(state.storage.alarmTime).toBe(Date.now() + 60_000);
+  });
+
   it('rejects non-WebSocket room requests before Durable Object lookup', async () => {
     const { env, idFromName } = workerEnv();
     const response = await workerModule.default.fetch(

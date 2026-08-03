@@ -3675,16 +3675,46 @@ export class MusixquareRoom {
     this.scheduleMaintenanceAlarm();
   }
 
+  async reconcileStandardRoomClosuresDuringMaintenance(now = Date.now()) {
+    let cleanupError = null;
+    try {
+      // Maintenance blocks new authority and mutable room work, but a close is
+      // a revocation boundary. Let an already-recorded host release expire so
+      // stale guests and room ownership cannot survive a prolonged outage of
+      // the control plane itself.
+      await this.enqueueStandardAdmission(() => this.clearExpiredHostRelease());
+    } catch (error) {
+      cleanupError = error;
+    }
+
+    let alarmError = null;
+    if (typeof this.state.storage.setAlarm === 'function') {
+      const retryAt = now + 60_000;
+      const hostReleaseAt = !this.host ? this.roomMeta?.hostReleaseAt : 0;
+      const alarmAt =
+        Number.isFinite(hostReleaseAt) && hostReleaseAt > now
+          ? Math.min(hostReleaseAt, retryAt)
+          : retryAt;
+      try {
+        await this.state.storage.setAlarm(alarmAt);
+      } catch (error) {
+        alarmError = error;
+      }
+    }
+
+    if (cleanupError && alarmError) {
+      throw new AggregateError(
+        [cleanupError, alarmError],
+        'Failed to reconcile standard-room closures during maintenance',
+      );
+    }
+    if (cleanupError) throw cleanupError;
+    if (alarmError) throw alarmError;
+  }
+
   async alarm() {
     if ((await readServiceMaintenance(this.env)).enabled) {
-      if (typeof this.state.storage.setAlarm === 'function') {
-        try {
-          await this.state.storage.setAlarm(Date.now() + 60_000);
-        } catch {
-          // Keep room mutations blocked. A later socket event or recovered
-          // control-plane check can reinstall ordinary maintenance scheduling.
-        }
-      }
+      await this.reconcileStandardRoomClosuresDuringMaintenance();
       return;
     }
     const now = Date.now();
@@ -4471,26 +4501,6 @@ export class MusixquareRoom {
     const attachment = readAttachment(ws);
     if (!attachment) return;
 
-    if ((await readServiceMaintenance(this.env)).enabled) {
-      if (attachment.roomKind === 'pro') {
-        if (this.proMembers.get(attachment.participantId) === ws) {
-          this.proMembers.delete(attachment.participantId);
-        }
-        return;
-      }
-      if (attachment.role === 'host') {
-        this.pendingHosts.delete(ws);
-        if (this.host === ws) {
-          this.host = null;
-          this.hostPeerId = null;
-        }
-        return;
-      }
-      this.pendingGuests.delete(ws);
-      if (this.guests.get(attachment.peerId) === ws) this.guests.delete(attachment.peerId);
-      return;
-    }
-
     if (attachment.roomKind === 'pro') {
       if (this.proMembers.get(attachment.participantId) === ws) {
         this.proMembers.delete(attachment.participantId);
@@ -4533,25 +4543,31 @@ export class MusixquareRoom {
   }
 
   async releaseHost(ws, attachment) {
-    // The caller owns standardAdmissionSync. Exact identity prevents a stale
-    // close from releasing a replacement host that won while the event waited.
-    if (this.host !== ws) return;
+    // The caller owns standardAdmissionSync. A live replacement always wins,
+    // while a retry after storage/alarm failure may continue from host=null.
+    // This makes duplicate close callbacks convergent without allowing a stale
+    // socket to release a newer host.
+    if (this.host !== null && this.host !== ws) return;
     const meta = await this.loadRoomMeta();
-    if (
-      this.host !== ws ||
-      meta.roomSecret !== attachment.secret ||
-      meta.hostPeerId !== attachment.peerId
-    ) {
-      return;
-    }
+    const ownsPersistedHost =
+      meta.roomSecret === attachment.secret && meta.hostPeerId === attachment.peerId;
+    const alreadyReleasedSameEpoch =
+      this.host === null &&
+      meta.roomSecret === attachment.secret &&
+      meta.hostPeerId === null &&
+      meta.hostReleaseAt > 0;
+    if (!ownsPersistedHost && !alreadyReleasedSameEpoch) return;
 
-    this.host = null;
-    this.hostPeerId = null;
-    await this.saveRoomMeta({
-      ...meta,
-      hostPeerId: null,
-      hostReleaseAt: Date.now() + HOST_RECLAIM_GRACE_MS,
-    });
+    if (ownsPersistedHost) {
+      this.host = null;
+      this.hostPeerId = null;
+      await this.saveRoomMeta({
+        ...meta,
+        hostPeerId: null,
+        hostReleaseAt: Date.now() + HOST_RECLAIM_GRACE_MS,
+      });
+    }
+    await this.clearExpiredHostRelease();
     await this.scheduleMaintenanceAlarm();
   }
 
@@ -4563,22 +4579,30 @@ export class MusixquareRoom {
   }
 
   async finishRemoveGuest(peerId, ws) {
-    if (this.guests.get(peerId) !== ws) return;
-    const bindings = await this.loadGuestBindings();
-    if (bindings.entries.some((entry) => entry.peerId === peerId)) {
-      await this.saveGuestBindings({
-        ...bindings,
-        entries: bindings.entries.map((entry) =>
-          entry.peerId === peerId ? { ...entry, updatedAt: Date.now() } : entry,
-        ),
-      });
+    const current = this.guests.get(peerId);
+    if (current && current !== ws) return;
+
+    if (current === ws) {
+      const bindings = await this.loadGuestBindings();
+      if (bindings.entries.some((entry) => entry.peerId === peerId)) {
+        await this.saveGuestBindings({
+          ...bindings,
+          entries: bindings.entries.map((entry) =>
+            entry.peerId === peerId ? { ...entry, updatedAt: Date.now() } : entry,
+          ),
+        });
+      }
+      this.guests.delete(peerId);
+      if (this.host) {
+        send(this.host, { type: 'peer-left', peerId });
+        return;
+      }
     }
-    this.guests.delete(peerId);
-    if (this.host) {
-      send(this.host, { type: 'peer-left', peerId });
-      return;
-    }
-    if (this.guests.size === 0) {
+
+    // A duplicate close may be the retry after storage failed once the socket
+    // had already been removed from the in-memory index. Continue the empty-
+    // room reconciliation in that case, but never act on a replaced peer.
+    if (!this.host && this.guests.size === 0) {
       const meta = await this.loadRoomMeta();
       if (this.host) {
         // A host may have reclaimed the room while the metadata read yielded.

@@ -66,6 +66,19 @@ function markNavigationCommitted(): void {
   window.clearTimeout(attempt.recoveryTimer);
 }
 
+function restoreReturnedNavigation(): void {
+  const attempt = _activeAttempt;
+  if (!attempt?.actionStarted || !attempt.navigationCommitted) return;
+  // Safari may restore the old document after a navigation reached pagehide
+  // but the replacement shell failed to commit. Do not leave that returned
+  // document inert behind the full-viewport reset surface.
+  restoreSessionReset();
+}
+
+function restoreReturnedVisibleNavigation(): void {
+  if (document.visibilityState === 'visible') restoreReturnedNavigation();
+}
+
 function ensureOverlay(): HTMLElement {
   const existing = document.getElementById(OVERLAY_ID);
   if (existing instanceof HTMLElement) return existing;
@@ -144,6 +157,8 @@ export function restoreSessionReset(): void {
 
   removeInteractionBlockers();
   window.removeEventListener('pagehide', markNavigationCommitted, true);
+  window.removeEventListener('pageshow', restoreReturnedNavigation, false);
+  document.removeEventListener('visibilitychange', restoreReturnedVisibleNavigation, true);
 
   const overlay = document.getElementById(OVERLAY_ID);
   const previousFocus = attempt?.previousFocus;
@@ -192,6 +207,14 @@ export function scheduleSessionReset(message: string, action: () => void): void 
   // beforeunload can still be cancelled by another listener or the browser.
   // pagehide is the reliable boundary that this document actually left.
   window.addEventListener('pagehide', markNavigationCommitted, true);
+  // A stalled iOS navigation can subsequently return the same document via
+  // pageshow, or only foreground it again. Either signal must make the old
+  // shell interactive instead of preserving a permanent reset screen.
+  // Keep this in the ordinary listener phase. page-lifecycle's earlier
+  // pageshow handler must get the first chance to replace a returned reset
+  // with its single bounded reload attempt.
+  window.addEventListener('pageshow', restoreReturnedNavigation, false);
+  document.addEventListener('visibilitychange', restoreReturnedVisibleNavigation, true);
 
   const runOnce = () => {
     if (_activeAttempt !== attempt || attempt.actionStarted) return;

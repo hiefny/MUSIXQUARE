@@ -8,6 +8,9 @@ import { CloudflareDataConnection, CloudflareSignalingPeer } from '../cloudflare
 import type { TransportDataConnection, TransportMediaConnection } from '../types.ts';
 
 const originalWebSocket = globalThis.WebSocket;
+const DATA_CONNECTION_DISCONNECTED_GRACE_MS = 15_000;
+const BACKGROUND_RESUME_DISCONNECTED_PROBE_MS = 1_000;
+const BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS = 3_000;
 const originalRTCPeerConnection = globalThis.RTCPeerConnection;
 const originalMediaStream = globalThis.MediaStream;
 const NEGOTIATION_ID = 'negotiation_test_000001';
@@ -1470,6 +1473,194 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     expect(control.readyState).toBe('closed');
     expect(pc.connectionState).toBe('closed');
     expect(pc.closeCount).toBe(1);
+  });
+
+  it('does not grant a fresh full grace when a long-hidden disconnected RTC resumes', async () => {
+    vi.useFakeTimers();
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await vi.advanceTimersByTimeAsync(0);
+
+    // WebKit delivered disconnected before visibility recovery. The ordinary
+    // 15s timer is already armed, but the hidden interval consumed that grace.
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange');
+    expect(conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+
+    await vi.advanceTimersByTimeAsync(BACKGROUND_RESUME_DISCONNECTED_PROBE_MS - 1);
+    expect(conn.open).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(conn.open).toBe(false);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('catches a queued disconnected event delivered after the foreground hook', async () => {
+    vi.useFakeTimers();
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await vi.advanceTimersByTimeAsync(0);
+
+    // visibilitychange can run while connectionState still reads connected.
+    expect(conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange');
+
+    await vi.advanceTimersByTimeAsync(BACKGROUND_RESUME_DISCONNECTED_PROBE_MS);
+    expect(conn.open).toBe(false);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a long-resume RTC alive when the short foreground probe reconnects', async () => {
+    vi.useFakeTimers();
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await vi.advanceTimersByTimeAsync(0);
+
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange');
+    expect(conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    await vi.advanceTimersByTimeAsync(BACKGROUND_RESUME_DISCONNECTED_PROBE_MS / 2);
+    pc.connectionState = 'connected';
+    pc.dispatch('connectionstatechange');
+    await vi.advanceTimersByTimeAsync(DATA_CONNECTION_DISCONNECTED_GRACE_MS);
+
+    expect(conn.open).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+    conn.close();
+  });
+
+  it('closes a stale connected/open WebKit connection when its liveness challenge is unanswered', async () => {
+    vi.useFakeTimers();
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    const probe = JSON.parse(control.sent.at(-1) as string) as Record<string, unknown>;
+    expect(probe).toMatchObject({ type: MSG.SYNC_PING });
+    expect(probe.pingId).toEqual(expect.any(Number));
+
+    // A redundant connected event is not proof: this is one of WebKit's stale
+    // object failure modes after a long suspension.
+    pc.dispatch('connectionstatechange');
+    await vi.advanceTimersByTimeAsync(BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS - 1);
+    expect(conn.open).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(conn.open).toBe(false);
+  });
+
+  it('keeps a stale-looking connected RTC only after the exact liveness pong arrives', async () => {
+    vi.useFakeTimers();
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    const probe = JSON.parse(control.sent.at(-1) as string) as { pingId: number };
+
+    // An unrelated queued frame and a different pong must not certify the
+    // pre-suspend association.
+    control.dispatch('message', JSON.stringify({ type: MSG.SYNC_PONG, pingId: probe.pingId - 1 }));
+    control.dispatch('message', JSON.stringify({ type: MSG.CHAT, text: 'queued' }));
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS - 1);
+    expect(conn.open).toBe(true);
+
+    control.dispatch(
+      'message',
+      JSON.stringify({
+        type: MSG.SYNC_PONG,
+        pingId: probe.pingId,
+        hostTime: Date.now(),
+        position: 0,
+        mode: null,
+        activity: 'idle',
+        queueItemId: null,
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS);
+
+    expect(conn.open).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+    conn.close();
+  });
+
+  it('keeps the ordinary grace when the hidden interval was shorter than it', async () => {
+    vi.useFakeTimers();
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await vi.advanceTimersByTimeAsync(0);
+
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange');
+    expect(conn.recoverAfterBackground(DATA_CONNECTION_DISCONNECTED_GRACE_MS - 1, false)).toBe(
+      'not-applicable',
+    );
+
+    await vi.advanceTimersByTimeAsync(DATA_CONNECTION_DISCONNECTED_GRACE_MS - 1);
+    expect(conn.open).toBe(true);
+    expect(onClose).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('closes a long-hidden connection immediately when a data channel is no longer open', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    control.readyState = 'closed';
+    expect(conn.recoverAfterBackground(60_000, false)).toBe('stale-connection-closed');
+    expect(conn.open).toBe(false);
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('opens only after both channels are ready and keeps file tails on their ordered bulk stream', async () => {

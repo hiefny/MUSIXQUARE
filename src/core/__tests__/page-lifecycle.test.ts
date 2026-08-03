@@ -30,6 +30,7 @@ function pageTransition(name: string, persisted: boolean): Event {
 
 beforeEach(() => {
   __resetIntentionalNavForTests();
+  document.body.classList.remove('fouc-loaded');
 });
 
 describe('page-lifecycle flag', () => {
@@ -173,6 +174,7 @@ describe('initPageLifecycleHandlers — pageshow', () => {
   it('does nothing on a fresh pageshow (persisted=false)', () => {
     window.dispatchEvent(pageTransition('pageshow', false));
     expect(reload).not.toHaveBeenCalled();
+    expect(document.body.classList.contains('fouc-loaded')).toBe(true);
   });
 
   it('does nothing on bfcache restore when role is idle', () => {
@@ -225,6 +227,36 @@ describe('initPageLifecycleHandlers — pageshow', () => {
 
     expect(() => window.dispatchEvent(pageTransition('pageshow', true))).not.toThrow();
     expect(isIntentionalNav()).toBe(false);
+  });
+
+  it('restores the shell without entering another reload loop when the same bfcache document returns', () => {
+    handle.dispose();
+    let resetPending = false;
+    const restorePendingReset = vi.fn(() => {
+      resetPending = false;
+    });
+    reload.mockImplementation(() => {
+      resetPending = true;
+    });
+    handle = initPageLifecycleHandlers({
+      getRole: () => 'guest',
+      leaveSession: vi.fn(),
+      reload,
+      hasPendingReset: () => resetPending,
+      restorePendingReset,
+    });
+
+    window.dispatchEvent(pageTransition('pageshow', true));
+    expect(reload).toHaveBeenCalledOnce();
+    expect(isIntentionalNav()).toBe(true);
+
+    document.body.classList.remove('fouc-loaded');
+    window.dispatchEvent(pageTransition('pageshow', true));
+
+    expect(restorePendingReset).toHaveBeenCalledOnce();
+    expect(reload).toHaveBeenCalledOnce();
+    expect(isIntentionalNav()).toBe(false);
+    expect(document.body.classList.contains('fouc-loaded')).toBe(true);
   });
 
   it('passes the log message through when a logger is provided', () => {

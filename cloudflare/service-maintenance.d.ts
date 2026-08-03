@@ -11,6 +11,7 @@ export interface ServiceMaintenanceState {
 export const SERVICE_CONTROL_OBJECT_NAME: string;
 export const SERVICE_CONTROL_STATUS_PATH: string;
 export const SERVICE_CONTROL_STATE_PATH: string;
+export const SERVICE_CONTROL_READ_TIMEOUT_MS: number;
 
 export function inactiveServiceMaintenanceState(): ServiceMaintenanceState;
 export function normalizeServiceMaintenanceState(value: unknown): ServiceMaintenanceState | null;

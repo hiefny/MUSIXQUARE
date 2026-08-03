@@ -1,6 +1,6 @@
 {
   "name": "musixquare",
-  "version": "8.3.15",
+  "version": "8.3.16",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -39,6 +39,7 @@
     "check:pro-room-worker": "npm run check:pro-room-modules && npm run guard:prod-security",
     "check:developer-api-workers": "node --check cloudflare/developer-api-worker.js && node --check cloudflare/developer-api-facade-worker.js && npm run guard:developer-api-boundaries",
     "check:workers": "node --check cloudflare/service-maintenance.js && node --check cloudflare/account-nickname.js && node --check cloudflare/account-assertion.js && node --check cloudflare/standard-room-account-assertion.js && node --check cloudflare/account-auth.js && node --check cloudflare/app-worker.js && node --check cloudflare/pro-bot.js && node --check cloudflare/signaling-worker.js && node --check cloudflare/remote-share-worker.js && npm run check:pro-room-modules && npm run check:developer-api-workers && npm run guard:script-module-exports && npm run guard:d1-migrations && npm run guard:ops-drift-contract",
+    "check:worker-bundles": "node scripts/check-worker-bundles.mjs",
     "smoke:live:signaling": "node scripts/live-signaling-smoke.mjs",
     "smoke:live:pro-room": "node scripts/live-pro-room-smoke.mjs",
     "smoke:live:pro-media-cors": "node scripts/live-pro-media-cors-smoke.mjs",

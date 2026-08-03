@@ -4057,9 +4057,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.15');
-    expect(html).toContain('/admin.js?v=8.3.15');
-    expect(html).toContain('data-admin-asset-version="8.3.15"');
+    expect(html).toContain('/admin.css?v=8.3.16');
+    expect(html).toContain('/admin.js?v=8.3.16');
+    expect(html).toContain('data-admin-asset-version="8.3.16"');
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
     expect(html).toContain('data-admin-tab="pro-rooms"');
     expect(html).toContain('data-pro-room-form');
@@ -4076,7 +4078,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.3.15', '/admin.css?v=8.3.15']) {
+    for (const path of ['/admin.js?v=8.3.16', '/admin.css?v=8.3.16']) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
@@ -4084,6 +4086,19 @@ describe('Cloudflare app worker admin dashboard', () => {
       expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     }
     expect(assetFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not publish the development-only interactive UI kit', async () => {
+    for (const method of ['GET', 'HEAD']) {
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/designsystem/ui_kits/app/index.html', { method }),
+        {},
+      );
+      expect(response.status).toBe(404);
+      expect(response.headers.get('Cache-Control')).toBe('no-store');
+      expect(response.headers.get('Content-Security-Policy')).toBeTruthy();
+      if (method === 'HEAD') expect(await response.text()).toBe('');
+    }
   });
 });
 

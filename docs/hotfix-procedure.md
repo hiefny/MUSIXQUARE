@@ -80,9 +80,9 @@ signals, while using the release smoke plus real-device verification for the
 production decision.
 
 The workflow rebuilds once, records every `dist` file hash together with the
-commit and tool versions, and deploys that same artifact. Its Cloudflare
-deployment message contains the Git SHA and Actions run ID, and the resulting
-deployment status JSON is retained with the run.
+commit and tool versions, and deploys that same artifact. Its canonical
+Cloudflare deployment message is exactly `git:<40-character SHA>`; the Actions
+run and attempt remain in the retained deployment artifacts and release summary.
 
 Validation also runs the chunk-pump and playback-lifecycle static ratchets named
 in their design contracts. They are release gates rather than optional local
@@ -243,8 +243,8 @@ deploys its private facade before its public Worker. For a backward-compatible
 change that touches every Worker, `all` uses this order so the existing browser
 remains usable while backends roll forward:
 
-1. `cloudflare/wrangler.remote-share.toml`, then its live smoke;
-2. `cloudflare/wrangler.pro-room.toml`, then its version-aware health smoke;
+1. `cloudflare/wrangler.pro-room.toml`, then its version-aware health smoke;
+2. `cloudflare/wrangler.remote-share.toml`, then its live smoke;
 3. `cloudflare/wrangler.signaling.toml`, then its live smoke;
 4. `cloudflare/wrangler.developer-api-facade.toml` (private service binding only);
 5. `cloudflare/wrangler.developer-api.toml`, then its authenticated live smoke

@@ -310,13 +310,15 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
 
   try {
     // ICE servers: STUN always, TURN via the Cloudflare app Worker.
-    const iceServers: RTCIceServer[] = [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun.cloudflare.com:3478' },
-    ];
+    const isE2eBuild = import.meta.env.MODE === 'e2e';
+    const iceServers: RTCIceServer[] = isE2eBuild
+      ? []
+      : [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }];
 
     assertNetworkInitStillActive(owner);
-    const turnCredentials = await getStandardRoomTurnCredentials(owner.controller.signal);
+    const turnCredentials = isE2eBuild
+      ? null
+      : await getStandardRoomTurnCredentials(owner.controller.signal);
     assertNetworkInitStillActive(owner);
     if (turnCredentials) {
       iceServers.push(...turnCredentials.iceServers);

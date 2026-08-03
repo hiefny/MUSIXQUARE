@@ -1066,8 +1066,11 @@ function applyDemoToneState(
   bassOn = getState('demo.bassBoostOn'),
   trebleOn = getState('demo.trebleBoostOn'),
 ): void {
-  bus.emit('audio:update-effect', 'vbass', 'mix', bassOn ? 60 : 0, false);
-  bus.emit('audio:update-effect', 'exciter', 'mix', trebleOn ? 1 : 0, false);
+  // Bass, treble, and their EQ curve are one user action. Apply the first
+  // mutations as previews so settings sync publishes only the final complete
+  // snapshot instead of a burst of intermediate authority states.
+  bus.emit('audio:update-effect', 'vbass', 'mix', bassOn ? 60 : 0, true);
+  bus.emit('audio:update-effect', 'exciter', 'mix', trebleOn ? 1 : 0, true);
   applyDemoEqPreset(getDemoEqPreset(!!bassOn, !!trebleOn));
 }
 
@@ -1408,7 +1411,9 @@ function toggleDemoReverb(): void {
 }
 
 function applyDemoEqPreset(values: number[]): void {
-  values.forEach((value, band) => bus.emit('audio:set-eq', band, value));
+  values.forEach((value, band) => {
+    bus.emit('audio:set-eq', band, value, band < values.length - 1);
+  });
 }
 
 function toggleDemoBass(): void {

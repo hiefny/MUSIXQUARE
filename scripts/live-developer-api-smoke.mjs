@@ -357,6 +357,9 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
     reservation?.schemaVersion !== 1 ||
     reservation?.roomCode !== roomCode ||
     !/^asset_[A-Za-z0-9_-]{24,64}$/.test(reservation?.assetId || '') ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      reservation?.queueItemId || '',
+    ) ||
     reservation?.byteLength !== wav.byteLength ||
     !Number.isSafeInteger(reservation?.uploadExpiresAtMs) ||
     !Number.isSafeInteger(reservation?.completionExpiresAtMs) ||
@@ -368,6 +371,11 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
   ) {
     throw new Error('Developer API media reservation returned an invalid envelope');
   }
+  // The reservation fixes both identities before completion begins. Treat its
+  // queueItemId as the cleanup authority rather than waiting for the completion
+  // response: the Worker may commit the append even when that response times
+  // out or is damaged in transit.
+  uploadedQueueItemId = reservation.queueItemId;
   const uploadUrl = new URL(reservation.upload.url);
   if (uploadUrl.protocol !== 'https:') {
     throw new Error('Developer API media reservation returned an unsafe upload URL');
@@ -387,9 +395,6 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
       emptyWrite('POST', apiKey, 'media-complete'),
       201,
     );
-    if (typeof completed?.queueItem?.queueItemId === 'string') {
-      uploadedQueueItemId = completed.queueItem.queueItemId;
-    }
     if (
       completed?.schemaVersion !== 1 ||
       completed?.roomCode !== roomCode ||

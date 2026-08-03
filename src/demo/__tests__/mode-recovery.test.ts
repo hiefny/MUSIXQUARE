@@ -573,8 +573,12 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     setState('network.appRole', 'host');
     setState('setup.sessionStarted', true);
     setState('audio.eqValues', [0, 0, 0, 0, 0]);
-    const eqUpdates: Array<[number, number]> = [];
-    bus.on('audio:set-eq', (band, value) => eqUpdates.push([band, value]));
+    const eqUpdates: Array<[number, number, boolean | undefined]> = [];
+    const effectUpdates: Array<[string, string, number, boolean | undefined]> = [];
+    bus.on('audio:set-eq', (band, value, isPreview) => eqUpdates.push([band, value, isPreview]));
+    bus.on('audio:update-effect', (type, param, value, isPreview) =>
+      effectUpdates.push([type, param, value, isPreview]),
+    );
 
     bus.emit('demo:enter');
     await flush();
@@ -582,11 +586,15 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     bus.emit('demo:toggle-treble');
 
     expect(eqUpdates.slice(-5)).toEqual([
-      [0, 5],
-      [1, 3],
-      [2, 0],
-      [3, 4],
-      [4, 6],
+      [0, 5, true],
+      [1, 3, true],
+      [2, 0, true],
+      [3, 4, true],
+      [4, 6, false],
+    ]);
+    expect(effectUpdates.slice(-2)).toEqual([
+      ['vbass', 'mix', 60, true],
+      ['exciter', 'mix', 1, true],
     ]);
 
     FakeXHR.pending[0]?.resolveOk();

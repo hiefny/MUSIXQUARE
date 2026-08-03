@@ -498,7 +498,7 @@ describe('remote-share Worker capability gate', () => {
     );
   });
 
-  it('applies PRO media Range CORS before app or PRO deployment', () => {
+  it('applies PRO media Range CORS only before a PRO deployment', () => {
     const corsStep = releaseWorkflowSource.indexOf('- name: Apply PRO media R2 CORS policy');
     const proRoomDeployStep = releaseWorkflowSource.indexOf(
       '- name: Deploy and record PRO room Worker',
@@ -509,8 +509,11 @@ describe('remote-share Worker capability gate', () => {
 
     expect(corsStep).toBeGreaterThan(-1);
     expect(corsStep).toBeLessThan(proRoomDeployStep);
-    expect(corsStep).toBeLessThan(appDeployStep);
+    expect(appDeployStep).toBeGreaterThan(corsStep);
     expect(releaseWorkflowSource).toContain(
+      "if: inputs.target == 'all' || inputs.target == 'pro-room'",
+    );
+    expect(releaseWorkflowSource).not.toContain(
       "if: inputs.target == 'all' || inputs.target == 'pro-room' || inputs.target == 'app'",
     );
     expect(releaseWorkflowSource).toContain('r2 bucket cors set musixquare-pro-media');

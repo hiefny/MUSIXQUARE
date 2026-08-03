@@ -5,10 +5,10 @@
  */
 import { createRequire } from 'module';
 import { createConnection } from 'net';
+import { E2E_PEER_PORT } from './config.ts';
 
 const require = createRequire(import.meta.url);
 
-const PEER_PORT = 9000;
 const PEER_READY_TIMEOUT_MS = 5_000;
 
 /** Check if something is already listening on host:port */
@@ -41,22 +41,21 @@ async function waitForPort(port: number, host: string): Promise<void> {
 }
 
 async function globalSetup() {
-  // Reuse a listener already bound to the configured PeerJS port.
-  if (await isPortInUse(PEER_PORT, '127.0.0.1')) {
-    console.log(`[E2E] Port ${PEER_PORT} already in use — reusing existing PeerJS server`);
-    (globalThis as Record<string, unknown>).__PEER_APP__ = null;
-    return;
+  if (await isPortInUse(E2E_PEER_PORT, '127.0.0.1')) {
+    throw new Error(
+      `[E2E] Dedicated PeerJS port ${E2E_PEER_PORT} is already in use; refusing to reuse an unverified listener`,
+    );
   }
 
   const { PeerServer } = require('peer');
 
-  const peerApp = PeerServer({ port: PEER_PORT, host: '127.0.0.1', path: '/' });
+  const peerApp = PeerServer({ port: E2E_PEER_PORT, host: '127.0.0.1', path: '/' });
 
-  await waitForPort(PEER_PORT, '127.0.0.1');
+  await waitForPort(E2E_PEER_PORT, '127.0.0.1');
 
   (globalThis as Record<string, unknown>).__PEER_APP__ = peerApp;
 
-  console.log(`[E2E] PeerJS signaling server started on port ${PEER_PORT}`);
+  console.log(`[E2E] PeerJS signaling server started on port ${E2E_PEER_PORT}`);
 }
 
 export default globalSetup;

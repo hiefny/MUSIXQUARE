@@ -296,12 +296,31 @@ test.describe('Edge Cases', () => {
   test('seek slider manipulation on empty track does not crash', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    if (await isVisible(pair.hostPage, '#seek-slider')) {
-      await pair.hostPage.locator('#seek-slider').fill('50');
+    const slider = pair.hostPage.locator('#seek-slider');
+    await expect(slider).toBeVisible();
+    await expect(slider).toBeDisabled();
+    await expect(slider).toHaveAttribute('aria-disabled', 'true');
 
-      const state = await readPlaybackProjection(pair.hostPage);
-      expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
-    }
+    // A real user cannot manipulate an empty-track seek control. Dispatch
+    // events directly only to verify that stale/synthetic browser events are
+    // rejected safely and restore the canonical idle position.
+    const result = await pair.hostPage.evaluate(() => {
+      const input = document.getElementById('seek-slider') as HTMLInputElement | null;
+      const get = (window as any).__MUSIXQUARE_GET_STATE__;
+      if (!input || !get) throw new Error('E2E seek hooks unavailable');
+
+      input.value = '50';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+
+      return {
+        value: input.value,
+        isSeeking: get('player.isSeeking'),
+      };
+    });
+
+    expect(result).toEqual({ value: '0', isSeeking: false });
+    expect(await readPlaybackProjection(pair.hostPage)).toBe('IDLE');
   });
 
   // ── Tab Switching Under Load ──────────────────────────────

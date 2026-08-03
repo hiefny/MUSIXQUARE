@@ -3,10 +3,11 @@
  * Uses the existing __MUSIXQUARE_PEER_SERVER__ hook in src/network/peer.ts.
  */
 import type { Page } from '@playwright/test';
+import { E2E_PEER_PORT } from '../config.ts';
 
 const PEER_CONFIG = {
   host: '127.0.0.1',
-  port: 9000,
+  port: E2E_PEER_PORT,
   path: '/',
   secure: false,
   key: 'peerjs',

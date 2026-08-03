@@ -7,6 +7,7 @@ import {
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
+import { installFakeYt } from './helpers/fake-yt.ts';
 import {
   readPlaybackProjection,
   waitForClass,
@@ -16,8 +17,83 @@ import {
 } from './helpers/wait.ts';
 
 const YT_VIDEO = 'https://youtu.be/bnh70V0yu2s';
+const YT_VIDEO_ID = 'bnh70V0yu2s';
 const YT_PLAYLIST = 'https://youtube.com/playlist?list=PLuKsPSjl0InjvzKVvF3kc0txl5ZtggsEX';
 const YT_PLAYLIST_ID = 'PLuKsPSjl0InjvzKVvF3kc0txl5ZtggsEX';
+const YT_PLAYLIST_VIDEO_IDS = [YT_VIDEO_ID, 'dQw4w9WgXcQ'];
+
+function trackUnexpectedExternalRequests(page: Page, requests: string[]): void {
+  const track = (rawUrl: string): void => {
+    const url = new URL(rawUrl);
+    if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) return;
+    if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') return;
+    // These two YouTube URLs are fully intercepted by this spec's fixture
+    // routes; seeing any other remote URL means the suite regained an
+    // accidental production-network dependency.
+    if (
+      url.hostname === 'www.youtube.com' &&
+      (url.pathname === '/oembed' || url.pathname === '/iframe_api')
+    ) {
+      return;
+    }
+    requests.push(url.href);
+  };
+  page.on('request', (request) => track(request.url()));
+  page.on('websocket', (socket) => track(socket.url()));
+}
+
+async function installYouTubeFixtures(page: Page): Promise<void> {
+  await installFakeYt(page);
+
+  await page.route(/\/api\/youtube-playlist-manifest(?:\?|$)/, async (route) => {
+    const playlistId = new URL(route.request().url()).searchParams.get('playlistId');
+    if (playlistId !== YT_PLAYLIST_ID) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        playlistId,
+        videoId: YT_PLAYLIST_VIDEO_IDS[0],
+        videoIds: YT_PLAYLIST_VIDEO_IDS,
+        title: 'MUSIXQUARE E2E Playlist',
+      }),
+    });
+  });
+
+  await page.route(/\/api\/youtube-playlist-entry(?:\?|$)/, async (route) => {
+    const playlistId = new URL(route.request().url()).searchParams.get('playlistId');
+    if (playlistId !== YT_PLAYLIST_ID) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        playlistId,
+        videoId: YT_PLAYLIST_VIDEO_IDS[0],
+        title: 'MUSIXQUARE E2E Playlist',
+      }),
+    });
+  });
+
+  await page.route(/https:\/\/www\.youtube\.com\/oembed(?:\?|$)/, async (route) => {
+    const sourceUrl = new URL(route.request().url()).searchParams.get('url') || '';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        title: sourceUrl.includes(YT_PLAYLIST_ID)
+          ? 'MUSIXQUARE E2E Playlist'
+          : 'MUSIXQUARE E2E Video',
+        author_name: 'MUSIXQUARE E2E',
+      }),
+    });
+  });
+}
 
 async function openYouTubeOverlay(page: Page): Promise<void> {
   const mediaButton = page.locator('#btn-media-source');
@@ -44,15 +120,24 @@ async function submitYouTubeUrl(page: Page, url: string): Promise<void> {
 }
 
 let pair: HostGuestPair;
+let unexpectedExternalRequests: string[];
 
 test.describe('YouTube Integration', () => {
   test.beforeEach(async ({ browser }) => {
     pair = await createHostGuestContexts(browser);
+    unexpectedExternalRequests = [];
+    trackUnexpectedExternalRequests(pair.hostPage, unexpectedExternalRequests);
+    trackUnexpectedExternalRequests(pair.guestPage, unexpectedExternalRequests);
+    await Promise.all([
+      installYouTubeFixtures(pair.hostPage),
+      installYouTubeFixtures(pair.guestPage),
+    ]);
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
   });
 
   test.afterEach(async () => {
     await cleanupContexts(pair);
+    expect(unexpectedExternalRequests).toEqual([]);
   });
 
   test('YouTube source button opens the complete URL overlay', async () => {

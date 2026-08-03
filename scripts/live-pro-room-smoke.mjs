@@ -19,7 +19,31 @@ const PRO_ROOM_PIN_CANARY = Object.freeze({
 export const PRO_ROOM_READINESS_RETRY_DELAYS_MS = Object.freeze([
   0, 1_000, 2_000, 4_000, 8_000, 15_000, 20_000, 20_000, 20_000, 20_000, 20_000, 20_000,
 ]);
+// Public-boundary probes run only after health/version readiness succeeds. A
+// small, separate retry budget absorbs transient service-binding stalls
+// without turning a malformed or unexpectedly permissive response into a
+// passing release.
+const PRO_ROOM_BOUNDARY_RETRY_DELAYS_MS = Object.freeze([0, 1_000, 2_000]);
 export const PRO_ROOM_HEALTH_REQUEST_TIMEOUT_MS = 10_000;
+
+const RETRYABLE_BOUNDARY_HTTP_STATUSES = new Set([429]);
+const RETRYABLE_TRANSPORT_ERROR_CODES = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ETIMEDOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_SOCKET',
+]);
+
+class RetryableProRoomBoundaryError extends Error {
+  constructor(message, options = {}) {
+    super(message, options);
+    this.name = 'RetryableProRoomBoundaryError';
+  }
+}
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -60,6 +84,11 @@ async function readJsonBoundary(path) {
     headers: { Accept: 'application/json' },
   });
   const text = await response.text();
+  if (isRetryableBoundaryStatus(response.status)) {
+    throw new RetryableProRoomBoundaryError(
+      `PRO room boundary ${path} HTTP ${response.status}: ${text.slice(0, 300)}`,
+    );
+  }
   let payload = null;
   try {
     payload = JSON.parse(text);
@@ -67,6 +96,62 @@ async function readJsonBoundary(path) {
     throw new Error(`PRO room boundary ${path} returned invalid JSON`);
   }
   return { status: response.status, payload };
+}
+
+function isRetryableBoundaryStatus(status) {
+  return (
+    RETRYABLE_BOUNDARY_HTTP_STATUSES.has(Number(status)) ||
+    (Number(status) >= 500 && Number(status) <= 599)
+  );
+}
+
+function transportErrorCode(error) {
+  let candidate = error;
+  for (let depth = 0; candidate && depth < 4; depth += 1) {
+    if (typeof candidate.code === 'string') return candidate.code;
+    candidate = candidate.cause;
+  }
+  return '';
+}
+
+function isRetryableBoundaryError(error) {
+  if (error instanceof RetryableProRoomBoundaryError) return true;
+  if (error?.name === 'TimeoutError' || error?.name === 'AbortError') return true;
+  if (RETRYABLE_TRANSPORT_ERROR_CODES.has(transportErrorCode(error))) return true;
+  // Fetch rejects transport failures with TypeError. JSON/schema failures are
+  // converted to ordinary Error instances before reaching this boundary.
+  return error instanceof TypeError;
+}
+
+async function readBoundaryWithRetry(
+  path,
+  { read, retryDelaysMs = PRO_ROOM_BOUNDARY_RETRY_DELAYS_MS, wait = delay, log = console.log },
+) {
+  const delays = retryDelaysMs.length > 0 ? retryDelaysMs : [0];
+  let lastError = null;
+
+  for (let attempt = 0; attempt < delays.length; attempt += 1) {
+    const waitMs = delays[attempt];
+    if (waitMs > 0) await wait(waitMs);
+
+    try {
+      const result = await read(path);
+      if (isRetryableBoundaryStatus(result?.status)) {
+        throw new RetryableProRoomBoundaryError(`PRO room boundary ${path} HTTP ${result.status}`);
+      }
+      return result;
+    } catch (error) {
+      if (!isRetryableBoundaryError(error)) throw error;
+      lastError = error;
+      const message = error instanceof Error ? error.message : String(error);
+      log(`[pro-room-smoke] boundary ${path} attempt ${attempt + 1}/${delays.length}: ${message}`);
+    }
+  }
+
+  const message = lastError instanceof Error ? lastError.message : String(lastError);
+  throw new Error(`PRO room boundary ${path} remained unavailable: ${message}`, {
+    cause: lastError,
+  });
 }
 
 async function verifyBootstrapCanary(read, canary) {
@@ -81,11 +166,20 @@ async function verifyBootstrapCanary(read, canary) {
   return bootstrap;
 }
 
-export async function verifyProRoomPublicBoundary({ read = readJsonBoundary } = {}) {
-  const activationBootstrap = await verifyBootstrapCanary(read, PRO_ROOM_ACTIVATION_CANARY);
-  const pinBootstrap = await verifyBootstrapCanary(read, PRO_ROOM_PIN_CANARY);
+export async function verifyProRoomPublicBoundary({
+  read = readJsonBoundary,
+  retryDelaysMs = PRO_ROOM_BOUNDARY_RETRY_DELAYS_MS,
+  wait = delay,
+  log = console.log,
+} = {}) {
+  const readWithRetry = (path) => readBoundaryWithRetry(path, { read, retryDelaysMs, wait, log });
+  const activationBootstrap = await verifyBootstrapCanary(
+    readWithRetry,
+    PRO_ROOM_ACTIVATION_CANARY,
+  );
+  const pinBootstrap = await verifyBootstrapCanary(readWithRetry, PRO_ROOM_PIN_CANARY);
 
-  const anonymousSnapshot = await read(`/${PRO_ROOM_ACTIVATION_CANARY.roomCode}/snapshot`);
+  const anonymousSnapshot = await readWithRetry(`/${PRO_ROOM_ACTIVATION_CANARY.roomCode}/snapshot`);
   if (
     anonymousSnapshot?.status !== 401 ||
     anonymousSnapshot.payload?.error !== 'SESSION_REQUIRED'

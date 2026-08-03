@@ -10,9 +10,14 @@ export function verifyProRoomPublicBoundary(dependencies?: {
       [key: string]: unknown;
     };
   }>;
+  retryDelaysMs?: readonly number[];
+  wait?: (milliseconds: number) => Promise<unknown>;
+  log?: (message: string) => void;
 }): Promise<{
   roomCode: string;
   roomStatus: string;
+  pinRoomCode: string;
+  pinRoomStatus: string;
   anonymousSnapshotRejected: true;
 }>;
 export function main(): Promise<void>;

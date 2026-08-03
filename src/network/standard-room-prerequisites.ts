@@ -5,6 +5,7 @@ import {
 } from '../core/capability.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
+import { localFirstApiEndpoints } from './api-endpoints.ts';
 import { getRuntimeTransportConfig } from './transport/config.ts';
 
 interface TurnConfigResponse {
@@ -24,10 +25,7 @@ interface CachedTurnCredentials {
   readonly value: StandardRoomTurnCredentials;
 }
 
-const TURN_ENDPOINTS = [
-  '/api/get-turn-config',
-  'https://musixquare.com/api/get-turn-config',
-] as const;
+const TURN_ENDPOINTS = localFirstApiEndpoints('/api/get-turn-config');
 const TURN_REFRESH_SKEW_MS = 60_000;
 const FALLBACK_TURN_CACHE_MS = 5 * 60_000;
 const TURN_REQUEST_TIMEOUT_MS = 8_000;
@@ -134,6 +132,8 @@ function settleWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<
 }
 
 async function requestTurnCredentials(): Promise<StandardRoomTurnCredentials | null> {
+  if (import.meta.env.MODE === 'e2e') return null;
+
   const controller = new AbortController();
   const timeout = window.setTimeout(
     () => controller.abort(new Error('TURN_REQUEST_TIMEOUT')),

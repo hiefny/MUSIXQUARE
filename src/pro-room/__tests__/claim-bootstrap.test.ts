@@ -20,6 +20,7 @@ interface FakeScript {
 function runBootstrap(
   hash: string,
   options: {
+    hostname?: string;
     paramsFail?: boolean;
     replaceFails?: boolean;
     search?: string;
@@ -28,7 +29,12 @@ function runBootstrap(
 ) {
   const events: string[] = [];
   const appendedScripts: FakeScript[] = [];
-  const location = { hash, pathname: '/000001', search: options.search ?? '?lang=ko' };
+  const location = {
+    hash,
+    hostname: options.hostname ?? 'musixquare.com',
+    pathname: '/000001',
+    search: options.search ?? '?lang=ko',
+  };
   const history = {
     state: { test: true },
     replaceState(_state: unknown, _unused: string, url: string) {
@@ -234,4 +240,22 @@ describe('early PRO claim bootstrap', () => {
     );
     expect(Object.prototype.hasOwnProperty.call(harness.windowObject, HANDOFF_KEY)).toBe(false);
   });
+
+  it('preserves Cloudflare Analytics on a production subdomain', () => {
+    const harness = runBootstrap('#view=setup', { hostname: 'listen.musixquare.com' });
+
+    expect(harness.events).toEqual(['analytics']);
+    expect(harness.appendedScripts).toHaveLength(1);
+  });
+
+  it.each(['localhost', '127.0.0.1', '[::1]', '::1', 'preview.example.com', ''])(
+    'keeps Cloudflare Analytics disabled outside production on host %s',
+    (hostname) => {
+      const harness = runBootstrap('#view=setup', { hostname });
+
+      expect(harness.events).toEqual([]);
+      expect(harness.appendedScripts).toEqual([]);
+      expect(Object.prototype.hasOwnProperty.call(harness.windowObject, HANDOFF_KEY)).toBe(false);
+    },
+  );
 });

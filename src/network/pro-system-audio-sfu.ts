@@ -16,6 +16,7 @@ import {
   readBoundedJsonResponse,
   withRequestDeadline,
 } from '../core/request-lifetime.ts';
+import { localFirstApiEndpoints } from './api-endpoints.ts';
 
 const BASE_SFU_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
@@ -156,11 +157,11 @@ function emitEvent(event: ProSystemAudioSfuEvent): void {
 }
 
 function getRealtimeEndpoints(): string[] {
-  return ['/api/cloudflare-realtime', 'https://musixquare.com/api/cloudflare-realtime'];
+  return localFirstApiEndpoints('/api/cloudflare-realtime');
 }
 
 function getTurnConfigEndpoints(): string[] {
-  return ['/api/get-turn-config', 'https://musixquare.com/api/get-turn-config'];
+  return localFirstApiEndpoints('/api/get-turn-config');
 }
 
 function normalizeIceServerUrls(value: unknown): string[] {

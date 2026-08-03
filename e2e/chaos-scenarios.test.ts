@@ -855,16 +855,25 @@ test.describe('Settings Chain + Late Join', () => {
       await waitForPlaybackProjection(hostPage, 'PLAYING_AUDIO');
 
       const settingsPromise = hostPage.evaluate(() => {
-        const set = (window as any).__MUSIXQUARE_SET_STATE__;
-        if (!set) return;
-        set('audio.eqValues', [6, 4, 0, -1, -2]);
-        set('audio.masterVolume', 0.3);
-        set('audio.reverbMix', 0.5);
-        set('audio.reverbDecay', 2.5);
-        set('audio.channelMode', -1);
-        set('audio.eqValues', [0, 0, 5, 5, 0]);
-        set('audio.masterVolume', 0.8);
-        set('audio.reverbMix', 0.0);
+        const bus = (window as any).__MUSIXQUARE_BUS__;
+        if (!bus?.emit) throw new Error('E2E event bus unavailable');
+
+        const setEq = (values: number[]) => {
+          values.forEach((value, band) => bus.emit('audio:set-eq', band, value, false));
+        };
+
+        // Exercise the same publish path as the settings UI. Mutating raw
+        // state would bypass the atomic authority snapshot used by late joins.
+        setEq([6, 4, 0, -1, -2]);
+        bus.emit('audio:set-volume', 0.3);
+        bus.emit('settings-sync:publish-local');
+        bus.emit('audio:update-effect', 'reverb', 'mix', 50, false);
+        bus.emit('audio:update-effect', 'reverb', 'decay', 2.5, false);
+
+        setEq([0, 0, 5, 5, 0]);
+        bus.emit('audio:set-volume', 0.8);
+        bus.emit('audio:update-effect', 'reverb', 'mix', 0, false);
+        bus.emit('settings-sync:publish-local');
       });
 
       const joinPromise = joinAsLateGuest(browser, code);
@@ -874,7 +883,12 @@ test.describe('Settings Chain + Late Join', () => {
 
       await waitForPlaylistCount(lateGuest.guestPage, 1, 30_000);
 
-      await waitForState(lateGuest.guestPage, 'audio.masterVolume', 0.8);
+      await Promise.all([
+        waitForState(lateGuest.guestPage, 'audio.masterVolume', 0.8),
+        waitForState(lateGuest.guestPage, 'audio.eqValues', [0, 0, 5, 5, 0]),
+        waitForState(lateGuest.guestPage, 'audio.reverbMix', 0.0),
+        waitForState(lateGuest.guestPage, 'audio.reverbDecay', 2.5),
+      ]);
 
       const finalEq = await readState(hostPage, 'audio.eqValues');
       expect(finalEq).toEqual([0, 0, 5, 5, 0]);

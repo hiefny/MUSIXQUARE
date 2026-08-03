@@ -1,10 +1,10 @@
 /**
  * Cloudflare R2 remote-share client.
  *
- * Endpoint discovery order:
- * 1. window.__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__
- * 2. localStorage "musixquare-remote-share-endpoint"
- * 3. https://share.musixquare.com on the production domain
+ * Endpoint discovery policy:
+ * 1. https://share.musixquare.com is pinned on the production domain.
+ * 2. Runtime overrides are accepted only by development/E2E builds or on a
+ *    trusted loopback host.
  */
 
 import {
@@ -15,6 +15,7 @@ import {
 import { REMOTE_SHARE_MAX_BYTES } from '../core/constants.ts';
 import type { QueueItemId } from '../types/index.ts';
 import { withRequestDeadline } from '../core/request-lifetime.ts';
+import { resolveRemoteShareEndpointPolicy } from './remote-share-endpoint.ts';
 
 export interface RemoteUploadResponse {
   objectId: string;
@@ -71,7 +72,6 @@ interface RemoteShareSecurityConfig {
 }
 
 const ENDPOINT_STORAGE_KEY = 'musixquare-remote-share-endpoint';
-const PROD_ENDPOINT = 'https://share.musixquare.com';
 // Large files may legitimately take far longer than five minutes on mobile.
 // Abort only when no bytes move for this window; steady slow transfers remain
 // valid regardless of total wall-clock duration.
@@ -181,36 +181,23 @@ async function readBoundedJson(
   }
 }
 
-function normalizeEndpoint(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim().replace(/\/+$/, '');
-  if (!trimmed) return null;
-  try {
-    const url = new URL(trimmed);
-    if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
-      return null;
-    }
-    return url.toString().replace(/\/+$/, '');
-  } catch {
-    return null;
-  }
-}
-
 function getRemoteShareEndpoint(): string | null {
-  const injected = normalizeEndpoint(window.__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__);
-  if (injected) return injected;
+  const hostname = location.hostname;
+  const allowRuntimeOverrides = import.meta.env.DEV || import.meta.env.MODE === 'e2e';
 
+  let stored: unknown;
   try {
-    const stored = normalizeEndpoint(localStorage.getItem(ENDPOINT_STORAGE_KEY));
-    if (stored) return stored;
+    stored = localStorage.getItem(ENDPOINT_STORAGE_KEY);
   } catch {
     /* ignore */
   }
 
-  if (location.hostname === 'musixquare.com' || location.hostname.endsWith('.musixquare.com')) {
-    return PROD_ENDPOINT;
-  }
-  return null;
+  return resolveRemoteShareEndpointPolicy({
+    hostname,
+    injected: window.__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__,
+    stored,
+    allowRuntimeOverrides,
+  });
 }
 
 export function isRemoteShareConfigured(): boolean {

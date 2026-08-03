@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test';
+import { E2E_APP_ORIGIN, E2E_PREVIEW_COMMAND } from './e2e/config.ts';
 
 export default defineConfig({
   testDir: './e2e',
@@ -12,7 +13,7 @@ export default defineConfig({
   globalSetup: './e2e/global-setup.ts',
   globalTeardown: './e2e/global-teardown.ts',
   use: {
-    baseURL: 'http://localhost:4173',
+    baseURL: E2E_APP_ORIGIN,
     headless: true,
     launchOptions: {
       args: ['--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
@@ -25,8 +26,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run preview',
-    port: 4173,
-    reuseExistingServer: !process.env.CI,
+    command: E2E_PREVIEW_COMMAND,
+    url: E2E_APP_ORIGIN,
+    reuseExistingServer: false,
+    timeout: 120_000,
   },
 });

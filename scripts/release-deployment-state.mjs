@@ -103,6 +103,8 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/remote-share-contract-version.txt',
     'cloudflare/remote-share-worker.js',
     'cloudflare/service-maintenance.js',
+    'cloudflare/r2-cors.remote-share.json',
+    'cloudflare/r2-lifecycle.remote-share.json',
     'cloudflare/wrangler.remote-share.toml',
   ],
   signaling: [
@@ -125,6 +127,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/account-assertion.js',
     'cloudflare/account-nickname.js',
     'cloudflare/display-name-policy.js',
+    'cloudflare/r2-cors.pro-media.json',
     ...PRO_ROOM_D1_PATHS,
     'src/chat/profanity-patterns.generated.json',
     'cloudflare/wrangler.pro-room.toml',
@@ -171,6 +174,9 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/standard-room-account-assertion.js',
     'cloudflare/account-nickname.js',
     'cloudflare/display-name-policy.js',
+    'cloudflare/r2-cors.pro-media.json',
+    'cloudflare/r2-cors.remote-share.json',
+    'cloudflare/r2-lifecycle.remote-share.json',
     'cloudflare/wrangler.app.toml',
   ],
 });

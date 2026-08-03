@@ -161,6 +161,10 @@ jobs:
             echo "::error::main advanced to $current_main after this release was dispatched. Run the release again for the current commit."
             exit 1
           fi
+          # From this point onward the immutable candidate is pinned. If main
+          # advances while a multi-Worker release is in flight, completing
+          # this coherent candidate is safer than aborting after only part of
+          # the stack has changed. The newer commit gets its own release.
 
       - name: Require a full release for remote-share contract cutovers
         shell: bash
@@ -194,6 +198,9 @@ jobs:
 
       - name: Verify candidate hashes and commit
         run: npm run release:verify
+
+      - name: Revalidate every production Worker bundle without deploying
+        run: npm run check:worker-bundles
 
       - name: Verify Cloudflare credentials
         timeout-minutes: 5
@@ -586,7 +593,7 @@ jobs:
 
       - name: Apply PRO media R2 CORS policy
         timeout-minutes: 10
-        if: inputs.target == 'all' || inputs.target == 'pro-room' || inputs.target == 'app'
+        if: inputs.target == 'all' || inputs.target == 'pro-room'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
@@ -649,7 +656,7 @@ jobs:
 
       - name: Smoke PRO room Worker
         if: inputs.target == 'all' || inputs.target == 'pro-room'
-        timeout-minutes: 5
+        timeout-minutes: 8
         env:
           MXQR_EXPECTED_PRO_ROOM_VERSION: ${{ steps.pro_room_deployment.outputs.version_id }}
         run: npm run smoke:live:pro-room
@@ -864,12 +871,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          git fetch --no-tags origin main
-          current_main="$(git rev-parse origin/main)"
-          if [[ "$current_main" != "$GITHUB_SHA" ]]; then
-            echo "::error::main advanced to $current_main before the app deployment. Run the release again for the current commit."
-            exit 1
-          fi
           node scripts/release-deployment-state.mjs preflight app
           node scripts/release-deployment-state.mjs attempt app
           set +e
@@ -903,7 +904,7 @@ jobs:
 
       - name: Smoke current PRO public boundary after app deployment
         if: inputs.target == 'all' || inputs.target == 'app'
-        timeout-minutes: 5
+        timeout-minutes: 8
         run: npm run smoke:live:pro-room
 
       - name: Verify release still owns current production deployments

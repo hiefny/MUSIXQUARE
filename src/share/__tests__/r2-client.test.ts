@@ -44,6 +44,8 @@ class FakeXmlHttpRequest {
 }
 
 const endpoint = 'https://share.example.test';
+const productionEndpoint = 'https://share.musixquare.com';
+const endpointStorageKey = 'musixquare-remote-share-endpoint';
 const roomId = '123456';
 const objectId = '00000000-0000-4000-8000-000000000001';
 const queueItemId = '10000000-0000-4000-8000-000000000001';
@@ -67,12 +69,69 @@ beforeEach(() => {
     configurable: true,
     value: endpoint,
   });
+  localStorage.removeItem(endpointStorageKey);
 });
 
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   Reflect.deleteProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__');
+  localStorage.removeItem(endpointStorageKey);
+});
+
+describe('remote-share endpoint policy', () => {
+  it('pins the canonical endpoint on production hosts before reading runtime overrides', async () => {
+    vi.stubGlobal('location', { hostname: 'musixquare.com' });
+    localStorage.setItem(endpointStorageKey, 'https://stored.example.test');
+    const { downloadWholeObject } = await import('../r2-client.ts');
+    const canonicalDownloadUrl = `${productionEndpoint}/download/${roomId}/${objectId}`;
+
+    const pending = downloadWholeObject(roomId, objectId, 4, downloadToken, canonicalDownloadUrl);
+    const xhr = FakeXmlHttpRequest.instances.at(-1)!;
+    expect(xhr.url).toBe(canonicalDownloadUrl);
+    expect(xhr.url).not.toContain('share.example.test');
+    expect(xhr.url).not.toContain('stored.example.test');
+
+    xhr.responseURL = canonicalDownloadUrl;
+    xhr.response = new ArrayBuffer(4);
+    xhr.onload?.call(xhr as unknown as XMLHttpRequest, new ProgressEvent('load'));
+    await expect(pending).resolves.toBe(xhr.response);
+  });
+
+  it('pins production subdomains and rejects overrides on untrusted production-build hosts', async () => {
+    const { resolveRemoteShareEndpointPolicy } = await import('../remote-share-endpoint.ts');
+    const overrides = {
+      injected: endpoint,
+      stored: 'https://stored.example.test',
+      allowRuntimeOverrides: false,
+    };
+
+    expect(resolveRemoteShareEndpointPolicy({ hostname: 'www.musixquare.com', ...overrides })).toBe(
+      productionEndpoint,
+    );
+    expect(
+      resolveRemoteShareEndpointPolicy({ hostname: 'preview.example.com', ...overrides }),
+    ).toBeNull();
+  });
+
+  it('allows explicit overrides only for trusted development contexts', async () => {
+    const { resolveRemoteShareEndpointPolicy } = await import('../remote-share-endpoint.ts');
+
+    expect(
+      resolveRemoteShareEndpointPolicy({
+        hostname: 'preview.example.com',
+        injected: endpoint,
+        allowRuntimeOverrides: true,
+      }),
+    ).toBe(endpoint);
+    expect(
+      resolveRemoteShareEndpointPolicy({
+        hostname: '127.0.0.1',
+        stored: 'http://127.0.0.1:8788/',
+        allowRuntimeOverrides: false,
+      }),
+    ).toBe('http://127.0.0.1:8788');
+  });
 });
 
 describe('R2 authenticated whole-object download', () => {

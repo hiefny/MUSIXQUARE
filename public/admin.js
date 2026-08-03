@@ -1,4 +1,4 @@
-const ADMIN_SCRIPT_VERSION = '8.3.15';
+const ADMIN_SCRIPT_VERSION = '8.3.16';
 window.__MXQR_ADMIN_SCRIPT_VERSION__ = ADMIN_SCRIPT_VERSION;
 
 const root = document.querySelector('.admin-shell');
@@ -3086,26 +3086,34 @@ async function refreshAllDashboardData() {
 
 async function init() {
   const productionHost = /(^|\.)musixquare\.com$/i.test(window.location.hostname);
-  if (productionHost && root?.dataset.adminAssetVersion !== ADMIN_SCRIPT_VERSION) {
+  if (productionHost) {
     const retryKey = `mxqr-admin-asset-retry-${ADMIN_SCRIPT_VERSION}`;
-    let attempts = 0;
-    try {
-      attempts = Number(window.sessionStorage.getItem(retryKey) || 0);
-    } catch {
-      // Storage can be unavailable in hardened browser profiles.
-    }
-    if (attempts >= 8) {
-      setStatus('Admin update is still propagating. Refresh in a moment.');
+    if (root?.dataset.adminAssetVersion === ADMIN_SCRIPT_VERSION) {
+      try {
+        window.sessionStorage.removeItem(retryKey);
+      } catch {
+        // Storage can be unavailable in hardened browser profiles.
+      }
+    } else {
+      let attempts = 0;
+      try {
+        attempts = Number(window.sessionStorage.getItem(retryKey) || 0);
+      } catch {
+        // Storage can be unavailable in hardened browser profiles.
+      }
+      if (attempts >= 8) {
+        setStatus('Admin update is still propagating. Refresh in a moment.');
+        return;
+      }
+      try {
+        window.sessionStorage.setItem(retryKey, String(attempts + 1));
+      } catch {
+        // Storage can be unavailable in hardened browser profiles.
+      }
+      setStatus('Synchronizing admin controls...');
+      window.setTimeout(() => window.location.reload(), 500 + attempts * 250);
       return;
     }
-    try {
-      window.sessionStorage.setItem(retryKey, String(attempts + 1));
-    } catch {
-      // Storage can be unavailable in hardened browser profiles.
-    }
-    setStatus('Synchronizing admin controls...');
-    window.setTimeout(() => window.location.reload(), 500 + attempts * 250);
-    return;
   }
   if (root?.dataset.adminConfigured !== 'true') {
     showLogin('Admin secrets are not configured yet.');

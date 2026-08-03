@@ -86,7 +86,7 @@ const SORO_BLOG_CACHE_VERSION_KEY = 'soro-blog-cache-version.json';
 const ADMIN_ANNOUNCEMENT_KEY = 'admin-announcement.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
-const ADMIN_ASSET_VERSION = '8.3.15';
+const ADMIN_ASSET_VERSION = '8.3.16';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -7854,28 +7854,6 @@ function renderAdminPage(request, env) {
       </section>
     </section>
   </main>
-  <script>
-    (() => {
-      const expected = ${JSON.stringify(ADMIN_ASSET_VERSION)};
-      const retryKey = 'mxqr-admin-asset-retry-' + expected;
-      document.addEventListener('DOMContentLoaded', () => {
-        if (window.__MXQR_ADMIN_SCRIPT_VERSION__ === expected) {
-          try { sessionStorage.removeItem(retryKey); } catch {}
-          return;
-        }
-        let attempts = 0;
-        try { attempts = Number(sessionStorage.getItem(retryKey) || 0); } catch {}
-        const status = document.querySelector('[data-updated-at], [data-login-status]');
-        if (attempts >= 8) {
-          if (status) status.textContent = 'Admin update is still propagating. Refresh in a moment.';
-          return;
-        }
-        try { sessionStorage.setItem(retryKey, String(attempts + 1)); } catch {}
-        if (status) status.textContent = 'Synchronizing admin controls...';
-        window.setTimeout(() => location.reload(), 500 + attempts * 250);
-      });
-    })();
-  </script>
 </body>
 </html>`;
 
@@ -10400,6 +10378,15 @@ async function serveStatic(request, env, ctx) {
   }
 
   if (request.method === 'GET' || request.method === 'HEAD') {
+    if (url.pathname.toLowerCase().startsWith('/designsystem/ui_kits/')) {
+      return withSecurityHeaders(
+        new Response(request.method === 'HEAD' ? null : 'Not found', {
+          status: 404,
+          headers: { 'Cache-Control': 'no-store' },
+        }),
+      );
+    }
+
     if (url.pathname === '/blog' || url.pathname === '/blog/') {
       const post = url.searchParams.get('post') || '';
       if (isValidSoroSlug(post)) {

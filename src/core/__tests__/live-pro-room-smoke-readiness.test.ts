@@ -98,6 +98,129 @@ describe('live PRO room smoke readiness', () => {
     );
   });
 
+  it('retries only transient HTTP responses for each public boundary probe', async () => {
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 503, payload: { error: 'UNAVAILABLE' } })
+      .mockResolvedValueOnce({
+        status: 200,
+        payload: { roomCode: '000000', status: 'activation_required' },
+      })
+      .mockResolvedValueOnce({ status: 429, payload: { error: 'RATE_LIMITED' } })
+      .mockResolvedValueOnce({
+        status: 200,
+        payload: { roomCode: '000001', status: 'pin_required' },
+      })
+      .mockResolvedValueOnce({ status: 401, payload: { error: 'SESSION_REQUIRED' } });
+    const wait = vi.fn(async () => undefined);
+    const log = vi.fn();
+
+    await expect(
+      verifyProRoomPublicBoundary({ read, retryDelaysMs: [0, 25], wait, log }),
+    ).resolves.toMatchObject({
+      roomStatus: 'activation_required',
+      pinRoomStatus: 'pin_required',
+      anonymousSnapshotRejected: true,
+    });
+
+    expect(read.mock.calls.map(([path]) => path)).toEqual([
+      '/000000/bootstrap',
+      '/000000/bootstrap',
+      '/000001/bootstrap',
+      '/000001/bootstrap',
+      '/000000/snapshot',
+    ]);
+    expect(wait).toHaveBeenCalledTimes(2);
+    expect(wait).toHaveBeenNthCalledWith(1, 25);
+    expect(wait).toHaveBeenNthCalledWith(2, 25);
+    expect(log).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries transport failures but keeps the retry budget bounded', async () => {
+    const timeoutError = Object.assign(new Error('request timed out'), { name: 'TimeoutError' });
+    const networkError = new TypeError('fetch failed', {
+      cause: Object.assign(new Error('socket reset'), { code: 'ECONNRESET' }),
+    });
+    const read = vi
+      .fn()
+      .mockRejectedValueOnce(timeoutError)
+      .mockRejectedValueOnce(networkError)
+      .mockResolvedValueOnce({
+        status: 200,
+        payload: { roomCode: '000000', status: 'activation_required' },
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        payload: { roomCode: '000001', status: 'pin_required' },
+      })
+      .mockResolvedValueOnce({ status: 401, payload: { error: 'SESSION_REQUIRED' } });
+
+    await expect(
+      verifyProRoomPublicBoundary({
+        read,
+        retryDelaysMs: [0, 0, 0],
+        wait: async () => undefined,
+        log: vi.fn(),
+      }),
+    ).resolves.toMatchObject({ anonymousSnapshotRejected: true });
+    expect(read).toHaveBeenCalledTimes(5);
+
+    const unavailable = vi.fn().mockRejectedValue(networkError);
+    const retryWait = vi.fn(async () => undefined);
+    await expect(
+      verifyProRoomPublicBoundary({
+        read: unavailable,
+        wait: retryWait,
+        log: vi.fn(),
+      }),
+    ).rejects.toThrow('boundary /000000/bootstrap remained unavailable: fetch failed');
+    expect(unavailable).toHaveBeenCalledTimes(3);
+    expect(retryWait.mock.calls).toEqual([[1_000], [2_000]]);
+  });
+
+  it('does not retry logical, schema, or non-transient HTTP failures', async () => {
+    const wait = vi.fn(async () => undefined);
+    const malformed = vi.fn().mockResolvedValue({
+      status: 200,
+      payload: { roomCode: '000000', status: 'pin_required' },
+    });
+
+    await expect(
+      verifyProRoomPublicBoundary({
+        read: malformed,
+        retryDelaysMs: [0, 25],
+        wait,
+        log: vi.fn(),
+      }),
+    ).rejects.toThrow('bootstrap must return activation_required');
+    expect(malformed).toHaveBeenCalledTimes(1);
+    expect(wait).not.toHaveBeenCalled();
+
+    const invalidJson = vi.fn().mockRejectedValue(new Error('boundary returned invalid JSON'));
+    await expect(
+      verifyProRoomPublicBoundary({
+        read: invalidJson,
+        retryDelaysMs: [0, 25],
+        wait,
+        log: vi.fn(),
+      }),
+    ).rejects.toThrow('boundary returned invalid JSON');
+    expect(invalidJson).toHaveBeenCalledTimes(1);
+    expect(wait).not.toHaveBeenCalled();
+
+    const forbidden = vi.fn().mockResolvedValue({ status: 403, payload: { error: 'FORBIDDEN' } });
+    await expect(
+      verifyProRoomPublicBoundary({
+        read: forbidden,
+        retryDelaysMs: [0, 25],
+        wait,
+        log: vi.fn(),
+      }),
+    ).rejects.toThrow('bootstrap must return activation_required');
+    expect(forbidden).toHaveBeenCalledTimes(1);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
   it('retries stale edge versions until the expected deployment is visible', async () => {
     const read = vi
       .fn()

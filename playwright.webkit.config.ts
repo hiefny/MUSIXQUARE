@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { E2E_APP_ORIGIN, E2E_PREVIEW_COMMAND } from './e2e/config.ts';
 
 /**
  * Small real-WebKit lane for the mobile paths that Chromium + an iPhone user
@@ -16,7 +17,7 @@ export default defineConfig({
   globalTeardown: './e2e/global-teardown.ts',
   use: {
     ...devices['iPhone 13'],
-    baseURL: 'http://localhost:4173',
+    baseURL: E2E_APP_ORIGIN,
     headless: true,
     // The lane validates the real WebKit UI/runtime surface, not PWA update
     // orchestration. Blocking registrations prevents an update prompt from a
@@ -30,8 +31,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run preview',
-    port: 4173,
-    reuseExistingServer: !process.env.CI,
+    command: E2E_PREVIEW_COMMAND,
+    url: E2E_APP_ORIGIN,
+    reuseExistingServer: false,
+    timeout: 120_000,
   },
 });

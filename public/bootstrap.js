@@ -28,8 +28,21 @@
   var ANALYTICS_TOKEN = '80608f4cdc3849d589d14bdcf48f19f9';
   var analyticsStarted = false;
 
+  function isProductionAnalyticsHost() {
+    try {
+      var hostname = String(window.location.hostname || '')
+        .trim()
+        .toLowerCase();
+      return hostname === 'musixquare.com' || hostname.endsWith('.musixquare.com');
+    } catch (e) {
+      return false;
+    }
+  }
+
   function startAnalytics() {
-    if (analyticsStarted) return;
+    // Analytics is an explicit production-only capability. Opaque URLs,
+    // loopback servers, and preview hosts all remain silent by default.
+    if (analyticsStarted || !isProductionAnalyticsHost()) return;
     analyticsStarted = true;
 
     var script = document.createElement('script');
@@ -92,9 +105,7 @@
   }
 
   var hasFragmentCredential =
-    fragmentCounts.activation > 0 ||
-    fragmentCounts.recovery > 0 ||
-    fragmentCounts.transfer > 0;
+    fragmentCounts.activation > 0 || fragmentCounts.recovery > 0 || fragmentCounts.transfer > 0;
   var hasQueryCredential =
     queryCounts.activation > 0 || queryCounts.recovery > 0 || queryCounts.transfer > 0;
   var hasCredential = hasFragmentCredential || hasQueryCredential;
@@ -124,9 +135,7 @@
   // throwing; analytics must remain disabled in that case.
   if (hasQueryCredential) {
     try {
-      var remainingQuery = new URLSearchParams(
-        (window.location.search || '').replace(/^\?/, ''),
-      );
+      var remainingQuery = new URLSearchParams((window.location.search || '').replace(/^\?/, ''));
       var queryStillSensitive = false;
       remainingQuery.forEach(function (_value, key) {
         if (claimPurpose(key)) queryStillSensitive = true;
@@ -141,9 +150,7 @@
   // set. Retain purpose booleans only, so setup renders the terminal damaged
   // link UX without ever accepting or preserving a query token value.
   var activationClaim =
-    !hasQueryCredential &&
-    fragmentCounts.activation === 1 &&
-    activationClaims.length === 1
+    !hasQueryCredential && fragmentCounts.activation === 1 && activationClaims.length === 1
       ? activationClaims[0]
       : null;
   var activationPresent = fragmentCounts.activation > 0 || queryCounts.activation > 0;

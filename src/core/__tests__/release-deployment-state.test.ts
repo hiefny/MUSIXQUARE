@@ -193,6 +193,27 @@ describe('release deployment rollback state', () => {
     expect(runtimePathsForWorker('developer-api')).toContain(sharedGate);
   });
 
+  it('tracks R2 policies with every app/Worker consumer', () => {
+    for (const policy of [
+      'cloudflare/r2-cors.remote-share.json',
+      'cloudflare/r2-lifecycle.remote-share.json',
+    ]) {
+      expect(runtimePathsForWorker('remote-share')).toContain(policy);
+      expect(runtimePathsForWorker('app')).toContain(policy);
+    }
+
+    const proMediaCors = 'cloudflare/r2-cors.pro-media.json';
+    expect(runtimePathsForWorker('pro-room')).toContain(proMediaCors);
+    expect(runtimePathsForWorker('app')).toContain(proMediaCors);
+
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const stepStart = workflow.indexOf('- name: Apply PRO media R2 CORS policy');
+    const stepEnd = workflow.indexOf('\n      - name:', stepStart + 1);
+    const step = workflow.slice(stepStart, stepEnd);
+    expect(step).toContain("if: inputs.target == 'all' || inputs.target == 'pro-room'");
+    expect(step).not.toContain("inputs.target == 'app'");
+  });
+
   it('derives each Worker D1 dependency set from the immutable manifest', () => {
     const proPaths = runtimePathsForWorker('pro-room');
     expect(proPaths).toContain('cloudflare/admin-metrics.pro-room-generation.migration.sql');
@@ -1396,11 +1417,12 @@ describe('release deployment rollback state', () => {
     expect(compatibility).toBeGreaterThan(-1);
     expect(compatibility).toBeLessThan(appDeploy);
     expect(workflow).not.toContain('Verify current signaling contract before app-only release');
-    const appDeployEnd = workflow.indexOf('\n      - name:', appDeploy + 1);
-    const appDeployStep = workflow.slice(appDeploy, appDeployEnd);
-    expect(appDeployStep).toContain('git fetch --no-tags origin main');
-    expect(appDeployStep).toContain('current_main="$(git rev-parse origin/main)"');
-    expect(appDeployStep).toContain('if [[ "$current_main" != "$GITHUB_SHA" ]]');
+    const initialFence = workflow.indexOf('Verify release commit is still current main');
+    expect(initialFence).toBeGreaterThan(-1);
+    expect(initialFence).toBeLessThan(workflow.indexOf('Setup Node.js'));
+    expect(workflow.match(/git fetch --no-tags origin main/g)).toHaveLength(1);
+    expect(workflow).toContain('the immutable candidate is pinned');
+    expect(workflow).not.toContain('main advanced to $current_main before the app deployment');
 
     const appPlan = emergencyDeploymentPlan('app', '1'.repeat(40));
     expect(appPlan[0]).toEqual(['run', '--silent', 'smoke:live:signaling']);
@@ -1459,17 +1481,31 @@ describe('release deployment rollback state', () => {
     for (const stepName of [
       'Smoke remote-share Worker',
       'Smoke signaling Worker',
-      'Smoke PRO room Worker',
       'Smoke Developer API Worker',
       'Smoke app session endpoint',
       'Smoke anonymous app account boundary',
-      'Smoke current PRO public boundary after app deployment',
     ]) {
       const stepStart = workflow.indexOf(`- name: ${stepName}`);
       const nextStep = workflow.indexOf('\n      - name:', stepStart + 1);
       const step = workflow.slice(stepStart, nextStep < 0 ? workflow.length : nextStep);
       expect(stepStart, stepName).toBeGreaterThan(-1);
       expect(step, stepName).toContain('timeout-minutes: 5');
+    }
+
+    const proRoomSmokeStepNames = [
+      'Smoke PRO room Worker',
+      'Smoke current PRO public boundary after app deployment',
+    ];
+    expect(workflow.match(/run: npm run smoke:live:pro-room/gu)).toHaveLength(
+      proRoomSmokeStepNames.length,
+    );
+    for (const stepName of proRoomSmokeStepNames) {
+      const stepStart = workflow.indexOf(`- name: ${stepName}`);
+      const nextStep = workflow.indexOf('\n      - name:', stepStart + 1);
+      const step = workflow.slice(stepStart, nextStep < 0 ? workflow.length : nextStep);
+      expect(stepStart, stepName).toBeGreaterThan(-1);
+      expect(step, stepName).toContain('timeout-minutes: 8');
+      expect(step, stepName).toContain('run: npm run smoke:live:pro-room');
     }
 
     for (const stepName of [

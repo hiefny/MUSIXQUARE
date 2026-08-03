@@ -103,7 +103,17 @@ describe('app UX markup contract', () => {
       expect((indicator as HTMLButtonElement).type).toBe('button');
       expect(indicator.getAttribute('data-i18n-aria-label')).toBe('toast.settings_sync_enabled');
       expect(indicator.hasAttribute('hidden')).toBe(true);
+      expect(indicator.parentElement?.classList.contains('settings-sync-indicator-slot')).toBe(
+        true,
+      );
     }
+
+    const indicatorSlotRule = appStylesheet.match(
+      /\.settings-sync-indicator-slot\s*\{([^}]*)\}/,
+    )?.[1];
+    expect(indicatorSlotRule).toMatch(/width:\s*32px\s*;/);
+    expect(indicatorSlotRule).toMatch(/height:\s*32px\s*;/);
+    expect(indicatorSlotRule).toMatch(/flex:\s*0\s+0\s+32px\s*;/);
 
     const hiddenIndicatorRule = appStylesheet.match(
       /\.settings-sync-indicator\[hidden\]\s*\{([^}]*)\}/,

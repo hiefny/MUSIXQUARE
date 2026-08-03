@@ -240,6 +240,50 @@ async function expectVirtualEffectsTwoByTwo(page: Page): Promise<void> {
   expect(layout[0].bottom).toBeLessThan(layout[2].top);
 }
 
+async function readSynchronizedEffectLayout(page: Page): Promise<
+  Array<{
+    titleId: string;
+    headerHeight: number;
+    titleTop: number;
+    descriptionTop: number;
+    descriptionWidth: number;
+    descriptionHeight: number;
+    descriptionScrollHeight: number;
+    slotWidth: number;
+    slotHeight: number;
+  }>
+> {
+  return page.evaluate((titleIds) => {
+    return titleIds.map((titleId) => {
+      const title = document.getElementById(titleId);
+      const header = title?.closest<HTMLElement>('.section-header-row');
+      const section = header?.closest<HTMLElement>('.section-group');
+      const description = section?.querySelector<HTMLElement>('.settings-option-description');
+      const slot = header?.querySelector<HTMLElement>('.settings-sync-indicator-slot');
+      if (!title || !header || !section || !description || !slot) {
+        throw new Error(`Incomplete synchronized effect layout: ${titleId}`);
+      }
+
+      const sectionRect = section.getBoundingClientRect();
+      const headerRect = header.getBoundingClientRect();
+      const titleRect = title.getBoundingClientRect();
+      const descriptionRect = description.getBoundingClientRect();
+      const slotRect = slot.getBoundingClientRect();
+      return {
+        titleId,
+        headerHeight: headerRect.height,
+        titleTop: titleRect.top - headerRect.top,
+        descriptionTop: descriptionRect.top - sectionRect.top,
+        descriptionWidth: descriptionRect.width,
+        descriptionHeight: descriptionRect.height,
+        descriptionScrollHeight: description.scrollHeight,
+        slotWidth: slotRect.width,
+        slotHeight: slotRect.height,
+      };
+    });
+  }, SYNCHRONIZED_EFFECT_TITLE_IDS);
+}
+
 async function expectMobileDescriptions(page: Page, requireWrapping: boolean): Promise<void> {
   const results = await page.evaluate(
     ({ settings, shouldWrap }) =>
@@ -507,6 +551,12 @@ test.describe('settings description layout', () => {
         ).toBeLessThanOrEqual((geometry?.headerClientWidth ?? 0) + 1);
       }
 
+      const syncOnLayout = await readSynchronizedEffectLayout(page);
+      for (const layout of syncOnLayout) {
+        expect(layout.slotWidth, `${layout.titleId} should reserve the icon width`).toBe(32);
+        expect(layout.slotHeight, `${layout.titleId} should reserve the icon height`).toBe(32);
+      }
+
       const syncIndicator = indicators[0].indicator;
       const syncToastText = (await syncIndicator.getAttribute('aria-label'))?.trim() || '';
       expect(syncToastText).not.toBe('');
@@ -522,6 +572,21 @@ test.describe('settings description layout', () => {
       for (const { titleId, indicator } of indicators) {
         await expect(indicator, `${titleId} sync icon should hide while sync is OFF`).toBeHidden();
         await expect(indicator).toHaveAttribute('hidden', '');
+      }
+
+      const syncOffLayout = await readSynchronizedEffectLayout(page);
+      expect(syncOffLayout).toHaveLength(syncOnLayout.length);
+      for (const [index, offLayout] of syncOffLayout.entries()) {
+        const onLayout = syncOnLayout[index];
+        expect(offLayout.titleId).toBe(onLayout.titleId);
+        expect(offLayout.headerHeight).toBeCloseTo(onLayout.headerHeight, 2);
+        expect(offLayout.titleTop).toBeCloseTo(onLayout.titleTop, 2);
+        expect(offLayout.descriptionTop).toBeCloseTo(onLayout.descriptionTop, 2);
+        expect(offLayout.descriptionWidth).toBeCloseTo(onLayout.descriptionWidth, 2);
+        expect(offLayout.descriptionHeight).toBeCloseTo(onLayout.descriptionHeight, 2);
+        expect(offLayout.descriptionScrollHeight).toBe(onLayout.descriptionScrollHeight);
+        expect(offLayout.slotWidth).toBe(32);
+        expect(offLayout.slotHeight).toBe(32);
       }
 
       await syncOn.click();

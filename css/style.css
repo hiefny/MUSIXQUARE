@@ -2941,10 +2941,17 @@
     line-break: strict;
   }
 
-  .settings-sync-indicator {
+  .settings-sync-indicator-slot {
     width: 32px;
     height: 32px;
     flex: 0 0 32px;
+    display: grid;
+    place-items: center;
+  }
+
+  .settings-sync-indicator {
+    width: 32px;
+    height: 32px;
     display: grid;
     place-items: center;
     padding: 7px;

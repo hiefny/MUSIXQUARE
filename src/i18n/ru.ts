@@ -193,8 +193,6 @@ const ru: Record<I18nKey, string> = {
   'settings.advanced_audio': 'Расширенные настройки звука',
   'settings.spatial_audio': 'Пространственный звук',
   'settings.reverb_title': 'Реверберация',
-  'settings.host_ctrl': 'GLOBAL',
-  'settings.self_ctrl': 'LOCAL',
   'settings.rvb_studio': 'Студия',
   'settings.rvb_arena': 'Концертный зал',
   'settings.rvb_advanced': 'Расширенный',

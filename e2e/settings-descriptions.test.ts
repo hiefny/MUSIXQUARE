@@ -26,6 +26,14 @@ const AUDIO_SETTINGS: DescribedSetting[] = [
 
 const ALL_SETTINGS = [...GENERAL_SETTINGS, ...AUDIO_SETTINGS];
 
+const SYNCHRONIZED_EFFECT_TITLE_IDS = [
+  'settings-reverb-title',
+  'settings-eq-title',
+  'settings-surround-title',
+  'settings-bass-title',
+  'settings-exciter-title',
+] as const;
+
 async function openSettings(page: Page): Promise<void> {
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');
@@ -263,6 +271,114 @@ test.describe('settings description layout', () => {
         content: '.settings-option-description { font-size: 26px !important; }',
       });
       await expectMobileDescriptions(page, true);
+    });
+
+    test('projects settings sync only onto synchronized effect headers at 320px', async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 320, height: 844 });
+      await page.addInitScript(() => {
+        localStorage.setItem('musixquare-lang', 'en');
+        localStorage.setItem('musixquare-settings-sync', 'on');
+      });
+      await openSettings(page);
+
+      const audioPanel = page.locator('.settings-subtab-panel[data-panel="audio"]');
+      await expect(
+        audioPanel.locator(
+          '.badge-host-ctrl, [data-i18n="settings.host_ctrl"], [data-i18n="settings.self_ctrl"]',
+        ),
+      ).toHaveCount(0);
+
+      const roleHeader = page
+        .locator('.section-header-row')
+        .filter({ has: page.locator('#settings-role-title') });
+      await expect(roleHeader).toHaveCount(1);
+      await expect(roleHeader.locator('[data-settings-sync-indicator]')).toHaveCount(0);
+
+      const syncTitle = (await page.locator('#settings-sync-title').textContent())?.trim() || '';
+      expect(syncTitle).not.toBe('');
+
+      const indicators = SYNCHRONIZED_EFFECT_TITLE_IDS.map((titleId) => {
+        const header = page
+          .locator('.section-header-row')
+          .filter({ has: page.locator(`#${titleId}`) });
+        return { titleId, header, indicator: header.locator('[data-settings-sync-indicator]') };
+      });
+      await expect(audioPanel.locator('[data-settings-sync-indicator]')).toHaveCount(5);
+
+      for (const { titleId, header, indicator } of indicators) {
+        await expect(header, `${titleId} should have one rendered header`).toHaveCount(1);
+        await expect(indicator, `${titleId} should have one settings-sync icon`).toHaveCount(1);
+        await expect(
+          indicator,
+          `${titleId} should show sync while the default is ON`,
+        ).toBeVisible();
+        await expect(indicator).toHaveAttribute('role', 'img');
+        await expect(indicator).toHaveAttribute('aria-label', syncTitle);
+        await expect(indicator).toHaveAttribute('data-i18n-aria-label', 'settings.sync_settings');
+        await expect(indicator.locator('svg')).toHaveAttribute('aria-hidden', 'true');
+        await expect(indicator).toHaveText('');
+
+        const geometry = await header.evaluate((headerElement) => {
+          const section = headerElement.closest<HTMLElement>('.section-group');
+          const title = headerElement.querySelector<HTMLElement>('.section-title');
+          const icon = headerElement.querySelector<HTMLElement>('[data-settings-sync-indicator]');
+          if (!section || !title || !icon) return null;
+
+          const headerRect = headerElement.getBoundingClientRect();
+          const sectionRect = section.getBoundingClientRect();
+          const titleRect = title.getBoundingClientRect();
+          const iconRect = icon.getBoundingClientRect();
+          return {
+            headerLeft: headerRect.left,
+            headerRight: headerRect.right,
+            sectionLeft: sectionRect.left,
+            sectionRight: sectionRect.right,
+            titleRight: titleRect.right,
+            iconLeft: iconRect.left,
+            iconRight: iconRect.right,
+            headerClientWidth: headerElement.clientWidth,
+            headerScrollWidth: headerElement.scrollWidth,
+            viewportWidth: document.documentElement.clientWidth,
+          };
+        });
+
+        expect(geometry, `${titleId} should resolve its section, title, and icon`).not.toBeNull();
+        expect(geometry?.headerLeft ?? Number.NEGATIVE_INFINITY).toBeGreaterThanOrEqual(
+          (geometry?.sectionLeft ?? 0) - 1,
+        );
+        expect(geometry?.headerRight ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+          (geometry?.sectionRight ?? 0) + 1,
+        );
+        expect(geometry?.titleRight ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+          geometry?.iconLeft ?? 0,
+        );
+        expect(geometry?.iconRight ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+          geometry?.viewportWidth ?? 0,
+        );
+        expect(geometry?.headerScrollWidth ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+          (geometry?.headerClientWidth ?? 0) + 1,
+        );
+      }
+
+      const syncOff = page.locator('#grid-settings-sync [data-settings-sync="off"]');
+      const syncOn = page.locator('#grid-settings-sync [data-settings-sync="on"]');
+      await syncOff.click();
+      await expect(syncOff).toHaveAttribute('aria-pressed', 'true');
+      await expect(syncOn).toHaveAttribute('aria-pressed', 'false');
+      for (const { titleId, indicator } of indicators) {
+        await expect(indicator, `${titleId} sync icon should hide while sync is OFF`).toBeHidden();
+        await expect(indicator).toHaveAttribute('hidden', '');
+      }
+
+      await syncOn.click();
+      await expect(syncOn).toHaveAttribute('aria-pressed', 'true');
+      await expect(syncOff).toHaveAttribute('aria-pressed', 'false');
+      for (const { titleId, indicator } of indicators) {
+        await expect(indicator, `${titleId} sync icon should return when sync is ON`).toBeVisible();
+        await expect(indicator).not.toHaveAttribute('hidden', '');
+      }
     });
   });
 });

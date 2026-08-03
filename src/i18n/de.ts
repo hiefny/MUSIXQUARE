@@ -147,8 +147,6 @@ const de: Record<I18nKey, string> = {
   'settings.advanced_audio': 'Erweiterter Klang',
   'settings.spatial_audio': 'Räumlicher Klang',
   'settings.reverb_title': 'Hall',
-  'settings.host_ctrl': 'GLOBAL',
-  'settings.self_ctrl': 'LOCAL',
   'settings.rvb_studio': 'Studio',
   'settings.rvb_arena': 'Arena',
   'settings.rvb_advanced': 'Erweitert',

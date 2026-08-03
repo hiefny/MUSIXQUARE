@@ -192,8 +192,6 @@ const en: Record<I18nKey, string> = {
   'settings.advanced_audio': 'Advanced audio',
   'settings.spatial_audio': 'Spatial audio',
   'settings.reverb_title': 'Reverb',
-  'settings.host_ctrl': 'GLOBAL',
-  'settings.self_ctrl': 'LOCAL',
   'settings.rvb_studio': 'Studio',
   'settings.rvb_arena': 'Arena',
   'settings.rvb_advanced': 'Advanced',

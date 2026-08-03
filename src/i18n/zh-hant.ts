@@ -138,8 +138,6 @@ const zhHant: Record<I18nKey, string> = {
   'settings.advanced_audio': '進階音訊',
   'settings.spatial_audio': '空間音訊',
   'settings.reverb_title': '殘響',
-  'settings.host_ctrl': 'GLOBAL',
-  'settings.self_ctrl': 'LOCAL',
   'settings.rvb_studio': '錄音室',
   'settings.rvb_arena': '場館',
   'settings.rvb_advanced': '進階',

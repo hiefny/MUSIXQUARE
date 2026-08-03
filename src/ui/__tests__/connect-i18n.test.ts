@@ -633,7 +633,7 @@ describe('connect i18n refresh', () => {
     expect(document.querySelector('.d-op-btn')).toBeNull();
   });
 
-  it('renders translated crown actions without visible grant or revoke text', () => {
+  it('renders translated crown actions without visible grant or revoke text', async () => {
     const crownPath = 'M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm1 2h12v2H6z';
     setLanguageMode('en');
     setState('network.appRole', 'host');
@@ -709,8 +709,38 @@ describe('connect i18n refresh', () => {
 
     const grantGraphics = grant?.querySelectorAll('svg :is(path, line, polyline)') ?? [];
     const revokeGraphics = revoke?.querySelectorAll('svg :is(path, line, polyline)') ?? [];
-    expect(grantGraphics.length).toBeGreaterThan(revokeGraphics.length);
-    expect(revokeGraphics).toHaveLength(1);
+    expect(grantGraphics).toHaveLength(1);
+    expect(revokeGraphics.length).toBeGreaterThan(grantGraphics.length);
+
+    const revokeMask = revoke?.querySelector<SVGMaskElement>(
+      'svg defs > mask[id^="administrator-crown-slash-mask-"]',
+    );
+    const revokeCrown = revoke?.querySelector<SVGPathElement>(`svg > path[d="${crownPath}"]`);
+    const revokeKnockout = revokeMask?.querySelector<SVGPathElement>(
+      '.administrator-crown-slash-knockout',
+    );
+    const revokeSlash = revoke?.querySelector<SVGPathElement>('svg > .administrator-crown-slash');
+    const revokeMaskId = revokeMask?.getAttribute('id');
+    expect(revokeMaskId).toMatch(/^administrator-crown-slash-mask-\d+$/);
+    expect(revokeCrown?.getAttribute('mask')).toBe(`url(#${revokeMaskId})`);
+    expect(revokeMask?.querySelector('rect[fill="white"]')).not.toBeNull();
+    expect(revokeKnockout).not.toBeNull();
+    expect(revokeSlash).not.toBeNull();
+    expect(revokeKnockout?.getAttribute('stroke')).toBe('black');
+    expect(revokeKnockout?.getAttribute('d')).toBe(revokeSlash?.getAttribute('d'));
+
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const revokeSlashRules =
+      stylesheet.match(/\.administrator-crown-slash\s*\{([^}]*)\}/)?.[1] ?? '';
+    const visibleSlashStrokeWidth = Number(
+      revokeSlashRules.match(/stroke-width:\s*([\d.]+)/)?.[1] ?? Number.NaN,
+    );
+    expect(revokeSlashRules).toContain('stroke: currentColor');
+    expect(visibleSlashStrokeWidth).toBe(2.2);
+    expect(Number(revokeKnockout?.getAttribute('stroke-width'))).toBe(4.4);
+    expect(Number(revokeKnockout?.getAttribute('stroke-width'))).toBeGreaterThan(
+      visibleSlashStrokeWidth,
+    );
   });
 
   it('lets a capable PRO member request another member kick through the room server', async () => {
@@ -1962,7 +1992,9 @@ describe('member-level connection and administrator UI', () => {
     expect(rows[0]?.querySelector('.administrator-action-button')).toBeNull();
     expect(rows[1]?.querySelectorAll('.administrator-action-button')).toHaveLength(2);
     expect(
-      rows[1]?.querySelector('.administrator-action-button.revoke path')?.getAttribute('d'),
+      rows[1]
+        ?.querySelector('.administrator-action-button.revoke > svg > path[mask]')
+        ?.getAttribute('d'),
     ).toBe('M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm1 2h12v2H6z');
     expect(
       rows[1]?.querySelector<HTMLElement>('.administrator-action-button.revoke')?.dataset

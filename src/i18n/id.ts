@@ -147,8 +147,6 @@ const id: Record<I18nKey, string> = {
   'settings.advanced_audio': 'Audio lanjutan',
   'settings.spatial_audio': 'Audio spasial',
   'settings.reverb_title': 'Reverb',
-  'settings.host_ctrl': 'GLOBAL',
-  'settings.self_ctrl': 'LOCAL',
   'settings.rvb_studio': 'Studio',
   'settings.rvb_arena': 'Arena',
   'settings.rvb_advanced': 'Lanjutan',

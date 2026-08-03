@@ -195,8 +195,6 @@ const nl: Record<I18nKey, string> = {
   'settings.advanced_audio': 'Geavanceerde audio',
   'settings.spatial_audio': 'Ruimtelijke audio',
   'settings.reverb_title': 'Reverb',
-  'settings.host_ctrl': 'GLOBAL',
-  'settings.self_ctrl': 'LOCAL',
   'settings.rvb_studio': 'Studio',
   'settings.rvb_arena': 'Arena',
   'settings.rvb_advanced': 'Geavanceerd',

@@ -69,6 +69,9 @@ function syncSettingsSyncControls(enabled = isSettingsSyncEnabled()): void {
       button.classList.toggle('active', active);
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
+  document.querySelectorAll<HTMLElement>('[data-settings-sync-indicator]').forEach((indicator) => {
+    indicator.hidden = !enabled;
+  });
 }
 
 function _showHostCtrlLockedToast(): void {

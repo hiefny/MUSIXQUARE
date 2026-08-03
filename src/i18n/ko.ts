@@ -190,8 +190,6 @@ const ko = {
   'settings.advanced_audio': '고급 음향',
   'settings.spatial_audio': '입체 음향',
   'settings.reverb_title': '리버브',
-  'settings.host_ctrl': '전체 설정',
-  'settings.self_ctrl': '개별 설정',
   'settings.rvb_studio': '스튜디오',
   'settings.rvb_arena': '공연장',
   'settings.rvb_advanced': '고급',

@@ -190,8 +190,6 @@ const tr: Record<I18nKey, string> = {
   'settings.advanced_audio': 'Gelişmiş Ses',
   'settings.spatial_audio': 'Uzamsal Ses',
   'settings.reverb_title': 'Yankı (Reverb)',
-  'settings.host_ctrl': 'GLOBAL',
-  'settings.self_ctrl': 'LOCAL',
   'settings.rvb_studio': 'Stüdyo',
   'settings.rvb_arena': 'Konser Alanı',
   'settings.rvb_advanced': 'Gelişmiş',

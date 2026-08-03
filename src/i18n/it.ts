@@ -193,8 +193,6 @@ const it: Record<I18nKey, string> = {
   'settings.advanced_audio': 'Audio avanzato',
   'settings.spatial_audio': 'Audio spaziale',
   'settings.reverb_title': 'Riverbero',
-  'settings.host_ctrl': 'GLOBAL',
-  'settings.self_ctrl': 'LOCAL',
   'settings.rvb_studio': 'Studio',
   'settings.rvb_arena': 'Sala da concerto',
   'settings.rvb_advanced': 'Avanzato',

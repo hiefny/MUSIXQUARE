@@ -2941,17 +2941,23 @@
     line-break: strict;
   }
 
-  .badge-host-ctrl {
-    font-size: 11px;
-    font-weight: 600;
+  .settings-sync-indicator {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    display: grid;
+    place-items: center;
     color: var(--text-sub);
-    background: var(--surface-2);
-    padding: 4px 10px;
-    border-radius: 100px;
-    letter-spacing: -0.2px;
-    line-height: 1;
-    white-space: nowrap;
-    flex-shrink: 0;
+  }
+
+  .settings-sync-indicator[hidden] {
+    display: none;
+  }
+
+  .settings-sync-indicator svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
   }
 
   .host-ctrl-locked {
@@ -3526,8 +3532,8 @@
     border-color: rgba(var(--primary-rgb), 0.75);
   }
 
-  /* Administrator membership is a compact state action: a slashed crown
-     grants access, while the intact crown revokes the current grant. */
+  /* Administrator membership is a compact action: an intact crown grants
+     access, while the crossed crown in the administrator list revokes it. */
   .d-op-btn.administrator-state-button,
   .administrator-action-button.revoke.administrator-state-button {
     width: 32px;
@@ -3543,6 +3549,16 @@
   .administrator-action-button.revoke.administrator-state-button svg {
     width: 18px;
     height: 18px;
+  }
+
+  /* Mirror the mute icon's separated slash, but make the channel a real SVG
+     knockout so it stays clean over transparent, pressed, and hover surfaces. */
+  .administrator-crown-slash {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
 
   .administrator-action-button.administrator-state-button:hover,

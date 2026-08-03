@@ -188,8 +188,6 @@ const th: Record<I18nKey, string> = {
   'settings.advanced_audio': 'เสียงขั้นสูง',
   'settings.spatial_audio': 'เสียงเชิงพื้นที่',
   'settings.reverb_title': 'รีเวิร์บ',
-  'settings.host_ctrl': 'GLOBAL',
-  'settings.self_ctrl': 'LOCAL',
   'settings.rvb_studio': 'สตูดิโอ',
   'settings.rvb_arena': 'คอนเสิร์ตฮอลล์',
   'settings.rvb_advanced': 'ขั้นสูง',

@@ -143,8 +143,6 @@ const vi: Record<I18nKey, string> = {
   'settings.advanced_audio': 'Âm thanh nâng cao',
   'settings.spatial_audio': 'Âm thanh không gian',
   'settings.reverb_title': 'Reverb',
-  'settings.host_ctrl': 'GLOBAL',
-  'settings.self_ctrl': 'LOCAL',
   'settings.rvb_studio': 'Studio',
   'settings.rvb_arena': 'Sân khấu',
   'settings.rvb_advanced': 'Nâng cao',

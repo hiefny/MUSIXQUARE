@@ -145,8 +145,6 @@ const ptBr: Record<I18nKey, string> = {
   'settings.advanced_audio': 'Áudio avançado',
   'settings.spatial_audio': 'Áudio espacial',
   'settings.reverb_title': 'Reverb',
-  'settings.host_ctrl': 'GLOBAL',
-  'settings.self_ctrl': 'LOCAL',
   'settings.rvb_studio': 'Estúdio',
   'settings.rvb_arena': 'Arena',
   'settings.rvb_advanced': 'Avançado',

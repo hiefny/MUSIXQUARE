@@ -6,14 +6,17 @@ import { resolve } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 let appDocument: Document;
+let appSource: string;
 let appStylesheet: string;
 let desktopStylesheet: string;
+let settingsSource: string;
 
 beforeAll(() => {
-  const source = readFileSync(resolve('index.html'), 'utf8');
-  appDocument = new DOMParser().parseFromString(source, 'text/html');
+  appSource = readFileSync(resolve('index.html'), 'utf8');
+  appDocument = new DOMParser().parseFromString(appSource, 'text/html');
   appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
   desktopStylesheet = readFileSync(resolve('css/desktop.css'), 'utf8');
+  settingsSource = readFileSync(resolve('src/ui/settings.ts'), 'utf8');
 });
 
 describe('app UX markup contract', () => {
@@ -68,6 +71,45 @@ describe('app UX markup contract', () => {
     expect(roleIndex).toBeGreaterThanOrEqual(0);
     expect(syncIndex).toBe(roleIndex + 1);
     expect(reverbIndex).toBe(syncIndex + 1);
+  });
+
+  it('shows settings-sync indicators only on the five synchronized effect headers', () => {
+    const removedLegacySurface = [appSource, appStylesheet, settingsSource].join('\n');
+    expect(removedLegacySurface).not.toContain('badge-host-ctrl');
+    expect(removedLegacySurface).not.toContain('settings.host_ctrl');
+    expect(removedLegacySurface).not.toContain('settings.self_ctrl');
+
+    const roleSection = appDocument.getElementById('grid-standard')?.closest('.section-group');
+    expect(roleSection?.querySelector('[data-settings-sync-indicator]')).toBeNull();
+
+    const expectedEffectTitles = [
+      'settings-reverb-title',
+      'settings-eq-title',
+      'settings-surround-title',
+      'settings-bass-title',
+      'settings-exciter-title',
+    ];
+    const indicators = [
+      ...appDocument.querySelectorAll<HTMLElement>('[data-settings-sync-indicator]'),
+    ];
+    expect(indicators).toHaveLength(expectedEffectTitles.length);
+    expect(
+      indicators.map(
+        (indicator) =>
+          indicator.closest('.section-header-row')?.querySelector<HTMLElement>('.section-title')
+            ?.id,
+      ),
+    ).toEqual(expectedEffectTitles);
+    for (const indicator of indicators) {
+      expect(indicator.getAttribute('role')).toBe('img');
+      expect(indicator.getAttribute('data-i18n-aria-label')).toBe('settings.sync_settings');
+      expect(indicator.hasAttribute('hidden')).toBe(true);
+    }
+
+    const hiddenIndicatorRule = appStylesheet.match(
+      /\.settings-sync-indicator\[hidden\]\s*\{([^}]*)\}/,
+    )?.[1];
+    expect(hiddenIndicatorRule).toMatch(/display:\s*none\s*;/);
   });
 
   it('associates every settings description with its own control group', () => {

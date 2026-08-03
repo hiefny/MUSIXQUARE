@@ -141,7 +141,7 @@ test.describe('Operator Mode', () => {
       )
       .first();
     const inactiveIcon = await expectIconOnlyAdministratorAction(grantButton, 'grant', 'inactive');
-    expect(inactiveIcon.geometryCount).toBeGreaterThanOrEqual(2);
+    expect(inactiveIcon.geometryCount).toBe(1);
     await expectAdministratorActionFitsRow(grantButton);
 
     await grantButton.click();
@@ -157,7 +157,7 @@ test.describe('Operator Mode', () => {
       '.administrator-action-button.revoke.administrator-state-button[data-administrator-state="active"]',
     );
     const activeIcon = await expectIconOnlyAdministratorAction(revokeButton, 'revoke', 'active');
-    expect(activeIcon.geometryCount).toBe(1);
+    expect(activeIcon.geometryCount).toBeGreaterThanOrEqual(2);
     expect(inactiveIcon.markup).not.toBe(activeIcon.markup);
     await expectAdministratorActionFitsRow(revokeButton);
 

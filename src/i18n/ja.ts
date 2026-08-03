@@ -144,8 +144,6 @@ const ja: Record<I18nKey, string> = {
   'settings.advanced_audio': '高度なオーディオ',
   'settings.spatial_audio': '空間オーディオ',
   'settings.reverb_title': 'リバーブ',
-  'settings.host_ctrl': 'GLOBAL',
-  'settings.self_ctrl': 'LOCAL',
   'settings.rvb_studio': 'スタジオ',
   'settings.rvb_arena': 'アリーナ',
   'settings.rvb_advanced': '詳細',

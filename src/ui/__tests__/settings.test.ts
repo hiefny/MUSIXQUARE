@@ -161,7 +161,18 @@ function installSettingsSyncDom(): void {
     `<div class="channel-grid" id="grid-settings-sync">
       <button class="ch-opt active" data-settings-sync="on" aria-pressed="true">On</button>
       <button class="ch-opt" data-settings-sync="off" aria-pressed="false">Off</button>
-    </div>`,
+    </div>
+    ${['reverb', 'eq', 'surround', 'bass', 'exciter']
+      .map(
+        (effect) => `<span
+          id="settings-${effect}-sync-indicator"
+          data-settings-sync-indicator
+          data-i18n-aria-label="settings.sync_settings"
+          aria-label=""
+          hidden
+        ></span>`,
+      )
+      .join('')}`,
   );
 }
 
@@ -354,6 +365,27 @@ describe('settings synchronization preference', () => {
       'true',
     );
     expect(document.getElementById('grid-reverb')?.classList).not.toContain('host-ctrl-locked');
+  });
+
+  it('shows translated effect indicators for ON, hides them for OFF, and restores them for ON', () => {
+    installSettingsSyncDom();
+    setLanguageMode('ko');
+    initSettings();
+
+    const indicators = [
+      ...document.querySelectorAll<HTMLElement>('[data-settings-sync-indicator]'),
+    ];
+    expect(indicators).toHaveLength(5);
+    expect(indicators.every((indicator) => indicator.hidden === false)).toBe(true);
+    expect(
+      indicators.every((indicator) => indicator.ariaLabel === t('settings.sync_settings')),
+    ).toBe(true);
+
+    bus.emit('settings-sync:changed', false);
+    expect(indicators.every((indicator) => indicator.hidden === true)).toBe(true);
+
+    bus.emit('settings-sync:changed', true);
+    expect(indicators.every((indicator) => indicator.hidden === false)).toBe(true);
   });
 });
 

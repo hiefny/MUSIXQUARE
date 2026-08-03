@@ -192,8 +192,6 @@ const pl: Record<I18nKey, string> = {
   'settings.advanced_audio': 'Zaawansowane audio',
   'settings.spatial_audio': 'Dźwięk przestrzenny',
   'settings.reverb_title': 'Pogłos',
-  'settings.host_ctrl': 'GLOBAL',
-  'settings.self_ctrl': 'LOCAL',
   'settings.rvb_studio': 'Studio',
   'settings.rvb_arena': 'Hala koncertowa',
   'settings.rvb_advanced': 'Zaawansowane',

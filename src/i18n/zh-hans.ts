@@ -138,8 +138,6 @@ const zhHans: Record<I18nKey, string> = {
   'settings.advanced_audio': '高级音频',
   'settings.spatial_audio': '空间音频',
   'settings.reverb_title': '混响',
-  'settings.host_ctrl': 'GLOBAL',
-  'settings.self_ctrl': 'LOCAL',
   'settings.rvb_studio': '录音室',
   'settings.rvb_arena': '场馆',
   'settings.rvb_advanced': '高级',

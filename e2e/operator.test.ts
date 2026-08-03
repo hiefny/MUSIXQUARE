@@ -29,15 +29,16 @@ interface AdministratorActionIcon {
   markup: string;
 }
 
+const CROWN_PATH = 'M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm1 2h12v2H6z';
+const REVOKE_PATH =
+  'M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.41 4.29 19.71 2.88 18.3 9.17 12 2.88 5.7 4.29 4.29 10.59 10.59 16.89 4.29z';
+
 async function expectIconOnlyAdministratorAction(
   button: Locator,
   actionName: 'grant' | 'revoke',
-  administratorState: 'inactive' | 'active',
 ): Promise<AdministratorActionIcon> {
   await expect(button).toBeVisible();
   await expect(button).toHaveText('');
-  await expect(button).toHaveClass(/\badministrator-state-button\b/);
-  await expect(button).toHaveAttribute('data-administrator-state', administratorState);
 
   const ariaLabel = (await button.getAttribute('aria-label'))?.trim() || '';
   const title = (await button.getAttribute('title'))?.trim() || '';
@@ -125,7 +126,7 @@ test.describe('Operator Mode', () => {
     expect(await readState(pair.guestPage, 'network.isOperator')).toBe(true);
   });
 
-  test('host can revoke operator from guest with accessible crown actions', async () => {
+  test('host can revoke operator from guest with an accessible X action', async () => {
     await pair.hostPage.addInitScript(() => localStorage.setItem('musixquare-lang', 'en'));
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await waitForDeviceCount(pair.hostPage, 2);
@@ -140,8 +141,11 @@ test.describe('Operator Mode', () => {
         '#connect-device-list .d-op-btn.administrator-state-button.grant[data-administrator-state="inactive"]:visible',
       )
       .first();
-    const inactiveIcon = await expectIconOnlyAdministratorAction(grantButton, 'grant', 'inactive');
+    await expect(grantButton).toHaveClass(/\badministrator-state-button\b/);
+    await expect(grantButton).toHaveAttribute('data-administrator-state', 'inactive');
+    const inactiveIcon = await expectIconOnlyAdministratorAction(grantButton, 'grant');
     expect(inactiveIcon.geometryCount).toBe(1);
+    await expect(grantButton.locator('svg > path')).toHaveAttribute('d', CROWN_PATH);
     await expectAdministratorActionFitsRow(grantButton);
 
     await grantButton.click();
@@ -153,12 +157,13 @@ test.describe('Operator Mode', () => {
     );
     await expect(administratorRow).toBeVisible();
 
-    const revokeButton = administratorRow.locator(
-      '.administrator-action-button.revoke.administrator-state-button[data-administrator-state="active"]',
-    );
-    const activeIcon = await expectIconOnlyAdministratorAction(revokeButton, 'revoke', 'active');
-    expect(activeIcon.geometryCount).toBeGreaterThanOrEqual(2);
-    expect(inactiveIcon.markup).not.toBe(activeIcon.markup);
+    const revokeButton = administratorRow.locator('.administrator-action-button.revoke');
+    const revokeIcon = await expectIconOnlyAdministratorAction(revokeButton, 'revoke');
+    expect(revokeIcon.geometryCount).toBe(1);
+    expect(inactiveIcon.markup).not.toBe(revokeIcon.markup);
+    await expect(revokeButton).not.toHaveClass(/\badministrator-state-button\b/);
+    expect(await revokeButton.getAttribute('data-administrator-state')).toBeNull();
+    await expect(revokeButton.locator('svg > path')).toHaveAttribute('d', REVOKE_PATH);
     await expectAdministratorActionFitsRow(revokeButton);
 
     await revokeButton.click();

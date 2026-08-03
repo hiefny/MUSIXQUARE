@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import { navigateToSubtab, navigateToTab } from './helpers/wait.ts';
 
@@ -53,6 +53,109 @@ async function openSettings(page: Page): Promise<void> {
       selectors.every((selector) => document.querySelector(selector)?.textContent?.trim()),
     ALL_SETTINGS.map(({ description }) => description),
   );
+}
+
+async function expectRenderedDirectSvgPath(svg: Locator, label: string): Promise<void> {
+  await svg.scrollIntoViewIfNeeded();
+  await expect(svg, `${label} SVG should be visible`).toBeVisible();
+
+  const rendering = await svg.evaluate((svgElement) => {
+    const svgRoot = svgElement as SVGSVGElement;
+    const svgRect = svgRoot.getBoundingClientRect();
+    const directPaths = Array.from(svgRoot.children).filter(
+      (child): child is SVGPathElement => child.tagName.toLowerCase() === 'path',
+    );
+
+    const paths = directPaths.map((path) => {
+      const box = path.getBBox();
+      const matrix = path.getScreenCTM();
+      const style = getComputedStyle(path);
+      const opacity = Number.parseFloat(style.opacity || '1');
+      const fillOpacity = Number.parseFloat(style.fillOpacity || '1');
+      const strokeOpacity = Number.parseFloat(style.strokeOpacity || '1');
+      const hasPaint =
+        (style.fill !== 'none' && style.fill !== 'transparent' && fillOpacity > 0) ||
+        (style.stroke !== 'none' && style.stroke !== 'transparent' && strokeOpacity > 0);
+
+      if (!matrix) {
+        return {
+          geometryWidth: box.width,
+          geometryHeight: box.height,
+          screenWidth: 0,
+          screenHeight: 0,
+          visible: false,
+          intersectsSvg: false,
+          intersectsViewport: false,
+        };
+      }
+
+      const corners = [
+        new DOMPoint(box.x, box.y),
+        new DOMPoint(box.x + box.width, box.y),
+        new DOMPoint(box.x, box.y + box.height),
+        new DOMPoint(box.x + box.width, box.y + box.height),
+      ].map((point) => point.matrixTransform(matrix));
+      const left = Math.min(...corners.map(({ x }) => x));
+      const right = Math.max(...corners.map(({ x }) => x));
+      const top = Math.min(...corners.map(({ y }) => y));
+      const bottom = Math.max(...corners.map(({ y }) => y));
+
+      return {
+        geometryWidth: box.width,
+        geometryHeight: box.height,
+        screenWidth: right - left,
+        screenHeight: bottom - top,
+        visible:
+          style.display !== 'none' && style.visibility !== 'hidden' && opacity > 0 && hasPaint,
+        intersectsSvg:
+          right > svgRect.left &&
+          bottom > svgRect.top &&
+          left < svgRect.right &&
+          top < svgRect.bottom,
+        intersectsViewport:
+          right > 0 &&
+          bottom > 0 &&
+          left < document.documentElement.clientWidth &&
+          top < document.documentElement.clientHeight,
+      };
+    });
+
+    return {
+      svgWidth: svgRect.width,
+      svgHeight: svgRect.height,
+      directPathCount: directPaths.length,
+      descendantUseCount: svgRoot.querySelectorAll('use').length,
+      paths,
+    };
+  });
+
+  expect(rendering.svgWidth, `${label} SVG should have layout width`).toBeGreaterThan(0);
+  expect(rendering.svgHeight, `${label} SVG should have layout height`).toBeGreaterThan(0);
+  expect(rendering.directPathCount, `${label} should contain a direct child path`).toBeGreaterThan(
+    0,
+  );
+  expect(rendering.descendantUseCount, `${label} should not depend on a fragment use`).toBe(0);
+  expect(
+    rendering.paths.some(
+      ({
+        geometryWidth,
+        geometryHeight,
+        screenWidth,
+        screenHeight,
+        visible,
+        intersectsSvg,
+        intersectsViewport,
+      }) =>
+        geometryWidth > 0 &&
+        geometryHeight > 0 &&
+        screenWidth > 0 &&
+        screenHeight > 0 &&
+        visible &&
+        intersectsSvg &&
+        intersectsViewport,
+    ),
+    `${label} direct path should paint inside both the SVG and the visible viewport`,
+  ).toBe(true);
 }
 
 async function expectDesktopAlignment(page: Page, settings: DescribedSetting[]): Promise<void> {
@@ -299,6 +402,9 @@ test.describe('settings description layout', () => {
       const syncTitle = (await page.locator('#settings-sync-title').textContent())?.trim() || '';
       expect(syncTitle).not.toBe('');
 
+      const syncOnIcon = page.locator('#grid-settings-sync [data-settings-sync="on"] svg');
+      await expectRenderedDirectSvgPath(syncOnIcon, 'settings sync ON button icon');
+
       const indicators = SYNCHRONIZED_EFFECT_TITLE_IDS.map((titleId) => {
         const header = page
           .locator('.section-header-row')
@@ -319,6 +425,10 @@ test.describe('settings description layout', () => {
         await expect(indicator).toHaveAttribute('data-i18n-aria-label', 'settings.sync_settings');
         await expect(indicator.locator('svg')).toHaveAttribute('aria-hidden', 'true');
         await expect(indicator).toHaveText('');
+        await expectRenderedDirectSvgPath(
+          indicator.locator('svg'),
+          `${titleId} settings-sync indicator`,
+        );
 
         const geometry = await header.evaluate((headerElement) => {
           const section = headerElement.closest<HTMLElement>('.section-group');

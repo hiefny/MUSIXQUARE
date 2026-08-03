@@ -736,14 +736,10 @@ const FULL_ADMIN_PERMISSIONS: Readonly<ProRoomPermissionSet> = Object.freeze({
 });
 const CROWN_PATH = 'M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm1 2h12v2H6z';
 const CROWN_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${CROWN_PATH}"/></svg>`;
-let _administratorCrownMaskSequence = 0;
-
-function _slashedCrownIcon(): string {
-  const maskId = `administrator-crown-slash-mask-${++_administratorCrownMaskSequence}`;
-  return `<svg viewBox="0 0 24 24" aria-hidden="true"><defs><mask id="${maskId}" maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24"><rect width="24" height="24" fill="white"/><path class="administrator-crown-slash-knockout" d="M4.5 4.5 19.5 19.5" fill="none" stroke="black" stroke-width="4.4" stroke-linecap="round"/></mask></defs><path d="${CROWN_PATH}" mask="url(#${maskId})"/><path class="administrator-crown-slash" d="M4.5 4.5 19.5 19.5"/></svg>`;
-}
 const SETTINGS_ICON =
   '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.1 7.1 0 0 0-1.62-.94L14.38 2.8A.49.49 0 0 0 13.89 2h-3.84a.49.49 0 0 0-.49.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96a.49.49 0 0 0-.61.22L2.66 8.47a.5.5 0 0 0 .12.64l2.03 1.58c-.05.31-.09.65-.09.98s.03.66.08.97l-2.02 1.58a.49.49 0 0 0-.12.64l1.92 3.32c.13.23.4.31.63.22l2.37-.96c.49.38 1.03.7 1.62.94l.36 2.54c.04.24.24.41.49.41h3.84c.25 0 .46-.17.49-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.37.96c.23.09.5.01.63-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.02-1.58zM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5z"/></svg>';
+const REVOKE_ICON =
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.3 5.71 12 12l6.3 6.29-1.41 1.42L10.59 13.41 4.29 19.71 2.88 18.3 9.17 12 2.88 5.7 4.29 4.29 10.59 10.59 16.89 4.29z"/></svg>';
 
 interface AdministratorView {
   memberId: string;
@@ -993,14 +989,14 @@ function renderAdministratorLists(members: readonly ConnectedRoomMember[]): void
             () => openAdministratorPermissionsDialog(administrator),
           ),
         );
-        const revokeButton = _administratorActionButton(
-          'revoke administrator-state-button',
-          t('connect.administrator_revoke_aria', { name: administrator.displayName }),
-          _slashedCrownIcon(),
-          () => void confirmRevokeAdministrator(administrator),
+        actions.appendChild(
+          _administratorActionButton(
+            'revoke',
+            t('connect.administrator_revoke_aria', { name: administrator.displayName }),
+            REVOKE_ICON,
+            () => void confirmRevokeAdministrator(administrator),
+          ),
         );
-        revokeButton.dataset.administratorState = 'active';
-        actions.appendChild(revokeButton);
         row.appendChild(actions);
       }
 

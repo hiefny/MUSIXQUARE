@@ -112,6 +112,30 @@ describe('app UX markup contract', () => {
     expect(hiddenIndicatorRule).toMatch(/display:\s*none\s*;/);
   });
 
+  it('keeps every settings-sync icon backed by direct non-empty SVG geometry', () => {
+    const onButton = appDocument.querySelector<HTMLButtonElement>(
+      '#grid-settings-sync [data-settings-sync="on"]',
+    );
+    const icons = [
+      onButton?.querySelector<SVGSVGElement>(':scope > svg'),
+      ...[...appDocument.querySelectorAll<HTMLElement>('[data-settings-sync-indicator]')].map(
+        (indicator) => indicator.querySelector<SVGSVGElement>(':scope > svg'),
+      ),
+    ];
+
+    expect(icons).toHaveLength(6);
+    const pathData = icons.map((icon) => {
+      expect(icon).not.toBeNull();
+      expect(icon?.getAttribute('aria-hidden')).toBe('true');
+      expect(icon?.querySelector(':scope > use, :scope > defs, :scope > symbol')).toBeNull();
+      const paths = icon?.querySelectorAll<SVGPathElement>(':scope > path[d]');
+      expect(paths).toHaveLength(1);
+      return paths?.item(0).getAttribute('d')?.trim();
+    });
+    expect(pathData.every(Boolean)).toBe(true);
+    expect(new Set(pathData).size).toBe(1);
+  });
+
   it('associates every settings description with its own control group', () => {
     const descriptions = [
       [

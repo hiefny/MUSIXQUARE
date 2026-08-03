@@ -3532,10 +3532,8 @@
     border-color: rgba(var(--primary-rgb), 0.75);
   }
 
-  /* Administrator membership is a compact action: an intact crown grants
-     access, while the crossed crown in the administrator list revokes it. */
-  .d-op-btn.administrator-state-button,
-  .administrator-action-button.revoke.administrator-state-button {
+  /* Administrator grant is a compact, intact crown state action. */
+  .d-op-btn.administrator-state-button {
     width: 32px;
     height: 32px;
     padding: 0;
@@ -3545,24 +3543,13 @@
     color: var(--text-muted);
   }
 
-  .d-op-btn.administrator-state-button svg,
-  .administrator-action-button.revoke.administrator-state-button svg {
+  .d-op-btn.administrator-state-button svg {
     width: 18px;
     height: 18px;
   }
 
-  /* Mirror the mute icon's separated slash, but make the channel a real SVG
-     knockout so it stays clean over transparent, pressed, and hover surfaces. */
-  .administrator-crown-slash {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2.2;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  .administrator-action-button.administrator-state-button:hover,
-  .administrator-action-button.administrator-state-button:focus-visible {
+  .d-op-btn.administrator-state-button:hover,
+  .d-op-btn.administrator-state-button:focus-visible {
     background: var(--surface-2);
     color: var(--text-sub);
   }

@@ -244,8 +244,11 @@ async function readSynchronizedEffectLayout(page: Page): Promise<
   Array<{
     titleId: string;
     headerHeight: number;
+    headerContentHeight: number;
     titleTop: number;
+    titleHeight: number;
     descriptionTop: number;
+    titleDescriptionGap: number;
     descriptionWidth: number;
     descriptionHeight: number;
     descriptionScrollHeight: number;
@@ -269,11 +272,18 @@ async function readSynchronizedEffectLayout(page: Page): Promise<
       const titleRect = title.getBoundingClientRect();
       const descriptionRect = description.getBoundingClientRect();
       const slotRect = slot.getBoundingClientRect();
+      const headerStyle = getComputedStyle(header);
       return {
         titleId,
         headerHeight: headerRect.height,
+        headerContentHeight:
+          headerRect.height -
+          Number.parseFloat(headerStyle.paddingTop) -
+          Number.parseFloat(headerStyle.paddingBottom),
         titleTop: titleRect.top - headerRect.top,
+        titleHeight: titleRect.height,
         descriptionTop: descriptionRect.top - sectionRect.top,
+        titleDescriptionGap: descriptionRect.top - titleRect.bottom,
         descriptionWidth: descriptionRect.width,
         descriptionHeight: descriptionRect.height,
         descriptionScrollHeight: description.scrollHeight,
@@ -554,7 +564,18 @@ test.describe('settings description layout', () => {
       const syncOnLayout = await readSynchronizedEffectLayout(page);
       for (const layout of syncOnLayout) {
         expect(layout.slotWidth, `${layout.titleId} should reserve the icon width`).toBe(32);
-        expect(layout.slotHeight, `${layout.titleId} should reserve the icon height`).toBe(32);
+        expect(
+          layout.slotHeight,
+          `${layout.titleId} slot must not increase the title row height`,
+        ).toBe(0);
+        expect(
+          layout.headerContentHeight,
+          `${layout.titleId} icon must not increase the title row height`,
+        ).toBeCloseTo(layout.titleHeight, 2);
+        expect(
+          layout.titleDescriptionGap,
+          `${layout.titleId} should keep the shared title-to-description rhythm`,
+        ).toBeCloseTo(8, 1);
       }
 
       const syncIndicator = indicators[0].indicator;
@@ -580,13 +601,16 @@ test.describe('settings description layout', () => {
         const onLayout = syncOnLayout[index];
         expect(offLayout.titleId).toBe(onLayout.titleId);
         expect(offLayout.headerHeight).toBeCloseTo(onLayout.headerHeight, 2);
+        expect(offLayout.headerContentHeight).toBeCloseTo(onLayout.headerContentHeight, 2);
         expect(offLayout.titleTop).toBeCloseTo(onLayout.titleTop, 2);
+        expect(offLayout.titleHeight).toBeCloseTo(onLayout.titleHeight, 2);
         expect(offLayout.descriptionTop).toBeCloseTo(onLayout.descriptionTop, 2);
+        expect(offLayout.titleDescriptionGap).toBeCloseTo(onLayout.titleDescriptionGap, 2);
         expect(offLayout.descriptionWidth).toBeCloseTo(onLayout.descriptionWidth, 2);
         expect(offLayout.descriptionHeight).toBeCloseTo(onLayout.descriptionHeight, 2);
         expect(offLayout.descriptionScrollHeight).toBe(onLayout.descriptionScrollHeight);
         expect(offLayout.slotWidth).toBe(32);
-        expect(offLayout.slotHeight).toBe(32);
+        expect(offLayout.slotHeight).toBe(0);
       }
 
       await syncOn.click();

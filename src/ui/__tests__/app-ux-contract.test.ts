@@ -111,9 +111,18 @@ describe('app UX markup contract', () => {
     const indicatorSlotRule = appStylesheet.match(
       /\.settings-sync-indicator-slot\s*\{([^}]*)\}/,
     )?.[1];
+    expect(indicatorSlotRule).toMatch(/position:\s*relative\s*;/);
     expect(indicatorSlotRule).toMatch(/width:\s*32px\s*;/);
-    expect(indicatorSlotRule).toMatch(/height:\s*32px\s*;/);
+    expect(indicatorSlotRule).toMatch(/height:\s*0\s*;/);
     expect(indicatorSlotRule).toMatch(/flex:\s*0\s+0\s+32px\s*;/);
+    expect(indicatorSlotRule).toMatch(/align-self:\s*center\s*;/);
+
+    const indicatorRule = appStylesheet.match(/\.settings-sync-indicator\s*\{([^}]*)\}/)?.[1];
+    expect(indicatorRule).toMatch(/position:\s*absolute\s*;/);
+    expect(indicatorRule).toMatch(/top:\s*50%\s*;/);
+    expect(indicatorRule).toMatch(/transform:\s*translateY\(-50%\)\s*;/);
+    expect(indicatorRule).toMatch(/width:\s*32px\s*;/);
+    expect(indicatorRule).toMatch(/height:\s*32px\s*;/);
 
     const hiddenIndicatorRule = appStylesheet.match(
       /\.settings-sync-indicator\[hidden\]\s*\{([^}]*)\}/,

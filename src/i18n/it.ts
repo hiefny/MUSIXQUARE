@@ -162,6 +162,12 @@ const it: Record<I18nKey, string> = {
   'settings.sync_settings': 'Sincronizza impostazioni',
   'settings.sync_settings_desc':
     'I dispositivi con questa impostazione attiva sincronizzano volume ed effetti audio.',
+  'settings.virtual_effects_title': 'Effetti virtuali',
+  'settings.virtual_effects_desc':
+    "Applica effetti sintetizzati all'audio. Può causare una forte distorsione.",
+  'settings.virtual_effect_bass': 'Bassi',
+  'settings.virtual_effect_treble': 'Alti',
+  'settings.virtual_effect_surround': 'Surround',
   'settings.language_desc': 'Scegli una lingua o usa quella del sistema.',
   'settings.theme_desc': 'Scegli un tema chiaro o scuro.',
   'settings.visualizer_desc': 'Scegli come visualizzare l’audio.',
@@ -527,6 +533,14 @@ const it: Record<I18nKey, string> = {
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'Copia non riuscita',
   'toast.email_copied': 'Indirizzo email copiato negli appunti!',
+  'toast.settings_sync_enabled': 'La sincronizzazione delle impostazioni è attiva.',
+  'toast.virtual_bass_on': 'I bassi virtuali sono attivi.',
+  'toast.virtual_bass_off': 'I bassi virtuali sono disattivati.',
+  'toast.virtual_treble_on': 'Gli alti virtuali sono attivi.',
+  'toast.virtual_treble_off': 'Gli alti virtuali sono disattivati.',
+  'toast.virtual_surround_on': 'Il surround virtuale è attivo.',
+  'toast.virtual_surround_off': 'Il surround virtuale è disattivato.',
+  'toast.virtual_effects_off': 'Tutti gli effetti virtuali sono disattivati.',
   'toast.host_only': 'Solo il gestore della stanza può eseguire questa operazione.',
   'toast.host_only_media': 'Solo il gestore della stanza può aggiungere tracce.',
   'toast.media_management_required': 'È richiesta l’autorizzazione per gestire i contenuti.',

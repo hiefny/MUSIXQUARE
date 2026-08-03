@@ -215,6 +215,55 @@ describe('atomic settings synchronization', () => {
     expect(getState('audio.settingsSyncEnabled')).toBe(false);
   });
 
+  it('atomically disables all virtual effects and publishes one canonical snapshot', () => {
+    const send = vi.fn();
+    const follower = { peer: 'follower', open: true, send } as unknown as DataConnection;
+    setState('network.appRole', 'host');
+    setState('network.connectedPeers', [
+      { ...makeConnectedPeer(follower.peer, false), conn: follower },
+    ]);
+    setState('network.activeHostConnByPeerId', new Map([[follower.peer, follower]]));
+    setState('audio.virtualBass', 0.6);
+    setState('audio.exciter', true);
+    setState('audio.stereoWidth', 1.2);
+    const syncSurround = vi.fn();
+    const syncBass = vi.fn();
+    const syncTreble = vi.fn();
+    bus.on('ui:sync-surround', syncSurround);
+    bus.on('ui:sync-vbass', syncBass);
+    bus.on('ui:sync-exciter', syncTreble);
+
+    bus.emit('audio:set-virtual-effects', {
+      bass: false,
+      treble: false,
+      surround: false,
+    });
+
+    expect(getState('audio.virtualBass')).toBe(0);
+    expect(getState('audio.exciter')).toBe(false);
+    expect(getState('audio.stereoWidth')).toBe(1);
+    expect(syncSurround).toHaveBeenCalledOnce();
+    expect(syncSurround).toHaveBeenCalledWith(false);
+    expect(syncBass).toHaveBeenCalledOnce();
+    expect(syncBass).toHaveBeenCalledWith(false);
+    expect(syncTreble).toHaveBeenCalledOnce();
+    expect(syncTreble).toHaveBeenCalledWith(false);
+
+    const atomicFrames = send.mock.calls
+      .map(([value]) => value)
+      .filter((value) => value.type === MSG.SETTINGS_SYNC_SNAPSHOT);
+    expect(atomicFrames).toHaveLength(1);
+    expect(atomicFrames[0]).toMatchObject({
+      settings: {
+        effects: {
+          virtualBass: { strengthPercent: 0 },
+          virtualTreble: { enabled: false },
+          virtualSurround: { widthPercent: 100 },
+        },
+      },
+    });
+  });
+
   it('lets sequence zero bootstrap a fresh follower and applies volume plus every effect', async () => {
     const host = { peer: 'host', open: true, send: vi.fn() } as unknown as DataConnection;
     setState('network.appRole', 'guest');

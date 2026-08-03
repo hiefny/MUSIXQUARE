@@ -2942,12 +2942,23 @@
   }
 
   .settings-sync-indicator {
-    width: 20px;
-    height: 20px;
-    flex: 0 0 20px;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
     display: grid;
     place-items: center;
+    padding: 7px;
+    border: 0;
+    background: transparent;
     color: var(--text-sub);
+    font: inherit;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      color 0.2s ease,
+      background-color 0.2s ease;
   }
 
   .settings-sync-indicator[hidden] {
@@ -2958,6 +2969,18 @@
     width: 18px;
     height: 18px;
     fill: currentColor;
+  }
+
+  @media (hover: hover) {
+    .settings-sync-indicator:hover {
+      background: var(--surface-2);
+      color: var(--text-main);
+    }
+  }
+
+  .settings-sync-indicator:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
   }
 
   .host-ctrl-locked {

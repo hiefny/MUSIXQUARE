@@ -1216,6 +1216,7 @@ interface BaseEventMap {
   'audio:disconnect-surround': [];
   'audio:set-channel-mode': [mode: number];
   'audio:update-effect': [type: string, param: string, value: number, isPreview?: boolean];
+  'audio:set-virtual-effects': [state: { bass: boolean; treble: boolean; surround: boolean }];
   'audio:set-eq': [band: number, value: number, isPreview?: boolean];
   'audio:reverb-type-change': [type: string];
   'audio:reset-eq': [];

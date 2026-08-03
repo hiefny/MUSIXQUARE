@@ -160,6 +160,12 @@ const th: Record<I18nKey, string> = {
   'settings.sync_settings': 'ซิงค์การตั้งค่า',
   'settings.sync_settings_desc':
     'อุปกรณ์ที่เปิดการตั้งค่านี้จะซิงค์ระดับเสียงและเอฟเฟกต์เสียงระหว่างกัน',
+  'settings.virtual_effects_title': 'เอฟเฟกต์เสมือน',
+  'settings.virtual_effects_desc':
+    'ใช้เอฟเฟกต์สังเคราะห์กับเสียง ซึ่งอาจทำให้เสียงผิดเพี้ยนอย่างมาก',
+  'settings.virtual_effect_bass': 'เบส',
+  'settings.virtual_effect_treble': 'แหลม',
+  'settings.virtual_effect_surround': 'เสียงรอบทิศทาง',
   'settings.language_desc': 'เลือกภาษาหรือใช้ภาษาของระบบได้',
   'settings.theme_desc': 'เลือกธีมสว่างหรือธีมมืดได้',
   'settings.visualizer_desc': 'เลือกรูปแบบการแสดงภาพเสียงได้',
@@ -512,6 +518,14 @@ const th: Record<I18nKey, string> = {
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'คัดลอกไม่ได้',
   'toast.email_copied': 'คัดลอกที่อยู่อีเมลแล้ว!',
+  'toast.settings_sync_enabled': 'เปิดการซิงค์การตั้งค่าอยู่',
+  'toast.virtual_bass_on': 'เปิดเบสเสมือนแล้ว',
+  'toast.virtual_bass_off': 'ปิดเบสเสมือนแล้ว',
+  'toast.virtual_treble_on': 'เปิดเสียงแหลมเสมือนแล้ว',
+  'toast.virtual_treble_off': 'ปิดเสียงแหลมเสมือนแล้ว',
+  'toast.virtual_surround_on': 'เปิดเสียงรอบทิศทางเสมือนแล้ว',
+  'toast.virtual_surround_off': 'ปิดเสียงรอบทิศทางเสมือนแล้ว',
+  'toast.virtual_effects_off': 'ปิดเอฟเฟกต์เสมือนทั้งหมดแล้ว',
   'toast.host_only': 'เฉพาะโฮสต์เท่านั้นที่ทำได้',
   'toast.host_only_media': 'เฉพาะโฮสต์เท่านั้นที่เพิ่มสื่อได้',
   'toast.media_management_required': 'ต้องมีสิทธิ์จัดการสื่อ',

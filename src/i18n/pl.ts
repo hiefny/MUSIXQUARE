@@ -161,6 +161,12 @@ const pl: Record<I18nKey, string> = {
   'settings.sync_settings': 'Synchronizacja ustawień',
   'settings.sync_settings_desc':
     'Urządzenia, na których to ustawienie jest włączone, synchronizują głośność i efekty dźwiękowe.',
+  'settings.virtual_effects_title': 'Efekty wirtualne',
+  'settings.virtual_effects_desc':
+    'Stosuje syntetyzowane efekty do dźwięku. Może to powodować silne zniekształcenia.',
+  'settings.virtual_effect_bass': 'Bas',
+  'settings.virtual_effect_treble': 'Wysokie tony',
+  'settings.virtual_effect_surround': 'Dźwięk przestrzenny',
   'settings.language_desc': 'Wybierz język lub używaj języka systemu.',
   'settings.theme_desc': 'Wybierz jasny lub ciemny motyw.',
   'settings.visualizer_desc': 'Wybierz sposób wizualizacji dźwięku.',
@@ -523,6 +529,14 @@ const pl: Record<I18nKey, string> = {
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'Kopiowanie nie powiodło się',
   'toast.email_copied': 'Adres e-mail skopiowany do schowka!',
+  'toast.settings_sync_enabled': 'Synchronizacja ustawień jest włączona.',
+  'toast.virtual_bass_on': 'Wirtualny bas jest włączony.',
+  'toast.virtual_bass_off': 'Wirtualny bas jest wyłączony.',
+  'toast.virtual_treble_on': 'Wirtualne wysokie tony są włączone.',
+  'toast.virtual_treble_off': 'Wirtualne wysokie tony są wyłączone.',
+  'toast.virtual_surround_on': 'Wirtualny dźwięk przestrzenny jest włączony.',
+  'toast.virtual_surround_off': 'Wirtualny dźwięk przestrzenny jest wyłączony.',
+  'toast.virtual_effects_off': 'Wszystkie efekty wirtualne są wyłączone.',
   'toast.host_only': 'Tylko host pokoju może wykonać tę operację.',
   'toast.host_only_media': 'Tylko host pokoju może dodawać materiały.',
   'toast.media_management_required': 'Wymagane jest uprawnienie do zarządzania multimediami.',

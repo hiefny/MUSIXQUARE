@@ -812,6 +812,44 @@ function handleSettingsSyncPublishLocal(): void {
   publishLocalSettingsAuthority();
 }
 
+function handleSetVirtualEffects(state: {
+  bass: boolean;
+  treble: boolean;
+  surround: boolean;
+}): void {
+  if (
+    !state ||
+    typeof state.bass !== 'boolean' ||
+    typeof state.treble !== 'boolean' ||
+    typeof state.surround !== 'boolean'
+  ) {
+    return;
+  }
+  if (!canAdjustLocalRoomEffects()) {
+    rejectRoomEffectsControl();
+    return;
+  }
+
+  const nextWidth = state.surround ? 1.2 : 1;
+  const nextBass = state.bass ? 0.6 : 0;
+  const changed =
+    getState('audio.stereoWidth') !== nextWidth ||
+    getState('audio.virtualBass') !== nextBass ||
+    getState('audio.exciter') !== state.treble;
+
+  if (changed) {
+    setState('audio.stereoWidth', nextWidth);
+    setState('audio.virtualBass', nextBass);
+    setState('audio.exciter', state.treble);
+    applySettingsAsync();
+  }
+
+  bus.emit('ui:sync-surround', state.surround);
+  bus.emit('ui:sync-vbass', state.bass);
+  bus.emit('ui:sync-exciter', state.treble);
+  if (changed && isSettingsSyncEnabled()) publishLocalSettingsAuthority();
+}
+
 function handleSettingsSyncSessionStarted(started: unknown): void {
   // The host can deliver its bootstrap before the setup success projection.
   // Never overwrite an already-accepted authority snapshot in that ordering.
@@ -1105,6 +1143,7 @@ function registerSettingsSyncBusHandlers(): void {
   // EventBus stores stable callbacks in Sets, so this is safe both at module
   // load and from initEffectsHandlers after a test/application bus reset.
   bus.on('settings-sync:publish-local', handleSettingsSyncPublishLocal);
+  bus.on('audio:set-virtual-effects', handleSetVirtualEffects);
   bus.on('state:setup.sessionStarted', handleSettingsSyncSessionStarted);
   bus.on('state:room.context', handleSettingsSyncRoomContextChanged);
   bus.on('network:peer-connected', handleSettingsSyncPeerConnected);

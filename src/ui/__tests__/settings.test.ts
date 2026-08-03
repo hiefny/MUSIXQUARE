@@ -73,9 +73,11 @@ function installEffectSettingsDom(): void {
         <button class="ch-opt" data-eq-type="advanced">Advanced</button>
         <button class="ch-opt active" data-eq-type="off">Off</button>
       </div>
-      <div class="channel-grid" id="grid-exciter">
-        <button class="ch-opt" data-toggle="on">On</button>
-        <button class="ch-opt active" data-toggle="off">Off</button>
+      <div class="channel-grid" id="grid-virtual-effects">
+        <button class="ch-opt" data-virtual-effect="bass" aria-pressed="false">Bass</button>
+        <button class="ch-opt" data-virtual-effect="treble" aria-pressed="false">Treble</button>
+        <button class="ch-opt" data-virtual-effect="surround" aria-pressed="false">Surround</button>
+        <button class="ch-opt active" data-virtual-effect="off" aria-pressed="true">Off</button>
       </div>
       <div id="eq-sliders-area" class="reverb-sliders-area collapsed">
         ${Array.from(
@@ -162,15 +164,16 @@ function installSettingsSyncDom(): void {
       <button class="ch-opt active" data-settings-sync="on" aria-pressed="true">On</button>
       <button class="ch-opt" data-settings-sync="off" aria-pressed="false">Off</button>
     </div>
-    ${['reverb', 'eq', 'surround', 'bass', 'exciter']
+    ${['reverb', 'eq', 'virtual-effects']
       .map(
-        (effect) => `<span
+        (effect) => `<button
+          type="button"
           id="settings-${effect}-sync-indicator"
           data-settings-sync-indicator
-          data-i18n-aria-label="settings.sync_settings"
+          data-i18n-aria-label="toast.settings_sync_enabled"
           aria-label=""
           hidden
-        ></span>`,
+        ></button>`,
       )
       .join('')}`,
   );
@@ -375,10 +378,10 @@ describe('settings synchronization preference', () => {
     const indicators = [
       ...document.querySelectorAll<HTMLElement>('[data-settings-sync-indicator]'),
     ];
-    expect(indicators).toHaveLength(5);
+    expect(indicators).toHaveLength(3);
     expect(indicators.every((indicator) => indicator.hidden === false)).toBe(true);
     expect(
-      indicators.every((indicator) => indicator.ariaLabel === t('settings.sync_settings')),
+      indicators.every((indicator) => indicator.ariaLabel === t('toast.settings_sync_enabled')),
     ).toBe(true);
 
     bus.emit('settings-sync:changed', false);
@@ -386,6 +389,24 @@ describe('settings synchronization preference', () => {
 
     bus.emit('settings-sync:changed', true);
     expect(indicators.every((indicator) => indicator.hidden === false)).toBe(true);
+  });
+
+  it('keeps each visible sync indicator keyboard-accessible and explains it on activation', () => {
+    installSettingsSyncDom();
+    setLanguageMode('ko');
+    initSettings();
+
+    const indicator = document.querySelector<HTMLButtonElement>('[data-settings-sync-indicator]')!;
+    expect(indicator.tagName).toBe('BUTTON');
+    expect(indicator.type).toBe('button');
+    expect(indicator.tabIndex).toBe(0);
+
+    indicator.focus();
+    indicator.click();
+
+    expect(document.activeElement).toBe(indicator);
+    expect(showToast).toHaveBeenCalledOnce();
+    expect(showToast).toHaveBeenCalledWith(t('toast.settings_sync_enabled'));
   });
 });
 
@@ -840,13 +861,113 @@ describe('initSettings effect slider fill sync', () => {
     expect(document.getElementById('eq-sliders-area')?.classList.contains('collapsed')).toBe(true);
   });
 
-  it('shows the distortion warning when virtual treble is enabled', () => {
+  it('toggles bass, treble, and surround independently with pressed-state feedback', () => {
     installEffectSettingsDom();
+    bus.on('audio:update-effect', (type, _param, value) => {
+      if (type === 'vbass') setState('audio.virtualBass', value / 100);
+      if (type === 'exciter') setState('audio.exciter', value > 0);
+      if (type === 'stereo') setState('audio.stereoWidth', value / 100);
+    });
     initSettings();
 
-    document.querySelector<HTMLElement>('#grid-exciter .ch-opt[data-toggle="on"]')?.click();
+    const bass = document.querySelector<HTMLButtonElement>('[data-virtual-effect="bass"]')!;
+    const treble = document.querySelector<HTMLButtonElement>('[data-virtual-effect="treble"]')!;
+    const surround = document.querySelector<HTMLButtonElement>('[data-virtual-effect="surround"]')!;
+    const off = document.querySelector<HTMLButtonElement>('[data-virtual-effect="off"]')!;
 
-    expect(showToast).toHaveBeenCalledWith('May cause distortion');
+    bass.click();
+    treble.click();
+    surround.click();
+
+    for (const button of [bass, treble, surround]) {
+      expect(button.classList.contains('active')).toBe(true);
+      expect(button.getAttribute('aria-pressed')).toBe('true');
+    }
+    expect(off.classList.contains('active')).toBe(false);
+    expect(off.getAttribute('aria-pressed')).toBe('false');
+    expect(showToast).toHaveBeenNthCalledWith(1, t('toast.virtual_bass_on'));
+    expect(showToast).toHaveBeenNthCalledWith(2, t('toast.virtual_treble_on'));
+    expect(showToast).toHaveBeenNthCalledWith(3, t('toast.virtual_surround_on'));
+
+    bass.click();
+
+    expect(bass.classList.contains('active')).toBe(false);
+    expect(bass.getAttribute('aria-pressed')).toBe('false');
+    expect(treble.classList.contains('active')).toBe(true);
+    expect(surround.classList.contains('active')).toBe(true);
+    expect(showToast).toHaveBeenLastCalledWith(t('toast.virtual_bass_off'));
+  });
+
+  it('keeps per-effect feedback during system-audio sharing and its notice cooldown', () => {
+    installEffectSettingsDom();
+    setState('playback.mode', 'system-audio');
+    setState('playback.activity', 'playing');
+    bus.on('audio:update-effect', (type, _param, value) => {
+      if (type === 'vbass') setState('audio.virtualBass', value / 100);
+      if (type === 'exciter') setState('audio.exciter', value > 0);
+    });
+    vi.spyOn(Date, 'now').mockReturnValue(10_000_000_000);
+    initSettings();
+
+    document.querySelector<HTMLButtonElement>('[data-virtual-effect="bass"]')!.click();
+    document.querySelector<HTMLButtonElement>('[data-virtual-effect="treble"]')!.click();
+
+    expect(showToast).toHaveBeenNthCalledWith(
+      1,
+      `${t('toast.virtual_bass_on')}\n${t('system_audio.effects_guest_only')}`,
+    );
+    expect(showToast).toHaveBeenNthCalledWith(2, t('toast.virtual_treble_on'));
+  });
+
+  it('turns every virtual effect off with one atomic event and one toast', () => {
+    installEffectSettingsDom();
+    setState('audio.virtualBass', 0.6);
+    setState('audio.exciter', true);
+    setState('audio.stereoWidth', 1.2);
+    const setVirtualEffects = vi.fn();
+    bus.on('audio:set-virtual-effects', setVirtualEffects);
+    initSettings();
+
+    const off = document.querySelector<HTMLButtonElement>('[data-virtual-effect="off"]')!;
+    vi.mocked(showToast).mockClear();
+    off.click();
+
+    expect(setVirtualEffects).toHaveBeenCalledOnce();
+    expect(setVirtualEffects).toHaveBeenCalledWith({
+      bass: false,
+      treble: false,
+      surround: false,
+    });
+    expect(showToast).toHaveBeenCalledOnce();
+    expect(showToast).toHaveBeenCalledWith(t('toast.virtual_effects_off'));
+    expect(off.classList.contains('active')).toBe(true);
+    expect(off.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('reflects remote virtual-effect sync without producing local action toasts', () => {
+    installEffectSettingsDom();
+    initSettings();
+    vi.mocked(showToast).mockClear();
+
+    setState('audio.virtualBass', 0.6);
+    bus.emit('ui:sync-vbass', true);
+    setState('audio.exciter', true);
+    bus.emit('ui:sync-exciter', true);
+    setState('audio.stereoWidth', 1.2);
+    bus.emit('ui:sync-surround', true);
+
+    expect(
+      [...document.querySelectorAll<HTMLElement>('[data-virtual-effect]')].map((button) => [
+        button.dataset.virtualEffect,
+        button.getAttribute('aria-pressed'),
+      ]),
+    ).toEqual([
+      ['bass', 'true'],
+      ['treble', 'true'],
+      ['surround', 'true'],
+      ['off', 'false'],
+    ]);
+    expect(showToast).not.toHaveBeenCalled();
   });
 });
 

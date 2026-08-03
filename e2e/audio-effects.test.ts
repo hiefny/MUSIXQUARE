@@ -251,7 +251,9 @@ test.describe('Audio Effects', () => {
 
     const initialWidth = (await readState(pair.hostPage, 'audio.stereoWidth')) as number;
 
-    const onBtn = pair.hostPage.locator('#grid-surround .ch-opt[data-toggle="on"]');
+    const onBtn = pair.hostPage.locator(
+      '#grid-virtual-effects .ch-opt[data-virtual-effect="surround"]',
+    );
     await expect(onBtn).toBeVisible();
     await onBtn.click();
 
@@ -277,7 +279,9 @@ test.describe('Audio Effects', () => {
 
     await openAudioSettings(pair.hostPage);
 
-    const onBtn = pair.hostPage.locator('#grid-surround .ch-opt[data-toggle="on"]');
+    const onBtn = pair.hostPage.locator(
+      '#grid-virtual-effects .ch-opt[data-virtual-effect="surround"]',
+    );
     await expect(onBtn).toBeVisible();
     await onBtn.click();
     await pair.hostPage.waitForFunction(
@@ -291,7 +295,9 @@ test.describe('Audio Effects', () => {
       { timeout: 5_000 },
     );
 
-    const offBtn = pair.hostPage.locator('#grid-surround .ch-opt[data-toggle="off"]');
+    const offBtn = pair.hostPage.locator(
+      '#grid-virtual-effects .ch-opt[data-virtual-effect="off"]',
+    );
     await expect(offBtn).toBeVisible();
     await offBtn.click();
 
@@ -307,7 +313,9 @@ test.describe('Audio Effects', () => {
 
     await openAudioSettings(pair.hostPage);
 
-    const onBtn = pair.hostPage.locator('#grid-vbass .ch-opt[data-toggle="on"]');
+    const onBtn = pair.hostPage.locator(
+      '#grid-virtual-effects .ch-opt[data-virtual-effect="bass"]',
+    );
     await expect(onBtn).toBeVisible();
     await onBtn.click();
 
@@ -326,12 +334,14 @@ test.describe('Audio Effects', () => {
     expect(vbass).toBeGreaterThan(0);
   });
 
-  test('virtual bass off resets to 0', async () => {
+  test('virtual effects toggle independently and the off action resets all effects', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await openAudioSettings(pair.hostPage);
 
-    const onBtn = pair.hostPage.locator('#grid-vbass .ch-opt[data-toggle="on"]');
+    const onBtn = pair.hostPage.locator(
+      '#grid-virtual-effects .ch-opt[data-virtual-effect="bass"]',
+    );
     await expect(onBtn).toBeVisible();
     await onBtn.click();
     await pair.hostPage.waitForFunction(
@@ -345,13 +355,59 @@ test.describe('Audio Effects', () => {
       { timeout: 5_000 },
     );
 
-    const offBtn = pair.hostPage.locator('#grid-vbass .ch-opt[data-toggle="off"]');
-    await expect(offBtn).toBeVisible();
-    await offBtn.click();
+    const trebleBtn = pair.hostPage.locator(
+      '#grid-virtual-effects .ch-opt[data-virtual-effect="treble"]',
+    );
+    const surroundBtn = pair.hostPage.locator(
+      '#grid-virtual-effects .ch-opt[data-virtual-effect="surround"]',
+    );
+    const offBtn = pair.hostPage.locator(
+      '#grid-virtual-effects .ch-opt[data-virtual-effect="off"]',
+    );
 
+    await trebleBtn.click();
+    await surroundBtn.click();
+    await pair.hostPage.waitForFunction(
+      () => {
+        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+          | ((p: string) => unknown)
+          | undefined;
+        if (!get) return false;
+        return Boolean(get('audio.exciter')) && (get('audio.stereoWidth') as number) > 1;
+      },
+      { timeout: 5_000 },
+    );
+
+    await expect(onBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(trebleBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(surroundBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(offBtn).toHaveAttribute('aria-pressed', 'false');
+
+    await onBtn.click();
     await waitForState(pair.hostPage, 'audio.virtualBass', 0);
-    const vbass = (await readState(pair.hostPage, 'audio.virtualBass')) as number;
-    expect(vbass).toBe(0);
+    await expect(onBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(trebleBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(surroundBtn).toHaveAttribute('aria-pressed', 'true');
+
+    await offBtn.click();
+    await pair.hostPage.waitForFunction(
+      () => {
+        const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+          | ((p: string) => unknown)
+          | undefined;
+        if (!get) return false;
+        return (
+          (get('audio.virtualBass') as number) === 0 &&
+          !get('audio.exciter') &&
+          (get('audio.stereoWidth') as number) === 1
+        );
+      },
+      { timeout: 5_000 },
+    );
+    await expect(onBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(trebleBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(surroundBtn).toHaveAttribute('aria-pressed', 'false');
+    await expect(offBtn).toHaveAttribute('aria-pressed', 'true');
   });
 
   // ── Volume Tests ──────────────────────────────────────────────

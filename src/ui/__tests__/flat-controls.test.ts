@@ -35,4 +35,17 @@ describe('borderless flat settings and demo controls', () => {
     expect(shadowValues.length).toBeGreaterThan(0);
     expect(new Set(shadowValues)).toEqual(new Set(['none']));
   });
+
+  it('uses the design-system surface-2 default and surface-3 hover tokens', async () => {
+    const css = await readFile('css/flat-controls.css', 'utf8');
+
+    expect(css).toMatch(/--flat-control-surface:\s*var\(--surface-2\)\s*;/);
+    expect(css).toMatch(/--flat-control-hover:\s*var\(--surface-3\)\s*;/);
+    expect(css).toMatch(
+      /#tab-settings \.ch-opt,[\s\S]*?background:\s*var\(--flat-control-surface\)\s*;/,
+    );
+    expect(css).toMatch(
+      /@media \(hover: hover\)[\s\S]*?#tab-settings \.ch-opt:hover,[\s\S]*?background:\s*var\(--flat-control-hover\)\s*;/,
+    );
+  });
 });

@@ -161,6 +161,12 @@ const tr: Record<I18nKey, string> = {
   'settings.sync_settings': 'Ayarları eşitle',
   'settings.sync_settings_desc':
     'Bu ayarın açık olduğu cihazlar ses düzeyini ve ses efektlerini eşitler.',
+  'settings.virtual_effects_title': 'Sanal efektler',
+  'settings.virtual_effects_desc':
+    'Sese sentezlenmiş efektler uygular. Bu, yoğun bozulmaya neden olabilir.',
+  'settings.virtual_effect_bass': 'Bas',
+  'settings.virtual_effect_treble': 'Tiz',
+  'settings.virtual_effect_surround': 'Çevresel ses',
   'settings.language_desc': 'Bir dil seçebilir veya sistem dilini kullanabilirsiniz.',
   'settings.theme_desc': 'Açık veya koyu temayı seçebilirsiniz.',
   'settings.visualizer_desc': 'Sesin nasıl görselleştirileceğini seçebilirsiniz.',
@@ -518,6 +524,14 @@ const tr: Record<I18nKey, string> = {
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'Kopyalanamadı',
   'toast.email_copied': 'E-posta adresi panoya kopyalandı!',
+  'toast.settings_sync_enabled': 'Ayar senkronizasyonu açık.',
+  'toast.virtual_bass_on': 'Sanal bas açık.',
+  'toast.virtual_bass_off': 'Sanal bas kapalı.',
+  'toast.virtual_treble_on': 'Sanal tiz açık.',
+  'toast.virtual_treble_off': 'Sanal tiz kapalı.',
+  'toast.virtual_surround_on': 'Sanal çevresel ses açık.',
+  'toast.virtual_surround_off': 'Sanal çevresel ses kapalı.',
+  'toast.virtual_effects_off': 'Tüm sanal efektler kapalı.',
   'toast.host_only': 'Bunu yalnızca oda sahibi yapabilir.',
   'toast.host_only_media': 'Sadece oda sahibi medya ekleyebilir.',
   'toast.media_management_required': 'Medya yönetimi izni gerekli.',

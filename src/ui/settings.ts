@@ -49,10 +49,25 @@ const HOST_CTRL_LOCK_IDS = [
   'reverb-sliders-area',
   'grid-eq',
   'eq-sliders-area',
-  'grid-surround',
-  'grid-vbass',
-  'grid-exciter',
+  'grid-virtual-effects',
 ] as const;
+
+type VirtualEffect = 'bass' | 'treble' | 'surround';
+
+interface VirtualEffectsToggleState {
+  bass: boolean;
+  treble: boolean;
+  surround: boolean;
+}
+
+const VIRTUAL_EFFECT_TOAST_KEYS: Record<
+  VirtualEffect,
+  { readonly on: I18nKey; readonly off: I18nKey }
+> = {
+  bass: { on: 'toast.virtual_bass_on', off: 'toast.virtual_bass_off' },
+  treble: { on: 'toast.virtual_treble_on', off: 'toast.virtual_treble_off' },
+  surround: { on: 'toast.virtual_surround_on', off: 'toast.virtual_surround_off' },
+};
 
 function _isGuestLocked(): boolean {
   if (!isSettingsSyncEnabled()) return false;
@@ -72,6 +87,30 @@ function syncSettingsSyncControls(enabled = isSettingsSyncEnabled()): void {
   document.querySelectorAll<HTMLElement>('[data-settings-sync-indicator]').forEach((indicator) => {
     indicator.hidden = !enabled;
   });
+}
+
+function readVirtualEffectsToggleState(): VirtualEffectsToggleState {
+  return {
+    bass: getState('audio.virtualBass') > 0.001,
+    treble: !!getState('audio.exciter'),
+    surround: getState('audio.stereoWidth') > 1.001,
+  };
+}
+
+function syncVirtualEffectsControls(state = readVirtualEffectsToggleState()): void {
+  document
+    .querySelectorAll<HTMLElement>('#grid-virtual-effects [data-virtual-effect]')
+    .forEach((button) => {
+      const effect = button.dataset.virtualEffect;
+      const active =
+        effect === 'off'
+          ? !state.bass && !state.treble && !state.surround
+          : effect === 'bass' || effect === 'treble' || effect === 'surround'
+            ? state[effect]
+            : false;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
 }
 
 function _showHostCtrlLockedToast(): void {
@@ -270,19 +309,23 @@ function formatReverbValDisp(param: string, v: number): void {
  * guests (the host still hears raw system audio). Nudge the host with a
  * toast the first time they commit a change after a short cooldown.
  *
- * Returns `true` when the host is in sharing mode — callers that would
- * normally show a generic warning (e.g. distortion_warn) can use this to
- * skip theirs and avoid stacking.
+ * When a primary action message is supplied, keep that confirmation visible
+ * on every action and append the guest-only note only when its cooldown opens.
+ * Returns `true` when the host is in sharing mode so callers can avoid
+ * stacking a second toast.
  */
 const _GUEST_ONLY_TOAST_COOLDOWN_MS = 5000;
 let _guestOnlyToastLastAt = 0;
-function _notifyGuestOnlyEffects(): boolean {
+function _notifyGuestOnlyEffects(primaryMessage?: string): boolean {
   if (getState('network.hostConn')) return false; // this client is a guest
   if (!isPlaybackModeSystemAudio()) return false;
   const now = Date.now();
   if (now - _guestOnlyToastLastAt > _GUEST_ONLY_TOAST_COOLDOWN_MS) {
     _guestOnlyToastLastAt = now;
-    showToast(t('system_audio.effects_guest_only'));
+    const guestOnlyMessage = t('system_audio.effects_guest_only');
+    showToast(primaryMessage ? `${primaryMessage}\n${guestOnlyMessage}` : guestOnlyMessage);
+  } else if (primaryMessage) {
+    showToast(primaryMessage);
   }
   return true;
 }
@@ -533,27 +576,36 @@ function syncEqPresetFromCurrentSliders(): void {
   setEqSlidersVisible(detected === 'advanced');
 }
 
-function setSurroundOn(on: boolean): void {
-  // Chip visuals sync before the idempotence guard: when state changed without
-  // a ui:sync event (e.g. an OP's REQUEST_SETTING applied host-side), a click
-  // on the already-true value must still heal the stale chip.
-  document
-    .querySelectorAll('#grid-surround .ch-opt')
-    .forEach((el) => el.classList.remove('active'));
-  document
-    .querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
-    ?.classList.add('active');
-
-  // Avoid duplicate feedback from repeated activation of the selected chip.
-  const currentWidth = getState('audio.stereoWidth');
-  const alreadyOn = currentWidth > 1;
-  if (on === alreadyOn) return;
-  bus.emit('audio:update-effect', 'stereo', 'mix', on ? 120 : 100, false);
-  if (on) {
-    // Host sharing system audio: route to guest-only notice instead of
-    // distortion warning to avoid stacking two toasts.
-    if (!_notifyGuestOnlyEffects()) showToast(t('toast.distortion_warn'));
+function emitVirtualEffectChange(effect: VirtualEffect, on: boolean): void {
+  if (effect === 'surround') {
+    bus.emit('audio:update-effect', 'stereo', 'mix', on ? 120 : 100, false);
+  } else if (effect === 'bass') {
+    bus.emit('audio:update-effect', 'vbass', 'mix', on ? 60 : 0, false);
+  } else {
+    // Wire shape is 0|1 so it survives the REQUEST_SETTING number validator.
+    bus.emit('audio:update-effect', 'exciter', 'mix', on ? 1 : 0, false);
   }
+}
+
+function toggleVirtualEffect(effect: VirtualEffect): void {
+  const current = readVirtualEffectsToggleState();
+  const on = !current[effect];
+  const next = { ...current, [effect]: on };
+  syncVirtualEffectsControls(next);
+  emitVirtualEffectChange(effect, on);
+
+  const actionMessage = t(VIRTUAL_EFFECT_TOAST_KEYS[effect][on ? 'on' : 'off']);
+  // Keep the action confirmation visible while retaining the system-audio
+  // routing warning on its existing cooldown.
+  if (on && _notifyGuestOnlyEffects(actionMessage)) return;
+  showToast(actionMessage);
+}
+
+function disableAllVirtualEffects(): void {
+  const offState: VirtualEffectsToggleState = { bass: false, treble: false, surround: false };
+  syncVirtualEffectsControls(offState);
+  bus.emit('audio:set-virtual-effects', offState);
+  showToast(t('toast.virtual_effects_off'));
 }
 
 function setVisualizerMode(mode: 'circular' | 'spectrum'): void {
@@ -567,30 +619,6 @@ function setVisualizerMode(mode: 'circular' | 'spectrum'): void {
     /* Safari private mode */
   }
   bus.emit('visualizer:set-type', mode);
-}
-
-function setVBassOn(on: boolean): void {
-  document.querySelectorAll('#grid-vbass .ch-opt').forEach((el) => el.classList.remove('active'));
-  document
-    .querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
-    ?.classList.add('active');
-  bus.emit('audio:update-effect', 'vbass', 'mix', on ? 60 : 0, false);
-  if (on) {
-    if (!_notifyGuestOnlyEffects()) showToast(t('toast.distortion_warn'));
-  }
-}
-
-function setExciterOn(on: boolean): void {
-  document.querySelectorAll('#grid-exciter .ch-opt').forEach((el) => el.classList.remove('active'));
-  document
-    .querySelector(`#grid-exciter .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
-    ?.classList.add('active');
-  // Wire shape is 0|1 so it survives the REQUEST_SETTING number validator.
-  // effects.ts converts back to boolean for setState.
-  bus.emit('audio:update-effect', 'exciter', 'mix', on ? 1 : 0, false);
-  if (on) {
-    if (!_notifyGuestOnlyEffects()) showToast(t('toast.distortion_warn'));
-  }
 }
 
 // ─── Device List ─────────────────────────────────────────────────
@@ -844,6 +872,9 @@ export function initSettings(): void {
         setSettingsSyncEnabled(button.dataset.settingsSync === 'on');
       });
     });
+  document.querySelectorAll<HTMLElement>('[data-settings-sync-indicator]').forEach((button) => {
+    button.addEventListener('click', () => showToast(t('toast.settings_sync_enabled')));
+  });
   _busScope.on('settings-sync:changed', (enabled) => {
     syncSettingsSyncControls(enabled);
     _updateHostCtrlLockUI();
@@ -1012,29 +1043,20 @@ export function initSettings(): void {
     });
   }
 
-  // Virtual Surround ON/OFF grid
-  document.querySelectorAll<HTMLElement>('#grid-surround .ch-opt[data-toggle]').forEach((opt) => {
-    opt.addEventListener('click', () => {
-      if (_guardHostCtrl()) return;
-      setSurroundOn(opt.dataset.toggle === 'on');
+  // Virtual effects share one compact card while retaining independent state.
+  document
+    .querySelectorAll<HTMLElement>('#grid-virtual-effects [data-virtual-effect]')
+    .forEach((opt) => {
+      opt.addEventListener('click', () => {
+        if (_guardHostCtrl()) return;
+        const effect = opt.dataset.virtualEffect;
+        if (effect === 'off') disableAllVirtualEffects();
+        else if (effect === 'bass' || effect === 'treble' || effect === 'surround') {
+          toggleVirtualEffect(effect);
+        }
+      });
     });
-  });
-
-  // Virtual Bass ON/OFF grid
-  document.querySelectorAll<HTMLElement>('#grid-vbass .ch-opt[data-toggle]').forEach((opt) => {
-    opt.addEventListener('click', () => {
-      if (_guardHostCtrl()) return;
-      setVBassOn(opt.dataset.toggle === 'on');
-    });
-  });
-
-  // Exciter ON/OFF grid (subtle high-frequency harmonic enhancer)
-  document.querySelectorAll<HTMLElement>('#grid-exciter .ch-opt[data-toggle]').forEach((opt) => {
-    opt.addEventListener('click', () => {
-      if (_guardHostCtrl()) return;
-      setExciterOn(opt.dataset.toggle === 'on');
-    });
-  });
+  syncVirtualEffectsControls();
 
   // Visualizer mode grid
   document.querySelectorAll<HTMLElement>('#grid-visualizer .ch-opt[data-viz]').forEach((opt) => {
@@ -1079,32 +1101,17 @@ export function initSettings(): void {
 
   // Surround toggle sync (from host broadcast)
   _busScope.on('ui:sync-surround', (on: boolean) => {
-    document
-      .querySelectorAll('#grid-surround .ch-opt[data-toggle]')
-      .forEach((el) => el.classList.remove('active'));
-    document
-      .querySelector(`#grid-surround .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
-      ?.classList.add('active');
+    syncVirtualEffectsControls({ ...readVirtualEffectsToggleState(), surround: on });
   });
 
   // Virtual Bass toggle sync (from host broadcast)
   _busScope.on('ui:sync-vbass', (on: boolean) => {
-    document
-      .querySelectorAll('#grid-vbass .ch-opt[data-toggle]')
-      .forEach((el) => el.classList.remove('active'));
-    document
-      .querySelector(`#grid-vbass .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
-      ?.classList.add('active');
+    syncVirtualEffectsControls({ ...readVirtualEffectsToggleState(), bass: on });
   });
 
   // Exciter toggle sync (from host broadcast)
   _busScope.on('ui:sync-exciter', (on: boolean) => {
-    document
-      .querySelectorAll('#grid-exciter .ch-opt[data-toggle]')
-      .forEach((el) => el.classList.remove('active'));
-    document
-      .querySelector(`#grid-exciter .ch-opt[data-toggle="${on ? 'on' : 'off'}"]`)
-      ?.classList.add('active');
+    syncVirtualEffectsControls({ ...readVirtualEffectsToggleState(), treble: on });
   });
 
   // EQ band slider/label sync (from audio module via bus, avoids audio→DOM coupling)

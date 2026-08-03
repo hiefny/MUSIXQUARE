@@ -73,7 +73,7 @@ describe('app UX markup contract', () => {
     expect(reverbIndex).toBe(syncIndex + 1);
   });
 
-  it('shows settings-sync indicators only on the five synchronized effect headers', () => {
+  it('shows settings-sync indicators only on the three synchronized effect headers', () => {
     const removedLegacySurface = [appSource, appStylesheet, settingsSource].join('\n');
     expect(removedLegacySurface).not.toContain('badge-host-ctrl');
     expect(removedLegacySurface).not.toContain('settings.host_ctrl');
@@ -85,9 +85,7 @@ describe('app UX markup contract', () => {
     const expectedEffectTitles = [
       'settings-reverb-title',
       'settings-eq-title',
-      'settings-surround-title',
-      'settings-bass-title',
-      'settings-exciter-title',
+      'settings-virtual-effects-title',
     ];
     const indicators = [
       ...appDocument.querySelectorAll<HTMLElement>('[data-settings-sync-indicator]'),
@@ -101,8 +99,9 @@ describe('app UX markup contract', () => {
       ),
     ).toEqual(expectedEffectTitles);
     for (const indicator of indicators) {
-      expect(indicator.getAttribute('role')).toBe('img');
-      expect(indicator.getAttribute('data-i18n-aria-label')).toBe('settings.sync_settings');
+      expect(indicator.tagName).toBe('BUTTON');
+      expect((indicator as HTMLButtonElement).type).toBe('button');
+      expect(indicator.getAttribute('data-i18n-aria-label')).toBe('toast.settings_sync_enabled');
       expect(indicator.hasAttribute('hidden')).toBe(true);
     }
 
@@ -123,7 +122,7 @@ describe('app UX markup contract', () => {
       ),
     ];
 
-    expect(icons).toHaveLength(6);
+    expect(icons).toHaveLength(4);
     const pathData = icons.map((icon) => {
       expect(icon).not.toBeNull();
       expect(icon?.getAttribute('aria-hidden')).toBe('true');
@@ -177,17 +176,10 @@ describe('app UX markup contract', () => {
       ],
       ['#grid-eq', 'settings-eq-title', 'settings-eq-description', 'settings.eq_desc'],
       [
-        '#grid-surround',
-        'settings-surround-title',
-        'settings-surround-description',
-        'settings.surround_desc',
-      ],
-      ['#grid-vbass', 'settings-bass-title', 'settings-bass-description', 'settings.bass_desc'],
-      [
-        '#grid-exciter',
-        'settings-exciter-title',
-        'settings-exciter-description',
-        'settings.exciter_desc',
+        '#grid-virtual-effects',
+        'settings-virtual-effects-title',
+        'settings-virtual-effects-description',
+        'settings.virtual_effects_desc',
       ],
     ] as const;
 
@@ -207,6 +199,27 @@ describe('app UX markup contract', () => {
     expect(appDocument.querySelectorAll('#tab-settings .settings-option-description')).toHaveLength(
       descriptions.length,
     );
+  });
+
+  it('keeps the virtual effects in one independent-toggle group without legacy grids', () => {
+    expect(appDocument.querySelectorAll('#grid-virtual-effects')).toHaveLength(1);
+    expect(appDocument.querySelector('#grid-surround')).toBeNull();
+    expect(appDocument.querySelector('#grid-vbass')).toBeNull();
+    expect(appDocument.querySelector('#grid-exciter')).toBeNull();
+
+    const controls = [
+      ...appDocument.querySelectorAll<HTMLButtonElement>(
+        '#grid-virtual-effects [data-virtual-effect]',
+      ),
+    ];
+    expect(controls.map((control) => control.dataset.virtualEffect)).toEqual([
+      'bass',
+      'treble',
+      'surround',
+      'off',
+    ]);
+    expect(controls.every((control) => control.type === 'button')).toBe(true);
+    expect(controls.every((control) => control.hasAttribute('aria-pressed'))).toBe(true);
   });
 
   it('announces the currently selected device role from the role control group', () => {

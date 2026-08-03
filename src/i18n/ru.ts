@@ -162,6 +162,12 @@ const ru: Record<I18nKey, string> = {
   'settings.sync_settings': 'Синхронизация настроек',
   'settings.sync_settings_desc':
     'На устройствах, где включена эта настройка, синхронизируются громкость и звуковые эффекты.',
+  'settings.virtual_effects_title': 'Виртуальные эффекты',
+  'settings.virtual_effects_desc':
+    'Применяет синтезированные эффекты к звуку. Это может вызвать сильные искажения.',
+  'settings.virtual_effect_bass': 'Бас',
+  'settings.virtual_effect_treble': 'Высокие частоты',
+  'settings.virtual_effect_surround': 'Объёмный звук',
   'settings.language_desc': 'Выберите язык или используйте язык системы.',
   'settings.theme_desc': 'Выберите светлую или тёмную тему.',
   'settings.visualizer_desc': 'Выберите способ визуализации звука.',
@@ -524,6 +530,14 @@ const ru: Record<I18nKey, string> = {
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'Копирование не удалось',
   'toast.email_copied': 'Адрес электронной почты скопирован в буфер обмена!',
+  'toast.settings_sync_enabled': 'Синхронизация настроек включена.',
+  'toast.virtual_bass_on': 'Виртуальный бас включён.',
+  'toast.virtual_bass_off': 'Виртуальный бас выключен.',
+  'toast.virtual_treble_on': 'Виртуальные высокие частоты включены.',
+  'toast.virtual_treble_off': 'Виртуальные высокие частоты выключены.',
+  'toast.virtual_surround_on': 'Виртуальный объёмный звук включён.',
+  'toast.virtual_surround_off': 'Виртуальный объёмный звук выключен.',
+  'toast.virtual_effects_off': 'Все виртуальные эффекты выключены.',
   'toast.host_only': 'Только хост комнаты может это запустить.',
   'toast.host_only_media': 'Только хост комнаты может добавлять материалы.',
   'toast.media_management_required': 'Требуется право на управление медиа.',

@@ -187,22 +187,24 @@ test.describe('Settings Panel', () => {
     expect(gridActive).toBe(true);
   });
 
-  // ── Virtual Surround Toggle Tests ──────────────────────────────────────
+  // ── Virtual Effects Toggle Tests ──────────────────────────────────────
 
-  test('battery saver toggle enables/disables', async () => {
+  test('virtual surround toggles inside the combined effects card', async () => {
     test.setTimeout(90_000);
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await navigateToTab(pair.hostPage, 'settings', 15_000);
 
-    // Navigate to audio subtab where surround toggle lives
+    // Navigate to the audio subtab where the combined virtual effects card lives.
     await navigateToSubtab(pair.hostPage, 'audio');
 
-    // Use #grid-surround as the on/off toggle.
-    await clickAndWaitActive(pair.hostPage, '#grid-surround .ch-opt[data-toggle="on"]');
+    await clickAndWaitActive(
+      pair.hostPage,
+      '#grid-virtual-effects .ch-opt[data-virtual-effect="surround"]',
+    );
 
     const hasActive = await pair.hostPage
-      .locator('#grid-surround .ch-opt[data-toggle="on"]')
+      .locator('#grid-virtual-effects .ch-opt[data-virtual-effect="surround"]')
       .evaluate((el) => el.classList.contains('active'));
     expect(hasActive).toBe(true);
   });

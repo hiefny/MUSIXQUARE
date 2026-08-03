@@ -10,7 +10,7 @@
          code, then apply Android viewport, language, and theme preflight.
          Cloudflare Analytics is loaded by this bootstrap only after a safe
          scrub/handoff. Source: public/bootstrap.js -->
-    <script src="/bootstrap.js?cache=v366"></script>
+    <script src="/bootstrap.js?cache=v367"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -1154,12 +1154,12 @@
                   id="settings-reverb-title"
                   data-i18n="settings.reverb_title"
                 ></span>
-                <span
+                <button
+                  type="button"
                   class="settings-sync-indicator"
                   data-settings-sync-indicator
-                  role="img"
-                  aria-label="설정 동기화"
-                  data-i18n-aria-label="settings.sync_settings"
+                  aria-label="설정 동기화가 켜져 있어요"
+                  data-i18n-aria-label="toast.settings_sync_enabled"
                   hidden
                 >
                   <svg viewBox="0 -960 960 960" aria-hidden="true">
@@ -1167,7 +1167,7 @@
                       d="M120-160v-80h110l-16-14q-52-46-73-105t-21-119q0-111 66.5-197.5T360-790v84q-72 26-116 88.5T200-478q0 45 17 87.5t53 78.5l10 10v-98h80v240H120Zm717-360h-81q-5-35-21.5-67T690-648l-10-10v98h-80v-240h240v80H730l16 14q41 42 63 89t28 97ZM680-40l-12-60q-12-5-22.5-10.5T624-124l-58 18-40-68 46-40q-2-14-2-26t2-26l-46-40 40-68 58 18q11-8 21.5-13.5T668-380l12-60h80l12 60q12 5 22.5 11t21.5 15l58-20 40 70-46 40q2 12 2 25t-2 25l46 40-40 68-58-18q-11 8-21.5 13.5T772-100l-12 60h-80Zm40-120q33 0 56.5-23.5T800-240q0-33-23.5-56.5T720-320q-33 0-56.5 23.5T640-240q0 33 23.5 56.5T720-160Z"
                     />
                   </svg>
-                </span>
+                </button>
               </div>
               <p
                 class="settings-option-description"
@@ -1319,12 +1319,12 @@
                   id="settings-eq-title"
                   data-i18n="settings.eq_title"
                 ></span>
-                <span
+                <button
+                  type="button"
                   class="settings-sync-indicator"
                   data-settings-sync-indicator
-                  role="img"
-                  aria-label="설정 동기화"
-                  data-i18n-aria-label="settings.sync_settings"
+                  aria-label="설정 동기화가 켜져 있어요"
+                  data-i18n-aria-label="toast.settings_sync_enabled"
                   hidden
                 >
                   <svg viewBox="0 -960 960 960" aria-hidden="true">
@@ -1332,7 +1332,7 @@
                       d="M120-160v-80h110l-16-14q-52-46-73-105t-21-119q0-111 66.5-197.5T360-790v84q-72 26-116 88.5T200-478q0 45 17 87.5t53 78.5l10 10v-98h80v240H120Zm717-360h-81q-5-35-21.5-67T690-648l-10-10v98h-80v-240h240v80H730l16 14q41 42 63 89t28 97ZM680-40l-12-60q-12-5-22.5-10.5T624-124l-58 18-40-68 46-40q-2-14-2-26t2-26l-46-40 40-68 58 18q11-8 21.5-13.5T668-380l12-60h80l12 60q12 5 22.5 11t21.5 15l58-20 40 70-46 40q2 12 2 25t-2 25l46 40-40 68-58-18q-11 8-21.5 13.5T772-100l-12 60h-80Zm40-120q33 0 56.5-23.5T800-240q0-33-23.5-56.5T720-320q-33 0-56.5 23.5T640-240q0 33 23.5 56.5T720-160Z"
                     />
                   </svg>
-                </span>
+                </button>
               </div>
               <p
                 class="settings-option-description"
@@ -1446,121 +1446,19 @@
               </div>
             </div>
 
-            <div class="section-group">
-              <div class="section-header-row">
-                <span
-                  class="section-title"
-                  id="settings-surround-title"
-                  data-i18n="settings.surround_title"
-                ></span>
-                <span
-                  class="settings-sync-indicator"
-                  data-settings-sync-indicator
-                  role="img"
-                  aria-label="설정 동기화"
-                  data-i18n-aria-label="settings.sync_settings"
-                  hidden
-                >
-                  <svg viewBox="0 -960 960 960" aria-hidden="true">
-                    <path
-                      d="M120-160v-80h110l-16-14q-52-46-73-105t-21-119q0-111 66.5-197.5T360-790v84q-72 26-116 88.5T200-478q0 45 17 87.5t53 78.5l10 10v-98h80v240H120Zm717-360h-81q-5-35-21.5-67T690-648l-10-10v98h-80v-240h240v80H730l16 14q41 42 63 89t28 97ZM680-40l-12-60q-12-5-22.5-10.5T624-124l-58 18-40-68 46-40q-2-14-2-26t2-26l-46-40 40-68 58 18q11-8 21.5-13.5T668-380l12-60h80l12 60q12 5 22.5 11t21.5 15l58-20 40 70-46 40q2 12 2 25t-2 25l46 40-40 68-58-18q-11 8-21.5 13.5T772-100l-12 60h-80Zm40-120q33 0 56.5-23.5T800-240q0-33-23.5-56.5T720-320q-33 0-56.5 23.5T640-240q0 33 23.5 56.5T720-160Z"
-                    />
-                  </svg>
-                </span>
-              </div>
-              <p
-                class="settings-option-description"
-                id="settings-surround-description"
-                data-i18n="settings.surround_desc"
-              ></p>
-              <div
-                class="channel-grid"
-                id="grid-surround"
-                role="group"
-                aria-labelledby="settings-surround-title"
-                aria-describedby="settings-surround-description"
-              >
-                <button type="button" class="ch-opt" data-toggle="on">
-                  <svg viewBox="0 -960 960 960" aria-hidden="true">
-                    <path
-                      d="M240-80 80-240l160-160 57 56-64 64h494l-63-64 56-56 160 160L720-80l-57-56 64-64H233l63 64-56 56Zm200-360v-480h80v480h-80Zm-160-80v-320h80v320h-80Zm320 0v-320h80v320h-80ZM120-620v-120h80v120h-80Zm640 0v-120h80v120h-80Z"
-                    /></svg
-                  ><span data-i18n="common.on">켜기</span>
-                </button>
-                <button type="button" class="ch-opt active" data-toggle="off">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
-                    /></svg
-                  ><span data-i18n="common.off">끄기</span>
-                </button>
-              </div>
-            </div>
-
-            <div class="section-group">
-              <div class="section-header-row">
-                <span
-                  class="section-title"
-                  id="settings-bass-title"
-                  data-i18n="settings.bass_title"
-                ></span>
-                <span
-                  class="settings-sync-indicator"
-                  data-settings-sync-indicator
-                  role="img"
-                  aria-label="설정 동기화"
-                  data-i18n-aria-label="settings.sync_settings"
-                  hidden
-                >
-                  <svg viewBox="0 -960 960 960" aria-hidden="true">
-                    <path
-                      d="M120-160v-80h110l-16-14q-52-46-73-105t-21-119q0-111 66.5-197.5T360-790v84q-72 26-116 88.5T200-478q0 45 17 87.5t53 78.5l10 10v-98h80v240H120Zm717-360h-81q-5-35-21.5-67T690-648l-10-10v98h-80v-240h240v80H730l16 14q41 42 63 89t28 97ZM680-40l-12-60q-12-5-22.5-10.5T624-124l-58 18-40-68 46-40q-2-14-2-26t2-26l-46-40 40-68 58 18q11-8 21.5-13.5T668-380l12-60h80l12 60q12 5 22.5 11t21.5 15l58-20 40 70-46 40q2 12 2 25t-2 25l46 40-40 68-58-18q-11 8-21.5 13.5T772-100l-12 60h-80Zm40-120q33 0 56.5-23.5T800-240q0-33-23.5-56.5T720-320q-33 0-56.5 23.5T640-240q0 33 23.5 56.5T720-160Z"
-                    />
-                  </svg>
-                </span>
-              </div>
-              <p
-                class="settings-option-description"
-                id="settings-bass-description"
-                data-i18n="settings.bass_desc"
-              ></p>
-              <div
-                class="channel-grid"
-                id="grid-vbass"
-                role="group"
-                aria-labelledby="settings-bass-title"
-                aria-describedby="settings-bass-description"
-              >
-                <button type="button" class="ch-opt" data-toggle="on">
-                  <svg viewBox="0 -960 960 960" aria-hidden="true">
-                    <path
-                      d="M361-80q-14 0-24.5-7.5T322-108L220-440H80v-80h170q13 0 23.5 7.5T288-492l66 215 127-571q3-14 14-23t25-9q14 0 25 8.5t14 22.5l87 376 56-179q4-13 14.5-20.5T740-680q13 0 23 7t15 19l50 134h52v80h-80q-13 0-23-7t-15-19l-19-51-65 209q-4 13-15 21t-25 7q-14-1-24-9.5T601-311l-81-348-121 548q-3 14-13.5 22T361-80Z"
-                    /></svg
-                  ><span data-i18n="common.on">켜기</span>
-                </button>
-                <button type="button" class="ch-opt active" data-toggle="off">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
-                    /></svg
-                  ><span data-i18n="common.off">끄기</span>
-                </button>
-              </div>
-            </div>
-
             <div class="section-group" id="last-setting-section">
               <div class="section-header-row">
                 <span
                   class="section-title"
-                  id="settings-exciter-title"
-                  data-i18n="settings.exciter_title"
+                  id="settings-virtual-effects-title"
+                  data-i18n="settings.virtual_effects_title"
                 ></span>
-                <span
+                <button
+                  type="button"
                   class="settings-sync-indicator"
                   data-settings-sync-indicator
-                  role="img"
-                  aria-label="설정 동기화"
-                  data-i18n-aria-label="settings.sync_settings"
+                  aria-label="설정 동기화가 켜져 있어요"
+                  data-i18n-aria-label="toast.settings_sync_enabled"
                   hidden
                 >
                   <svg viewBox="0 -960 960 960" aria-hidden="true">
@@ -1568,34 +1466,72 @@
                       d="M120-160v-80h110l-16-14q-52-46-73-105t-21-119q0-111 66.5-197.5T360-790v84q-72 26-116 88.5T200-478q0 45 17 87.5t53 78.5l10 10v-98h80v240H120Zm717-360h-81q-5-35-21.5-67T690-648l-10-10v98h-80v-240h240v80H730l16 14q41 42 63 89t28 97ZM680-40l-12-60q-12-5-22.5-10.5T624-124l-58 18-40-68 46-40q-2-14-2-26t2-26l-46-40 40-68 58 18q11-8 21.5-13.5T668-380l12-60h80l12 60q12 5 22.5 11t21.5 15l58-20 40 70-46 40q2 12 2 25t-2 25l46 40-40 68-58-18q-11 8-21.5 13.5T772-100l-12 60h-80Zm40-120q33 0 56.5-23.5T800-240q0-33-23.5-56.5T720-320q-33 0-56.5 23.5T640-240q0 33 23.5 56.5T720-160Z"
                     />
                   </svg>
-                </span>
+                </button>
               </div>
               <p
                 class="settings-option-description"
-                id="settings-exciter-description"
-                data-i18n="settings.exciter_desc"
+                id="settings-virtual-effects-description"
+                data-i18n="settings.virtual_effects_desc"
               ></p>
               <div
-                class="channel-grid"
-                id="grid-exciter"
+                class="channel-grid virtual-effects-grid"
+                id="grid-virtual-effects"
                 role="group"
-                aria-labelledby="settings-exciter-title"
-                aria-describedby="settings-exciter-description"
+                aria-labelledby="settings-virtual-effects-title"
+                aria-describedby="settings-virtual-effects-description"
               >
-                <button type="button" class="ch-opt" data-toggle="on">
+                <button
+                  type="button"
+                  class="ch-opt"
+                  data-virtual-effect="bass"
+                  aria-pressed="false"
+                >
+                  <svg viewBox="0 -960 960 960" aria-hidden="true">
+                    <path
+                      d="M361-80q-14 0-24.5-7.5T322-108L220-440H80v-80h170q13 0 23.5 7.5T288-492l66 215 127-571q3-14 14-23t25-9q14 0 25 8.5t14 22.5l87 376 56-179q4-13 14.5-20.5T740-680q13 0 23 7t15 19l50 134h52v80h-80q-13 0-23-7t-15-19l-19-51-65 209q-4 13-15 21t-25 7q-14-1-24-9.5T601-311l-81-348-121 548q-3 14-13.5 22T361-80Z"
+                    />
+                  </svg>
+                  <span data-i18n="settings.virtual_effect_bass">베이스</span>
+                </button>
+                <button
+                  type="button"
+                  class="ch-opt"
+                  data-virtual-effect="treble"
+                  aria-pressed="false"
+                >
                   <svg viewBox="0 -960 960 960" aria-hidden="true">
                     <path
                       fill="currentColor"
                       d="M211.5-371.5Q200-383 200-400t11.5-28.5Q223-440 240-440t28.5 11.5Q280-417 280-400t-11.5 28.5Q257-360 240-360t-28.5-11.5Zm0 160Q200-223 200-240t11.5-28.5Q223-280 240-280t28.5 11.5Q280-257 280-240t-11.5 28.5Q257-200 240-200t-28.5-11.5Zm0-320Q200-543 200-560t11.5-28.5Q223-600 240-600t28.5 11.5Q280-577 280-560t-11.5 28.5Q257-520 240-520t-28.5-11.5ZM106-546q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm105.5-145.5Q200-703 200-720t11.5-28.5Q223-760 240-760t28.5 11.5Q280-737 280-720t-11.5 28.5Q257-680 240-680t-28.5-11.5ZM106-386q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm280 280q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm0-720q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm-14.5 134.5Q360-703 360-720t11.5-28.5Q383-760 400-760t28.5 11.5Q440-737 440-720t-11.5 28.5Q417-680 400-680t-28.5-11.5Zm-14 334Q340-375 340-400t17.5-42.5Q375-460 400-460t42.5 17.5Q460-425 460-400t-17.5 42.5Q425-340 400-340t-42.5-17.5Zm0-160Q340-535 340-560t17.5-42.5Q375-620 400-620t42.5 17.5Q460-585 460-560t-17.5 42.5Q425-500 400-500t-42.5-17.5Zm14 306Q360-223 360-240t11.5-28.5Q383-280 400-280t28.5 11.5Q440-257 440-240t-11.5 28.5Q417-200 400-200t-28.5-11.5ZM480-120v-80q116 0 198-82t82-198q0-116-82-198t-198-82v-80q74 0 139.5 28.5T734-734q49 49 77.5 114.5T840-480q0 74-28.5 139.5T734-226q-49 49-114.5 77.5T480-120Zm0-360Z"
-                    /></svg
-                  ><span data-i18n="common.on">켜기</span>
+                    />
+                  </svg>
+                  <span data-i18n="settings.virtual_effect_treble">트레블</span>
                 </button>
-                <button type="button" class="ch-opt active" data-toggle="off">
+                <button
+                  type="button"
+                  class="ch-opt"
+                  data-virtual-effect="surround"
+                  aria-pressed="false"
+                >
+                  <svg viewBox="0 -960 960 960" aria-hidden="true">
+                    <path
+                      d="M240-80 80-240l160-160 57 56-64 64h494l-63-64 56-56 160 160L720-80l-57-56 64-64H233l63 64-56 56Zm200-360v-480h80v480h-80Zm-160-80v-320h80v320h-80Zm320 0v-320h80v320h-80ZM120-620v-120h80v120h-80Zm640 0v-120h80v120h-80Z"
+                    />
+                  </svg>
+                  <span data-i18n="settings.virtual_effect_surround">서라운드</span>
+                </button>
+                <button
+                  type="button"
+                  class="ch-opt active"
+                  data-virtual-effect="off"
+                  aria-pressed="true"
+                >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
-                    /></svg
-                  ><span data-i18n="common.off">끄기</span>
+                    />
+                  </svg>
+                  <span data-i18n="common.off">끄기</span>
                 </button>
               </div>
             </div>

@@ -163,6 +163,12 @@ const en: Record<I18nKey, string> = {
   'settings.sync_settings': 'Settings sync',
   'settings.sync_settings_desc':
     'Devices with this setting on sync their volume and audio effects.',
+  'settings.virtual_effects_title': 'Virtual effects',
+  'settings.virtual_effects_desc':
+    'Apply synthesized effects to the audio. This may cause heavy distortion.',
+  'settings.virtual_effect_bass': 'Bass',
+  'settings.virtual_effect_treble': 'Treble',
+  'settings.virtual_effect_surround': 'Surround',
   'settings.language_desc': 'Choose a language or follow your system language.',
   'settings.theme_desc': 'Choose a light or dark theme.',
   'settings.visualizer_desc': 'Choose how sound is visualized.',
@@ -515,6 +521,14 @@ const en: Record<I18nKey, string> = {
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': "Couldn't copy",
   'toast.email_copied': 'Email address copied!',
+  'toast.settings_sync_enabled': 'Settings sync is on',
+  'toast.virtual_bass_on': 'Virtual bass is on',
+  'toast.virtual_bass_off': 'Virtual bass is off',
+  'toast.virtual_treble_on': 'Virtual treble is on',
+  'toast.virtual_treble_off': 'Virtual treble is off',
+  'toast.virtual_surround_on': 'Virtual surround is on',
+  'toast.virtual_surround_off': 'Virtual surround is off',
+  'toast.virtual_effects_off': 'All virtual effects are off',
   'toast.host_only': 'Only Host can run this.',
   'toast.host_only_media': 'Only the host can add media.',
   'toast.media_management_required': 'Media management permission required.',

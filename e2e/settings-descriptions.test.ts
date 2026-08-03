@@ -19,9 +19,7 @@ const AUDIO_SETTINGS: DescribedSetting[] = [
   { description: '#settings-sync-description', control: '#grid-settings-sync' },
   { description: '#settings-reverb-description', control: '#grid-reverb' },
   { description: '#settings-eq-description', control: '#grid-eq' },
-  { description: '#settings-surround-description', control: '#grid-surround' },
-  { description: '#settings-bass-description', control: '#grid-vbass' },
-  { description: '#settings-exciter-description', control: '#grid-exciter' },
+  { description: '#settings-virtual-effects-description', control: '#grid-virtual-effects' },
 ];
 
 const ALL_SETTINGS = [...GENERAL_SETTINGS, ...AUDIO_SETTINGS];
@@ -29,9 +27,7 @@ const ALL_SETTINGS = [...GENERAL_SETTINGS, ...AUDIO_SETTINGS];
 const SYNCHRONIZED_EFFECT_TITLE_IDS = [
   'settings-reverb-title',
   'settings-eq-title',
-  'settings-surround-title',
-  'settings-bass-title',
-  'settings-exciter-title',
+  'settings-virtual-effects-title',
 ] as const;
 
 async function openSettings(page: Page): Promise<void> {
@@ -211,6 +207,39 @@ async function expectDesktopAlignment(page: Page, settings: DescribedSetting[]):
   }
 }
 
+async function expectVirtualEffectsTwoByTwo(page: Page): Promise<void> {
+  const buttons = page.locator('#grid-virtual-effects [data-virtual-effect]');
+  await expect(buttons).toHaveCount(4);
+
+  const layout = await buttons.evaluateAll((elements) =>
+    elements.map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        effect: (element as HTMLElement).dataset.virtualEffect,
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+      };
+    }),
+  );
+
+  expect(layout.map(({ effect }) => effect)).toEqual(['bass', 'treble', 'surround', 'off']);
+  for (const button of layout) {
+    expect(button.width, `${button.effect} should have layout width`).toBeGreaterThan(0);
+    expect(button.height, `${button.effect} should have layout height`).toBeGreaterThan(0);
+  }
+
+  expect(Math.abs(layout[0].top - layout[1].top)).toBeLessThanOrEqual(1);
+  expect(Math.abs(layout[2].top - layout[3].top)).toBeLessThanOrEqual(1);
+  expect(Math.abs(layout[0].left - layout[2].left)).toBeLessThanOrEqual(1);
+  expect(Math.abs(layout[1].left - layout[3].left)).toBeLessThanOrEqual(1);
+  expect(layout[0].right).toBeLessThan(layout[1].left);
+  expect(layout[0].bottom).toBeLessThan(layout[2].top);
+}
+
 async function expectMobileDescriptions(page: Page, requireWrapping: boolean): Promise<void> {
   const results = await page.evaluate(
     ({ settings, shouldWrap }) =>
@@ -244,7 +273,7 @@ async function expectMobileDescriptions(page: Page, requireWrapping: boolean): P
     { settings: ALL_SETTINGS, shouldWrap: requireWrapping },
   );
 
-  expect(results).toHaveLength(11);
+  expect(results).toHaveLength(ALL_SETTINGS.length);
   for (const result of results) {
     expect(
       result,
@@ -282,6 +311,7 @@ test.describe('settings description layout', () => {
       await expectDesktopAlignment(page, GENERAL_SETTINGS);
       await navigateToSubtab(page, 'audio');
       await expectDesktopAlignment(page, AUDIO_SETTINGS);
+      await expectVirtualEffectsTwoByTwo(page);
 
       const order = await page.evaluate(() => {
         const role = document.querySelector('#grid-standard')?.closest('.section-group');
@@ -365,6 +395,7 @@ test.describe('settings description layout', () => {
       await page.setViewportSize({ width: 390, height: 844 });
       await openSettings(page);
       await expectMobileDescriptions(page, false);
+      await expectVirtualEffectsTwoByTwo(page);
     });
 
     test('wraps all descriptions at 320px with 200% description text', async ({ page }) => {
@@ -411,7 +442,7 @@ test.describe('settings description layout', () => {
           .filter({ has: page.locator(`#${titleId}`) });
         return { titleId, header, indicator: header.locator('[data-settings-sync-indicator]') };
       });
-      await expect(audioPanel.locator('[data-settings-sync-indicator]')).toHaveCount(5);
+      await expect(audioPanel.locator('[data-settings-sync-indicator]')).toHaveCount(3);
 
       for (const { titleId, header, indicator } of indicators) {
         await expect(header, `${titleId} should have one rendered header`).toHaveCount(1);
@@ -420,9 +451,12 @@ test.describe('settings description layout', () => {
           indicator,
           `${titleId} should show sync while the default is ON`,
         ).toBeVisible();
-        await expect(indicator).toHaveAttribute('role', 'img');
-        await expect(indicator).toHaveAttribute('aria-label', syncTitle);
-        await expect(indicator).toHaveAttribute('data-i18n-aria-label', 'settings.sync_settings');
+        await expect(indicator).toHaveAttribute('type', 'button');
+        await expect(indicator).toHaveAttribute('aria-label', /\S/);
+        await expect(indicator).toHaveAttribute(
+          'data-i18n-aria-label',
+          'toast.settings_sync_enabled',
+        );
         await expect(indicator.locator('svg')).toHaveAttribute('aria-hidden', 'true');
         await expect(indicator).toHaveText('');
         await expectRenderedDirectSvgPath(
@@ -467,10 +501,18 @@ test.describe('settings description layout', () => {
         expect(geometry?.iconRight ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
           geometry?.viewportWidth ?? 0,
         );
-        expect(geometry?.headerScrollWidth ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
-          (geometry?.headerClientWidth ?? 0) + 1,
-        );
+        expect(
+          geometry?.headerScrollWidth ?? Number.POSITIVE_INFINITY,
+          `${titleId} header should not overflow horizontally`,
+        ).toBeLessThanOrEqual((geometry?.headerClientWidth ?? 0) + 1);
       }
+
+      const syncIndicator = indicators[0].indicator;
+      const syncToastText = (await syncIndicator.getAttribute('aria-label'))?.trim() || '';
+      expect(syncToastText).not.toBe('');
+      await syncIndicator.click();
+      await expect(page.locator('#toast')).toHaveClass(/show/);
+      await expect(page.locator('#toast-msg')).toHaveText(syncToastText);
 
       const syncOff = page.locator('#grid-settings-sync [data-settings-sync="off"]');
       const syncOn = page.locator('#grid-settings-sync [data-settings-sync="on"]');

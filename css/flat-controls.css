@@ -6,16 +6,16 @@
  */
 
 :root {
-  --flat-control-surface: color-mix(in srgb, var(--surface-2) 78%, transparent);
-  --flat-control-hover: var(--surface-2);
+  --flat-control-surface: var(--surface-2);
+  --flat-control-hover: var(--surface-3);
   --flat-control-active: rgba(var(--primary-rgb), 0.13);
   --flat-control-danger: rgba(255, 59, 48, 0.09);
   --flat-control-danger-hover: rgba(255, 59, 48, 0.13);
 }
 
 html[data-theme='light'] {
-  --flat-control-surface: color-mix(in srgb, var(--surface-2) 76%, transparent);
-  --flat-control-hover: var(--surface-2);
+  --flat-control-surface: var(--surface-2);
+  --flat-control-hover: var(--surface-3);
   --flat-control-active: rgba(var(--primary-rgb), 0.11);
   --flat-control-danger: rgba(255, 59, 48, 0.075);
   --flat-control-danger-hover: rgba(255, 59, 48, 0.11);

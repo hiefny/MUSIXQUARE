@@ -223,6 +223,7 @@ describe('Translation key integrity', () => {
       'settings.visualizer_desc',
       'settings.ui_sounds_desc',
       'settings.sync_settings_desc',
+      'settings.virtual_effects_desc',
       'settings.reverb_desc',
       'settings.eq_desc',
       'settings.surround_desc',
@@ -264,6 +265,12 @@ describe('Translation key integrity', () => {
     expect(ko['settings.sync_settings_desc']).toBe(
       '이 설정이 켜진 기기들끼리 볼륨과 음향 효과가 동기화돼요.',
     );
+    expect(en['settings.virtual_effects_desc']).toBe(
+      'Apply synthesized effects to the audio. This may cause heavy distortion.',
+    );
+    expect(ko['settings.virtual_effects_desc']).toBe(
+      '음향에 합성 기술을 적용해요. 왜곡이 심해질 수 있어요.',
+    );
     expect(ko['settings.role_center_desc']).toBe(
       '이 기기가 중앙 스피커 역할을 하고 있어요.\n기기를 중앙에 놓아주세요.',
     );
@@ -276,6 +283,63 @@ describe('Translation key integrity', () => {
     expect(ko['settings.role_subwoofer_desc']).toBe(
       '이 기기가 서브우퍼 역할을 하고 있어요.\n저음이 잘 퍼지는 곳에 놓아주세요.',
     );
+  });
+
+  it('provides virtual-effect controls and feedback in every locale', () => {
+    const settingKeys = [
+      'settings.virtual_effects_title',
+      'settings.virtual_effects_desc',
+      'settings.virtual_effect_bass',
+      'settings.virtual_effect_treble',
+      'settings.virtual_effect_surround',
+    ] as const;
+    const toastKeys = [
+      'toast.settings_sync_enabled',
+      'toast.virtual_bass_on',
+      'toast.virtual_bass_off',
+      'toast.virtual_treble_on',
+      'toast.virtual_treble_off',
+      'toast.virtual_surround_on',
+      'toast.virtual_surround_off',
+      'toast.virtual_effects_off',
+    ] as const;
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      for (const key of [...settingKeys, ...toastKeys]) {
+        const value = dict[key];
+        expect(value, `${locale}.${key}`).toBeTruthy();
+        expect(value, `${locale}.${key} surrounding whitespace`).toBe(value.trim());
+        expect(value, `${locale}.${key} should stay on one line`).not.toMatch(/[\r\n]/);
+        expect(value, `${locale}.${key} should not contain HTML`).not.toMatch(/<[^>]*>/);
+        expect(value, `${locale}.${key} interpolation`).not.toContain('{{');
+      }
+    }
+
+    expect(en['settings.virtual_effects_title']).toBe('Virtual effects');
+    expect(en['settings.virtual_effect_bass']).toBe('Bass');
+    expect(en['settings.virtual_effect_treble']).toBe('Treble');
+    expect(en['settings.virtual_effect_surround']).toBe('Surround');
+    expect(en['toast.settings_sync_enabled']).toBe('Settings sync is on');
+    expect(en['toast.virtual_bass_on']).toBe('Virtual bass is on');
+    expect(en['toast.virtual_bass_off']).toBe('Virtual bass is off');
+    expect(en['toast.virtual_treble_on']).toBe('Virtual treble is on');
+    expect(en['toast.virtual_treble_off']).toBe('Virtual treble is off');
+    expect(en['toast.virtual_surround_on']).toBe('Virtual surround is on');
+    expect(en['toast.virtual_surround_off']).toBe('Virtual surround is off');
+    expect(en['toast.virtual_effects_off']).toBe('All virtual effects are off');
+
+    expect(ko['settings.virtual_effects_title']).toBe('가상 효과');
+    expect(ko['settings.virtual_effect_bass']).toBe('베이스');
+    expect(ko['settings.virtual_effect_treble']).toBe('트레블');
+    expect(ko['settings.virtual_effect_surround']).toBe('서라운드');
+    expect(ko['toast.settings_sync_enabled']).toBe('설정 동기화가 켜져 있어요');
+    expect(ko['toast.virtual_bass_on']).toBe('가상 베이스가 켜졌어요');
+    expect(ko['toast.virtual_bass_off']).toBe('가상 베이스가 꺼졌어요');
+    expect(ko['toast.virtual_treble_on']).toBe('가상 트레블이 켜졌어요');
+    expect(ko['toast.virtual_treble_off']).toBe('가상 트레블이 꺼졌어요');
+    expect(ko['toast.virtual_surround_on']).toBe('가상 서라운드가 켜졌어요');
+    expect(ko['toast.virtual_surround_off']).toBe('가상 서라운드가 꺼졌어요');
+    expect(ko['toast.virtual_effects_off']).toBe('모든 가상 효과가 꺼졌어요');
   });
 
   it('provides plain-text subwoofer placement guidance in every locale', () => {

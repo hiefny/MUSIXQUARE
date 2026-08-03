@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     include: ['src/**/__tests__/**/*.test.ts'],
     exclude: ['src/**/__tests__/fixtures/**'],
+    setupFiles: ['./src/core/__tests__/network-guard.setup.ts'],
     environment: 'node',
     globals: true,
     testTimeout: 15000,

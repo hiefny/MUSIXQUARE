@@ -661,6 +661,10 @@ describe('optional account UI', () => {
     expect(document.getElementById('account-dialog-overlay')?.classList.contains('show')).toBe(
       true,
     );
+    // The first unrelated same-origin refresh starts immediately. The two
+    // matching completion messages arrive while it is in flight and coalesce
+    // into one follow-up refresh, which must settle before test teardown.
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
   });
 
   it('fails open when the account endpoint is unavailable', async () => {

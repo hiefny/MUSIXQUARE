@@ -220,8 +220,15 @@ describe.sequential('PRO runtime account identity lease', () => {
   });
 
   afterEach(async () => {
+    const closeSession = vi.mocked(ProRoomApiClient.prototype.closeSessionFenced);
+    const closeCallsBeforeLeave = closeSession.mock.calls.length;
+    const hadActiveSession = getState('room.context').kind === 'pro';
     requestProRoomLeave();
-    await Promise.resolve();
+    if (hadActiveSession) {
+      await vi.waitFor(() =>
+        expect(closeSession.mock.calls.length).toBeGreaterThan(closeCallsBeforeLeave),
+      );
+    }
     clearAllManagedTimers();
     setAccountAnonymous();
     if (visibilityDescriptor) {

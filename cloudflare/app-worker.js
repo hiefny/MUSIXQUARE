@@ -10368,6 +10368,7 @@ function isLocalHttpRequest(request, url) {
 
 async function serveStatic(request, env, ctx) {
   const url = new URL(request.url);
+  const assetPathname = routeStaticPath(url.pathname);
   const redirect = redirectTarget(url.pathname);
   if (redirect) return Response.redirect(new URL(redirect, url), 301);
 
@@ -10421,6 +10422,16 @@ async function serveStatic(request, env, ctx) {
     const soroImageKey = soroImageKeyFromPathname(url.pathname);
     if (soroImageKey) return serveSoroImage(request, env, soroImageKey);
 
+    // Canonical static documents take precedence over the legacy root-level
+    // Soro slug fallback. Otherwise paths such as /developers perform a live
+    // RSS request merely to prove that they are not article slugs.
+    if (assetPathname) {
+      const response = await fetchAsset(env, request, assetPathname);
+      return withSecurityHeaders(response, {
+        ...cacheHeadersForPath(url.pathname, assetPathname),
+      });
+    }
+
     const soroSlug = isPotentialSoroArticlePath(url.pathname);
     if (soroSlug) {
       if (await hasSoroArticlePublic(env, ctx, soroSlug)) {
@@ -10429,7 +10440,6 @@ async function serveStatic(request, env, ctx) {
     }
   }
 
-  const assetPathname = routeStaticPath(url.pathname);
   const response = assetPathname
     ? await fetchAsset(env, request, assetPathname)
     : await fetchAsset(env, request);

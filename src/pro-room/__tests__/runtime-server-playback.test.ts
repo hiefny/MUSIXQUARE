@@ -308,8 +308,16 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
   });
 
   afterEach(async () => {
+    const closeSession = vi.mocked(ProRoomApiClient.prototype.closeSessionFenced);
+    const closeCallsBeforeLeave = closeSession.mock.calls.length;
+    const hadActiveSession = getState('room.context').kind === 'pro';
     requestProRoomLeave();
     await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+    if (hadActiveSession) {
+      await vi.waitFor(() =>
+        expect(closeSession.mock.calls.length).toBeGreaterThan(closeCallsBeforeLeave),
+      );
+    }
     registerProPlaybackMediaEndpoint(null);
     for (const spy of restoreSpies.splice(0).reverse()) spy.mockRestore();
     resetState();

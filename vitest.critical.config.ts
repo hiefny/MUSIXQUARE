@@ -7,6 +7,7 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
+    setupFiles: ['./src/core/__tests__/network-guard.setup.ts'],
     include: [
       'src/core/__tests__/capability-pow.test.ts',
       'src/core/__tests__/request-lifetime.test.ts',

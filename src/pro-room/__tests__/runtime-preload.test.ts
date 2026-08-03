@@ -193,8 +193,13 @@ describe.sequential('PRO room runtime preload adoption', () => {
 
   afterAll(async () => {
     setState('files.current', null);
+    const closeSession = vi.mocked(ProRoomApiClient.prototype.closeSessionFenced);
+    const closeCallsBeforeLeave = closeSession.mock.calls.length;
     requestProRoomLeave();
     await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+    await vi.waitFor(() =>
+      expect(closeSession.mock.calls.length).toBeGreaterThan(closeCallsBeforeLeave),
+    );
     for (const spy of restoreSpies.reverse()) spy.mockRestore();
   });
 

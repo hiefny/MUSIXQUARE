@@ -12,7 +12,7 @@ import {
 } from '../core/request-lifetime.ts';
 
 const ANNOUNCEMENT_POLL_TIMER = 'announcement:poll';
-const ANNOUNCEMENT_POLL_MS = 60_000;
+const ANNOUNCEMENT_POLL_MS = 5 * 60_000;
 const ANNOUNCEMENT_TOAST_MS = 5_000;
 const ANNOUNCEMENT_SENDER = 'MUSIXQUARE';
 const ANNOUNCEMENT_REQUEST_TIMEOUT_MS = 10_000;
@@ -26,8 +26,11 @@ type AnnouncementPayload = {
 
 let active = false;
 let pollingGeneration = 0;
+let requestEpoch = 0;
 let inFlightController: AbortController | null = null;
 let memorySeenId = '';
+let visibilityListenerBound = false;
+let initialCheckPending = true;
 
 function isSessionActive(): boolean {
   return getState('network.appRole') !== 'idle';
@@ -48,8 +51,16 @@ function shouldShowAnnouncement(
 }
 
 async function checkAnnouncement({ notify = true }: { notify?: boolean } = {}): Promise<void> {
-  if (!active || !isSessionActive() || inFlightController) return;
+  if (
+    !active ||
+    !isSessionActive() ||
+    document.visibilityState !== 'visible' ||
+    inFlightController
+  ) {
+    return;
+  }
   const generation = pollingGeneration;
+  const epoch = requestEpoch;
   const controller = new AbortController();
   inFlightController = controller;
   try {
@@ -80,7 +91,16 @@ async function checkAnnouncement({ notify = true }: { notify?: boolean } = {}): 
     if (!payload) return;
     // A response from the previous room/session must not mark an announcement
     // seen or inject it into the newly-entered room after stop/start raced it.
-    if (generation !== pollingGeneration || !active || !isSessionActive()) return;
+    if (
+      generation !== pollingGeneration ||
+      epoch !== requestEpoch ||
+      !active ||
+      !isSessionActive() ||
+      document.visibilityState !== 'visible'
+    ) {
+      return;
+    }
+    initialCheckPending = false;
     if (!shouldShowAnnouncement(payload)) return;
     if (readSeenId() === payload.id) return;
 
@@ -97,11 +117,9 @@ async function checkAnnouncement({ notify = true }: { notify?: boolean } = {}): 
   }
 }
 
-function startAnnouncementPolling(): void {
-  if (active) return;
-  active = true;
-  pollingGeneration += 1;
-  void checkAnnouncement({ notify: false });
+function startVisiblePolling({ notify = !initialCheckPending }: { notify?: boolean } = {}): void {
+  if (!active || !isSessionActive() || document.visibilityState !== 'visible') return;
+  void checkAnnouncement({ notify });
   setManagedTimer(
     ANNOUNCEMENT_POLL_TIMER,
     () => {
@@ -112,15 +130,43 @@ function startAnnouncementPolling(): void {
   );
 }
 
+function handleAnnouncementVisibilityChange(): void {
+  if (!active) return;
+  if (document.visibilityState !== 'visible') {
+    clearManagedTimer(ANNOUNCEMENT_POLL_TIMER);
+    requestEpoch += 1;
+    inFlightController?.abort();
+    inFlightController = null;
+    return;
+  }
+  // A foregrounded room checks immediately instead of waiting for the next
+  // five-minute boundary. Existing seen-ID fencing ensures that only an
+  // announcement published while the page was hidden produces a notice.
+  startVisiblePolling();
+}
+
+function startAnnouncementPolling(): void {
+  if (active) return;
+  active = true;
+  pollingGeneration += 1;
+  initialCheckPending = true;
+  startVisiblePolling({ notify: false });
+}
+
 function stopAnnouncementPolling(): void {
   active = false;
   pollingGeneration += 1;
+  requestEpoch += 1;
   clearManagedTimer(ANNOUNCEMENT_POLL_TIMER);
   inFlightController?.abort();
   inFlightController = null;
 }
 
 export function initAnnouncementPolling(): void {
+  if (!visibilityListenerBound) {
+    visibilityListenerBound = true;
+    document.addEventListener('visibilitychange', handleAnnouncementVisibilityChange);
+  }
   bus.on('state:network.appRole', () => {
     if (isSessionActive()) startAnnouncementPolling();
     else stopAnnouncementPolling();

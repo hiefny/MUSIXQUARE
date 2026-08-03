@@ -31,12 +31,14 @@ const TURN_ENDPOINTS = [
 const TURN_REFRESH_SKEW_MS = 60_000;
 const FALLBACK_TURN_CACHE_MS = 5 * 60_000;
 const TURN_REQUEST_TIMEOUT_MS = 8_000;
-const WARMUP_IDLE_TIMEOUT_MS = 1_200;
 const PRECONNECT_MARKER = 'data-mxqr-standard-signaling-preconnect';
+const SETUP_INTENT_SELECTOR =
+  '#btn-setup-host, #btn-setup-guest, #btn-setup-confirm, #setup-join-code';
 
 let cachedTurnCredentials: CachedTurnCredentials | null = null;
 let turnCredentialsRequest: Promise<StandardRoomTurnCredentials | null> | null = null;
 let warmupScheduled = false;
+let warmupIntentController: AbortController | null = null;
 
 function normalizeIceServerUrls(value: unknown): string[] {
   const urls = Array.isArray(value) ? value : [value];
@@ -256,34 +258,32 @@ async function warmStandardRoomPrerequisites(): Promise<void> {
   }
 }
 
-/** Schedule after the landing UI has painted; never create a room or socket. */
+function isStandardRoomSetupIntent(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(SETUP_INTENT_SELECTOR) !== null;
+}
+
+function beginWarmupFromSetupIntent(event: Event): void {
+  if (!isStandardRoomSetupIntent(event.target) || getState('setup.sessionStarted')) return;
+  warmupIntentController?.abort();
+  warmupIntentController = null;
+  void warmStandardRoomPrerequisites();
+}
+
+/**
+ * Arm an intent warmup for the standard-room setup controls. Pointer hover,
+ * touch-down, and keyboard focus all begin the same shared request early
+ * enough for the ensuing host/join action to reuse it, while a page that is
+ * merely left open performs no capability, PoW, or TURN requests.
+ */
 export function scheduleStandardRoomPrerequisiteWarmup(): void {
   if (warmupScheduled) return;
   warmupScheduled = true;
-
-  const afterPaint = () => {
-    preconnectToSignaling();
-    const requestIdle =
-      typeof window.requestIdleCallback === 'function'
-        ? window.requestIdleCallback.bind(window)
-        : null;
-    if (requestIdle) {
-      requestIdle(
-        () => {
-          if (getState('network.appRole') !== 'idle' || getState('setup.sessionStarted')) return;
-          void warmStandardRoomPrerequisites();
-        },
-        { timeout: WARMUP_IDLE_TIMEOUT_MS },
-      );
-      return;
-    }
-    window.setTimeout(() => {
-      if (getState('network.appRole') !== 'idle' || getState('setup.sessionStarted')) return;
-      void warmStandardRoomPrerequisites();
-    }, 250);
-  };
-
-  window.requestAnimationFrame(() => window.requestAnimationFrame(afterPaint));
+  const controller = new AbortController();
+  warmupIntentController = controller;
+  const options = { capture: true, passive: true, signal: controller.signal } as const;
+  document.addEventListener('pointerover', beginWarmupFromSetupIntent, options);
+  document.addEventListener('pointerdown', beginWarmupFromSetupIntent, options);
+  document.addEventListener('focusin', beginWarmupFromSetupIntent, options);
 }
 
 export const __standardRoomPrerequisitesForTests = {
@@ -292,6 +292,8 @@ export const __standardRoomPrerequisitesForTests = {
   reset(): void {
     cachedTurnCredentials = null;
     turnCredentialsRequest = null;
+    warmupIntentController?.abort();
+    warmupIntentController = null;
     warmupScheduled = false;
     document.head.querySelector(`link[${PRECONNECT_MARKER}]`)?.remove();
   },

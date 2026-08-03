@@ -36,13 +36,15 @@ afterEach(() => {
 });
 
 describe('account identity room projection', () => {
-  it('refreshes the signed signaling identity once a standard room starts', () => {
+  it('refreshes the signed signaling identity once a standard room starts', async () => {
     authenticate();
     const refreshStandardRoomIdentity = vi.fn(async () => {});
     setPeer({ refreshStandardRoomIdentity } as unknown as PeerInstance);
     initAccountRoomIdentity();
 
     setState('setup.sessionStarted', true);
+    bus.emit('setup:guest-join-success');
+    await Promise.resolve();
 
     expect(refreshStandardRoomIdentity).toHaveBeenCalledOnce();
   });
@@ -66,7 +68,7 @@ describe('account identity room projection', () => {
     expect(refreshStandardRoomIdentity).not.toHaveBeenCalled();
   });
 
-  it('refreshes even when the visible nickname is unchanged so the lease stays live', () => {
+  it('refreshes even when the visible nickname is unchanged so the lease stays live', async () => {
     authenticate();
     setState('network.myDeviceLabel', 'Minsu');
     setState('setup.sessionStarted', true);
@@ -74,8 +76,55 @@ describe('account identity room projection', () => {
     setPeer({ refreshStandardRoomIdentity } as unknown as PeerInstance);
 
     initAccountRoomIdentity();
+    await Promise.resolve();
 
     expect(refreshStandardRoomIdentity).toHaveBeenCalledOnce();
+  });
+
+  it('ignores an unchanged account-session publish but refreshes a changed projection', async () => {
+    authenticate();
+    setState('setup.sessionStarted', true);
+    const refreshStandardRoomIdentity = vi.fn(async () => {});
+    setPeer({ refreshStandardRoomIdentity } as unknown as PeerInstance);
+    initAccountRoomIdentity();
+    await Promise.resolve();
+    refreshStandardRoomIdentity.mockClear();
+
+    authenticate();
+    await Promise.resolve();
+    expect(refreshStandardRoomIdentity).not.toHaveBeenCalled();
+
+    authenticate('Jisu');
+    await Promise.resolve();
+    expect(refreshStandardRoomIdentity).toHaveBeenCalledOnce();
+  });
+
+  it('coalesces concurrent assertion requests for the same room identity', async () => {
+    authenticate();
+    const input = { roomCode: '123456', peerId: 'guest-a', role: 'guest' as const };
+    let resolveAssertion!: (value: { accountAssertion: string; deletionAssertion: null }) => void;
+    const request = vi
+      .spyOn(accountApi, 'getStandardRoomIdentityAssertions')
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveAssertion = resolve;
+          }),
+      );
+
+    const first = requestStandardRoomAccountAssertion(input);
+    const second = requestStandardRoomAccountAssertion(input);
+    expect(request).toHaveBeenCalledOnce();
+
+    resolveAssertion({ accountAssertion: 'signed-assertion', deletionAssertion: null });
+    await expect(first).resolves.toEqual({
+      accountAssertion: 'signed-assertion',
+      deletionAssertion: null,
+    });
+    await expect(second).resolves.toEqual({
+      accountAssertion: 'signed-assertion',
+      deletionAssertion: null,
+    });
   });
 
   it('clears on authoritative 401 but retains only through transient auth outages', async () => {

@@ -15,7 +15,7 @@ import {
 } from '../contracts.ts';
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
-import { joinProRoom } from '../runtime.ts';
+import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
 
 const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_lease_1';
@@ -181,6 +181,9 @@ describe.sequential('PRO runtime account identity lease', () => {
     );
     vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(initial);
     vi.spyOn(ProRoomApiClient.prototype, 'attachCurrentAccount').mockResolvedValue(initial);
+    vi.spyOn(ProRoomApiClient.prototype, 'renewCurrentAccountLease').mockImplementation(
+      async () => ({ leaseExpiresAtMs: Date.now() + 120_000 }),
+    );
     vi.spyOn(ProRoomApiClient.prototype, 'getSettingsSync').mockResolvedValue({
       schemaVersion: 1,
       view: 'settings-sync',
@@ -228,7 +231,7 @@ describe.sequential('PRO runtime account identity lease', () => {
     vi.useRealTimers();
   });
 
-  it('renews at 40 seconds, refreshes on visibility, and fails account authority closed', async () => {
+  it('renews at 60 seconds, refreshes on visibility, and fails account authority closed', async () => {
     const renew = vi
       .spyOn(ProRoomApiClient.prototype, 'renewCurrentAccountLease')
       .mockResolvedValueOnce({ leaseExpiresAtMs: Date.now() + 120_000 })
@@ -239,7 +242,7 @@ describe.sequential('PRO runtime account identity lease', () => {
     expect(ProRoomApiClient.prototype.attachCurrentAccount).toHaveBeenCalledOnce();
     expect(getState('room.context').capabilities).toContain('queue.mutate');
 
-    await vi.advanceTimersByTimeAsync(39_999);
+    await vi.advanceTimersByTimeAsync(59_999);
     expect(renew).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
     expect(renew).toHaveBeenCalledTimes(1);
@@ -253,6 +256,81 @@ describe.sequential('PRO runtime account identity lease', () => {
 
     await vi.waitFor(() => expect(renew).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(getState('room.context').capabilities).toEqual([]));
+  });
+
+  it('does not let unchanged account-session focus publications starve renewal', async () => {
+    const renew = vi.mocked(ProRoomApiClient.prototype.renewCurrentAccountLease);
+    const attach = vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount);
+    const lifecycleStartedAtMs = Date.now();
+    const advanceTo = async (elapsedMs: number) => {
+      const remainingMs = elapsedMs - (Date.now() - lifecycleStartedAtMs);
+      expect(remainingMs).toBeGreaterThanOrEqual(0);
+      await vi.advanceTimersByTimeAsync(remainingMs);
+    };
+    const republishUnchangedSession = () =>
+      applyAccountSession({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Minsu', profileComplete: true },
+        statsScope: 's'.repeat(43),
+      });
+
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    await vi.waitFor(() => expect(attach).toHaveBeenCalledOnce());
+    renew.mockClear();
+
+    await advanceTo(30_000);
+    republishUnchangedSession();
+    await advanceTo(50_000);
+    republishUnchangedSession();
+    await advanceTo(59_999);
+
+    expect(renew).not.toHaveBeenCalled();
+    expect(attach).toHaveBeenCalledOnce();
+
+    await advanceTo(60_000);
+    await vi.waitFor(() => expect(renew).toHaveBeenCalledOnce());
+    expect(attach).toHaveBeenCalledOnce();
+  });
+
+  it('keeps an in-flight renewal across identical publications but reacts to a new session fence', async () => {
+    const pendingRenewal = deferred<{ leaseExpiresAtMs: number }>();
+    const renew = vi.mocked(ProRoomApiClient.prototype.renewCurrentAccountLease);
+    renew.mockReturnValueOnce(pendingRenewal.promise);
+    const attach = vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount);
+    const lifecycleStartedAtMs = Date.now();
+    const advanceTo = async (elapsedMs: number) => {
+      const remainingMs = elapsedMs - (Date.now() - lifecycleStartedAtMs);
+      expect(remainingMs).toBeGreaterThanOrEqual(0);
+      await vi.advanceTimersByTimeAsync(remainingMs);
+    };
+    const publishSession = (statsScope: string) =>
+      applyAccountSession({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Minsu', profileComplete: true },
+        statsScope,
+      });
+
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    await vi.waitFor(() => expect(attach).toHaveBeenCalledOnce());
+    await advanceTo(60_000);
+    expect(renew).toHaveBeenCalledOnce();
+
+    publishSession('s'.repeat(43));
+    pendingRenewal.resolve({ leaseExpiresAtMs: Date.now() + 90_000 });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // The accepted server expiry schedules the next pass 30 seconds later. If
+    // the unchanged publish had invalidated the flight, it would slip to 60s.
+    await advanceTo(89_999);
+    expect(renew).toHaveBeenCalledOnce();
+    await advanceTo(90_000);
+    await vi.waitFor(() => expect(renew).toHaveBeenCalledTimes(2));
+
+    publishSession('t'.repeat(43));
+    await vi.waitFor(() => expect(attach).toHaveBeenCalledTimes(2));
   });
 
   it('does not gate room entry on optional initial adjunct reads', async () => {
@@ -276,6 +354,60 @@ describe.sequential('PRO runtime account identity lease', () => {
       expect.any(AbortSignal),
     );
     expect(getState('network.isConnecting')).toBe(false);
+  });
+
+  it('uses realtime invalidation plus a one-minute system-audio safety read', async () => {
+    const refresh = vi.mocked(ProRoomApiClient.prototype.getSystemAudioState);
+
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+
+    // Presence still heartbeats every 15 seconds, but a healthy system-audio
+    // resource is no longer fetched alongside every heartbeat.
+    await vi.advanceTimersByTimeAsync(45_000);
+    expect(refresh).toHaveBeenCalledOnce();
+
+    acceptProRoomRealtimeFrameForTests({
+      type: 'pro-server-event',
+      version: 1,
+      roomCode: ROOM_CODE,
+      coordinatorEpoch: 1,
+      event: { type: 'system-audio-invalidated', generation: 1 },
+    });
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(refresh).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(3));
+  });
+
+  it('rechecks system-audio promptly after a known preparing lease expires', async () => {
+    const refresh = vi.mocked(ProRoomApiClient.prototype.getSystemAudioState);
+    refresh
+      .mockResolvedValueOnce({
+        generation: 1,
+        status: 'preparing',
+        ownerParticipantId: 'participant_remote_audio',
+        claimExpiresAt: Date.now() + 20_000,
+        liveExpiresAt: null,
+        publication: null,
+      })
+      .mockResolvedValue({
+        generation: 2,
+        status: 'idle',
+        ownerParticipantId: null,
+        claimExpiresAt: null,
+        liveExpiresAt: null,
+        publication: null,
+      });
+
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(refresh).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
   });
 
   it('publishes unchanged heartbeat directories zero times and real changes once', async () => {
@@ -593,7 +725,7 @@ describe.sequential('PRO runtime account identity lease', () => {
     await vi.waitFor(() =>
       expect(ProRoomApiClient.prototype.attachCurrentAccount).toHaveBeenCalledOnce(),
     );
-    await vi.advanceTimersByTimeAsync(40_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(renew).toHaveBeenCalledOnce();
 
     setAccountAnonymous(true);
@@ -619,7 +751,7 @@ describe.sequential('PRO runtime account identity lease', () => {
       .mockResolvedValue({ leaseExpiresAtMs: Date.now() + 120_000 });
 
     await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
-    await vi.advanceTimersByTimeAsync(40_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(renew).toHaveBeenCalledTimes(1);
 
     requestProRoomLeave();
@@ -632,13 +764,13 @@ describe.sequential('PRO runtime account identity lease', () => {
     vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount).mockResolvedValueOnce(nextSnapshot);
     vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(nextSnapshot);
     await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
-    await vi.advanceTimersByTimeAsync(40_000);
+    await vi.advanceTimersByTimeAsync(60_000);
     expect(renew).toHaveBeenCalledTimes(2);
 
     oldRenewal.resolve({ leaseExpiresAtMs: Date.now() + 120_000 });
     await Promise.resolve();
     await Promise.resolve();
-    await vi.advanceTimersByTimeAsync(40_000);
+    await vi.advanceTimersByTimeAsync(60_000);
 
     // The second incarnation still owns the unresolved single flight. The old
     // finally must neither clear it nor schedule a third competing renewal.

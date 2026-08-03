@@ -4057,9 +4057,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.14');
-    expect(html).toContain('/admin.js?v=8.3.14');
-    expect(html).toContain('data-admin-asset-version="8.3.14"');
+    expect(html).toContain('/admin.css?v=8.3.15');
+    expect(html).toContain('/admin.js?v=8.3.15');
+    expect(html).toContain('data-admin-asset-version="8.3.15"');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
     expect(html).toContain('data-admin-tab="pro-rooms"');
     expect(html).toContain('data-pro-room-form');
@@ -4076,7 +4076,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.3.14', '/admin.css?v=8.3.14']) {
+    for (const path of ['/admin.js?v=8.3.15', '/admin.css?v=8.3.15']) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');

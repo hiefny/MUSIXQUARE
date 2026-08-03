@@ -24,6 +24,7 @@ vi.mock('../transport/config.ts', () => ({
 import {
   __standardRoomPrerequisitesForTests,
   getStandardRoomTurnCredentials,
+  scheduleStandardRoomPrerequisiteWarmup,
 } from '../standard-room-prerequisites.ts';
 
 type Deferred<T> = {
@@ -62,6 +63,7 @@ beforeEach(() => {
 
 afterEach(() => {
   __standardRoomPrerequisitesForTests.reset();
+  document.body.replaceChildren();
   vi.useRealTimers();
 });
 
@@ -155,5 +157,37 @@ describe('standard-room prerequisite cache', () => {
     expect(preconnect?.href).toBe('https://signal.musixquare.com/');
     expect(mocks.warmCapabilitySilently).toHaveBeenCalledWith('/api/get-turn-config', ['turn']);
     expect(mocks.fetchWithCapability).not.toHaveBeenCalled();
+  });
+
+  it('does not warm an idle page and starts one shared warmup on setup intent', async () => {
+    document.body.innerHTML = `
+      <button id="unrelated">Settings</button>
+      <button id="btn-setup-host">Create room</button>
+    `;
+
+    scheduleStandardRoomPrerequisiteWarmup();
+    await Promise.resolve();
+    expect(mocks.warmCapabilitySilently).not.toHaveBeenCalled();
+    expect(mocks.fetchWithCapability).not.toHaveBeenCalled();
+    expect(document.head.querySelector('link[data-mxqr-standard-signaling-preconnect]')).toBeNull();
+
+    document
+      .getElementById('unrelated')
+      ?.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    await Promise.resolve();
+    expect(mocks.warmCapabilitySilently).not.toHaveBeenCalled();
+
+    document
+      .getElementById('btn-setup-host')
+      ?.dispatchEvent(new Event('pointerover', { bubbles: true }));
+    await vi.waitFor(() => expect(mocks.fetchWithCapability).toHaveBeenCalledOnce());
+    expect(mocks.warmCapabilitySilently).toHaveBeenCalledOnce();
+
+    document
+      .getElementById('btn-setup-host')
+      ?.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    await Promise.resolve();
+    expect(mocks.warmCapabilitySilently).toHaveBeenCalledOnce();
+    expect(mocks.fetchWithCapability).toHaveBeenCalledOnce();
   });
 });

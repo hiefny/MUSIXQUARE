@@ -3,6 +3,8 @@ import type { AccountSnapshot } from '../../account/state.ts';
 import { ProRoomApiError } from '../api.ts';
 import {
   classifyProAccountIdentityLeaseFailure,
+  getProAccountIdentityLeaseRenewDelayMs,
+  getProAccountIdentityLeaseRetryDelayMs,
   planProAccountIdentityLease,
   PRO_ACCOUNT_IDENTITY_LEASE_RENEW_INTERVAL_MS,
 } from '../account-lease-policy.ts';
@@ -14,9 +16,23 @@ const authenticated: AccountSnapshot = {
 };
 
 describe('PRO account identity lease policy', () => {
-  it('renews a normal signed-in room identity every 40 seconds', () => {
-    expect(PRO_ACCOUNT_IDENTITY_LEASE_RENEW_INTERVAL_MS).toBe(40_000);
+  it('renews a normal signed-in room identity roughly halfway through its server lease', () => {
+    expect(PRO_ACCOUNT_IDENTITY_LEASE_RENEW_INTERVAL_MS).toBe(60_000);
+    expect(getProAccountIdentityLeaseRenewDelayMs(1_000_000, 1_120_000)).toBe(60_000);
+    expect(getProAccountIdentityLeaseRenewDelayMs(1_000_000, 1_090_000)).toBe(30_000);
+    expect(getProAccountIdentityLeaseRenewDelayMs(1_000_000, null)).toBe(60_000);
     expect(planProAccountIdentityLease(authenticated, { isAuthenticated: true })).toBe('renew');
+  });
+
+  it('clamps clock-skewed expiries and bounds transient retries before expiry', () => {
+    expect(getProAccountIdentityLeaseRenewDelayMs(1_000_000, 2_000_000)).toBe(60_000);
+    expect(getProAccountIdentityLeaseRenewDelayMs(1_000_000, 1_010_000)).toBe(5_000);
+
+    expect(getProAccountIdentityLeaseRetryDelayMs(0, 1_000_000, 1_120_000)).toBe(5_000);
+    expect(getProAccountIdentityLeaseRetryDelayMs(1, 1_005_000, 1_120_000)).toBe(15_000);
+    expect(getProAccountIdentityLeaseRetryDelayMs(2, 1_020_000, 1_120_000)).toBe(30_000);
+    expect(getProAccountIdentityLeaseRetryDelayMs(3, 1_050_000, 1_120_000)).toBeNull();
+    expect(getProAccountIdentityLeaseRetryDelayMs(2, 1_090_000, 1_120_000)).toBeNull();
   });
 
   it('reattaches a still-signed-in account after background lease expiry', () => {

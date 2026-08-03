@@ -693,7 +693,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     }
   });
 
-  it('hydrates a newly-added BOT target before reporting PREPARE readiness', async () => {
+  it('hydrates a newly-added BOT target without re-fetching unrelated system audio', async () => {
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     const systemAudio = vi.mocked(ProRoomApiClient.prototype.getSystemAudioState);
     await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
@@ -715,7 +715,6 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       ],
     };
     heartbeat.mockResolvedValue(hydrated);
-    systemAudio.mockImplementationOnce(() => new Promise(() => {}));
     prepareMedia.mockImplementationOnce(async (request): Promise<ProPlaybackPrepareResult> => {
       expect(
         getState('playlist.items').some((item) => item.queueItemId === ADDED_QUEUE_ITEM_ID),
@@ -742,7 +741,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
 
     await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
     expect(heartbeat).toHaveBeenCalled();
-    expect(systemAudio).toHaveBeenCalled();
+    expect(systemAudio).not.toHaveBeenCalled();
     expect(prepareMedia).toHaveBeenCalledWith(
       expect.objectContaining({
         queueItemId: ADDED_QUEUE_ITEM_ID,
@@ -756,7 +755,7 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     );
   });
 
-  it('hydrates a BOT target even when an older heartbeat adjunct refresh never settles', async () => {
+  it('hydrates a BOT target even when an independent system-audio refresh never settles', async () => {
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     const systemAudio = vi.mocked(ProRoomApiClient.prototype.getSystemAudioState);
     await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
@@ -781,13 +780,18 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     heartbeat.mockResolvedValueOnce(snapshot()).mockResolvedValue(hydrated);
     systemAudio.mockImplementationOnce(() => new Promise(() => {}));
 
-    // Start one routine heartbeat first. Its system-audio adjunct remains
-    // pending forever, but must no longer occupy the heartbeat single-flight.
+    // A realtime invalidation owns the independent system-audio refresh. Even
+    // if that read never settles, it must not occupy the heartbeat flight used
+    // to hydrate a just-added playlist row.
+    acceptProRoomRealtimeFrameForTests(
+      serverFrame({ type: 'system-audio-invalidated', generation: 1 }),
+    );
+    await vi.waitFor(() => expect(systemAudio).toHaveBeenCalledOnce());
+
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
     );
     await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
-    await vi.waitFor(() => expect(systemAudio).toHaveBeenCalledOnce());
 
     const event = {
       ...prepareEvent(TRANSITION_READY),

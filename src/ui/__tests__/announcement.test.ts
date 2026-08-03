@@ -29,6 +29,7 @@ async function flushAnnouncementCheck(): Promise<void> {
 describe('announcement polling', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    vi.clearAllMocks();
     vi.setSystemTime(new Date('2026-06-22T08:00:00.000Z'));
     resetState();
     bus.clear();
@@ -90,7 +91,7 @@ describe('announcement polling', () => {
       },
     ]);
 
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
     await flushAnnouncementCheck();
 
     expect(showToast).toHaveBeenCalledWith('New announcement.\nCheck the chat panel.', {
@@ -105,7 +106,7 @@ describe('announcement polling', () => {
       {
         sender: 'MUSIXQUARE',
         text: 'Maintenance is live now.',
-        timestamp: new Date('2026-06-22T08:01:00.000Z').getTime(),
+        timestamp: new Date('2026-06-22T08:05:00.000Z').getTime(),
       },
     ]);
     expect(localStorage.getItem('musixquare-seen-announcement-id')).toBeNull();
@@ -135,5 +136,49 @@ describe('announcement polling', () => {
     await flushAnnouncementCheck();
 
     expect(notices).toEqual([]);
+  });
+
+  it('polls only while visible and checks immediately when the room returns to foreground', async () => {
+    let visibility: DocumentVisibilityState = 'hidden';
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        Response.json({ enabled: true, id: 'announcement-1', message: 'Initial notice' }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ enabled: true, id: 'announcement-2', message: 'Foreground notice' }),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const notices: string[] = [];
+    bus.on('chat:notice-message', (_sender, text) => notices.push(text));
+
+    const { initAnnouncementPolling } = await import('../announcement.ts');
+    initAnnouncementPolling();
+    setState('network.appRole', 'guest');
+    await flushAnnouncementCheck();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    visibility = 'visible';
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.waitFor(() => expect(notices).toEqual(['Initial notice']));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const { showToast } = await import('../toast.ts');
+    expect(showToast).not.toHaveBeenCalled();
+
+    visibility = 'hidden';
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    visibility = 'visible';
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.waitFor(() => expect(notices).toEqual(['Initial notice', 'Foreground notice']));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(showToast).toHaveBeenCalledOnce();
   });
 });

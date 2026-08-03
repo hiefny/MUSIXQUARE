@@ -4,10 +4,17 @@ import { batchSetState, getState, setState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { t } from '../i18n/index.ts';
-import { getAccountSnapshot, subscribeAccount } from '../account/state.ts';
+import {
+  getAccountSnapshot,
+  getAccountStatsScope,
+  subscribeAccount,
+  type AccountSnapshot,
+} from '../account/state.ts';
 import { ProRoomAccountReconciler } from './account-reconciliation.ts';
 import {
   classifyProAccountIdentityLeaseFailure,
+  getProAccountIdentityLeaseRenewDelayMs,
+  getProAccountIdentityLeaseRetryDelayMs,
   planProAccountIdentityLease,
   PRO_ACCOUNT_IDENTITY_LEASE_RENEW_INTERVAL_MS,
 } from './account-lease-policy.ts';
@@ -78,6 +85,7 @@ import type {
   ProRoomPresenceParticipant,
   ProRoomR2Source,
   ProRoomSnapshot,
+  ProRoomSystemAudioState,
 } from './contracts.ts';
 import { queueModeMatchesPlaylist, type ProRoomQueueModeSnapshot } from './queue-mode.ts';
 import { rebaseRoomSettingsIntent } from './effects-reconciliation.ts';
@@ -163,6 +171,10 @@ import {
 } from './system-audio-service.ts';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
+const SYSTEM_AUDIO_SAFETY_REFRESH_INTERVAL_MS = 60_000;
+const SYSTEM_AUDIO_REFRESH_RETRY_MS = 15_000;
+const SYSTEM_AUDIO_EXPIRY_RECHECK_GRACE_MS = 1_000;
+const SYSTEM_AUDIO_SAFETY_REFRESH_TIMER = 'pro-room-system-audio-safety-refresh';
 const VISIBILITY_PLAYBACK_RECOVERY_RETRY_MS = [1_000, 3_000, 10_000, 15_000] as const;
 const VISIBILITY_PLAYBACK_RECOVERY_TIMER = 'pro-room-visibility-playback-recovery';
 const PLAYBACK_RECONCILIATION_CLOCK_WAIT_MS = 1_000;
@@ -224,8 +236,12 @@ let terminalRecoveryInFlight = false;
 let controlChannelRecoveryAttempt = 0;
 let accountAuthorityFailClosed = false;
 let accountLeaseRenewalOwner: symbol | null = null;
+let accountIdentityLeaseExpiresAtMs: number | null = null;
+let accountIdentityLeaseRetryAttempt = 0;
 /** Invalidates lease responses issued for an older App-account projection. */
 let accountIdentityGeneration = 0;
+let acceptedAccountIdentityProjectionKey = proAccountIdentityProjectionKey(getAccountSnapshot());
+let systemAudioSafetyRefreshAtMs = 0;
 const heartbeatSingleFlight = new ProRoomHeartbeatSingleFlight();
 const playlistProjectionListeners = new Set<() => void>();
 let acceptedProPresence:
@@ -3582,6 +3598,9 @@ function stopLifecycle(): void {
   accountIdentityGeneration += 1;
   accountAuthorityFailClosed = false;
   accountLeaseRenewalOwner = null;
+  accountIdentityLeaseExpiresAtMs = null;
+  accountIdentityLeaseRetryAttempt = 0;
+  systemAudioSafetyRefreshAtMs = 0;
   unregisterPlaybackCommandHandler?.();
   unregisterPlaybackCommandHandler = null;
   if (activeServerPlaybackTransition) {
@@ -3599,6 +3618,7 @@ function stopLifecycle(): void {
   clearManagedTimer(HEARTBEAT_TIMER);
   clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
   clearManagedTimer(ACCOUNT_IDENTITY_LEASE_TIMER);
+  clearManagedTimer(SYSTEM_AUDIO_SAFETY_REFRESH_TIMER);
   clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
 }
 
@@ -3800,6 +3820,60 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
   }
 }
 
+function nextSystemAudioSafetyRefreshAtMs(state: ProRoomSystemAudioState, nowMs: number): number {
+  const fallbackAtMs = nowMs + SYSTEM_AUDIO_SAFETY_REFRESH_INTERVAL_MS;
+  const expiresAtMs =
+    state.status === 'preparing'
+      ? state.claimExpiresAt
+      : state.status === 'live'
+        ? state.liveExpiresAt
+        : null;
+  // Re-read shortly after a known ownership fence expires so a lost realtime
+  // invalidation cannot strand the old owner in this tab. A past timestamp can
+  // also be simple client clock skew, so retain the one-minute fallback rather
+  // than turning it into a request loop.
+  if (expiresAtMs === null || expiresAtMs <= nowMs) return fallbackAtMs;
+  return Math.min(fallbackAtMs, expiresAtMs + SYSTEM_AUDIO_EXPIRY_RECHECK_GRACE_MS);
+}
+
+async function refreshSystemAudioState(force = false): Promise<void> {
+  const lease = playlistRuntimeLease;
+  if (!active || !lease) return;
+  const startedAtMs = Date.now();
+  if (!force && systemAudioSafetyRefreshAtMs > startedAtMs) return;
+
+  // Throttle repeated event/timer callers before entering the service's
+  // single-flight. A transient failure gets a bounded 15-second retry; a
+  // healthy response installs the longer safety/expiry deadline below.
+  clearManagedTimer(SYSTEM_AUDIO_SAFETY_REFRESH_TIMER);
+  systemAudioSafetyRefreshAtMs = startedAtMs + SYSTEM_AUDIO_REFRESH_RETRY_MS;
+  try {
+    const state = await refreshProSystemAudioState();
+    if (!active || !isPlaylistLeaseCurrent(lease)) return;
+    scheduleSystemAudioSafetyRefresh(nextSystemAudioSafetyRefreshAtMs(state, Date.now()));
+  } catch (error) {
+    if (active && isPlaylistLeaseCurrent(lease)) {
+      scheduleSystemAudioSafetyRefresh(Date.now() + SYSTEM_AUDIO_REFRESH_RETRY_MS);
+    }
+    throw error;
+  }
+}
+
+function scheduleSystemAudioSafetyRefresh(refreshAtMs: number): void {
+  if (!active) return;
+  systemAudioSafetyRefreshAtMs = refreshAtMs;
+  clearManagedTimer(SYSTEM_AUDIO_SAFETY_REFRESH_TIMER);
+  setManagedTimer(
+    SYSTEM_AUDIO_SAFETY_REFRESH_TIMER,
+    () => {
+      void refreshSystemAudioState().catch((error) => {
+        log.warn('[PRO] System-audio safety refresh failed', error);
+      });
+    },
+    Math.max(0, refreshAtMs - Date.now()),
+  );
+}
+
 function refreshHeartbeatAdjunctState(snapshot: ProRoomSnapshot): void {
   if (
     !acceptedEffects ||
@@ -3822,11 +3896,6 @@ function refreshHeartbeatAdjunctState(snapshot: ProRoomSnapshot): void {
       log.warn('[PRO] Queue mode refresh failed', error);
     });
   }
-  void refreshProSystemAudioState().catch((error) => {
-    // The media lease is intentionally independent from presence. A transient
-    // state refresh must not tear down a healthy room.
-    log.warn('[PRO] System-audio state refresh failed', error);
-  });
   void restorePersistedPlayback(snapshot).catch((error) => {
     log.warn('[PRO] Server playback reconciliation failed', error);
     bus.emit('ui:show-toast', t('pro.resume_tap'));
@@ -3930,13 +3999,18 @@ function beginControlChannelRecovery(): Promise<void> {
   return runControlChannelRecovery();
 }
 
-function scheduleAccountIdentityLeaseRenewal(): void {
+function scheduleAccountIdentityLeaseRenewal(delayMs?: number | null): void {
   if (!active) return;
   clearManagedTimer(ACCOUNT_IDENTITY_LEASE_TIMER);
+  const resolvedDelayMs =
+    delayMs === undefined
+      ? getProAccountIdentityLeaseRenewDelayMs(Date.now(), accountIdentityLeaseExpiresAtMs)
+      : delayMs;
+  if (resolvedDelayMs === null) return;
   setManagedTimer(
     ACCOUNT_IDENTITY_LEASE_TIMER,
     () => void renewAccountIdentityLease(),
-    PRO_ACCOUNT_IDENTITY_LEASE_RENEW_INTERVAL_MS,
+    resolvedDelayMs,
   );
 }
 
@@ -3950,6 +4024,8 @@ async function renewAccountIdentityLease(): Promise<void> {
   }
   const action = planProAccountIdentityLease(account, snapshot.viewer);
   if (action === 'none') {
+    accountIdentityLeaseExpiresAtMs = null;
+    accountIdentityLeaseRetryAttempt = 0;
     scheduleAccountIdentityLeaseRenewal();
     return;
   }
@@ -3957,6 +4033,8 @@ async function renewAccountIdentityLease(): Promise<void> {
     // A backgrounded document can outlive the server lease. The persistent
     // account member remains in the room, so a normal signed attachment
     // restores this device without touching playback or other participants.
+    accountIdentityLeaseExpiresAtMs = null;
+    accountIdentityLeaseRetryAttempt = 0;
     accountReconciler.update(account);
     scheduleAccountIdentityLeaseRenewal();
     return;
@@ -3966,9 +4044,22 @@ async function renewAccountIdentityLease(): Promise<void> {
   const sessionLease = controller.captureSessionLease();
   const identityGeneration = accountIdentityGeneration;
   const renewalOwner = Symbol('account-identity-lease-renewal');
+  let nextRenewalDelayMs: number | null | undefined;
   accountLeaseRenewalOwner = renewalOwner;
   try {
-    await api.renewCurrentAccountLease(roomCode);
+    const renewed = await api.renewCurrentAccountLease(roomCode);
+    if (
+      identityGeneration !== accountIdentityGeneration ||
+      !controller.isSessionLeaseCurrent(sessionLease, roomCode)
+    ) {
+      return;
+    }
+    accountIdentityLeaseExpiresAtMs = renewed.leaseExpiresAtMs;
+    accountIdentityLeaseRetryAttempt = 0;
+    nextRenewalDelayMs = getProAccountIdentityLeaseRenewDelayMs(
+      Date.now(),
+      renewed.leaseExpiresAtMs,
+    );
   } catch (error) {
     if (
       identityGeneration !== accountIdentityGeneration ||
@@ -3983,6 +4074,8 @@ async function renewAccountIdentityLease(): Promise<void> {
     }
     if (failure === 'reattach') {
       accountAuthorityFailClosed = true;
+      accountIdentityLeaseExpiresAtMs = null;
+      accountIdentityLeaseRetryAttempt = 0;
       const context = controller.context;
       if (active && context) applyAuthority(context);
       accountReconciler.update(account);
@@ -3994,6 +4087,9 @@ async function renewAccountIdentityLease(): Promise<void> {
       // the Worker lease independently removes server authority within its
       // bounded window even if this tab never receives a cross-tab event.
       accountAuthorityFailClosed = true;
+      accountIdentityLeaseExpiresAtMs = null;
+      accountIdentityLeaseRetryAttempt = 0;
+      nextRenewalDelayMs = null;
       const context = controller.context;
       if (active && context) applyAuthority(context);
       return;
@@ -4002,6 +4098,16 @@ async function renewAccountIdentityLease(): Promise<void> {
     // failures cannot extend it and the next heartbeat will accept the
     // server-side anonymous downgrade after expiry.
     log.warn('[PRO] Account identity lease renewal deferred', error);
+    const shortRetryDelayMs = getProAccountIdentityLeaseRetryDelayMs(
+      accountIdentityLeaseRetryAttempt,
+      Date.now(),
+      accountIdentityLeaseExpiresAtMs,
+    );
+    // Once the short retry budget is exhausted, fall back to a quiet recovery
+    // cadence. The Worker lease still expires fail-closed; this later pass only
+    // notices the anonymous projection and reattaches if App auth recovered.
+    nextRenewalDelayMs = shortRetryDelayMs ?? PRO_ACCOUNT_IDENTITY_LEASE_RENEW_INTERVAL_MS;
+    accountIdentityLeaseRetryAttempt += 1;
   } finally {
     // stopLifecycle() deliberately clears ownership so a new room incarnation
     // can renew immediately. A late finally from the old request must not
@@ -4009,7 +4115,7 @@ async function renewAccountIdentityLease(): Promise<void> {
     if (accountLeaseRenewalOwner === renewalOwner) {
       accountLeaseRenewalOwner = null;
       if (controller.isSessionLeaseCurrent(sessionLease, roomCode)) {
-        scheduleAccountIdentityLeaseRenewal();
+        scheduleAccountIdentityLeaseRenewal(nextRenewalDelayMs);
       }
     }
   }
@@ -4130,6 +4236,14 @@ function bindVisibilityRefresh(): void {
       void recoverVisibleProRoomPlayback();
     } else {
       void runHeartbeat();
+    }
+    // WebKit may suspend timeout delivery for a long background interval.
+    // Reconcile an overdue safety read immediately on foreground resume while
+    // preserving the realtime-first path during normal visible operation.
+    if (systemAudioSafetyRefreshAtMs <= Date.now()) {
+      void refreshSystemAudioState().catch((error) => {
+        log.warn('[PRO] Foreground system-audio safety refresh failed', error);
+      });
     }
     clearManagedTimer(ACCOUNT_IDENTITY_LEASE_TIMER);
     void renewAccountIdentityLease();
@@ -4275,7 +4389,7 @@ async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSna
   });
   const pendingTransition = bridge.consumePendingPlaybackTransition();
   if (pendingTransition) acceptPlaybackPrepare(pendingTransition);
-  void refreshProSystemAudioState().catch((error) => {
+  void refreshSystemAudioState(true).catch((error) => {
     log.warn('[PRO] Initial system-audio state refresh failed', error);
   });
   if (!pendingTransition) {
@@ -4445,9 +4559,30 @@ for (const event of ['state:playlist.repeatMode', 'state:playlist.isShuffle'] as
 }
 bus.on('playlist:shuffle-order-changed', () => scheduleQueueModeCheckpoint());
 
+function proAccountIdentityProjectionKey(snapshot: Readonly<AccountSnapshot>): string {
+  if (snapshot.status === 'authenticated' && snapshot.account) {
+    return JSON.stringify([
+      'authenticated',
+      getAccountStatsScope(),
+      snapshot.account.nickname,
+      snapshot.account.profileComplete,
+    ]);
+  }
+  return JSON.stringify([snapshot.status, snapshot.configured]);
+}
+
 subscribeAccount((snapshot) => {
+  const projectionKey = proAccountIdentityProjectionKey(snapshot);
+  // `/api/auth/session` can publish the same profile on every foreground
+  // refresh. Treat that as lease observation, not an authority transition: it
+  // must neither abort an in-flight renewal nor keep postponing the timer.
+  if (projectionKey === acceptedAccountIdentityProjectionKey) return;
+  acceptedAccountIdentityProjectionKey = projectionKey;
   accountIdentityGeneration += 1;
+  accountIdentityLeaseExpiresAtMs = null;
+  accountIdentityLeaseRetryAttempt = 0;
   accountReconciler.update(snapshot);
+  if (active) scheduleAccountIdentityLeaseRenewal();
 });
 
 for (const event of [
@@ -4575,7 +4710,7 @@ function acceptProRoomRealtimeFrame(
     return;
   }
   if (frame.event.type === 'system-audio-invalidated') {
-    void refreshProSystemAudioState().catch((error) => {
+    void refreshSystemAudioState(true).catch((error) => {
       log.warn('[PRO] Realtime system-audio refresh failed', error);
     });
   }

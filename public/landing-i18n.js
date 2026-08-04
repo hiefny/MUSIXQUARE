@@ -13,7 +13,7 @@
     en: {
       'meta.title': 'About · MUSIXQUARE',
       'meta.description':
-        'MUSIXQUARE turns every phone, tablet, and laptop in the room into a single synchronized sound system. Browser-native. No install.',
+        'MUSIXQUARE turns multiple phones, tablets, and laptops into one synchronized sound system. Browser-native. No install.',
       'meta.og_title': 'About · MUSIXQUARE',
       'meta.og_description': 'Every device, one system. Multi-device synchronized audio, no install.',
       'meta.og_image_alt': 'MUSIXQUARE: Every device, one system.',
@@ -26,7 +26,7 @@
 
       'hero.h1': 'Every device,<br>one system.',
       'hero.lead':
-        'MUSIXQUARE turns every phone, tablet, and laptop in the room into a single synchronized sound system. No install, one room code.',
+        'MUSIXQUARE turns multiple phones, tablets, and laptops into one sound system. No installation—just share one code.',
       'hero.btn_ghost': 'How it works',
 
       'array.h2': 'Surround, without<br>surround speakers.',
@@ -45,7 +45,7 @@
       'remote.h2': 'Not in the room?<br>No problem.',
       'remote.lead': 'Chat, listen to music, or watch YouTube together, even from across town.',
       'remote.chat_label': 'Chat',
-      'remote.chat_value': 'Realtime text, no limits',
+      'remote.chat_value': 'Real-time chat',
       'remote.whisper_label': 'Whisper',
       'remote.whisper_value': 'Private 1:1 messages',
       'remote.cowatch_label': 'Co-watch',
@@ -76,7 +76,7 @@
       'sync.platforms_label': 'Platforms',
       'sync.platforms_value': 'iOS · Android · macOS · Windows',
       'sync.host_label': 'Host',
-      'sync.meta': 'NTP style sync with 60 samples',
+      'sync.meta': '60-sample NTP-style sync',
 
       'standin.h2': 'No speakers on<br>your computer?',
       'standin.lead':
@@ -104,7 +104,7 @@
     ko: {
       'meta.title': 'MUSIXQUARE 소개',
       'meta.description':
-        'MUSIXQUARE는 같은 방의 폰, 태블릿, 노트북을 하나의 동기화된 사운드 시스템으로 만들어요. 브라우저에서 바로, 설치 없이.',
+        'MUSIXQUARE는 여러 개의 폰, 태블릿, 노트북을 하나의 동기화된 사운드 시스템으로 만들어요. 브라우저에서 바로, 설치 없이.',
       'meta.og_title': 'MUSIXQUARE 소개',
       'meta.og_description': '모든 기기, 하나의 시스템. 여러 기기 동기 재생, 설치 없이.',
       'meta.og_image_alt': 'MUSIXQUARE: 모든 기기, 하나의 시스템.',
@@ -117,7 +117,7 @@
 
       'hero.h1': '모든 기기를<br>하나의 시스템으로',
       'hero.lead':
-        '뮤직스퀘어는 같은 공간에 있는 모든 폰, 태블릿, 노트북을 하나의 사운드 시스템으로 묶어줘요. 설치 없이 코드 하나만 공유하면 돼요.',
+        '뮤직스퀘어는 여러 개의 폰, 태블릿, 노트북을 하나의 사운드 시스템으로 묶어줘요. 설치 없이 코드 하나만 공유하면 돼요.',
       'hero.btn_ghost': '자세히 보기',
 
       'array.h2': '서라운드 스피커 없이<br>서라운드 사운드 만들기',
@@ -135,7 +135,7 @@
       'remote.h2': '같은 공간이 아니어도<br>괜찮아요',
       'remote.lead': '멀리 떨어져 있어도 채팅하면서 음악을 듣거나 유튜브를 볼 수 있어요.',
       'remote.chat_label': '채팅',
-      'remote.chat_value': '제한 없는 실시간 텍스트 채팅',
+      'remote.chat_value': '실시간 채팅',
       'remote.whisper_label': '귓속말',
       'remote.whisper_value': '1:1 비공개 메시지',
       'remote.cowatch_label': '함께 보기',
@@ -165,7 +165,7 @@
       'sync.platforms_label': '플랫폼',
       'sync.platforms_value': 'iOS · Android · macOS · Windows',
       'sync.host_label': 'HOST',
-      'sync.meta': '60개 샘플 수집 후 NTP 방식 동기화',
+      'sync.meta': '60샘플 NTP 방식 동기화',
 
       'standin.h2': '혹시 컴퓨터에<br>스피커가 없다면',
       'standin.lead': '뮤직스퀘어가 좋은 임시방편이 될 수 있어요. 가방 속 폰과 태블릿이면 충분해요.',
@@ -197,7 +197,7 @@
   addLang('ja', {
     'meta.title': 'MUSIXQUAREについて',
     'meta.description':
-      'MUSIXQUAREは、同じ空間にあるスマートフォン、タブレット、ノートPCをひとつのサウンドシステムにつなげます。インストールは不要。コードを共有するだけで始められます。',
+      'MUSIXQUAREは、複数のスマートフォン、タブレット、ノートPCをひとつの同期サウンドシステムにつなげます。ブラウザですぐ使えて、インストールは不要です。',
     'meta.og_title': 'MUSIXQUAREについて',
     'meta.og_description': 'すべての端末を、ひとつの音へ。インストール不要のマルチデバイス同期オーディオ。',
     'meta.og_image_alt': 'MUSIXQUARE: すべての端末を、ひとつの音へ。',
@@ -208,7 +208,7 @@
     'header.try_aria': 'MUSIXQUAREを今すぐ試す',
     'hero.h1': 'すべての端末を<br>ひとつの音へ',
     'hero.lead':
-      'MUSIXQUAREは、同じ空間にあるスマートフォン、タブレット、ノートPCをひとつのサウンドシステムにつなげます。インストールは不要。コードを共有するだけで始められます。',
+      'MUSIXQUAREは、複数のスマートフォン、タブレット、ノートPCをひとつのサウンドシステムにつなげます。インストール不要。コードをひとつ共有するだけです。',
     'hero.btn_ghost': 'しくみを見る',
     'array.h2': 'サラウンドスピーカーなしで<br>サラウンドを',
     'array.lead':
@@ -224,7 +224,7 @@
     'remote.h2': '同じ場所にいなくても<br>大丈夫',
     'remote.lead': '離れていても、チャットしながら音楽を聴いたりYouTubeを一緒に見たりできます。',
     'remote.chat_label': 'チャット',
-    'remote.chat_value': '制限のないリアルタイムテキスト',
+    'remote.chat_value': 'リアルタイムチャット',
     'remote.whisper_label': 'ウィスパー',
     'remote.whisper_value': '1対1のプライベートメッセージ',
     'remote.cowatch_label': '一緒に視聴',
@@ -253,7 +253,7 @@
     'sync.platforms_label': 'プラットフォーム',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'HOST',
-    'sync.meta': '60サンプルを使ったNTP方式の同期',
+    'sync.meta': '60サンプルのNTP方式同期',
     'standin.h2': 'パソコンに<br>スピーカーがないときは',
     'standin.lead': 'MUSIXQUAREが手軽な代わりになります。バッグの中のスマートフォンとタブレットがあれば十分です。',
     'standin.aria': 'ミュートされたパソコンの下に、左右のスピーカーとして動作する2台のスマートフォン',
@@ -275,7 +275,7 @@
 
   addLang('zh-hans', {
     'meta.title': '关于 MUSIXQUARE',
-    'meta.description': 'MUSIXQUARE 可把同一空间里的手机、平板和笔记本变成一个同步的声音系统。直接在浏览器中使用，无需安装。',
+    'meta.description': 'MUSIXQUARE 可把多台手机、平板和笔记本电脑变成一套同步音响系统。直接在浏览器中使用，无需安装。',
     'meta.og_title': '关于 MUSIXQUARE',
     'meta.og_description': '所有设备，一个系统。无需安装的多设备同步音频。',
     'meta.og_image_alt': 'MUSIXQUARE：所有设备，一个系统。',
@@ -285,7 +285,7 @@
     'header.try': '立即试用',
     'header.try_aria': '立即试用 MUSIXQUARE',
     'hero.h1': '所有设备<br>组成一个系统',
-    'hero.lead': 'MUSIXQUARE 可以把同一空间里的手机、平板和笔记本连接成一个声音系统。无需安装，只要分享一个代码。',
+    'hero.lead': 'MUSIXQUARE 可以把多台手机、平板和笔记本电脑连成一套音响系统。无需安装，只要分享一个代码。',
     'hero.btn_ghost': '查看工作方式',
     'array.h2': '没有环绕音箱<br>也能做出环绕声',
     'array.lead': '每台设备都可以扮演左、右、低音炮或完整立体声的角色。整个房间都能变成一套声音系统。',
@@ -300,7 +300,7 @@
     'remote.h2': '不在同一个空间<br>也没关系',
     'remote.lead': '即使相隔很远，也可以一边聊天，一边听音乐或一起看 YouTube。',
     'remote.chat_label': '聊天',
-    'remote.chat_value': '不设限制的实时文字聊天',
+    'remote.chat_value': '实时聊天',
     'remote.whisper_label': '私聊',
     'remote.whisper_value': '1:1 私密消息',
     'remote.cowatch_label': '一起看',
@@ -329,7 +329,7 @@
     'sync.platforms_label': '平台',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'HOST',
-    'sync.meta': '基于 60 个样本的 NTP 式同步',
+    'sync.meta': '60 个样本的 NTP 方式同步',
     'standin.h2': '电脑没有<br>扬声器？',
     'standin.lead': 'MUSIXQUARE 可以临时顶上。包里的手机和平板就足够开始。',
     'standin.aria': '静音电脑下方有两部手机，分别作为左右扬声器工作',
@@ -351,7 +351,7 @@
 
   addLang('zh-hant', {
     'meta.title': '關於 MUSIXQUARE',
-    'meta.description': 'MUSIXQUARE 可將同一空間裡的手機、平板與筆電變成一套同步的聲音系統。直接在瀏覽器使用，無需安裝。',
+    'meta.description': 'MUSIXQUARE 可將多部手機、平板與筆電變成一套同步音響系統。直接在瀏覽器使用，無需安裝。',
     'meta.og_title': '關於 MUSIXQUARE',
     'meta.og_description': '所有裝置，一套系統。無需安裝的多裝置同步音訊。',
     'meta.og_image_alt': 'MUSIXQUARE：所有裝置，一套系統。',
@@ -361,7 +361,7 @@
     'header.try': '立即試用',
     'header.try_aria': '立即試用 MUSIXQUARE',
     'hero.h1': '所有裝置<br>變成一套系統',
-    'hero.lead': 'MUSIXQUARE 可以把同一空間裡的手機、平板與筆電連成一套聲音系統。無需安裝，只要分享一組代碼。',
+    'hero.lead': 'MUSIXQUARE 可以把多部手機、平板和筆電連成一套音響系統。無需安裝，只要分享一組代碼。',
     'hero.btn_ghost': '查看運作方式',
     'array.h2': '不用環繞喇叭<br>也能做出環繞音效',
     'array.lead': '每台裝置都能扮演左、右、重低音或完整立體聲的角色。整個房間都能變成一套聲音系統。',
@@ -376,7 +376,7 @@
     'remote.h2': '不在同一個空間<br>也沒關係',
     'remote.lead': '即使距離很遠，也可以邊聊天邊聽音樂，或一起看 YouTube。',
     'remote.chat_label': '聊天',
-    'remote.chat_value': '不限量即時文字聊天',
+    'remote.chat_value': '即時聊天',
     'remote.whisper_label': '私訊',
     'remote.whisper_value': '1:1 私密訊息',
     'remote.cowatch_label': '一起看',
@@ -405,7 +405,7 @@
     'sync.platforms_label': '平台',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'HOST',
-    'sync.meta': '基於 60 個樣本的 NTP 式同步',
+    'sync.meta': '60 個樣本的 NTP 方式同步',
     'standin.h2': '電腦沒有<br>喇叭嗎？',
     'standin.lead': 'MUSIXQUARE 可以暫時補上。包包裡的手機和平板就足夠開始。',
     'standin.aria': '靜音電腦下方有兩支手機，分別作為左右喇叭運作',
@@ -428,7 +428,7 @@
   addLang('es', {
     'meta.title': 'Acerca de MUSIXQUARE',
     'meta.description':
-      'MUSIXQUARE convierte los teléfonos, tablets y laptops de una sala en un único sistema de sonido sincronizado. Funciona en el navegador, sin instalar nada.',
+      'MUSIXQUARE convierte varios teléfonos, tablets y laptops en un único sistema de sonido sincronizado. Funciona en el navegador, sin instalar nada.',
     'meta.og_title': 'Acerca de MUSIXQUARE',
     'meta.og_description': 'Todos los dispositivos, un solo sistema. Audio sincronizado entre varios dispositivos, sin instalación.',
     'meta.og_image_alt': 'MUSIXQUARE: todos los dispositivos, un solo sistema.',
@@ -439,7 +439,7 @@
     'header.try_aria': 'Probar MUSIXQUARE ahora',
     'hero.h1': 'Todos los dispositivos<br>un solo sistema',
     'hero.lead':
-      'MUSIXQUARE reúne los teléfonos, tablets y laptops de un mismo espacio en un sistema de sonido. Sin instalación: solo comparte un código.',
+      'MUSIXQUARE reúne teléfonos, tablets y laptops en un solo sistema de sonido. Sin instalación: solo comparte un código.',
     'hero.btn_ghost': 'Ver cómo funciona',
     'array.h2': 'Sonido envolvente<br>sin altavoces envolventes',
     'array.lead':
@@ -455,7 +455,7 @@
     'remote.h2': 'Aunque no estén juntos<br>no hay problema',
     'remote.lead': 'Pueden chatear, escuchar música o ver YouTube juntos incluso a distancia.',
     'remote.chat_label': 'Chat',
-    'remote.chat_value': 'Texto en tiempo real sin límites',
+    'remote.chat_value': 'Chat en tiempo real',
     'remote.whisper_label': 'Privado',
     'remote.whisper_value': 'Mensajes 1:1 privados',
     'remote.cowatch_label': 'Ver juntos',
@@ -484,7 +484,7 @@
     'sync.platforms_label': 'Plataformas',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'HOST',
-    'sync.meta': 'Sincronización estilo NTP con 60 muestras',
+    'sync.meta': 'Sincronización tipo NTP con 60 muestras',
     'standin.h2': '¿Tu computadora<br>no tiene altavoces?',
     'standin.lead': 'MUSIXQUARE puede sacarte del apuro. Con un teléfono y una tablet en la mochila alcanza para empezar.',
     'standin.aria': 'Computadora silenciada sobre dos teléfonos activos que funcionan como altavoces izquierdo y derecho',
@@ -507,7 +507,7 @@
   addLang('pt-br', {
     'meta.title': 'Sobre o MUSIXQUARE',
     'meta.description':
-      'O MUSIXQUARE transforma celulares, tablets e notebooks no mesmo ambiente em um sistema de som sincronizado. Funciona direto no navegador, sem instalação.',
+      'O MUSIXQUARE transforma vários celulares, tablets e notebooks em um sistema de som sincronizado. Funciona direto no navegador, sem instalação.',
     'meta.og_title': 'Sobre o MUSIXQUARE',
     'meta.og_description': 'Todos os dispositivos, um só sistema. Áudio sincronizado em vários dispositivos, sem instalar nada.',
     'meta.og_image_alt': 'MUSIXQUARE: todos os dispositivos, um só sistema.',
@@ -518,7 +518,7 @@
     'header.try_aria': 'Testar o MUSIXQUARE agora',
     'hero.h1': 'Todos os dispositivos<br>um só sistema',
     'hero.lead':
-      'O MUSIXQUARE junta celulares, tablets e notebooks no mesmo espaço em um sistema de som. Sem instalação: é só compartilhar um código.',
+      'O MUSIXQUARE junta celulares, tablets e notebooks em um só sistema de som. Sem instalação: é só compartilhar um código.',
     'hero.btn_ghost': 'Ver como funciona',
     'array.h2': 'Som surround<br>sem caixas surround',
     'array.lead': 'Cada dispositivo pode assumir o papel de esquerda, direita, subwoofer ou estéreo completo. O ambiente vira o sistema.',
@@ -533,7 +533,7 @@
     'remote.h2': 'Mesmo longe<br>tudo bem',
     'remote.lead': 'Dá para conversar, ouvir música ou assistir YouTube junto mesmo à distância.',
     'remote.chat_label': 'Chat',
-    'remote.chat_value': 'Texto em tempo real sem limites',
+    'remote.chat_value': 'Chat em tempo real',
     'remote.whisper_label': 'Privado',
     'remote.whisper_value': 'Mensagens privadas 1:1',
     'remote.cowatch_label': 'Assistir junto',
@@ -562,7 +562,7 @@
     'sync.platforms_label': 'Plataformas',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'HOST',
-    'sync.meta': 'Sincronização estilo NTP com 60 amostras',
+    'sync.meta': 'Sincronização tipo NTP com 60 amostras',
     'standin.h2': 'Seu computador<br>não tem caixas de som?',
     'standin.lead': 'O MUSIXQUARE resolve na hora. Um celular e um tablet na mochila já bastam para começar.',
     'standin.aria': 'Computador sem som acima de dois celulares ativos funcionando como caixas esquerda e direita',
@@ -585,7 +585,7 @@
   addLang('fr', {
     'meta.title': 'À propos de MUSIXQUARE',
     'meta.description':
-      'MUSIXQUARE transforme les téléphones, tablettes et ordinateurs portables d’un même espace en un système audio synchronisé. Tout se fait dans le navigateur, sans installation.',
+      'MUSIXQUARE transforme plusieurs téléphones, tablettes et ordinateurs portables en un système audio synchronisé. Tout se fait dans le navigateur, sans installation.',
     'meta.og_title': 'À propos de MUSIXQUARE',
     'meta.og_description': 'Tous les appareils, un seul système. Audio synchronisé sur plusieurs appareils, sans installation.',
     'meta.og_image_alt': 'MUSIXQUARE : tous les appareils, un seul système.',
@@ -596,7 +596,7 @@
     'header.try_aria': 'Essayer MUSIXQUARE maintenant',
     'hero.h1': 'Tous les appareils<br>un seul système',
     'hero.lead':
-      'MUSIXQUARE relie les téléphones, tablettes et ordinateurs portables d’un même espace pour en faire un système audio. Aucune installation : il suffit de partager un code.',
+      'MUSIXQUARE réunit plusieurs téléphones, tablettes et ordinateurs portables en un seul système audio. Aucune installation : il suffit de partager un code.',
     'hero.btn_ghost': 'Voir comment ça marche',
     'array.h2': 'Du surround<br>sans enceintes surround',
     'array.lead': 'Chaque appareil peut jouer le rôle de gauche, droite, caisson de basse ou stéréo complète. La pièce devient le système.',
@@ -611,7 +611,7 @@
     'remote.h2': 'Pas dans la même pièce ?<br>Aucun souci',
     'remote.lead': 'Vous pouvez discuter, écouter de la musique ou regarder YouTube ensemble, même à distance.',
     'remote.chat_label': 'Chat',
-    'remote.chat_value': 'Texte en temps réel, sans limite',
+    'remote.chat_value': 'Chat en temps réel',
     'remote.whisper_label': 'Privé',
     'remote.whisper_value': 'Messages privés en 1:1',
     'remote.cowatch_label': 'Regarder ensemble',
@@ -663,7 +663,7 @@
   addLang('de', {
     'meta.title': 'Über MUSIXQUARE',
     'meta.description':
-      'MUSIXQUARE macht Smartphones, Tablets und Laptops im selben Raum zu einem synchronisierten Soundsystem. Direkt im Browser, ohne Installation.',
+      'MUSIXQUARE macht mehrere Smartphones, Tablets und Laptops zu einem synchronisierten Soundsystem. Direkt im Browser, ohne Installation.',
     'meta.og_title': 'Über MUSIXQUARE',
     'meta.og_description': 'Alle Geräte, ein System. Synchrones Audio über mehrere Geräte, ohne Installation.',
     'meta.og_image_alt': 'MUSIXQUARE: Alle Geräte, ein System.',
@@ -674,7 +674,7 @@
     'header.try_aria': 'MUSIXQUARE jetzt ausprobieren',
     'hero.h1': 'Alle Geräte<br>ein System',
     'hero.lead':
-      'MUSIXQUARE verbindet Smartphones, Tablets und Laptops im selben Raum zu einem Soundsystem. Keine Installation, nur einen Code teilen.',
+      'MUSIXQUARE verbindet mehrere Smartphones, Tablets und Laptops zu einem Soundsystem. Keine Installation, einfach einen Code teilen.',
     'hero.btn_ghost': 'So funktioniert es',
     'array.h2': 'Surround-Sound<br>ohne Surround-Lautsprecher',
     'array.lead': 'Jedes Gerät übernimmt eine Rolle: links, rechts, Subwoofer oder volles Stereo. Der ganze Raum wird zum System.',
@@ -689,7 +689,7 @@
     'remote.h2': 'Nicht im selben Raum?<br>Kein Problem',
     'remote.lead': 'Chatten, Musik hören oder YouTube gemeinsam ansehen, auch wenn ihr nicht am selben Ort seid.',
     'remote.chat_label': 'Chat',
-    'remote.chat_value': 'Echtzeit-Text ohne Limit',
+    'remote.chat_value': 'Echtzeit-Chat',
     'remote.whisper_label': 'Privat',
     'remote.whisper_value': 'Private 1:1-Nachrichten',
     'remote.cowatch_label': 'Gemeinsam schauen',
@@ -741,7 +741,7 @@
   addLang('nl', {
     'meta.title': 'Over MUSIXQUARE',
     'meta.description':
-      'MUSIXQUARE maakt van telefoons, tablets en laptops in dezelfde ruimte één gesynchroniseerd geluidssysteem. Direct in de browser, zonder installatie.',
+      'MUSIXQUARE maakt van meerdere telefoons, tablets en laptops één gesynchroniseerd geluidssysteem. Direct in de browser, zonder installatie.',
     'meta.og_title': 'Over MUSIXQUARE',
     'meta.og_description':
       'Alle apparaten, één systeem. Gesynchroniseerde audio op meerdere apparaten, zonder installatie.',
@@ -753,7 +753,7 @@
     'header.try_aria': 'MUSIXQUARE nu proberen',
     'hero.h1': 'Alle apparaten<br>één systeem',
     'hero.lead':
-      'MUSIXQUARE verbindt telefoons, tablets en laptops in dezelfde ruimte tot één geluidssysteem. Geen installatie: deel alleen een code.',
+      'MUSIXQUARE verbindt meerdere telefoons, tablets en laptops tot één geluidssysteem. Geen installatie: deel gewoon één code.',
     'hero.btn_ghost': 'Zo werkt het',
     'array.h2': 'Surroundgeluid<br>zonder surroundspeakers',
     'array.lead':
@@ -772,7 +772,7 @@
     'remote.lead':
       'Chat, luister naar muziek of kijk samen naar YouTube, zelfs als je niet op dezelfde plek bent.',
     'remote.chat_label': 'Chat',
-    'remote.chat_value': 'Realtime tekst, zonder limiet',
+    'remote.chat_value': 'Realtimechat',
     'remote.whisper_label': 'Privé',
     'remote.whisper_value': 'Privéberichten één-op-één',
     'remote.cowatch_label': 'Samen kijken',
@@ -829,7 +829,7 @@
   addLang('it', {
     'meta.title': 'Informazioni su MUSIXQUARE',
     'meta.description':
-      'MUSIXQUARE trasforma telefoni, tablet e laptop nello stesso spazio in un sistema audio sincronizzato. Funziona nel browser, senza installazione.',
+      'MUSIXQUARE trasforma più telefoni, tablet e laptop in un sistema audio sincronizzato. Funziona nel browser, senza installazione.',
     'meta.og_title': 'Informazioni su MUSIXQUARE',
     'meta.og_description': 'Tutti i dispositivi, un solo sistema. Audio sincronizzato su più dispositivi, senza installazione.',
     'meta.og_image_alt': 'MUSIXQUARE: tutti i dispositivi, un solo sistema.',
@@ -840,7 +840,7 @@
     'header.try_aria': 'Prova MUSIXQUARE ora',
     'hero.h1': 'Ogni dispositivo<br>un solo sistema',
     'hero.lead':
-      'MUSIXQUARE collega telefoni, tablet e laptop nello stesso spazio e li trasforma in un sistema audio. Nessuna installazione: basta condividere un codice.',
+      'MUSIXQUARE collega più telefoni, tablet e laptop in un unico sistema audio. Nessuna installazione: basta condividere un codice.',
     'hero.btn_ghost': 'Scopri come funziona',
     'array.h2': 'Surround<br>senza casse surround',
     'array.lead':
@@ -856,7 +856,7 @@
     'remote.h2': 'Non siete nello stesso posto?<br>Nessun problema',
     'remote.lead': 'Potete chattare, ascoltare musica o guardare YouTube insieme anche a distanza.',
     'remote.chat_label': 'Chat',
-    'remote.chat_value': 'Testo in tempo reale senza limiti',
+    'remote.chat_value': 'Chat in tempo reale',
     'remote.whisper_label': 'Privato',
     'remote.whisper_value': 'Messaggi privati 1:1',
     'remote.cowatch_label': 'Guarda insieme',
@@ -885,7 +885,7 @@
     'sync.platforms_label': 'Piattaforme',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'HOST',
-    'sync.meta': 'Sincronizzazione stile NTP con 60 campioni',
+    'sync.meta': 'Sincronizzazione tipo NTP con 60 campioni',
     'standin.h2': 'Il computer<br>non ha altoparlanti?',
     'standin.lead': 'MUSIXQUARE può essere una soluzione veloce. Bastano un telefono e un tablet nella borsa.',
     'standin.aria': 'Computer silenziato sopra due telefoni attivi usati come altoparlanti sinistro e destro',
@@ -908,7 +908,7 @@
   addLang('pl', {
     'meta.title': 'O MUSIXQUARE',
     'meta.description':
-      'MUSIXQUARE zmienia telefony, tablety i laptopy w tym samym miejscu w zsynchronizowany system dźwiękowy. Działa w przeglądarce, bez instalacji.',
+      'MUSIXQUARE zmienia wiele telefonów, tabletów i laptopów w zsynchronizowany system dźwiękowy. Działa w przeglądarce, bez instalacji.',
     'meta.og_title': 'O MUSIXQUARE',
     'meta.og_description': 'Wszystkie urządzenia, jeden system. Synchronizowany dźwięk na wielu urządzeniach, bez instalacji.',
     'meta.og_image_alt': 'MUSIXQUARE: wszystkie urządzenia, jeden system.',
@@ -919,7 +919,7 @@
     'header.try_aria': 'Wypróbuj MUSIXQUARE teraz',
     'hero.h1': 'Każde urządzenie<br>jeden system',
     'hero.lead':
-      'MUSIXQUARE łączy telefony, tablety i laptopy w tym samym miejscu w jeden system audio. Bez instalacji: wystarczy udostępnić kod.',
+      'MUSIXQUARE łączy wiele telefonów, tabletów i laptopów w jeden system audio. Bez instalacji: wystarczy udostępnić kod.',
     'hero.btn_ghost': 'Zobacz, jak to działa',
     'array.h2': 'Dźwięk surround<br>bez głośników surround',
     'array.lead': 'Każde urządzenie może pełnić jedną rolę: lewy, prawy, subwoofer albo pełne stereo. Cały pokój staje się systemem.',
@@ -934,7 +934,7 @@
     'remote.h2': 'Nie jesteście w jednym miejscu?<br>Żaden problem',
     'remote.lead': 'Możecie czatować, słuchać muzyki albo oglądać YouTube razem, nawet z daleka.',
     'remote.chat_label': 'Czat',
-    'remote.chat_value': 'Tekst w czasie rzeczywistym bez limitu',
+    'remote.chat_value': 'Czat w czasie rzeczywistym',
     'remote.whisper_label': 'Prywatnie',
     'remote.whisper_value': 'Prywatne wiadomości 1:1',
     'remote.cowatch_label': 'Wspólne oglądanie',
@@ -963,7 +963,7 @@
     'sync.platforms_label': 'Platformy',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'HOST',
-    'sync.meta': 'Synchronizacja w stylu NTP na podstawie 60 próbek',
+    'sync.meta': 'Synchronizacja typu NTP z 60 próbkami',
     'standin.h2': 'Komputer<br>nie ma głośników?',
     'standin.lead': 'MUSIXQUARE może szybko pomóc. Wystarczy telefon i tablet z torby.',
     'standin.aria': 'Wyciszony komputer nad dwoma aktywnymi telefonami pełniącymi rolę lewego i prawego głośnika',
@@ -987,7 +987,7 @@
   addLang('ru', {
     'meta.title': 'О MUSIXQUARE',
     'meta.description':
-      'MUSIXQUARE превращает телефоны, планшеты и ноутбуки в одном пространстве в синхронизированную аудиосистему. Работает прямо в браузере, без установки.',
+      'MUSIXQUARE превращает несколько телефонов, планшетов и ноутбуков в синхронизированную аудиосистему. Работает прямо в браузере, без установки.',
     'meta.og_title': 'О MUSIXQUARE',
     'meta.og_description': 'Все устройства, одна система. Синхронный звук на нескольких устройствах, без установки.',
     'meta.og_image_alt': 'MUSIXQUARE: все устройства, одна система.',
@@ -998,7 +998,7 @@
     'header.try_aria': 'Попробовать MUSIXQUARE',
     'hero.h1': 'Все устройства<br>одна система',
     'hero.lead':
-      'MUSIXQUARE объединяет телефоны, планшеты и ноутбуки в одном пространстве в единую аудиосистему. Без установки: просто поделитесь кодом.',
+      'MUSIXQUARE объединяет несколько телефонов, планшетов и ноутбуков в единую аудиосистему. Без установки: просто поделитесь одним кодом.',
     'hero.btn_ghost': 'Как это работает',
     'array.h2': 'Объёмный звук<br>без surround-колонок',
     'array.lead': 'Каждое устройство может взять на себя одну роль: левый, правый, сабвуфер или полноценное стерео. Вся комната становится системой.',
@@ -1013,7 +1013,7 @@
     'remote.h2': 'Не в одной комнате?<br>Ничего страшного',
     'remote.lead': 'Можно переписываться, слушать музыку или вместе смотреть YouTube даже на расстоянии.',
     'remote.chat_label': 'Чат',
-    'remote.chat_value': 'Текст в реальном времени без лимитов',
+    'remote.chat_value': 'Чат в реальном времени',
     'remote.whisper_label': 'Лично',
     'remote.whisper_value': 'Приватные сообщения 1:1',
     'remote.cowatch_label': 'Смотреть вместе',
@@ -1066,7 +1066,7 @@
   addLang('tr', {
     'meta.title': 'MUSIXQUARE Hakkında',
     'meta.description':
-      'MUSIXQUARE aynı ortamdaki telefonları, tabletleri ve dizüstü bilgisayarları senkronize bir ses sistemine dönüştürür. Tarayıcıda çalışır, kurulum gerekmez.',
+      'MUSIXQUARE birden fazla telefonu, tableti ve dizüstü bilgisayarı senkronize bir ses sistemine dönüştürür. Tarayıcıda çalışır, kurulum gerekmez.',
     'meta.og_title': 'MUSIXQUARE Hakkında',
     'meta.og_description': 'Tüm cihazlar, tek sistem. Kurulum gerektirmeyen çok cihazlı senkron ses.',
     'meta.og_image_alt': 'MUSIXQUARE: tüm cihazlar, tek sistem.',
@@ -1077,7 +1077,7 @@
     'header.try_aria': 'MUSIXQUARE’i hemen dene',
     'hero.h1': 'Her cihaz<br>tek sistem',
     'hero.lead':
-      'MUSIXQUARE aynı alandaki telefonları, tabletleri ve dizüstü bilgisayarları tek bir ses sisteminde birleştirir. Kurulum yok; sadece bir kod paylaş.',
+      'MUSIXQUARE birden fazla telefonu, tableti ve dizüstü bilgisayarı tek bir ses sisteminde birleştirir. Kurulum yok; tek bir kod paylaşman yeterli.',
     'hero.btn_ghost': 'Nasıl çalışır',
     'array.h2': 'Surround hoparlör olmadan<br>surround ses',
     'array.lead': 'Her cihaz sol, sağ, subwoofer veya tam stereo rolünü üstlenebilir. Odanın tamamı sisteme dönüşür.',
@@ -1092,7 +1092,7 @@
     'remote.h2': 'Aynı yerde değil misiniz?<br>Sorun değil',
     'remote.lead': 'Uzakta olsanız bile sohbet edebilir, müzik dinleyebilir veya YouTube’u birlikte izleyebilirsiniz.',
     'remote.chat_label': 'Sohbet',
-    'remote.chat_value': 'Sınırsız gerçek zamanlı metin',
+    'remote.chat_value': 'Gerçek zamanlı sohbet',
     'remote.whisper_label': 'Özel',
     'remote.whisper_value': '1:1 özel mesajlar',
     'remote.cowatch_label': 'Birlikte izle',
@@ -1121,7 +1121,7 @@
     'sync.platforms_label': 'Platformlar',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'HOST',
-    'sync.meta': '60 örnekle NTP tarzı senkronizasyon',
+    'sync.meta': '60 örnekli NTP tarzı senkronizasyon',
     'standin.h2': 'Bilgisayarında<br>hoparlör yok mu?',
     'standin.lead': 'MUSIXQUARE hızlı bir çözüm olabilir. Çantandaki telefon ve tablet başlamak için yeterli.',
     'standin.aria': 'Sesi kapalı bilgisayarın altında sol ve sağ hoparlör görevi gören iki aktif telefon',
@@ -1145,7 +1145,7 @@
   addLang('id', {
     'meta.title': 'Tentang MUSIXQUARE',
     'meta.description':
-      'MUSIXQUARE mengubah ponsel, tablet, dan laptop di tempat yang sama menjadi sistem suara tersinkron. Langsung dari browser, tanpa instalasi.',
+      'MUSIXQUARE mengubah beberapa ponsel, tablet, dan laptop menjadi sistem suara tersinkron. Langsung dari browser, tanpa instalasi.',
     'meta.og_title': 'Tentang MUSIXQUARE',
     'meta.og_description': 'Semua perangkat, satu sistem. Audio tersinkron di banyak perangkat, tanpa instalasi.',
     'meta.og_image_alt': 'MUSIXQUARE: semua perangkat, satu sistem.',
@@ -1156,7 +1156,7 @@
     'header.try_aria': 'Coba MUSIXQUARE sekarang',
     'hero.h1': 'Semua perangkat<br>satu sistem',
     'hero.lead':
-      'MUSIXQUARE menghubungkan ponsel, tablet, dan laptop di ruang yang sama menjadi satu sistem suara. Tanpa instalasi: cukup bagikan satu kode.',
+      'MUSIXQUARE menghubungkan beberapa ponsel, tablet, dan laptop menjadi satu sistem suara. Tanpa instalasi: cukup bagikan satu kode.',
     'hero.btn_ghost': 'Lihat cara kerjanya',
     'array.h2': 'Suara surround<br>tanpa speaker surround',
     'array.lead': 'Setiap perangkat bisa menjadi kiri, kanan, subwoofer, atau stereo penuh. Seluruh ruangan menjadi sistemnya.',
@@ -1171,7 +1171,7 @@
     'remote.h2': 'Tidak di tempat yang sama?<br>Tidak masalah',
     'remote.lead': 'Tetap bisa chat, mendengarkan musik, atau menonton YouTube bersama dari jauh.',
     'remote.chat_label': 'Chat',
-    'remote.chat_value': 'Teks real-time tanpa batas',
+    'remote.chat_value': 'Chat real-time',
     'remote.whisper_label': 'Privat',
     'remote.whisper_value': 'Pesan privat 1:1',
     'remote.cowatch_label': 'Nonton bareng',
@@ -1200,7 +1200,7 @@
     'sync.platforms_label': 'Platform',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'HOST',
-    'sync.meta': 'Sinkronisasi gaya NTP dengan 60 sampel',
+    'sync.meta': 'Sinkronisasi gaya NTP, 60 sampel',
     'standin.h2': 'Komputer kamu<br>tidak punya speaker?',
     'standin.lead': 'MUSIXQUARE bisa jadi solusi cepat. Ponsel dan tablet di tas sudah cukup untuk mulai.',
     'standin.aria': 'Komputer tanpa suara di atas dua ponsel aktif yang berperan sebagai speaker kiri dan kanan',
@@ -1223,7 +1223,7 @@
   addLang('vi', {
     'meta.title': 'Giới thiệu MUSIXQUARE',
     'meta.description':
-      'MUSIXQUARE biến điện thoại, máy tính bảng và laptop trong cùng một không gian thành hệ thống âm thanh đồng bộ. Chạy ngay trong trình duyệt, không cần cài đặt.',
+      'MUSIXQUARE biến nhiều điện thoại, máy tính bảng và laptop thành một hệ thống âm thanh đồng bộ. Chạy ngay trong trình duyệt, không cần cài đặt.',
     'meta.og_title': 'Giới thiệu MUSIXQUARE',
     'meta.og_description': 'Mọi thiết bị, một hệ thống. Âm thanh đồng bộ trên nhiều thiết bị, không cần cài đặt.',
     'meta.og_image_alt': 'MUSIXQUARE: mọi thiết bị, một hệ thống.',
@@ -1234,7 +1234,7 @@
     'header.try_aria': 'Thử MUSIXQUARE ngay',
     'hero.h1': 'Mọi thiết bị<br>một hệ thống',
     'hero.lead':
-      'MUSIXQUARE kết nối điện thoại, máy tính bảng và laptop trong cùng một không gian thành một hệ thống âm thanh. Không cần cài đặt: chỉ cần chia sẻ mã.',
+      'MUSIXQUARE kết nối nhiều điện thoại, máy tính bảng và laptop thành một hệ thống âm thanh. Không cần cài đặt: chỉ cần chia sẻ một mã.',
     'hero.btn_ghost': 'Xem cách hoạt động',
     'array.h2': 'Âm thanh surround<br>không cần loa surround',
     'array.lead': 'Mỗi thiết bị có thể đảm nhận vai trò trái, phải, subwoofer hoặc stereo đầy đủ. Cả căn phòng trở thành hệ thống.',
@@ -1249,7 +1249,7 @@
     'remote.h2': 'Không ở cùng một nơi?<br>Không sao',
     'remote.lead': 'Bạn vẫn có thể trò chuyện, nghe nhạc hoặc xem YouTube cùng nhau dù đang ở xa.',
     'remote.chat_label': 'Chat',
-    'remote.chat_value': 'Tin nhắn thời gian thực không giới hạn',
+    'remote.chat_value': 'Trò chuyện thời gian thực',
     'remote.whisper_label': 'Tin riêng',
     'remote.whisper_value': 'Tin nhắn riêng 1:1',
     'remote.cowatch_label': 'Xem cùng nhau',
@@ -1278,7 +1278,7 @@
     'sync.platforms_label': 'Nền tảng',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'HOST',
-    'sync.meta': 'Đồng bộ kiểu NTP với 60 mẫu đo',
+    'sync.meta': 'Đồng bộ kiểu NTP với 60 mẫu',
     'standin.h2': 'Máy tính của bạn<br>không có loa?',
     'standin.lead': 'MUSIXQUARE có thể là giải pháp nhanh. Chỉ cần điện thoại và máy tính bảng trong túi là đủ bắt đầu.',
     'standin.aria': 'Máy tính tắt tiếng nằm phía trên hai điện thoại đang hoạt động như loa trái và phải',
@@ -1301,7 +1301,7 @@
   addLang('th', {
     'meta.title': 'เกี่ยวกับ MUSIXQUARE',
     'meta.description':
-      'MUSIXQUARE รวมโทรศัพท์ แท็บเล็ต และแล็ปท็อปในพื้นที่เดียวกันให้เป็นระบบเสียงที่ซิงก์กัน ใช้งานผ่านเบราว์เซอร์ ไม่ต้องติดตั้ง',
+      'MUSIXQUARE รวมอุปกรณ์หลายเครื่อง ทั้งโทรศัพท์ แท็บเล็ต และแล็ปท็อป ให้ซิงก์กันเป็นระบบเสียงเดียว ใช้งานผ่านเบราว์เซอร์ ไม่ต้องติดตั้ง',
     'meta.og_title': 'เกี่ยวกับ MUSIXQUARE',
     'meta.og_description': 'ทุกอุปกรณ์เป็นระบบเดียวกัน เสียงซิงก์กันบนหลายอุปกรณ์โดยไม่ต้องติดตั้ง',
     'meta.og_image_alt': 'MUSIXQUARE: ทุกอุปกรณ์เป็นระบบเดียวกัน',
@@ -1311,7 +1311,7 @@
     'header.try': 'ลองใช้เลย',
     'header.try_aria': 'ลองใช้ MUSIXQUARE เลย',
     'hero.h1': 'ทุกอุปกรณ์<br>เป็นระบบเดียวกัน',
-    'hero.lead': 'MUSIXQUARE เชื่อมโทรศัพท์ แท็บเล็ต และแล็ปท็อปในพื้นที่เดียวกันให้เป็นระบบเสียงเดียว ไม่ต้องติดตั้ง แค่แชร์โค้ดเดียว',
+    'hero.lead': 'MUSIXQUARE เชื่อมอุปกรณ์หลายเครื่อง ทั้งโทรศัพท์ แท็บเล็ต และแล็ปท็อป ให้เป็นระบบเสียงเดียว ไม่ต้องติดตั้ง แค่แชร์โค้ดเดียว',
     'hero.btn_ghost': 'ดูวิธีทำงาน',
     'array.h2': 'เสียง surround<br>โดยไม่ต้องมีลำโพง surround',
     'array.lead': 'แต่ละอุปกรณ์รับหน้าที่เป็นซ้าย ขวา ซับวูฟเฟอร์ หรือสเตอริโอเต็มรูปแบบได้ ทั้งห้องจึงกลายเป็นระบบเสียงเดียวกัน',
@@ -1326,7 +1326,7 @@
     'remote.h2': 'ไม่ได้อยู่ที่เดียวกัน<br>ก็ไม่เป็นไร',
     'remote.lead': 'คุยกัน ฟังเพลง หรือดู YouTube พร้อมกันได้ แม้อยู่คนละที่',
     'remote.chat_label': 'แชต',
-    'remote.chat_value': 'ข้อความเรียลไทม์แบบไม่จำกัด',
+    'remote.chat_value': 'แชตแบบเรียลไทม์',
     'remote.whisper_label': 'ส่วนตัว',
     'remote.whisper_value': 'ข้อความส่วนตัว 1:1',
     'remote.cowatch_label': 'ดูด้วยกัน',
@@ -1355,7 +1355,7 @@
     'sync.platforms_label': 'แพลตฟอร์ม',
     'sync.platforms_value': 'iOS · Android · macOS · Windows',
     'sync.host_label': 'HOST',
-    'sync.meta': 'ซิงก์แบบ NTP ด้วยตัวอย่าง 60 ค่า',
+    'sync.meta': 'ซิงก์แบบ NTP ด้วย 60 ตัวอย่าง',
     'standin.h2': 'คอมพิวเตอร์<br>ไม่มีลำโพง?',
     'standin.lead': 'MUSIXQUARE ใช้แทนได้ทันที แค่มีโทรศัพท์กับแท็บเล็ตในกระเป๋าก็เริ่มได้',
     'standin.aria': 'คอมพิวเตอร์ที่ปิดเสียงอยู่เหนือโทรศัพท์สองเครื่องที่ทำหน้าที่เป็นลำโพงซ้ายและขวา',

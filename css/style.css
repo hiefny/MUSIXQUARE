@@ -901,7 +901,7 @@
     opacity: 1;
     visibility: visible;
     transition:
-      opacity 0.32s ease,
+      opacity 0.36s ease-in,
       visibility 0s linear 0s;
   }
 
@@ -909,8 +909,14 @@
     display: grid;
     justify-items: start;
     align-items: start;
-    margin-top: 3px;
-    margin-bottom: 11.8px;
+    margin-top: 0;
+    margin-bottom: 8px;
+  }
+
+  .setup-brand-greeting-stage > .logo-welcome {
+    /* Keep the wordmark's optical offset without moving the title/description
+       layout that replaces it. */
+    transform: translateY(3px);
   }
 
   .setup-brand-greeting-stage > .logo-welcome,
@@ -923,8 +929,8 @@
     visibility: hidden;
     pointer-events: none;
     transition:
-      opacity 0.32s ease,
-      visibility 0s linear 0.32s;
+      opacity 0.36s ease-in,
+      visibility 0s linear 0.36s;
   }
 
   .setup-greeting-row {
@@ -938,49 +944,73 @@
     visibility: hidden;
     pointer-events: none;
     transition:
-      opacity 0.32s ease,
-      visibility 0s linear 0.32s;
+      opacity 0.48s ease-out,
+      visibility 0s linear 0.48s;
   }
 
   .setup-greeting-row.is-visible {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
-    transition-delay: 0s;
+    transition:
+      opacity 0.48s ease-out 0.36s,
+      visibility 0s linear 0.36s;
   }
 
-  .setup-greeting-text {
-    font-size: 16px;
-    font-weight: 700;
-    line-height: 1.5;
+  .setup-greeting-heading {
+    /* This is the welcome step title, so it intentionally inherits the exact
+       same responsive h2 typography as the following setup screens. */
+    height: 1.2em;
+    margin: 0 !important;
   }
 
   .setup-language-button {
-    width: 24px;
-    height: 24px;
-    padding: 3px;
-    display: grid;
-    place-items: center;
+    width: auto;
+    min-width: 0;
+    min-height: 44px;
+    padding: 0 10px 0 12px;
+    margin: calc((1.2em - 44px) / 2) -10px calc((1.2em - 44px) / 2) -12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     flex: 0 0 auto;
     border: 0;
-    border-radius: 50%;
+    border-radius: 999px;
     background: transparent;
     color: var(--text-sub);
+    font: inherit;
+    letter-spacing: inherit;
+    line-height: inherit;
+    white-space: nowrap;
     cursor: pointer;
     transition:
-      color 0.18s ease,
-      background-color 0.18s ease;
+      background-color 0.18s ease,
+      transform 0.18s ease;
   }
 
-  .setup-language-button:hover,
+  @media (hover: hover) {
+    .setup-language-button:hover {
+      background: var(--surface-2);
+    }
+  }
+
   .setup-language-button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  .setup-language-button:active {
+    transform: scale(0.98);
+  }
+
+  .setup-greeting-text {
     color: var(--text-main);
-    background: var(--surface-2);
   }
 
   .setup-language-button svg {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     fill: none;
     stroke: currentColor;
     stroke-width: 1.7;
@@ -9529,8 +9559,16 @@
     }
 
     .desktop-step-header .setup-brand-greeting-stage {
-      margin-top: var(--setup-logo-mt) !important;
-      margin-bottom: var(--setup-logo-mb) !important;
+      margin-top: 0 !important;
+      margin-bottom: var(--setup-h2-mb) !important;
+    }
+
+    .desktop-step-header .setup-brand-greeting-stage > .logo-welcome {
+      transform: translateY(var(--setup-logo-mt));
+    }
+
+    .desktop-step-header .setup-greeting-heading {
+      margin: 0 !important;
     }
 
     .desktop-step-header h2 {

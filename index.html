@@ -10,7 +10,7 @@
          code, then apply Android viewport, language, and theme preflight.
          Cloudflare Analytics is loaded by this bootstrap only after a safe
          scrub/handoff. Source: public/bootstrap.js -->
-    <script src="/bootstrap.js?cache=v378"></script>
+    <script src="/bootstrap.js?cache=v379"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -2353,22 +2353,24 @@
                 />
                 </svg>
                 <div class="setup-greeting-row" aria-hidden="true">
-                  <span class="setup-greeting-text" data-i18n="setup.greeting"></span>
-                  <button
-                    type="button"
-                    class="setup-language-button"
-                    data-setup-language-trigger
-                    aria-haspopup="dialog"
-                    aria-controls="language-dialog-overlay"
-                    data-i18n-aria-label="settings.language_select_aria"
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <circle cx="12" cy="12" r="9"></circle>
-                      <path
-                        d="M3.5 12h17M12 3c2.4 2.47 3.6 5.47 3.6 9s-1.2 6.53-3.6 9M12 3C9.6 5.47 8.4 8.47 8.4 12s1.2 6.53 3.6 9"
-                      ></path>
-                    </svg>
-                  </button>
+                  <h2 class="setup-greeting-heading">
+                    <button
+                      type="button"
+                      class="setup-language-button"
+                      data-setup-language-trigger
+                      aria-haspopup="dialog"
+                      aria-controls="language-dialog-overlay"
+                      data-i18n-aria-label="settings.language_select_aria"
+                    >
+                      <span class="setup-greeting-text" data-i18n="setup.greeting"></span>
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9"></circle>
+                        <path
+                          d="M3.5 12h17M12 3c2.4 2.47 3.6 5.47 3.6 9s-1.2 6.53-3.6 9M12 3C9.6 5.47 8.4 8.47 8.4 12s1.2 6.53 3.6 9"
+                        ></path>
+                      </svg>
+                    </button>
+                  </h2>
                 </div>
               </div>
               <p class="setup-role-prompt" data-i18n="setup.hello_select_role"></p>

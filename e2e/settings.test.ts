@@ -133,7 +133,7 @@ test.describe('Settings Panel', () => {
     });
   }
 
-  test('setup greeting language icon opens the shared language dialog', async () => {
+  test('setup greeting language pill opens the shared language dialog', async () => {
     await pair.hostPage.goto('/');
     await pair.hostPage.waitForLoadState('domcontentloaded');
     await waitForBootstrapReady(pair.hostPage, 5_000);
@@ -141,7 +141,9 @@ test.describe('Settings Panel', () => {
     const trigger = pair.hostPage.locator('[data-setup-language-trigger]:visible').first();
     await expect(trigger).toBeVisible({ timeout: 6_000 });
     expect(await trigger.evaluate((button) => !!button.closest('#desktop-step-header'))).toBe(true);
-    const stage = trigger.locator('..').locator('..');
+    const stage = trigger.locator(
+      'xpath=ancestor::*[contains(concat(" ", normalize-space(@class), " "), " setup-brand-greeting-stage ")][1]',
+    );
     await expect(stage).toHaveClass(/is-greeting-visible/);
     await expect
       .poll(() => stage.locator('.logo-welcome').evaluate((logo) => getComputedStyle(logo).opacity))
@@ -151,6 +153,66 @@ test.describe('Settings Panel', () => {
         stage.locator('.setup-greeting-row').evaluate((row) => getComputedStyle(row).opacity),
       )
       .toBe('1');
+    const handoffTiming = await stage.evaluate((element) => {
+      const logo = element.querySelector('.logo-welcome');
+      const greeting = element.querySelector('.setup-greeting-row');
+      if (!logo || !greeting) throw new Error('Setup brand handoff elements are missing');
+      const firstSeconds = (value: string) => parseFloat(value.split(',')[0] ?? '0');
+      return {
+        logoFadeSeconds: firstSeconds(getComputedStyle(logo).transitionDuration),
+        greetingDelaySeconds: firstSeconds(getComputedStyle(greeting).transitionDelay),
+      };
+    });
+    expect(handoffTiming.greetingDelaySeconds).toBeGreaterThanOrEqual(
+      handoffTiming.logoFadeSeconds,
+    );
+    const pillStyle = await trigger.evaluate((button) => {
+      const style = getComputedStyle(button);
+      const icon = button.querySelector('svg');
+      if (!icon) throw new Error('Setup language pill is missing its globe icon');
+      return {
+        display: style.display,
+        borderRadius: parseFloat(style.borderRadius),
+        backgroundColor: style.backgroundColor,
+        iconWidth: getComputedStyle(icon).width,
+      };
+    });
+    expect(pillStyle.display).toBe('inline-flex');
+    expect(pillStyle.borderRadius).toBeGreaterThan(12);
+    expect(pillStyle.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    expect(pillStyle.iconWidth).toBe('20px');
+    const greetingTypography = await stage.locator('.setup-greeting-text').evaluate((greeting) => {
+      const header = greeting.closest('#desktop-step-header');
+      if (!header) throw new Error('Visible setup greeting is not in the desktop step header');
+      const nextStepTitle = document.createElement('h2');
+      header.append(nextStepTitle);
+      const pickTypography = (element: Element) => {
+        const style = getComputedStyle(element);
+        return {
+          fontSize: style.fontSize,
+          fontWeight: style.fontWeight,
+          letterSpacing: style.letterSpacing,
+          lineHeight: style.lineHeight,
+        };
+      };
+      const result = {
+        greeting: pickTypography(greeting),
+        nextStepTitle: pickTypography(nextStepTitle),
+        greetingMarginBottom: getComputedStyle(greeting).marginBottom,
+        greetingStageTop: getComputedStyle(greeting.closest('.setup-brand-greeting-stage')!)
+          .marginTop,
+        greetingStageGap: getComputedStyle(greeting.closest('.setup-brand-greeting-stage')!)
+          .marginBottom,
+        nextStepTitleTop: getComputedStyle(nextStepTitle).marginTop,
+        nextStepTitleGap: getComputedStyle(nextStepTitle).marginBottom,
+      };
+      nextStepTitle.remove();
+      return result;
+    });
+    expect(greetingTypography.greeting).toEqual(greetingTypography.nextStepTitle);
+    expect(greetingTypography.greetingMarginBottom).toBe('0px');
+    expect(greetingTypography.greetingStageTop).toBe(greetingTypography.nextStepTitleTop);
+    expect(greetingTypography.greetingStageGap).toBe(greetingTypography.nextStepTitleGap);
     await trigger.click();
 
     await expect(pair.hostPage.locator('#language-dialog-overlay')).toHaveClass(/show/);

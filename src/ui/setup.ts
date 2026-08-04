@@ -157,7 +157,7 @@ function triggerAppEntrance(): void {
 
 // ─── Init Setup Overlay ──────────────────────────────────────────
 
-const SETUP_GREETING_DELAY_MS = 1000;
+const SETUP_GREETING_DELAY_MS = 0;
 const SETUP_LOGO_DRAW_BASE_DELAY_MS = 500;
 const SETUP_GREETING_FALLBACK_BUFFER_MS = 300;
 const SETUP_GREETING_REVEAL_TIMER = 'setup-greeting-reveal';
@@ -207,33 +207,26 @@ function armSetupGreeting(signal: AbortSignal): void {
   }
 
   let longestDrawMs = 0;
-  const finalStrokes: SVGElement[] = [];
   document.querySelectorAll<SVGSVGElement>('.logo-welcome').forEach((logo) => {
-    let finalStroke: SVGElement | null = null;
-    let finalStrokeEndMs = -1;
     logo.querySelectorAll<SVGElement>(':scope > .wl').forEach((stroke) => {
       const startMs = Number(stroke.dataset.wt) || 0;
       const durationMs = Number(stroke.dataset.wd) || 0;
       const endMs = startMs + durationMs;
       longestDrawMs = Math.max(longestDrawMs, endMs);
-      if (endMs > finalStrokeEndMs) {
-        finalStroke = stroke;
-        finalStrokeEndMs = endMs;
-      }
     });
-    if (finalStroke) finalStrokes.push(finalStroke);
   });
 
   let drawCompleted = false;
   const handleFinalDraw = (event: AnimationEvent) => {
-    if (drawCompleted || !finalStrokes.includes(event.currentTarget as SVGElement)) return;
+    const stroke = event.target;
+    if (!(stroke instanceof SVGElement) || !stroke.matches('.logo-welcome > .wl')) return;
+    const endMs = (Number(stroke.dataset.wt) || 0) + (Number(stroke.dataset.wd) || 0);
+    if (drawCompleted || endMs < longestDrawMs) return;
     drawCompleted = true;
     clearManagedTimer(SETUP_GREETING_FALLBACK_TIMER);
     revealAfterDelay();
   };
-  finalStrokes.forEach((stroke) => {
-    stroke.addEventListener('animationend', handleFinalDraw, { signal });
-  });
+  document.addEventListener('animationend', handleFinalDraw, { signal });
 
   const fallbackMs =
     SETUP_LOGO_DRAW_BASE_DELAY_MS +

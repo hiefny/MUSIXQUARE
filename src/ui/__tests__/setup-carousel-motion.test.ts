@@ -90,6 +90,10 @@ describe('setup greeting reveal', () => {
 
     expect(header).toContain('class="setup-brand-greeting-stage"');
     expect(header).toContain('class="setup-greeting-row" aria-hidden="true"');
+    expect(header).toContain('<h2 class="setup-greeting-heading">');
+    expect(header).toContain(
+      '<span class="setup-greeting-text" data-i18n="setup.greeting"></span>',
+    );
     expect(header).toContain('data-i18n="setup.greeting"');
     expect(header).toContain('data-setup-language-trigger');
     expect(header).toContain('aria-haspopup="dialog"');
@@ -100,13 +104,13 @@ describe('setup greeting reveal', () => {
     );
   });
 
-  it('crossfades the completed logo into the greeting after one second', async () => {
+  it('crossfades the completed logo into the greeting without an extra hold', async () => {
     const source = await readFile('src/ui/setup.ts', 'utf8');
     const stylesheet = await readFile('css/style.css', 'utf8');
 
-    expect(source).toContain('const SETUP_GREETING_DELAY_MS = 1000;');
+    expect(source).toContain('const SETUP_GREETING_DELAY_MS = 0;');
     expect(source).toContain(
-      "stroke.addEventListener('animationend', handleFinalDraw, { signal })",
+      "document.addEventListener('animationend', handleFinalDraw, { signal })",
     );
     expect(source).toContain('SETUP_GREETING_FALLBACK_BUFFER_MS');
     expect(source).toContain("window.matchMedia('(prefers-reduced-motion: reduce)').matches");
@@ -114,6 +118,7 @@ describe('setup greeting reveal', () => {
     expect(stylesheet).toContain('.setup-brand-greeting-stage.is-greeting-visible > .logo-welcome');
     expect(stylesheet).toContain('opacity: 0;');
     expect(stylesheet).toContain('.setup-greeting-row.is-visible');
+    expect(stylesheet).toContain('opacity 0.48s ease-out 0.36s');
     expect(stylesheet).toContain('.logo-welcome > .wg,\n    .logo-welcome > .wl');
     expect(stylesheet).toContain('animation: none !important;');
   });

@@ -340,15 +340,16 @@ const tr: Record<I18nKey, string> = {
   'setup.join_session_subtitle': '{{code}} numaralı odaya katılmak üzeresiniz',
   'setup.select_role': 'Lütfen bir rol seçin',
   'setup.select_role_alt': 'Lütfen bir rol seçin',
+  'setup.greeting': 'Merhaba!',
   'setup.hello_select_role': 'Bir oda oluşturun veya mevcut bir odaya katılın.',
-  'setup.enter_code': '6 Haneli Bağlantı Kodunu Girin',
-  'setup.enter_host_code': 'Oda sahibinin verdiği 6 haneli kodu girin',
-  'setup.enter_host_code_alt': 'Oda sahibinin kodunu girin.',
+  'setup.enter_code': '6 haneli davet kodunu girin',
+  'setup.enter_host_code': '6 haneli sayıyı girin',
+  'setup.enter_host_code_alt': 'Davet kodunu girin.',
   'setup.connect_devices': 'Şimdi diğer cihazları bağlayın.',
-  'setup.enter_code_connect': 'Bu kodu diğer cihazlara girin',
+  'setup.enter_code_connect': 'Bu davet kodunu diğer cihazlara girin',
   'setup.last_step': 'Başlayalım mı?',
   'setup.joining': 'Katılınıyor...',
-  'setup.six_digit_enter': 'Lütfen 6 haneli bağlantı kodunu girin',
+  'setup.six_digit_enter': 'Lütfen 6 haneli sayıyı girin',
 
   // ─── Help ────────────────────────────────────────────────────────
   'help.need_help': 'Yardım mı lazım?',
@@ -778,7 +779,7 @@ const tr: Record<I18nKey, string> = {
   'chat.scroll_to_bottom': 'Aşağı kaydır',
   'setup.brand_tagline_html': 'Her yerde birlikte dinleyin.<br>Mükemmel ses deneyimi.',
   'setup.invite_share_desc_html':
-    'Birden fazla cihazı kablosuz olarak bağlayıp<br>devasa bir ses sistemi oluşturun.<br>Bağlanmak için 6 haneli kodu kullanın.',
+    'Birden fazla cihazı kablosuz olarak bağlayıp<br>devasa bir ses sistemi oluşturun.<br>Bağlanmak için 6 haneli davet kodunu kullanın.',
   'setup.play_together_desc_html':
     'Oda sahibi medyayı oynattığında,<br>tüm bağlı cihazlar eşzamanlı çalar.<br>Eşitlemek için senkronizasyon butonuna basın.',
   'setup.spatial_audio_desc_html':

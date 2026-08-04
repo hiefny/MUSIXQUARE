@@ -16,7 +16,7 @@ vi.mock('../../audio/context.ts', () => ({
   ensureRunning: vi.fn(),
 }));
 
-import { peekTrackPosition } from '../transport.ts';
+import { getTrackPosition, peekTrackPosition, setLocalManualSyncOffset } from '../transport.ts';
 
 beforeEach(() => {
   resetState();
@@ -25,7 +25,7 @@ beforeEach(() => {
   mocks.currentTime = 100;
 });
 
-describe('peekTrackPosition', () => {
+describe('transport position', () => {
   it('observes an out-of-range offset without scheduling transport repair', async () => {
     setPlaybackFilePlaying();
     setState('player.startedAt', 90);
@@ -36,5 +36,17 @@ describe('peekTrackPosition', () => {
 
     expect(getState('sync.localOffset')).toBe(40);
     expect(getState('player.startedAt')).toBe(90);
+  });
+
+  it('keeps canonical file time unchanged when only the local output is nudged', () => {
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    setPlaybackFilePlaying();
+    setState('player.startedAt', 90);
+    setState('sync.localOffset', 0.25);
+    const canonicalBefore = getTrackPosition();
+
+    setLocalManualSyncOffset(0.5);
+
+    expect(getTrackPosition()).toBeCloseTo(canonicalBefore, 8);
   });
 });

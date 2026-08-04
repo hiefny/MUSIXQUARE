@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
-import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
+import { PLAYBACK_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { t } from '../../i18n/index.ts';
@@ -135,6 +135,12 @@ afterEach(() => {
 
 function makeConnection(peer: string): DataConnection {
   return { peer, open: true } as DataConnection;
+}
+
+function setActiveStandardHost(): void {
+  setState('network.appRole', 'host');
+  setState('network.sessionCode', '123456');
+  setState('setup.sessionStarted', true);
 }
 
 describe('getRoleLabelByChannelMode', () => {
@@ -1402,6 +1408,7 @@ describe('initPlayerControls sync button', () => {
 
   it('updates sync readiness before activation when playable media appears', () => {
     renderSyncControls();
+    setActiveStandardHost();
 
     initPlayerControls();
     const button = document.getElementById('btn-sync') as HTMLButtonElement;
@@ -1466,8 +1473,9 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
-  it('sends a YouTube rendezvous request when the host presses sync', () => {
+  it('keeps the standard-host YouTube button on room-wide authoritative sync', () => {
     renderSyncControls();
+    setActiveStandardHost();
     setState('playback.mode', 'youtube');
     setState('playback.activity', 'playing');
 
@@ -1480,6 +1488,24 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith(
       'Precision sync requested.\nAdjust manual sync on a guest device.',
     );
+  });
+
+  it('does not expose host nudge controls while a stale setup host has no active room', () => {
+    renderSyncControls();
+    setState('network.appRole', 'host');
+    setState('network.sessionCode', '123456');
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+
+    initPlayerControls();
+    const button = document.getElementById('btn-sync') as HTMLButtonElement;
+
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    button.click();
+
+    expect(broadcastYouTubeSync).not.toHaveBeenCalled();
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
   it('does not report a host sync success while zero-start is active', () => {
@@ -1661,8 +1687,9 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
-  it('broadcasts an authoritative local-file PLAY sync when the host presses sync', () => {
+  it('opens a local-file nudge panel without broadcasting when the playing host presses sync', () => {
     renderSyncControls();
+    setActiveStandardHost();
     setState('playback.mode', 'file');
     setState('playback.activity', 'playing');
     setState('playlist.currentQueueItemId', PLAY_QUEUE_ITEM_ID);
@@ -1674,18 +1701,26 @@ describe('initPlayerControls sync button', () => {
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
 
-    expect(broadcastSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: MSG.PLAY,
-        queueItemId: PLAY_QUEUE_ITEM_ID,
-        time: expect.any(Number),
-        hostPlayAt: expect.any(Number),
-      }),
-    );
+    expect(broadcastSpy).not.toHaveBeenCalled();
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('keeps an active standard-host file sync disabled until its buffer is resident', () => {
+    renderSyncControls();
+    setActiveStandardHost();
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    setState('playlist.currentQueueItemId', PLAY_QUEUE_ITEM_ID);
+
+    initPlayerControls();
+    const button = document.getElementById('btn-sync') as HTMLButtonElement;
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+
+    button.click();
+
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
-    expect(showToast).toHaveBeenCalledWith(
-      'Precision sync requested.\nAdjust manual sync on a guest device.',
-    );
+    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
   it('reconciles a PRO file endpoint before opening its local nudge panel', async () => {
@@ -1719,8 +1754,9 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).not.toHaveBeenCalled();
   });
 
-  it('broadcasts a local-file PAUSE position sync when the host is paused', () => {
+  it('keeps a paused host nudge local instead of rebasing the room position', () => {
     renderSyncControls();
+    setActiveStandardHost();
     setState('playback.mode', 'file');
     setState('playback.activity', 'paused');
     setState('playlist.currentQueueItemId', PAUSE_QUEUE_ITEM_ID);
@@ -1732,13 +1768,8 @@ describe('initPlayerControls sync button', () => {
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
 
-    expect(broadcastSpy).toHaveBeenCalledWith({
-      type: MSG.PAUSE,
-      time: 33,
-      queueItemId: PAUSE_QUEUE_ITEM_ID,
-      reason: 'seek',
-    });
-    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
+    expect(broadcastSpy).not.toHaveBeenCalled();
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
   });
 
   it('runs one local-file resync before opening the guest manual sync panel', () => {

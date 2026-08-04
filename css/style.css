@@ -901,6 +901,70 @@
     margin-bottom: 11.8px;
   }
 
+  .setup-greeting-row {
+    min-height: 24px;
+    margin-bottom: 2px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-main);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(4px);
+    transition:
+      opacity 0.32s ease,
+      transform 0.32s ease,
+      visibility 0s linear 0.32s;
+  }
+
+  .setup-greeting-row.is-visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(0);
+    transition-delay: 0s;
+  }
+
+  .setup-greeting-text {
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.5;
+  }
+
+  .setup-language-button {
+    width: 24px;
+    height: 24px;
+    padding: 3px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-sub);
+    cursor: pointer;
+    transition:
+      color 0.18s ease,
+      background-color 0.18s ease;
+  }
+
+  .setup-language-button:hover,
+  .setup-language-button:focus-visible {
+    color: var(--text-main);
+    background: var(--surface-2);
+  }
+
+  .setup-language-button svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
   /* SVG Stroke Writing Animation — ghost underlay + per-bar directional reveal */
   .logo-welcome > .wg {
     opacity: 0.15;
@@ -932,6 +996,20 @@
 
   .logo-welcome > .wdiag {
     animation-name: wdiag;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .logo-welcome > .wg,
+    .logo-welcome > .wl {
+      animation: none !important;
+      opacity: 1 !important;
+      clip-path: none !important;
+    }
+
+    .setup-greeting-row,
+    .setup-language-button {
+      transition: none;
+    }
   }
 
   /* Light Mode Logo Overrides */
@@ -5200,65 +5278,50 @@
     margin-left: 14px;
   }
 
-  .language-list {
+  .language-list-frame {
     --language-list-fade-size: 28px;
+    position: relative;
     flex: 1 1 auto;
     min-height: 0;
     max-height: min(326px, calc(var(--app-height, 100dvh) - 186px));
     margin: 16px 28px 0;
+    display: flex;
+  }
+
+  .language-list {
+    flex: 1 1 auto;
+    min-height: 0;
     padding: 0 4px;
     display: flex;
     flex-direction: column;
     gap: 6px;
     overflow-y: auto;
-    transition: mask-image 0.16s ease;
   }
 
-  .language-list.can-scroll-down {
-    -webkit-mask-image: linear-gradient(
-      to bottom,
-      #000 0,
-      #000 calc(100% - var(--language-list-fade-size)),
-      transparent 100%
-    );
-    mask-image: linear-gradient(
-      to bottom,
-      #000 0,
-      #000 calc(100% - var(--language-list-fade-size)),
-      transparent 100%
-    );
+  .language-list-edge {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: var(--language-list-fade-size);
+    z-index: 1;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
   }
 
-  .language-list.can-scroll-up {
-    -webkit-mask-image: linear-gradient(
-      to bottom,
-      transparent 0,
-      #000 var(--language-list-fade-size),
-      #000 100%
-    );
-    mask-image: linear-gradient(
-      to bottom,
-      transparent 0,
-      #000 var(--language-list-fade-size),
-      #000 100%
-    );
+  .language-list-edge-top {
+    top: 0;
+    background: linear-gradient(to bottom, var(--glass-bg), transparent);
   }
 
-  .language-list.can-scroll-up.can-scroll-down {
-    -webkit-mask-image: linear-gradient(
-      to bottom,
-      transparent 0,
-      #000 var(--language-list-fade-size),
-      #000 calc(100% - var(--language-list-fade-size)),
-      transparent 100%
-    );
-    mask-image: linear-gradient(
-      to bottom,
-      transparent 0,
-      #000 var(--language-list-fade-size),
-      #000 calc(100% - var(--language-list-fade-size)),
-      transparent 100%
-    );
+  .language-list-edge-bottom {
+    bottom: 0;
+    background: linear-gradient(to top, var(--glass-bg), transparent);
+  }
+
+  .language-list.can-scroll-up ~ .language-list-edge-top,
+  .language-list.can-scroll-down ~ .language-list-edge-bottom {
+    opacity: 1;
   }
 
   .language-dialog .dialog-actions {
@@ -5273,9 +5336,15 @@
     min-width: 0;
   }
 
-  .language-dialog > .cscroll-track {
-    right: 24px;
+  .language-list-frame > .cscroll-track {
+    right: -4px;
     z-index: 2;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .language-list-edge {
+      transition: none;
+    }
   }
 
   .language-option {
@@ -9111,8 +9180,8 @@
       right: calc(200px + var(--safe-right) + 56px) !important;
     }
 
-    .language-dialog > .cscroll-track {
-      right: 24px !important;
+    .language-list-frame > .cscroll-track {
+      right: -4px !important;
     }
 
     /* chat-drawer.transform creates a new containing block for the

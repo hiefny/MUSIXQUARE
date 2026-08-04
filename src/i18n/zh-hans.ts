@@ -331,15 +331,16 @@ const zhHans: Record<I18nKey, string> = {
   'setup.join_session_subtitle': '你即将加入房间 {{code}}。',
   'setup.select_role': '请选择角色',
   'setup.select_role_alt': '请选择角色',
+  'setup.greeting': '你好！',
   'setup.hello_select_role': '创建房间或加入现有房间。',
-  'setup.enter_code': '输入 6 位代码',
-  'setup.enter_host_code': '输入主持人提供的 6 位代码',
-  'setup.enter_host_code_alt': '请输入主持人代码。',
+  'setup.enter_code': '输入 6 位邀请码',
+  'setup.enter_host_code': '请输入 6 位数字',
+  'setup.enter_host_code_alt': '请输入邀请码。',
   'setup.connect_devices': '立即连接你的其他设备以开始。',
-  'setup.enter_code_connect': '在参与者设备上输入此代码',
+  'setup.enter_code_connect': '在其他设备上输入此邀请码',
   'setup.last_step': '让我们开始吧！',
   'setup.joining': '正在加入...',
-  'setup.six_digit_enter': '请输入 6 位连接代码',
+  'setup.six_digit_enter': '请输入 6 位数字',
 
   // Help
   'help.need_help': '需要帮助？',
@@ -756,7 +757,7 @@ const zhHans: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>输入代码但无法连接：</strong>请检查代码，稍后重试。公司、学校或 VPN 网络可能限制连接。</li><li><strong>连接不稳定：</strong>本地参与者请靠近路由器，远程参与者请使用稳定的网络连接。</li><li><strong>其他问题：</strong>请检查网络状态，并在所有设备上重启应用。如有疑问，请查看 <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>，或通过页面底部的邮箱联系我们。</li></ul>',
   'setup.brand_tagline_html': '随时随地一起聆听<br>完美的声音体验',
   'setup.invite_share_desc_html':
-    '无线连接多台设备<br>打造强大的音频系统。<br>使用 6 位代码即可连接。',
+    '无线连接多台设备<br>打造强大的音频系统。<br>使用 6 位邀请码即可连接。',
   'setup.play_together_desc_html':
     '主持人播放媒体时，<br>所有已连接设备会同步播放。<br>按同步按钮即可对齐。',
   'setup.spatial_audio_desc_html':

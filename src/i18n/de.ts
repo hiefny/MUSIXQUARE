@@ -347,15 +347,16 @@ const de: Record<I18nKey, string> = {
   'setup.join_session_subtitle': 'Du trittst gleich Raum {{code}} bei.',
   'setup.select_role': 'Bitte wähle eine Rolle',
   'setup.select_role_alt': 'Bitte wähle eine Rolle',
+  'setup.greeting': 'Hallo!',
   'setup.hello_select_role': 'Erstelle einen Raum oder tritt einem bei.',
-  'setup.enter_code': '6-stelligen Code eingeben',
-  'setup.enter_host_code': '6-stelligen Code des Hosts eingeben',
-  'setup.enter_host_code_alt': 'Gib den Host-Code ein.',
+  'setup.enter_code': '6-stelligen Einladungscode eingeben',
+  'setup.enter_host_code': 'Gib die 6-stellige Zahl ein',
+  'setup.enter_host_code_alt': 'Gib den Einladungscode ein.',
   'setup.connect_devices': 'Verbinde jetzt weitere Geräte.',
-  'setup.enter_code_connect': 'Code auf anderem Gerät eingeben',
+  'setup.enter_code_connect': 'Gib diesen Einladungscode auf den anderen Geräten ein',
   'setup.last_step': 'Bereit zum Start?',
   'setup.joining': 'Beitreten...',
-  'setup.six_digit_enter': 'Gib den 6-stelligen Verbindungscode ein',
+  'setup.six_digit_enter': 'Gib die 6-stellige Zahl ein',
 
   // Help
   'help.need_help': 'Brauchst du Hilfe?',
@@ -809,7 +810,7 @@ const de: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>Code eingegeben, aber keine Verbindung:</strong> Prüfe den Code und versuche es gleich erneut. Firmen-, Schul- oder VPN-Netzwerke können die Verbindung einschränken.</li><li><strong>Instabile Verbindung:</strong> Lokale Teilnehmer sollten näher am Router bleiben, Remote-Teilnehmer eine stabile Internetverbindung nutzen.</li><li><strong>Andere Probleme:</strong> Prüfe den Netzwerkstatus und starte die App auf allen Geräten neu. Bei Fragen lies die <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> oder kontaktiere uns über die E-Mail ganz unten.</li></ul>',
   'setup.brand_tagline_html': 'Gemeinsam hören, überall<br>Das perfekte Klangerlebnis',
   'setup.invite_share_desc_html':
-    'Verbinde mehrere Geräte kabellos<br>und erschaffe ein leistungsstarkes Audiosystem.<br>Nutze zum Verbinden einen 6-stelligen Code.',
+    'Verbinde mehrere Geräte kabellos<br>und erschaffe ein leistungsstarkes Audiosystem.<br>Nutze zum Verbinden einen 6-stelligen Einladungscode.',
   'setup.play_together_desc_html':
     'Wenn der Host Medien abspielt,<br>spielen alle verbundenen Geräte synchron.<br>Drücke die Sync-Taste zum Abgleichen.',
   'setup.spatial_audio_desc_html':

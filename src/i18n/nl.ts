@@ -343,15 +343,16 @@ const nl: Record<I18nKey, string> = {
   'setup.join_session_subtitle': 'Je gaat deelnemen aan sessie {{code}}.',
   'setup.select_role': 'Kies een rol',
   'setup.select_role_alt': 'Kies een rol',
+  'setup.greeting': 'Hallo!',
   'setup.hello_select_role': 'Maak een ruimte of neem deel aan een bestaande ruimte.',
-  'setup.enter_code': 'Voer 6-cijferige code in',
-  'setup.enter_host_code': 'Voer de 6-cijferige code van de host in',
-  'setup.enter_host_code_alt': 'Voer de code van de host in.',
+  'setup.enter_code': 'Voer de 6-cijferige uitnodigingscode in',
+  'setup.enter_host_code': 'Voer het 6-cijferige nummer in',
+  'setup.enter_host_code_alt': 'Voer de uitnodigingscode in.',
   'setup.connect_devices': 'Verbind je andere apparaten om te beginnen.',
-  'setup.enter_code_connect': 'Voer deze code in op gastapparaten',
+  'setup.enter_code_connect': 'Voer deze uitnodigingscode in op de andere apparaten',
   'setup.last_step': 'Laten we beginnen!',
   'setup.joining': 'Deelnemen...',
-  'setup.six_digit_enter': 'Voer de 6-cijferige verbindingscode in',
+  'setup.six_digit_enter': 'Voer het 6-cijferige nummer in',
 
   // Help
   'help.need_help': 'Hulp nodig?',
@@ -774,7 +775,7 @@ const nl: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>Code ingevoerd maar geen verbinding:</strong> controleer de code en probeer het zo opnieuw. Bedrijfs-, school- of VPN-netwerken kunnen de verbinding beperken.</li><li><strong>Instabiele verbinding:</strong> lokale deelnemers blijven het best dicht bij de router; externe deelnemers gebruiken het best een stabiele internetverbinding.</li><li><strong>Andere problemen:</strong> controleer de netwerkstatus en herstart de app op alle apparaten. Lees de <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> of neem contact op via het e-mailadres onderaan.</li></ul>',
   'setup.brand_tagline_html': 'Luister samen, overal<br>De perfecte geluidservaring',
   'setup.invite_share_desc_html':
-    'Verbind meerdere apparaten draadloos<br>en bouw een groot audiosysteem.<br>Gebruik een 6-cijferige code om te verbinden.',
+    'Verbind meerdere apparaten draadloos<br>en bouw een groot audiosysteem.<br>Gebruik een 6-cijferige uitnodigingscode om verbinding te maken.',
   'setup.play_together_desc_html':
     'Wanneer de host media afspeelt,<br>spelen alle verbonden apparaten synchroon.<br>Druk op de sync-knop om uit te lijnen.',
   'setup.spatial_audio_desc_html':

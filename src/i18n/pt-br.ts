@@ -343,15 +343,16 @@ const ptBr: Record<I18nKey, string> = {
   'setup.join_session_subtitle': 'Você vai entrar na sala {{code}}.',
   'setup.select_role': 'Selecione um papel',
   'setup.select_role_alt': 'Selecione um papel',
+  'setup.greeting': 'Olá!',
   'setup.hello_select_role': 'Crie uma sala ou entre em uma existente.',
-  'setup.enter_code': 'Digite o código de 6 dígitos',
-  'setup.enter_host_code': 'Digite o código de 6 dígitos do host',
-  'setup.enter_host_code_alt': 'Digite o código do host.',
+  'setup.enter_code': 'Digite o código de convite de 6 dígitos',
+  'setup.enter_host_code': 'Digite o número de 6 dígitos',
+  'setup.enter_host_code_alt': 'Digite o código de convite.',
   'setup.connect_devices': 'Agora conecte outros dispositivos.',
-  'setup.enter_code_connect': 'Digite este código nos outros dispositivos',
+  'setup.enter_code_connect': 'Digite este código de convite nos outros dispositivos',
   'setup.last_step': 'Pronto para começar?',
   'setup.joining': 'Entrando...',
-  'setup.six_digit_enter': 'Digite o código de conexão de 6 dígitos',
+  'setup.six_digit_enter': 'Digite o número de 6 dígitos',
 
   // Help
   'help.need_help': 'Precisa de ajuda?',
@@ -814,7 +815,7 @@ const ptBr: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>Digitou o código mas não conecta:</strong> confira o código e tente novamente em instantes. Redes de empresa, escola ou VPN podem restringir a conexão.</li><li><strong>Conexão instável:</strong> participantes locais devem ficar mais perto do roteador, e remotos devem usar uma conexão estável.</li><li><strong>Outros problemas:</strong> confira a rede e reinicie o app em todos os dispositivos. Se tiver dúvidas, consulte o <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> ou fale conosco pelo e-mail no final da página.</li></ul>',
   'setup.brand_tagline_html': 'Ouça junto, onde estiver<br>A experiência sonora perfeita',
   'setup.invite_share_desc_html':
-    'Conecte vários dispositivos sem fio<br>para criar um grande sistema de áudio.<br>Use um código de 6 dígitos para conectar.',
+    'Conecte vários dispositivos sem fio<br>para criar um grande sistema de áudio.<br>Use um código de convite de 6 dígitos para se conectar.',
   'setup.play_together_desc_html':
     'Quando o host reproduz mídia,<br>todos os dispositivos conectados tocam sincronizados.<br>Use o botão de sincronização para alinhar.',
   'setup.spatial_audio_desc_html':

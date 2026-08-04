@@ -331,15 +331,16 @@ const zhHant: Record<I18nKey, string> = {
   'setup.join_session_subtitle': '你即將加入房間 {{code}}。',
   'setup.select_role': '請選擇角色',
   'setup.select_role_alt': '請選擇角色',
+  'setup.greeting': '你好！',
   'setup.hello_select_role': '建立房間或加入現有房間。',
-  'setup.enter_code': '輸入 6 位代碼',
-  'setup.enter_host_code': '輸入主持人提供的 6 位代碼',
-  'setup.enter_host_code_alt': '請輸入主持人的代碼。',
+  'setup.enter_code': '輸入 6 位邀請碼',
+  'setup.enter_host_code': '請輸入 6 位數字',
+  'setup.enter_host_code_alt': '請輸入邀請碼。',
   'setup.connect_devices': '立即連線你的其他裝置以開始。',
-  'setup.enter_code_connect': '在參與者裝置上輸入此代碼',
+  'setup.enter_code_connect': '在其他裝置上輸入此邀請碼',
   'setup.last_step': '讓我們開始吧！',
   'setup.joining': '正在加入...',
-  'setup.six_digit_enter': '請輸入 6 位連線代碼',
+  'setup.six_digit_enter': '請輸入 6 位數字',
 
   // Help
   'help.need_help': '需要協助？',
@@ -758,7 +759,7 @@ const zhHant: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>輸入代碼但無法連線：</strong>請檢查代碼，稍後再試。公司、學校或 VPN 網路可能限制連線。</li><li><strong>連線不穩定：</strong>本機參與者請靠近路由器，遠端參與者請使用穩定的網路連線。</li><li><strong>其他問題：</strong>請檢查網路狀態，並在所有裝置上重新啟動應用程式。如有疑問，請查看 <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>，或透過頁面底部的電子郵件聯絡我們。</li></ul>',
   'setup.brand_tagline_html': '隨時隨地一起聆聽<br>完美的聲音體驗',
   'setup.invite_share_desc_html':
-    '無線連接多台裝置<br>打造強大的音訊系統。<br>使用 6 位代碼即可連線。',
+    '無線連接多台裝置<br>打造強大的音訊系統。<br>使用 6 位邀請碼即可連線。',
   'setup.play_together_desc_html':
     '主持人播放媒體時，<br>所有已連線裝置會同步播放。<br>按同步按鈕即可對齊。',
   'setup.spatial_audio_desc_html':

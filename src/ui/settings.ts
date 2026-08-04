@@ -808,7 +808,7 @@ function prepareLanguagePickerFonts(): void {
 
 let _languageDialogPreviousFocus: HTMLElement | null = null;
 
-function openLanguageDialog(): void {
+export function openLanguageDialog(): void {
   prepareLanguagePickerFonts();
   renderLanguageOptions();
   refreshLanguageControls();

@@ -14,6 +14,7 @@ import {
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest, setupHostAndStart } from './helpers/setup-flow.ts';
+import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import {
   clickAndWaitActive,
   navigateToSubtab,
@@ -131,6 +132,38 @@ test.describe('Settings Panel', () => {
       timeout: 10_000,
     });
   }
+
+  test('setup greeting language icon opens the shared language dialog', async () => {
+    await pair.hostPage.goto('/');
+    await pair.hostPage.waitForLoadState('domcontentloaded');
+    await waitForBootstrapReady(pair.hostPage, 5_000);
+
+    const trigger = pair.hostPage.locator('[data-setup-language-trigger]:visible').first();
+    await expect(trigger).toBeVisible({ timeout: 6_000 });
+    expect(await trigger.evaluate((button) => !!button.closest('#desktop-step-header'))).toBe(true);
+    await trigger.click();
+
+    await expect(pair.hostPage.locator('#language-dialog-overlay')).toHaveClass(/show/);
+    await expect(pair.hostPage.locator('#language-list .language-option')).toHaveCount(17);
+
+    const list = pair.hostPage.locator('#language-list');
+    const topEdge = pair.hostPage.locator('.language-list-edge-top');
+    const bottomEdge = pair.hostPage.locator('.language-list-edge-bottom');
+    await expect(list).toHaveClass(/can-scroll-down/);
+    await expect
+      .poll(() => bottomEdge.evaluate((edge) => getComputedStyle(edge).opacity))
+      .toBe('1');
+
+    await list.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+      element.dispatchEvent(new Event('scroll'));
+    });
+    await expect(list).toHaveClass(/can-scroll-up/);
+    await expect.poll(() => topEdge.evaluate((edge) => getComputedStyle(edge).opacity)).toBe('1');
+    await expect
+      .poll(() => bottomEdge.evaluate((edge) => getComputedStyle(edge).opacity))
+      .toBe('0');
+  });
 
   test('switching to English changes i18n text', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);

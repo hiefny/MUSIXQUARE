@@ -342,15 +342,16 @@ const pl: Record<I18nKey, string> = {
   'setup.join_session_subtitle': 'Zaraz dołączysz do pokoju {{code}}',
   'setup.select_role': 'Wybierz rolę',
   'setup.select_role_alt': 'Wybierz rolę',
+  'setup.greeting': 'Cześć!',
   'setup.hello_select_role': 'Utwórz pokój lub dołącz do istniejącego.',
-  'setup.enter_code': 'Wpisz 6-cyfrowy kod',
-  'setup.enter_host_code': 'Wpisz 6-cyfrowy kod podany przez hosta',
-  'setup.enter_host_code_alt': 'Wpisz kod hosta.',
+  'setup.enter_code': 'Wpisz 6-cyfrowy kod zaproszenia',
+  'setup.enter_host_code': 'Wpisz 6-cyfrowy numer',
+  'setup.enter_host_code_alt': 'Wpisz kod zaproszenia.',
   'setup.connect_devices': 'Teraz podłącz inne urządzenia.',
-  'setup.enter_code_connect': 'Wpisz ten kod na innych urządzeniach',
+  'setup.enter_code_connect': 'Wpisz ten kod zaproszenia na innych urządzeniach',
   'setup.last_step': 'Zaczynamy!',
   'setup.joining': 'Dołączanie...',
-  'setup.six_digit_enter': 'Wpisz 6-cyfrowy kod połączenia',
+  'setup.six_digit_enter': 'Wpisz 6-cyfrowy numer',
 
   // ─── Help ────────────────────────────────────────────────────────
   'help.need_help': 'Potrzebujesz pomocy?',
@@ -786,7 +787,7 @@ const pl: Record<I18nKey, string> = {
   'chat.scroll_to_bottom': 'Przewiń na dół',
   'setup.brand_tagline_html': 'Słuchajcie razem, gdziekolwiek.<br>Doskonałe wrażenia dźwiękowe.',
   'setup.invite_share_desc_html':
-    'Połącz bezprzewodowo wiele urządzeń,<br>aby stworzyć potężny system audio.<br>Użyj 6-cyfrowego kodu, aby się połączyć.',
+    'Połącz bezprzewodowo wiele urządzeń,<br>aby stworzyć potężny system audio.<br>Użyj 6-cyfrowego kodu zaproszenia, aby się połączyć.',
   'setup.play_together_desc_html':
     'Kiedy host odtwarza materiał,<br>wszystkie połączone urządzenia grają synchronicznie.<br>Kliknij „Synchronizuj”, aby wyrównać audio.',
   'setup.spatial_audio_desc_html':

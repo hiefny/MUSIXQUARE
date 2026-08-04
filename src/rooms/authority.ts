@@ -54,6 +54,22 @@ export function isCoordinator(): boolean {
   return getState('network.appRole') === 'host' && !getState('network.hostConn');
 }
 
+/**
+ * Whether this tab currently owns a live standard-room timeline.
+ *
+ * `appRole === 'host'` is assigned while the setup flow is still creating a
+ * room code, so it is not sufficient by itself for playback-authority work.
+ */
+export function isActiveStandardRoomCoordinator(): boolean {
+  const context = getRoomContext();
+  return (
+    context.kind === 'standard' &&
+    getState('setup.sessionStarted') &&
+    /^[1-9]\d{5}$/.test(getState('network.sessionCode')) &&
+    isCoordinator()
+  );
+}
+
 function getAuthorityConnection(): DataConnection | null {
   if (isCoordinator()) return null;
   return getState('network.hostConn');

@@ -49,7 +49,11 @@ import {
   isPlaybackPendingFile,
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
-import { getRoomContext, verifyPeerCapability } from '../rooms/authority.ts';
+import {
+  getRoomContext,
+  isActiveStandardRoomCoordinator,
+  verifyPeerCapability,
+} from '../rooms/authority.ts';
 import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
 
 let _syncPingCounter = 0;
@@ -118,7 +122,7 @@ function hasManualSyncEndpoint(): boolean {
   const hostConn = getState('network.hostConn');
   if (hostConn?.open) return true;
   const room = getRoomContext();
-  return room.kind === 'pro';
+  return room.kind === 'pro' || isActiveStandardRoomCoordinator();
 }
 
 function isProCoordinatorManualSyncEndpoint(): boolean {
@@ -128,7 +132,14 @@ function isProCoordinatorManualSyncEndpoint(): boolean {
 
 function canApplyManualSyncAction(): boolean {
   if (!hasManualSyncEndpoint()) return false;
-  if (isPlaybackModeYouTube()) return !isYouTubeZeroStartProtocolActive();
+  if (isPlaybackModeYouTube()) {
+    // A standard host owns the canonical YouTube timeline. Moving only its
+    // iframe changes the native end boundary (including playlist transitions
+    // that do not emit ENDED), so keep the local nudge surface fail-closed.
+    // The main Sync button still performs the existing room-wide rendezvous.
+    if (getRoomContext().kind === 'standard' && isActiveStandardRoomCoordinator()) return false;
+    return !isYouTubeZeroStartProtocolActive();
+  }
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
 }
 

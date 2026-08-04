@@ -335,15 +335,16 @@ const th: Record<I18nKey, string> = {
   'setup.join_session_subtitle': 'คุณกำลังจะเข้าร่วมห้อง {{code}}',
   'setup.select_role': 'โปรดเลือกบทบาท',
   'setup.select_role_alt': 'โปรดเลือกบทบาท',
+  'setup.greeting': 'สวัสดี!',
   'setup.hello_select_role': 'สร้างห้องหรือเข้าร่วมห้องที่มีอยู่',
-  'setup.enter_code': 'ใส่รหัสเชื่อมต่อ 6 หลัก',
-  'setup.enter_host_code': 'ใส่รหัส 6 หลักที่โฮสต์ระบุ',
-  'setup.enter_host_code_alt': 'ใส่รหัสของโฮสต์',
+  'setup.enter_code': 'ใส่รหัสเชิญ 6 หลัก',
+  'setup.enter_host_code': 'ใส่ตัวเลข 6 หลัก',
+  'setup.enter_host_code_alt': 'ใส่รหัสเชิญ',
   'setup.connect_devices': 'ตอนนี้มาเชื่อมต่ออุปกรณ์อื่นกัน',
-  'setup.enter_code_connect': 'ใส่รหัสนี้บนอุปกรณ์เครื่องอื่นของคุณ',
+  'setup.enter_code_connect': 'ใส่รหัสเชิญนี้บนอุปกรณ์เครื่องอื่น',
   'setup.last_step': 'พร้อมจะเริ่มแล้วหรือยัง?',
   'setup.joining': 'กำลังเข้าร่วมห้อง...',
-  'setup.six_digit_enter': 'โปรดใส่รหัส 6 หลัก',
+  'setup.six_digit_enter': 'โปรดใส่ตัวเลข 6 หลัก',
 
   // ─── Help ────────────────────────────────────────────────────────
   'help.need_help': 'ต้องการความช่วยเหลือ?',
@@ -759,7 +760,7 @@ const th: Record<I18nKey, string> = {
   'chat.scroll_to_bottom': 'เลื่อนไปด้านล่าง',
   'setup.brand_tagline_html': 'ฟังด้วยกันได้ทุกที่<br>ประสบการณ์เสียงที่สมบูรณ์แบบ',
   'setup.invite_share_desc_html':
-    'เชื่อมต่ออุปกรณ์หลายเครื่องแบบไร้สาย<br>เพื่อสร้างระบบเสียงขนาดใหญ่<br>ใช้รหัส 6 หลักเพื่อเชื่อมต่อ',
+    'เชื่อมต่ออุปกรณ์หลายเครื่องแบบไร้สาย<br>เพื่อสร้างระบบเสียงขนาดใหญ่<br>ใช้รหัสเชิญ 6 หลักเพื่อเชื่อมต่อ',
   'setup.play_together_desc_html':
     'เมื่อโฮสต์เล่นสื่อ<br>อุปกรณ์ที่เชื่อมต่อทั้งหมดจะเล่นพร้อมกัน<br>กดปุ่มซิงค์เพื่อปรับให้ตรงกัน',
   'setup.spatial_audio_desc_html':

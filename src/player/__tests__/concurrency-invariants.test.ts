@@ -380,6 +380,76 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe('standard host canonical file end boundary', () => {
+  function activateStandardHost(offsetSeconds: number): void {
+    setState('network.appRole', 'host');
+    setState('network.hostConn', null);
+    setState('network.sessionCode', '123456');
+    setState('setup.sessionStarted', true);
+    setState('sync.localOffset', offsetSeconds);
+    selectIndex(0);
+  }
+
+  it('ignores a positive-offset local source end and advances at canonical end', async () => {
+    vi.useFakeTimers();
+    activateStandardHost(2);
+    setCurrentAudioBuffer({ duration: 10 } as AudioBuffer);
+    const ended = vi.fn();
+    bus.on('player:ended', ended);
+
+    await play(0);
+    const source = getPlayerNode() as (AudioBufferSourceNode & { onended: () => void }) | null;
+    expect(source).not.toBeNull();
+
+    mocks.getCurrentTime.mockReturnValue(108);
+    await vi.advanceTimersByTimeAsync(8_000);
+    source?.onended();
+    expect(ended).not.toHaveBeenCalled();
+
+    mocks.getCurrentTime.mockReturnValue(110);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(ended).toHaveBeenCalledTimes(1);
+  });
+
+  it('advances a negative-offset source at canonical end before local onended', async () => {
+    vi.useFakeTimers();
+    activateStandardHost(-2);
+    setCurrentAudioBuffer({ duration: 10 } as AudioBuffer);
+    const ended = vi.fn();
+    bus.on('player:ended', ended);
+
+    await play(5);
+    const source = getPlayerNode() as (AudioBufferSourceNode & { onended: () => void }) | null;
+    expect(source).not.toBeNull();
+
+    mocks.getCurrentTime.mockReturnValue(105);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(ended).toHaveBeenCalledTimes(1);
+    expect(source?.onended).toBeNull();
+  });
+
+  it('cancels the canonical deadline on pause and rejects the retired source callback', async () => {
+    vi.useFakeTimers();
+    activateStandardHost(2);
+    setCurrentAudioBuffer({ duration: 10 } as AudioBuffer);
+    const ended = vi.fn();
+    bus.on('player:ended', ended);
+
+    await play(0);
+    const source = getPlayerNode();
+    expect(getManagedTimer('standard-file-canonical-end')).not.toBeNull();
+
+    mocks.getCurrentTime.mockReturnValue(104);
+    pause();
+    expect(getManagedTimer('standard-file-canonical-end')).toBeNull();
+    expect(source?.onended).toBeNull();
+
+    mocks.getCurrentTime.mockReturnValue(120);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(ended).not.toHaveBeenCalled();
+  });
+});
+
 // ─── Pin (a): use-preloaded supersession protocol (contract C1) ──────
 
 describe('pin (a) — use-preloaded supersession keeps the activation flag owned', () => {

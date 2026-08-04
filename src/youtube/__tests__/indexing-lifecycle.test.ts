@@ -502,6 +502,12 @@ describe('YouTube indexing session lifecycle', () => {
     expect(window.YT?.Player).toHaveBeenCalledWith(
       'youtube-player',
       expect.objectContaining({
+        playerVars: expect.objectContaining({ origin: window.location.origin }),
+      }),
+    );
+    expect(window.YT?.Player).toHaveBeenCalledWith(
+      'youtube-player',
+      expect.objectContaining({
         videoId: 'cachedSecond',
         playerVars: expect.not.objectContaining({
           list: 'PL_CACHED',

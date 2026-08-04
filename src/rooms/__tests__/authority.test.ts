@@ -4,6 +4,7 @@ import type { ConnectedPeer, DataConnection, RoomContext } from '../../types/ind
 import {
   getAuthorityConnectionForTests as getAuthorityConnection,
   hasRoomCapability,
+  isActiveStandardRoomCoordinator,
   isAuthoritativeConnection,
   isCoordinator,
   setRoomContext,
@@ -50,6 +51,29 @@ function proContext(overrides: Partial<RoomContext> = {}): RoomContext {
 beforeEach(() => resetState());
 
 describe('room authority compatibility layer', () => {
+  it('opens standard timeline authority only after the room is actually active', () => {
+    setState('network.appRole', 'host');
+    setState('network.sessionCode', '100000');
+
+    expect(isCoordinator()).toBe(true);
+    expect(isActiveStandardRoomCoordinator()).toBe(false);
+
+    setState('setup.sessionStarted', true);
+    expect(isActiveStandardRoomCoordinator()).toBe(true);
+
+    setState('network.sessionCode', '999999');
+    expect(isActiveStandardRoomCoordinator()).toBe(true);
+
+    setState('network.sessionCode', '000000');
+    expect(isActiveStandardRoomCoordinator()).toBe(false);
+
+    setState('network.sessionCode', '099999');
+    expect(isActiveStandardRoomCoordinator()).toBe(false);
+
+    setState('network.sessionCode', '12345');
+    expect(isActiveStandardRoomCoordinator()).toBe(false);
+  });
+
   it('preserves standard host and operator permissions', () => {
     setState('network.appRole', 'host');
     expect(isCoordinator()).toBe(true);

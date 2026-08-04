@@ -336,15 +336,16 @@ const ko = {
   'setup.join_session_subtitle': '{{code}}번 세션에 입장하려고 해요',
   'setup.select_role': '역할을 선택해주세요',
   'setup.select_role_alt': '역할을 선택해 주세요',
-  'setup.hello_select_role': '안녕하세요! 방을 만들거나 참여해 주세요.',
-  'setup.enter_code': '연결 코드 6자리 입력',
-  'setup.enter_host_code': '방장이 알려준 6자리 코드를 입력해주세요',
-  'setup.enter_host_code_alt': '방장의 코드를 입력해주세요.',
+  'setup.greeting': '안녕하세요!',
+  'setup.hello_select_role': '방을 만들거나 참여해 주세요.',
+  'setup.enter_code': '6자리 초대 코드 입력',
+  'setup.enter_host_code': '6자리 숫자를 입력해 주세요',
+  'setup.enter_host_code_alt': '초대 코드를 입력해 주세요.',
   'setup.connect_devices': '이제 다른 기기들과 연결해주세요.',
-  'setup.enter_code_connect': '이 코드를 다른 기기에 입력해주세요',
+  'setup.enter_code_connect': '이 초대 코드를 다른 기기에 입력해 주세요',
   'setup.last_step': '시작해볼까요?',
   'setup.joining': '참가하는 중...',
-  'setup.six_digit_enter': '6자리 코드를 입력해 주세요',
+  'setup.six_digit_enter': '6자리 숫자를 입력해 주세요',
 
   // ─── Help ────────────────────────────────────────────────────────
   'help.need_help': '도움이 필요해요',
@@ -762,7 +763,7 @@ const ko = {
   'chat.scroll_to_bottom': '맨 아래로 스크롤',
   'setup.brand_tagline_html': '언제 어디서나 함께 듣는<br>완벽한 사운드 경험',
   'setup.invite_share_desc_html':
-    '여러 기기를 무선으로 연결해<br>거대한 오디오 시스템을 만들어 보세요.<br>6자리 숫자 코드로 연결할 수 있어요.',
+    '여러 기기를 무선으로 연결해<br>거대한 오디오 시스템을 만들어 보세요.<br>6자리 초대 코드로 연결할 수 있어요.',
   'setup.play_together_desc_html':
     '방장이 미디어를 재생하면<br>연결된 모든 기기에서 동시에 재생돼요.<br>동기화 버튼을 눌러서 싱크를 맞춰보세요.',
   'setup.spatial_audio_desc_html':

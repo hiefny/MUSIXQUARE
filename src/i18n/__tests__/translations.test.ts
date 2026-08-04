@@ -66,8 +66,34 @@ describe('Translation key integrity', () => {
     }
   });
 
-  it('greets Korean users while describing the first room choice', () => {
-    expect(ko['setup.hello_select_role']).toBe('안녕하세요! 방을 만들거나 참여해 주세요.');
+  it('keeps the greeting separate from the first room choice', () => {
+    const greetings: Record<keyof typeof locales, string> = {
+      ko: '안녕하세요!',
+      en: 'Hello!',
+      de: 'Hallo!',
+      es: '¡Hola!',
+      fr: 'Bonjour !',
+      id: 'Halo!',
+      italian: 'Ciao!',
+      ja: 'こんにちは！',
+      nl: 'Hallo!',
+      pl: 'Cześć!',
+      ptBr: 'Olá!',
+      ru: 'Здравствуйте!',
+      th: 'สวัสดี!',
+      tr: 'Merhaba!',
+      vi: 'Xin chào!',
+      zhHans: '你好！',
+      zhHant: '你好！',
+    };
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      expect(dict['setup.greeting'], `${locale}.setup.greeting`).toBe(
+        greetings[locale as keyof typeof locales],
+      );
+    }
+
+    expect(ko['setup.hello_select_role']).toBe('방을 만들거나 참여해 주세요.');
     expect(ko['setup.host_button']).toBe('방 만들기');
     expect(ko['setup.guest_button']).toBe('방 참여하기');
     expect(en['setup.hello_select_role']).toBe('Create a room or join one.');
@@ -98,6 +124,49 @@ describe('Translation key integrity', () => {
         expect(dict[key], `${locale}.${key}`).toBeTruthy();
       }
     }
+  });
+
+  it('distinguishes invitation-code copy from six-digit number instructions', () => {
+    const invitationTerms: Record<keyof typeof locales, RegExp> = {
+      ko: /초대/,
+      en: /invitation/i,
+      de: /Einladung/i,
+      es: /invitación/i,
+      fr: /invitation/i,
+      id: /undangan/i,
+      italian: /invito/i,
+      ja: /招待/,
+      nl: /uitnodiging/i,
+      pl: /zaproszenia/i,
+      ptBr: /convite/i,
+      ru: /приглашения/i,
+      th: /เชิญ/,
+      tr: /davet/i,
+      vi: /mời/i,
+      zhHans: /邀请/,
+      zhHant: /邀請/,
+    };
+    const invitationKeys = [
+      'setup.enter_code',
+      'setup.enter_host_code_alt',
+      'setup.enter_code_connect',
+      'setup.invite_share_desc_html',
+    ] as const;
+    const numericKeys = ['setup.enter_host_code', 'setup.six_digit_enter'] as const;
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      const invitationTerm = invitationTerms[locale as keyof typeof locales];
+      for (const key of invitationKeys) {
+        expect(dict[key], `${locale}.${key}`).toMatch(invitationTerm);
+      }
+      for (const key of numericKeys) {
+        expect(dict[key], `${locale}.${key}`).toContain('6');
+        expect(dict[key], `${locale}.${key}`).not.toMatch(invitationTerm);
+      }
+    }
+
+    expect(ko['setup.enter_host_code']).toBe('6자리 숫자를 입력해 주세요');
+    expect(en['setup.enter_host_code']).toBe('Enter the 6-digit number');
   });
 
   it('uses the approved Korean signaling health and recovery copy', () => {

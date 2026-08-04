@@ -54,6 +54,12 @@ function mockDataConnection(peer = 'host'): MockDataConnection {
   };
 }
 
+function setActiveStandardHost(): void {
+  setState('network.appRole', 'host');
+  setState('network.sessionCode', '123456');
+  setState('setup.sessionStarted', true);
+}
+
 const transportMocks = vi.hoisted(() => ({
   play: vi.fn(),
 }));
@@ -216,6 +222,45 @@ describe('manual sync nudge routing', () => {
     bus.emit('sync:nudge', 10);
 
     expect(getState('sync.localOffset')).toBeCloseTo(0.01, 4);
+  });
+
+  it('lets an active standard host nudge only its decoded local file output', () => {
+    initSync();
+    setActiveStandardHost();
+    setPlaybackFilePlaying();
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    bus.emit('sync:nudge', 10);
+
+    expect(getState('sync.localOffset')).toBeCloseTo(0.01, 4);
+  });
+
+  it('rejects a stale standard-host nudge before the room is active', () => {
+    initSync();
+    setState('network.appRole', 'host');
+    setState('network.sessionCode', '123456');
+    setPlaybackFilePlaying();
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    bus.emit('sync:nudge', 10);
+
+    expect(getState('sync.localOffset')).toBe(0);
+  });
+
+  it('keeps standard-host YouTube local nudge fail-closed at the canonical boundary', () => {
+    initSync();
+    const localApply = vi.fn();
+    const guestApply = vi.fn();
+    bus.on('youtube:set-coordinator-manual-offset', localApply);
+    bus.on('youtube:apply-manual-sync', guestApply);
+    setActiveStandardHost();
+    setPlaybackYouTubePlaying();
+
+    bus.emit('sync:nudge', 10);
+
+    expect(localApply).not.toHaveBeenCalled();
+    expect(guestApply).not.toHaveBeenCalled();
+    expect(getState('sync.youtubeLocalOffset')).toBe(0);
   });
 
   it('applies and resets a PRO coordinator YouTube nudge locally', () => {

@@ -10,7 +10,7 @@
          code, then apply Android viewport, language, and theme preflight.
          Cloudflare Analytics is loaded by this bootstrap only after a safe
          scrub/handoff. Source: public/bootstrap.js -->
-    <script src="/bootstrap.js?cache=v376"></script>
+    <script src="/bootstrap.js?cache=v377"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -2350,7 +2350,25 @@
                   data-wd="600"
                 />
               </svg>
-              <p data-i18n="setup.hello_select_role"></p>
+              <div class="setup-greeting-row" aria-hidden="true">
+                <span class="setup-greeting-text" data-i18n="setup.greeting"></span>
+                <button
+                  type="button"
+                  class="setup-language-button"
+                  data-setup-language-trigger
+                  aria-haspopup="dialog"
+                  aria-controls="language-dialog-overlay"
+                  data-i18n-aria-label="settings.language_select_aria"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="12" r="9"></circle>
+                    <path
+                      d="M3.5 12h17M12 3c2.4 2.47 3.6 5.47 3.6 9s-1.2 6.53-3.6 9M12 3C9.6 5.47 8.4 8.47 8.4 12s1.2 6.53 3.6 9"
+                    ></path>
+                  </svg>
+                </button>
+              </div>
+              <p class="setup-role-prompt" data-i18n="setup.hello_select_role"></p>
             </div>
 
             <div id="ob-slider-area" class="ob-slider-block">
@@ -3123,14 +3141,18 @@
             BETA
           </span>
         </div>
-        <div
-          class="language-list"
-          id="language-list"
-          role="group"
-          aria-labelledby="language-dialog-title"
-          data-custom-scroll
-          data-custom-scroll-contained
-        ></div>
+        <div class="language-list-frame">
+          <div
+            class="language-list"
+            id="language-list"
+            role="group"
+            aria-labelledby="language-dialog-title"
+            data-custom-scroll
+            data-custom-scroll-contained
+          ></div>
+          <span class="language-list-edge language-list-edge-top" aria-hidden="true"></span>
+          <span class="language-list-edge language-list-edge-bottom" aria-hidden="true"></span>
+        </div>
         <div class="dialog-actions adaptive-action-group">
           <button
             type="button"

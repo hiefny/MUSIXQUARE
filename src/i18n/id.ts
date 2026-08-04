@@ -346,15 +346,16 @@ const id: Record<I18nKey, string> = {
   'setup.join_session_subtitle': 'Anda akan masuk ke ruang {{code}}.',
   'setup.select_role': 'Silakan pilih peran',
   'setup.select_role_alt': 'Silakan pilih peran',
+  'setup.greeting': 'Halo!',
   'setup.hello_select_role': 'Buat ruang atau gabung ke ruang yang ada.',
-  'setup.enter_code': 'Masukkan kode 6 digit',
-  'setup.enter_host_code': 'Masukkan kode 6 digit dari host',
-  'setup.enter_host_code_alt': 'Masukkan kode host.',
+  'setup.enter_code': 'Masukkan kode undangan 6 digit',
+  'setup.enter_host_code': 'Masukkan angka 6 digit',
+  'setup.enter_host_code_alt': 'Masukkan kode undangan.',
   'setup.connect_devices': 'Sekarang hubungkan perangkat lain.',
-  'setup.enter_code_connect': 'Masukkan kode ini di perangkat lain',
+  'setup.enter_code_connect': 'Masukkan kode undangan ini di perangkat lain',
   'setup.last_step': 'Siap mulai?',
   'setup.joining': 'Bergabung...',
-  'setup.six_digit_enter': 'Masukkan kode koneksi 6 digit',
+  'setup.six_digit_enter': 'Masukkan angka 6 digit',
 
   // Help
   'help.need_help': 'Butuh bantuan?',
@@ -803,7 +804,7 @@ const id: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>Kode sudah dimasukkan tetapi tidak bisa terhubung:</strong> Periksa kode lalu coba lagi sebentar lagi. Jaringan perusahaan, sekolah, atau VPN dapat membatasi koneksi.</li><li><strong>Koneksi tidak stabil:</strong> Peserta lokal sebaiknya lebih dekat ke router, dan peserta jarak jauh sebaiknya memakai koneksi internet yang stabil.</li><li><strong>Masalah lain:</strong> Periksa status jaringan dan mulai ulang aplikasi di semua perangkat. Jika ada pertanyaan, lihat <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> atau hubungi kami lewat email di bagian paling bawah.</li></ul>',
   'setup.brand_tagline_html': 'Dengarkan bersama, di mana saja<br>Pengalaman suara yang sempurna',
   'setup.invite_share_desc_html':
-    'Hubungkan beberapa perangkat secara nirkabel<br>untuk membuat sistem audio yang kuat.<br>Gunakan kode 6 digit untuk terhubung.',
+    'Hubungkan beberapa perangkat secara nirkabel<br>untuk membuat sistem audio yang kuat.<br>Gunakan kode undangan 6 digit untuk terhubung.',
   'setup.play_together_desc_html':
     'Saat host memutar media,<br>semua perangkat yang terhubung memutar secara sinkron.<br>Tekan tombol sinkronisasi untuk menyelaraskan.',
   'setup.spatial_audio_desc_html':

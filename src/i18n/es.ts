@@ -346,15 +346,16 @@ const es: Record<I18nKey, string> = {
   'setup.join_session_subtitle': 'Vas a entrar a la sala {{code}}.',
   'setup.select_role': 'Selecciona un rol',
   'setup.select_role_alt': 'Selecciona un rol',
+  'setup.greeting': '¡Hola!',
   'setup.hello_select_role': 'Crea una sala o únete a una.',
-  'setup.enter_code': 'Ingresa el código de 6 dígitos',
-  'setup.enter_host_code': 'Ingresa el código de 6 dígitos del host',
-  'setup.enter_host_code_alt': 'Ingresa el código del host.',
+  'setup.enter_code': 'Introduce el código de invitación de 6 dígitos',
+  'setup.enter_host_code': 'Introduce el número de 6 dígitos',
+  'setup.enter_host_code_alt': 'Introduce el código de invitación.',
   'setup.connect_devices': 'Conecta tus otros dispositivos para comenzar.',
-  'setup.enter_code_connect': 'Ingresa este código en los demás dispositivos',
+  'setup.enter_code_connect': 'Introduce este código de invitación en los demás dispositivos',
   'setup.last_step': '¡Empecemos!',
   'setup.joining': 'Uniéndose...',
-  'setup.six_digit_enter': 'Ingresa el código de conexión de 6 dígitos',
+  'setup.six_digit_enter': 'Introduce el número de 6 dígitos',
 
   // Help
   'help.need_help': '¿Necesitas ayuda?',
@@ -816,7 +817,7 @@ const es: Record<I18nKey, string> = {
   'setup.brand_tagline_html':
     'Escucha en compañía, estés donde estés<br>La experiencia de sonido perfecta',
   'setup.invite_share_desc_html':
-    'Conecta varios dispositivos de forma inalámbrica<br>para crear un gran sistema de audio.<br>Usa un código de 6 dígitos para conectar.',
+    'Conecta varios dispositivos de forma inalámbrica<br>para crear un gran sistema de audio.<br>Usa un código de invitación de 6 dígitos para conectarte.',
   'setup.play_together_desc_html':
     'Cuando el host reproduce medios,<br>todos los dispositivos conectados suenan sincronizados.<br>Toca el botón de sincronización para alinear.',
   'setup.spatial_audio_desc_html':

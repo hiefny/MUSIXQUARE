@@ -8,7 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { MAX_SYSTEM_AUDIO_DEVICES, MSG, PLAYBACK_STATE } from '../core/constants.ts';
+import { MAX_SYSTEM_AUDIO_DEVICES, PLAYBACK_STATE } from '../core/constants.ts';
 import { IS_ANDROID, IS_IOS, canCaptureSystemAudio } from '../core/platform.ts';
 import { getClockOffset, getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
@@ -25,7 +25,7 @@ import {
   normalizeEmptyContentEditable,
 } from './dom.ts';
 import { showDialog } from './dialog.ts';
-import { getTrackPosition, isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
+import { isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { getCurrentQueueItemId, getCurrentQueueItemIndex } from '../player/queue-model.ts';
@@ -48,9 +48,13 @@ import {
   isPlaybackModeFile,
   isPlaybackModeSystemAudio,
   isPlaybackModeYouTube,
-  isPlaybackPlayingFile,
 } from '../player/ownership.ts';
-import { getRoomContext, hasRoomCapability, isCoordinator } from '../rooms/authority.ts';
+import {
+  getRoomContext,
+  hasRoomCapability,
+  isActiveStandardRoomCoordinator,
+  isCoordinator,
+} from '../rooms/authority.ts';
 import {
   roomCapabilityRequiredMessage,
   showRoomCapabilityRequired,
@@ -91,7 +95,6 @@ const ROLE_CLOCK_SECOND_PULSE_START_MS = ROLE_CLOCK_PULSE_ON_MS + ROLE_CLOCK_PUL
 const ROLE_CLOCK_SECOND_PULSE_END_MS = ROLE_CLOCK_SECOND_PULSE_START_MS + ROLE_CLOCK_PULSE_ON_MS;
 const ROLE_CLOCK_PULSE_TIMER = 'role-clock-pulse';
 const ROLE_CLOCK_PULSE_RESET_TIMER = 'role-clock-pulse-reset';
-const LOCAL_FILE_SYNC_SCHEDULE_AHEAD_MS = 200;
 let _ytPlayButtonLoading = false;
 const _ytSyncLoadingOwners = new Set<YouTubeSyncLoadingOwner | 'legacy'>();
 let _filePlayButtonLoading = false;
@@ -872,9 +875,12 @@ function canUseManualSyncPanel(): boolean {
   const hostConn = getState('network.hostConn');
   const room = getRoomContext();
   const isProRoom = room.kind === 'pro';
-  if (!hostConn?.open && !isProRoom) return false;
+  if (!hostConn?.open && !isProRoom && !isActiveStandardRoomCoordinator()) return false;
   if (isPlaybackModeSystemAudio()) return false;
-  if (isPlaybackModeYouTube()) return !isYouTubeZeroStartProtocolActive();
+  if (isPlaybackModeYouTube()) {
+    if (!hostConn && !isProRoom && isActiveStandardRoomCoordinator()) return false;
+    return !isYouTubeZeroStartProtocolActive();
+  }
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
 }
 
@@ -891,11 +897,14 @@ function getMainSyncUnavailableReason(): MainSyncUnavailableReason | null {
   const hasMedia = isPlaybackModeFile() || isPlaybackModeYouTube();
   if (!hasMedia) return hostConn ? 'not-ready' : 'no-media';
   if (hostConn && !hostConn.open) return 'not-ready';
+  if (!hostConn && !isProRoom && !isActiveStandardRoomCoordinator()) return 'not-ready';
 
   if (isPlaybackModeFile()) {
     if (isFilePipelineBusyForPlay()) return 'not-ready';
     if (hostConn && !getCurrentAudioBuffer()) return 'not-ready';
-    if (!hostConn && !isProRoom && !getCurrentQueueItemId()) return 'not-ready';
+    if (!hostConn && !isProRoom && (!getCurrentQueueItemId() || !getCurrentAudioBuffer())) {
+      return 'not-ready';
+    }
   }
   return null;
 }
@@ -939,6 +948,17 @@ function finishMainSyncRequest(token: number): void {
 }
 
 function handleMainSyncBtn(): void {
+  // aria-disabled is advisory for custom-styled controls; synthetic clicks,
+  // keyboard activation, and a state change between paint and dispatch can
+  // still reach this handler. Re-evaluate the same predicate used to render
+  // the button and fail closed with the matching user-facing reason.
+  const unavailableReason = getMainSyncUnavailableReason();
+  if (unavailableReason) {
+    closeManualSyncOverlay();
+    showToast(getMainSyncUnavailableMessage(unavailableReason));
+    return;
+  }
+
   if (_mainSyncPending) {
     showToast(t('toast.sync_not_ready'));
     return;
@@ -1029,23 +1049,13 @@ function handleMainSyncBtn(): void {
       showToast(t('toast.sync_not_ready'));
       return;
     }
-    const queueItemId = getCurrentQueueItemId();
-    if (!queueItemId) {
+    if (!getCurrentQueueItemId() || !getCurrentAudioBuffer()) {
       showToast(t('toast.sync_not_ready'));
       return;
     }
-    const time = getTrackPosition();
-    if (isPlaybackPlayingFile()) {
-      bus.emit('network:broadcast', {
-        type: MSG.PLAY,
-        time,
-        queueItemId,
-        hostPlayAt: getHostNow() + LOCAL_FILE_SYNC_SCHEDULE_AHEAD_MS,
-      });
-    } else {
-      bus.emit('network:broadcast', { type: MSG.PAUSE, time, queueItemId, reason: 'seek' });
-    }
-    showToast(t('toast.host_sync_requested'));
+    // transport.ts keeps getTrackPosition() canonical while applying the
+    // manual offset only to the local AudioBuffer source.
+    openManualSyncOverlay();
     return;
   }
   if (!hostConn.open) {
@@ -1824,6 +1834,9 @@ export function initPlayerControls(): void {
   _busScope.on('state:playback.mode', closeManualSyncIfInvalid);
   _busScope.on('state:playback.activity', closeManualSyncIfInvalid);
   _busScope.on('state:network.hostConn', closeManualSyncIfInvalid);
+  _busScope.on('state:network.appRole', closeManualSyncIfInvalid);
+  _busScope.on('state:room.context', closeManualSyncIfInvalid);
+  _busScope.on('state:setup.sessionStarted', closeManualSyncIfInvalid);
   _busScope.on('state:network.sessionCode', closeManualSyncIfInvalid);
   _busScope.on('player:buffer-changed', () => {
     closeManualSyncIfInvalid();

@@ -345,15 +345,16 @@ const fr: Record<I18nKey, string> = {
   'setup.join_session_subtitle': 'Vous allez rejoindre la salle {{code}}.',
   'setup.select_role': 'Veuillez sélectionner un rôle',
   'setup.select_role_alt': 'Veuillez sélectionner un rôle',
+  'setup.greeting': 'Bonjour !',
   'setup.hello_select_role': 'Créez une salle ou rejoignez-en une.',
-  'setup.enter_code': 'Saisir le code à 6 chiffres',
-  'setup.enter_host_code': 'Saisissez le code à 6 chiffres de l’hôte',
-  'setup.enter_host_code_alt': 'Saisissez le code de l’hôte.',
+  'setup.enter_code': 'Saisir le code d’invitation à 6 chiffres',
+  'setup.enter_host_code': 'Saisissez le numéro à 6 chiffres',
+  'setup.enter_host_code_alt': 'Saisissez le code d’invitation.',
   'setup.connect_devices': 'Connectez vos autres appareils pour commencer.',
-  'setup.enter_code_connect': 'Saisissez ce code sur les appareils des invités',
+  'setup.enter_code_connect': 'Saisissez ce code d’invitation sur les autres appareils',
   'setup.last_step': 'C’est parti !',
   'setup.joining': 'Connexion...',
-  'setup.six_digit_enter': 'Saisissez le code de connexion à 6 chiffres',
+  'setup.six_digit_enter': 'Saisissez le numéro à 6 chiffres',
 
   // Help
   'help.need_help': 'Besoin d’aide ?',
@@ -813,7 +814,7 @@ const fr: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>Code saisi mais connexion impossible :</strong> Vérifiez le code puis réessayez dans un instant. Les réseaux d’entreprise, d’école ou les VPN peuvent limiter la connexion.</li><li><strong>Connexion instable :</strong> Les participants locaux devraient rester plus près du routeur, et les participants distants utiliser une connexion Internet stable.</li><li><strong>Autres problèmes :</strong> Vérifiez l’état du réseau et redémarrez l’application sur tous les appareils. Pour toute question, consultez la <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> ou contactez-nous via l’e-mail tout en bas.</li></ul>',
   'setup.brand_tagline_html': 'Écouter ensemble, partout<br>L’expérience sonore parfaite',
   'setup.invite_share_desc_html':
-    'Connectez plusieurs appareils sans fil<br>pour créer un grand système audio.<br>Utilisez un code à 6 chiffres pour vous connecter.',
+    'Connectez plusieurs appareils sans fil<br>pour créer un grand système audio.<br>Utilisez un code d’invitation à 6 chiffres pour vous connecter.',
   'setup.play_together_desc_html':
     'Quand l’hôte lit un média,<br>tous les appareils connectés le lisent de façon synchronisée.<br>Appuyez sur le bouton de synchronisation pour aligner la lecture.',
   'setup.spatial_audio_desc_html':

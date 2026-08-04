@@ -40,13 +40,22 @@ import {
   type ProPlaybackCommitRequest,
 } from '../pro-room/playback-authority-hooks.ts';
 import { isProRoomTrackChangeIntentPending } from './track-change-intent.ts';
-import { hasRoomCapability } from '../rooms/authority.ts';
+import { hasRoomCapability, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
 
 /** Lead time for a host command to reach guests before the shared start. */
 const SCHEDULE_AHEAD_MS = 200;
 
 /** Calibrated output advance for Windows local-file playback. */
 const WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC = 0.02;
+
+/**
+ * A standard-room host may move only its local AudioBuffer output while the
+ * room clock remains canonical. AudioBufferSourceNode.onended then belongs to
+ * the shifted local output, not to the room timeline, so natural advancement
+ * needs an independent, identity-fenced canonical deadline.
+ */
+const STANDARD_FILE_CANONICAL_END_TIMER = 'standard-file-canonical-end';
+const CANONICAL_END_EPSILON_SEC = 0.005;
 
 // The play lock is page-global, so every timer/finally that releases it must
 // prove it still belongs to the invocation that claimed it. A load epoch
@@ -292,6 +301,9 @@ export function updatePlayState(playing: boolean): void {
  * InvalidStateError, which teardown intentionally ignores.
  */
 export function stopPlayerNode(): void {
+  // Clear this before the node lookup: a superseded play can leave a deadline
+  // behind even when WebKit has already released the concrete source node.
+  clearManagedTimer(STANDARD_FILE_CANONICAL_END_TIMER);
   const node = getPlayerNode();
   if (!node) return;
   try {
@@ -315,6 +327,53 @@ export function stopPlayerNode(): void {
     /* InvalidStateError on spec-strict engines — ignore */
   }
   setPlayerNode(null);
+}
+
+function armStandardFileCanonicalEnd(
+  node: AudioBufferSourceNode,
+  buffer: AudioBuffer,
+  loadEpoch: number,
+  queueItemId: string | null,
+  delaySeconds: number,
+): void {
+  if (!isActiveStandardRoomCoordinator()) return;
+  if (!Number.isFinite(buffer.duration) || buffer.duration <= 0.1) return;
+
+  const isCurrentOccurrence = (): boolean =>
+    isActiveStandardRoomCoordinator() &&
+    isCurrentLoadEpoch(loadEpoch) &&
+    getPlayerNode() === node &&
+    getCurrentAudioBuffer() === buffer &&
+    getCurrentQueueItemId() === queueItemId &&
+    isFilePlaybackPlaying() &&
+    !isExternalOwner() &&
+    !getState('player.isSeeking');
+
+  const checkCanonicalEnd = (): void => {
+    if (!isCurrentOccurrence()) return;
+
+    const remainingSeconds = buffer.duration - getTrackPosition();
+    if (remainingSeconds <= CANONICAL_END_EPSILON_SEC) {
+      handleEnded();
+      return;
+    }
+
+    // AudioContext.currentTime freezes while Safari suspends audio in the
+    // background. Re-check against that canonical clock instead of treating a
+    // wall-clock timeout as an end signal. The short upper bound also makes a
+    // resumed context converge without a stale long-lived timer.
+    setManagedTimer(
+      STANDARD_FILE_CANONICAL_END_TIMER,
+      checkCanonicalEnd,
+      Math.max(25, Math.min(1_000, remainingSeconds * 1_000)),
+    );
+  };
+
+  setManagedTimer(
+    STANDARD_FILE_CANONICAL_END_TIMER,
+    checkCanonicalEnd,
+    Math.max(0, delaySeconds * 1_000),
+  );
 }
 
 // ─── Stop All Media ────────────────────────────────────────────────
@@ -696,11 +755,14 @@ async function _internalPlay(
   if (shouldApply?.() === false || expectedPlayStartFence !== playStartFence) return;
 
   // Buffer Mode playback
+  let startedSourceNode: AudioBufferSourceNode | null = null;
+  const standardHostOwnsCanonicalEnd = isActiveStandardRoomCoordinator();
   if (_currentAudioBuffer) {
     stopPlayerNode();
     const newNode = ctx.createBufferSource();
     newNode.buffer = _currentAudioBuffer;
     setPlayerNode(newNode);
+    startedSourceNode = newNode;
 
     const isSurroundMode = getState('audio.isSurroundMode');
     const surroundChannelIndex = getState('audio.surroundChannelIndex');
@@ -725,6 +787,11 @@ async function _internalPlay(
     // captured load epoch) attached to retired WebKit source nodes.
     newNode.onended = () => {
       if (!isCurrentLoadEpoch(myLoadEpoch)) return;
+      // For an active standard host the local source may end on either side
+      // of the room boundary. Even a tiny positive offset (including the
+      // Windows output compensation) falls inside handleEnded's tolerance,
+      // so the canonical deadline must be the sole natural-end owner.
+      if (standardHostOwnsCanonicalEnd) return;
       if (isFilePlaybackPlaying()) {
         handleEnded();
       }
@@ -752,6 +819,16 @@ async function _internalPlay(
   log.debug(`[BufferMode] Started at ${safeOffset}s (startedAt: ${startedAt})`);
 
   setPlaybackFilePlaying();
+
+  if (startedSourceNode && _currentAudioBuffer) {
+    armStandardFileCanonicalEnd(
+      startedSourceNode,
+      _currentAudioBuffer,
+      myLoadEpoch,
+      getCurrentQueueItemId(),
+      effectiveScheduleDelay + Math.max(0, duration - safeOffset),
+    );
+  }
 
   if (!getState('network.hostConn')) {
     transition({
@@ -910,7 +987,8 @@ export function handleEnded(): void {
     return;
   }
 
-  if (curr >= duration - 0.05) {
+  const endEpsilon = isActiveStandardRoomCoordinator() ? CANONICAL_END_EPSILON_SEC : 0.05;
+  if (curr >= duration - endEpsilon) {
     log.debug(`Track ended at ${curr.toFixed(2)}s / ${duration.toFixed(2)}s`);
     const queueItemId = getCurrentQueueItemId();
     if (

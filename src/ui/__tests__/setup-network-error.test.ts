@@ -53,6 +53,10 @@ vi.mock('../player-controls.ts', () => ({
   updateRoleBadge: vi.fn(),
 }));
 
+vi.mock('../settings.ts', () => ({
+  openLanguageDialog: vi.fn(),
+}));
+
 vi.mock('../setup-host.ts', () => ({
   startHostFlow: vi.fn(),
   setHostGoBack: vi.fn(),

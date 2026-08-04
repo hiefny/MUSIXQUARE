@@ -17,11 +17,12 @@ import { getState, setState } from '../core/state.ts';
 import { cancelCapabilityChallenge } from '../core/capability.ts';
 import { isPlaybackModeYouTube } from '../player/ownership.ts';
 import { requestProRoomTransportRecovery } from '../pro-room/transport-recovery.ts';
-import { setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { onCompactLandscapeChange } from '../core/platform.ts';
 import { showToast, showLoader } from './toast.ts';
 import { showDialog } from './dialog.ts';
 import { updateRoleBadge } from './player-controls.ts';
+import { openLanguageDialog } from './settings.ts';
 
 // ─── Sub-module imports ──────────────────────────────────────────
 import { startHostFlow, setHostGoBack } from './setup-host.ts';
@@ -156,6 +157,88 @@ function triggerAppEntrance(): void {
 
 // ─── Init Setup Overlay ──────────────────────────────────────────
 
+const SETUP_GREETING_DELAY_MS = 1000;
+const SETUP_LOGO_DRAW_BASE_DELAY_MS = 500;
+const SETUP_GREETING_FALLBACK_BUFFER_MS = 300;
+const SETUP_GREETING_REVEAL_TIMER = 'setup-greeting-reveal';
+const SETUP_GREETING_FALLBACK_TIMER = 'setup-greeting-fallback';
+
+function revealSetupGreeting(): void {
+  document.querySelectorAll<HTMLElement>('.setup-greeting-row').forEach((row) => {
+    row.classList.add('is-visible');
+    row.setAttribute('aria-hidden', 'false');
+  });
+}
+
+function armSetupGreeting(signal: AbortSignal): void {
+  clearManagedTimer(SETUP_GREETING_REVEAL_TIMER);
+  clearManagedTimer(SETUP_GREETING_FALLBACK_TIMER);
+
+  const greetingRows = document.querySelectorAll<HTMLElement>('.setup-greeting-row');
+  if (greetingRows.length === 0) return;
+  if (Array.from(greetingRows).some((row) => row.classList.contains('is-visible'))) {
+    revealSetupGreeting();
+    return;
+  }
+
+  const clearGreetingTimers = () => {
+    clearManagedTimer(SETUP_GREETING_REVEAL_TIMER);
+    clearManagedTimer(SETUP_GREETING_FALLBACK_TIMER);
+  };
+  signal.addEventListener('abort', clearGreetingTimers, { once: true });
+
+  const revealAfterDelay = () => {
+    setManagedTimer(SETUP_GREETING_REVEAL_TIMER, revealSetupGreeting, SETUP_GREETING_DELAY_MS);
+  };
+
+  let reducedMotion = false;
+  try {
+    reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    /* Fall through to the animation-driven path. */
+  }
+  if (reducedMotion) {
+    revealAfterDelay();
+    return;
+  }
+
+  let longestDrawMs = 0;
+  const finalStrokes: SVGElement[] = [];
+  document.querySelectorAll<SVGSVGElement>('.logo-welcome').forEach((logo) => {
+    let finalStroke: SVGElement | null = null;
+    let finalStrokeEndMs = -1;
+    logo.querySelectorAll<SVGElement>(':scope > .wl').forEach((stroke) => {
+      const startMs = Number(stroke.dataset.wt) || 0;
+      const durationMs = Number(stroke.dataset.wd) || 0;
+      const endMs = startMs + durationMs;
+      longestDrawMs = Math.max(longestDrawMs, endMs);
+      if (endMs > finalStrokeEndMs) {
+        finalStroke = stroke;
+        finalStrokeEndMs = endMs;
+      }
+    });
+    if (finalStroke) finalStrokes.push(finalStroke);
+  });
+
+  let drawCompleted = false;
+  const handleFinalDraw = (event: AnimationEvent) => {
+    if (drawCompleted || !finalStrokes.includes(event.currentTarget as SVGElement)) return;
+    drawCompleted = true;
+    clearManagedTimer(SETUP_GREETING_FALLBACK_TIMER);
+    revealAfterDelay();
+  };
+  finalStrokes.forEach((stroke) => {
+    stroke.addEventListener('animationend', handleFinalDraw, { signal });
+  });
+
+  const fallbackMs =
+    SETUP_LOGO_DRAW_BASE_DELAY_MS +
+    longestDrawMs +
+    SETUP_GREETING_DELAY_MS +
+    SETUP_GREETING_FALLBACK_BUFFER_MS;
+  setManagedTimer(SETUP_GREETING_FALLBACK_TIMER, revealSetupGreeting, fallbackMs);
+}
+
 function initSetupOverlay(): void {
   // This callback is wired only to pre-session setup controls. Refuse to
   // downgrade a live room to `idle` if a future caller invokes it by mistake;
@@ -225,7 +308,18 @@ function initSetupOverlay(): void {
   _applyEntranceClasses();
 
   showAndStart();
+  armSetupGreeting(signal);
   scheduleStandardRoomPrerequisiteWarmup();
+
+  setupEl('setup-overlay')?.addEventListener(
+    'click',
+    (event) => {
+      const target = event.target;
+      if (!(target instanceof Element) || !target.closest('[data-setup-language-trigger]')) return;
+      openLanguageDialog();
+    },
+    { signal },
+  );
 
   // Bind slider events (use addEventListener with signal for proper cleanup)
   const btnNext = setupEl('ob-next');

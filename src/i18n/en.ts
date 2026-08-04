@@ -340,15 +340,16 @@ const en: Record<I18nKey, string> = {
   'setup.join_session_subtitle': "You're about to join session {{code}}.",
   'setup.select_role': 'Please select a role',
   'setup.select_role_alt': 'Please select a role',
+  'setup.greeting': 'Hello!',
   'setup.hello_select_role': 'Create a room or join one.',
-  'setup.enter_code': 'Enter 6-digit code',
-  'setup.enter_host_code': 'Enter the 6-digit code from the host',
-  'setup.enter_host_code_alt': "Enter the host's code.",
+  'setup.enter_code': 'Enter 6-digit invitation code',
+  'setup.enter_host_code': 'Enter the 6-digit number',
+  'setup.enter_host_code_alt': 'Enter the invitation code.',
   'setup.connect_devices': 'Connect your other devices to begin.',
-  'setup.enter_code_connect': 'Enter this code on guest devices',
+  'setup.enter_code_connect': 'Enter this invitation code on the other devices',
   'setup.last_step': "Let's get started!",
   'setup.joining': 'Joining...',
-  'setup.six_digit_enter': 'Enter the 6-digit connection code',
+  'setup.six_digit_enter': 'Enter the 6-digit number',
 
   // ─── Help ────────────────────────────────────────────────────────
   'help.need_help': 'Need help?',
@@ -769,7 +770,7 @@ const en: Record<I18nKey, string> = {
   'chat.scroll_to_bottom': 'Scroll to bottom',
   'setup.brand_tagline_html': 'Listen together, anywhere<br>The perfect sound experience',
   'setup.invite_share_desc_html':
-    'Connect multiple devices wirelessly<br>to create a massive audio system.<br>Use a 6-digit code to connect.',
+    'Connect multiple devices wirelessly<br>to create a massive audio system.<br>Use a 6-digit invitation code to connect.',
   'setup.play_together_desc_html':
     'When the host plays media,<br>all connected devices play in sync.<br>Press the sync button to align.',
   'setup.spatial_audio_desc_html':

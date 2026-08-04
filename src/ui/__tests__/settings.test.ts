@@ -29,7 +29,12 @@ vi.mock('../toast.ts', () => ({
   showToast: vi.fn(),
 }));
 
-import { initSettings, setTheme, selectStandardChannelButton } from '../settings.ts';
+import {
+  initSettings,
+  openLanguageDialog,
+  setTheme,
+  selectStandardChannelButton,
+} from '../settings.ts';
 
 class ResizeObserverStub {
   observe(): void {
@@ -126,14 +131,18 @@ function installLanguageSettingsDom(): void {
               BETA
             </span>
           </div>
-          <div
-            class="language-list"
-            id="language-list"
-            role="group"
-            aria-labelledby="language-dialog-title"
-            data-custom-scroll
-            data-custom-scroll-contained
-          ></div>
+          <div class="language-list-frame">
+            <div
+              class="language-list"
+              id="language-list"
+              role="group"
+              aria-labelledby="language-dialog-title"
+              data-custom-scroll
+              data-custom-scroll-contained
+            ></div>
+            <span class="language-list-edge language-list-edge-top" aria-hidden="true"></span>
+            <span class="language-list-edge language-list-edge-bottom" aria-hidden="true"></span>
+          </div>
           <div class="dialog-actions">
             <button type="button" class="dialog-primary" id="btn-language-dialog-done">
               Done
@@ -497,7 +506,8 @@ describe('initSettings language controls', () => {
       true,
     );
     expect(document.querySelectorAll('.language-option')).toHaveLength(LANGUAGE_OPTIONS.length);
-    expect(document.querySelector('.language-dialog > .cscroll-track')).not.toBeNull();
+    expect(document.querySelector('.language-list-frame > .cscroll-track')).not.toBeNull();
+    expect(document.querySelectorAll('.language-list-edge')).toHaveLength(2);
     expect(document.querySelector('.language-dialog-beta-badge')?.textContent?.trim()).toBe('BETA');
     expect(document.querySelector<HTMLElement>('.language-option.active')?.dataset.lang).toBe('ko');
     expect(document.getElementById('language-list')?.getAttribute('role')).toBe('group');
@@ -643,6 +653,23 @@ describe('initSettings language controls', () => {
     expect(document.getElementById('language-dialog-overlay')?.getAttribute('aria-hidden')).toBe(
       'true',
     );
+  });
+
+  it('reuses the language dialog from the setup greeting trigger', () => {
+    installLanguageSettingsDom();
+    const setupTrigger = document.createElement('button');
+    setupTrigger.dataset.setupLanguageTrigger = '';
+    document.body.appendChild(setupTrigger);
+    initSettings();
+
+    setupTrigger.focus();
+    openLanguageDialog();
+    expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
+      true,
+    );
+
+    document.getElementById('btn-language-dialog-done')?.click();
+    expect(document.activeElement).toBe(setupTrigger);
   });
 
   it('closes on Escape and restores focus to the language button', () => {

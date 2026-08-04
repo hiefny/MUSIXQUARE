@@ -342,15 +342,16 @@ const ja: Record<I18nKey, string> = {
   'setup.join_session_subtitle': 'ルーム {{code}} に参加します。',
   'setup.select_role': '役割を選択してください',
   'setup.select_role_alt': '役割を選択してください',
+  'setup.greeting': 'こんにちは！',
   'setup.hello_select_role': 'ルームを作成するか、既存のルームに参加してください。',
-  'setup.enter_code': '6桁のコードを入力',
-  'setup.enter_host_code': 'ホストの6桁コードを入力',
-  'setup.enter_host_code_alt': 'ホストコードを入力',
+  'setup.enter_code': '6桁の招待コードを入力',
+  'setup.enter_host_code': '6桁の数字を入力してください',
+  'setup.enter_host_code_alt': '招待コードを入力してください',
   'setup.connect_devices': '他のデバイスを接続しましょう。',
-  'setup.enter_code_connect': '他のデバイスでこのコードを入力',
+  'setup.enter_code_connect': '他のデバイスでこの招待コードを入力',
   'setup.last_step': '準備はできましたか？',
   'setup.joining': '参加中...',
-  'setup.six_digit_enter': '6桁のコードを入力してください',
+  'setup.six_digit_enter': '6桁の数字を入力してください',
 
   // Help
   'help.need_help': 'お困りですか？',
@@ -802,7 +803,7 @@ const ja: Record<I18nKey, string> = {
     '<ul class="help-list"><li><strong>コードを入力しても接続できない:</strong> コードを確認して、少し待ってから再試行してください。会社、学校、VPNのネットワークでは接続が制限される場合があります。</li><li><strong>接続が不安定:</strong> ローカル参加者はルーターの近くに移動し、リモート参加者は安定したインターネット接続を使用してください。</li><li><strong>その他の問題:</strong> ネットワーク状態を確認し、すべてのデバイスでアプリを再起動してください。質問がある場合は<a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a>を確認するか、最下部のメールアドレスからお問い合わせください。</li></ul>',
   'setup.brand_tagline_html': 'いつでもどこでも一緒に聴く<br>完璧なサウンド体験',
   'setup.invite_share_desc_html':
-    '複数のデバイスをワイヤレスで接続し<br>パワフルなオーディオシステムを作れます。<br>6桁コードで接続します。',
+    '複数のデバイスをワイヤレスで接続し<br>パワフルなオーディオシステムを作れます。<br>6桁の招待コードで接続します。',
   'setup.play_together_desc_html':
     'ホストがメディアを再生すると<br>接続中のすべてのデバイスで同期再生されます。<br>同期ボタンで位置を合わせられます。',
   'setup.spatial_audio_desc_html':

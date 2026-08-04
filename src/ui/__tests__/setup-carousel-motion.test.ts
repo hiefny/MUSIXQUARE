@@ -81,6 +81,56 @@ describe('onboarding carousel motion preference', () => {
   });
 });
 
+describe('setup greeting reveal', () => {
+  it('keeps the greeting and language trigger separate from the room-choice prompt', async () => {
+    const markup = await readFile('index.html', 'utf8');
+    const headerStart = markup.indexOf('<div id="setup-welcome-header"');
+    const headerEnd = markup.indexOf('<div id="ob-slider-area"', headerStart);
+    const header = markup.slice(headerStart, headerEnd);
+
+    expect(header).toContain('class="setup-greeting-row" aria-hidden="true"');
+    expect(header).toContain('data-i18n="setup.greeting"');
+    expect(header).toContain('data-setup-language-trigger');
+    expect(header).toContain('aria-haspopup="dialog"');
+    expect(header).toContain('aria-controls="language-dialog-overlay"');
+    expect(header).toContain('data-i18n-aria-label="settings.language_select_aria"');
+    expect(header.indexOf('data-i18n="setup.greeting"')).toBeLessThan(
+      header.indexOf('data-i18n="setup.hello_select_role"'),
+    );
+  });
+
+  it('waits one second after the final logo draw and keeps a bounded fallback', async () => {
+    const source = await readFile('src/ui/setup.ts', 'utf8');
+    const stylesheet = await readFile('css/style.css', 'utf8');
+
+    expect(source).toContain('const SETUP_GREETING_DELAY_MS = 1000;');
+    expect(source).toContain(
+      "stroke.addEventListener('animationend', handleFinalDraw, { signal })",
+    );
+    expect(source).toContain('SETUP_GREETING_FALLBACK_BUFFER_MS');
+    expect(source).toContain("window.matchMedia('(prefers-reduced-motion: reduce)').matches");
+    expect(stylesheet).toContain('.setup-greeting-row.is-visible');
+    expect(stylesheet).toContain('.logo-welcome > .wg,\n    .logo-welcome > .wl');
+    expect(stylesheet).toContain('animation: none !important;');
+  });
+
+  it('uses opacity-transitioned language-list edge gradients instead of mask swaps', async () => {
+    const markup = await readFile('index.html', 'utf8');
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const languageStylesStart = stylesheet.indexOf('.language-list-frame');
+    const languageStylesEnd = stylesheet.indexOf('.language-option {', languageStylesStart);
+    const languageStyles = stylesheet.slice(languageStylesStart, languageStylesEnd);
+
+    expect(markup).toContain('class="language-list-frame"');
+    expect(markup).toContain('class="language-list-edge language-list-edge-top"');
+    expect(markup).toContain('class="language-list-edge language-list-edge-bottom"');
+    expect(languageStyles).toContain('.language-list.can-scroll-up ~ .language-list-edge-top');
+    expect(languageStyles).toContain('.language-list.can-scroll-down ~ .language-list-edge-bottom');
+    expect(languageStyles).toContain('transition: opacity 0.2s ease;');
+    expect(languageStyles).not.toContain('mask-image');
+  });
+});
+
 describe('setup recovery accessibility', () => {
   it('links an inline failure state to the code field and labels icon-only Back', () => {
     document.body.innerHTML = `

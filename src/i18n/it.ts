@@ -344,15 +344,16 @@ const it: Record<I18nKey, string> = {
   'setup.join_session_subtitle': 'Stai per accedere alla stanza {{code}}',
   'setup.select_role': 'Seleziona un ruolo',
   'setup.select_role_alt': 'Seleziona un ruolo',
+  'setup.greeting': 'Ciao!',
   'setup.hello_select_role': 'Crea una stanza o entra in una stanza esistente.',
-  'setup.enter_code': 'Inserisci il codice di connessione a 6 cifre',
-  'setup.enter_host_code': 'Inserisci il codice a 6 cifre fornito dal gestore',
-  'setup.enter_host_code_alt': 'Inserisci il codice del gestore.',
+  'setup.enter_code': "Inserisci il codice d'invito a 6 cifre",
+  'setup.enter_host_code': 'Inserisci il numero di 6 cifre',
+  'setup.enter_host_code_alt': "Inserisci il codice d'invito.",
   'setup.connect_devices': 'Ora connetti altri dispositivi.',
-  'setup.enter_code_connect': 'Inserisci questo codice sugli altri dispositivi',
+  'setup.enter_code_connect': "Inserisci questo codice d'invito sugli altri dispositivi",
   'setup.last_step': 'Iniziamo?',
   'setup.joining': 'Accesso in corso...',
-  'setup.six_digit_enter': 'Inserisci il codice a 6 cifre',
+  'setup.six_digit_enter': 'Inserisci il numero di 6 cifre',
 
   // ─── Help ────────────────────────────────────────────────────────
   'help.need_help': 'Serve aiuto?',
@@ -791,7 +792,7 @@ const it: Record<I18nKey, string> = {
   'chat.scroll_to_bottom': 'Scorri in fondo',
   'setup.brand_tagline_html': "Ascolta insieme, ovunque.<br>L'esperienza sonora perfetta.",
   'setup.invite_share_desc_html':
-    'Connetti più dispositivi in modalità wireless<br>per creare un enorme sistema audio.<br>Usa il codice di 6 cifre per connetterti.',
+    "Connetti più dispositivi in modalità wireless<br>per creare un enorme sistema audio.<br>Usa un codice d'invito a 6 cifre per connetterti.",
   'setup.play_together_desc_html':
     'Quando il gestore riproduce una traccia,<br>tutti i dispositivi connessi la riproducono in sincrono.<br>Clicca su "Sincronizza" per allineare l\'audio.',
   'setup.spatial_audio_desc_html':

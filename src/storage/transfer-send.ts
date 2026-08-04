@@ -26,6 +26,81 @@ const _activeUnicasts = new Map<string, SessionScope>();
 /** Broadcast-level scope for cancellation */
 let _broadcastScope: SessionScope | null = null;
 
+type PeerTransferKind = 'broadcast' | 'unicast';
+
+interface PeerTransferOwner {
+  readonly kind: PeerTransferKind;
+  readonly conn: DataConnection;
+  readonly queueItemId: string;
+  readonly sessionId: number;
+  readonly scope: SessionScope;
+  status: 'active' | 'complete';
+}
+
+/**
+ * Exact per-connection ownership for the active file lane.
+ *
+ * A late guest can become eligible while the debounced room broadcast is
+ * starting. Without a shared lane, the broadcast and the peer bootstrap both
+ * emit FILE_START/chunks for the same occurrence and reset the receiver in
+ * the middle of its stream. Completed owners intentionally remain registered
+ * until the occurrence, connection, or room is superseded so a later
+ * bootstrap cannot replay the same bytes. Explicit recovery is allowed to
+ * take the lane over.
+ */
+const _peerTransferOwners = new Map<string, PeerTransferOwner>();
+
+function isExactPeerTransfer(
+  owner: PeerTransferOwner,
+  conn: DataConnection,
+  queueItemId: string,
+  sessionId: number,
+): boolean {
+  return owner.conn === conn && owner.queueItemId === queueItemId && owner.sessionId === sessionId;
+}
+
+function ownsPeerTransfer(peerId: string, owner: PeerTransferOwner): boolean {
+  return _peerTransferOwners.get(peerId) === owner;
+}
+
+function disposeSupersededUnicast(peerId: string, owner: PeerTransferOwner): void {
+  if (owner.kind !== 'unicast' || owner.status !== 'active') return;
+  owner.scope.dispose();
+  if (_activeUnicasts.get(peerId) === owner.scope) {
+    _activeUnicasts.delete(peerId);
+  }
+}
+
+function claimBroadcastPeer(
+  conn: DataConnection,
+  queueItemId: string,
+  sessionId: number,
+  scope: SessionScope,
+): PeerTransferOwner | null {
+  const peerId = conn.peer;
+  const existing = _peerTransferOwners.get(peerId);
+
+  // First owner wins for the exact stream. This covers both an active
+  // bootstrap and one that completed during the 300 ms broadcast debounce.
+  if (existing && isExactPeerTransfer(existing, conn, queueItemId, sessionId)) return null;
+
+  if (existing) disposeSupersededUnicast(peerId, existing);
+  const owner: PeerTransferOwner = {
+    kind: 'broadcast',
+    conn,
+    queueItemId,
+    sessionId,
+    scope,
+    status: 'active',
+  };
+  _peerTransferOwners.set(peerId, owner);
+  return owner;
+}
+
+function releasePeerTransfer(peerId: string, owner: PeerTransferOwner): void {
+  if (ownsPeerTransfer(peerId, owner)) _peerTransferOwners.delete(peerId);
+}
+
 const BROADCAST_BACKPRESSURE_LIMIT = 512 * 1024;
 const BROADCAST_BACKPRESSURE_TIMEOUT = 5_000;
 const UNICAST_BACKPRESSURE_LIMIT = 256 * 1024;
@@ -67,7 +142,7 @@ export function broadcastFileDebounced(
       // debounce, so guests see exactly one announce + one transfer per
       // settled track.
       if (p.prepareMsg) {
-        sendFilePrepareByDelivery(p.prepareMsg, p.sessionId);
+        sendFilePrepareByDelivery(p.prepareMsg, p.sessionId, { suppressOwnedDirect: true });
       }
       broadcastFile(p.file, p.queueItemId, p.sessionId).catch((e) =>
         log.error('[Host] broadcastFile (debounced) failed:', e),
@@ -85,10 +160,12 @@ export function broadcastFileDebounced(
 export function sendFilePrepareByDelivery(
   prepareMsg: AnyProtocolMsg,
   sessionId: number | null,
-  options: { r2Only?: boolean } = {},
+  options: { r2Only?: boolean; suppressOwnedDirect?: boolean } = {},
 ): void {
   if (sessionId === null || !Number.isSafeInteger(sessionId) || sessionId <= 0) return;
   freezeFileDeliveryMode(sessionId);
+  const prepareData = prepareMsg as unknown as Record<string, unknown>;
+  const queueItemId = typeof prepareData.queueItemId === 'string' ? prepareData.queueItemId : null;
   const peers = getState('network.connectedPeers') || [];
   for (const peer of peers) {
     const conn = peer.conn as DataConnection | null;
@@ -101,6 +178,10 @@ export function sendFilePrepareByDelivery(
     }
     const useR2 = delivery === 'r2';
     if (options.r2Only && !useR2) continue;
+    if (options.suppressOwnedDirect && !useR2 && queueItemId) {
+      const owner = _peerTransferOwners.get(peer.id);
+      if (owner && isExactPeerTransfer(owner, conn, queueItemId, sessionId)) continue;
+    }
     safeSend(
       conn,
       useR2 ? ({ ...prepareMsg, delivery: 'r2' } as unknown as AnyProtocolMsg) : prepareMsg,
@@ -186,6 +267,7 @@ export async function broadcastFile(
 
   _broadcastScope = SessionScope.replace(_broadcastScope);
   const scope = _broadcastScope;
+  const ownedPeers = new Map<string, PeerTransferOwner>();
 
   try {
     const CHUNK = CHUNK_SIZE;
@@ -205,9 +287,21 @@ export async function broadcastFile(
     // The ownership-conditional finally block clears this session.
     if (eligiblePeers.length === 0) return;
 
+    for (const peer of eligiblePeers) {
+      const conn = peer.conn as DataConnection | null;
+      if (!conn) continue;
+      const owner = claimBroadcastPeer(conn, queueItemId, sessionId, scope);
+      if (owner) ownedPeers.set(peer.id, owner);
+    }
+    const broadcastPeers = eligiblePeers.filter((peer) => ownedPeers.has(peer.id));
+
+    // Every eligible peer is already being served (or was served) by the
+    // exact same lane. Do not emit a second FILE_START after the debounce.
+    if (broadcastPeers.length === 0) return;
+
     // Send header (raw conn.send + try/catch, deliberately NOT safeSend —
     // pinned by transfer.test.ts whose stale-conn mock hooks FILE_START).
-    eligiblePeers.forEach((p) => {
+    broadcastPeers.forEach((p) => {
       try {
         (p.conn as DataConnection).send(header);
       } catch {
@@ -220,7 +314,7 @@ export async function broadcastFile(
     const { excluded } = await pumpChunksToPeers({
       file,
       chunkSize: CHUNK,
-      peers: eligiblePeers,
+      peers: broadcastPeers,
       buildChunkMsg: (chunk, i) => ({
         type: MSG.FILE_CHUNK,
         chunk,
@@ -234,7 +328,10 @@ export async function broadcastFile(
       }),
       bufferedLimit: BROADCAST_BACKPRESSURE_LIMIT,
       stallTimeoutMs: BROADCAST_BACKPRESSURE_TIMEOUT,
-      isWritable: isBulkTransferWritablePeer,
+      isWritable: (peer) => {
+        const owner = ownedPeers.get(peer.id);
+        return !!owner && ownsPeerTransfer(peer.id, owner) && isBulkTransferWritablePeer(peer);
+      },
       // Stop on cancel (scope abort) or when another broadcast superseded
       // this one (activeBroadcastSession re-pointed).
       shouldContinue: () =>
@@ -242,6 +339,10 @@ export async function broadcastFile(
         getState('transfer.activeBroadcastSession') === sessionId &&
         getState('playlist.currentQueueItemId') === queueItemId &&
         getState('files.current')?.blob === file,
+      onPeerExcluded: (peer) => {
+        const owner = ownedPeers.get(peer.id);
+        if (owner) releasePeerTransfer(peer.id, owner);
+      },
     });
 
     // Send end message (skip if superseded or aborted after the pump;
@@ -259,22 +360,33 @@ export async function broadcastFile(
         queueItemId,
         sessionId,
       };
-      eligiblePeers.forEach((p) => {
+      broadcastPeers.forEach((p) => {
         if (excluded.has(p.id)) return;
+        const owner = ownedPeers.get(p.id);
+        if (!owner || !ownsPeerTransfer(p.id, owner)) return;
         const conn = p.conn as DataConnection;
         if (conn?.open)
           try {
             conn.send(endMsg);
+            owner.status = 'complete';
           } catch {
             /* noop */
           }
       });
     }
   } finally {
+    // Owners which did not reach FILE_END must not block an explicit retry.
+    // Completed owners stay as a fence against a delayed duplicate bootstrap.
+    for (const [peerId, owner] of ownedPeers) {
+      if (owner.status === 'active') releasePeerTransfer(peerId, owner);
+    }
     // A superseded loop may finish after its successor has claimed the state.
     // Clear only the session this invocation still owns.
-    if (getState('transfer.activeBroadcastSession') === sessionId) {
-      setState('transfer.activeBroadcastSession', null);
+    if (_broadcastScope === scope) {
+      if (getState('transfer.activeBroadcastSession') === sessionId) {
+        setState('transfer.activeBroadcastSession', null);
+      }
+      _broadcastScope = null;
     }
     scope.dispose();
   }
@@ -289,6 +401,8 @@ interface UnicastFileOptions {
   readonly queueItemId: string;
   readonly skipTransportGuard?: boolean;
   readonly isSourceCurrent?: () => boolean;
+  /** Bootstrap joins an existing exact lane; recovery explicitly replaces it. */
+  readonly purpose?: 'bootstrap' | 'recovery';
 }
 
 export async function unicastFile(
@@ -333,12 +447,38 @@ export async function unicastFile(
     return;
   }
 
-  // Cancel any previous unicast to same peer
+  const purpose = options.purpose ?? 'recovery';
+  const existingOwner = _peerTransferOwners.get(unicastKey);
+  if (
+    purpose === 'bootstrap' &&
+    existingOwner &&
+    isExactPeerTransfer(existingOwner, conn, queueItemId, effectiveSessionId)
+  ) {
+    log.debug('[Unicast] Exact peer transfer is already owned; bootstrap joined existing lane');
+    return;
+  }
+
+  // Recovery is authoritative for this peer. Replacing a broadcast owner
+  // makes its per-peer writability gate exclude this connection without
+  // aborting healthy recipients of the same room broadcast.
+  if (existingOwner) disposeSupersededUnicast(unicastKey, existingOwner);
+
+  // Cancel any previous unicast to same peer.
   const prevScope = _activeUnicasts.get(unicastKey) ?? null;
   const scope = SessionScope.replace(prevScope);
   _activeUnicasts.set(unicastKey, scope);
+  const owner: PeerTransferOwner = {
+    kind: 'unicast',
+    conn,
+    queueItemId,
+    sessionId: effectiveSessionId,
+    scope,
+    status: 'active',
+  };
+  _peerTransferOwners.set(unicastKey, owner);
   const canContinue = (): boolean =>
     !scope.aborted &&
+    ownsPeerTransfer(unicastKey, owner) &&
     conn.open &&
     isPeerConnectionCurrent(unicastKey, conn) &&
     isTransferStillCurrent();
@@ -368,6 +508,7 @@ export async function unicastFile(
       scope.dispose();
       _activeUnicasts.delete(unicastKey);
     }
+    releasePeerTransfer(unicastKey, owner);
     return;
   }
 
@@ -419,6 +560,7 @@ export async function unicastFile(
         queueItemId,
         sessionId: effectiveSessionId,
       });
+      owner.status = 'complete';
       log.debug('[Unicast] Transfer complete:', fileName);
     }
   } catch (e) {
@@ -429,6 +571,7 @@ export async function unicastFile(
       scope.dispose();
       _activeUnicasts.delete(unicastKey);
     }
+    if (owner.status === 'active') releasePeerTransfer(unicastKey, owner);
   }
 }
 
@@ -443,9 +586,11 @@ export async function unicastFile(
  */
 export function cancelOutgoingFileTransferForPeer(peerId: string): void {
   const scope = _activeUnicasts.get(peerId);
-  if (!scope) return;
-  scope.dispose();
-  _activeUnicasts.delete(peerId);
+  if (scope) {
+    scope.dispose();
+    _activeUnicasts.delete(peerId);
+  }
+  _peerTransferOwners.delete(peerId);
 }
 
 export function cancelOutgoingFileTransfers(): void {
@@ -464,4 +609,5 @@ export function cancelOutgoingFileTransfers(): void {
     scope.dispose();
   }
   _activeUnicasts.clear();
+  _peerTransferOwners.clear();
 }

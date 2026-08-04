@@ -56,6 +56,7 @@ test.describe('Playback Sync', () => {
           | undefined;
         return get && get('files.current') !== null;
       },
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -66,6 +67,7 @@ test.describe('Playback Sync', () => {
         const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
         return typeof projected === 'function' && projected() !== 'IDLE';
       },
+      undefined,
       { timeout: 10_000 },
     );
 
@@ -103,6 +105,7 @@ test.describe('Playback Sync', () => {
           | undefined;
         return get && get('files.current') !== null;
       },
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -113,6 +116,7 @@ test.describe('Playback Sync', () => {
         const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
         return typeof projected === 'function' && projected() !== 'IDLE';
       },
+      undefined,
       { timeout: 10_000 },
     );
 
@@ -130,6 +134,7 @@ test.describe('Playback Sync', () => {
           const state = projected();
           return state === 'PAUSED' || state === 'IDLE';
         },
+        undefined,
         { timeout: 10_000 },
       );
 

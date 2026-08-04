@@ -86,6 +86,7 @@ test.describe('Edge Cases', () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         return get && get('files.current') !== null;
       },
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -140,6 +141,7 @@ test.describe('Edge Cases', () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         return get && get('files.current') !== null;
       },
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -214,6 +216,7 @@ test.describe('Edge Cases', () => {
           const msgs = document.getElementById('chat-messages');
           return (msgs?.textContent?.length ?? 0) > 0;
         },
+        undefined,
         { timeout: 5_000 },
       );
 
@@ -402,6 +405,7 @@ test.describe('Edge Cases', () => {
           const conn = get('network.hostConn');
           return conn === null;
         },
+        undefined,
         { timeout: 15_000 },
       )
       .catch(() => {});
@@ -497,6 +501,7 @@ test.describe('Edge Cases', () => {
             const get = (window as any).__MUSIXQUARE_GET_STATE__;
             return get && get('playlist.repeatMode') !== 0;
           },
+          undefined,
           { timeout: 5_000 },
         )
         .catch(() => {});
@@ -532,6 +537,7 @@ test.describe('Edge Cases', () => {
             const get = (window as any).__MUSIXQUARE_GET_STATE__;
             return get && get('playlist.isShuffle') === true;
           },
+          undefined,
           { timeout: 5_000 },
         )
         .catch(() => {});
@@ -573,6 +579,7 @@ test.describe('Edge Cases', () => {
         const el = document.getElementById('track-title') || document.querySelector('.track-title');
         return (el?.textContent?.trim()?.length ?? 0) > 0;
       },
+      undefined,
       { timeout: 10_000 },
     );
 
@@ -596,6 +603,7 @@ test.describe('Edge Cases', () => {
           const get = (window as any).__MUSIXQUARE_GET_STATE__;
           return get !== undefined;
         },
+        undefined,
         { timeout: 3_000 },
       );
 
@@ -611,6 +619,7 @@ test.describe('Edge Cases', () => {
           const get = (window as any).__MUSIXQUARE_GET_STATE__;
           return get !== undefined;
         },
+        undefined,
         { timeout: 3_000 },
       );
 

@@ -4,11 +4,13 @@
  * Tests per-peer Left/Right/Center/Subwoofer channel state after connection.
  */
 import { test, expect } from '@playwright/test';
-import { createHostGuestContexts, cleanupContexts, type HostGuestPair } from './helpers/context-factory.ts';
-import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import {
-  readState,
-} from './helpers/wait.ts';
+  createHostGuestContexts,
+  cleanupContexts,
+  type HostGuestPair,
+} from './helpers/context-factory.ts';
+import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
+import { readState } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 

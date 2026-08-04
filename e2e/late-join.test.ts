@@ -145,6 +145,7 @@ test.describe('Late-Join: Guest joins after file upload', () => {
         const el = document.getElementById('track-title') || document.querySelector('.track-title');
         return el && el.textContent && el.textContent.trim().length > 0;
       },
+      undefined,
       { timeout: 10_000 },
     );
 
@@ -183,6 +184,7 @@ test.describe('Late-Join: Guest joins during playback', () => {
 
     await host.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -203,6 +205,7 @@ test.describe('Late-Join: Guest joins during playback', () => {
           const state = projected();
           return state === 'PLAYING_AUDIO' || state === 'PAUSED' || state === 'IDLE';
         },
+        undefined,
         { timeout: 10_000 },
       );
 
@@ -222,6 +225,7 @@ test.describe('Late-Join: Guest joins during playback', () => {
 
     await host.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -246,6 +250,7 @@ test.describe('Late-Join: Guest joins during playback', () => {
           const state = projected();
           return state === 'PAUSED' || state === 'IDLE';
         },
+        undefined,
         { timeout: 10_000 },
       );
 
@@ -284,6 +289,7 @@ test.describe('Late-Join: Guest joins during YouTube mode', () => {
           const btn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
           return btn && !btn.disabled;
         },
+        undefined,
         { timeout: 10_000 },
       );
 
@@ -299,6 +305,7 @@ test.describe('Late-Join: Guest joins during YouTube mode', () => {
             const state = projected();
             return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
           },
+          undefined,
           { timeout: 15_000 },
         );
 
@@ -316,6 +323,7 @@ test.describe('Late-Join: Guest joins during YouTube mode', () => {
                 const state = projected();
                 return state === 'PLAYING_YOUTUBE' || state === 'IDLE';
               },
+              undefined,
               { timeout: 15_000 },
             );
 
@@ -370,6 +378,7 @@ test.describe('Late-Join: Guest joins after settings changed', () => {
       await repeatBtn.click();
       await host.hostPage.waitForFunction(
         () => (window as any).__MUSIXQUARE_GET_STATE__?.('playlist.repeatMode') !== 0,
+        undefined,
         { timeout: 5_000 },
       );
     }
@@ -495,6 +504,7 @@ test.describe('Late-Join: Chat history', () => {
       await chatBtn.click();
       await host.hostPage.waitForFunction(
         () => document.getElementById('chat-drawer')?.classList.contains('open') ?? false,
+        undefined,
         { timeout: 5_000 },
       );
 
@@ -504,6 +514,7 @@ test.describe('Late-Join: Chat history', () => {
         () =>
           document.getElementById('chat-messages')?.textContent?.includes('Message before guest') ??
           false,
+        undefined,
         { timeout: 5_000 },
       );
     }
@@ -518,6 +529,7 @@ test.describe('Late-Join: Chat history', () => {
         await guestChatBtn.click();
         await guestPage.waitForFunction(
           () => document.getElementById('chat-drawer')?.classList.contains('open') ?? false,
+          undefined,
           { timeout: 5_000 },
         );
 
@@ -589,6 +601,7 @@ test.describe('Late-Join: Chat history', () => {
         await chatBtn.click();
         await host.hostPage.waitForFunction(
           () => document.getElementById('chat-drawer')?.classList.contains('open') ?? false,
+          undefined,
           { timeout: 5_000 },
         );
 

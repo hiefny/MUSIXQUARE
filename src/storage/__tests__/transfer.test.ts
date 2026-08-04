@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { MSG, TRANSFER_STATE } from '../../core/constants.ts';
+import { CHUNK_SIZE, MSG, TRANSFER_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 import {
@@ -368,6 +368,54 @@ describe('host outgoing transfer routing', () => {
     }
   });
 
+  it('does not let a canceled old room clear a same-SID successor broadcast', async () => {
+    const { broadcastFile, cancelOutgoingFileTransfers } = await import('../transfer.ts');
+    cancelOutgoingFileTransfers();
+    const conn = {
+      open: true,
+      peer: 'same-sid-peer',
+      send: vi.fn(),
+      peerConnection: { connectionState: 'connected', iceConnectionState: 'connected' },
+      dataChannel: { readyState: 'open', bufferedAmount: 0 },
+    } as unknown as DataConnection;
+    setState('network.connectedPeers', [connectedPeer(conn.peer, conn)]);
+    setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
+
+    const fileA = new File(['old-room'], 'old.mp3', { type: 'audio/mpeg' });
+    const fileB = new File(['new-room'], 'new.mp3', { type: 'audio/mpeg' });
+    let resolveA: (value: ArrayBuffer) => void = () => undefined;
+    let resolveB: (value: ArrayBuffer) => void = () => undefined;
+    const readA = new Promise<ArrayBuffer>((resolve) => {
+      resolveA = resolve;
+    });
+    const readB = new Promise<ArrayBuffer>((resolve) => {
+      resolveB = resolve;
+    });
+    vi.spyOn(fileA, 'slice').mockReturnValue({ arrayBuffer: () => readA } as Blob);
+    vi.spyOn(fileB, 'slice').mockReturnValue({ arrayBuffer: () => readB } as Blob);
+
+    publishHostFile(fileA, Q0, 1);
+    const oldBroadcast = broadcastFile(fileA, Q0, 1);
+    cancelOutgoingFileTransfers();
+
+    publishHostFile(fileB, Q1, 1);
+    const successorBroadcast = broadcastFile(fileB, Q1, 1);
+    resolveA(new TextEncoder().encode('old-room').buffer);
+    await oldBroadcast;
+    expect(getState('transfer.activeBroadcastSession')).toBe(1);
+
+    resolveB(new TextEncoder().encode('new-room').buffer);
+    await successorBroadcast;
+
+    expect(conn.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.FILE_CHUNK, name: 'new.mp3', sessionId: 1 }),
+    );
+    expect(conn.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.FILE_END, name: 'new.mp3', sessionId: 1 }),
+    );
+    expect(getState('transfer.activeBroadcastSession')).toBeNull();
+  });
+
   it('skips disconnected peer connections before bulk file broadcast starts', async () => {
     const { broadcastFile } = await import('../transfer.ts');
     const liveConn = {
@@ -541,6 +589,152 @@ describe('host unicast source liveness', () => {
   });
 });
 
+describe('host active-file lane arbitration', () => {
+  function installLanePeer(id: string): DataConnection {
+    const conn = {
+      open: true,
+      peer: id,
+      send: vi.fn(),
+      peerConnection: { connectionState: 'connected', iceConnectionState: 'connected' },
+      dataChannel: { readyState: 'open', bufferedAmount: 0 },
+    } as unknown as DataConnection;
+    setState('network.connectedPeers', [connectedPeer(id, conn)]);
+    setState('network.activeHostConnByPeerId', new Map([[id, conn]]));
+    return conn;
+  }
+
+  it('joins a bootstrap unicast to an in-flight exact broadcast', async () => {
+    const { broadcastFile, unicastFile, cancelOutgoingFileTransfers } =
+      await import('../transfer.ts');
+    cancelOutgoingFileTransfers();
+    const conn = installLanePeer('lane-broadcast-first');
+    const file = new File(['broadcast-first'], 'lane.mp3', { type: 'audio/mpeg' });
+    publishHostFile(file, Q0, 41);
+
+    let resolveRead: (value: ArrayBuffer) => void = () => undefined;
+    const read = new Promise<ArrayBuffer>((resolve) => {
+      resolveRead = resolve;
+    });
+    vi.spyOn(file, 'slice').mockReturnValue({ arrayBuffer: () => read } as Blob);
+
+    const broadcast = broadcastFile(file, Q0, 41);
+    expect(conn.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.FILE_START, sessionId: 41 }),
+    );
+
+    await unicastFile(conn, file, 0, 41, {
+      queueItemId: Q0,
+      purpose: 'bootstrap',
+    });
+    resolveRead(new TextEncoder().encode('broadcast-first').buffer);
+    await broadcast;
+
+    const sent = vi.mocked(conn.send).mock.calls.map(([msg]) => msg as Record<string, unknown>);
+    expect(sent.filter((msg) => msg.type === MSG.FILE_START)).toHaveLength(1);
+    expect(sent.filter((msg) => msg.type === MSG.FILE_CHUNK)).toHaveLength(1);
+    expect(sent.filter((msg) => msg.type === MSG.FILE_END)).toHaveLength(1);
+  });
+
+  it('keeps a completed bootstrap as the fence for a delayed exact broadcast', async () => {
+    const { broadcastFile, unicastFile, cancelOutgoingFileTransfers } =
+      await import('../transfer.ts');
+    cancelOutgoingFileTransfers();
+    const conn = installLanePeer('lane-unicast-first');
+    const file = new File(['unicast-first'], 'lane.mp3', { type: 'audio/mpeg' });
+    publishHostFile(file, Q0, 42);
+
+    await unicastFile(conn, file, 0, 42, {
+      queueItemId: Q0,
+      purpose: 'bootstrap',
+    });
+    await broadcastFile(file, Q0, 42);
+
+    const sent = vi.mocked(conn.send).mock.calls.map(([msg]) => msg as Record<string, unknown>);
+    expect(sent.filter((msg) => msg.type === MSG.FILE_START)).toHaveLength(1);
+    expect(sent.filter((msg) => msg.type === MSG.FILE_CHUNK)).toHaveLength(1);
+    expect(sent.filter((msg) => msg.type === MSG.FILE_END)).toHaveLength(1);
+  });
+
+  it('lets explicit recovery take over only its peer from a stalled broadcast', async () => {
+    const { broadcastFile, unicastFile, cancelOutgoingFileTransfers } =
+      await import('../transfer.ts');
+    cancelOutgoingFileTransfers();
+    const conn = installLanePeer('lane-recovery');
+    const healthyConn = {
+      open: true,
+      peer: 'lane-healthy',
+      send: vi.fn(),
+      peerConnection: { connectionState: 'connected', iceConnectionState: 'connected' },
+      dataChannel: { readyState: 'open', bufferedAmount: 0 },
+    } as unknown as DataConnection;
+    setState('network.connectedPeers', [
+      connectedPeer(conn.peer, conn),
+      connectedPeer(healthyConn.peer, healthyConn, { joinOrder: 2 }),
+    ]);
+    setState(
+      'network.activeHostConnByPeerId',
+      new Map([
+        [conn.peer, conn],
+        [healthyConn.peer, healthyConn],
+      ]),
+    );
+    const bytes = new Uint8Array(CHUNK_SIZE + 1);
+    const file = new File([bytes], 'lane.mp3', { type: 'audio/mpeg' });
+    publishHostFile(file, Q0, 43);
+
+    let resolveFirstRead: (value: ArrayBuffer) => void = () => undefined;
+    const firstRead = new Promise<ArrayBuffer>((resolve) => {
+      resolveFirstRead = resolve;
+    });
+    const realSlice = file.slice.bind(file);
+    vi.spyOn(file, 'slice').mockImplementation((start, end, type) => {
+      if (Number(start) === 0) return { arrayBuffer: () => firstRead } as Blob;
+      return realSlice(start, end, type);
+    });
+
+    const broadcast = broadcastFile(file, Q0, 43);
+    expect(conn.send).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.FILE_START, sessionId: 43 }),
+    );
+
+    await unicastFile(conn, file, 1, 43, {
+      queueItemId: Q0,
+      purpose: 'recovery',
+    });
+    resolveFirstRead(new Uint8Array(CHUNK_SIZE).buffer);
+    await broadcast;
+
+    // The old broadcast's cleanup must not erase the recovery successor.
+    await unicastFile(conn, file, 0, 43, {
+      queueItemId: Q0,
+      purpose: 'bootstrap',
+    });
+
+    const sent = vi.mocked(conn.send).mock.calls.map(([msg]) => msg as Record<string, unknown>);
+    expect(sent.filter((msg) => msg.type === MSG.FILE_START)).toHaveLength(1);
+    expect(sent.filter((msg) => msg.type === MSG.FILE_RESUME)).toHaveLength(1);
+    expect(sent.filter((msg) => msg.type === MSG.FILE_CHUNK && msg.chunkIndex === 0)).toHaveLength(
+      0,
+    );
+    expect(sent.filter((msg) => msg.type === MSG.FILE_CHUNK && msg.chunkIndex === 1)).toHaveLength(
+      1,
+    );
+    expect(sent.filter((msg) => msg.type === MSG.FILE_END)).toHaveLength(1);
+
+    const healthySent = vi
+      .mocked(healthyConn.send)
+      .mock.calls.map(([msg]) => msg as Record<string, unknown>);
+    expect(healthySent.filter((msg) => msg.type === MSG.FILE_START)).toHaveLength(1);
+    expect(
+      healthySent.filter((msg) => msg.type === MSG.FILE_CHUNK && msg.chunkIndex === 0),
+    ).toHaveLength(1);
+    expect(
+      healthySent.filter((msg) => msg.type === MSG.FILE_CHUNK && msg.chunkIndex === 1),
+    ).toHaveLength(1);
+    expect(healthySent.filter((msg) => msg.type === MSG.FILE_END)).toHaveLength(1);
+  });
+});
+
 describe('debounced broadcast cancellation', () => {
   /** One healthy, fully writable local peer; returns its send spy. */
   function installHealthyPeer(id: string): ReturnType<typeof vi.fn> {
@@ -581,6 +775,74 @@ describe('debounced broadcast cancellation', () => {
       expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_PREPARE }));
       expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
       expect(getState('transfer.activeBroadcastSession')).toBeNull();
+    } finally {
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('suppresses a delayed PREPARE and payload after exact bootstrap completion', async () => {
+    vi.useFakeTimers();
+    try {
+      const { broadcastFileDebounced, unicastFile, cancelOutgoingFileTransfers } =
+        await import('../transfer.ts');
+      cancelOutgoingFileTransfers();
+      const send = installHealthyPeer('peer-bootstrap-fence');
+      const conn = getState('network.connectedPeers')[0]!.conn as DataConnection;
+      const otherConn = {
+        open: true,
+        peer: 'peer-broadcast-target',
+        send: vi.fn(),
+        peerConnection: { connectionState: 'connected' },
+        dataChannel: { readyState: 'open', bufferedAmount: 0 },
+      } as unknown as DataConnection;
+      setState('network.connectedPeers', [
+        connectedPeer(conn.peer, conn),
+        connectedPeer(otherConn.peer, otherConn, { joinOrder: 2 }),
+      ]);
+      setState(
+        'network.activeHostConnByPeerId',
+        new Map([
+          [conn.peer, conn],
+          [otherConn.peer, otherConn],
+        ]),
+      );
+      const file = new File(['bootstrap-wins'], 'bootstrap.mp3', { type: 'audio/mpeg' });
+      publishHostFile(file, Q0, 51);
+
+      const prepare = {
+        type: MSG.FILE_PREPARE,
+        name: file.name,
+        queueItemId: Q0,
+        sessionId: 51,
+        mime: file.type,
+      } as const;
+      // playback.ts sends this peer-specific bootstrap PREPARE immediately.
+      conn.send(prepare);
+      broadcastFileDebounced(file, Q0, 51, prepare);
+      const bootstrap = unicastFile(conn, file, 0, 51, {
+        queueItemId: Q0,
+        purpose: 'bootstrap',
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      await vi.advanceTimersByTimeAsync(10);
+      await bootstrap;
+      await vi.advanceTimersByTimeAsync(200);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const sentTypes = send.mock.calls.map(([msg]) => (msg as { type: string }).type);
+      expect(sentTypes.filter((type) => type === MSG.FILE_PREPARE)).toHaveLength(1);
+      expect(sentTypes.filter((type) => type === MSG.FILE_START)).toHaveLength(1);
+      expect(sentTypes.filter((type) => type === MSG.FILE_CHUNK)).toHaveLength(1);
+      expect(sentTypes.filter((type) => type === MSG.FILE_END)).toHaveLength(1);
+
+      const otherTypes = vi
+        .mocked(otherConn.send)
+        .mock.calls.map(([msg]) => (msg as { type: string }).type);
+      expect(otherTypes.filter((type) => type === MSG.FILE_PREPARE)).toHaveLength(1);
+      expect(otherTypes.filter((type) => type === MSG.FILE_START)).toHaveLength(1);
+      expect(otherTypes.filter((type) => type === MSG.FILE_CHUNK)).toHaveLength(1);
+      expect(otherTypes.filter((type) => type === MSG.FILE_END)).toHaveLength(1);
     } finally {
       clearAllManagedTimers();
       vi.useRealTimers();

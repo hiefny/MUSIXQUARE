@@ -719,6 +719,29 @@ export async function handleFilePrepare(
   // 2-strikes give-up logic in finalizeGuestFile starts fresh. Without this,
   // a guest who failed twice on track A would still have count=2 carried
   // over and would prematurely give up on track B's first decode failure.
+  // The sender may have completed this exact direct stream while a delayed
+  // debounced PREPARE was still queued. During async decode files.current is
+  // not published yet, so the normal same-resident guard cannot recognize it.
+  // Preserve the complete receive/decode pipeline instead of transitioning
+  // DECODING back to DOWNLOADING for bytes which will not be sent again.
+  const transferStateAtEntry = getState('transfer.state');
+  const lifecycleAtEntry = getState('playback.lifecycle');
+  const completedTotal = Number(transferMetaAtEntry?.total);
+  const isExactCompletedDirectReceive =
+    data.delivery !== 'r2' &&
+    Number(transferMetaAtEntry?.sessionId) === incomingSid &&
+    transferMetaAtEntry?.queueItemId === queueItemId &&
+    Number.isSafeInteger(completedTotal) &&
+    completedTotal > 0 &&
+    getState('transfer.receivedCount') >= completedTotal &&
+    (transferStateAtEntry === TRANSFER_STATE.PROCESSING ||
+      lifecycleAtEntry === PLAYBACK_STATE.DECODING);
+  if (isExactCompletedDirectReceive) {
+    completeAcceptedFileRequest(data, conn);
+    log.debug('[file-prepare] Ignoring duplicate prepare for completed direct receive');
+    return;
+  }
+
   setState('player.decodeFailureCount', 0);
 
   // Same-track replay needs to win before the remote-share branch. A remote
@@ -1192,6 +1215,38 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
     }
   }
 
+  // A recovery request can cross the final chunk in flight. If its full
+  // FILE_START response arrives after this exact slot was already finalized
+  // but before async decode publishes files.current, restarting from chunk 0
+  // would move DECODING back to DOWNLOADING and discard the successful
+  // decode transition. Finalized store bytes are authoritative here.
+  const finalizedMeta = getState('transfer.meta');
+  const finalizedIdentityMatches =
+    finalizedMeta?.queueItemId === queueItemId &&
+    Number(finalizedMeta.sessionId) === incomingSid &&
+    finalizedMeta.name === data.name &&
+    finalizedMeta.total === data.total &&
+    Number(data.size) > 0 &&
+    finalizedMeta.size === data.size;
+  const finalizedBlob = ramReadBlob(queueItemId, false, incomingSid);
+  const finalizedReceiveStillInFlight =
+    Number(finalizedMeta?.total) > 0 &&
+    getState('transfer.receivedCount') >= Number(finalizedMeta?.total) &&
+    (getState('transfer.state') === TRANSFER_STATE.PROCESSING ||
+      getState('playback.lifecycle') === PLAYBACK_STATE.DECODING);
+  if (
+    finalizedIdentityMatches &&
+    finalizedBlob &&
+    finalizedBlob.size === Number(data.size) &&
+    finalizedReceiveStillInFlight
+  ) {
+    clearManagedTimer('prepareWatchdog');
+    clearManagedTimer('chunkWatchdog');
+    completeAcceptedFileRequest(data, conn);
+    log.debug(`[file-start] "${data.name}" already finalized in store; dropping stale restart`);
+    return;
+  }
+
   const isNewSession = incomingSid > localSid;
 
   // Skip if using preloaded file; no direct receive pipeline is needed.
@@ -1572,6 +1627,11 @@ function applyFileChunk(data: Record<string, unknown>): void {
     log.warn(`[Transfer] Dropping chunk beyond total: ${chunkIndex} >= ${expectedTotal}`);
     return;
   }
+
+  // A duplicate from a superseded/overlapping sender must not refresh the
+  // watchdog or occupy the reorder map after its index was already committed.
+  // Duplicate-only traffic otherwise masks the missing real suffix forever.
+  if (chunkIndex < nextExpectedChunk || sessionBuffer.has(chunkIndex)) return;
 
   // Bound the reorder buffer and recover from the contiguous offset.
   const MAX_REORDER_BUFFER = 500;

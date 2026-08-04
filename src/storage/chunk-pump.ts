@@ -193,6 +193,14 @@ export async function pumpChunksToPeers(opts: ChunkPumpOptions): Promise<ChunkPu
           // managed timer: concurrent waits would cancel each other.
           await delay(DELAY.BACKPRESSURE);
         }
+        // Ownership/connection health may change during the final
+        // backpressure await just as bufferedAmount falls below the limit.
+        // Recheck before the send so a superseded lane cannot leak one stale
+        // chunk after a recovery header has taken ownership.
+        if (!isWritable(p)) {
+          exclude(p);
+          return;
+        }
         safeSend(conn, chunkMsg);
       }),
     );

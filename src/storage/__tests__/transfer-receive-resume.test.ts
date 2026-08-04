@@ -247,6 +247,102 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     expect(progress).toHaveBeenLastCalledWith(0, 200);
   });
 
+  it('keeps exact completed direct receive in DECODING when duplicate PREPARE arrives', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const stopSpy = vi.fn();
+    bus.on('player:stop-all-media', stopSpy);
+    setState('transfer.receivedCount', 4);
+    setState('transfer.state', TRANSFER_STATE.PROCESSING);
+    setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
+    setState('player.decodeFailureCount', 7);
+
+    await handleFilePrepare(
+      resumeMsg({
+        type: 'file-prepare',
+        sessionId: 5,
+        queueItemId: Q[0],
+      }),
+      conn,
+    );
+
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.PROCESSING);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
+    expect(getState('player.decodeFailureCount')).toBe(7);
+    expect(stopSpy).not.toHaveBeenCalled();
+  });
+
+  it('drops stale full-recovery FILE_START after exact slot finalized during decode', async () => {
+    const { handleFileStart } = await import('../transfer-receive.ts');
+    const { postCommand } = await import('../storage.ts');
+    const stopSpy = vi.fn();
+    bus.on('player:stop-all-media', stopSpy);
+
+    ramStart('song.mp3', false, 5, CHUNK_SIZE, false);
+    ramWrite('song.mp3', false, 5, 0, new Uint8Array(CHUNK_SIZE));
+    ramWrite('song.mp3', false, 5, 1, new Uint8Array(CHUNK_SIZE));
+    ramWrite('song.mp3', false, 5, 2, new Uint8Array(CHUNK_SIZE));
+    ramWrite('song.mp3', false, 5, 3, u8(0xdd));
+    ramEnd('song.mp3', false, 5, FOUR_CHUNK_FILE_SIZE, 4);
+    setState('transfer.receivedCount', 4);
+    setState('transfer.state', TRANSFER_STATE.PROCESSING);
+    setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
+
+    handleFileStart(
+      {
+        type: 'file-start',
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        total: 4,
+        size: FOUR_CHUNK_FILE_SIZE,
+        sessionId: 5,
+        queueItemId: Q[0],
+      },
+      conn,
+    );
+
+    expect(getState('transfer.receivedCount')).toBe(4);
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.PROCESSING);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
+    expect(stopSpy).not.toHaveBeenCalled();
+    expect(postCommand).not.toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'STORAGE_START', sessionId: 5 }),
+    );
+  });
+
+  it('accepts exact FILE_START after decode failure requests a full retry', async () => {
+    const { handleFileStart } = await import('../transfer-receive.ts');
+    const { postCommand } = await import('../storage.ts');
+
+    ramStart('song.mp3', false, 5, CHUNK_SIZE, false);
+    ramWrite('song.mp3', false, 5, 0, new Uint8Array(CHUNK_SIZE));
+    ramWrite('song.mp3', false, 5, 1, new Uint8Array(CHUNK_SIZE));
+    ramWrite('song.mp3', false, 5, 2, new Uint8Array(CHUNK_SIZE));
+    ramWrite('song.mp3', false, 5, 3, u8(0xdd));
+    ramEnd('song.mp3', false, 5, FOUR_CHUNK_FILE_SIZE, 4);
+    setState('transfer.receivedCount', 0);
+    setState('transfer.state', TRANSFER_STATE.IDLE);
+    setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
+    vi.mocked(postCommand).mockClear();
+
+    handleFileStart(
+      {
+        type: 'file-start',
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        total: 4,
+        size: FOUR_CHUNK_FILE_SIZE,
+        sessionId: 5,
+        queueItemId: Q[0],
+      },
+      conn,
+    );
+
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
+    expect(postCommand).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'STORAGE_START', sessionId: 5 }),
+    );
+  });
+
   it('honors startChunk on a same-session resume backed by the store prefix', async () => {
     const { handleFileResume } = await import('../transfer-receive.ts');
     const { postCommand } = await import('../storage.ts');
@@ -970,6 +1066,44 @@ describe('handleFileChunk — reorder buffer OOM bound', () => {
       reorderChunks: 0,
       reorderBytes: 0,
     });
+  });
+
+  it('drops already committed duplicate chunks without masking recovery progress', async () => {
+    const { handleFileStart, handleFileChunk, getTransferMemoryStats } =
+      await import('../transfer-receive.ts');
+    const { postCommand } = await import('../storage.ts');
+    const start = {
+      type: 'file-start',
+      name: 'duplicate.mp3',
+      mime: 'audio/mpeg',
+      sessionId: 12,
+      queueItemId: Q[0],
+      total: 3,
+      size: 2 * CHUNK_SIZE + 1,
+    };
+    const firstChunk = {
+      ...start,
+      type: 'file-chunk',
+      chunkIndex: 0,
+      chunk: u8(0xaa),
+    };
+
+    handleFileStart(start, conn);
+    handleFileChunk(firstChunk, conn);
+    await Promise.resolve();
+    expect(getState('transfer.receivedCount')).toBe(1);
+
+    vi.mocked(postCommand).mockClear();
+    setState('recovery.retryCount', 2);
+    handleFileChunk(firstChunk, conn);
+    await Promise.resolve();
+
+    expect(getState('transfer.receivedCount')).toBe(1);
+    expect(getState('recovery.retryCount')).toBe(2);
+    expect(postCommand).not.toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'STORAGE_WRITE', chunkIndex: 0 }),
+    );
+    expect(getTransferMemoryStats()).toMatchObject({ reorderChunks: 0, reorderBytes: 0 });
   });
 
   it('accepts a large prepared transfer without predictive RAM rejection', async () => {

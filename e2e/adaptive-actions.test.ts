@@ -344,8 +344,9 @@ test.describe('content-based adaptive action groups', () => {
 
     const arbitraryBreakFallbacks = await page
       .locator('#locale-probes :is(button, a)')
-      .evaluateAll((actions) =>
-        actions.filter((action) => getComputedStyle(action).overflowWrap === 'anywhere').length,
+      .evaluateAll(
+        (actions) =>
+          actions.filter((action) => getComputedStyle(action).overflowWrap === 'anywhere').length,
       );
     expect(arbitraryBreakFallbacks).toBe(0);
 

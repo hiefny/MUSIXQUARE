@@ -123,6 +123,31 @@ describe('pumpChunksToPeers — per-peer exclusion', () => {
     expect(onPeerExcluded).toHaveBeenCalledTimes(1);
   });
 
+  it('rechecks ownership after the final backpressure await before sending', async () => {
+    const conn = makeConn('peer-replaced', 10 * 1024 * 1024);
+    let writable = true;
+    let checks = 0;
+
+    const result = await pumpChunksToPeers({
+      ...baseOpts,
+      peers: [makePeer('peer-replaced', conn)],
+      isWritable: () => {
+        checks++;
+        if (checks === 1) {
+          queueMicrotask(() => {
+            writable = false;
+            conn.dataChannel.bufferedAmount = 0;
+          });
+        }
+        return writable;
+      },
+    });
+
+    expect(result.status).toBe('complete');
+    expect(result.excluded).toEqual(new Set(['peer-replaced']));
+    expect(chunkCalls(conn)).toHaveLength(0);
+  });
+
   it('returns complete (not stopped) when ALL peers become excluded, so wrappers run completion guards', async () => {
     const frozenConn = makeConn('peer-frozen', 10 * 1024 * 1024);
 

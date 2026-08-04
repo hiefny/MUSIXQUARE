@@ -186,6 +186,7 @@ test.describe('Audio Effects', () => {
         if (!get) return false;
         return (get('audio.reverbMix') as number) > 0;
       },
+      undefined,
       { timeout: 5_000 },
     );
 
@@ -209,6 +210,7 @@ test.describe('Audio Effects', () => {
         if (!get) return false;
         return (get('audio.reverbMix') as number) > 0;
       },
+      undefined,
       { timeout: 5_000 },
     );
 
@@ -292,6 +294,7 @@ test.describe('Audio Effects', () => {
         if (!get) return false;
         return (get('audio.stereoWidth') as number) > 1;
       },
+      undefined,
       { timeout: 5_000 },
     );
 
@@ -327,6 +330,7 @@ test.describe('Audio Effects', () => {
         if (!get) return false;
         return (get('audio.virtualBass') as number) > 0;
       },
+      undefined,
       { timeout: 5_000 },
     );
 
@@ -352,6 +356,7 @@ test.describe('Audio Effects', () => {
         if (!get) return false;
         return (get('audio.virtualBass') as number) > 0;
       },
+      undefined,
       { timeout: 5_000 },
     );
 
@@ -375,6 +380,7 @@ test.describe('Audio Effects', () => {
         if (!get) return false;
         return Boolean(get('audio.exciter')) && (get('audio.stereoWidth') as number) > 1;
       },
+      undefined,
       { timeout: 5_000 },
     );
 
@@ -402,6 +408,7 @@ test.describe('Audio Effects', () => {
           (get('audio.stereoWidth') as number) === 1
         );
       },
+      undefined,
       { timeout: 5_000 },
     );
     await expect(onBtn).toHaveAttribute('aria-pressed', 'false');

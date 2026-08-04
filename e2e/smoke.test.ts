@@ -51,7 +51,9 @@ test.describe('MUSIXQUARE Smoke Test', () => {
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
     await waitForBootstrapReady(page, 5_000);
-    await page.waitForFunction(() => document.readyState === 'complete', { timeout: 5_000 });
+    await page.waitForFunction(() => document.readyState === 'complete', undefined, {
+      timeout: 5_000,
+    });
 
     // Filter out known non-critical errors (e.g. service worker in preview mode)
     const critical = errors.filter(

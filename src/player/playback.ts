@@ -1125,6 +1125,7 @@ export function initPlayback(): void {
       try {
         await unicastFile(conn, currentResident.blob, 0, currentResident.sessionId, {
           queueItemId: currentQueueItemId,
+          purpose: 'bootstrap',
           isSourceCurrent: () => {
             const latest = getState('files.current');
             return (

@@ -140,6 +140,7 @@ test.describe('Advanced Playback', () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         return get && get('files.current') !== null;
       },
+      undefined,
       { timeout: 20_000 },
     );
 
@@ -162,6 +163,7 @@ test.describe('Advanced Playback', () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         return get && get('files.current') !== null;
       },
+      undefined,
       { timeout: 20_000 },
     );
 
@@ -186,6 +188,7 @@ test.describe('Advanced Playback', () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         return get && get('files.current') !== null;
       },
+      undefined,
       { timeout: 20_000 },
     );
 
@@ -215,6 +218,7 @@ test.describe('Advanced Playback', () => {
         const el = document.getElementById('track-title');
         return el && el.textContent && el.textContent.trim().length > 0;
       },
+      undefined,
       { timeout: 10_000 },
     );
 
@@ -234,6 +238,7 @@ test.describe('Advanced Playback', () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         return get && get('files.current') !== null;
       },
+      undefined,
       { timeout: 20_000 },
     );
 
@@ -249,6 +254,7 @@ test.describe('Advanced Playback', () => {
           dur.textContent.trim() !== '0:00'
         );
       },
+      undefined,
       { timeout: 10_000 },
     );
 
@@ -280,6 +286,7 @@ test.describe('Advanced Playback', () => {
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -293,6 +300,7 @@ test.describe('Advanced Playback', () => {
         const state = projected();
         return state === 'PLAYING_AUDIO' || state === 'PAUSED' || state === 'IDLE';
       },
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -308,6 +316,7 @@ test.describe('Advanced Playback', () => {
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
 

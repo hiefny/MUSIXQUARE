@@ -102,6 +102,7 @@ async function sendChatMessage(page: Page, text: string): Promise<void> {
     await chatBtn.click();
     await page.waitForFunction(
       () => document.getElementById('chat-drawer')?.classList.contains('open') ?? false,
+      undefined,
       { timeout: 5_000 },
     );
   }
@@ -186,6 +187,7 @@ test.describe('Mass Exodus', () => {
       await waitForPlaylistCount(setup.hostPage, 1);
       await setup.hostPage.waitForFunction(
         () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+        undefined,
         { timeout: 15_000 },
       );
       await setup.hostPage.click('#play-btn');
@@ -301,6 +303,7 @@ test.describe('Settings Storm During Transfer', () => {
           const state = get('transfer.state');
           return !state || state === 'IDLE' || state === 'READY';
         },
+        undefined,
         { timeout: 15_000 },
       );
     } finally {
@@ -334,6 +337,7 @@ test.describe('Track Change + Late Join', () => {
 
       await hostPage.waitForFunction(
         () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+        undefined,
         { timeout: 15_000 },
       );
       await hostPage.click('#play-btn');
@@ -437,6 +441,7 @@ test.describe('Operator + Chaos', () => {
         await setup.hostPage.locator('#chat-preview-btn').click();
         await setup.hostPage.waitForFunction(
           () => document.getElementById('chat-drawer')?.classList.contains('open') ?? false,
+          undefined,
           { timeout: 5_000 },
         );
       }
@@ -506,6 +511,7 @@ test.describe('Mode Switch + Disconnect', () => {
               !!document.querySelector(
                 '.media-source-overlay.active, .media-source-panel.active, #media-source-btn.active',
               ),
+            undefined,
             { timeout: 5_000 },
           )
           .catch(() => {}); // overlay may not have .active class
@@ -694,6 +700,7 @@ test.describe('Full Lifecycle Chaos', () => {
 
       await hostPage.waitForFunction(
         () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+        undefined,
         { timeout: 15_000 },
       );
       await hostPage.click('#play-btn');
@@ -705,6 +712,7 @@ test.describe('Full Lifecycle Chaos', () => {
           const s = projected();
           return s === 'PLAYING_AUDIO' || s === 'PAUSED';
         },
+        undefined,
         { timeout: 15_000 },
       );
 
@@ -752,6 +760,7 @@ test.describe('Full Lifecycle Chaos', () => {
           const s = projected();
           return s === 'PAUSED' || s === 'IDLE';
         },
+        undefined,
         { timeout: 15_000 },
       );
 
@@ -783,6 +792,7 @@ test.describe('Full Lifecycle Chaos', () => {
           const s = projected();
           return s === 'PLAYING_AUDIO' || s === 'PAUSED' || s === 'IDLE';
         },
+        undefined,
         { timeout: 15_000 },
       );
       const resumedState = await readPlaybackProjection(hostPage);
@@ -849,6 +859,7 @@ test.describe('Settings Chain + Late Join', () => {
       await waitForPlaylistCount(hostPage, 1);
       await hostPage.waitForFunction(
         () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+        undefined,
         { timeout: 15_000 },
       );
       await hostPage.click('#play-btn');
@@ -931,6 +942,7 @@ test.describe('Preload + Disconnect', () => {
 
       await setup.hostPage.waitForFunction(
         () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+        undefined,
         { timeout: 15_000 },
       );
       await setup.hostPage.click('#play-btn');
@@ -942,6 +954,7 @@ test.describe('Preload + Disconnect', () => {
           const s = projected();
           return s === 'PLAYING_AUDIO' || s === 'PAUSED';
         },
+        undefined,
         { timeout: 15_000 },
       );
 

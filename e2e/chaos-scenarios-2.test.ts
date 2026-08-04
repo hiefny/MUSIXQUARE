@@ -126,6 +126,7 @@ async function sendChatMessage(page: Page, text: string): Promise<void> {
     await page.locator('#chat-preview-btn').click();
     await page.waitForFunction(
       () => document.getElementById('chat-drawer')?.classList.contains('open') ?? false,
+      undefined,
       { timeout: 5_000 },
     );
   }
@@ -201,6 +202,7 @@ async function waitForPlaybackProjectionReady(page: Page, timeout = 10_000): Pro
 async function startPlayback(hostPage: Page): Promise<void> {
   await hostPage.waitForFunction(
     () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+    undefined,
     { timeout: 20_000 },
   );
   await hostPage.click('#play-btn');
@@ -296,6 +298,7 @@ test.describe('Host Page Refresh', () => {
       await setup.hostPage.waitForLoadState('domcontentloaded');
       await setup.hostPage.waitForFunction(
         () => document.getElementById('setup-overlay') !== null,
+        undefined,
         { timeout: 10_000 },
       );
 
@@ -336,9 +339,13 @@ test.describe('Host Page Refresh', () => {
 
       await hostPage.reload();
       await hostPage.waitForLoadState('domcontentloaded');
-      await hostPage.waitForFunction(() => document.getElementById('setup-overlay') !== null, {
-        timeout: 10_000,
-      });
+      await hostPage.waitForFunction(
+        () => document.getElementById('setup-overlay') !== null,
+        undefined,
+        {
+          timeout: 10_000,
+        },
+      );
 
       await injectPeerServer(hostPage);
       const code2 = await setupHostAndStart(hostPage);
@@ -687,6 +694,7 @@ test.describe('Shuffle Repeat + Late Join', () => {
         await hostPage.locator('#btn-shuffle').click();
         await hostPage.waitForFunction(
           () => document.getElementById('btn-shuffle')?.classList.contains('active') ?? false,
+          undefined,
           { timeout: 5_000 },
         );
       }
@@ -695,6 +703,7 @@ test.describe('Shuffle Repeat + Late Join', () => {
         await hostPage.locator('#btn-repeat').click();
         await hostPage.waitForFunction(
           () => document.getElementById('btn-repeat')?.classList.contains('active') ?? false,
+          undefined,
           { timeout: 5_000 },
         );
       }
@@ -825,6 +834,7 @@ test.describe('Concurrent Chat Flood', () => {
 
       await setup.hostPage.waitForFunction(
         () => (document.getElementById('chat-messages')?.textContent?.length ?? 0) > 0,
+        undefined,
         { timeout: 10_000 },
       );
 
@@ -857,6 +867,7 @@ test.describe('Concurrent Chat Flood', () => {
 
       await setup.guestPages[0].waitForFunction(
         () => (document.getElementById('chat-messages')?.textContent?.length ?? 0) > 0,
+        undefined,
         { timeout: 10_000 },
       );
 
@@ -1104,6 +1115,7 @@ test.describe('YouTube URL Switch', () => {
           () =>
             document.body.classList.contains('mode-youtube') ||
             document.getElementById('youtube-url-input') !== null,
+          undefined,
           { timeout: 5_000 },
         );
       }
@@ -1127,6 +1139,7 @@ test.describe('YouTube URL Switch', () => {
                 (projected() === 'PLAYING_YOUTUBE' || get?.('youtube.videoId'))
               );
             },
+            undefined,
             { timeout: 10_000 },
           )
           .catch(() => {}); // YouTube may not actually load in test env
@@ -1179,9 +1192,13 @@ test.describe('Sequential Sessions', () => {
         if (session < 2) {
           await hostPage.reload();
           await hostPage.waitForLoadState('domcontentloaded');
-          await hostPage.waitForFunction(() => document.getElementById('setup-overlay') !== null, {
-            timeout: 10_000,
-          });
+          await hostPage.waitForFunction(
+            () => document.getElementById('setup-overlay') !== null,
+            undefined,
+            {
+              timeout: 10_000,
+            },
+          );
           await injectPeerServer(hostPage);
         }
       }
@@ -1327,6 +1344,7 @@ test.describe('Duplicate Upload Chaos', () => {
           const list = document.getElementById('playlist-ui');
           return list?.children.length === 2;
         },
+        undefined,
         { timeout: 10_000 },
       );
       const hostCount = await setup.hostPage.evaluate(
@@ -1627,6 +1645,7 @@ test.describe('Late Join During Track Removal', () => {
           const list = document.getElementById('playlist-ui');
           return list && list.children.length >= 1;
         },
+        undefined,
         { timeout: 10_000 },
       );
 
@@ -1745,6 +1764,7 @@ test.describe('Upload During YouTube Mode', () => {
               () =>
                 document.body.classList.contains('mode-youtube') ||
                 document.getElementById('youtube-url-input') !== null,
+              undefined,
               { timeout: 5_000 },
             )
             .catch(() => {}); // Mode may not fully switch in test env
@@ -1942,6 +1962,7 @@ test.describe('Double Late Join', () => {
           const peers = get('network.connectedPeers') as unknown[];
           return peers && peers.length >= 2;
         },
+        undefined,
         { timeout: 30_000 },
       );
 
@@ -2141,6 +2162,7 @@ test.describe('Nuclear Meltdown v2', () => {
         () =>
           typeof (window as any).__MUSIXQUARE_GET_STATE__?.('playlist.currentQueueItemId') ===
           'string',
+        undefined,
         { timeout: 10_000 },
       );
 

@@ -43,6 +43,7 @@ test.describe('Reconnection & Disconnect', () => {
         const peers = get('network.connectedPeers') as unknown[];
         return peers && peers.length === 0;
       },
+      undefined,
       { timeout: 20_000 },
     );
 
@@ -67,6 +68,7 @@ test.describe('Reconnection & Disconnect', () => {
         const peers = get('network.connectedPeers') as unknown[];
         return peers && peers.length === 0;
       },
+      undefined,
       { timeout: 20_000 },
     );
 
@@ -96,6 +98,7 @@ test.describe('Reconnection & Disconnect', () => {
         const peers = get('network.connectedPeers') as unknown[];
         return peers && peers.length === 0;
       },
+      undefined,
       { timeout: 20_000 },
     );
 
@@ -122,6 +125,7 @@ test.describe('Reconnection & Disconnect', () => {
         const peers = get('network.connectedPeers') as unknown[];
         return peers && peers.length === 0;
       },
+      undefined,
       { timeout: 20_000 },
     );
 

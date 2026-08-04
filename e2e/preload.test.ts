@@ -53,6 +53,7 @@ test.describe('Preload System', () => {
         const items = get('playlist.items') as unknown[];
         return items && items.length === 2;
       },
+      undefined,
       { timeout: 10_000 },
     );
 

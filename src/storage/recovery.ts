@@ -275,6 +275,7 @@ async function handleRequestCurrentFile(
   if (canDirect) {
     await unicastFile(conn, fileToSend, 0, sid, {
       queueItemId: match.queueItemId,
+      purpose: 'recovery',
       skipTransportGuard: true,
       isSourceCurrent: () => isCachedBlobMatchCurrent(match),
     });
@@ -344,6 +345,7 @@ async function handleRequestDataRecovery(
     if (canDirect) {
       await unicastFile(conn, fileToSend, startChunk, sid, {
         queueItemId: match.queueItemId,
+        purpose: 'recovery',
         skipTransportGuard: true,
         isSourceCurrent: () => isCachedBlobMatchCurrent(match),
       });

@@ -63,6 +63,7 @@ test.describe('Mode Switching Chains', () => {
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
     await clickPlayButton(pair.hostPage);
@@ -82,6 +83,7 @@ test.describe('Mode Switching Chains', () => {
             const btn = document.getElementById('youtube-play-btn');
             return btn && !btn.hasAttribute('disabled');
           },
+          undefined,
           { timeout: 10_000 },
         )
         .catch(() => {});
@@ -114,6 +116,7 @@ test.describe('Mode Switching Chains', () => {
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
     await clickPlayButton(pair.hostPage);
@@ -155,6 +158,7 @@ test.describe('Playlist Manipulation During Playback', () => {
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
     await clickPlayButton(pair.hostPage);
@@ -330,9 +334,13 @@ test.describe('Concurrent Host+Guest Operations', () => {
       if (await isVisible(pair.hostPage, '.ch-opt[data-theme="dark"]')) {
         await darkOpt.click();
         await pair.hostPage
-          .waitForFunction(() => document.documentElement.getAttribute('data-theme') === 'dark', {
-            timeout: 5_000,
-          })
+          .waitForFunction(
+            () => document.documentElement.getAttribute('data-theme') === 'dark',
+            undefined,
+            {
+              timeout: 5_000,
+            },
+          )
           .catch(() => {});
       }
     })();
@@ -362,6 +370,7 @@ test.describe('Settings Changes During Playback', () => {
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -381,6 +390,7 @@ test.describe('Settings Changes During Playback', () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         return get && (get('audio.eqValues') as number[])?.[0] === 6;
       },
+      undefined,
       { timeout: 5_000 },
     );
 
@@ -399,6 +409,7 @@ test.describe('Settings Changes During Playback', () => {
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -429,6 +440,7 @@ test.describe('Settings Changes During Playback', () => {
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -462,6 +474,7 @@ test.describe('Settings Changes During Playback', () => {
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -502,6 +515,7 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -540,6 +554,7 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -587,6 +602,7 @@ test.describe('Repeat & Shuffle Edge Cases', () => {
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 20_000 },
     );
 
@@ -626,6 +642,7 @@ test.describe('Operator Privilege Scenarios', () => {
           const get = (window as any).__MUSIXQUARE_GET_STATE__;
           return get && get('network.isOperator') !== undefined;
         },
+        undefined,
         { timeout: 10_000 },
       );
 
@@ -660,6 +677,7 @@ test.describe('Operator Privilege Scenarios', () => {
           const get = (window as any).__MUSIXQUARE_GET_STATE__;
           return get && get('network.isOperator') !== undefined;
         },
+        undefined,
         { timeout: 10_000 },
       );
     }
@@ -668,6 +686,7 @@ test.describe('Operator Privilege Scenarios', () => {
     await waitForPlaylistCount(pair.hostPage, 1);
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
     await clickPlayButton(pair.hostPage);
@@ -681,6 +700,7 @@ test.describe('Operator Privilege Scenarios', () => {
             const get = (window as any).__MUSIXQUARE_GET_STATE__;
             return get && get('network.isOperator') === false;
           },
+          undefined,
           { timeout: 10_000 },
         )
         .catch(() => {});
@@ -713,6 +733,7 @@ test.describe('Guest Disconnect During Transfer', () => {
 
       await pair.hostPage.waitForFunction(
         () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+        undefined,
         { timeout: 15_000 },
       );
       await clickPlayButton(pair.hostPage);
@@ -791,6 +812,7 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
         .waitForFunction(
           () =>
             document.getElementById('media-source-overlay')?.classList.contains('active') ?? false,
+          undefined,
           { timeout: 5_000 },
         )
         .catch(() => {});
@@ -855,6 +877,7 @@ test.describe('State Consistency After Complex Flows', () => {
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
     await clickPlayButton(pair.hostPage);
@@ -869,6 +892,7 @@ test.describe('State Consistency After Complex Flows', () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         return get && get('files.current') !== null;
       },
+      undefined,
       { timeout: 10_000 },
     );
 
@@ -878,6 +902,7 @@ test.describe('State Consistency After Complex Flows', () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         return get && get('files.current') !== null;
       },
+      undefined,
       { timeout: 10_000 },
     );
 
@@ -915,6 +940,7 @@ test.describe('State Consistency After Complex Flows', () => {
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+      undefined,
       { timeout: 15_000 },
     );
     await clickPlayButton(pair.hostPage);
@@ -974,6 +1000,7 @@ test.describe('State Consistency After Complex Flows', () => {
 
       await hostPage.waitForFunction(
         () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
+        undefined,
         { timeout: 15_000 },
       );
       await clickPlayButton(hostPage);

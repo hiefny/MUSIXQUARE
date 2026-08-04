@@ -80,6 +80,7 @@ test.describe('Device Management', () => {
           const overlay = document.getElementById('setup-overlay');
           return dialog || overlay?.classList.contains('active');
         },
+        undefined,
         { timeout: 15_000 },
       );
     }

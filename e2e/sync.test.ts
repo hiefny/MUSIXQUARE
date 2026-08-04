@@ -43,6 +43,7 @@ async function openSyncOverlay(page: Page): Promise<void> {
       if (!overlay) return false;
       return overlay.classList.contains('show');
     },
+    undefined,
     { timeout: 5_000 },
   );
 }
@@ -61,12 +62,15 @@ async function prepareGuestManualSync(): Promise<void> {
         | ((p: string) => unknown)
         | undefined;
       const hostConn = get?.('network.hostConn') as { open?: boolean } | null | undefined;
+      const lifecycle = get?.('playback.lifecycle');
       return (
         hostConn?.open === true &&
         get?.('playback.mode') === 'file' &&
-        get?.('files.current') !== null
+        get?.('files.current') !== null &&
+        (lifecycle === 'READY' || lifecycle === 'PLAYING' || lifecycle === 'PAUSED')
       );
     },
+    undefined,
     { timeout: 25_000 },
   );
 }
@@ -223,6 +227,7 @@ test.describe('Sync Controls', () => {
         const overlay = document.getElementById('manual-sync-overlay');
         return overlay ? !overlay.classList.contains('show') : true;
       },
+      undefined,
       { timeout: 10_000 },
     );
 

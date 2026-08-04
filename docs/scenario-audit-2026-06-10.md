@@ -195,7 +195,7 @@ play+broadcast 스킵하고 `markFailedAndAdvance`로 위임.
 
 | ID | 내용 | 비고 |
 |----|------|------|
-| SA-06 | **후발 게스트 이중 전송 reorder 비대**: broadcastFile 시작 직전에 join한 게스트는 eligiblePeers 스냅샷에 포함되고 bootstrap unicastFile도 받음 → 같은 sid의 두 스트림이 offset되면 이미 drain된 인덱스의 중복 청크가 `fileReorderBuffer`에 잔류 (drain 루프는 nextExpectedChunk 이후만 소비) → 큰 파일에서 MAX_REORDER_BUFFER(500) 초과 → 불필요한 recovery 1사이클 | 자가 치유 (recovery가 receivedCount부터 재개). transfer-receive.ts:1185 |
+| SA-06 | **후발 게스트 이중 전송 reorder 비대**: broadcastFile 시작 직전에 join한 게스트는 eligiblePeers 스냅샷에 포함되고 bootstrap unicastFile도 받음 → 같은 sid의 두 스트림이 offset되면 이미 drain된 인덱스의 중복 청크가 `fileReorderBuffer`에 잔류 (drain 루프는 nextExpectedChunk 이후만 소비) → 큰 파일에서 MAX_REORDER_BUFFER(500) 초과 → 불필요한 recovery 1사이클 | **해결 (2026-08-04)**: exact connection·queueItemId·sessionId 송신 lane, recovery 인계, PREPARE/FILE_START 수신 fence, drain 완료 중복 청크 폐기로 단일 스트림을 보장. sync E2E 20회 반복 180/180 통과. |
 | SA-07 | **빈 플레이리스트 + 디코드 인플라이트 유령 버퍼(게스트)**: `cancelIncomingFileTransfer`는 RECEIVING만 취소. PROCESSING(finalizeGuestFile 디코드 중)에 playlist-emptied가 오면 디코드 완료 후 buffer/currentFileBlob/transfer=READY가 빈 플레이리스트 위에 재발행됨 (lifecycle은 IDLE stay라 무해, 단 media-session 로컬 resume이 유령 재생 가능) | finalize에 load-session 가드는 있으나 빈-플레이리스트 이벤트가 세션을 안 올림. transfer-receive.ts:1486, decode.ts:951 |
 | SA-08 | (SA-03 부가에서 승격 기록) 시스템오디오 START가 chunkWatchdog/prepareWatchdog를 안 지움 → 공유 중 헛 REQUEST_DATA_RECOVERY 루프 가능 (재시도 상한으로 수렴) | youtube 전환의 cancelInFlightTransfer와 비대칭. system-audio-guest.ts:717 |
 | SA-09 | **non-OP 게스트 잠금화면 'play' (호스트 일시정지 중)**: media-session play → 로컬 단독 재생 시작. 호스트가 paused면 SYNC_PONG 교정 분기 자체가 안 돌아서 (`isSyncPongPlayingFile` false) 다음 호스트 PLAY/PAUSE까지 단독 재생 지속 | 로컬-pause 기능의 역방향 비대칭. 반쯤 의도된 UX로 볼 여지 있음. media-session.ts:116 |

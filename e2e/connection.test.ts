@@ -19,10 +19,7 @@ import {
   setupGuest,
   connectHostAndGuest,
 } from './helpers/setup-flow.ts';
-import {
-  isVisible,
-  waitForDeviceCount,
-} from './helpers/wait.ts';
+import { isVisible, waitForDeviceCount } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 

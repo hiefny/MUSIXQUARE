@@ -164,6 +164,10 @@ const SETUP_GREETING_REVEAL_TIMER = 'setup-greeting-reveal';
 const SETUP_GREETING_FALLBACK_TIMER = 'setup-greeting-fallback';
 
 function revealSetupGreeting(): void {
+  document.querySelectorAll<HTMLElement>('.setup-brand-greeting-stage').forEach((stage) => {
+    stage.classList.add('is-greeting-visible');
+    stage.querySelector<SVGElement>('.logo-welcome')?.setAttribute('aria-hidden', 'true');
+  });
   document.querySelectorAll<HTMLElement>('.setup-greeting-row').forEach((row) => {
     row.classList.add('is-visible');
     row.setAttribute('aria-hidden', 'false');

@@ -897,13 +897,39 @@
   .logo-welcome {
     height: 22px;
     width: auto;
+    margin: 0;
+    opacity: 1;
+    visibility: visible;
+    transition:
+      opacity 0.32s ease,
+      visibility 0s linear 0s;
+  }
+
+  .setup-brand-greeting-stage {
+    display: grid;
+    justify-items: start;
+    align-items: start;
     margin-top: 3px;
     margin-bottom: 11.8px;
   }
 
+  .setup-brand-greeting-stage > .logo-welcome,
+  .setup-brand-greeting-stage > .setup-greeting-row {
+    grid-area: 1 / 1;
+  }
+
+  .setup-brand-greeting-stage.is-greeting-visible > .logo-welcome {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 0.32s ease,
+      visibility 0s linear 0.32s;
+  }
+
   .setup-greeting-row {
     min-height: 24px;
-    margin-bottom: 2px;
+    margin: 0;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -911,10 +937,8 @@
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
-    transform: translateY(4px);
     transition:
       opacity 0.32s ease,
-      transform 0.32s ease,
       visibility 0s linear 0.32s;
   }
 
@@ -922,7 +946,6 @@
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
-    transform: translateY(0);
     transition-delay: 0s;
   }
 
@@ -1006,6 +1029,7 @@
       clip-path: none !important;
     }
 
+    .setup-brand-greeting-stage > .logo-welcome,
     .setup-greeting-row,
     .setup-language-button {
       transition: none;
@@ -9501,6 +9525,10 @@
     .desktop-step-header .logo-svg {
       height: var(--setup-logo-h) !important;
       width: auto !important;
+      margin: 0 !important;
+    }
+
+    .desktop-step-header .setup-brand-greeting-stage {
       margin-top: var(--setup-logo-mt) !important;
       margin-bottom: var(--setup-logo-mb) !important;
     }

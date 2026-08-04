@@ -141,6 +141,16 @@ test.describe('Settings Panel', () => {
     const trigger = pair.hostPage.locator('[data-setup-language-trigger]:visible').first();
     await expect(trigger).toBeVisible({ timeout: 6_000 });
     expect(await trigger.evaluate((button) => !!button.closest('#desktop-step-header'))).toBe(true);
+    const stage = trigger.locator('..').locator('..');
+    await expect(stage).toHaveClass(/is-greeting-visible/);
+    await expect
+      .poll(() => stage.locator('.logo-welcome').evaluate((logo) => getComputedStyle(logo).opacity))
+      .toBe('0');
+    await expect
+      .poll(() =>
+        stage.locator('.setup-greeting-row').evaluate((row) => getComputedStyle(row).opacity),
+      )
+      .toBe('1');
     await trigger.click();
 
     await expect(pair.hostPage.locator('#language-dialog-overlay')).toHaveClass(/show/);

@@ -88,6 +88,7 @@ describe('setup greeting reveal', () => {
     const headerEnd = markup.indexOf('<div id="ob-slider-area"', headerStart);
     const header = markup.slice(headerStart, headerEnd);
 
+    expect(header).toContain('class="setup-brand-greeting-stage"');
     expect(header).toContain('class="setup-greeting-row" aria-hidden="true"');
     expect(header).toContain('data-i18n="setup.greeting"');
     expect(header).toContain('data-setup-language-trigger');
@@ -99,7 +100,7 @@ describe('setup greeting reveal', () => {
     );
   });
 
-  it('waits one second after the final logo draw and keeps a bounded fallback', async () => {
+  it('crossfades the completed logo into the greeting after one second', async () => {
     const source = await readFile('src/ui/setup.ts', 'utf8');
     const stylesheet = await readFile('css/style.css', 'utf8');
 
@@ -109,6 +110,9 @@ describe('setup greeting reveal', () => {
     );
     expect(source).toContain('SETUP_GREETING_FALLBACK_BUFFER_MS');
     expect(source).toContain("window.matchMedia('(prefers-reduced-motion: reduce)').matches");
+    expect(source).toContain("stage.classList.add('is-greeting-visible')");
+    expect(stylesheet).toContain('.setup-brand-greeting-stage.is-greeting-visible > .logo-welcome');
+    expect(stylesheet).toContain('opacity: 0;');
     expect(stylesheet).toContain('.setup-greeting-row.is-visible');
     expect(stylesheet).toContain('.logo-welcome > .wg,\n    .logo-welcome > .wl');
     expect(stylesheet).toContain('animation: none !important;');

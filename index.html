@@ -10,7 +10,7 @@
          code, then apply Android viewport, language, and theme preflight.
          Cloudflare Analytics is loaded by this bootstrap only after a safe
          scrub/handoff. Source: public/bootstrap.js -->
-    <script src="/bootstrap.js?cache=v377"></script>
+    <script src="/bootstrap.js?cache=v378"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -1988,12 +1988,14 @@
             data-custom-scroll-contained
           >
             <div id="setup-welcome-header" class="setup-header-text">
-              <svg
-                class="logo-svg logo-welcome"
-                viewBox="43 12 214 24"
-                fill="currentColor"
-                xmlns="http://www.w3.org/2000/svg"
-              >
+              <div class="setup-brand-greeting-stage">
+                <svg
+                  class="logo-svg logo-welcome"
+                  viewBox="43 12 214 24"
+                  fill="currentColor"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
+                >
                 <g class="wg">
                   <polygon
                     points="45.5 17.3 45.5 35.3 50 35.3 50 17.3 54.5 17.3 54.5 35.3 59 35.3 59 17.3 63.5 17.3 63.5 35.3 68 35.3 68 17.3 68 12.8 45.5 12.8 45.5 17.3"
@@ -2349,24 +2351,25 @@
                   data-wt="960"
                   data-wd="600"
                 />
-              </svg>
-              <div class="setup-greeting-row" aria-hidden="true">
-                <span class="setup-greeting-text" data-i18n="setup.greeting"></span>
-                <button
-                  type="button"
-                  class="setup-language-button"
-                  data-setup-language-trigger
-                  aria-haspopup="dialog"
-                  aria-controls="language-dialog-overlay"
-                  data-i18n-aria-label="settings.language_select_aria"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <circle cx="12" cy="12" r="9"></circle>
-                    <path
-                      d="M3.5 12h17M12 3c2.4 2.47 3.6 5.47 3.6 9s-1.2 6.53-3.6 9M12 3C9.6 5.47 8.4 8.47 8.4 12s1.2 6.53 3.6 9"
-                    ></path>
-                  </svg>
-                </button>
+                </svg>
+                <div class="setup-greeting-row" aria-hidden="true">
+                  <span class="setup-greeting-text" data-i18n="setup.greeting"></span>
+                  <button
+                    type="button"
+                    class="setup-language-button"
+                    data-setup-language-trigger
+                    aria-haspopup="dialog"
+                    aria-controls="language-dialog-overlay"
+                    data-i18n-aria-label="settings.language_select_aria"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9"></circle>
+                      <path
+                        d="M3.5 12h17M12 3c2.4 2.47 3.6 5.47 3.6 9s-1.2 6.53-3.6 9M12 3C9.6 5.47 8.4 8.47 8.4 12s1.2 6.53 3.6 9"
+                      ></path>
+                    </svg>
+                  </button>
+                </div>
               </div>
               <p class="setup-role-prompt" data-i18n="setup.hello_select_role"></p>
             </div>

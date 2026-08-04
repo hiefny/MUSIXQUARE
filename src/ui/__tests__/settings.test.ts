@@ -520,6 +520,32 @@ describe('initSettings language controls', () => {
     expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(5);
   });
 
+  it('suppresses only the initial pointer focus ring and restores keyboard focus styling', async () => {
+    setLanguageMode('ko');
+    installLanguageSettingsDom();
+    initSettings();
+
+    const trigger = document.getElementById('btn-language-select')!;
+    trigger.focus();
+    trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+
+    const active = document.querySelector<HTMLElement>('.language-option[data-lang="ko"]')!;
+    await vi.waitFor(() => expect(document.activeElement).toBe(active));
+    expect(active.classList).toContain('language-option-initial-pointer-focus');
+
+    active.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab' }));
+    expect(active.classList).not.toContain('language-option-initial-pointer-focus');
+
+    document.getElementById('btn-language-dialog-done')?.click();
+    trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+
+    await vi.waitFor(() =>
+      expect(active.classList).toContain('language-option-initial-keyboard-focus'),
+    );
+    expect(document.activeElement).toBe(active);
+    expect(active.classList).not.toContain('language-option-initial-pointer-focus');
+  });
+
   it('preloads only the five self-hosted native names on pointer intent before opening', async () => {
     installLanguageSettingsDom();
     initSettings();
@@ -655,7 +681,7 @@ describe('initSettings language controls', () => {
     );
   });
 
-  it('reuses the language dialog from the setup greeting trigger', () => {
+  it('reuses the language dialog from the setup greeting trigger', async () => {
     installLanguageSettingsDom();
     const setupTrigger = document.createElement('button');
     setupTrigger.dataset.setupLanguageTrigger = '';
@@ -663,10 +689,13 @@ describe('initSettings language controls', () => {
     initSettings();
 
     setupTrigger.focus();
-    openLanguageDialog();
+    openLanguageDialog(new MouseEvent('click', { detail: 1 }));
     expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
       true,
     );
+    const active = document.querySelector<HTMLElement>('.language-option.active')!;
+    await vi.waitFor(() => expect(document.activeElement).toBe(active));
+    expect(active.classList).toContain('language-option-initial-pointer-focus');
 
     document.getElementById('btn-language-dialog-done')?.click();
     expect(document.activeElement).toBe(setupTrigger);

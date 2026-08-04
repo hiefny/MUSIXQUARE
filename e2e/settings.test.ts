@@ -218,6 +218,12 @@ test.describe('Settings Panel', () => {
     await expect(pair.hostPage.locator('#language-dialog-overlay')).toHaveClass(/show/);
     await expect(pair.hostPage.locator('#language-list .language-option')).toHaveCount(17);
 
+    const activeLanguage = pair.hostPage.locator('.language-option.active');
+    await expect(activeLanguage).toBeFocused();
+    await expect(activeLanguage).toHaveClass(/language-option-initial-pointer-focus/);
+    await activeLanguage.press('Tab');
+    await expect(activeLanguage).not.toHaveClass(/language-option-initial-pointer-focus/);
+
     const list = pair.hostPage.locator('#language-list');
     const topEdge = pair.hostPage.locator('.language-list-edge-top');
     const bottomEdge = pair.hostPage.locator('.language-list-edge-bottom');
@@ -225,6 +231,19 @@ test.describe('Settings Panel', () => {
     await expect
       .poll(() => bottomEdge.evaluate((edge) => getComputedStyle(edge).opacity))
       .toBe('1');
+    const bottomGeometry = await bottomEdge.evaluate((edge) => {
+      const edgeRect = edge.getBoundingClientRect();
+      const listRect = document.getElementById('language-list')!.getBoundingClientRect();
+      const fadeSize = Number.parseFloat(
+        getComputedStyle(edge.parentElement!).getPropertyValue('--language-list-fade-size'),
+      );
+      return {
+        overscan: edgeRect.bottom - listRect.bottom,
+        fadeStartDelta: edgeRect.top - (listRect.bottom - fadeSize),
+      };
+    });
+    expect(bottomGeometry.overscan).toBeCloseTo(1, 1);
+    expect(bottomGeometry.fadeStartDelta).toBeCloseTo(0, 1);
 
     await list.evaluate((element) => {
       element.scrollTop = element.scrollHeight;
@@ -232,6 +251,19 @@ test.describe('Settings Panel', () => {
     });
     await expect(list).toHaveClass(/can-scroll-up/);
     await expect.poll(() => topEdge.evaluate((edge) => getComputedStyle(edge).opacity)).toBe('1');
+    const topGeometry = await topEdge.evaluate((edge) => {
+      const edgeRect = edge.getBoundingClientRect();
+      const listRect = document.getElementById('language-list')!.getBoundingClientRect();
+      const fadeSize = Number.parseFloat(
+        getComputedStyle(edge.parentElement!).getPropertyValue('--language-list-fade-size'),
+      );
+      return {
+        overscan: listRect.top - edgeRect.top,
+        fadeEndDelta: edgeRect.bottom - (listRect.top + fadeSize),
+      };
+    });
+    expect(topGeometry.overscan).toBeCloseTo(1, 1);
+    expect(topGeometry.fadeEndDelta).toBeCloseTo(0, 1);
     await expect
       .poll(() => bottomEdge.evaluate((edge) => getComputedStyle(edge).opacity))
       .toBe('0');

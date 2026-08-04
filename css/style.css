@@ -5364,13 +5364,25 @@
   }
 
   .language-list-edge-top {
-    top: 0;
-    background: linear-gradient(to bottom, var(--glass-bg), transparent);
+    top: -1px;
+    height: calc(var(--language-list-fade-size) + 1px);
+    background: linear-gradient(
+      to bottom,
+      var(--glass-bg) 0,
+      var(--glass-bg) 1px,
+      transparent calc(var(--language-list-fade-size) + 1px)
+    );
   }
 
   .language-list-edge-bottom {
-    bottom: 0;
-    background: linear-gradient(to top, var(--glass-bg), transparent);
+    bottom: -1px;
+    height: calc(var(--language-list-fade-size) + 1px);
+    background: linear-gradient(
+      to top,
+      var(--glass-bg) 0,
+      var(--glass-bg) 1px,
+      transparent calc(var(--language-list-fade-size) + 1px)
+    );
   }
 
   .language-list.can-scroll-up ~ .language-list-edge-top,
@@ -5433,6 +5445,15 @@
     border-color: transparent;
     background: var(--surface-2);
     color: var(--primary);
+  }
+
+  .language-option.language-option-initial-pointer-focus:focus {
+    outline: none;
+  }
+
+  .language-option.language-option-initial-keyboard-focus:focus {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
   }
 
   .language-option-label {

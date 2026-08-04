@@ -313,7 +313,7 @@ function initSetupOverlay(): void {
     (event) => {
       const target = event.target;
       if (!(target instanceof Element) || !target.closest('[data-setup-language-trigger]')) return;
-      openLanguageDialog();
+      openLanguageDialog(event);
     },
     { signal },
   );

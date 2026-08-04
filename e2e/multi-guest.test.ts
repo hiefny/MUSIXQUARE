@@ -53,6 +53,31 @@ async function cleanupMultiGuest(setup: MultiGuestSetup): Promise<void> {
   await setup.hostContext.close().catch(() => {});
 }
 
+async function leaveGuestThroughUi(page: Page): Promise<void> {
+  const leaveButton = page
+    .locator('#desktop-btn-leave-session:visible, #btn-leave-session:visible')
+    .first();
+  if (!(await leaveButton.isVisible())) {
+    const desktopConnectTab = page.locator(
+      '.settings-subtab-nav .subtab-pill[data-subtab="connect"]',
+    );
+    if (await desktopConnectTab.isVisible()) {
+      await desktopConnectTab.click();
+    } else {
+      await page.locator('.nav-item[data-tab="connect"]:visible').click();
+    }
+  }
+
+  await expect(leaveButton).toBeVisible();
+  await leaveButton.click();
+  await expect(page.locator('#dialog-overlay.show')).toBeVisible();
+
+  const navigation = page.waitForNavigation({ waitUntil: 'domcontentloaded' });
+  await page.locator('#btn-dialog-ok').click();
+  await navigation;
+  await expect(page.locator('#setup-overlay.active')).toBeVisible();
+}
+
 let setup: MultiGuestSetup;
 
 test.describe('Multi-Guest', () => {
@@ -97,7 +122,9 @@ test.describe('Multi-Guest', () => {
     }
   });
 
-  test('replacement guest rejoins while existing guest still receives fan-out', async ({ browser }) => {
+  test('replacement guest rejoins while existing guest still receives fan-out', async ({
+    browser,
+  }) => {
     test.setTimeout(90_000);
     setup = await createMultiGuestSetup(browser, 2);
 
@@ -112,16 +139,24 @@ test.describe('Multi-Guest', () => {
     await waitForPlaylistCount(setup.guestPages[0], 1, 30_000);
     await waitForPlaylistCount(setup.guestPages[1], 1, 30_000);
 
-    await setup.guestContexts[0].close();
+    // This scenario covers a normal replacement, not abrupt process death.
+    // Leave through the product UI so the page closes its RTC connection
+    // before Playwright tears down the browser context. A raw context.close()
+    // may skip pagehide and legitimately fall back to the 30/90s heartbeat
+    // grace used to protect backgrounded mobile guests.
+    await leaveGuestThroughUi(setup.guestPages[0]);
     await setup.hostPage.waitForFunction(
       () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        const peers = get?.('network.connectedPeers') as Array<{ status?: string }> | undefined;
-        return peers?.filter((peer) => peer.status === 'connected').length === 1;
+        const peers = get?.('network.connectedPeers') as
+          | Array<{ status?: string; conn?: { open?: boolean } }>
+          | undefined;
+        return peers?.length === 1 && peers[0]?.status === 'connected' && peers[0]?.conn?.open;
       },
       undefined,
       { timeout: 20_000 },
     );
+    await setup.guestContexts[0].close();
 
     const replacementContext = await browser.newContext();
     const replacementPage = await replacementContext.newPage();
@@ -203,7 +238,10 @@ test.describe('Multi-Guest', () => {
     const connectNav = setup.hostPage.locator('.nav-item[data-tab="connect"]');
     if (await connectNav.isVisible()) {
       await connectNav.click();
-      await setup.hostPage.locator('#tab-connect').waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
+      await setup.hostPage
+        .locator('#tab-connect')
+        .waitFor({ state: 'visible', timeout: 5_000 })
+        .catch(() => {});
     }
 
     const kickBtn = setup.hostPage.locator('.btn-kick-device').first();
@@ -253,12 +291,16 @@ test.describe('Multi-Guest', () => {
     const connectNav = setup.hostPage.locator('.nav-item[data-tab="connect"]');
     if (await connectNav.isVisible()) {
       await connectNav.click();
-      await setup.hostPage.locator('#tab-connect').waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
+      await setup.hostPage
+        .locator('#tab-connect')
+        .waitFor({ state: 'visible', timeout: 5_000 })
+        .catch(() => {});
     }
 
     const deviceRows = await setup.hostPage.evaluate(() => {
-      const list = document.getElementById('connect-device-list') ||
-                   document.getElementById('desktop-device-list');
+      const list =
+        document.getElementById('connect-device-list') ||
+        document.getElementById('desktop-device-list');
       if (!list) return 0;
       return list.querySelectorAll('.device-row, .section-row').length;
     });

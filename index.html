@@ -10,7 +10,7 @@
          code, then apply Android viewport, language, and theme preflight.
          Cloudflare Analytics is loaded by this bootstrap only after a safe
          scrub/handoff. Source: public/bootstrap.js -->
-    <script src="/bootstrap.js?cache=v379"></script>
+    <script src="/bootstrap.js?cache=v380"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -2026,13 +2026,18 @@
                   <rect x="237.2" y="21.8" width="13.5" height="4.5" />
                   <rect x="237.2" y="30.8" width="18" height="4.5" />
                 </g>
+                <!--
+                  The animated bars intentionally overlap by 0.3 SVG units at
+                  internal joins. Exact shared edges can otherwise leave faint
+                  subpixel seams while separate primitives are being revealed.
+                -->
                 <!-- M -->
                 <rect
                   class="wl wlr"
                   x="45.5"
                   y="12.8"
                   width="22.5"
-                  height="4.5"
+                  height="4.8"
                   data-wt="0"
                   data-wd="1080"
                 />
@@ -2076,9 +2081,9 @@
                 <rect
                   class="wl wlr"
                   x="72.5"
-                  y="30.8"
+                  y="30.5"
                   width="18"
-                  height="4.5"
+                  height="4.8"
                   data-wt="480"
                   data-wd="840"
                 />
@@ -2097,7 +2102,7 @@
                   x="95"
                   y="12.8"
                   width="18"
-                  height="4.5"
+                  height="4.8"
                   data-wt="0"
                   data-wd="600"
                 />
@@ -2113,9 +2118,9 @@
                 <rect
                   class="wl wlr"
                   x="95"
-                  y="21.8"
+                  y="21.5"
                   width="18"
-                  height="4.5"
+                  height="5.1"
                   data-wt="540"
                   data-wd="600"
                 />
@@ -2131,9 +2136,9 @@
                 <rect
                   class="wl wrl"
                   x="95"
-                  y="30.8"
+                  y="30.5"
                   width="18"
-                  height="4.5"
+                  height="4.8"
                   data-wt="1080"
                   data-wd="600"
                 />
@@ -2166,7 +2171,7 @@
                   x="147.2"
                   y="12.8"
                   width="18"
-                  height="4.5"
+                  height="4.8"
                   data-wt="0"
                   data-wd="600"
                 />
@@ -2182,9 +2187,9 @@
                 <rect
                   class="wl wlr"
                   x="147.2"
-                  y="30.8"
+                  y="30.5"
                   width="18"
-                  height="4.5"
+                  height="4.8"
                   data-wt="780"
                   data-wd="600"
                 />
@@ -2209,9 +2214,9 @@
                 <rect
                   class="wl wtb"
                   x="154"
-                  y="35.3"
+                  y="35"
                   width="4.5"
-                  height="2.7"
+                  height="3"
                   data-wt="1660"
                   data-wd="300"
                 />
@@ -2228,9 +2233,9 @@
                 <rect
                   class="wl wlr"
                   x="169.7"
-                  y="30.8"
+                  y="30.5"
                   width="18"
-                  height="4.5"
+                  height="4.8"
                   data-wt="480"
                   data-wd="840"
                 />
@@ -2248,7 +2253,7 @@
                   class="wl wbt"
                   x="192.2"
                   y="17.3"
-                  width="4.5"
+                  width="4.8"
                   height="18"
                   data-wt="0"
                   data-wd="840"
@@ -2258,15 +2263,15 @@
                   x="192.2"
                   y="12.8"
                   width="18"
-                  height="4.5"
+                  height="4.8"
                   data-wt="480"
                   data-wd="600"
                 />
                 <rect
                   class="wl wtb"
-                  x="205.7"
+                  x="205.4"
                   y="17.3"
-                  width="4.5"
+                  width="4.8"
                   height="18"
                   data-wt="840"
                   data-wd="840"
@@ -2285,7 +2290,7 @@
                   class="wl wtb"
                   x="214.7"
                   y="12.8"
-                  width="4.5"
+                  width="4.8"
                   height="22.5"
                   data-wt="0"
                   data-wd="1020"
@@ -2295,7 +2300,7 @@
                   x="219.2"
                   y="12.8"
                   width="13.5"
-                  height="4.5"
+                  height="4.8"
                   data-wt="600"
                   data-wd="540"
                 />
@@ -2311,15 +2316,15 @@
                 <rect
                   class="wl wrl"
                   x="219.2"
-                  y="21.8"
+                  y="21.5"
                   width="13.5"
-                  height="4.5"
+                  height="4.8"
                   data-wt="1080"
                   data-wd="540"
                 />
                 <polygon
                   class="wl wdiag"
-                  points="223.8 26.3 229.6 36.4 233.5 34.1 229 26.3"
+                  points="223.8 26 229.6 36.4 233.5 34.1 229 26"
                   data-wt="1440"
                   data-wd="600"
                 />

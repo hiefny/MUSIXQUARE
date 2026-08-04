@@ -123,6 +123,22 @@ describe('setup greeting reveal', () => {
     expect(stylesheet).toContain('animation: none !important;');
   });
 
+  it('welds animated wordmark joins without changing the reveal sequence', async () => {
+    const markup = await readFile('index.html', 'utf8');
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    const strokes = Array.from(parsed.querySelectorAll<SVGElement>('.logo-welcome > .wl'));
+
+    expect(strokes).toHaveLength(36);
+    expect(strokes[0]).toMatchObject({ dataset: { wt: '0', wd: '1080' } });
+    expect(strokes[0]?.getAttribute('height')).toBe('4.8');
+    expect(strokes[5]?.getAttribute('y')).toBe('30.5');
+    expect(strokes[9]?.getAttribute('height')).toBe('5.1');
+    expect(strokes[20]?.getAttribute('y')).toBe('35');
+    expect(strokes[24]?.getAttribute('width')).toBe('4.8');
+    expect(strokes[26]?.getAttribute('x')).toBe('205.4');
+    expect(strokes[32]?.getAttribute('points')).toContain('223.8 26');
+  });
+
   it('uses opacity-transitioned language-list edge gradients instead of mask swaps', async () => {
     const markup = await readFile('index.html', 'utf8');
     const stylesheet = await readFile('css/style.css', 'utf8');

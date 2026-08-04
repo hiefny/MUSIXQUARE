@@ -451,7 +451,7 @@ function flushPendingStandardSettingsRequest(): boolean {
     return false;
   }
   const hostConn = getState('network.hostConn');
-  if (!hostConn?.open) return false;
+  if (!hostConn?.open || getState('network.isConnecting')) return false;
   try {
     hostConn.send({ type: MSG.REQUEST_SETTINGS_SYNC_SNAPSHOT, version: 1 });
     clearPendingStandardSettingsRequest();
@@ -476,6 +476,7 @@ function flushPendingStandardSettingsPublish(): boolean {
   const hostConn = getState('network.hostConn');
   if (
     !hostConn?.open ||
+    getState('network.isConnecting') ||
     !getState('network.isOperator') ||
     getState('network.standardRoomCapabilities')?.includes('effects.control') !== true
   ) {
@@ -732,6 +733,12 @@ function publishLocalSettingsAuthority(): boolean {
   // would send the older takeover and silently lose this newest UI edit.
   if (pendingStandardSettingsPublish && hasRetainedStandardSettingsAuthority()) {
     rememberPendingStandardSettingsPublish(captureRoomSettingsSyncState());
+  }
+  if (getState('network.hostConn') && getState('network.isConnecting')) {
+    if (hasRetainedStandardSettingsAuthority()) {
+      rememberPendingStandardSettingsPublish(captureRoomSettingsSyncState());
+    }
+    return false;
   }
   if (flushPendingStandardSettingsPublish()) return true;
   if (!canPublishSynchronizedSettings()) {

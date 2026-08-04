@@ -6,6 +6,7 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { DataConnection, PeerInstance } from '../../types/index.ts';
 import { registerProRoomSignalingEpochAdvanceHandler } from '../../pro-room/lifecycle-hook.ts';
 import { resetProRoomTransportRecovery } from '../../pro-room/transport-recovery.ts';
+import { markQueueAuthorityReady } from '../queue-authority.ts';
 
 const mocks = vi.hoisted(() => ({
   getPeer: vi.fn(),
@@ -92,6 +93,50 @@ function makeFakePeer(): {
   return { peer, conns, connect };
 }
 
+function joinBootstrapFrames(): Record<string, unknown>[] {
+  return [
+    {
+      type: MSG.PLAYLIST_UPDATE,
+      list: [],
+      revision: 0,
+      currentQueueItemId: null,
+      bootstrap: true,
+    },
+    { type: MSG.REPEAT_MODE, value: 0, _bootstrap: true },
+    { type: MSG.SHUFFLE_MODE, value: false, _bootstrap: true },
+  ];
+}
+
+function installSuccessfulBootstrapApply(): () => void {
+  return bus.on('network:peer-bootstrap-apply', (frame, conn, acknowledge) => {
+    if ((frame as { type?: string })?.type === MSG.PLAYLIST_UPDATE) {
+      markQueueAuthorityReady(conn);
+    }
+    acknowledge(true);
+  });
+}
+
+function fireJoinBootstrap(conn: FiringConn, includeWelcome = true): void {
+  if (includeWelcome) {
+    conn.fire('data', { type: MSG.WELCOME, lockChannel: false, label: 'Guest' });
+  }
+  for (const frame of joinBootstrapFrames()) conn.fire('data', frame);
+}
+
+function openAndCompleteStandardJoin(conn: FiringConn, includeWelcome = true): void {
+  const stopApply = installSuccessfulBootstrapApply();
+  try {
+    conn.fire('open');
+    fireJoinBootstrap(conn, includeWelcome);
+  } finally {
+    stopApply();
+  }
+}
+
+function sentMessages(conn: FiringConn): Array<Record<string, unknown>> {
+  return vi.mocked(conn.send).mock.calls.map(([message]) => message as Record<string, unknown>);
+}
+
 beforeEach(() => {
   vi.useRealTimers();
   clearAllManagedTimers();
@@ -109,11 +154,15 @@ afterEach(() => {
 });
 
 describe('joinSession reconnect racing', () => {
-  it('replays pre-open WELCOME and binary bootstrap frames in exact wire order', async () => {
+  it('replays pre-open WELCOME but fails closed on media before queue bootstrap', async () => {
     const { peer, conns } = makeFakePeer();
     mocks.getPeer.mockReturnValue(peer);
     const inbound: unknown[] = [];
+    const errors = vi.fn();
+    const successes = vi.fn();
     bus.on('network:data', (data: unknown) => inbound.push(data));
+    bus.on('network:error', errors);
+    bus.on('setup:guest-join-success', successes);
     initGuestProtocolHandlers();
     initProtocol();
 
@@ -144,15 +193,19 @@ describe('joinSession reconnect racing', () => {
     conn.fire('open');
     await Promise.resolve();
 
-    expect(inbound.map((frame) => (frame as { type: string }).type)).toEqual([
-      MSG.WELCOME,
-      MSG.FILE_CHUNK,
-    ]);
-    expect((inbound[1] as { chunk: Uint8Array }).chunk).toBeInstanceOf(Uint8Array);
-    expect([...(inbound[1] as { chunk: Uint8Array }).chunk]).toEqual([7, 11, 13, 17]);
+    expect(inbound.map((frame) => (frame as { type: string }).type)).toEqual([MSG.WELCOME]);
     expect(getState('network.chatFrozen')).toBe(true);
     expect(getState('network.slowmodeSeconds')).toBe(7);
     expect(getState('network.filterEnabled')).toBe(true);
+    expect(conn.close).toHaveBeenCalledOnce();
+    expect(getState('network.hostConn')).toBeNull();
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(successes).not.toHaveBeenCalled();
+    expect(errors).toHaveBeenCalledOnce();
+    expect((errors.mock.calls[0][0] as Error).message).toBe('HOST_CONNECTION_ERROR');
+    expect(sentMessages(conn)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: MSG.JOIN_BOOTSTRAP_HELLO })]),
+    );
   });
 
   it('does not announce a connected guest after a buffered terminal frame closes the join', () => {
@@ -196,11 +249,12 @@ describe('joinSession reconnect racing', () => {
     const replacement = conns[1];
     replacement.fire('data', { type: MSG.WELCOME, label: 'replacement' });
     cancelled.fire('open');
-    replacement.fire('open');
+    openAndCompleteStandardJoin(replacement, false);
 
     expect(cancelled.close).toHaveBeenCalledOnce();
     expect(inbound).toEqual([{ type: MSG.WELCOME, label: 'replacement' }]);
     expect(getState('network.hostConn')).toBe(replacement);
+    expect(getState('network.isConnecting')).toBe(false);
   });
 
   it('fails closed without publishing when the bounded pre-open FIFO overflows', () => {
@@ -230,17 +284,157 @@ describe('joinSession reconnect racing', () => {
     expect(getState('network.hostConn')).toBeNull();
   });
 
-  it('requests shared-clock calibration immediately when the active host connection opens', () => {
+  it('publishes APPLIED and join success only after all three authority frames apply', () => {
     const { peer, conns } = makeFakePeer();
     mocks.getPeer.mockReturnValue(peer);
     const immediatePing = vi.fn();
+    const successes = vi.fn();
+    const connected = vi.fn();
     bus.on('sync:request-immediate-ping', immediatePing);
+    bus.on('setup:guest-join-success', successes);
+    bus.on('network:peer-connected', connected);
 
     joinSession('HOST01');
-    conns[0].fire('open');
+    const conn = conns[0];
+    conn.fire('open');
 
+    const hello = sentMessages(conn).find((message) => message.type === MSG.JOIN_BOOTSTRAP_HELLO);
+    expect(hello).toMatchObject({
+      type: MSG.JOIN_BOOTSTRAP_HELLO,
+      version: 1,
+      bootstrapId: expect.any(String),
+    });
+    expect(getState('network.isConnecting')).toBe(true);
+    expect(successes).not.toHaveBeenCalled();
+    expect(connected).not.toHaveBeenCalled();
+    expect(mocks.startWorkerTimer).not.toHaveBeenCalled();
+    expect(immediatePing).not.toHaveBeenCalled();
+
+    const stopApply = installSuccessfulBootstrapApply();
+    try {
+      conn.fire('data', { type: MSG.WELCOME, lockChannel: false, label: 'Guest' });
+      const frames = joinBootstrapFrames();
+      conn.fire('data', frames[0]);
+      conn.fire('data', frames[1]);
+      expect(successes).not.toHaveBeenCalled();
+      expect(mocks.startWorkerTimer).not.toHaveBeenCalled();
+      conn.fire('data', frames[2]);
+    } finally {
+      stopApply();
+    }
+
+    const applied = sentMessages(conn).find(
+      (message) => message.type === MSG.JOIN_BOOTSTRAP_APPLIED,
+    );
+    expect(applied).toEqual({
+      type: MSG.JOIN_BOOTSTRAP_APPLIED,
+      version: 1,
+      bootstrapId: hello?.bootstrapId,
+    });
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(successes).toHaveBeenCalledOnce();
+    expect(connected).toHaveBeenCalledOnce();
     expect(mocks.startWorkerTimer).toHaveBeenCalledWith('sync', 1000);
     expect(immediatePing).toHaveBeenCalledOnce();
+  });
+
+  it('fails closed when bootstrap frames arrive out of order', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const errors = vi.fn();
+    const successes = vi.fn();
+    bus.on('network:error', errors);
+    bus.on('setup:guest-join-success', successes);
+
+    joinSession('HOST01');
+    const conn = conns[0];
+    conn.fire('open');
+    conn.fire('data', { type: MSG.WELCOME, lockChannel: false, label: 'Guest' });
+    conn.fire('data', { type: MSG.REPEAT_MODE, value: 0, _bootstrap: true });
+
+    expect(conn.close).toHaveBeenCalledOnce();
+    expect(getState('network.hostConn')).toBeNull();
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(successes).not.toHaveBeenCalled();
+    expect(errors).toHaveBeenCalledOnce();
+    expect((errors.mock.calls[0][0] as Error).message).toBe('HOST_CONNECTION_ERROR');
+    expect(sentMessages(conn)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: MSG.JOIN_BOOTSTRAP_APPLIED })]),
+    );
+  });
+
+  it('does not dispatch media in the partially applied authority window', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const inbound = vi.fn();
+    const errors = vi.fn();
+    const successes = vi.fn();
+    bus.on('network:data', inbound);
+    bus.on('network:error', errors);
+    bus.on('setup:guest-join-success', successes);
+
+    const stopApply = installSuccessfulBootstrapApply();
+    try {
+      joinSession('HOST01');
+      const conn = conns[0];
+      conn.fire('open');
+      conn.fire('data', { type: MSG.WELCOME, lockChannel: false, label: 'Guest' });
+      conn.fire('data', joinBootstrapFrames()[0]);
+      conn.fire('data', {
+        type: MSG.FILE_CHUNK,
+        chunk: new Uint8Array([1]),
+        chunkIndex: 0,
+        queueItemId: '00000000-0000-4000-8000-000000000001',
+        sessionId: 1,
+        name: 'must-not-dispatch.mp3',
+        total: 1,
+        size: 1,
+      });
+
+      expect(inbound.mock.calls.map((call) => (call[0] as { type?: string }).type)).toEqual([
+        MSG.WELCOME,
+      ]);
+      expect(conn.close).toHaveBeenCalledOnce();
+      expect(getState('network.hostConn')).toBeNull();
+      expect(successes).not.toHaveBeenCalled();
+      expect(errors).toHaveBeenCalledOnce();
+      expect(sentMessages(conn)).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ type: MSG.JOIN_BOOTSTRAP_APPLIED })]),
+      );
+    } finally {
+      stopApply();
+    }
+  });
+
+  it('keeps the existing immediate-open completion path for PRO rooms', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const successes = vi.fn();
+    bus.on('setup:guest-join-success', successes);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 4,
+      snapshotRevision: 8,
+      capabilities: [],
+    });
+
+    joinSession('000001');
+    const conn = conns[0];
+    conn.fire('open');
+
+    expect(getState('network.hostConn')).toBe(conn);
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(successes).toHaveBeenCalledOnce();
+    expect(mocks.startWorkerTimer).toHaveBeenCalledWith('sync', 1000);
+    expect(
+      sentMessages(conn).filter(
+        (message) =>
+          message.type === MSG.JOIN_BOOTSTRAP_HELLO || message.type === MSG.JOIN_BOOTSTRAP_APPLIED,
+      ),
+    ).toEqual([]);
   });
 
   it.each(['close', 'error'] as const)(
@@ -345,16 +539,18 @@ describe('joinSession reconnect racing', () => {
     expect(connect).toHaveBeenCalledWith('HOST01', expect.anything());
   });
 
-  it('does not let a replaced connection’s late close nullify the new host connection', async () => {
+  it('does not let a replaced connection’s late bootstrap or close affect the successor', async () => {
     vi.useFakeTimers();
     const { peer, conns } = makeFakePeer();
     mocks.getPeer.mockReturnValue(peer);
     const errors = vi.fn();
+    const successes = vi.fn();
     bus.on('network:error', errors);
+    bus.on('setup:guest-join-success', successes);
 
     joinSession('HOST01');
     const first = conns[0];
-    first.fire('open');
+    openAndCompleteStandardJoin(first);
     expect(getState('network.hostConn')).toBe(first);
 
     // Transport blip: the channel is dead but PeerJS has not delivered the
@@ -362,13 +558,17 @@ describe('joinSession reconnect racing', () => {
     first.open = false;
     joinSession('HOST01');
     const second = conns[1];
-    second.fire('open');
+    openAndCompleteStandardJoin(second);
     expect(getState('network.hostConn')).toBe(second);
 
+    const staleSendCount = vi.mocked(first.send).mock.calls.length;
+    fireJoinBootstrap(first);
     first.fire('close');
 
     expect(getState('network.hostConn')).toBe(second);
     expect(getState('network.isConnecting')).toBe(false);
+    expect(vi.mocked(first.send)).toHaveBeenCalledTimes(staleSendCount);
+    expect(successes).toHaveBeenCalledTimes(2);
 
     // The successful open also cleared the join timeout — advancing past it
     // must not surface HOST_UNREACHABLE against the live connection. The
@@ -393,12 +593,12 @@ describe('joinSession reconnect racing', () => {
 
     joinSession('HOST01');
     const first = conns[0];
-    first.fire('open');
+    openAndCompleteStandardJoin(first);
     first.open = false;
 
     joinSession('HOST01');
     const second = conns[1];
-    second.fire('open');
+    openAndCompleteStandardJoin(second);
     expect(getState('network.hostConn')).toBe(second);
 
     resolveFirst('remote');
@@ -419,7 +619,7 @@ describe('joinSession reconnect racing', () => {
 
     joinSession('HOST01');
     const first = conns[0];
-    first.fire('open');
+    openAndCompleteStandardJoin(first);
 
     // Rejoining during an undetected transport failure replaces the stale
     // connection while the successor is still connecting.
@@ -472,6 +672,50 @@ describe('joinSession reconnect racing', () => {
     expect(getState('network.isConnecting')).toBe(false);
     expect(successes).not.toHaveBeenCalled();
     expect(inbound).not.toHaveBeenCalled();
+  });
+
+  it('fails once when an open standard connection never completes bootstrap', () => {
+    vi.useFakeTimers();
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const errors = vi.fn();
+    const successes = vi.fn();
+    bus.on('network:error', errors);
+    bus.on('setup:guest-join-success', successes);
+
+    joinSession('HOST01');
+    const conn = conns[0];
+    conn.fire('open');
+
+    expect(sentMessages(conn)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: MSG.JOIN_BOOTSTRAP_HELLO, version: 1 }),
+      ]),
+    );
+    vi.advanceTimersByTime(9_999);
+    expect(errors).not.toHaveBeenCalled();
+    expect(getState('network.hostConn')).toBe(conn);
+    expect(getState('network.isConnecting')).toBe(true);
+
+    vi.advanceTimersByTime(1);
+    expect(conn.close).toHaveBeenCalledOnce();
+    expect(getState('network.hostConn')).toBeNull();
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(successes).not.toHaveBeenCalled();
+    expect(errors).toHaveBeenCalledOnce();
+    expect((errors.mock.calls[0][0] as Error).message).toBe('HOST_CONNECTION_ERROR');
+
+    const stopApply = installSuccessfulBootstrapApply();
+    try {
+      fireJoinBootstrap(conn);
+    } finally {
+      stopApply();
+    }
+    expect(successes).not.toHaveBeenCalled();
+    expect(errors).toHaveBeenCalledOnce();
+    expect(sentMessages(conn)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: MSG.JOIN_BOOTSTRAP_APPLIED })]),
+    );
   });
 
   it('does not revive a join when open arrives after a pre-open error', async () => {
@@ -563,7 +807,7 @@ describe('joinSession capability-challenge cancel (F-2401)', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(conns).toHaveLength(1);
 
-    conns[0].fire('open');
+    openAndCompleteStandardJoin(conns[0]);
     expect(getState('network.hostConn')).toBe(conns[0]);
     expect(getState('network.isConnecting')).toBe(false);
   });

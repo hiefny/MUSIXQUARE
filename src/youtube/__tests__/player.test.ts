@@ -183,15 +183,24 @@ describe('YouTube Player', () => {
       const safeSendMock = vi.mocked(safeSend);
       safeSendMock.mockReturnValue(true);
       resetClockState();
+      initYouTube();
       setState('network.appRole', 'guest');
       setState('network.myId', 'guest-runtime-ready');
+      setState('network.isConnecting', true);
       const hostConnection = {
         peer: 'host-runtime-ready',
         open: true,
       } as DataConnection;
       setState('network.hostConn', hostConnection);
 
-      initYouTube();
+      bus.emit('youtube:player-ready');
+      bus.emit('youtube:zero-start-readiness-changed');
+      bus.emit('sync:latency-update', 0);
+      expect(safeSendMock).not.toHaveBeenCalled();
+
+      setState('network.isConnecting', false);
+      bus.emit('network:peer-connected', hostConnection);
+      expect(safeSendMock).toHaveBeenCalledOnce();
       expect(safeSendMock).toHaveBeenCalledWith(
         hostConnection,
         expect.objectContaining({

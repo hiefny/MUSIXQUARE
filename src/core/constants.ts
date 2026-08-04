@@ -121,6 +121,8 @@ export const MSG = {
   OPERATOR_FILE_UPLOAD_START: 'operator-file-upload-start',
   OPERATOR_FILE_UPLOAD_STATUS: 'operator-file-upload-status',
   FORCE_CLOSE_DUPLICATE: 'force-close-duplicate',
+  JOIN_BOOTSTRAP_HELLO: 'join-bootstrap-hello',
+  JOIN_BOOTSTRAP_APPLIED: 'join-bootstrap-applied',
   GUEST_DECODE_FAILED: 'guest-decode-failed',
   DEMO_ENTER: 'demo-enter',
   DEMO_EXIT: 'demo-exit',

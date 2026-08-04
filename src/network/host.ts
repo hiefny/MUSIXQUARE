@@ -51,6 +51,28 @@ import {
   updateStandardRoomAdministratorPermissions,
 } from './standard-room-authority.ts';
 import { detachHostPeerConnection } from './host-peer-departure.ts';
+import {
+  JOIN_BOOTSTRAP_TIMEOUT_MS,
+  isJoinBootstrapPayloadFrame,
+  snapshotJoinBootstrapApplied,
+  snapshotJoinBootstrapHello,
+} from './join-bootstrap.ts';
+
+let _hostJoinBootstrapToken = 0;
+
+function describeJoinBootstrapFrame(value: unknown): string {
+  try {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) return typeof value;
+    const descriptor = Object.getOwnPropertyDescriptor(value, 'type');
+    const type =
+      descriptor && Object.prototype.hasOwnProperty.call(descriptor, 'value')
+        ? descriptor.value
+        : null;
+    return typeof type === 'string' && type.length <= 80 ? type : 'unknown';
+  } catch {
+    return 'unreadable';
+  }
+}
 
 function isStandardRoom(): boolean {
   return getRoomContext().kind === 'standard';
@@ -380,6 +402,12 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   const peerId = conn.peer;
   const isProRoom = getRoomContext().kind === 'pro';
   let connectionEstablished = false;
+  let dataChannelOpened = false;
+  let preOpenBootstrapHello: ReturnType<typeof snapshotJoinBootstrapHello> = null;
+  let bootstrapId: string | null = null;
+  let bootstrapPhase: 'awaiting-hello' | 'sending' | 'awaiting-applied' | 'settled' | 'failed' =
+    isProRoom ? 'settled' : 'awaiting-hello';
+  const bootstrapTimerName = `conn-bootstrap-timeout-${peerId}-${++_hostJoinBootstrapToken}`;
   let detectedConnectionType: 'local' | 'remote' | null = null;
   let connectionTypePublished = false;
   const connectedPeers = getState('network.connectedPeers');
@@ -618,11 +646,13 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   const completeConnection = (): void => {
     if (
       connectionEstablished ||
+      (!isProRoom && bootstrapPhase !== 'settled') ||
       !conn.open ||
       getState('network.activeHostConnByPeerId').get(peerId) !== conn
     ) {
       return;
     }
+    clearManagedTimer(bootstrapTimerName);
     connectionEstablished = true;
 
     const peers = getState('network.connectedPeers');
@@ -662,6 +692,103 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     log.info(`[Host] ${openedLabel} connection established (peer: ${peerId})`);
   };
 
+  const failJoinBootstrap = (reason: string): void => {
+    if (isProRoom || bootstrapPhase === 'settled' || bootstrapPhase === 'failed') return;
+    bootstrapPhase = 'failed';
+    clearManagedTimer(bootstrapTimerName);
+    if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) return;
+    log.warn(`[Host] Standard-room join bootstrap failed for ${deviceName}: ${reason}`);
+    const departure = detachHostPeerConnection(peerId, conn);
+    if (departure) broadcastDeviceList();
+    try {
+      conn.close();
+    } catch {
+      /* noop */
+    }
+  };
+
+  const sendJoinBootstrap = (
+    hello: NonNullable<ReturnType<typeof snapshotJoinBootstrapHello>>,
+  ): void => {
+    if (
+      isProRoom ||
+      bootstrapPhase !== 'awaiting-hello' ||
+      !conn.open ||
+      getState('network.activeHostConnByPeerId').get(peerId) !== conn
+    ) {
+      failJoinBootstrap('unexpected HELLO');
+      return;
+    }
+
+    bootstrapPhase = 'sending';
+    bootstrapId = hello.bootstrapId;
+    let acknowledgements = 0;
+    let sent = false;
+    let bootstrapFrameIndex = 0;
+    let invalidFrame = false;
+    bus.emit(
+      'network:peer-bootstrap',
+      conn,
+      (frame) => {
+        if (!isJoinBootstrapPayloadFrame(frame, bootstrapFrameIndex)) {
+          invalidFrame = true;
+          return false;
+        }
+        const didSend =
+          getState('network.activeHostConnByPeerId').get(peerId) === conn &&
+          conn.open &&
+          safeSend(conn, frame as Parameters<typeof safeSend>[1]);
+        if (didSend) bootstrapFrameIndex += 1;
+        return didSend;
+      },
+      (success) => {
+        acknowledgements += 1;
+        sent = success;
+      },
+    );
+
+    if (
+      acknowledgements !== 1 ||
+      !sent ||
+      invalidFrame ||
+      bootstrapFrameIndex !== 3 ||
+      !conn.open ||
+      getState('network.activeHostConnByPeerId').get(peerId) !== conn
+    ) {
+      failJoinBootstrap('queue authority send was not acknowledged');
+      return;
+    }
+    bootstrapPhase = 'awaiting-applied';
+  };
+
+  const handleJoinBootstrapData = (data: unknown): void => {
+    const hello = snapshotJoinBootstrapHello(data);
+    if (hello) {
+      sendJoinBootstrap(hello);
+      return;
+    }
+
+    const applied = snapshotJoinBootstrapApplied(data);
+    if (
+      applied &&
+      bootstrapPhase === 'awaiting-applied' &&
+      bootstrapId !== null &&
+      applied.bootstrapId === bootstrapId &&
+      getState('network.activeHostConnByPeerId').get(peerId) === conn
+    ) {
+      bootstrapPhase = 'settled';
+      clearManagedTimer(bootstrapTimerName);
+      completeConnection();
+      return;
+    }
+
+    failJoinBootstrap(
+      applied
+        ? 'APPLIED did not match this connection'
+        : `unexpected frame (${describeJoinBootstrapFrame(data)})`,
+    );
+  };
+
   // Timeout: clean up peer if WebRTC open never fires (ICE stall)
   const openTimerName = 'conn-open-timeout-' + peerId;
   setManagedTimer(
@@ -696,18 +823,44 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       }
       return;
     }
+    dataChannelOpened = true;
     clearManagedTimer(openTimerName);
-    safeSend(conn, welcomeFrame());
-    // Stable playback bootstrap is best-effort and RTC-open authoritative.
-    bus.emit(
-      'network:peer-bootstrap',
-      conn,
-      (frame) => safeSend(conn, frame as Parameters<typeof safeSend>[1]),
-      () => {
-        /* bootstrap acknowledgement is intentionally non-fatal */
-      },
-    );
-    completeConnection();
+    if (!safeSend(conn, welcomeFrame())) {
+      if (isProRoom) {
+        try {
+          conn.close();
+        } catch {
+          /* noop */
+        }
+      } else {
+        failJoinBootstrap('WELCOME send failed');
+      }
+      return;
+    }
+
+    if (isProRoom) {
+      // PRO rooms have independent server authority and retain the existing
+      // transport-open completion boundary.
+      completeConnection();
+    } else {
+      setManagedTimer(
+        bootstrapTimerName,
+        () => {
+          if (
+            bootstrapPhase === 'settled' ||
+            bootstrapPhase === 'failed' ||
+            getState('network.activeHostConnByPeerId').get(peerId) !== conn
+          ) {
+            return;
+          }
+          failJoinBootstrap('timed out');
+        },
+        JOIN_BOOTSTRAP_TIMEOUT_MS,
+      );
+      const queuedHello = preOpenBootstrapHello;
+      preOpenBootstrapHello = null;
+      if (queuedHello) sendJoinBootstrap(queuedHello);
+    }
 
     // Poll for up to 10 seconds while ICE stabilizes, then classify this guest
     // as local or remote.
@@ -764,13 +917,34 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
   conn.on('data', (data: unknown) => {
     try {
+      if (!isProRoom && !dataChannelOpened) {
+        const hello = snapshotJoinBootstrapHello(data);
+        if (!hello || preOpenBootstrapHello || bootstrapPhase !== 'awaiting-hello') {
+          preOpenBootstrapHello = null;
+          failJoinBootstrap('invalid pre-open frame');
+          return;
+        }
+        preOpenBootstrapHello = hello;
+        return;
+      }
+      if (!isProRoom && !connectionEstablished) {
+        handleJoinBootstrapData(data);
+        return;
+      }
+      // A late duplicate handshake frame has no authority after the exact
+      // connection has crossed the application boundary.
+      if (!isProRoom && (snapshotJoinBootstrapHello(data) || snapshotJoinBootstrapApplied(data))) {
+        return;
+      }
       bus.emit('network:data', data, conn);
     } catch (e) {
       log.error('[Host] Error in handleData', e);
+      if (!isProRoom && !connectionEstablished) failJoinBootstrap('handler threw');
     }
   });
 
   conn.on('close', () => {
+    clearManagedTimer(bootstrapTimerName);
     log.info(`[Host] Connection closed: ${peerId}`);
 
     // Ignore stale close events from replaced duplicate connections
@@ -796,6 +970,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   });
 
   conn.on('error', (err: unknown) => {
+    clearManagedTimer(bootstrapTimerName);
     log.error('[Host] Connection error:', err);
 
     if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) {

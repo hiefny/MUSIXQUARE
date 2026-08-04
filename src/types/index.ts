@@ -350,6 +350,8 @@ export interface ProtocolMap {
   };
   'session-full': { message: string };
   'force-close-duplicate': NoPayload;
+  'join-bootstrap-hello': { version: 1; bootstrapId: string };
+  'join-bootstrap-applied': { version: 1; bootstrapId: string };
   'guest-decode-failed': { queueItemId: QueueItemId };
   'demo-enter': {
     index: number;

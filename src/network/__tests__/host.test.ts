@@ -8,6 +8,7 @@ import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 import type { StandardRoomMemberIdentity } from '../transport/types.ts';
 import { isCoordinator } from '../../rooms/authority.ts';
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../standard-room-authority.ts';
+import { JOIN_BOOTSTRAP_TIMEOUT_MS } from '../join-bootstrap.ts';
 
 const mocks = vi.hoisted(() => ({
   showToast: vi.fn(),
@@ -107,6 +108,57 @@ function makeIncomingConn(peerId: string): FiringConn {
   } as unknown as FiringConn;
 }
 
+const BOOTSTRAP_ID_A = '12345678-1234-4abc-8def-1234567890ab';
+const BOOTSTRAP_ID_B = '87654321-4321-4cba-9fed-ba0987654321';
+
+function joinBootstrapHello(bootstrapId = BOOTSTRAP_ID_A) {
+  return {
+    type: MSG.JOIN_BOOTSTRAP_HELLO,
+    version: 1 as const,
+    bootstrapId,
+  };
+}
+
+function joinBootstrapApplied(bootstrapId = BOOTSTRAP_ID_A) {
+  return {
+    type: MSG.JOIN_BOOTSTRAP_APPLIED,
+    version: 1 as const,
+    bootstrapId,
+  };
+}
+
+function installStandardBootstrapResponder(
+  expectedConn: FiringConn,
+  onBootstrap?: () => void,
+): () => void {
+  return bus.on('network:peer-bootstrap', (conn, send, acknowledge) => {
+    if (conn !== expectedConn) return;
+    onBootstrap?.();
+    const sent =
+      send({
+        type: MSG.PLAYLIST_UPDATE,
+        list: [],
+        revision: 0,
+        currentQueueItemId: null,
+        bootstrap: true,
+      }) &&
+      send({ type: MSG.REPEAT_MODE, value: 0, _bootstrap: true }) &&
+      send({ type: MSG.SHUFFLE_MODE, value: false, _bootstrap: true });
+    acknowledge(sent);
+  });
+}
+
+function completeStandardJoin(conn: FiringConn, bootstrapId = BOOTSTRAP_ID_A): void {
+  const stopBootstrap = installStandardBootstrapResponder(conn);
+  try {
+    conn.fire('open');
+    conn.fire('data', joinBootstrapHello(bootstrapId));
+    conn.fire('data', joinBootstrapApplied(bootstrapId));
+  } finally {
+    stopBootstrap();
+  }
+}
+
 function verifiedIdentity(
   memberId = 'member_abcdefghijklmnopqrstuv',
   nickname = 'Minsu',
@@ -202,7 +254,7 @@ describe('duplicate guest connection handoff', () => {
       expect(bootstrapped).toEqual([]);
       expect(connected).toEqual([]);
 
-      replacement.fire('open');
+      completeStandardJoin(replacement);
     } finally {
       stopBootstrap();
       stopConnected();
@@ -221,9 +273,9 @@ describe('duplicate guest connection handoff', () => {
 
     try {
       handleHostIncomingConnection(first);
-      first.fire('open');
+      completeStandardJoin(first);
       handleHostIncomingConnection(replacement);
-      replacement.fire('open');
+      completeStandardJoin(replacement, BOOTSTRAP_ID_B);
     } finally {
       stop();
     }
@@ -241,7 +293,7 @@ describe('duplicate guest connection handoff', () => {
     try {
       handleHostIncomingConnection(stalled);
       handleHostIncomingConnection(replacement);
-      replacement.fire('open');
+      completeStandardJoin(replacement);
     } finally {
       stop();
     }
@@ -312,7 +364,7 @@ describe('duplicate guest connection handoff', () => {
 
     const fifthDevice = makeIncomingConn('guest-4');
     handleHostIncomingConnection(fifthDevice);
-    fifthDevice.fire('open');
+    completeStandardJoin(fifthDevice);
 
     expect(getState('network.connectedPeers')).toHaveLength(MAX_SYSTEM_AUDIO_DEVICES);
     expect(mocks.showToast).not.toHaveBeenCalled();
@@ -338,9 +390,9 @@ describe('account-grouped presence announcements', () => {
 
     try {
       handleHostIncomingConnection(first);
-      first.fire('open');
+      completeStandardJoin(first);
       handleHostIncomingConnection(second);
-      second.fire('open');
+      completeStandardJoin(second, BOOTSTRAP_ID_B);
 
       expect(systemMessages).toHaveLength(1);
       first.fire('close');
@@ -365,7 +417,7 @@ describe('account-grouped presence announcements', () => {
 
     try {
       handleHostIncomingConnection(secondDevice);
-      secondDevice.fire('open');
+      completeStandardJoin(secondDevice);
       secondDevice.fire('close');
     } finally {
       stop();
@@ -391,7 +443,7 @@ describe('account-grouped presence announcements', () => {
 
     for (const conn of [...minsu, ...jisu, anonymous]) {
       handleHostIncomingConnection(conn);
-      conn.fire('open');
+      completeStandardJoin(conn);
     }
 
     const peers = getState('network.connectedPeers');
@@ -403,13 +455,125 @@ describe('account-grouped presence announcements', () => {
 });
 
 describe('ordered host bootstrap phases', () => {
-  it('runs queue authority bootstrap before playback-dependent peer listeners', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    clearAllManagedTimers();
+    vi.useRealTimers();
+  });
+
+  it('does not publish a standard-room peer from transport open alone', () => {
+    const conn = makeIncomingConn('guest-open-only');
+    const connected = vi.fn();
+    const stopConnected = bus.on('network:peer-connected', connected);
+
+    try {
+      handleHostIncomingConnection(conn);
+      conn.fire('open');
+
+      expect(connected).not.toHaveBeenCalled();
+      expect(getState('network.connectedPeers')).toEqual([
+        expect.objectContaining({ id: conn.peer, conn, status: 'connecting' }),
+      ]);
+      expect(conn.send).toHaveBeenCalledWith(expect.objectContaining({ type: MSG.WELCOME }));
+    } finally {
+      stopConnected();
+    }
+  });
+
+  it('closes and detaches a standard peer that never sends HELLO after exactly 10s', () => {
+    const conn = makeIncomingConn('guest-no-hello');
+    const connected = vi.fn();
+    const stopConnected = bus.on('network:peer-connected', connected);
+
+    try {
+      handleHostIncomingConnection(conn);
+      conn.fire('open');
+
+      vi.advanceTimersByTime(JOIN_BOOTSTRAP_TIMEOUT_MS - 1);
+      expect(conn.close).not.toHaveBeenCalled();
+      expect(connected).not.toHaveBeenCalled();
+      expect(getState('network.connectedPeers')).toEqual([
+        expect.objectContaining({ id: conn.peer, conn, status: 'connecting' }),
+      ]);
+      expect(getState('network.activeHostConnByPeerId').get(conn.peer)).toBe(conn);
+
+      vi.advanceTimersByTime(1);
+    } finally {
+      stopConnected();
+    }
+
+    expect(conn.close).toHaveBeenCalledOnce();
+    expect(connected).not.toHaveBeenCalled();
+    expect(getState('network.connectedPeers')).toHaveLength(0);
+    expect(getState('network.activeHostConnByPeerId').has(conn.peer)).toBe(false);
+  });
+
+  it('fails closed when an application frame precedes the exact HELLO', () => {
+    const conn = makeIncomingConn('guest-early-application-frame');
+    const connected = vi.fn();
+    const stopConnected = bus.on('network:peer-connected', connected);
+
+    try {
+      handleHostIncomingConnection(conn);
+      conn.fire('open');
+      conn.fire('data', { type: MSG.SYNC_PING, pingId: 1, guestTime: 1 });
+    } finally {
+      stopConnected();
+    }
+
+    expect(connected).not.toHaveBeenCalled();
+    expect(conn.close).toHaveBeenCalledOnce();
+    expect(getState('network.connectedPeers')).toHaveLength(0);
+  });
+
+  it.each(['zero', 'one', 'wrong', 'extra'] as const)(
+    'fails closed when the bootstrap listener acknowledges a %s-frame sequence',
+    (variant) => {
+      const conn = makeIncomingConn(`guest-invalid-bootstrap-${variant}`);
+      const connected = vi.fn();
+      const stopConnected = bus.on('network:peer-connected', connected);
+      const stopBootstrap = bus.on('network:peer-bootstrap', (current, send, acknowledge) => {
+        if (current !== conn) return;
+        const playlist = {
+          type: MSG.PLAYLIST_UPDATE,
+          list: [],
+          revision: 0,
+          currentQueueItemId: null,
+          bootstrap: true,
+        };
+        if (variant === 'one') send(playlist);
+        if (variant === 'wrong') send({ type: MSG.REPEAT_MODE, value: 0, _bootstrap: true });
+        if (variant === 'extra') {
+          send(playlist);
+          send({ type: MSG.REPEAT_MODE, value: 0, _bootstrap: true });
+          send({ type: MSG.SHUFFLE_MODE, value: false, _bootstrap: true });
+          send({ type: MSG.SHUFFLE_MODE, value: false, _bootstrap: true });
+        }
+        acknowledge(true);
+      });
+
+      try {
+        handleHostIncomingConnection(conn);
+        conn.fire('open');
+        conn.fire('data', joinBootstrapHello());
+      } finally {
+        stopBootstrap();
+        stopConnected();
+      }
+
+      expect(connected).not.toHaveBeenCalled();
+      expect(conn.close).toHaveBeenCalledOnce();
+      expect(getState('network.connectedPeers')).toHaveLength(0);
+    },
+  );
+
+  it('requires HELLO, an acknowledged queue bootstrap, then matching APPLIED before playback', () => {
     const conn = makeIncomingConn('guest-bootstrap');
     const phases: string[] = [];
-    const stopBootstrap = bus.on('network:peer-bootstrap', (current) => {
-      phases.push('queue');
-      current.send({ type: MSG.PLAYLIST_UPDATE } as never);
-    });
+    const stopBootstrap = installStandardBootstrapResponder(conn, () => phases.push('queue'));
     const stopConnected = bus.on('network:peer-connected', (current) => {
       phases.push('playback');
       current.send({ type: MSG.PLAY } as never);
@@ -418,6 +582,13 @@ describe('ordered host bootstrap phases', () => {
     try {
       handleHostIncomingConnection(conn);
       conn.fire('open');
+
+      expect(phases).toEqual([]);
+      conn.fire('data', joinBootstrapHello());
+      expect(phases).toEqual(['queue']);
+      expect(getState('network.connectedPeers')[0]?.status).toBe('connecting');
+
+      conn.fire('data', joinBootstrapApplied());
     } finally {
       stopBootstrap();
       stopConnected();
@@ -430,6 +601,141 @@ describe('ordered host bootstrap phases', () => {
     expect(sentTypes.indexOf(MSG.WELCOME)).toBeLessThan(sentTypes.indexOf(MSG.PLAYLIST_UPDATE));
     expect(sentTypes.indexOf(MSG.PLAYLIST_UPDATE)).toBeLessThan(sentTypes.indexOf(MSG.CHAT_SYSTEM));
     expect(sentTypes.indexOf(MSG.PLAYLIST_UPDATE)).toBeLessThan(sentTypes.indexOf(MSG.PLAY));
+  });
+
+  it('queues one exact pre-open HELLO and applies it only after transport open', () => {
+    const conn = makeIncomingConn('guest-pre-open-hello');
+    const bootstrapped = vi.fn();
+    const connected = vi.fn();
+    const stopBootstrap = installStandardBootstrapResponder(conn, bootstrapped);
+    const stopConnected = bus.on('network:peer-connected', connected);
+
+    try {
+      handleHostIncomingConnection(conn);
+      conn.fire('data', joinBootstrapHello());
+      expect(bootstrapped).not.toHaveBeenCalled();
+      expect(connected).not.toHaveBeenCalled();
+
+      conn.fire('open');
+      expect(bootstrapped).toHaveBeenCalledOnce();
+      expect(connected).not.toHaveBeenCalled();
+
+      conn.fire('data', joinBootstrapApplied());
+      expect(connected).toHaveBeenCalledOnce();
+      expect(connected).toHaveBeenCalledWith(conn);
+    } finally {
+      stopBootstrap();
+      stopConnected();
+    }
+
+    const sentTypes = conn.send.mock.calls.map(([message]) => (message as { type?: string }).type);
+    expect(sentTypes.indexOf(MSG.WELCOME)).toBeLessThan(sentTypes.indexOf(MSG.PLAYLIST_UPDATE));
+  });
+
+  it('fails closed when APPLIED does not match the HELLO for this connection', () => {
+    const conn = makeIncomingConn('guest-wrong-applied');
+    const connected = vi.fn();
+    const stopBootstrap = installStandardBootstrapResponder(conn);
+    const stopConnected = bus.on('network:peer-connected', connected);
+
+    try {
+      handleHostIncomingConnection(conn);
+      conn.fire('open');
+      conn.fire('data', joinBootstrapHello(BOOTSTRAP_ID_A));
+      conn.fire('data', joinBootstrapApplied(BOOTSTRAP_ID_B));
+    } finally {
+      stopBootstrap();
+      stopConnected();
+    }
+
+    expect(connected).not.toHaveBeenCalled();
+    expect(conn.close).toHaveBeenCalledOnce();
+    expect(getState('network.connectedPeers')).toHaveLength(0);
+    expect(getState('network.activeHostConnByPeerId').has(conn.peer)).toBe(false);
+  });
+
+  it('ignores stale APPLIED from a replaced exact connection', () => {
+    const first = makeIncomingConn('guest-stale-applied');
+    const replacement = makeIncomingConn('guest-stale-applied');
+    const connected: DataConnection[] = [];
+    const stopConnected = bus.on('network:peer-connected', (conn) => connected.push(conn));
+    const stopFirstBootstrap = installStandardBootstrapResponder(first);
+
+    try {
+      handleHostIncomingConnection(first);
+      first.fire('open');
+      first.fire('data', joinBootstrapHello(BOOTSTRAP_ID_A));
+      stopFirstBootstrap();
+
+      handleHostIncomingConnection(replacement);
+      first.fire('data', joinBootstrapApplied(BOOTSTRAP_ID_A));
+      completeStandardJoin(replacement, BOOTSTRAP_ID_B);
+    } finally {
+      stopFirstBootstrap();
+      stopConnected();
+    }
+
+    expect(connected).toEqual([replacement]);
+    expect(getState('network.connectedPeers')).toEqual([
+      expect.objectContaining({ id: replacement.peer, conn: replacement, status: 'connected' }),
+    ]);
+    expect(getState('network.activeHostConnByPeerId').get(replacement.peer)).toBe(replacement);
+  });
+
+  it('closes and detaches a standard peer that never sends APPLIED', () => {
+    const conn = makeIncomingConn('guest-bootstrap-timeout');
+    const connected = vi.fn();
+    const stopBootstrap = installStandardBootstrapResponder(conn);
+    const stopConnected = bus.on('network:peer-connected', connected);
+
+    try {
+      handleHostIncomingConnection(conn);
+      conn.fire('open');
+      conn.fire('data', joinBootstrapHello());
+      vi.advanceTimersByTime(JOIN_BOOTSTRAP_TIMEOUT_MS);
+    } finally {
+      stopBootstrap();
+      stopConnected();
+    }
+
+    expect(connected).not.toHaveBeenCalled();
+    expect(conn.close).toHaveBeenCalledOnce();
+    expect(getState('network.connectedPeers')).toHaveLength(0);
+    expect(getState('network.activeHostConnByPeerId').has(conn.peer)).toBe(false);
+  });
+
+  it('keeps the PRO transport-open completion boundary without the standard handshake', () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['members.manage'],
+    });
+    const conn = makeIncomingConn('pro-controller');
+    const bootstrapped = vi.fn();
+    const connected = vi.fn();
+    const stopBootstrap = bus.on('network:peer-bootstrap', bootstrapped);
+    const stopConnected = bus.on('network:peer-connected', connected);
+
+    try {
+      handleHostIncomingConnection(conn);
+      conn.fire('open');
+    } finally {
+      stopBootstrap();
+      stopConnected();
+    }
+
+    expect(bootstrapped).not.toHaveBeenCalled();
+    expect(connected).toHaveBeenCalledOnce();
+    expect(connected).toHaveBeenCalledWith(conn);
+    expect(getState('network.connectedPeers')[0]).toMatchObject({
+      id: conn.peer,
+      conn,
+      status: 'connected',
+    });
   });
 });
 
@@ -593,7 +899,7 @@ describe('standard-room account authority', () => {
 
     const reconnected = makeVerifiedIncomingConn('member-device-c');
     handleHostIncomingConnection(reconnected);
-    reconnected.fire('open');
+    completeStandardJoin(reconnected);
     expect(getState('network.connectedPeers')).toEqual([
       expect.objectContaining({
         id: 'member-device-c',
@@ -615,7 +921,7 @@ describe('standard-room account authority', () => {
     // The post-open frame is the definitive acknowledgement that lets a guest
     // discard any disconnected settings takeover it may have retained.
     reconnected.send.mockClear();
-    reconnected.fire('open');
+    completeStandardJoin(reconnected);
 
     expect(getState('network.connectedPeers')[0]).toMatchObject({
       id: 'revoked-member-reconnect',
@@ -654,7 +960,7 @@ describe('standard-room account authority', () => {
     setAuthenticatedPhysicalHost(identity);
     const sameAccountGuest = makeVerifiedIncomingConn('host-account-second-device', identity);
     handleHostIncomingConnection(sameAccountGuest);
-    sameAccountGuest.fire('open');
+    completeStandardJoin(sameAccountGuest);
 
     expect(getState('network.connectedPeers')[0]).toMatchObject({
       memberId: identity.memberId,
@@ -696,7 +1002,7 @@ describe('standard-room account authority', () => {
     setState('network.appRole', 'host');
     const sibling = makeVerifiedIncomingConn('account-lifecycle-sibling', identity);
     handleHostIncomingConnection(sibling);
-    sibling.fire('open');
+    completeStandardJoin(sibling);
     sibling.send.mockClear();
 
     expect(getState('network.connectedPeers')[0].isOp).toBe(false);
@@ -738,7 +1044,7 @@ describe('standard-room account authority', () => {
     setAuthenticatedPhysicalHost(identity);
     const sibling = makeVerifiedIncomingConn('owner-proof-lifecycle', identity);
     handleHostIncomingConnection(sibling);
-    sibling.fire('open');
+    completeStandardJoin(sibling);
 
     expect(getState('network.connectedPeers')[0].isOp).toBe(true);
     sibling.send.mockClear();
@@ -779,7 +1085,7 @@ describe('standard-room account authority', () => {
     setAuthenticatedPhysicalHost(identity);
     const sibling = makeVerifiedIncomingConn('owner-legacy-toggle', identity);
     handleHostIncomingConnection(sibling);
-    sibling.fire('open');
+    completeStandardJoin(sibling);
     sibling.send.mockClear();
     mocks.showToast.mockClear();
 
@@ -798,7 +1104,7 @@ describe('standard-room account authority', () => {
     setAuthenticatedPhysicalHost(identity);
     const sibling = makeVerifiedIncomingConn('owner-to-admin', identity);
     handleHostIncomingConnection(sibling);
-    sibling.fire('open');
+    completeStandardJoin(sibling);
     bus.emit('network:grant-standard-room-administrator', { memberId: identity.memberId });
     sibling.send.mockClear();
     setState('playlist.repeatMode', 2);
@@ -1094,8 +1400,8 @@ describe('standard-room account authority', () => {
     const second = makeVerifiedIncomingConn('physical-device-b', identity);
     handleHostIncomingConnection(first);
     handleHostIncomingConnection(second);
-    first.fire('open');
-    second.fire('open');
+    completeStandardJoin(first);
+    completeStandardJoin(second, BOOTSTRAP_ID_B);
     bus.emit('network:grant-standard-room-administrator', { memberId: identity.memberId });
 
     bus.emit('network:request-kick-standard-room-device', { peerId: 'physical-device-a' });

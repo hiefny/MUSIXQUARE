@@ -56,23 +56,10 @@ async function prepareGuestManualSync(): Promise<void> {
   await waitForFilePlaybackReady(pair.hostPage, 20_000);
   await clickPlayButton(pair.hostPage);
   await waitForPlayState(pair.hostPage, true);
-  await pair.guestPage.waitForFunction(
-    () => {
-      const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
-        | ((p: string) => unknown)
-        | undefined;
-      const hostConn = get?.('network.hostConn') as { open?: boolean } | null | undefined;
-      const lifecycle = get?.('playback.lifecycle');
-      return (
-        hostConn?.open === true &&
-        get?.('playback.mode') === 'file' &&
-        get?.('files.current') !== null &&
-        (lifecycle === 'READY' || lifecycle === 'PLAYING' || lifecycle === 'PAUSED')
-      );
-    },
-    undefined,
-    { timeout: 25_000 },
-  );
+  const syncButton = pair.guestPage.locator('#btn-sync');
+  await expect(syncButton).toBeVisible({ timeout: 25_000 });
+  await expect(syncButton).toBeEnabled({ timeout: 25_000 });
+  await expect(syncButton).toHaveAttribute('aria-busy', 'false', { timeout: 25_000 });
 }
 
 /**

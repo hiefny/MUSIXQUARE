@@ -25,6 +25,7 @@ import { hasQueueAuthority } from './queue-authority.ts';
 import { verifyPeerCapability } from '../rooms/authority.ts';
 import { isFileRequestId } from './file-request-authority.ts';
 import { parseRoomEffectsState } from '../core/room-effects.ts';
+import { isJoinBootstrapApplied, isJoinBootstrapHello } from './join-bootstrap.ts';
 
 // ─── Message Validation ─────────────────────────────────────────────
 
@@ -440,6 +441,8 @@ function isValidSettingsSyncState(value: unknown): boolean {
 }
 
 const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown>) => boolean>> = {
+  [MSG.JOIN_BOOTSTRAP_HELLO]: isJoinBootstrapHello,
+  [MSG.JOIN_BOOTSTRAP_APPLIED]: isJoinBootstrapApplied,
   [MSG.SETTINGS_SYNC_SNAPSHOT]: (d) =>
     hasExactKeys(d, ['type', 'version', 'epoch', 'sequence', 'settings'], ['_bootstrap']) &&
     d.version === 1 &&

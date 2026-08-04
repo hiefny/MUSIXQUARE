@@ -390,10 +390,11 @@ describe('atomic settings synchronization', () => {
     });
   });
 
-  it('replaces a retained takeover with the latest edit before an early-open flush', () => {
+  it('retains the latest takeover until the application connection boundary', () => {
     const send = vi.fn();
     const host = { peer: 'host', open: false, send } as unknown as DataConnection;
     setState('network.appRole', 'guest');
+    setState('network.isConnecting', true);
     setState('network.hostConn', host);
     setState('network.isOperator', true);
     setState('network.standardRoomCapabilities', ['effects.control']);
@@ -404,13 +405,102 @@ describe('atomic settings synchronization', () => {
 
     // RTC open can precede peer-connected and the host's definitive grant or
     // revoke projection. The explicit edit in this window must replace, not
-    // trail, the retained 0.28 takeover.
+    // trail, the retained 0.28 takeover, without crossing the join handshake.
     (host as { open: boolean }).open = true;
     setState('audio.masterVolume', 0.44);
-    expect(publishLocalSettingsAuthority()).toBe(true);
+    expect(publishLocalSettingsAuthority()).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+
+    setState('network.isConnecting', false);
+    bus.emit('network:peer-connected', host);
 
     expect(send).toHaveBeenCalledOnce();
     expect(send).toHaveBeenCalledWith({
+      type: MSG.PUBLISH_SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+      settings: { masterVolume: 0.44, effects: synchronizedEffects },
+    });
+  });
+
+  it('holds a follower request across a replacement connection until its exact peer boundary', () => {
+    const oldSend = vi.fn();
+    const oldHost = {
+      peer: 'host-replacement',
+      open: false,
+      send: oldSend,
+    } as unknown as DataConnection;
+    const newSend = vi.fn();
+    const newHost = {
+      peer: 'host-replacement',
+      open: true,
+      send: newSend,
+    } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', oldHost);
+    setState('network.isOperator', false);
+    setState('network.standardRoomCapabilities', null);
+    setSettingsSyncEnabled(false);
+
+    setSettingsSyncEnabled(true);
+    expect(oldSend).not.toHaveBeenCalled();
+
+    setState('network.isConnecting', true);
+    setState('network.hostConn', newHost);
+    bus.emit('network:peer-connected', oldHost);
+    expect(oldSend).not.toHaveBeenCalled();
+    expect(newSend).not.toHaveBeenCalled();
+
+    setState('network.isConnecting', false);
+    bus.emit('network:peer-connected', newHost);
+    bus.emit('network:peer-connected', newHost);
+
+    expect(oldSend).not.toHaveBeenCalled();
+    expect(newSend).toHaveBeenCalledOnce();
+    expect(newSend).toHaveBeenCalledWith({
+      type: MSG.REQUEST_SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+    });
+  });
+
+  it('holds the latest administrator publish across replacement bootstrap until peer-connected', () => {
+    const oldSend = vi.fn();
+    const oldHost = {
+      peer: 'host-replacement',
+      open: false,
+      send: oldSend,
+    } as unknown as DataConnection;
+    const newSend = vi.fn();
+    const newHost = {
+      peer: 'host-replacement',
+      open: true,
+      send: newSend,
+    } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', oldHost);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['effects.control']);
+    setSettingsSyncEnabled(false);
+    setState('audio.masterVolume', 0.28);
+    applyRoomEffectsState(synchronizedEffects);
+
+    setSettingsSyncEnabled(true);
+    expect(oldSend).not.toHaveBeenCalled();
+
+    setState('network.isConnecting', true);
+    setState('network.hostConn', newHost);
+    setState('audio.masterVolume', 0.44);
+    expect(publishLocalSettingsAuthority()).toBe(false);
+    bus.emit('network:peer-connected', oldHost);
+    expect(oldSend).not.toHaveBeenCalled();
+    expect(newSend).not.toHaveBeenCalled();
+
+    setState('network.isConnecting', false);
+    bus.emit('network:peer-connected', newHost);
+    bus.emit('network:peer-connected', newHost);
+
+    expect(oldSend).not.toHaveBeenCalled();
+    expect(newSend).toHaveBeenCalledOnce();
+    expect(newSend).toHaveBeenCalledWith({
       type: MSG.PUBLISH_SETTINGS_SYNC_SNAPSHOT,
       version: 1,
       settings: { masterVolume: 0.44, effects: synchronizedEffects },

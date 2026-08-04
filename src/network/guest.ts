@@ -22,6 +22,12 @@ import type { DataConnection, DeviceInfo, RoomCapability } from '../types/index.
 
 import { getPeer, detectConnectionType, safeSend } from './peer-state.ts';
 import { startWorkerTimer } from './sync-worker.ts';
+import { hasQueueAuthority } from './queue-authority.ts';
+import {
+  JOIN_BOOTSTRAP_TIMEOUT_MS,
+  createJoinBootstrapId,
+  isJoinBootstrapPayloadFrame,
+} from './join-bootstrap.ts';
 import { showToast } from '../ui/toast.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import {
@@ -210,6 +216,7 @@ function reportGuestConnectionFailure(error: unknown): void {
 
 /** Invalidate every callback/timer owned by the current provisional join. */
 export function invalidateGuestJoinAttempt(): void {
+  clearManagedTimer(`join-bootstrap-timeout-${_guestJoinEpoch}`);
   clearPendingGuestInbound();
   _guestJoinEpoch++;
 }
@@ -221,6 +228,7 @@ function isCurrentGuestJoin(epoch: number): boolean {
 function terminateGuestJoin(epoch: number): boolean {
   if (!isCurrentGuestJoin(epoch)) return false;
   clearPendingGuestInbound(epoch);
+  clearManagedTimer(`join-bootstrap-timeout-${epoch}`);
   _guestJoinEpoch++;
   clearManagedTimer('join-timeout');
   clearManagedTimer('join-retry');
@@ -363,19 +371,42 @@ export function joinSession(
 
   // Track the observed event; an adapter may expose conn.open before its open
   // callback has completed.
+  const requiresJoinBootstrap = getRoomContext().kind === 'standard';
+  let bootstrapId: string | null = null;
+  if (requiresJoinBootstrap) {
+    try {
+      bootstrapId = createJoinBootstrapId();
+    } catch (error) {
+      try {
+        conn.close();
+      } catch {
+        /* noop */
+      }
+      setState('network.isConnecting', false);
+      reportGuestConnectionFailure(error);
+      return;
+    }
+  }
+  const bootstrapTimerName = `join-bootstrap-timeout-${joinEpoch}`;
   let dataChannelOpened = false;
   let connectionEstablished = false;
+  let bootstrapFrameIndex = 0;
+  let welcomeReceived = false;
+  let bootstrapFailed = false;
   _pendingGuestInbound = { epoch: joinEpoch, conn, frames: [], bytes: 0 };
 
   const completeConnection = (): void => {
     if (
       connectionEstablished ||
+      (requiresJoinBootstrap &&
+        (bootstrapFrameIndex !== 3 || !hasQueueAuthority(conn) || bootstrapFailed)) ||
       !isCurrentGuestJoin(joinEpoch) ||
       getState('network.hostConn') !== conn ||
       !conn.open
     ) {
       return;
     }
+    clearManagedTimer(bootstrapTimerName);
     connectionEstablished = true;
     setState('network.isConnecting', false);
     startWorkerTimer('sync', 1000);
@@ -384,6 +415,30 @@ export function joinSession(
     bus.emit('setup:guest-join-success');
     markProRoomTransportRecovered();
     log.info('[Join] Connection established with host:', hostId);
+  };
+
+  const failJoinBootstrap = (error: Error): void => {
+    if (
+      !requiresJoinBootstrap ||
+      bootstrapFailed ||
+      connectionEstablished ||
+      !isCurrentGuestJoin(joinEpoch) ||
+      getState('network.hostConn') !== conn
+    ) {
+      return;
+    }
+    bootstrapFailed = true;
+    _handledConnectionErrors.add(conn);
+    clearManagedTimer(bootstrapTimerName);
+    if (!terminateGuestJoin(joinEpoch)) return;
+    setState('network.hostConn', null);
+    setState('network.isConnecting', false);
+    try {
+      conn.close();
+    } catch {
+      /* noop */
+    }
+    reportGuestConnectionFailure(error);
   };
 
   const handlePreOpenError = (err: unknown) => {
@@ -402,6 +457,62 @@ export function joinSession(
   // host's lifecycle WELCOME before the guest-side callback has finished.
   const processInboundData = (data: unknown): void => {
     if (!isCurrentGuestJoin(joinEpoch) || getState('network.hostConn') !== conn) return;
+
+    if (requiresJoinBootstrap && !connectionEstablished) {
+      const type =
+        data && typeof data === 'object' && !Array.isArray(data)
+          ? (data as Record<string, unknown>).type
+          : null;
+      if (type === MSG.WELCOME && bootstrapFrameIndex === 0 && !welcomeReceived) {
+        welcomeReceived = true;
+        bus.emit('network:data', data, conn);
+        return;
+      }
+      if (type === MSG.SESSION_FULL || type === MSG.FORCE_CLOSE_DUPLICATE) {
+        bus.emit('network:data', data, conn);
+        return;
+      }
+      if (!isJoinBootstrapPayloadFrame(data, bootstrapFrameIndex)) {
+        failJoinBootstrap(new Error('HOST_CONNECTION_ERROR'));
+        return;
+      }
+
+      let acknowledgements = 0;
+      let applied = false;
+      bus.emit('network:peer-bootstrap-apply', data, conn, (success) => {
+        acknowledgements += 1;
+        applied = success;
+      });
+      if (
+        acknowledgements !== 1 ||
+        !applied ||
+        !isCurrentGuestJoin(joinEpoch) ||
+        getState('network.hostConn') !== conn ||
+        !conn.open
+      ) {
+        failJoinBootstrap(new Error('HOST_CONNECTION_ERROR'));
+        return;
+      }
+
+      bootstrapFrameIndex += 1;
+      if (bootstrapFrameIndex !== 3) return;
+      if (!hasQueueAuthority(conn) || bootstrapId === null) {
+        failJoinBootstrap(new Error('HOST_CONNECTION_ERROR'));
+        return;
+      }
+      if (
+        !safeSend(conn, {
+          type: MSG.JOIN_BOOTSTRAP_APPLIED,
+          version: 1,
+          bootstrapId,
+        })
+      ) {
+        failJoinBootstrap(new Error('HOST_CONNECTION_ERROR'));
+        return;
+      }
+      completeConnection();
+      return;
+    }
     bus.emit('network:data', data, conn);
   };
 
@@ -485,6 +596,7 @@ export function joinSession(
     _handledConnectionErrors.delete(conn);
 
     conn.on('close', () => {
+      clearManagedTimer(bootstrapTimerName);
       // Stale-conn no-op (parity with host.ts's per-peer close guard): once
       // this conn no longer owns network.hostConn — replaced by a rejoin, or
       // already nulled by leaveSession/rejoin cleanup — its close is
@@ -521,6 +633,7 @@ export function joinSession(
     });
 
     conn.on('error', (err: unknown) => {
+      clearManagedTimer(bootstrapTimerName);
       // Same stale-conn no-op as the close handler above: a replaced conn's
       // draining error (e.g. a malformed frame on a dying transport) must
       // not surface an error dialog over the live connection.
@@ -562,7 +675,29 @@ export function joinSession(
       return;
     }
 
-    completeConnection();
+    if (requiresJoinBootstrap) {
+      if (bootstrapId === null) {
+        failJoinBootstrap(new Error('HOST_CONNECTION_ERROR'));
+        return;
+      }
+      setManagedTimer(
+        bootstrapTimerName,
+        () => failJoinBootstrap(new Error('HOST_CONNECTION_ERROR')),
+        JOIN_BOOTSTRAP_TIMEOUT_MS,
+      );
+      if (
+        !safeSend(conn, {
+          type: MSG.JOIN_BOOTSTRAP_HELLO,
+          version: 1,
+          bootstrapId,
+        })
+      ) {
+        failJoinBootstrap(new Error('HOST_CONNECTION_ERROR'));
+        return;
+      }
+    } else {
+      completeConnection();
+    }
 
     // Detect local vs remote connection. The detectConnectionType function
     // now internally polls until ICE stabilizes (up to 10 seconds).

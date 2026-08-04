@@ -475,6 +475,7 @@ function sendYouTubeZeroStartToPeer(peerId: string, message: YouTubeZeroStartWir
 
 function sendYouTubeZeroStartToHost(message: YouTubeZeroStartWireMessage): boolean {
   const conn = getState('network.hostConn');
+  if (getRoomContext().kind === 'standard' && getState('network.isConnecting')) return false;
   return !!conn?.open && safeSend(conn, message);
 }
 
@@ -1996,9 +1997,10 @@ export function initYouTube(): void {
     }
     zeroStartAuthoritySignature = nextSignature;
     zeroStartHostConnection = nextHostConnection;
-    if (getYouTubeZeroStartRole() === 'guest' && nextHostConnection?.open) {
-      advertiseYouTubeZeroStartCapability();
-    }
+    // A raw hostConn transition precedes the standard-room queue-authority
+    // handshake. Advertising here can overtake JOIN_BOOTSTRAP_HELLO and must
+    // not define application readiness. network:peer-connected below sends the
+    // capability once the exact connection has crossed that boundary.
   };
 
   const advertiseZeroStartRuntimeReadiness = (): void => {

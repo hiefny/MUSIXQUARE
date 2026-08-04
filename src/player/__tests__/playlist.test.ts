@@ -54,6 +54,7 @@ import { findQueueItemIndex } from '../queue-model.ts';
 import { t } from '../../i18n/index.ts';
 import * as transport from '../transport.ts';
 import { transition } from '../lifecycle.ts';
+import { hasQueueAuthority } from '../../network/queue-authority.ts';
 import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import {
   cancelProPlaybackPreparation,
@@ -2031,6 +2032,7 @@ describe('guest queue authority bootstrap', () => {
 describe('late-join playlist bootstrap', () => {
   it('marks repeat and shuffle mode frames as bootstrap so guests do not toast', () => {
     const send = vi.fn();
+    const acknowledge = vi.fn();
     const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
     initPlaylist();
     setState('playlist.repeatMode', 2);
@@ -2047,7 +2049,7 @@ describe('late-join playlist bootstrap', () => {
         send(frame);
         return true;
       },
-      vi.fn(),
+      acknowledge,
     );
 
     expect(send.mock.calls.slice(0, 3).map(([message]) => message.type)).toEqual([
@@ -2073,6 +2075,82 @@ describe('late-join playlist bootstrap', () => {
         ],
       }),
     );
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+    expect(acknowledge).toHaveBeenCalledWith(true);
+  });
+
+  it('fails the host bootstrap synchronously at the first unsent frame', () => {
+    const conn = { peer: 'guest-1', open: true, send: vi.fn() } as unknown as DataConnection;
+    const send = vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false);
+    const acknowledge = vi.fn();
+    initPlaylist();
+
+    bus.emit('network:peer-bootstrap', conn, send, acknowledge);
+
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+    expect(acknowledge).toHaveBeenCalledWith(false);
+  });
+
+  it('applies the exact three-frame guest baseline and establishes queue authority', () => {
+    const conn = { peer: 'host-1', open: true, send: vi.fn() } as unknown as DataConnection;
+    setState('network.hostConn', conn);
+    initPlaylist();
+
+    const playlistAck = vi.fn();
+    bus.emit(
+      'network:peer-bootstrap-apply',
+      {
+        type: MSG.PLAYLIST_UPDATE,
+        list: [],
+        revision: 0,
+        currentQueueItemId: null,
+        bootstrap: true,
+      },
+      conn,
+      playlistAck,
+    );
+    expect(playlistAck).toHaveBeenCalledTimes(1);
+    expect(playlistAck).toHaveBeenCalledWith(true);
+    expect(hasQueueAuthority(conn)).toBe(true);
+
+    const repeatAck = vi.fn();
+    bus.emit(
+      'network:peer-bootstrap-apply',
+      { type: MSG.REPEAT_MODE, value: 2, _bootstrap: true },
+      conn,
+      repeatAck,
+    );
+    expect(repeatAck).toHaveBeenCalledTimes(1);
+    expect(repeatAck).toHaveBeenCalledWith(true);
+    expect(getState('playlist.repeatMode')).toBe(2);
+
+    const shuffleAck = vi.fn();
+    bus.emit(
+      'network:peer-bootstrap-apply',
+      { type: MSG.SHUFFLE_MODE, value: true, _bootstrap: true },
+      conn,
+      shuffleAck,
+    );
+    expect(shuffleAck).toHaveBeenCalledTimes(1);
+    expect(shuffleAck).toHaveBeenCalledWith(true);
+    expect(getState('playlist.isShuffle')).toBe(true);
+
+    const repeatedAuthorityAck = vi.fn();
+    bus.emit(
+      'network:peer-bootstrap-apply',
+      {
+        type: MSG.PLAYLIST_UPDATE,
+        list: [],
+        revision: 0,
+        currentQueueItemId: null,
+        bootstrap: true,
+      },
+      conn,
+      repeatedAuthorityAck,
+    );
+    expect(repeatedAuthorityAck).toHaveBeenCalledTimes(1);
+    expect(repeatedAuthorityAck).toHaveBeenCalledWith(false);
   });
 });
 

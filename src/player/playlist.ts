@@ -74,7 +74,7 @@ import { isGuestBlocked } from '../network/guards.ts';
 import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { isPlaybackIdleCompat, isYouTubeOwner, setPlaybackTrackMeta } from './ownership.ts';
-import type { DataConnection, PlaylistItem, QueueItemId } from '../types/index.ts';
+import type { AnyProtocolMsg, DataConnection, PlaylistItem, QueueItemId } from '../types/index.ts';
 import { showToast } from '../ui/toast.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { hasFileShareWarned, markFileShareWarned } from '../ui/large-room-warnings.ts';
@@ -2660,29 +2660,95 @@ export function initPlaylist(): void {
   });
 
   // Host: send queue authority during the ordered pre-playback bootstrap phase.
-  bus.on('network:peer-bootstrap', (conn) => {
-    if (!conn?.open) return;
+  // The connection layer treats the synchronous acknowledgement as part of the
+  // standard-room join boundary: playback/file bootstraps are not published
+  // until all three authority frames have been accepted for this exact link.
+  bus.on('network:peer-bootstrap', (conn, send, acknowledge) => {
+    if (!conn?.open) {
+      acknowledge(false);
+      return;
+    }
 
     // Only Host bootstraps guests
     const hostConn = getState('network.hostConn');
-    if (hostConn) return;
+    if (hostConn) {
+      acknowledge(false);
+      return;
+    }
 
     try {
+      const sendFrame =
+        typeof send === 'function'
+          ? send
+          : (frame: AnyProtocolMsg) => {
+              conn.send(frame);
+              return true;
+            };
       // Full authoritative queue snapshot must be first after WELCOME. Every
       // qid/media frame on the guest is gated until this exact connection's
       // baseline has been applied.
-      conn.send({ type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), bootstrap: true });
+      if (!sendFrame({ type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), bootstrap: true })) {
+        acknowledge(false);
+        return;
+      }
 
       const repeatMode = getState('playlist.repeatMode') || 0;
-      conn.send({ type: MSG.REPEAT_MODE, value: repeatMode, _bootstrap: true });
+      if (!sendFrame({ type: MSG.REPEAT_MODE, value: repeatMode, _bootstrap: true })) {
+        acknowledge(false);
+        return;
+      }
 
       const isShuffle = getState('playlist.isShuffle');
-      conn.send({ type: MSG.SHUFFLE_MODE, value: isShuffle, _bootstrap: true });
+      if (!sendFrame({ type: MSG.SHUFFLE_MODE, value: isShuffle, _bootstrap: true })) {
+        acknowledge(false);
+        return;
+      }
 
       log.debug('[Playlist] Bootstrap: sent playlist state to new peer');
+      acknowledge(true);
     } catch (error) {
       log.warn('[Playlist] Bootstrap send failed:', error);
+      acknowledge(false);
     }
+  });
+
+  // Guest: apply exactly one ordered authority frame inside the join gate. The
+  // caller advances only after this synchronous acknowledgement proves the
+  // state mutation (including the queue/media authority reset) completed.
+  bus.on('network:peer-bootstrap-apply', (frame, conn, acknowledge) => {
+    let applied = false;
+    try {
+      if (!frame || typeof frame !== 'object' || Array.isArray(frame)) {
+        acknowledge(false);
+        return;
+      }
+      const data = frame as Record<string, unknown>;
+      if (data.type === MSG.PLAYLIST_UPDATE && data.bootstrap === true) {
+        if (hasQueueAuthority(conn)) {
+          acknowledge(false);
+          return;
+        }
+        handlePlaylistUpdate(data, conn);
+        applied = hasQueueAuthority(conn);
+      } else if (
+        data.type === MSG.REPEAT_MODE &&
+        data._bootstrap === true &&
+        (data.value === 0 || data.value === 1 || data.value === 2)
+      ) {
+        handleRepeatMode(data, conn);
+        applied = getState('playlist.repeatMode') === data.value;
+      } else if (
+        data.type === MSG.SHUFFLE_MODE &&
+        data._bootstrap === true &&
+        typeof data.value === 'boolean'
+      ) {
+        handleShuffleMode(data, conn);
+        applied = getState('playlist.isShuffle') === data.value;
+      }
+    } catch (error) {
+      log.warn('[Playlist] Bootstrap apply failed:', error);
+    }
+    acknowledge(applied);
   });
 
   log.info('[Playlist] Initialized');

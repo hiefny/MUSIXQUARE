@@ -402,6 +402,10 @@ const ru: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'Достигнут лимит запросов BOT. Повторите попытку через {{duration}}',
   'chat.decode_skip_system_message':
     'Некоторые устройства не смогли декодировать материал. Переход к следующему материалу...',
+  'chat.large_local_track_system_message':
+    'Этот материал занимает очень много места и может не воспроизводиться на некоторых устройствах.',
+  'chat.device_track_unavailable_system_message':
+    'На этом устройстве нельзя воспроизвести текущий материал.',
   'chat.system_audio_started_system_message':
     'Общий доступ к системному звуку запущен. Возможна небольшая задержка между хостом и гостями. Чтобы избежать эха, рекомендуем снизить громкость устройства хоста.',
   'chat.system_audio_stopped_system_message':
@@ -642,8 +646,6 @@ const ru: Record<I18nKey, string> = {
   'error.load_failed': 'Загрузка не удалась: {{msg}}',
   'error.audio_decode_fail': 'Декодирование аудио не удалось!',
   'error.audio_memory': 'Загрузка звука в память...',
-  'error.local_decode_wait':
-    'Это устройство не смогло декодировать материал.\nОжидайте следующий материал.',
   'error.all_tracks_failed': 'В плейлисте нет материалов, доступных для воспроизведения.',
   'error.audio_engine_prepare': 'Не удалось запустить звуковой движок',
   'error.session_create_fail': 'Не удалось создать комнату',

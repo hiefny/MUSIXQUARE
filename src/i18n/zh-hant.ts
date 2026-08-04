@@ -535,7 +535,6 @@ const zhHant: Record<I18nKey, string> = {
   'error.load_failed': '載入失敗：{{msg}}',
   'error.audio_decode_fail': '音訊解碼失敗！',
   'error.audio_memory': '正在將音訊載入記憶體...',
-  'error.local_decode_wait': '此裝置無法解碼該項目。\n請等待下一項播放。',
   'error.all_tracks_failed': '播放清單中沒有可播放的項目。',
   'error.audio_engine_prepare': '無法準備音訊引擎',
   'error.session_create_fail': '無法建立房間',
@@ -678,6 +677,8 @@ const zhHant: Record<I18nKey, string> = {
   'chat.bot_added_and_playing': 'BOT 已新增 {{count}} 項並開始播放',
   'chat.bot_rate_limited': '已達 BOT 要求上限，請在 {{duration}}後再試',
   'chat.decode_skip_system_message': '跳過此項目：部分裝置不支援該格式。',
+  'chat.large_local_track_system_message': '目前項目的檔案很大，部分裝置可能無法播放。',
+  'chat.device_track_unavailable_system_message': '此裝置無法播放目前的項目。',
   'chat.system_audio_started_system_message':
     '系統音訊分享已啟動。主持人與參與者裝置之間有些微延遲是正常現象。為避免回音，建議儘量降低來源裝置音量。',
   'chat.system_audio_stopped_system_message':

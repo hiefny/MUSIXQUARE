@@ -391,6 +391,9 @@ const ko = {
   'chat.bot_added_and_playing': 'BOT이 트랙 {{count}}개를 추가하고 재생을 시작했어요',
   'chat.bot_rate_limited': 'BOT 요청 한도에 도달했어요. {{duration}} 후 다시 시도해 주세요',
   'chat.decode_skip_system_message': '일부 기기에서 재생할 수 없어 다음 트랙으로 넘어가요.',
+  'chat.large_local_track_system_message':
+    '현재 트랙의 용량이 매우 커 일부 기기에서는 재생되지 않을 수 있어요.',
+  'chat.device_track_unavailable_system_message': '이 기기에서는 현재 트랙을 재생할 수 없어요.',
   'chat.system_audio_started_system_message':
     '시스템 오디오 공유가 시작됐어요. 방장과 참여자 사이 지연은 필연적으로 발생하기 때문에 방장 기기의 볼륨은 최대한 낮춰주세요.',
   'chat.system_audio_stopped_system_message':
@@ -619,7 +622,6 @@ const ko = {
   'error.load_failed': '로드 실패: {{msg}}',
   'error.audio_decode_fail': '오디오 디코딩 실패!',
   'error.audio_memory': '오디오 메모리 로드 중...',
-  'error.local_decode_wait': '해당 기기에서 디코딩을 실패했어요.\n다음 트랙 재생까지 기다려주세요.',
   'error.all_tracks_failed': '재생할 수 있는 트랙이 없어요.',
   'error.audio_engine_prepare': '오디오 엔진을 준비하지 못했어요',
   'error.session_create_fail': '세션을 만들지 못했어요',

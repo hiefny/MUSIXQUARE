@@ -3,7 +3,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
-import { MSG } from '../../core/constants.ts';
+import { LOCAL_LARGE_TRACK_WARNING_BYTES, MSG } from '../../core/constants.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { DEMO_TRACK } from '../../demo/tracks.ts';
@@ -28,6 +28,7 @@ import type {
 
 const mocks = vi.hoisted(() => ({
   broadcast: vi.fn(),
+  announceSystemMessageLocally: vi.fn(),
   broadcastSystemMessage: vi.fn(),
   decodeAudioData: vi.fn(),
   isFilePipelineBusyForPlay: vi.fn(() => false),
@@ -87,6 +88,7 @@ vi.mock('../../storage/recovery.ts', () => ({
 }));
 
 vi.mock('../../chat/protocol.ts', () => ({
+  announceSystemMessageLocally: mocks.announceSystemMessageLocally,
   broadcastSystemMessage: mocks.broadcastSystemMessage,
 }));
 
@@ -304,7 +306,7 @@ describe('guest decode failure reports', () => {
     expect(getState('playback.failedTrackKeys').size).toBe(0);
   });
 
-  it('advances after two connected non-operator reports for the same track', async () => {
+  it('keeps room playback running after multiple device-local failures', async () => {
     const guestA = makeConnectedPeer('guest-a', false);
     const guestB = makeConnectedPeer('guest-b', false);
     setState('network.connectedPeers', [guestA, guestB]);
@@ -318,10 +320,12 @@ describe('guest decode failure reports', () => {
       guestB.conn!,
     );
 
-    expect(mocks.broadcastSystemMessage).toHaveBeenCalledOnce();
+    expect(mocks.broadcastSystemMessage).not.toHaveBeenCalled();
+    expect(getState('playback.failedTrackKeys').size).toBe(0);
+    expect(mocks.showToast).toHaveBeenCalledOnce();
   });
 
-  it('still lets an operator report advance immediately', async () => {
+  it('treats an operator decode failure as device-local too', async () => {
     const op = makeConnectedPeer('guest-op', true);
     setState('network.appRole', 'host');
     setState('network.connectedPeers', [op]);
@@ -332,7 +336,9 @@ describe('guest decode failure reports', () => {
       op.conn!,
     );
 
-    expect(mocks.broadcastSystemMessage).toHaveBeenCalledOnce();
+    expect(mocks.broadcastSystemMessage).not.toHaveBeenCalled();
+    expect(getState('playback.failedTrackKeys').size).toBe(0);
+    expect(mocks.showToast).toHaveBeenCalledOnce();
   });
 
   it('shows a local wait notice when guest decoding gives up', async () => {
@@ -340,20 +346,31 @@ describe('guest decode failure reports', () => {
     setState('network.hostConn', makeConnection('host'));
     setState('player.decodeFailureCount', 1);
     const item = getState('playlist.items')[0]!;
+    setState('playback.pendingPlayTime', 92);
+    setState('playback.pendingPlayTimeSetAt', Date.now());
+    setState('playback.pendingRecoveryTarget', {
+      queueItemId: item.queueItemId,
+      indexHint: 0,
+      name: item.name,
+    });
     const file = new File([new Uint8Array([1, 2, 3])], 'song.mp3');
     stageMainTransfer(item, file, 7);
 
     const { finalizeGuestFile } = await import('../decode.ts');
     await finalizeGuestFile(file, item.queueItemId, 7);
 
-    expect(mocks.showToast).toHaveBeenCalledWith(
-      "This device couldn't decode the track.\nPlease wait for the next track.",
+    expect(mocks.announceSystemMessageLocally).toHaveBeenCalledWith(
+      'chat.device_track_unavailable_system_message',
     );
     expect(mocks.sendToHost).toHaveBeenCalledWith({
       type: MSG.GUEST_DECODE_FAILED,
       queueItemId: item.queueItemId,
     });
     expect(mocks.sendRecoveryRequest).not.toHaveBeenCalled();
+    const { postCommand } = await import('../../storage/storage.ts');
+    expect(postCommand).toHaveBeenCalledWith({ command: 'STORAGE_RESET', isPreload: false });
+    expect(getState('playback.pendingPlayTime')).toBeUndefined();
+    expect(getState('playback.pendingRecoveryTarget')).toBeNull();
   });
 });
 
@@ -871,6 +888,33 @@ describe('unbounded legacy decode policy', () => {
     await expect(loadAndBroadcastFile(file, item.queueItemId, 1)).resolves.toBe(true);
 
     expect(arrayBuffer).toHaveBeenCalledOnce();
+    expect(mocks.decodeAudioData).toHaveBeenCalledOnce();
+  });
+
+  it('warns without blocking a standard-room local file above 200 MiB', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'large-lossless.flac', {
+      type: 'audio/flac',
+    });
+    Object.defineProperty(file, 'size', {
+      configurable: true,
+      value: LOCAL_LARGE_TRACK_WARNING_BYTES + 1,
+    });
+    const item = makeFileTrack(file);
+    setState('playlist.items', [item]);
+    setCurrentIndex(0);
+    mocks.decodeAudioData.mockResolvedValue({
+      duration: 120,
+      length: 120 * 48_000,
+      numberOfChannels: 2,
+      sampleRate: 48_000,
+    } as AudioBuffer);
+
+    const { loadAndBroadcastFile } = await import('../decode.ts');
+    await expect(loadAndBroadcastFile(file, item.queueItemId, 1)).resolves.toBe(true);
+
+    expect(mocks.announceSystemMessageLocally).toHaveBeenCalledWith(
+      'chat.large_local_track_system_message',
+    );
     expect(mocks.decodeAudioData).toHaveBeenCalledOnce();
   });
 

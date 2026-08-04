@@ -571,8 +571,6 @@ const es: Record<I18nKey, string> = {
   'error.load_failed': 'Error de carga: {{msg}}',
   'error.audio_decode_fail': '¡Falló la decodificación de audio!',
   'error.audio_memory': 'Cargando audio en memoria...',
-  'error.local_decode_wait':
-    'Este dispositivo no pudo decodificar la pista.\nEspera a la siguiente pista.',
   'error.all_tracks_failed': 'No hay pistas reproducibles en la lista.',
   'error.audio_engine_prepare': 'No se pudo preparar el motor de audio',
   'error.session_create_fail': 'No se pudo crear la sala',
@@ -730,6 +728,10 @@ const es: Record<I18nKey, string> = {
     'Se alcanzó el límite de solicitudes de BOT. Reinténtalo en {{duration}}',
   'chat.decode_skip_system_message':
     'Pista omitida: formato no compatible en algunos dispositivos.',
+  'chat.large_local_track_system_message':
+    'El archivo de esta pista es muy grande y puede que no se reproduzca en algunos dispositivos.',
+  'chat.device_track_unavailable_system_message':
+    'Este dispositivo no puede reproducir la pista actual.',
   'chat.system_audio_started_system_message':
     'Se inició la compartición de audio del sistema. Es normal que haya una leve latencia entre el host y los participantes. Recomendamos bajar al mínimo el volumen del dispositivo host para evitar ecos.',
   'chat.system_audio_stopped_system_message':

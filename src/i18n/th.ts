@@ -393,6 +393,9 @@ const th: Record<I18nKey, string> = {
   'chat.bot_added_and_playing': 'BOT เพิ่ม {{count}} แทร็กและเริ่มเล่นแล้ว',
   'chat.bot_rate_limited': 'ถึงขีดจำกัดคำขอ BOT แล้ว โปรดลองอีกครั้งใน {{duration}}',
   'chat.decode_skip_system_message': 'บางอุปกรณ์เล่นแทร็กนี้ไม่ได้ กำลังข้ามไปแทร็กถัดไป',
+  'chat.large_local_track_system_message':
+    'แทร็กนี้มีขนาดใหญ่มาก จึงอาจเล่นไม่ได้บนอุปกรณ์บางเครื่อง',
+  'chat.device_track_unavailable_system_message': 'อุปกรณ์นี้เล่นแทร็กปัจจุบันไม่ได้',
   'chat.system_audio_started_system_message':
     'เริ่มแชร์เสียงระบบแล้ว ความหน่วงเล็กน้อยระหว่างโฮสต์กับอุปกรณ์ผู้เข้าร่วมเป็นเรื่องปกติ แนะนำให้ลดระดับเสียงของอุปกรณ์โฮสต์เพื่อเลี่ยงเสียงก้อง',
   'chat.system_audio_stopped_system_message':
@@ -619,7 +622,6 @@ const th: Record<I18nKey, string> = {
   'error.load_failed': 'โหลดไม่สำเร็จ: {{msg}}',
   'error.audio_decode_fail': 'ถอดรหัสเสียงไม่สำเร็จ!',
   'error.audio_memory': 'กำลังโหลดเสียงลงหน่วยความจำ...',
-  'error.local_decode_wait': 'อุปกรณ์นี้ถอดรหัสแทร็กไม่ได้\nโปรดรอแทร็กถัดไป',
   'error.all_tracks_failed': 'ไม่มีแทร็กที่เล่นได้ในเพลย์ลิสต์',
   'error.audio_engine_prepare': 'เตรียมเอนจินเสียงไม่ได้',
   'error.session_create_fail': 'สร้างห้องไม่ได้',

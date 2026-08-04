@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
-import { LOAD_SOURCE, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
+import {
+  LOAD_SOURCE,
+  LOCAL_LARGE_TRACK_WARNING_BYTES,
+  MSG,
+  PLAYBACK_STATE,
+  TRANSFER_STATE,
+} from '../../core/constants.ts';
 import { DEMO_TRACK } from '../../demo/tracks.ts';
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
@@ -34,6 +40,17 @@ vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 vi.mock('../../core/timers.ts', () => ({ setManagedTimer: vi.fn(), clearManagedTimer: vi.fn() }));
+
+const warningMocks = vi.hoisted(() => ({
+  maybeAnnounceLargeLocalTrackWarning: vi.fn(),
+  announceSystemMessageLocally: vi.fn(),
+}));
+vi.mock('../../player/large-local-track-warning.ts', () => ({
+  maybeAnnounceLargeLocalTrackWarning: warningMocks.maybeAnnounceLargeLocalTrackWarning,
+}));
+vi.mock('../../chat/protocol.ts', () => ({
+  announceSystemMessageLocally: warningMocks.announceSystemMessageLocally,
+}));
 
 const Q0 = '00000000-0000-4000-8000-000000000001';
 const Q1 = '00000000-0000-4000-8000-000000000002';
@@ -171,6 +188,131 @@ describe('remote-share to local direct transfer promotion', () => {
     expect(getState('playback.lifecycle')).toBe(lifecycleBefore);
     expect(getState('playlist.currentQueueItemId')).toBe(Q0);
     expect(postCommand).not.toHaveBeenCalled();
+    expect(warningMocks.maybeAnnounceLargeLocalTrackWarning).not.toHaveBeenCalled();
+  });
+
+  it('checks a trusted current FILE_PREPARE for the local large-track warning', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+
+    await handleFilePrepare(
+      {
+        ...prepareFrame(Q0, 12),
+        size: LOCAL_LARGE_TRACK_WARNING_BYTES + 1,
+      },
+      conn,
+    );
+
+    expect(warningMocks.maybeAnnounceLargeLocalTrackWarning).toHaveBeenCalledWith(
+      Q0,
+      LOCAL_LARGE_TRACK_WARNING_BYTES + 1,
+    );
+  });
+
+  it('preserves a first decode failure across same-occurrence recovery prepare', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    setState('player.decodeFailureCount', 1);
+    setState('transfer.meta', {
+      queueItemId: Q0,
+      indexHint: 0,
+      name: 'song.mp3',
+      sessionId: 7,
+      size: 4,
+      total: 1,
+      mime: 'audio/mpeg',
+    });
+
+    await handleFilePrepare(prepareFrame(Q0, 8), conn);
+
+    expect(getState('player.decodeFailureCount')).toBe(1);
+  });
+
+  it('resets the decode failure count for a new queue occurrence', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    setState('player.decodeFailureCount', 1);
+    setState('transfer.meta', {
+      queueItemId: Q0,
+      indexHint: 0,
+      name: 'song.mp3',
+      sessionId: 7,
+      size: 4,
+      total: 1,
+      mime: 'audio/mpeg',
+    });
+    setState('playlist.currentQueueItemId', Q1);
+
+    await handleFilePrepare(prepareFrame(Q1, 9, 'next.mp3'), conn);
+
+    expect(getState('player.decodeFailureCount')).toBe(0);
+  });
+
+  it('also resets a new occurrence when FILE_PREPARE was lost', async () => {
+    const { handleFileStart } = await import('../transfer-receive.ts');
+    setState('player.decodeFailureCount', 1);
+    setState('transfer.meta', {
+      queueItemId: Q0,
+      indexHint: 0,
+      name: 'song.mp3',
+      sessionId: 7,
+      size: 4,
+      total: 1,
+      mime: 'audio/mpeg',
+    });
+    setState('playlist.currentQueueItemId', Q1);
+
+    handleFileStart(startFrame(Q1, 9, 'next.mp3'), conn);
+
+    expect(getState('player.decodeFailureCount')).toBe(0);
+  });
+
+  it('does not reopen transfer for a queue occurrence this device cannot decode', async () => {
+    const { markTrackFailed } = await import('../../player/_state.ts');
+    const { handleFilePrepare, handleFileStart } = await import('../transfer-receive.ts');
+    const { postCommand } = await import('../storage.ts');
+    const { showLoader } = await import('../../ui/toast.ts');
+    markTrackFailed(`queue:${Q0}`);
+
+    await handleFilePrepare(prepareFrame(Q0, 7), conn);
+    handleFileStart(startFrame(Q0, 7), conn);
+
+    expect(postCommand).not.toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'STORAGE_START', queueItemId: Q0 }),
+    );
+    expect(showLoader).toHaveBeenCalledWith(false);
+  });
+
+  it('turns a RAM admission rejection into one terminal device-local failure', async () => {
+    const { handleFileStart } = await import('../transfer-receive.ts');
+    const { admitIncomingStoredFile } = await import('../storage.ts');
+    const { sendToHost } = await import('../../network/peer.ts');
+    const { showToast } = await import('../../ui/toast.ts');
+    setState('playback.pendingPlayTime', 92);
+    setState('playback.pendingPlayTimeSetAt', Date.now());
+    setState('playback.pendingRecoveryTarget', {
+      queueItemId: Q0,
+      indexHint: 0,
+      name: 'song.mp3',
+    });
+    vi.mocked(admitIncomingStoredFile).mockImplementationOnce(() => {
+      throw new Error('device memory budget exceeded');
+    });
+
+    handleFileStart(startFrame(Q0, 7), conn);
+    handleFileStart(startFrame(Q0, 8), conn);
+
+    expect(getState('playback.failedTrackKeys')).toContain(`queue:${Q0}`);
+    expect(warningMocks.announceSystemMessageLocally).toHaveBeenCalledOnce();
+    expect(warningMocks.announceSystemMessageLocally).toHaveBeenCalledWith(
+      'chat.device_track_unavailable_system_message',
+    );
+    expect(sendToHost).toHaveBeenCalledOnce();
+    expect(sendToHost).toHaveBeenCalledWith({
+      type: MSG.GUEST_DECODE_FAILED,
+      queueItemId: Q0,
+    });
+    expect(admitIncomingStoredFile).toHaveBeenCalledOnce();
+    expect(showToast).not.toHaveBeenCalled();
+    expect(getState('playback.pendingPlayTime')).toBeUndefined();
+    expect(getState('playback.pendingRecoveryTarget')).toBeNull();
   });
 
   it('routes a remote user file matching a demo filename through remote share', async () => {

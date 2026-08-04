@@ -535,7 +535,6 @@ const zhHans: Record<I18nKey, string> = {
   'error.load_failed': '加载失败：{{msg}}',
   'error.audio_decode_fail': '音频解码失败！',
   'error.audio_memory': '正在将音频加载到内存...',
-  'error.local_decode_wait': '此设备无法解码该项目。\n请等待下一项播放。',
   'error.all_tracks_failed': '播放列表中没有可播放的项目。',
   'error.audio_engine_prepare': '无法准备音频引擎',
   'error.session_create_fail': '无法创建房间',
@@ -676,6 +675,8 @@ const zhHans: Record<I18nKey, string> = {
   'chat.bot_added_and_playing': 'BOT 已添加 {{count}} 项并开始播放',
   'chat.bot_rate_limited': '已达到 BOT 请求上限，请在 {{duration}}后重试',
   'chat.decode_skip_system_message': '跳过此项目：部分设备不支持该格式。',
+  'chat.large_local_track_system_message': '当前项目文件很大，部分设备可能无法播放。',
+  'chat.device_track_unavailable_system_message': '此设备无法播放当前项目。',
   'chat.system_audio_started_system_message':
     '系统音频共享已启动。主持人和参与者设备之间有轻微延迟是正常现象。为避免回音，建议尽量降低源设备音量。',
   'chat.system_audio_stopped_system_message':

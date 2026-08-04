@@ -52,6 +52,9 @@ import {
   setPendingPlayTime,
   getPendingPlayTimeSetAt,
   currentAudioBufferPcmBytes,
+  getTrackKeyFromItem,
+  isTrackFailed,
+  markTrackFailed,
   liveAudioBufferPcmBytes,
   setPendingRecoveryTarget,
 } from '../player/_state.ts';
@@ -67,6 +70,8 @@ import {
   resolveProRoomPlaylistFile,
 } from '../pro-room/media-hooks.ts';
 import { isGuestR2FileDelivery, recordGuestFileDelivery } from '../share/file-delivery-policy.ts';
+import { maybeAnnounceLargeLocalTrackWarning } from '../player/large-local-track-warning.ts';
+import { announceSystemMessageLocally } from '../chat/protocol.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
@@ -78,6 +83,13 @@ let rejectedMainSessionId = 0;
 let _filePrepareGeneration = 0;
 let lastTransferProgressSessionId = 0;
 let lastTransferProgressPercent = -1;
+
+function resetDecodeFailureCountForNewOccurrence(queueItemId: QueueItemId): void {
+  if (getState('transfer.meta')?.queueItemId !== queueItemId) {
+    setState('player.decodeFailureCount', 0);
+  }
+}
+
 const MAX_FILE_TOTAL = 200_000;
 
 function setActiveFileSessionOwner(sessionId: number, queueItemId: QueueItemId): void {
@@ -244,9 +256,15 @@ function tryAdmitMainReceive(data: Record<string, unknown>): boolean {
     bus.emit('player:stop-all-media', { cancelInFlight: true, clearBuffer: true });
     postCommand({ command: 'STORAGE_RESET', isPreload: false });
     setPlaybackIdle();
-    sendToHost({ type: MSG.GUEST_DECODE_FAILED, queueItemId });
+    setPendingPlayTime(undefined);
+    setPendingRecoveryTarget(null);
+    const trackKey = getTrackKeyFromItem(getQueueItemById(queueItemId));
+    if (!isTrackFailed(trackKey)) {
+      markTrackFailed(trackKey);
+      announceSystemMessageLocally('chat.device_track_unavailable_system_message');
+      sendToHost({ type: MSG.GUEST_DECODE_FAILED, queueItemId });
+    }
     showLoader(false);
-    showToast(t('error.load_failed', { msg: message }));
     return false;
   }
 }
@@ -322,6 +340,9 @@ function shouldSkipIncomingFile(data?: Record<string, unknown>): boolean {
 
   if (data && !queueItemId) return true;
   if (queueItemId && isProRoomPersistentPlaylistFile(queueItemId)) return true;
+  if (queueItemId && isTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)))) {
+    return true;
+  }
 
   const lifecycle = getState('playback.lifecycle');
 
@@ -715,6 +736,18 @@ export async function handleFilePrepare(
     return;
   }
 
+  maybeAnnounceLargeLocalTrackWarning(queueItemId, data.size);
+
+  // A decoder rejection is local to this device. Once this queue occurrence
+  // has definitively failed here, ignore host retries/seeks for the same bytes;
+  // the next queue occurrence will enter through the normal path.
+  if (isTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)))) {
+    completeAcceptedFileRequest(data, conn);
+    showLoader(false);
+    log.debug(`[Transfer] Ignoring FILE_PREPARE for locally unsupported ${queueItemId}`);
+    return;
+  }
+
   // New track arriving — reset the per-track decode failure counter so the
   // 2-strikes give-up logic in finalizeGuestFile starts fresh. Without this,
   // a guest who failed twice on track A would still have count=2 carried
@@ -742,7 +775,9 @@ export async function handleFilePrepare(
     return;
   }
 
-  setState('player.decodeFailureCount', 0);
+  // Preserve the first failure across a same-occurrence recovery transfer so
+  // a deterministic decoder rejection cannot loop forever at attempt one.
+  resetDecodeFailureCountForNewOccurrence(queueItemId);
 
   // Same-track replay needs to win before the remote-share branch. A remote
   // guest that already has the Blob should restart it locally, not enter
@@ -1165,6 +1200,14 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
 
   const incomingSid = data.sessionId as number;
   if (!Number.isSafeInteger(incomingSid) || incomingSid <= 0) return;
+  if (isTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)))) {
+    completeAcceptedFileRequest(data, conn);
+    clearManagedTimer('prepareWatchdog');
+    clearManagedTimer('chunkWatchdog');
+    showLoader(false);
+    log.debug(`[file-start] Ignoring locally unsupported ${queueItemId}`);
+    return;
+  }
   if (isGuestR2FileDelivery(queueItemId, incomingSid)) {
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
@@ -1268,6 +1311,9 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
     log.info('[file-start] Accepting same-session recovery resend');
   }
 
+  maybeAnnounceLargeLocalTrackWarning(queueItemId, data.size);
+  resetDecodeFailureCountForNewOccurrence(queueItemId);
+
   // RAM-only storage must own a bounded encoded lease before any state change
   // can make this session eligible to accept payload chunks.
   if (!tryAdmitMainReceive(data)) return;
@@ -1359,6 +1405,14 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
 
   const incomingSid = data.sessionId as number;
   if (!Number.isSafeInteger(incomingSid) || incomingSid <= 0) return;
+  if (isTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)))) {
+    completeAcceptedFileRequest(data, conn);
+    clearManagedTimer('prepareWatchdog');
+    clearManagedTimer('chunkWatchdog');
+    showLoader(false);
+    log.debug(`[file-resume] Ignoring locally unsupported ${queueItemId}`);
+    return;
+  }
   const localSid = getState('transfer.localSessionId');
 
   if (!incomingSid || incomingSid < localSid) return;
@@ -1387,6 +1441,9 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
     clearManagedTimer('chunkWatchdog');
     return;
   }
+
+  maybeAnnounceLargeLocalTrackWarning(queueItemId, data.size);
+  resetDecodeFailureCountForNewOccurrence(queueItemId);
 
   if (!tryAdmitMainReceive(data)) return;
   completeAcceptedFileRequest(data, conn);
@@ -1503,6 +1560,8 @@ function applyFileChunk(data: Record<string, unknown>): void {
   if (incomingSid > localSid) {
     const chunkName = (data.name as string) || '';
     if (chunkName) {
+      maybeAnnounceLargeLocalTrackWarning(queueItemId, data.size);
+      resetDecodeFailureCountForNewOccurrence(queueItemId);
       adoptIncomingTrackTarget(data);
       if (getState('playback.lifecycle') !== PLAYBACK_STATE.DOWNLOADING) {
         transition({

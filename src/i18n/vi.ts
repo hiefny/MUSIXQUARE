@@ -556,8 +556,6 @@ const vi: Record<I18nKey, string> = {
   'error.load_failed': 'Tải thất bại: {{msg}}',
   'error.audio_decode_fail': 'Giải mã âm thanh thất bại!',
   'error.audio_memory': 'Đang tải âm thanh vào bộ nhớ...',
-  'error.local_decode_wait':
-    'Thiết bị này không giải mã được mục này.\nVui lòng chờ mục tiếp theo.',
   'error.all_tracks_failed': 'Không có mục nào có thể phát trong danh sách.',
   'error.audio_engine_prepare': 'Không thể chuẩn bị bộ xử lý âm thanh',
   'error.session_create_fail': 'Không thể tạo phòng',
@@ -711,6 +709,9 @@ const vi: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'Đã đạt giới hạn yêu cầu BOT. Hãy thử lại sau {{duration}}',
   'chat.decode_skip_system_message':
     'Một số thiết bị không phát được mục này, đang chuyển sang mục tiếp theo',
+  'chat.large_local_track_system_message':
+    'Mục này có dung lượng rất lớn và có thể không phát được trên một số thiết bị.',
+  'chat.device_track_unavailable_system_message': 'Thiết bị này không thể phát mục hiện tại.',
   'chat.system_audio_started_system_message':
     'Chia sẻ âm thanh hệ thống đã bắt đầu. Độ trễ giữa host và người tham gia là bình thường, nên host hãy giảm âm lượng thiết bị nguồn càng nhiều càng tốt.',
   'chat.system_audio_stopped_system_message':

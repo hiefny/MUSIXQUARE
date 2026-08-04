@@ -32,7 +32,7 @@ export const PLAYBACK_STATE = {
   READY: 'READY', // decoded buffer loaded, waiting for PLAY
   PLAYING: 'PLAYING', // actively producing audio
   PAUSED: 'PAUSED', // decoded buffer present, not advancing
-  FAILED: 'FAILED', // native allocation/decode failure — awaiting host advance
+  FAILED: 'FAILED', // terminal allocation/decode failure for the current authority/device
 } as const;
 
 export type PlaybackStateValue = (typeof PLAYBACK_STATE)[keyof typeof PLAYBACK_STATE];
@@ -52,6 +52,14 @@ export const WATCHDOG_TIMEOUT = 12000; // 12s chunk watchdog
 
 /** Maximum authenticated whole-object size for standard-room remote sharing. */
 export const REMOTE_SHARE_MAX_BYTES = 200 * 1024 * 1024;
+
+/**
+ * Local files remain uncapped, but files above this encoded-size threshold
+ * receive a compatibility warning before decode. This is intentionally a UX
+ * threshold rather than an admission limit: decoded memory use depends on
+ * duration, channel count, codec, and the receiving device.
+ */
+export const LOCAL_LARGE_TRACK_WARNING_BYTES = 200 * 1024 * 1024;
 
 export const MAX_RECOVERY_RETRIES = 3;
 export const RECOVERY_BACKOFF = [2000, 5000, 10000] as const;

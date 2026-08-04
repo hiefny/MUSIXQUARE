@@ -404,6 +404,10 @@ const it: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'Limite di richieste BOT raggiunto. Riprova tra {{duration}}',
   'chat.decode_skip_system_message':
     'Alcuni dispositivi non possono riprodurre questa traccia. Passaggio alla traccia successiva.',
+  'chat.large_local_track_system_message':
+    'Il file di questa traccia è molto grande e potrebbe non essere riprodotto su alcuni dispositivi.',
+  'chat.device_track_unavailable_system_message':
+    'Questo dispositivo non riesce a riprodurre la traccia corrente.',
   'chat.system_audio_started_system_message':
     "La condivisione dell'audio di sistema è iniziata. Poiché è inevitabile un certo ritardo tra il gestore e gli ospiti, consigliamo al gestore di abbassare al minimo il volume del proprio dispositivo.",
   'chat.system_audio_stopped_system_message':
@@ -644,8 +648,6 @@ const it: Record<I18nKey, string> = {
   'error.load_failed': 'Caricamento fallito: {{msg}}',
   'error.audio_decode_fail': 'Decodifica audio fallita!',
   'error.audio_memory': "Caricamento dell'audio in memoria...",
-  'error.local_decode_wait':
-    'Questo dispositivo non è riuscito a decodificare la traccia.\nAttendi la traccia successiva.',
   'error.all_tracks_failed': 'Nessuna traccia riproducibile nella playlist.',
   'error.audio_engine_prepare': 'Impossibile avviare il motore audio',
   'error.session_create_fail': 'Impossibile creare la stanza',

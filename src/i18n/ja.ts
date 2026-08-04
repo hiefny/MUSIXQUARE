@@ -557,8 +557,6 @@ const ja: Record<I18nKey, string> = {
   'error.load_failed': '読み込み失敗: {{msg}}',
   'error.audio_decode_fail': 'オーディオのデコードに失敗しました！',
   'error.audio_memory': 'オーディオをメモリに読み込み中...',
-  'error.local_decode_wait':
-    'このデバイスではトラックをデコードできませんでした。\n次のトラック再生までお待ちください。',
   'error.all_tracks_failed': 'プレイリストに再生可能なトラックがありません。',
   'error.audio_engine_prepare': 'オーディオエンジンを準備できませんでした',
   'error.session_create_fail': 'ルームを作成できませんでした',
@@ -717,6 +715,10 @@ const ja: Record<I18nKey, string> = {
     'BOTのリクエスト上限に達しました。{{duration}}後にもう一度お試しください',
   'chat.decode_skip_system_message':
     '一部のデバイスで再生できないため、次のトラックへスキップします',
+  'chat.large_local_track_system_message':
+    'このトラックはファイルサイズが非常に大きいため、一部のデバイスでは再生できない場合があります。',
+  'chat.device_track_unavailable_system_message':
+    'このデバイスでは現在のトラックを再生できません。',
   'chat.system_audio_started_system_message':
     'システムオーディオの共有を開始しました。ホストと参加者の間には一定の遅延が発生するため、ハウリングを防ぐためにホストデバイスの音量をできるだけ下げてご使用ください。',
   'chat.system_audio_stopped_system_message':

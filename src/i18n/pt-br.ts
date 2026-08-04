@@ -570,8 +570,6 @@ const ptBr: Record<I18nKey, string> = {
   'error.load_failed': 'Falha ao carregar: {{msg}}',
   'error.audio_decode_fail': 'Falha ao decodificar áudio!',
   'error.audio_memory': 'Carregando áudio na memória...',
-  'error.local_decode_wait':
-    'Este dispositivo não conseguiu decodificar a faixa.\nAguarde a próxima faixa.',
   'error.all_tracks_failed': 'Não há faixas reproduzíveis na playlist.',
   'error.audio_engine_prepare': 'Não foi possível preparar o motor de áudio',
   'error.session_create_fail': 'Não foi possível criar a sala',
@@ -729,6 +727,10 @@ const ptBr: Record<I18nKey, string> = {
     'O limite de solicitações do BOT foi atingido. Tente novamente em {{duration}}',
   'chat.decode_skip_system_message':
     'Alguns dispositivos não conseguem reproduzir esta faixa. Pulando para a próxima.',
+  'chat.large_local_track_system_message':
+    'O arquivo desta faixa é muito grande e pode não ser reproduzido em alguns dispositivos.',
+  'chat.device_track_unavailable_system_message':
+    'Este dispositivo não consegue reproduzir a faixa atual.',
   'chat.system_audio_started_system_message':
     'Compartilhamento de áudio do sistema iniciado. Um pequeno atraso entre o host e os participantes é normal, então recomendamos baixar ao máximo o volume do dispositivo do host.',
   'chat.system_audio_stopped_system_message':

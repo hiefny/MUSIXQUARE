@@ -581,6 +581,29 @@ describe('handlePlayMsg orphaned-pipeline recovery', () => {
       expect.objectContaining({ type: MSG.REQUEST_CURRENT_FILE }),
     );
   });
+
+  it('does not reopen an occurrence this device already failed to decode', async () => {
+    const exactHostSend = vi.fn();
+    const hostConn = dataConnection('host-1', exactHostSend);
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'local');
+    setState('playlist.items', [playlistItem(QID_NEW, 'unsupported.flac', 'Unsupported')]);
+    setState('playlist.currentQueueItemId', QID_NEW);
+    setState('playback.lifecycle', PLAYBACK_STATE.FAILED);
+    const { markTrackFailed } = await import('../_state.ts');
+    markTrackFailed(`queue:${QID_NEW}`);
+
+    initPlayback();
+    await handleData(
+      { type: MSG.PLAY, time: 30, queueItemId: QID_NEW, name: 'unsupported.flac' },
+      hostConn,
+    );
+
+    expect(getPendingPlayTime()).toBeUndefined();
+    expect(exactHostSend).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.REQUEST_CURRENT_FILE }),
+    );
+  });
 });
 
 describe('updatePlayState', () => {

@@ -85,10 +85,10 @@ function createInitialState(): StateTree {
       isSeeking: false,
       isFirstTrackLoad: true,
       currentTrackMeta: null,
-      // Consecutive decode failures for the current track (reset on FILE_PREPARE).
-      // After 2 failures the guest gives up and signals host via GUEST_DECODE_FAILED
-      // instead of looping recovery → re-decode → fail forever. For example,
-      // iOS Safari cannot decode content mislabeled as mp4-as-mp3.
+      // Consecutive decode failures for the current queue occurrence. A
+      // same-occurrence recovery keeps the first strike; a new occurrence
+      // resets it. After 2 failures the device waits for the next room track
+      // instead of looping recovery → re-decode → fail forever.
       decodeFailureCount: 0,
     },
 

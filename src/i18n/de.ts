@@ -568,8 +568,6 @@ const de: Record<I18nKey, string> = {
   'error.load_failed': 'Laden fehlgeschlagen: {{msg}}',
   'error.audio_decode_fail': 'Audiodekodierung fehlgeschlagen!',
   'error.audio_memory': 'Audio wird in den Speicher geladen...',
-  'error.local_decode_wait':
-    'Dieses Gerät konnte den Titel nicht dekodieren.\nBitte auf den nächsten Titel warten.',
   'error.all_tracks_failed': 'Keine abspielbaren Titel in der Playlist.',
   'error.audio_engine_prepare': 'Audio-Engine konnte nicht vorbereitet werden',
   'error.session_create_fail': 'Raum konnte nicht erstellt werden',
@@ -726,6 +724,10 @@ const de: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'BOT-Anfragelimit erreicht. Bitte in {{duration}} erneut versuchen',
   'chat.decode_skip_system_message':
     'Titel wird übersprungen: Das Format wird auf einigen Geräten nicht unterstützt.',
+  'chat.large_local_track_system_message':
+    'Dieser Titel benötigt sehr viel Speicher und lässt sich möglicherweise nicht auf allen Geräten abspielen.',
+  'chat.device_track_unavailable_system_message':
+    'Dieses Gerät kann den aktuellen Titel nicht abspielen.',
   'chat.system_audio_started_system_message':
     'Systemaudio-Freigabe gestartet. Etwas Verzögerung zwischen Host und Teilnehmern ist normal, daher sollte der Host die Lautstärke des Quellgeräts möglichst weit senken.',
   'chat.system_audio_stopped_system_message':

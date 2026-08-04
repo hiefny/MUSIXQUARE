@@ -35,6 +35,8 @@ import {
 import {
   isCurrentLoadEpoch,
   getCurrentAudioBuffer,
+  getTrackKeyFromItem,
+  isTrackFailed,
   newLoadEpoch,
   setPendingRecoveryTarget,
   setPendingPlayTime,
@@ -206,6 +208,16 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
   const incomingItem = getQueueItemById(incomingQueueItemId);
   if (!incomingItem) {
     log.debug(`[Guest] PLAY ignored for unknown queue item: ${incomingQueueItemId}`);
+    return;
+  }
+
+  // A decoder failure on this device does not advance or interrupt the room.
+  // Ignore repeat/seek/recovery commands for the same unsupported occurrence
+  // and rejoin automatically when the host selects another queue item.
+  if (isTrackFailed(getTrackKeyFromItem(incomingItem))) {
+    setPendingPlayTime(undefined);
+    showLoader(false);
+    log.debug(`[Guest] PLAY ignored for locally unsupported ${incomingQueueItemId}`);
     return;
   }
 

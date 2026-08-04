@@ -565,8 +565,6 @@ const id: Record<I18nKey, string> = {
   'error.load_failed': 'Gagal memuat: {{msg}}',
   'error.audio_decode_fail': 'Gagal mendekode audio!',
   'error.audio_memory': 'Memuat audio ke memori...',
-  'error.local_decode_wait':
-    'Perangkat ini tidak dapat mendekode track.\nTunggu sampai track berikutnya.',
   'error.all_tracks_failed': 'Tidak ada track yang dapat diputar di playlist.',
   'error.audio_engine_prepare': 'Tidak dapat menyiapkan mesin audio',
   'error.session_create_fail': 'Tidak dapat membuat ruang',
@@ -721,6 +719,10 @@ const id: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'Batas permintaan BOT tercapai. Coba lagi dalam {{duration}}',
   'chat.decode_skip_system_message':
     'Beberapa perangkat tidak dapat memutar track ini. Beralih ke track berikutnya.',
+  'chat.large_local_track_system_message':
+    'Ukuran track ini sangat besar dan mungkin tidak dapat diputar di sebagian perangkat.',
+  'chat.device_track_unavailable_system_message':
+    'Perangkat ini tidak dapat memutar track saat ini.',
   'chat.system_audio_started_system_message':
     'Berbagi audio sistem dimulai. Sedikit jeda antara host dan peserta adalah wajar, jadi sebaiknya turunkan volume perangkat host sebisa mungkin agar tidak bergema.',
   'chat.system_audio_stopped_system_message':

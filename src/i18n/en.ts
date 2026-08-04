@@ -395,6 +395,9 @@ const en: Record<I18nKey, string> = {
   'chat.bot_added_and_playing': 'Tracks added by BOT: {{count}}. Playback started',
   'chat.bot_rate_limited': 'BOT request limit reached. Wait {{duration}} and try again',
   'chat.decode_skip_system_message': 'Skipping track: unsupported format on some devices.',
+  'chat.large_local_track_system_message':
+    'This track has a very large file size and may not play on some devices.',
+  'chat.device_track_unavailable_system_message': 'This device can’t play the current track.',
   'chat.system_audio_started_system_message':
     'System audio sharing has started. A slight latency between host and guest devices is normal. We recommend lowering the host device volume to avoid echoes.',
   'chat.system_audio_stopped_system_message':
@@ -624,8 +627,6 @@ const en: Record<I18nKey, string> = {
   'error.load_failed': 'Load Failed: {{msg}}',
   'error.audio_decode_fail': 'Audio decode failed!',
   'error.audio_memory': 'Loading audio into memory...',
-  'error.local_decode_wait':
-    "This device couldn't decode the track.\nPlease wait for the next track.",
   'error.all_tracks_failed': 'No playable tracks in the playlist.',
   'error.audio_engine_prepare': "Couldn't prepare the audio engine",
   'error.session_create_fail': "Couldn't create session",

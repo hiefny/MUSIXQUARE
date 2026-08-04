@@ -401,6 +401,10 @@ const pl: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'Osiągnięto limit żądań BOT. Spróbuj ponownie za {{duration}}',
   'chat.decode_skip_system_message':
     'Niektóre urządzenia nie mogły odtworzyć tego materiału. Przejście do kolejnego materiału...',
+  'chat.large_local_track_system_message':
+    'Plik tego materiału jest bardzo duży i może nie odtworzyć się na niektórych urządzeniach.',
+  'chat.device_track_unavailable_system_message':
+    'To urządzenie nie może odtworzyć bieżącego materiału.',
   'chat.system_audio_started_system_message':
     'Rozpoczęto udostępnianie dźwięku systemowego. Ponieważ opóźnienie między hostem a gośćmi jest nieuniknione, zalecamy hostowi maksymalne zmniejszenie głośności swojego urządzenia.',
   'chat.system_audio_stopped_system_message':
@@ -640,8 +644,6 @@ const pl: Record<I18nKey, string> = {
   'error.load_failed': 'Wczytywanie nie powiodło się: {{msg}}',
   'error.audio_decode_fail': 'Dekodowanie audio nie powiodło się!',
   'error.audio_memory': 'Wczytywanie dźwięku do pamięci...',
-  'error.local_decode_wait':
-    'To urządzenie nie mogło zdekodować materiału.\nOczekiwanie na kolejny materiał.',
   'error.all_tracks_failed': 'Brak odtwarzalnych materiałów na playliście.',
   'error.audio_engine_prepare': 'Nie można uruchomić silnika audio',
   'error.session_create_fail': 'Nie udało się utworzyć pokoju',

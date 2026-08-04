@@ -399,6 +399,10 @@ const nl: Record<I18nKey, string> = {
   'chat.bot_rate_limited':
     'Limiet voor BOT-verzoeken bereikt. Probeer het over {{duration}} opnieuw',
   'chat.decode_skip_system_message': 'Track overgeslagen: niet ondersteund op sommige apparaten.',
+  'chat.large_local_track_system_message':
+    'Deze track neemt erg veel ruimte in en kan mogelijk niet op alle apparaten worden afgespeeld.',
+  'chat.device_track_unavailable_system_message':
+    'Dit apparaat kan de huidige track niet afspelen.',
   'chat.system_audio_started_system_message':
     'Systeem-audio delen is gestart. Een kleine vertraging tussen host en gasten is normaal. Zet het volume van de host zo laag mogelijk om echo te voorkomen.',
   'chat.system_audio_stopped_system_message':
@@ -634,8 +638,6 @@ const nl: Record<I18nKey, string> = {
   'error.load_failed': 'Laden mislukt: {{msg}}',
   'error.audio_decode_fail': 'Audio decoderen mislukt!',
   'error.audio_memory': 'Audio in geheugen laden...',
-  'error.local_decode_wait':
-    'Dit apparaat kon de track niet decoderen.\nWacht op de volgende track.',
   'error.all_tracks_failed': 'Geen afspeelbare tracks in de afspeellijst.',
   'error.audio_engine_prepare': 'Audio-engine kon niet worden voorbereid',
   'error.session_create_fail': 'Sessie kon niet worden gemaakt',

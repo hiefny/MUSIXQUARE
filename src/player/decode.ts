@@ -41,8 +41,8 @@ import type {
 import { schedulePreload } from '../storage/preload.ts';
 import { broadcast, safeSend, sendToHost } from '../network/peer.ts';
 import { beginFileRequest, sendFileRequest } from '../network/file-request-authority.ts';
-import { broadcastSystemMessage } from '../chat/protocol.ts';
-import { registerHandlers, verifyOperator } from '../network/protocol.ts';
+import { announceSystemMessageLocally, broadcastSystemMessage } from '../chat/protocol.ts';
+import { registerHandlers } from '../network/protocol.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
 import { isSystemAudioActive } from '../audio/system-capture.ts';
 import {
@@ -81,6 +81,7 @@ import { showToast, showLoader } from '../ui/toast.ts';
 import { isProRoomPersistentPlaylistFile } from '../pro-room/media-hooks.ts';
 import { transition } from './lifecycle.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
+import { maybeAnnounceLargeLocalTrackWarning } from './large-local-track-warning.ts';
 import {
   assertBlobCanDecodeToAudioBuffer,
   assertDecodedAudioBufferWithinBudget,
@@ -283,6 +284,7 @@ export async function loadAndBroadcastFile(
   showLoader(true, t('toast.preparing', { name: file.name }));
   stopAllMedia({ silent: true });
   if (!isCurrentOwner()) return false;
+  maybeAnnounceLargeLocalTrackWarning(queueItemId, file.size);
 
   // Lifecycle: host has the file locally (no download phase). Transition
   // straight into DECODING so the subsequent transition(DECODE_SUCCESS)
@@ -448,15 +450,13 @@ export async function loadAndBroadcastFile(
 
 // ─── Host-Side Auto-Advance on Decode Failure ──────────────────────
 //
-// Called when a track fails to play — either the host's own decode failed in
-// loadAndBroadcastFile, or a guest reported decode failure via
-// MSG.GUEST_DECODE_FAILED (e.g. iOS Safari can't decode mp4-as-mp3 even
-// though host's Chrome can). Marks the track as failed and walks to the next
-// playable track via preloaded → shuffle → sequential priority. If no
-// playable track remains, returns to IDLE rather than leaving the UI stuck.
+// Called only when the authoritative standard-room host cannot decode its own
+// track. Guest decoder failures are device-local and never enter this advance
+// path. Marks the track as failed and walks to the next playable track via
+// preloaded → shuffle → sequential priority. If no playable track remains,
+// returns to IDLE rather than leaving the UI stuck.
 //
-// Caller must already be on host (hostConn=null) — this function does not
-// re-check, since both call sites have host-only guards.
+// Caller must already own host-side playback authority.
 export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: number): Promise<void> {
   const myLoadId = incrementLoadSessionId();
   const myEpoch = loadEpoch ?? getCurrentLoadEpoch();
@@ -641,14 +641,24 @@ function markFailedAndAdvance(failedQueueItemId: QueueItemId): void {
   );
 }
 
-// Guest decoders can reject a track the host can play. An operator report may
-// advance immediately; non-operator reports require two connected peers so a
-// single guest cannot turn a decode report into room-wide skip control. Stale
-// and duplicate reports are ignored. In a single-guest room the host therefore
-// continues until an operator skips or the track ends.
-const NON_OP_DECODE_FAILURE_QUORUM = 2;
+function markDeviceTrackUnavailable(queueItemId: QueueItemId): void {
+  // A terminal device-local rejection owns neither the failed occurrence's
+  // pending position nor its recovery target. Keeping either would let a
+  // PREPARE-lost successor inherit stale playback intent.
+  setPendingPlayTime(undefined);
+  setPendingRecoveryTarget(null);
+  const key = getTrackKeyFromItem(getQueueItemById(queueItemId));
+  if (isTrackFailed(key)) return;
+  markTrackFailed(key);
+  announceSystemMessageLocally('chat.device_track_unavailable_system_message');
+  sendToHost({ type: MSG.GUEST_DECODE_FAILED, queueItemId });
+}
+
+// Guest decoders can reject a track the host can play. That is a device-local
+// capability failure, not room-wide skip authority: reports inform the host and
+// operators, while the affected device waits for the next track. Only a decode
+// failure on the authoritative host itself advances the room.
 const _reportedDecodeFailures = new Map<QueueItemId, Set<string>>();
-const _advancedGuestDecodeFailureTracks = new Set<QueueItemId>();
 
 function getConnectedDecodeReporter(peerId: string) {
   return getState('network.connectedPeers').find(
@@ -666,17 +676,7 @@ function rememberDecodeFailureReport(peerId: string, queueItemId: QueueItemId): 
   return reports;
 }
 
-function countConnectedNonOpDecodeReports(reports: Set<string>): number {
-  const peers = getState('network.connectedPeers');
-  let count = 0;
-  for (const peer of peers) {
-    if (peer.status !== 'connected' || peer.isOp || !reports.has(peer.id)) continue;
-    count += 1;
-  }
-  return count;
-}
-
-function notifyOperatorsOfHeldDecodeFailure(): void {
+function notifyOperatorsOfDeviceDecodeFailure(): void {
   const text = t('toast.remote_decode_device_wait');
   showToast(text);
   for (const peer of getState('network.connectedPeers')) {
@@ -687,12 +687,6 @@ function notifyOperatorsOfHeldDecodeFailure(): void {
       i18nKey: 'toast.remote_decode_device_wait',
     });
   }
-}
-
-function advanceFromGuestDecodeFailure(queueItemId: QueueItemId): void {
-  if (_advancedGuestDecodeFailureTracks.has(queueItemId)) return;
-  _advancedGuestDecodeFailureTracks.add(queueItemId);
-  markFailedAndAdvance(queueItemId);
 }
 
 function handleGuestDecodeFailed(data: Record<string, unknown>, conn: DataConnection): void {
@@ -719,24 +713,10 @@ function handleGuestDecodeFailed(data: Record<string, unknown>, conn: DataConnec
     return;
   }
   const reports = rememberDecodeFailureReport(peerId, queueItemId);
-
-  if (verifyOperator(conn, data)) {
-    log.info(`[Decode] OP reported decode failure for ${queueItemId}; advancing room`);
-    advanceFromGuestDecodeFailure(queueItemId);
-    return;
-  }
-
-  const nonOpReports = countConnectedNonOpDecodeReports(reports);
-  if (nonOpReports < NON_OP_DECODE_FAILURE_QUORUM) {
-    log.warn(
-      `[Decode] Holding non-OP decode-failed for ${queueItemId}: ${nonOpReports}/${NON_OP_DECODE_FAILURE_QUORUM} reports`,
-    );
-    notifyOperatorsOfHeldDecodeFailure();
-    return;
-  }
-
-  log.info(`[Decode] Non-OP decode failure quorum reached for ${queueItemId}; advancing room`);
-  advanceFromGuestDecodeFailure(queueItemId);
+  log.warn(
+    `[Decode] ${peer.isOp ? 'Operator' : 'Guest'} ${peerId} cannot decode ${queueItemId}; room playback continues`,
+  );
+  if (reports.size === 1) notifyOperatorsOfDeviceDecodeFailure();
 }
 
 export function initDecodeHandlers(): void {
@@ -746,7 +726,6 @@ export function initDecodeHandlers(): void {
 
   bus.on('state:playlist.currentQueueItemId', () => {
     _reportedDecodeFailures.clear();
-    _advancedGuestDecodeFailureTracks.clear();
   });
 }
 
@@ -905,6 +884,8 @@ export async function loadPreloadedTrack(
       }
       return false;
     }
+
+    maybeAnnounceLargeLocalTrackWarning(queueItemId, localBlob.size);
 
     if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
 
@@ -1080,7 +1061,6 @@ export async function loadPreloadedTrack(
     log.error('[Preload] Activation failed:', error);
     showLoader(false);
     transition({ type: 'DECODE_ERROR' });
-    showToast(t('transfer.preload_fail'));
 
     if (getState('preload.ready') === ready) {
       batchSetState({
@@ -1095,14 +1075,14 @@ export async function loadPreloadedTrack(
 
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
+      showToast(t('transfer.preload_fail'));
       markFailedAndAdvance(queueItemId);
       return false;
     }
 
     const memoryLimited = isAudioDecodeAdmissionError(error);
     if (memoryLimited) {
-      markTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)));
-      sendToHost({ type: MSG.GUEST_DECODE_FAILED, queueItemId });
+      markDeviceTrackUnavailable(queueItemId);
       return false;
     }
 
@@ -1110,11 +1090,11 @@ export async function loadPreloadedTrack(
     setState('player.decodeFailureCount', failureCount);
     if (failureCount >= 2) {
       log.warn('[Preload] Activation failed twice for the same queue item');
-      markTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)));
-      sendToHost({ type: MSG.GUEST_DECODE_FAILED, queueItemId });
+      markDeviceTrackUnavailable(queueItemId);
       return false;
     }
 
+    showToast(t('transfer.preload_fail'));
     requestFreshQueueItem(queueItemId, 'preload_activation_failed');
     return false;
   }
@@ -1242,6 +1222,7 @@ export async function finalizeGuestFile(
   };
 
   showLoader(true, t('error.audio_memory'));
+  maybeAnnounceLargeLocalTrackWarning(queueItemId, file.size);
 
   try {
     await initAudio();
@@ -1378,9 +1359,11 @@ export async function finalizeGuestFile(
     setState('player.decodeFailureCount', failureCount);
 
     if (memoryLimited || failureCount >= 2) {
-      showToast(t('error.local_decode_wait'));
-      markTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)));
-      sendToHost({ type: MSG.GUEST_DECODE_FAILED, queueItemId });
+      // The Blob and its encoded-byte admission are no longer useful on this
+      // device. Release them before waiting for the next room track so a large
+      // incompatible file does not prolong the same memory pressure.
+      postCommand({ command: 'STORAGE_RESET', isPreload: false });
+      markDeviceTrackUnavailable(queueItemId);
       return;
     }
 

@@ -397,6 +397,9 @@ const tr: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'BOT istek sınırına ulaşıldı. {{duration}} sonra tekrar deneyin',
   'chat.decode_skip_system_message':
     'Bazı cihazlar medyayı çözemediğinden sonraki medyaya geçiliyor',
+  'chat.large_local_track_system_message':
+    'Bu medyanın boyutu çok büyük, bu yüzden bazı cihazlarda oynatılamayabilir.',
+  'chat.device_track_unavailable_system_message': 'Bu cihaz mevcut medyayı oynatamıyor.',
   'chat.system_audio_started_system_message':
     'Sistem sesi paylaşımı başladı. Oda sahibi ile misafir cihazlar arasında hafif bir gecikme olması normaldir. Yankıyı önlemek için oda sahibinin cihaz sesini kısması önerilir.',
   'chat.system_audio_stopped_system_message':
@@ -633,7 +636,6 @@ const tr: Record<I18nKey, string> = {
   'error.load_failed': 'Yüklenemedi: {{msg}}',
   'error.audio_decode_fail': 'Ses kodu çözme hatası!',
   'error.audio_memory': 'Ses belleğe yükleniyor...',
-  'error.local_decode_wait': 'Bu cihaz medyayı çözemedi.\nLütfen bir sonraki medyayı bekleyin.',
   'error.all_tracks_failed': 'Çalma listesinde oynatılabilecek medya bulunmuyor.',
   'error.audio_engine_prepare': 'Ses motoru başlatılamadı',
   'error.session_create_fail': 'Oda oluşturulamadı',

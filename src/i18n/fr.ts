@@ -569,8 +569,6 @@ const fr: Record<I18nKey, string> = {
   'error.load_failed': 'Échec du chargement : {{msg}}',
   'error.audio_decode_fail': 'Échec du décodage audio !',
   'error.audio_memory': 'Chargement de l’audio en mémoire...',
-  'error.local_decode_wait':
-    'Cet appareil n’a pas pu décoder la piste.\nVeuillez attendre la piste suivante.',
   'error.all_tracks_failed': 'Aucune piste lisible dans la playlist.',
   'error.audio_engine_prepare': 'Impossible de préparer le moteur audio',
   'error.session_create_fail': 'Impossible de créer la salle',
@@ -730,6 +728,10 @@ const fr: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'Limite de requêtes BOT atteinte. Réessayez dans {{duration}}',
   'chat.decode_skip_system_message':
     'Piste ignorée : format non pris en charge sur certains appareils.',
+  'chat.large_local_track_system_message':
+    'Cette piste est très volumineuse et risque de ne pas être lue sur certains appareils.',
+  'chat.device_track_unavailable_system_message':
+    'Cet appareil ne peut pas lire la piste en cours.',
   'chat.system_audio_started_system_message':
     'Le partage audio système a démarré. Une légère latence entre l’hôte et les invités est normale. Nous recommandons de baisser le volume de l’appareil de l’hôte pour éviter les échos.',
   'chat.system_audio_stopped_system_message':

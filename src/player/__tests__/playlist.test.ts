@@ -2154,9 +2154,9 @@ describe('late-join playlist bootstrap', () => {
   });
 });
 
-describe('decode-fail advance respects end-of-playlist (mode parity)', () => {
-  // Guest-reported and host decode failures share the same advance path, so
-  // the guest report pins repeat-mode behavior at the end of the playlist.
+describe('device-local decode failures preserve room playback', () => {
+  // Only a decode failure on the authoritative host may advance the room.
+  // Guest and operator reports are informational under every repeat mode.
   function setupOpReporter(): ReturnType<typeof vi.fn> {
     const send = vi.fn();
     const conn = { peer: 'guest-op', open: true, send } as unknown as DataConnection;
@@ -2169,7 +2169,7 @@ describe('decode-fail advance respects end-of-playlist (mode parity)', () => {
     return send;
   }
 
-  it('repeat OFF: last-track failure ends the playlist instead of wrapping to track 0', async () => {
+  it('repeat OFF: an operator device failure does not end the playlist', async () => {
     vi.useFakeTimers();
     const send = setupOpReporter();
     setRepeatMode(0, false);
@@ -2184,13 +2184,13 @@ describe('decode-fail advance respects end-of-playlist (mode parity)', () => {
     );
     await vi.advanceTimersByTimeAsync(700);
 
-    expect(getState('playlist.currentQueueItemId')).toBeNull();
-    expect(send).toHaveBeenCalledWith(
+    expect(currentIndex()).toBe(2);
+    expect(send).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.PAUSE, endOfPlaylist: true }),
     );
   });
 
-  it('repeat ALL: last-track failure still wraps the advance to track 0', async () => {
+  it('repeat ALL: an operator device failure does not wrap the playlist', async () => {
     vi.useFakeTimers();
     setupOpReporter();
     setRepeatMode(1, false);
@@ -2205,7 +2205,7 @@ describe('decode-fail advance respects end-of-playlist (mode parity)', () => {
     );
     await vi.advanceTimersByTimeAsync(700);
 
-    expect(currentIndex()).toBe(0);
+    expect(currentIndex()).toBe(2);
   });
 });
 

@@ -37,6 +37,124 @@ type ConnectionType = 'local' | 'remote' | 'unknown';
 let _hostReportedConnectionType: ConnectionType | null = null;
 const _handledConnectionErrors = new WeakSet<DataConnection>();
 
+// Some PeerJS adapters can emit the host's first data frames before their
+// guest-side `open` callback. Keep that ordered bootstrap window bounded, and
+// publish it only after this exact connection becomes network.hostConn.
+const PRE_OPEN_INBOUND_FRAME_LIMIT = 64;
+const PRE_OPEN_INBOUND_BYTE_LIMIT = 512 * 1024;
+const PRE_OPEN_INBOUND_MAX_DEPTH = 24;
+const PRE_OPEN_INBOUND_MAX_NODES = 16_384;
+const _preOpenTextEncoder = new TextEncoder();
+
+interface PendingGuestInboundFrame {
+  frame: Readonly<Record<string, unknown>>;
+  bytes: number;
+}
+
+interface PendingGuestInbound {
+  epoch: number;
+  conn: DataConnection;
+  frames: PendingGuestInboundFrame[];
+  bytes: number;
+}
+
+let _pendingGuestInbound: PendingGuestInbound | null = null;
+
+interface PreOpenEstimateContext {
+  seen: WeakSet<object>;
+  nodes: number;
+}
+
+function clearPendingGuestInbound(epoch?: number, conn?: DataConnection): void {
+  const pending = _pendingGuestInbound;
+  if (!pending) return;
+  if (epoch !== undefined && pending.epoch !== epoch) return;
+  if (conn !== undefined && pending.conn !== conn) return;
+  pending.frames.length = 0;
+  pending.bytes = 0;
+  _pendingGuestInbound = null;
+}
+
+function takePendingGuestInbound(epoch: number, conn: DataConnection): PendingGuestInboundFrame[] {
+  const pending = _pendingGuestInbound;
+  if (!pending || pending.epoch !== epoch || pending.conn !== conn) return [];
+  _pendingGuestInbound = null;
+  return pending.frames;
+}
+
+function estimatePreOpenInboundBytes(
+  value: unknown,
+  remaining: number,
+  depth: number,
+  context: PreOpenEstimateContext,
+): number | null {
+  if (remaining < 0 || depth > PRE_OPEN_INBOUND_MAX_DEPTH) return null;
+  if (value === null) return 4;
+  if (typeof value === 'string') {
+    const bytes = _preOpenTextEncoder.encode(value).byteLength;
+    return bytes <= remaining ? bytes : null;
+  }
+  if (typeof value === 'number') return remaining >= 8 ? 8 : null;
+  if (typeof value === 'boolean') return remaining >= 4 ? 4 : null;
+  if (value === undefined) return remaining >= 1 ? 1 : null;
+  if (typeof value !== 'object') return null;
+
+  if (value instanceof ArrayBuffer) {
+    return value.byteLength <= remaining ? value.byteLength : null;
+  }
+  if (ArrayBuffer.isView(value)) {
+    return value.byteLength <= remaining ? value.byteLength : null;
+  }
+  if (typeof Blob !== 'undefined' && value instanceof Blob) {
+    return value.size <= remaining ? value.size : null;
+  }
+
+  if (context.seen.has(value)) return null;
+  context.seen.add(value);
+  context.nodes++;
+  if (context.nodes > PRE_OPEN_INBOUND_MAX_NODES) return null;
+
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null && !Array.isArray(value)) return null;
+
+  let bytes = Array.isArray(value) ? 8 : 16;
+  if (bytes > remaining) return null;
+  for (const [key, child] of Object.entries(value)) {
+    const keyBytes = _preOpenTextEncoder.encode(key).byteLength + 4;
+    if (bytes + keyBytes > remaining) return null;
+    bytes += keyBytes;
+    const childBytes = estimatePreOpenInboundBytes(child, remaining - bytes, depth + 1, context);
+    if (childBytes === null || bytes + childBytes > remaining) return null;
+    bytes += childBytes;
+  }
+  return bytes;
+}
+
+function snapshotPreOpenInboundFrame(data: unknown): PendingGuestInboundFrame | null {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  if (typeof (data as Record<string, unknown>).type !== 'string') return null;
+
+  try {
+    const bytes = estimatePreOpenInboundBytes(data, PRE_OPEN_INBOUND_BYTE_LIMIT, 0, {
+      seen: new WeakSet<object>(),
+      nodes: 0,
+    });
+    if (bytes === null) return null;
+    // Unlike JSON cloning, structuredClone preserves ArrayBuffer, typed-array,
+    // Blob, and File payloads used by file bootstrap frames. Older Safari
+    // keeps the already-decoded event payload by reference; inbound handlers
+    // treat frames as immutable and the bounded queue owns that reference only
+    // until the open callback drains it.
+    const frame = (typeof structuredClone === 'function' ? structuredClone(data) : data) as Record<
+      string,
+      unknown
+    >;
+    return { frame: Object.freeze(frame), bytes };
+  } catch {
+    return null;
+  }
+}
+
 function asConnectionType(value: unknown): ConnectionType | null {
   return value === 'local' || value === 'remote' || value === 'unknown' ? value : null;
 }
@@ -92,6 +210,7 @@ function reportGuestConnectionFailure(error: unknown): void {
 
 /** Invalidate every callback/timer owned by the current provisional join. */
 export function invalidateGuestJoinAttempt(): void {
+  clearPendingGuestInbound();
   _guestJoinEpoch++;
 }
 
@@ -101,6 +220,7 @@ function isCurrentGuestJoin(epoch: number): boolean {
 
 function terminateGuestJoin(epoch: number): boolean {
   if (!isCurrentGuestJoin(epoch)) return false;
+  clearPendingGuestInbound(epoch);
   _guestJoinEpoch++;
   clearManagedTimer('join-timeout');
   clearManagedTimer('join-retry');
@@ -150,6 +270,7 @@ export function joinSession(
     return;
   }
 
+  if (retryAttempt === 0) clearPendingGuestInbound();
   const joinEpoch = retryAttempt === 0 ? ++_guestJoinEpoch : (ownerEpoch ?? _guestJoinEpoch);
   if (!isCurrentGuestJoin(joinEpoch)) return;
 
@@ -244,6 +365,7 @@ export function joinSession(
   // callback has completed.
   let dataChannelOpened = false;
   let connectionEstablished = false;
+  _pendingGuestInbound = { epoch: joinEpoch, conn, frames: [], bytes: 0 };
 
   const completeConnection = (): void => {
     if (
@@ -284,7 +406,36 @@ export function joinSession(
   };
 
   conn.on('data', (data: unknown) => {
-    if (!isCurrentGuestJoin(joinEpoch)) return;
+    if (!isCurrentGuestJoin(joinEpoch)) {
+      clearPendingGuestInbound(joinEpoch, conn);
+      return;
+    }
+    if (!dataChannelOpened) {
+      const pending = _pendingGuestInbound;
+      const snapshot = snapshotPreOpenInboundFrame(data);
+      if (
+        !pending ||
+        pending.epoch !== joinEpoch ||
+        pending.conn !== conn ||
+        !snapshot ||
+        pending.frames.length >= PRE_OPEN_INBOUND_FRAME_LIMIT ||
+        pending.bytes + snapshot.bytes > PRE_OPEN_INBOUND_BYTE_LIMIT
+      ) {
+        if (!terminateGuestJoin(joinEpoch)) return;
+        log.warn('[Join] Invalid or excessive data received before connection open');
+        try {
+          conn.close();
+        } catch {
+          /* noop */
+        }
+        setState('network.isConnecting', false);
+        reportGuestConnectionFailure(new Error('HOST_CONNECTION_ERROR'));
+        return;
+      }
+      pending.frames.push(snapshot);
+      pending.bytes += snapshot.bytes;
+      return;
+    }
     processInboundData(data);
   });
   conn.on('error', handlePreOpenError);
@@ -312,6 +463,7 @@ export function joinSession(
 
   conn.on('open', () => {
     if (!isCurrentGuestJoin(joinEpoch)) {
+      clearPendingGuestInbound(joinEpoch, conn);
       try {
         conn.close();
       } catch {
@@ -388,6 +540,27 @@ export function joinSession(
         reportGuestConnectionFailure(new Error('HOST_CONNECTION_ERROR'));
       }
     });
+
+    // Preserve the host's initial wire order. WELCOME and the playlist/effect
+    // bootstrap can all arrive before this callback on fast or resumed data
+    // channels. They must pass through the same exact-connection trust gate as
+    // ordinary post-open frames.
+    const pendingFrames = takePendingGuestInbound(joinEpoch, conn);
+    for (const { frame } of pendingFrames) {
+      if (!isCurrentGuestJoin(joinEpoch) || getState('network.hostConn') !== conn || !conn.open) {
+        break;
+      }
+      processInboundData(frame);
+    }
+
+    if (
+      !isCurrentGuestJoin(joinEpoch) ||
+      getState('network.hostConn') !== conn ||
+      !conn.open ||
+      getState('network.isIntentionalDisconnect')
+    ) {
+      return;
+    }
 
     completeConnection();
 

@@ -168,6 +168,7 @@ test.describe('Chat Commands', () => {
         const text = container.textContent || '';
         return text.includes('frozen') || text.includes('동결');
       },
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -196,6 +197,7 @@ test.describe('Chat Commands', () => {
         const text = container.textContent || '';
         return text.includes('frozen') || text.includes('동결');
       },
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -208,6 +210,7 @@ test.describe('Chat Commands', () => {
         const text = container.textContent || '';
         return text.includes('unfrozen') || text.includes('해제');
       },
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -230,6 +233,7 @@ test.describe('Chat Commands', () => {
         const text = container.textContent || '';
         return text.includes('frozen') || text.includes('동결');
       },
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -253,6 +257,7 @@ test.describe('Chat Commands', () => {
         const input = document.getElementById('chat-input') as HTMLElement | null;
         return input?.contentEditable === 'false';
       },
+      undefined,
       { timeout: 10000 },
     );
     const isDisabled = await isChatInputDisabled(pair.guestPage);
@@ -266,6 +271,7 @@ test.describe('Chat Commands', () => {
         const input = document.getElementById('chat-input') as HTMLElement | null;
         return input?.contentEditable === 'true';
       },
+      undefined,
       { timeout: 10000 },
     );
 
@@ -301,6 +307,7 @@ test.describe('Chat Commands', () => {
         const text = container.innerText || '';
         return !text.includes('Message A') && !text.includes('Message B');
       },
+      undefined,
       { timeout: 10_000 },
     );
 
@@ -389,6 +396,7 @@ test.describe('Chat Commands', () => {
         const text = (container.textContent || '').toLowerCase();
         return text.includes('slow') || text.includes('슬로우');
       },
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -423,6 +431,7 @@ test.describe('Chat Commands', () => {
         if (!container) return false;
         return (container.innerText || '').length > 10;
       },
+      undefined,
       { timeout: 10_000 },
     );
 
@@ -456,6 +465,7 @@ test.describe('Chat Commands', () => {
         if (!container) return false;
         return (container.innerText || '').length > 0;
       },
+      undefined,
       { timeout: 10_000 },
     );
 
@@ -512,6 +522,7 @@ test.describe('Chat Commands', () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         return get ? get('network.isOperator') === true : false;
       },
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -523,6 +534,7 @@ test.describe('Chat Commands', () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         return get ? get('network.isOperator') === false : false;
       },
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -551,16 +563,8 @@ test.describe('Chat Commands', () => {
     expect(guestHasHelpChat).toBe(false);
   });
 
-  test('/freeze + late-join guest cannot chat', async ({ browser }) => {
-    // Setup host only
-    const hostContext = await browser.newContext({
-      permissions: ['clipboard-read', 'clipboard-write'],
-    });
-    const hostPage = await hostContext.newPage();
-
-    // Inject PeerJS config
-    const { injectPeerServer } = await import('./helpers/peer-server.ts');
-    await injectPeerServer(hostPage);
+  test('/freeze + late-join guest cannot chat', async () => {
+    const { hostPage, guestPage } = pair;
     await hostPage.goto('/');
 
     // Setup host and get code
@@ -579,15 +583,11 @@ test.describe('Chat Commands', () => {
         const text = container.textContent || '';
         return text.includes('frozen') || text.includes('동결');
       },
+      undefined,
       { timeout: 15_000 },
     );
 
-    // Now create guest and join
-    const guestContext = await browser.newContext({
-      permissions: ['clipboard-read', 'clipboard-write'],
-    });
-    const guestPage = await guestContext.newPage();
-    await injectPeerServer(guestPage);
+    // The second pre-created context remains disconnected until after freeze.
     await guestPage.goto('/');
 
     const { setupGuest } = await import('./helpers/setup-flow.ts');
@@ -600,6 +600,7 @@ test.describe('Chat Commands', () => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
         return get ? get('network.chatFrozen') === true : false;
       },
+      undefined,
       { timeout: 15_000 },
     );
 
@@ -612,10 +613,6 @@ test.describe('Chat Commands', () => {
 
     const hostText = await getChatText(hostPage);
     expect(hostText).not.toContain('Late join frozen');
-
-    // Cleanup
-    await guestContext.close();
-    await hostContext.close();
   });
 
   test('target resolution works by both #number and nickname', async () => {
@@ -638,6 +635,7 @@ test.describe('Chat Commands', () => {
         const bubbles = container.querySelectorAll('.chat-bubble.system, .chat-bubble.notice');
         return bubbles.length >= 2;
       },
+      undefined,
       { timeout: 10_000 },
     );
     hostText = await getChatText(pair.hostPage);

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import { MSG } from '../../core/constants.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { DataConnection, PeerInstance } from '../../types/index.ts';
 import { registerProRoomSignalingEpochAdvanceHandler } from '../../pro-room/lifecycle-hook.ts';
@@ -43,7 +44,13 @@ vi.mock('../sync-worker.ts', async (importOriginal) => {
   };
 });
 
-import { invalidateGuestJoinAttempt, joinSession, setInitNetwork } from '../guest.ts';
+import {
+  initGuestProtocolHandlers,
+  invalidateGuestJoinAttempt,
+  joinSession,
+  setInitNetwork,
+} from '../guest.ts';
+import { initProtocol } from '../protocol.ts';
 
 type FiringConn = DataConnection & {
   fire: (event: string, ...args: unknown[]) => void;
@@ -102,6 +109,127 @@ afterEach(() => {
 });
 
 describe('joinSession reconnect racing', () => {
+  it('replays pre-open WELCOME and binary bootstrap frames in exact wire order', async () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const inbound: unknown[] = [];
+    bus.on('network:data', (data: unknown) => inbound.push(data));
+    initGuestProtocolHandlers();
+    initProtocol();
+
+    joinSession('HOST01');
+    const conn = conns[0];
+    const chunk = new Uint8Array([7, 11, 13, 17]);
+    conn.fire('data', {
+      type: MSG.WELCOME,
+      label: 'Late guest',
+      chatFrozen: true,
+      slowmodeSeconds: 7,
+      filterEnabled: true,
+    });
+    conn.fire('data', {
+      type: MSG.FILE_CHUNK,
+      chunk,
+      chunkIndex: 0,
+      queueItemId: '00000000-0000-4000-8000-000000000001',
+      sessionId: 1,
+      name: 'bootstrap.mp3',
+      total: 1,
+      size: chunk.byteLength,
+    });
+
+    expect(inbound).toEqual([]);
+    expect(getState('network.chatFrozen')).toBe(false);
+
+    conn.fire('open');
+    await Promise.resolve();
+
+    expect(inbound.map((frame) => (frame as { type: string }).type)).toEqual([
+      MSG.WELCOME,
+      MSG.FILE_CHUNK,
+    ]);
+    expect((inbound[1] as { chunk: Uint8Array }).chunk).toBeInstanceOf(Uint8Array);
+    expect([...(inbound[1] as { chunk: Uint8Array }).chunk]).toEqual([7, 11, 13, 17]);
+    expect(getState('network.chatFrozen')).toBe(true);
+    expect(getState('network.slowmodeSeconds')).toBe(7);
+    expect(getState('network.filterEnabled')).toBe(true);
+  });
+
+  it('does not announce a connected guest after a buffered terminal frame closes the join', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const successes = vi.fn();
+    const sessionFull = vi.fn();
+    bus.on('setup:guest-join-success', successes);
+    bus.on('network:session-full', sessionFull);
+    initGuestProtocolHandlers();
+    initProtocol();
+
+    joinSession('HOST01');
+    const conn = conns[0];
+    conn.fire('data', {
+      type: MSG.SESSION_FULL,
+      message: 'Room is full',
+    });
+    conn.fire('open');
+
+    expect(sessionFull).toHaveBeenCalledWith('Room is full');
+    expect(conn.close).toHaveBeenCalledOnce();
+    expect(getState('network.hostConn')).toBeNull();
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(successes).not.toHaveBeenCalled();
+  });
+
+  it('discards one cancelled connection buffer and only drains its exact replacement', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const inbound: unknown[] = [];
+    bus.on('network:data', (data: unknown) => inbound.push(data));
+
+    joinSession('HOST01');
+    const cancelled = conns[0];
+    cancelled.fire('data', { type: MSG.WELCOME, label: 'cancelled' });
+    invalidateGuestJoinAttempt();
+    setState('network.isConnecting', false);
+
+    joinSession('HOST02');
+    const replacement = conns[1];
+    replacement.fire('data', { type: MSG.WELCOME, label: 'replacement' });
+    cancelled.fire('open');
+    replacement.fire('open');
+
+    expect(cancelled.close).toHaveBeenCalledOnce();
+    expect(inbound).toEqual([{ type: MSG.WELCOME, label: 'replacement' }]);
+    expect(getState('network.hostConn')).toBe(replacement);
+  });
+
+  it('fails closed without publishing when the bounded pre-open FIFO overflows', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const inbound = vi.fn();
+    const errors = vi.fn();
+    const successes = vi.fn();
+    bus.on('network:data', inbound);
+    bus.on('network:error', errors);
+    bus.on('setup:guest-join-success', successes);
+
+    joinSession('HOST01');
+    const conn = conns[0];
+    for (let index = 0; index < 65; index++) {
+      conn.fire('data', { type: MSG.WELCOME, label: `frame-${index}` });
+    }
+
+    expect(conn.close).toHaveBeenCalledOnce();
+    expect(getState('network.isConnecting')).toBe(false);
+    expect(errors).toHaveBeenCalledOnce();
+    expect((errors.mock.calls[0][0] as Error).message).toBe('HOST_CONNECTION_ERROR');
+
+    conn.fire('open');
+    expect(inbound).not.toHaveBeenCalled();
+    expect(successes).not.toHaveBeenCalled();
+    expect(getState('network.hostConn')).toBeNull();
+  });
+
   it('requests shared-clock calibration immediately when the active host connection opens', () => {
     const { peer, conns } = makeFakePeer();
     mocks.getPeer.mockReturnValue(peer);
@@ -318,11 +446,14 @@ describe('joinSession reconnect racing', () => {
     mocks.getPeer.mockReturnValue(peer);
     const errors = vi.fn();
     const successes = vi.fn();
+    const inbound = vi.fn();
     bus.on('network:error', errors);
     bus.on('setup:guest-join-success', successes);
+    bus.on('network:data', inbound);
 
     joinSession('HOST01');
     const conn = conns[0];
+    conn.fire('data', { type: MSG.WELCOME, label: 'must-be-discarded' });
 
     vi.advanceTimersByTime(9_999);
     expect(errors).not.toHaveBeenCalled();
@@ -340,6 +471,7 @@ describe('joinSession reconnect racing', () => {
     expect(getState('network.hostConn')).toBeNull();
     expect(getState('network.isConnecting')).toBe(false);
     expect(successes).not.toHaveBeenCalled();
+    expect(inbound).not.toHaveBeenCalled();
   });
 
   it('does not revive a join when open arrives after a pre-open error', async () => {
@@ -348,11 +480,14 @@ describe('joinSession reconnect racing', () => {
     mocks.getPeer.mockReturnValue(peer);
     const errors = vi.fn();
     const successes = vi.fn();
+    const inbound = vi.fn();
     bus.on('network:error', errors);
     bus.on('setup:guest-join-success', successes);
+    bus.on('network:data', inbound);
 
     joinSession('HOST01');
     const conn = conns[0];
+    conn.fire('data', { type: MSG.WELCOME, label: 'must-be-discarded' });
     conn.fire('error', new Error('pre-open failed'));
 
     expect(getState('network.isConnecting')).toBe(false);
@@ -364,6 +499,7 @@ describe('joinSession reconnect racing', () => {
     expect(getState('network.hostConn')).toBeNull();
     expect(errors).toHaveBeenCalledTimes(1);
     expect(successes).not.toHaveBeenCalled();
+    expect(inbound).not.toHaveBeenCalled();
   });
 });
 

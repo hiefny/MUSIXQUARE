@@ -12,6 +12,46 @@ CREATE TABLE IF NOT EXISTS mxqr_metric_buckets (
 CREATE INDEX IF NOT EXISTS idx_mxqr_metric_buckets_event_minute
   ON mxqr_metric_buckets (event, bucket_minute);
 
+-- Permanent, aggregate-only counters used by public editorial surfaces.
+-- Minute buckets remain bounded operational telemetry; this table is never
+-- touched by their retention cleanup. Only a fresh standard-room `room_opened`
+-- bucket increment contributes, so PRO rooms and host reconnects stay out of
+-- the public total by construction.
+CREATE TABLE IF NOT EXISTS mxqr_lifetime_metric_totals (
+  event TEXT PRIMARY KEY NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0 CHECK (count >= 0)
+);
+
+CREATE TRIGGER IF NOT EXISTS mxqr_lifetime_room_opened_insert
+AFTER INSERT ON mxqr_metric_buckets
+WHEN NEW.event = 'room_opened' AND NEW.count > 0
+BEGIN
+  INSERT INTO mxqr_lifetime_metric_totals (event, count)
+  VALUES ('room_opened', NEW.count)
+  ON CONFLICT(event) DO UPDATE SET count = count + excluded.count;
+END;
+
+CREATE TRIGGER IF NOT EXISTS mxqr_lifetime_room_opened_increment
+AFTER UPDATE OF count ON mxqr_metric_buckets
+WHEN NEW.event = 'room_opened' AND NEW.count > OLD.count
+BEGIN
+  INSERT INTO mxqr_lifetime_metric_totals (event, count)
+  VALUES ('room_opened', NEW.count - OLD.count)
+  ON CONFLICT(event) DO UPDATE SET count = count + excluded.count;
+END;
+
+-- This is both the initial backfill and the idempotent repair path. Triggers
+-- are installed first so a room opening while this schema is applied is
+-- serialized either before the snapshot (and included in SUM) or after it
+-- (and added by the trigger). MAX prevents a later baseline reapplication from
+-- reducing the permanent total after old minute buckets have expired.
+INSERT INTO mxqr_lifetime_metric_totals (event, count)
+SELECT 'room_opened', COALESCE(SUM(count), 0)
+FROM mxqr_metric_buckets
+WHERE event = 'room_opened'
+ON CONFLICT(event) DO UPDATE SET
+  count = MAX(mxqr_lifetime_metric_totals.count, excluded.count);
+
 -- Access-gated PRO room registry. Playback state and media metadata remain in
 -- each room's Durable Object; raw activation claims are never stored here.
 CREATE TABLE IF NOT EXISTS mxqr_pro_room_registry (

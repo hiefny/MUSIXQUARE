@@ -277,6 +277,41 @@ jobs:
             release-artifacts/deployments/pro-room-generation-cutover-rollout-fenced.json \
             disabled
 
+      - name: Apply and verify lifetime room-count D1 contract
+        timeout-minutes: 10
+        if: inputs.target == 'all' || inputs.target == 'app'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::The production environment secret CLOUDFLARE_D1_API_TOKEN is not configured."
+            exit 1
+          fi
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --config cloudflare/wrangler.app.toml \
+            --file cloudflare/admin-metrics.lifetime-room-count.migration.sql
+
+          verify_file='release-artifacts/deployments/admin-lifetime-room-count-verified.json'
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'mxqr_lifetime_metric_totals' AND instr(lower(sql), 'count integer not null') > 0 AND instr(lower(sql), 'check (count >= 0)') > 0) AS table_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('mxqr_lifetime_room_opened_insert', 'mxqr_lifetime_room_opened_increment')) AS trigger_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('mxqr_lifetime_room_opened_insert', 'mxqr_lifetime_room_opened_increment') AND instr(lower(sql), 'new.event = ''room_opened''') > 0 AND instr(lower(sql), 'mxqr_lifetime_metric_totals') > 0) AS room_opened_guard_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'mxqr_lifetime_room_opened_insert' AND instr(lower(sql), 'new.count > 0') > 0) AS insert_guard_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'mxqr_lifetime_room_opened_increment' AND instr(lower(sql), 'new.count > old.count') > 0 AND instr(lower(sql), 'new.count - old.count') > 0) AS increment_guard_count, (SELECT COUNT(*) FROM mxqr_lifetime_metric_totals WHERE event = 'room_opened' AND typeof(count) = 'integer' AND count >= 0) AS row_count, (SELECT count FROM mxqr_lifetime_metric_totals WHERE event = 'room_opened') AS rooms_opened, (SELECT COALESCE(SUM(count), 0) FROM mxqr_metric_buckets WHERE event = 'room_opened') AS retained_rooms_opened" \
+            | node scripts/capture-wrangler-d1-json.mjs "$verify_file"
+          jq -e '
+            .[0].results[0]
+            | (.table_count | tonumber) == 1
+              and (.trigger_count | tonumber) == 2
+              and (.room_opened_guard_count | tonumber) == 2
+              and (.insert_guard_count | tonumber) == 1
+              and (.increment_guard_count | tonumber) == 1
+              and (.row_count | tonumber) == 1
+              and (.rooms_opened | tonumber) >= (.retained_rooms_opened | tonumber)
+          ' "$verify_file" >/dev/null || {
+            echo '::error::The production lifetime room-count schema/backfill contract is incomplete.'
+            jq '.[0].results[0]' "$verify_file"
+            exit 1
+          }
+
       - name: Apply and verify PRO suspension-reason D1 contract
         timeout-minutes: 10
         if: inputs.target == 'all'

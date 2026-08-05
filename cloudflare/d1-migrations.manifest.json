@@ -4,9 +4,9 @@
     {
       "database": "musixquare-admin-metrics",
       "baseline": "cloudflare/admin-metrics.schema.sql",
-      "baselineRevision": 3,
-      "baselineSha256": "33a8afa18bd7aac20bcdf9be3ecc3755aee19d1c8f34a8dedc4471c44f2f9606",
-      "baselineMigration": "admin-pro-room-owner-transfer-saga-v1",
+      "baselineRevision": 4,
+      "baselineSha256": "431b9fc45191f14c4ddcaa40f13618b8b8f14862cc4d176fd5b8efeb858820a5",
+      "baselineMigration": "admin-lifetime-room-count-v1",
       "baselineRecovery": {
         "strategy": "roll-forward-or-provider-restore",
         "runbook": "cloudflare/admin-dashboard-ops.md",
@@ -50,6 +50,19 @@
             "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
             "runbook": "cloudflare/admin-dashboard-ops.md",
             "note": "The secret-free transfer journal is required to finish committed ownership changes after response loss; recovery keeps it with the matched App and PRO Worker floor."
+          }
+        },
+        {
+          "id": "admin-lifetime-room-count-v1",
+          "forward": "cloudflare/admin-metrics.lifetime-room-count.migration.sql",
+          "forwardSha256": "681351a5557d57d8ebade0c3ca24ab49abc77e17b75a8a7be4f35a616f0e58fb",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "roll-forward-or-provider-restore",
+            "runbook": "cloudflare/admin-dashboard-ops.md",
+            "note": "The aggregate-only lifetime standard-room counter is initialized from retained operational buckets and then advances independently of retention; recovery keeps the additive table and triggers or restores the provider database."
           }
         }
       ]

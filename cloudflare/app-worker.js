@@ -176,6 +176,7 @@ const INITIAL_ADMIN_PRO_ROOMS = Object.freeze([
   Object.freeze({ roomCode: '000000', label: 'MUSIXQUARE Developer' }),
 ]);
 const ADMIN_METRICS_TABLE = 'mxqr_metric_buckets';
+const LIFETIME_METRICS_TABLE = 'mxqr_lifetime_metric_totals';
 const ADMIN_METRICS_RETENTION_DAYS = 90;
 const ADMIN_PRO_ROOM_AUDIT_RETENTION_DAYS = 365;
 const MINUTES_PER_DAY = 24 * 60;
@@ -7648,6 +7649,68 @@ async function handlePublicAnnouncement(request, env) {
   });
 }
 
+function isLifetimeRoomCount(value) {
+  return Number.isSafeInteger(value) && value >= 0;
+}
+
+function lifetimeRoomCountCacheKey(request, nowMs = Date.now()) {
+  const day = new Date(nowMs).toISOString().slice(0, 10);
+  return new Request(
+    new URL(`/.well-known/mxqr-cache/about-room-count/${day}`, request.url),
+    { method: 'GET' },
+  );
+}
+
+async function readLifetimeRoomCountSnapshot(request, env, ctx) {
+  const cache = globalThis.caches?.default;
+  const cacheKey = lifetimeRoomCountCacheKey(request);
+  if (cache?.match) {
+    try {
+      const cached = await cache.match(cacheKey);
+      if (cached) {
+        const payload = await cached.json();
+        const cachedCount = payload?.roomsOpened;
+        if (isLifetimeRoomCount(cachedCount)) return cachedCount;
+      }
+    } catch {
+      // Cache corruption or an unavailable cache must not prevent the static
+      // About document from rendering. Fall through to the canonical D1 row.
+    }
+  }
+
+  const db = getAdminDb(env);
+  if (!db?.prepare) return null;
+
+  try {
+    const statement = db
+      .prepare(`SELECT count FROM ${LIFETIME_METRICS_TABLE} WHERE event = ?1 LIMIT 1`)
+      .bind('room_opened');
+    const row = typeof statement.first === 'function' ? await statement.first() : null;
+    const roomsOpened = Number(row?.count);
+    if (!isLifetimeRoomCount(roomsOpened)) return null;
+
+    if (cache?.put) {
+      const cacheWrite = cache.put(
+        cacheKey,
+        new Response(JSON.stringify({ roomsOpened }), {
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'public, max-age=86400',
+          },
+        }),
+      );
+      if (typeof ctx?.waitUntil === 'function') {
+        ctx.waitUntil(cacheWrite);
+      } else {
+        await cacheWrite;
+      }
+    }
+    return roomsOpened;
+  } catch {
+    return null;
+  }
+}
+
 function renderAdminPage(request, env) {
   const body =
     request.method === 'HEAD'
@@ -10233,6 +10296,61 @@ async function fetchAsset(env, request, pathname = null) {
   return env.ASSETS.fetch(new Request(assetUrl, request));
 }
 
+function injectAboutRoomCount(html, roomsOpened) {
+  const value = isLifetimeRoomCount(roomsOpened) ? String(roomsOpened) : '';
+  return html.replace(/<html\b([^>]*)>/i, (_match, attributes) => {
+    const withoutExistingValue = String(attributes).replace(
+      /\sdata-mxqr-rooms-opened=(?:"[^"]*"|'[^']*')/gi,
+      '',
+    );
+    return `<html${withoutExistingValue} data-mxqr-rooms-opened="${value}">`;
+  });
+}
+
+function dynamicAboutHeaders(sourceHeaders) {
+  const headers = new Headers(sourceHeaders);
+  headers.delete('Content-Length');
+  headers.delete('Content-Encoding');
+  headers.delete('ETag');
+  headers.delete('Last-Modified');
+  return headers;
+}
+
+async function serveAboutPage(request, env, ctx) {
+  // `/about` is a dynamic representation even though its shell comes from the
+  // asset binding. Ignore validators/ranges that target the unmodified asset,
+  // otherwise a static 304 or partial body could bypass the daily snapshot.
+  const assetHeaders = new Headers(request.headers);
+  assetHeaders.delete('If-None-Match');
+  assetHeaders.delete('If-Modified-Since');
+  assetHeaders.delete('If-Range');
+  assetHeaders.delete('Range');
+  const response = await fetchAsset(
+    env,
+    new Request(request, { headers: assetHeaders }),
+    '/about.html',
+  );
+  const contentType = response.headers.get('content-type') || '';
+  const pageHeaders = cacheHeadersForPath(new URL(request.url).pathname, '/about.html');
+  if (!contentType.includes('text/html')) {
+    return withSecurityHeaders(response, pageHeaders);
+  }
+  if (request.method === 'HEAD') {
+    return withSecurityHeaders(
+      new Response(null, {
+        status: response.status,
+        headers: dynamicAboutHeaders(response.headers),
+      }),
+      pageHeaders,
+    );
+  }
+
+  const roomsOpened = await readLifetimeRoomCountSnapshot(request, env, ctx);
+  const html = injectAboutRoomCount(await response.text(), roomsOpened);
+  const headers = dynamicAboutHeaders(response.headers);
+  return withSecurityHeaders(new Response(html, { status: response.status, headers }), pageHeaders);
+}
+
 async function serveInvitePage(request, env, code) {
   const response = await fetchAsset(env, request, '/index.html');
   const contentType = response.headers.get('content-type') || '';
@@ -10413,6 +10531,7 @@ async function serveStatic(request, env, ctx) {
     // Soro slug fallback. Otherwise paths such as /developers perform a live
     // RSS request merely to prove that they are not article slugs.
     if (assetPathname) {
+      if (assetPathname === '/about.html') return serveAboutPage(request, env, ctx);
       const response = await fetchAsset(env, request, assetPathname);
       return withSecurityHeaders(response, {
         ...cacheHeadersForPath(url.pathname, assetPathname),

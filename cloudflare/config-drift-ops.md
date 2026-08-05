@@ -103,6 +103,7 @@ Inventory every deployed Worker, not only the three original services:
 - Developer API facade: private PRO-room Durable Object binding only.
 
 The tracked admin schema contains `mxqr_metric_buckets`,
+`mxqr_lifetime_metric_totals`,
 `mxqr_pro_room_registry`, and `mxqr_pro_room_admin_audit`, and explicitly drops
 the retired `mxqr_api_rate_limits` table. Production metrics were reconciled on
 2026-07-16 without deleting metric rows; apply the current schema before the

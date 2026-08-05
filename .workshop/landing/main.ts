@@ -183,6 +183,66 @@ function initCopyInvite(): void {
   });
 }
 
+function initRoomCount(): void {
+  const el = document.querySelector<HTMLElement>('[data-room-count]');
+  if (!el) return;
+
+  const rawCount = document.documentElement.dataset.mxqrRoomsOpened?.trim() ?? '';
+  const parsedCount = /^\d+$/.test(rawCount) ? Number(rawCount) : Number.NaN;
+  const count = Number.isSafeInteger(parsedCount) && parsedCount >= 0 ? parsedCount : null;
+  if (count == null) return;
+
+  const t = (key: string, fallback: string): string => {
+    const fn = (window as unknown as { __landingT?: (k: string, f: string) => string }).__landingT;
+    return typeof fn === 'function' ? fn(key, fallback) : fallback;
+  };
+
+  const render = (): void => {
+    if (count == null) return;
+
+    const template = t('hero.rooms_opened', '{{count}} rooms opened so far.');
+    const placeholder = '{{count}}';
+    const placeholderIndex = template.indexOf(placeholder);
+    if (placeholderIndex < 0) return;
+
+    const locale = document.documentElement.lang || 'en';
+    let formattedCount: string;
+    try {
+      formattedCount = new Intl.NumberFormat(
+        locale,
+        count < 10_000 ? undefined : { notation: 'compact', maximumFractionDigits: 1 },
+      ).format(count);
+    } catch {
+      // Older WebKit builds may not support compact notation. The exact
+      // integer is still a truthful, readable fallback and must not abort the
+      // rest of the About-page interactions.
+      formattedCount = String(count);
+    }
+    const value = document.createElement('strong');
+    value.textContent = formattedCount;
+    const beforeCount = template.slice(0, placeholderIndex);
+    let afterCount = template.slice(placeholderIndex + placeholder.length);
+    const copy = document.createElement('span');
+    copy.className = 'lp-room-count__copy';
+    copy.append(document.createTextNode(beforeCount));
+    if (locale.toLowerCase().startsWith('ko') && afterCount.startsWith('개의')) {
+      const quantity = document.createElement('span');
+      quantity.className = 'lp-room-count__quantity';
+      quantity.append(value, document.createTextNode('개의'));
+      copy.append(quantity);
+      afterCount = afterCount.slice('개의'.length);
+    } else {
+      copy.append(value);
+    }
+    copy.append(document.createTextNode(afterCount));
+    el.replaceChildren(copy);
+    el.hidden = false;
+  };
+
+  window.addEventListener('mxqr:static-language-change', render);
+  render();
+}
+
 function pad(n: number, len: number): string {
   return String(n).padStart(len, '0');
 }
@@ -364,6 +424,7 @@ function boot(): void {
   initEditorialPageLoader();
   initPhoneTilt();
   initCopyInvite();
+  initRoomCount();
   initSyncClock();
   initCodeCycle();
   initChatMorph();

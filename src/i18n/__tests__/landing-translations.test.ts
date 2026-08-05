@@ -145,6 +145,17 @@ describe('landing-page translation integrity', () => {
     }
   });
 
+  it('provides a localized lifetime room-count sentence in every language', async () => {
+    const dictionaries = await loadLandingDictionary();
+
+    for (const [language, dictionary] of Object.entries(dictionaries)) {
+      expect(dictionary['hero.rooms_opened'].match(/\{\{count\}\}/g), language).toHaveLength(1);
+    }
+    expect(dictionaries.ko['hero.rooms_opened']).toBe(
+      '지금까지 {{count}}개의 방이 열렸어요.',
+    );
+  });
+
   it('keeps the static English About fallback aligned with its dictionary', async () => {
     const [dictionaries, html] = await Promise.all([
       loadLandingDictionary(),

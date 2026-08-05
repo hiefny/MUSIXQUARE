@@ -1258,6 +1258,34 @@ describe('release deployment rollback state', () => {
     expect(step).toContain('capture-wrangler-d1-json.mjs');
   });
 
+  it('applies and verifies the lifetime room-count contract before app-serving rollouts', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const migrationStep = workflow.indexOf('Apply and verify lifetime room-count D1 contract');
+    const nextStep = workflow.indexOf('\n      - name:', migrationStep + 1);
+    const step = workflow.slice(migrationStep, nextStep);
+
+    expect(migrationStep).toBeGreaterThan(-1);
+    expect(migrationStep).toBeGreaterThan(
+      workflow.indexOf('Fence room-code reuse during dependency rollout'),
+    );
+    expect(migrationStep).toBeLessThan(workflow.indexOf('Deploy and record signaling Worker'));
+    expect(migrationStep).toBeLessThan(
+      workflow.indexOf('Deploy and record app Worker with immutable dist'),
+    );
+    expect(step).toContain("if: inputs.target == 'all' || inputs.target == 'app'");
+    expect(step).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}');
+    expect(step).not.toContain('secrets.CLOUDFLARE_API_TOKEN');
+    expect(step).toContain('admin-metrics.lifetime-room-count.migration.sql');
+    expect(step).toContain('mxqr_lifetime_metric_totals');
+    expect(step).toContain('mxqr_lifetime_room_opened_insert');
+    expect(step).toContain('mxqr_lifetime_room_opened_increment');
+    expect(step).toContain('insert_guard_count');
+    expect(step).toContain('increment_guard_count');
+    expect(step).toContain('rooms_opened');
+    expect(step).toContain('retained_rooms_opened');
+    expect(step).toContain('capture-wrangler-d1-json.mjs');
+  });
+
   it('installs the secret-free owner-transfer journal before the matched Worker rollout', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
     const migrationStep = workflow.indexOf('Apply and verify owner-transfer saga D1 contract');

@@ -61,6 +61,14 @@ Metric writes are deferred with the Worker execution context, so D1 latency is
 not part of the room admission path. They are operational counters rather than
 an authentication or billing source of truth.
 
+`room_opened` also advances the aggregate-only
+`mxqr_lifetime_metric_totals` row. Unlike the minute buckets, this counter is
+not subject to operational retention. Its trigger watches only the fresh
+standard-room event, so PRO activity and `host_reconnected` never contribute.
+The App Worker injects a cached daily snapshot into `/about` as the validated
+`data-mxqr-rooms-opened` attribute on the document element; the browser makes
+no additional metrics request.
+
 ## First-Frame-Only Host Authentication
 
 As of 2026-07-22, standard-room hosts authenticate only by sending their random
@@ -205,6 +213,9 @@ https://musixquare.com/admin
   scheduled task retains 90 days of aggregate history and removes older rows
   independently from the Soro refresh, so a D1 cleanup failure cannot block
   blog maintenance or user traffic.
+- `mxqr_lifetime_metric_totals` is outside that deletion path. Its
+  `room_opened` row is permanent and is seeded from retained buckets when the
+  lifetime-counter migration is first applied.
 - The same scheduled event independently retains 365 days of PRO admin audit
   metadata. Audit cleanup failure does not cancel metrics cleanup or Soro
   refresh and never weakens claim issuance auditing.
@@ -221,6 +232,7 @@ npm run wrangler -- d1 execute musixquare-admin-metrics --remote --json --comman
 ```
 
 The tracked application tables are `mxqr_metric_buckets`,
+`mxqr_lifetime_metric_totals`,
 `mxqr_pro_room_registry`, `mxqr_pro_room_generation_history`,
 `mxqr_pro_room_generation_allocations`,
 `mxqr_pro_room_generation_cutover`, and `mxqr_pro_room_admin_audit`; `_cf_KV`

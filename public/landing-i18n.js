@@ -28,6 +28,7 @@
       'hero.lead':
         'MUSIXQUARE turns multiple phones, tablets, and laptops into one sound system. No installation—just share one code.',
       'hero.btn_ghost': 'How it works',
+      'hero.rooms_opened': '{{count}} rooms opened so far.',
 
       'array.h2': 'Surround, without<br>surround speakers.',
       'array.lead':
@@ -119,6 +120,7 @@
       'hero.lead':
         '뮤직스퀘어는 여러 개의 폰, 태블릿, 노트북을 하나의 사운드 시스템으로 묶어줘요. 설치 없이 코드 하나만 공유하면 돼요.',
       'hero.btn_ghost': '자세히 보기',
+      'hero.rooms_opened': '지금까지 {{count}}개의 방이 열렸어요.',
 
       'array.h2': '서라운드 스피커 없이<br>서라운드 사운드 만들기',
       'array.lead': '각 기기가 좌측 우측 서브우퍼 스테레오 스피커가 돼요. 방 전체에 서라운드 시스템을 구현해봐요.',
@@ -210,6 +212,7 @@
     'hero.lead':
       'MUSIXQUAREは、複数のスマートフォン、タブレット、ノートPCをひとつのサウンドシステムにつなげます。インストール不要。コードをひとつ共有するだけです。',
     'hero.btn_ghost': 'しくみを見る',
+    'hero.rooms_opened': 'これまでに{{count}}のルームが開かれました。',
     'array.h2': 'サラウンドスピーカーなしで<br>サラウンドを',
     'array.lead':
       '各デバイスが左、右、サブウーファー、ステレオの役割を担います。部屋全体をサラウンドシステムにできます。',
@@ -287,6 +290,7 @@
     'hero.h1': '所有设备<br>组成一个系统',
     'hero.lead': 'MUSIXQUARE 可以把多台手机、平板和笔记本电脑连成一套音响系统。无需安装，只要分享一个代码。',
     'hero.btn_ghost': '查看工作方式',
+    'hero.rooms_opened': '目前已创建 {{count}} 个房间。',
     'array.h2': '没有环绕音箱<br>也能做出环绕声',
     'array.lead': '每台设备都可以扮演左、右、低音炮或完整立体声的角色。整个房间都能变成一套声音系统。',
     'array.aria': '左侧手机、中间笔记本、右侧手机组成的三设备环绕设置。',
@@ -363,6 +367,7 @@
     'hero.h1': '所有裝置<br>變成一套系統',
     'hero.lead': 'MUSIXQUARE 可以把多部手機、平板和筆電連成一套音響系統。無需安裝，只要分享一組代碼。',
     'hero.btn_ghost': '查看運作方式',
+    'hero.rooms_opened': '目前已建立 {{count}} 個房間。',
     'array.h2': '不用環繞喇叭<br>也能做出環繞音效',
     'array.lead': '每台裝置都能扮演左、右、重低音或完整立體聲的角色。整個房間都能變成一套聲音系統。',
     'array.aria': '左側手機、中間筆電、右側手機組成的三裝置環繞設定。',
@@ -441,6 +446,7 @@
     'hero.lead':
       'MUSIXQUARE reúne teléfonos, tablets y laptops en un solo sistema de sonido. Sin instalación: solo comparte un código.',
     'hero.btn_ghost': 'Ver cómo funciona',
+    'hero.rooms_opened': 'Ya se han abierto {{count}} salas.',
     'array.h2': 'Sonido envolvente<br>sin altavoces envolventes',
     'array.lead':
       'Cada dispositivo puede asumir el papel de izquierda, derecha, subwoofer o estéreo completo. Toda la sala se convierte en el sistema.',
@@ -520,6 +526,7 @@
     'hero.lead':
       'O MUSIXQUARE junta celulares, tablets e notebooks em um só sistema de som. Sem instalação: é só compartilhar um código.',
     'hero.btn_ghost': 'Ver como funciona',
+    'hero.rooms_opened': '{{count}} salas já foram abertas.',
     'array.h2': 'Som surround<br>sem caixas surround',
     'array.lead': 'Cada dispositivo pode assumir o papel de esquerda, direita, subwoofer ou estéreo completo. O ambiente vira o sistema.',
     'array.aria': 'Celular à esquerda, notebook ao centro e celular à direita. Configuração surround com três dispositivos.',
@@ -598,6 +605,7 @@
     'hero.lead':
       'MUSIXQUARE réunit plusieurs téléphones, tablettes et ordinateurs portables en un seul système audio. Aucune installation : il suffit de partager un code.',
     'hero.btn_ghost': 'Voir comment ça marche',
+    'hero.rooms_opened': '{{count}} salles ouvertes à ce jour.',
     'array.h2': 'Du surround<br>sans enceintes surround',
     'array.lead': 'Chaque appareil peut jouer le rôle de gauche, droite, caisson de basse ou stéréo complète. La pièce devient le système.',
     'array.aria': 'Téléphone à gauche, ordinateur portable au centre, téléphone à droite. Configuration surround à trois appareils.',
@@ -676,6 +684,7 @@
     'hero.lead':
       'MUSIXQUARE verbindet mehrere Smartphones, Tablets und Laptops zu einem Soundsystem. Keine Installation, einfach einen Code teilen.',
     'hero.btn_ghost': 'So funktioniert es',
+    'hero.rooms_opened': 'Bisher wurden {{count}} Räume geöffnet.',
     'array.h2': 'Surround-Sound<br>ohne Surround-Lautsprecher',
     'array.lead': 'Jedes Gerät übernimmt eine Rolle: links, rechts, Subwoofer oder volles Stereo. Der ganze Raum wird zum System.',
     'array.aria': 'Linkes Smartphone, Laptop in der Mitte, rechtes Smartphone. Surround-Setup mit drei Geräten.',
@@ -755,6 +764,7 @@
     'hero.lead':
       'MUSIXQUARE verbindt meerdere telefoons, tablets en laptops tot één geluidssysteem. Geen installatie: deel gewoon één code.',
     'hero.btn_ghost': 'Zo werkt het',
+    'hero.rooms_opened': 'Tot nu toe zijn {{count}} kamers geopend.',
     'array.h2': 'Surroundgeluid<br>zonder surroundspeakers',
     'array.lead':
       'Elk apparaat krijgt één rol: links, rechts, subwoofer of volledig stereo. De ruimte zelf wordt het systeem.',
@@ -842,6 +852,7 @@
     'hero.lead':
       'MUSIXQUARE collega più telefoni, tablet e laptop in un unico sistema audio. Nessuna installazione: basta condividere un codice.',
     'hero.btn_ghost': 'Scopri come funziona',
+    'hero.rooms_opened': 'Finora sono state aperte {{count}} stanze.',
     'array.h2': 'Surround<br>senza casse surround',
     'array.lead':
       'Ogni dispositivo può fungere da canale sinistro, canale destro, subwoofer o stereo completo. L’intera stanza diventa il sistema.',
@@ -921,6 +932,7 @@
     'hero.lead':
       'MUSIXQUARE łączy wiele telefonów, tabletów i laptopów w jeden system audio. Bez instalacji: wystarczy udostępnić kod.',
     'hero.btn_ghost': 'Zobacz, jak to działa',
+    'hero.rooms_opened': 'Do tej pory otwarto {{count}} pokoi.',
     'array.h2': 'Dźwięk surround<br>bez głośników surround',
     'array.lead': 'Każde urządzenie może pełnić jedną rolę: lewy, prawy, subwoofer albo pełne stereo. Cały pokój staje się systemem.',
     'array.aria': 'Telefon po lewej, laptop pośrodku, telefon po prawej. Konfiguracja surround z trzech urządzeń.',
@@ -1000,6 +1012,7 @@
     'hero.lead':
       'MUSIXQUARE объединяет несколько телефонов, планшетов и ноутбуков в единую аудиосистему. Без установки: просто поделитесь одним кодом.',
     'hero.btn_ghost': 'Как это работает',
+    'hero.rooms_opened': 'Уже открыто {{count}} комнат.',
     'array.h2': 'Объёмный звук<br>без surround-колонок',
     'array.lead': 'Каждое устройство может взять на себя одну роль: левый, правый, сабвуфер или полноценное стерео. Вся комната становится системой.',
     'array.aria': 'Телефон слева, ноутбук в центре, телефон справа. Surround-настройка из трёх устройств.',
@@ -1079,6 +1092,7 @@
     'hero.lead':
       'MUSIXQUARE birden fazla telefonu, tableti ve dizüstü bilgisayarı tek bir ses sisteminde birleştirir. Kurulum yok; tek bir kod paylaşman yeterli.',
     'hero.btn_ghost': 'Nasıl çalışır',
+    'hero.rooms_opened': 'Şimdiye kadar {{count}} oda açıldı.',
     'array.h2': 'Surround hoparlör olmadan<br>surround ses',
     'array.lead': 'Her cihaz sol, sağ, subwoofer veya tam stereo rolünü üstlenebilir. Odanın tamamı sisteme dönüşür.',
     'array.aria': 'Solda telefon, ortada dizüstü bilgisayar, sağda telefon. Üç cihazlı surround kurulum.',
@@ -1158,6 +1172,7 @@
     'hero.lead':
       'MUSIXQUARE menghubungkan beberapa ponsel, tablet, dan laptop menjadi satu sistem suara. Tanpa instalasi: cukup bagikan satu kode.',
     'hero.btn_ghost': 'Lihat cara kerjanya',
+    'hero.rooms_opened': 'Sejauh ini {{count}} ruang telah dibuka.',
     'array.h2': 'Suara surround<br>tanpa speaker surround',
     'array.lead': 'Setiap perangkat bisa menjadi kiri, kanan, subwoofer, atau stereo penuh. Seluruh ruangan menjadi sistemnya.',
     'array.aria': 'Ponsel kiri, laptop tengah, ponsel kanan. Pengaturan surround tiga perangkat.',
@@ -1236,6 +1251,7 @@
     'hero.lead':
       'MUSIXQUARE kết nối nhiều điện thoại, máy tính bảng và laptop thành một hệ thống âm thanh. Không cần cài đặt: chỉ cần chia sẻ một mã.',
     'hero.btn_ghost': 'Xem cách hoạt động',
+    'hero.rooms_opened': 'Đã có {{count}} phòng được mở.',
     'array.h2': 'Âm thanh surround<br>không cần loa surround',
     'array.lead': 'Mỗi thiết bị có thể đảm nhận vai trò trái, phải, subwoofer hoặc stereo đầy đủ. Cả căn phòng trở thành hệ thống.',
     'array.aria': 'Điện thoại bên trái, laptop ở giữa, điện thoại bên phải. Thiết lập surround ba thiết bị.',
@@ -1313,6 +1329,7 @@
     'hero.h1': 'ทุกอุปกรณ์<br>เป็นระบบเดียวกัน',
     'hero.lead': 'MUSIXQUARE เชื่อมอุปกรณ์หลายเครื่อง ทั้งโทรศัพท์ แท็บเล็ต และแล็ปท็อป ให้เป็นระบบเสียงเดียว ไม่ต้องติดตั้ง แค่แชร์โค้ดเดียว',
     'hero.btn_ghost': 'ดูวิธีทำงาน',
+    'hero.rooms_opened': 'เปิดห้องไปแล้ว {{count}} ห้อง',
     'array.h2': 'เสียง surround<br>โดยไม่ต้องมีลำโพง surround',
     'array.lead': 'แต่ละอุปกรณ์รับหน้าที่เป็นซ้าย ขวา ซับวูฟเฟอร์ หรือสเตอริโอเต็มรูปแบบได้ ทั้งห้องจึงกลายเป็นระบบเสียงเดียวกัน',
     'array.aria': 'โทรศัพท์ซ้าย แล็ปท็อปตรงกลาง โทรศัพท์ขวา การตั้งค่า surround ด้วยสามอุปกรณ์',

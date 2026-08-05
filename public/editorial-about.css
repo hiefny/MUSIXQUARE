@@ -26,6 +26,55 @@ main {
   max-width: 620px;
 }
 
+.lp-hero__copy .lp-btn-row {
+  align-items: center;
+  column-gap: 16px;
+}
+
+.lp-hero__copy .lp-btn {
+  flex: 0 0 auto;
+}
+
+.lp-room-count {
+  flex: 1 1 112px;
+  min-width: min(112px, 100%);
+  min-height: 48px;
+  max-width: 300px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  text-wrap: balance;
+  overflow-wrap: break-word;
+}
+
+.lp-room-count__copy {
+  display: block;
+  width: 100%;
+}
+
+.lp-room-count__quantity {
+  white-space: nowrap;
+}
+
+:lang(ko) .lp-room-count__copy {
+  word-break: keep-all;
+}
+
+.lp-room-count[hidden] {
+  display: none;
+}
+
+.lp-room-count strong {
+  color: var(--text-main);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 @media (min-width: 1024px) {
   .lp-hero {
     grid-template-columns: minmax(0, 1.38fr) minmax(260px, 0.62fr);

@@ -5,6 +5,8 @@
 (function () {
   var STATIC_STORE_KEY = 'mxqr-landing-lang';
   var APP_STORE_KEY = 'musixquare-lang';
+  var MOBILE_PICKER_QUERY = '(max-width: 640px)';
+  var pageScrollLock = null;
 
   var OPTIONS = [
     { code: 'en', htmlLang: 'en', nativeName: 'English', englishName: 'Default', locale: 'en_US' },
@@ -153,6 +155,89 @@
     document.documentElement.lang = htmlLang(code);
   }
 
+  function isMobilePicker() {
+    try {
+      return window.matchMedia(MOBILE_PICKER_QUERY).matches;
+    } catch (e) {
+      return window.innerWidth <= 640;
+    }
+  }
+
+  function lockPageScroll() {
+    if (!isMobilePicker() || pageScrollLock || !document.body) return;
+
+    var body = document.body;
+    var scrollY = window.scrollY || window.pageYOffset || 0;
+    pageScrollLock = {
+      scrollY: scrollY,
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+    };
+
+    document.documentElement.classList.add('static-lang-page-locked');
+    body.classList.add('static-lang-page-locked');
+    body.style.position = 'fixed';
+    body.style.top = '-' + scrollY + 'px';
+    body.style.left = '0';
+    body.style.right = '0';
+    body.style.width = '100%';
+  }
+
+  function unlockPageScroll() {
+    if (!pageScrollLock || !document.body) return;
+
+    var body = document.body;
+    var saved = pageScrollLock;
+    pageScrollLock = null;
+
+    document.documentElement.classList.remove('static-lang-page-locked');
+    body.classList.remove('static-lang-page-locked');
+    body.style.position = saved.position;
+    body.style.top = saved.top;
+    body.style.left = saved.left;
+    body.style.right = saved.right;
+    body.style.width = saved.width;
+
+    try {
+      window.scrollTo(0, saved.scrollY);
+    } catch (e) {
+      /* Some embedded browsers do not expose scrollTo. */
+    }
+  }
+
+  function focusSelectedOption(menu) {
+    var active = menu.querySelector('[aria-selected="true"]');
+    if (!active) return;
+
+    if (active.focus) active.focus({ preventScroll: true });
+    menu.scrollTop = Math.max(
+      0,
+      active.offsetTop - Math.max(0, (menu.clientHeight - active.offsetHeight) / 2),
+    );
+  }
+
+  function openPicker(picker) {
+    var openPickers = document.querySelectorAll('[data-static-lang-picker].is-open');
+    for (var i = 0; i < openPickers.length; i++) {
+      if (openPickers[i] !== picker) closePicker(openPickers[i]);
+    }
+
+    var trigger = picker.querySelector('[data-static-lang-trigger]');
+    var menu = picker.querySelector('[data-static-lang-menu]');
+    picker.classList.add('is-open');
+    if (trigger) trigger.setAttribute('aria-expanded', 'true');
+    lockPageScroll();
+
+    if (menu) {
+      window.requestAnimationFrame(function () {
+        if (picker.classList.contains('is-open')) focusSelectedOption(menu);
+      });
+    }
+  }
+
   function renderPicker(picker) {
     if (!picker || picker.getAttribute('data-static-lang-ready') === 'true') return;
     picker.setAttribute('data-static-lang-ready', 'true');
@@ -173,6 +258,11 @@
     menu.setAttribute('role', 'listbox');
     menu.setAttribute('data-static-lang-menu', '');
 
+    var backdrop = document.createElement('div');
+    backdrop.className = 'static-lang-backdrop';
+    backdrop.setAttribute('aria-hidden', 'true');
+    backdrop.setAttribute('data-static-lang-backdrop', '');
+
     for (var i = 0; i < OPTIONS.length; i++) {
       var lang = OPTIONS[i];
       var item = document.createElement('button');
@@ -190,15 +280,17 @@
     }
 
     picker.appendChild(trigger);
+    picker.appendChild(backdrop);
     picker.appendChild(menu);
 
     trigger.addEventListener('click', function () {
-      var expanded = picker.classList.toggle('is-open');
-      trigger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-      if (expanded) {
-        var active = menu.querySelector('[aria-selected="true"]');
-        if (active && active.focus) active.focus({ preventScroll: true });
-      }
+      if (picker.classList.contains('is-open')) closePicker(picker);
+      else openPicker(picker);
+    });
+
+    backdrop.addEventListener('click', function () {
+      closePicker(picker);
+      trigger.focus({ preventScroll: true });
     });
 
     menu.addEventListener('click', function (event) {
@@ -207,6 +299,7 @@
       var next = persist(target.getAttribute('data-lang-set'));
       update(next);
       closePicker(picker);
+      trigger.focus({ preventScroll: true });
       window.dispatchEvent(new CustomEvent('mxqr:static-language-change', { detail: { lang: next } }));
     });
 
@@ -222,6 +315,7 @@
     var trigger = picker.querySelector('[data-static-lang-trigger]');
     picker.classList.remove('is-open');
     if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    if (!document.querySelector('[data-static-lang-picker].is-open')) unlockPageScroll();
   }
 
   function update(code) {
@@ -255,6 +349,19 @@
         if (!openPickers[j].contains(event.target)) closePicker(openPickers[j]);
       }
     });
+
+    try {
+      var mobileQuery = window.matchMedia(MOBILE_PICKER_QUERY);
+      var handlePickerModeChange = function () {
+        var openPicker = document.querySelector('[data-static-lang-picker].is-open');
+        if (openPicker && mobileQuery.matches) lockPageScroll();
+        else unlockPageScroll();
+      };
+      if (mobileQuery.addEventListener) mobileQuery.addEventListener('change', handlePickerModeChange);
+      else if (mobileQuery.addListener) mobileQuery.addListener(handlePickerModeChange);
+    } catch (e) {
+      /* matchMedia may be unavailable in restricted embedded browsers. */
+    }
   }
 
   window.MXQRStaticLang = {

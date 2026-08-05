@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { applyYouTubeCaptionPolicy, type YouTubeCaptionPolicyPlayer } from '../caption-policy.ts';
+import { applyYouTubeCaptionPolicy } from '../caption-policy.ts';
+
+type YouTubeCaptionPolicyPlayer = Parameters<typeof applyYouTubeCaptionPolicy>[0];
 
 function makePlayer(
   options: {

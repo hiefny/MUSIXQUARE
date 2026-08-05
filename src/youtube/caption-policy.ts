@@ -11,14 +11,14 @@
  * compatibility must never mutate room authority, play/pause, or seek state.
  */
 
-export interface YouTubeCaptionPolicyPlayer {
+interface YouTubeCaptionPolicyPlayer {
   getOptions?(module?: string): string[];
   getOption?(module: string, option: string): unknown;
   setOption?(module: string, option: string, value: unknown): void;
   getVideoData?(): { video_id?: string };
 }
 
-export type YouTubeCaptionPolicyResult = 'applied' | 'already-applied' | 'unavailable' | 'failed';
+type YouTubeCaptionPolicyResult = 'applied' | 'already-applied' | 'unavailable' | 'failed';
 
 const CAPTIONS_MODULE = 'captions';
 const appliedKeys = new WeakMap<YouTubeCaptionPolicyPlayer, string>();

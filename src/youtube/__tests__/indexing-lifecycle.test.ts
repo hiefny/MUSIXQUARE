@@ -502,9 +502,11 @@ describe('YouTube indexing session lifecycle', () => {
     expect(window.YT?.Player).toHaveBeenCalledWith(
       'youtube-player',
       expect.objectContaining({
-        playerVars: expect.objectContaining({ origin: window.location.origin }),
+        playerVars: expect.objectContaining({ origin: window.location.origin, controls: 0 }),
       }),
     );
+    const playerConfig = vi.mocked(window.YT!.Player).mock.calls[0]?.[1];
+    expect(playerConfig?.playerVars).not.toHaveProperty('cc_load_policy');
     expect(window.YT?.Player).toHaveBeenCalledWith(
       'youtube-player',
       expect.objectContaining({

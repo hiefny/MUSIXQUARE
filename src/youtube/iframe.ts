@@ -85,6 +85,7 @@ import {
   setPendingAutoSyncOnReady,
 } from './player.ts';
 import { preserveNativeProControllerPlayBeforeAutoplayGuard } from './native-control-authority.ts';
+import { applyYouTubeCaptionPolicy } from './caption-policy.ts';
 import {
   handleYouTubeZeroStartPlayerState,
   isYouTubeZeroStartInFlight,
@@ -1550,6 +1551,7 @@ function createYouTubePlayer(
       onStateChange: onYouTubePlayerStateChange,
       onError: onYouTubePlayerError,
       onAutoplayBlocked: onYouTubeAutoplayBlocked,
+      onApiChange: onYouTubePlayerApiChange,
     },
   };
 
@@ -1600,6 +1602,10 @@ function onYouTubePlayerReady(event: { target: YouTubePlayerInstance }): void {
   if (!isPlaybackModeYouTube() && !indexing) {
     log.debug('[YouTube] onPlayerReady skipped - mode changed');
     return;
+  }
+
+  if (isPlaybackModeYouTube()) {
+    applyYouTubeCaptionPolicy(event.target, getCurrentSessionId());
   }
 
   const player = getYouTubePlayer();
@@ -1985,6 +1991,11 @@ function onYouTubeAutoplayBlocked(event: { target: YouTubePlayerInstance }): voi
   showYouTubeSyncOverlay(true);
 }
 
+function onYouTubePlayerApiChange(event: { target: YouTubePlayerInstance }): void {
+  if (event.target !== getYouTubePlayer() || !isPlaybackModeYouTube()) return;
+  applyYouTubeCaptionPolicy(event.target, getCurrentSessionId());
+}
+
 function onYouTubePlayerStateChange(event: { data: number }): void {
   const indexing = isYtIndexing();
   const player = getYouTubePlayer();
@@ -2058,6 +2069,13 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   if (isYouTubeZeroStartExternalFallbackActive()) return;
 
   if (!isPlaybackModeYouTube() && !indexing) return;
+
+  if (
+    isPlaybackModeYouTube() &&
+    (state === YT.PlayerState.PLAYING || state === YT.PlayerState.CUED)
+  ) {
+    applyYouTubeCaptionPolicy(player, getCurrentSessionId());
+  }
 
   if (state === YT.PlayerState.PLAYING) {
     // A successful PLAYING transition proves that this persistent iOS iframe

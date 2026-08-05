@@ -186,6 +186,7 @@ interface YtTestHandle {
   fireReady: () => void;
   fireError: (code: number) => void;
   fireAutoplayBlocked: () => void;
+  fireApiChange: (target?: YouTubePlayerInstance) => void;
 }
 
 function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
@@ -193,6 +194,7 @@ function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
   let capturedOnReady: ((event: { target: YouTubePlayerInstance }) => void) | undefined;
   let capturedOnError: ((event: { data: number }) => void) | undefined;
   let capturedOnAutoplayBlocked: ((event: { target: YouTubePlayerInstance }) => void) | undefined;
+  let capturedOnApiChange: ((event: { target: YouTubePlayerInstance }) => void) | undefined;
   (window as unknown as { YT: unknown }).YT = {
     Player: vi.fn(function (
       _target: string,
@@ -202,6 +204,7 @@ function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
           onReady?: (event: { target: YouTubePlayerInstance }) => void;
           onError?: (event: { data: number }) => void;
           onAutoplayBlocked?: (event: { target: YouTubePlayerInstance }) => void;
+          onApiChange?: (event: { target: YouTubePlayerInstance }) => void;
         };
       },
     ) {
@@ -209,6 +212,7 @@ function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
       capturedOnReady = options.events.onReady;
       capturedOnError = options.events.onError;
       capturedOnAutoplayBlocked = options.events.onAutoplayBlocked;
+      capturedOnApiChange = options.events.onApiChange;
       return player;
     }),
     PlayerState: {
@@ -236,6 +240,10 @@ function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
     fireAutoplayBlocked: () => {
       if (!capturedOnAutoplayBlocked) throw new Error('onAutoplayBlocked was never captured');
       capturedOnAutoplayBlocked({ target: player });
+    },
+    fireApiChange: (target = player) => {
+      if (!capturedOnApiChange) throw new Error('onApiChange was never captured');
+      capturedOnApiChange({ target });
     },
   };
 }
@@ -330,6 +338,40 @@ describe('IFrame runtime readiness identity', () => {
     loadYouTubeVideo('readyEpoch2', null, false, 0);
 
     expect(buttonStates.at(-1)).toBe(true);
+  });
+
+  it('applies caption policy only to the current player while YouTube mode is active', async () => {
+    const setOption = vi.fn();
+    const player = {
+      ...createMockYtPlayer(),
+      getOptions: vi.fn((module?: string) => (module ? ['track', 'fontSize'] : ['captions'])),
+      getOption: vi.fn(() => ({ languageCode: 'en' })),
+      setOption,
+    } satisfies YouTubePlayerInstance;
+    const staleSetOption = vi.fn();
+    const stalePlayer = {
+      ...createMockYtPlayer(),
+      getOptions: vi.fn((module?: string) => (module ? ['track', 'fontSize'] : ['captions'])),
+      getOption: vi.fn(() => ({ languageCode: 'ko' })),
+      setOption: staleSetOption,
+    } satisfies YouTubePlayerInstance;
+    const handle = installYtNamespace(player);
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+
+    loadYouTubeVideo('captionVid1', null, false, 0);
+    handle.fireApiChange();
+    expect(setOption).toHaveBeenCalledWith('captions', 'track', {});
+    expect(setOption).toHaveBeenCalledWith('captions', 'fontSize', -1);
+
+    handle.fireApiChange(stalePlayer);
+    expect(staleSetOption).not.toHaveBeenCalled();
+
+    vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'captionVid2' });
+    setPlaybackFilePlaying();
+    handle.fireApiChange();
+    expect(setOption).toHaveBeenCalledTimes(2);
   });
 });
 

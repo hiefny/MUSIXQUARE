@@ -44,6 +44,9 @@ export interface YouTubePlayerInstance {
   isMuted?(): boolean;
   getVolume?(): number;
   getVideoLoadedFraction?(): number;
+  getOptions?(module?: string): string[];
+  getOption?(module: string, option: string): unknown;
+  setOption?(module: string, option: string, value: unknown): void;
 }
 
 /**
@@ -61,6 +64,7 @@ export interface YTPlayerConfig {
     onStateChange?: (event: { data: number }) => void;
     onError?: (event: { data: number }) => void;
     onAutoplayBlocked?: (event: { target: YouTubePlayerInstance }) => void;
+    onApiChange?: (event: { target: YouTubePlayerInstance }) => void;
   };
 }
 

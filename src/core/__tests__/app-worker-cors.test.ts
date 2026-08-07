@@ -1,16 +1,154 @@
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker, {
   readResponseBodyLimitedForTests,
   purgeProRoomAccountAuthorityForTests,
   reconcileOwnerTransferSagasForTests,
   reconcileStaleAdminProRoomActivationsForTests,
+  retireDecommissionedAccountProRoomEdgesForTests,
   sanitizeSoroArticleHtmlForTests,
 } from '../../../cloudflare/app-worker.js';
 import { deriveDeveloperApiKeyDigest } from '../../../cloudflare/developer-api-worker.js';
 
+const proGrantMigration = await readFile(
+  new URL('../../../cloudflare/admin-metrics.pro-grants.migration.sql', import.meta.url),
+  'utf8',
+);
+const sqlite = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
+const centralEntitlementDatabases = new Set<DatabaseSync>();
+const CENTRAL_ENTITLEMENT_SQL_RE =
+  /mxqr_pro_(?:grant(?:_|\b)|account_entitlements\b|account_deletion_fences\b)/i;
+
+type CentralSqlValue = string | number | bigint | Uint8Array | null;
+
+class CentralEntitlementStatement {
+  constructor(
+    private readonly statement: StatementSync,
+    private readonly values: readonly CentralSqlValue[] = [],
+  ) {}
+
+  bind(...values: CentralSqlValue[]) {
+    return new CentralEntitlementStatement(this.statement, values);
+  }
+
+  async first() {
+    return (this.statement.get(...this.values) as Record<string, unknown> | undefined) ?? null;
+  }
+
+  async all() {
+    return { results: this.statement.all(...this.values) as Record<string, unknown>[] };
+  }
+
+  async run() {
+    const result = this.statement.run(...this.values);
+    return { success: true, meta: { changes: Number(result.changes) } };
+  }
+}
+
+interface CentralEntitlementSeed {
+  accountId: string;
+  roomCode: string;
+  roomGeneration: number;
+  sourceKind?: 'grant' | 'legacy_activation' | 'owner_transfer';
+  sourceRef: string;
+  transferRequestId?: string | null;
+  status:
+    | 'reserved'
+    | 'active'
+    | 'suspended'
+    | 'transfer_source_reserved'
+    | 'transfer_source_active'
+    | 'transfer_source_suspended'
+    | 'transfer_source_orphaned'
+    | 'transfer_target_pending'
+    | 'transferred'
+    | 'orphaned'
+    | 'revoked';
+}
+
+function withCentralEntitlementLedger(
+  delegate: Record<string, any>,
+  seeds: CentralEntitlementSeed[] = [],
+) {
+  const database = new sqlite.DatabaseSync(':memory:');
+  database.exec(`
+    CREATE TABLE mxqr_pro_room_registry (
+      room_code TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      status TEXT NOT NULL,
+      suspension_reason TEXT,
+      activation_state TEXT NOT NULL,
+      room_generation INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+  `);
+  database.exec(proGrantMigration);
+  database
+    .prepare(
+      `INSERT INTO mxqr_pro_grant_audit (actor_id, action, result, created_at)
+       VALUES ('system:entitlement-backfill', 'entitlement.backfill', 'complete', 1)`,
+    )
+    .run();
+  for (const seed of seeds) {
+    database
+      .prepare(
+        `INSERT INTO mxqr_pro_account_entitlements (
+           account_id, room_code, room_generation, source_kind, source_ref,
+           transfer_request_id, status, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 1, 1)`,
+      )
+      .run(
+        seed.accountId,
+        seed.roomCode,
+        seed.roomGeneration,
+        seed.sourceKind ?? 'legacy_activation',
+        seed.sourceRef,
+        seed.transferRequestId ?? null,
+        seed.status,
+      );
+  }
+  centralEntitlementDatabases.add(database);
+
+  return {
+    ...delegate,
+    prepare(sql: string) {
+      return CENTRAL_ENTITLEMENT_SQL_RE.test(sql)
+        ? new CentralEntitlementStatement(database.prepare(sql))
+        : delegate.prepare(sql);
+    },
+    async batch(statements: unknown[]) {
+      if (statements.every((statement) => statement instanceof CentralEntitlementStatement)) {
+        database.exec('BEGIN IMMEDIATE');
+        try {
+          const results = [];
+          for (const statement of statements as CentralEntitlementStatement[]) {
+            results.push(await statement.run());
+          }
+          database.exec('COMMIT');
+          return results;
+        } catch (error) {
+          database.exec('ROLLBACK');
+          throw error;
+        }
+      }
+      if (typeof delegate.batch === 'function') return delegate.batch(statements);
+      return Promise.all(
+        statements.map((statement) =>
+          (statement as { run: () => Promise<unknown> | unknown }).run(),
+        ),
+      );
+    },
+  };
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  for (const database of centralEntitlementDatabases) database.close();
+  centralEntitlementDatabases.clear();
 });
 
 describe('Cloudflare app Worker PRO activation projection repair', () => {
@@ -58,6 +196,63 @@ describe('Cloudflare app Worker PRO activation projection repair', () => {
     expect(statusReads).toHaveLength(25);
     expect(statusReads).toContain('000025');
     expect(statusReads).not.toContain('000024');
+  });
+
+  it('retries the central entitlement retirement after an alarm-completed decommission', async () => {
+    type CapturedStatement = { sql: string; values: unknown[] };
+    const centralStatements: CapturedStatement[] = [];
+    const authStatements: CapturedStatement[] = [];
+    const statement = (sql: string, values: unknown[] = []) => ({
+      sql,
+      values,
+      bind: (...nextValues: unknown[]) => statement(sql, nextValues),
+      all: async () => ({
+        results: sql.includes('SELECT room_code, room_generation')
+          ? [{ room_code: '000123', room_generation: 7 }]
+          : [],
+      }),
+      run: async () => ({ success: true, meta: { changes: 1 } }),
+    });
+    const adminDb = {
+      prepare: (sql: string) => statement(sql),
+      batch: async (statements: CapturedStatement[]) => {
+        centralStatements.push(...statements);
+        return statements.map(() => ({ success: true, meta: { changes: 1 } }));
+      },
+    };
+    const authDb = {
+      prepare: (sql: string) => statement(sql),
+      batch: async (statements: CapturedStatement[]) => {
+        authStatements.push(...statements);
+        return statements.map(() => ({ success: true, meta: { changes: 1 } }));
+      },
+    };
+
+    await expect(
+      retireDecommissionedAccountProRoomEdgesForTests(
+        { MUSIXQUARE_ADMIN_DB: adminDb, MUSIXQUARE_AUTH_DB: authDb },
+        { sinceMs: 1 },
+      ),
+    ).resolves.toEqual({ configured: true, retired: true, entitlementsRevoked: true });
+    expect(
+      centralStatements.some(
+        ({ sql, values }) =>
+          sql.includes('UPDATE mxqr_pro_account_entitlements') &&
+          values[0] === '000123' &&
+          values[1] === 7,
+      ),
+    ).toBe(true);
+    expect(
+      centralStatements.some(({ sql }) => sql.includes('UPDATE mxqr_pro_grant_vouchers')),
+    ).toBe(true);
+    expect(
+      authStatements.some(
+        ({ sql, values }) =>
+          sql.includes('DELETE FROM mxqr_account_pro_room_generations') &&
+          values[0] === '000123' &&
+          values[1] === 7,
+      ),
+    ).toBe(true);
   });
 });
 
@@ -2556,7 +2751,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
-      MUSIXQUARE_ADMIN_DB: db,
+      MUSIXQUARE_ADMIN_DB: withCentralEntitlementLedger(db),
       PRO_ROOM_ADMIN_ROOMS: namespace,
     };
 
@@ -2883,6 +3078,18 @@ describe('Cloudflare app worker admin dashboard', () => {
         authorization: '',
       },
       {
+        roomCode: '000002:generation:0',
+        roomGeneration: '0',
+        url: '/internal/admin/status',
+        authorization: '',
+      },
+      {
+        roomCode: '000006:generation:0',
+        roomGeneration: '0',
+        url: '/internal/admin/status',
+        authorization: '',
+      },
+      {
         roomCode: '000004:generation:0',
         roomGeneration: '0',
         url: '/internal/admin/activation-claim',
@@ -2957,6 +3164,7 @@ describe('Cloudflare app worker admin dashboard', () => {
 
   it('preserves an unexpired owner transfer and reissues only after the authoritative claim expires', async () => {
     const targetAccountId = 'acct_0123456789abcdefghijkl';
+    const previousOwnerAccountId = 'acct_abcdefghijkl0123456789';
     const room = {
       room_code: '000002',
       label: 'Pending transfer room',
@@ -3058,6 +3266,8 @@ describe('Cloudflare app worker admin dashboard', () => {
               provisioned: true,
               status: 'suspended',
               suspensionReason: 'ownership_transfer_pending',
+              ownerAccountLinked: true,
+              ownerAccountId: previousOwnerAccountId,
             });
           }
           expect(pathname).toBe('/internal/admin/owner-transfer-claim');
@@ -3085,7 +3295,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
-      MUSIXQUARE_ADMIN_DB: registryDb,
+      MUSIXQUARE_ADMIN_DB: withCentralEntitlementLedger(registryDb),
       MUSIXQUARE_AUTH_DB: authDb,
       PRO_ROOM_ADMIN_ROOMS: namespace,
     };
@@ -3748,7 +3958,15 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
-      MUSIXQUARE_ADMIN_DB: adminDb,
+      MUSIXQUARE_ADMIN_DB: withCentralEntitlementLedger(adminDb, [
+        {
+          accountId: 'acct_abcdefghijkl0123456789',
+          roomCode,
+          roomGeneration: 0,
+          sourceRef: `legacy-backfill:${roomCode}:0`,
+          status: 'active',
+        },
+      ]),
       PRO_ROOM_ADMIN_ROOMS: {
         idFromName: vi.fn((code: string) => code),
         get: vi.fn((objectName: string) => {
@@ -4057,9 +4275,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.16');
-    expect(html).toContain('/admin.js?v=8.3.16');
-    expect(html).toContain('data-admin-asset-version="8.3.16"');
+    expect(html).toContain('/admin.css?v=8.3.17');
+    expect(html).toContain('/admin.js?v=8.3.17');
+    expect(html).toContain('data-admin-asset-version="8.3.17"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
@@ -4078,7 +4296,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.3.16', '/admin.css?v=8.3.16']) {
+    for (const path of ['/admin.js?v=8.3.17', '/admin.css?v=8.3.17']) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
@@ -5765,7 +5983,15 @@ describe('Cloudflare app worker PRO room facade', () => {
       MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'assertion-secret-for-tests-at-least-32-bytes',
       MXQR_DEVELOPER_API_KEY_PEPPER: 'developer-pepper-for-tests-at-least-32-bytes',
       MUSIXQUARE_AUTH_DB: authDb,
-      MUSIXQUARE_ADMIN_DB: adminDb,
+      MUSIXQUARE_ADMIN_DB: withCentralEntitlementLedger(adminDb, [
+        {
+          accountId: previousOwnerAccountId,
+          roomCode,
+          roomGeneration,
+          sourceRef: `legacy-backfill:${roomCode}:${roomGeneration}`,
+          status: 'active',
+        },
+      ]),
       DEVELOPER_API_DB: developerDb,
       PRO_ROOM_ADMIN_ROOMS: adminNamespace,
       PRO_SIGNALING_ROOMS: {
@@ -6277,7 +6503,15 @@ describe('Cloudflare app worker PRO room facade', () => {
       MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'assertion-secret-for-tests-at-least-32-bytes',
       MXQR_DEVELOPER_API_KEY_PEPPER: 'developer-pepper-for-tests-at-least-32-bytes',
       MUSIXQUARE_AUTH_DB: authDb,
-      MUSIXQUARE_ADMIN_DB: adminDb,
+      MUSIXQUARE_ADMIN_DB: withCentralEntitlementLedger(adminDb, [
+        {
+          accountId: previousOwnerAccountId,
+          roomCode,
+          roomGeneration,
+          sourceRef: `legacy-backfill:${roomCode}:${roomGeneration}`,
+          status: 'active',
+        },
+      ]),
       DEVELOPER_API_DB: developerDb,
       PRO_ROOM_ADMIN_ROOMS: adminNamespace,
       PRO_ROOM_PUBLIC_API: { fetch: publicFetch },
@@ -6460,7 +6694,25 @@ describe('Cloudflare app worker PRO room facade', () => {
       }),
     };
     const env = {
-      MUSIXQUARE_ADMIN_DB: db,
+      MUSIXQUARE_ADMIN_DB: withCentralEntitlementLedger(db, [
+        {
+          accountId: saga.previous_owner_account_id,
+          roomCode: saga.room_code,
+          roomGeneration: saga.room_generation,
+          sourceRef: `legacy-backfill:${saga.room_code}:${saga.room_generation}`,
+          transferRequestId: saga.request_id,
+          status: 'transfer_source_active',
+        },
+        {
+          accountId: saga.target_account_id,
+          roomCode: saga.room_code,
+          roomGeneration: saga.room_generation,
+          sourceKind: 'owner_transfer',
+          sourceRef: saga.request_id,
+          transferRequestId: saga.request_id,
+          status: 'reserved',
+        },
+      ]),
       PRO_ROOM_ADMIN_ROOMS: {
         idFromName: vi.fn((name: string) => name),
         get: vi.fn(() => ({
@@ -6498,6 +6750,248 @@ describe('Cloudflare app worker PRO room facade', () => {
     ]);
     await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs + 1)).resolves.toBe(0);
     expect(audits).toHaveLength(2);
+  });
+
+  it('terminalizes a decommissioned transfer only after exact tombstone and central cleanup evidence', async () => {
+    const nowMs = 1_000;
+    const roomCode = '000024';
+    const roomGeneration = 10;
+    const saga = {
+      room_code: roomCode,
+      room_generation: roomGeneration,
+      claim_generation: 14,
+      transfer_id: `transfer_${'T'.repeat(22)}`,
+      request_id: 'request_12345678',
+      target_account_id: `acct_${'A'.repeat(22)}`,
+      previous_owner_account_id: `acct_${'B'.repeat(22)}`,
+      fence_digest: 'F'.repeat(43),
+      state: 'prepared',
+      intent_at: 90,
+      prepared_at: 100,
+      expires_at: 10_000,
+      updated_at: 100,
+    };
+    const issuance = {
+      room_code: roomCode,
+      room_generation: roomGeneration,
+      claim_generation: saga.claim_generation,
+      target_account_id: saga.target_account_id,
+      transfer_id: saga.transfer_id,
+      request_id: saga.request_id,
+      state: 'prepared',
+      issued_at: 80,
+      expires_at: saga.expires_at,
+      updated_at: 100,
+    };
+    const registry = {
+      room_code: roomCode,
+      label: 'Decommissioned transfer room',
+      status: 'decommissioned',
+      suspension_reason: null,
+      activation_state: 'unactivated',
+      room_generation: roomGeneration,
+      created_at: 10,
+      updated_at: 900,
+    };
+    let generationHistory: Record<string, unknown> | null = null;
+    const central = {
+      entitlement: 'transfer_source_active',
+      grant: 'active',
+      allocation: 'active',
+      redemption: 'fulfilled',
+      voucher: 'available',
+    };
+    let durableGeneration = roomGeneration + 1;
+    let failTerminalBatchOnce = true;
+    let abortBatches = 0;
+    let revokeBatches = 0;
+    let terminalBatches = 0;
+
+    const db = {
+      prepare: vi.fn((sql: string) => {
+        const run = (...values: unknown[]) => {
+          if (
+            /^\s*UPDATE mxqr_pro_room_owner_transfer_issuances/i.test(sql) &&
+            /SET state = 'superseded'/i.test(sql)
+          ) {
+            const changed = ['issued', 'prepared'].includes(issuance.state) ? 1 : 0;
+            if (changed) {
+              issuance.state = 'superseded';
+              issuance.updated_at = Number(values[2]);
+            }
+            return { meta: { changes: changed } };
+          }
+          if (
+            /^\s*UPDATE mxqr_pro_room_owner_transfer_sagas/i.test(sql) &&
+            /SET state = 'superseded'/i.test(sql)
+          ) {
+            const changed = ['complete', 'target_deleted', 'expired', 'superseded'].includes(
+              saga.state,
+            )
+              ? 0
+              : 1;
+            if (changed) {
+              saga.state = 'superseded';
+              saga.updated_at = Number(values[5]);
+            }
+            return { meta: { changes: changed } };
+          }
+          return { meta: { changes: 0 } };
+        };
+        const topLevelResults = () => {
+          if (/pragma table_info\(mxqr_pro_room_registry\)/i.test(sql)) {
+            return [{ name: 'room_generation' }, { name: 'suspension_reason' }];
+          }
+          if (/pragma table_info\(mxqr_pro_room_admin_audit\)/i.test(sql)) {
+            return [{ name: 'room_generation' }];
+          }
+          if (/FROM mxqr_pro_room_owner_transfer_sagas/i.test(sql) && /state NOT IN/i.test(sql)) {
+            return ['complete', 'target_deleted', 'expired', 'superseded'].includes(saga.state)
+              ? []
+              : [{ ...saga }];
+          }
+          return [];
+        };
+        const bound = (...values: unknown[]) => ({
+          sql,
+          values,
+          run: vi.fn(async () => run(...values)),
+          first: vi.fn(async () => {
+            if (/FROM mxqr_pro_room_registry/i.test(sql)) return { ...registry };
+            if (/FROM mxqr_pro_room_generation_history/i.test(sql)) {
+              return generationHistory ? { ...generationHistory } : null;
+            }
+            if (/FROM mxqr_pro_room_owner_transfer_sagas/i.test(sql)) return { ...saga };
+            if (/FROM mxqr_pro_room_owner_transfer_issuances/i.test(sql)) {
+              return ['issued', 'prepared'].includes(issuance.state) ? { pending: 1 } : null;
+            }
+            return null;
+          }),
+          all: vi.fn(async () => ({
+            results:
+              /FROM mxqr_pro_room_owner_transfer_issuances/i.test(sql) &&
+              /state = 'issued'/i.test(sql) &&
+              issuance.state === 'issued' &&
+              issuance.expires_at <= Number(values[0])
+                ? [{ ...issuance }]
+                : [],
+          })),
+        });
+        return {
+          sql,
+          run: vi.fn(async () => run()),
+          all: vi.fn(async () => ({ results: topLevelResults() })),
+          bind: vi.fn(bound),
+        };
+      }),
+      batch: vi.fn(
+        async (
+          statements: Array<{
+            sql: string;
+            run: () => Promise<unknown>;
+          }>,
+        ) => {
+          const sql = statements.map((statement) => statement.sql).join('\n');
+          if (/mxqr_pro_room_owner_transfer_issuances/i.test(sql)) {
+            terminalBatches += 1;
+            if (failTerminalBatchOnce) {
+              failTerminalBatchOnce = false;
+              throw new Error('simulated terminal batch response loss');
+            }
+          } else if (/mxqr_pro_grant_vouchers/i.test(sql)) {
+            revokeBatches += 1;
+          } else {
+            abortBatches += 1;
+          }
+          const results = [];
+          for (const statement of statements) results.push(await statement.run());
+          if (/mxqr_pro_grant_vouchers/i.test(sql)) {
+            central.entitlement = 'revoked';
+            central.grant = 'revoked';
+            central.allocation = 'revoked';
+            central.redemption = 'revoked';
+            central.voucher = 'revoked';
+          }
+          return results;
+        },
+      ),
+    };
+    const env = {
+      MUSIXQUARE_ADMIN_DB: db,
+      PRO_ROOM_ADMIN_ROOMS: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({
+          fetch: vi.fn(async () =>
+            Response.json({
+              roomCode,
+              roomGeneration: durableGeneration,
+              provisioned: false,
+              status: 'decommissioned',
+              suspensionReason: null,
+              ownerAccountLinked: false,
+              ownerAccountId: null,
+              ownerTransferReconciliation: null,
+            }),
+          ),
+        })),
+      },
+    };
+
+    await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs)).resolves.toBe(0);
+    expect({ saga: saga.state, issuance: issuance.state, ...central }).toEqual({
+      saga: 'prepared',
+      issuance: 'prepared',
+      entitlement: 'transfer_source_active',
+      grant: 'active',
+      allocation: 'active',
+      redemption: 'fulfilled',
+      voucher: 'available',
+    });
+
+    durableGeneration = roomGeneration;
+    registry.status = 'registered';
+    await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs + 1)).resolves.toBe(0);
+    expect(revokeBatches).toBe(0);
+    expect(saga.state).toBe('prepared');
+
+    registry.status = 'decommissioned';
+    await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs + 2)).resolves.toBe(0);
+    expect(central).toEqual({
+      entitlement: 'revoked',
+      grant: 'revoked',
+      allocation: 'revoked',
+      redemption: 'revoked',
+      voucher: 'revoked',
+    });
+    expect({ saga: saga.state, issuance: issuance.state }).toEqual({
+      saga: 'prepared',
+      issuance: 'prepared',
+    });
+
+    registry.room_generation = roomGeneration + 1;
+    registry.status = 'registered';
+    generationHistory = {
+      room_code: roomCode,
+      room_generation: roomGeneration,
+      status: 'decommissioned',
+      decommissioned_at: nowMs + 2,
+    };
+    await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs + 3)).resolves.toBe(1);
+    expect({ saga: saga.state, issuance: issuance.state }).toEqual({
+      saga: 'superseded',
+      issuance: 'superseded',
+    });
+    expect({ abortBatches, revokeBatches, terminalBatches }).toEqual({
+      abortBatches: 2,
+      revokeBatches: 2,
+      terminalBatches: 2,
+    });
+    await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs + 4)).resolves.toBe(0);
+    expect({ abortBatches, revokeBatches, terminalBatches }).toEqual({
+      abortBatches: 2,
+      revokeBatches: 2,
+      terminalBatches: 2,
+    });
   });
 
   it('exposes a cookie-free same-origin health check through the service binding', async () => {

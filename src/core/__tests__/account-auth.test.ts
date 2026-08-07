@@ -2008,6 +2008,7 @@ describe('account session mutations', () => {
     );
     expect(missingConfirmation?.status).toBe(400);
 
+    const orphanAccountProGrants = vi.fn(async () => true);
     const deleted = await handleAccountAuthRequest(
       new Request('https://musixquare.com/api/auth/account', {
         method: 'DELETE',
@@ -2015,12 +2016,16 @@ describe('account session mutations', () => {
         body: JSON.stringify({ confirm: true }),
       }),
       env,
+      undefined,
+      { orphanAccountProGrants },
     );
     expect(deleted?.status).toBe(200);
     expect(db.accounts.size).toBe(0);
     expect(db.accountStats.size).toBe(0);
     expect(db.sessions.size).toBe(0);
     expect(db.deletedSessions.size).toBe(1);
+    expect(orphanAccountProGrants).toHaveBeenCalledTimes(2);
+    expect(orphanAccountProGrants).toHaveBeenCalledWith(accountId);
     expect(setCookieValues(deleted!).join('\n')).toContain('Max-Age=600');
   });
 

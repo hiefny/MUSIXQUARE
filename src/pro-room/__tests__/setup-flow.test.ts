@@ -378,6 +378,30 @@ describe('PRO room setup flow', () => {
     expect(JSON.stringify(localStorage)).not.toContain(CLAIM);
   });
 
+  it('explains the one-PRO-room account limit without replaying the activation claim', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: CLAIM,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: false,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'activation_required' });
+    mocks.activate.mockRejectedValue(new ProRoomApiError('ACCOUNT_PRO_ROOM_LIMIT_REACHED', 409));
+    mocks.showDialog
+      .mockResolvedValueOnce({ action: 'ok', inputValue: '87654321' })
+      .mockResolvedValueOnce({ action: 'ok' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+    expect(mocks.activate).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenLastCalledWith({
+      title: 'pro.claim_account_capacity_title',
+      message: 'pro.claim_account_capacity_message',
+      buttonText: 'common.ok',
+    });
+  });
+
   it('retains the claim after a blocked popup and allows an in-place login retry', async () => {
     mocks.takeClaims.mockReturnValue({
       activationClaimToken: CLAIM,

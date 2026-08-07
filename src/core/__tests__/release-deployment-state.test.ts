@@ -467,6 +467,25 @@ describe('release deployment rollback state', () => {
     );
   });
 
+  it.each(['cloudflare/pro-room-grants.js', 'cloudflare/admin-metrics.pro-grants.migration.sql'])(
+    'tracks %s as a shared PRO room runtime dependency',
+    (changedPath) => {
+      const directory = createDirectory();
+      const deployedSha = 'a'.repeat(40);
+      expect(() =>
+        verifyPartialReleaseCompatibility('app', 'b'.repeat(40), directory, {
+          queryCurrent: (target: string) => ({
+            deploymentId: `deployment-${target}`,
+            versionId: `version-${target}`,
+            message: `git:${deployedSha} run:1 target:all`,
+          }),
+          changedRuntimePaths: (_base: string, _head: string, paths: string[]) =>
+            paths.filter((path) => path === changedPath),
+        }),
+      ).toThrow('pro-room has undeployed production-source changes');
+    },
+  );
+
   it('blocks a partial release when another Worker has undeployed runtime changes', () => {
     const directory = createDirectory();
     const deployedSha = 'a'.repeat(40);
@@ -1215,10 +1234,14 @@ describe('release deployment rollback state', () => {
     const generationFence = workflow.indexOf(
       'Disable PRO room generation cutover before failed-release rollback',
     );
+    const entitlementFloor = workflow.indexOf(
+      'Read PRO entitlement compatibility floor before failed-release rollback',
+    );
     const workerRollback = workflow.indexOf('Restore Worker deployments after a failed release');
     expect(finalVerification).toBeGreaterThan(lastSmoke);
     expect(generationFence).toBeGreaterThan(finalVerification);
-    expect(workerRollback).toBeGreaterThan(generationFence);
+    expect(entitlementFloor).toBeGreaterThan(generationFence);
+    expect(workerRollback).toBeGreaterThan(entitlementFloor);
     expect(workflow).toContain("steps.final_verification.outcome || 'not-run'");
 
     const generationFenceStep = workflow.slice(generationFence, workerRollback);
@@ -1228,10 +1251,15 @@ describe('release deployment rollback state', () => {
       'CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}',
     );
     expect(generationFenceStep).not.toContain('secrets.CLOUDFLARE_API_TOKEN');
+    expect(generationFenceStep).toContain('system:entitlement-backfill');
+    expect(generationFenceStep).toContain('entitlement.backfill');
+    expect(generationFenceStep).toContain('entitlement_floor=true');
     expect(workerStep).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
     expect(workerStep).not.toContain('secrets.CLOUDFLARE_D1_API_TOKEN');
     expect(workerStep).toContain('inputs.apply_developer_api_d1');
     expect(workerStep).toContain('rollback_skip_targets="developer-api-facade,developer-api"');
+    expect(workerStep).toContain('steps.pro_entitlement_floor.outputs.entitlement_floor');
+    expect(workerStep).toContain('rollback_skip_targets="pro-room,app"');
   });
 
   it('applies the admin suspension-reason migration idempotently before the matched rollout', () => {
@@ -1283,6 +1311,43 @@ describe('release deployment rollback state', () => {
     expect(step).toContain('increment_guard_count');
     expect(step).toContain('rooms_opened');
     expect(step).toContain('retained_rooms_opened');
+    expect(step).toContain('capture-wrangler-d1-json.mjs');
+  });
+
+  it('installs and verifies the secret-free generic PRO grant ledger before app rollouts', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const migrationStep = workflow.indexOf('Apply and verify generic PRO grant D1 contract');
+    const nextStep = workflow.indexOf('\n      - name:', migrationStep + 1);
+    const step = workflow.slice(migrationStep, nextStep);
+
+    expect(migrationStep).toBeGreaterThan(-1);
+    expect(migrationStep).toBeLessThan(
+      workflow.indexOf('Deploy and record app Worker with immutable dist'),
+    );
+    expect(step).toContain(
+      "if: inputs.target == 'all' || inputs.target == 'app' || inputs.target == 'pro-room'",
+    );
+    expect(step).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}');
+    expect(step).toContain('admin-metrics.pro-grants.migration.sql');
+    expect(step).toContain('mxqr_pro_grant_campaigns');
+    expect(step).toContain('mxqr_pro_grant_vouchers');
+    expect(step).toContain('mxqr_pro_grant_account_fences');
+    expect(step).toContain('mxqr_pro_grants');
+    expect(step).toContain('mxqr_pro_grant_allocations');
+    expect(step).toContain('mxqr_pro_grant_audit');
+    expect(step).toContain('mxqr_pro_account_entitlements');
+    expect(step).toContain('forbidden_secret_column_count');
+    expect(step).toContain('idx_mxqr_pro_grants_one_current_pro_per_account');
+    expect(step).toContain('mxqr_pro_grant_voucher_registry_guard');
+    expect(step).toContain('idx_mxqr_pro_account_entitlements_one_current_account');
+    expect(step).toContain('idx_mxqr_pro_account_entitlements_one_reserved_room');
+    expect(step).toContain('mxqr_pro_account_entitlements_material_immutable');
+    expect(step).toContain('entitlement_account_index_count');
+    expect(step).toContain('entitlement_room_index_count');
+    expect(step).toContain('account_fence_table_count');
+    expect(step).toContain('(.table_count | tonumber) == 9');
+    expect(step).toContain('(.index_count | tonumber) == 11');
+    expect(step).toContain('(.trigger_count | tonumber) == 14');
     expect(step).toContain('capture-wrangler-d1-json.mjs');
   });
 

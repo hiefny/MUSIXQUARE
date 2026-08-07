@@ -1,4 +1,6 @@
 import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import {
   ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
@@ -44,6 +46,96 @@ const proMediaCorsSmokeSource = await readFile(
   new URL('../../../scripts/live-pro-media-cors-smoke.mjs', import.meta.url),
   'utf8',
 );
+const proGrantMigration = await readFile(
+  new URL('../../../cloudflare/admin-metrics.pro-grants.migration.sql', import.meta.url),
+  'utf8',
+);
+const sqlite = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
+const entitlementDatabases = new Set<DatabaseSync>();
+
+type EntitlementSqlValue = string | number | bigint | Uint8Array | null;
+
+class EntitlementD1Statement {
+  constructor(
+    private readonly statement: StatementSync,
+    private readonly values: readonly EntitlementSqlValue[] = [],
+  ) {}
+
+  bind(...values: EntitlementSqlValue[]) {
+    return new EntitlementD1Statement(this.statement, values);
+  }
+
+  async first() {
+    return (this.statement.get(...this.values) as Record<string, unknown> | undefined) ?? null;
+  }
+
+  async all() {
+    return { results: this.statement.all(...this.values) as Record<string, unknown>[] };
+  }
+
+  async run() {
+    const result = this.statement.run(...this.values);
+    return { success: true, meta: { changes: Number(result.changes) } };
+  }
+}
+
+class LazyEntitlementD1 {
+  private database: DatabaseSync | null = null;
+
+  private open() {
+    if (this.database) return this.database;
+    const database = new sqlite.DatabaseSync(':memory:');
+    database.exec('PRAGMA foreign_keys = ON');
+    database.exec(`
+      CREATE TABLE mxqr_pro_room_registry (
+        room_code TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        status TEXT NOT NULL,
+        suspension_reason TEXT,
+        activation_state TEXT NOT NULL,
+        room_generation INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `);
+    database
+      .prepare(
+        `INSERT INTO mxqr_pro_room_registry (
+           room_code, label, status, suspension_reason, activation_state,
+           room_generation, created_at, updated_at
+         ) VALUES ('000000', 'Test room', 'registered', NULL, 'active', 0, 1, 1)`,
+      )
+      .run();
+    database.exec(proGrantMigration);
+    database
+      .prepare(
+        `INSERT INTO mxqr_pro_grant_audit (actor_id, action, result, created_at)
+         VALUES ('system:entitlement-backfill', 'entitlement.backfill', 'complete', 1)`,
+      )
+      .run();
+    this.database = database;
+    entitlementDatabases.add(database);
+    return database;
+  }
+
+  prepare(sql: string) {
+    return new EntitlementD1Statement(this.open().prepare(sql));
+  }
+
+  async batch(statements: EntitlementD1Statement[]) {
+    const database = this.open();
+    database.exec('BEGIN IMMEDIATE');
+    try {
+      const results = [];
+      for (const statement of statements) results.push(await statement.run());
+      database.exec('COMMIT');
+      return results;
+    } catch (error) {
+      database.exec('ROLLBACK');
+      throw error;
+    }
+  }
+}
 
 function expectProMediaUploadContract(upload: {
   headers: Record<string, string>;
@@ -74,6 +166,8 @@ function expectProMediaUploadContract(upload: {
 
 afterEach(() => {
   vi.useRealTimers();
+  for (const database of entitlementDatabases) database.close();
+  entitlementDatabases.clear();
 });
 
 describe('PRO room server-authoritative playback', () => {
@@ -2403,6 +2497,7 @@ function environment(bucket = new FakeR2Bucket()) {
         })),
       })),
     },
+    MUSIXQUARE_ADMIN_DB: new LazyEntitlementD1(),
   };
 }
 
@@ -7758,6 +7853,62 @@ describe('persistent PRO room bootstrap and activation', () => {
     );
     expect(current.status).toBe(200);
     expect(JSON.stringify(await responseJson(current))).not.toContain('pro-claim');
+  });
+
+  it('binds a grant activation claim to its target account without consuming it on mismatch', async () => {
+    const roomCode = '000002';
+    const worker = new MusixquareProRoom(new FakeState() as never, environment() as never);
+    await worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/provision', {
+        method: 'POST',
+        headers: {
+          'x-mxqr-pro-room-code': roomCode,
+          'x-mxqr-pro-room-generation': '0',
+        },
+      }),
+    );
+    const issued = await responseJson(
+      await worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/activation-claim', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': roomCode,
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify({
+            roomGeneration: 0,
+            targetAccountId: ACTIVATION_OWNER_ACCOUNT_ID,
+          }),
+        }),
+      ),
+    );
+    const encoded = new URL(issued.activationUrl).hash.match(/^#pro-claim=(.+)$/)?.[1];
+    if (!encoded) throw new Error('missing account-bound claim');
+    const claimToken = decodeURIComponent(encoded);
+    const otherAccountId = `acct_${'B'.repeat(22)}`;
+    const activationRequest = () =>
+      jsonRequestForRoom(roomCode, '/activation', 'POST', {
+        claimToken,
+        temporaryPin: '00000002',
+        newPin: '12345678',
+      });
+
+    const mismatch = await worker.fetch(
+      await withAccountAssertion(activationRequest(), otherAccountId, 'Other', roomCode),
+    );
+    expect(mismatch.status).toBe(409);
+    expect(await responseJson(mismatch)).toEqual({ error: 'OWNER_ACCOUNT_LINK_CONFLICT' });
+
+    const owner = await worker.fetch(
+      await withAccountAssertion(
+        activationRequest(),
+        ACTIVATION_OWNER_ACCOUNT_ID,
+        'Owner',
+        roomCode,
+      ),
+    );
+    expect(owner.status).toBe(200);
   });
 
   it('issues a short-lived owner recovery link only for an active room', async () => {

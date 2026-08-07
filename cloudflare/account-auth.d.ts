@@ -10,6 +10,7 @@ export interface AccountDeletionIntegrations {
     roomCode: string;
     roomGeneration: number;
   }) => Promise<unknown>;
+  orphanAccountProGrants?: (accountId: string) => Promise<boolean>;
   deferAccountDeletion?: (accountId: string) => unknown;
 }
 

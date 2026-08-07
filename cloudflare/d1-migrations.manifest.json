@@ -4,9 +4,9 @@
     {
       "database": "musixquare-admin-metrics",
       "baseline": "cloudflare/admin-metrics.schema.sql",
-      "baselineRevision": 4,
-      "baselineSha256": "431b9fc45191f14c4ddcaa40f13618b8b8f14862cc4d176fd5b8efeb858820a5",
-      "baselineMigration": "admin-lifetime-room-count-v1",
+      "baselineRevision": 5,
+      "baselineSha256": "b3263852d6e3636a74ee9f4e546f420978c714560731a2051e5100c2c7b01cee",
+      "baselineMigration": "admin-pro-grants-v1",
       "baselineRecovery": {
         "strategy": "roll-forward-or-provider-restore",
         "runbook": "cloudflare/admin-dashboard-ops.md",
@@ -63,6 +63,19 @@
             "strategy": "roll-forward-or-provider-restore",
             "runbook": "cloudflare/admin-dashboard-ops.md",
             "note": "The aggregate-only lifetime standard-room counter is initialized from retained operational buckets and then advances independently of retention; recovery keeps the additive table and triggers or restores the provider database."
+          }
+        },
+        {
+          "id": "admin-pro-grants-v1",
+          "forward": "cloudflare/admin-metrics.pro-grants.migration.sql",
+          "forwardSha256": "b8d034fc188ce5ae8f74ce61a79f304b2713b0da01a7b123f2d2f332402c02a3",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
+            "runbook": "cloudflare/admin-dashboard-ops.md",
+            "note": "The secret-free entitlement ledger, exact room allocations, account-deletion fences and append-only audit trail are required by the matched App and PRO Worker floor; recovery rolls forward or restores the provider database without reissuing plaintext vouchers."
           }
         }
       ]

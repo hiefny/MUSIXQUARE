@@ -1465,6 +1465,7 @@ async function handleAccountDelete(request, config, integrations = {}) {
     }
     fencedAccountId = accountId;
     const purgeProRoomAccountAuthority = integrations?.purgeProRoomAccountAuthority;
+    const orphanAccountProGrants = integrations?.orphanAccountProGrants;
     const { links: linkedRooms } = await readAccountProRoomLinks(
       config.db,
       accountId,
@@ -1476,7 +1477,7 @@ async function handleAccountDelete(request, config, integrations = {}) {
     if (linkedRooms.length > 0 && typeof purgeProRoomAccountAuthority !== 'function') {
       throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
     }
-    if (linkedRooms.length > 0) {
+    if (linkedRooms.length > 0 || typeof orphanAccountProGrants === 'function') {
       const tombstoneExpiresAt = deletionStartedAt + ACCOUNT_DELETED_SESSION_TTL_SECONDS * 1000;
       const [disabled] = await d1Batch(config.db, [
         {
@@ -1498,6 +1499,12 @@ async function handleAccountDelete(request, config, integrations = {}) {
       deletionCommitted = true;
       fencedAccountId = null;
     }
+    if (
+      typeof orphanAccountProGrants === 'function' &&
+      (await orphanAccountProGrants(accountId)) !== true
+    ) {
+      throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
+    }
     const cleanup = await purgeAccountProRoomLinks(
       config.db,
       accountId,
@@ -1515,6 +1522,16 @@ async function handleAccountDelete(request, config, integrations = {}) {
           ? deletedSessionCookie(deletionSessionToken)
           : clearCookie(AUTH_SESSION_COOKIE),
       ]);
+    }
+    // Reconcile once more after session authority has been disabled and every
+    // room purge has completed. This closes the cross-D1 window for a redeem
+    // request that resolved the old session immediately before the deletion
+    // fence became visible.
+    if (
+      typeof orphanAccountProGrants === 'function' &&
+      (await orphanAccountProGrants(accountId)) !== true
+    ) {
+      throw new Error('ACCOUNT_DELETE_CLEANUP_UNAVAILABLE');
     }
     await finalizeAccountDeletion(config.db, accountId, deletionStartedAt);
     fencedAccountId = null;
@@ -1754,12 +1771,7 @@ export async function retireAccountProRoomLinks(env, roomCode, roomGeneration) {
  * owner's edge (or another administrator's conservative cleanup edge) for the
  * same live room incarnation.
  */
-export async function retireAccountProRoomLinkForAccount(
-  env,
-  accountId,
-  roomCode,
-  roomGeneration,
-) {
+export async function retireAccountProRoomLinkForAccount(env, accountId, roomCode, roomGeneration) {
   const db = env?.MUSIXQUARE_AUTH_DB;
   if (
     !db ||
@@ -1825,6 +1837,7 @@ export async function retireAccountProRoomLinkBatch(env, incarnations) {
 export async function cleanupPendingAccountDeletions(env, integrations = {}, options = {}) {
   const db = env?.MUSIXQUARE_AUTH_DB;
   const purgeProRoomAccountAuthority = integrations?.purgeProRoomAccountAuthority;
+  const orphanAccountProGrants = integrations?.orphanAccountProGrants;
   if (
     !db ||
     typeof db.prepare !== 'function' ||
@@ -1899,6 +1912,13 @@ export async function cleanupPendingAccountDeletions(env, integrations = {}, opt
         disabledAt + ACCOUNT_DELETED_SESSION_TTL_SECONDS * 1000,
       ),
     ]);
+    if (
+      typeof orphanAccountProGrants === 'function' &&
+      (await orphanAccountProGrants(accountId)) !== true
+    ) {
+      result.pendingAccounts += 1;
+      continue;
+    }
     const { links } = await readAccountProRoomLinks(db, accountId, edgeLimit);
     if (links.length > 0) {
       const cleanup = await purgeAccountProRoomLinks(

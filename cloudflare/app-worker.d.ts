@@ -37,4 +37,12 @@ export function reconcileOwnerTransferSagasForTests(
   db: unknown,
   nowMs?: number,
 ): Promise<number>;
+export function retireDecommissionedAccountProRoomEdgesForTests(
+  env: Record<string, unknown>,
+  options?: { sinceMs?: number | null },
+): Promise<{
+  configured: boolean;
+  retired: boolean;
+  entitlementsRevoked?: boolean;
+}>;
 export default appWorker;

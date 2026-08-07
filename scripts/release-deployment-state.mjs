@@ -46,6 +46,7 @@ function trackedD1MigrationPaths(migrationIds) {
 const PRO_ROOM_D1_PATHS = Object.freeze([
   ...trackedD1MigrationPaths([
     'admin-pro-room-generation-v1',
+    'admin-pro-grants-v1',
     'auth-pro-room-generation-v1',
     'developer-api-room-generation-v1',
   ]),
@@ -119,6 +120,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
   ],
   'pro-room': [
     'cloudflare/pro-room-worker.js',
+    'cloudflare/pro-room-grants.js',
     'cloudflare/service-maintenance.js',
     'cloudflare/pro-room-generation.js',
     'cloudflare/pro-room-effects.js',
@@ -166,6 +168,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/app-worker.js',
     'cloudflare/service-maintenance.js',
     'cloudflare/pro-bot.js',
+    'cloudflare/pro-room-grants.js',
     'cloudflare/pro-room-generation.js',
     'cloudflare/account-auth.js',
     ...APP_D1_PATHS,

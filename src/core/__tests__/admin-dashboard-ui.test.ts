@@ -1482,4 +1482,140 @@ describe('admin PRO room operations dashboard', () => {
       document.querySelector<HTMLElement>('[data-pro-room-list-status]'),
     );
   });
+
+  it('keeps ASAMO voucher plaintext memory-only while operating inside PRO Rooms', async () => {
+    installAdminDom();
+    const proView = document.querySelector<HTMLElement>('[data-admin-view="pro-rooms"]')!;
+    const form = document.querySelector<HTMLFormElement>('[data-pro-room-form]')!;
+    const registerPanel = document.createElement('section');
+    registerPanel.className = 'panel pro-room-register-panel';
+    proView.insertBefore(registerPanel, form);
+    registerPanel.appendChild(form);
+
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:mxqr-vouchers'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    const voucherMutations: Array<any> = [];
+    const registeredEventRooms = new Map<string, any>();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      const method = String(init?.method || 'GET').toUpperCase();
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/announcement') {
+        return Response.json({ announcement: {}, history: [] });
+      }
+      if (url.pathname === '/api/admin/pro-rooms' && method === 'GET') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          rooms: [...registeredEventRooms.values()],
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms' && method === 'POST') {
+        const body = JSON.parse(String(init?.body || '{}'));
+        const room = {
+          roomCode: body.roomCode,
+          roomGeneration: 0,
+          label: body.label,
+          status: 'registered',
+          activationState: 'unactivated',
+        };
+        registeredEventRooms.set(room.roomCode, room);
+        return Response.json({ room }, { status: 201 });
+      }
+      if (url.pathname === '/api/admin/pro-grants/campaigns/asamo-0/status' && method === 'GET') {
+        return Response.json({ campaign: null, counts: {} });
+      }
+      if (url.pathname === '/api/admin/pro-grants/campaigns' && method === 'POST') {
+        return Response.json({ campaign: { slug: 'asamo-0' } });
+      }
+      if (
+        url.pathname === '/api/admin/pro-grants/campaigns/asamo-0/vouchers' &&
+        method === 'POST'
+      ) {
+        const body = JSON.parse(String(init?.body || '{}'));
+        voucherMutations.push(body);
+        if (body.dryRun) {
+          return Response.json({ dryRun: true, validatedCount: 50 });
+        }
+        return Response.json({
+          requestId: body.requestId,
+          campaign: { slug: 'asamo-0' },
+          count: 50,
+          mappings: body.vouchers.map((voucher: any, index: number) => ({
+            voucherId: `voucher_${String(index).padStart(22, 'A')}`,
+            roomCode: voucher.roomCode,
+            roomGeneration: 0,
+            status: 'available',
+          })),
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+    const campaignPanel = document.querySelector<HTMLElement>('[data-pro-grant-campaign]');
+    expect(campaignPanel).not.toBeNull();
+    expect(campaignPanel?.closest('[data-admin-view]')?.getAttribute('data-admin-view')).toBe(
+      'pro-rooms',
+    );
+
+    campaignPanel?.querySelector<HTMLButtonElement>('[data-pro-grant-verify]')?.click();
+    await vi.waitFor(() => {
+      expect(campaignPanel?.textContent).toContain('50 room(s) need provisioning');
+    });
+    expect(voucherMutations).toHaveLength(0);
+    expect(registeredEventRooms.size).toBe(0);
+
+    campaignPanel?.querySelector<HTMLButtonElement>('[data-pro-grant-create]')?.click();
+    await vi.waitFor(() => expect(URL.createObjectURL).toHaveBeenCalledTimes(1));
+    expect(voucherMutations).toHaveLength(0);
+    expect(registeredEventRooms.size).toBe(0);
+    campaignPanel?.querySelector<HTMLButtonElement>('[data-pro-grant-apply]')?.click();
+    await vi.waitFor(() => expect(voucherMutations).toHaveLength(1));
+    expect(registeredEventRooms.size).toBe(50);
+    for (const [roomCode, room] of registeredEventRooms) {
+      expect(room.label).toBe(`ASAMO 0 · ${roomCode}`);
+      expect(room.status).toBe('registered');
+      expect(room.activationState).toBe('unactivated');
+    }
+    const issued = voucherMutations[0];
+    expect(issued.vouchers).toHaveLength(50);
+    expect(new Set(issued.vouchers.map((voucher: any) => voucher.code))).toHaveLength(50);
+    for (const voucher of issued.vouchers) {
+      expect(voucher.code).toMatch(/^MXQ(?:-[0-9A-HJKMNP-TV-Z]{5}){4}$/);
+    }
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledTimes(1);
+    expect(campaignPanel?.textContent).not.toContain('MXQ-');
+    expect(document.body.textContent).not.toContain(issued.vouchers[0].code);
+    expect(campaignPanel?.querySelector<HTMLElement>('[data-pro-grant-export]')?.hidden).toBe(
+      false,
+    );
+
+    window.dispatchEvent(new Event('pagehide'));
+    campaignPanel?.querySelector<HTMLButtonElement>('[data-pro-grant-copy]')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(campaignPanel?.textContent).toContain('Clipboard access is unavailable');
+  });
 });

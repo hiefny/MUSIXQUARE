@@ -39,6 +39,11 @@ import {
   normalizeServiceMaintenanceState,
   readServiceMaintenance,
 } from './service-maintenance.js';
+import {
+  finalizeProRoomActivationEntitlement,
+  reserveProRoomActivationEntitlement,
+  reserveProRoomOwnershipTransferEntitlement,
+} from './pro-room-grants.js';
 
 /**
  * MUSIXQUARE persistent PRO room service.
@@ -803,6 +808,10 @@ export async function issueProRoomActivationClaim(roomCode, secret, options = {}
   if (!Number.isSafeInteger(generation) || generation < 0) throw new Error('Invalid generation');
   const roomGeneration = options.roomGeneration ?? INITIAL_PRO_ROOM_GENERATION;
   if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
+  const targetAccountId = options.targetAccountId ?? null;
+  if (targetAccountId !== null && !ACCOUNT_ID_RE.test(targetAccountId)) {
+    throw new Error('Invalid target account');
+  }
   const nonce = options.nonce ?? randomToken(18);
   if (typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) {
     throw new Error('Invalid nonce');
@@ -817,6 +826,7 @@ export async function issueProRoomActivationClaim(roomCode, secret, options = {}
       nonce,
       generation,
       ...proRoomGenerationWireFields(roomGeneration),
+      ...(targetAccountId === null ? {} : { targetAccountId }),
     },
     secret,
   );
@@ -838,7 +848,8 @@ async function verifyActivationClaim(token, roomCode, secret, nowMs) {
     payload.nonce.length >= 16 &&
     Number.isSafeInteger(payload.generation) &&
     payload.generation >= 0 &&
-    isProRoomGeneration(payload.roomGeneration)
+    isProRoomGeneration(payload.roomGeneration) &&
+    (payload.targetAccountId === undefined || ACCOUNT_ID_RE.test(payload.targetAccountId))
     ? payload
     : null;
 }
@@ -4717,6 +4728,9 @@ export class MusixquareProRoom {
             status: this.room.status,
             suspensionReason: this.room.suspensionReason,
             ownerAccountLinked: typeof this.room.ownerAccountId === 'string',
+            ownerAccountId: ACCOUNT_ID_RE.test(this.room.ownerAccountId || '')
+              ? this.room.ownerAccountId
+              : null,
             developerAuthorityEpoch: this.room.developerAuthorityEpoch,
             ownerTransferReconciliation: internalOwnerTransferReconciliation(this.room),
           });
@@ -4746,7 +4760,7 @@ export class MusixquareProRoom {
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/activation-claim') {
         return this.withMutation(() =>
-          this.withStateCapacityRollback(() => this.handleInternalActivationClaim(), {
+          this.withStateCapacityRollback(() => this.handleInternalActivationClaim(request), {
             rollbackStorageFailure: true,
           }),
         );
@@ -6592,7 +6606,7 @@ export class MusixquareProRoom {
     return errorResponse('COMMAND_ACK_NOT_REQUIRED', 410);
   }
 
-  async handleInternalActivationClaim() {
+  async handleInternalActivationClaim(request) {
     if (!this.room.provisioned) return errorResponse('PRO_ROOM_NOT_FOUND', 404);
     if (this.room.status !== 'unactivated') {
       return jsonResponse(
@@ -6607,6 +6621,23 @@ export class MusixquareProRoom {
     }
     const nowMs = Date.now();
     const expiresAt = nowMs + ACTIVATION_CLAIM_MAX_LIFETIME_MS;
+    let targetAccountId = null;
+    if (
+      String(request.headers.get('content-type') || '')
+        .toLowerCase()
+        .startsWith('application/json')
+    ) {
+      const parsed = await this.parseBody(request, 1024);
+      if (parsed.response) return parsed.response;
+      if (
+        !hasExactKeys(parsed.value, ['roomGeneration', 'targetAccountId']) ||
+        parsed.value.roomGeneration !== this.room.roomGeneration ||
+        !ACCOUNT_ID_RE.test(parsed.value.targetAccountId || '')
+      ) {
+        return errorResponse('INVALID_REQUEST', 400);
+      }
+      targetAccountId = parsed.value.targetAccountId;
+    }
     this.room.activationClaimGeneration += 1;
     // Persist the new generation before returning the credential. A lost
     // response may require the operator to issue again, but can never leave a
@@ -6617,6 +6648,7 @@ export class MusixquareProRoom {
       expiresAtMs: expiresAt,
       generation: this.room.activationClaimGeneration,
       roomGeneration: this.room.roomGeneration,
+      ...(targetAccountId === null ? {} : { targetAccountId }),
     });
     return jsonResponse({
       roomCode: this.room.roomCode,
@@ -10511,6 +10543,17 @@ export class MusixquareProRoom {
       return errorResponse('OWNER_TRANSFER_OWNER_IDENTITY_INVALID', 409);
     }
     const nextPin = await createPinRecord(parsed.value.newPin, pepper);
+    if (
+      !(await reserveProRoomOwnershipTransferEntitlement(this.env, {
+        targetAccountId: asserted.account.accountId,
+        roomCode: this.room.roomCode,
+        roomGeneration: this.room.roomGeneration,
+        requestId: parsed.value.requestId,
+        nowMs,
+      }))
+    ) {
+      return errorResponse('ACCOUNT_PRO_ROOM_LIMIT_REACHED', 409);
+    }
     const previousOwnerAccountId =
       this.room.pendingOwnershipTransfer?.previousOwnerAccountId ||
       this.room.ownerAccountId ||
@@ -10907,7 +10950,23 @@ export class MusixquareProRoom {
     const asserted = await this.accountAssertion(request);
     if (asserted.response) return asserted.response;
     if (!asserted.account) return errorResponse('ACCOUNT_SESSION_REQUIRED', 401);
+    if (
+      claimValid.targetAccountId !== undefined &&
+      claimValid.targetAccountId !== asserted.account.accountId
+    ) {
+      return errorResponse('OWNER_ACCOUNT_LINK_CONFLICT', 409);
+    }
     const pin = await createPinRecord(body.newPin, pepper);
+    if (
+      !(await reserveProRoomActivationEntitlement(this.env, {
+        accountId: asserted.account.accountId,
+        roomCode: this.room.roomCode,
+        roomGeneration: this.room.roomGeneration,
+        nowMs,
+      }))
+    ) {
+      return errorResponse('ACCOUNT_PRO_ROOM_LIMIT_REACHED', 409);
+    }
     this.room.status = 'active';
     this.room.suspensionReason = null;
     this.room.authEpoch = 1;
@@ -10934,6 +10993,12 @@ export class MusixquareProRoom {
     );
     await this.persist();
     this.markRegistryActivationActive();
+    await finalizeProRoomActivationEntitlement(this.env, {
+      accountId: asserted.account.accountId,
+      roomCode: this.room.roomCode,
+      roomGeneration: this.room.roomGeneration,
+      nowMs,
+    }).catch(() => false);
     const response = jsonResponse(
       {
         snapshot: publicSnapshot(this.room, created.session),

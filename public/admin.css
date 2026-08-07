@@ -437,8 +437,115 @@ p {
 }
 
 .pro-room-register-panel .panel-head p,
+.pro-grant-campaign-head p,
 .pro-room-list-head p,
 .pro-room-claim p {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.pro-grant-campaign-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.pro-grant-campaign-head {
+  align-items: start;
+  margin-bottom: 0;
+}
+
+.pro-grant-campaign-head > div {
+  display: grid;
+  gap: 5px;
+}
+
+.pro-grant-campaign-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: var(--radius-pill);
+  padding: 0 10px;
+  background: var(--surface-2);
+  color: var(--text-sub);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.pro-grant-campaign-state[data-state='active'] {
+  background: rgba(74, 222, 128, 0.12);
+  color: var(--pass);
+}
+
+.pro-grant-campaign-state[data-state='paused'] {
+  background: rgba(250, 204, 21, 0.12);
+  color: var(--warn);
+}
+
+.pro-grant-campaign-state[data-state='revoked'],
+.pro-grant-campaign-state[data-state='ended'] {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--fail);
+}
+
+.pro-grant-campaign-summary {
+  color: var(--text-sub);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pro-grant-campaign-actions,
+.pro-grant-campaign-export > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.pro-grant-campaign-actions button,
+.pro-grant-campaign-export button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  border-radius: var(--radius-pill);
+  padding: 0 15px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.pro-grant-campaign-actions button.is-secondary,
+.pro-grant-campaign-export button.is-secondary {
+  background: var(--surface-2);
+  color: var(--text-sub);
+}
+
+.pro-grant-campaign-actions button.is-danger {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--fail);
+}
+
+.pro-grant-campaign-actions button:disabled,
+.pro-grant-campaign-export button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.pro-grant-campaign-export {
+  display: grid;
+  gap: 9px;
+  border-radius: var(--radius);
+  padding: 12px;
+  background: var(--surface-2);
+}
+
+.pro-grant-campaign-export[hidden] {
+  display: none;
+}
+
+.pro-grant-campaign-export p {
   color: var(--text-muted);
   font-size: 12px;
 }
@@ -2227,6 +2334,17 @@ p {
   .pro-room-claim-row,
   .pro-room-label-form {
     grid-template-columns: 1fr;
+  }
+
+  .pro-grant-campaign-actions,
+  .pro-grant-campaign-export > div {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .pro-grant-campaign-actions button,
+  .pro-grant-campaign-export button {
+    width: 100%;
   }
 
   .pro-room-summary {

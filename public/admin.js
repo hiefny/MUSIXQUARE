@@ -1,4 +1,4 @@
-const ADMIN_SCRIPT_VERSION = '8.3.16';
+const ADMIN_SCRIPT_VERSION = '8.3.17';
 window.__MXQR_ADMIN_SCRIPT_VERSION__ = ADMIN_SCRIPT_VERSION;
 
 const root = document.querySelector('.admin-shell');
@@ -86,6 +86,29 @@ let proRoomDestroyTarget = null;
 let proRoomTransferDialogElements = null;
 let proRoomTransferTarget = null;
 let visibleProRoomClaimIncarnation = null;
+let proGrantCampaignLoaded = false;
+let proGrantCampaignState = null;
+let proGrantCampaignBusy = false;
+let pendingProGrantVoucherExport = null;
+let proGrantCampaignPanelEl = null;
+let proGrantCampaignStateEl = null;
+let proGrantCampaignStatusEl = null;
+let proGrantCampaignCountsEl = null;
+let proGrantCampaignVerifyBtn = null;
+let proGrantCampaignCreateBtn = null;
+let proGrantCampaignApplyBtn = null;
+let proGrantCampaignPauseBtn = null;
+let proGrantCampaignRevokeBtn = null;
+let proGrantCampaignExportEl = null;
+let proGrantCampaignDownloadBtn = null;
+let proGrantCampaignCopyBtn = null;
+const PRO_GRANT_ASAMO_SLUG = 'asamo-0';
+const PRO_GRANT_ASAMO_TITLE = 'MUSIXQUARE 아사모 이벤트';
+const PRO_GRANT_ASAMO_ROOM_CODES = Object.freeze(
+  Array.from({ length: 50 }, (_, index) => String(100 + index).padStart(6, '0')),
+);
+const PRO_GRANT_CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const PRO_GRANT_ROOM_PROVISION_CONCURRENCY = 4;
 const developerApiScopeLabels = Object.freeze({
   'room:read': 'Room',
   'playback:read': 'Playback read',
@@ -118,6 +141,240 @@ function createAdminRequestId() {
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function bytesToAdminBase64Url(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
+}
+
+function createProGrantBatchRequestId() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return `batch_${bytesToAdminBase64Url(bytes)}`;
+}
+
+function createProGrantVoucherCode() {
+  const entropy = new Uint8Array(13);
+  crypto.getRandomValues(entropy);
+  let bits = 0;
+  let bitCount = 0;
+  let encoded = '';
+  for (const byte of entropy) {
+    bits = (bits << 8) | byte;
+    bitCount += 8;
+    while (bitCount >= 5 && encoded.length < 20) {
+      bitCount -= 5;
+      encoded += PRO_GRANT_CODE_ALPHABET[(bits >>> bitCount) & 31];
+      bits &= (1 << bitCount) - 1;
+    }
+  }
+  if (encoded.length !== 20) throw new Error('Secure voucher generation failed.');
+  return `MXQ-${encoded.slice(0, 5)}-${encoded.slice(5, 10)}-${encoded.slice(10, 15)}-${encoded.slice(15)}`;
+}
+
+function createAsamoVoucherExport() {
+  const requestId = createProGrantBatchRequestId();
+  const existingStartsAt = Number(proGrantCampaignState?.campaign?.startsAt);
+  const seen = new Set();
+  const vouchers = PRO_GRANT_ASAMO_ROOM_CODES.map((roomCode) => {
+    let code;
+    do code = createProGrantVoucherCode();
+    while (seen.has(code));
+    seen.add(code);
+    return { roomCode, code };
+  });
+  return {
+    format: 'mxqr-pro-grant-vouchers-v1',
+    warning: 'PLAINTEXT VOUCHER CODES. Store and distribute securely.',
+    exportedAt: new Date().toISOString(),
+    requestId,
+    campaign: {
+      slug: PRO_GRANT_ASAMO_SLUG,
+      title: PRO_GRANT_ASAMO_TITLE,
+      startsAt:
+        Number.isSafeInteger(existingStartsAt) && existingStartsAt >= 0
+          ? existingStartsAt
+          : Date.now(),
+      endsAt: null,
+      perAccountLimit: 1,
+    },
+    vouchers,
+  };
+}
+
+function proGrantVoucherFilename(batch) {
+  const suffix = String(batch?.requestId || '').replace(/^batch_/u, '');
+  return `${PRO_GRANT_ASAMO_SLUG}-${suffix || 'vouchers'}.json`;
+}
+
+function downloadProGrantVoucherExport(batch = pendingProGrantVoucherExport) {
+  if (!batch) return false;
+  const blob = new Blob([`${JSON.stringify(batch, null, 2)}\n`], {
+    type: 'application/json;charset=utf-8',
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = proGrantVoucherFilename(batch);
+  link.rel = 'noopener';
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  return true;
+}
+
+async function copyProGrantVoucherExport(batch = pendingProGrantVoucherExport) {
+  if (!batch || !navigator.clipboard?.writeText) return false;
+  const text = batch.vouchers.map((voucher) => `${voucher.roomCode}\t${voucher.code}`).join('\n');
+  await navigator.clipboard.writeText(text);
+  return true;
+}
+
+function classifyAsamoProGrantRoomInventory(payload) {
+  if (!payload || !Array.isArray(payload.rooms)) {
+    throw new Error('PRO room inventory response is invalid.');
+  }
+  const requested = new Set(PRO_GRANT_ASAMO_ROOM_CODES);
+  const found = new Map();
+  for (const room of payload.rooms) {
+    if (!requested.has(room?.roomCode)) continue;
+    if (
+      found.has(room.roomCode) ||
+      !Number.isSafeInteger(room.roomGeneration) ||
+      room.roomGeneration < 0 ||
+      typeof room.status !== 'string' ||
+      !['unactivated', 'active'].includes(room.activationState)
+    ) {
+      throw new Error('PRO room inventory contains an invalid room record.');
+    }
+    found.set(room.roomCode, room);
+  }
+  const ready = [];
+  const needsProvisioning = [];
+  const unavailable = [];
+  for (const roomCode of PRO_GRANT_ASAMO_ROOM_CODES) {
+    const room = found.get(roomCode);
+    if (!room) {
+      needsProvisioning.push({ roomCode, reason: 'missing' });
+    } else if (room.status === 'registered' && room.activationState === 'unactivated') {
+      ready.push(room);
+    } else if (room.status === 'provisioning' && room.activationState === 'unactivated') {
+      needsProvisioning.push({ roomCode, reason: 'provisioning' });
+    } else {
+      unavailable.push(room);
+    }
+  }
+  return { ready, needsProvisioning, unavailable };
+}
+
+async function loadAsamoProGrantRoomInventory() {
+  return classifyAsamoProGrantRoomInventory(await fetchJson('/api/admin/pro-rooms'));
+}
+
+function validateAsamoProvisionedRoom(payload, roomCode, label) {
+  const room = payload?.room;
+  if (
+    room?.roomCode !== roomCode ||
+    room?.label !== label ||
+    !Number.isSafeInteger(room?.roomGeneration) ||
+    room.roomGeneration < 0 ||
+    room.status !== 'registered' ||
+    room.activationState !== 'unactivated'
+  ) {
+    throw new Error(`PRO room ${roomCode} provisioning response is invalid.`);
+  }
+  return room;
+}
+
+async function mapProGrantRoomPool(items, operation) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(PRO_GRANT_ROOM_PROVISION_CONCURRENCY, items.length) },
+    async () => {
+      while (cursor < items.length) {
+        const index = cursor;
+        cursor += 1;
+        results[index] = await operation(items[index], index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+async function provisionAsamoProGrantRoomPool() {
+  const before = await loadAsamoProGrantRoomInventory();
+  if (before.unavailable.length > 0) {
+    return { replayOnly: true, inventory: before, rooms: [] };
+  }
+  const rooms = await mapProGrantRoomPool(PRO_GRANT_ASAMO_ROOM_CODES, async (roomCode) => {
+    const label = `ASAMO 0 · ${roomCode}`;
+    return validateAsamoProvisionedRoom(
+      await fetchJson('/api/admin/pro-rooms', {
+        method: 'POST',
+        body: JSON.stringify({ roomCode, label }),
+      }),
+      roomCode,
+      label,
+    );
+  });
+  const after = await loadAsamoProGrantRoomInventory();
+  if (
+    after.ready.length !== PRO_GRANT_ASAMO_ROOM_CODES.length ||
+    after.needsProvisioning.length > 0 ||
+    after.unavailable.length > 0
+  ) {
+    throw new Error('The ASAMO room pool did not settle into an unactivated state.');
+  }
+  return { replayOnly: false, inventory: after, rooms };
+}
+
+function mountProGrantCampaignPanel() {
+  const registerPanel = document.querySelector('.pro-room-register-panel');
+  if (!registerPanel || document.querySelector('[data-pro-grant-campaign]')) return;
+  const panel = document.createElement('section');
+  panel.className = 'panel pro-grant-campaign-panel';
+  panel.dataset.proGrantCampaign = PRO_GRANT_ASAMO_SLUG;
+  panel.innerHTML = `
+    <div class="panel-head pro-grant-campaign-head">
+      <div>
+        <h2>PRO grant campaign</h2>
+        <p>ASAMO · rooms 000100–000149 · one PRO entitlement per account</p>
+      </div>
+      <span class="pro-grant-campaign-state" data-pro-grant-state>Not loaded</span>
+    </div>
+    <div class="pro-grant-campaign-summary" data-pro-grant-counts>Load status to verify the campaign pool.</div>
+    <div class="pro-grant-campaign-actions">
+      <button class="is-secondary" type="button" data-pro-grant-verify>Verify 50-room pool</button>
+      <button type="button" data-pro-grant-create>Prepare &amp; download vouchers</button>
+      <button type="button" data-pro-grant-apply disabled>Apply exact batch</button>
+      <button class="is-secondary" type="button" data-pro-grant-pause disabled>Pause</button>
+      <button class="is-danger" type="button" data-pro-grant-revoke disabled>Revoke unused</button>
+    </div>
+    <div class="pro-grant-campaign-export" data-pro-grant-export hidden>
+      <p>Plaintext codes exist only in this page's memory and the downloaded file. They are never returned by the server.</p>
+      <div>
+        <button class="is-secondary" type="button" data-pro-grant-download>Download again</button>
+        <button class="is-secondary" type="button" data-pro-grant-copy>Copy room + code list</button>
+      </div>
+    </div>
+    <p class="pro-room-status" role="status" aria-live="polite" data-pro-grant-status></p>
+  `;
+  registerPanel.insertAdjacentElement('afterend', panel);
+  proGrantCampaignPanelEl = panel;
+  proGrantCampaignStateEl = panel.querySelector('[data-pro-grant-state]');
+  proGrantCampaignStatusEl = panel.querySelector('[data-pro-grant-status]');
+  proGrantCampaignCountsEl = panel.querySelector('[data-pro-grant-counts]');
+  proGrantCampaignVerifyBtn = panel.querySelector('[data-pro-grant-verify]');
+  proGrantCampaignCreateBtn = panel.querySelector('[data-pro-grant-create]');
+  proGrantCampaignApplyBtn = panel.querySelector('[data-pro-grant-apply]');
+  proGrantCampaignPauseBtn = panel.querySelector('[data-pro-grant-pause]');
+  proGrantCampaignRevokeBtn = panel.querySelector('[data-pro-grant-revoke]');
+  proGrantCampaignExportEl = panel.querySelector('[data-pro-grant-export]');
+  proGrantCampaignDownloadBtn = panel.querySelector('[data-pro-grant-download]');
+  proGrantCampaignCopyBtn = panel.querySelector('[data-pro-grant-copy]');
 }
 
 function setStatus(message, isError = false) {
@@ -321,6 +578,10 @@ function showLogin(message = '', { invalidateSession = true } = {}) {
   proRoomApiCache.clear();
   proRoomApiRequestGenerations.clear();
   proRoomsLoaded = false;
+  proGrantCampaignLoaded = false;
+  proGrantCampaignState = null;
+  pendingProGrantVoucherExport = null;
+  renderProGrantCampaignState(null);
   articlesLoaded = false;
   announcementLoaded = false;
   serviceStatusLoaded = false;
@@ -2503,6 +2764,323 @@ function renderProRooms(payload) {
   proRoomListEl.replaceChildren(empty);
 }
 
+function setProGrantCampaignMessage(message, isError = false) {
+  if (!proGrantCampaignStatusEl) return;
+  proGrantCampaignStatusEl.textContent = message || '';
+  proGrantCampaignStatusEl.classList.toggle('is-error', isError);
+}
+
+function setProGrantCampaignBusy(busy) {
+  proGrantCampaignBusy = busy;
+  proGrantCampaignPanelEl?.toggleAttribute('aria-busy', busy);
+  for (const button of [
+    proGrantCampaignVerifyBtn,
+    proGrantCampaignCreateBtn,
+    proGrantCampaignApplyBtn,
+    proGrantCampaignPauseBtn,
+    proGrantCampaignRevokeBtn,
+    proGrantCampaignDownloadBtn,
+    proGrantCampaignCopyBtn,
+  ]) {
+    if (button) button.disabled = busy;
+  }
+  if (!busy) renderProGrantCampaignState(proGrantCampaignState);
+}
+
+function normalizedProGrantCounts(payload) {
+  const raw = payload?.counts || payload?.voucherCounts || {};
+  const source = Array.isArray(raw)
+    ? Object.fromEntries(
+        raw
+          .filter((entry) => typeof entry?.status === 'string')
+          .map((entry) => [entry.status, Number(entry.count)]),
+      )
+    : raw;
+  const count = (key) => {
+    const value = Number(source[key] || 0);
+    return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  };
+  const available = count('available');
+  const redeemed = count('redeemed');
+  const revoked = count('revoked');
+  const explicitTotal = count('total');
+  return {
+    total: explicitTotal || available + redeemed + revoked,
+    available,
+    redeemed,
+    revoked,
+  };
+}
+
+function renderProGrantCampaignState(payload) {
+  if (!proGrantCampaignPanelEl) return;
+  const campaign = payload?.campaign || null;
+  const state = campaign?.status || 'not-created';
+  const counts = normalizedProGrantCounts(payload);
+  if (proGrantCampaignStateEl) {
+    proGrantCampaignStateEl.textContent = state === 'not-created' ? 'Not created' : state;
+    proGrantCampaignStateEl.dataset.state = state;
+  }
+  if (proGrantCampaignCountsEl) {
+    proGrantCampaignCountsEl.textContent = campaign
+      ? `${formatter.format(counts.total)} total · ${formatter.format(counts.available)} available · ${formatter.format(counts.redeemed)} redeemed · ${formatter.format(counts.revoked)} revoked`
+      : 'No campaign exists. Verify the room pool before creating vouchers.';
+  }
+  if (proGrantCampaignCreateBtn) {
+    proGrantCampaignCreateBtn.disabled =
+      proGrantCampaignBusy || (campaign && counts.total > 0 && !pendingProGrantVoucherExport);
+    proGrantCampaignCreateBtn.textContent = pendingProGrantVoucherExport
+      ? 'Download exact batch again'
+      : 'Prepare & download vouchers';
+  }
+  if (proGrantCampaignApplyBtn) {
+    proGrantCampaignApplyBtn.disabled = proGrantCampaignBusy || !pendingProGrantVoucherExport;
+  }
+  if (proGrantCampaignVerifyBtn) proGrantCampaignVerifyBtn.disabled = proGrantCampaignBusy;
+  if (proGrantCampaignPauseBtn) {
+    proGrantCampaignPauseBtn.disabled =
+      proGrantCampaignBusy || !campaign || !['active', 'paused'].includes(state);
+    proGrantCampaignPauseBtn.textContent = state === 'paused' ? 'Resume' : 'Pause';
+  }
+  if (proGrantCampaignRevokeBtn) {
+    proGrantCampaignRevokeBtn.disabled =
+      proGrantCampaignBusy || !campaign || ['revoked', 'ended'].includes(state);
+  }
+  if (proGrantCampaignExportEl) proGrantCampaignExportEl.hidden = !pendingProGrantVoucherExport;
+  if (proGrantCampaignDownloadBtn) proGrantCampaignDownloadBtn.disabled = proGrantCampaignBusy;
+  if (proGrantCampaignCopyBtn) proGrantCampaignCopyBtn.disabled = proGrantCampaignBusy;
+}
+
+async function loadProGrantCampaignStatus() {
+  if (!proGrantCampaignPanelEl) return null;
+  try {
+    const payload = await fetchJson(
+      `/api/admin/pro-grants/campaigns/${PRO_GRANT_ASAMO_SLUG}/status`,
+    );
+    proGrantCampaignState = payload;
+    proGrantCampaignLoaded = true;
+    renderProGrantCampaignState(payload);
+    return payload;
+  } catch (error) {
+    if (error?.status === 404 || error?.message === 'PRO_GRANT_CAMPAIGN_NOT_FOUND') {
+      proGrantCampaignState = { campaign: null, counts: {} };
+      proGrantCampaignLoaded = true;
+      renderProGrantCampaignState(proGrantCampaignState);
+      return proGrantCampaignState;
+    }
+    throw error;
+  }
+}
+
+function asamoCampaignMutationBody(dryRun, startsAt = Date.now()) {
+  return {
+    slug: PRO_GRANT_ASAMO_SLUG,
+    title: PRO_GRANT_ASAMO_TITLE,
+    startsAt,
+    endsAt: null,
+    perAccountLimit: 1,
+    dryRun,
+  };
+}
+
+async function verifyProGrantCampaignPool() {
+  if (proGrantCampaignBusy) return;
+  setProGrantCampaignBusy(true);
+  setProGrantCampaignMessage('Checking 000100–000149 without changing production...');
+  try {
+    const current = proGrantCampaignLoaded
+      ? proGrantCampaignState
+      : await loadProGrantCampaignStatus();
+    if (!current?.campaign) {
+      const campaign = asamoCampaignMutationBody(
+        true,
+        pendingProGrantVoucherExport?.campaign?.startsAt || Date.now(),
+      );
+      await fetchJson('/api/admin/pro-grants/campaigns', {
+        method: 'POST',
+        body: JSON.stringify(campaign),
+      });
+    }
+    const inventory = await loadAsamoProGrantRoomInventory();
+    if (inventory.unavailable.length > 0) {
+      const first = inventory.unavailable[0];
+      setProGrantCampaignMessage(
+        `${inventory.unavailable.length} room(s) block this batch. ${first.roomCode} is ${first.status}/${first.activationState}.`,
+        true,
+      );
+      return;
+    }
+    setProGrantCampaignMessage(
+      inventory.needsProvisioning.length > 0
+        ? `${inventory.needsProvisioning.length} room(s) need provisioning. Apply exact batch will create them only after the voucher file is downloaded.`
+        : 'All 50 rooms are registered, unactivated, and ready.',
+    );
+    await loadProGrantCampaignStatus();
+  } catch (error) {
+    setProGrantCampaignMessage(
+      adminErrorMessage(error, 'The ASAMO room pool could not be verified.'),
+      true,
+    );
+    throw error;
+  } finally {
+    setProGrantCampaignBusy(false);
+  }
+}
+
+function assertSecretFreeProGrantConfirmation(payload, batch, inventory) {
+  if (/"(?:code|codeDigest|code_digest)"\s*:/iu.test(JSON.stringify(payload))) {
+    throw new Error('PRO_GRANT_SECRET_ECHO_REJECTED');
+  }
+  const mappings = payload?.mappings;
+  if (
+    payload?.requestId !== batch.requestId ||
+    payload?.campaign?.slug !== PRO_GRANT_ASAMO_SLUG ||
+    payload?.count !== batch.vouchers.length ||
+    !Array.isArray(mappings) ||
+    mappings.length !== batch.vouchers.length
+  ) {
+    throw new Error('PRO_GRANT_BATCH_CONFIRMATION_MISMATCH');
+  }
+  const expectedRooms = new Set(batch.vouchers.map((voucher) => voucher.roomCode));
+  const expectedGenerations = new Map();
+  for (const room of [...(inventory?.ready || []), ...(inventory?.unavailable || [])]) {
+    if (
+      expectedRooms.has(room?.roomCode) &&
+      Number.isSafeInteger(room?.roomGeneration) &&
+      room.roomGeneration >= 0
+    ) {
+      expectedGenerations.set(room.roomCode, room.roomGeneration);
+    }
+  }
+  const voucherIds = new Set();
+  for (const mapping of mappings) {
+    const expectedGeneration = expectedGenerations.get(mapping?.roomCode);
+    if (
+      !/^voucher_[A-Za-z0-9_-]{22}$/u.test(mapping?.voucherId || '') ||
+      voucherIds.has(mapping.voucherId) ||
+      !expectedRooms.delete(mapping?.roomCode) ||
+      !Number.isSafeInteger(mapping?.roomGeneration) ||
+      mapping.roomGeneration < 0 ||
+      (expectedGeneration !== undefined && mapping.roomGeneration !== expectedGeneration) ||
+      !['available', 'redeemed', 'revoked'].includes(mapping?.status)
+    ) {
+      throw new Error('PRO_GRANT_BATCH_CONFIRMATION_MISMATCH');
+    }
+    voucherIds.add(mapping.voucherId);
+  }
+  if (expectedRooms.size !== 0) throw new Error('PRO_GRANT_BATCH_CONFIRMATION_MISMATCH');
+  return payload;
+}
+
+async function applyPendingProGrantVoucherBatch() {
+  const batch = pendingProGrantVoucherExport;
+  if (!batch || proGrantCampaignBusy) return;
+  setProGrantCampaignBusy(true);
+  setProGrantCampaignMessage('Provisioning and verifying the exact 50-room pool...');
+  try {
+    const provisioning = await provisionAsamoProGrantRoomPool();
+    await fetchJson('/api/admin/pro-grants/campaigns', {
+      method: 'POST',
+      body: JSON.stringify({ ...batch.campaign, dryRun: false }),
+    });
+    const confirmation = await fetchJson(
+      `/api/admin/pro-grants/campaigns/${PRO_GRANT_ASAMO_SLUG}/vouchers`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          requestId: batch.requestId,
+          dryRun: false,
+          vouchers: batch.vouchers,
+        }),
+      },
+    );
+    assertSecretFreeProGrantConfirmation(confirmation, batch, provisioning.inventory);
+    if (provisioning.replayOnly && confirmation.replayed !== true) {
+      throw new Error('Unavailable rooms may only be accepted for an exact existing batch replay.');
+    }
+    await fetchJson(`/api/admin/pro-grants/campaigns/${PRO_GRANT_ASAMO_SLUG}/status`, {
+      method: 'POST',
+      body: JSON.stringify({
+        requestId: batch.requestId,
+        status: 'active',
+        dryRun: false,
+      }),
+    });
+    setProGrantCampaignMessage(
+      confirmation.replayed
+        ? 'The existing batch was verified. No replacement codes were created.'
+        : '50 vouchers created. Keep the downloaded plaintext file secure.',
+    );
+    await loadProGrantCampaignStatus();
+  } catch (error) {
+    setProGrantCampaignMessage(
+      `${adminErrorMessage(error, 'Voucher creation failed.')} The same in-memory batch is ready to retry.`,
+      true,
+    );
+    throw error;
+  } finally {
+    setProGrantCampaignBusy(false);
+  }
+}
+
+async function createAndDownloadProGrantVouchers() {
+  if (proGrantCampaignBusy) return;
+  if (pendingProGrantVoucherExport) {
+    downloadProGrantVoucherExport(pendingProGrantVoucherExport);
+    setProGrantCampaignMessage(
+      'The exact batch was downloaded again. Apply it only after confirming the file exists.',
+    );
+    return;
+  }
+  pendingProGrantVoucherExport = createAsamoVoucherExport();
+  renderProGrantCampaignState(proGrantCampaignState);
+  // This phase performs no remote mutation. The operator explicitly applies
+  // only after confirming that the recoverable plaintext file was saved.
+  downloadProGrantVoucherExport(pendingProGrantVoucherExport);
+  setProGrantCampaignMessage(
+    'Voucher file prepared. Confirm the download, then choose Apply exact batch.',
+  );
+}
+
+async function setProGrantCampaignOperationalStatus(status) {
+  if (proGrantCampaignBusy || !['active', 'paused'].includes(status)) return;
+  setProGrantCampaignBusy(true);
+  setProGrantCampaignMessage(status === 'paused' ? 'Pausing campaign...' : 'Resuming campaign...');
+  try {
+    await fetchJson(`/api/admin/pro-grants/campaigns/${PRO_GRANT_ASAMO_SLUG}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ requestId: createProGrantBatchRequestId(), status, dryRun: false }),
+    });
+    await loadProGrantCampaignStatus();
+    setProGrantCampaignMessage(status === 'paused' ? 'Campaign paused.' : 'Campaign active.');
+  } finally {
+    setProGrantCampaignBusy(false);
+  }
+}
+
+async function revokeProGrantCampaign() {
+  if (proGrantCampaignBusy) return;
+  const confirmed = window.confirm(
+    'Revoke every unused ASAMO voucher? Redeemed PRO rooms and grants remain unchanged.',
+  );
+  if (!confirmed) return;
+  setProGrantCampaignBusy(true);
+  setProGrantCampaignMessage('Revoking unused vouchers...');
+  try {
+    await fetchJson(`/api/admin/pro-grants/campaigns/${PRO_GRANT_ASAMO_SLUG}/revoke`, {
+      method: 'POST',
+      body: JSON.stringify({
+        requestId: createProGrantBatchRequestId(),
+        reason: 'operator_revoked',
+      }),
+    });
+    await loadProGrantCampaignStatus();
+    setProGrantCampaignMessage('Unused vouchers revoked. Redeemed rooms were not changed.');
+  } finally {
+    setProGrantCampaignBusy(false);
+  }
+}
+
 async function loadProRooms(options = {}) {
   const load = beginLatestAdminLoad('pro-rooms');
   if (proRoomListStatusEl) proRoomListStatusEl.textContent = 'Refreshing...';
@@ -3076,6 +3654,12 @@ async function refreshAllDashboardData() {
         proRoomListStatusEl.textContent = adminErrorMessage(error, 'PRO rooms refresh failed.');
       }
     }),
+    loadProGrantCampaignStatus().catch((error) => {
+      setProGrantCampaignMessage(
+        adminErrorMessage(error, 'PRO grant campaign refresh failed.'),
+        true,
+      );
+    }),
     loadArticles({ updateTimestamp: false }),
     loadAnnouncement({ updateTimestamp: false }),
   ]);
@@ -3176,6 +3760,14 @@ adminTabs.forEach((button) => {
         }
       });
     }
+    if (tab === 'pro-rooms' && !proGrantCampaignLoaded) {
+      loadProGrantCampaignStatus().catch((error) => {
+        setProGrantCampaignMessage(
+          adminErrorMessage(error, 'PRO grant campaign refresh failed.'),
+          true,
+        );
+      });
+    }
     if (tab === 'articles' && !articlesLoaded) {
       loadArticles().catch((error) => {
         if (articleStatusEl) articleStatusEl.textContent = error.message || 'Refresh failed.';
@@ -3216,6 +3808,43 @@ if (!serviceStatusForm || serviceStatusConfirmBtn?.type !== 'submit') {
   });
 }
 
+mountProGrantCampaignPanel();
+renderProGrantCampaignState(null);
+
+proGrantCampaignVerifyBtn?.addEventListener('click', () => {
+  verifyProGrantCampaignPool().catch(() => {});
+});
+proGrantCampaignCreateBtn?.addEventListener('click', () => {
+  createAndDownloadProGrantVouchers().catch(() => {});
+});
+proGrantCampaignApplyBtn?.addEventListener('click', () => {
+  applyPendingProGrantVoucherBatch().catch(() => {});
+});
+proGrantCampaignPauseBtn?.addEventListener('click', () => {
+  const next = proGrantCampaignState?.campaign?.status === 'paused' ? 'active' : 'paused';
+  setProGrantCampaignOperationalStatus(next).catch((error) => {
+    setProGrantCampaignMessage(adminErrorMessage(error, 'Campaign update failed.'), true);
+  });
+});
+proGrantCampaignRevokeBtn?.addEventListener('click', () => {
+  revokeProGrantCampaign().catch((error) => {
+    setProGrantCampaignMessage(adminErrorMessage(error, 'Campaign revoke failed.'), true);
+  });
+});
+proGrantCampaignDownloadBtn?.addEventListener('click', () => {
+  downloadProGrantVoucherExport();
+});
+proGrantCampaignCopyBtn?.addEventListener('click', () => {
+  copyProGrantVoucherExport()
+    .then((copied) =>
+      setProGrantCampaignMessage(
+        copied ? 'Room and voucher codes copied.' : 'Clipboard access is unavailable.',
+        !copied,
+      ),
+    )
+    .catch(() => setProGrantCampaignMessage('Copy failed.', true));
+});
+
 proRoomCodeEl?.addEventListener('input', () => {
   const digits = String(proRoomCodeEl.value || '')
     .replace(/\D/g, '')
@@ -3249,6 +3878,7 @@ window.addEventListener('pagehide', () => {
   closeProRoomTransferDialog({ restoreFocus: false });
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();
+  pendingProGrantVoucherExport = null;
 });
 window.addEventListener('beforeunload', () => {
   clearAnnouncementExpiryTimer();
@@ -3257,6 +3887,7 @@ window.addEventListener('beforeunload', () => {
   closeProRoomDestroyDialog({ restoreFocus: false });
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();
+  pendingProGrantVoucherExport = null;
 });
 
 announcementForm?.addEventListener('submit', (event) => {

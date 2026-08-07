@@ -28,6 +28,22 @@ import {
   updateServiceMaintenance,
 } from './service-maintenance.js';
 import { accountNicknameKey, normalizeAccountNickname } from './account-nickname.js';
+import {
+  abortProRoomOwnershipTransferEntitlement,
+  authorizeProGrantActivation,
+  canAccountReceiveProRoomEntitlement,
+  finalizeProGrantActivation,
+  finalizeProRoomOwnershipTransferEntitlement,
+  handleProGrantAdminRequest,
+  handleProGrantPublicRequest,
+  hasReservedProGrantAllocation,
+  markProRoomOwnerEntitlementBackfillComplete,
+  orphanAccountProGrants,
+  reconcileProGrantLifecycle,
+  reserveProRoomOwnershipTransferEntitlement,
+  revokeProRoomEntitlement,
+  upsertProRoomOwnerEntitlement,
+} from './pro-room-grants.js';
 
 const YOUTUBE_SEARCH_API = 'https://www.googleapis.com/youtube/v3/search';
 const YOUTUBE_PLAYLIST_ITEMS_API = 'https://www.googleapis.com/youtube/v3/playlistItems';
@@ -86,7 +102,7 @@ const SORO_BLOG_CACHE_VERSION_KEY = 'soro-blog-cache-version.json';
 const ADMIN_ANNOUNCEMENT_KEY = 'admin-announcement.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
-const ADMIN_ASSET_VERSION = '8.3.16';
+const ADMIN_ASSET_VERSION = '8.3.17';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -551,6 +567,16 @@ async function handleProRoomFacade(request, env, url) {
           ? await preflightOwnershipTransferAccountLink(env, roomCode)
           : await preflightRegisteredProRoomAccountLink(env, roomCode);
         if (roomLink) {
+          if (upstreamPath === `/v1/rooms/${roomCode}/activation`) {
+            const grantAuthorized = await authorizeProGrantActivation(env, {
+              accountId: account.accountId,
+              roomCode,
+              roomGeneration: roomLink.roomGeneration,
+            });
+            if (!grantAuthorized) {
+              return json({ error: 'ACCOUNT_PRO_ROOM_LIMIT_REACHED' }, 409);
+            }
+          }
           const assertion = await createAccountAssertion(
             {
               accountId: account.accountId,
@@ -660,6 +686,17 @@ async function handleProRoomFacade(request, env, url) {
     response = await env.PRO_ROOM_PUBLIC_API.fetch(new Request(upstreamUrl, upstreamInit));
   } catch {
     return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
+  }
+  if (
+    response.ok &&
+    upstreamPath === `/v1/rooms/${roomCode}/activation` &&
+    accountAssertionContext
+  ) {
+    await finalizeProGrantActivation(env, {
+      accountId: accountAssertionContext.accountId,
+      roomCode,
+      roomGeneration: accountAssertionContext.roomGeneration,
+    }).catch(() => false);
   }
   return withFacadeProRoomCookies(response, roomCode);
 }
@@ -2324,15 +2361,14 @@ async function listAdminProRooms(db) {
 
 async function attachCanonicalAdminProRoomOwnerState(env, db, rooms) {
   if (!Array.isArray(rooms)) return [];
+  const needsOwnerState = (room) =>
+    room?.activationState === 'active' &&
+    (room.status === 'registered' || room.status === 'suspended');
   const enriched = rooms.map((room) =>
-    room?.status === 'registered' && room.activationState === 'active'
-      ? { ...room, ownerAccountLinked: null }
-      : room,
+    needsOwnerState(room) ? { ...room, ownerAccountLinked: null } : room,
   );
   const activeIndexes = enriched
-    .map((room, index) =>
-      room?.status === 'registered' && room.activationState === 'active' ? index : -1,
-    )
+    .map((room, index) => (needsOwnerState(room) ? index : -1))
     .filter((index) => index >= 0);
 
   for (
@@ -2359,6 +2395,25 @@ async function attachCanonicalAdminProRoomOwnerState(env, db, rooms) {
           typeof payload.ownerAccountLinked !== 'boolean'
         ) {
           return;
+        }
+        if (
+          ['active', 'suspended'].includes(payload.status) &&
+          ACCOUNT_ID_RE.test(payload.ownerAccountId || '')
+        ) {
+          const backfilled = await upsertProRoomOwnerEntitlement(env, {
+            accountId: payload.ownerAccountId,
+            roomCode: room.roomCode,
+            roomGeneration: room.roomGeneration,
+            status: payload.status,
+            sourceRef: `legacy-backfill:${room.roomCode}:${room.roomGeneration}`,
+            nowMs: Date.now(),
+          }).catch(() => false);
+          if (!backfilled) {
+            console.warn('[PRO entitlement] canonical owner backfill unavailable', {
+              roomCode: room.roomCode,
+              roomGeneration: room.roomGeneration,
+            });
+          }
         }
         if (payload.status === 'active' && payload.suspensionReason == null) {
           enriched[index] = { ...room, ownerAccountLinked: payload.ownerAccountLinked };
@@ -2392,6 +2447,61 @@ async function attachCanonicalAdminProRoomOwnerState(env, db, rooms) {
     );
   }
   return enriched;
+}
+
+async function verifyCanonicalOwnerEntitlementBackfill(env, db) {
+  if (!db?.prepare || !getProRoomAdminNamespace(env)) return false;
+  let rooms;
+  try {
+    rooms = await listAdminProRooms(db);
+  } catch {
+    return false;
+  }
+  const candidates = rooms.filter(
+    (room) =>
+      room?.activationState === 'active' &&
+      (room.status === 'registered' || room.status === 'suspended'),
+  );
+  for (
+    let offset = 0;
+    offset < candidates.length;
+    offset += ADMIN_PRO_ROOM_OWNER_STATE_BATCH_SIZE
+  ) {
+    const batch = candidates.slice(offset, offset + ADMIN_PRO_ROOM_OWNER_STATE_BATCH_SIZE);
+    const results = await Promise.all(
+      batch.map(async (room) => {
+        const status = await callProRoomAdminObject(
+          env,
+          room.roomCode,
+          room.roomGeneration,
+          '/internal/admin/status',
+          'GET',
+        );
+        const payload = status.payload;
+        if (
+          status.response?.ok !== true ||
+          !proRoomAdminResponseIdentityMatches(payload, room.roomCode, room.roomGeneration) ||
+          payload.provisioned !== true ||
+          !['active', 'suspended'].includes(payload.status) ||
+          typeof payload.ownerAccountLinked !== 'boolean'
+        ) {
+          return false;
+        }
+        if (!payload.ownerAccountLinked) return true;
+        if (!ACCOUNT_ID_RE.test(payload.ownerAccountId || '')) return false;
+        return upsertProRoomOwnerEntitlement(env, {
+          accountId: payload.ownerAccountId,
+          roomCode: room.roomCode,
+          roomGeneration: room.roomGeneration,
+          status: payload.status,
+          sourceRef: `legacy-backfill:${room.roomCode}:${room.roomGeneration}`,
+          nowMs: Date.now(),
+        });
+      }),
+    );
+    if (results.some((result) => result !== true)) return false;
+  }
+  return markProRoomOwnerEntitlementBackfillComplete(env, Date.now());
 }
 
 async function registerAdminProRoom(db, roomCode, label, nowMs = Date.now()) {
@@ -2826,6 +2936,109 @@ async function callProRoomAdminObject(
   return { response, payload };
 }
 
+async function inspectProGrantRoom(env, roomCode, roomGeneration) {
+  if (!ADMIN_PRO_ROOM_CODE_RE.test(roomCode || '') || !isProRoomGeneration(roomGeneration)) {
+    return null;
+  }
+  const room = await readAdminProRoom(getAdminDb(env), roomCode).catch(() => null);
+  if (
+    !room ||
+    room.roomGeneration !== roomGeneration ||
+    ['decommissioning', 'decommissioned'].includes(room.status)
+  ) {
+    return null;
+  }
+  const canonical = await callProRoomAdminObject(
+    env,
+    roomCode,
+    roomGeneration,
+    '/internal/admin/status',
+    'GET',
+  );
+  return canonical.response?.ok &&
+    proRoomAdminResponseIdentityMatches(canonical.payload, roomCode, roomGeneration)
+    ? canonical.payload
+    : null;
+}
+
+async function preflightProGrantVoucherRoom(env, roomCode) {
+  const room = await readAdminProRoom(getAdminDb(env), roomCode).catch(() => null);
+  if (
+    !room ||
+    room.status !== 'registered' ||
+    room.activationState !== 'unactivated' ||
+    !isProRoomGeneration(room.roomGeneration)
+  ) {
+    return null;
+  }
+  const canonical = await inspectProGrantRoom(env, roomCode, room.roomGeneration);
+  return canonical?.status === 'unactivated'
+    ? {
+        roomCode,
+        roomGeneration: room.roomGeneration,
+        status: room.status,
+        activationState: room.activationState,
+      }
+    : null;
+}
+
+async function issueProGrantActivationHandoff(env, input) {
+  const room = await readAdminProRoom(getAdminDb(env), input.roomCode).catch(() => null);
+  if (
+    !room ||
+    room.status !== 'registered' ||
+    room.activationState !== 'unactivated' ||
+    room.roomGeneration !== input.roomGeneration ||
+    !ACCOUNT_ID_RE.test(input.accountId || '')
+  ) {
+    return null;
+  }
+  const issued = await callProRoomAdminObject(
+    env,
+    input.roomCode,
+    input.roomGeneration,
+    '/internal/admin/activation-claim',
+    'POST',
+    { targetAccountId: input.accountId },
+  );
+  return issued.response?.ok &&
+    isValidAdminActivationLink(issued.payload, input.roomCode, input.roomGeneration)
+    ? issued.payload
+    : null;
+}
+
+async function isActiveProGrantAccount(env, accountId) {
+  if (!ACCOUNT_ID_RE.test(accountId || '') || !env.MUSIXQUARE_AUTH_DB?.prepare) {
+    throw new Error('ACCOUNT_STORE_UNAVAILABLE');
+  }
+  const statement = env.MUSIXQUARE_AUTH_DB.prepare(
+    `SELECT 1 AS active FROM mxqr_accounts account
+      WHERE account.account_id = ?1 AND account.status = 'active'
+        AND NOT EXISTS (
+          SELECT 1 FROM mxqr_account_deletions deletion
+           WHERE deletion.account_id = account.account_id
+        )
+      LIMIT 1`,
+  ).bind(accountId);
+  const row =
+    typeof statement.first === 'function'
+      ? await statement.first()
+      : (await statement.all())?.results?.[0] || null;
+  return Number(row?.active) === 1;
+}
+
+function proGrantDependencies(env) {
+  return {
+    resolveAccountSession,
+    inspectRoom: (roomCode, roomGeneration) => inspectProGrantRoom(env, roomCode, roomGeneration),
+    preflightVoucherRoom: (roomCode) => preflightProGrantVoucherRoom(env, roomCode),
+    issueActivationHandoff: (input) => issueProGrantActivationHandoff(env, input),
+    isAccountActive: (accountId) => isActiveProGrantAccount(env, accountId),
+    verifyOwnerEntitlementBackfill: () =>
+      verifyCanonicalOwnerEntitlementBackfill(env, getAdminDb(env)),
+  };
+}
+
 function proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) {
   if (
     !payload ||
@@ -2839,13 +3052,7 @@ function proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) 
 }
 
 async function fenceProRoomSignalingForOwnerAccountDeletion(
-  {
-    roomCode,
-    roomGeneration,
-    removalId,
-    removedOwnerAuthorityEpoch,
-    fencedCoordinatorEpoch,
-  },
+  { roomCode, roomGeneration, removalId, removedOwnerAuthorityEpoch, fencedCoordinatorEpoch },
   env,
 ) {
   const namespace = env?.PRO_SIGNALING_ROOMS;
@@ -3149,8 +3356,25 @@ async function retireDecommissionedAccountProRoomEdges(env, { sinceMs = null } =
       ({ roomCode, roomGeneration }) =>
         /^0\d{5}$/.test(roomCode) && isProRoomGeneration(roomGeneration),
     );
-  return retireAccountProRoomLinkBatch(env, incarnations);
+  let entitlementsRevoked = true;
+  for (let offset = 0; offset < incarnations.length; offset += 20) {
+    const chunk = incarnations.slice(offset, offset + 20);
+    const revoked = await Promise.all(
+      chunk.map(({ roomCode, roomGeneration }) =>
+        revokeProRoomEntitlement(env, { roomCode, roomGeneration }).catch(() => false),
+      ),
+    );
+    if (revoked.some((value) => value !== true)) entitlementsRevoked = false;
+  }
+  if (!entitlementsRevoked) {
+    console.warn('[PRO entitlement] decommission reconciliation remains pending');
+  }
+  const retired = await retireAccountProRoomLinkBatch(env, incarnations);
+  return { ...retired, entitlementsRevoked };
 }
+
+export const retireDecommissionedAccountProRoomEdgesForTests =
+  retireDecommissionedAccountProRoomEdges;
 
 function isValidAdminActivationLink(payload, roomCode, roomGeneration) {
   const nowMs = Date.now();
@@ -4506,6 +4730,141 @@ async function markOwnerTransferIssuanceState(db, saga, state, nowMs = Date.now(
   return Number(result?.meta?.changes || 0) <= 1;
 }
 
+function decommissionedOwnerTransferTombstoneMatches(payload, saga) {
+  return (
+    payload?.provisioned === false &&
+    ['decommissioning', 'decommissioned'].includes(payload?.status) &&
+    payload?.suspensionReason === null &&
+    payload?.ownerAccountLinked === false &&
+    payload?.ownerAccountId === null &&
+    payload?.ownerTransferReconciliation === null &&
+    proRoomAdminResponseIdentityMatches(payload, saga.roomCode, saga.roomGeneration)
+  );
+}
+
+async function terminalizeDecommissionedOwnerTransferSagaRecords(db, saga, nowMs = Date.now()) {
+  if (!db?.prepare || !db?.batch) return false;
+  const updatedAtMs = Math.max(nowMs, saga.intentAtMs, saga.preparedAtMs ?? 0);
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+            SET state = 'superseded', updated_at = MAX(updated_at, ?3)
+          WHERE room_code = ?1 AND room_generation = ?2
+            AND state IN ('issued', 'prepared')`,
+      )
+      .bind(saga.roomCode, saga.roomGeneration, updatedAtMs),
+    db
+      .prepare(
+        `UPDATE ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE}
+            SET state = 'superseded', updated_at = MAX(updated_at, ?6)
+          WHERE room_code = ?1 AND room_generation = ?2 AND request_id = ?3
+            AND target_account_id = ?4 AND transfer_id IS ?5
+            AND state IN (
+              'intent', 'prepared', 'committed', 'registry_active',
+              'old_owner_edge_retired', 'verified'
+            )`,
+      )
+      .bind(
+        saga.roomCode,
+        saga.roomGeneration,
+        saga.requestId,
+        saga.targetAccountId,
+        saga.transferId,
+        updatedAtMs,
+      ),
+  ]);
+  const current = await readOwnerTransferSaga(
+    db,
+    saga.roomCode,
+    saga.roomGeneration,
+    saga.requestId,
+    saga.transferId,
+  );
+  if (current?.state !== 'superseded') return false;
+  const statement = db
+    .prepare(
+      `SELECT 1 AS pending
+         FROM ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+        WHERE room_code = ?1 AND room_generation = ?2
+          AND state IN ('issued', 'prepared')
+        LIMIT 1`,
+    )
+    .bind(saga.roomCode, saga.roomGeneration);
+  const pending =
+    typeof statement.first === 'function'
+      ? await statement.first()
+      : (await statement.all())?.results?.[0] || null;
+  return !pending;
+}
+
+async function hasExactOwnerTransferDecommissionEvidence(db, saga) {
+  const room = await readAdminProRoom(db, saga.roomCode);
+  if (room?.roomGeneration === saga.roomGeneration) {
+    return (
+      ['decommissioning', 'decommissioned'].includes(room.status) &&
+      room.suspensionReason === null &&
+      room.activationState === 'unactivated'
+    );
+  }
+  if (room && room.roomGeneration < saga.roomGeneration) return false;
+  const statement = db
+    .prepare(
+      `SELECT room_code, room_generation, status, decommissioned_at
+         FROM ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}
+        WHERE room_code = ?1 AND room_generation = ?2
+          AND status = 'decommissioned'
+        LIMIT 1`,
+    )
+    .bind(saga.roomCode, saga.roomGeneration);
+  const history =
+    typeof statement.first === 'function'
+      ? await statement.first()
+      : (await statement.all())?.results?.[0] || null;
+  const decommissionedAtMs = Number(history?.decommissioned_at);
+  return (
+    history?.room_code === saga.roomCode &&
+    Number(history?.room_generation) === saga.roomGeneration &&
+    history?.status === 'decommissioned' &&
+    Number.isSafeInteger(decommissionedAtMs) &&
+    decommissionedAtMs >= 0
+  );
+}
+
+async function reconcileDecommissionedOwnerTransferSaga(env, db, saga, payload, nowMs) {
+  if (!decommissionedOwnerTransferTombstoneMatches(payload, saga)) return false;
+  try {
+    if (!(await hasExactOwnerTransferDecommissionEvidence(db, saga))) return false;
+  } catch {
+    return false;
+  }
+
+  // An uncommitted transfer may still have a source/target reservation. Undo
+  // it when possible, then use the exact-incarnation revoke as the canonical
+  // cleanup barrier for committed, uncommitted, and source-less transfers.
+  await abortProRoomOwnershipTransferEntitlement(env, {
+    targetAccountId: saga.targetAccountId,
+    roomCode: saga.roomCode,
+    roomGeneration: saga.roomGeneration,
+    requestId: saga.requestId,
+    nowMs,
+  }).catch(() => false);
+  if (
+    !(await revokeProRoomEntitlement(env, {
+      roomCode: saga.roomCode,
+      roomGeneration: saga.roomGeneration,
+      nowMs,
+    }).catch(() => false))
+  ) {
+    return false;
+  }
+  try {
+    return await terminalizeDecommissionedOwnerTransferSagaRecords(db, saga, nowMs);
+  } catch {
+    return false;
+  }
+}
+
 async function expireOwnerTransferIssuances(env, db, nowMs = Date.now()) {
   await ensureAdminProRoomRegistry(db);
   const result = await db
@@ -4635,6 +4994,15 @@ async function commitAdoptedOwnerTransferSaga(env, saga, nowMs = Date.now()) {
 }
 
 async function reconcileOneOwnerTransferSaga(env, db, saga, nowMs = Date.now()) {
+  const entitlementInput = () => ({
+    targetAccountId: saga.targetAccountId,
+    roomCode: saga.roomCode,
+    roomGeneration: saga.roomGeneration,
+    requestId: saga.requestId,
+    nowMs,
+  });
+  const abortPendingEntitlement = () =>
+    abortProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(() => false);
   const status = await callProRoomAdminObject(
     env,
     saga.roomCode,
@@ -4644,11 +5012,14 @@ async function reconcileOneOwnerTransferSaga(env, db, saga, nowMs = Date.now()) 
   );
   if (
     !status.response?.ok ||
-    status.payload?.provisioned !== true ||
     !proRoomAdminResponseIdentityMatches(status.payload, saga.roomCode, saga.roomGeneration)
   ) {
     return false;
   }
+  if (status.payload?.provisioned === false) {
+    return reconcileDecommissionedOwnerTransferSaga(env, db, saga, status.payload, nowMs);
+  }
+  if (status.payload?.provisioned !== true) return false;
   let meta = status.payload.ownerTransferReconciliation;
   if (saga.state === 'intent') {
     if (ownerTransferReconciliationMatchesIntent(meta, saga)) {
@@ -4659,8 +5030,10 @@ async function reconcileOneOwnerTransferSaga(env, db, saga, nowMs = Date.now()) 
       }
       if (!saga) return false;
     } else if (meta && typeof meta === 'object') {
+      if (!(await abortPendingEntitlement())) return false;
       return advanceOwnerTransferSagaState(db, saga, 'superseded', nowMs);
     } else if (saga.expiresAtMs <= nowMs) {
+      if (!(await abortPendingEntitlement())) return false;
       return advanceOwnerTransferSagaState(db, saga, 'expired', nowMs);
     } else {
       return false;
@@ -4689,23 +5062,38 @@ async function reconcileOneOwnerTransferSaga(env, db, saga, nowMs = Date.now()) 
           saga.roomCode,
           saga.roomGeneration,
         );
+        if (
+          !(await finalizeProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(
+            () => false,
+          ))
+        ) {
+          return false;
+        }
         return advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs);
       }
     }
     if (meta && typeof meta === 'object') {
       await markOwnerTransferIssuanceState(db, saga, 'superseded', nowMs);
+      if (!committedOrLater && !(await abortPendingEntitlement())) return false;
       return advanceOwnerTransferSagaState(db, saga, 'superseded', nowMs);
     }
     if (saga.expiresAtMs <= nowMs) {
       await markOwnerTransferIssuanceState(db, saga, 'expired', nowMs);
+      if (!committedOrLater && !(await abortPendingEntitlement())) return false;
       const advanced = await advanceOwnerTransferSagaState(db, saga, 'expired', nowMs);
       return advanced;
     }
     return false;
   }
+  if (
+    !(await reserveProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(() => false))
+  ) {
+    return false;
+  }
   if (meta.phase === 'pending') {
     if (saga.expiresAtMs <= nowMs) {
       await markOwnerTransferIssuanceState(db, saga, 'expired', nowMs);
+      if (!(await abortPendingEntitlement())) return false;
       return advanceOwnerTransferSagaState(db, saga, 'expired', nowMs);
     }
     if (!(await commitAdoptedOwnerTransferSaga(env, saga, nowMs))) return false;
@@ -4754,6 +5142,13 @@ async function reconcileOneOwnerTransferSaga(env, db, saga, nowMs = Date.now()) 
       saga.roomCode,
       saga.roomGeneration,
     );
+    if (
+      !(await finalizeProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(
+        () => false,
+      ))
+    ) {
+      return false;
+    }
     return advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs);
   }
 
@@ -4799,7 +5194,15 @@ async function reconcileOneOwnerTransferSaga(env, db, saga, nowMs = Date.now()) 
       },
       env,
     ).catch(() => false);
-    return suspended ? advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs) : false;
+    if (!suspended) return false;
+    if (
+      !(await finalizeProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(
+        () => false,
+      ))
+    ) {
+      return false;
+    }
+    return advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs);
   }
   let room = await readAdminProRoom(db, saga.roomCode);
   if (!room || room.roomGeneration !== saga.roomGeneration) return false;
@@ -4816,6 +5219,11 @@ async function reconcileOneOwnerTransferSaga(env, db, saga, nowMs = Date.now()) 
     return false;
   }
   if (!(await advanceOwnerTransferSagaState(db, saga, 'verified', nowMs))) return false;
+  if (
+    !(await finalizeProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(() => false))
+  ) {
+    return false;
+  }
   if (
     !(await clearDeveloperApiAuthorityFence(
       env,
@@ -4944,6 +5352,17 @@ async function handleProRoomOwnershipTransferSaga({
     const auditError = await failAudit('invalid_service_response');
     return auditError || json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
   }
+  if (
+    !(await reserveProRoomOwnershipTransferEntitlement(env, {
+      targetAccountId,
+      roomCode,
+      roomGeneration,
+      requestId,
+    }).catch(() => false))
+  ) {
+    const auditError = await failAudit('target_entitlement_conflict');
+    return auditError || json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
+  }
   let fenceDigest;
   try {
     fenceDigest = await developerApiAuthorityFenceDigest(
@@ -5036,6 +5455,12 @@ async function handleProRoomOwnershipTransferSaga({
     return json({ error: 'ACCOUNT_STORE_UNAVAILABLE' }, 503);
   }
   if (!currentTarget) {
+    await abortProRoomOwnershipTransferEntitlement(env, {
+      targetAccountId,
+      roomCode,
+      roomGeneration,
+      requestId,
+    }).catch(() => false);
     try {
       await auditSystemOwnerTransfer(
         env,
@@ -5150,7 +5575,15 @@ async function handleProRoomOwnershipTransferSaga({
     }
     if (suspended) {
       try {
-        if (!(await advanceOwnerTransferSagaState(adminDb, transferSaga, 'target_deleted'))) {
+        if (
+          !(await finalizeProRoomOwnershipTransferEntitlement(env, {
+            targetAccountId,
+            roomCode,
+            roomGeneration,
+            requestId,
+          }).catch(() => false)) ||
+          !(await advanceOwnerTransferSagaState(adminDb, transferSaga, 'target_deleted'))
+        ) {
           suspended = false;
         }
       } catch {
@@ -5311,6 +5744,23 @@ async function handleProRoomOwnershipTransferSaga({
       env,
       'owner_transfer.commit',
       'reconcile_required',
+      roomCode,
+      roomGeneration,
+    ).catch(() => {});
+    return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
+  }
+  if (
+    !(await finalizeProRoomOwnershipTransferEntitlement(env, {
+      targetAccountId,
+      roomCode,
+      roomGeneration,
+      requestId,
+    }).catch(() => false))
+  ) {
+    await auditSystemOwnerTransfer(
+      env,
+      'owner_transfer.commit',
+      'entitlement_reconcile_required',
       roomCode,
       roomGeneration,
     ).catch(() => {});
@@ -5885,6 +6335,10 @@ async function handleAdminProRooms(request, env, pathname) {
   if (parsedBody.error) return jsonBodyError(parsedBody);
   const body = parsedBody.value;
 
+  if (activationClaimRoomCode && !(await verifyCanonicalOwnerEntitlementBackfill(env, db))) {
+    return json({ error: 'PRO_GRANT_OWNER_BACKFILL_REQUIRED' }, 503);
+  }
+
   if (!activationClaimRoomCode) {
     const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : [];
     if (
@@ -6090,6 +6544,9 @@ async function handleAdminProRooms(request, env, pathname) {
     );
     if (auditError) return auditError;
     return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  }
+  if (await hasReservedProGrantAllocation(env, activationClaimRoomCode, room.roomGeneration)) {
+    return json({ error: 'PRO_GRANT_ALLOCATION_RESERVED' }, 409);
   }
 
   const issued = await callProRoomAdminObject(
@@ -6322,7 +6779,6 @@ async function handleAdminProRoomOwnerTransferClaim(request, env, pathname) {
   if (!db?.prepare || !getProRoomAdminNamespace(env) || !env.MUSIXQUARE_AUTH_DB?.prepare) {
     return json({ error: 'PRO_ROOM_OWNER_TRANSFER_NOT_CONFIGURED' }, 503);
   }
-
   const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
   if (parsedBody.error) {
     const auditError = await writeAdminProRoomAuditOrFail(
@@ -6365,6 +6821,9 @@ async function handleAdminProRoomOwnerTransferClaim(request, env, pathname) {
     );
     if (auditError) return auditError;
     return json({ error: 'INVALID_REQUEST' }, 400);
+  }
+  if (!(await verifyCanonicalOwnerEntitlementBackfill(env, db))) {
+    return json({ error: 'PRO_GRANT_OWNER_BACKFILL_REQUIRED' }, 503);
   }
 
   let room;
@@ -6444,7 +6903,6 @@ async function handleAdminProRoomOwnerTransferClaim(request, env, pathname) {
       409,
     );
   }
-
   let target;
   try {
     target = await resolveActiveOwnerTransferTarget(env, body.targetAccount);
@@ -6473,6 +6931,27 @@ async function handleAdminProRoomOwnerTransferClaim(request, env, pathname) {
     );
     if (auditError) return auditError;
     return json({ error: 'OWNER_TRANSFER_TARGET_UNAVAILABLE' }, 409);
+  }
+
+  // The Admin-D1 entitlement ledger is the sole one-current-PRO policy
+  // authority. Auth-D1 room links are conservative account-deletion cleanup
+  // edges and include ordinary signed-in guests, so they must never be used
+  // as evidence that the account owns a PRO room.
+  const targetGrantAuthorized = await canAccountReceiveProRoomEntitlement(env, {
+    accountId: target.accountId,
+  });
+  if (!targetGrantAuthorized) {
+    const auditError = await writeAdminProRoomAuditOrFail(
+      db,
+      request,
+      env,
+      'owner_transfer_claim.issue',
+      'target_pro_room_limit_reached',
+      roomCode,
+      room.roomGeneration,
+    );
+    if (auditError) return auditError;
+    return json({ error: 'ACCOUNT_PRO_ROOM_LIMIT_REACHED' }, 409);
   }
 
   const issued = await callProRoomAdminObject(
@@ -7055,6 +7534,14 @@ async function handleAdminProRoomDelete(request, env, pathname) {
   try {
     if (payload.status === 'decommissioned') {
       await markAdminProRoomDecommissioned(db, roomCode, room.roomGeneration, body.requestId);
+      if (
+        !(await revokeProRoomEntitlement(env, {
+          roomCode,
+          roomGeneration: room.roomGeneration,
+        }))
+      ) {
+        throw new Error('PRO_ROOM_ENTITLEMENT_RECONCILIATION_REQUIRED');
+      }
       // A completed incarnation has no persistent account authority left to
       // revoke. Retire only this exact generation's reverse edges so terminal
       // history cannot consume account deletion capacity forever. A later room
@@ -7655,10 +8142,9 @@ function isLifetimeRoomCount(value) {
 
 function lifetimeRoomCountCacheKey(request, nowMs = Date.now()) {
   const day = new Date(nowMs).toISOString().slice(0, 10);
-  return new Request(
-    new URL(`/.well-known/mxqr-cache/about-room-count/${day}`, request.url),
-    { method: 'GET' },
-  );
+  return new Request(new URL(`/.well-known/mxqr-cache/about-room-count/${day}`, request.url), {
+    method: 'GET',
+  });
 }
 
 async function readLifetimeRoomCountSnapshot(request, env, ctx) {
@@ -10390,6 +10876,7 @@ function redirectTarget(pathname) {
     ['/developers', '/developers'],
     ['/history', '/history'],
     ['/designsystem', '/designsystem'],
+    ['/events/asamo/0', '/events/asamo/0'],
   ]);
   if (pathname !== lower && canonical.has(lower.replace(/\/$/, ''))) {
     return canonical.get(lower.replace(/\/$/, ''));
@@ -10407,11 +10894,18 @@ function routeStaticPath(pathname) {
   if (path === '/developers' || path === '/developers/') return '/developers.html';
   if (path === '/history' || path === '/history/') return '/history/index.html';
   if (path === '/designsystem' || path === '/designsystem/') return '/designsystem/index.html';
+  if (path === '/events/asamo/0' || path === '/events/asamo/0/') {
+    return '/events/asamo/0/index.html';
+  }
   return null;
 }
 
 function cacheHeadersForPath(pathname, assetPathname = pathname) {
-  if (assetPathname === '/admin.js' || assetPathname === '/admin.css') {
+  if (
+    assetPathname === '/admin.js' ||
+    assetPathname === '/admin.css' ||
+    assetPathname.startsWith('/events/')
+  ) {
     return APP_SHELL_FRESH_CACHE_HEADERS;
   }
   if (assetPathname === '/service-worker.js') return { 'Cache-Control': 'no-cache' };
@@ -10607,6 +11101,7 @@ export default {
       ctx.waitUntil(
         cleanupPendingAccountDeletions(env, {
           purgeProRoomAccountAuthority: (input) => purgeProRoomAccountAuthority(input, env),
+          orphanAccountProGrants: (accountId) => orphanAccountProGrants(env, accountId),
         }),
       );
       if (getAdminDb(env)?.prepare) {
@@ -10630,6 +11125,11 @@ export default {
             console.warn('[PRO owner transfer] scheduled reconciliation failed', error);
           }
         })(),
+      );
+      ctx.waitUntil(
+        reconcileProGrantLifecycle(env, proGrantDependencies(env)).catch((error) => {
+          console.warn('[PRO grants] scheduled reconciliation failed', error);
+        }),
       );
     }
   },
@@ -10697,6 +11197,7 @@ export default {
       return withSecurityHeaders(
         await handleAccountAuthRequest(request, env, url, {
           purgeProRoomAccountAuthority: (input) => purgeProRoomAccountAuthority(input, env),
+          orphanAccountProGrants: (accountId) => orphanAccountProGrants(env, accountId),
           ...(typeof ctx?.waitUntil === 'function'
             ? {
                 deferAccountDeletion: (accountId) =>
@@ -10706,6 +11207,8 @@ export default {
                       {
                         purgeProRoomAccountAuthority: (input) =>
                           purgeProRoomAccountAuthority(input, env),
+                        orphanAccountProGrants: (accountId) =>
+                          orphanAccountProGrants(env, accountId),
                       },
                       { accountId },
                     ),
@@ -10714,6 +11217,41 @@ export default {
             : {}),
         }),
       );
+    }
+
+    if (url.pathname.startsWith('/api/pro-grants/')) {
+      const mutation = request.method === 'POST';
+      if (
+        !(await checkRateLimit(
+          request,
+          mutation ? 'pro-grant-redeem' : 'pro-grant-session',
+          mutation ? 20 : 120,
+          60,
+        ))
+      ) {
+        return json({ error: 'PRO_GRANT_RATE_LIMITED' }, 429, { 'Retry-After': '60' });
+      }
+      const response = await handleProGrantPublicRequest(
+        request,
+        env,
+        url,
+        proGrantDependencies(env),
+      );
+      return withSecurityHeaders(response || json({ error: 'NOT_FOUND' }, 404));
+    }
+
+    if (url.pathname.startsWith('/api/admin/pro-grants/')) {
+      const allowedMethods = ['GET', 'HEAD'].includes(request.method) ? ['GET', 'HEAD'] : ['POST'];
+      const methodError = adminApiMethodAllowed(request, allowedMethods);
+      if (methodError) return methodError;
+      if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+      const response = await handleProGrantAdminRequest(
+        request,
+        env,
+        url,
+        proGrantDependencies(env),
+      );
+      return withSecurityHeaders(response || json({ error: 'NOT_FOUND' }, 404));
     }
 
     if (url.pathname.startsWith(`${PRO_ROOM_FACADE_PREFIX}/`)) {

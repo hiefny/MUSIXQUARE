@@ -194,6 +194,7 @@ function seedEntitlement(
 describe('PRO grant JSON request limits', () => {
   let db: D1 | null = null;
   afterEach(() => {
+    vi.useRealTimers();
     db?.close();
     db = null;
   });
@@ -293,6 +294,40 @@ describe('PRO grant JSON request limits', () => {
     expect(response?.status).toBe(400);
     expect(await body(response!)).toEqual({ error: 'INVALID_REQUEST' });
     expect(pullCount).toBe(2);
+  });
+
+  it('bounds a request body that stalls after its first JSON chunk', async () => {
+    vi.useFakeTimers();
+    db = new D1();
+    let pulls = 0;
+    let markStalled!: () => void;
+    const stalled = new Promise<void>((resolve) => {
+      markStalled = resolve;
+    });
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulls += 1;
+          if (pulls === 1) controller.enqueue(new TextEncoder().encode('{"slug":"pending'));
+          else markStalled();
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const streamedRequest = adminStreamingRequest(stream, 'application/json');
+    const pending = handleProGrantAdminRequest(
+      streamedRequest,
+      { MUSIXQUARE_ADMIN_DB: db },
+      new URL(streamedRequest.url),
+      {},
+    );
+
+    await stalled;
+    await vi.advanceTimersByTimeAsync(10_001);
+    const response = await pending;
+
+    expect(response?.status).toBe(400);
+    expect(await body(response!)).toEqual({ error: 'REQUEST_TIMEOUT' });
   });
 
   it('rejects malformed UTF-8 instead of normalizing it into a mutation', async () => {

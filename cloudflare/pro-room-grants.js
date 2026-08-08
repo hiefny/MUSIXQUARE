@@ -10,6 +10,7 @@ const VOUCHER_ALPHABET_RE = /^[0-9A-HJKMNP-TV-Z]{20,64}$/;
 const REQUEST_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
 const BATCH_REQUEST_ID_RE = /^batch_[A-Za-z0-9_-]{22}$/;
 const MAX_BODY_BYTES = 32 * 1024;
+const REQUEST_BODY_TIMEOUT_MS = 10_000;
 const CAMPAIGN_TABLE = 'mxqr_pro_grant_campaigns';
 const VOUCHER_TABLE = 'mxqr_pro_grant_vouchers';
 const VOUCHER_BATCH_TABLE = 'mxqr_pro_grant_voucher_batches';
@@ -108,12 +109,12 @@ function changeCount(result) {
   return Number(result?.meta?.changes ?? result?.changes ?? 0);
 }
 
-function cancelBodyReader(reader) {
+function cancelBodyReader(reader, reason) {
   try {
     // A hostile or broken stream may never settle cancellation. Detaching the
     // best-effort promise keeps the bounded error response independent from
     // the transport while still consuming a later rejection.
-    Promise.resolve(reader.cancel()).catch(() => {});
+    Promise.resolve(reader.cancel(reason)).catch(() => {});
   } catch {
     // Cancellation is best-effort; the bounded error response must still win.
   }
@@ -129,14 +130,39 @@ async function readJson(request, maxBytes = MAX_BODY_BYTES) {
   const chunks = [];
   let totalBytes = 0;
   let reader;
+  let timeout = null;
+  let abort = null;
   try {
     if (request.body) {
       reader = request.body.getReader();
+      let stop;
+      const stopped = new Promise((resolve) => {
+        stop = resolve;
+      });
+      timeout = setTimeout(() => {
+        stop({ kind: 'timeout' });
+        cancelBodyReader(reader, 'REQUEST_BODY_TIMEOUT');
+      }, REQUEST_BODY_TIMEOUT_MS);
+      abort = () => {
+        stop({ kind: 'aborted' });
+        cancelBodyReader(reader, request.signal.reason);
+      };
+      if (request.signal.aborted) abort();
+      else request.signal.addEventListener('abort', abort, { once: true });
       while (true) {
-        const { done, value } = await reader.read();
+        const outcome = await Promise.race([
+          reader.read().then(
+            (value) => ({ kind: 'read', value }),
+            () => ({ kind: 'invalid' }),
+          ),
+          stopped,
+        ]);
+        if (outcome.kind === 'invalid') return { error: 'INVALID_REQUEST' };
+        if (outcome.kind !== 'read') return { error: 'REQUEST_TIMEOUT' };
+        const { done, value } = outcome.value;
         if (done) break;
         if (!(value instanceof Uint8Array) || value.byteLength > maxBytes - totalBytes) {
-          cancelBodyReader(reader);
+          cancelBodyReader(reader, 'REQUEST_BODY_TOO_LARGE');
           return { error: 'INVALID_REQUEST' };
         }
         chunks.push(value);
@@ -144,9 +170,11 @@ async function readJson(request, maxBytes = MAX_BODY_BYTES) {
       }
     }
   } catch {
-    if (reader) cancelBodyReader(reader);
+    if (reader) cancelBodyReader(reader, 'REQUEST_BODY_INVALID');
     return { error: 'INVALID_REQUEST' };
   } finally {
+    if (timeout !== null) clearTimeout(timeout);
+    if (abort) request.signal.removeEventListener('abort', abort);
     try {
       reader?.releaseLock();
     } catch {

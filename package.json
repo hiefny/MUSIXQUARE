@@ -6,7 +6,7 @@
   "type": "module",
   "packageManager": "npm@11.8.0",
   "engines": {
-    "node": "^20.19.0 || ^22.13.0 || >=24"
+    "node": "24.13.1"
   },
   "scripts": {
     "dev": "vite",
@@ -76,7 +76,7 @@
     "emergency:deploy:signaling": "node scripts/emergency-deploy.mjs signaling",
     "emergency:deploy:app": "node scripts/emergency-deploy.mjs app",
     "emergency:deploy:all-workers": "node scripts/emergency-deploy.mjs all-workers",
-    "typecheck": "npm run guard:script-module-exports && npm run guard:playwright-api && tsc --noEmit && npm run typecheck:tests && tsc -p src/workers/tsconfig.json && tsc -p tsconfig.e2e.json",
+    "typecheck": "npm run guard:script-module-exports && npm run guard:playwright-api && tsc --noEmit && npm run typecheck:tests && tsc -p src/workers/tsconfig.json && tsc -p tsconfig.tooling.json && tsc -p tsconfig.e2e.json",
     "typecheck:tests": "tsc -p tsconfig.test.json --noEmit",
     "lint": "npm run lint:app && npm run lint:tooling",
     "lint:app": "eslint src/",
@@ -105,7 +105,7 @@
     "test:e2e:runtime": "playwright test e2e/late-join.test.ts e2e/playback-sync.test.ts e2e/youtube-sync.test.ts e2e/reconnection.test.ts e2e/background-resume.test.ts",
     "pretest:e2e:webkit": "npm run build:e2e",
     "test:e2e:webkit": "playwright test --config=playwright.webkit.config.ts",
-    "test:report-viewer": "npx serve . -p 3333 -s",
+    "test:report-viewer": "serve . -p 3333 -s",
     "test:all": "vitest run && npm run build:checked && npm run test:e2e"
   },
   "devDependencies": {
@@ -124,6 +124,7 @@
     "peer": "^1.0.2",
     "prettier": "^3.8.1",
     "satori": "^0.26.0",
+    "serve": "14.2.6",
     "subset-font": "^2.5.0",
     "three": "^0.184.0",
     "tsx": "^4.20.6",

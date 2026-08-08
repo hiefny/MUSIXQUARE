@@ -53,6 +53,8 @@ const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
 // accepted queue remains readable through the unchanged public API contract.
 const FACADE_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
 const RATE_REQUEST_MAX_BYTES = 4 * 1024;
+const DEPENDENCY_RESPONSE_TIMEOUT_MS = 5_000;
+const PUBLIC_REQUEST_BODY_TIMEOUT_MS = 10_000;
 const RATE_STATE_MAX_ITEMS = 256;
 const INGRESS_LIMIT_PER_MINUTE = 120;
 const KEY_READ_LIMIT_PER_MINUTE = 60;
@@ -406,7 +408,15 @@ async function authenticate(request, env, context, nowMs) {
   return { principal: row };
 }
 
-async function readJsonLimited(response, maxBytes) {
+function cancelBodyReader(reader, reason) {
+  try {
+    Promise.resolve(reader?.cancel(reason)).catch(() => {});
+  } catch {
+    // Cancellation is best-effort and must never delay a bounded response.
+  }
+}
+
+async function readJsonLimited(response, maxBytes, registerReader = () => {}) {
   const declared = response.headers.get('content-length');
   if (declared !== null && (!/^\d+$/.test(declared.trim()) || Number(declared) > maxBytes)) {
     return null;
@@ -416,6 +426,7 @@ async function readJsonLimited(response, maxBytes) {
   }
   if (!response.body) return null;
   const reader = response.body.getReader();
+  registerReader(reader);
   const chunks = [];
   let length = 0;
   try {
@@ -425,7 +436,7 @@ async function readJsonLimited(response, maxBytes) {
       if (!value) continue;
       length += value.byteLength;
       if (length > maxBytes) {
-        await reader.cancel().catch(() => {});
+        cancelBodyReader(reader, 'RESPONSE_BODY_TOO_LARGE');
         return null;
       }
       chunks.push(value);
@@ -433,7 +444,12 @@ async function readJsonLimited(response, maxBytes) {
   } catch {
     return null;
   } finally {
-    reader.releaseLock();
+    registerReader(null);
+    try {
+      reader.releaseLock();
+    } catch {
+      // A timed-out non-cooperative stream may still own its pending read.
+    }
   }
   if (length === 0) return null;
   const bytes = new Uint8Array(length);
@@ -449,6 +465,39 @@ async function readJsonLimited(response, maxBytes) {
   }
 }
 
+async function fetchJsonLimited(fetcher, maxBytes, timeoutMs = DEPENDENCY_RESPONSE_TIMEOUT_MS) {
+  let activeReader = null;
+  let timedOut = false;
+  let timeoutId = null;
+  const operation = Promise.resolve()
+    .then(fetcher)
+    .then(
+      async (response) => {
+        if (timedOut) {
+          cancelBodyReader(response.body, 'DEPENDENCY_RESPONSE_TIMEOUT');
+          return null;
+        }
+        const value = await readJsonLimited(response, maxBytes, (reader) => {
+          activeReader = reader;
+        });
+        return timedOut ? null : { response, value };
+      },
+      () => null,
+    );
+  const timeout = new Promise((resolve) => {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      cancelBodyReader(activeReader, 'DEPENDENCY_RESPONSE_TIMEOUT');
+      resolve(null);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  }
+}
+
 async function readRequestJsonLimited(request, maxBytes) {
   if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type') || '')) {
     return null;
@@ -461,22 +510,48 @@ async function readRequestJsonLimited(request, maxBytes) {
   const reader = request.body.getReader();
   const chunks = [];
   let length = 0;
+  let stop;
+  const stopped = new Promise((resolve) => {
+    stop = resolve;
+  });
+  const timeout = setTimeout(() => {
+    stop({ kind: 'timeout' });
+    cancelBodyReader(reader, 'REQUEST_BODY_TIMEOUT');
+  }, PUBLIC_REQUEST_BODY_TIMEOUT_MS);
+  const abort = () => {
+    stop({ kind: 'aborted' });
+    cancelBodyReader(reader, request.signal.reason);
+  };
+  if (request.signal.aborted) abort();
+  else request.signal.addEventListener('abort', abort, { once: true });
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const outcome = await Promise.race([
+        reader.read().then(
+          (value) => ({ kind: 'read', value }),
+          () => ({ kind: 'invalid' }),
+        ),
+        stopped,
+      ]);
+      if (outcome.kind !== 'read') return null;
+      const { done, value } = outcome.value;
       if (done) break;
       if (!value) continue;
       length += value.byteLength;
       if (length > maxBytes) {
-        await reader.cancel().catch(() => {});
+        cancelBodyReader(reader, 'REQUEST_BODY_TOO_LARGE');
         return null;
       }
       chunks.push(value);
     }
-  } catch {
-    return null;
   } finally {
-    reader.releaseLock();
+    clearTimeout(timeout);
+    request.signal.removeEventListener('abort', abort);
+    try {
+      reader.releaseLock();
+    } catch {
+      // A timed-out non-cooperative stream may still own its pending read.
+    }
   }
   if (length === 0) return null;
   const bytes = new Uint8Array(length);
@@ -501,13 +576,37 @@ async function hasNonEmptyRequestBody(request) {
   if (!request.body) return false;
 
   let reader;
+  let timeout = null;
+  let abort = null;
   try {
     reader = request.body.getReader();
+    let stop;
+    const stopped = new Promise((resolve) => {
+      stop = resolve;
+    });
+    timeout = setTimeout(() => {
+      stop({ kind: 'timeout' });
+      cancelBodyReader(reader, 'REQUEST_BODY_TIMEOUT');
+    }, PUBLIC_REQUEST_BODY_TIMEOUT_MS);
+    abort = () => {
+      stop({ kind: 'aborted' });
+      cancelBodyReader(reader, request.signal.reason);
+    };
+    if (request.signal.aborted) abort();
+    else request.signal.addEventListener('abort', abort, { once: true });
     while (true) {
-      const { done, value } = await reader.read();
+      const outcome = await Promise.race([
+        reader.read().then(
+          (value) => ({ kind: 'read', value }),
+          () => ({ kind: 'invalid' }),
+        ),
+        stopped,
+      ]);
+      if (outcome.kind !== 'read') return true;
+      const { done, value } = outcome.value;
       if (done) return false;
       if (value?.byteLength) {
-        await reader.cancel().catch(() => {});
+        cancelBodyReader(reader, 'UNEXPECTED_REQUEST_BODY');
         return true;
       }
     }
@@ -515,7 +614,13 @@ async function hasNonEmptyRequestBody(request) {
     // A bodyless endpoint cannot safely treat an unreadable stream as empty.
     return true;
   } finally {
-    reader?.releaseLock();
+    if (timeout !== null) clearTimeout(timeout);
+    if (abort) request.signal.removeEventListener('abort', abort);
+    try {
+      reader?.releaseLock();
+    } catch {
+      /* pending non-cooperative stream read */
+    }
   }
 }
 
@@ -1338,16 +1443,21 @@ async function callLimiter(env, objectName, operation, keyId = null, roomGenerat
   if (!namespace?.idFromName || !namespace?.get) return null;
   try {
     const stub = namespace.get(namespace.idFromName(objectName));
-    const response = await stub.fetch('https://developer-api-rate.internal/check', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        operation,
-        ...(keyId === null ? {} : { keyId }),
-        ...(roomGeneration === null ? {} : proRoomGenerationWireFields(roomGeneration)),
-      }),
-    });
-    const value = await readJsonLimited(response, RATE_REQUEST_MAX_BYTES);
+    const outcome = await fetchJsonLimited(
+      () =>
+        stub.fetch('https://developer-api-rate.internal/check', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            operation,
+            ...(keyId === null ? {} : { keyId }),
+            ...(roomGeneration === null ? {} : proRoomGenerationWireFields(roomGeneration)),
+          }),
+        }),
+      RATE_REQUEST_MAX_BYTES,
+    );
+    if (!outcome) return null;
+    const { response, value } = outcome;
     if (
       response.status !== 200 ||
       !hasExactKeys(value, ['allowed', 'limit', 'remaining', 'resetAtMs', 'retryAfterSeconds']) ||
@@ -1447,42 +1557,46 @@ function facadeAuthorityBody(roomGeneration, developerAuthorityEpoch) {
 
 async function facadeRead(env, route, principal, effectsVersion) {
   if (!env.DEVELOPER_API_FACADE?.fetch) return { configurationError: true };
-  let response;
   try {
-    response = await env.DEVELOPER_API_FACADE.fetch(
-      'https://developer-api-facade.internal/internal/v1/read',
-      {
-        method: 'POST',
-        headers: facadeGenerationHeaders(principal.roomGeneration),
-        body: JSON.stringify({
-          roomCode: route.roomCode,
-          ...facadeAuthorityBody(
-            principal.roomGeneration,
-            principal.developerAuthorityEpoch,
-          ),
-          keyId: principal.keyId,
-          projection: route.view,
-          ...(route.view === 'effects' ? { effectsVersion } : {}),
-        }),
-      },
+    const outcome = await fetchJsonLimited(
+      () =>
+        env.DEVELOPER_API_FACADE.fetch(
+          'https://developer-api-facade.internal/internal/v1/read',
+          {
+            method: 'POST',
+            headers: facadeGenerationHeaders(principal.roomGeneration),
+            body: JSON.stringify({
+              roomCode: route.roomCode,
+              ...facadeAuthorityBody(
+                principal.roomGeneration,
+                principal.developerAuthorityEpoch,
+              ),
+              keyId: principal.keyId,
+              projection: route.view,
+              ...(route.view === 'effects' ? { effectsVersion } : {}),
+            }),
+          },
+        ),
+      FACADE_RESPONSE_MAX_BYTES,
     );
+    if (!outcome) return { backendError: true };
+    const { response, value } = outcome;
+    if (!response.ok) {
+      if (response.status === 404) return { notFound: true };
+      if (
+        hasExactKeys(value, ['error']) &&
+        value.error === 'DEVELOPER_API_AUTHORITY_STALE' &&
+        response.status === COMMAND_ERROR_STATUSES.DEVELOPER_API_AUTHORITY_STALE
+      ) {
+        return { errorCode: value.error, status: response.status };
+      }
+      return { backendError: true };
+    }
+    const payload = validateFacadePayload(value, route.view, route.roomCode);
+    return payload ? { payload } : { invalidResponse: true };
   } catch {
     return { backendError: true };
   }
-  const value = await readJsonLimited(response, FACADE_RESPONSE_MAX_BYTES);
-  if (!response.ok) {
-    if (response.status === 404) return { notFound: true };
-    if (
-      hasExactKeys(value, ['error']) &&
-      value.error === 'DEVELOPER_API_AUTHORITY_STALE' &&
-      response.status === COMMAND_ERROR_STATUSES.DEVELOPER_API_AUTHORITY_STALE
-    ) {
-      return { errorCode: value.error, status: response.status };
-    }
-    return { backendError: true };
-  }
-  const payload = validateFacadePayload(value, route.view, route.roomCode);
-  return payload ? { payload } : { invalidResponse: true };
 }
 
 const COMMAND_ERROR_STATUSES = Object.freeze({
@@ -1516,35 +1630,36 @@ async function facadeCommand(
   developerAuthorityEpoch,
 ) {
   if (!env.DEVELOPER_API_FACADE?.fetch) return { configurationError: true };
-  let response;
   try {
-    response = await env.DEVELOPER_API_FACADE.fetch(
-      `https://developer-api-facade.internal${path}`,
-      {
-        method: 'POST',
-        headers: facadeGenerationHeaders(roomGeneration),
-        body: JSON.stringify({
-          ...body,
-          ...facadeAuthorityBody(roomGeneration, developerAuthorityEpoch),
+    const outcome = await fetchJsonLimited(
+      () =>
+        env.DEVELOPER_API_FACADE.fetch(`https://developer-api-facade.internal${path}`, {
+          method: 'POST',
+          headers: facadeGenerationHeaders(roomGeneration),
+          body: JSON.stringify({
+            ...body,
+            ...facadeAuthorityBody(roomGeneration, developerAuthorityEpoch),
+          }),
         }),
-      },
+      COMMAND_RESPONSE_MAX_BYTES,
     );
+    if (!outcome) return { backendError: true };
+    const { response, value } = outcome;
+    if (!response.ok) {
+      if (
+        hasExactKeys(value, ['error']) &&
+        typeof value.error === 'string' &&
+        COMMAND_ERROR_STATUSES[value.error] === response.status
+      ) {
+        return { errorCode: value.error, status: response.status };
+      }
+      return { backendError: true };
+    }
+    const payload = validateCommandPayload(value, roomCode);
+    return payload ? { payload, status: response.status } : { invalidResponse: true };
   } catch {
     return { backendError: true };
   }
-  const value = await readJsonLimited(response, COMMAND_RESPONSE_MAX_BYTES);
-  if (!response.ok) {
-    if (
-      hasExactKeys(value, ['error']) &&
-      typeof value.error === 'string' &&
-      COMMAND_ERROR_STATUSES[value.error] === response.status
-    ) {
-      return { errorCode: value.error, status: response.status };
-    }
-    return { backendError: true };
-  }
-  const payload = validateCommandPayload(value, roomCode);
-  return payload ? { payload, status: response.status } : { invalidResponse: true };
 }
 
 async function facadeMutation(
@@ -1558,37 +1673,38 @@ async function facadeMutation(
   validator,
 ) {
   if (!env.DEVELOPER_API_FACADE?.fetch) return { configurationError: true };
-  let response;
   try {
-    response = await env.DEVELOPER_API_FACADE.fetch(
-      `https://developer-api-facade.internal${path}`,
-      {
-        method: 'POST',
-        headers: facadeGenerationHeaders(roomGeneration),
-        body: JSON.stringify({
-          ...body,
-          ...facadeAuthorityBody(roomGeneration, developerAuthorityEpoch),
+    const outcome = await fetchJsonLimited(
+      () =>
+        env.DEVELOPER_API_FACADE.fetch(`https://developer-api-facade.internal${path}`, {
+          method: 'POST',
+          headers: facadeGenerationHeaders(roomGeneration),
+          body: JSON.stringify({
+            ...body,
+            ...facadeAuthorityBody(roomGeneration, developerAuthorityEpoch),
+          }),
         }),
-      },
+      MUTATION_RESPONSE_MAX_BYTES,
     );
+    if (!outcome) return { backendError: true };
+    const { response, value } = outcome;
+    if (!response.ok) {
+      if (
+        hasExactKeys(value, ['error']) &&
+        typeof value.error === 'string' &&
+        COMMAND_ERROR_STATUSES[value.error] === response.status
+      ) {
+        return { errorCode: value.error, status: response.status };
+      }
+      return { backendError: true };
+    }
+    const payload = validator(value, roomCode);
+    return payload && response.status === expectedStatus
+      ? { payload, status: response.status }
+      : { invalidResponse: true };
   } catch {
     return { backendError: true };
   }
-  const value = await readJsonLimited(response, MUTATION_RESPONSE_MAX_BYTES);
-  if (!response.ok) {
-    if (
-      hasExactKeys(value, ['error']) &&
-      typeof value.error === 'string' &&
-      COMMAND_ERROR_STATUSES[value.error] === response.status
-    ) {
-      return { errorCode: value.error, status: response.status };
-    }
-    return { backendError: true };
-  }
-  const payload = validator(value, roomCode);
-  return payload && response.status === expectedStatus
-    ? { payload, status: response.status }
-    : { invalidResponse: true };
 }
 
 function auditCommandBestEffort(

@@ -39,6 +39,10 @@ const mocks = vi.hoisted(() => ({
   showLoader: vi.fn(),
   showToast: vi.fn(),
   transition: vi.fn(),
+  loadPlaylistModule: vi.fn(),
+  playlistPlayTrack: vi.fn(),
+  playlistPlayNextTrack: vi.fn(),
+  playlistShuffleNext: vi.fn(),
 }));
 
 vi.mock('../../audio/engine.ts', () => ({
@@ -111,6 +115,16 @@ vi.mock('../lifecycle.ts', () => ({
 vi.mock('../video.ts', () => ({
   setEngineMode: vi.fn(),
 }));
+
+vi.mock('../playlist-loader.ts', () => ({
+  loadPlaylistModule: mocks.loadPlaylistModule,
+}));
+
+mocks.loadPlaylistModule.mockResolvedValue({
+  getShuffleNextPlayableQueueItemId: mocks.playlistShuffleNext,
+  playNextTrack: mocks.playlistPlayNextTrack,
+  playTrack: mocks.playlistPlayTrack,
+});
 
 function makeConnection(peer: string, send = vi.fn()): DataConnection {
   return {
@@ -833,6 +847,32 @@ describe('host decode failure cleanup', () => {
       endOfPlaylist: true,
       reason: 'end-of-playlist',
     });
+  });
+
+  it('contains a rejected lazy playlist load during failed-track auto-advance', async () => {
+    vi.useFakeTimers();
+    const error = new Error('playlist chunk unavailable');
+    mocks.loadPlaylistModule.mockRejectedValueOnce(error);
+    const brokenFile = new File([new Uint8Array([1, 2, 3])], 'broken.mp3', {
+      type: 'audio/mpeg',
+    });
+    const nextFile = new File([new Uint8Array([4, 5, 6])], 'next.mp3', {
+      type: 'audio/mpeg',
+    });
+    const broken = makeFileTrack(brokenFile);
+    const next = makeFileTrack(nextFile);
+    setState('playlist.items', [broken, next]);
+    setCurrentIndex(0);
+
+    const { loadAndBroadcastFile } = await import('../decode.ts');
+    expect(await loadAndBroadcastFile(brokenFile, broken.queueItemId, 1)).toBe(false);
+    mocks.showToast.mockClear();
+
+    await vi.advanceTimersByTimeAsync(600);
+
+    expect(mocks.loadPlaylistModule).toHaveBeenCalledOnce();
+    expect(mocks.playlistPlayTrack).not.toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalledOnce();
   });
 });
 

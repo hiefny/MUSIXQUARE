@@ -2511,6 +2511,48 @@ describe('Developer API read-only public Worker', () => {
     expect(database.first).not.toHaveBeenCalled();
   });
 
+  it('fails closed when an ingress limiter response body stalls after its headers', async () => {
+    vi.useFakeTimers();
+    const setup = await createEnvironment();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            JSON.stringify({
+              allowed: true,
+              limit: 120,
+              remaining: 119,
+              resetAtMs: Date.now() + 60_000,
+              retryAfterSeconds: 0,
+            }),
+          ),
+        );
+      },
+    });
+    let markResponseStarted!: () => void;
+    const responseStarted = new Promise<void>((resolve) => {
+      markResponseStarted = resolve;
+    });
+    (setup.env as Record<string, unknown>).DEVELOPER_API_LIMITERS = {
+      idFromName: vi.fn((name: string) => name),
+      get: vi.fn(() => ({
+        fetch: vi.fn(async () => {
+          markResponseStarted();
+          return new Response(body, { headers: { 'content-type': 'application/json' } });
+        }),
+      })),
+    };
+
+    const pending = developerApiWorker.fetch(apiRequest(), setup.env);
+    await responseStarted;
+    await vi.advanceTimersByTimeAsync(5_001);
+    const response = await pending;
+
+    expect(response.status).toBe(503);
+    expect(await errorCode(response)).toBe('API_NOT_CONFIGURED');
+    expect(setup.database.first).not.toHaveBeenCalled();
+  });
+
   it('fails closed when the facade adds a private or unknown field', async () => {
     const { env } = await createEnvironment({
       facadePayload: { ...roomPayload(), participants: [{ displayName: 'Private' }] },

@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MSG, PLAYBACK_STATE, CHUNK_SIZE } from '../../core/constants.ts';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
-import { clearAllManagedTimers } from '../../core/timers.ts';
+import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
 import {
   cancelPreloadTransfer,
@@ -537,6 +537,65 @@ describe('preload MIME preservation', () => {
     setState('network.sessionCode', '');
     const { resetStoredFileAdmissionsForTests } = await import('../storage.ts');
     resetStoredFileAdmissionsForTests();
+  });
+
+  it('keeps awaited-preload recovery armed while progress resets only the loader watchdog', async () => {
+    vi.useFakeTimers();
+    initPreload();
+    document.body.innerHTML = `
+      <header id="main-header">
+        <span id="header-loading-text"></span>
+        <span id="header-progress-bg"></span>
+      </header>
+    `;
+    const hostConn = {
+      open: true,
+      peer: 'host-watchdog-ownership',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'local');
+    setState('playlist.items', [makeFileTrack('next.mp3', Q0)]);
+
+    const recover = vi.fn();
+    setManagedTimer('preloadRecoveryWatchdog', recover, 20_000);
+
+    await handleData(
+      {
+        type: MSG.PRELOAD_START,
+        sessionId: 31,
+        queueItemId: Q0,
+        name: 'next.mp3',
+        mime: 'audio/mpeg',
+        total: 2,
+        size: CHUNK_SIZE + 1,
+      },
+      hostConn,
+    );
+    await handleData(
+      {
+        type: MSG.PRELOAD_CHUNK,
+        sessionId: 31,
+        queueItemId: Q0,
+        chunkIndex: 0,
+        chunk: new Uint8Array([1]),
+      },
+      hostConn,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(document.getElementById('main-header')?.classList.contains('loading')).toBe(true);
+    expect(getManagedTimer('preloadUiWatchdog')).not.toBeNull();
+    expect(getManagedTimer('preloadRecoveryWatchdog')).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(document.getElementById('main-header')?.classList.contains('loading')).toBe(false);
+    expect(recover).not.toHaveBeenCalled();
+    expect(getManagedTimer('preloadRecoveryWatchdog')).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(recover).toHaveBeenCalledOnce();
   });
 });
 

@@ -23,6 +23,7 @@ import {
   proRoomObjectName,
 } from './pro-room-generation.js';
 import {
+  consumeAbuseRateLimit,
   gateServiceMaintenance,
   readAdminAnnouncementControl,
   readServiceMaintenance,
@@ -56,6 +57,9 @@ const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS = 5_000;
 const YOUTUBE_PLAYLIST_MANIFEST_PAGE_SIZE = 50;
 const YOUTUBE_PLAYLIST_MANIFEST_TIMEOUT_MS = 45_000;
+const UPSTREAM_JSON_RESPONSE_MAX_BYTES = 2 * 1024 * 1024;
+const UPSTREAM_JSON_TIMEOUT_MS = 10_000;
+const TURNSTILE_RESPONSE_MAX_BYTES = 64 * 1024;
 const REALTIME_API_BASE = 'https://rtc.live.cloudflare.com/v1';
 const DEFAULT_MAX_RESULTS = 10;
 const MAX_RESULTS_LIMIT = 12;
@@ -81,6 +85,8 @@ const CAPABILITY_POW_TTL_MAX = 5 * SECONDS_PER_MINUTE;
 const CAPABILITY_JSON_BODY_MAX_BYTES = 8 * 1024;
 const ADMIN_JSON_BODY_MAX_BYTES = 8 * 1024;
 const REALTIME_JSON_BODY_MAX_BYTES = 128 * 1024;
+const PUBLIC_JSON_BODY_TIMEOUT_MS = 10_000;
+const HMAC_SECRET_MIN_LENGTH = 32;
 // One venue can legitimately place 100 browsers behind one public IP. Keep
 // paid-resource room bursts separate from the default API limits and retain a
 // per-capability/session limiter below so one browser cannot consume the burst.
@@ -716,6 +722,14 @@ async function handleProRoomFacade(request, env, url) {
   return withFacadeProRoomCookies(response, roomCode);
 }
 
+function cancelBodyReader(reader, reason) {
+  try {
+    Promise.resolve(reader?.cancel(reason)).catch(() => {});
+  } catch {
+    // Cancellation is best-effort and must never delay the bounded response.
+  }
+}
+
 async function readBodyBytesLimited(request, maxBytes, timeoutMs) {
   const contentLength = request.headers.get('Content-Length');
   if (contentLength !== null) {
@@ -734,11 +748,11 @@ async function readBodyBytesLimited(request, maxBytes, timeoutMs) {
   });
   const timeout = setTimeout(() => {
     stop({ kind: 'timeout' });
-    void reader.cancel('PRO_ROOM_REQUEST_BODY_TIMEOUT').catch(() => {});
+    cancelBodyReader(reader, 'REQUEST_BODY_TIMEOUT');
   }, timeoutMs);
   const abort = () => {
     stop({ kind: 'aborted' });
-    void reader.cancel(request.signal.reason).catch(() => {});
+    cancelBodyReader(reader, request.signal.reason);
   };
   if (request.signal.aborted) abort();
   else request.signal.addEventListener('abort', abort, { once: true });
@@ -760,7 +774,7 @@ async function readBodyBytesLimited(request, maxBytes, timeoutMs) {
           : new Uint8Array(outcome.value.value);
       totalBytes += bytes.byteLength;
       if (totalBytes > maxBytes) {
-        await reader.cancel('PRO_ROOM_REQUEST_BODY_TOO_LARGE').catch(() => {});
+        cancelBodyReader(reader, 'REQUEST_BODY_TOO_LARGE');
         return { error: 'too-large' };
       }
       chunks.push(bytes);
@@ -789,41 +803,11 @@ async function readBodyBytesLimited(request, maxBytes, timeoutMs) {
 }
 
 async function readJsonBodyLimited(request, maxBytes) {
-  const contentLength = request.headers.get('Content-Length');
-  if (contentLength !== null) {
-    const normalized = contentLength.trim();
-    if (!/^\d+$/.test(normalized)) return { error: 'invalid' };
-    if (Number(normalized) > maxBytes) return { error: 'too-large' };
-  }
-
-  if (!request.body) return { error: 'invalid' };
-  const reader = request.body.getReader();
-  const chunks = [];
-  let totalBytes = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
-      totalBytes += bytes.byteLength;
-      if (totalBytes > maxBytes) {
-        await reader.cancel('JSON_BODY_TOO_LARGE').catch(() => {});
-        return { error: 'too-large' };
-      }
-      chunks.push(bytes);
-    }
-  } catch {
+  const result = await readBodyBytesLimited(request, maxBytes, PUBLIC_JSON_BODY_TIMEOUT_MS);
+  if (result.error) return result;
+  const bodyBytes = result.body;
+  if (!(bodyBytes instanceof Uint8Array) || bodyBytes.byteLength === 0) {
     return { error: 'invalid' };
-  } finally {
-    reader.releaseLock();
-  }
-
-  if (totalBytes === 0) return { error: 'invalid' };
-  const bodyBytes = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bodyBytes.set(chunk, offset);
-    offset += chunk.byteLength;
   }
   try {
     return { value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bodyBytes)) };
@@ -835,6 +819,9 @@ async function readJsonBodyLimited(request, maxBytes) {
 function jsonBodyError(result, headers = {}) {
   if (result.error === 'too-large') {
     return json({ error: 'Request body too large' }, 413, headers);
+  }
+  if (result.error === 'timeout') {
+    return json({ error: 'Request body timed out' }, 408, headers);
   }
   return json({ error: 'Invalid JSON body' }, 400, headers);
 }
@@ -938,15 +925,9 @@ function getClientIp(request) {
   );
 }
 
-// Per-IP rate limit for sensitive endpoints (paid Cloudflare TURN/SFU /
-// YouTube quota). Non-browser clients can spoof Origin or Sec-Fetch-Site, so
-// paid-resource endpoints need a separate defense layer. Uses Cache API
-// (no extra binding needed) keyed
-// on CF-Connecting-IP + endpoint + window minute. Atomicity is best-effort
-// — concurrent requests within the same minute can each pass with a stale
-// count, but the worst-case overshoot is bounded by edge node concurrency
-// per IP. Adequate for paid-resource leak prevention; not for strict abuse
-// quotas.
+// Best-effort per-IP limiter for local/authentication endpoints. Paid
+// Cloudflare and YouTube resources use the atomic service-control limiter
+// below; this Cache API path is not a hard quota.
 async function checkRateLimit(
   request,
   endpoint,
@@ -995,15 +976,64 @@ async function checkRateLimit(
   return true;
 }
 
-function rateLimitResponse(headers) {
-  return json({ error: 'Too Many Requests' }, 429, {
-    ...headers,
-    'Retry-After': '60',
+async function checkPaidRateLimit(
+  request,
+  env,
+  endpoint,
+  limit = 60,
+  windowSec = 60,
+  identityOverride = '',
+) {
+  // Direct unit/local runtimes intentionally omit every production binding.
+  // Production Workers expose Cache API, so a missing atomic binding there is
+  // fail-closed instead of silently falling back to the stale Cache counter.
+  if (!env?.MUSIXQUARE_SERVICE_CONTROL) {
+    if (typeof caches === 'undefined' || !caches?.default) {
+      return {
+        status: 'ok',
+        allowed: await checkRateLimit(request, endpoint, limit, windowSec, identityOverride),
+        retryAfterSeconds: 0,
+      };
+    }
+    return { status: 'unavailable' };
+  }
+
+  const identity = identityOverride || getClientIp(request);
+  const secret = getCapabilitySecret(env);
+  const digest = secret
+    ? await hmacSha256(secret, `paid-rate:${identity}`)
+    : bytesToBase64Url(await sha256Bytes(`paid-rate:${identity}`));
+  return consumeAbuseRateLimit(env, {
+    scope: `app-${endpoint}`,
+    identity: digest,
+    limit,
+    windowMs: windowSec * 1_000,
   });
 }
 
+function rateLimitResponse(headers, retryAfterSeconds = 60) {
+  return json({ error: 'Too Many Requests' }, 429, {
+    ...headers,
+    'Retry-After': String(Math.max(1, retryAfterSeconds)),
+  });
+}
+
+function rateLimitUnavailableResponse(headers) {
+  return json({ error: 'RATE_LIMIT_UNAVAILABLE' }, 503, headers);
+}
+
 function getCapabilitySecret(env) {
-  return env.MXQR_CAPABILITY_SECRET || env.CAPABILITY_HMAC_SECRET || env.CAPABILITY_SECRET || '';
+  const secret = String(
+    env.MXQR_CAPABILITY_SECRET || env.CAPABILITY_HMAC_SECRET || env.CAPABILITY_SECRET || '',
+  );
+  return secret.length >= HMAC_SECRET_MIN_LENGTH ? secret : '';
+}
+
+function hasInvalidCapabilitySecret(env) {
+  const secret = String(
+    env.MXQR_CAPABILITY_SECRET || env.CAPABILITY_HMAC_SECRET || env.CAPABILITY_SECRET || '',
+  );
+  return secret.length > 0 && secret.length < HMAC_SECRET_MIN_LENGTH;
 }
 
 function isCapabilityAuthEnabled(env) {
@@ -1379,7 +1409,7 @@ function getAdminSessionSecret(env) {
 }
 
 function isAdminConfigured(env) {
-  return !!(getAdminPassword(env) && getAdminSessionSecret(env));
+  return !!(getAdminPassword(env) && getAdminSessionSecret(env).length >= HMAC_SECRET_MIN_LENGTH);
 }
 
 function getAdminDb(env) {
@@ -9621,11 +9651,12 @@ async function verifyTurnstileToken(turnstileToken, request, env) {
   if (ip !== 'unknown') body.set('remoteip', ip);
 
   try {
-    const response = await fetch(TURNSTILE_VERIFY_ENDPOINT, {
-      method: 'POST',
-      body,
-    });
-    const payload = await response.json().catch(() => ({}));
+    const { payload } = await fetchJsonWithTimeout(
+      TURNSTILE_VERIFY_ENDPOINT,
+      { method: 'POST', body },
+      UPSTREAM_JSON_TIMEOUT_MS,
+      TURNSTILE_RESPONSE_MAX_BYTES,
+    );
     return (
       !!payload.success &&
       payload.action === 'mxqr-capability' &&
@@ -9645,23 +9676,26 @@ async function guardSensitiveRequest(
   rateLimit,
   options = {},
 ) {
+  if (hasInvalidCapabilitySecret(env)) {
+    return json({ error: 'CAPABILITY_SECRET_INVALID' }, 503, trust.headers);
+  }
   if (!isCapabilityAuthEnabled(env)) {
     if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, trust.headers);
     if (!allowUnguardedPaidApis(env)) {
       return json({ error: 'CAPABILITY_NOT_CONFIGURED' }, 503, trust.headers);
     }
-    if (!(await checkRateLimit(request, rateLimitKey, rateLimit, 60))) {
-      return rateLimitResponse(trust.headers);
-    }
+    const rate = await checkPaidRateLimit(request, env, rateLimitKey, rateLimit, 60);
+    if (rate.status !== 'ok') return rateLimitUnavailableResponse(trust.headers);
+    if (!rate.allowed) return rateLimitResponse(trust.headers, rate.retryAfterSeconds);
     return null;
   }
 
   const authenticatedRateLimit = Number.isSafeInteger(options.authenticatedRateLimit)
     ? options.authenticatedRateLimit
     : rateLimit;
-  if (!(await checkRateLimit(request, rateLimitKey, authenticatedRateLimit, 60))) {
-    return rateLimitResponse(trust.headers);
-  }
+  const rate = await checkPaidRateLimit(request, env, rateLimitKey, authenticatedRateLimit, 60);
+  if (rate.status !== 'ok') return rateLimitUnavailableResponse(trust.headers);
+  if (!rate.allowed) return rateLimitResponse(trust.headers, rate.retryAfterSeconds);
 
   const token = readCapabilityToken(request);
   if (!(await verifyCapabilityToken(token, request, env, capabilityScope))) {
@@ -9673,14 +9707,18 @@ async function guardSensitiveRequest(
       0,
       32,
     );
-    const allowed = await checkRateLimit(
+    const capabilityRate = await checkPaidRateLimit(
       request,
+      env,
       `${rateLimitKey}-capability`,
       options.perCapabilityLimit,
       60,
       tokenIdentity,
     );
-    if (!allowed) return rateLimitResponse(trust.headers);
+    if (capabilityRate.status !== 'ok') return rateLimitUnavailableResponse(trust.headers);
+    if (!capabilityRate.allowed) {
+      return rateLimitResponse(trust.headers, capabilityRate.retryAfterSeconds);
+    }
   }
   return null;
 }
@@ -9692,6 +9730,9 @@ async function handleSecurityConfig(request, env) {
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, headers);
   if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, headers);
+  if (hasInvalidCapabilitySecret(env)) {
+    return json({ error: 'CAPABILITY_SECRET_INVALID' }, 503, headers);
+  }
 
   const turnstileConfigured = isTurnstileConfigured(env);
   const capabilityRequired = isCapabilityAuthEnabled(env);
@@ -9718,6 +9759,9 @@ async function handleCapabilityChallenge(request, env) {
   if (request.method === 'OPTIONS')
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, headers);
+  if (hasInvalidCapabilitySecret(env)) {
+    return json({ error: 'CAPABILITY_SECRET_INVALID' }, 503, headers);
+  }
   if (!isCapabilityAuthEnabled(env)) {
     return json({ capabilityRequired: false }, 200, headers);
   }
@@ -9748,6 +9792,9 @@ async function handleCapabilityToken(request, env) {
   if (request.method === 'OPTIONS')
     return withSecurityHeaders(new Response(null, { status: 204, headers }));
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, headers);
+  if (hasInvalidCapabilitySecret(env)) {
+    return json({ error: 'CAPABILITY_SECRET_INVALID' }, 503, headers);
+  }
   if (!isCapabilityAuthEnabled(env)) {
     return json({ capabilityRequired: false }, 200, headers);
   }
@@ -9985,10 +10032,10 @@ async function handleYoutubeSearch(request, env) {
   }
 
   try {
-    const response = await fetch(`${YOUTUBE_SEARCH_API}?${params.toString()}`, {
-      headers: { 'x-goog-api-key': apiKey },
-    });
-    const payload = await response.json().catch(() => ({}));
+    const { response, payload } = await fetchJsonWithTimeout(
+      `${YOUTUBE_SEARCH_API}?${params.toString()}`,
+      { headers: { 'x-goog-api-key': apiKey } },
+    );
     if (!response.ok) {
       const upstreamError = normalizeUpstreamError(payload);
       return json(
@@ -10055,10 +10102,10 @@ async function handleYoutubePlaylistEntry(request, env) {
   });
 
   try {
-    const response = await fetch(`${YOUTUBE_PLAYLIST_ITEMS_API}?${params.toString()}`, {
-      headers: { 'x-goog-api-key': apiKey },
-    });
-    const payload = await response.json().catch(() => ({}));
+    const { response, payload } = await fetchJsonWithTimeout(
+      `${YOUTUBE_PLAYLIST_ITEMS_API}?${params.toString()}`,
+      { headers: { 'x-goog-api-key': apiKey } },
+    );
     if (!response.ok) {
       const upstreamError = normalizeUpstreamError(payload);
       return json(
@@ -10137,12 +10184,11 @@ async function handleYoutubePlaylistManifest(request, env) {
       if (remainingMs <= 0) {
         return json({ error: 'YOUTUBE_PLAYLIST_MANIFEST_INCOMPLETE' }, 502, headers);
       }
-      const response = await fetchWithTimeout(
+      const { response, payload } = await fetchJsonWithTimeout(
         `${YOUTUBE_PLAYLIST_ITEMS_API}?${params.toString()}`,
         { headers: { 'x-goog-api-key': apiKey } },
         Math.min(8_000, remainingMs),
       );
-      const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         const upstreamError = normalizeUpstreamError(payload);
         return json(
@@ -10248,7 +10294,7 @@ async function getCloudflareIceServers(env) {
   const endpoint = `https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(
     keyId,
   )}/credentials/generate-ice-servers`;
-  const response = await fetch(endpoint, {
+  const { response, payload } = await fetchJsonWithTimeout(endpoint, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiToken}`,
@@ -10258,7 +10304,6 @@ async function getCloudflareIceServers(env) {
   });
   if (!response.ok) throw new Error(`Cloudflare TURN HTTP ${response.status}`);
 
-  const payload = await response.json();
   const iceServers = normalizeIceServers(payload?.iceServers);
   const hasTurn = iceServers.some((server) =>
     normalizeUrls(server.urls).some((url) => /^turns?:/i.test(url)),
@@ -10290,19 +10335,21 @@ async function handleTurnConfig(request, env) {
 
 function getRealtimeEnv(env) {
   return {
-    appId:
+    appId: String(
       env.CLOUDFLARE_REALTIME_APP_ID ||
-      env.CLOUDFLARE_CALLS_APP_ID ||
-      env.CLOUDFLARE_SFU_APP_ID ||
-      '',
-    appSecret:
+        env.CLOUDFLARE_CALLS_APP_ID ||
+        env.CLOUDFLARE_SFU_APP_ID ||
+        '',
+    ).trim(),
+    appSecret: String(
       env.CLOUDFLARE_REALTIME_APP_SECRET ||
-      env.CLOUDFLARE_REALTIME_API_TOKEN ||
-      env.CLOUDFLARE_CALLS_APP_SECRET ||
-      env.CLOUDFLARE_CALLS_API_TOKEN ||
-      env.CLOUDFLARE_SFU_APP_SECRET ||
-      env.CLOUDFLARE_SFU_API_TOKEN ||
-      '',
+        env.CLOUDFLARE_REALTIME_API_TOKEN ||
+        env.CLOUDFLARE_CALLS_APP_SECRET ||
+        env.CLOUDFLARE_CALLS_API_TOKEN ||
+        env.CLOUDFLARE_SFU_APP_SECRET ||
+        env.CLOUDFLARE_SFU_API_TOKEN ||
+        '',
+    ).trim(),
   };
 }
 
@@ -10381,7 +10428,9 @@ async function handleRealtime(request, env) {
   if (guard) return guard;
 
   const { appId, appSecret } = getRealtimeEnv(env);
-  if (!appId || !appSecret) return json({ error: 'REALTIME_SFU_UNAVAILABLE' }, 503, headers);
+  if (!appId || appSecret.length < HMAC_SECRET_MIN_LENGTH) {
+    return json({ error: 'REALTIME_SFU_UNAVAILABLE' }, 503, headers);
+  }
 
   const realtimeRequest = buildRealtimeRequest(action, appId, sessionId, body.correlationId);
   if (!realtimeRequest) return json({ error: 'Unsupported action' }, 400, headers);
@@ -10401,17 +10450,16 @@ async function handleRealtime(request, env) {
     const sessionRateIdentity = (
       await hmacSha256(appSecret, `rate:${body.sessionOwnerToken}`)
     ).slice(0, 32);
-    if (
-      !(await checkRateLimit(
-        request,
-        'realtime-session-mutation',
-        REALTIME_MUTATION_PER_SESSION_LIMIT,
-        60,
-        sessionRateIdentity,
-      ))
-    ) {
-      return rateLimitResponse(headers);
-    }
+    const sessionRate = await checkPaidRateLimit(
+      request,
+      env,
+      'realtime-session-mutation',
+      REALTIME_MUTATION_PER_SESSION_LIMIT,
+      60,
+      sessionRateIdentity,
+    );
+    if (sessionRate.status !== 'ok') return rateLimitUnavailableResponse(headers);
+    if (!sessionRate.allowed) return rateLimitResponse(headers, sessionRate.retryAfterSeconds);
   }
 
   try {
@@ -10419,15 +10467,23 @@ async function handleRealtime(request, env) {
     const requestBody = shouldSendPayloadBody(action, payload)
       ? JSON.stringify(payload)
       : undefined;
-    const cfResponse = await fetch(realtimeRequest.url, {
-      method: realtimeRequest.method,
-      headers: {
-        Authorization: `Bearer ${appSecret}`,
-        'Content-Type': 'application/json',
+    const { response: cfResponse, bytes } = await fetchAndConsumeWithTimeout(
+      realtimeRequest.url,
+      {
+        method: realtimeRequest.method,
+        headers: {
+          Authorization: `Bearer ${appSecret}`,
+          'Content-Type': 'application/json',
+        },
+        body: requestBody,
       },
-      body: requestBody,
-    });
-    const text = await cfResponse.text();
+      UPSTREAM_JSON_TIMEOUT_MS,
+      async (response, signal) => ({
+        response,
+        bytes: await readResponseBodyLimited(response, UPSTREAM_JSON_RESPONSE_MAX_BYTES, signal),
+      }),
+    );
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     let responseBody;
     try {
       responseBody = text ? JSON.parse(text) : {};
@@ -10571,16 +10627,6 @@ function sanitizeUrl(value) {
   return '';
 }
 
-async function fetchWithTimeout(resource, options = {}, timeoutMs = 5000) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(resource, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 class ResponseBodyTooLargeError extends Error {
   constructor(maxBytes) {
     super(`Response body exceeds ${maxBytes} bytes`);
@@ -10595,15 +10641,20 @@ function responseContentLength(response) {
   return Number.isSafeInteger(bytes) && bytes >= 0 ? bytes : null;
 }
 
-async function cancelResponseBody(response, reason) {
-  if (!response.body) return;
-  await response.body.cancel(reason).catch(() => {});
+function cancelResponseBody(responseOrBody, reason) {
+  const body = responseOrBody?.body || responseOrBody;
+  if (!body) return;
+  try {
+    Promise.resolve(body.cancel(reason)).catch(() => {});
+  } catch {
+    // Cancellation is best-effort and must never delay the bounded response.
+  }
 }
 
 async function readResponseBodyLimited(response, maxBytes, signal) {
   const declaredBytes = responseContentLength(response);
   if (declaredBytes !== null && declaredBytes > maxBytes) {
-    await cancelResponseBody(response, 'RESPONSE_BODY_TOO_LARGE');
+    cancelResponseBody(response, 'RESPONSE_BODY_TOO_LARGE');
     throw new ResponseBodyTooLargeError(maxBytes);
   }
   if (!response.body) return new Uint8Array();
@@ -10611,31 +10662,50 @@ async function readResponseBodyLimited(response, maxBytes, signal) {
   const reader = response.body.getReader();
   const chunks = [];
   let totalBytes = 0;
+  let stop;
+  const stopped = new Promise((resolve) => {
+    stop = resolve;
+  });
   const abortReason = () =>
     signal.reason instanceof Error ? signal.reason : new Error('Response body read aborted');
   const handleAbort = () => {
-    void reader.cancel(abortReason()).catch(() => {});
+    stop({ kind: 'aborted' });
+    cancelResponseBody(reader, abortReason());
   };
-  signal.addEventListener('abort', handleAbort, { once: true });
+  if (signal.aborted) handleAbort();
+  else signal.addEventListener('abort', handleAbort, { once: true });
 
   try {
     while (true) {
       if (signal.aborted) throw abortReason();
-      const { done, value } = await reader.read();
+      const outcome = await Promise.race([
+        reader.read().then(
+          (value) => ({ kind: 'read', value }),
+          () => ({ kind: 'invalid' }),
+        ),
+        stopped,
+      ]);
+      if (outcome.kind === 'aborted') throw abortReason();
+      if (outcome.kind !== 'read') throw new Error('Response body read failed');
+      const { done, value } = outcome.value;
       if (signal.aborted) throw abortReason();
       if (done) break;
       if (!value) continue;
       const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
       totalBytes += bytes.byteLength;
       if (totalBytes > maxBytes) {
-        await reader.cancel('RESPONSE_BODY_TOO_LARGE').catch(() => {});
+        cancelResponseBody(reader, 'RESPONSE_BODY_TOO_LARGE');
         throw new ResponseBodyTooLargeError(maxBytes);
       }
       chunks.push(bytes);
     }
   } finally {
     signal.removeEventListener('abort', handleAbort);
-    reader.releaseLock();
+    try {
+      reader.releaseLock();
+    } catch {
+      // A non-cooperative stream may still own the timed-out read.
+    }
   }
 
   const body = new Uint8Array(totalBytes);
@@ -10659,6 +10729,20 @@ async function fetchAndConsumeWithTimeout(resource, options, timeoutMs, consume)
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchJsonWithTimeout(
+  resource,
+  options = {},
+  timeoutMs = UPSTREAM_JSON_TIMEOUT_MS,
+  maxBytes = UPSTREAM_JSON_RESPONSE_MAX_BYTES,
+) {
+  return fetchAndConsumeWithTimeout(resource, options, timeoutMs, async (response, signal) => {
+    const bytes = await readResponseBodyLimited(response, maxBytes, signal);
+    if (bytes.byteLength === 0) return { response, payload: {} };
+    const payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    return { response, payload };
+  });
 }
 
 export async function readResponseBodyLimitedForTests(response, maxBytes) {

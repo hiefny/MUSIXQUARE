@@ -11,7 +11,11 @@ import {
   proRoomObjectName,
 } from './pro-room-generation.js';
 import { isSafeVisibleDisplayName } from './display-name-policy.js';
-import { gateServiceMaintenance, readServiceMaintenance } from './service-maintenance.js';
+import {
+  consumeAbuseRateLimit,
+  gateServiceMaintenance,
+  readServiceMaintenance,
+} from './service-maintenance.js';
 
 const ROOM_PATH = /^\/api\/rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_PATH = /^\/api\/pro-rooms\/(\d{6})\/ws$/;
@@ -1073,27 +1077,46 @@ function getClientIp(request) {
   );
 }
 
-async function checkRateLimit(request, key, limit = WS_RATE_LIMIT_PER_MINUTE, windowSec = 60) {
-  if (typeof caches === 'undefined' || !caches?.default) return true;
+async function signalingRateIdentity(request, key, env) {
   const ip = getClientIp(request);
-  const window = Math.floor(Date.now() / (windowSec * 1000));
-  const cacheKey = new Request(
-    `https://ratelimit.internal/${encodeURIComponent(key)}/${encodeURIComponent(ip)}/${window}`,
+  const secret = String(env?.PRO_SIGNALING_SECRET || '');
+  const keyBytes = new TextEncoder().encode(secret || 'musixquare-signaling-rate-v1');
+  const hmacKey = await crypto.subtle.importKey(
+    'raw',
+    keyBytes,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
   );
-  try {
-    const current = await caches.default.match(cacheKey);
-    const count = current ? Number(await current.text()) || 0 : 0;
-    if (count >= limit) return false;
-    await caches.default.put(
-      cacheKey,
-      new Response(String(count + 1), {
-        headers: { 'Cache-Control': `public, max-age=${windowSec * 2}` },
-      }),
-    );
-  } catch {
-    /* best-effort */
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    hmacKey,
+    new TextEncoder().encode(`ws-open:${key}:${ip}`),
+  );
+  return bytesToBase64Url(new Uint8Array(signature));
+}
+
+async function checkRateLimit(
+  request,
+  env,
+  key,
+  limit = WS_RATE_LIMIT_PER_MINUTE,
+  windowSec = 60,
+) {
+  if (!env?.MUSIXQUARE_SERVICE_CONTROL) {
+    // Direct unit runtimes omit production bindings and Cache API. A real
+    // Cloudflare deployment missing the atomic namespace fails closed.
+    return typeof caches === 'undefined'
+      ? { status: 'ok', allowed: true, retryAfterSeconds: 0 }
+      : { status: 'unavailable' };
   }
-  return true;
+  const identity = await signalingRateIdentity(request, key, env);
+  return consumeAbuseRateLimit(env, {
+    scope: `signaling-${key}`,
+    identity,
+    limit,
+    windowMs: windowSec * 1_000,
+  });
 }
 
 function send(ws, message) {
@@ -4675,7 +4698,9 @@ export default {
       );
       if (!ticket) return json({ error: 'INVALID_PRO_SIGNALING_TICKET' }, 401);
       const proRoomObject = proRoomObjectName(roomId, ticket.roomGeneration);
-      if (!(await checkRateLimit(request, `pro-ws-open:${proRoomObject}`))) {
+      const rate = await checkRateLimit(request, env, `pro-ws-open:${proRoomObject}`);
+      if (rate.status !== 'ok') return json({ error: 'RATE_LIMIT_UNAVAILABLE' }, 503);
+      if (!rate.allowed) {
         return json({ error: 'Too Many Requests' }, 429);
       }
       const id = env.MUSIXQUARE_ROOMS.idFromName(proRoomObject);
@@ -4691,7 +4716,9 @@ export default {
     if (isProNamespaceRoomCode(roomId)) {
       return json({ error: 'ROOM_RESERVED' }, 403);
     }
-    if (!(await checkRateLimit(request, 'ws-open'))) {
+    const rate = await checkRateLimit(request, env, 'ws-open');
+    if (rate.status !== 'ok') return json({ error: 'RATE_LIMIT_UNAVAILABLE' }, 503);
+    if (!rate.allowed) {
       return json({ error: 'Too Many Requests' }, 429);
     }
 

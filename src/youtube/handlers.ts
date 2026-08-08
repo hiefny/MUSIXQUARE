@@ -286,6 +286,7 @@ function cancelInFlightTransfer(): void {
   // nothing is in flight. (No cycle: remote-share imports no youtube/*.)
   cancelRemoteShareWait('youtube-play');
 
-  clearManagedTimer('preloadWatchdog');
+  clearManagedTimer('preloadRecoveryWatchdog');
+  clearManagedTimer('preloadUiWatchdog');
   cancelIncomingFileTransfer('youtube-play');
 }

@@ -25,6 +25,8 @@ const QUEUE_MUTATION_REQUEST_MAX_BYTES = 192 * 1024;
 const PROJECTION_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
 const COMMAND_RESPONSE_MAX_BYTES = 8 * 1024;
 const MUTATION_RESPONSE_MAX_BYTES = 64 * 1024;
+const REQUEST_BODY_TIMEOUT_MS = 10_000;
+const ROOM_RESPONSE_TIMEOUT_MS = 5_000;
 const ROOM_CODE_RE = /^0\d{5}$/;
 const QUEUE_ITEM_ID_RE = /^[A-Za-z0-9_-]{16,128}$/;
 const QUEUE_ITEM_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -134,6 +136,14 @@ function boundedMetadataString(value, maxLength) {
   return /[\uD800-\uDBFF]$/.test(truncated) ? truncated.slice(0, -1) : truncated;
 }
 
+function cancelBodyReader(reader, reason) {
+  try {
+    Promise.resolve(reader?.cancel(reason)).catch(() => {});
+  } catch {
+    // Cancellation is best-effort and must never delay a bounded response.
+  }
+}
+
 async function readJsonBody(request, maxBytes) {
   if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type') || '')) {
     return null;
@@ -146,22 +156,48 @@ async function readJsonBody(request, maxBytes) {
   const reader = request.body.getReader();
   const chunks = [];
   let length = 0;
+  let stop;
+  const stopped = new Promise((resolve) => {
+    stop = resolve;
+  });
+  const timeout = setTimeout(() => {
+    stop({ kind: 'timeout' });
+    cancelBodyReader(reader, 'REQUEST_BODY_TIMEOUT');
+  }, REQUEST_BODY_TIMEOUT_MS);
+  const abort = () => {
+    stop({ kind: 'aborted' });
+    cancelBodyReader(reader, request.signal.reason);
+  };
+  if (request.signal.aborted) abort();
+  else request.signal.addEventListener('abort', abort, { once: true });
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const outcome = await Promise.race([
+        reader.read().then(
+          (value) => ({ kind: 'read', value }),
+          () => ({ kind: 'invalid' }),
+        ),
+        stopped,
+      ]);
+      if (outcome.kind !== 'read') return null;
+      const { done, value } = outcome.value;
       if (done) break;
       if (!value) continue;
       length += value.byteLength;
       if (length > maxBytes) {
-        await reader.cancel().catch(() => {});
+        cancelBodyReader(reader, 'REQUEST_BODY_TOO_LARGE');
         return null;
       }
       chunks.push(value);
     }
-  } catch {
-    return null;
   } finally {
-    reader.releaseLock();
+    clearTimeout(timeout);
+    request.signal.removeEventListener('abort', abort);
+    try {
+      reader.releaseLock();
+    } catch {
+      // A non-cooperative stream may still own its timed-out read.
+    }
   }
   if (length === 0) return null;
   const bytes = new Uint8Array(length);
@@ -177,7 +213,7 @@ async function readJsonBody(request, maxBytes) {
   }
 }
 
-async function readJsonResponse(response, maxBytes) {
+async function readJsonResponse(response, maxBytes, registerReader = () => {}) {
   if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') || '')) {
     return null;
   }
@@ -187,6 +223,7 @@ async function readJsonResponse(response, maxBytes) {
   }
   if (!response.body) return null;
   const reader = response.body.getReader();
+  registerReader(reader);
   const chunks = [];
   let length = 0;
   try {
@@ -196,7 +233,7 @@ async function readJsonResponse(response, maxBytes) {
       if (!value) continue;
       length += value.byteLength;
       if (length > maxBytes) {
-        await reader.cancel().catch(() => {});
+        cancelBodyReader(reader, 'RESPONSE_BODY_TOO_LARGE');
         return null;
       }
       chunks.push(value);
@@ -204,7 +241,12 @@ async function readJsonResponse(response, maxBytes) {
   } catch {
     return null;
   } finally {
-    reader.releaseLock();
+    registerReader(null);
+    try {
+      reader.releaseLock();
+    } catch {
+      // A timed-out non-cooperative stream may still own its pending read.
+    }
   }
   if (length === 0) return null;
   const bytes = new Uint8Array(length);
@@ -979,25 +1021,50 @@ function developerAuthorityWireFields(developerAuthorityEpoch) {
   return developerAuthorityEpoch === undefined ? {} : { developerAuthorityEpoch };
 }
 
-async function callRoom(namespace, roomCode, roomGeneration, path, body) {
-  let response;
-  try {
-    const stub = namespace.get(namespace.idFromName(proRoomObjectName(roomCode, roomGeneration)));
-    response = await stub.fetch(
-      new Request(`https://pro-room.internal${path}`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-mxqr-pro-room-code': roomCode,
-          [PRO_ROOM_GENERATION_HEADER]: proRoomGenerationHeaderValue(roomGeneration),
-        },
-        body: JSON.stringify(body),
-      }),
+async function callRoom(namespace, roomCode, roomGeneration, path, body, maxResponseBytes) {
+  let activeReader = null;
+  let timedOut = false;
+  let timeoutId = null;
+  const operation = Promise.resolve()
+    .then(() => {
+      const stub = namespace.get(namespace.idFromName(proRoomObjectName(roomCode, roomGeneration)));
+      return stub.fetch(
+        new Request(`https://pro-room.internal${path}`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': roomCode,
+            [PRO_ROOM_GENERATION_HEADER]: proRoomGenerationHeaderValue(roomGeneration),
+          },
+          body: JSON.stringify(body),
+        }),
+      );
+    })
+    .then(
+      async (response) => {
+        if (timedOut) {
+          cancelBodyReader(response.body, 'ROOM_RESPONSE_TIMEOUT');
+          return { backendError: true };
+        }
+        const value = await readJsonResponse(response, maxResponseBytes, (reader) => {
+          activeReader = reader;
+        });
+        return timedOut ? { backendError: true } : { response, value };
+      },
+      () => ({ backendError: true }),
     );
-  } catch {
-    return { backendError: true };
+  const timeout = new Promise((resolve) => {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      cancelBodyReader(activeReader, 'ROOM_RESPONSE_TIMEOUT');
+      resolve({ backendError: true });
+    }, ROOM_RESPONSE_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
   }
-  return { response };
 }
 
 export default {
@@ -1074,9 +1141,10 @@ export default {
           ...(body.projection === 'effects' ? { effectsVersion: 2 } : {}),
           projection: body.projection,
         },
+        PROJECTION_RESPONSE_MAX_BYTES,
       );
       if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
-      const value = await readJsonResponse(called.response, PROJECTION_RESPONSE_MAX_BYTES);
+      const value = called.value;
       if (called.response.status === 404) return jsonResponse({ error: 'NOT_FOUND' }, 404);
       if (!called.response.ok) {
         const mapped = backendError(value, called.response.status);
@@ -1120,9 +1188,10 @@ export default {
           idempotencyKey: body.idempotencyKey,
           queueMode,
         },
+        COMMAND_RESPONSE_MAX_BYTES,
       );
       if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
-      const value = await readJsonResponse(called.response, COMMAND_RESPONSE_MAX_BYTES);
+      const value = called.value;
       if (!called.response.ok) {
         const mapped = backendError(value, called.response.status);
         return mapped
@@ -1162,9 +1231,10 @@ export default {
           idempotencyKey: body.idempotencyKey,
           command,
         },
+        COMMAND_RESPONSE_MAX_BYTES,
       );
       if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
-      const value = await readJsonResponse(called.response, COMMAND_RESPONSE_MAX_BYTES);
+      const value = called.value;
       if (!called.response.ok) {
         const mapped = backendError(value, called.response.status);
         return mapped
@@ -1212,9 +1282,10 @@ export default {
           idempotencyKey: body.idempotencyKey,
           mutation,
         },
+        PROJECTION_RESPONSE_MAX_BYTES,
       );
       if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
-      const value = await readJsonResponse(called.response, PROJECTION_RESPONSE_MAX_BYTES);
+      const value = called.value;
       if (!called.response.ok) {
         const mapped = backendError(value, called.response.status);
         return mapped
@@ -1256,9 +1327,10 @@ export default {
           idempotencyKey: body.idempotencyKey,
           media,
         },
+        MUTATION_RESPONSE_MAX_BYTES,
       );
       if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
-      const value = await readJsonResponse(called.response, MUTATION_RESPONSE_MAX_BYTES);
+      const value = called.value;
       if (!called.response.ok) {
         const mapped = backendError(value, called.response.status);
         return mapped
@@ -1299,9 +1371,10 @@ export default {
           idempotencyKey: body.idempotencyKey,
           assetId: body.assetId,
         },
+        MUTATION_RESPONSE_MAX_BYTES,
       );
       if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
-      const value = await readJsonResponse(called.response, MUTATION_RESPONSE_MAX_BYTES);
+      const value = called.value;
       if (!called.response.ok) {
         const mapped = backendError(value, called.response.status);
         return mapped
@@ -1337,9 +1410,10 @@ export default {
         keyId: body.keyId,
         commandId: body.commandId,
       },
+      COMMAND_RESPONSE_MAX_BYTES,
     );
     if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
-    const value = await readJsonResponse(called.response, COMMAND_RESPONSE_MAX_BYTES);
+    const value = called.value;
     if (!called.response.ok) {
       const mapped = backendError(value, called.response.status);
       return mapped

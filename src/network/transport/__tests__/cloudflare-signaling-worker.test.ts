@@ -5,7 +5,11 @@ import {
   createStandardRoomAccountAssertion,
   createStandardRoomAccountDeletionAssertion,
 } from '../../../../cloudflare/standard-room-account-assertion.js';
-import { SERVICE_CONTROL_READ_TIMEOUT_MS } from '../../../../cloudflare/service-maintenance.js';
+import {
+  ABUSE_RATE_CONSUME_PATH,
+  SERVICE_CONTROL_READ_TIMEOUT_MS,
+  SERVICE_CONTROL_STATUS_PATH,
+} from '../../../../cloudflare/service-maintenance.js';
 
 type WorkerModule = {
   MusixquareRoom: new (
@@ -361,6 +365,72 @@ function maintenanceBinding(enabled = true): Record<string, unknown> {
     getByName: vi.fn(() => ({
       fetch: vi.fn(async () => originalResponse.json({ serviceStatus })),
     })),
+  };
+}
+
+function atomicRateBinding(
+  barrierCalls: number,
+  initialCount = 0,
+): {
+  binding: Record<string, unknown>;
+  rateFetchCount(): number;
+} {
+  const counts = new Map<string, number>();
+  const tails = new Map<string, Promise<void>>();
+  let rateFetches = 0;
+  let releaseBarrier: (() => void) | null = null;
+  const barrier = new Promise<void>((resolve) => {
+    releaseBarrier = resolve;
+  });
+  return {
+    binding: {
+      getByName: vi.fn((name: string) => ({
+        fetch: async (request: Request): Promise<Response> => {
+          const path = new URL(request.url).pathname;
+          if (path === SERVICE_CONTROL_STATUS_PATH) {
+            return originalResponse.json({
+              serviceStatus: {
+                enabled: false,
+                revision: 0,
+                updatedAt: null,
+                activatedAt: null,
+              },
+            });
+          }
+          expect(path).toBe(ABUSE_RATE_CONSUME_PATH);
+          rateFetches += 1;
+          if (rateFetches === barrierCalls) releaseBarrier?.();
+          await barrier;
+          const body = (await request.json()) as { limit: number; windowMs: number; cost: number };
+          const previous = tails.get(name) || Promise.resolve();
+          let release!: () => void;
+          const next = new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          tails.set(
+            name,
+            previous.then(() => next),
+          );
+          await previous;
+          try {
+            const count = counts.get(name) ?? initialCount;
+            const allowed = count + body.cost <= body.limit;
+            const nextCount = allowed ? count + body.cost : count;
+            counts.set(name, nextCount);
+            return originalResponse.json({
+              allowed,
+              limit: body.limit,
+              remaining: body.limit - nextCount,
+              resetAtMs: Date.now() + body.windowMs,
+              retryAfterSeconds: allowed ? 0 : Math.ceil(body.windowMs / 1_000),
+            });
+          } finally {
+            release();
+          }
+        },
+      })),
+    },
+    rateFetchCount: () => rateFetches,
   };
 }
 
@@ -765,6 +835,32 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(new URL(request.url).searchParams.get('secret')).toBeNull();
   });
 
+  it('hard-limits barrier-concurrent WebSocket opens before room routing', async () => {
+    const routed = workerEnv();
+    const control = atomicRateBinding(121);
+    routed.env.MUSIXQUARE_SERVICE_CONTROL = control.binding;
+    routed.env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    const open = (index: number) =>
+      workerModule.default.fetch(
+        requestLike(
+          `https://signal.example.test/api/rooms/123456/ws?role=guest&peerId=rate-peer-${index}`,
+          {
+            Origin: 'https://musixquare.com',
+            Upgrade: 'websocket',
+            'CF-Connecting-IP': '203.0.113.121',
+          },
+        ),
+        routed.env,
+      );
+
+    const responses = await Promise.all(Array.from({ length: 121 }, (_, index) => open(index)));
+
+    expect(responses.filter((response) => response.status === 101)).toHaveLength(120);
+    expect(responses.filter((response) => response.status === 429)).toHaveLength(1);
+    expect(routed.roomFetch).toHaveBeenCalledTimes(120);
+    expect(control.rateFetchCount()).toBe(121);
+  });
+
   it('does not interpret a retired host secret query at the edge', async () => {
     const { env, idFromName, roomFetch } = workerEnv();
     const request = requestLike(
@@ -899,6 +995,30 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(response.status).toBe(101);
     expect(idFromName).toHaveBeenCalledWith('000001:generation:0');
     expect(roomFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('applies the atomic outer limiter to a valid PRO ticket before room routing', async () => {
+    const { env, idFromName, roomFetch } = workerEnv();
+    const control = atomicRateBinding(1, 120);
+    env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    env.MUSIXQUARE_SERVICE_CONTROL = control.binding;
+    const ticket = await proTicket({ participantId: 'rate-limited-pro-member' });
+    const url = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
+    url.searchParams.set('ticket', ticket);
+
+    const response = await workerModule.default.fetch(
+      requestLike(url.toString(), {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+        'CF-Connecting-IP': '203.0.113.122',
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(429);
+    expect(idFromName).not.toHaveBeenCalled();
+    expect(roomFetch).not.toHaveBeenCalled();
+    expect(control.rateFetchCount()).toBe(1);
   });
 
   it('routes each reusable PRO room generation to an isolated Durable Object name', async () => {

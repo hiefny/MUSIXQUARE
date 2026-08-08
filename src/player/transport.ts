@@ -41,6 +41,7 @@ import {
 } from '../pro-room/playback-authority-hooks.ts';
 import { isProRoomTrackChangeIntentPending } from './track-change-intent.ts';
 import { hasRoomCapability, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
+import { loadPlaylistModule } from './playlist-loader.ts';
 
 /** Lead time for a host command to reach guests before the shared start. */
 const SCHEDULE_AHEAD_MS = 200;
@@ -1076,9 +1077,12 @@ export function togglePlay(): void {
     const firstQueueItemId = firstItem?.queueItemId;
     if (!firstQueueItemId) return;
     if (!hostConn) {
-      void import('./playlist.ts')
+      void loadPlaylistModule()
         .then((mod) => mod.playTrack(firstQueueItemId))
-        .catch((error) => log.warn('[Play] Failed to restart the first playlist item:', error));
+        .catch((error) => {
+          log.warn('[Play] Failed to restart the first playlist item:', error);
+          showToast(t('error.network_generic'));
+        });
     } else if (canControlPlayback) {
       sendToHost({ type: MSG.REQUEST_TRACK_CHANGE, queueItemId: firstQueueItemId });
     }
@@ -1096,7 +1100,12 @@ export function togglePlay(): void {
       selectedItem?.type === 'file' &&
       (!getCurrentAudioBuffer() || resident?.queueItemId !== currentQueueItemId)
     ) {
-      void import('./playlist.ts').then((mod) => mod.playTrack(currentQueueItemId));
+      void loadPlaylistModule()
+        .then((mod) => mod.playTrack(currentQueueItemId))
+        .catch((error) => {
+          log.warn('[Play] Failed to retry the selected playlist item:', error);
+          showToast(t('error.network_generic'));
+        });
       return;
     }
   }
@@ -1106,7 +1115,12 @@ export function togglePlay(): void {
   // tapped while the selected queue ID and resident AudioBuffer still belong
   // to the ended occurrence. Honor the tap as "advance now" instead of replaying it.
   if (!hostConn && !isActuallyPlaying && getManagedTimer('ended-advance-next')) {
-    void import('./playlist.ts').then((mod) => mod.playNextTrack());
+    void loadPlaylistModule()
+      .then((mod) => mod.playNextTrack())
+      .catch((error) => {
+        log.warn('[Play] Failed to advance the playlist after track end:', error);
+        showToast(t('error.network_generic'));
+      });
     return;
   }
 

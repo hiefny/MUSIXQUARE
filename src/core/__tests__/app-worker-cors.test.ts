@@ -13,6 +13,7 @@ import appWorker, {
 } from '../../../cloudflare/app-worker.js';
 import { deriveDeveloperApiKeyDigest } from '../../../cloudflare/developer-api-worker.js';
 import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.js';
+import { createAtomicRateControlBinding } from './service-control-rate-limit-fixture.ts';
 
 const proGrantMigration = await readFile(
   new URL('../../../cloudflare/admin-metrics.pro-grants.migration.sql', import.meta.url),
@@ -930,7 +931,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
 
   it('requires a capability token when capability auth is enabled', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
     };
 
     const response = await appWorker.fetch(
@@ -949,7 +950,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
 
   it('reports transparent proof-of-work when Turnstile is not configured', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
     };
 
     const response = await appWorker.fetch(
@@ -988,7 +989,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       ),
     );
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
     };
@@ -1026,7 +1027,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       ),
     );
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
     };
@@ -1065,7 +1066,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       ),
     );
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
       MXQR_TURNSTILE_ALLOWED_HOSTNAMES: '*.musixquare.com',
@@ -1091,7 +1092,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
 
   it('rejects spoofable trusted-origin token minting by default when Turnstile is absent', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
     };
     const ip = '203.0.113.24';
 
@@ -1115,7 +1116,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
 
   it('never treats a trusted Origin header as proof even when the retired flag is set', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
       MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK: 'true',
     };
     const ip = '203.0.113.21';
@@ -1137,7 +1138,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
 
   it('rejects same-origin-inferred capability fallback by default when Turnstile is configured', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
     };
@@ -1173,7 +1174,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
 
   it('ignores the retired same-origin-inferred authentication flag', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
       MXQR_ALLOW_INFERRED_CAPABILITY_FALLBACK: 'true',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
@@ -1198,7 +1199,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
 
   it('reports proof-of-work while Turnstile remains disabled even when keys exist', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
       MXQR_TURNSTILE_DISABLED: 'true',
       TURNSTILE_SITE_KEY: 'site-key',
       TURNSTILE_SECRET_KEY: 'secret-key',
@@ -1226,7 +1227,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
 
   it('mints PoW capability tokens and keeps YouTube search operational with Turnstile disabled', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
       MXQR_TURNSTILE_DISABLED: 'true',
       MXQR_CAPABILITY_POW_DIFFICULTY: '8',
       TURNSTILE_SITE_KEY: 'site-key',
@@ -1260,7 +1261,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
 
   it('binds proof-of-work to the exact scope set and client IP', async () => {
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
       MXQR_TURNSTILE_DISABLED: 'true',
       MXQR_CAPABILITY_POW_DIFFICULTY: '8',
     };
@@ -1276,7 +1277,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
   });
 
   it('serves rate-limit rejections with the shared security headers', async () => {
-    installRateLimitCache();
+    const control = createAtomicRateControlBinding();
     vi.stubGlobal(
       'fetch',
       vi.fn(async () =>
@@ -1295,6 +1296,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
       CLOUDFLARE_TURN_KEY_ID: 'turn-key',
       CLOUDFLARE_TURN_API_TOKEN: 'turn-token',
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
     };
     const request = () =>
       new Request('https://musixquare.com/api/get-turn-config', {
@@ -1310,7 +1312,8 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
 
     const blocked = await appWorker.fetch(request(), env);
     expect(blocked.status).toBe(429);
-    expect(blocked.headers.get('Retry-After')).toBe('60');
+    expect(Number(blocked.headers.get('Retry-After'))).toBeGreaterThanOrEqual(1);
+    expect(Number(blocked.headers.get('Retry-After'))).toBeLessThanOrEqual(60);
     expect(blocked.headers.get('Strict-Transport-Security')).toContain('max-age=');
     expect(blocked.headers.get('Content-Type')).toBe('application/json; charset=utf-8');
     expect(await blocked.json()).toEqual({ error: 'Too Many Requests' });
@@ -1323,7 +1326,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     vi.setSystemTime(new Date('2026-07-19T00:00:30.000Z'));
     installRateLimitCache();
     const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
       MXQR_TURNSTILE_DISABLED: 'true',
       MXQR_CAPABILITY_POW_DIFFICULTY: '8',
     };
@@ -1370,16 +1373,17 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
   });
 
   it('admits 100 same-NAT clients through TURN plus one full SFU recovery cycle', async () => {
-    installRateLimitCache();
+    const control = createAtomicRateControlBinding();
     const ip = '203.0.113.120';
-    const capabilitySecret = 'same-nat-capability-secret';
+    const capabilitySecret = 'same-nat-capability-secret-at-least-32';
     const env = {
       MXQR_CAPABILITY_SECRET: capabilitySecret,
       MXQR_TURNSTILE_DISABLED: 'true',
       CLOUDFLARE_TURN_KEY_ID: 'turn-key',
       CLOUDFLARE_TURN_API_TOKEN: 'turn-token',
       CLOUDFLARE_REALTIME_APP_ID: 'test-app',
-      CLOUDFLARE_REALTIME_APP_SECRET: 'test-realtime-secret',
+      CLOUDFLARE_REALTIME_APP_SECRET: 'test-realtime-secret-at-least-32',
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
     };
     let nextSession = 0;
     vi.stubGlobal(
@@ -1457,8 +1461,9 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
         env,
       );
 
-    for (const token of capabilityTokens) {
-      expect((await request('https://musixquare.com/api/get-turn-config', token)).status).toBe(200);
+    for (const [index, token] of capabilityTokens.entries()) {
+      const response = await request('https://musixquare.com/api/get-turn-config', token);
+      expect(response.status, `TURN request ${index}: ${await response.clone().text()}`).toBe(200);
     }
 
     const sessions: Array<{ token: string; sessionId: string; sessionOwnerToken: string }> = [];
@@ -1507,6 +1512,31 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
 });
 
 describe('Cloudflare app worker JSON body limits', () => {
+  it('fails closed when configured HMAC signing secrets are too short', async () => {
+    const capability = await appWorker.fetch(
+      new Request('https://musixquare.com/api/security-config', {
+        headers: { Origin: 'https://musixquare.com' },
+      }),
+      { MXQR_CAPABILITY_SECRET: 'weak' },
+    );
+    const admin = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.89' }),
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      {
+        MXQR_ADMIN_PASSWORD: 'admin-pass',
+        MXQR_ADMIN_SESSION_SECRET: 'weak',
+      },
+    );
+
+    expect(capability.status).toBe(503);
+    expect(await capability.json()).toEqual({ error: 'CAPABILITY_SECRET_INVALID' });
+    expect(admin.status).toBe(503);
+    expect(await admin.json()).toEqual({ error: 'ADMIN_NOT_CONFIGURED' });
+  });
+
   it('rejects oversized capability and admin bodies before parsing', async () => {
     const capability = await appWorker.fetch(
       new Request('https://musixquare.com/api/capability-token', {
@@ -1519,7 +1549,7 @@ describe('Cloudflare app worker JSON body limits', () => {
         body: JSON.stringify({ scopes: ['remote-share'], padding: 'x'.repeat(8192) }),
       }),
       {
-        MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+        MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
         MXQR_ALLOW_TRUSTED_ORIGIN_CAPABILITY_FALLBACK: 'true',
       },
     );
@@ -1531,7 +1561,7 @@ describe('Cloudflare app worker JSON body limits', () => {
       }),
       {
         MXQR_ADMIN_PASSWORD: 'admin-pass',
-        MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+        MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       },
     );
 
@@ -1539,6 +1569,33 @@ describe('Cloudflare app worker JSON body limits', () => {
     expect(await capability.json()).toEqual({ error: 'Request body too large' });
     expect(admin.status).toBe(413);
     expect(await admin.json()).toEqual({ error: 'Request body too large' });
+  });
+
+  it('returns a bounded response when a public JSON request body stalls', async () => {
+    vi.useFakeTimers();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"password":"admin'));
+      },
+    });
+    const pending = appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.93' }),
+        body,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+      {
+        MXQR_ADMIN_PASSWORD: 'admin-pass',
+        MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(10_001);
+    const response = await pending;
+
+    expect(response.status).toBe(408);
+    expect(await response.json()).toEqual({ error: 'Request body timed out' });
   });
 
   it('bounds chunked realtime JSON even without a Content-Length header', async () => {
@@ -1568,7 +1625,7 @@ describe('Cloudflare app worker JSON body limits', () => {
       {
         MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
         CLOUDFLARE_REALTIME_APP_ID: 'test-app',
-        CLOUDFLARE_REALTIME_APP_SECRET: 'test-secret',
+        CLOUDFLARE_REALTIME_APP_SECRET: 'test-realtime-secret-at-least-32',
       },
     );
 
@@ -1579,12 +1636,14 @@ describe('Cloudflare app worker JSON body limits', () => {
 
 describe('Cloudflare Realtime session ownership boundary', () => {
   const ip = '203.0.113.93';
+  const control = createAtomicRateControlBinding();
   const env = {
-    MXQR_CAPABILITY_SECRET: 'test-capability-secret',
+    MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
     MXQR_TURNSTILE_DISABLED: 'true',
     MXQR_CAPABILITY_POW_DIFFICULTY: '8',
     CLOUDFLARE_REALTIME_APP_ID: 'test-app',
-    CLOUDFLARE_REALTIME_APP_SECRET: 'test-realtime-secret',
+    CLOUDFLARE_REALTIME_APP_SECRET: 'test-realtime-secret-at-least-32',
+    MUSIXQUARE_SERVICE_CONTROL: control.binding,
   };
 
   async function realtimeRequest(
@@ -1606,23 +1665,34 @@ describe('Cloudflare Realtime session ownership boundary', () => {
     );
   }
 
-  function installRealtimeRateLimitCache() {
-    const store = new Map<string, string>();
-    vi.stubGlobal('caches', {
-      default: {
-        match: vi.fn(async (request: Request) => {
-          const value = store.get(request.url);
-          return value === undefined ? undefined : new Response(value);
-        }),
-        put: vi.fn(async (request: Request, response: Response) => {
-          store.set(request.url, await response.text());
-        }),
+  it('fails closed before provider access when the Realtime signing secret is weak', async () => {
+    const upstreamFetch = vi.fn();
+    vi.stubGlobal('fetch', upstreamFetch);
+    const weakSecretControl = createAtomicRateControlBinding();
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/cloudflare-realtime', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': ip,
+        },
+        body: JSON.stringify({ action: 'new-session' }),
+      }),
+      {
+        MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
+        CLOUDFLARE_REALTIME_APP_ID: 'test-app',
+        CLOUDFLARE_REALTIME_APP_SECRET: 'weak',
+        MUSIXQUARE_SERVICE_CONTROL: weakSecretControl.binding,
       },
-    });
-  }
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'REALTIME_SFU_UNAVAILABLE' });
+    expect(upstreamFetch).not.toHaveBeenCalled();
+  });
 
   it('keeps the same-IP room burst bounded per browser capability', async () => {
-    installRealtimeRateLimitCache();
     let nextSession = 0;
     vi.stubGlobal(
       'fetch',
@@ -1643,7 +1713,6 @@ describe('Cloudflare Realtime session ownership boundary', () => {
   });
 
   it('bounds mutations per issued session without restoring the old 30-request IP ceiling', async () => {
-    installRealtimeRateLimitCache();
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) =>
@@ -1869,18 +1938,7 @@ describe('Cloudflare app worker YouTube playlist entry proxy', () => {
   });
 
   it('applies an independent twenty-request per-minute guard', async () => {
-    const store = new Map<string, string>();
-    vi.stubGlobal('caches', {
-      default: {
-        match: vi.fn(async (request: Request) => {
-          const value = store.get(request.url);
-          return value === undefined ? undefined : new Response(value);
-        }),
-        put: vi.fn(async (request: Request, response: Response) => {
-          store.set(request.url, await response.text());
-        }),
-      },
-    });
+    const control = createAtomicRateControlBinding();
     const upstreamFetch = vi.fn(async () =>
       Response.json({
         items: [
@@ -1896,6 +1954,7 @@ describe('Cloudflare app worker YouTube playlist entry proxy', () => {
     const env = {
       MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
       YOUTUBE_API_KEY: 'test-key',
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
     };
 
     for (let index = 0; index < 20; index += 1) {
@@ -1903,7 +1962,8 @@ describe('Cloudflare app worker YouTube playlist entry proxy', () => {
     }
     const limited = await appWorker.fetch(playlistRequest(), env);
     expect(limited.status).toBe(429);
-    expect(limited.headers.get('Retry-After')).toBe('60');
+    expect(Number(limited.headers.get('Retry-After'))).toBeGreaterThanOrEqual(1);
+    expect(Number(limited.headers.get('Retry-After'))).toBeLessThanOrEqual(60);
     expect(upstreamFetch).toHaveBeenCalledTimes(20);
   });
 });
@@ -1923,6 +1983,37 @@ describe('Cloudflare app worker YouTube playlist manifest proxy', () => {
     MXQR_ALLOW_UNGUARDED_PAID_APIS: 'true',
     YOUTUBE_API_KEY: 'test-key',
   };
+
+  it('hard-limits barrier-concurrent paid requests with the atomic control object', async () => {
+    const control = createAtomicRateControlBinding(11);
+    const upstreamFetch = vi.fn(async () =>
+      Response.json({
+        pageInfo: { totalResults: 1 },
+        items: [
+          {
+            contentDetails: { videoId: 'AAAAAAAAAAA' },
+            snippet: { title: 'Atomic limit' },
+            status: { privacyStatus: 'public' },
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', upstreamFetch);
+
+    const responses = await Promise.all(
+      Array.from({ length: 11 }, () =>
+        appWorker.fetch(manifestRequest(), {
+          ...env,
+          MUSIXQUARE_SERVICE_CONTROL: control.binding,
+        }),
+      ),
+    );
+
+    expect(responses.filter((response) => response.status === 200)).toHaveLength(10);
+    expect(responses.filter((response) => response.status === 429)).toHaveLength(1);
+    expect(upstreamFetch).toHaveBeenCalledTimes(10);
+    expect(control.rateFetchCount()).toBe(11);
+  });
 
   it('paginates the complete ordered playable manifest and preserves duplicate videos', async () => {
     const upstreamFetch = vi.fn(async (input: RequestInfo | URL) => {
@@ -1981,6 +2072,34 @@ describe('Cloudflare app worker YouTube playlist manifest proxy', () => {
       title: 'First & playable',
     });
     expect(upstreamFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('bounds an upstream manifest body that stalls after its headers', async () => {
+    vi.useFakeTimers();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"pageInfo":{"totalResults":1}'));
+      },
+    });
+    let markResponseStarted!: () => void;
+    const responseStarted = new Promise<void>((resolve) => {
+      markResponseStarted = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        markResponseStarted();
+        return new Response(body, { headers: { 'content-type': 'application/json' } });
+      }),
+    );
+
+    const pending = appWorker.fetch(manifestRequest(), env);
+    await responseStarted;
+    await vi.advanceTimersByTimeAsync(8_001);
+    const response = await pending;
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: 'YOUTUBE_PLAYLIST_RESOLUTION_PROXY_FAILED' });
   });
 
   it('fails explicitly when the upstream manifest is too large or incomplete', async () => {
@@ -2137,7 +2256,7 @@ describe('Cloudflare app worker admin dashboard', () => {
   it('does not treat the legacy unsalted SHA-256 fallback as an admin credential', async () => {
     const env = {
       MXQR_ADMIN_PASSWORD_SHA256: 'sha256:legacy-digest',
-      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
     };
 
     const page = await appWorker.fetch(new Request('https://musixquare.com/admin'), env);
@@ -2159,7 +2278,7 @@ describe('Cloudflare app worker admin dashboard', () => {
   it('rejects same-site and cross-site admin mutations without the exact JSON CSRF envelope', async () => {
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
-      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
     };
     const cases = [
       new Request('https://musixquare.com/api/admin/login', {
@@ -2196,7 +2315,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     const nowMinute = Math.floor(Date.now() / 60000);
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
-      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MUSIXQUARE_ADMIN_DB: createMetricsDb([
         { bucket_minute: nowMinute - 31 * 24 * 60, event: 'guest_joined', count: 99 },
         { bucket_minute: nowMinute - 29 * 24 * 60, event: 'guest_joined', count: 4 },
@@ -2283,7 +2402,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
-      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       SORO_RSS_BACKUP: createKvStore(),
       ASSETS: {
         fetch: vi.fn(
@@ -2520,7 +2639,7 @@ describe('Cloudflare app worker admin dashboard', () => {
   it('lets admins publish a session announcement for active clients', async () => {
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
-      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       SORO_RSS_BACKUP: createKvStore(),
       MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding(),
     };
@@ -2691,7 +2810,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     let crossExpiryBoundary = false;
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
-      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       SORO_RSS_BACKUP: createKvStore(),
       MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding((request) => {
         if (
@@ -2809,7 +2928,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
-      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       SORO_RSS_BACKUP: store,
       MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding(),
     };
@@ -2931,7 +3050,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
-      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       SORO_RSS_BACKUP: store,
       MUSIXQUARE_SERVICE_CONTROL: {
         idFromName: vi.fn((name: string) => name),
@@ -2982,7 +3101,7 @@ describe('Cloudflare app worker admin dashboard', () => {
   it('rejects a control revision-zero sentinel with a latent expiry', async () => {
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
-      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MUSIXQUARE_SERVICE_CONTROL: {
         idFromName: vi.fn((name: string) => name),
         get: vi.fn(() => ({
@@ -3049,7 +3168,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     };
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
-      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MUSIXQUARE_SERVICE_CONTROL: {
         idFromName: vi.fn((name: string) => name),
         get: vi.fn(() => ({
@@ -3328,7 +3447,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     };
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
-      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MUSIXQUARE_ADMIN_DB: withCentralEntitlementLedger(db),
       PRO_ROOM_ADMIN_ROOMS: namespace,
     };
@@ -4123,7 +4242,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     };
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
-      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MUSIXQUARE_ADMIN_DB: db,
     };
 
@@ -4843,7 +4962,7 @@ describe('Cloudflare app worker admin dashboard', () => {
   it('keeps /admin unindexed and no-store cached', async () => {
     const response = await appWorker.fetch(new Request('https://musixquare.com/admin'), {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
-      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
     });
     const html = await response.text();
 

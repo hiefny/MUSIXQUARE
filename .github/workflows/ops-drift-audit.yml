@@ -42,10 +42,10 @@ jobs:
         run: node scripts/audit-ops-drift.mjs
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-          # Prefer a narrowly scoped read-only credential. Keep the production
-          # token only as an explicit migration fallback.
+          # This GET-only job receives only the narrowly scoped read credential.
+          # Missing configuration must fail closed rather than borrowing the
+          # production deployment token.
           CLOUDFLARE_DRIFT_AUDIT_TOKEN: ${{ secrets.CLOUDFLARE_DRIFT_AUDIT_TOKEN }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           GITHUB_DRIFT_AUDIT_TOKEN: ${{ secrets.GITHUB_DRIFT_AUDIT_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}

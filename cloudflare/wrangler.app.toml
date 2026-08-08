@@ -103,7 +103,8 @@ MXQR_TURNSTILE_DISABLED = "true"
 # Optional comma/space-separated exact origins for trusted deploy previews.
 # TRUSTED_CORS_ORIGINS = "https://example-preview.pages.dev"
 # Required production secrets:
-# - MXQR_CAPABILITY_SECRET
+# - MXQR_CAPABILITY_SECRET (shared random value, at least 32 characters)
+# - CLOUDFLARE_REALTIME_APP_SECRET or supported API-token alias (at least 32 characters)
 # - MXQR_DEVELOPER_API_KEY_PEPPER (same >=32-character value as Developer API Worker)
 # - GEMINI_API_KEY (server-only key for the PRO-room BOT beta)
 # - GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET

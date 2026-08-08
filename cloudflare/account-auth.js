@@ -43,6 +43,7 @@ const ACCOUNT_DELETE_JOB_MAX_ACCOUNTS = 2;
 const ACCOUNT_DELETE_JOB_CONCURRENCY = 16;
 const ACCOUNT_DELETION_FENCE_TTL_MS = 10 * 60 * 1000;
 const AUTH_JSON_BODY_MAX_BYTES = 8 * 1024;
+const AUTH_JSON_BODY_TIMEOUT_MS = 10_000;
 const GOOGLE_TOKEN_RESPONSE_MAX_BYTES = 64 * 1024;
 const GOOGLE_JWKS_RESPONSE_MAX_BYTES = 256 * 1024;
 const GOOGLE_FETCH_TIMEOUT_MS = 10_000;
@@ -426,7 +427,20 @@ function sanitizeReturnTo(value, redirectUri) {
   }
 }
 
-async function readBodyBytesLimited(stream, contentLength, maxBytes) {
+function cancelBodyStream(reader, reason) {
+  try {
+    Promise.resolve(reader?.cancel(reason)).catch(() => {});
+  } catch {
+    // Cancellation is best-effort and must never delay a bounded response.
+  }
+}
+
+async function readBodyBytesLimited(
+  stream,
+  contentLength,
+  maxBytes,
+  { signal = null, timeoutMs = 0 } = {},
+) {
   if (contentLength !== null) {
     const normalized = contentLength.trim();
     if (!/^\d+$/.test(normalized) || Number(normalized) > maxBytes) return null;
@@ -435,22 +449,51 @@ async function readBodyBytesLimited(stream, contentLength, maxBytes) {
   const reader = stream.getReader();
   const chunks = [];
   let total = 0;
+  let stop;
+  const stopped = new Promise((resolve) => {
+    stop = resolve;
+  });
+  const timeout =
+    timeoutMs > 0
+      ? setTimeout(() => {
+          stop({ kind: 'timeout' });
+          cancelBodyStream(reader, 'BODY_TIMEOUT');
+        }, timeoutMs)
+      : null;
+  const abort = () => {
+    stop({ kind: 'aborted' });
+    cancelBodyStream(reader, signal?.reason);
+  };
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const outcome = await Promise.race([
+        reader.read().then(
+          (value) => ({ kind: 'read', value }),
+          () => ({ kind: 'invalid' }),
+        ),
+        stopped,
+      ]);
+      if (outcome.kind !== 'read') return null;
+      const { done, value } = outcome.value;
       if (done) break;
       const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
       total += bytes.byteLength;
       if (total > maxBytes) {
-        await reader.cancel('BODY_TOO_LARGE').catch(() => {});
+        cancelBodyStream(reader, 'BODY_TOO_LARGE');
         return null;
       }
       chunks.push(bytes);
     }
-  } catch {
-    return null;
   } finally {
-    reader.releaseLock();
+    if (timeout !== null) clearTimeout(timeout);
+    signal?.removeEventListener('abort', abort);
+    try {
+      reader.releaseLock();
+    } catch {
+      // A non-cooperative stream may still own a timed-out read.
+    }
   }
   const output = new Uint8Array(total);
   let offset = 0;
@@ -468,6 +511,7 @@ async function readJsonObject(request) {
     request.body,
     request.headers.get('Content-Length'),
     AUTH_JSON_BODY_MAX_BYTES,
+    { signal: request.signal, timeoutMs: AUTH_JSON_BODY_TIMEOUT_MS },
   );
   if (!bytes || bytes.length === 0) return null;
   try {
@@ -491,21 +535,27 @@ function mutationAuthorized(request) {
   return !fetchSite || fetchSite === 'same-origin';
 }
 
-async function readResponseTextLimited(response, maxBytes) {
+async function readResponseTextLimited(response, maxBytes, signal) {
   const bytes = await readBodyBytesLimited(
     response.body,
     response.headers.get('Content-Length'),
     maxBytes,
+    { signal },
   );
   if (!bytes) throw new Error('RESPONSE_TOO_LARGE');
   return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 }
 
-async function fetchWithTimeout(url, init, timeoutMs = GOOGLE_FETCH_TIMEOUT_MS) {
+async function fetchTextWithTimeout(url, init, maxBytes, timeoutMs = GOOGLE_FETCH_TIMEOUT_MS) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const timeout = setTimeout(
+    () => controller.abort(new Error('Google response timed out')),
+    timeoutMs,
+  );
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    const text = await readResponseTextLimited(response, maxBytes, controller.signal);
+    return { response, text };
   } finally {
     clearTimeout(timeout);
   }
@@ -533,14 +583,13 @@ async function loadGoogleJwks(forceRefresh = false) {
   if (!forceRefresh && googleJwksCache.expiresAtMs > nowMs && googleJwksCache.keys.size > 0) {
     return googleJwksCache.keys;
   }
-  const response = await fetchWithTimeout(GOOGLE_JWKS_ENDPOINT, {
-    method: 'GET',
-    headers: { Accept: 'application/json' },
-  });
-  if (!response.ok) throw new Error('JWKS_UNAVAILABLE');
-  const payload = parseJsonText(
-    await readResponseTextLimited(response, GOOGLE_JWKS_RESPONSE_MAX_BYTES),
+  const { response, text } = await fetchTextWithTimeout(
+    GOOGLE_JWKS_ENDPOINT,
+    { method: 'GET', headers: { Accept: 'application/json' } },
+    GOOGLE_JWKS_RESPONSE_MAX_BYTES,
   );
+  if (!response.ok) throw new Error('JWKS_UNAVAILABLE');
+  const payload = parseJsonText(text);
   if (
     !payload ||
     !Array.isArray(payload.keys) ||
@@ -676,17 +725,19 @@ async function exchangeAuthorizationCode(code, verifier, config) {
     grant_type: 'authorization_code',
     code_verifier: verifier,
   });
-  const response = await fetchWithTimeout(GOOGLE_TOKEN_ENDPOINT, {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+  const { response, text } = await fetchTextWithTimeout(
+    GOOGLE_TOKEN_ENDPOINT,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      },
+      body: body.toString(),
     },
-    body: body.toString(),
-  });
-  const payload = parseJsonText(
-    await readResponseTextLimited(response, GOOGLE_TOKEN_RESPONSE_MAX_BYTES),
+    GOOGLE_TOKEN_RESPONSE_MAX_BYTES,
   );
+  const payload = parseJsonText(text);
   if (!response.ok || !payload || typeof payload.id_token !== 'string') {
     throw new Error('TOKEN_EXCHANGE_FAILED');
   }

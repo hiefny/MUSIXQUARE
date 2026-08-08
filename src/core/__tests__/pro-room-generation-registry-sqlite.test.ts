@@ -25,7 +25,7 @@ const sqlite = (() => {
   try {
     return createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
   } catch {
-    // Node 20 remains supported even though node:sqlite starts in Node 22.
+    // Keep collection failure readable if an unsupported Node runtime is used.
     return null;
   }
 })();

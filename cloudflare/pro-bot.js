@@ -18,6 +18,7 @@ const BOT_UPSTREAM_MAX_BYTES = 256 * 1024;
 const BOT_GROUNDED_CONTEXT_MAX_CHARS = 4_000;
 const BOT_MAX_TRACKS = 3;
 const BOT_TOTAL_TIMEOUT_MS = 35_000;
+const BOT_REQUEST_BODY_TIMEOUT_MS = 10_000;
 const BOT_GEMINI_TIMEOUT_MS = 15_000;
 const BOT_YOUTUBE_TIMEOUT_MS = 5_000;
 const BOT_MAX_REMOVE_ITEMS = 20;
@@ -245,20 +246,48 @@ async function readRequestJson(request, maxBytes = BOT_BODY_MAX_BYTES) {
   const reader = request.body.getReader();
   const chunks = [];
   let total = 0;
+  let stop;
+  const stopped = new Promise((resolve) => {
+    stop = resolve;
+  });
+  const timeout = setTimeout(() => {
+    stop({ kind: 'timeout' });
+    cancelResponseReader(reader, 'BOT_REQUEST_BODY_TIMEOUT');
+  }, BOT_REQUEST_BODY_TIMEOUT_MS);
+  const abort = () => {
+    stop({ kind: 'aborted' });
+    cancelResponseReader(reader, request.signal.reason || 'aborted');
+  };
+  if (request.signal.aborted) abort();
+  else request.signal.addEventListener('abort', abort, { once: true });
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const outcome = await Promise.race([
+        reader.read().then(
+          (value) => ({ kind: 'read', value }),
+          () => ({ kind: 'invalid' }),
+        ),
+        stopped,
+      ]);
+      if (outcome.kind !== 'read') return null;
+      const { done, value } = outcome.value;
       if (done) break;
       if (!value) continue;
       total += value.byteLength;
       if (total > maxBytes) {
-        await reader.cancel().catch(() => {});
+        cancelResponseReader(reader, 'BOT_REQUEST_BODY_TOO_LARGE');
         return null;
       }
       chunks.push(value);
     }
   } finally {
-    reader.releaseLock();
+    clearTimeout(timeout);
+    request.signal.removeEventListener('abort', abort);
+    try {
+      reader.releaseLock();
+    } catch {
+      // A non-cooperative stream may still own its timed-out read.
+    }
   }
   const bytes = new Uint8Array(total);
   let offset = 0;
@@ -273,7 +302,15 @@ async function readRequestJson(request, maxBytes = BOT_BODY_MAX_BYTES) {
   }
 }
 
-async function readResponseJson(response, maxBytes = BOT_UPSTREAM_MAX_BYTES) {
+function cancelResponseReader(reader, reason) {
+  try {
+    Promise.resolve(reader?.cancel(reason)).catch(() => {});
+  } catch {
+    // Cancellation is best-effort and must never delay a bounded response.
+  }
+}
+
+async function readResponseJson(response, maxBytes = BOT_UPSTREAM_MAX_BYTES, signal = null) {
   const declared = response.headers.get('content-length');
   if (declared !== null && (!/^\d+$/u.test(declared.trim()) || Number(declared) > maxBytes)) {
     throw new BotUpstreamError('BOT_UPSTREAM_INVALID_RESPONSE');
@@ -282,20 +319,49 @@ async function readResponseJson(response, maxBytes = BOT_UPSTREAM_MAX_BYTES) {
   const reader = response.body.getReader();
   const chunks = [];
   let total = 0;
+  let stop;
+  const stopped = new Promise((resolve) => {
+    stop = resolve;
+  });
+  const abort = () => {
+    stop({ kind: 'aborted' });
+    cancelResponseReader(reader, signal?.reason || 'aborted');
+  };
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      const outcome = signal
+        ? await Promise.race([
+            reader.read().then(
+              (value) => ({ kind: 'read', value }),
+              () => ({ kind: 'invalid' }),
+            ),
+            stopped,
+          ])
+        : { kind: 'read', value: await reader.read() };
+      if (outcome.kind !== 'read') {
+        throw new BotUpstreamError(
+          outcome.kind === 'aborted' ? 'BOT_UPSTREAM_TIMEOUT' : 'BOT_UPSTREAM_INVALID_RESPONSE',
+        );
+      }
+      const { done, value } = outcome.value;
       if (done) break;
       if (!value) continue;
       total += value.byteLength;
       if (total > maxBytes) {
-        await reader.cancel().catch(() => {});
+        cancelResponseReader(reader, 'BOT_UPSTREAM_RESPONSE_TOO_LARGE');
         throw new BotUpstreamError('BOT_UPSTREAM_INVALID_RESPONSE');
       }
       chunks.push(value);
     }
   } finally {
-    reader.releaseLock();
+    signal?.removeEventListener('abort', abort);
+    try {
+      reader.releaseLock();
+    } catch {
+      // A non-cooperative stream may still own its timed-out read.
+    }
   }
   const buffer = new Uint8Array(total);
   let offset = 0;
@@ -325,6 +391,33 @@ function timeoutSignal(timeoutMs, parentSignal) {
   };
 }
 
+async function awaitWithAbort(operation, signal) {
+  let settleAbort;
+  const aborted = new Promise((resolve) => {
+    settleAbort = resolve;
+  });
+  const handleAbort = () => settleAbort({ kind: 'aborted' });
+  if (signal.aborted) handleAbort();
+  else signal.addEventListener('abort', handleAbort, { once: true });
+  const pending = Promise.resolve()
+    .then(operation)
+    .then(
+      (value) => (signal.aborted ? { kind: 'aborted' } : { kind: 'value', value }),
+      (error) => ({ kind: 'error', error }),
+    );
+  let outcome;
+  try {
+    outcome = await Promise.race([pending, aborted]);
+  } finally {
+    signal.removeEventListener('abort', handleAbort);
+  }
+  if (outcome.kind === 'aborted') {
+    throw new BotUpstreamError('BOT_UPSTREAM_TIMEOUT', 503);
+  }
+  if (outcome.kind === 'error') throw outcome.error;
+  return outcome.value;
+}
+
 function modelName(env) {
   const configured = String(env.GEMINI_BOT_MODEL || BOT_MODEL_DEFAULT).trim();
   return BOT_MODEL_ALLOWLIST.has(configured) ? configured : BOT_MODEL_DEFAULT;
@@ -344,7 +437,7 @@ async function callGemini(env, body, signal, model = modelName(env)) {
         signal: timeout.signal,
       },
     );
-    const payload = await readResponseJson(response);
+    const payload = await readResponseJson(response, BOT_UPSTREAM_MAX_BYTES, timeout.signal);
     if (!response.ok) {
       const retryable = response.status === 429 || response.status >= 500;
       throw new BotUpstreamError(retryable ? 'BOT_UPSTREAM_BUSY' : 'BOT_UPSTREAM_REJECTED', 503);
@@ -1192,7 +1285,7 @@ async function resolveYouTubeTrack(query, env, signal) {
       headers: { accept: 'application/json', 'x-goog-api-key': apiKey },
       signal: timeout.signal,
     });
-    const payload = await readResponseJson(response, 128 * 1024);
+    const payload = await readResponseJson(response, 128 * 1024, timeout.signal);
     if (!response.ok) throw new BotUpstreamError('BOT_YOUTUBE_UNAVAILABLE', 503);
     const item = Array.isArray(payload?.items) ? payload.items[0] : null;
     const videoId = item?.id?.videoId;
@@ -1259,25 +1352,55 @@ async function callRoomInternal(
   request,
   forwardedCookies,
   body,
+  signal,
 ) {
   const namespace = env.PRO_ROOM_ADMIN_ROOMS;
   if (!namespace?.idFromName || !namespace?.get) {
     throw new BotUpstreamError('BOT_NOT_CONFIGURED', 503);
   }
   const stub = namespace.get(namespace.idFromName(proRoomObjectName(roomCode, roomGeneration)));
-  let response;
-  try {
-    response = await stub.fetch(
-      new Request(`https://pro-room.internal${path}`, {
-        method: 'POST',
-        headers: forwardedHeaders(request, roomCode, roomGeneration, forwardedCookies),
-        body: JSON.stringify(body),
-      }),
+  let settleAbort;
+  const aborted = new Promise((resolve) => {
+    settleAbort = resolve;
+  });
+  const handleAbort = () => settleAbort({ kind: 'aborted' });
+  if (signal.aborted) handleAbort();
+  else signal.addEventListener('abort', handleAbort, { once: true });
+  const operation = Promise.resolve()
+    .then(() =>
+      stub.fetch(
+        new Request(`https://pro-room.internal${path}`, {
+          method: 'POST',
+          headers: forwardedHeaders(request, roomCode, roomGeneration, forwardedCookies),
+          body: JSON.stringify(body),
+          signal,
+        }),
+      ),
+    )
+    .then(
+      (response) => {
+        if (signal.aborted) {
+          cancelResponseReader(response.body, 'BOT_ROOM_TIMEOUT');
+          return { kind: 'aborted' };
+        }
+        return { kind: 'response', response };
+      },
+      () => ({ kind: 'failed' }),
     );
-  } catch {
+  let outcome;
+  try {
+    outcome = await Promise.race([operation, aborted]);
+  } finally {
+    signal.removeEventListener('abort', handleAbort);
+  }
+  if (outcome.kind === 'aborted') {
+    throw new BotUpstreamError('BOT_UPSTREAM_TIMEOUT', 503);
+  }
+  if (outcome.kind !== 'response') {
     throw new BotUpstreamError('BOT_ROOM_UNAVAILABLE', 503);
   }
-  const payload = await readResponseJson(response, 256 * 1024);
+  const { response } = outcome;
+  const payload = await readResponseJson(response, 256 * 1024, signal);
   return { response, payload };
 }
 
@@ -1349,24 +1472,25 @@ export async function handleProBotRequest(request, env, options) {
     return publicError('INVALID_REQUEST');
   }
   if (typeof options?.preflightRoom !== 'function') return publicError('BOT_UNAVAILABLE');
-  let preflightResult = null;
-  try {
-    preflightResult = await options.preflightRoom();
-  } catch {
-    preflightResult = 'BOT_UNAVAILABLE';
-  }
-  if (typeof preflightResult === 'string') return publicError(preflightResult);
-  if (
-    !preflightResult ||
-    typeof preflightResult !== 'object' ||
-    !isProRoomGeneration(preflightResult.roomGeneration)
-  ) {
-    return publicError('BOT_UNAVAILABLE');
-  }
-  const roomGeneration = preflightResult.roomGeneration;
-
   const total = timeoutSignal(BOT_TOTAL_TIMEOUT_MS, request.signal);
   try {
+    let preflightResult = null;
+    try {
+      preflightResult = await awaitWithAbort(() => options.preflightRoom(), total.signal);
+    } catch (error) {
+      if (error instanceof BotUpstreamError) throw error;
+      preflightResult = 'BOT_UNAVAILABLE';
+    }
+    if (typeof preflightResult === 'string') return publicError(preflightResult);
+    if (
+      !preflightResult ||
+      typeof preflightResult !== 'object' ||
+      !isProRoomGeneration(preflightResult.roomGeneration)
+    ) {
+      return publicError('BOT_UNAVAILABLE');
+    }
+    const roomGeneration = preflightResult.roomGeneration;
+
     const contextCall = await callRoomInternal(
       env,
       roomCode,
@@ -1375,6 +1499,7 @@ export async function handleProBotRequest(request, env, options) {
       request,
       options.forwardedCookies,
       { roomCode, roomGeneration, requestId: body.requestId, prompt },
+      total.signal,
     );
     if (!contextCall.response.ok) {
       const retryAfter = Number(contextCall.response.headers.get('retry-after')) || null;
@@ -1422,6 +1547,7 @@ export async function handleProBotRequest(request, env, options) {
       request,
       options.forwardedCookies,
       { roomCode, roomGeneration, requestId: body.requestId, leaseToken, plan, tracks },
+      total.signal,
     );
     if (!executeCall.response.ok) {
       const retryAfter = Number(executeCall.response.headers.get('retry-after')) || null;

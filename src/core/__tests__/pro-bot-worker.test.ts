@@ -15,6 +15,7 @@ const ACTION_NOT_CONFIRMED_EN = 'I did not run that action.';
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 function botRequest(
@@ -130,6 +131,88 @@ describe('server-only PRO BOT app boundary', () => {
     await expect(response.json()).resolves.toEqual({ error: 'BOT_ROOM_ONLY' });
     expect(namespace.requests).toHaveLength(0);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('bounds a public BOT request body that stalls after its first chunk', async () => {
+    vi.useFakeTimers();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"prompt":"unfinished'));
+      },
+    });
+    const pending = handleProBotRequest(
+      new Request(`https://musixquare.com/api/pro-room/v1/rooms/${ROOM_CODE}/bot/commands`, {
+        method: 'POST',
+        headers: {
+          origin: 'https://musixquare.com',
+          'content-type': 'application/json',
+          'idempotency-key': REQUEST_ID,
+        },
+        body,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+      {},
+      { roomCode: ROOM_CODE },
+    );
+
+    await vi.advanceTimersByTimeAsync(10_001);
+    const response = await pending;
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+  });
+
+  it('bounds a room dependency that never returns response headers', async () => {
+    vi.useFakeTimers();
+    let markRoomStarted!: () => void;
+    const roomStarted = new Promise<void>((resolve) => {
+      markRoomStarted = resolve;
+    });
+    const namespace = roomNamespace(() => {
+      markRoomStarted();
+      return new Promise<Response>(() => {});
+    });
+    const pending = handleProBotRequest(
+      botRequest(),
+      { PRO_ROOM_ADMIN_ROOMS: namespace.binding },
+      {
+        roomCode: ROOM_CODE,
+        preflightRoom: async () => ({ roomGeneration: 0 }),
+      },
+    );
+
+    await roomStarted;
+    await vi.advanceTimersByTimeAsync(35_001);
+    const response = await pending;
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: 'BOT_UPSTREAM_TIMEOUT' });
+  });
+
+  it('starts the total deadline before a stalled room preflight', async () => {
+    vi.useFakeTimers();
+    let markPreflightStarted!: () => void;
+    const preflightStarted = new Promise<void>((resolve) => {
+      markPreflightStarted = resolve;
+    });
+    const pending = handleProBotRequest(
+      botRequest(),
+      {},
+      {
+        roomCode: ROOM_CODE,
+        preflightRoom: () => {
+          markPreflightStarted();
+          return new Promise(() => {});
+        },
+      },
+    );
+
+    await preflightStarted;
+    await vi.advanceTimersByTimeAsync(35_001);
+    const response = await pending;
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: 'BOT_UPSTREAM_TIMEOUT' });
   });
 
   it('pins both BOT calls to the preflight generation instead of the legacy room object', async () => {

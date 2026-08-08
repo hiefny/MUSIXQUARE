@@ -3,6 +3,7 @@ export const SERVICE_CONTROL_STATUS_PATH = '/internal/service-maintenance/v1/sta
 export const SERVICE_CONTROL_STATE_PATH = '/internal/service-maintenance/v1/state';
 export const ADMIN_ANNOUNCEMENT_STATUS_PATH = '/internal/admin-announcement/v1/status';
 export const ADMIN_ANNOUNCEMENT_STATE_PATH = '/internal/admin-announcement/v1/state';
+export const ABUSE_RATE_CONSUME_PATH = '/internal/abuse-rate/v1/consume';
 
 const SERVICE_CONTROL_CACHE_TTL_MS = 1_000;
 const ADMIN_ANNOUNCEMENT_CACHE_TTL_MS = 30_000;
@@ -19,6 +20,7 @@ export const SERVICE_CONTROL_READ_TIMEOUT_MS = 2_000;
 // before maintenance begins bypasses Workers and may still finish afterward.
 const SERVICE_CONTROL_EDGE_PROPAGATION_MS = 2_000;
 const SERVICE_CONTROL_ORIGIN = 'https://service-control.internal';
+const ABUSE_RATE_OBJECT_PREFIX = 'musixquare-abuse-rate-v1';
 const SERVICE_MAINTENANCE_RETRY_AFTER_SECONDS = 60;
 
 let serviceStatusCacheByBinding = new WeakMap();
@@ -84,6 +86,12 @@ function serviceControlStub(binding) {
   }
   if (typeof binding.idFromName !== 'function' || typeof binding.get !== 'function') return null;
   return binding.get(binding.idFromName(SERVICE_CONTROL_OBJECT_NAME));
+}
+
+function namedServiceControlStub(binding, name) {
+  if (typeof binding.getByName === 'function') return binding.getByName(name);
+  if (typeof binding.idFromName !== 'function' || typeof binding.get !== 'function') return null;
+  return binding.get(binding.idFromName(name));
 }
 
 function unavailableServiceMaintenanceState() {
@@ -236,6 +244,66 @@ async function fetchServiceControlResponse(stub, request) {
     return await Promise.race([responseOutcome, timeoutOutcome]);
   } finally {
     if (timeoutId !== null) clearTimeout(timeoutId);
+  }
+}
+
+export async function consumeAbuseRateLimit(env, input) {
+  const scope = typeof input?.scope === 'string' ? input.scope : '';
+  const identity = typeof input?.identity === 'string' ? input.identity : '';
+  const limit = input?.limit;
+  const windowMs = input?.windowMs;
+  const cost = input?.cost ?? 1;
+  if (
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(scope) ||
+    !/^[A-Za-z0-9._:-]{1,256}$/.test(identity) ||
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > 1_000_000 ||
+    !Number.isSafeInteger(windowMs) ||
+    windowMs < 1_000 ||
+    windowMs > 24 * 60 * 60 * 1_000 ||
+    !Number.isSafeInteger(cost) ||
+    cost < 1 ||
+    cost > limit
+  ) {
+    return { status: 'unavailable' };
+  }
+
+  const binding = serviceControlBinding(env);
+  if (!binding) return { status: 'unbound' };
+  try {
+    const objectName = `${ABUSE_RATE_OBJECT_PREFIX}:${scope}:${identity}`;
+    const stub = namedServiceControlStub(binding, objectName);
+    if (!stub || typeof stub.fetch !== 'function') return { status: 'unavailable' };
+    const outcome = await fetchServiceControlResponse(
+      stub,
+      new Request(`${SERVICE_CONTROL_ORIGIN}${ABUSE_RATE_CONSUME_PATH}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ limit, windowMs, cost }),
+      }),
+    );
+    if (outcome.kind !== 'response' || !outcome.response.ok) return { status: 'unavailable' };
+    const value = outcome.payload;
+    const keys =
+      value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value).sort() : [];
+    if (
+      keys.join(',') !== 'allowed,limit,remaining,resetAtMs,retryAfterSeconds' ||
+      typeof value.allowed !== 'boolean' ||
+      value.limit !== limit ||
+      !Number.isSafeInteger(value.remaining) ||
+      value.remaining < 0 ||
+      value.remaining > limit ||
+      !Number.isSafeInteger(value.resetAtMs) ||
+      value.resetAtMs <= 0 ||
+      !Number.isSafeInteger(value.retryAfterSeconds) ||
+      value.retryAfterSeconds < 0
+    ) {
+      return { status: 'unavailable' };
+    }
+    return { status: 'ok', ...value };
+  } catch {
+    return { status: 'unavailable' };
   }
 }
 

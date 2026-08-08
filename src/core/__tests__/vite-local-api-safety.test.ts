@@ -139,7 +139,7 @@ describe('Vite local API safety', () => {
 
 describe('Vite dynamic/static overlap policy', () => {
   const reviewedWarning = `[plugin vite:reporter]
-(!) C:/repo/src/player/playlist.ts is dynamically imported by C:/repo/src/player/decode.ts, C:/repo/src/player/playback.ts, C:/repo/src/player/transport.ts, C:/repo/src/player/transport.ts, C:/repo/src/player/transport.ts, C:/repo/src/storage/preload.ts but also statically imported by C:/repo/src/app.ts, C:/repo/src/pro-room/runtime.ts, C:/repo/src/ui/player-controls.ts, dynamic import will not move module into another chunk.`;
+(!) C:/repo/src/player/playlist.ts is dynamically imported by C:/repo/src/player/playlist-loader.ts, C:/repo/src/storage/preload.ts but also statically imported by C:/repo/src/app.ts, C:/repo/src/pro-room/runtime.ts, C:/repo/src/ui/player-controls.ts, dynamic import will not move module into another chunk.`;
 
   it('allows only the reviewed playlist importer multiset', () => {
     expect(isExpectedPlaylistImportOverlapWarning(reviewedWarning)).toBe(true);
@@ -167,11 +167,8 @@ describe('Vite dynamic/static overlap policy', () => {
     ).toThrow('Unreviewed static/dynamic import overlap');
   });
 
-  it('rejects a missing duplicate importer occurrence', () => {
-    const changedWarning = reviewedWarning.replace(
-      ', C:/repo/src/player/transport.ts, C:/repo/src/player/transport.ts, C:/repo/src/storage/preload.ts',
-      ', C:/repo/src/player/transport.ts, C:/repo/src/storage/preload.ts',
-    );
+  it('rejects a missing reviewed importer occurrence', () => {
+    const changedWarning = reviewedWarning.replace('C:/repo/src/player/playlist-loader.ts, ', '');
     expect(isExpectedPlaylistImportOverlapWarning(changedWarning)).toBe(false);
   });
 });

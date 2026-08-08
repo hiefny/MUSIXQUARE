@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import facadeWorker from '../../../cloudflare/developer-api-facade-worker.js';
 
 const ROOM_CODE = '000001';
@@ -10,6 +10,10 @@ const ASSET_ID = `asset_${'D'.repeat(32)}`;
 const UPLOAD_URL =
   'https://01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com/musixquare-pro-media/staging?X-Amz-Signature=' +
   'a'.repeat(64);
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 function effectsPayload() {
   return {
@@ -140,6 +144,28 @@ describe('private Developer API facade', () => {
     expect(forwarded.headers.has('authorization')).toBe(false);
     expect(forwarded.headers.has('cookie')).toBe(false);
     await expect(forwarded.json()).resolves.toEqual({ keyId: KEY_ID, projection: 'room' });
+  });
+
+  it('bounds a room response whose JSON body stalls after its headers', async () => {
+    vi.useFakeTimers();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"schemaVersion":1'));
+      },
+    });
+    const rooms = namespace(
+      () => new Response(body, { headers: { 'content-type': 'application/json' } }),
+    );
+
+    const pending = facadeWorker.fetch(
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'room' }),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+    await vi.advanceTimersByTimeAsync(5_001);
+    const response = await pending;
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: 'BACKEND_UNAVAILABLE' });
   });
 
   it('routes later generations to a distinct room object and rejects body/header mismatches', async () => {

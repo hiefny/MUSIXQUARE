@@ -7,6 +7,7 @@ import {
   SERVICE_CONTROL_STATE_PATH,
   SERVICE_CONTROL_STATUS_PATH,
   clearServiceMaintenanceCacheForTests,
+  consumeAbuseRateLimit,
   gateServiceMaintenance,
   inactiveServiceMaintenanceState,
   normalizeServiceMaintenanceState,
@@ -84,6 +85,29 @@ afterEach(() => {
 });
 
 describe('shared service-maintenance control', () => {
+  it('accepts base64url rate identities that begin with URL-safe punctuation', async () => {
+    const fetch = vi.fn(() =>
+      Response.json({
+        allowed: true,
+        limit: 4,
+        remaining: 3,
+        resetAtMs: 1_800_000_060_000,
+        retryAfterSeconds: 0,
+      }),
+    );
+    const getByName = vi.fn(() => ({ fetch }));
+
+    await expect(
+      consumeAbuseRateLimit(
+        { MUSIXQUARE_SERVICE_CONTROL: { getByName } },
+        { scope: 'app-turn-capability', identity: '_base64url', limit: 4, windowMs: 60_000 },
+      ),
+    ).resolves.toMatchObject({ status: 'ok', allowed: true, remaining: 3 });
+    expect(getByName).toHaveBeenCalledWith(
+      'musixquare-abuse-rate-v1:app-turn-capability:_base64url',
+    );
+  });
+
   it('keeps an intentionally unbound local environment operational but observable', async () => {
     expect(inactiveServiceMaintenanceState()).toEqual({
       enabled: false,

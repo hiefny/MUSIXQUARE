@@ -60,9 +60,8 @@ const sqlite = (() => {
   try {
     return createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
   } catch {
-    // The application supports Node 20, while node:sqlite starts in Node 22.
-    // Keep the schema integration test available where the runtime provides it
-    // without making the ordinary test suite fail on the supported older LTS.
+    // Keep the schema integration test's skip reason explicit if package
+    // engine enforcement is bypassed with an unsupported runtime.
     return null;
   }
 })();

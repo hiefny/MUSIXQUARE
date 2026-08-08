@@ -1410,9 +1410,9 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
   );
 
   // Watchdog: unconditionally clear preload loader after 30s
-  clearManagedTimer('preloadWatchdog');
+  clearManagedTimer('preloadUiWatchdog');
   setManagedTimer(
-    'preloadWatchdog',
+    'preloadUiWatchdog',
     () => {
       log.warn('[Preload] Watchdog: forcing preload loader reset after 30s');
       showLoader(false);
@@ -1523,9 +1523,9 @@ function drainPreloadReorderBuffer(sessionId: number): void {
   // Tick watchdog on progress
   const preloadMeta = getState('preload.activeTarget');
   if (preloadMeta && (preloadMeta.total as number) > 0) {
-    clearManagedTimer('preloadWatchdog');
+    clearManagedTimer('preloadUiWatchdog');
     setManagedTimer(
-      'preloadWatchdog',
+      'preloadUiWatchdog',
       () => {
         const transferState = getState('transfer.state');
         if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {

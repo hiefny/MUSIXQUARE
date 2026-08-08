@@ -35,6 +35,7 @@ import {
 import {
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
+  ABUSE_RATE_CONSUME_PATH,
   SERVICE_CONTROL_STATE_PATH,
   SERVICE_CONTROL_STATUS_PATH,
   gateServiceMaintenance,
@@ -61,6 +62,8 @@ const SERVICE_CONTROL_STATE_KEY = 'service-maintenance-state';
 const SERVICE_CONTROL_REQUESTS_KEY = 'service-maintenance-requests';
 const SERVICE_CONTROL_REQUEST_HISTORY_LIMIT = 64;
 const SERVICE_CONTROL_REQUEST_ID_RE = /^[A-Za-z0-9_-]{8,128}$/;
+const ABUSE_RATE_STATE_KEY = 'abuse-rate-state-v1';
+const ABUSE_RATE_REQUEST_MAX_BYTES = 1024;
 const ADMIN_ANNOUNCEMENT_STATE_KEY = 'admin-announcement-state';
 const ADMIN_ANNOUNCEMENT_REQUESTS_KEY = 'admin-announcement-requests';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
@@ -3245,6 +3248,37 @@ function adminAnnouncementResponse(state, status = 200, extra = {}) {
   return serviceControlJson({ ...extra, announcementState: state }, status);
 }
 
+function normalizeAbuseRateState(value) {
+  if (
+    !hasExactKeys(value, ['v', 'limit', 'windowMs', 'windowStartMs', 'resetAtMs', 'count']) ||
+    value.v !== 1 ||
+    !Number.isSafeInteger(value.limit) ||
+    value.limit < 1 ||
+    value.limit > 1_000_000 ||
+    !Number.isSafeInteger(value.windowMs) ||
+    value.windowMs < 1_000 ||
+    value.windowMs > 24 * 60 * 60 * 1_000 ||
+    !Number.isSafeInteger(value.windowStartMs) ||
+    value.windowStartMs < 0 ||
+    value.windowStartMs % value.windowMs !== 0 ||
+    !Number.isSafeInteger(value.resetAtMs) ||
+    value.resetAtMs !== value.windowStartMs + value.windowMs ||
+    !Number.isSafeInteger(value.count) ||
+    value.count < 0 ||
+    value.count > value.limit
+  ) {
+    return null;
+  }
+  return {
+    v: 1,
+    limit: value.limit,
+    windowMs: value.windowMs,
+    windowStartMs: value.windowStartMs,
+    resetAtMs: value.resetAtMs,
+    count: value.count,
+  };
+}
+
 export class MusixquareServiceControl {
   constructor(state) {
     this.state = state;
@@ -3254,15 +3288,23 @@ export class MusixquareServiceControl {
     this.announcementState = initialAdminAnnouncementState();
     this.announcementRequests = [];
     this.announcementStateInvalid = false;
+    this.abuseRateState = null;
+    this.abuseRateStateInvalid = false;
     this.mutationTail = Promise.resolve();
     const load = async () => {
-      const [storedState, storedRequests, storedAnnouncementState, storedAnnouncementRequests] =
-        await Promise.all([
-          this.storage.get(SERVICE_CONTROL_STATE_KEY),
-          this.storage.get(SERVICE_CONTROL_REQUESTS_KEY),
-          this.storage.get(ADMIN_ANNOUNCEMENT_STATE_KEY),
-          this.storage.get(ADMIN_ANNOUNCEMENT_REQUESTS_KEY),
-        ]);
+      const [
+        storedState,
+        storedRequests,
+        storedAnnouncementState,
+        storedAnnouncementRequests,
+        storedAbuseRateState,
+      ] = await Promise.all([
+        this.storage.get(SERVICE_CONTROL_STATE_KEY),
+        this.storage.get(SERVICE_CONTROL_REQUESTS_KEY),
+        this.storage.get(ADMIN_ANNOUNCEMENT_STATE_KEY),
+        this.storage.get(ADMIN_ANNOUNCEMENT_REQUESTS_KEY),
+        this.storage.get(ABUSE_RATE_STATE_KEY),
+      ]);
       const normalizedStoredState = canonicalServiceControlState(storedState);
       if (storedState !== undefined && storedState !== null && !normalizedStoredState) {
         throw new Error('SERVICE_MAINTENANCE_STATE_INVALID');
@@ -3279,6 +3321,15 @@ export class MusixquareServiceControl {
       }
       this.announcementState = normalizedAnnouncementState || initialAdminAnnouncementState();
       this.announcementRequests = normalizeAdminAnnouncementRequests(storedAnnouncementRequests);
+      const normalizedAbuseRateState = normalizeAbuseRateState(storedAbuseRateState);
+      if (
+        storedAbuseRateState !== undefined &&
+        storedAbuseRateState !== null &&
+        !normalizedAbuseRateState
+      ) {
+        this.abuseRateStateInvalid = true;
+      }
+      this.abuseRateState = normalizedAbuseRateState;
     };
     this.ready =
       typeof state.blockConcurrencyWhile === 'function'
@@ -3308,6 +3359,82 @@ export class MusixquareServiceControl {
       },
       status,
     );
+  }
+
+  async handleAbuseRateConsume(request) {
+    if (this.abuseRateStateInvalid) {
+      return serviceControlJson({ error: 'ABUSE_RATE_STATE_INVALID' }, 503);
+    }
+    if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type') || '')) {
+      return serviceControlJson({ error: 'JSON_REQUIRED' }, 415);
+    }
+    const declared = request.headers.get('content-length');
+    if (
+      declared !== null &&
+      (!/^\d+$/.test(declared.trim()) || Number(declared) > ABUSE_RATE_REQUEST_MAX_BYTES)
+    ) {
+      return serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413);
+    }
+    let body;
+    try {
+      const text = await request.text();
+      if (new TextEncoder().encode(text).byteLength > ABUSE_RATE_REQUEST_MAX_BYTES) {
+        return serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413);
+      }
+      body = JSON.parse(text);
+    } catch {
+      return serviceControlJson({ error: 'INVALID_JSON' }, 400);
+    }
+    if (
+      !hasExactKeys(body, ['limit', 'windowMs', 'cost']) ||
+      !Number.isSafeInteger(body.limit) ||
+      body.limit < 1 ||
+      body.limit > 1_000_000 ||
+      !Number.isSafeInteger(body.windowMs) ||
+      body.windowMs < 1_000 ||
+      body.windowMs > 24 * 60 * 60 * 1_000 ||
+      !Number.isSafeInteger(body.cost) ||
+      body.cost < 1 ||
+      body.cost > body.limit
+    ) {
+      return serviceControlJson({ error: 'INVALID_REQUEST' }, 400);
+    }
+
+    return this.withMutation(async () => {
+      const nowMs = Date.now();
+      const windowStartMs = Math.floor(nowMs / body.windowMs) * body.windowMs;
+      const resetAtMs = windowStartMs + body.windowMs;
+      const current =
+        this.abuseRateState &&
+        this.abuseRateState.windowStartMs === windowStartMs &&
+        this.abuseRateState.windowMs === body.windowMs &&
+        this.abuseRateState.limit === body.limit
+          ? this.abuseRateState
+          : null;
+      const count = current?.count || 0;
+      const allowed = count + body.cost <= body.limit;
+      const nextCount = allowed ? count + body.cost : count;
+      if (allowed) {
+        const next = {
+          v: 1,
+          limit: body.limit,
+          windowMs: body.windowMs,
+          windowStartMs,
+          resetAtMs,
+          count: nextCount,
+        };
+        await this.storage.put(ABUSE_RATE_STATE_KEY, next);
+        this.abuseRateState = next;
+      }
+      if (typeof this.storage.setAlarm === 'function') await this.storage.setAlarm(resetAtMs);
+      return serviceControlJson({
+        allowed,
+        limit: body.limit,
+        remaining: Math.max(0, body.limit - nextCount),
+        resetAtMs,
+        retryAfterSeconds: allowed ? 0 : Math.max(1, Math.ceil((resetAtMs - nowMs) / 1_000)),
+      });
+    });
   }
 
   async handleAnnouncementMutation(request) {
@@ -3447,6 +3574,9 @@ export class MusixquareServiceControl {
     if (this.ready) await this.ready;
     const url = new URL(request.url);
     if (url.search || url.hash) return serviceControlJson({ error: 'NOT_FOUND' }, 404);
+    if (request.method === 'POST' && url.pathname === ABUSE_RATE_CONSUME_PATH) {
+      return this.handleAbuseRateConsume(request);
+    }
     if (request.method === 'GET' && url.pathname === ADMIN_ANNOUNCEMENT_STATUS_PATH) {
       if (this.announcementStateInvalid) {
         return serviceControlJson({ error: 'ADMIN_ANNOUNCEMENT_STATE_INVALID' }, 503);
@@ -3544,6 +3674,29 @@ export class MusixquareServiceControl {
       this.serviceStatus = next;
       this.requests = nextRequests;
       return this.response(next, 200, { ok: true, changed, replayed: false });
+    });
+  }
+
+  async alarm() {
+    if (this.ready) await this.ready;
+    return this.withMutation(async () => {
+      const stored = await this.storage.get(ABUSE_RATE_STATE_KEY);
+      if (stored === undefined || stored === null) {
+        this.abuseRateState = null;
+        if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
+        return;
+      }
+      const state = normalizeAbuseRateState(stored);
+      if (!state) throw new Error('ABUSE_RATE_STATE_INVALID');
+      this.abuseRateState = state;
+      if (state.resetAtMs > Date.now()) {
+        if (typeof this.storage.setAlarm === 'function')
+          await this.storage.setAlarm(state.resetAtMs);
+        return;
+      }
+      await this.storage.delete(ABUSE_RATE_STATE_KEY);
+      this.abuseRateState = null;
+      if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
     });
   }
 }

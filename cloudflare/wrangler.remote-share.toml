@@ -31,17 +31,13 @@ ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://loca
 # npx wrangler secret put REMOTE_SHARE_SIGNING_SECRET --config cloudflare/wrangler.remote-share.toml
 # npx wrangler secret put R2_ACCESS_KEY_ID --config cloudflare/wrangler.remote-share.toml
 # npx wrangler secret put R2_SECRET_ACCESS_KEY --config cloudflare/wrangler.remote-share.toml
-# Required for capability gate (set to same value as app worker MXQR_CAPABILITY_SECRET
-# so app-issued tokens verify here):
+# Required for capability gate (set to the same random value of at least 32 characters
+# as the app Worker MXQR_CAPABILITY_SECRET so app-issued tokens verify here):
 # npx wrangler secret put MXQR_CAPABILITY_SECRET --config cloudflare/wrangler.remote-share.toml
 
 [[r2_buckets]]
 binding = "REMOTE_SHARE_BUCKET"
 bucket_name = "musixquare-remote-share"
-
-[[kv_namespaces]]
-binding = "REMOTE_SHARE_RATE_LIMIT"
-id = "ccf776d532e44e2daed916e7304542cd"
 
 [[durable_objects.bindings]]
 name = "REMOTE_SHARE_QUOTA"

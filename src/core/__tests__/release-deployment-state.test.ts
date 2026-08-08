@@ -1840,6 +1840,12 @@ describe('release deployment rollback state', () => {
 
   it('bounds production live-smoke requests and step runtimes before rollback', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const deployStart = workflow.indexOf('\n  deploy:');
+    const deploySteps = workflow.indexOf('\n    steps:', deployStart);
+    expect(deployStart).toBeGreaterThan(-1);
+    expect(deploySteps).toBeGreaterThan(deployStart);
+    expect(workflow.slice(deployStart, deploySteps)).toContain('timeout-minutes: 240');
+
     for (const stepName of [
       'Smoke remote-share Worker',
       'Smoke signaling Worker',

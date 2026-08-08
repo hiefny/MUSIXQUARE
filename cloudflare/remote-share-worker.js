@@ -3,8 +3,9 @@
  *
  * Required bindings:
  * - REMOTE_SHARE_BUCKET: R2 bucket
- * - REMOTE_SHARE_RATE_LIMIT: KV namespace
  * - REMOTE_SHARE_QUOTA: per-room Durable Object namespace when quota is enabled
+ * - MUSIXQUARE_SERVICE_CONTROL: shared Durable Object namespace for maintenance
+ *   state and atomic abuse-rate counters
  * - REMOTE_SHARE_SIGNING_SECRET: HMAC secret for upload session tokens
  * - R2_ACCOUNT_ID: Cloudflare account ID for S3 presigned URLs
  * - R2_ACCESS_KEY_ID: R2 S3 API access key ID
@@ -30,6 +31,7 @@
  */
 
 import {
+  consumeAbuseRateLimit,
   gateServiceMaintenance,
   readServiceMaintenance,
 } from './service-maintenance.js';
@@ -51,6 +53,9 @@ const CAPABILITY_TOKEN_TTL_DEFAULT = 600;
 const SESSION_JSON_BODY_MAX_BYTES = 8 * 1024;
 const COMPLETE_JSON_BODY_MAX_BYTES = 8 * 1024;
 const QUOTA_JSON_BODY_MAX_BYTES = 4 * 1024;
+const JSON_BODY_TIMEOUT_MS = 10_000;
+const QUOTA_RESPONSE_TIMEOUT_MS = 5_000;
+const HMAC_SECRET_MIN_LENGTH = 32;
 const QUOTA_STATE_KEY = 'quota-state';
 const QUOTA_STATE_VERSION = 2;
 const QUOTA_STATE_MAX_ENTRIES = ROOM_STORAGE_SCAN_MAX_OBJECTS;
@@ -213,6 +218,14 @@ function withRemoteShareHeaders(request, env, response) {
   });
 }
 
+function cancelBodyReader(reader, reason) {
+  try {
+    Promise.resolve(reader?.cancel(reason)).catch(() => {});
+  } catch {
+    // Cancellation is best-effort and must not delay the bounded response.
+  }
+}
+
 async function readJsonBodyLimited(request, maxBytes) {
   const contentLength = request.headers.get('content-length');
   if (contentLength !== null) {
@@ -225,22 +238,48 @@ async function readJsonBodyLimited(request, maxBytes) {
   const reader = request.body.getReader();
   const chunks = [];
   let totalBytes = 0;
+  let stop;
+  const stopped = new Promise((resolve) => {
+    stop = resolve;
+  });
+  const timeout = setTimeout(() => {
+    stop({ kind: 'timeout' });
+    cancelBodyReader(reader, 'JSON_BODY_TIMEOUT');
+  }, JSON_BODY_TIMEOUT_MS);
+  const abort = () => {
+    stop({ kind: 'aborted' });
+    cancelBodyReader(reader, request.signal.reason);
+  };
+  if (request.signal.aborted) abort();
+  else request.signal.addEventListener('abort', abort, { once: true });
   try {
     while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+      const outcome = await Promise.race([
+        reader.read().then(
+          (value) => ({ kind: 'read', value }),
+          () => ({ kind: 'invalid' }),
+        ),
+        stopped,
+      ]);
+      if (outcome.kind !== 'read') return { error: outcome.kind };
+      if (outcome.value.done) break;
+      const value = outcome.value.value;
       const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
       totalBytes += bytes.byteLength;
       if (totalBytes > maxBytes) {
-        await reader.cancel('JSON_BODY_TOO_LARGE').catch(() => {});
+        cancelBodyReader(reader, 'JSON_BODY_TOO_LARGE');
         return { error: 'too-large' };
       }
       chunks.push(bytes);
     }
-  } catch {
-    return { error: 'invalid' };
   } finally {
-    reader.releaseLock();
+    clearTimeout(timeout);
+    request.signal.removeEventListener('abort', abort);
+    try {
+      reader.releaseLock();
+    } catch {
+      // A non-cooperative stream may still own the timed-out read.
+    }
   }
 
   if (totalBytes === 0) return { error: 'invalid' };
@@ -261,7 +300,60 @@ function jsonBodyError(request, env, result) {
   if (result.error === 'too-large') {
     return json(request, env, { error: 'request body too large' }, 413);
   }
+  if (result.error === 'timeout') {
+    return json(request, env, { error: 'request body timed out' }, 408);
+  }
   return json(request, env, { error: 'invalid json' }, 400);
+}
+
+async function readJsonResponseLimited(response, maxBytes, registerReader = () => {}) {
+  if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') || '')) {
+    return null;
+  }
+  const declared = response.headers.get('content-length');
+  if (declared !== null && (!/^\d+$/.test(declared.trim()) || Number(declared) > maxBytes)) {
+    cancelBodyReader(response.body, 'RESPONSE_BODY_TOO_LARGE');
+    return null;
+  }
+  const reader = response.body?.getReader();
+  if (!reader) return null;
+  registerReader(reader);
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+      if (bytes.byteLength > maxBytes - totalBytes) {
+        cancelBodyReader(reader, 'RESPONSE_BODY_TOO_LARGE');
+        return null;
+      }
+      chunks.push(bytes);
+      totalBytes += bytes.byteLength;
+    }
+  } catch {
+    return null;
+  } finally {
+    registerReader(null);
+    try {
+      reader.releaseLock();
+    } catch {
+      // A timed-out non-cooperative stream may still own its pending read.
+    }
+  }
+  if (totalBytes === 0) return null;
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body));
+  } catch {
+    return null;
+  }
 }
 
 function parseLimit(value, fallback) {
@@ -280,7 +372,7 @@ function getSigningSecret(env) {
   return secret.length >= 32 ? secret : null;
 }
 
-function getCapabilitySecret(env) {
+function configuredCapabilitySecret(env) {
   return String(
     env.REMOTE_SHARE_CAPABILITY_SECRET ||
       env.MXQR_CAPABILITY_SECRET ||
@@ -288,6 +380,16 @@ function getCapabilitySecret(env) {
       env.CAPABILITY_SECRET ||
       '',
   ).trim();
+}
+
+function getCapabilitySecret(env) {
+  const secret = configuredCapabilitySecret(env);
+  return secret.length >= HMAC_SECRET_MIN_LENGTH ? secret : '';
+}
+
+function hasInvalidCapabilitySecret(env) {
+  const secret = configuredCapabilitySecret(env);
+  return secret.length > 0 && secret.length < HMAC_SECRET_MIN_LENGTH;
 }
 
 function isCapabilityRequired(env) {
@@ -430,6 +532,9 @@ async function verifyCapabilityToken(token, request, env) {
 }
 
 async function requireSessionCapability(request, env) {
+  if (hasInvalidCapabilitySecret(env)) {
+    return json(request, env, { error: 'CAPABILITY_SECRET_INVALID' }, 503);
+  }
   if (!isCapabilityRequired(env)) {
     // Parity with app-worker.guardSensitiveRequest: a missing capability
     // secret is a production-config error, not a license to bypass. Run-mode
@@ -443,6 +548,9 @@ async function requireSessionCapability(request, env) {
 }
 
 function handleSecurityConfig(request, env) {
+  if (hasInvalidCapabilitySecret(env)) {
+    return json(request, env, { error: 'CAPABILITY_SECRET_INVALID' }, 503);
+  }
   return json(request, env, {
     capabilityRequired: isCapabilityRequired(env),
     scope: CAPABILITY_SCOPE,
@@ -677,18 +785,20 @@ function readMetadata(object, ...keys) {
 }
 
 async function consumeLimit(env, key, limit, ttlSeconds) {
-  if (!env.REMOTE_SHARE_RATE_LIMIT) return true;
-  try {
-    const current = Number((await env.REMOTE_SHARE_RATE_LIMIT.get(key)) || '0');
-    if (current >= limit) return false;
-    await env.REMOTE_SHARE_RATE_LIMIT.put(key, String(current + 1), {
-      expirationTtl: ttlSeconds,
+  if (env.MUSIXQUARE_SERVICE_CONTROL) {
+    const result = await consumeAbuseRateLimit(env, {
+      scope: 'remote-share-upload',
+      identity: key,
+      limit,
+      windowMs: ttlSeconds * 1_000,
     });
-    return true;
-  } catch (error) {
-    console.warn('remote share rate-limit storage unavailable', error);
-    return false;
+    if (result.status !== 'ok') return 'unavailable';
+    return result.allowed ? 'allowed' : 'limited';
   }
+
+  // Direct unit tests invoke the Worker without Cloudflare globals. Production
+  // fails closed if the shared atomic limiter binding is removed.
+  return typeof caches === 'undefined' ? 'allowed' : 'unavailable';
 }
 
 function roomStorageQuotaBytes(env) {
@@ -811,20 +921,53 @@ function roomQuotaStub(env, roomId) {
 
 async function callRoomQuota(env, roomId, operation, body) {
   const stub = roomQuotaStub(env, roomId);
-  const response = await stub.fetch(
-    new Request(`https://remote-share-quota.internal/${operation}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ roomId, ...body }),
-    }),
-  );
-  let payload;
+  let activeReader = null;
+  let timedOut = false;
+  let timeoutId = null;
+  const outcome = Promise.resolve()
+    .then(() =>
+      stub.fetch(
+        new Request(`https://remote-share-quota.internal/${operation}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ roomId, ...body }),
+        }),
+      ),
+    )
+    .then(
+      async (response) => {
+        if (timedOut) {
+          cancelBodyReader(response.body, 'QUOTA_RESPONSE_TIMEOUT');
+          return null;
+        }
+        const payload = await readJsonResponseLimited(
+          response,
+          QUOTA_JSON_BODY_MAX_BYTES,
+          (reader) => {
+            activeReader = reader;
+          },
+        );
+        return timedOut ? null : { response, payload };
+      },
+      () => null,
+    );
+  const timeout = new Promise((resolve) => {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      cancelBodyReader(activeReader, 'QUOTA_RESPONSE_TIMEOUT');
+      resolve(null);
+    }, QUOTA_RESPONSE_TIMEOUT_MS);
+  });
+  let result;
   try {
-    payload = await response.json();
-  } catch {
+    result = await Promise.race([outcome, timeout]);
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  }
+  if (!result || !result.payload) {
     throw new Error('invalid room storage quota response');
   }
-  return { payload, status: response.status };
+  return { payload: result.payload, status: result.response.status };
 }
 
 async function reserveRoomStorage(env, reservation) {
@@ -884,23 +1027,29 @@ async function consumeUploadSessionRateLimits(request, env, secret, roomId) {
     env.ROOM_UPLOADS_PER_WINDOW,
     DEFAULT_ROOM_UPLOADS_PER_WINDOW,
   );
-  const ipAllowed = await consumeLimit(
+  const ipRate = await consumeLimit(
     env,
     await rateLimitIpKey(secret, request),
     ipUploadLimit,
     rateWindowSeconds,
   );
-  if (!ipAllowed) {
+  if (ipRate === 'unavailable') {
+    return json(request, env, { error: 'rate limit unavailable' }, 503);
+  }
+  if (ipRate === 'limited') {
     return rateLimited(request, env, 'rate limited', rateWindowSeconds);
   }
   if (roomUploadLimit > 0) {
-    const roomAllowed = await consumeLimit(
+    const roomRate = await consumeLimit(
       env,
       `session-room:${roomId}`,
       roomUploadLimit,
       rateWindowSeconds,
     );
-    if (!roomAllowed) {
+    if (roomRate === 'unavailable') {
+      return json(request, env, { error: 'rate limit unavailable' }, 503);
+    }
+    if (roomRate === 'limited') {
       return rateLimited(request, env, 'room rate limited', rateWindowSeconds);
     }
   }

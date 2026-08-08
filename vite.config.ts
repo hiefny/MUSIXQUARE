@@ -241,11 +241,7 @@ const guardInitialAppBundleGraph = (): Plugin => ({
 });
 
 const EXPECTED_PLAYLIST_DYNAMIC_IMPORTERS = [
-  'src/player/decode.ts',
-  'src/player/playback.ts',
-  'src/player/transport.ts',
-  'src/player/transport.ts',
-  'src/player/transport.ts',
+  'src/player/playlist-loader.ts',
   'src/storage/preload.ts',
 ] as const;
 const EXPECTED_PLAYLIST_STATIC_IMPORTERS = [

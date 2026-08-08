@@ -632,7 +632,8 @@ async function receiveProRoomFileDirectly(
 
   completeAcceptedFileRequest(data, conn);
   cancelRemoteShareWait('pro-room-direct-r2');
-  clearManagedTimer('preloadWatchdog');
+  clearManagedTimer('preloadRecoveryWatchdog');
+  clearManagedTimer('preloadUiWatchdog');
   clearManagedTimer('prepareWatchdog');
   clearManagedTimer('chunkWatchdog');
   clearManagedTimer('fileWaitTimeout');
@@ -856,7 +857,8 @@ export async function handleFilePrepare(
   if (getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD) {
     log.debug('[file-prepare] AWAITING_PRELOAD → will be superseded below');
   }
-  clearManagedTimer('preloadWatchdog');
+  clearManagedTimer('preloadRecoveryWatchdog');
+  clearManagedTimer('preloadUiWatchdog');
   setState('recovery.retryCount', 0);
 
   const prevLocalSid = getState('transfer.localSessionId');
@@ -897,7 +899,8 @@ export async function handleFilePrepare(
     log.warn(
       `[file-prepare] Preload ownership changed: requested=${queueItemId}, staged=${preloadTarget?.queueItemId}. Clearing stale preload.`,
     );
-    clearManagedTimer('preloadWatchdog');
+    clearManagedTimer('preloadRecoveryWatchdog');
+    clearManagedTimer('preloadUiWatchdog');
     // Clear stale preload state — also makes shouldSkipIncomingFile() false
     // for this incoming track (no preload sessionState/blob/meta to match).
     setState('preload.ready', null);
@@ -1043,7 +1046,7 @@ export async function handleFilePrepare(
 
       const preloadWatchdogMs = getState('network.connectionType') === 'remote' ? 60000 : 30000;
       setManagedTimer(
-        'preloadWatchdog',
+        'preloadRecoveryWatchdog',
         () => {
           // Check lifecycle: if the state machine has moved on (to DECODING,
           // DOWNLOADING, etc.), the preload succeeded or was superseded and

@@ -1511,6 +1511,45 @@ describe('Google Authorization Code + PKCE account flow', () => {
     );
     expect(optionalCookiePair(callback!, '__Host-mxqr_account')).toBeNull();
   });
+
+  it('bounds a Google token response body that stalls after its headers', async () => {
+    vi.useFakeTimers();
+    const env = authEnv();
+    const started = await startLogin(env);
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"id_token":"unfinished'));
+      },
+    });
+    let markResponseStarted!: () => void;
+    const responseStarted = new Promise<void>((resolve) => {
+      markResponseStarted = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        markResponseStarted();
+        return new Response(body, { headers: { 'content-type': 'application/json' } });
+      }),
+    );
+
+    const pending = handleAccountAuthRequest(
+      new Request(
+        `https://musixquare.com/api/auth/google/callback?code=authorization-code-123&state=${started.location.searchParams.get('state')}&${GOOGLE_CALLBACK_ISSUER_QUERY}`,
+        { headers: { Cookie: started.flowCookie } },
+      ),
+      env,
+    );
+    await responseStarted;
+    await vi.advanceTimersByTimeAsync(10_001);
+    const callback = await pending;
+
+    expect(callback?.status).toBe(303);
+    expect(callback?.headers.get('Location')).toBe(
+      'https://musixquare.com/000001?panel=connect&accountAuth=error#account',
+    );
+    expect(optionalCookiePair(callback!, '__Host-mxqr_account')).toBeNull();
+  });
 });
 
 describe('account session mutations', () => {

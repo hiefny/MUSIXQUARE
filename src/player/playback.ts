@@ -81,10 +81,34 @@ import {
   selectQueueItemById,
 } from './queue-model.ts';
 import { hasSystemAudioDeviceCapacity } from '../audio/system-audio-policy.ts';
+import { getYouTubePlayer } from '../youtube/_state.ts';
+import { loadPlaylistModule } from './playlist-loader.ts';
 
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
 const SAME_TRACK_REPLAY_RESYNC_DELAY_MS = 1000;
+
+function canonicalizeRequestedSeekTime(value: unknown): number {
+  const parsed = Number(value);
+  let time = Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+  let rawDuration: unknown;
+
+  if (isYouTubeOwner()) {
+    try {
+      rawDuration = getYouTubePlayer()?.getDuration?.();
+    } catch (error) {
+      log.debug('[Playback] Could not read YouTube duration for OP seek clamp:', error);
+    }
+  } else {
+    rawDuration = getCurrentAudioBuffer()?.duration;
+  }
+
+  const duration = Number(rawDuration);
+  if (Number.isFinite(duration) && duration > 0 && time > duration) {
+    time = Math.max(0, duration - 0.1);
+  }
+  return time;
+}
 
 function hasOwnedAudioBuffer(queueItemId: QueueItemId): boolean {
   return !!getCurrentAudioBuffer() && getState('files.current')?.queueItemId === queueItemId;
@@ -560,7 +584,12 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
   // rather than resuming stale audio buffer.
   if (currentQueueItemId === null && playlistItems[0]) {
     const firstQueueItemId = playlistItems[0].queueItemId;
-    void import('./playlist.ts').then((mod) => mod.playTrack(firstQueueItemId));
+    void loadPlaylistModule()
+      .then((mod) => mod.playTrack(firstQueueItemId))
+      .catch((error) => {
+        log.warn('[Playback] Failed to load the playlist for an operator play request:', error);
+        showToast(t('error.network_generic'));
+      });
     return;
   }
   if (!currentQueueItemId) return;
@@ -638,7 +667,11 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
 
-  const time = Number(data.time) || 0;
+  // The protocol rejects negative requests, but this handler remains defensive
+  // because tests and future internal callers can bypass protocol dispatch.
+  // Publish one canonical value so host state and every guest receive the same
+  // position even when an OP sends a stale/out-of-range seek.
+  const time = canonicalizeRequestedSeekTime(data.time);
   const currentQueueItemId = getCurrentQueueItemId();
 
   // YouTube seek

@@ -144,8 +144,8 @@ npx wrangler secret put MXQR_ADMIN_PASSWORD --config cloudflare/wrangler.app.tom
 npx wrangler secret put MXQR_ADMIN_SESSION_SECRET --config cloudflare/wrangler.app.toml
 ```
 
-`MXQR_ADMIN_SESSION_SECRET` should be a long random string. It signs the
-HttpOnly admin session cookie.
+`MXQR_ADMIN_SESSION_SECRET` must be a randomly generated string of at least 32
+characters. It signs the HttpOnly admin session cookie.
 
 After the schema and D1 bindings are committed, push the reviewed commit to
 `main` and run the `Production Release` workflow with target `all`. The workflow

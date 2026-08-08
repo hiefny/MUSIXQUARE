@@ -1878,11 +1878,21 @@ export function initConnect(): void {
       renderConnectDeviceList(_lastDeviceList);
       return;
     }
-    void import('../pro-room/runtime.ts').then(({ getActiveProRoomAdministrators }) => {
-      if (!_isProRoom()) return;
-      _lastProAdministrators = getActiveProRoomAdministrators();
-      renderConnectDeviceList(_lastDeviceList);
-    });
+    void import('../pro-room/runtime.ts')
+      .then(({ getActiveProRoomAdministrators }) => {
+        if (!_isProRoom()) return;
+        _lastProAdministrators = getActiveProRoomAdministrators();
+        renderConnectDeviceList(_lastDeviceList);
+      })
+      .catch((error) => {
+        log.warn('[Connect] Could not refresh PRO administrators after authority change', error);
+        if (!_isProRoom()) return;
+        // Do not leave a previous room's authority projection on screen after
+        // a deploy-skew/offline chunk failure.
+        _lastProAdministrators = [];
+        renderConnectDeviceList(_lastDeviceList);
+        showToast(t('error.network_generic'));
+      });
   });
 
   // Leave Session buttons (mobile + desktop)

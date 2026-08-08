@@ -109,13 +109,15 @@ where a local or external deployment could replace an earlier Worker after its
 individual smoke; a mismatch fails the release and the conflict-aware recovery
 will not overwrite the newer deployment.
 
-Every live-smoke step has a five-minute hard ceiling. The PRO-room, Developer
-API, and remote-share HTTP probes additionally abort each individual request
-after 30 seconds, while retaining their existing edge-propagation retry delays;
-the signaling and app-generation smokes keep their own shorter protocol/HTTP
-timeouts. These limits are intentionally far above the tiny synthetic payloads'
-normal latency, but prevent a half-open response from delaying automatic
-recovery for the runner's six-hour default job lifetime.
+Standalone live-smoke steps have a five-minute hard ceiling, except for the
+PRO-room probe, which has eight minutes for edge propagation. The combined PRO
+media CORS apply/read-back/smoke step has ten minutes. Developer API and
+remote-share HTTP requests abort after 30 seconds; PRO-room, app-generation,
+app-public, and signaling protocol requests use their own shorter limits. These
+limits are intentionally far above the tiny synthetic payloads' normal latency,
+but prevent a half-open response from delaying automatic recovery. The complete
+deploy job has a four-hour ceiling; individual step limits leave substantially
+more time than normal operation requires for the conflict-aware recovery path.
 
 The release workflow does not attempt an automatic down migration after the
 Developer API baseline is applied. A failed schema-bearing release keeps the
@@ -162,9 +164,11 @@ deployment without Git provenance remains deliberately unverifiable; after
 such a rollback, the next approved release must use target `all` to establish
 a fresh common baseline.
 
-The `admin-announcement-v1` service-control marker is also a permanent
-forward-only data floor once its App/PRO pair has deployed or the global
-service-control object has recorded announcement revision 1 or later. Do not
+The combined `admin-announcement-v1+abuse-rate-v1` service-control marker requires an
+`all` rollout with PRO deployed before its App, signaling, and remote-share consumers.
+Its announcement component is also a permanent forward-only data floor once the
+App/PRO pair has deployed or the global service-control object has recorded
+announcement revision 1 or later. Do not
 manually restore or intentionally deploy an App or PRO Worker from before that
 marker: the old App reads the legacy KV copy and can revive a stale notice while
 the durable object retains a different canonical revision. Automatic recovery

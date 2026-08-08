@@ -16,21 +16,22 @@ ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://loca
 # npx wrangler secret put REMOTE_SHARE_SIGNING_SECRET
 # npx wrangler secret put R2_ACCESS_KEY_ID
 # npx wrangler secret put R2_SECRET_ACCESS_KEY
-# Required for capability gate (use same value as app Worker MXQR_CAPABILITY_SECRET so
-# app-issued tokens verify here):
+# Required for capability gate (use the same random value of at least 32 characters as
+# the app Worker MXQR_CAPABILITY_SECRET so app-issued tokens verify here):
 # npx wrangler secret put MXQR_CAPABILITY_SECRET
 
 [[r2_buckets]]
 binding = "REMOTE_SHARE_BUCKET"
 bucket_name = "musixquare-remote-share"
 
-[[kv_namespaces]]
-binding = "REMOTE_SHARE_RATE_LIMIT"
-id = "replace-with-kv-namespace-id"
-
 [[durable_objects.bindings]]
 name = "REMOTE_SHARE_QUOTA"
 class_name = "RemoteShareQuota"
+
+[[durable_objects.bindings]]
+name = "MUSIXQUARE_SERVICE_CONTROL"
+class_name = "MusixquareServiceControl"
+script_name = "musixquare-pro-room"
 
 # Keep the production Worker's provider-required append-only Durable Object
 # migration entries when deriving a deployable config from this example. These

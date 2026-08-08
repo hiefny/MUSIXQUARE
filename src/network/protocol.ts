@@ -898,7 +898,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.REQUEST_PLAY]: (d) =>
     isQueueItemId(d.queueItemId) && (d.time === undefined || isFiniteNumber(d.time)),
   [MSG.REQUEST_PAUSE]: (d) => isQueueItemId(d.queueItemId),
-  [MSG.REQUEST_SEEK]: (d) => isQueueItemId(d.queueItemId) && isFiniteNumber(d.time),
+  [MSG.REQUEST_SEEK]: (d) => isQueueItemId(d.queueItemId) && isFiniteNumber(d.time) && d.time >= 0,
   [MSG.REQUEST_SKIP_TIME]: (d) => isQueueItemId(d.queueItemId) && isFiniteNumber(d.sec),
   [MSG.REQUEST_NEXT_TRACK]: (d) => d.queueItemId === null || isQueueItemId(d.queueItemId),
   [MSG.REQUEST_PREV_TRACK]: (d) => d.queueItemId === null || isQueueItemId(d.queueItemId),

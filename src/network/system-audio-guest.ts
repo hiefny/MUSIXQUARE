@@ -827,7 +827,8 @@ function commitTrustedSystemAudioReception(): boolean {
   stopAllMedia({ silent: true, cancelInFlight: true });
   cancelIncomingFileTransfer('system-audio-start');
   cancelRemoteShareWait('system-audio-start');
-  clearManagedTimer('preloadWatchdog');
+  clearManagedTimer('preloadRecoveryWatchdog');
+  clearManagedTimer('preloadUiWatchdog');
   claimPlaybackOwner('system-audio', {
     pending: true,
     currentTrackMeta: createSystemAudioTrackMeta('receiving'),

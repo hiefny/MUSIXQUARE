@@ -43,6 +43,11 @@ import { handleData } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
 import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
+import { log } from '../../core/log.ts';
+
+const lazyPlaylistMocks = vi.hoisted(() => ({
+  loadPlaylistModule: vi.fn(),
+}));
 
 const QID_OLD = '00000000-0000-4000-8000-000000000001';
 const QID_NEW = '00000000-0000-4000-8000-000000000002';
@@ -114,6 +119,10 @@ vi.mock('../../network/peer.ts', () => ({
   isRemoteGuest: vi.fn(() => false),
 }));
 
+vi.mock('../playlist-loader.ts', () => ({
+  loadPlaylistModule: lazyPlaylistMocks.loadPlaylistModule,
+}));
+
 beforeEach(() => {
   resetState();
   bus.clear();
@@ -122,6 +131,8 @@ beforeEach(() => {
   setPlayerNode(null);
   vi.mocked(broadcast).mockClear();
   vi.mocked(sendToHost).mockClear();
+  lazyPlaylistMocks.loadPlaylistModule.mockReset();
+  lazyPlaylistMocks.loadPlaylistModule.mockImplementation(() => import('../playlist.ts'));
 });
 
 afterEach(() => {
@@ -388,6 +399,29 @@ describe('togglePlay end-of-track race', () => {
     expect(getState('playlist.currentQueueItemId')).toBe(QID_NEW);
     expect(getManagedTimer('ended-advance-next')).toBeNull();
   });
+
+  it('contains a rejected lazy advance after a natural track end', async () => {
+    const error = new Error('playlist chunk unavailable');
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    lazyPlaylistMocks.loadPlaylistModule.mockRejectedValueOnce(error);
+    setState('network.appRole', 'host');
+    setState('playlist.items', [playlistItem(QID_OLD, 'ended.mp3', 'Ended')]);
+    setState('playlist.currentQueueItemId', QID_OLD);
+    setResidentFile(QID_OLD, 0, 'ended.mp3');
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    setPlaybackFilePaused();
+    setManagedTimer('ended-advance-next', () => {}, 30_000);
+
+    togglePlay();
+
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith(
+        '[Play] Failed to advance the playlist after track end:',
+        error,
+      ),
+    );
+    warn.mockRestore();
+  });
 });
 
 // ─── updatePlayState ─────────────────────────────────────────────────
@@ -408,6 +442,42 @@ describe('togglePlay file pipeline guard', () => {
 
     expect(broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
     expect(getState('playback.activity')).not.toBe('playing');
+  });
+
+  it('contains a rejected lazy playlist load instead of leaking an unhandled rejection', async () => {
+    const error = new Error('playlist chunk unavailable');
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    lazyPlaylistMocks.loadPlaylistModule.mockRejectedValueOnce(error);
+    setState('network.appRole', 'host');
+    setState('playlist.items', [playlistItem(QID_OLD, 'retry.mp3', 'Retry')]);
+    setState('playlist.currentQueueItemId', QID_OLD);
+    setPlaybackFilePaused();
+
+    togglePlay();
+
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith(
+        '[Play] Failed to retry the selected playlist item:',
+        error,
+      ),
+    );
+    warn.mockRestore();
+  });
+
+  it('contains a rejected lazy restart from the deselected playlist state', async () => {
+    const error = new Error('playlist chunk unavailable');
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    lazyPlaylistMocks.loadPlaylistModule.mockRejectedValueOnce(error);
+    setState('network.appRole', 'host');
+    setState('playlist.items', [playlistItem(QID_OLD, 'first.mp3', 'First')]);
+    setState('playlist.currentQueueItemId', null);
+
+    togglePlay();
+
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith('[Play] Failed to restart the first playlist item:', error),
+    );
+    warn.mockRestore();
   });
 });
 
@@ -437,6 +507,52 @@ describe('handleRequestPlay file pipeline guard', () => {
 
     expect(broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
   });
+});
+
+describe('operator seek canonicalization', () => {
+  function arrangePausedHost(duration: number): DataConnection {
+    setState('playlist.items', [playlistItem(QID_OLD, 'song.mp3', 'Song')]);
+    setState('playlist.currentQueueItemId', QID_OLD);
+    setCurrentAudioBuffer({ duration } as AudioBuffer);
+    setPlaybackFilePaused();
+
+    const opConn = dataConnection('op-seek');
+    setState('network.appRole', 'host');
+    setState('network.activeHostConnByPeerId', new Map([[opConn.peer, opConn]]));
+    setState('network.connectedPeers', [
+      { ...connectedPeer(1), id: 'op-seek', label: 'OP', isOp: true, conn: opConn },
+    ]);
+    initPlayback();
+    return opConn;
+  }
+
+  it('uses one duration-clamped position for host state and broadcast', async () => {
+    const opConn = arrangePausedHost(120);
+
+    await handleData({ type: MSG.REQUEST_SEEK, time: 999, queueItemId: QID_OLD }, opConn);
+
+    expect(getState('player.pausedAt')).toBeCloseTo(119.9, 6);
+    expect(broadcast).toHaveBeenCalledWith({
+      type: MSG.PAUSE,
+      time: 119.9,
+      queueItemId: QID_OLD,
+      reason: 'seek',
+    });
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 0])(
+    'does not let a non-normal duration corrupt a finite seek (%s)',
+    async (duration) => {
+      const opConn = arrangePausedHost(duration);
+
+      await handleData({ type: MSG.REQUEST_SEEK, time: 42, queueItemId: QID_OLD }, opConn);
+
+      expect(getState('player.pausedAt')).toBe(42);
+      expect(broadcast).toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.PAUSE, time: 42, queueItemId: QID_OLD }),
+      );
+    },
+  );
 });
 
 // ─── handlePlayMsg lifecycle gate (DOWNLOADING/DECODING defer) ──────

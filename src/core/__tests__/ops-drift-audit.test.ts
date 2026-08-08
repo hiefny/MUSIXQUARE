@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -23,6 +24,23 @@ describe('operations drift audit', () => {
       githubRuleCount: 2,
       manualCheckCount: 4,
     });
+  });
+
+  it('keeps the live workflow limited to the narrow read-only Cloudflare token', () => {
+    const workflow = readFileSync('.github/workflows/ops-drift-audit.yml', 'utf8');
+    const stepStart = workflow.indexOf('- name: Compare read-only live controls');
+    const nextStep = workflow.indexOf('\n      - name:', stepStart + 1);
+    const step = workflow.slice(stepStart, nextStep);
+
+    expect(stepStart).toBeGreaterThan(-1);
+    expect(step).toContain(
+      'CLOUDFLARE_DRIFT_AUDIT_TOKEN: ${{ secrets.CLOUDFLARE_DRIFT_AUDIT_TOKEN }}',
+    );
+    expect(step).not.toContain('CLOUDFLARE_API_TOKEN:');
+
+    const source = readFileSync('scripts/audit-ops-drift.mjs', 'utf8');
+    expect(source).toContain('env.CLOUDFLARE_DRIFT_AUDIT_TOKEN,');
+    expect(source).not.toContain('env.CLOUDFLARE_DRIFT_AUDIT_TOKEN || env.CLOUDFLARE_API_TOKEN');
   });
 
   it('compares CORS semantically without depending on array or header case order', () => {
@@ -155,5 +173,20 @@ describe('operations drift audit', () => {
     const noCredentials = await runOpsDriftAudit({ contract, fetcher, env: {} });
     expect(noCredentials.status).toBe('attention-required');
     expect(noCredentials.checks.filter((check) => check.status === 'error')).toHaveLength(4);
+
+    const broadTokenOnly = await runOpsDriftAudit({
+      contract,
+      fetcher,
+      env: {
+        CLOUDFLARE_ACCOUNT_ID: 'account',
+        CLOUDFLARE_API_TOKEN: 'deployment-token-must-not-be-used',
+        GITHUB_DRIFT_AUDIT_TOKEN: 'github-token',
+      },
+    });
+    expect(
+      broadTokenOnly.checks.filter(
+        (check) => check.id.startsWith('r2-cors:') && check.status === 'error',
+      ),
+    ).toHaveLength(3);
   });
 });

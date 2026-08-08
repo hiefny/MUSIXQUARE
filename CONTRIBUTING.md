@@ -2,8 +2,8 @@
 
 ## Quick start
 
-Use the exact Node.js version in `.node-version`; the broader `engines` range
-in `package.json` documents runtime compatibility, not the CI baseline.
+Use the exact Node.js version in `.node-version`. `package.json` declares the
+same single supported Node runtime so local tooling, types, and CI cannot drift.
 Corepack resolves the repository's pinned npm version from `packageManager`.
 A browser-only development session needs no Cloudflare account, binding, or
 secret.

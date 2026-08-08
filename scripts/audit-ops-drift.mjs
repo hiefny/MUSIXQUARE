@@ -238,7 +238,7 @@ export async function runOpsDriftAudit({
       const payload = await fetchJson(
         fetcher,
         `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/r2/buckets/${encodeURIComponent(entry.bucket)}/cors`,
-        env.CLOUDFLARE_DRIFT_AUDIT_TOKEN || env.CLOUDFLARE_API_TOKEN,
+        env.CLOUDFLARE_DRIFT_AUDIT_TOKEN,
         `R2 CORS ${entry.bucket}`,
       );
       if (payload?.success !== true || !payload.result) {

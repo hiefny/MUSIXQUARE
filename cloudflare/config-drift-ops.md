@@ -40,8 +40,8 @@ all three R2 policies and the effective `main` branch rules. It never applies a
 CORS policy or edits a GitHub ruleset. The workflow runs only for `main` and
 injects credentials only into the live comparison step. It prefers the
 production environment's `CLOUDFLARE_DRIFT_AUDIT_TOKEN` with R2 configuration
-read access only, falling back to the existing `CLOUDFLARE_API_TOKEN` during
-credential migration. GitHub follows the same optional
+read access only. A missing narrow credential fails closed; the audit workflow
+never receives the production deployment token. GitHub follows the optional
 `GITHUB_DRIFT_AUDIT_TOKEN` then built-in `github.token` order. Source CORS
 objects are exact-key validated so misspelled fields fail before any live
 query; the audit script contains no mutating HTTP method.
@@ -98,7 +98,7 @@ Inventory every deployed Worker, not only the three original services:
 - Signaling: room Durable Object, PRO authority binding, and admin D1.
 - PRO: room/signaling/rate-limiter Durable Objects, PRO media R2, admin and
   Developer API D1.
-- Remote share: temporary-media R2 and rate-limit KV.
+- Remote share: temporary-media R2 and service-control Durable Object rate limiting.
 - Developer API: D1, limiter Durable Object, and private facade service.
 - Developer API facade: private PRO-room Durable Object binding only.
 

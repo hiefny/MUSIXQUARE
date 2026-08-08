@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker from '../../../cloudflare/app-worker.js';
+import { createAtomicRateControlBinding } from '../../core/__tests__/service-control-rate-limit-fixture.ts';
 
 type RemoteShareWorker = {
   default: {
@@ -612,6 +613,16 @@ describe('remote-share Worker capability gate', () => {
     expect(await response.json()).toEqual({ error: 'CAPABILITY_NOT_CONFIGURED' });
   });
 
+  it('fails closed when a configured capability secret is below the HMAC minimum', async () => {
+    const response = await workerModule.default.fetch(
+      request('/session', { method: 'POST', body: 'not-json' }),
+      env({ MXQR_CAPABILITY_SECRET: 'weak' }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'CAPABILITY_SECRET_INVALID' });
+  });
+
   it('allows /session without capability when MXQR_ALLOW_UNGUARDED_REMOTE_SHARE is set', async () => {
     const response = await workerModule.default.fetch(
       request('/session', { method: 'POST', body: 'not-json' }),
@@ -650,6 +661,58 @@ describe('remote-share Worker capability gate', () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: 'invalid json' });
+  });
+
+  it('bounds a session JSON body that stalls after its first chunk', async () => {
+    const token = await createCapabilityToken();
+    vi.useFakeTimers();
+    let bodyReadStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      bodyReadStarted = resolve;
+    });
+    const cancel = vi.fn();
+    let pulls = 0;
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulls += 1;
+          if (pulls === 1) {
+            controller.enqueue(new TextEncoder().encode('{'));
+            bodyReadStarted();
+          }
+          return new Promise<void>(() => {});
+        },
+        cancel,
+      },
+      { highWaterMark: 0 },
+    );
+    const responsePromise = workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+      directUploadEnv(),
+    );
+    let settled = false;
+    void responsePromise.then(() => {
+      settled = true;
+    });
+
+    await started;
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    const response = await responsePromise;
+    expect(response.status).toBe(408);
+    expect(await response.json()).toEqual({ error: 'request body timed out' });
+    expect(cancel).toHaveBeenCalled();
   });
 
   it('keeps direct R2 session creation operational with Turnstile disabled PoW', async () => {
@@ -717,10 +780,7 @@ describe('remote-share Worker capability gate', () => {
 
   it('accepts only generated standard room codes and rejects the reserved PRO namespace', async () => {
     const token = await createCapabilityToken();
-    const rateLimitStore = {
-      get: vi.fn(async () => null),
-      put: vi.fn(async () => undefined),
-    };
+    const control = createAtomicRateControlBinding();
 
     for (const roomId of [
       undefined,
@@ -742,16 +802,15 @@ describe('remote-share Worker capability gate', () => {
           },
           body: sessionRequestBody({ roomId }),
         }),
-        directUploadEnv({ REMOTE_SHARE_RATE_LIMIT: rateLimitStore }),
+        directUploadEnv({ MUSIXQUARE_SERVICE_CONTROL: control.binding }),
       );
 
       expect(response.status, `roomId=${String(roomId)}`).toBe(400);
       expect(await response.json()).toEqual({ error: 'invalid upload session request' });
     }
 
-    // Invalid room IDs fail before consuming rate-limit writes or touching R2.
-    expect(rateLimitStore.get).not.toHaveBeenCalled();
-    expect(rateLimitStore.put).not.toHaveBeenCalled();
+    // Invalid room IDs fail before consuming an atomic rate-limit operation or touching R2.
+    expect(control.rateFetchCount()).toBe(0);
   });
 
   it('does not resolve download or cleanup object keys in the reserved PRO namespace', async () => {
@@ -822,15 +881,9 @@ describe('remote-share Worker capability gate', () => {
     expect(bucket.delete).not.toHaveBeenCalled();
   });
 
-  it('stores an HMAC pseudonym instead of a raw IP in rate-limit KV keys', async () => {
+  it('uses an HMAC pseudonym instead of a raw IP in atomic rate-limit object names', async () => {
     const token = await createCapabilityToken();
-    const values = new Map<string, string>();
-    const rateLimitStore = {
-      get: vi.fn(async (key: string) => values.get(key) || null),
-      put: vi.fn(async (key: string, value: string) => {
-        values.set(key, value);
-      }),
-    };
+    const control = createAtomicRateControlBinding();
     const response = await workerModule.default.fetch(
       request('/session', {
         method: 'POST',
@@ -841,19 +894,43 @@ describe('remote-share Worker capability gate', () => {
         },
         body: sessionRequestBody(),
       }),
-      directUploadEnv({ REMOTE_SHARE_RATE_LIMIT: rateLimitStore }),
+      directUploadEnv({ MUSIXQUARE_SERVICE_CONTROL: control.binding }),
     );
 
-    const expectedKey = `session-ip:${await hmacSha256(
+    const expectedKey = `musixquare-abuse-rate-v1:remote-share-upload:session-ip:${await hmacSha256(
       SIGNING_SECRET,
       `rate-limit-ip:${CLIENT_IP}`,
     )}`;
     expect(response.status).toBe(200);
-    expect(rateLimitStore.get).toHaveBeenCalledWith(expectedKey);
-    expect(rateLimitStore.put).toHaveBeenCalledWith(expectedKey, '1', {
-      expirationTtl: 3600,
+    expect(control.objectNames()).toContain(expectedKey);
+    expect(control.objectNames().join(' ')).not.toContain(CLIENT_IP);
+  });
+
+  it('serializes barrier-concurrent per-IP upload sessions through the atomic control object', async () => {
+    const token = await createCapabilityToken();
+    const control = createAtomicRateControlBinding(2);
+    const workerEnv = directUploadEnv({
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
+      IP_UPLOADS_PER_WINDOW: '1',
     });
-    expect([...values.keys()].join(' ')).not.toContain(CLIENT_IP);
+    const createSession = () =>
+      workerModule.default.fetch(
+        request('/session', {
+          method: 'POST',
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-capability': token,
+          },
+          body: sessionRequestBody(),
+        }),
+        workerEnv,
+      );
+
+    const responses = await Promise.all([createSession(), createSession()]);
+
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 429]);
+    expect(control.rateFetchCount()).toBe(2);
   });
 
   it('enforces the exact whole-object schema and positive stored size at /session', async () => {
@@ -920,6 +997,77 @@ describe('remote-share Worker capability gate', () => {
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: 'room storage quota unavailable' });
+  });
+
+  it('fails closed when quota response headers arrive but the JSON body stalls', async () => {
+    const token = await createCapabilityToken();
+    vi.useFakeTimers();
+    let quotaBodyReadStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      quotaBodyReadStarted = resolve;
+    });
+    const cancel = vi.fn();
+    let reserveCalls = 0;
+    const quotaFetch = vi.fn(async (quotaRequest: Request) => {
+      if (new URL(quotaRequest.url).pathname === '/release') {
+        return Response.json({ released: false });
+      }
+      reserveCalls += 1;
+      let pulls = 0;
+      return new Response(
+        new ReadableStream<Uint8Array>(
+          {
+            pull(controller) {
+              pulls += 1;
+              if (pulls === 1) {
+                controller.enqueue(new TextEncoder().encode('{'));
+                quotaBodyReadStarted();
+              }
+              return new Promise<void>(() => {});
+            },
+            cancel,
+          },
+          { highWaterMark: 0 },
+        ),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const responsePromise = workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': token,
+        },
+        body: sessionRequestBody(),
+      }),
+      directUploadEnv({
+        REMOTE_SHARE_BUCKET: createQuotaBucket(),
+        REMOTE_SHARE_QUOTA: {
+          idFromName: (name: string) => name,
+          get: () => ({ fetch: quotaFetch }),
+        },
+        ROOM_STORAGE_QUOTA_BYTES: '32',
+      }),
+    );
+    let settled = false;
+    void responsePromise.then(() => {
+      settled = true;
+    });
+
+    await started;
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+
+    const response = await responsePromise;
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'room storage quota unavailable' });
+    expect(reserveCalls).toBe(1);
+    expect(cancel).toHaveBeenCalled();
+    expect(warn).toHaveBeenCalled();
   });
 
   it('serializes concurrent session reservations without changing the public response shape', async () => {

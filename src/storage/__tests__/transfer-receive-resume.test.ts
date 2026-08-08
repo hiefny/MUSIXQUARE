@@ -766,7 +766,7 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     );
     const watchdog = vi
       .mocked(setManagedTimer)
-      .mock.calls.find(([name]) => name === 'preloadWatchdog')?.[1];
+      .mock.calls.find(([name]) => name === 'preloadRecoveryWatchdog')?.[1];
     expect(watchdog).toBeTypeOf('function');
 
     setState('playlist.currentQueueItemId', Q[1]!);
@@ -780,6 +780,51 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     watchdog?.();
 
     expect(getCurrentFileRequestOwnerForTests()).toBe(ownerB);
+  });
+
+  it('keeps the awaited-preload watchdog fallback requesting the current file', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const { setManagedTimer } = await import('../../core/timers.ts');
+    const send = vi.fn();
+    const recoveryConn = {
+      open: true,
+      peer: 'host-recovery',
+      send,
+    } as unknown as DataConnection;
+    setState('network.hostConn', recoveryConn);
+    setState('preload.isPreloading', true);
+    setState('preload.activeTarget', {
+      queueItemId: Q[0],
+      indexHint: 0,
+      name: 'song.mp3',
+      sessionId: 5,
+    });
+
+    await handleFilePrepare(
+      {
+        type: 'file-prepare',
+        queueItemId: Q[0],
+        sessionId: 5,
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+      },
+      recoveryConn,
+    );
+    const watchdog = vi
+      .mocked(setManagedTimer)
+      .mock.calls.find(([name]) => name === 'preloadRecoveryWatchdog')?.[1];
+    expect(watchdog).toBeTypeOf('function');
+
+    watchdog?.();
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'request-current-file',
+        queueItemId: Q[0],
+        sessionId: 5,
+        requestId: expect.any(Number),
+      }),
+    );
   });
 });
 

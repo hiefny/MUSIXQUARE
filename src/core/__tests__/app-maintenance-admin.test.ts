@@ -114,7 +114,7 @@ describe('app maintenance administration', () => {
     const control = createServiceControl();
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
-      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MUSIXQUARE_SERVICE_CONTROL: control.binding,
     };
 

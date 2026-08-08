@@ -127,6 +127,7 @@ jobs:
     name: Deploy validated candidate
     needs: validate
     runs-on: ubuntu-latest
+    timeout-minutes: 240
     environment:
       name: production
       url: https://musixquare.com

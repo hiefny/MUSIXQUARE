@@ -51,6 +51,7 @@ import {
   getQueueItemById,
   selectQueueItemById,
 } from './queue-model.ts';
+import { loadPlaylistModule } from './playlist-loader.ts';
 
 import {
   getCurrentAudioBuffer,
@@ -589,8 +590,8 @@ function markFailedAndAdvance(failedQueueItemId: QueueItemId): void {
         return;
       }
 
-      void import('./playlist.ts').then(
-        ({ getShuffleNextPlayableQueueItemId, playNextTrack, playTrack }) => {
+      void loadPlaylistModule()
+        .then(({ getShuffleNextPlayableQueueItemId, playNextTrack, playTrack }) => {
           const livePlaylist = getState('playlist.items') || [];
           const failedIndex = findQueueItemIndex(failedQueueItemId, livePlaylist);
           if (failedIndex < 0 || getCurrentQueueItemId() !== failedQueueItemId) return;
@@ -630,12 +631,15 @@ function markFailedAndAdvance(failedQueueItemId: QueueItemId): void {
           }
 
           if (targetQueueItemId) {
-            void playTrack(targetQueueItemId);
+            return playTrack(targetQueueItemId);
           } else {
             playNextTrack();
           }
-        },
-      );
+        })
+        .catch((error) => {
+          log.warn('[Decode] Failed to load the playlist for decode-failure recovery:', error);
+          showToast(t('error.network_generic'));
+        });
     },
     600,
   );
@@ -992,7 +996,8 @@ export async function loadPreloadedTrack(
     setPlaybackTransferState(TRANSFER_STATE.READY);
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
-    clearManagedTimer('preloadWatchdog');
+    clearManagedTimer('preloadRecoveryWatchdog');
+    clearManagedTimer('preloadUiWatchdog');
 
     const hostConn = getState('network.hostConn');
     if (hostConn?.open) {
@@ -1071,7 +1076,8 @@ export async function loadPreloadedTrack(
       });
       discardResidentStoredFileAdmission(localBlob);
     }
-    clearManagedTimer('preloadWatchdog');
+    clearManagedTimer('preloadRecoveryWatchdog');
+    clearManagedTimer('preloadUiWatchdog');
 
     const hostConn = getState('network.hostConn');
     if (!hostConn) {

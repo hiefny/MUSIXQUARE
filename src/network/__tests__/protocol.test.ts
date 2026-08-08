@@ -689,6 +689,16 @@ describe('track-scoped playback request validation', () => {
 
     for (const handler of handlers.values()) expect(handler).not.toHaveBeenCalled();
   });
+
+  it('rejects negative seek positions before handler dispatch', async () => {
+    const conn = makeConnection('peer-negative-seek');
+    const handler = vi.fn();
+    registerHandler(MSG.REQUEST_SEEK, handler);
+
+    await handleData({ type: MSG.REQUEST_SEEK, queueItemId: QUEUE_ITEM_ID, time: -0.001 }, conn);
+
+    expect(handler).not.toHaveBeenCalled();
+  });
 });
 
 describe('system-audio SFU frame validation', () => {

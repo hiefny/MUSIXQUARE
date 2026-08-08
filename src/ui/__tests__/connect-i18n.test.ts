@@ -23,6 +23,7 @@ import { retryPeerSignalingConnection } from '../../network/peer.ts';
 import { restartProRoomTransportRecovery } from '../../pro-room/transport-recovery.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
 import type { ProRoomAdministrator } from '../../pro-room/contracts.ts';
+import { log } from '../../core/log.ts';
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -2905,6 +2906,35 @@ describe('connect host-owned room password controls', () => {
       }),
     );
     expect(showToast).toHaveBeenCalledWith('방 암호를 변경했어요.');
+  });
+});
+
+describe('connect lazy PRO authority refresh', () => {
+  it('contains a runtime load/read failure and clears the stale presentation', async () => {
+    const error = new Error('runtime chunk unavailable');
+    mockedGetActiveProRoomAdministrators.mockImplementationOnce(() => {
+      throw error;
+    });
+    initConnect();
+
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure'],
+    });
+
+    await vi.waitFor(() =>
+      expect(log.warn).toHaveBeenCalledWith(
+        '[Connect] Could not refresh PRO administrators after authority change',
+        error,
+      ),
+    );
+    expect(showToast).toHaveBeenCalledWith(expect.any(String));
+    expect(document.querySelectorAll('.administrator-list-item')).toHaveLength(0);
   });
 });
 

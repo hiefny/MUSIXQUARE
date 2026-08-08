@@ -1406,6 +1406,221 @@ describe('admin PRO room operations dashboard', () => {
     expect(document.body.textContent).not.toContain('stale generation-zero key');
   });
 
+  it('requires both exact room codes before detaching a legacy duplicate owner', async () => {
+    installAdminDom();
+    let detached = false;
+    const detachRequests: Array<RequestInit> = [];
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms/031108/legacy-owner-detach') {
+        detachRequests.push(init || {});
+        if (detachRequests.length === 1) {
+          return Response.json(
+            { error: 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED' },
+            { status: 503 },
+          );
+        }
+        detached = true;
+        return Response.json({
+          ok: true,
+          roomCode: '031108',
+          roomGeneration: 12,
+          status: 'suspended',
+          suspensionReason: 'ownership_transfer_pending',
+          ownerAccountLinked: false,
+          retainedRoomCode: '000001',
+          changed: true,
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms/031108/owner-recovery-claim') {
+        return Response.json({
+          roomCode: '031108',
+          roomGeneration: 12,
+          recoveryUrl: 'https://musixquare.com/031108#pro-recovery=stale-secret',
+          expiresAt: Date.now() + 10 * 60 * 1000,
+          ownerAccountLinked: true,
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          rooms: [
+            {
+              roomCode: '000001',
+              roomGeneration: 4,
+              label: 'Retained owner room',
+              status: 'registered',
+              activationState: 'active',
+              ownerAccountLinked: true,
+              createdAt: Date.now(),
+            },
+            {
+              roomCode: '031108',
+              roomGeneration: 12,
+              label: 'Legacy duplicate room',
+              status: detached ? 'suspended' : 'registered',
+              suspensionReason: detached ? 'ownership_transfer_pending' : null,
+              activationState: 'active',
+              ownerAccountLinked: !detached,
+              ownerTransferPrepared: false,
+              createdAt: Date.now(),
+            },
+            {
+              roomCode: '000002',
+              roomGeneration: 2,
+              label: 'Already ownerless room',
+              status: 'registered',
+              activationState: 'active',
+              ownerAccountLinked: false,
+              createdAt: Date.now(),
+            },
+          ],
+        });
+      }
+      if (url.pathname === '/api/admin/articles') {
+        return Response.json({ generatedAt: new Date().toISOString(), articles: [] });
+      }
+      if (url.pathname === '/api/admin/announcement') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          announcement: {},
+          history: [],
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+
+    const detachButton = await vi.waitFor(() => {
+      const value = document.querySelector<HTMLButtonElement>(
+        '[data-pro-room-owner-detach="031108"]',
+      );
+      expect(value?.textContent).toBe('Detach legacy owner');
+      return value!;
+    });
+    expect(document.querySelector('[data-pro-room-owner-detach="000002"]')).toBeNull();
+    expect(detachButton.closest('.pro-room-owner-repair')?.textContent).toContain(
+      'This is not transfer or deletion',
+    );
+    const targetRow = detachButton.closest('[data-pro-room-item="031108"]')!;
+    const recoveryButton = [...targetRow.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === 'Issue owner recovery link',
+    )!;
+    recoveryButton.click();
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-pro-room-claim]')?.hidden).toBe(false);
+      expect(
+        document.querySelector<HTMLInputElement>('[data-pro-room-claim-url]')?.value,
+      ).toContain('stale-secret');
+    });
+    detachButton.focus();
+    detachButton.click();
+
+    const dialog = document.querySelector<HTMLDialogElement>(
+      '[data-pro-room-owner-detach-dialog]',
+    )!;
+    const retainedInput = dialog.querySelector<HTMLInputElement>(
+      '[data-pro-room-owner-detach-retained]',
+    )!;
+    const targetInput = dialog.querySelector<HTMLInputElement>(
+      '[data-pro-room-owner-detach-target]',
+    )!;
+    const confirm = dialog.querySelector<HTMLButtonElement>(
+      '[data-pro-room-owner-detach-confirm]',
+    )!;
+    expect(dialog.open).toBe(true);
+    expect(document.activeElement).toBe(retainedInput);
+    expect(confirm.disabled).toBe(true);
+    expect(dialog.textContent).toContain(
+      'room number, playlist, uploads, and settings stay intact',
+    );
+
+    window.dispatchEvent(new Event('pagehide'));
+    expect(dialog.open).toBe(false);
+    expect(document.querySelector<HTMLElement>('[data-pro-room-claim]')?.hidden).toBe(true);
+    expect(detachRequests).toHaveLength(0);
+    recoveryButton.click();
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-pro-room-claim]')?.hidden).toBe(false);
+    });
+    detachButton.click();
+    expect(dialog.open).toBe(true);
+    expect(document.activeElement).toBe(retainedInput);
+
+    retainedInput.value = '031108';
+    retainedInput.dispatchEvent(new Event('input', { bubbles: true }));
+    targetInput.value = '031108';
+    targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(confirm.disabled).toBe(true);
+    expect(detachRequests).toHaveLength(0);
+
+    retainedInput.value = '000001';
+    retainedInput.dispatchEvent(new Event('input', { bubbles: true }));
+    targetInput.value = '031107';
+    targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(confirm.disabled).toBe(true);
+
+    targetInput.value = '031108';
+    targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(confirm.disabled).toBe(false);
+    confirm.click();
+
+    await vi.waitFor(() => {
+      expect(detachRequests).toHaveLength(1);
+      expect(dialog.open).toBe(true);
+      expect(dialog.querySelector('[data-pro-room-owner-detach-error]')?.textContent).toContain(
+        'retry the same repair',
+      );
+      expect(dialog.querySelector('[data-pro-room-owner-detach-error]')?.textContent).toContain(
+        'Do not refresh',
+      );
+      expect(confirm.disabled).toBe(false);
+    });
+    confirm.click();
+
+    await vi.waitFor(() => {
+      expect(detachRequests).toHaveLength(2);
+      expect(dialog.open).toBe(false);
+      expect(document.querySelector('[data-pro-room-owner-detach="031108"]')).toBeNull();
+      expect(document.querySelector('[data-pro-room-item="031108"]')?.textContent).toContain(
+        'Ownership transfer required',
+      );
+      expect(document.querySelector<HTMLElement>('[data-pro-room-claim]')?.hidden).toBe(true);
+      expect(document.querySelector<HTMLInputElement>('[data-pro-room-claim-url]')?.value).toBe('');
+    });
+    const request = detachRequests[0];
+    expect(request.method).toBe('POST');
+    expect(new Headers(request.headers).get('X-MXQR-Admin-CSRF')).toBe('1');
+    expect(JSON.parse(String(request.body))).toEqual({
+      roomGeneration: 12,
+      retainRoomCode: '000001',
+      confirmRoomCode: '031108',
+    });
+    expect(document.querySelector('[data-pro-room-status]')?.textContent).toContain(
+      'owner authority detached',
+    );
+    expect(adminStyles).toMatch(
+      /\.pro-room-owner-detach-dialog[\s\S]*@media \(max-width: 560px\)[\s\S]*\.pro-room-owner-detach-dialog/,
+    );
+  });
+
   it('requires an exact room-code confirmation before permanently deleting a room', async () => {
     installAdminDom();
     let deleted = false;

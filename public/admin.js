@@ -1,4 +1,4 @@
-const ADMIN_SCRIPT_VERSION = '8.3.18';
+const ADMIN_SCRIPT_VERSION = '8.3.19';
 window.__MXQR_ADMIN_SCRIPT_VERSION__ = ADMIN_SCRIPT_VERSION;
 
 const root = document.querySelector('.admin-shell');
@@ -83,6 +83,8 @@ const proRoomApiSecrets = new Map();
 const proRoomApiRequestGenerations = new Map();
 let proRoomDestroyDialogElements = null;
 let proRoomDestroyTarget = null;
+let proRoomLegacyOwnerDetachDialogElements = null;
+let proRoomLegacyOwnerDetachTarget = null;
 let proRoomTransferDialogElements = null;
 let proRoomTransferTarget = null;
 let visibleProRoomClaimIncarnation = null;
@@ -571,6 +573,7 @@ function showLogin(message = '', { invalidateSession = true } = {}) {
   if (invalidateSession) invalidateAdminSession();
   closeServiceStatusDialog({ restoreFocus: false, force: true });
   closeProRoomDestroyDialog({ restoreFocus: false });
+  closeProRoomLegacyOwnerDetachDialog({ restoreFocus: false });
   closeProRoomTransferDialog({ restoreFocus: false });
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();
@@ -1591,6 +1594,324 @@ function openProRoomDestroyDialog(roomCode, roomGeneration, trigger) {
     dialog.setAttribute('open', '');
   }
   input.focus();
+}
+
+function resetProRoomLegacyOwnerDetachDialog() {
+  if (!proRoomLegacyOwnerDetachDialogElements) return;
+  const { dialog, form, retainedInput, targetInput, cancelButton, confirmButton, error } =
+    proRoomLegacyOwnerDetachDialogElements;
+  const restoreFocus = proRoomLegacyOwnerDetachTarget?.restoreFocus;
+  proRoomLegacyOwnerDetachTarget = null;
+  form.reset();
+  form.removeAttribute('aria-busy');
+  retainedInput.disabled = false;
+  targetInput.disabled = false;
+  cancelButton.disabled = false;
+  confirmButton.disabled = true;
+  confirmButton.textContent = 'Detach legacy owner';
+  error.textContent = '';
+  dialog.removeAttribute('data-room-code');
+  if (restoreFocus?.isConnected) restoreFocus.focus();
+}
+
+function closeProRoomLegacyOwnerDetachDialog({ restoreFocus = true } = {}) {
+  if (!proRoomLegacyOwnerDetachDialogElements) return;
+  const { dialog } = proRoomLegacyOwnerDetachDialogElements;
+  if (!restoreFocus && proRoomLegacyOwnerDetachTarget) {
+    proRoomLegacyOwnerDetachTarget.restoreFocus = null;
+  }
+  if (!dialog.open && !dialog.hasAttribute('open')) {
+    resetProRoomLegacyOwnerDetachDialog();
+    return;
+  }
+  if (typeof dialog.close === 'function') {
+    try {
+      dialog.close();
+      return;
+    } catch {
+      // Lightweight DOM implementations use the attribute fallback.
+    }
+  }
+  dialog.removeAttribute('open');
+  dialog.dispatchEvent(new Event('close'));
+}
+
+function normalizeProRoomConfirmationInput(input) {
+  const digits = String(input?.value || '')
+    .replace(/\D/g, '')
+    .slice(0, 6);
+  if (input && input.value !== digits) input.value = digits;
+  return digits;
+}
+
+function syncProRoomLegacyOwnerDetachDialog() {
+  if (!proRoomLegacyOwnerDetachDialogElements) return;
+  const { retainedInput, targetInput, error, confirmButton } =
+    proRoomLegacyOwnerDetachDialogElements;
+  const retainedRoomCode = normalizeProRoomConfirmationInput(retainedInput);
+  const targetRoomCode = normalizeProRoomConfirmationInput(targetInput);
+  const expectedTarget = proRoomLegacyOwnerDetachTarget?.roomCode || '';
+  error.textContent = '';
+  confirmButton.disabled =
+    Boolean(proRoomLegacyOwnerDetachTarget?.busy) ||
+    !/^0\d{5}$/.test(retainedRoomCode) ||
+    retainedRoomCode === expectedTarget ||
+    targetRoomCode !== expectedTarget;
+}
+
+function setProRoomLegacyOwnerDetachBusy(isBusy) {
+  if (!proRoomLegacyOwnerDetachDialogElements) return;
+  const { form, retainedInput, targetInput, cancelButton, confirmButton } =
+    proRoomLegacyOwnerDetachDialogElements;
+  if (isBusy) form.setAttribute('aria-busy', 'true');
+  else form.removeAttribute('aria-busy');
+  retainedInput.disabled = isBusy;
+  targetInput.disabled = isBusy;
+  cancelButton.disabled = isBusy;
+  confirmButton.textContent = isBusy ? 'Detaching...' : 'Detach legacy owner';
+  if (proRoomLegacyOwnerDetachTarget) proRoomLegacyOwnerDetachTarget.busy = isBusy;
+  syncProRoomLegacyOwnerDetachDialog();
+}
+
+async function detachProRoomLegacyOwner() {
+  if (!proRoomLegacyOwnerDetachDialogElements || !proRoomLegacyOwnerDetachTarget) return;
+  const { retainedInput, targetInput, error } = proRoomLegacyOwnerDetachDialogElements;
+  const target = proRoomLegacyOwnerDetachTarget;
+  const retainedRoomCode = normalizeProRoomConfirmationInput(retainedInput);
+  const confirmedTargetRoomCode = normalizeProRoomConfirmationInput(targetInput);
+  if (
+    target.busy ||
+    !/^0\d{5}$/.test(retainedRoomCode) ||
+    retainedRoomCode === target.roomCode ||
+    confirmedTargetRoomCode !== target.roomCode
+  ) {
+    return;
+  }
+
+  setProRoomLegacyOwnerDetachBusy(true);
+  error.textContent = '';
+  try {
+    const payload = await fetchJson(`/api/admin/pro-rooms/${target.roomCode}/legacy-owner-detach`, {
+      method: 'POST',
+      body: JSON.stringify({
+        roomGeneration: target.roomGeneration,
+        retainRoomCode: retainedRoomCode,
+        confirmRoomCode: target.roomCode,
+      }),
+    });
+    const containsSensitiveOwnerRemovalField = [
+      'previousOwnerAccountId',
+      'accountId',
+      'removalId',
+    ].some((key) => Object.prototype.hasOwnProperty.call(payload || {}, key));
+    if (
+      containsSensitiveOwnerRemovalField ||
+      payload?.ok !== true ||
+      payload?.roomCode !== target.roomCode ||
+      normalizeProRoomGeneration(payload?.roomGeneration) !== target.roomGeneration ||
+      payload?.status !== 'suspended' ||
+      payload?.suspensionReason !== 'ownership_transfer_pending' ||
+      payload?.ownerAccountLinked !== false ||
+      payload?.retainedRoomCode !== retainedRoomCode
+    ) {
+      throw new Error('PRO_ROOM_ADMIN_INVALID_RESPONSE');
+    }
+
+    const incarnationKey = proRoomIncarnationKey(target.roomCode, target.roomGeneration);
+    if (incarnationKey) {
+      issuedOwnerRecoveryLinks.delete(incarnationKey);
+      issuedOwnerTransferLinks.delete(incarnationKey);
+      proRoomApiCache.delete(incarnationKey);
+      clearProRoomApiSecret(target.roomCode, target.roomGeneration);
+      if (visibleProRoomClaimIncarnation === incarnationKey) dismissProRoomClaim();
+    }
+    setProRoomStatus(
+      `${target.roomCode} owner authority detached. The room is suspended pending ownership transfer; ${retainedRoomCode} remains linked to the account.`,
+    );
+    try {
+      await loadProRooms();
+    } catch {
+      proRoomsLoaded = false;
+      setProRoomStatus(
+        `${target.roomCode} owner authority detached. Refresh the room list before issuing a transfer link.`,
+      );
+    }
+    target.restoreFocus = document.querySelector(
+      `[data-pro-room-item="${target.roomCode}"] > summary`,
+    );
+    closeProRoomLegacyOwnerDetachDialog();
+  } catch (detachError) {
+    if (proRoomLegacyOwnerDetachTarget !== target) return;
+    const safeRetryRequired =
+      detachError?.message === 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED' ||
+      detachError?.code === 'ADMIN_MUTATION_OUTCOME_UNKNOWN';
+    setProRoomLegacyOwnerDetachBusy(false);
+    error.textContent = safeRetryRequired
+      ? 'The repair may be incomplete or its result is unknown. Keep this page open and retry the same repair; retrying is safe. Do not refresh.'
+      : adminErrorMessage(detachError, 'The legacy owner could not be detached.');
+    retainedInput.focus();
+  }
+}
+
+function ensureProRoomLegacyOwnerDetachDialog() {
+  if (proRoomLegacyOwnerDetachDialogElements) return proRoomLegacyOwnerDetachDialogElements;
+
+  const dialog = document.createElement('dialog');
+  dialog.className = 'pro-room-owner-detach-dialog';
+  dialog.dataset.proRoomOwnerDetachDialog = '';
+  dialog.setAttribute('aria-labelledby', 'pro-room-owner-detach-title');
+  dialog.setAttribute('aria-describedby', 'pro-room-owner-detach-description');
+
+  const form = document.createElement('form');
+  form.className = 'pro-room-owner-detach-form';
+  const copy = document.createElement('div');
+  copy.className = 'pro-room-owner-detach-copy';
+  const eyebrow = document.createElement('span');
+  eyebrow.className = 'pro-room-owner-detach-eyebrow';
+  eyebrow.textContent = 'Legacy owner repair';
+  const title = document.createElement('h2');
+  title.id = 'pro-room-owner-detach-title';
+  const description = document.createElement('p');
+  description.id = 'pro-room-owner-detach-description';
+  description.textContent =
+    'Use only when a legacy beta account is linked to two PRO rooms. This revokes the target room owner, sessions, PIN, delegated admins, credentials, and API keys, then suspends the room until ownership transfer. The room number, playlist, uploads, and settings stay intact. This does not transfer or delete the room.';
+  copy.append(eyebrow, title, description);
+
+  const retainedField = document.createElement('label');
+  retainedField.className = 'pro-room-owner-detach-field';
+  const retainedLabel = document.createElement('span');
+  retainedLabel.textContent = 'Retained room code (same owner)';
+  const retainedInput = document.createElement('input');
+  retainedInput.type = 'text';
+  retainedInput.inputMode = 'numeric';
+  retainedInput.maxLength = 6;
+  retainedInput.autocomplete = 'off';
+  retainedInput.spellcheck = false;
+  retainedInput.placeholder = '000001';
+  retainedInput.dataset.proRoomOwnerDetachRetained = '';
+  retainedInput.setAttribute(
+    'aria-describedby',
+    'pro-room-owner-detach-description pro-room-owner-detach-note pro-room-owner-detach-error',
+  );
+  retainedField.append(retainedLabel, retainedInput);
+
+  const targetField = document.createElement('label');
+  targetField.className = 'pro-room-owner-detach-field';
+  const targetLabel = document.createElement('span');
+  targetLabel.dataset.proRoomOwnerDetachTargetLabel = '';
+  const targetInput = document.createElement('input');
+  targetInput.type = 'text';
+  targetInput.inputMode = 'numeric';
+  targetInput.maxLength = 6;
+  targetInput.autocomplete = 'off';
+  targetInput.spellcheck = false;
+  targetInput.dataset.proRoomOwnerDetachTarget = '';
+  targetInput.setAttribute(
+    'aria-describedby',
+    'pro-room-owner-detach-description pro-room-owner-detach-note pro-room-owner-detach-error',
+  );
+  targetField.append(targetLabel, targetInput);
+
+  const note = document.createElement('p');
+  note.id = 'pro-room-owner-detach-note';
+  note.className = 'pro-room-owner-detach-note';
+  note.textContent =
+    'The server will verify that both rooms have the same canonical owner. Use ownership transfer after this repair to assign the target room to a different account.';
+  const error = document.createElement('p');
+  error.id = 'pro-room-owner-detach-error';
+  error.className = 'pro-room-owner-detach-error';
+  error.dataset.proRoomOwnerDetachError = '';
+  error.setAttribute('role', 'alert');
+  error.setAttribute('aria-live', 'assertive');
+
+  const actions = document.createElement('div');
+  actions.className = 'pro-room-owner-detach-actions';
+  const cancelButton = document.createElement('button');
+  cancelButton.type = 'button';
+  cancelButton.className = 'is-secondary';
+  cancelButton.textContent = 'Cancel';
+  cancelButton.dataset.proRoomOwnerDetachCancel = '';
+  const confirmButton = document.createElement('button');
+  confirmButton.type = 'submit';
+  confirmButton.className = 'is-danger';
+  confirmButton.textContent = 'Detach legacy owner';
+  confirmButton.disabled = true;
+  confirmButton.dataset.proRoomOwnerDetachConfirm = '';
+  actions.append(cancelButton, confirmButton);
+
+  form.append(copy, retainedField, targetField, note, error, actions);
+  dialog.append(form);
+  document.body.append(dialog);
+  proRoomLegacyOwnerDetachDialogElements = {
+    dialog,
+    form,
+    title,
+    targetLabel,
+    retainedInput,
+    targetInput,
+    error,
+    cancelButton,
+    confirmButton,
+  };
+  retainedInput.addEventListener('input', syncProRoomLegacyOwnerDetachDialog);
+  targetInput.addEventListener('input', syncProRoomLegacyOwnerDetachDialog);
+  cancelButton.addEventListener('click', () => closeProRoomLegacyOwnerDetachDialog());
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    detachProRoomLegacyOwner().catch(() => {});
+  });
+  dialog.addEventListener('cancel', (event) => {
+    event.preventDefault();
+    if (!proRoomLegacyOwnerDetachTarget?.busy) closeProRoomLegacyOwnerDetachDialog();
+  });
+  dialog.addEventListener('close', resetProRoomLegacyOwnerDetachDialog);
+  return proRoomLegacyOwnerDetachDialogElements;
+}
+
+function openProRoomLegacyOwnerDetachDialog(roomCode, roomGeneration, trigger) {
+  if (normalizeProRoomGeneration(roomGeneration) === null) {
+    setProRoomStatus('Room generation is unavailable. Refresh before making changes.', true);
+    return;
+  }
+  const elements = ensureProRoomLegacyOwnerDetachDialog();
+  const {
+    dialog,
+    form,
+    title,
+    targetLabel,
+    retainedInput,
+    targetInput,
+    error,
+    cancelButton,
+    confirmButton,
+  } = elements;
+  proRoomLegacyOwnerDetachTarget = {
+    roomCode,
+    roomGeneration,
+    restoreFocus: trigger,
+    busy: false,
+  };
+  form.reset();
+  form.removeAttribute('aria-busy');
+  title.textContent = `Detach legacy owner from PRO room ${roomCode}?`;
+  targetLabel.textContent = `Enter ${roomCode} to confirm the target room`;
+  retainedInput.disabled = false;
+  targetInput.disabled = false;
+  error.textContent = '';
+  cancelButton.disabled = false;
+  confirmButton.disabled = true;
+  confirmButton.textContent = 'Detach legacy owner';
+  dialog.dataset.roomCode = roomCode;
+  if (typeof dialog.showModal === 'function') {
+    try {
+      dialog.showModal();
+    } catch {
+      dialog.setAttribute('open', '');
+    }
+  } else {
+    dialog.setAttribute('open', '');
+  }
+  retainedInput.focus();
 }
 
 function resetProRoomTransferDialog() {
@@ -2625,6 +2946,38 @@ function renderProRoomDangerZone(roomCode, roomGeneration, rawStatus) {
   return section;
 }
 
+function renderProRoomLegacyOwnerRepair(room, roomCode, roomGeneration, rawStatus) {
+  const suspensionReason =
+    typeof room?.suspensionReason === 'string' ? room.suspensionReason : null;
+  const eligibleStatus =
+    rawStatus === 'active' ||
+    (rawStatus === 'suspended' && suspensionReason === 'operator_suspended');
+  if (room?.ownerAccountLinked !== true || !eligibleStatus) {
+    return document.createDocumentFragment();
+  }
+
+  const section = document.createElement('section');
+  section.className = 'pro-room-owner-repair';
+  const copy = document.createElement('div');
+  const heading = document.createElement('strong');
+  heading.textContent = 'Legacy owner repair';
+  const description = document.createElement('p');
+  description.textContent =
+    'Only for a legacy beta account linked to two PRO rooms. Detach this room before assigning it to another account; room data is preserved. This is not transfer or deletion.';
+  copy.append(heading, description);
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'is-danger';
+  button.textContent = 'Detach legacy owner';
+  button.dataset.proRoomOwnerDetach = roomCode;
+  button.addEventListener('click', () =>
+    openProRoomLegacyOwnerDetachDialog(roomCode, roomGeneration, button),
+  );
+  section.append(copy, button);
+  return section;
+}
+
 function renderProRoomRow(room) {
   const roomCode = normalizeProRoomCode(room?.roomCode);
   if (!roomCode) return null;
@@ -2709,7 +3062,10 @@ function renderProRoomRow(room) {
   const dangerZone = incarnationKey
     ? renderProRoomDangerZone(roomCode, roomGeneration, rawStatus)
     : document.createDocumentFragment();
-  expanded.append(controls, apiPanel, dangerZone);
+  const ownerRepair = incarnationKey
+    ? renderProRoomLegacyOwnerRepair(room, roomCode, roomGeneration, rawStatus)
+    : document.createDocumentFragment();
+  expanded.append(controls, ownerRepair, apiPanel, dangerZone);
   item.append(summary, expanded);
   item.addEventListener('toggle', () => {
     if (item.open) {
@@ -3896,6 +4252,7 @@ window.addEventListener('pagehide', () => {
   clearServiceStatusSettleTimer();
   closeServiceStatusDialog({ restoreFocus: false, force: true });
   closeProRoomDestroyDialog({ restoreFocus: false });
+  closeProRoomLegacyOwnerDetachDialog({ restoreFocus: false });
   closeProRoomTransferDialog({ restoreFocus: false });
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();
@@ -3906,6 +4263,7 @@ window.addEventListener('beforeunload', () => {
   clearServiceStatusSettleTimer();
   closeServiceStatusDialog({ restoreFocus: false, force: true });
   closeProRoomDestroyDialog({ restoreFocus: false });
+  closeProRoomLegacyOwnerDetachDialog({ restoreFocus: false });
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();
   pendingProGrantVoucherExport = null;

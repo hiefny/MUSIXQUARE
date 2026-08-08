@@ -6,6 +6,7 @@ import { resetState } from '../../core/state.ts';
 import { setPeer } from '../../network/peer-state.ts';
 import {
   __resetAccountSessionForTests,
+  reconcileAccountLoginSession,
   removeAccount,
   saveAccountNickname,
   signOutAccount,
@@ -125,6 +126,37 @@ describe('account session mutation ordering', () => {
       '/api/auth/session',
       '/api/auth/session',
     ]);
+  });
+
+  it('reconciles the exact popup session and fences an older account read', async () => {
+    const oldRead = deferred<Response>();
+    const reconciledRead = deferred<Response>();
+    const sessionReads = [oldRead, reconciledRead];
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/auth/session');
+      return sessionReads.shift()!.promise;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    const reconciliation = reconcileAccountLoginSession();
+    reconciledRead.resolve(jsonResponse(AUTHENTICATED_NEW));
+
+    await expect(reconciliation).resolves.toEqual(AUTHENTICATED_NEW);
+    expect(getAccountSnapshot().account?.nickname).toBe('Minsu');
+
+    oldRead.resolve(jsonResponse(AUTHENTICATED_OLD));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(getAccountSnapshot().account?.nickname).toBe('Minsu');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('marks an anonymous account unavailable when popup reconciliation fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('session unavailable')));
+
+    await expect(reconcileAccountLoginSession()).rejects.toThrow('ACCOUNT_NETWORK_ERROR');
+    expect(getAccountSnapshot().status).toBe('unavailable');
   });
 
   it('emits a storage pulse for tabs without BroadcastChannel support', async () => {

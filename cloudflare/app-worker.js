@@ -38,6 +38,8 @@ import {
   handleProGrantPublicRequest,
   hasReservedProGrantAllocation,
   markProRoomOwnerEntitlementBackfillComplete,
+  canOrphanProRoomOwnerEntitlement,
+  orphanProRoomOwnerEntitlement,
   orphanAccountProGrants,
   reconcileProGrantLifecycle,
   reserveProRoomOwnershipTransferEntitlement,
@@ -102,7 +104,7 @@ const SORO_BLOG_CACHE_VERSION_KEY = 'soro-blog-cache-version.json';
 const ADMIN_ANNOUNCEMENT_KEY = 'admin-announcement.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
-const ADMIN_ASSET_VERSION = '8.3.17';
+const ADMIN_ASSET_VERSION = '8.3.18';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -125,6 +127,8 @@ const ADMIN_PRO_ROOM_OWNER_RECOVERY_PATH_RE =
   /^\/api\/admin\/pro-rooms\/(0\d{5})\/owner-recovery-claim$/;
 const ADMIN_PRO_ROOM_OWNER_TRANSFER_PATH_RE =
   /^\/api\/admin\/pro-rooms\/(0\d{5})\/owner-transfer-claim$/;
+const ADMIN_PRO_ROOM_LEGACY_OWNER_DETACH_PATH_RE =
+  /^\/api\/admin\/pro-rooms\/(0\d{5})\/legacy-owner-detach$/;
 const ADMIN_PRO_ROOM_STATE_PATH_RE = /^\/api\/admin\/pro-rooms\/(0\d{5})\/state$/;
 const ADMIN_PRO_ROOM_LABEL_PATH_RE = /^\/api\/admin\/pro-rooms\/(0\d{5})\/label$/;
 const ADMIN_PRO_ROOM_DELETE_PATH_RE = /^\/api\/admin\/pro-rooms\/(0\d{5})$/;
@@ -2365,7 +2369,9 @@ async function attachCanonicalAdminProRoomOwnerState(env, db, rooms) {
     room?.activationState === 'active' &&
     (room.status === 'registered' || room.status === 'suspended');
   const enriched = rooms.map((room) =>
-    needsOwnerState(room) ? { ...room, ownerAccountLinked: null } : room,
+    needsOwnerState(room)
+      ? { ...room, ownerAccountLinked: null, ownerTransferPrepared: null }
+      : room,
   );
   const activeIndexes = enriched
     .map((room, index) => (needsOwnerState(room) ? index : -1))
@@ -2416,7 +2422,11 @@ async function attachCanonicalAdminProRoomOwnerState(env, db, rooms) {
           }
         }
         if (payload.status === 'active' && payload.suspensionReason == null) {
-          enriched[index] = { ...room, ownerAccountLinked: payload.ownerAccountLinked };
+          enriched[index] = {
+            ...room,
+            ownerAccountLinked: payload.ownerAccountLinked,
+            ownerTransferPrepared: payload.ownerTransferReconciliation != null,
+          };
           return;
         }
         if (
@@ -2431,6 +2441,7 @@ async function attachCanonicalAdminProRoomOwnerState(env, db, rooms) {
             suspensionReason: payload.suspensionReason,
             activationState: 'active',
             ownerAccountLinked: payload.ownerAccountLinked,
+            ownerTransferPrepared: payload.ownerTransferReconciliation != null,
           };
           // The canonical status response can itself discover a deleted owner
           // and durably suspend the room. Preserve that state in this response
@@ -3049,6 +3060,30 @@ function proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) 
     return false;
   }
   return payload.roomCode === roomCode && payload.roomGeneration === roomGeneration;
+}
+
+function normalizeOwnerAuthorityRemoval(value) {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    !ACCOUNT_ID_RE.test(value.accountId || '') ||
+    !OWNER_AUTHORITY_REMOVAL_ID_RE.test(value.removalId || '') ||
+    !Number.isSafeInteger(value.ownerAuthorityEpoch) ||
+    value.ownerAuthorityEpoch < 1 ||
+    !Number.isSafeInteger(value.fencedCoordinatorEpoch) ||
+    value.fencedCoordinatorEpoch < 1 ||
+    typeof value.projectionAcked !== 'boolean'
+  ) {
+    return null;
+  }
+  return {
+    accountId: value.accountId,
+    removalId: value.removalId,
+    ownerAuthorityEpoch: value.ownerAuthorityEpoch,
+    fencedCoordinatorEpoch: value.fencedCoordinatorEpoch,
+    projectionAcked: value.projectionAcked,
+  };
 }
 
 async function fenceProRoomSignalingForOwnerAccountDeletion(
@@ -7118,6 +7153,276 @@ async function handleAdminProRoomOwnerTransferClaim(request, env, pathname) {
     claimGeneration: issued.payload.claimGeneration,
     transferUrl: issued.payload.transferUrl,
     expiresAt: issued.payload.expiresAt,
+  });
+}
+
+async function handleAdminProRoomLegacyOwnerDetach(request, env, pathname) {
+  const route = pathname.match(ADMIN_PRO_ROOM_LEGACY_OWNER_DETACH_PATH_RE);
+  if (!route) return json({ error: 'NOT_FOUND' }, 404);
+  const methodError = adminApiMethodAllowed(request, ['POST']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+
+  const db = getAdminDb(env);
+  if (!db?.prepare || !getProRoomAdminNamespace(env)) {
+    return json({ error: 'PRO_ROOM_ADMIN_NOT_CONFIGURED' }, 503);
+  }
+
+  const roomCode = route[1];
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody);
+  const body = parsedBody.value;
+  const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : [];
+  if (
+    keys.length !== 3 ||
+    !keys.includes('roomGeneration') ||
+    !keys.includes('retainRoomCode') ||
+    !keys.includes('confirmRoomCode') ||
+    !isProRoomGeneration(body?.roomGeneration) ||
+    !ADMIN_PRO_ROOM_CODE_RE.test(body?.retainRoomCode || '') ||
+    body.retainRoomCode === roomCode ||
+    body.confirmRoomCode !== roomCode
+  ) {
+    return json({ error: 'INVALID_REQUEST' }, 400);
+  }
+
+  let room;
+  let retainedRoom;
+  try {
+    [room, retainedRoom] = await Promise.all([
+      readAdminProRoom(db, roomCode),
+      readAdminProRoom(db, body.retainRoomCode),
+    ]);
+  } catch {
+    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  }
+  if (!room || !retainedRoom) return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  if (room.roomGeneration !== body.roomGeneration) {
+    return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
+  }
+  if (room.activationState !== 'active' || !['registered', 'suspended'].includes(room.status)) {
+    return json({ error: 'PRO_ROOM_LEGACY_OWNER_DETACH_UNAVAILABLE' }, 409);
+  }
+
+  const targetStatus = await callProRoomAdminObject(
+    env,
+    roomCode,
+    room.roomGeneration,
+    '/internal/admin/status',
+    'GET',
+  );
+  const target = targetStatus.payload;
+  if (
+    targetStatus.response?.ok !== true ||
+    !proRoomAdminResponseIdentityMatches(target, roomCode, room.roomGeneration) ||
+    target.provisioned !== true
+  ) {
+    return json({ error: 'PRO_ROOM_ADMIN_UNAVAILABLE' }, 503);
+  }
+
+  const targetRemoval = normalizeOwnerAuthorityRemoval(target.ownerAuthorityRemoval);
+  const firstDetach =
+    (target.status === 'active' ||
+      (target.status === 'suspended' && target.suspensionReason === 'operator_suspended')) &&
+    target.ownerAccountLinked === true &&
+    ACCOUNT_ID_RE.test(target.ownerAccountId || '') &&
+    Number.isSafeInteger(target.ownerAuthorityEpoch) &&
+    target.ownerAuthorityEpoch >= 0 &&
+    target.ownerAuthorityRemoval === null &&
+    target.ownerTransferReconciliation === null;
+  const detachedReplay =
+    target.status === 'suspended' &&
+    target.suspensionReason === 'ownership_transfer_pending' &&
+    target.ownerAccountLinked === false &&
+    target.ownerAccountId === null &&
+    targetRemoval !== null &&
+    target.ownerAuthorityEpoch === targetRemoval.ownerAuthorityEpoch &&
+    target.ownerTransferReconciliation === null;
+  if (!firstDetach && !detachedReplay) {
+    return json({ error: 'PRO_ROOM_LEGACY_OWNER_DETACH_UNAVAILABLE' }, 409);
+  }
+
+  const previousOwnerAccountId = firstDetach ? target.ownerAccountId : targetRemoval.accountId;
+  const expectedOwnerAuthorityEpoch = firstDetach
+    ? target.ownerAuthorityEpoch
+    : targetRemoval.ownerAuthorityEpoch - 1;
+  if (firstDetach) {
+    if (retainedRoom.activationState !== 'active' || retainedRoom.status !== 'registered') {
+      return json({ error: 'PRO_ROOM_LEGACY_DUPLICATE_OWNER_NOT_CONFIRMED' }, 409);
+    }
+    const retainedStatus = await callProRoomAdminObject(
+      env,
+      retainedRoom.roomCode,
+      retainedRoom.roomGeneration,
+      '/internal/admin/status',
+      'GET',
+    );
+    const retained = retainedStatus.payload;
+    if (
+      retainedStatus.response?.ok !== true ||
+      !proRoomAdminResponseIdentityMatches(
+        retained,
+        retainedRoom.roomCode,
+        retainedRoom.roomGeneration,
+      ) ||
+      retained.provisioned !== true ||
+      retained.status !== 'active' ||
+      retained.suspensionReason != null ||
+      retained.ownerAccountLinked !== true ||
+      retained.ownerAccountId !== previousOwnerAccountId ||
+      retained.ownerTransferReconciliation !== null
+    ) {
+      return json({ error: 'PRO_ROOM_LEGACY_DUPLICATE_OWNER_NOT_CONFIRMED' }, 409);
+    }
+  }
+
+  const entitlementInput = {
+    accountId: previousOwnerAccountId,
+    roomCode,
+    roomGeneration: room.roomGeneration,
+    nowMs: Date.now(),
+  };
+  if (!(await canOrphanProRoomOwnerEntitlement(env, entitlementInput))) {
+    return json({ error: 'PRO_ROOM_OWNER_ENTITLEMENT_CONFLICT' }, 409);
+  }
+
+  const detached = await callProRoomAdminObject(
+    env,
+    roomCode,
+    room.roomGeneration,
+    '/internal/admin/owner-authority/detach',
+    'POST',
+    { accountId: previousOwnerAccountId, expectedOwnerAuthorityEpoch },
+  );
+  const result = detached.payload;
+  if (!detached.response?.ok) return proRoomObjectError(detached);
+  if (
+    result?.ok !== true ||
+    !proRoomAdminResponseIdentityMatches(result, roomCode, room.roomGeneration) ||
+    result.status !== 'suspended' ||
+    result.suspensionReason !== 'ownership_transfer_pending' ||
+    result.previousOwnerAccountId !== previousOwnerAccountId ||
+    result.expectedOwnerAuthorityEpoch !== expectedOwnerAuthorityEpoch ||
+    result.ownerAuthorityRemoved !== true ||
+    !OWNER_AUTHORITY_REMOVAL_ID_RE.test(result.removalId || '') ||
+    result.removedOwnerAuthorityEpoch !== expectedOwnerAuthorityEpoch + 1 ||
+    result.ownerAuthorityEpoch !== result.removedOwnerAuthorityEpoch ||
+    !Number.isSafeInteger(result.fencedCoordinatorEpoch) ||
+    result.fencedCoordinatorEpoch < 1 ||
+    typeof result.projectionAcked !== 'boolean' ||
+    typeof result.changed !== 'boolean'
+  ) {
+    return json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
+  }
+
+  const removal = {
+    roomCode,
+    roomGeneration: room.roomGeneration,
+    removalId: result.removalId,
+    removedOwnerAuthorityEpoch: result.removedOwnerAuthorityEpoch,
+    fencedCoordinatorEpoch: result.fencedCoordinatorEpoch,
+  };
+  try {
+    // This endpoint is legacy-named for account deletion, but its contract is
+    // an exact removal-id/authority-epoch fence and is safe for this operator
+    // authority removal as well.
+    if (!(await fenceProRoomSignalingForOwnerAccountDeletion(removal, env))) {
+      throw new Error('PRO signaling owner-authority fence unavailable');
+    }
+    const fenceDigest = await developerApiAuthorityFenceDigest(
+      env,
+      'legacy-owner-detach',
+      `${roomCode}\u0000${room.roomGeneration}\u0000${previousOwnerAccountId}\u0000${result.removalId}\u0000${result.removedOwnerAuthorityEpoch}\u0000${result.fencedCoordinatorEpoch}`,
+    );
+    await revokeDeveloperApiKeysForAuthorityChange(
+      env,
+      roomCode,
+      room.roomGeneration,
+      'system:legacy-owner-detach',
+      'legacy_duplicate_owner_detach',
+      'ownership_transfer_pending',
+      fenceDigest,
+    );
+    if (!(await orphanProRoomOwnerEntitlement(env, entitlementInput))) {
+      throw new Error('PRO owner entitlement orphaning unavailable');
+    }
+    if (
+      !(await markAdminProRoomOperationalState(
+        db,
+        roomCode,
+        room.roomGeneration,
+        'suspended',
+        'ownership_transfer_pending',
+      ))
+    ) {
+      throw new Error('PRO room ownerless projection unavailable');
+    }
+    if (
+      !(await retireAccountProRoomLinkForAccount(
+        env,
+        previousOwnerAccountId,
+        roomCode,
+        room.roomGeneration,
+      ))
+    ) {
+      throw new Error('PRO account reverse edge retirement unavailable');
+    }
+  } catch {
+    return json({ error: 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED' }, 503);
+  }
+
+  const auditError = await writeAdminProRoomAuditOrFail(
+    db,
+    request,
+    env,
+    'legacy_duplicate_owner.detach',
+    result.changed ? 'changed' : 'reconciled',
+    roomCode,
+    room.roomGeneration,
+  );
+  if (auditError) return auditError;
+
+  const acknowledged = await callProRoomAdminObject(
+    env,
+    roomCode,
+    room.roomGeneration,
+    '/internal/admin/owner-authority/detach/ack',
+    'POST',
+    {
+      accountId: previousOwnerAccountId,
+      expectedOwnerAuthorityEpoch,
+      removalId: result.removalId,
+      removedOwnerAuthorityEpoch: result.removedOwnerAuthorityEpoch,
+      fencedCoordinatorEpoch: result.fencedCoordinatorEpoch,
+    },
+  );
+  const ack = acknowledged.payload;
+  if (
+    acknowledged.response?.ok !== true ||
+    ack?.ok !== true ||
+    !proRoomAdminResponseIdentityMatches(ack, roomCode, room.roomGeneration) ||
+    ack.status !== 'suspended' ||
+    ack.suspensionReason !== 'ownership_transfer_pending' ||
+    ack.previousOwnerAccountId !== previousOwnerAccountId ||
+    ack.expectedOwnerAuthorityEpoch !== expectedOwnerAuthorityEpoch ||
+    ack.ownerAuthorityRemoved !== true ||
+    ack.removalId !== result.removalId ||
+    ack.removedOwnerAuthorityEpoch !== result.removedOwnerAuthorityEpoch ||
+    ack.fencedCoordinatorEpoch !== result.fencedCoordinatorEpoch ||
+    ack.projectionAcked !== true
+  ) {
+    return json({ error: 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED' }, 503);
+  }
+
+  return json({
+    ok: true,
+    roomCode,
+    roomGeneration: room.roomGeneration,
+    status: 'suspended',
+    suspensionReason: 'ownership_transfer_pending',
+    ownerAccountLinked: false,
+    retainedRoomCode: retainedRoom.roomCode,
+    changed: result.changed,
   });
 }
 
@@ -11275,6 +11580,10 @@ export default {
 
     if (ADMIN_PRO_ROOM_OWNER_TRANSFER_PATH_RE.test(url.pathname)) {
       return handleAdminProRoomOwnerTransferClaim(request, env, url.pathname);
+    }
+
+    if (ADMIN_PRO_ROOM_LEGACY_OWNER_DETACH_PATH_RE.test(url.pathname)) {
+      return handleAdminProRoomLegacyOwnerDetach(request, env, url.pathname);
     }
 
     if (ADMIN_PRO_ROOM_STATE_PATH_RE.test(url.pathname)) {

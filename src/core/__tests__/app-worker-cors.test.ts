@@ -4275,9 +4275,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.17');
-    expect(html).toContain('/admin.js?v=8.3.17');
-    expect(html).toContain('data-admin-asset-version="8.3.17"');
+    expect(html).toContain('/admin.css?v=8.3.18');
+    expect(html).toContain('/admin.js?v=8.3.18');
+    expect(html).toContain('data-admin-asset-version="8.3.18"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
@@ -4296,7 +4296,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.3.17', '/admin.css?v=8.3.17']) {
+    for (const path of ['/admin.js?v=8.3.18', '/admin.css?v=8.3.18']) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
@@ -5287,6 +5287,548 @@ describe('Cloudflare app worker Developer API key administration', () => {
 });
 
 describe('Cloudflare app worker PRO room facade', () => {
+  it('detaches only the exact duplicate legacy owner and safely reconciles a signaling failure', async () => {
+    const targetRoomCode = '031108';
+    const retainedRoomCode = '020924';
+    const roomGeneration = 0;
+    const ownerAccountId = 'acct_0123456789abcdefghijkl';
+    const concurrentOwnerAccountId = 'acct_abcdefghijkl0123456789';
+    const removalId = 'removal_abcdefghijklmnopqrstuv';
+
+    const sqliteD1 = (database: DatabaseSync) => ({
+      prepare(sql: string) {
+        return new CentralEntitlementStatement(database.prepare(sql));
+      },
+      async batch(statements: Array<{ run: () => Promise<unknown> }>) {
+        database.exec('BEGIN IMMEDIATE');
+        try {
+          const results = [];
+          for (const statement of statements) results.push(await statement.run());
+          database.exec('COMMIT');
+          return results;
+        } catch (error) {
+          database.exec('ROLLBACK');
+          throw error;
+        }
+      },
+    });
+
+    const registryDatabase = new sqlite.DatabaseSync(':memory:');
+    const authDatabase = new sqlite.DatabaseSync(':memory:');
+    const developerDatabase = new sqlite.DatabaseSync(':memory:');
+    centralEntitlementDatabases.add(registryDatabase);
+    centralEntitlementDatabases.add(authDatabase);
+    centralEntitlementDatabases.add(developerDatabase);
+    const now = Date.now();
+    registryDatabase.exec(`
+      CREATE TABLE mxqr_pro_room_registry (
+        room_code TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        status TEXT NOT NULL,
+        suspension_reason TEXT,
+        activation_state TEXT NOT NULL,
+        room_generation INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO mxqr_pro_room_registry VALUES
+        ('${targetRoomCode}', 'Duplicate legacy room', 'registered', NULL, 'active',
+         ${roomGeneration}, ${now - 2}, ${now - 2}),
+        ('${retainedRoomCode}', 'Retained canonical room', 'registered', NULL, 'active',
+         ${roomGeneration}, ${now - 1}, ${now - 1});
+    `);
+    authDatabase.exec(`
+      CREATE TABLE mxqr_account_pro_room_generations (
+        account_id TEXT NOT NULL,
+        room_code TEXT NOT NULL,
+        room_generation INTEGER NOT NULL,
+        PRIMARY KEY (account_id, room_code, room_generation)
+      );
+      INSERT INTO mxqr_account_pro_room_generations VALUES
+        ('${ownerAccountId}', '${targetRoomCode}', ${roomGeneration}),
+        ('${ownerAccountId}', '${retainedRoomCode}', ${roomGeneration});
+    `);
+    developerDatabase.exec(`
+      CREATE TABLE mxqr_developer_api_keys (
+        key_id TEXT PRIMARY KEY,
+        room_code TEXT NOT NULL,
+        room_generation INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        revoked_at INTEGER,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE mxqr_developer_api_room_authority_fences (
+        room_code TEXT NOT NULL,
+        room_generation INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        fence_digest TEXT NOT NULL,
+        fenced_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (room_code, room_generation)
+      );
+      CREATE TABLE mxqr_developer_api_admin_audit (
+        actor_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        result TEXT NOT NULL,
+        key_id TEXT NOT NULL,
+        room_code TEXT NOT NULL,
+        room_generation INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        UNIQUE (actor_id, action, result, key_id, room_code, room_generation, created_at)
+      );
+      INSERT INTO mxqr_developer_api_keys VALUES
+        ('TargetKey0000001', '${targetRoomCode}', ${roomGeneration}, 'active', NULL, ${now}),
+        ('RetainKey0000001', '${retainedRoomCode}', ${roomGeneration}, 'active', NULL, ${now});
+    `);
+
+    type OwnerRemoval = {
+      accountId: string;
+      removalId: string;
+      ownerAuthorityEpoch: number;
+      fencedCoordinatorEpoch: number;
+      projectionAcked: boolean;
+    };
+    type CanonicalRoom = {
+      roomCode: string;
+      roomGeneration: number;
+      provisioned: true;
+      status: 'active' | 'suspended';
+      suspensionReason: string | null;
+      ownerAccountId: string | null;
+      ownerAuthorityEpoch: number;
+      ownerAuthorityRemoval: OwnerRemoval | null;
+      ownerTransferReconciliation: null;
+    };
+    const canonicalRooms = new Map<string, CanonicalRoom>([
+      [
+        targetRoomCode,
+        {
+          roomCode: targetRoomCode,
+          roomGeneration,
+          provisioned: true,
+          status: 'active',
+          suspensionReason: null,
+          ownerAccountId,
+          ownerAuthorityEpoch: 4,
+          ownerAuthorityRemoval: null,
+          ownerTransferReconciliation: null,
+        },
+      ],
+      [
+        retainedRoomCode,
+        {
+          roomCode: retainedRoomCode,
+          roomGeneration,
+          provisioned: true,
+          status: 'active',
+          suspensionReason: null,
+          ownerAccountId,
+          ownerAuthorityEpoch: 7,
+          ownerAuthorityRemoval: null,
+          ownerTransferReconciliation: null,
+        },
+      ],
+    ]);
+    const retainedCanonicalBefore = structuredClone(canonicalRooms.get(retainedRoomCode));
+    const statusCalls: string[] = [];
+    let detachCalls = 0;
+    let ackCalls = 0;
+    const adminFetch = vi.fn(async (objectName: string, request: Request) => {
+      const roomCode = objectName.slice(0, 6);
+      const room = canonicalRooms.get(roomCode);
+      expect(room).toBeDefined();
+      const pathname = new URL(request.url).pathname;
+      if (pathname === '/internal/admin/status') {
+        statusCalls.push(roomCode);
+        return Response.json({
+          ...room,
+          ownerAccountLinked: room?.ownerAccountId !== null,
+        });
+      }
+      expect(roomCode).toBe(targetRoomCode);
+      if (pathname === '/internal/admin/owner-authority/detach') {
+        detachCalls += 1;
+        const body = (await request.json()) as Record<string, unknown>;
+        expect(body).toEqual({
+          accountId: ownerAccountId,
+          expectedOwnerAuthorityEpoch: 4,
+          roomGeneration,
+        });
+        let changed = false;
+        if (room?.ownerAuthorityRemoval === null) {
+          changed = true;
+          room.status = 'suspended';
+          room.suspensionReason = 'ownership_transfer_pending';
+          room.ownerAccountId = null;
+          room.ownerAuthorityEpoch = 5;
+          room.ownerAuthorityRemoval = {
+            accountId: ownerAccountId,
+            removalId,
+            ownerAuthorityEpoch: 5,
+            fencedCoordinatorEpoch: 9,
+            projectionAcked: false,
+          };
+        }
+        const removal = room?.ownerAuthorityRemoval;
+        return Response.json({
+          ok: true,
+          roomCode: targetRoomCode,
+          roomGeneration,
+          status: room?.status,
+          suspensionReason: room?.suspensionReason,
+          previousOwnerAccountId: ownerAccountId,
+          expectedOwnerAuthorityEpoch: 4,
+          ownerAuthorityEpoch: room?.ownerAuthorityEpoch,
+          ownerAuthorityRemoved: true,
+          removalId: removal?.removalId,
+          removedOwnerAuthorityEpoch: removal?.ownerAuthorityEpoch,
+          fencedCoordinatorEpoch: removal?.fencedCoordinatorEpoch,
+          projectionAcked: removal?.projectionAcked,
+          changed,
+          removedSessions: changed ? 1 : 0,
+        });
+      }
+      expect(pathname).toBe('/internal/admin/owner-authority/detach/ack');
+      ackCalls += 1;
+      const body = (await request.json()) as Record<string, unknown>;
+      expect(body).toEqual({
+        accountId: ownerAccountId,
+        expectedOwnerAuthorityEpoch: 4,
+        removalId,
+        removedOwnerAuthorityEpoch: 5,
+        fencedCoordinatorEpoch: 9,
+        roomGeneration,
+      });
+      const removal = room?.ownerAuthorityRemoval;
+      const changed = removal?.projectionAcked !== true;
+      if (removal) removal.projectionAcked = true;
+      return Response.json({
+        ok: true,
+        roomCode: targetRoomCode,
+        roomGeneration,
+        status: room?.status,
+        suspensionReason: room?.suspensionReason,
+        previousOwnerAccountId: ownerAccountId,
+        expectedOwnerAuthorityEpoch: 4,
+        ownerAuthorityEpoch: room?.ownerAuthorityEpoch,
+        ownerAuthorityRemoved: true,
+        removalId,
+        removedOwnerAuthorityEpoch: 5,
+        fencedCoordinatorEpoch: 9,
+        projectionAcked: true,
+        changed,
+      });
+    });
+
+    let signalingAttempts = 0;
+    const signalingFetch = vi.fn(async (request: Request) => {
+      signalingAttempts += 1;
+      const body = (await request.json()) as Record<string, unknown>;
+      expect(body).toEqual({
+        roomCode: targetRoomCode,
+        roomGeneration,
+        removalId,
+        removedOwnerAuthorityEpoch: 5,
+        fencedCoordinatorEpoch: 9,
+      });
+      if (signalingAttempts === 1) {
+        return Response.json({ error: 'SIGNALING_UNAVAILABLE' }, { status: 503 });
+      }
+      return Response.json({
+        ok: true,
+        roomCode: targetRoomCode,
+        roomGeneration,
+        status: 'suspended',
+        reason: 'owner_account_deleted',
+        fenceStatus: 'installed',
+        changed: signalingAttempts === 2,
+        removalId,
+        removedOwnerAuthorityEpoch: 5,
+        fencedCoordinatorEpoch: 9,
+        effectiveCoordinatorEpoch: 9,
+      });
+    });
+
+    const registryDb = sqliteD1(registryDatabase);
+    const centralDb = withCentralEntitlementLedger(registryDb, [
+      {
+        accountId: ownerAccountId,
+        roomCode: targetRoomCode,
+        roomGeneration,
+        sourceRef: `legacy-backfill:${targetRoomCode}:${roomGeneration}`,
+        status: 'active',
+      },
+    ]);
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+      MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'assertion-secret-for-tests-at-least-32-bytes',
+      MUSIXQUARE_ADMIN_DB: centralDb,
+      MUSIXQUARE_AUTH_DB: sqliteD1(authDatabase),
+      DEVELOPER_API_DB: sqliteD1(developerDatabase),
+      PRO_ROOM_ADMIN_ROOMS: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn((name: string) => ({
+          fetch: (request: Request) => adminFetch(name, request),
+        })),
+      },
+      PRO_SIGNALING_ROOMS: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({ fetch: signalingFetch })),
+      },
+    };
+    const requestBody = JSON.stringify({
+      roomGeneration,
+      retainRoomCode: retainedRoomCode,
+      confirmRoomCode: targetRoomCode,
+    });
+    const detachRequest = (cookie = '') =>
+      new Request(
+        `https://musixquare.com/api/admin/pro-rooms/${targetRoomCode}/legacy-owner-detach`,
+        {
+          method: 'POST',
+          headers: adminMutationHeaders(cookie ? { Cookie: cookie } : {}),
+          body: requestBody,
+        },
+      );
+
+    const unauthorized = await appWorker.fetch(detachRequest(), env);
+    expect(unauthorized.status).toBe(401);
+    await expect(unauthorized.json()).resolves.toEqual({ error: 'UNAUTHORIZED' });
+    expect(statusCalls).toHaveLength(0);
+
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.131' }),
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      env,
+    );
+    expect(login.status).toBe(200);
+    const cookie = (login.headers.get('Set-Cookie') || '').split(';')[0];
+    expect(cookie).not.toBe('');
+
+    const missingCsrf = await appWorker.fetch(
+      new Request(
+        `https://musixquare.com/api/admin/pro-rooms/${targetRoomCode}/legacy-owner-detach`,
+        {
+          method: 'POST',
+          headers: {
+            Origin: 'https://musixquare.com',
+            'Content-Type': 'application/json',
+            Cookie: cookie,
+          },
+          body: requestBody,
+        },
+      ),
+      env,
+    );
+    expect(missingCsrf.status).toBe(403);
+    expect(statusCalls).toHaveLength(0);
+
+    const retainedCanonical = canonicalRooms.get(retainedRoomCode);
+    expect(retainedCanonical).toBeDefined();
+    if (retainedCanonical) retainedCanonical.ownerAccountId = concurrentOwnerAccountId;
+    const ownerMismatch = await appWorker.fetch(detachRequest(cookie), env);
+    expect(ownerMismatch.status).toBe(409);
+    await expect(ownerMismatch.json()).resolves.toEqual({
+      error: 'PRO_ROOM_LEGACY_DUPLICATE_OWNER_NOT_CONFIRMED',
+    });
+    expect(detachCalls).toBe(0);
+    if (retainedCanonical) retainedCanonical.ownerAccountId = ownerAccountId;
+    statusCalls.length = 0;
+
+    const first = await appWorker.fetch(detachRequest(cookie), env);
+    expect(first.status).toBe(503);
+    await expect(first.json()).resolves.toEqual({
+      error: 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED',
+    });
+    expect(new Set(statusCalls)).toEqual(new Set([targetRoomCode, retainedRoomCode]));
+    expect(canonicalRooms.get(targetRoomCode)).toMatchObject({
+      status: 'suspended',
+      suspensionReason: 'ownership_transfer_pending',
+      ownerAccountId: null,
+      ownerAuthorityEpoch: 5,
+      ownerAuthorityRemoval: {
+        accountId: ownerAccountId,
+        removalId,
+        ownerAuthorityEpoch: 5,
+        fencedCoordinatorEpoch: 9,
+        projectionAcked: false,
+      },
+    });
+    expect(canonicalRooms.get(retainedRoomCode)).toEqual(retainedCanonicalBefore);
+    expect(ackCalls).toBe(0);
+    expect(
+      await centralDb
+        .prepare(
+          `SELECT status FROM mxqr_pro_account_entitlements
+            WHERE account_id = ?1 AND room_code = ?2 AND room_generation = ?3`,
+        )
+        .bind(ownerAccountId, targetRoomCode, roomGeneration)
+        .first(),
+    ).toEqual({ status: 'active' });
+    expect(
+      registryDatabase
+        .prepare(
+          `SELECT status, suspension_reason FROM mxqr_pro_room_registry
+            WHERE room_code = ?`,
+        )
+        .get(targetRoomCode),
+    ).toEqual({ status: 'registered', suspension_reason: null });
+    expect(
+      developerDatabase
+        .prepare('SELECT status FROM mxqr_developer_api_keys WHERE room_code = ?')
+        .get(targetRoomCode),
+    ).toEqual({ status: 'active' });
+    expect(
+      authDatabase
+        .prepare(
+          `SELECT 1 AS linked FROM mxqr_account_pro_room_generations
+            WHERE account_id = ? AND room_code = ? AND room_generation = ?`,
+        )
+        .get(ownerAccountId, targetRoomCode, roomGeneration),
+    ).toEqual({ linked: 1 });
+
+    // Once the exact target removal exists, reconciliation must not depend on
+    // the retained room still having the same owner. Otherwise an unrelated
+    // transfer of the retained room could strand the target with an unacked
+    // authority-removal fence forever.
+    if (retainedCanonical) {
+      retainedCanonical.ownerAccountId = concurrentOwnerAccountId;
+      retainedCanonical.ownerAuthorityEpoch += 1;
+    }
+    const retainedCanonicalBeforeRecovery = structuredClone(retainedCanonical);
+
+    const recovered = await appWorker.fetch(detachRequest(cookie), env);
+    expect(recovered.status).toBe(200);
+    await expect(recovered.json()).resolves.toEqual({
+      ok: true,
+      roomCode: targetRoomCode,
+      roomGeneration,
+      status: 'suspended',
+      suspensionReason: 'ownership_transfer_pending',
+      ownerAccountLinked: false,
+      retainedRoomCode,
+      changed: false,
+    });
+    expect(
+      await centralDb
+        .prepare(
+          `SELECT status FROM mxqr_pro_account_entitlements
+            WHERE account_id = ?1 AND room_code = ?2 AND room_generation = ?3`,
+        )
+        .bind(ownerAccountId, targetRoomCode, roomGeneration)
+        .first(),
+    ).toEqual({ status: 'orphaned' });
+    expect(
+      registryDatabase
+        .prepare(
+          `SELECT status, suspension_reason FROM mxqr_pro_room_registry
+            WHERE room_code = ?`,
+        )
+        .get(targetRoomCode),
+    ).toEqual({
+      status: 'suspended',
+      suspension_reason: 'ownership_transfer_pending',
+    });
+    expect(
+      developerDatabase
+        .prepare('SELECT status FROM mxqr_developer_api_keys WHERE room_code = ?')
+        .get(targetRoomCode),
+    ).toEqual({ status: 'revoked' });
+    expect(
+      authDatabase
+        .prepare(
+          `SELECT 1 AS linked FROM mxqr_account_pro_room_generations
+            WHERE account_id = ? AND room_code = ? AND room_generation = ?`,
+        )
+        .get(ownerAccountId, targetRoomCode, roomGeneration),
+    ).toBeUndefined();
+    expect(canonicalRooms.get(targetRoomCode)?.ownerAuthorityRemoval?.projectionAcked).toBe(true);
+    expect(canonicalRooms.get(retainedRoomCode)).toEqual(retainedCanonicalBeforeRecovery);
+    expect(
+      registryDatabase
+        .prepare('SELECT * FROM mxqr_pro_room_registry WHERE room_code = ?')
+        .get(retainedRoomCode),
+    ).toMatchObject({
+      room_code: retainedRoomCode,
+      status: 'registered',
+      suspension_reason: null,
+      activation_state: 'active',
+      room_generation: roomGeneration,
+      created_at: now - 1,
+      updated_at: now - 1,
+    });
+    expect(
+      developerDatabase
+        .prepare('SELECT status FROM mxqr_developer_api_keys WHERE room_code = ?')
+        .get(retainedRoomCode),
+    ).toEqual({ status: 'active' });
+    expect(
+      authDatabase
+        .prepare(
+          `SELECT 1 AS linked FROM mxqr_account_pro_room_generations
+            WHERE account_id = ? AND room_code = ? AND room_generation = ?`,
+        )
+        .get(ownerAccountId, retainedRoomCode, roomGeneration),
+    ).toEqual({ linked: 1 });
+    expect(
+      await centralDb
+        .prepare(
+          `SELECT status FROM mxqr_pro_account_entitlements
+            WHERE room_code = ?1 AND room_generation = ?2`,
+        )
+        .bind(retainedRoomCode, roomGeneration)
+        .first(),
+    ).toBeNull();
+
+    const targetCanonicalAfterRecovery = structuredClone(canonicalRooms.get(targetRoomCode));
+    const entitlementAfterRecovery = await centralDb
+      .prepare(
+        `SELECT source_ref, status, created_at, updated_at
+           FROM mxqr_pro_account_entitlements
+          WHERE account_id = ?1 AND room_code = ?2 AND room_generation = ?3`,
+      )
+      .bind(ownerAccountId, targetRoomCode, roomGeneration)
+      .first();
+    const targetKeyAfterRecovery = developerDatabase
+      .prepare(
+        `SELECT status, revoked_at, updated_at FROM mxqr_developer_api_keys
+          WHERE room_code = ?`,
+      )
+      .get(targetRoomCode);
+
+    const replay = await appWorker.fetch(detachRequest(cookie), env);
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({ ok: true, changed: false });
+    expect(canonicalRooms.get(targetRoomCode)).toEqual(targetCanonicalAfterRecovery);
+    expect(
+      await centralDb
+        .prepare(
+          `SELECT source_ref, status, created_at, updated_at
+             FROM mxqr_pro_account_entitlements
+            WHERE account_id = ?1 AND room_code = ?2 AND room_generation = ?3`,
+        )
+        .bind(ownerAccountId, targetRoomCode, roomGeneration)
+        .first(),
+    ).toEqual(entitlementAfterRecovery);
+    expect(
+      developerDatabase
+        .prepare(
+          `SELECT status, revoked_at, updated_at FROM mxqr_developer_api_keys
+            WHERE room_code = ?`,
+        )
+        .get(targetRoomCode),
+    ).toEqual(targetKeyAfterRecovery);
+    expect(canonicalRooms.get(retainedRoomCode)).toEqual(retainedCanonicalBeforeRecovery);
+    expect(signalingAttempts).toBe(3);
+    expect(detachCalls).toBe(3);
+    expect(ackCalls).toBe(2);
+  });
+
   it('acks each exact owner-removal projection and never replays a stale deletion over a new owner', async () => {
     const roomCode = '000020';
     const roomGeneration = 6;

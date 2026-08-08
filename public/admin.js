@@ -1,4 +1,4 @@
-const ADMIN_SCRIPT_VERSION = '8.3.17';
+const ADMIN_SCRIPT_VERSION = '8.3.18';
 window.__MXQR_ADMIN_SCRIPT_VERSION__ = ADMIN_SCRIPT_VERSION;
 
 const root = document.querySelector('.admin-shell');
@@ -1177,7 +1177,12 @@ function setProRoomStatus(message, isError = false) {
   proRoomStatusEl.classList.toggle('is-error', isError);
 }
 
-function formatProRoomStatus(status, suspensionReason = null, ownerAccountLinked = null) {
+function formatProRoomStatus(
+  status,
+  suspensionReason = null,
+  ownerAccountLinked = null,
+  ownerTransferPrepared = false,
+) {
   if (status === 'active') {
     if (ownerAccountLinked === false) return 'Ownership transfer required';
     if (ownerAccountLinked !== true) return 'Owner status unavailable';
@@ -1185,7 +1190,9 @@ function formatProRoomStatus(status, suspensionReason = null, ownerAccountLinked
   }
   if (status === 'suspended') {
     if (suspensionReason === 'owner_account_deleted') return 'Ownership transfer required';
-    if (suspensionReason === 'ownership_transfer_pending') return 'Transfer pending';
+    if (suspensionReason === 'ownership_transfer_pending') {
+      return ownerTransferPrepared ? 'Transfer pending' : 'Ownership transfer required';
+    }
     return 'Suspended';
   }
   if (status === 'decommissioning') return 'Deleting';
@@ -2388,6 +2395,7 @@ function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
     rawStatus === 'active' && typeof room?.ownerAccountLinked === 'boolean'
       ? room.ownerAccountLinked
       : null;
+  const ownerTransferPrepared = room?.ownerTransferPrepared === true;
   if (!incarnationKey) {
     const message = document.createElement('p');
     message.className = 'pro-room-terminal-copy';
@@ -2468,12 +2476,15 @@ function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
     });
   } else if (
     (rawStatus === 'active' && ownerAccountLinked === false) ||
-    (rawStatus === 'suspended' && suspensionReason === 'owner_account_deleted')
+    (rawStatus === 'suspended' &&
+      (suspensionReason === 'owner_account_deleted' ||
+        (suspensionReason === 'ownership_transfer_pending' && !ownerTransferPrepared)))
   ) {
     activation.textContent = issuedOwnerTransferLinks.has(incarnationKey)
       ? 'Issue another owner transfer link'
       : 'Assign a new owner';
-    activation.title = 'Bind a one-time ownership transfer link to one active MUSIXQUARE account.';
+    activation.title =
+      'Ownership transfer required. Bind a one-time ownership transfer link to one active MUSIXQUARE account.';
     activation.addEventListener('click', () =>
       openProRoomTransferDialog(roomCode, roomGeneration, activation),
     );
@@ -2481,7 +2492,11 @@ function renderProRoomActions(room, roomCode, roomGeneration, rawStatus) {
     activation.textContent = 'Owner status unavailable';
     activation.title = 'Refresh the room list before issuing an owner-authority link.';
     activation.disabled = true;
-  } else if (rawStatus === 'suspended' && suspensionReason === 'ownership_transfer_pending') {
+  } else if (
+    rawStatus === 'suspended' &&
+    suspensionReason === 'ownership_transfer_pending' &&
+    ownerTransferPrepared
+  ) {
     activation.textContent = 'Replace expired transfer link';
     activation.title =
       'If the current transfer is still valid, the service will preserve it. Once it expires, this issues a replacement bound to the account you choose.';
@@ -2620,6 +2635,7 @@ function renderProRoomRow(room) {
     rawStatus === 'active' && typeof room?.ownerAccountLinked === 'boolean'
       ? room.ownerAccountLinked
       : null;
+  const ownerTransferPrepared = room?.ownerTransferPrepared === true;
   const item = document.createElement('details');
   item.className = 'pro-room-item';
   item.dataset.proRoomItem = roomCode;
@@ -2647,7 +2663,12 @@ function renderProRoomRow(room) {
         : 'provisioning'
       : rawStatus;
   status.className = `pro-room-state is-${displayStatus.replace(/[^a-z-]/g, '')}`;
-  status.textContent = formatProRoomStatus(rawStatus, room?.suspensionReason, ownerAccountLinked);
+  status.textContent = formatProRoomStatus(
+    rawStatus,
+    room?.suspensionReason,
+    ownerAccountLinked,
+    ownerTransferPrepared,
+  );
   const created = document.createElement('small');
   const createdAt = formatAdminDateTime(room.createdAt);
   created.textContent = createdAt ? `Created ${createdAt}` : 'Creation time unavailable';

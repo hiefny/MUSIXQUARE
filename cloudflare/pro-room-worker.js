@@ -1376,6 +1376,19 @@ function internalOwnerTransferReconciliation(room) {
   };
 }
 
+function internalOwnerAuthorityRemoval(room) {
+  const removal = room.ownerAuthorityRemoval;
+  if (!removal) return null;
+  return {
+    accountId: removal.accountId,
+    removalId: removal.removalId,
+    removedAtMs: removal.removedAtMs,
+    ownerAuthorityEpoch: removal.ownerAuthorityEpoch,
+    fencedCoordinatorEpoch: removal.fencedCoordinatorEpoch,
+    projectionAcked: removal.projectionAcked,
+  };
+}
+
 function reconcileQueueModePlaylist(room, nowMs = Date.now()) {
   const current = room.queueMode;
   const nextOrder = current.shuffleEnabled
@@ -4731,7 +4744,9 @@ export class MusixquareProRoom {
             ownerAccountId: ACCOUNT_ID_RE.test(this.room.ownerAccountId || '')
               ? this.room.ownerAccountId
               : null,
+            ownerAuthorityEpoch: this.room.ownerAuthorityEpoch,
             developerAuthorityEpoch: this.room.developerAuthorityEpoch,
+            ownerAuthorityRemoval: internalOwnerAuthorityRemoval(this.room),
             ownerTransferReconciliation: internalOwnerTransferReconciliation(this.room),
           });
         });
@@ -4823,6 +4838,24 @@ export class MusixquareProRoom {
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/decommission') {
         return this.withMutation(() => this.handleInternalDecommission(request));
+      }
+      if (request.method === 'POST' && url.pathname === '/internal/admin/owner-authority/detach') {
+        return this.withMutation(() =>
+          this.withStateCapacityRollback(() => this.handleInternalOwnerAuthorityDetach(request), {
+            rollbackStorageFailure: true,
+          }),
+        );
+      }
+      if (
+        request.method === 'POST' &&
+        url.pathname === '/internal/admin/owner-authority/detach/ack'
+      ) {
+        return this.withMutation(() =>
+          this.withStateCapacityRollback(
+            () => this.handleInternalOwnerAuthorityDetachAck(request),
+            { rollbackStorageFailure: true },
+          ),
+        );
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/account-authority/purge') {
         return this.withMutation(() =>
@@ -7734,13 +7767,19 @@ export class MusixquareProRoom {
     return errorResponse('ROOM_SUSPENDED', 423);
   }
 
-  purgeAccountAuthority(accountId, nowMs) {
+  removeAccountAuthority(
+    accountId,
+    nowMs,
+    { retainDeletionTombstone = true, suspensionReason = 'owner_account_deleted' } = {},
+  ) {
     if (!ACCOUNT_ID_RE.test(accountId)) return null;
-    const tombstoneChanged = this.retainAccountDeletionTombstone(accountId, nowMs);
+    const tombstoneChanged = retainDeletionTombstone
+      ? this.retainAccountDeletionTombstone(accountId, nowMs)
+      : false;
     const member = this.room.accountMembers?.[accountId] || null;
     const replayedOwnerRemoval =
       this.room.status === 'suspended' &&
-      this.room.suspensionReason === 'owner_account_deleted' &&
+      this.room.suspensionReason === suspensionReason &&
       this.room.ownerAuthorityRemoval?.accountId === accountId;
     const removingCurrentOwner = this.room.ownerAccountId === accountId || member?.role === 'owner';
 
@@ -7789,7 +7828,7 @@ export class MusixquareProRoom {
         projectionAcked: false,
       };
       this.room.status = 'suspended';
-      this.room.suspensionReason = 'owner_account_deleted';
+      this.room.suspensionReason = suspensionReason;
       return {
         changed: true,
         authorityChanged: true,
@@ -7815,6 +7854,161 @@ export class MusixquareProRoom {
       removal: replayedOwnerRemoval ? this.room.ownerAuthorityRemoval : null,
       removedSessions,
     };
+  }
+
+  purgeAccountAuthority(accountId, nowMs) {
+    return this.removeAccountAuthority(accountId, nowMs);
+  }
+
+  ownerAuthorityDetachResponse(removal, { changed, removedSessions = 0 } = {}) {
+    return jsonResponse({
+      ok: true,
+      roomCode: this.room.roomCode,
+      roomGeneration: this.room.roomGeneration,
+      status: this.room.status,
+      suspensionReason: this.room.suspensionReason,
+      previousOwnerAccountId: removal.accountId,
+      expectedOwnerAuthorityEpoch: removal.ownerAuthorityEpoch - 1,
+      ownerAuthorityEpoch: this.room.ownerAuthorityEpoch,
+      ownerAuthorityRemoved: true,
+      removalId: removal.removalId,
+      removedOwnerAuthorityEpoch: removal.ownerAuthorityEpoch,
+      fencedCoordinatorEpoch: removal.fencedCoordinatorEpoch,
+      projectionAcked: removal.projectionAcked,
+      changed: changed === true,
+      removedSessions,
+    });
+  }
+
+  async handleInternalOwnerAuthorityDetach(request) {
+    const parsed = await this.parseBody(request, 1024);
+    if (
+      parsed.response ||
+      !hasExactKeys(parsed.value, ['accountId', 'expectedOwnerAuthorityEpoch', 'roomGeneration']) ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
+      !ACCOUNT_ID_RE.test(parsed.value.accountId || '') ||
+      !isSafeNonNegativeInteger(parsed.value.expectedOwnerAuthorityEpoch) ||
+      parsed.value.expectedOwnerAuthorityEpoch >= Number.MAX_SAFE_INTEGER
+    ) {
+      return parsed.response || errorResponse('INVALID_REQUEST', 400);
+    }
+    if (!this.room.provisioned) return errorResponse('PRO_ROOM_NOT_FOUND', 404);
+
+    const expectedOwnerAuthorityEpoch = parsed.value.expectedOwnerAuthorityEpoch;
+    const existingRemoval = this.room.ownerAuthorityRemoval;
+    const replayedRemoval =
+      this.room.status === 'suspended' &&
+      this.room.suspensionReason === 'ownership_transfer_pending' &&
+      this.room.ownerAccountId === null &&
+      existingRemoval?.accountId === parsed.value.accountId &&
+      existingRemoval.ownerAuthorityEpoch === expectedOwnerAuthorityEpoch + 1 &&
+      this.room.ownerAuthorityEpoch === existingRemoval.ownerAuthorityEpoch;
+    if (replayedRemoval) {
+      return this.ownerAuthorityDetachResponse(existingRemoval, {
+        changed: false,
+        removedSessions: 0,
+      });
+    }
+
+    const nowMs = Date.now();
+    if (
+      (this.room.pendingOwnershipTransfer?.expiresAtMs || 0) > nowMs ||
+      (this.room.completedOwnershipTransfer?.replayUntilMs || 0) > nowMs
+    ) {
+      return errorResponse('OWNER_TRANSFER_RECONCILIATION_REQUIRED', 409);
+    }
+    if (
+      !(
+        this.room.status === 'active' ||
+        (this.room.status === 'suspended' && this.room.suspensionReason === 'operator_suspended')
+      ) ||
+      this.room.ownerAccountId !== parsed.value.accountId ||
+      !OPAQUE_ID_RE.test(this.room.ownerMemberId || '') ||
+      existingRemoval !== null
+    ) {
+      return errorResponse('PRO_ROOM_OWNER_DETACH_UNAVAILABLE', 409);
+    }
+    if (this.room.ownerAuthorityEpoch !== expectedOwnerAuthorityEpoch) {
+      return errorResponse('OWNER_AUTHORITY_EPOCH_MISMATCH', 409);
+    }
+
+    const result = this.removeAccountAuthority(parsed.value.accountId, nowMs, {
+      retainDeletionTombstone: false,
+      suspensionReason: 'ownership_transfer_pending',
+    });
+    if (!result?.ownerAuthorityRemoved || !result.removal) {
+      return errorResponse('PRO_ROOM_OWNER_DETACH_UNAVAILABLE', 409);
+    }
+    if (result.changed || this.accountIdentityMigrationPending) {
+      if (result.authorityChanged) this.room.revision += 1;
+      await this.persist();
+      this.accountIdentityMigrationPending = false;
+      if (result.authorityChanged) this.scheduleServerEvent(this.presenceEvent());
+    }
+    return this.ownerAuthorityDetachResponse(result.removal, {
+      changed: true,
+      removedSessions: result.removedSessions,
+    });
+  }
+
+  async handleInternalOwnerAuthorityDetachAck(request) {
+    const parsed = await this.parseBody(request, 1024);
+    if (
+      parsed.response ||
+      !hasExactKeys(parsed.value, [
+        'accountId',
+        'expectedOwnerAuthorityEpoch',
+        'removalId',
+        'removedOwnerAuthorityEpoch',
+        'fencedCoordinatorEpoch',
+        'roomGeneration',
+      ]) ||
+      exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
+      !ACCOUNT_ID_RE.test(parsed.value.accountId || '') ||
+      !isSafeNonNegativeInteger(parsed.value.expectedOwnerAuthorityEpoch) ||
+      parsed.value.expectedOwnerAuthorityEpoch >= Number.MAX_SAFE_INTEGER ||
+      !OWNER_AUTHORITY_REMOVAL_ID_RE.test(parsed.value.removalId || '') ||
+      !isSafeNonNegativeInteger(parsed.value.removedOwnerAuthorityEpoch) ||
+      !isSafeNonNegativeInteger(parsed.value.fencedCoordinatorEpoch)
+    ) {
+      return parsed.response || errorResponse('INVALID_REQUEST', 400);
+    }
+    const removal = this.room.ownerAuthorityRemoval;
+    if (
+      this.room.status !== 'suspended' ||
+      this.room.suspensionReason !== 'ownership_transfer_pending' ||
+      this.room.ownerAccountId !== null ||
+      !removal ||
+      removal.accountId !== parsed.value.accountId ||
+      removal.removalId !== parsed.value.removalId ||
+      removal.ownerAuthorityEpoch !== parsed.value.removedOwnerAuthorityEpoch ||
+      removal.ownerAuthorityEpoch !== parsed.value.expectedOwnerAuthorityEpoch + 1 ||
+      removal.fencedCoordinatorEpoch !== parsed.value.fencedCoordinatorEpoch ||
+      this.room.ownerAuthorityEpoch !== removal.ownerAuthorityEpoch
+    ) {
+      return errorResponse('OWNER_AUTHORITY_REMOVAL_MISMATCH', 409);
+    }
+    const changed = removal.projectionAcked !== true;
+    if (changed) {
+      removal.projectionAcked = true;
+      await this.persist();
+    }
+    return jsonResponse({
+      ok: true,
+      roomCode: this.room.roomCode,
+      roomGeneration: this.room.roomGeneration,
+      status: this.room.status,
+      suspensionReason: this.room.suspensionReason,
+      previousOwnerAccountId: removal.accountId,
+      expectedOwnerAuthorityEpoch: parsed.value.expectedOwnerAuthorityEpoch,
+      ownerAuthorityEpoch: this.room.ownerAuthorityEpoch,
+      ownerAuthorityRemoved: true,
+      removalId: removal.removalId,
+      removedOwnerAuthorityEpoch: removal.ownerAuthorityEpoch,
+      fencedCoordinatorEpoch: removal.fencedCoordinatorEpoch,
+      projectionAcked: true,
+      changed,
+    });
   }
 
   async handleInternalAccountAuthorityPurge(request) {

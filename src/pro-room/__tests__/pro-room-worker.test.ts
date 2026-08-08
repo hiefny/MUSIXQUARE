@@ -11837,6 +11837,311 @@ describe('persistent PRO room authentication, presence, and state', () => {
     });
   });
 
+  it('detaches one exact owner authority without deleting the account or room data', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const accountId = ACTIVATION_OWNER_ACCOUNT_ID;
+    const expectedOwnerAuthorityEpoch = internal.room.ownerAuthorityEpoch as number;
+    const authEpochBeforeDetach = internal.room.authEpoch as number;
+    const developerAuthorityEpochBeforeDetach = internal.room.developerAuthorityEpoch as number;
+    const ownerMemberId = internal.room.ownerMemberId as string;
+    const ready = await completeReadyAsset(context, 'owner-detach-preserved-r2');
+    expect(
+      (
+        await replacePlaylist(
+          context,
+          [playlistItem('00000000-0000-4000-8000-000000000991', ready.asset)],
+          'owner-detach-preserved-playlist',
+        )
+      ).status,
+    ).toBe(200);
+    internal.room.effects.masterVolume = 0.42;
+    const preserved = structuredClone({
+      roomGeneration: internal.room.roomGeneration,
+      ownerMemberId: internal.room.ownerMemberId,
+      playlist: internal.room.playlist,
+      assets: internal.room.assets,
+      effects: internal.room.effects,
+      queueMode: internal.room.queueMode,
+    });
+
+    const detachRequest = (
+      ownerAccountId = accountId,
+      ownerAuthorityEpoch = expectedOwnerAuthorityEpoch,
+      extra: Record<string, unknown> = {},
+    ) =>
+      new Request('https://pro-room.internal/internal/admin/owner-authority/detach', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
+        body: JSON.stringify({
+          accountId: ownerAccountId,
+          expectedOwnerAuthorityEpoch: ownerAuthorityEpoch,
+          roomGeneration: 0,
+          ...extra,
+        }),
+      });
+
+    const statusBefore = await context.worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/status', {
+        headers: {
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
+      }),
+    );
+    await expect(statusBefore.json()).resolves.toMatchObject({
+      ownerAccountId: accountId,
+      ownerAuthorityEpoch: expectedOwnerAuthorityEpoch,
+      ownerAuthorityRemoval: null,
+    });
+
+    const invalidShape = await context.worker.fetch(
+      detachRequest(accountId, expectedOwnerAuthorityEpoch, { unexpected: true }),
+    );
+    expect(invalidShape.status).toBe(400);
+    await expect(invalidShape.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+
+    const staleEpoch = await context.worker.fetch(
+      detachRequest(accountId, expectedOwnerAuthorityEpoch - 1),
+    );
+    expect(staleEpoch.status).toBe(409);
+    await expect(staleEpoch.json()).resolves.toEqual({
+      error: 'OWNER_AUTHORITY_EPOCH_MISMATCH',
+    });
+    expect(internal.room.ownerAccountId).toBe(accountId);
+
+    const transferPreparedAtMs = Date.now();
+    (context.worker as unknown as { room: Record<string, any> }).room.pendingOwnershipTransfer = {
+      transferId: 'transfer_abcdefghijklmnopqrstuv',
+      requestId: 'detach_guard_0001',
+      targetAccountId: 'acct_abcdefghijkl0123456789',
+      targetDisplayName: 'Transfer target',
+      previousOwnerAccountId: accountId,
+      preservedOwnerMemberId: ownerMemberId,
+      pin: structuredClone((context.worker as unknown as { room: Record<string, any> }).room.pin),
+      claimNonceHash: 'a'.repeat(43),
+      claimGeneration: 1,
+      ownerAuthorityEpoch: expectedOwnerAuthorityEpoch,
+      preparedAtMs: transferPreparedAtMs,
+      expiresAtMs: transferPreparedAtMs + 60_000,
+      devicePlatform: 'other',
+      commitProofHash: 'b'.repeat(43),
+    };
+    expect(
+      (context.worker as unknown as { room: Record<string, any> }).room.pendingOwnershipTransfer
+        .expiresAtMs,
+    ).toBeGreaterThan(Date.now());
+    const pendingTransfer = await context.worker.fetch(detachRequest());
+    expect(pendingTransfer.status).toBe(409);
+    await expect(pendingTransfer.json()).resolves.toEqual({
+      error: 'OWNER_TRANSFER_RECONCILIATION_REQUIRED',
+    });
+    (context.worker as unknown as { room: Record<string, any> }).room.pendingOwnershipTransfer =
+      null;
+    const transferCommittedAtMs = Date.now();
+    (context.worker as unknown as { room: Record<string, any> }).room.completedOwnershipTransfer = {
+      transferId: 'transfer_abcdefghijklmnopqrstuv',
+      requestId: 'detach_guard_0001',
+      targetAccountId: 'acct_abcdefghijkl0123456789',
+      previousOwnerAccountId: accountId,
+      preservedOwnerMemberId: ownerMemberId,
+      claimNonceHash: 'a'.repeat(43),
+      commitProofHash: 'b'.repeat(43),
+      revocationReceiptHash: 'c'.repeat(43),
+      ownerAuthorityEpoch: expectedOwnerAuthorityEpoch,
+      authEpoch: internal.room.authEpoch,
+      preparedAtMs: transferCommittedAtMs - 1_000,
+      expiresAtMs: transferCommittedAtMs + 60_000,
+      committedAtMs: transferCommittedAtMs,
+      replayUntilMs: transferCommittedAtMs + 60_000,
+      sessionTokenHash: 'd'.repeat(43),
+      ownerCredentialHash: 'e'.repeat(43),
+    };
+    const completedTransfer = await context.worker.fetch(detachRequest());
+    expect(completedTransfer.status).toBe(409);
+    await expect(completedTransfer.json()).resolves.toEqual({
+      error: 'OWNER_TRANSFER_RECONCILIATION_REQUIRED',
+    });
+    (context.worker as unknown as { room: Record<string, any> }).room.completedOwnershipTransfer =
+      null;
+
+    const detached = await context.worker.fetch(detachRequest());
+    expect(detached.status).toBe(200);
+    const detachedPayload = await responseJson(detached);
+    expect(detachedPayload).toEqual({
+      ok: true,
+      roomCode: ROOM_CODE,
+      roomGeneration: 0,
+      status: 'suspended',
+      suspensionReason: 'ownership_transfer_pending',
+      previousOwnerAccountId: accountId,
+      expectedOwnerAuthorityEpoch,
+      ownerAuthorityEpoch: expectedOwnerAuthorityEpoch + 1,
+      ownerAuthorityRemoved: true,
+      removalId: expect.stringMatching(/^removal_[A-Za-z0-9_-]{22}$/),
+      removedOwnerAuthorityEpoch: expectedOwnerAuthorityEpoch + 1,
+      fencedCoordinatorEpoch: expect.any(Number),
+      projectionAcked: false,
+      changed: true,
+      removedSessions: 1,
+    });
+    expect(internal.room).toMatchObject({
+      roomGeneration: preserved.roomGeneration,
+      ownerMemberId,
+      ownerAccountId: null,
+      ownerDisplayName: null,
+      pin: null,
+      ownerCredentialHash: null,
+      authEpoch: authEpochBeforeDetach + 1,
+      ownerAuthorityEpoch: expectedOwnerAuthorityEpoch + 1,
+      developerAuthorityEpoch: developerAuthorityEpochBeforeDetach + 1,
+      status: 'suspended',
+      suspensionReason: 'ownership_transfer_pending',
+      sessions: {},
+      presence: {
+        participants: {},
+        coordinatorParticipantId: null,
+      },
+      accountMembers: {},
+      anonymousAdministrators: {},
+      developerCommands: {},
+      developerCommandIdempotency: {},
+    });
+    expect(internal.room.accountDeletionTombstones[accountId]).toBeUndefined();
+    expect({
+      roomGeneration: internal.room.roomGeneration,
+      ownerMemberId: internal.room.ownerMemberId,
+      playlist: internal.room.playlist,
+      assets: internal.room.assets,
+      effects: internal.room.effects,
+      queueMode: internal.room.queueMode,
+    }).toEqual(preserved);
+    expect((await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(
+      401,
+    );
+
+    const statusAfter = await context.worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/status', {
+        headers: {
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
+      }),
+    );
+    const statusAfterPayload = await responseJson(statusAfter);
+    expect(statusAfterPayload).toMatchObject({
+      status: 'suspended',
+      suspensionReason: 'ownership_transfer_pending',
+      ownerAccountLinked: false,
+      ownerAccountId: null,
+      ownerAuthorityEpoch: expectedOwnerAuthorityEpoch + 1,
+      ownerAuthorityRemoval: {
+        accountId,
+        removalId: detachedPayload.removalId,
+        removedAtMs: expect.any(Number),
+        ownerAuthorityEpoch: expectedOwnerAuthorityEpoch + 1,
+        fencedCoordinatorEpoch: detachedPayload.fencedCoordinatorEpoch,
+        projectionAcked: false,
+      },
+    });
+    expect(Object.keys(statusAfterPayload.ownerAuthorityRemoval).sort()).toEqual(
+      [
+        'accountId',
+        'removalId',
+        'removedAtMs',
+        'ownerAuthorityEpoch',
+        'fencedCoordinatorEpoch',
+        'projectionAcked',
+      ].sort(),
+    );
+
+    const replayed = await context.worker.fetch(detachRequest());
+    expect(replayed.status).toBe(200);
+    await expect(replayed.json()).resolves.toEqual({
+      ...detachedPayload,
+      changed: false,
+      removedSessions: 0,
+    });
+    const differentAccountReplay = await context.worker.fetch(
+      detachRequest('acct_abcdefghijkl0123456789'),
+    );
+    expect(differentAccountReplay.status).toBe(409);
+    await expect(differentAccountReplay.json()).resolves.toEqual({
+      error: 'PRO_ROOM_OWNER_DETACH_UNAVAILABLE',
+    });
+
+    const acknowledgeRequest = (fencedCoordinatorEpoch = detachedPayload.fencedCoordinatorEpoch) =>
+      new Request('https://pro-room.internal/internal/admin/owner-authority/detach/ack', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
+        body: JSON.stringify({
+          accountId,
+          expectedOwnerAuthorityEpoch,
+          removalId: detachedPayload.removalId,
+          removedOwnerAuthorityEpoch: detachedPayload.removedOwnerAuthorityEpoch,
+          fencedCoordinatorEpoch,
+          roomGeneration: 0,
+        }),
+      });
+    const mismatchedAck = await context.worker.fetch(
+      acknowledgeRequest(detachedPayload.fencedCoordinatorEpoch + 1),
+    );
+    expect(mismatchedAck.status).toBe(409);
+    await expect(mismatchedAck.json()).resolves.toEqual({
+      error: 'OWNER_AUTHORITY_REMOVAL_MISMATCH',
+    });
+    expect(internal.room.ownerAuthorityRemoval.projectionAcked).toBe(false);
+
+    const acknowledged = await context.worker.fetch(acknowledgeRequest());
+    expect(acknowledged.status).toBe(200);
+    await expect(acknowledged.json()).resolves.toMatchObject({
+      ok: true,
+      status: 'suspended',
+      suspensionReason: 'ownership_transfer_pending',
+      previousOwnerAccountId: accountId,
+      expectedOwnerAuthorityEpoch,
+      ownerAuthorityEpoch: expectedOwnerAuthorityEpoch + 1,
+      removalId: detachedPayload.removalId,
+      projectionAcked: true,
+      changed: true,
+    });
+    const acknowledgedReplay = await context.worker.fetch(acknowledgeRequest());
+    expect(acknowledgedReplay.status).toBe(200);
+    await expect(acknowledgedReplay.json()).resolves.toMatchObject({
+      projectionAcked: true,
+      changed: false,
+    });
+
+    const issued = await context.worker.fetch(
+      new Request('https://pro-room.internal/internal/admin/owner-transfer-claim', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
+        body: JSON.stringify({
+          targetAccountId: 'acct_abcdefghijkl0123456789',
+          roomGeneration: 0,
+        }),
+      }),
+    );
+    expect(issued.status).toBe(200);
+    await expect(issued.json()).resolves.toMatchObject({
+      status: 'suspended',
+      suspensionReason: 'ownership_transfer_pending',
+      targetAccountId: 'acct_abcdefghijkl0123456789',
+    });
+  });
+
   it('rejects a pre-issued account assertion that arrives after account deletion', async () => {
     vi.useFakeTimers();
     const startedAtMs = new Date('2026-07-20T06:00:00.000Z').getTime();

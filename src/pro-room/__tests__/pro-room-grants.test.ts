@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   abortProRoomOwnershipTransferEntitlement,
   authorizeProGrantActivation,
+  canOrphanProRoomOwnerEntitlement,
   finalizeProGrantActivation,
   finalizeProRoomOwnershipTransferEntitlement,
   handleProGrantAdminRequest,
@@ -12,6 +13,7 @@ import {
   hasReservedProGrantAllocation,
   markProRoomOwnerEntitlementBackfillComplete,
   orphanAccountProGrants,
+  orphanProRoomOwnerEntitlement,
   reserveProRoomActivationEntitlement,
   reserveProRoomOwnershipTransferEntitlement,
   revokeProRoomEntitlement,
@@ -933,6 +935,183 @@ describe('generic PRO grant redemption', () => {
     expect(await hasReservedProGrantAllocation({ MUSIXQUARE_ADMIN_DB: db }, '000100', 0)).toBe(
       true,
     );
+  });
+
+  it('orphans only the exact owner entitlement and preserves it as a later transfer source', async () => {
+    db = new D1();
+    const now = Date.now();
+    const env = { MUSIXQUARE_ADMIN_DB: db };
+    seedEntitlement(db.database, {
+      accountId: ACCOUNT_A,
+      roomCode: '000100',
+      sourceRef: 'legacy:exact-owner',
+      status: 'active',
+      now,
+    });
+    seedEntitlement(db.database, {
+      accountId: ACCOUNT_A,
+      roomCode: '000101',
+      sourceRef: 'legacy:other-room-history',
+      status: 'orphaned',
+      now: now + 1,
+    });
+    seedEntitlement(db.database, {
+      accountId: ACCOUNT_C,
+      roomCode: '000102',
+      sourceRef: 'legacy:reserved-owner',
+      status: 'reserved',
+      now: now + 2,
+    });
+
+    const exact = {
+      accountId: ACCOUNT_A,
+      roomCode: '000100',
+      roomGeneration: 0,
+    };
+    expect(await canOrphanProRoomOwnerEntitlement(env, exact)).toBe(true);
+    expect(
+      await canOrphanProRoomOwnerEntitlement(env, {
+        accountId: ACCOUNT_C,
+        roomCode: '000102',
+        roomGeneration: 0,
+      }),
+    ).toBe(false);
+    expect(await orphanProRoomOwnerEntitlement(env, { ...exact, nowMs: now + 3 })).toBe(true);
+    expect(await orphanProRoomOwnerEntitlement(env, { ...exact, nowMs: now + 4 })).toBe(true);
+    expect(
+      db.database
+        .prepare(
+          `SELECT room_code, source_ref, status, updated_at
+             FROM mxqr_pro_account_entitlements
+            WHERE account_id = ? ORDER BY room_code`,
+        )
+        .all(ACCOUNT_A),
+    ).toEqual([
+      {
+        room_code: '000100',
+        source_ref: 'legacy:exact-owner',
+        status: 'orphaned',
+        updated_at: now + 3,
+      },
+      {
+        room_code: '000101',
+        source_ref: 'legacy:other-room-history',
+        status: 'orphaned',
+        updated_at: now + 1,
+      },
+    ]);
+
+    expect(await markProRoomOwnerEntitlementBackfillComplete(env, now + 5)).toBe(true);
+    const transfer = {
+      targetAccountId: ACCOUNT_B,
+      roomCode: '000100',
+      roomGeneration: 0,
+      requestId: 'transfer_exact_orphan',
+      nowMs: now + 6,
+    };
+    expect(await reserveProRoomOwnershipTransferEntitlement(env, transfer)).toBe(true);
+    expect(await canOrphanProRoomOwnerEntitlement(env, exact)).toBe(false);
+    expect(
+      db.database
+        .prepare(
+          `SELECT status FROM mxqr_pro_account_entitlements
+            WHERE source_ref = 'legacy:exact-owner'`,
+        )
+        .get(),
+    ).toEqual({ status: 'transfer_source_orphaned' });
+    expect(
+      await abortProRoomOwnershipTransferEntitlement(env, { ...transfer, nowMs: now + 7 }),
+    ).toBe(true);
+    expect(await canOrphanProRoomOwnerEntitlement(env, exact)).toBe(true);
+    expect(
+      db.database
+        .prepare(
+          `SELECT status FROM mxqr_pro_account_entitlements
+            WHERE source_ref = 'legacy:exact-owner'`,
+        )
+        .get(),
+    ).toEqual({ status: 'orphaned' });
+  });
+
+  it.each(['active', 'suspended', 'orphaned'] as const)(
+    'accepts an exact %s entitlement without requiring the owner backfill marker',
+    async (status) => {
+      db = new D1();
+      const now = Date.now();
+      seedEntitlement(db.database, {
+        accountId: ACCOUNT_A,
+        roomCode: '000100',
+        sourceRef: `legacy:preflight-${status}`,
+        status,
+        now,
+      });
+
+      expect(
+        await canOrphanProRoomOwnerEntitlement(
+          { MUSIXQUARE_ADMIN_DB: db },
+          {
+            accountId: ACCOUNT_A,
+            roomCode: '000100',
+            roomGeneration: 0,
+          },
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it('orphans only the exact grant lineage while keeping its voucher consumed', async () => {
+    db = new D1();
+    const now = Date.now();
+    const grantId = `grant_${'F'.repeat(22)}`;
+    db.database.exec(`
+      INSERT INTO mxqr_pro_room_registry
+        (room_code,label,status,suspension_reason,activation_state,room_generation,created_at,updated_at)
+      VALUES ('000100','Event','registered',NULL,'unactivated',0,${now},${now});
+      INSERT INTO mxqr_pro_grant_campaigns VALUES
+        ('campaign_${'A'.repeat(22)}','asamo-0','ASAMO','active',${now - 1},NULL,1,${now},${now});
+      INSERT INTO mxqr_pro_grant_voucher_batches VALUES
+        ('campaign_${'A'.repeat(22)}','batch_${'B'.repeat(22)}','${'C'.repeat(43)}','committed',1,${now},${now});
+      INSERT INTO mxqr_pro_grant_vouchers VALUES
+        ('voucher_${'D'.repeat(22)}','campaign_${'A'.repeat(22)}','batch_${'B'.repeat(22)}','${'E'.repeat(43)}','000100',0,'redeemed','${ACCOUNT_A}',${now},${now},${now});
+      INSERT INTO mxqr_pro_grants VALUES
+        ('${grantId}','pro_room','pro_room_perpetual','${ACCOUNT_A}','campaign','campaign_${'A'.repeat(22)}','active',${now},NULL,${now},${now});
+      INSERT INTO mxqr_pro_grant_allocations VALUES
+        ('allocation_${'G'.repeat(22)}','${grantId}','000100',0,'active',${now},${now});
+      INSERT INTO mxqr_pro_account_entitlements
+        (account_id,room_code,room_generation,source_kind,source_ref,transfer_request_id,status,created_at,updated_at)
+      VALUES
+        ('${ACCOUNT_A}','000100',0,'grant','${grantId}',NULL,'active',${now},${now});
+      INSERT INTO mxqr_pro_grant_redemptions VALUES
+        ('redemption_${'H'.repeat(22)}','campaign_${'A'.repeat(22)}','voucher_${'D'.repeat(22)}','${grantId}','${ACCOUNT_A}','fulfilled',NULL,${now},${now});
+    `);
+    const env = { MUSIXQUARE_ADMIN_DB: db };
+    const input = {
+      accountId: ACCOUNT_A,
+      roomCode: '000100',
+      roomGeneration: 0,
+      nowMs: now + 1,
+    };
+
+    expect(await canOrphanProRoomOwnerEntitlement(env, input)).toBe(true);
+    expect(await orphanProRoomOwnerEntitlement(env, input)).toBe(true);
+    expect(await orphanProRoomOwnerEntitlement(env, { ...input, nowMs: now + 2 })).toBe(true);
+    expect(db.database.prepare('SELECT status FROM mxqr_pro_grants').get()).toEqual({
+      status: 'orphaned',
+    });
+    expect(db.database.prepare('SELECT status FROM mxqr_pro_grant_allocations').get()).toEqual({
+      status: 'orphaned',
+    });
+    expect(db.database.prepare('SELECT status FROM mxqr_pro_grant_redemptions').get()).toEqual({
+      status: 'orphaned',
+    });
+    expect(
+      db.database
+        .prepare(
+          `SELECT status, redeemed_account_id, redeemed_at
+             FROM mxqr_pro_grant_vouchers`,
+        )
+        .get(),
+    ).toEqual({ status: 'redeemed', redeemed_account_id: ACCOUNT_A, redeemed_at: now });
   });
 
   it('blocks acquisition until the canonical-owner backfill marker is durable', async () => {

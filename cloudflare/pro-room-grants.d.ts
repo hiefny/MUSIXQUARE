@@ -98,6 +98,16 @@ export function upsertProRoomOwnerEntitlement(
   input: ProRoomOwnerEntitlementIdentity,
 ): Promise<boolean>;
 
+export function canOrphanProRoomOwnerEntitlement(
+  env: unknown,
+  input: ProGrantActivationIdentity,
+): Promise<boolean>;
+
+export function orphanProRoomOwnerEntitlement(
+  env: unknown,
+  input: ProGrantActivationIdentity,
+): Promise<boolean>;
+
 export function orphanAccountProGrants(
   env: unknown,
   accountId: string,

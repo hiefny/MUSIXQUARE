@@ -564,6 +564,163 @@ export async function upsertProRoomOwnerEntitlement(env, input) {
   }
 }
 
+/**
+ * Exact-room preflight for an operator-owned authority removal. This is a
+ * releasing operation, so it deliberately does not depend on the global
+ * owner-backfill marker. It must never adopt a transfer that is already in
+ * flight or infer ownership from another room belonging to the same account.
+ */
+export async function canOrphanProRoomOwnerEntitlement(env, input) {
+  const db = proEntitlementDb(env);
+  if (!db?.prepare || !validEntitlementIdentity(input)) return false;
+  try {
+    const row = await first(
+      db
+        .prepare(
+          `SELECT 1 AS allowed
+             FROM ${ENTITLEMENT_TABLE} entitlement
+            WHERE entitlement.account_id = ?1
+              AND entitlement.room_code = ?2
+              AND entitlement.room_generation = ?3
+              AND entitlement.status IN ('active', 'suspended', 'orphaned')
+              AND NOT EXISTS (
+                    SELECT 1 FROM ${ENTITLEMENT_TABLE} transfer
+                     WHERE transfer.room_code = ?2
+                       AND transfer.room_generation = ?3
+                       AND transfer.status IN (
+                         'transfer_source_reserved',
+                         'transfer_source_active',
+                         'transfer_source_suspended',
+                         'transfer_source_orphaned',
+                         'transfer_target_pending'
+                       )
+                  )
+            LIMIT 1`,
+        )
+        .bind(input.accountId, input.roomCode, input.roomGeneration),
+    );
+    return Number(row?.allowed) === 1;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Release exactly one canonical owner while retaining the room incarnation.
+ * `orphaned` is non-current for the account index but remains reserved by the
+ * room index, and is already a supported source for a later ownership
+ * transfer. Grant-backed acquisition rows follow the same exact grant only;
+ * the consumed voucher is immutable and intentionally remains consumed.
+ */
+export async function orphanProRoomOwnerEntitlement(env, input) {
+  const db = proEntitlementDb(env);
+  if (!db?.prepare || !db?.batch || !validEntitlementIdentity(input)) return false;
+  if (!(await canOrphanProRoomOwnerEntitlement(env, input))) return false;
+  const nowMs = entitlementNow(input);
+  try {
+    await db.batch([
+      db
+        .prepare(
+          `UPDATE ${ENTITLEMENT_TABLE}
+              SET status = 'orphaned', updated_at = ?4
+            WHERE account_id = ?1 AND room_code = ?2 AND room_generation = ?3
+              AND status IN ('active', 'suspended')
+              AND NOT EXISTS (
+                    SELECT 1 FROM ${ENTITLEMENT_TABLE} transfer
+                     WHERE transfer.room_code = ?2
+                       AND transfer.room_generation = ?3
+                       AND transfer.status IN (
+                         'transfer_source_reserved',
+                         'transfer_source_active',
+                         'transfer_source_suspended',
+                         'transfer_source_orphaned',
+                         'transfer_target_pending'
+                       )
+                  )`,
+        )
+        .bind(input.accountId, input.roomCode, input.roomGeneration, nowMs),
+      db
+        .prepare(
+          `UPDATE ${GRANT_TABLE}
+              SET status = 'orphaned', updated_at = ?4
+            WHERE grant_id IN (
+                  SELECT source_ref FROM ${ENTITLEMENT_TABLE}
+                   WHERE account_id = ?1 AND room_code = ?2 AND room_generation = ?3
+                     AND source_kind = 'grant' AND status = 'orphaned'
+                )
+              AND status IN ('pending_activation', 'active', 'suspended')`,
+        )
+        .bind(input.accountId, input.roomCode, input.roomGeneration, nowMs),
+      db
+        .prepare(
+          `UPDATE ${ALLOCATION_TABLE}
+              SET status = 'orphaned', updated_at = ?4
+            WHERE room_code = ?2 AND room_generation = ?3
+              AND grant_id IN (
+                  SELECT source_ref FROM ${ENTITLEMENT_TABLE}
+                   WHERE account_id = ?1 AND room_code = ?2 AND room_generation = ?3
+                     AND source_kind = 'grant' AND status = 'orphaned'
+                )
+              AND status IN ('reserved', 'active', 'suspended')`,
+        )
+        .bind(input.accountId, input.roomCode, input.roomGeneration, nowMs),
+      db
+        .prepare(
+          `UPDATE ${REDEMPTION_TABLE}
+              SET status = 'orphaned', updated_at = ?4
+            WHERE account_id = ?1
+              AND grant_id IN (
+                  SELECT source_ref FROM ${ENTITLEMENT_TABLE}
+                   WHERE account_id = ?1 AND room_code = ?2 AND room_generation = ?3
+                     AND source_kind = 'grant' AND status = 'orphaned'
+                )
+              AND status IN ('redeemed', 'fulfilled')`,
+        )
+        .bind(input.accountId, input.roomCode, input.roomGeneration, nowMs),
+    ]);
+
+    const exact = await readExactEntitlement(db, input);
+    if (
+      exact?.account_id !== input.accountId ||
+      exact?.room_code !== input.roomCode ||
+      Number(exact?.room_generation) !== input.roomGeneration ||
+      exact?.status !== 'orphaned' ||
+      !(await canOrphanProRoomOwnerEntitlement(env, input))
+    ) {
+      return false;
+    }
+    if (exact.source_kind !== 'grant') return true;
+
+    const lineage = await first(
+      db
+        .prepare(
+          `SELECT
+             EXISTS (
+               SELECT 1 FROM ${GRANT_TABLE}
+                WHERE grant_id = ?4 AND account_id = ?1 AND status = 'orphaned'
+             ) AS grant_orphaned,
+             EXISTS (
+               SELECT 1 FROM ${ALLOCATION_TABLE}
+                WHERE grant_id = ?4 AND room_code = ?2 AND room_generation = ?3
+                  AND status = 'orphaned'
+             ) AS allocation_orphaned,
+             EXISTS (
+               SELECT 1 FROM ${REDEMPTION_TABLE}
+                WHERE grant_id = ?4 AND account_id = ?1 AND status = 'orphaned'
+             ) AS redemption_orphaned`,
+        )
+        .bind(input.accountId, input.roomCode, input.roomGeneration, exact.source_ref),
+    );
+    return (
+      Number(lineage?.grant_orphaned) === 1 &&
+      Number(lineage?.allocation_orphaned) === 1 &&
+      Number(lineage?.redemption_orphaned) === 1
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function readOwnershipTransferTarget(db, input) {
   return first(
     db

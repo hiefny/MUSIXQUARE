@@ -189,6 +189,97 @@ describe('optional account UI', () => {
     await expect(login).resolves.toBe('authenticated');
   });
 
+  it('returns an incomplete protected identity without a nickname prompt and can force the Google chooser again', async () => {
+    const fetchMock = vi
+      .mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({ configured: true, authenticated: false, account: null, statsScope: null }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: 'Linked owner', profileComplete: true },
+          statsScope: STATS_SCOPE,
+        }),
+      );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+
+    let popupClosed = false;
+    const firstPopup = {
+      get closed() {
+        return popupClosed;
+      },
+      focus: vi.fn(),
+      location: { replace: vi.fn() },
+      opener: window,
+    } as unknown as Window;
+    // Browsers may reuse a still-open named completion window. The second
+    // user gesture must nevertheless call window.open and navigate that shell
+    // back through Google's explicit account chooser.
+    const open = vi.spyOn(window, 'open').mockReturnValue(firstPopup);
+
+    const firstLogin = requestAccountLoginPopup({ acceptIncompleteProfile: true });
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: '', profileComplete: false },
+      statsScope: null,
+    });
+
+    await expect(firstLogin).resolves.toBe('profile-incomplete');
+    expect(showDialog).not.toHaveBeenCalled();
+
+    // Cancelling the claim after this outcome must not allow a delayed
+    // visibility/session notification to surface the generic nickname modal.
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: '', profileComplete: false },
+      statsScope: null,
+    });
+    await Promise.resolve();
+    expect(showDialog).not.toHaveBeenCalled();
+
+    vi.useFakeTimers();
+    const switchedLogin = requestAccountLoginPopup({
+      acceptIncompleteProfile: true,
+      forceGoogleAccountChooser: true,
+    });
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(firstPopup.location.replace).toHaveBeenCalledTimes(2);
+    expect(firstPopup.location.replace).toHaveBeenLastCalledWith(
+      expect.stringContaining('/api/auth/google/start?'),
+    );
+
+    let switchedSettled = false;
+    void switchedLogin.then(() => {
+      switchedSettled = true;
+    });
+    // A duplicate refresh from the first OAuth completion must not be
+    // mistaken for the forced chooser's result while that popup is live.
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: '', profileComplete: false },
+      statsScope: null,
+    });
+    await Promise.resolve();
+    expect(switchedSettled).toBe(false);
+
+    popupClosed = true;
+    await vi.advanceTimersByTimeAsync(250);
+    vi.useRealTimers();
+
+    await expect(switchedLogin).resolves.toBe('authenticated');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getAccountSnapshot().account).toMatchObject({
+      nickname: 'Linked owner',
+      profileComplete: true,
+    });
+  });
+
   it('treats declining nickname completion as a cancelled protected login', async () => {
     applyAccountSession({
       configured: true,

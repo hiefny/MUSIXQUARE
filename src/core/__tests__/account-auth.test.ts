@@ -1113,6 +1113,107 @@ describe('Google Authorization Code + PKCE account flow', () => {
     expect(db.sessions.size).toBe(2);
   });
 
+  it('restores the completed profile for the same Google subject after logout and starts fresh only after deletion', async () => {
+    const db = new FakeAuthDb();
+    const env = authEnv(db);
+    const first = await completeLogin(env);
+    vi.unstubAllGlobals();
+
+    const completed = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/profile', {
+        method: 'PATCH',
+        headers: mutationHeaders(first.sessionCookie!),
+        body: JSON.stringify({ nickname: 'ReturnUser' }),
+      }),
+      env,
+    );
+    expect(completed?.status).toBe(200);
+    await expect(completed?.json()).resolves.toMatchObject({
+      authenticated: true,
+      account: { nickname: 'ReturnUser', profileComplete: true },
+    });
+
+    const originalAccountId = [...db.accounts.keys()][0]!;
+    const originalSubjectHash = db.accounts.get(originalAccountId)?.google_subject_hash;
+    expect(originalAccountId).toMatch(/^acct_[A-Za-z0-9_-]{22}$/);
+    expect(originalSubjectHash).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+    const logout = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/logout', {
+        method: 'POST',
+        headers: mutationHeaders(first.sessionCookie!),
+        body: '{}',
+      }),
+      env,
+    );
+    expect(logout?.status).toBe(200);
+    expect(db.accounts.size).toBe(1);
+    expect(db.sessions.size).toBe(0);
+
+    resetAccountAuthCachesForTests();
+    const returning = await completeLogin(env);
+    vi.unstubAllGlobals();
+    expect(db.accounts.size).toBe(1);
+    expect(db.accounts.get(originalAccountId)).toMatchObject({
+      account_id: originalAccountId,
+      google_subject_hash: originalSubjectHash,
+      nickname: 'ReturnUser',
+      profile_complete: 1,
+      status: 'active',
+    });
+    await expect(
+      resolveAccountSession(
+        new Request('https://musixquare.com/', {
+          headers: { Cookie: returning.sessionCookie! },
+        }),
+        env,
+      ),
+    ).resolves.toEqual({
+      accountId: originalAccountId,
+      nickname: 'ReturnUser',
+      profileComplete: true,
+    });
+
+    const deleted = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/account', {
+        method: 'DELETE',
+        headers: mutationHeaders(returning.sessionCookie!),
+        body: JSON.stringify({ confirm: true }),
+      }),
+      env,
+      undefined,
+      { orphanAccountProGrants: vi.fn(async () => true) },
+    );
+    expect(deleted?.status).toBe(200);
+    expect(db.accounts.size).toBe(0);
+    expect(db.sessions.size).toBe(0);
+
+    resetAccountAuthCachesForTests();
+    const replacement = await completeLogin(env);
+    vi.unstubAllGlobals();
+    expect(db.accounts.size).toBe(1);
+    const replacementAccount = [...db.accounts.values()][0]!;
+    expect(replacementAccount).toMatchObject({
+      google_subject_hash: originalSubjectHash,
+      nickname: null,
+      profile_complete: 0,
+      status: 'active',
+    });
+    expect(replacementAccount.account_id).not.toBe(originalAccountId);
+    await expect(
+      resolveAccountSession(
+        new Request('https://musixquare.com/', {
+          headers: { Cookie: replacement.sessionCookie! },
+        }),
+        env,
+      ),
+    ).resolves.toEqual({
+      accountId: replacementAccount.account_id,
+      nickname: '',
+      profileComplete: false,
+    });
+  });
+
   it('bounds active OAuth cookies to three and removes expired flow cookies on the next start', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-20T00:00:00.000Z'));

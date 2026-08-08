@@ -650,6 +650,10 @@ const de: Record<I18nKey, string> = {
     'Melde dich mit dem Konto an, das diesen PRO-Raum besitzen soll, und schließe die Nickname-Einrichtung ab. Der Link bleibt nur im Speicher dieses Tabs.',
   'pro.claim_popup_blocked_message':
     'Dein Browser hat das Anmeldefenster blockiert. Erlaube Pop-ups für MUSIXQUARE und versuche es erneut.',
+  'pro.claim_existing_account_title': 'Mit dem verknüpften Konto anmelden',
+  'pro.claim_existing_account_message':
+    'Dieser Link ist an ein MUSIXQUARE-Konto gebunden, das bereits einen Nicknamen hat. Wähle das für diesen Link angegebene Google-Konto aus.',
+  'pro.claim_choose_account_button': 'Anderes Konto wählen',
   'pro.claim_account_conflict_title': 'Dieses Konto kann den Raum nicht verwenden',
   'pro.claim_account_conflict_message':
     'Dieser Raum ist mit einem anderen Konto verknüpft. Bitte einen Administrator um eine Eigentumsübertragung, wenn du das ändern möchtest.',

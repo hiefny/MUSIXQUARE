@@ -640,6 +640,10 @@ const ja: Record<I18nKey, string> = {
     'このPROルームのオーナーになるアカウントでログインし、ニックネーム設定を完了してください。リンクはこのタブのメモリ内だけに保持されます。',
   'pro.claim_popup_blocked_message':
     'ブラウザがログインウィンドウをブロックしました。MUSIXQUAREのポップアップを許可して、もう一度お試しください。',
+  'pro.claim_existing_account_title': '連携済みのアカウントでログインしてください',
+  'pro.claim_existing_account_message':
+    'このリンクは、ニックネーム設定済みのMUSIXQUAREアカウントに紐づいています。このリンクに指定されたGoogleアカウントを選択してください。',
+  'pro.claim_choose_account_button': '別のアカウントを選択',
   'pro.claim_account_conflict_title': 'このアカウントではルームを使用できません',
   'pro.claim_account_conflict_message':
     'このルームは別のアカウントに連携されています。変更する場合は、管理者に所有権の移行を依頼してください。',

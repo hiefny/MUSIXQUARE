@@ -619,7 +619,7 @@ describe('PRO room setup flow', () => {
       .mockResolvedValueOnce({});
     mocks.showDialog.mockImplementation(
       async (options: { title?: string; onPrimaryActivation?: () => void }) => {
-        if (options.title === 'pro.claim_login_title') {
+        if (options.title === 'pro.claim_existing_account_title') {
           options.onPrimaryActivation?.();
           return { action: 'ok' };
         }
@@ -636,6 +636,51 @@ describe('PRO room setup flow', () => {
       CLAIM,
     ]);
     expect(mocks.resume).not.toHaveBeenCalled();
+  });
+
+  it('does not create a nickname for an incomplete recovery identity and keeps the claim for account switching', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      activationClaimPresent: false,
+      ownerRecoveryClaimToken: CLAIM,
+      ownerRecoveryClaimPresent: true,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: false,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.recoverOwner
+      .mockRejectedValueOnce(new ProRoomApiError('ACCOUNT_SESSION_REQUIRED', 401))
+      .mockResolvedValueOnce({});
+    mocks.loginPopup
+      .mockResolvedValueOnce('profile-incomplete')
+      .mockResolvedValueOnce('authenticated');
+    mocks.showDialog.mockImplementation(
+      async (options: { title?: string; onPrimaryActivation?: () => void }) => {
+        if (options.title === 'pro.claim_existing_account_title') {
+          options.onPrimaryActivation?.();
+          return { action: 'ok' };
+        }
+        return { action: 'ok' };
+      },
+    );
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+
+    expect(mocks.loginPopup).toHaveBeenNthCalledWith(1, {
+      acceptIncompleteProfile: true,
+      forceGoogleAccountChooser: false,
+    });
+    expect(mocks.loginPopup).toHaveBeenNthCalledWith(2, {
+      acceptIncompleteProfile: true,
+      forceGoogleAccountChooser: true,
+    });
+    expect(mocks.recoverOwner).toHaveBeenCalledTimes(2);
+    expect(mocks.recoverOwner.mock.calls.map(([input]) => input.claimToken)).toEqual([
+      CLAIM,
+      CLAIM,
+    ]);
+    expect(sessionStorage.length).toBe(0);
+    expect(localStorage.length).toBe(0);
   });
 
   it('continues the same transfer claim after login', async () => {
@@ -656,7 +701,7 @@ describe('PRO room setup flow', () => {
         if (options.title === 'pro.transfer_title') {
           return { action: 'ok', inputValue: '87654321' };
         }
-        if (options.title === 'pro.claim_login_title') {
+        if (options.title === 'pro.claim_existing_account_title') {
           options.onPrimaryActivation?.();
           return { action: 'ok' };
         }
@@ -672,6 +717,113 @@ describe('PRO room setup flow', () => {
     expect(inputs.map((input) => input.claimToken)).toEqual([CLAIM, CLAIM]);
     expect(inputs[1]?.requestId).toBe(inputs[0]?.requestId);
     expect(mocks.resume).not.toHaveBeenCalled();
+  });
+
+  it('keeps a transfer claim in memory while an incomplete account chooses the linked Google account', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      activationClaimPresent: false,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: CLAIM,
+      ownerTransferClaimPresent: true,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'suspended' });
+    mocks.transferOwner
+      .mockRejectedValueOnce(new ProRoomApiError('ACCOUNT_SESSION_REQUIRED', 401))
+      .mockResolvedValueOnce({});
+    mocks.loginPopup
+      .mockResolvedValueOnce('profile-incomplete')
+      .mockResolvedValueOnce('authenticated');
+    mocks.showDialog.mockImplementation(
+      async (options: { title?: string; onPrimaryActivation?: () => void }) => {
+        if (options.title === 'pro.transfer_title') {
+          return { action: 'ok', inputValue: '87654321' };
+        }
+        if (options.title === 'pro.claim_existing_account_title') {
+          options.onPrimaryActivation?.();
+          return { action: 'ok' };
+        }
+        return { action: 'ok' };
+      },
+    );
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+
+    expect(mocks.loginPopup).toHaveBeenNthCalledWith(1, {
+      acceptIncompleteProfile: true,
+      forceGoogleAccountChooser: false,
+    });
+    expect(mocks.loginPopup).toHaveBeenNthCalledWith(2, {
+      acceptIncompleteProfile: true,
+      forceGoogleAccountChooser: true,
+    });
+    expect(mocks.showDialog).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        title: 'pro.claim_existing_account_title',
+        message: 'pro.claim_existing_account_message',
+        buttonText: 'pro.claim_login_button',
+        secondaryText: 'common.cancel',
+      }),
+    );
+    expect(mocks.showDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'pro.claim_existing_account_title',
+        message: 'pro.claim_existing_account_message',
+        buttonText: 'pro.claim_choose_account_button',
+        secondaryText: 'common.cancel',
+      }),
+    );
+    expect(mocks.transferOwner).toHaveBeenCalledTimes(2);
+    expect(mocks.transferOwner.mock.calls.map(([input]) => input.claimToken)).toEqual([
+      CLAIM,
+      CLAIM,
+    ]);
+    expect(sessionStorage.length).toBe(0);
+    expect(localStorage.length).toBe(0);
+  });
+
+  it('cancels an incomplete-account transfer without opening generic login guidance or replaying the claim', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      activationClaimPresent: false,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: CLAIM,
+      ownerTransferClaimPresent: true,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'suspended' });
+    mocks.transferOwner.mockRejectedValue(new ProRoomApiError('ACCOUNT_SESSION_REQUIRED', 401));
+    mocks.loginPopup.mockResolvedValueOnce('profile-incomplete');
+    mocks.showDialog.mockImplementation(
+      async (options: { title?: string; onPrimaryActivation?: () => void }) => {
+        if (options.title === 'pro.transfer_title') {
+          return { action: 'ok', inputValue: '87654321' };
+        }
+        if (options.title === 'pro.claim_existing_account_title') {
+          if (mocks.loginPopup.mock.calls.length === 0) {
+            options.onPrimaryActivation?.();
+            return { action: 'ok' };
+          }
+          return { action: 'secondary' };
+        }
+        return { action: 'ok' };
+      },
+    );
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+    expect(mocks.loginPopup).toHaveBeenCalledOnce();
+    expect(mocks.transferOwner).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: 'pro.claim_existing_account_title' }),
+    );
+    expect(mocks.showDialog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'account.login_cancelled' }),
+    );
+    expect(sessionStorage.length).toBe(0);
+    expect(localStorage.length).toBe(0);
   });
 
   it('transfers ownership with a new PIN and one memory-only request id across retries', async () => {

@@ -698,6 +698,10 @@ const ko = {
     '계속하려면 이 PRO 방을 소유할 계정으로 로그인하고 닉네임 설정을 완료해 주세요. 링크는 이 탭의 메모리에만 잠시 유지돼요.',
   'pro.claim_popup_blocked_message':
     '브라우저가 로그인 창을 차단했어요. MUSIXQUARE의 팝업을 허용한 뒤 다시 시도해 주세요.',
+  'pro.claim_existing_account_title': '연결된 계정으로 로그인해 주세요',
+  'pro.claim_existing_account_message':
+    '이 링크는 이미 MUSIXQUARE 닉네임이 설정된 계정에 연결되어 있어요. 이 링크에 지정된 Google 계정을 선택해 주세요.',
+  'pro.claim_choose_account_button': '다른 계정 선택',
   'pro.claim_account_conflict_title': '이 계정에서는 사용할 수 없어요',
   'pro.claim_account_conflict_message':
     '이 방은 다른 계정에 연결되어 있어요. 소유권을 변경하려면 관리자에게 이전을 요청해 주세요.',

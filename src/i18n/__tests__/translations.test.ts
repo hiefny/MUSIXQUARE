@@ -108,6 +108,9 @@ describe('Translation key integrity', () => {
       'pro.claim_login_button',
       'pro.claim_login_message',
       'pro.claim_popup_blocked_message',
+      'pro.claim_existing_account_title',
+      'pro.claim_existing_account_message',
+      'pro.claim_choose_account_button',
       'pro.claim_account_conflict_title',
       'pro.claim_account_conflict_message',
       'pro.claim_account_capacity_title',
@@ -242,6 +245,7 @@ describe('Translation key integrity', () => {
       'account.logout',
       'account.delete_account',
       'pro.claim_login_button',
+      'pro.claim_choose_account_button',
       'pro.use_this_tab',
     ] as const;
     const safetyDistinctPairs = [
@@ -253,6 +257,7 @@ describe('Translation key integrity', () => {
       ['account.delete_account', 'common.cancel'],
       ['account.delete_account', 'common.close'],
       ['pro.claim_login_button', 'common.cancel'],
+      ['pro.claim_choose_account_button', 'common.cancel'],
       ['pro.use_this_tab', 'common.cancel'],
     ] as const;
 

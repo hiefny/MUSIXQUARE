@@ -726,6 +726,10 @@ const it: Record<I18nKey, string> = {
     "Accedi con l'account che sarà proprietario di questa stanza PRO e completa l'impostazione del nickname. Il link resta solo nella memoria di questa scheda.",
   'pro.claim_popup_blocked_message':
     'Il browser ha bloccato la finestra di accesso. Consenti i popup per MUSIXQUARE e riprova.',
+  'pro.claim_existing_account_title': "Accedi con l'account collegato",
+  'pro.claim_existing_account_message':
+    'Questo link è associato a un account MUSIXQUARE che ha già un nickname. Scegli l’account Google indicato per questo link.',
+  'pro.claim_choose_account_button': 'Scegli un altro account',
   'pro.claim_account_conflict_title': 'Questo account non può usare la stanza',
   'pro.claim_account_conflict_message':
     'Questa stanza è collegata a un altro account. Se vuoi cambiarlo, chiedi a un amministratore di trasferire la proprietà.',

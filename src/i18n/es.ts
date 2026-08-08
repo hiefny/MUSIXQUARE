@@ -653,6 +653,10 @@ const es: Record<I18nKey, string> = {
     'Inicia sesión con la cuenta que será propietaria de esta sala PRO y termina de configurar el apodo. El enlace solo se conserva en la memoria de esta pestaña.',
   'pro.claim_popup_blocked_message':
     'El navegador bloqueó la ventana de inicio de sesión. Permite las ventanas emergentes de MUSIXQUARE y vuelve a intentarlo.',
+  'pro.claim_existing_account_title': 'Inicia sesión con la cuenta vinculada',
+  'pro.claim_existing_account_message':
+    'Este enlace está vinculado a una cuenta de MUSIXQUARE que ya tiene apodo. Elige la cuenta de Google indicada para este enlace.',
+  'pro.claim_choose_account_button': 'Elegir otra cuenta',
   'pro.claim_account_conflict_title': 'Esta cuenta no puede usar la sala',
   'pro.claim_account_conflict_message':
     'Esta sala está vinculada a otra cuenta. Si necesitas cambiarla, solicita al administrador una transferencia de propiedad.',

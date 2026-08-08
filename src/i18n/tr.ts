@@ -714,6 +714,10 @@ const tr: Record<I18nKey, string> = {
     'Bu PRO odasının sahibi olacak hesapla giriş yapın ve takma ad ayarını tamamlayın. Bağlantı yalnızca bu sekmenin belleğinde tutulur.',
   'pro.claim_popup_blocked_message':
     'Tarayıcı giriş penceresini engelledi. MUSIXQUARE için açılır pencerelere izin verip tekrar deneyin.',
+  'pro.claim_existing_account_title': 'Bağlı hesapla giriş yapın',
+  'pro.claim_existing_account_message':
+    'Bu bağlantı, takma adı zaten ayarlanmış bir MUSIXQUARE hesabına bağlıdır. Bu bağlantı için belirtilen Google hesabını seçin.',
+  'pro.claim_choose_account_button': 'Başka hesap seç',
   'pro.claim_account_conflict_title': 'Bu hesap odayı kullanamaz',
   'pro.claim_account_conflict_message':
     'Bu oda başka bir hesaba bağlı. Değiştirmeniz gerekiyorsa yöneticiden sahipliği aktarmasını isteyin.',

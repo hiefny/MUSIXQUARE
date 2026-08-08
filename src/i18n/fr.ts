@@ -654,6 +654,10 @@ const fr: Record<I18nKey, string> = {
     'Connectez-vous avec le compte qui possédera cette salle PRO et terminez la configuration du pseudo. Le lien reste uniquement dans la mémoire de cet onglet.',
   'pro.claim_popup_blocked_message':
     'Le navigateur a bloqué la fenêtre de connexion. Autorisez les fenêtres contextuelles pour MUSIXQUARE, puis réessayez.',
+  'pro.claim_existing_account_title': 'Connectez-vous avec le compte lié',
+  'pro.claim_existing_account_message':
+    'Ce lien est associé à un compte MUSIXQUARE qui possède déjà un pseudo. Choisissez le compte Google indiqué pour ce lien.',
+  'pro.claim_choose_account_button': 'Choisir un autre compte',
   'pro.claim_account_conflict_title': 'Ce compte ne peut pas utiliser la salle',
   'pro.claim_account_conflict_message':
     'Cette salle est liée à un autre compte. Pour la modifier, demandez à un administrateur de transférer la propriété.',

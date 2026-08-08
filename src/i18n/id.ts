@@ -646,6 +646,10 @@ const id: Record<I18nKey, string> = {
     'Masuk dengan akun yang akan memiliki ruang PRO ini dan selesaikan pengaturan nama panggilan. Tautan hanya disimpan dalam memori tab ini.',
   'pro.claim_popup_blocked_message':
     'Browser memblokir jendela masuk. Izinkan pop-up untuk MUSIXQUARE, lalu coba lagi.',
+  'pro.claim_existing_account_title': 'Masuk dengan akun yang terhubung',
+  'pro.claim_existing_account_message':
+    'Tautan ini terikat ke akun MUSIXQUARE yang sudah memiliki nama panggilan. Pilih akun Google yang ditentukan untuk tautan ini.',
+  'pro.claim_choose_account_button': 'Pilih akun lain',
   'pro.claim_account_conflict_title': 'Akun ini tidak dapat menggunakan ruang',
   'pro.claim_account_conflict_message':
     'Ruang ini terhubung ke akun lain. Minta administrator mentransfer kepemilikan jika Anda perlu mengubahnya.',

@@ -719,6 +719,10 @@ const nl: Record<I18nKey, string> = {
     'Log in met het account dat eigenaar van deze PRO-ruimte wordt en rond de instelling van de nickname af. De link blijft alleen in het geheugen van dit tabblad.',
   'pro.claim_popup_blocked_message':
     'Je browser heeft het inlogvenster geblokkeerd. Sta pop-ups voor MUSIXQUARE toe en probeer het opnieuw.',
+  'pro.claim_existing_account_title': 'Log in met het gekoppelde account',
+  'pro.claim_existing_account_message':
+    'Deze link is gekoppeld aan een MUSIXQUARE-account dat al een nickname heeft. Kies het Google-account dat voor deze link is opgegeven.',
+  'pro.claim_choose_account_button': 'Ander account kiezen',
   'pro.claim_account_conflict_title': 'Dit account kan de ruimte niet gebruiken',
   'pro.claim_account_conflict_message':
     'Deze ruimte is aan een ander account gekoppeld. Vraag een beheerder om het eigenaarschap over te dragen als je dit wilt wijzigen.',

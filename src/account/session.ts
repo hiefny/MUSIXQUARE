@@ -6,6 +6,7 @@ import {
   updateAccountProfile,
   type AccountDeletionResult,
   type AccountProfile,
+  type AccountSessionResponse,
 } from './api.ts';
 import {
   applyAccountSession,
@@ -28,9 +29,28 @@ const ACCOUNT_REFRESH_DEBOUNCE_MS = 30_000;
 const ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
 const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
 
-export type AccountLoginPopupOutcome = 'authenticated' | 'cancelled' | 'error' | 'blocked';
+export type AccountLoginPopupOutcome =
+  | 'authenticated'
+  | 'profile-incomplete'
+  | 'cancelled'
+  | 'error'
+  | 'blocked';
 
-type AccountLoginPopupHandler = () => Promise<AccountLoginPopupOutcome>;
+export type AccountLoginPopupOptions = {
+  /**
+   * Return the authenticated-but-incomplete account to the caller instead of
+   * opening the ordinary first-login nickname flow. Bound claims can use this
+   * to explain that the user selected an identity other than the pre-existing
+   * account named by the claim.
+   */
+  acceptIncompleteProfile?: boolean;
+  /** Open Google's account chooser even when this tab already has a session. */
+  forceGoogleAccountChooser?: boolean;
+};
+
+type AccountLoginPopupHandler = (
+  options?: Readonly<AccountLoginPopupOptions>,
+) => Promise<AccountLoginPopupOutcome>;
 let _accountLoginPopupHandler: AccountLoginPopupHandler | null = null;
 
 /**
@@ -42,8 +62,10 @@ export function setAccountLoginPopupHandler(handler: AccountLoginPopupHandler): 
   _accountLoginPopupHandler = handler;
 }
 
-export function requestAccountLoginPopup(): Promise<AccountLoginPopupOutcome> {
-  return _accountLoginPopupHandler?.() ?? Promise.resolve('error');
+export function requestAccountLoginPopup(
+  options?: Readonly<AccountLoginPopupOptions>,
+): Promise<AccountLoginPopupOutcome> {
+  return _accountLoginPopupHandler?.(options) ?? Promise.resolve('error');
 }
 
 function isAccountRefreshMessage(value: unknown): boolean {
@@ -114,6 +136,31 @@ function bindAccountSessionLifecycle(): void {
 export function startAccountSessionRefresh(): void {
   bindAccountSessionLifecycle();
   void refreshAccountSession();
+}
+
+/**
+ * Read the cookie session after an OAuth popup has demonstrably completed.
+ * This request receives a fresh operation generation, so any older focus or
+ * BroadcastChannel refresh cannot overwrite its result. The response is also
+ * returned to the popup owner so it can classify this exact post-completion
+ * read even if a still-newer, equally authoritative refresh starts later.
+ */
+export async function reconcileAccountLoginSession(): Promise<AccountSessionResponse> {
+  const generation = ++_operationGeneration;
+  const sessionFence = _sessionFence;
+  _lastRefreshStartedAt = Date.now();
+  try {
+    const response = await getAccountSession();
+    if (sessionFence === _sessionFence && generation === _operationGeneration) {
+      applyAccountSession(response);
+    }
+    return response;
+  } catch (error) {
+    if (sessionFence === _sessionFence && generation === _operationGeneration) {
+      setAccountUnavailable();
+    }
+    throw error;
+  }
 }
 
 function drainRefreshFollowUp(): void {

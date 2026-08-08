@@ -1,7 +1,12 @@
 /** Optional Google account UI. Authentication never gates room playback. */
 
 import { bus, createBusScope } from '../core/events.ts';
-import { buildGoogleLoginUrl, getAccountStats, type AccountStats } from '../account/api.ts';
+import {
+  buildGoogleLoginUrl,
+  getAccountStats,
+  type AccountSessionResponse,
+  type AccountStats,
+} from '../account/api.ts';
 import { flushAccountActivityStatsForRead } from '../account/activity-stats.ts';
 import {
   getAccountStatsScope,
@@ -12,9 +17,11 @@ import {
 } from '../account/state.ts';
 import {
   removeAccount,
+  reconcileAccountLoginSession,
   setAccountLoginPopupHandler,
   signOutAccount,
   startAccountSessionRefresh,
+  type AccountLoginPopupOptions,
   type AccountLoginPopupOutcome,
 } from '../account/session.ts';
 import {
@@ -79,6 +86,9 @@ let _accountLoginPopupMonitor: ReturnType<typeof setInterval> | null = null;
 let _accountLoginPopupAttempt: {
   popup: Window | null;
   popupClosed: boolean;
+  acceptIncompleteProfile: boolean;
+  waitsForPopupReconciliation: boolean;
+  reconciliationStarted: boolean;
   promise: Promise<AccountLoginPopupOutcome>;
   resolve: (outcome: AccountLoginPopupOutcome) => void;
   unsubscribe: () => void;
@@ -471,18 +481,56 @@ function settleAccountLoginPopupAttempt(outcome: AccountLoginPopupOutcome): void
 function observeAccountLoginPopupAttempt(snapshot: Readonly<AccountSnapshot>): void {
   const attempt = _accountLoginPopupAttempt;
   if (!attempt) return;
+  if (attempt.waitsForPopupReconciliation) return;
   if (getCompletedAccount(snapshot)) {
     _accountLoginPopup = null;
     stopAccountLoginPopupMonitor();
     settleAccountLoginPopupAttempt('authenticated');
     return;
   }
-  if (snapshot.status === 'authenticated' && snapshot.account) return;
+  if (snapshot.status === 'authenticated' && snapshot.account) {
+    if (!attempt.acceptIncompleteProfile) return;
+    // The claim flow, rather than the ordinary first-login profile dialog,
+    // owns this result. Keep the incomplete account usable from Account
+    // Center, but do not stack or schedule a nickname prompt over the claim's
+    // identity guidance.
+    _profilePromptShown = true;
+    _accountLoginPopup = null;
+    stopAccountLoginPopupMonitor();
+    settleAccountLoginPopupAttempt('profile-incomplete');
+    return;
+  }
   if (!attempt.popupClosed || snapshot.status === 'loading') return;
   settleAccountLoginPopupAttempt(snapshot.status === 'anonymous' ? 'cancelled' : 'error');
 }
 
-function createAccountLoginPopupAttempt(popup: Window | null): Promise<AccountLoginPopupOutcome> {
+function accountSnapshotFromSessionResponse(
+  response: Readonly<AccountSessionResponse>,
+): Readonly<AccountSnapshot> {
+  return response.authenticated && response.account
+    ? { status: 'authenticated', configured: true, account: response.account }
+    : { status: 'anonymous', configured: response.configured, account: null };
+}
+
+async function reconcileAccountLoginPopupAttempt(
+  attempt: NonNullable<typeof _accountLoginPopupAttempt>,
+): Promise<void> {
+  if (_accountLoginPopupAttempt !== attempt || attempt.reconciliationStarted) return;
+  attempt.reconciliationStarted = true;
+  try {
+    const response = await reconcileAccountLoginSession();
+    if (_accountLoginPopupAttempt !== attempt) return;
+    attempt.waitsForPopupReconciliation = false;
+    observeAccountLoginPopupAttempt(accountSnapshotFromSessionResponse(response));
+  } catch {
+    if (_accountLoginPopupAttempt === attempt) settleAccountLoginPopupAttempt('error');
+  }
+}
+
+function createAccountLoginPopupAttempt(
+  popup: Window | null,
+  options: Readonly<AccountLoginPopupOptions> = {},
+): Promise<AccountLoginPopupOutcome> {
   let resolveAttempt!: (outcome: AccountLoginPopupOutcome) => void;
   const promise = new Promise<AccountLoginPopupOutcome>((resolve) => {
     resolveAttempt = resolve;
@@ -490,6 +538,9 @@ function createAccountLoginPopupAttempt(popup: Window | null): Promise<AccountLo
   _accountLoginPopupAttempt = {
     popup,
     popupClosed: false,
+    acceptIncompleteProfile: options.acceptIncompleteProfile === true,
+    waitsForPopupReconciliation: popup !== null && options.forceGoogleAccountChooser === true,
+    reconciliationStarted: false,
     promise,
     resolve: resolveAttempt,
     unsubscribe: () => undefined,
@@ -623,10 +674,14 @@ function openIsolatedAccountLoginPopup():
  * synchronous function is safe to call from a real click/Enter activation and
  * lets security-sensitive callers retain one-time credentials only in memory.
  */
-function requestAccountLoginPopupOnly(): Promise<AccountLoginPopupOutcome> {
+function requestAccountLoginPopupOnly(
+  options: Readonly<AccountLoginPopupOptions> = {},
+): Promise<AccountLoginPopupOutcome> {
   bindAccountAuthResultLifecycle();
   const snapshot = getAccountSnapshot();
-  if (getCompletedAccount(snapshot)) return Promise.resolve('authenticated');
+  if (getCompletedAccount(snapshot) && !options.forceGoogleAccountChooser) {
+    return Promise.resolve('authenticated');
+  }
 
   const pending = _accountLoginPopupAttempt;
   if (pending) {
@@ -634,8 +689,13 @@ function requestAccountLoginPopupOnly(): Promise<AccountLoginPopupOutcome> {
     return pending.promise;
   }
 
-  if (snapshot.status === 'authenticated' && snapshot.account) {
-    const promise = createAccountLoginPopupAttempt(null);
+  if (
+    snapshot.status === 'authenticated' &&
+    snapshot.account &&
+    !options.forceGoogleAccountChooser
+  ) {
+    if (options.acceptIncompleteProfile) return Promise.resolve('profile-incomplete');
+    const promise = createAccountLoginPopupAttempt(null, options);
     _profilePromptShown = true;
     void requestAccountNicknameChange().then((outcome) => {
       if (!_accountLoginPopupAttempt) return;
@@ -652,13 +712,13 @@ function requestAccountLoginPopupOnly(): Promise<AccountLoginPopupOutcome> {
   if (existingPopup) {
     try {
       if (!existingPopup.closed) {
-        const promise = createAccountLoginPopupAttempt(existingPopup);
+        const promise = createAccountLoginPopupAttempt(existingPopup, options);
         focusAccountLoginPopup(existingPopup);
         return promise;
       }
     } catch {
       // An unreadable provider-owned handle is still live enough to await.
-      const promise = createAccountLoginPopupAttempt(existingPopup);
+      const promise = createAccountLoginPopupAttempt(existingPopup, options);
       focusAccountLoginPopup(existingPopup);
       return promise;
     }
@@ -669,7 +729,7 @@ function requestAccountLoginPopupOnly(): Promise<AccountLoginPopupOutcome> {
   const opened = openIsolatedAccountLoginPopup();
   if (opened.outcome !== 'opened') return Promise.resolve(opened.outcome);
 
-  const promise = createAccountLoginPopupAttempt(opened.popup);
+  const promise = createAccountLoginPopupAttempt(opened.popup, options);
   _accountLoginPopup = opened.popup;
   monitorAccountLoginPopup(opened.popup);
   focusAccountLoginPopup(opened.popup);
@@ -705,7 +765,12 @@ function monitorAccountLoginPopup(popup: Window): void {
     // directly; startAccountSessionRefresh also queues a follow-up if another
     // account read happens to be in flight.
     if (_accountLoginPopupAttempt?.popup === popup) {
-      _accountLoginPopupAttempt.popupClosed = true;
+      const attempt = _accountLoginPopupAttempt;
+      attempt.popupClosed = true;
+      if (attempt.waitsForPopupReconciliation) {
+        void reconcileAccountLoginPopupAttempt(attempt);
+        return;
+      }
     }
     startAccountSessionRefresh();
   }, ACCOUNT_LOGIN_POPUP_POLL_MS);
@@ -1157,6 +1222,12 @@ function handleAccountState(snapshot: Readonly<AccountSnapshot>): void {
     // A later Google account in the same tab must still receive its own first
     // nickname prompt after the previous account signed out or was deleted.
     _profilePromptShown = false;
+    return;
+  }
+  if (_accountLoginPopupAttempt?.acceptIncompleteProfile) {
+    // A target-bound claim is waiting to classify this identity. Its caller
+    // must be able to offer Google's account chooser before the generic
+    // nickname flow turns an accidental identity into a second account.
     return;
   }
   if (

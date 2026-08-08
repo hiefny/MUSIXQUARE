@@ -608,6 +608,10 @@ const zhHans: Record<I18nKey, string> = {
   'pro.claim_login_message':
     '请使用将拥有此 PRO 房间的账号登录，并完成昵称设置。链接只会保留在此标签页的内存中。',
   'pro.claim_popup_blocked_message': '浏览器阻止了登录窗口。请允许 MUSIXQUARE 弹出窗口，然后重试。',
+  'pro.claim_existing_account_title': '请使用已关联的账号登录',
+  'pro.claim_existing_account_message':
+    '此链接已绑定到一个设置了昵称的 MUSIXQUARE 账号。请选择为此链接指定的 Google 账号。',
+  'pro.claim_choose_account_button': '选择其他账号',
   'pro.claim_account_conflict_title': '此账号无法使用该房间',
   'pro.claim_account_conflict_message': '此房间已关联其他账号。如需更改，请联系管理员转移所有权。',
   'pro.claim_account_capacity_title': '此账号无法再关联房间',

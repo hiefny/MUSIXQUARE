@@ -721,6 +721,10 @@ const pl: Record<I18nKey, string> = {
     'Zaloguj się na konto, które ma zostać właścicielem tego pokoju PRO, i dokończ ustawianie pseudonimu. Link pozostaje tylko w pamięci tej karty.',
   'pro.claim_popup_blocked_message':
     'Przeglądarka zablokowała okno logowania. Zezwól na wyskakujące okna dla MUSIXQUARE i spróbuj ponownie.',
+  'pro.claim_existing_account_title': 'Zaloguj się na połączone konto',
+  'pro.claim_existing_account_message':
+    'Ten link jest przypisany do konta MUSIXQUARE, które ma już pseudonim. Wybierz konto Google wskazane dla tego linku.',
+  'pro.claim_choose_account_button': 'Wybierz inne konto',
   'pro.claim_account_conflict_title': 'To konto nie może używać pokoju',
   'pro.claim_account_conflict_message':
     'Ten pokój jest połączony z innym kontem. Jeśli chcesz to zmienić, poproś administratora o przeniesienie własności.',

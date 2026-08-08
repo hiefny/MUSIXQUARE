@@ -636,6 +636,10 @@ const vi: Record<I18nKey, string> = {
     'Đăng nhập bằng tài khoản sẽ sở hữu phòng PRO này và hoàn tất thiết lập biệt danh. Liên kết chỉ được giữ trong bộ nhớ của thẻ này.',
   'pro.claim_popup_blocked_message':
     'Trình duyệt đã chặn cửa sổ đăng nhập. Hãy cho phép cửa sổ bật lên cho MUSIXQUARE rồi thử lại.',
+  'pro.claim_existing_account_title': 'Đăng nhập bằng tài khoản đã liên kết',
+  'pro.claim_existing_account_message':
+    'Liên kết này được gắn với một tài khoản MUSIXQUARE đã có biệt danh. Hãy chọn tài khoản Google được chỉ định cho liên kết này.',
+  'pro.claim_choose_account_button': 'Chọn tài khoản khác',
   'pro.claim_account_conflict_title': 'Tài khoản này không thể sử dụng phòng',
   'pro.claim_account_conflict_message':
     'Phòng này được liên kết với tài khoản khác. Nếu cần thay đổi, hãy yêu cầu quản trị viên chuyển quyền sở hữu.',

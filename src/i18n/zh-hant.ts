@@ -610,6 +610,10 @@ const zhHant: Record<I18nKey, string> = {
     '請使用將擁有此 PRO 房間的帳號登入，並完成暱稱設定。連結只會保留在此分頁的記憶體中。',
   'pro.claim_popup_blocked_message':
     '瀏覽器阻擋了登入視窗。請允許 MUSIXQUARE 彈出式視窗，然後重試。',
+  'pro.claim_existing_account_title': '請使用已連結的帳號登入',
+  'pro.claim_existing_account_message':
+    '此連結已綁定至一個設定了暱稱的 MUSIXQUARE 帳號。請選擇為此連結指定的 Google 帳號。',
+  'pro.claim_choose_account_button': '選擇其他帳號',
   'pro.claim_account_conflict_title': '此帳號無法使用該房間',
   'pro.claim_account_conflict_message': '此房間已連結其他帳號。如需變更，請聯絡管理員移轉所有權。',
   'pro.claim_account_capacity_title': '此帳號無法再連結房間',

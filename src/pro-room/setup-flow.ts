@@ -7,7 +7,11 @@ import { createProRoomIdempotencyKey } from './idempotency.ts';
 import { deriveTemporaryProRoomPin, isProRoomCode, normalizeProRoomPin } from './room-code.ts';
 import { announceProRoomTabTakeover } from './tab-handoff.ts';
 import { consumeAccountLoginReturnForRoom } from '../account/login-return.ts';
-import { requestAccountLoginPopup, type AccountLoginPopupOutcome } from '../account/session.ts';
+import {
+  requestAccountLoginPopup,
+  type AccountLoginPopupOutcome,
+  type AccountLoginPopupOptions,
+} from '../account/session.ts';
 
 const PRO_ROOM_ENTRY_OPERATION_TIMEOUT_MS = 20_000;
 // A reload starts its keepalive presence-close request before the replacement
@@ -135,24 +139,53 @@ async function showClaimRequestRejected(): Promise<void> {
   });
 }
 
-async function requestClaimAccountLogin(): Promise<boolean> {
+async function requestClaimAccountLogin(options: {
+  requiresExistingAccount: boolean;
+}): Promise<boolean> {
   let popupWasBlocked = false;
+  let chooseAnotherAccount = false;
   while (true) {
     const loginAttempt: {
       current: Promise<AccountLoginPopupOutcome> | null;
     } = { current: null };
+    const popupOptions: AccountLoginPopupOptions = options.requiresExistingAccount
+      ? {
+          acceptIncompleteProfile: true,
+          forceGoogleAccountChooser: chooseAnotherAccount,
+        }
+      : {};
+    const showingExistingAccountGuidance = options.requiresExistingAccount && !popupWasBlocked;
     const result = await showDialog({
-      title: t('pro.claim_login_title'),
-      message: t(popupWasBlocked ? 'pro.claim_popup_blocked_message' : 'pro.claim_login_message'),
-      buttonText: t(popupWasBlocked ? 'common.retry' : 'pro.claim_login_button'),
+      title: t(
+        showingExistingAccountGuidance
+          ? 'pro.claim_existing_account_title'
+          : 'pro.claim_login_title',
+      ),
+      message: t(
+        popupWasBlocked
+          ? 'pro.claim_popup_blocked_message'
+          : showingExistingAccountGuidance
+            ? 'pro.claim_existing_account_message'
+            : 'pro.claim_login_message',
+      ),
+      buttonText: t(
+        popupWasBlocked
+          ? 'common.retry'
+          : showingExistingAccountGuidance
+            ? chooseAnotherAccount
+              ? 'pro.claim_choose_account_button'
+              : 'pro.claim_login_button'
+            : 'pro.claim_login_button',
+      ),
       secondaryText: t('common.cancel'),
       dismissible: false,
       defaultFocus: 'primary',
       onPrimaryActivation: () => {
-        loginAttempt.current = requestAccountLoginPopup();
+        loginAttempt.current = requestAccountLoginPopup(popupOptions);
       },
     });
     if (result.action !== 'ok') {
+      if (showingExistingAccountGuidance) return false;
       await showUnavailable(t('pro.claim_login_title'), t('account.login_cancelled'));
       return false;
     }
@@ -160,6 +193,15 @@ async function requestClaimAccountLogin(): Promise<boolean> {
     const outcome: AccountLoginPopupOutcome = await (loginAttempt.current ??
       Promise.resolve('error' as const));
     if (outcome === 'authenticated') return true;
+    if (outcome === 'profile-incomplete' && options.requiresExistingAccount) {
+      // Owner transfer and recovery are issued only for an already completed,
+      // active account. A new/incomplete profile therefore proves that Google
+      // returned a different identity. Keep the claim in this closure and let
+      // the user reopen the account chooser without creating a nickname.
+      chooseAnotherAccount = true;
+      popupWasBlocked = false;
+      continue;
+    }
     if (outcome === 'blocked') {
       popupWasBlocked = true;
       continue;
@@ -174,6 +216,7 @@ async function requestClaimAccountLogin(): Promise<boolean> {
 
 async function runClaimProtectedOperation<T>(
   operation: () => Promise<T>,
+  options: { requiresExistingAccount?: boolean } = {},
 ): Promise<{ ok: true; value: T } | { ok: false }> {
   let accountLoginCompleted = false;
   while (true) {
@@ -194,7 +237,13 @@ async function runClaimProtectedOperation<T>(
           await showUnavailable(t('pro.claim_login_title'), t('account.login_failed'));
           return { ok: false };
         }
-        if (!(await requestClaimAccountLogin())) return { ok: false };
+        if (
+          !(await requestClaimAccountLogin({
+            requiresExistingAccount: options.requiresExistingAccount === true,
+          }))
+        ) {
+          return { ok: false };
+        }
         accountLoginCompleted = true;
         continue;
       }
@@ -316,12 +365,17 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
   }
 
   const ownerTransferRequestId = ownerTransferClaimPresent ? createProRoomIdempotencyKey() : null;
+  const existingOwnerLoginPolicy = {
+    // Recovery is also bound to the room's already linked owner account. Only
+    // first activation may legitimately continue through profile creation.
+    requiresExistingAccount: ownerTransferClaimPresent || ownerRecoveryClaimPresent,
+  } as const;
   const hasClaimCredential = claimPurposeCount === 1;
   // Lazy-load the runtime after the setup/guest module graph has initialized;
   // the runtime bridges back into peer.ts and would otherwise form an eager
   // guest -> runtime -> peer -> guest evaluation cycle at app startup.
   const runtimeResult = hasClaimCredential
-    ? await runClaimProtectedOperation(() => import('./runtime.ts'))
+    ? await runClaimProtectedOperation(() => import('./runtime.ts'), existingOwnerLoginPolicy)
     : { ok: true as const, value: await import('./runtime.ts') };
   if (!runtimeResult.ok) return false;
   const runtime = runtimeResult.value;
@@ -332,8 +386,9 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
   const accountLoginReturn = consumeAccountLoginReturnForRoom(code);
   const returningFromSameTabLogin = accountLoginReturn?.allowSilentTakeover === true;
   const bootstrapResult = hasClaimCredential
-    ? await runClaimProtectedOperation(() =>
-        runEntryOperation((signal) => runtime.getProRoomBootstrap(code, signal)),
+    ? await runClaimProtectedOperation(
+        () => runEntryOperation((signal) => runtime.getProRoomBootstrap(code, signal)),
+        existingOwnerLoginPolicy,
       )
     : {
         ok: true as const,
@@ -357,18 +412,20 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
     // The App facade and room object replay this exact request id after an
     // uncertain prepare/commit response. Retrying a different operation first
     // could strand a completed transfer before its final cookies are released.
-    const transfer = await runClaimProtectedOperation(() =>
-      runEntryOperation((signal) =>
-        runtime.transferProRoomOwner(
-          {
-            code,
-            claimToken: ownerTransferClaimToken,
-            newPin,
-            requestId: ownerTransferRequestId,
-          },
-          signal,
+    const transfer = await runClaimProtectedOperation(
+      () =>
+        runEntryOperation((signal) =>
+          runtime.transferProRoomOwner(
+            {
+              code,
+              claimToken: ownerTransferClaimToken,
+              newPin,
+              requestId: ownerTransferRequestId,
+            },
+            signal,
+          ),
         ),
-      ),
+      existingOwnerLoginPolicy,
     );
     return transfer.ok;
   }
@@ -410,7 +467,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
         recoveryMayHaveCommitted = isTransientClaimFailure(error);
         throw error;
       }
-    });
+    }, existingOwnerLoginPolicy);
     return recovery.ok;
   }
 

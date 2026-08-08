@@ -652,6 +652,10 @@ const ptBr: Record<I18nKey, string> = {
     'Entre com a conta que será proprietária desta sala PRO e conclua a configuração do apelido. O link fica somente na memória desta aba.',
   'pro.claim_popup_blocked_message':
     'O navegador bloqueou a janela de login. Permita pop-ups para o MUSIXQUARE e tente novamente.',
+  'pro.claim_existing_account_title': 'Entre com a conta vinculada',
+  'pro.claim_existing_account_message':
+    'Este link está vinculado a uma conta do MUSIXQUARE que já tem apelido. Escolha a conta do Google indicada para este link.',
+  'pro.claim_choose_account_button': 'Escolher outra conta',
   'pro.claim_account_conflict_title': 'Esta conta não pode usar a sala',
   'pro.claim_account_conflict_message':
     'Esta sala está vinculada a outra conta. Se precisar mudar, peça a um administrador para transferir a propriedade.',

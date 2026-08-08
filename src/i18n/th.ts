@@ -697,6 +697,10 @@ const th: Record<I18nKey, string> = {
     'ลงชื่อเข้าใช้ด้วยบัญชีที่จะเป็นเจ้าของห้อง PRO นี้และตั้งชื่อเล่นให้เสร็จ ลิงก์จะถูกเก็บไว้เฉพาะในหน่วยความจำของแท็บนี้',
   'pro.claim_popup_blocked_message':
     'เบราว์เซอร์บล็อกหน้าต่างลงชื่อเข้าใช้ โปรดอนุญาตป๊อปอัปสำหรับ MUSIXQUARE แล้วลองอีกครั้ง',
+  'pro.claim_existing_account_title': 'ลงชื่อเข้าใช้ด้วยบัญชีที่เชื่อมโยง',
+  'pro.claim_existing_account_message':
+    'ลิงก์นี้ผูกกับบัญชี MUSIXQUARE ที่ตั้งชื่อเล่นไว้แล้ว โปรดเลือกบัญชี Google ที่ระบุไว้สำหรับลิงก์นี้',
+  'pro.claim_choose_account_button': 'เลือกบัญชีอื่น',
   'pro.claim_account_conflict_title': 'บัญชีนี้ใช้ห้องไม่ได้',
   'pro.claim_account_conflict_message':
     'ห้องนี้เชื่อมโยงกับบัญชีอื่น หากต้องการเปลี่ยน โปรดขอให้ผู้ดูแลโอนสิทธิ์เจ้าของ',

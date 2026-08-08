@@ -2,7 +2,7 @@
 
 This runbook records which Cloudflare settings live outside Worker source and
 how to compare them with the repository without printing secret values. The
-repository inventory was reconciled on 2026-07-22. A date here records the
+repository inventory was reconciled on 2026-08-09. A date here records the
 checked-in contract, not proof that the live dashboard was inspected that day.
 
 ## R2 CORS
@@ -70,7 +70,7 @@ Current production requirements:
 - App: YouTube/Gemini/Google OAuth credentials, Cloudflare TURN and Realtime
   credentials, account/session peppers and assertion secrets,
   `MXQR_CAPABILITY_SECRET`, `MXQR_DEVELOPER_API_KEY_PEPPER`, and the Access/admin
-  session secrets described in `wrangler.app.toml` and the private deployment
+  credentials described in `admin-dashboard-ops.md` and the private deployment
   inventory.
 - Remote share: `MXQR_CAPABILITY_SECRET`, `REMOTE_SHARE_SIGNING_SECRET`, and the
   three R2 S3 credentials.
@@ -80,6 +80,13 @@ Current production requirements:
   and independent account assertion secrets, plus the three R2 S3 credentials.
 - Developer API: key pepper and rate-limit secret.
 - Developer API facade: intentionally no secrets.
+
+Every project-defined HMAC, signing, or pepper secret in this inventory must be
+a random value of at least 32 characters unless its owning runbook documents a
+stricter shape. `CLOUDFLARE_REALTIME_APP_SECRET` has the same minimum because it
+also signs the app's session capability. Share only the explicitly named
+App/Worker or PRO/signaling pairs; other provider-issued OAuth, R2, TURN,
+Gemini, and YouTube credentials retain their provider-defined formats.
 
 The 2026-07-16 reconciliation removed the unreferenced `TURN_USER` and
 `TURN_PASS` secrets and the inactive Turnstile keys. If the product policy is
@@ -93,14 +100,18 @@ stored values: confirm a backup or accept re-issuance before running
 
 Inventory every deployed Worker, not only the three original services:
 
-- App: Static Assets, Soro R2/KV, admin/auth/Developer API D1, PRO service and
-  admin Durable Object bindings.
-- Signaling: room Durable Object, PRO authority binding, and admin D1.
-- PRO: room/signaling/rate-limiter Durable Objects, PRO media R2, admin and
-  Developer API D1.
-- Remote share: temporary-media R2 and service-control Durable Object rate limiting.
-- Developer API: D1, limiter Durable Object, and private facade service.
-- Developer API facade: private PRO-room Durable Object binding only.
+- App: Static Assets, Soro R2/KV, admin/auth/Developer API D1, PRO service,
+  PRO-admin and signaling Durable Object bindings, and service control.
+- Signaling: room, service-control, and PRO-authority Durable Objects plus admin
+  D1.
+- PRO: room, service-control, signaling, and Developer API limiter Durable
+  Objects; PRO media R2; and admin/auth/Developer API D1.
+- Remote share: temporary-media R2, the per-room quota Durable Object, and
+  service-control atomic rate limiting.
+- Developer API: D1, its limiter and service-control Durable Objects, and the
+  private facade service.
+- Developer API facade: private PRO-room and service-control Durable Object
+  bindings only.
 
 The tracked admin schema contains `mxqr_metric_buckets`,
 `mxqr_lifetime_metric_totals`,

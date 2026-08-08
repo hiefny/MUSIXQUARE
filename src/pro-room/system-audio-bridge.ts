@@ -77,9 +77,9 @@ export function isLocalProSystemAudioOwner(): boolean {
 }
 
 /**
- * Whether the currently authoritative coordinator can relay a publication
- * started by this participant. Coordinators support their own implementation;
- * members require a proof frame from their exact current host connection.
+ * Whether this participant currently has the server-issued playback authority
+ * required to publish. PRO rooms have no browser coordinator; the adapter
+ * derives this answer from the authenticated viewer projection.
  */
 export function canPublishProSystemAudioWithCurrentCoordinator(): boolean {
   return adapter.coordinatorSupportsPublishing();

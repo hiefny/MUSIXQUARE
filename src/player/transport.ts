@@ -1035,8 +1035,8 @@ export function togglePlay(): void {
     return;
   }
 
-  // A PRO member can request a persistent row while the coordinator is still
-  // downloading it from R2. Until an authoritative selection/prepare arrives,
+  // A PRO member can request a persistent row while its own R2 preparation is
+  // still pending. Until an authoritative selection/prepare arrives,
   // the local owner may still be the previous YouTube row; never let Play
   // toggle that stale owner during this request gap.
   if (isProRoomTrackChangeIntentPending()) {
@@ -1091,8 +1091,8 @@ export function togglePlay(): void {
 
   // A failed/purged file fetch must never broadcast PLAY for a queue ID whose
   // resident PCM is missing (the previous buffer may have belonged to another
-  // row). On the coordinator, treat Play as an explicit retry of the selected
-  // row; guests continue to request playback from their coordinator below.
+  // row). On the local-authority path, treat Play as an explicit retry of the
+  // selected row; standard-room guests continue to request playback below.
   if (!hostConn && !isActuallyPlaying && currentQueueItemId) {
     const selectedItem = playlistItems.find((item) => item.queueItemId === currentQueueItemId);
     const resident = getState('files.current');

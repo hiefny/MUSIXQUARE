@@ -802,8 +802,8 @@ export function cleanupGuestSystemAudio(): void {
 
 /**
  * Enter the trusted receive placeholder without requiring a legacy host
- * frame. PRO rooms call this only after the coordinator has fetched the
- * server-owned live-share lease.
+ * frame. PRO rooms call this only after authenticating the server-owned
+ * live-share lease.
  */
 export function beginTrustedSystemAudioReception(): boolean {
   if (isSystemAudioPlaceholder() || _pendingTrustedReceptionGeneration !== null) {

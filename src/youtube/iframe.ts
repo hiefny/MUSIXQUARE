@@ -1419,7 +1419,7 @@ function createYouTubePlayer(
       } else if (videoId) {
         // A synchronized track transition must not let the persistent iframe
         // emit a few audible frames before the rendezvous barrier is armed.
-        // Cue first when autoplay is disabled; the zero-start coordinator
+        // Cue first when autoplay is disabled; the zero-start authority flow
         // performs the hard-muted load/warm cycle once every participant has
         // received the same transition intent. Older clients still recover
         // through the existing state/sync messages if the room falls back to

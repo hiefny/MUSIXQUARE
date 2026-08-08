@@ -143,10 +143,10 @@ function reconcileProCoordinatorAppliedOffset(): void {
   const isCoordinator = isProCoordinatorYouTubeEndpoint();
   if (isCoordinator && !_wasProCoordinatorYouTubeEndpoint) {
     clearProCoordinatorYouTubeNudgeAnchor();
-    // A promoted member's iframe already carries its personal offset. Prefer
-    // the actual local-vs-canonical delta from the last trusted host snapshot:
+    // An endpoint entering PRO may already carry its personal iframe offset.
+    // Prefer the actual local-vs-canonical delta from the last trusted snapshot:
     // near the start/end of a video the requested offset may have been
-    // clamped, so copying the request would corrupt the first coordinator
+    // clamped, so copying the request would corrupt the first PRO-local
     // snapshot. Fall back to the request when no compatible snapshot exists.
     const requestedOffset = getYouTubeManualOffsetSec();
     setState(
@@ -201,7 +201,7 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
   // fresh sync).
   if (!isManual && Date.now() - _lastManualBroadcastAt < MANUAL_BROADCAST_DEDUP_MS) return;
 
-  // A coordinator-only nudge can make the iframe report transient BUFFERING
+  // A still-settling local nudge can make the iframe report transient BUFFERING
   // and PLAYING states. Neither those states nor the settling heartbeat are
   // room actions, so keep them local until the iframe has stabilized.
   if (!isManual && getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)) return;

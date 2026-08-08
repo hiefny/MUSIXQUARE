@@ -99,7 +99,7 @@ export function getCurrentQueueItemIndex(): number {
 
 export function selectQueueItemById(queueItemId: QueueItemId | null): boolean {
   if (queueItemId !== null && !getQueueItemById(queueItemId)) return false;
-  // Any validated coordinator selection is the authoritative answer to a
+  // Any validated authoritative selection is the answer to a
   // PRO member's optimistic outbound request (including a competing member
   // winning the race with a different row).
   clearProRoomTrackChangeIntent();

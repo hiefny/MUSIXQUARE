@@ -512,9 +512,9 @@ export function initSetup(): void {
       (msg === 'HOST_DISCONNECTED' || msg === 'HOST_CONNECTION_ERROR') &&
       requestProRoomTransportRecovery()
     ) {
-      // A PRO coordinator is an elected transport role, not the lifetime of
-      // the room. Keep media/playlist/UI intact while the persistent service
-      // elects and reconnects the replacement topology.
+      // A coordinator-free PRO room outlives any one transport connection.
+      // Keep media/playlist/UI intact while the runtime reconnects its
+      // server control channel.
       return;
     }
     let userMsg = t('error.network_generic');

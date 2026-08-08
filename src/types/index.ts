@@ -440,13 +440,13 @@ export interface ProtocolMap {
     /** Repaint an equal-revision operator view after a rejected/no-op mutation. */
     refresh?: true;
   };
-  /** Coordinator-selected next persistent file; members self-preload from R2. */
+  /** Legacy host hint for the next persistent file; the recipient self-preloads from R2. */
   'pro-file-preload': { queueItemId: QueueItemId; sessionId: number };
   /** Member hint that the authenticated PRO service has a newer snapshot. */
   'pro-room-invalidated': { revision: number; playlistRevision: number };
-  /** A member asks the coordinator to refresh the server-owned live-share resource. */
+  /** Legacy member-to-host hint requesting a server-owned live-share refresh. */
   'pro-system-audio-hint': { generation: number };
-  /** Coordinator fanout of an already server-validated PRO live-share state. */
+  /** Legacy host fanout of an already server-validated PRO live-share state. */
   'pro-system-audio-state': {
     version: 1;
     generation: number;
@@ -648,7 +648,7 @@ export interface ProtocolMap {
     queueItemId: QueueItemId;
     sessionId?: number;
   };
-  /** Authenticated PRO controller request; the coordinator re-authorizes the target. */
+  /** Authenticated PRO controller request; the server re-authorizes the target. */
   'request-kick-device': { targetPeerId: string };
   'request-kick-physical-device': { targetPeerId: string };
   'request-youtube-play': { queueItemId: QueueItemId };
@@ -999,9 +999,9 @@ export interface StateTree {
     /** Explicit current standard-room grant. `null` means a legacy boolean-only host. */
     standardRoomCapabilities: RoomCapability[] | null;
     /**
-     * A PRO member's outbound row-selection request while the coordinator is
+     * A PRO member's outbound row-selection request while this endpoint is
      * still fetching/preparing that occurrence. This is local UI intent only;
-     * authoritative queue selection still comes from the coordinator.
+     * authoritative queue selection still comes from the room service.
      */
     pendingTrackChangeQueueItemId: QueueItemId | null;
     isConnecting: boolean;

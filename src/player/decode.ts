@@ -262,7 +262,7 @@ function finishPreloadActivation(owner: PreloadActivation): void {
   setPlayPreloadedInProgress(false);
 }
 
-// ─── Load And Broadcast File (Host) ────────────────────────────────
+// ─── Load And Publish File (Local Authority) ───────────────────────
 
 export async function loadAndBroadcastFile(
   file: File,
@@ -374,8 +374,8 @@ export async function loadAndBroadcastFile(
     if (connectedPeers.length > 0) {
       if (isProRoomPersistentPlaylistFile(queueItemId)) {
         // Persistent PRO participants fetch the immutable asset from the room
-        // bucket with their own authenticated presign. The coordinator sends
-        // only timing/identity control and never relays these bytes again.
+        // bucket with their own authenticated presign. This compatibility path
+        // sends only timing/identity control and never relays these bytes.
         broadcast(
           prepareMsg ?? {
             type: MSG.FILE_PREPARE,
@@ -427,9 +427,9 @@ export async function loadAndBroadcastFile(
     const message = err instanceof Error ? err.message : String(err);
     showToast(t('error.load_failed', { msg: message }));
 
-    // Auto-advance to the next playable track (host only — guests follow host).
-    // We only do this on the host side; guests receive the next FILE_START from
-    // the host after host itself advances, so guests don't need independent skip.
+    // Auto-advance only on a local-authority path. Standard-room guests receive
+    // the next FILE_START after their host advances and do not skip independently;
+    // a PRO endpoint routes the resulting selection through server authority.
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
       markFailedAndAdvance(queueItemId);
@@ -449,15 +449,15 @@ export async function loadAndBroadcastFile(
   }
 }
 
-// ─── Host-Side Auto-Advance on Decode Failure ──────────────────────
+// ─── Local-Authority Auto-Advance on Decode Failure ────────────────
 //
-// Called only when the authoritative standard-room host cannot decode its own
-// track. Guest decoder failures are device-local and never enter this advance
-// path. Marks the track as failed and walks to the next playable track via
+// Standard-room guests keep decoder failures device-local. A standard host or
+// PRO endpoint with playback authority may walk to the next playable track via
 // preloaded → shuffle → sequential priority. If no playable track remains,
-// returns to IDLE rather than leaving the UI stuck.
+// the local player returns to IDLE rather than leaving the UI stuck; PRO row
+// selection still re-enters the server command seam.
 //
-// Caller must already own host-side playback authority.
+// Caller must already own local playback authority.
 export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: number): Promise<void> {
   const myLoadId = incrementLoadSessionId();
   const myEpoch = loadEpoch ?? getCurrentLoadEpoch();

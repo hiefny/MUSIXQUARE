@@ -15,9 +15,10 @@ head_sampling_rate = 0.1
 enabled = true
 head_sampling_rate = 0.01
 
-# Required at deploy time and intentionally never committed:
-#   npx wrangler secret put PRO_SIGNALING_SECRET --config cloudflare/wrangler.signaling.toml
-#   npx wrangler secret put MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET --config cloudflare/wrangler.signaling.toml
+# Required at deploy time and intentionally never committed. Both values must
+# be random and at least 32 characters, and must match their named counterpart:
+#   npm run wrangler -- secret put PRO_SIGNALING_SECRET --config cloudflare/wrangler.signaling.toml
+#   npm run wrangler -- secret put MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET --config cloudflare/wrangler.signaling.toml
 
 [[routes]]
 pattern = "signal.musixquare.com"

@@ -1245,8 +1245,8 @@ export default {
         return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
       }
       const sanitized = sanitizeCommand(value, body.roomCode);
-      // An idempotent retry can arrive after the coordinator already ACKed
-      // the first accepted request. Preserve that canonical terminal result
+      // An idempotent retry can arrive after the first accepted request has
+      // already reached a terminal result. Preserve that canonical result
       // instead of turning successful response-loss recovery into a 503.
       return sanitized
         ? jsonResponse(sanitized, 202)

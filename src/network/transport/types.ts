@@ -37,7 +37,7 @@ export interface DeveloperCommandFrame {
 
 /**
  * Authenticated signaling-service hint that the persistent PRO snapshot has
- * advanced. It carries no mutable state: the coordinator must refresh the
+ * advanced. It carries no mutable state: each recipient must refresh the
  * authoritative snapshot before applying anything locally.
  */
 export interface DeveloperInvalidationFrame {
@@ -59,7 +59,7 @@ export interface ProQueueAdditionFrame {
   readonly eventId: string;
   readonly actorName: string;
   readonly count: number;
-  /** Present only when the elected coordinator advertised protocol v4+. */
+  /** Optional during rollout; current servers include it when the first added row has a title. */
   readonly firstTitle?: string;
 }
 

@@ -2,6 +2,11 @@
 
 Baseline: `e61408da` on `main` (`CACHE_VERSION` v181).
 
+> **Maintained operational addendum:** The residual boundaries and verification
+> contract below were revalidated against the repository on 2026-08-09. The
+> baseline SHA, cache epoch, and original defect narrative remain the dated
+> audit snapshot.
+
 This audit reviewed current intent before changing behavior. A suspicious path
 was changed only after its callers, state owner, protocol boundary, cleanup
 path, tests, operational contract, and relevant history agreed that the behavior
@@ -25,7 +30,8 @@ was a defect. Historical proposals were not treated as current requirements.
 The audit also replayed the intended behavior against Git history where a guard
 looked unusually strict or a compatibility branch looked redundant. This kept
 intentional RAM-only media storage, AudioBuffer playback, best-effort edge
-rate limiting, and device-specific sync compensation intact.
+rate limiting on low-risk endpoints, atomic resource-bearing gates, and
+device-specific sync compensation intact.
 
 ## Confirmed defects corrected
 
@@ -101,34 +107,41 @@ rate limiting, and device-specific sync compensation intact.
 - Platform sync compensation, DSP tuning, and YouTube rendezvous behavior were
   left unchanged where tests/history showed intentional calibration rather than
   a code defect.
-- Full Playwright E2E remains manual by product decision. The release gate uses
-  the focused smoke suite; real iOS/Android/WebRTC/YouTube timing still requires
-  physical-device verification.
+- Full Playwright E2E remains manual by product decision. The production release
+  uses browser-free generation/initial-asset-graph and HTTP boundary smokes;
+  real iOS/Android/WebRTC/YouTube timing still requires physical-device
+  verification.
 
 ## Residual, accepted boundaries
 
-- Cache API/KV rate limits are edge-local or non-atomic best effort. Revisit if
-  the service becomes a large public multi-tenant target.
-- Worker JavaScript has syntax, behavior, and boundary tests but is not yet
-  wholly migrated under the TypeScript/ESLint project. Enabling that gate now
-  would mix longstanding debt into this release.
+- Low-risk Cache API rate limits remain edge-local best effort. Paid-resource,
+  remote-share allocation, and signaling admission limits use the shared
+  service-control Durable Object for serialized atomic decisions and fail
+  closed when that production binding is unavailable.
+- Worker JavaScript remains JavaScript, but Cloudflare, scripts, E2E, and config
+  files are covered by the runtime-scoped tooling ESLint profile. Worker syntax,
+  behavior, module/export, and boundary guards remain decisive; selected
+  release-smoke and Vite/Vitest TypeScript configs are also CI-typechecked.
 - Browser media policy, WebRTC timing, background audio, and YouTube iframe
   behavior cannot be completely proven by jsdom.
 - Existing bundle-size warnings are known topology, not a release regression.
 
 ## Verification contract
 
-The release is complete only when the following all pass on the final commit:
+The automated release candidate is complete only when the following all pass on
+the final commit:
 
 - full Vitest suite, typecheck, ESLint, Prettier, Worker syntax;
 - playback/storage/developer API/service-worker static guards;
-- production build and focused Chromium release smoke;
+- production build and browser-free generation/initial-asset-graph plus HTTP
+  boundary release smokes;
 - dependency and runtime vulnerability audits;
 - GitHub CI for the pushed commit;
 - version-aware live smoke for every deployed Cloudflare service, followed by
   a no-drift check of deployment IDs, version IDs, and release messages.
 
-Physical-device follow-up should cover one standard room and one PRO room with
-host replacement, local/remote file preload activation, YouTube transition, and
-system-audio start/stop. It is a hardware/runtime confidence layer, not a reason
-to weaken the automated gates above.
+Production release confidence also requires physical-device verification of one
+standard room and one PRO room with host replacement, local/remote file preload
+activation, YouTube transition, and system-audio start/stop. It is the primary
+hardware/runtime confidence layer, not a reason to weaken the automated gates
+above.

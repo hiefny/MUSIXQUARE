@@ -27,13 +27,14 @@ ROOM_STORAGE_QUOTA_BYTES = "1073741824"
 ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
 
 # Required secrets, set outside this file:
-# npx wrangler secret put R2_ACCOUNT_ID --config cloudflare/wrangler.remote-share.toml
-# npx wrangler secret put REMOTE_SHARE_SIGNING_SECRET --config cloudflare/wrangler.remote-share.toml
-# npx wrangler secret put R2_ACCESS_KEY_ID --config cloudflare/wrangler.remote-share.toml
-# npx wrangler secret put R2_SECRET_ACCESS_KEY --config cloudflare/wrangler.remote-share.toml
+# npm run wrangler -- secret put R2_ACCOUNT_ID --config cloudflare/wrangler.remote-share.toml
+# npm run wrangler -- secret put REMOTE_SHARE_SIGNING_SECRET --config cloudflare/wrangler.remote-share.toml
+# npm run wrangler -- secret put R2_ACCESS_KEY_ID --config cloudflare/wrangler.remote-share.toml
+# npm run wrangler -- secret put R2_SECRET_ACCESS_KEY --config cloudflare/wrangler.remote-share.toml
+# REMOTE_SHARE_SIGNING_SECRET must be an independent random value of at least 32 characters.
 # Required for capability gate (set to the same random value of at least 32 characters
 # as the app Worker MXQR_CAPABILITY_SECRET so app-issued tokens verify here):
-# npx wrangler secret put MXQR_CAPABILITY_SECRET --config cloudflare/wrangler.remote-share.toml
+# npm run wrangler -- secret put MXQR_CAPABILITY_SECRET --config cloudflare/wrangler.remote-share.toml
 
 [[r2_buckets]]
 binding = "REMOTE_SHARE_BUCKET"
@@ -43,6 +44,9 @@ bucket_name = "musixquare-remote-share"
 name = "REMOTE_SHARE_QUOTA"
 class_name = "RemoteShareQuota"
 
+# Required atomic allocation limiter; Cloudflare production fails closed when
+# this cross-script binding is missing. The admin-announcement-v1+abuse-rate-v1
+# marker rolls out with target all and deploys the PRO owner first.
 [[durable_objects.bindings]]
 name = "MUSIXQUARE_SERVICE_CONTROL"
 class_name = "MusixquareServiceControl"

@@ -3,8 +3,8 @@
  *
  * This module owns only the bounded prepare/arm/commit/release state machine.
  * Network routing, authority, playlist projection, and the shared clock are
- * injected so the same controller can serve a standard-room host or a PRO
- * coordinator without importing either topology.
+ * injected so the same controller can serve a standard-room host or a
+ * coordinator-free PRO endpoint without importing either topology.
  */
 import { MSG } from '../core/constants.ts';
 import type {

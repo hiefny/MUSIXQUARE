@@ -223,7 +223,7 @@ Their current English sources — paste into the §5 prompt if re-doing them:
 ## 7. QA checklist (after any translation)
 
 - [ ] `npm run typecheck` passes (no missing keys or unescaped quotes).
-- [ ] `npx vitest run src/i18n/__tests__` passes.
+- [ ] `npm exec vitest run -- src/i18n/__tests__` passes.
 - [ ] Every `{{placeholder}}` from the English source still present, unaltered.
 - [ ] No `…` characters (`grep -n '…'` should be empty).
 - [ ] Spot-check **every key in the §4 glossary** for the right sense.

@@ -51,5 +51,7 @@ tag = "v1"
 new_sqlite_classes = ["DeveloperApiRateLimiter"]
 
 # Required secrets (never commit their values):
+# Both must be independent random values of at least 32 characters. The key
+# pepper must match the App Worker's value.
 # npm run wrangler -- secret put MXQR_DEVELOPER_API_KEY_PEPPER --config cloudflare/wrangler.developer-api.toml
 # npm run wrangler -- secret put MXQR_DEVELOPER_API_RATE_SECRET --config cloudflare/wrangler.developer-api.toml

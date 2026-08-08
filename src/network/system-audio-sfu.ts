@@ -998,7 +998,7 @@ function cleanupGuestSfu(updateState = true): void {
 }
 
 /**
- * Drop only the legacy guest SFU transport during a PRO coordinator handoff.
+ * Drop only the legacy guest SFU transport when adopting the PRO subscriber.
  * Playback ownership is preserved until the role-independent PRO subscriber
  * replaces it, avoiding both double audio and an unnecessary idle flash.
  */

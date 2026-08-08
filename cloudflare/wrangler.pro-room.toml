@@ -73,6 +73,8 @@ tag = "v2"
 new_sqlite_classes = ["MusixquareServiceControl"]
 
 # Required secrets (never commit their values):
+# The first six values below are random HMAC/signing/pepper secrets of at least
+# 32 characters. Share only the two explicitly named cross-Worker pairs.
 # npm run wrangler -- secret put PRO_ROOM_ACTIVATION_SECRET --config cloudflare/wrangler.pro-room.toml
 # npm run wrangler -- secret put PRO_ROOM_PIN_PEPPER --config cloudflare/wrangler.pro-room.toml
 # npm run wrangler -- secret put PRO_ROOM_SESSION_SECRET --config cloudflare/wrangler.pro-room.toml

@@ -108,7 +108,7 @@ The production D1 database is already created:
 If the database ever needs to be recreated:
 
 ```powershell
-npx wrangler d1 create musixquare-admin-metrics
+npm run wrangler -- d1 create musixquare-admin-metrics
 ```
 
 Copy the returned `database_id`, then update the active `[[d1_databases]]`
@@ -121,7 +121,7 @@ blocks in all three files:
 Apply or re-apply the schema:
 
 ```powershell
-npx wrangler d1 execute musixquare-admin-metrics --remote --file cloudflare/admin-metrics.schema.sql
+npm run wrangler -- d1 execute musixquare-admin-metrics --remote --file cloudflare/admin-metrics.schema.sql
 ```
 
 The private-beta generation migration is complete and is not a routine or
@@ -140,8 +140,8 @@ operator error.
 Set or rotate the admin secrets on the app Worker:
 
 ```powershell
-npx wrangler secret put MXQR_ADMIN_PASSWORD --config cloudflare/wrangler.app.toml
-npx wrangler secret put MXQR_ADMIN_SESSION_SECRET --config cloudflare/wrangler.app.toml
+npm run wrangler -- secret put MXQR_ADMIN_PASSWORD --config cloudflare/wrangler.app.toml
+npm run wrangler -- secret put MXQR_ADMIN_SESSION_SECRET --config cloudflare/wrangler.app.toml
 ```
 
 `MXQR_ADMIN_SESSION_SECRET` must be a randomly generated string of at least 32
@@ -150,9 +150,10 @@ characters. It signs the HttpOnly admin session cookie.
 After the schema and D1 bindings are committed, push the reviewed commit to
 `main` and run the `Production Release` workflow with target `all`. The workflow
 first proves the immutable `floor_release_sha` is an ancestor of the candidate,
-then temporarily sets the cutover to `disabled`. It deploys PRO, signaling, both
-Developer API Workers, and App in dependency order, reuses the validated Static
-Assets artifact, runs live smokes, and verifies final deployment ownership.
+then temporarily sets the cutover to `disabled`. It deploys PRO, remote-share,
+signaling, both Developer API Workers, and App in dependency order, reuses the
+validated Static Assets artifact, runs live smokes, and verifies final
+deployment ownership.
 Only after every gate succeeds does it restore `ready` with the exact reviewed
 40-character release SHA. A failed release leaves the status disabled without
 clearing `ever_enabled` or the permanent floor; a later successful full release

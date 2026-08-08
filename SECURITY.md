@@ -21,8 +21,10 @@ branch. Historical commits and private forks are not maintained release lines.
 
 ## Secrets and local development
 
-Production secrets belong in Cloudflare Worker secret storage, never in Git or
-browser-visible `VITE_` variables. `.env.local` and `.dev.vars` are ignored for
-local use, but contributors must still use non-production values. See
+Worker runtime secrets belong in Cloudflare Worker secret storage. Release,
+audit, and smoke credentials belong in protected GitHub environment or
+repository secrets. Neither category belongs in Git or browser-visible `VITE_`
+variables. `.env.local` and `.dev.vars` are ignored for local use, but
+contributors must still use non-production values. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md) for the safe local API boundary and the
 Worker-specific configuration map.

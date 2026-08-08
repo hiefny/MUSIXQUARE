@@ -56,7 +56,7 @@
     <main class="policy-shell">
       <section class="policy-hero">
         <h1>Frequently Asked Questions</h1>
-        <p class="policy-date">Last updated: August 1, 2026</p>
+        <p class="policy-date">Last updated: August 9, 2026</p>
       </section>
 
       <article class="policy-doc">
@@ -110,9 +110,10 @@
               <dt>What does MUSIXQUARE keep when I sign in?</dt>
               <dd>
                 MUSIXQUARE stores a random account ID, a pseudonymized Google account identifier,
-                your chosen nickname, and sign-in session records. It checks Google's verified-email
-                claim during sign-in but does not store the email address or Google tokens. See the
-                <a href="/privacy">Privacy Policy</a> for details.
+                your chosen nickname, sign-in session records, and the cumulative totals shown in
+                the account menu: sessions joined, seconds listened, and tracks played. It checks
+                Google's verified-email claim during sign-in but does not store the email address or
+                Google tokens. See the <a href="/privacy">Privacy Policy</a> for details.
               </dd>
             </div>
             <div>
@@ -212,15 +213,20 @@
             <div>
               <dt>Who can add local files?</dt>
               <dd>
-                Only the host can add local files. Operator guests and regular guests cannot add
-                files.
+                The host and a standard-room operator with media-upload permission can add local
+                audio. In a PRO room, the owner or another participant with media-management
+                permission can upload. Regular guests without that permission cannot add files.
               </dd>
             </div>
             <div>
               <dt>Does MUSIXQUARE preload the next track?</dt>
               <dd>
                 Yes. In local file playback, MUSIXQUARE can preload the next track to reduce waiting
-                time during track changes. Remote preload is not supported.
+                time during track changes. Ordinary rooms can preload through the direct-transfer
+                path or, when remote delivery is selected, from private remote-share storage. PRO
+                rooms can prefetch the next authorized private-R2 track. If the network, storage, or
+                memory check does not permit preloading, selection falls back to the normal load
+                path.
               </dd>
             </div>
             <div>
@@ -264,9 +270,9 @@
             <div>
               <dt>YouTube works. Are Spotify, Apple Music, or Netflix supported?</dt>
               <dd>
-                Those services are not supported because of their service policies. If the host is
-                on a PC, consider using System Audio Sharing for audio sources that can be shared by
-                the browser.
+                Those services are not integrated with MUSIXQUARE. If the host is on a PC, consider
+                using System Audio Sharing for audio sources that the browser allows the host to
+                share.
               </dd>
             </div>
           </dl>

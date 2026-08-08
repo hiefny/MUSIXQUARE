@@ -2,7 +2,7 @@
 
 Reviewed against `public/service-worker.js`, `src/sw-register.ts`, the six
 Wrangler configs, the production release workflow, and the live-smoke scripts
-on 2026-07-16. Read the current
+on 2026-08-09. Read the current
 `CACHE_VERSION` from the service-worker source rather than copying a number
 from this procedure.
 
@@ -76,8 +76,8 @@ and deployment-ownership checks pass.
 The complete serial Playwright suite is intentionally not a production deploy
 gate or a scheduled job. Start it manually from the `Full E2E` workflow when a
 change warrants the extra coverage. Review failures there as regression
-signals, while using the release smoke plus real-device verification for the
-production decision.
+signals, while using the browser-free release smokes plus real-device
+verification for the production decision.
 
 The workflow rebuilds once, records every `dist` file hash together with the
 commit and tool versions, and deploys that same artifact. Its canonical
@@ -118,6 +118,12 @@ limits are intentionally far above the tiny synthetic payloads' normal latency,
 but prevent a half-open response from delaying automatic recovery. The complete
 deploy job has a four-hour ceiling; individual step limits leave substantially
 more time than normal operation requires for the conflict-aware recovery path.
+The separate Worker boundary contract keeps bounded JSON request bodies on
+10-second read deadlines and newly hardened downstream service/provider reads
+on route-specific 5-15-second budgets. The existing playlist-manifest path keeps
+its named 45-second ceiling, and the PRO BOT path remains inside one 35-second
+total envelope. See the maintained first-48-hours checklist for the exact
+affected services; do not remove those limits to make a hotfix smoke pass.
 
 The release workflow does not attempt an automatic down migration after the
 Developer API baseline is applied. A failed schema-bearing release keeps the
@@ -164,8 +170,9 @@ deployment without Git provenance remains deliberately unverifiable; after
 such a rollback, the next approved release must use target `all` to establish
 a fresh common baseline.
 
-The combined `admin-announcement-v1+abuse-rate-v1` service-control marker requires an
-`all` rollout with PRO deployed before its App, signaling, and remote-share consumers.
+The combined `admin-announcement-v1+abuse-rate-v1` service-control marker
+requires an `all` rollout in this order: PRO, remote-share, signaling, Developer
+API facade/API, then App. The PRO-owned object must exist before every consumer.
 Its announcement component is also a permanent forward-only data floor once the
 App/PRO pair has deployed or the global service-control object has recorded
 announcement revision 1 or later. Do not

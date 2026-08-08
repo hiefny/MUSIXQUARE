@@ -5,8 +5,8 @@ file sharing. The standard-room path stores one complete private object per
 remote file; chunked streaming protocols are not part of the production
 service.
 
-Cloudflare plan limits were last checked against the official Workers, Workers
-KV, R2, and WAF documentation on 2026-07-18. Recheck those sources before
+Cloudflare plan limits were last checked against the official Workers, Durable
+Objects, R2, and WAF documentation on 2026-08-09. Recheck those sources before
 making a cost or upgrade decision. R2 Standard currently includes 10 GB-month
 of storage per month in its free usage allowance; this is an allowance rather
 than a hard account storage cap.
@@ -14,7 +14,9 @@ than a hard account storage cap.
 ## Current Decision
 
 - Start on Cloudflare Workers Free.
-- Keep the KV-backed allocation rate limit on `POST /session`.
+- Keep the shared service-control Durable Object's atomic allocation rate limit
+  on `POST /session`. Production fails closed when the
+  `MUSIXQUARE_SERVICE_CONTROL` binding is unavailable.
 - Cap each standard room's active R2 objects at 1 GiB
   (`ROOM_STORAGE_QUOTA_BYTES`) through a per-room SQLite Durable Object.
 - Upload and download each remote file as one complete private object through
@@ -27,14 +29,17 @@ than a hard account storage cap.
   `POST /session`.
 
 WAF Rate Limiting blocks abusive allocation bursts before they reach the
-Worker. A normal successful upload consumes one KV write for the upload-session
-rate counter. Downloads do not write to KV.
+Worker. A normal successful upload consumes one atomic service-control request
+for its per-IP allocation counter and, only when `ROOM_UPLOADS_PER_WINDOW` is
+enabled, a second request for the room counter. Downloads do not consume either
+allocation limiter.
 
 ## Remote Upload Cost Shape
 
 One remote whole-file upload attempt roughly means:
 
-- `POST /session`: one Worker request, KV read/write, one room Durable Object
+- `POST /session`: one Worker request, one atomic service-control Durable Object
+  request (plus the optional room counter), one room-quota Durable Object
   request, a room-prefix R2 usage check, and a presigned R2 PUT URL issued only
   after the exact stored bytes are durably reserved.
 - Direct `PUT` to R2: one R2 Class A operation, with no Worker body upload.
@@ -53,6 +58,9 @@ One remote whole-file upload attempt roughly means:
 - App-issued, IP/scope-bound capability token required on `POST /session` in
   production. With Turnstile disabled, the app Worker issues it only after a
   signed proof-of-work challenge; Origin and Host headers are not proof.
+- The service-control limiter uses an HMAC-pseudonymized principal and a
+  serialized SQLite transaction, so barrier-concurrent allocations cannot all
+  pass the same remaining slot.
 - Purpose-separated signed upload-completion, download, and cleanup tokens.
 - Direct-to-R2 presigned PUT upload path.
 - Whole-object TTL: `OBJECT_TTL_SECONDS`, currently 1 hour.
@@ -100,7 +108,8 @@ One remote whole-file upload attempt roughly means:
 Move from Workers Free to Workers Paid if any of these become normal rather
 than temporary test noise:
 
-- KV writes approach the Free limit of 1,000 writes per day.
+- Durable Object requests or SQLite row writes approach their current Free-plan
+  daily allowances.
 - Worker requests approach the Free limit of 100,000 requests per day.
 - Users see upload-session 429 responses during normal use.
 - Remote-share uploads fail because of Cloudflare platform limits.
@@ -109,7 +118,7 @@ Paid Workers are expected to be enough for a long time. WAF remains an abuse
 control rather than a normal-cost optimization.
 
 References: [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
-[Workers KV pricing](https://developers.cloudflare.com/kv/platform/pricing/),
+[Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/),
 [R2 pricing](https://developers.cloudflare.com/r2/pricing/), and
 [WAF rate-limiting availability](https://developers.cloudflare.com/waf/rate-limiting-rules/).
 
@@ -133,9 +142,11 @@ the threshold only with production 429 evidence.
 ## Notes
 
 - WAF does not replace the Worker-side allocation rate limits.
-- The KV counter can be removed only after `POST /session` moves to another
-  durable counter.
-- Both Workers must share the capability HMAC secret.
+- The retired remote-share KV allocation counter must not be reintroduced;
+  `POST /session` uses the shared atomic service-control counter.
+- `REMOTE_SHARE_SIGNING_SECRET` and the capability HMAC secret must be random
+  values of at least 32 characters and must remain purpose-separated. Only the
+  capability secret is shared with the App Worker.
 - `wrangler.remote-share.toml` retains Cloudflare's required append-only Durable
   Object migration entries. They are immutable infrastructure schema tags; do
   not reuse deleted class names or edit old tags.
@@ -150,3 +161,7 @@ the threshold only with production 429 evidence.
   app/Worker cutover marker. Change it in the same commit as an incompatible
   contract change; the release workflow then rejects every target except
   `all`, so the first production rollout cannot publish only one side.
+- The shared service-control contract marker is currently
+  `admin-announcement-v1+abuse-rate-v1`. A change to that marker also requires
+  target `all`, with the PRO Worker deployed before remote-share and every other
+  service-control consumer.

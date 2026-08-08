@@ -1,7 +1,7 @@
 # Runtime Scenario Verification - 2026-05-31
 
 > **Maintained checklist.** Originally added on 2026-05-31 and revalidated on
-> 2026-08-08. Physical-device and real-browser verification is the release
+> 2026-08-09. Physical-device and real-browser verification is the release
 > confidence principle. Browser E2E remains an optional auxiliary signal: a
 > failure can help locate a regression, but a pass never substitutes for the
 > real-device matrix.
@@ -74,30 +74,47 @@ the target hardware.
    candidate is not ready when a required real-device row is untested, even if
    optional E2E is green.
 
+Worker boundary changes must preserve the bounded-read contract. App, account,
+Developer API/facade, PRO grant/BOT, and remote-share JSON request readers use a
+10-second deadline and route-specific byte caps. Newly hardened downstream
+service/provider readers use route-specific 5-15-second budgets; the existing
+playlist-manifest path retains its named 45-second ceiling. The BOT path has one
+35-second total envelope that includes preflight and response-header wait.
+Stalled streams must cancel and fail closed. HMAC/signing/pepper secrets
+documented by the owning Wrangler file or runbook must also fail closed below 32
+characters; provider-issued API keys retain their provider-defined formats.
+
 ### Current service-control cutover addendum
 
-The first release containing the
+The first release containing the exact
+`admin-announcement-v1+abuse-rate-v1`
 [`service-control contract marker`](../cloudflare/service-control-contract-version.txt)
 is a coordinated cutover:
 
-1. Use release target `all`; the service-control owner in the PRO Worker must
-   deploy before its App Worker consumer. Do not use a partial target for this
+1. Use release target `all`. The release order is PRO, remote-share, signaling,
+   Developer API facade/API, then App, so the service-control owner exists
+   before every cross-script consumer. Do not use a partial target for this
    first release.
-2. After the canonical service-control state has been written, do not roll PRO
+2. Remote-share allocation, signaling admission, and paid-resource limits use
+   the shared service-control Durable Object for atomic decisions. The retired
+   remote-share KV counter must not be reintroduced, and a missing production
+   service-control binding must fail closed.
+3. After the canonical service-control state has been written, do not roll PRO
    or App back to a pre-marker/legacy App version. Repair forward with another
    compatible full release. The rollback gate and operator procedure live in
    [`hotfix-procedure.md`](hotfix-procedure.md).
-3. This checklist documents release order only. Do not perform an ad hoc deploy
+4. This checklist documents release order only. Do not perform an ad hoc deploy
    from a development checkout.
 
 Before considering that cutover healthy, collect these targeted signals:
 
-| Check                                | Required evidence                                                                                                                                                                                                                                                     |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Account completion on a slow network | On a physical mobile browser, complete the flow with its sensitive query present. Verify the query-bearing navigation is not cached, the queryless completion shell is the only offline fallback, and no query value reappears after reload/back navigation.          |
-| Announcement save, clear, and expiry | From the admin UI in a controlled environment, publish an expiring notice, observe expiry, then clear it. Interrupt one post-commit response and retry the unchanged action; the UI must reuse the same request ID and produce one revision/history entry.            |
-| Legacy duplicate-owner detach retry  | Run `npm exec vitest run -- src/core/__tests__/app-worker-cors.test.ts -t "detaches only the exact duplicate legacy owner and safely reconciles a signaling failure"`. The injected partial failure must converge on exact retry without changing the retained owner. |
-| Cold font and offline fallback       | On a physical device with caches cleared, verify readable first paint while fonts load and that a cold font failure does not block service-worker installation. Then verify the intended offline app shell remains usable without the optional font.                  |
+| Check                                | Required evidence                                                                                                                                                                                                                                                                                     |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Account completion on a slow network | On a physical mobile browser, complete the flow with its sensitive query present. Verify the query-bearing navigation is not cached, the queryless completion shell is the only offline fallback, and no query value reappears after reload/back navigation.                                          |
+| Announcement save, clear, and expiry | From the admin UI in a controlled environment, publish an expiring notice, observe expiry, then clear it. Interrupt one post-commit response and retry the unchanged action; the UI must reuse the same request ID and produce one revision/history entry.                                            |
+| Atomic abuse-rate serialization      | Run `npm exec vitest run -- src/core/__tests__/app-worker-cors.test.ts src/share/__tests__/remote-share-worker.test.ts src/network/transport/__tests__/cloudflare-signaling-worker.test.ts -t "barrier-concurrent"`. Every same-budget concurrent burst must admit no more than the configured limit. |
+| Legacy duplicate-owner detach retry  | Run `npm exec vitest run -- src/core/__tests__/app-worker-cors.test.ts -t "detaches only the exact duplicate legacy owner and safely reconciles a signaling failure"`. The injected partial failure must converge on exact retry without changing the retained owner.                                 |
+| Cold font and offline fallback       | On a physical device with caches cleared, verify readable first paint while fonts load and that a cold font failure does not block service-worker installation. Then verify the intended offline app shell remains usable without the optional font.                                                  |
 
 ## Memory Snapshot Checkpoints
 

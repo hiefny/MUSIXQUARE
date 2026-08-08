@@ -155,6 +155,159 @@ describe('policy-page accordions', () => {
     }
   });
 
+  it('keeps public data-flow, storage, and media-capability facts aligned with the runtime', async () => {
+    const [faq, privacy, terms, authoritySource, preloadSource, accountAuthSource, proRoomSource] =
+      await Promise.all([
+        readDocument(FAQ_PATH, 'https://musixquare.com/faq'),
+        readDocument(PRIVACY_PATH, 'https://musixquare.com/privacy'),
+        readDocument(TERMS_PATH, 'https://musixquare.com/terms'),
+        readFile('src/rooms/authority.ts', 'utf8'),
+        readFile('src/storage/preload.ts', 'utf8'),
+        readFile('cloudflare/account-auth.js', 'utf8'),
+        readFile('cloudflare/pro-room-worker.js', 'utf8'),
+      ]);
+    const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim();
+    const faqText = normalizeText(faq.window.document.body.textContent ?? '');
+    const privacyText = normalizeText(privacy.window.document.body.textContent ?? '');
+    const termsText = normalizeText(terms.window.document.body.textContent ?? '');
+    const [
+      appConfig,
+      proRoomConfig,
+      signalingConfig,
+      remoteShareConfig,
+      developerConfig,
+      facadeConfig,
+    ] = await Promise.all(
+      [
+        'cloudflare/wrangler.app.toml',
+        'cloudflare/wrangler.pro-room.toml',
+        'cloudflare/wrangler.signaling.toml',
+        'cloudflare/wrangler.remote-share.toml',
+        'cloudflare/wrangler.developer-api.toml',
+        'cloudflare/wrangler.developer-api-facade.toml',
+      ].map((path) => readFile(path, 'utf8')),
+    );
+
+    expect(privacyText).toContain('Effective date: August 9, 2026');
+    expect(termsText).toContain('Effective date: August 9, 2026');
+    expect(faqText).toContain('Last updated: August 9, 2026');
+
+    for (const phrase of [
+      'Cloudflare D1 databases',
+      'Durable Objects',
+      'Workers KV',
+      'temporary ordinary-room remote-share objects',
+      'Secure, HttpOnly, SameSite=Lax',
+      'Secure, HttpOnly, SameSite=Strict',
+      'localStorage',
+      'sessionStorage',
+      'CacheStorage',
+      'Sampled Cloudflare Worker observability',
+      'up to 400 days',
+      'signaling connection opens',
+      'paid-provider API access',
+    ]) {
+      expect(privacyText).toContain(phrase);
+    }
+    expect(termsText).toContain('Google OpenID Connect');
+    expect(termsText).toContain('Google Gemini API');
+    expect(termsText).toContain('Cloudflare Privacy Policy');
+
+    for (const phrase of [
+      'sessions joined, seconds listened, and tracks played',
+      'standard-room operator with media-upload permission',
+      'participant with media-management permission',
+      'when remote delivery is selected',
+      'PRO rooms can prefetch',
+      'not integrated with MUSIXQUARE',
+    ]) {
+      expect(faqText).toContain(phrase);
+    }
+    expect(faqText).not.toContain('Only the host can add local files');
+    expect(faqText).not.toContain('Remote preload is not supported');
+    expect(faqText).not.toContain('not supported because of their service policies');
+
+    expect(authoritySource).toMatch(
+      /STANDARD_OPERATOR_CAPABILITIES[\s\S]*?'media\.add'[\s\S]*?'asset\.upload'/u,
+    );
+    expect(preloadSource).toContain('preloadRemoteFileIfNeeded');
+    expect(preloadSource).toContain('preloadProRoomPlaylistFile');
+    expect(preloadSource).toContain('const PRO_ROOM_FILE_PRELOAD_ENABLED = true;');
+    expect(accountAuthSource).toContain('HttpOnly; Secure; SameSite=Lax');
+    expect(proRoomSource).toContain('const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;');
+    expect(proRoomSource).toContain('const OWNER_COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;');
+    expect(proRoomSource).toContain('HttpOnly; Secure; SameSite=Strict');
+    expect(appConfig).toContain('binding = "SORO_IMAGE_BUCKET"');
+    expect(appConfig).toContain('binding = "SORO_RSS_BACKUP"');
+    expect(appConfig).toContain('database_name = "musixquare-auth"');
+    expect(appConfig).toContain('database_name = "musixquare-admin-metrics"');
+    expect(appConfig).toContain('database_name = "musixquare-developer-api"');
+    expect(proRoomConfig).toContain('binding = "PRO_MEDIA_BUCKET"');
+    expect(remoteShareConfig).toContain('binding = "REMOTE_SHARE_BUCKET"');
+    expect(remoteShareConfig).toContain('class_name = "RemoteShareQuota"');
+    expect(signalingConfig).toContain('class_name = "MusixquareRoom"');
+    for (const config of [
+      appConfig,
+      proRoomConfig,
+      signalingConfig,
+      remoteShareConfig,
+      developerConfig,
+      facadeConfig,
+    ]) {
+      expect(config).toMatch(/\[observability\]\s+enabled = true/u);
+    }
+  });
+
+  it('keeps the public legal-page language, canonical links, contacts, and external links safe', async () => {
+    const pages = await Promise.all([
+      readDocument(PRIVACY_PATH, 'https://musixquare.com/privacy'),
+      readDocument(TERMS_PATH, 'https://musixquare.com/terms'),
+      readDocument(FAQ_PATH, 'https://musixquare.com/faq'),
+    ]);
+    const expectedUrls = [
+      'https://musixquare.com/privacy',
+      'https://musixquare.com/terms',
+      'https://musixquare.com/faq',
+    ];
+
+    pages.forEach((page, index) => {
+      const { document } = page.window;
+      expect(document.documentElement.lang).toBe('en');
+      expect(document.querySelector('link[rel="canonical"]')?.getAttribute('href')).toBe(
+        expectedUrls[index],
+      );
+      expect(document.querySelector('meta[property="og:url"]')?.getAttribute('content')).toBe(
+        expectedUrls[index],
+      );
+
+      const contact = document.querySelector<HTMLAnchorElement>(
+        'a[href="mailto:contact@musixquare.com"][data-copy-email="contact@musixquare.com"]',
+      );
+      expect(contact?.textContent?.trim()).toBe('contact@musixquare.com');
+
+      for (const link of document.querySelectorAll<HTMLAnchorElement>('a[target="_blank"]')) {
+        const rel = new Set((link.getAttribute('rel') ?? '').split(/\s+/u).filter(Boolean));
+        expect(rel.has('noopener')).toBe(true);
+        expect(rel.has('noreferrer')).toBe(true);
+      }
+    });
+
+    const privacyLinks = new Set(
+      Array.from(pages[0].window.document.querySelectorAll<HTMLAnchorElement>('a[href]')).map(
+        (link) => link.href,
+      ),
+    );
+    for (const href of [
+      'https://www.cloudflare.com/privacypolicy/',
+      'https://www.youtube.com/t/terms',
+      'https://policies.google.com/privacy',
+      'https://security.google.com/settings/security/permissions',
+      'https://ai.google.dev/gemini-api/terms',
+    ]) {
+      expect(privacyLinks.has(href)).toBe(true);
+    }
+  });
+
   it('preserves the public errors deep link without changing privacy or terms', async () => {
     const [developers, privacy, terms] = await Promise.all([
       readDocument(DEVELOPER_DOC_PATH, 'https://musixquare.com/developers'),

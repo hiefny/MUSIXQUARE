@@ -4,6 +4,7 @@
   `pro-room-server-authority.md`; production activation requires the real-device
   checklist below
 - **Decision date:** 2026-07-16
+- **Last repository contract review:** 2026-08-09
 - **Applies to:** the reserved `0xxxxx` namespace, the built-in `000000` launch
   canary, the PRO control plane, dedicated PRO signaling, and persistent PRO
   media
@@ -174,13 +175,14 @@ policy; all incarnation-scoped Developer API audit detail is removed with the
 incarnation.
 
 Before release, verify that the admin, auth, and Developer API databases match
-their canonical generation-aware schemas. Then deploy the PRO Worker before
-signaling and deploy both the signaling and Developer API Workers before the app
-Worker. The checked-in all-workers command satisfies those dependency edges. The
-PRO Worker owns cross-script bindings to signaling and the room-scoped
-Developer API limiter so its alarm can finish every cleanup phase without an
-open admin tab. Deploying the app first would expose a re-registration action
-whose cleanup and generation-aware authorization dependencies are not ready.
+their canonical generation-aware schemas. For target `all`, deploy the PRO
+Worker first, then remote-share, signaling, the Developer API facade/API, and
+the App Worker last. The checked-in all-workers command satisfies those
+dependency edges. The PRO Worker owns the shared service-control object as well
+as cross-script bindings to signaling and the room-scoped Developer API limiter,
+so its alarms and atomic admission decisions exist before any consumer. Deploying
+the app first would expose a re-registration action whose cleanup and
+generation-aware authorization dependencies are not ready.
 The authorization boundary is irreversible: a concurrent administrator may
 create a later generation whenever the release marker is `ready`. Never roll
 any Worker below the matched generation-aware release; forward-fix or restore a
@@ -553,6 +555,13 @@ a deployment message.
 | `R2_ACCESS_KEY_ID`                       | R2 S3 credential restricted to the dedicated PRO media bucket.                                |
 | `R2_SECRET_ACCESS_KEY`                   | Paired R2 S3 secret; rotation interrupts new presigned URLs until redeployed.                 |
 
+The first six HMAC/signing/pepper values in this table must each be random and
+at least 32 characters. Keep the two explicitly named cross-Worker pairs
+identical only on their named Workers, and expose the activation secret to the
+offline issuer exactly as the table states; all other purposes remain
+independent. Provider-issued R2 identifiers and credentials retain their
+provider-defined formats.
+
 Set Worker secrets through Wrangler's interactive prompt, for example:
 
 ```powershell
@@ -576,9 +585,9 @@ while rooms are active.
 Run all checks before the first external mutation:
 
 ```powershell
-npm ci
+corepack npm ci
 npm run check:workers
-npx vitest run src/pro-room/__tests__
+npm exec vitest run -- src/pro-room/__tests__
 npm run build:checked
 ```
 
@@ -630,9 +639,9 @@ a generation-sensitive rollback cannot be proven safe.
 Use this Worker dependency order so the public app never advertises a
 dependency that is absent:
 
-1. Remote-share Worker (independent baseline service).
-2. PRO Worker and Durable Object/R2 bindings, including the authority endpoint
-   used by signaling.
+1. PRO Worker and Durable Object/R2 bindings, including the shared
+   service-control owner and authority endpoint used by signaling.
+2. Remote-share Worker, after its atomic service-control owner is available.
 3. Signaling Worker, reserving `0xxxxx` before the App can advertise PRO.
 4. Developer API facade and public API Workers.
 5. App Worker, same-origin PRO service binding, admin control plane, and static
@@ -651,6 +660,12 @@ recorded deployment IDs. Every target reuses the successful exact-SHA CI
 candidate, so validation and the production build run once per commit. The
 workflow owns the dependency order above, immutable app artifact, live smokes,
 and conflict-aware rollback.
+
+The current service-control marker is
+`admin-announcement-v1+abuse-rate-v1`. Any marker change requires target `all`;
+do not publish a consumer before the PRO-owned object. Remote-share's old KV
+allocation counter is retired and must not be restored as a fallback for a
+missing service-control binding.
 
 The local `deploy:*` scripts are non-deploying guards that always stop. The
 separate `emergency:deploy:*` scripts are emergency/operator primitives only;
@@ -799,10 +814,14 @@ decrement `room_generation`, move objects between incarnation prefixes, or
 authorize a request from `roomCode` alone.
 
 After the coordinator-free cutover, “last known-good” means a matched
-server-authority app, PRO Worker, and signaling Worker checkpoint. Never roll a
-live room back to an elected-browser coordinator or a pre-v2 storage Worker. If
-no compatible checkpoint is available, keep PRO entry in
-maintenance and forward-fix or restore the whole matched data/code checkpoint.
+server-authority App, PRO, signaling, and Developer API checkpoint. Once the
+service-control announcement floor has landed, App and PRO must also remain at
+or above that marker. Other Workers follow the workflow's runtime-compatibility
+and provenance checks; remote-share may be restored independently when those
+checks prove it safe. Never roll a live room back to an elected-browser
+coordinator or a pre-v2 storage Worker. If no compatible checkpoint is
+available, keep PRO entry in maintenance and forward-fix or restore the whole
+matched data/code checkpoint.
 
 Account-aware rollback must also retain the auth D1 binding, canonical schema,
 account-to-room reverse index, room tombstones, and all room/R2 data. Removing
@@ -811,15 +830,20 @@ without deleting data. Do not rotate the subject pepper or reintroduce projectio
 flags as a routine rollback; use PRO maintenance and forward repair when the
 least-privilege contract cannot be preserved.
 
+The `admin-announcement-v1+abuse-rate-v1` service-control marker is an additional
+forward-only floor once its App/PRO pair has deployed or canonical state has
+been written. Never restore App or PRO below that marker. Use target `all` to
+repair forward when the release workflow reports that compatibility floor; do
+not improvise a partial rollback for that pair.
+
 1. Stop the rollout and record the Worker versions and observed symptom. Do not
    delete the R2 bucket, Durable Object binding, class migration, or room data.
-2. Roll the app back first so new clients stop entering the faulty flow.
-3. Roll the PRO Worker back to its last known-good version through Cloudflare
-   Worker version history. Leave its Durable Object migration and R2 binding in
-   place.
-4. Keep a signaling version that reserves the full `0xxxxx` namespace. Never
+2. Let the release workflow perform conflict-aware recovery. When every
+   compatibility floor permits rollback, its reverse dependency order is App,
+   Developer API, Developer API facade, signaling, remote-share, then PRO.
+3. Keep a signaling version that reserves the full `0xxxxx` namespace. Never
    restore an older version that exposes a future PRO code as an ordinary room.
-5. Re-run health/bootstrap checks and open both seeded invite routes without an
+4. Re-run health/bootstrap checks and open both seeded invite routes without an
    activation claim. Existing PRO data should remain dormant and recoverable.
 
 Never roll back to a PRO Worker that predates dynamic provisioning. Keep every

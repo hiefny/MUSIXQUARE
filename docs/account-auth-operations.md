@@ -313,8 +313,9 @@ Use the checked-in schema and configuration as the launch baseline:
 
 For a reusable-code release, verify the canonical generation-aware auth schema
 before the Worker release and use the broader dependency order in the PRO
-operations ADR: PRO, signaling, Developer API facade/API, then App/static. Keep manual
-re-registration unused until every generation-aware smoke passes. Once the
+operations ADR: PRO, remote-share, signaling, Developer API facade/API, then
+App/static. Keep manual re-registration unused until every generation-aware
+smoke passes. Once the
 reuse cutover is marked `ready`, a concurrent administrator may create a later
 generation at any moment, so the matched generation-aware Worker set and D1
 schemas are a permanent rollback floor even before a generation-`1` row is

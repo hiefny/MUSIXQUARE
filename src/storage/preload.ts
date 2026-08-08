@@ -269,8 +269,8 @@ interface PendingProRoomPreloadHint {
  * second GET.
  */
 let _proRoomPreloadOwner: ProRoomPreloadOwner | null = null;
-// Signaling can deliver the coordinator's one-shot warm hint before the
-// member has projected that queue occurrence. Retain only the newest exact
+// A legacy signaling path can deliver a one-shot warm hint before the
+// participant has projected that queue occurrence. Retain only the newest exact
 // authority tuple and replay it once the playlist/runtime hooks are ready.
 let _pendingProRoomPreloadHint: PendingProRoomPreloadHint | null = null;
 
@@ -336,10 +336,10 @@ function abandonStalledPreloadSession(sessionId: number, reason: string): void {
   postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId });
 }
 
-// ─── Host: Cancel In-Flight Preload ─────────────────────────────────
+// ─── Cancel In-Flight Preload ───────────────────────────────────────
 
 /**
- * Cancel any in-flight preload transfer (host-only).
+ * Cancel any in-flight preload transfer or participant-local PRO preload.
  * Called by clearPreloadState() during backward navigation to prevent stale
  * preload data from reaching guests after the host changes tracks.
  *
@@ -426,10 +426,10 @@ export function resetPreloadReceiveAuthority(): void {
   });
 }
 
-// ─── Host: Schedule Preload ─────────────────────────────────────────
+// ─── Schedule Preload ───────────────────────────────────────────────
 
 /**
- * Schedule next track preload after a delay (host-only).
+ * Schedule the standard host's or PRO participant's next-track preload.
  *
  * Each call bumps the preload generation so any in-flight preloadNextTrack
  * that is still awaiting a prior serialized transfer will notice it has
@@ -447,7 +447,7 @@ export function schedulePreload(delayMs = 500): void {
   );
 }
 
-/** Reset the preload cache fields so the host fast path can't pick up a stale entry. */
+/** Reset preload cache fields so no local fast path can pick up a stale entry. */
 function clearPreloadCacheState(): void {
   if (getState('room.context').kind === 'pro') {
     const ownerQueueItemId =
@@ -621,7 +621,7 @@ function handleProRoomFilePreload(
   const sameAuthority = pending?.roomId === context.roomId && pending.hostConn === hostConn;
   if (sameAuthority) {
     if (pending.sessionId > data.sessionId) return;
-    // A coordinator session identifies exactly one queue occurrence. Keep the
+    // A legacy host session identifies exactly one queue occurrence. Keep the
     // first authenticated tuple if a conflicting duplicate somehow arrives.
     if (pending.sessionId === data.sessionId && pending.queueItemId !== data.queueItemId) return;
   }
@@ -654,7 +654,7 @@ function replayPendingProRoomPreloadHint(): void {
 }
 
 /**
- * Preload the next track in the playlist (host-only).
+ * Preload the next track for a standard host or independently for a PRO participant.
  *
  * Await the prior background transfer before publishing the next preload.
  * A generation snapshot prevents a schedule or cancellation that occurs
@@ -2260,11 +2260,9 @@ export function initPreload(): void {
     observedProHostConn = next;
     if (next === previous || getState('room.context').kind !== 'pro') return;
 
-    // PRO session IDs are generated per coordinator device. A failover keeps
-    // the room code but replaces (member) or removes (new coordinator) the
-    // authenticated host connection. Both edges must discard the prior SID;
-    // otherwise a newly elected coordinator can rebroadcast its predecessor's
-    // high SID before generating a lower device-local SID.
+    // A legacy PRO host connection scopes its device-local preload SIDs. Any
+    // replacement or removal must discard the prior SID so a late compatibility
+    // callback cannot override a new participant-local preload.
     cancelProRoomPlaylistFilePreload();
     _proRoomPreloadOwner = null;
     resetPreloadReceiveAuthority();
@@ -2280,7 +2278,6 @@ export function initPreload(): void {
       _pendingProRoomPreloadHint = null;
       return;
     }
-    // Authority can flip member→coordinator before network.hostConn is
     // Reset room-scoped preload ownership when entering another persistent room.
     if (enteredProRoom) {
       cancelProRoomPlaylistFilePreload();

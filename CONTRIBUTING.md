@@ -61,20 +61,23 @@ Frontend work does not require a Worker. When a change crosses a Worker
 boundary, use only the configuration and runbook for that Worker; do not copy
 every repository environment identifier into one local file.
 
-| Boundary                                 | Binding and non-secret source of truth                                                                                                                                               | Provisioning / contract guide                                                                                        |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| App, admin, account auth                 | [`cloudflare/wrangler.app.toml`](cloudflare/wrangler.app.toml)                                                                                                                       | [`docs/account-auth-operations.md`](docs/account-auth-operations.md), [`docs/admin-access.md`](docs/admin-access.md) |
-| Persistent PRO rooms and service control | [`cloudflare/wrangler.pro-room.toml`](cloudflare/wrangler.pro-room.toml)                                                                                                             | [`docs/design/pro-room-architecture-and-operations.md`](docs/design/pro-room-architecture-and-operations.md)         |
-| Standard-room signaling                  | [`cloudflare/wrangler.signaling.toml`](cloudflare/wrangler.signaling.toml)                                                                                                           | [`cloudflare/admin-dashboard-ops.md`](cloudflare/admin-dashboard-ops.md)                                             |
-| Remote file sharing                      | [`cloudflare/wrangler.remote-share.example.toml`](cloudflare/wrangler.remote-share.example.toml)                                                                                     | [`cloudflare/remote-share-ops.md`](cloudflare/remote-share-ops.md)                                                   |
-| Developer API and private facade         | [`cloudflare/wrangler.developer-api.toml`](cloudflare/wrangler.developer-api.toml), [`cloudflare/wrangler.developer-api-facade.toml`](cloudflare/wrangler.developer-api-facade.toml) | [`public/developers/openapi.yaml`](public/developers/openapi.yaml)                                                   |
+| Boundary                                 | Binding and non-secret source of truth                                                                                                                                                        | Provisioning / contract guide                                                                                        |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| App, admin, account auth                 | [`cloudflare/wrangler.app.toml`](cloudflare/wrangler.app.toml)                                                                                                                                | [`docs/account-auth-operations.md`](docs/account-auth-operations.md), [`docs/admin-access.md`](docs/admin-access.md) |
+| Persistent PRO rooms and service control | [`cloudflare/wrangler.pro-room.toml`](cloudflare/wrangler.pro-room.toml)                                                                                                                      | [`docs/design/pro-room-architecture-and-operations.md`](docs/design/pro-room-architecture-and-operations.md)         |
+| Standard-room signaling                  | [`cloudflare/wrangler.signaling.toml`](cloudflare/wrangler.signaling.toml)                                                                                                                    | [`cloudflare/admin-dashboard-ops.md`](cloudflare/admin-dashboard-ops.md)                                             |
+| Remote file sharing                      | [`cloudflare/wrangler.remote-share.toml`](cloudflare/wrangler.remote-share.toml), [`cloudflare/wrangler.remote-share.example.toml`](cloudflare/wrangler.remote-share.example.toml) (template) | [`cloudflare/remote-share-ops.md`](cloudflare/remote-share-ops.md)                                                   |
+| Developer API and private facade         | [`cloudflare/wrangler.developer-api.toml`](cloudflare/wrangler.developer-api.toml), [`cloudflare/wrangler.developer-api-facade.toml`](cloudflare/wrangler.developer-api-facade.toml)          | [`public/developers/openapi.yaml`](public/developers/openapi.yaml)                                                   |
 
 The Wrangler files declare the authoritative D1, Durable Object, R2, KV,
-service, and asset bindings and keep the required secret **names** beside the
-consumer. For local Wrangler work, put only the selected Worker's local-only
-values in an ignored `.dev.vars`; never use production values and never commit
-the file. Cross-Worker flows need their paired Workers and bindings, so a
-single standalone `wrangler dev` process is not a complete stack.
+service, and asset bindings and list baseline Worker secret names beside each
+consumer. Use
+[`cloudflare/config-drift-ops.md`](cloudflare/config-drift-ops.md) and the owning
+runbook for the complete current production requirements. For local Wrangler
+work, put only the selected Worker's local-only values in an ignored
+`.dev.vars`; never use production values and never commit the file. Cross-Worker
+flows need their paired Workers and bindings, so a single standalone
+`wrangler dev` process is not a complete stack.
 
 Production provisioning, deployment, migrations, live smoke calls, and secret
 rotation are operator actions. Do not run them as part of ordinary local

@@ -3948,7 +3948,7 @@ export class MusixquareProRoom {
       return;
     }
     // Queue behavior predates this rolling-deploy-safe resource. Preserve the
-    // old product default until a coordinator explicitly changes it.
+    // old product default until an authorized participant explicitly changes it.
     this.room.queueMode = initialQueueModeState();
     this.queueModeMigrationPending = true;
   }
@@ -11540,7 +11540,7 @@ export class MusixquareProRoom {
     this.room.pendingOwnershipTransfer = null;
     this.room.ownerAuthorityRemoval = null;
     await this.persist();
-    // A non-empty authoritative snapshot at the transfer's newer coordinator
+    // A non-empty authoritative snapshot at the transfer's newer compatibility
     // epoch releases the signaling-side owner-deletion admission fence. The
     // existing durable retry path keeps signaling closed if delivery fails.
     this.scheduleServerEvent(this.presenceEvent());

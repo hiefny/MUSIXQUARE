@@ -115,7 +115,7 @@ export function toCanonicalYouTubeTime(localTime: number, duration = 0): number 
 }
 
 /**
- * Resolve a canonical room position to the coordinator's local iframe.
+ * Resolve a canonical room position to this PRO participant's local iframe.
  * `effectiveOffset` intentionally reflects what can actually be applied at
  * the media boundaries, not merely what was requested.
  */

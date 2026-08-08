@@ -283,7 +283,7 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
       setRecoveryTarget(incomingQueueItemId, name);
       setPendingPlayTime(time);
       // Persistent PRO bytes come from the authenticated room bucket on this
-      // device. Ask only for the coordinator's transfer identity/control frame;
+      // device. This compatibility request asks only for transfer identity/control;
       // the response contains no file bytes or reusable R2 credential.
       requestCurrentFile(incomingQueueItemId, name, 'pro_room_direct');
       log.info('[Guest] PRO file selected - requesting direct R2 prepare');

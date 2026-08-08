@@ -69,9 +69,10 @@ You may run, study, modify, and share the source code under the license terms. B
 
 The public repository does not include production secrets, API keys, TURN
 credentials, Cloudflare account credentials, or other private deployment
-material. Use the tracked Wrangler structure (and the remote-share example)
-as a reference, then configure sensitive values through your own Worker
-secrets.
+material. Use the tracked Wrangler structure (and the remote-share example) as
+a reference. Put Worker runtime secrets in Cloudflare Worker secret storage;
+keep deployment, audit, and smoke credentials in the protected CI/environment
+secret store that consumes them.
 
 ---
 
@@ -159,15 +160,17 @@ OPFS are documented in [the RAM-only storage ADR](./docs/design/browser-media-st
 
 ## Environment Variables
 
-Server-only variables are configured as Cloudflare Worker secrets
-(`wrangler secret put ...`) on the Worker that consumes them; do not copy them
+Worker runtime secrets are configured with `wrangler secret put ...` on the
+Worker that consumes them. Deployment, audit, and smoke credentials instead
+belong in protected CI/environment secret storage. Never copy either category
 into browser build variables.
 
-The authoritative binding and secret-name inventory stays beside each consumer
-in `cloudflare/wrangler.*.toml`; the Worker-by-Worker map in
-[`CONTRIBUTING.md`](./CONTRIBUTING.md#worker-configuration) links those files to
-their provisioning runbooks. Ordinary browser development needs none of those
-values.
+The authoritative non-secret binding inventory stays in
+`cloudflare/wrangler.*.toml`. The public secret inventory and reconciliation
+procedure live in
+[`cloudflare/config-drift-ops.md`](./cloudflare/config-drift-ops.md), while
+operator-only details remain in the ignored private deployment inventory.
+Ordinary browser development needs none of those values.
 
 The capability-token signing secret and Cloudflare TURN credentials are
 required for the protected production paths. The YouTube API key is required

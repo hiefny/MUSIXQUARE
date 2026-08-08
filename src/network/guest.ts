@@ -742,8 +742,8 @@ function handleWelcome(data: Record<string, unknown>, conn?: DataConnection): vo
   if (data.label) {
     setState('network.myDeviceLabel', String(data.label));
   }
-  // Standard WELCOME starts a guest with isOp=false; a PRO controller's
-  // authority came from the authenticated room snapshot and must not be
+  // Standard WELCOME starts a guest with isOp=false; a PRO compatibility
+  // endpoint's authority came from the authenticated room snapshot and must not be
   // downgraded by this legacy compatibility frame.
   if (getRoomContext().kind === 'pro') setState('network.isOperator', true);
   else if (getState('network.isOperator')) setState('network.isOperator', false);

@@ -220,7 +220,7 @@ for (const [importer, list] of edges) {
 // ── RULE B: SCC baseline ratchet (static value edges only) ───────
 
 function computeSccs() {
-  // Tarjan, iterative-friendly sizes (~170 nodes) so plain recursion is fine.
+  // Tarjan, a few hundred nodes at this repository's scale, so plain recursion is fine.
   const index = new Map();
   const low = new Map();
   const onStack = new Set();

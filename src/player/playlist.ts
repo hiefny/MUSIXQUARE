@@ -448,7 +448,7 @@ export function setRepeatMode(mode: number, notify = true): void {
   // When repeat-one toggles in/out of 2, the intended next changes (repeat-one
   // means "replay current" which doesn't preload a different track). Also
   // sequential→repeat-all at last track flips from end-of-playlist to wrap-0.
-  // Regenerate preload on host only.
+  // Regenerate on the standard host or independently on each PRO participant.
   if (mode !== prevMode) {
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
@@ -496,7 +496,7 @@ export function setShuffle(
 
   // Preload was chosen under the opposite mode — the stale hint may point to
   // a track that is no longer the "next" under the new mode (sequential vs
-  // shuffled). Regenerate on host only.
+  // shuffled). Regenerate on the standard host or each PRO participant.
   if (enabled !== prevEnabled || orderChanged) {
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
@@ -765,9 +765,9 @@ export async function playTrack(
   const readyPreload = getState('preload.ready');
   const activePreloadTarget = getState('preload.activeTarget');
 
-  // A persistent PRO object may still be arriving when the coordinator picks
-  // it. Adopt that exact background promise before clearPreloadState() gets a
-  // chance to cancel it; the recursive entry then uses either the completed
+  // A persistent PRO object may still be arriving when its selection is
+  // requested. Adopt that exact background promise before clearPreloadState()
+  // gets a chance to cancel it; the recursive entry then uses either the completed
   // preload fast path or the already-published foreground File.
   if (
     !appliesServerAuthority &&
@@ -1062,7 +1062,7 @@ export async function playTrack(
 
       // Every shared YouTube transition is loaded paused first. This keeps a
       // persistent iframe from leaking a short burst of the incoming video
-      // before the coordinator can choose zero-start or the compatible
+      // before the synchronized start path can choose zero-start or the compatible
       // legacy rendezvous path. An ordinary first entry still waits for the
       // user's explicit play tap; an explicit external play command and later
       // entries arm playback immediately after the paused load becomes usable.

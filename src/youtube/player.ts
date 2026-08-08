@@ -603,7 +603,7 @@ export function scheduleYtAutoSync(
   // get the rendezvous toast on user-initiated syncs.
   // A PAUSE must also cancel a previously armed PLAY rendezvous. Leaving the
   // old stage-2 timer alive would make guests receive a delayed PLAY snapshot
-  // after the coordinator had already paused (notably through Developer API).
+  // after the host had already paused.
   clearManagedTimer('yt-auto-sync');
   if (targetState !== 1) return;
   const waitMs = overrides?.rendezvousDelayMs ?? STAGE2_RENDEZVOUS_BROADCAST_MS;
@@ -956,7 +956,7 @@ function scheduleLateJoinRendezvousSync(
       if (!isPlaybackModeYouTube()) return;
       if (queueItemId !== getCurrentQueueItemId()) return;
 
-      // A coordinator-local nudge changes the iframe position before that
+      // A still-settling local nudge changes the iframe position before that
       // position is reliably observable. Do not combine an old currentTime
       // with the newly-applied offset in the second late-join snapshot.
       if (getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)) {
@@ -2713,7 +2713,7 @@ export function initYouTube(): void {
       if (tryBeginYouTubeZeroStart(nextVideoId, nextIdx)) return;
       player.loadVideoById?.(nextVideoId);
 
-      // Reapply the requested coordinator-local nudge against this new
+      // Reapply the requested local nudge against this new
       // video's boundaries; Stage 1 still broadcasts without a delay.
       scheduleYtAutoSync(currentTime, {
         subIndex: nextIdx,

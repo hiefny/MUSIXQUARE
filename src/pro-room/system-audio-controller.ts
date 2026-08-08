@@ -113,7 +113,7 @@ function statesEqual(left: ProRoomSystemAudioState, right: ProRoomSystemAudioSta
 
 /**
  * Owns only the authenticated PRO system-audio lease lifecycle. It never
- * opens getDisplayMedia and never assumes the room coordinator is the owner.
+ * opens getDisplayMedia or derives ownership from a browser transport role.
  * Callers can therefore start capture and acquire in parallel from the same
  * user-activation tick.
  */
@@ -354,7 +354,7 @@ export class ProRoomSystemAudioController {
       // A rejected heartbeat can mean either a transient transport failure or
       // that the server already fenced this credential (for example when a
       // fifth device joined). Reconcile against the authenticated resource
-      // before retrying so a non-coordinator publisher cannot keep streaming
+      // before retrying so a revoked publisher cannot keep streaming
       // after authoritative revocation.
       this.#assertOperationCurrent(roomCode, epoch);
       let accepted: ProRoomSystemAudioState;

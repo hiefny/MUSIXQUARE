@@ -58,7 +58,7 @@
     <main class="policy-shell">
       <section class="policy-hero">
         <h1>Privacy Policy</h1>
-        <p class="policy-date">Effective date: August 1, 2026</p>
+        <p class="policy-date">Effective date: August 9, 2026</p>
       </section>
 
       <article class="policy-doc">
@@ -196,6 +196,44 @@
               </dd>
             </div>
             <div>
+              <dt>Cloudflare data stores</dt>
+              <dd>
+                Cloudflare D1 databases hold optional-account and authentication records, aggregate
+                service metrics, administrator audit and PRO-room registry records, and Developer
+                API records. Durable Objects hold live ordinary-room and PRO-room state plus
+                service-control, quota, and rate-limit state. R2 holds temporary ordinary-room
+                remote-share objects, persistent PRO-room media, and public Soro blog images.
+                Workers KV holds a backup copy of the public Soro RSS feed; it is not used for room
+                messages or media.
+              </dd>
+            </div>
+            <div>
+              <dt>Cookies and browser storage</dt>
+              <dd>
+                Optional account sign-in and its temporary Google OAuth flow use Secure, HttpOnly,
+                SameSite=Lax cookies. PRO rooms use room-specific Secure, HttpOnly, SameSite=Strict
+                cookies for the room session and owner-recovery credential. Browser
+                <code>localStorage</code> and <code>sessionStorage</code> hold non-credential
+                preferences and limited browser coordination data, such as language, theme, audio
+                and synchronization settings, account-refresh signals, and short-lived return-route,
+                reconnection, update, or activity state. OAuth codes and state, Google tokens, room
+                passwords, and PRO claim or recovery credentials are not copied into Web Storage.
+                The service worker uses CacheStorage for app assets and offline navigation
+                responses; API responses, local media, and navigations containing sensitive query
+                parameters are excluded.
+              </dd>
+            </div>
+            <div>
+              <dt>Operational logs and traces</dt>
+              <dd>
+                Sampled Cloudflare Worker observability is enabled for the public workers. It
+                processes request and execution metadata and diagnostic messages emitted for service
+                health, failures, and security operations. MUSIXQUARE does not configure a separate
+                retention period for these logs and traces in application code; Cloudflare account
+                settings and provider policies govern their retention.
+              </dd>
+            </div>
+            <div>
               <dt>YouTube data</dt>
               <dd>
                 YouTube search terms are sent through the MUSIXQUARE service to the YouTube Data
@@ -260,6 +298,13 @@
             the deleted room cannot become valid in a later room that reuses the same public code.
           </p>
           <p>
+            A PRO-room browser session and its room-session record expire no later than 30 days
+            after issuance under the current service configuration. The separate owner-recovery
+            cookie may remain in that browser for up to 400 days unless it is cleared, replaced, or
+            invalidated earlier. Clearing a browser cookie ends that browser's stored access but
+            does not itself delete the persistent room or its media.
+          </p>
+          <p>
             An account record remains until the account is deleted. Each account session expires no
             later than 30 days after it is created and ends earlier after sign-out or account
             deletion. Temporary sign-in-flow records expire after about 10 minutes. After account
@@ -280,9 +325,12 @@
             applicable backup-retention period.
           </p>
           <p>
-            Short-lived rate-limit records used to prevent remote-share abuse identify an IP address
-            with a keyed, one-way pseudonym rather than storing the raw address in the record key.
-            These records normally expire after about one hour.
+            Short-lived rate-limit records used to protect Remote Share, signaling connection opens,
+            and paid-provider API access use derived one-way identifiers and fixed-window counters
+            rather than raw IP addresses as their Durable Object names. Remote Share uses a keyed
+            pseudonym and a window of about one hour; the current signaling and paid-API counters
+            use one-minute windows. The stored counter is scheduled for removal after its window
+            ends.
           </p>
           <p>
             Infrastructure providers may retain limited security and operational metadata under
@@ -296,7 +344,13 @@
             MUSIXQUARE uses Cloudflare for website delivery, signaling, relay services, remote
             system audio, temporary private remote-file delivery, persistent private PRO-room media
             storage, security, and aggregate web analytics. Cloudflare may process technical data in
-            the countries and regions where its network and service providers operate.
+            the countries and regions where its network and service providers operate. See the
+            <a
+              href="https://www.cloudflare.com/privacypolicy/"
+              target="_blank"
+              rel="noopener noreferrer"
+              >Cloudflare Privacy Policy</a
+            >.
           </p>
           <p>
             YouTube features use YouTube API Services and the YouTube embedded player. Their use is
@@ -359,8 +413,11 @@
           <p>
             Sign-in is optional. From the account menu, a signed-in user can change their nickname,
             sign out, or delete the active MUSIXQUARE account. You can stop processing live session
-            data by leaving or closing a room. Browser storage used for local preferences can be
-            cleared through your browser settings.
+            data by leaving or closing a room. Cookies, <code>localStorage</code>,
+            <code>sessionStorage</code>, and cached app data can be cleared through your browser
+            settings. Clearing browser storage does not delete an optional account, a persistent PRO
+            room, or media already stored for that room; use the in-app account and room controls
+            for those actions.
           </p>
           <p>
             For privacy questions, access or deletion requests, or concerns about the handling of

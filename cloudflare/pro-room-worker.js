@@ -33,6 +33,8 @@ import {
   proRoomObjectName,
 } from './pro-room-generation.js';
 import {
+  ADMIN_ANNOUNCEMENT_STATE_PATH,
+  ADMIN_ANNOUNCEMENT_STATUS_PATH,
   SERVICE_CONTROL_STATE_PATH,
   SERVICE_CONTROL_STATUS_PATH,
   gateServiceMaintenance,
@@ -59,6 +61,11 @@ const SERVICE_CONTROL_STATE_KEY = 'service-maintenance-state';
 const SERVICE_CONTROL_REQUESTS_KEY = 'service-maintenance-requests';
 const SERVICE_CONTROL_REQUEST_HISTORY_LIMIT = 64;
 const SERVICE_CONTROL_REQUEST_ID_RE = /^[A-Za-z0-9_-]{8,128}$/;
+const ADMIN_ANNOUNCEMENT_STATE_KEY = 'admin-announcement-state';
+const ADMIN_ANNOUNCEMENT_REQUESTS_KEY = 'admin-announcement-requests';
+const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
+const ADMIN_ANNOUNCEMENT_CONTROL_MAX_BYTES = 256 * 1024;
+const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const INITIAL_PRO_ROOMS = Object.freeze([
   Object.freeze({ roomCode: '000000', label: 'MUSIXQUARE Developer' }),
 ]);
@@ -3098,24 +3105,180 @@ function serviceControlJson(body, status = 200) {
   });
 }
 
+function emptyAdminAnnouncement() {
+  return {
+    id: '',
+    message: '',
+    enabled: false,
+    expiresAt: null,
+    updatedAt: '',
+  };
+}
+
+function initialAdminAnnouncementState() {
+  return {
+    revision: 0,
+    announcement: emptyAdminAnnouncement(),
+    history: [],
+  };
+}
+
+function normalizedAdminAnnouncement(value, { allowEmpty = false, history = false } = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const message = typeof value.message === 'string' ? value.message.trim() : '';
+  if (message.length > 280) return null;
+  const id = typeof value.id === 'string' ? value.id : '';
+  const updatedAtInput = typeof value.updatedAt === 'string' ? value.updatedAt : '';
+  const updatedAtMs = new Date(updatedAtInput).getTime();
+  if ((!allowEmpty || id) && (!ADMIN_ANNOUNCEMENT_ID_RE.test(id) || Number.isNaN(updatedAtMs))) {
+    return null;
+  }
+  if (
+    allowEmpty &&
+    !id &&
+    (message || updatedAtInput || value.enabled === true || value.expiresAt !== null)
+  ) {
+    return null;
+  }
+  let expiresAt = null;
+  if (value.expiresAt !== null && value.expiresAt !== undefined && value.expiresAt !== '') {
+    const expiresAtMs = new Date(value.expiresAt).getTime();
+    if (Number.isNaN(expiresAtMs)) return null;
+    expiresAt = new Date(expiresAtMs).toISOString();
+  }
+  const announcement = {
+    id,
+    message,
+    enabled: value.enabled === true && Boolean(message),
+    expiresAt,
+    updatedAt: id ? new Date(updatedAtMs).toISOString() : '',
+  };
+  if (!history) return announcement;
+  if (
+    !['published', 'disabled', 'cleared'].includes(value.action) ||
+    value.action !== adminAnnouncementAction(announcement)
+  ) {
+    return null;
+  }
+  return { ...announcement, action: value.action };
+}
+
+function canonicalAdminAnnouncementState(value) {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    !Number.isSafeInteger(value.revision) ||
+    value.revision < 0 ||
+    !Array.isArray(value.history) ||
+    value.history.length > ADMIN_ANNOUNCEMENT_HISTORY_LIMIT
+  ) {
+    return null;
+  }
+  const announcement = normalizedAdminAnnouncement(value.announcement, { allowEmpty: true });
+  const history = value.history.map((entry) =>
+    normalizedAdminAnnouncement(entry, { history: true }),
+  );
+  if (!announcement || history.some((entry) => entry === null)) return null;
+  if (value.revision === 0 && (announcement.id || history.length > 0)) return null;
+  if (
+    value.revision > 0 &&
+    (!announcement.id ||
+      history.length === 0 ||
+      !adminAnnouncementHistoryMatches(announcement, history[0]))
+  ) {
+    return null;
+  }
+  return { revision: value.revision, announcement, history };
+}
+
+function normalizeAdminAnnouncementRequests(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (entry) =>
+        entry &&
+        typeof entry === 'object' &&
+        SERVICE_CONTROL_REQUEST_ID_RE.test(String(entry.requestId || '')) &&
+        typeof entry.message === 'string' &&
+        entry.message.length <= 280 &&
+        typeof entry.enabled === 'boolean' &&
+        (entry.expiresAt === null ||
+          (typeof entry.expiresAt === 'string' &&
+            !Number.isNaN(new Date(entry.expiresAt).getTime()))) &&
+        Number.isSafeInteger(entry.revision) &&
+        entry.revision > 0,
+    )
+    .slice(0, SERVICE_CONTROL_REQUEST_HISTORY_LIMIT)
+    .map((entry) => ({
+      requestId: String(entry.requestId),
+      message: entry.message,
+      enabled: entry.enabled,
+      expiresAt: entry.expiresAt,
+      revision: entry.revision,
+    }));
+}
+
+function adminAnnouncementAction(announcement) {
+  if (announcement.enabled && announcement.message) return 'published';
+  if (announcement.message) return 'disabled';
+  return 'cleared';
+}
+
+function adminAnnouncementHistoryMatches(announcement, historyEntry) {
+  return (
+    historyEntry?.id === announcement.id &&
+    historyEntry.message === announcement.message &&
+    historyEntry.enabled === announcement.enabled &&
+    historyEntry.expiresAt === announcement.expiresAt &&
+    historyEntry.updatedAt === announcement.updatedAt &&
+    historyEntry.action === adminAnnouncementAction(announcement)
+  );
+}
+
+function createAdminAnnouncementId(now) {
+  const suffix = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2, 12);
+  return `${now.toString(36)}-${suffix}`;
+}
+
+function adminAnnouncementResponse(state, status = 200, extra = {}) {
+  return serviceControlJson({ ...extra, announcementState: state }, status);
+}
+
 export class MusixquareServiceControl {
   constructor(state) {
     this.state = state;
     this.storage = state.storage;
     this.serviceStatus = initialServiceControlState();
     this.requests = [];
+    this.announcementState = initialAdminAnnouncementState();
+    this.announcementRequests = [];
+    this.announcementStateInvalid = false;
     this.mutationTail = Promise.resolve();
     const load = async () => {
-      const [storedState, storedRequests] = await Promise.all([
-        this.storage.get(SERVICE_CONTROL_STATE_KEY),
-        this.storage.get(SERVICE_CONTROL_REQUESTS_KEY),
-      ]);
+      const [storedState, storedRequests, storedAnnouncementState, storedAnnouncementRequests] =
+        await Promise.all([
+          this.storage.get(SERVICE_CONTROL_STATE_KEY),
+          this.storage.get(SERVICE_CONTROL_REQUESTS_KEY),
+          this.storage.get(ADMIN_ANNOUNCEMENT_STATE_KEY),
+          this.storage.get(ADMIN_ANNOUNCEMENT_REQUESTS_KEY),
+        ]);
       const normalizedStoredState = canonicalServiceControlState(storedState);
       if (storedState !== undefined && storedState !== null && !normalizedStoredState) {
         throw new Error('SERVICE_MAINTENANCE_STATE_INVALID');
       }
       this.serviceStatus = normalizedStoredState || initialServiceControlState();
       this.requests = normalizeServiceControlRequests(storedRequests);
+      const normalizedAnnouncementState = canonicalAdminAnnouncementState(storedAnnouncementState);
+      if (
+        storedAnnouncementState !== undefined &&
+        storedAnnouncementState !== null &&
+        !normalizedAnnouncementState
+      ) {
+        this.announcementStateInvalid = true;
+      }
+      this.announcementState = normalizedAnnouncementState || initialAdminAnnouncementState();
+      this.announcementRequests = normalizeAdminAnnouncementRequests(storedAnnouncementRequests);
     };
     this.ready =
       typeof state.blockConcurrencyWhile === 'function'
@@ -3147,10 +3310,152 @@ export class MusixquareServiceControl {
     );
   }
 
+  async handleAnnouncementMutation(request) {
+    if (this.announcementStateInvalid) {
+      return serviceControlJson({ error: 'ADMIN_ANNOUNCEMENT_STATE_INVALID' }, 503);
+    }
+    const contentType = String(request.headers.get('Content-Type') || '').toLowerCase();
+    if (!/^application\/json(?:\s*;|$)/.test(contentType)) {
+      return serviceControlJson({ error: 'JSON_REQUIRED' }, 415);
+    }
+    const contentLength = Number(request.headers.get('Content-Length'));
+    if (Number.isFinite(contentLength) && contentLength > ADMIN_ANNOUNCEMENT_CONTROL_MAX_BYTES) {
+      return serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413);
+    }
+    let body;
+    try {
+      const text = await request.text();
+      if (new TextEncoder().encode(text).byteLength > ADMIN_ANNOUNCEMENT_CONTROL_MAX_BYTES) {
+        return serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413);
+      }
+      body = JSON.parse(text);
+    } catch {
+      return serviceControlJson({ error: 'INVALID_JSON' }, 400);
+    }
+    const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : [];
+    const message = typeof body?.message === 'string' ? body.message.trim() : null;
+    const expiresAt =
+      body?.expiresAt === null || body?.expiresAt === ''
+        ? null
+        : typeof body?.expiresAt === 'string' && !Number.isNaN(new Date(body.expiresAt).getTime())
+          ? new Date(body.expiresAt).toISOString()
+          : undefined;
+    const baseHistory = Array.isArray(body?.baseHistory)
+      ? body.baseHistory.map((entry) => normalizedAdminAnnouncement(entry, { history: true }))
+      : null;
+    if (
+      keys.length !== 6 ||
+      !keys.includes('message') ||
+      !keys.includes('enabled') ||
+      !keys.includes('expiresAt') ||
+      !keys.includes('expectedRevision') ||
+      !keys.includes('requestId') ||
+      !keys.includes('baseHistory') ||
+      message === null ||
+      message.length > 280 ||
+      typeof body.enabled !== 'boolean' ||
+      expiresAt === undefined ||
+      !Number.isSafeInteger(body.expectedRevision) ||
+      body.expectedRevision < 0 ||
+      typeof body.requestId !== 'string' ||
+      !SERVICE_CONTROL_REQUEST_ID_RE.test(body.requestId) ||
+      !baseHistory ||
+      baseHistory.length > ADMIN_ANNOUNCEMENT_HISTORY_LIMIT ||
+      baseHistory.some((entry) => entry === null)
+    ) {
+      return serviceControlJson({ error: 'INVALID_REQUEST' }, 400);
+    }
+
+    return this.withMutation(async () => {
+      const replay = this.announcementRequests.find((entry) => entry.requestId === body.requestId);
+      if (replay) {
+        if (
+          replay.message !== message ||
+          replay.enabled !== body.enabled ||
+          replay.expiresAt !== expiresAt
+        ) {
+          return adminAnnouncementResponse(this.announcementState, 409, {
+            error: 'ADMIN_ANNOUNCEMENT_REQUEST_ID_REUSED',
+          });
+        }
+        if (replay.revision !== this.announcementState.revision) {
+          return adminAnnouncementResponse(this.announcementState, 409, {
+            error: 'ADMIN_ANNOUNCEMENT_REQUEST_SUPERSEDED',
+          });
+        }
+        return adminAnnouncementResponse(this.announcementState, 200, {
+          ok: true,
+          changed: false,
+          replayed: true,
+        });
+      }
+      if (body.expectedRevision !== this.announcementState.revision) {
+        return adminAnnouncementResponse(this.announcementState, 409, {
+          error: 'ADMIN_ANNOUNCEMENT_REVISION_CONFLICT',
+        });
+      }
+      if (expiresAt !== null && new Date(expiresAt).getTime() <= Date.now()) {
+        return serviceControlJson({ error: 'EXPIRES_AT_IN_PAST' }, 400);
+      }
+
+      const now = Date.now();
+      const announcement = {
+        id: createAdminAnnouncementId(now),
+        message,
+        enabled: body.enabled && Boolean(message),
+        expiresAt,
+        updatedAt: new Date(now).toISOString(),
+      };
+      const inheritedHistory =
+        this.announcementState.revision === 0 && this.announcementState.history.length === 0
+          ? baseHistory
+          : this.announcementState.history;
+      const nextState = {
+        revision: this.announcementState.revision + 1,
+        announcement,
+        history: [
+          { ...announcement, action: adminAnnouncementAction(announcement) },
+          ...inheritedHistory,
+        ].slice(0, ADMIN_ANNOUNCEMENT_HISTORY_LIMIT),
+      };
+      const requestRecord = {
+        requestId: body.requestId,
+        message,
+        enabled: body.enabled,
+        expiresAt,
+        revision: nextState.revision,
+      };
+      const nextRequests = [requestRecord, ...this.announcementRequests].slice(
+        0,
+        SERVICE_CONTROL_REQUEST_HISTORY_LIMIT,
+      );
+      await this.storage.put({
+        [ADMIN_ANNOUNCEMENT_STATE_KEY]: nextState,
+        [ADMIN_ANNOUNCEMENT_REQUESTS_KEY]: nextRequests,
+      });
+      this.announcementState = nextState;
+      this.announcementRequests = nextRequests;
+      return adminAnnouncementResponse(nextState, 200, {
+        ok: true,
+        changed: true,
+        replayed: false,
+      });
+    });
+  }
+
   async fetch(request) {
     if (this.ready) await this.ready;
     const url = new URL(request.url);
     if (url.search || url.hash) return serviceControlJson({ error: 'NOT_FOUND' }, 404);
+    if (request.method === 'GET' && url.pathname === ADMIN_ANNOUNCEMENT_STATUS_PATH) {
+      if (this.announcementStateInvalid) {
+        return serviceControlJson({ error: 'ADMIN_ANNOUNCEMENT_STATE_INVALID' }, 503);
+      }
+      return adminAnnouncementResponse(this.announcementState);
+    }
+    if (request.method === 'POST' && url.pathname === ADMIN_ANNOUNCEMENT_STATE_PATH) {
+      return this.handleAnnouncementMutation(request);
+    }
     if (request.method === 'GET' && url.pathname === SERVICE_CONTROL_STATUS_PATH) {
       return this.response();
     }

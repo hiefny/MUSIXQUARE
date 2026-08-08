@@ -47,6 +47,8 @@ describe('service worker cache policy', () => {
   let activateListener: ExtendableListener;
   let messageListener: MessageListener;
   let cachePut: ReturnType<typeof vi.fn>;
+  let cacheEntryKeys: ReturnType<typeof vi.fn>;
+  let cacheEntryDelete: ReturnType<typeof vi.fn>;
   let cacheOpen: ReturnType<typeof vi.fn>;
   let cacheMatch: ReturnType<typeof vi.fn>;
   let cacheKeys: ReturnType<typeof vi.fn>;
@@ -60,12 +62,26 @@ describe('service worker cache policy', () => {
     expect(APP_SHELL_SOURCE).toContain("'./fouc-cleanup.js'");
   });
 
+  it('precaches the queryless account-completion document and its stable assets', () => {
+    expect(APP_SHELL_SOURCE).toContain("'./account-complete.html'");
+    expect(APP_SHELL_SOURCE).toContain("'./account-complete.js'");
+    expect(APP_SHELL_SOURCE).toContain("'./account-complete.css'");
+  });
+
+  it('does not spend the first service-worker install on the optional 2 MiB app font', () => {
+    expect(APP_SHELL_SOURCE).not.toContain('PretendardVariable.woff2');
+  });
+
   beforeEach(async () => {
     const listeners = new Map<string, (event: never) => void>();
     cachePut = vi.fn(async () => undefined);
+    cacheEntryKeys = vi.fn(async () => []);
+    cacheEntryDelete = vi.fn(async () => true);
     cacheOpen = vi.fn(async () => ({
       addAll: vi.fn(async () => undefined),
       put: cachePut,
+      keys: cacheEntryKeys,
+      delete: cacheEntryDelete,
     }));
     cacheMatch = vi.fn(async () => undefined);
     cacheKeys = vi.fn(async () => []);
@@ -204,6 +220,73 @@ describe('service worker cache policy', () => {
 
     expect(cacheOpen).toHaveBeenCalledWith(`musixquare-runtime-${ACTIVE_CACHE_VERSION}`);
     expect(cachePut).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    'https://musixquare.com/account-complete.html?accountClient=tab-12345678',
+    'https://musixquare.com/?accountAuth=error',
+    'https://musixquare.com/?state=oauth-correlation&code=one-time-code',
+    'https://musixquare.com/session?access_token=account-secret',
+  ])('returns but never caches a navigation with sensitive query state: %s', async (url) => {
+    fetchMock.mockResolvedValue(new Response('<!doctype html>', { status: 200 }));
+
+    const response = await dispatch(new Request(url, { headers: { accept: 'text/html' } }));
+
+    expect(response.status).toBe(200);
+    expect(cacheOpen).not.toHaveBeenCalled();
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it('uses the queryless completion document for an offline account callback', async () => {
+    fetchMock.mockRejectedValue(new Error('offline'));
+    cacheMatch.mockImplementation(
+      async (request: RequestInfo, options?: { cacheName?: string }) => {
+        const requestUrl = typeof request === 'string' ? request : request.url;
+        return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+          requestUrl.endsWith('account-complete.html')
+          ? new Response('canonical completion fallback', { status: 200 })
+          : undefined;
+      },
+    );
+
+    const response = await dispatch(
+      new Request('https://musixquare.com/account-complete.html?accountClient=tab-12345678', {
+        headers: { accept: 'text/html' },
+      }),
+    );
+
+    expect(await response.text()).toBe('canonical completion fallback');
+    expect(cacheMatch).toHaveBeenCalledOnce();
+    expect(cacheMatch).toHaveBeenCalledWith('./account-complete.html', {
+      cacheName: `musixquare-static-${ACTIVE_CACHE_VERSION}`,
+    });
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it('uses the canonical SPA shell for another offline authentication navigation', async () => {
+    fetchMock.mockRejectedValue(new Error('offline'));
+    cacheMatch.mockImplementation(
+      async (request: RequestInfo, options?: { cacheName?: string }) => {
+        const requestUrl = typeof request === 'string' ? request : request.url;
+        return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+          requestUrl.endsWith('index.html')
+          ? new Response('canonical authentication fallback', { status: 200 })
+          : undefined;
+      },
+    );
+
+    const response = await dispatch(
+      new Request('https://musixquare.com/?accountAuth=error', {
+        headers: { accept: 'text/html' },
+      }),
+    );
+
+    expect(await response.text()).toBe('canonical authentication fallback');
+    expect(cacheMatch).toHaveBeenCalledOnce();
+    expect(cacheMatch).toHaveBeenCalledWith('./index.html', {
+      cacheName: `musixquare-static-${ACTIVE_CACHE_VERSION}`,
+    });
+    expect(cachePut).not.toHaveBeenCalled();
   });
 
   it('keeps a navigation cache write alive without delaying the response', async () => {
@@ -427,6 +510,36 @@ describe('service worker cache policy', () => {
       ready: false,
       replyToRequest: true,
     });
+    expect(cacheDelete).not.toHaveBeenCalled();
+  });
+
+  it('scrubs sensitive query entries from a retained runtime cache on activation', async () => {
+    const oldTab = { id: 'old-tab', postMessage: vi.fn() };
+    windowClients = [oldTab];
+    const sensitive = new Request(
+      'https://musixquare.com/?code=one-time-code&state=oauth-correlation',
+    );
+    const accountClient = new Request(
+      'https://musixquare.com/account-complete.html?accountClient=tab-12345678',
+    );
+    const ordinary = new Request('https://musixquare.com/session?view=setup');
+    cacheKeys.mockResolvedValue([
+      `musixquare-runtime-${RETIRED_CACHE_VERSION}`,
+      `musixquare-runtime-${ACTIVE_CACHE_VERSION}`,
+    ]);
+    cacheEntryKeys.mockResolvedValue([sensitive, accountClient, ordinary]);
+
+    await dispatchExtendable(activateListener);
+
+    expect(cacheOpen).toHaveBeenCalledOnce();
+    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-runtime-${RETIRED_CACHE_VERSION}`);
+    expect(cacheEntryDelete).toHaveBeenCalledTimes(2);
+    expect(cacheEntryDelete.mock.calls.map(([request]) => request.url)).toEqual([
+      sensitive.url,
+      accountClient.url,
+    ]);
+    // The old tab still needs its retired hashed assets, so only sensitive
+    // entries are removed until it approves the active generation.
     expect(cacheDelete).not.toHaveBeenCalled();
   });
 

@@ -8,7 +8,7 @@
 
 // Bump this whenever a stable-path app-shell asset changes so existing clients
 // migrate to a fresh cache.
-const CACHE_VERSION = 'v390';
+const CACHE_VERSION = 'v392';
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 const BOOTSTRAP_CACHE_KEY = `./bootstrap.js?cache=${CACHE_VERSION}`;
@@ -19,7 +19,17 @@ const NAVIGATION_NETWORK_TIMEOUT_MS = 8_000;
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
 const CACHE_CLIENT_STATUS = 'MXQR_CACHE_CLIENT_STATUS';
 const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
+const ACCOUNT_COMPLETION_PATH = '/account-complete.html';
+const ACCOUNT_COMPLETION_SHELL = './account-complete.html';
 const cacheReadyClientIds = new Set();
+
+// CacheStorage keys retain the full query string. Authentication completion
+// markers, client correlation IDs, and credential-like values are one-time or
+// sensitive navigation state and must never become persistent runtime keys.
+// Keep this fail-closed list aligned with the return-URL sanitizer in
+// src/account/login-return.ts.
+const SENSITIVE_NAVIGATION_QUERY_PARAMETER =
+  /^(?:account[-_]?auth|account[-_]?client|pin|pro[-_]?pin|password|passcode|token|access[-_]?token|refresh[-_]?token|id[-_]?token|claim(?:[-_]?token)?|pro[-_]?claim|pro[-_]?recovery|pro[-_]?transfer|session(?:[-_]?(?:id|secret|token))?|secret|credential|authorization|auth[-_]?code|oauth[-_]?code|code|state|nonce|api[-_]?key|jwt)$/i;
 
 // Only list assets that keep stable paths after Vite build. index.html is the
 // canonical navigation shell; caching './' as well would store the same body
@@ -28,10 +38,12 @@ const cacheReadyClientIds = new Set();
 // served cache-first by content hash.
 const APP_SHELL = [
   './index.html',
+  './account-complete.html',
+  './account-complete.js',
+  './account-complete.css',
   BOOTSTRAP_CACHE_KEY,
   './fouc-cleanup.js',
   './dummy_audio.mp3',
-  './designsystem/fonts/PretendardVariable.woff2',
   './icons/icon-512.png',
   './favicon.ico',
   './favicon.svg',
@@ -152,6 +164,28 @@ async function deleteRetiredCaches() {
   );
 }
 
+async function scrubSensitiveRetiredRuntimeEntries() {
+  const keys = await caches.keys();
+  await Promise.all(
+    keys
+      .filter((key) => key.startsWith('musixquare-runtime-') && key !== RUNTIME_CACHE)
+      .map(async (key) => {
+        try {
+          const cache = await caches.open(key);
+          const requests = await cache.keys();
+          await Promise.all(
+            requests
+              .filter((request) => hasSensitiveNavigationQuery(request))
+              .map((request) => cache.delete(request)),
+          );
+        } catch (_) {
+          // Preserve the old cache for live tabs if it cannot be inspected;
+          // the ordinary ready handshake will retire it later.
+        }
+      }),
+  );
+}
+
 async function retireOldCachesIfSafe() {
   const clients = await getWindowClients();
   const liveClientIds = new Set(clients.map((client) => client.id).filter(Boolean));
@@ -184,6 +218,10 @@ self.addEventListener('activate', (event) => {
       // Claim first so each existing tab can compare the active controller
       // with the controller under which its current JS was loaded.
       await self.clients.claim();
+      // Old room tabs may deliberately retain their hashed-asset cache, but
+      // one-time auth callback URLs from a previous runtime cache have no
+      // legitimate offline use and must not survive the security update.
+      await scrubSensitiveRetiredRuntimeEntries();
       const clients = await getWindowClients();
       if (clients.length === 0) {
         await deleteRetiredCaches();
@@ -250,6 +288,23 @@ function isRoomNavigation(request) {
   return url.origin === self.location.origin && /^\/\d{6}\/?$/.test(url.pathname);
 }
 
+function hasSensitiveNavigationQuery(request) {
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return false;
+
+  for (const parameter of url.searchParams.keys()) {
+    if (SENSITIVE_NAVIGATION_QUERY_PARAMETER.test(parameter)) return true;
+  }
+  return false;
+}
+
+function canonicalNavigationShell(request) {
+  const url = new URL(request.url);
+  return url.origin === self.location.origin && url.pathname === ACCOUNT_COMPLETION_PATH
+    ? ACCOUNT_COMPLETION_SHELL
+    : './index.html';
+}
+
 function isImmutableHashedAsset(request) {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin || !url.pathname.startsWith('/assets/')) return false;
@@ -312,11 +367,13 @@ async function matchActiveNavigationShell(request) {
     // Only the active cache generation is safe for HTML. Falling through to an
     // unrestricted caches.match() can combine a retired index with current
     // stable assets while an update-aware room tab is still alive.
-    if (!isRoomNavigation(request)) {
+    if (!isRoomNavigation(request) && !hasSensitiveNavigationQuery(request)) {
       const cachedNavigation = await caches.match(request, { cacheName: RUNTIME_CACHE });
       if (cachedNavigation) return cachedNavigation;
     }
-    return (await caches.match('./index.html', { cacheName: STATIC_CACHE })) || null;
+    return (
+      (await caches.match(canonicalNavigationShell(request), { cacheName: STATIC_CACHE })) || null
+    );
   } catch (_) {
     return null;
   }
@@ -337,17 +394,18 @@ self.addEventListener('fetch', (event) => {
     // responses differ only in invite metadata, so storing each URL creates
     // duplicate cache entries. index.html is already the canonical offline
     // shell in APP_SHELL.
-    const cacheUpdate = isRoomNavigation(request)
-      ? networkResponse.then(
-          () => undefined,
-          () => undefined,
-        )
-      : networkResponse
-          .then((fresh) => {
-            if (!fresh.ok || fresh.status === 206) return undefined;
-            return cacheResponse(RUNTIME_CACHE, request, fresh);
-          })
-          .catch(() => undefined);
+    const cacheUpdate =
+      isRoomNavigation(request) || hasSensitiveNavigationQuery(request)
+        ? networkResponse.then(
+            () => undefined,
+            () => undefined,
+          )
+        : networkResponse
+            .then((fresh) => {
+              if (!fresh.ok || fresh.status === 206) return undefined;
+              return cacheResponse(RUNTIME_CACHE, request, fresh);
+            })
+            .catch(() => undefined);
 
     // Register background work while the fetch event is still dispatching.
     // Calling waitUntil only after an awaited cache/network lookup is not

@@ -119,6 +119,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/wrangler.signaling.toml',
   ],
   'pro-room': [
+    'cloudflare/service-control-contract-version.txt',
     'cloudflare/pro-room-worker.js',
     'cloudflare/pro-room-grants.js',
     'cloudflare/service-maintenance.js',
@@ -149,6 +150,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
   ],
   app: [
     'cloudflare/remote-share-contract-version.txt',
+    'cloudflare/service-control-contract-version.txt',
     'src',
     ':(exclude)src/**/__tests__/**',
     ':(exclude)src/**/*.test.ts',
@@ -219,6 +221,40 @@ function runtimePathsForWorker(worker) {
 function releaseGitSha(message) {
   if (typeof message !== 'string') return null;
   return RELEASE_GIT_SHA_RE.exec(message)?.[1]?.toLowerCase() || null;
+}
+
+function contractCutoverRequiresForwardRepair(
+  headSha,
+  markerPath,
+  targets,
+  directory = DEFAULT_DIRECTORY,
+  options = {},
+) {
+  if (!/^[0-9a-f]{40}$/i.test(headSha || '')) {
+    throw new Error('A full 40-character release Git SHA is required for cutover-floor checks.');
+  }
+  const diffRuntimePaths = options.changedRuntimePaths || changedRuntimePaths;
+  for (const target of targets) {
+    const statePath = pathsFor(target, directory).state;
+    if (!existsSync(statePath)) continue;
+    let state;
+    try {
+      state = readJson(statePath);
+    } catch {
+      // An unreadable attempted-deployment record cannot prove that an older
+      // protocol is safe to restore. Fail closed and repair forward.
+      return true;
+    }
+    if (state?.attempted !== true) continue;
+    const beforeGitSha = releaseGitSha(state.beforeMessage);
+    if (!beforeGitSha) return true;
+    try {
+      if (diffRuntimePaths(beforeGitSha, headSha, [markerPath], options).length > 0) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
 }
 
 function rollbackDeploymentMessage(state, fallbackMessage) {
@@ -529,9 +565,13 @@ function verifyPartialReleaseCompatibility(releaseTarget, headSha, directory, op
         resolve(directory, `${target}-compatibility-current.json`),
         options.queryOptions,
       );
+      result.deployedDeploymentId = current.deploymentId || null;
       result.deployedVersionId = current.versionId || null;
       result.deployedMessage = current.message || null;
       result.deployedGitSha = releaseGitSha(current.message);
+      if (!result.deployedDeploymentId || !result.deployedVersionId) {
+        throw new Error(`${target} production deployment identity is incomplete.`);
+      }
       if (!result.deployedGitSha) {
         throw new Error(
           `${target} production deployment does not record a git:<40-char-sha> release message.`,
@@ -587,6 +627,134 @@ function verifyPartialReleaseCompatibility(releaseTarget, headSha, directory, op
     throw new Error(`Partial release compatibility check failed. ${blocked}`);
   }
   return report;
+}
+
+function recheckPartialReleaseCompatibility(releaseTarget, headSha, directory, options = {}) {
+  const selectedWorkers = releaseTargetWorkers(releaseTarget);
+  const reportPath = resolve(directory, 'partial-release-compatibility.json');
+  const recheckPath = resolve(directory, 'partial-release-compatibility-recheck.json');
+  const recheck = {
+    schemaVersion: SCHEMA_VERSION,
+    releaseTarget,
+    releaseGitSha: headSha,
+    startedAt: new Date().toISOString(),
+    status: releaseTarget === 'all' ? 'not-required' : 'pending',
+    results: [],
+  };
+
+  if (releaseTarget === 'all') {
+    recheck.completedAt = new Date().toISOString();
+    writeJson(recheckPath, recheck);
+    console.log('Full release selected; partial-release compatibility recheck is not required.');
+    return recheck;
+  }
+  if (!/^[0-9a-f]{40}$/i.test(headSha || '')) {
+    throw new Error('A full 40-character release Git SHA is required for compatibility rechecks.');
+  }
+
+  const expectedTargets = Object.keys(TARGETS).filter((target) => !selectedWorkers.has(target));
+  let captured;
+  try {
+    captured = readJson(reportPath);
+  } catch (error) {
+    recheck.status = 'failed';
+    recheck.error =
+      `The captured partial-release compatibility report is unavailable: ` +
+      (error instanceof Error ? error.message : String(error));
+  }
+
+  const capturedResults = Array.isArray(captured?.results) ? captured.results : [];
+  const capturedByTarget = new Map();
+  for (const result of capturedResults) {
+    if (typeof result?.target !== 'string' || capturedByTarget.has(result.target)) continue;
+    capturedByTarget.set(result.target, result);
+  }
+  const capturedTargets = [...capturedByTarget.keys()].sort();
+  if (
+    recheck.status !== 'failed' &&
+    (captured?.schemaVersion !== SCHEMA_VERSION ||
+      captured?.releaseTarget !== releaseTarget ||
+      String(captured?.releaseGitSha || '').toLowerCase() !== headSha.toLowerCase() ||
+      captured?.status !== 'compatible' ||
+      capturedResults.length !== expectedTargets.length ||
+      !isDeepStrictEqual(capturedTargets, [...expectedTargets].sort()))
+  ) {
+    recheck.status = 'failed';
+    recheck.error =
+      'The captured partial-release compatibility report does not match this release.';
+  }
+
+  let failed = recheck.status === 'failed';
+  const query = options.queryCurrent || queryCurrent;
+  if (!failed) {
+    for (const target of expectedTargets) {
+      const definition = targetDefinition(target);
+      const baseline = capturedByTarget.get(target);
+      const result = {
+        target,
+        expectedDeploymentId: baseline?.deployedDeploymentId || null,
+        expectedVersionId: baseline?.deployedVersionId || null,
+        expectedMessage: baseline?.deployedMessage || null,
+        status: 'pending',
+      };
+      recheck.results.push(result);
+      try {
+        if (
+          baseline?.status !== 'compatible' ||
+          typeof result.expectedDeploymentId !== 'string' ||
+          !result.expectedDeploymentId ||
+          typeof result.expectedVersionId !== 'string' ||
+          !result.expectedVersionId ||
+          typeof result.expectedMessage !== 'string' ||
+          !result.expectedMessage
+        ) {
+          throw new Error(`${target} captured compatibility identity is incomplete.`);
+        }
+        const current = query(
+          target,
+          definition.config,
+          resolve(directory, `${target}-compatibility-recheck-current.json`),
+          options.queryOptions,
+        );
+        result.currentDeploymentId = current.deploymentId || null;
+        result.currentVersionId = current.versionId || null;
+        result.currentMessage = current.message || null;
+        if (
+          result.currentDeploymentId !== result.expectedDeploymentId ||
+          result.currentVersionId !== result.expectedVersionId ||
+          result.currentMessage !== result.expectedMessage
+        ) {
+          throw new Error(
+            `${target} production changed after partial-release compatibility was captured; ` +
+              `expected deployment ${result.expectedDeploymentId} / version ${result.expectedVersionId}, ` +
+              `got ${result.currentDeploymentId || '(none)'} / ${result.currentVersionId || '(none)'}.`,
+          );
+        }
+        result.status = 'compatible';
+      } catch (error) {
+        result.status = 'failed';
+        result.error = error instanceof Error ? error.message : String(error);
+        failed = true;
+      }
+    }
+  }
+
+  recheck.completedAt = new Date().toISOString();
+  recheck.status = failed ? 'failed' : 'compatible';
+  writeJson(recheckPath, recheck);
+  console.log(`Partial-release compatibility recheck: ${recheckPath} (${recheck.status})`);
+  if (failed) {
+    const details = [
+      recheck.error,
+      ...recheck.results
+        .filter((result) => result.status !== 'compatible')
+        .map((result) => `${result.target}: ${result.error}`),
+    ]
+      .filter(Boolean)
+      .join(' | ');
+    throw new Error(`Partial release compatibility recheck failed. ${details}`);
+  }
+  return recheck;
 }
 
 function preflight(target, directory, options = {}) {
@@ -941,11 +1109,13 @@ function summary(directory) {
 function main() {
   const [mode, targetArgument, valueArgument, directoryArgument] = process.argv.slice(2);
   const directory = resolve(
-    mode === 'compatibility'
+    mode === 'compatibility' || mode === 'compatibility-recheck'
       ? directoryArgument || DEFAULT_DIRECTORY
-      : mode === 'verify-current' || mode === 'rollback' || mode === 'summary'
-        ? targetArgument || DEFAULT_DIRECTORY
-        : valueArgument || DEFAULT_DIRECTORY,
+      : mode === 'service-control-forward-floor'
+        ? valueArgument || DEFAULT_DIRECTORY
+        : mode === 'verify-current' || mode === 'rollback' || mode === 'summary'
+          ? targetArgument || DEFAULT_DIRECTORY
+          : valueArgument || DEFAULT_DIRECTORY,
   );
 
   if (mode === 'prepare') prepare(targetArgument, directory);
@@ -955,12 +1125,25 @@ function main() {
   else if (mode === 'version') recordedVersion(targetArgument, directory);
   else if (mode === 'compatibility') {
     verifyPartialReleaseCompatibility(targetArgument, valueArgument, directory);
+  } else if (mode === 'compatibility-recheck') {
+    recheckPartialReleaseCompatibility(targetArgument, valueArgument, directory);
+  } else if (mode === 'service-control-forward-floor') {
+    process.stdout.write(
+      contractCutoverRequiresForwardRepair(
+        targetArgument,
+        'cloudflare/service-control-contract-version.txt',
+        ['pro-room', 'app'],
+        directory,
+      )
+        ? 'true'
+        : 'false',
+    );
   } else if (mode === 'verify-current') verifyCurrentRelease(directory);
   else if (mode === 'rollback') rollback(directory);
   else if (mode === 'summary') summary(directory);
   else {
     throw new Error(
-      'Usage: node scripts/release-deployment-state.mjs <prepare|preflight|attempt|record|version> <target> [directory] | compatibility <release-target> <git-sha> [directory] | <verify-current|rollback|summary> [directory]',
+      'Usage: node scripts/release-deployment-state.mjs <prepare|preflight|attempt|record|version> <target> [directory] | <compatibility|compatibility-recheck> <release-target> <git-sha> [directory] | service-control-forward-floor <git-sha> [directory] | <verify-current|rollback|summary> [directory]',
     );
   }
 }
@@ -971,6 +1154,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
 
 export {
   attemptedStates,
+  contractCutoverRequiresForwardRepair,
   changedRuntimePaths,
   changedAppRuntimeDependencies,
   deploymentMessage,
@@ -978,6 +1162,7 @@ export {
   preflight,
   productionVersion,
   queryCurrent,
+  recheckPartialReleaseCompatibility,
   releaseGitSha,
   releaseTargetWorkers,
   runtimePathsForWorker,

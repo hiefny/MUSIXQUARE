@@ -119,10 +119,12 @@ describe('executeCommand permission gating', () => {
     expect(mocks.addSystemChatMessage).toHaveBeenLastCalledWith(t('toast.host_setting_required'));
   });
 
-  it('routes /debug (permission "all") to the extracted debug-console entry point', () => {
+  it('lazy-loads /debug (permission "all") before routing to its entry point', async () => {
     setState('network.hostConn', hostConnection());
     executeCommand({ name: 'debug', args: ['screen'], rawArgs: 'screen' });
-    expect(mocks.cmdDebug).toHaveBeenCalledWith(['screen'], 'screen');
+    await vi.waitFor(() => {
+      expect(mocks.cmdDebug).toHaveBeenCalledWith(['screen']);
+    });
   });
 
   it('reports an unknown command', () => {

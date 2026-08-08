@@ -97,6 +97,7 @@ describe('admin maintenance status UI', () => {
       if (url.pathname === '/api/admin/announcement') {
         return Response.json({
           generatedAt: new Date().toISOString(),
+          revision: 1,
           active: true,
           announcement: {
             id: 'launch-notice',
@@ -153,5 +154,125 @@ describe('admin maintenance status UI', () => {
       },
       { timeout: 1_500 },
     );
+  });
+
+  it('keeps announcement Save and Clear single-flight until the mutation settles', async () => {
+    installDom();
+    let resolveSave!: (response: Response) => void;
+    const saveResponse = new Promise<Response>((resolve) => {
+      resolveSave = resolve;
+    });
+    const announcementBodies: Array<Record<string, unknown>> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/service-status') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          serviceStatus: {
+            enabled: false,
+            revision: 0,
+            updatedAt: null,
+            activatedAt: null,
+            settlesAt: null,
+          },
+        });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/announcement' && init?.method === 'POST') {
+        announcementBodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+        return saveResponse;
+      }
+      if (url.pathname === '/api/admin/announcement') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          revision: 0,
+          active: false,
+          announcement: {
+            id: '',
+            enabled: false,
+            message: '',
+            expiresAt: null,
+            updatedAt: '',
+          },
+          history: [],
+        });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+      expect(
+        document.querySelector<HTMLTextAreaElement>('[data-announcement-message]')?.value,
+      ).toBe('');
+    });
+
+    const form = document.querySelector<HTMLFormElement>('[data-announcement-form]');
+    const message = document.querySelector<HTMLTextAreaElement>('[data-announcement-message]');
+    const enabled = document.querySelector<HTMLInputElement>('[data-announcement-enabled]');
+    const clear = document.querySelector<HTMLButtonElement>('[data-announcement-clear]');
+    if (!form || !message || !enabled || !clear) throw new Error('announcement form unavailable');
+    message.value = 'One ordered notice';
+    enabled.checked = true;
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+
+    await vi.waitFor(() => {
+      expect(announcementBodies).toHaveLength(1);
+      expect(message.disabled).toBe(true);
+      expect(clear.disabled).toBe(true);
+    });
+    clear.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await Promise.resolve();
+    expect(announcementBodies).toHaveLength(1);
+
+    expect(announcementBodies[0]).toMatchObject({
+      message: 'One ordered notice',
+      enabled: true,
+      expiresAt: null,
+      expectedRevision: 0,
+    });
+    expect(String(announcementBodies[0].requestId)).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    const updatedAt = new Date().toISOString();
+    resolveSave(
+      Response.json({
+        revision: 1,
+        active: true,
+        announcement: {
+          id: 'ordered-notice',
+          message: 'One ordered notice',
+          enabled: true,
+          expiresAt: null,
+          updatedAt,
+        },
+        history: [
+          {
+            id: 'ordered-notice',
+            message: 'One ordered notice',
+            enabled: true,
+            expiresAt: null,
+            updatedAt,
+            action: 'published',
+          },
+        ],
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(message.disabled).toBe(false);
+      expect(clear.disabled).toBe(false);
+      expect(document.querySelector('[data-announcement-status]')?.textContent).toContain('Active');
+    });
   });
 });

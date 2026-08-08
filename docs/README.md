@@ -43,7 +43,8 @@ or a substitute for the current source and tests.
 - [Known and accepted risks](known-accepted.md) — intentional tradeoffs that
   still require code-path verification before being reused.
 - [Runtime scenario verification](runtime-scenario-verification-2026-05-31.md) —
-  maintained focused E2E and manual-device checklist despite its original date.
+  maintained first-48-hours order and physical-device release-confidence matrix;
+  browser E2E is an optional auxiliary signal despite the document's original date.
 - [System sync compensation](system-sync-compensation.md) — current constants
   and the distinction between platform compensation and shared WebRTC buffering.
 - [Translation guide](i18n-translation-guide.md) and

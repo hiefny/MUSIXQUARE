@@ -19,6 +19,13 @@ export function changedRuntimePaths(
   paths: string[],
   options?: CommandRunnerOptions,
 ): string[];
+export function contractCutoverRequiresForwardRepair(
+  headSha: string,
+  markerPath: string,
+  targets: string[],
+  directory?: string,
+  options?: CommandRunnerOptions,
+): boolean;
 export function changedAppRuntimeDependencies(
   baseSha: string,
   headSha: string,
@@ -45,6 +52,12 @@ export function queryCurrent(
   outputPath: string,
   options?: CommandRunnerOptions,
 ): DeploymentVersion;
+export function recheckPartialReleaseCompatibility(
+  target: string,
+  headSha: string,
+  directory: string,
+  options?: CommandRunnerOptions,
+): Record<string, unknown>;
 export function releaseGitSha(message: string | null): string | null;
 export function releaseTargetWorkers(target: string): ReadonlySet<string>;
 export function runtimePathsForWorker(worker: string): string[];

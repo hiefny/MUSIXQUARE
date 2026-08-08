@@ -45,4 +45,8 @@ export function retireDecommissionedAccountProRoomEdgesForTests(
   retired: boolean;
   entitlementsRevoked?: boolean;
 }>;
+export function cleanupExpiredProRoomAdminAuditForTests(
+  env: Record<string, unknown>,
+  nowMs?: number,
+): Promise<'unconfigured' | 'cleaned' | 'failed'>;
 export default appWorker;

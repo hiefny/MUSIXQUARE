@@ -28,10 +28,10 @@ jobs:
           # read-only audit must retain full first-parent history too.
           fetch-depth: 0
 
-      - name: Use Node.js 22
+      - name: Use pinned Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22
+          node-version-file: .node-version
 
       - name: Validate source contracts
         run: |

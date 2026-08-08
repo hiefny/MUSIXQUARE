@@ -24,7 +24,9 @@ import {
 } from './pro-room-generation.js';
 import {
   gateServiceMaintenance,
+  readAdminAnnouncementControl,
   readServiceMaintenance,
+  updateAdminAnnouncementControl,
   updateServiceMaintenance,
 } from './service-maintenance.js';
 import { accountNicknameKey, normalizeAccountNickname } from './account-nickname.js';
@@ -104,7 +106,8 @@ const SORO_BLOG_CACHE_VERSION_KEY = 'soro-blog-cache-version.json';
 const ADMIN_ANNOUNCEMENT_KEY = 'admin-announcement.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
-const ADMIN_ASSET_VERSION = '8.3.19';
+const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
+const ADMIN_ASSET_VERSION = '8.3.20';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -140,6 +143,12 @@ const ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE = 'mxqr_pro_room_generation_histor
 const ADMIN_PRO_ROOM_GENERATION_ALLOCATION_TABLE = 'mxqr_pro_room_generation_allocations';
 const ADMIN_PRO_ROOM_GENERATION_CUTOVER_TABLE = 'mxqr_pro_room_generation_cutover';
 const ADMIN_PRO_ROOM_AUDIT_TABLE = 'mxqr_pro_room_admin_audit';
+const ADMIN_LEGACY_OWNER_DETACH_INTENT_ACTION = 'legacy_duplicate_owner.detach.intent';
+const ADMIN_LEGACY_OWNER_DETACH_INTENT_BOOTSTRAP_ACTION =
+  'legacy_duplicate_owner.detach.intent.bootstrap';
+const ADMIN_LEGACY_OWNER_DETACH_INTENT_SUPERSEDE_ACTION =
+  'legacy_duplicate_owner.detach.intent.supersede';
+const ADMIN_LEGACY_OWNER_DETACH_COMPLETE_ACTION = 'legacy_duplicate_owner.detach';
 const ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE = 'mxqr_pro_room_owner_transfer_sagas';
 const ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE = 'mxqr_pro_room_owner_transfer_issuances';
 const ADMIN_PRO_ROOM_GENERATION_CONTRACT_VERSION = 1;
@@ -2873,6 +2882,434 @@ async function writeAdminProRoomAuditOrFail(
     return null;
   } catch {
     return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
+  }
+}
+
+function legacyOwnerDetachIntentResult(
+  retainedRoomCode,
+  retainedRoomGeneration,
+  expectedOwnerAuthorityEpoch,
+) {
+  if (
+    !ADMIN_PRO_ROOM_CODE_RE.test(retainedRoomCode || '') ||
+    !isProRoomGeneration(retainedRoomGeneration) ||
+    !Number.isSafeInteger(expectedOwnerAuthorityEpoch) ||
+    expectedOwnerAuthorityEpoch < 0
+  ) {
+    throw new Error('Invalid legacy-owner detach intent');
+  }
+  return `authority:${expectedOwnerAuthorityEpoch}:retained:${retainedRoomCode}:${retainedRoomGeneration}`;
+}
+
+function parseLegacyOwnerDetachIntentResult(value) {
+  const match = String(value || '').match(/^authority:(\d+):retained:(0\d{5}):(\d+)$/);
+  if (!match) return null;
+  const expectedOwnerAuthorityEpoch = Number(match[1]);
+  const retainedRoomGeneration = Number(match[3]);
+  if (
+    !Number.isSafeInteger(expectedOwnerAuthorityEpoch) ||
+    expectedOwnerAuthorityEpoch < 0 ||
+    !isProRoomGeneration(retainedRoomGeneration)
+  ) {
+    return null;
+  }
+  return {
+    retainedRoomCode: match[2],
+    retainedRoomGeneration,
+    expectedOwnerAuthorityEpoch,
+  };
+}
+
+function legacyOwnerDetachIntentBootstrapResult(
+  retainedRoomCode,
+  retainedRoomGeneration,
+  expectedOwnerAuthorityEpoch,
+) {
+  if (
+    !ADMIN_PRO_ROOM_CODE_RE.test(retainedRoomCode || '') ||
+    !isProRoomGeneration(retainedRoomGeneration) ||
+    !Number.isSafeInteger(expectedOwnerAuthorityEpoch) ||
+    expectedOwnerAuthorityEpoch < 0
+  ) {
+    throw new Error('Invalid legacy-owner detach upgrade bootstrap intent');
+  }
+  return `authority:${expectedOwnerAuthorityEpoch}:upgrade-bootstrap:retained:${retainedRoomCode}:${retainedRoomGeneration}`;
+}
+
+function parseLegacyOwnerDetachIntentBootstrapResult(value) {
+  const match = String(value || '').match(
+    /^authority:(\d+):upgrade-bootstrap:retained:(0\d{5}):(\d+)$/,
+  );
+  if (!match) return null;
+  const expectedOwnerAuthorityEpoch = Number(match[1]);
+  const retainedRoomGeneration = Number(match[3]);
+  if (
+    !Number.isSafeInteger(expectedOwnerAuthorityEpoch) ||
+    expectedOwnerAuthorityEpoch < 0 ||
+    !isProRoomGeneration(retainedRoomGeneration)
+  ) {
+    return null;
+  }
+  return {
+    retainedRoomCode: match[2],
+    retainedRoomGeneration,
+    expectedOwnerAuthorityEpoch,
+  };
+}
+
+function legacyOwnerDetachIntentSupersedeResult(previousIntent, retainedRoomCode, roomGeneration) {
+  if (
+    !Number.isSafeInteger(previousIntent?.auditId) ||
+    previousIntent.auditId < 1 ||
+    !ADMIN_PRO_ROOM_CODE_RE.test(previousIntent?.retainedRoomCode || '') ||
+    !isProRoomGeneration(previousIntent?.retainedRoomGeneration) ||
+    !Number.isSafeInteger(previousIntent?.expectedOwnerAuthorityEpoch) ||
+    previousIntent.expectedOwnerAuthorityEpoch < 0 ||
+    !ADMIN_PRO_ROOM_CODE_RE.test(retainedRoomCode || '') ||
+    !isProRoomGeneration(roomGeneration)
+  ) {
+    throw new Error('Invalid legacy-owner detach intent supersede transition');
+  }
+  return `authority:${previousIntent.expectedOwnerAuthorityEpoch}:supersede:${previousIntent.auditId}:from:${previousIntent.retainedRoomCode}:${previousIntent.retainedRoomGeneration}:to:${retainedRoomCode}:${roomGeneration}`;
+}
+
+function parseLegacyOwnerDetachIntentSupersedeResult(value) {
+  const match = String(value || '').match(
+    /^authority:(\d+):supersede:(\d+):from:(0\d{5}):(\d+):to:(0\d{5}):(\d+)$/,
+  );
+  if (!match) return null;
+  const expectedOwnerAuthorityEpoch = Number(match[1]);
+  const previousIntentAuditId = Number(match[2]);
+  const previousRetainedRoomGeneration = Number(match[4]);
+  const retainedRoomGeneration = Number(match[6]);
+  if (
+    !Number.isSafeInteger(expectedOwnerAuthorityEpoch) ||
+    expectedOwnerAuthorityEpoch < 0 ||
+    !Number.isSafeInteger(previousIntentAuditId) ||
+    previousIntentAuditId < 1 ||
+    !isProRoomGeneration(previousRetainedRoomGeneration) ||
+    !isProRoomGeneration(retainedRoomGeneration)
+  ) {
+    return null;
+  }
+  return {
+    expectedOwnerAuthorityEpoch,
+    previousIntentAuditId,
+    previousRetainedRoomCode: match[3],
+    previousRetainedRoomGeneration,
+    retainedRoomCode: match[5],
+    retainedRoomGeneration,
+  };
+}
+
+async function readLegacyOwnerDetachIntent(
+  db,
+  roomCode,
+  roomGeneration,
+  expectedOwnerAuthorityEpoch,
+) {
+  await ensureAdminProRoomRegistry(db);
+  if (!Number.isSafeInteger(expectedOwnerAuthorityEpoch) || expectedOwnerAuthorityEpoch < 0) {
+    throw new Error('Invalid legacy-owner detach authority epoch');
+  }
+  const statement = db
+    .prepare(
+      `SELECT id, action, result FROM ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+        WHERE room_code = ?1 AND room_generation = ?2
+          AND ((action = ?3 AND result LIKE ?6)
+            OR (action = ?4 AND result LIKE ?7)
+            OR (action = ?5 AND result LIKE ?8))
+        ORDER BY id ASC`,
+    )
+    .bind(
+      roomCode,
+      roomGeneration,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_ACTION,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_BOOTSTRAP_ACTION,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_SUPERSEDE_ACTION,
+      `authority:${expectedOwnerAuthorityEpoch}:retained:%`,
+      `authority:${expectedOwnerAuthorityEpoch}:upgrade-bootstrap:retained:%`,
+      `authority:${expectedOwnerAuthorityEpoch}:supersede:%`,
+    );
+  let rows;
+  if (typeof statement.all === 'function') {
+    rows = (await statement.all())?.results || [];
+  } else {
+    const row = await statement.first();
+    rows = row ? [row] : [];
+  }
+  let effectiveIntent = null;
+  for (const row of rows) {
+    const auditId = Number(row?.id);
+    if (!Number.isSafeInteger(auditId) || auditId < 1) {
+      throw new Error('Malformed legacy-owner detach intent audit id');
+    }
+    if (
+      row.action === ADMIN_LEGACY_OWNER_DETACH_INTENT_ACTION ||
+      row.action === ADMIN_LEGACY_OWNER_DETACH_INTENT_BOOTSTRAP_ACTION
+    ) {
+      const intent =
+        row.action === ADMIN_LEGACY_OWNER_DETACH_INTENT_ACTION
+          ? parseLegacyOwnerDetachIntentResult(row.result)
+          : parseLegacyOwnerDetachIntentBootstrapResult(row.result);
+      if (
+        !intent ||
+        intent.expectedOwnerAuthorityEpoch !== expectedOwnerAuthorityEpoch ||
+        effectiveIntent
+      ) {
+        throw new Error('Malformed legacy-owner detach intent chain');
+      }
+      effectiveIntent = {
+        ...intent,
+        auditId,
+        auditAction: row.action,
+        auditResult: row.result,
+      };
+      continue;
+    }
+    const transition = parseLegacyOwnerDetachIntentSupersedeResult(row.result);
+    if (
+      !transition ||
+      transition.expectedOwnerAuthorityEpoch !== expectedOwnerAuthorityEpoch ||
+      !effectiveIntent ||
+      transition.previousIntentAuditId !== effectiveIntent.auditId ||
+      transition.previousRetainedRoomCode !== effectiveIntent.retainedRoomCode ||
+      transition.previousRetainedRoomGeneration !== effectiveIntent.retainedRoomGeneration
+    ) {
+      throw new Error('Malformed legacy-owner detach intent supersede chain');
+    }
+    effectiveIntent = {
+      retainedRoomCode: transition.retainedRoomCode,
+      retainedRoomGeneration: transition.retainedRoomGeneration,
+      expectedOwnerAuthorityEpoch,
+      auditId,
+      auditAction: row.action,
+      auditResult: row.result,
+    };
+  }
+  return effectiveIntent;
+}
+
+async function ensureLegacyOwnerDetachIntent(
+  db,
+  request,
+  env,
+  roomCode,
+  roomGeneration,
+  retainedRoomCode,
+  retainedRoomGeneration,
+  expectedOwnerAuthorityEpoch,
+) {
+  await ensureAdminProRoomRegistry(db);
+  const actorId = await adminProRoomAuditActor(request, env);
+  const result = legacyOwnerDetachIntentResult(
+    retainedRoomCode,
+    retainedRoomGeneration,
+    expectedOwnerAuthorityEpoch,
+  );
+  const operationPattern = `authority:${expectedOwnerAuthorityEpoch}:%`;
+  await db
+    .prepare(
+      `INSERT INTO ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+        (actor_id, action, result, room_code, room_generation, created_at)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6
+        WHERE NOT EXISTS (
+          SELECT 1 FROM ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+           WHERE action IN (?2, ?8, ?9) AND room_code = ?4 AND room_generation = ?5
+             AND result LIKE ?7
+        )`,
+    )
+    .bind(
+      actorId,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_ACTION,
+      result,
+      roomCode,
+      roomGeneration,
+      Date.now(),
+      operationPattern,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_SUPERSEDE_ACTION,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_BOOTSTRAP_ACTION,
+    )
+    .run();
+  return readLegacyOwnerDetachIntent(db, roomCode, roomGeneration, expectedOwnerAuthorityEpoch);
+}
+
+async function bootstrapLegacyOwnerDetachIntent(
+  db,
+  request,
+  env,
+  roomCode,
+  roomGeneration,
+  retainedRoomCode,
+  retainedRoomGeneration,
+  expectedOwnerAuthorityEpoch,
+) {
+  await ensureAdminProRoomRegistry(db);
+  const actorId = await adminProRoomAuditActor(request, env);
+  const result = legacyOwnerDetachIntentBootstrapResult(
+    retainedRoomCode,
+    retainedRoomGeneration,
+    expectedOwnerAuthorityEpoch,
+  );
+  const operationPattern = `authority:${expectedOwnerAuthorityEpoch}:%`;
+  await db
+    .prepare(
+      `INSERT INTO ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+        (actor_id, action, result, room_code, room_generation, created_at)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6
+        WHERE NOT EXISTS (
+          SELECT 1 FROM ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+           WHERE action IN (?7, ?2, ?8) AND room_code = ?4 AND room_generation = ?5
+             AND result LIKE ?9
+        )`,
+    )
+    .bind(
+      actorId,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_BOOTSTRAP_ACTION,
+      result,
+      roomCode,
+      roomGeneration,
+      Date.now(),
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_ACTION,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_SUPERSEDE_ACTION,
+      operationPattern,
+    )
+    .run();
+  return readLegacyOwnerDetachIntent(db, roomCode, roomGeneration, expectedOwnerAuthorityEpoch);
+}
+
+async function supersedeLegacyOwnerDetachIntent(
+  db,
+  request,
+  env,
+  roomCode,
+  roomGeneration,
+  previousIntent,
+  retainedRoomCode,
+  retainedRoomGeneration,
+) {
+  await ensureAdminProRoomRegistry(db);
+  const actorId = await adminProRoomAuditActor(request, env);
+  const result = legacyOwnerDetachIntentSupersedeResult(
+    previousIntent,
+    retainedRoomCode,
+    retainedRoomGeneration,
+  );
+  const operationPattern = `authority:${previousIntent.expectedOwnerAuthorityEpoch}:%`;
+  await db
+    .prepare(
+      `INSERT INTO ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+        (actor_id, action, result, room_code, room_generation, created_at)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6
+        WHERE ?7 = (
+          SELECT id FROM ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+           WHERE room_code = ?4 AND room_generation = ?5
+             AND action IN (?8, ?2, ?10) AND result LIKE ?9
+           ORDER BY id DESC
+           LIMIT 1
+        )`,
+    )
+    .bind(
+      actorId,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_SUPERSEDE_ACTION,
+      result,
+      roomCode,
+      roomGeneration,
+      Date.now(),
+      previousIntent.auditId,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_ACTION,
+      operationPattern,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_BOOTSTRAP_ACTION,
+    )
+    .run();
+  return readLegacyOwnerDetachIntent(
+    db,
+    roomCode,
+    roomGeneration,
+    previousIntent.expectedOwnerAuthorityEpoch,
+  );
+}
+
+async function completeLegacyOwnerDetachAudit(
+  db,
+  request,
+  env,
+  roomCode,
+  roomGeneration,
+  intent,
+  result,
+) {
+  await ensureAdminProRoomRegistry(db);
+  const actorId = await adminProRoomAuditActor(request, env);
+  const intentResult = intent?.auditResult;
+  if (
+    !Number.isSafeInteger(intent?.auditId) ||
+    intent.auditId < 1 ||
+    ![
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_ACTION,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_BOOTSTRAP_ACTION,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_SUPERSEDE_ACTION,
+    ].includes(intent?.auditAction) ||
+    typeof intentResult !== 'string'
+  ) {
+    throw new Error('Invalid legacy-owner detach completion intent');
+  }
+  const completionResult = `${intentResult}:${result}`;
+  const completionPattern = `${intentResult}:%`;
+  await db
+    .prepare(
+      `INSERT INTO ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+        (actor_id, action, result, room_code, room_generation, created_at)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6
+        WHERE EXISTS (
+          SELECT 1 FROM ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+           WHERE action = ?7 AND result = ?8 AND id = ?10
+             AND room_code = ?4 AND room_generation = ?5
+        )
+          AND ?10 = (
+            SELECT id FROM ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+             WHERE room_code = ?4 AND room_generation = ?5
+               AND action IN (?11, ?12, ?13) AND result LIKE ?14
+             ORDER BY id DESC
+             LIMIT 1
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+             WHERE action = ?2 AND room_code = ?4 AND room_generation = ?5
+               AND result LIKE ?9
+          )`,
+    )
+    .bind(
+      actorId,
+      ADMIN_LEGACY_OWNER_DETACH_COMPLETE_ACTION,
+      completionResult,
+      roomCode,
+      roomGeneration,
+      Date.now(),
+      intent.auditAction,
+      intentResult,
+      completionPattern,
+      intent.auditId,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_ACTION,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_BOOTSTRAP_ACTION,
+      ADMIN_LEGACY_OWNER_DETACH_INTENT_SUPERSEDE_ACTION,
+      `authority:${intent.expectedOwnerAuthorityEpoch}:%`,
+    )
+    .run();
+  const statement = db
+    .prepare(
+      `SELECT 1 AS completed FROM ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+        WHERE action = ?1 AND room_code = ?2 AND room_generation = ?3
+          AND result LIKE ?4
+        LIMIT 1`,
+    )
+    .bind(ADMIN_LEGACY_OWNER_DETACH_COMPLETE_ACTION, roomCode, roomGeneration, completionPattern);
+  const row =
+    typeof statement.first === 'function'
+      ? await statement.first()
+      : (await statement.all())?.results?.[0] || null;
+  if (Number(row?.completed) !== 1) {
+    throw new Error('Legacy-owner detach completion audit unavailable');
   }
 }
 
@@ -7156,6 +7593,71 @@ async function handleAdminProRoomOwnerTransferClaim(request, env, pathname) {
   });
 }
 
+function legacyOwnerDetachRetainedOwnerMatches(payload, retainedRoom, ownerAccountId) {
+  return (
+    proRoomAdminResponseIdentityMatches(
+      payload,
+      retainedRoom?.roomCode,
+      retainedRoom?.roomGeneration,
+    ) &&
+    payload.provisioned === true &&
+    payload.status === 'active' &&
+    payload.suspensionReason == null &&
+    payload.ownerAccountLinked === true &&
+    payload.ownerAccountId === ownerAccountId &&
+    Number.isSafeInteger(payload.ownerAuthorityEpoch) &&
+    payload.ownerAuthorityEpoch >= 0 &&
+    payload.ownerAuthorityRemoval === null &&
+    payload.ownerTransferReconciliation === null
+  );
+}
+
+async function inspectLegacyOwnerDetachIntentRetainedState(
+  db,
+  env,
+  intent,
+  previousOwnerAccountId,
+) {
+  let retainedRoom;
+  try {
+    retainedRoom = await readAdminProRoom(db, intent.retainedRoomCode);
+  } catch {
+    return 'unavailable';
+  }
+  if (
+    !retainedRoom ||
+    retainedRoom.roomGeneration !== intent.retainedRoomGeneration ||
+    retainedRoom.activationState !== 'active' ||
+    retainedRoom.status !== 'registered'
+  ) {
+    return 'stale';
+  }
+  const retainedStatus = await callProRoomAdminObject(
+    env,
+    retainedRoom.roomCode,
+    retainedRoom.roomGeneration,
+    '/internal/admin/status',
+    'GET',
+  );
+  if (
+    retainedStatus.response?.ok !== true ||
+    !proRoomAdminResponseIdentityMatches(
+      retainedStatus.payload,
+      retainedRoom.roomCode,
+      retainedRoom.roomGeneration,
+    )
+  ) {
+    return 'unavailable';
+  }
+  return legacyOwnerDetachRetainedOwnerMatches(
+    retainedStatus.payload,
+    retainedRoom,
+    previousOwnerAccountId,
+  )
+    ? 'current'
+    : 'stale';
+}
+
 async function handleAdminProRoomLegacyOwnerDetach(request, env, pathname) {
   const route = pathname.match(ADMIN_PRO_ROOM_LEGACY_OWNER_DETACH_PATH_RE);
   if (!route) return json({ error: 'NOT_FOUND' }, 404);
@@ -7196,7 +7698,7 @@ async function handleAdminProRoomLegacyOwnerDetach(request, env, pathname) {
   } catch {
     return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
   }
-  if (!room || !retainedRoom) return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
+  if (!room) return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
   if (room.roomGeneration !== body.roomGeneration) {
     return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
   }
@@ -7246,7 +7748,28 @@ async function handleAdminProRoomLegacyOwnerDetach(request, env, pathname) {
   const expectedOwnerAuthorityEpoch = firstDetach
     ? target.ownerAuthorityEpoch
     : targetRemoval.ownerAuthorityEpoch - 1;
-  if (firstDetach) {
+  let detachIntent;
+  try {
+    detachIntent = await readLegacyOwnerDetachIntent(
+      db,
+      roomCode,
+      room.roomGeneration,
+      expectedOwnerAuthorityEpoch,
+    );
+  } catch {
+    return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
+  }
+  if (detachedReplay && detachIntent && detachIntent.retainedRoomCode !== body.retainRoomCode) {
+    return json({ error: 'PRO_ROOM_LEGACY_OWNER_DETACH_INTENT_MISMATCH' }, 409);
+  }
+  // An intent proves the retained-owner precondition only after the target DO
+  // has actually crossed into detachedReplay. If the detach call failed before
+  // applying, target remains firstDetach and the retained owner may have moved;
+  // revalidate before removing what could now be the account's last owner.
+  const shouldBootstrapIntent = detachedReplay && !detachIntent;
+  let shouldSupersedeIntent = false;
+  if (firstDetach || shouldBootstrapIntent) {
+    if (!retainedRoom) return json({ error: 'PRO_ROOM_NOT_FOUND' }, 404);
     if (retainedRoom.activationState !== 'active' || retainedRoom.status !== 'registered') {
       return json({ error: 'PRO_ROOM_LEGACY_DUPLICATE_OWNER_NOT_CONFIRMED' }, 409);
     }
@@ -7260,19 +7783,28 @@ async function handleAdminProRoomLegacyOwnerDetach(request, env, pathname) {
     const retained = retainedStatus.payload;
     if (
       retainedStatus.response?.ok !== true ||
-      !proRoomAdminResponseIdentityMatches(
-        retained,
-        retainedRoom.roomCode,
-        retainedRoom.roomGeneration,
-      ) ||
-      retained.provisioned !== true ||
-      retained.status !== 'active' ||
-      retained.suspensionReason != null ||
-      retained.ownerAccountLinked !== true ||
-      retained.ownerAccountId !== previousOwnerAccountId ||
-      retained.ownerTransferReconciliation !== null
+      !legacyOwnerDetachRetainedOwnerMatches(retained, retainedRoom, previousOwnerAccountId)
     ) {
       return json({ error: 'PRO_ROOM_LEGACY_DUPLICATE_OWNER_NOT_CONFIRMED' }, 409);
+    }
+    shouldSupersedeIntent =
+      firstDetach &&
+      !!detachIntent &&
+      (detachIntent.retainedRoomCode !== retainedRoom.roomCode ||
+        detachIntent.retainedRoomGeneration !== retainedRoom.roomGeneration);
+    if (shouldSupersedeIntent) {
+      const previousIntentState = await inspectLegacyOwnerDetachIntentRetainedState(
+        db,
+        env,
+        detachIntent,
+        previousOwnerAccountId,
+      );
+      if (previousIntentState === 'unavailable') {
+        return json({ error: 'PRO_ROOM_ADMIN_UNAVAILABLE' }, 503);
+      }
+      if (previousIntentState !== 'stale') {
+        return json({ error: 'PRO_ROOM_LEGACY_OWNER_DETACH_INTENT_MISMATCH' }, 409);
+      }
     }
   }
 
@@ -7283,7 +7815,140 @@ async function handleAdminProRoomLegacyOwnerDetach(request, env, pathname) {
     nowMs: Date.now(),
   };
   if (!(await canOrphanProRoomOwnerEntitlement(env, entitlementInput))) {
-    return json({ error: 'PRO_ROOM_OWNER_ENTITLEMENT_CONFLICT' }, 409);
+    return detachedReplay
+      ? json({ error: 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED' }, 503)
+      : json({ error: 'PRO_ROOM_OWNER_ENTITLEMENT_CONFLICT' }, 409);
+  }
+
+  if (shouldBootstrapIntent) {
+    // Upgrade-only liveness repair: an older release could cross the target DO
+    // authority boundary before it durably wrote an epoch-scoped intent. The
+    // target is already ownerless, so bootstrap cannot remove more authority;
+    // nevertheless re-confirm the exact removal immediately before recording
+    // the append-only recovery root.
+    const targetRecheck = await callProRoomAdminObject(
+      env,
+      roomCode,
+      room.roomGeneration,
+      '/internal/admin/status',
+      'GET',
+    );
+    const recheckedTarget = targetRecheck.payload;
+    const recheckedRemoval = normalizeOwnerAuthorityRemoval(recheckedTarget?.ownerAuthorityRemoval);
+    const recheckedDetachedReplay =
+      targetRecheck.response?.ok === true &&
+      proRoomAdminResponseIdentityMatches(recheckedTarget, roomCode, room.roomGeneration) &&
+      recheckedTarget.provisioned === true &&
+      recheckedTarget.status === 'suspended' &&
+      recheckedTarget.suspensionReason === 'ownership_transfer_pending' &&
+      recheckedTarget.ownerAccountLinked === false &&
+      recheckedTarget.ownerAccountId === null &&
+      recheckedRemoval !== null &&
+      recheckedTarget.ownerAuthorityEpoch === recheckedRemoval.ownerAuthorityEpoch &&
+      recheckedRemoval.accountId === targetRemoval.accountId &&
+      recheckedRemoval.removalId === targetRemoval.removalId &&
+      recheckedRemoval.ownerAuthorityEpoch === targetRemoval.ownerAuthorityEpoch &&
+      recheckedRemoval.fencedCoordinatorEpoch === targetRemoval.fencedCoordinatorEpoch &&
+      recheckedTarget.ownerTransferReconciliation === null;
+    if (!recheckedDetachedReplay) {
+      return json({ error: 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED' }, 503);
+    }
+    try {
+      detachIntent = await bootstrapLegacyOwnerDetachIntent(
+        db,
+        request,
+        env,
+        roomCode,
+        room.roomGeneration,
+        retainedRoom.roomCode,
+        retainedRoom.roomGeneration,
+        expectedOwnerAuthorityEpoch,
+      );
+    } catch {
+      return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
+    }
+    if (
+      !detachIntent ||
+      detachIntent.auditAction !== ADMIN_LEGACY_OWNER_DETACH_INTENT_BOOTSTRAP_ACTION ||
+      detachIntent.retainedRoomCode !== retainedRoom.roomCode ||
+      detachIntent.retainedRoomGeneration !== retainedRoom.roomGeneration
+    ) {
+      // A competing recovery root is authoritative. Existing normal epoch
+      // intents are never converted or superseded from detachedReplay.
+      return json({ error: 'PRO_ROOM_LEGACY_OWNER_DETACH_INTENT_MISMATCH' }, 409);
+    }
+  } else if (!detachIntent) {
+    try {
+      detachIntent = await ensureLegacyOwnerDetachIntent(
+        db,
+        request,
+        env,
+        roomCode,
+        room.roomGeneration,
+        retainedRoom.roomCode,
+        retainedRoom.roomGeneration,
+        expectedOwnerAuthorityEpoch,
+      );
+    } catch {
+      return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
+    }
+    if (
+      !detachIntent ||
+      detachIntent.retainedRoomCode !== retainedRoom.roomCode ||
+      detachIntent.retainedRoomGeneration !== retainedRoom.roomGeneration
+    ) {
+      return json({ error: 'PRO_ROOM_LEGACY_OWNER_DETACH_INTENT_MISMATCH' }, 409);
+    }
+  } else if (shouldSupersedeIntent) {
+    // Re-read the target immediately before the durable transition. A target
+    // already observed in detachedReplay may use only its existing exact
+    // intent; it must never acquire a post-detach supersede transition.
+    const targetRecheck = await callProRoomAdminObject(
+      env,
+      roomCode,
+      room.roomGeneration,
+      '/internal/admin/status',
+      'GET',
+    );
+    const recheckedTarget = targetRecheck.payload;
+    const recheckedFirstDetach =
+      targetRecheck.response?.ok === true &&
+      proRoomAdminResponseIdentityMatches(recheckedTarget, roomCode, room.roomGeneration) &&
+      recheckedTarget.provisioned === true &&
+      (recheckedTarget.status === 'active' ||
+        (recheckedTarget.status === 'suspended' &&
+          recheckedTarget.suspensionReason === 'operator_suspended')) &&
+      recheckedTarget.ownerAccountLinked === true &&
+      recheckedTarget.ownerAccountId === previousOwnerAccountId &&
+      recheckedTarget.ownerAuthorityEpoch === expectedOwnerAuthorityEpoch &&
+      recheckedTarget.ownerAuthorityRemoval === null &&
+      recheckedTarget.ownerTransferReconciliation === null;
+    if (!recheckedFirstDetach) {
+      return json({ error: 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED' }, 503);
+    }
+    try {
+      detachIntent = await supersedeLegacyOwnerDetachIntent(
+        db,
+        request,
+        env,
+        roomCode,
+        room.roomGeneration,
+        detachIntent,
+        retainedRoom.roomCode,
+        retainedRoom.roomGeneration,
+      );
+    } catch {
+      return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
+    }
+    if (
+      !detachIntent ||
+      detachIntent.retainedRoomCode !== retainedRoom.roomCode ||
+      detachIntent.retainedRoomGeneration !== retainedRoom.roomGeneration
+    ) {
+      // Another validated recovery won the audit-id CAS. The caller must retry
+      // with that effective retained room; never append a competing branch.
+      return json({ error: 'PRO_ROOM_LEGACY_OWNER_DETACH_INTENT_MISMATCH' }, 409);
+    }
   }
 
   const detached = await callProRoomAdminObject(
@@ -7295,7 +7960,10 @@ async function handleAdminProRoomLegacyOwnerDetach(request, env, pathname) {
     { accountId: previousOwnerAccountId, expectedOwnerAuthorityEpoch },
   );
   const result = detached.payload;
-  if (!detached.response?.ok) return proRoomObjectError(detached);
+  if (!detached.response || detached.response.status >= 500) {
+    return json({ error: 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED' }, 503);
+  }
+  if (!detached.response.ok) return proRoomObjectError(detached);
   if (
     result?.ok !== true ||
     !proRoomAdminResponseIdentityMatches(result, roomCode, room.roomGeneration) ||
@@ -7312,7 +7980,7 @@ async function handleAdminProRoomLegacyOwnerDetach(request, env, pathname) {
     typeof result.projectionAcked !== 'boolean' ||
     typeof result.changed !== 'boolean'
   ) {
-    return json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
+    return json({ error: 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED' }, 503);
   }
 
   const removal = {
@@ -7371,16 +8039,22 @@ async function handleAdminProRoomLegacyOwnerDetach(request, env, pathname) {
     return json({ error: 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED' }, 503);
   }
 
-  const auditError = await writeAdminProRoomAuditOrFail(
-    db,
-    request,
-    env,
-    'legacy_duplicate_owner.detach',
-    result.changed ? 'changed' : 'reconciled',
-    roomCode,
-    room.roomGeneration,
-  );
-  if (auditError) return auditError;
+  try {
+    await completeLegacyOwnerDetachAudit(
+      db,
+      request,
+      env,
+      roomCode,
+      room.roomGeneration,
+      detachIntent,
+      result.changed ? 'changed' : 'reconciled',
+    );
+  } catch {
+    // Do not open the target for a new owner until the completed projection is
+    // durably audited. The epoch intent is retained without an age limit, so
+    // an ack failure can always reconcile after the retained room moves.
+    return json({ error: 'PRO_ROOM_OWNER_DETACH_AUDIT_PENDING' }, 503);
+  }
 
   const acknowledged = await callProRoomAdminObject(
     env,
@@ -7421,7 +8095,7 @@ async function handleAdminProRoomLegacyOwnerDetach(request, env, pathname) {
     status: 'suspended',
     suspensionReason: 'ownership_transfer_pending',
     ownerAccountLinked: false,
-    retainedRoomCode: retainedRoom.roomCode,
+    retainedRoomCode: detachIntent.retainedRoomCode,
     changed: result.changed,
   });
 }
@@ -7996,9 +8670,30 @@ async function cleanupExpiredProRoomAdminAudit(env, nowMs = Date.now()) {
   if (!db?.prepare) return 'unconfigured';
   const cutoffMs = nowMs - ADMIN_PRO_ROOM_AUDIT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
   try {
+    // Epoch-scoped detach intents, upgrade bootstrap roots and their
+    // append-only supersede chain are sparse durable saga records, not
+    // ordinary audit history. Preserve them indefinitely even after a
+    // completion row: an acknowledgement can fail after completion, and
+    // repair must still resolve the exact effective retained-room proof.
     await db
-      .prepare(`DELETE FROM ${ADMIN_PRO_ROOM_AUDIT_TABLE} WHERE created_at < ?1`)
-      .bind(cutoffMs)
+      .prepare(
+        `DELETE FROM ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+          WHERE created_at < ?1
+            AND NOT (
+              (action = ?2 AND result LIKE ?5)
+              OR (action = ?3 AND result LIKE ?6)
+              OR (action = ?4 AND result LIKE ?7)
+            )`,
+      )
+      .bind(
+        cutoffMs,
+        ADMIN_LEGACY_OWNER_DETACH_INTENT_ACTION,
+        ADMIN_LEGACY_OWNER_DETACH_INTENT_BOOTSTRAP_ACTION,
+        ADMIN_LEGACY_OWNER_DETACH_INTENT_SUPERSEDE_ACTION,
+        'authority:%:retained:%',
+        'authority:%:upgrade-bootstrap:retained:%',
+        'authority:%:supersede:%',
+      )
       .run();
     return 'cleaned';
   } catch (error) {
@@ -8006,6 +8701,8 @@ async function cleanupExpiredProRoomAdminAudit(env, nowMs = Date.now()) {
     return 'failed';
   }
 }
+
+export const cleanupExpiredProRoomAdminAuditForTests = cleanupExpiredProRoomAdminAudit;
 
 async function readAdminMetrics(env) {
   const db = getAdminDb(env);
@@ -8165,19 +8862,14 @@ function getAdminConfigStore(env) {
   return env.MUSIXQUARE_ADMIN_CONFIG || env.SORO_RSS_BACKUP || null;
 }
 
-function createAnnouncementId() {
-  const suffix = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2, 12);
-  return `${Date.now().toString(36)}-${suffix}`;
-}
-
 function normalizeAnnouncementRecord(value) {
   const source = value && typeof value === 'object' ? value : {};
   const message = String(source.message || '')
     .trim()
     .slice(0, 280);
   const id = typeof source.id === 'string' && source.id.trim() ? source.id.trim() : '';
-  const updatedAt =
-    typeof source.updatedAt === 'string' && source.updatedAt ? source.updatedAt : '';
+  const updatedAtMs = new Date(source.updatedAt).getTime();
+  const updatedAt = id && !Number.isNaN(updatedAtMs) ? new Date(updatedAtMs).toISOString() : '';
   const expiresAt =
     typeof source.expiresAt === 'string' && !Number.isNaN(new Date(source.expiresAt).getTime())
       ? new Date(source.expiresAt).toISOString()
@@ -8209,6 +8901,19 @@ function normalizeAnnouncementHistoryEntry(value) {
   };
 }
 
+function canonicalAnnouncementWireRecordMatches(value, announcement) {
+  return (
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    value.id === announcement.id &&
+    value.message === announcement.message &&
+    value.enabled === announcement.enabled &&
+    value.expiresAt === announcement.expiresAt &&
+    value.updatedAt === announcement.updatedAt
+  );
+}
+
 async function readAdminAnnouncementHistory(env) {
   const store = getAdminConfigStore(env);
   if (!store) return { status: 'unbound', history: [] };
@@ -8226,19 +8931,6 @@ async function readAdminAnnouncementHistory(env) {
   } catch {
     return { status: 'invalid', history: [] };
   }
-}
-
-async function appendAdminAnnouncementHistory(env, announcement) {
-  const store = getAdminConfigStore(env);
-  if (!store) return { status: 'unbound', history: [] };
-  const { history } = await readAdminAnnouncementHistory(env);
-  const entry = normalizeAnnouncementHistoryEntry({
-    ...announcement,
-    action: getAnnouncementHistoryAction(announcement),
-  });
-  const nextHistory = [entry, ...history].slice(0, ADMIN_ANNOUNCEMENT_HISTORY_LIMIT);
-  await store.put(ADMIN_ANNOUNCEMENT_HISTORY_KEY, JSON.stringify(nextHistory, null, 2));
-  return { status: 'written', history: nextHistory };
 }
 
 function isAnnouncementActive(announcement, now = Date.now()) {
@@ -8362,11 +9054,126 @@ async function readAdminAnnouncement(env) {
   }
 }
 
-async function writeAdminAnnouncement(env, announcement) {
-  const store = getAdminConfigStore(env);
-  if (!store) return 'unbound';
-  await store.put(ADMIN_ANNOUNCEMENT_KEY, JSON.stringify(announcement, null, 2));
-  return 'written';
+function normalizeAnnouncementControlState(payload) {
+  const source = payload?.announcementState;
+  if (
+    !source ||
+    typeof source !== 'object' ||
+    Array.isArray(source) ||
+    !Number.isSafeInteger(source.revision) ||
+    source.revision < 0 ||
+    !Array.isArray(source.history) ||
+    source.history.length > ADMIN_ANNOUNCEMENT_HISTORY_LIMIT
+  ) {
+    return null;
+  }
+  const announcement = normalizeAnnouncementRecord(source.announcement);
+  const history = source.history.map(normalizeAnnouncementHistoryEntry);
+  if (!canonicalAnnouncementWireRecordMatches(source.announcement, announcement)) return null;
+  const invalidHistory = history.some(
+    (entry, index) =>
+      !ADMIN_ANNOUNCEMENT_ID_RE.test(entry.id) ||
+      !entry.updatedAt ||
+      !canonicalAnnouncementWireRecordMatches(source.history[index], entry) ||
+      source.history[index]?.action !== getAnnouncementHistoryAction(entry),
+  );
+  if (invalidHistory) return null;
+  if (source.revision === 0) {
+    if (
+      announcement.id ||
+      announcement.message ||
+      announcement.updatedAt ||
+      source.announcement?.expiresAt !== null ||
+      history.length > 0
+    ) {
+      return null;
+    }
+  } else if (
+    !announcement.id ||
+    !announcement.updatedAt ||
+    history.length === 0 ||
+    history[0].id !== announcement.id ||
+    history[0].message !== announcement.message ||
+    history[0].enabled !== announcement.enabled ||
+    history[0].expiresAt !== announcement.expiresAt ||
+    history[0].updatedAt !== announcement.updatedAt ||
+    history[0].action !== getAnnouncementHistoryAction(announcement)
+  ) {
+    return null;
+  }
+  return { revision: source.revision, announcement, history };
+}
+
+async function readLegacyAdminAnnouncementState(env) {
+  const [{ status, announcement }, historyResult] = await Promise.all([
+    readAdminAnnouncement(env),
+    readAdminAnnouncementHistory(env),
+  ]);
+  return {
+    status,
+    revision: 0,
+    announcement,
+    history: historyResult.history,
+  };
+}
+
+function legacyAnnouncementBaseHistory(state) {
+  const validEntry = (entry) =>
+    ADMIN_ANNOUNCEMENT_ID_RE.test(entry?.id || '') &&
+    typeof entry?.updatedAt === 'string' &&
+    !Number.isNaN(new Date(entry.updatedAt).getTime());
+  const history = Array.isArray(state?.history)
+    ? state.history.filter(validEntry).map((entry) => ({
+        ...entry,
+        action: getAnnouncementHistoryAction(entry),
+      }))
+    : [];
+  const announcement = normalizeAnnouncementRecord(state?.announcement);
+  if (!validEntry(announcement)) return history;
+  const currentEntry = normalizeAnnouncementHistoryEntry({
+    ...announcement,
+    action: getAnnouncementHistoryAction(announcement),
+  });
+  const seen = new Set([currentEntry.id]);
+  const withoutCurrent = history.filter((entry) => {
+    if (seen.has(entry.id)) return false;
+    seen.add(entry.id);
+    return true;
+  });
+  return [currentEntry, ...withoutCurrent].slice(0, ADMIN_ANNOUNCEMENT_HISTORY_LIMIT);
+}
+
+function adminAnnouncementPayload(state) {
+  return {
+    generatedAt: new Date().toISOString(),
+    revision: state.revision,
+    announcement: state.announcement,
+    active: isAnnouncementActive(state.announcement),
+    history: state.history,
+  };
+}
+
+async function readCanonicalAdminAnnouncementState(
+  env,
+  { allowLegacyFallback = true, fresh = false } = {},
+) {
+  const controlled = await readAdminAnnouncementControl(env, { fresh });
+  if (controlled.status === 'ok') {
+    const state = normalizeAnnouncementControlState(controlled.payload);
+    if (!state) return { status: 'unavailable', state: null };
+    if (state.revision > 0) return { status: 'ok', state };
+    const legacy = await readLegacyAdminAnnouncementState(env);
+    return legacy.status === 'unbound'
+      ? { status: 'ok', state }
+      : { status: 'legacy', state: legacy };
+  }
+  if (controlled.status !== 'unbound' || !allowLegacyFallback) {
+    return { status: 'unavailable', state: null };
+  }
+  const legacy = await readLegacyAdminAnnouncementState(env);
+  return legacy.status === 'unbound'
+    ? { status: 'unavailable', state: null }
+    : { status: 'legacy', state: legacy };
 }
 
 function announcementPublicPayload(announcement) {
@@ -8387,20 +9194,52 @@ async function handleAdminAnnouncement(request, env) {
   if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
 
   if (request.method === 'GET' || request.method === 'HEAD') {
-    const { status, announcement } = await readAdminAnnouncement(env);
-    if (status === 'unbound') return json({ error: 'ADMIN_CONFIG_NOT_CONFIGURED' }, 503);
-    const { history } = await readAdminAnnouncementHistory(env);
-    return json({
-      generatedAt: new Date().toISOString(),
-      announcement,
-      active: isAnnouncementActive(announcement),
-      history,
-    });
+    const current = await readCanonicalAdminAnnouncementState(env, { fresh: true });
+    if (!current.state) {
+      return json(
+        {
+          error:
+            current.status === 'unavailable'
+              ? 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE'
+              : 'ADMIN_CONFIG_NOT_CONFIGURED',
+        },
+        503,
+      );
+    }
+    return json(adminAnnouncementPayload(current.state));
   }
 
   const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
   if (parsedBody.error) return jsonBodyError(parsedBody);
   const body = parsedBody.value;
+  const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : [];
+  // Tabs opened before this deployment still submit the legacy three-field
+  // body. Give them a race-safe CAS transition while the versioned admin
+  // shell rolls forward; newly loaded tabs supply their own replay key.
+  const legacyRequest =
+    keys.length === 3 &&
+    keys.includes('message') &&
+    keys.includes('enabled') &&
+    keys.includes('expiresAt');
+  const fencedRequest =
+    keys.length === 5 &&
+    keys.includes('message') &&
+    keys.includes('enabled') &&
+    keys.includes('expiresAt') &&
+    keys.includes('expectedRevision') &&
+    keys.includes('requestId');
+  if (
+    (!legacyRequest && !fencedRequest) ||
+    typeof body.message !== 'string' ||
+    typeof body.enabled !== 'boolean' ||
+    (fencedRequest &&
+      (!Number.isSafeInteger(body.expectedRevision) ||
+        body.expectedRevision < 0 ||
+        typeof body.requestId !== 'string' ||
+        !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(body.requestId)))
+  ) {
+    return json({ error: 'INVALID_REQUEST' }, 400);
+  }
   const message = String(body?.message || '')
     .trim()
     .slice(0, 280);
@@ -8410,32 +9249,75 @@ async function handleAdminAnnouncement(request, env) {
   if (expiresAtRaw && Number.isNaN(expiresAt.getTime())) {
     return json({ error: 'INVALID_EXPIRES_AT' }, 400);
   }
-  if (expiresAt && expiresAt.getTime() <= Date.now()) {
+  const current = await readCanonicalAdminAnnouncementState(env, {
+    allowLegacyFallback: false,
+    fresh: true,
+  });
+  if (!current.state) {
+    return json({ error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' }, 503);
+  }
+  const canonicalExpiresAt = expiresAt ? expiresAt.toISOString() : null;
+  if (
+    legacyRequest &&
+    current.state.announcement.message === message &&
+    current.state.announcement.enabled === enabled &&
+    current.state.announcement.expiresAt === canonicalExpiresAt
+  ) {
+    // A pre-deployment tab has no replay key. Treat an exact canonical retry
+    // as a read-back so a lost success response cannot create another ID or
+    // duplicate history entry.
+    return json({ ok: true, ...adminAnnouncementPayload(current.state) });
+  }
+  if (legacyRequest && expiresAt && expiresAt.getTime() <= Date.now()) {
     return json({ error: 'EXPIRES_AT_IN_PAST' }, 400);
   }
-
-  const announcement = normalizeAnnouncementRecord({
-    id: createAnnouncementId(),
+  const requestId = fencedRequest
+    ? body.requestId
+    : `legacy-${Date.now().toString(36)}-${
+        globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2, 18) || 'fallback'
+      }`;
+  const updated = await updateAdminAnnouncementControl(env, {
     message,
     enabled,
-    expiresAt: expiresAt ? expiresAt.toISOString() : null,
-    updatedAt: new Date().toISOString(),
+    expiresAt: canonicalExpiresAt,
+    expectedRevision: fencedRequest ? body.expectedRevision : current.state.revision,
+    requestId,
+    baseHistory: current.status === 'legacy' ? legacyAnnouncementBaseHistory(current.state) : [],
   });
-  const status = await writeAdminAnnouncement(env, announcement);
-  if (status === 'unbound') return json({ error: 'ADMIN_CONFIG_NOT_CONFIGURED' }, 503);
-  const { history } = await appendAdminAnnouncementHistory(env, announcement);
-  return json({
-    ok: true,
-    announcement,
-    active: isAnnouncementActive(announcement),
-    history,
-  });
+  const state = normalizeAnnouncementControlState(updated.payload);
+  if (updated.status === 'conflict' && state) {
+    return json(
+      {
+        error: 'ADMIN_ANNOUNCEMENT_CONFLICT',
+        ...adminAnnouncementPayload(state),
+      },
+      409,
+    );
+  }
+  if (updated.status === 'rejected') {
+    const error = String(updated.payload?.error || '');
+    const rejectedStatus = {
+      EXPIRES_AT_IN_PAST: 400,
+      INVALID_REQUEST: 400,
+      INVALID_JSON: 400,
+      REQUEST_TOO_LARGE: 413,
+      JSON_REQUIRED: 415,
+    };
+    if (Object.hasOwn(rejectedStatus, error)) {
+      return json({ error }, rejectedStatus[error]);
+    }
+  }
+  if (updated.status !== 'ok' || !state) {
+    return json({ error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' }, 503);
+  }
+  return json({ ok: true, ...adminAnnouncementPayload(state) });
 }
 
 async function handlePublicAnnouncement(request, env) {
   const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD']);
   if (methodError) return methodError;
-  const { announcement } = await readAdminAnnouncement(env);
+  const current = await readCanonicalAdminAnnouncementState(env);
+  const announcement = current.state?.announcement || normalizeAnnouncementRecord({});
   return json(announcementPublicPayload(announcement), 200, {
     'Cache-Control': 'public, max-age=30',
   });

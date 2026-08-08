@@ -179,14 +179,27 @@ jobs:
             exit 1
           fi
 
+      - name: Require a full release for service-control contract cutovers
+        shell: bash
+        run: |
+          contract_marker='cloudflare/service-control-contract-version.txt'
+          parent_sha="$(git rev-parse "${GITHUB_SHA}^")"
+          if git diff --quiet "$parent_sha" "$GITHUB_SHA" -- "$contract_marker"; then
+            exit 0
+          fi
+          if [[ "${{ inputs.target }}" != 'all' ]]; then
+            echo "::error::A service-control contract cutover requires target 'all' so the PRO and app Workers deploy together."
+            exit 1
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
 
       - name: Download validated production candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -214,10 +227,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node scripts/release-deployment-state.mjs compatibility "$RELEASE_TARGET" "${{ github.sha }}"
-
-      - name: Install app smoke browser
-        if: inputs.target == 'all' || inputs.target == 'app'
-        run: npx playwright install --with-deps chromium
 
       - name: Prepare deployment records
         run: mkdir -p release-artifacts/deployments
@@ -702,6 +711,9 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
+          if [[ "$RELEASE_TARGET" != 'all' ]]; then
+            node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
+          fi
           node scripts/release-deployment-state.mjs preflight pro-room
           node scripts/release-deployment-state.mjs attempt pro-room
           set +e
@@ -753,6 +765,9 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
+          if [[ "$RELEASE_TARGET" != 'all' ]]; then
+            node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
+          fi
           node scripts/release-deployment-state.mjs preflight remote-share
           node scripts/release-deployment-state.mjs attempt remote-share
           set +e
@@ -799,6 +814,9 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
+          if [[ "$RELEASE_TARGET" != 'all' ]]; then
+            node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
+          fi
           node scripts/release-deployment-state.mjs preflight signaling
           node scripts/release-deployment-state.mjs attempt signaling
           set +e
@@ -848,6 +866,9 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
+          if [[ "$RELEASE_TARGET" != 'all' ]]; then
+            node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
+          fi
           node scripts/release-deployment-state.mjs preflight developer-api-facade
           node scripts/release-deployment-state.mjs attempt developer-api-facade
           set +e
@@ -891,6 +912,9 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
+          if [[ "$RELEASE_TARGET" != 'all' ]]; then
+            node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
+          fi
           node scripts/release-deployment-state.mjs preflight developer-api
           node scripts/release-deployment-state.mjs attempt developer-api
           set +e
@@ -942,6 +966,9 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
+          if [[ "$RELEASE_TARGET" != 'all' ]]; then
+            node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
+          fi
           node scripts/release-deployment-state.mjs preflight app
           node scripts/release-deployment-state.mjs attempt app
           set +e
@@ -1086,6 +1113,27 @@ jobs:
                 rollback_skip_targets="developer-api-facade,developer-api"
               fi
             fi
+          fi
+
+          # The first service-control announcement cutover creates durable DO
+          # state that pre-cutover App Workers cannot read. Compare the
+          # candidate with each actually attempted Worker's captured live Git
+          # SHA, not merely HEAD^: one release can contain several commits.
+          # Missing legacy provenance also fails closed to forward repair.
+          service_control_forward_floor="$(
+            node scripts/release-deployment-state.mjs \
+              service-control-forward-floor "$GITHUB_SHA"
+          )"
+          if [[ "$service_control_forward_floor" == 'true' ]]; then
+            for target in pro-room app; do
+              if [[ ",$rollback_skip_targets," != *",$target,"* ]]; then
+                if [[ -n "$rollback_skip_targets" ]]; then
+                  rollback_skip_targets="${rollback_skip_targets},${target}"
+                else
+                  rollback_skip_targets="$target"
+                fi
+              fi
+            done
           fi
 
           MXQR_ROLLBACK_SKIP_TARGETS="$rollback_skip_targets" \

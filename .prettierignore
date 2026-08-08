@@ -2,3 +2,19 @@ dist/
 node_modules/
 _legacy/
 *.min.js
+
+# Exact-file exceptions for pre-existing tooling formatting debt. Keep this
+# list narrow so every new Worker, script, E2E helper, and config is gated.
+cloudflare/account-assertion.js
+cloudflare/developer-api-worker.js
+cloudflare/remote-share-worker.js
+cloudflare/signaling-worker.js
+cloudflare/standard-room-account-assertion.js
+scripts/benchmark-pro-room-heartbeats.mjs
+scripts/check-bus-pairing.mjs
+scripts/check-import-graph.mjs
+scripts/check-lifecycle-writes.mjs
+scripts/developer-api-key.mjs
+scripts/live-signaling-smoke.mjs
+scripts/release-identity.mjs
+scripts/subset-og-fonts.mjs

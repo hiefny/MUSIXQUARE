@@ -11,7 +11,15 @@ export interface ServiceMaintenanceState {
 export const SERVICE_CONTROL_OBJECT_NAME: string;
 export const SERVICE_CONTROL_STATUS_PATH: string;
 export const SERVICE_CONTROL_STATE_PATH: string;
+export const ADMIN_ANNOUNCEMENT_STATUS_PATH: string;
+export const ADMIN_ANNOUNCEMENT_STATE_PATH: string;
 export const SERVICE_CONTROL_READ_TIMEOUT_MS: number;
+
+export interface AdminAnnouncementControlResult {
+  status: 'ok' | 'conflict' | 'rejected' | 'unavailable' | 'unbound';
+  payload: unknown;
+  responseStatus?: number;
+}
 
 export function inactiveServiceMaintenanceState(): ServiceMaintenanceState;
 export function normalizeServiceMaintenanceState(value: unknown): ServiceMaintenanceState | null;
@@ -26,6 +34,21 @@ export function updateServiceMaintenance(
   status: 'ok' | 'conflict' | 'unavailable';
   state: ServiceMaintenanceState;
 }>;
+export function readAdminAnnouncementControl(
+  env: Record<string, unknown>,
+  options?: { fresh?: boolean },
+): Promise<AdminAnnouncementControlResult>;
+export function updateAdminAnnouncementControl(
+  env: Record<string, unknown>,
+  input: {
+    message: string;
+    enabled: boolean;
+    expiresAt: string | null;
+    expectedRevision: number;
+    requestId: string;
+    baseHistory?: Array<Record<string, unknown>>;
+  },
+): Promise<AdminAnnouncementControlResult>;
 export function serviceMaintenanceResponse(
   request: Request,
   state?: Partial<ServiceMaintenanceState>,

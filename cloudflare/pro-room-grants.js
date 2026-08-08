@@ -106,6 +106,17 @@ function changeCount(result) {
   return Number(result?.meta?.changes ?? result?.changes ?? 0);
 }
 
+function cancelBodyReader(reader) {
+  try {
+    // A hostile or broken stream may never settle cancellation. Detaching the
+    // best-effort promise keeps the bounded error response independent from
+    // the transport while still consuming a later rejection.
+    Promise.resolve(reader.cancel()).catch(() => {});
+  } catch {
+    // Cancellation is best-effort; the bounded error response must still win.
+  }
+}
+
 async function readJson(request, maxBytes = MAX_BODY_BYTES) {
   const contentType = String(request.headers.get('content-type') || '').toLowerCase();
   if (!/^application\/json(?:\s*;|$)/.test(contentType)) return { error: 'JSON_REQUIRED' };
@@ -113,14 +124,41 @@ async function readJson(request, maxBytes = MAX_BODY_BYTES) {
   if (length !== null && (!/^\d+$/.test(length.trim()) || Number(length) > maxBytes)) {
     return { error: 'INVALID_REQUEST' };
   }
-  let text;
+  const chunks = [];
+  let totalBytes = 0;
+  let reader;
   try {
-    text = await request.text();
+    if (request.body) {
+      reader = request.body.getReader();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!(value instanceof Uint8Array) || value.byteLength > maxBytes - totalBytes) {
+          cancelBodyReader(reader);
+          return { error: 'INVALID_REQUEST' };
+        }
+        chunks.push(value);
+        totalBytes += value.byteLength;
+      }
+    }
   } catch {
+    if (reader) cancelBodyReader(reader);
     return { error: 'INVALID_REQUEST' };
+  } finally {
+    try {
+      reader?.releaseLock();
+    } catch {
+      // A host stream can reject lock release after a failed read/cancel.
+    }
   }
-  if (new TextEncoder().encode(text).byteLength > maxBytes) return { error: 'INVALID_REQUEST' };
   try {
+    const bytes = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     const value = JSON.parse(text);
     return value && typeof value === 'object' && !Array.isArray(value)
       ? { value }

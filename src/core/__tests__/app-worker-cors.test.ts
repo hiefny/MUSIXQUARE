@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker, {
+  cleanupExpiredProRoomAdminAuditForTests,
   readResponseBodyLimitedForTests,
   purgeProRoomAccountAuthorityForTests,
   reconcileOwnerTransferSagasForTests,
@@ -11,6 +12,7 @@ import appWorker, {
   sanitizeSoroArticleHtmlForTests,
 } from '../../../cloudflare/app-worker.js';
 import { deriveDeveloperApiKeyDigest } from '../../../cloudflare/developer-api-worker.js';
+import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.js';
 
 const proGrantMigration = await readFile(
   new URL('../../../cloudflare/admin-metrics.pro-grants.migration.sql', import.meta.url),
@@ -20,6 +22,35 @@ const sqlite = createRequire(import.meta.url)('node:sqlite') as typeof import('n
 const centralEntitlementDatabases = new Set<DatabaseSync>();
 const CENTRAL_ENTITLEMENT_SQL_RE =
   /mxqr_pro_(?:grant(?:_|\b)|account_entitlements\b|account_deletion_fences\b)/i;
+
+function createAnnouncementControlBinding(
+  beforeFetch?: (request: Request) => void | Promise<void>,
+) {
+  const data = new Map<string, unknown>();
+  const storage = {
+    async get(key: string) {
+      return structuredClone(data.get(key));
+    },
+    async put(entries: Record<string, unknown>) {
+      for (const [key, value] of Object.entries(entries)) {
+        data.set(key, structuredClone(value));
+      }
+    },
+  };
+  const control = new MusixquareServiceControl({
+    storage,
+    blockConcurrencyWhile: async (callback: () => Promise<void>) => callback(),
+  });
+  return {
+    idFromName: vi.fn((name: string) => name),
+    get: vi.fn(() => ({
+      fetch: async (request: Request) => {
+        await beforeFetch?.(request);
+        return control.fetch(request);
+      },
+    })),
+  };
+}
 
 type CentralSqlValue = string | number | bigint | Uint8Array | null;
 
@@ -482,7 +513,7 @@ describe('Cloudflare app worker scheduled maintenance', () => {
     return { ctx, pending };
   }
 
-  it('deletes metric buckets and 365-day PRO admin audits in independent scheduled tasks', async () => {
+  it('deletes metric buckets and ordinary 365-day PRO admin audits independently', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-16T00:00:00.000Z'));
     vi.stubGlobal(
@@ -499,13 +530,96 @@ describe('Cloudflare app worker scheduled maintenance', () => {
     expect(prepare).toHaveBeenCalledWith(
       'DELETE FROM mxqr_metric_buckets WHERE bucket_minute < ?1',
     );
-    expect(prepare).toHaveBeenCalledWith(
-      'DELETE FROM mxqr_pro_room_admin_audit WHERE created_at < ?1',
-    );
     expect(bind).toHaveBeenCalledWith(Math.floor(Date.now() / 60000) - 90 * 24 * 60);
-    expect(bind).toHaveBeenCalledWith(Date.now() - 365 * 24 * 60 * 60 * 1000);
+    const cutoff = Date.now() - 365 * 24 * 60 * 60 * 1000;
+    expect(bind).toHaveBeenCalledWith(
+      cutoff,
+      'legacy_duplicate_owner.detach.intent',
+      'legacy_duplicate_owner.detach.intent.bootstrap',
+      'legacy_duplicate_owner.detach.intent.supersede',
+      'authority:%:retained:%',
+      'authority:%:upgrade-bootstrap:retained:%',
+      'authority:%:supersede:%',
+    );
     expect(run).toHaveBeenCalledTimes(2);
     expect(backup.put).toHaveBeenCalledWith('soro-rss-latest-good.xml', rss);
+  });
+
+  it('retains every epoch-scoped detach intent chain past the audit horizon', async () => {
+    const database = new sqlite.DatabaseSync(':memory:');
+    const now = Date.parse('2026-07-16T00:00:00.000Z');
+    const old = now - 366 * 24 * 60 * 60 * 1000;
+    database.exec(`
+      CREATE TABLE mxqr_pro_room_admin_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        actor_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        result TEXT NOT NULL,
+        room_code TEXT NOT NULL,
+        room_generation INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+    `);
+    const insert = database.prepare(
+      `INSERT INTO mxqr_pro_room_admin_audit
+        (actor_id, action, result, room_code, room_generation, created_at)
+       VALUES ('admin_test', ?, ?, '000001', 0, ?)`,
+    );
+    insert.run('legacy_duplicate_owner.detach.intent', 'authority:4:retained:000002:0', old);
+    insert.run('legacy_duplicate_owner.detach.intent', 'authority:8:retained:000003:0', old);
+    insert.run(
+      'legacy_duplicate_owner.detach.intent.bootstrap',
+      'authority:6:upgrade-bootstrap:retained:000006:2',
+      old,
+    );
+    insert.run(
+      'legacy_duplicate_owner.detach.intent.supersede',
+      'authority:4:supersede:1:from:000002:0:to:000005:1',
+      old,
+    );
+    insert.run('legacy_duplicate_owner.detach', 'authority:8:retained:000003:0:changed', old);
+    insert.run('legacy_duplicate_owner.detach.intent', 'retained:000004:0', old);
+    insert.run('legacy_duplicate_owner.detach.intent.supersede', 'supersede:000002:000005', old);
+    insert.run('room.label', 'changed', old);
+    insert.run('room.label', 'recent', now);
+
+    const result = await cleanupExpiredProRoomAdminAuditForTests(
+      {
+        MUSIXQUARE_ADMIN_DB: {
+          prepare: (sql: string) => new CentralEntitlementStatement(database.prepare(sql)),
+        },
+      },
+      now,
+    );
+
+    expect(result).toBe('cleaned');
+    expect(
+      database
+        .prepare(
+          `SELECT action, result FROM mxqr_pro_room_admin_audit
+            ORDER BY id`,
+        )
+        .all(),
+    ).toEqual([
+      {
+        action: 'legacy_duplicate_owner.detach.intent',
+        result: 'authority:4:retained:000002:0',
+      },
+      {
+        action: 'legacy_duplicate_owner.detach.intent',
+        result: 'authority:8:retained:000003:0',
+      },
+      {
+        action: 'legacy_duplicate_owner.detach.intent.bootstrap',
+        result: 'authority:6:upgrade-bootstrap:retained:000006:2',
+      },
+      {
+        action: 'legacy_duplicate_owner.detach.intent.supersede',
+        result: 'authority:4:supersede:1:from:000002:0:to:000005:1',
+      },
+      { action: 'room.label', result: 'recent' },
+    ]);
+    database.close();
   });
 
   it('keeps the RSS deadline armed until the response body finishes', async () => {
@@ -2408,6 +2522,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
       SORO_RSS_BACKUP: createKvStore(),
+      MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding(),
     };
 
     vi.useFakeTimers();
@@ -2431,6 +2546,8 @@ describe('Cloudflare app worker admin dashboard', () => {
           enabled: true,
           message: 'Maintenance starts in five minutes.',
           expiresAt: '2026-06-18T11:59:00.000Z',
+          expectedRevision: 0,
+          requestId: '123e4567-e89b-42d3-a456-426614174020',
         }),
       }),
       env,
@@ -2447,17 +2564,21 @@ describe('Cloudflare app worker admin dashboard', () => {
           enabled: true,
           message: 'Maintenance starts in five minutes.',
           expiresAt: '2026-06-18T13:00:00.000Z',
+          expectedRevision: 0,
+          requestId: '123e4567-e89b-42d3-a456-426614174021',
         }),
       }),
       env,
     );
     const saved = (await save.json()) as {
+      revision?: number;
       announcement?: { id?: string; enabled?: boolean; message?: string };
       active?: boolean;
-      history?: Array<{ action?: string; enabled?: boolean; message?: string }>;
+      history?: Array<{ id?: string; action?: string; enabled?: boolean; message?: string }>;
     };
 
     expect(save.status).toBe(200);
+    expect(saved).toMatchObject({ revision: 1 });
     expect(saved.announcement?.enabled).toBe(true);
     expect(saved.active).toBe(true);
     expect(saved.announcement?.message).toBe('Maintenance starts in five minutes.');
@@ -2479,6 +2600,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       history?: Array<{ action?: string; enabled?: boolean; message?: string }>;
     };
     expect(adminPayload.active).toBe(true);
+    expect(adminPayload).toMatchObject({ revision: 1 });
     expect(adminPayload.history?.[0]).toMatchObject({
       action: 'published',
       enabled: true,
@@ -2512,11 +2634,38 @@ describe('Cloudflare app worker admin dashboard', () => {
 
     expect(await expired.json()).toEqual({ enabled: false });
 
+    const replayAfterExpiry = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        method: 'POST',
+        headers: adminMutationHeaders({ Cookie: cookie }),
+        body: JSON.stringify({
+          enabled: true,
+          message: 'Maintenance starts in five minutes.',
+          expiresAt: '2026-06-18T13:00:00.000Z',
+          expectedRevision: 0,
+          requestId: '123e4567-e89b-42d3-a456-426614174021',
+        }),
+      }),
+      env,
+    );
+    expect(replayAfterExpiry.status).toBe(200);
+    await expect(replayAfterExpiry.json()).resolves.toMatchObject({
+      revision: 1,
+      announcement: { id: saved.announcement?.id },
+      history: [{ id: saved.history?.[0]?.id }],
+    });
+
     const clear = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/announcement', {
         method: 'POST',
         headers: adminMutationHeaders({ Cookie: cookie }),
-        body: JSON.stringify({ enabled: false, message: '', expiresAt: null }),
+        body: JSON.stringify({
+          enabled: false,
+          message: '',
+          expiresAt: null,
+          expectedRevision: 1,
+          requestId: '123e4567-e89b-42d3-a456-426614174022',
+        }),
       }),
       env,
     );
@@ -2534,6 +2683,435 @@ describe('Cloudflare app worker admin dashboard', () => {
       message: 'Maintenance starts in five minutes.',
     });
     vi.useRealTimers();
+  });
+
+  it('accepts a pre-deployment admin tab and preserves a DO-side expiry rejection', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    let crossExpiryBoundary = false;
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      SORO_RSS_BACKUP: createKvStore(),
+      MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding((request) => {
+        if (
+          crossExpiryBoundary &&
+          new URL(request.url).pathname === '/internal/admin-announcement/v1/state'
+        ) {
+          vi.setSystemTime(Date.now() + 2);
+        }
+      }),
+    };
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.84' }),
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      env,
+    );
+    const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
+
+    const legacy = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        method: 'POST',
+        headers: adminMutationHeaders({ Cookie: cookie }),
+        body: JSON.stringify({
+          enabled: true,
+          message: 'Saved by an already-open admin tab',
+          expiresAt: null,
+        }),
+      }),
+      env,
+    );
+    expect(legacy.status).toBe(200);
+    const legacyPayload = (await legacy.json()) as {
+      revision: number;
+      announcement: { id: string; message: string };
+      history: Array<{ id: string }>;
+    };
+    expect(legacyPayload).toMatchObject({
+      revision: 1,
+      announcement: { message: 'Saved by an already-open admin tab' },
+    });
+
+    const legacyReplay = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        method: 'POST',
+        headers: adminMutationHeaders({ Cookie: cookie }),
+        body: JSON.stringify({
+          enabled: true,
+          message: 'Saved by an already-open admin tab',
+          expiresAt: null,
+        }),
+      }),
+      env,
+    );
+    expect(legacyReplay.status).toBe(200);
+    await expect(legacyReplay.json()).resolves.toMatchObject({
+      revision: 1,
+      announcement: { id: legacyPayload.announcement.id },
+      history: [{ id: legacyPayload.history[0].id }],
+    });
+
+    const expiresAt = new Date(Date.now() + 1).toISOString();
+    crossExpiryBoundary = true;
+    const expiredInsideControl = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        method: 'POST',
+        headers: adminMutationHeaders({ Cookie: cookie }),
+        body: JSON.stringify({
+          enabled: true,
+          message: 'Too late at the serialization point',
+          expiresAt,
+          expectedRevision: 1,
+          requestId: '123e4567-e89b-42d3-a456-426614174026',
+        }),
+      }),
+      env,
+    );
+    expect(expiredInsideControl.status).toBe(400);
+    await expect(expiredInsideControl.json()).resolves.toEqual({
+      error: 'EXPIRES_AT_IN_PAST',
+    });
+  });
+
+  it('migrates legacy announcement current state into the fenced history without losing it', async () => {
+    const store = createKvStore();
+    const legacyCurrent = {
+      id: 'legacy-current',
+      message: 'Current value whose old history write failed',
+      enabled: true,
+      expiresAt: null,
+      updatedAt: '2026-06-17T12:00:00.000Z',
+    };
+    const legacyOlder = {
+      id: 'legacy-older',
+      message: 'Older value',
+      enabled: false,
+      expiresAt: null,
+      updatedAt: '2026-06-16T12:00:00.000Z',
+      action: 'published',
+    };
+    const canonicalLegacyOlder = { ...legacyOlder, action: 'disabled' };
+    const malformedLegacy = {
+      id: '<invalid-id>',
+      message: 'Corrupt history must not block migration',
+      enabled: true,
+      expiresAt: null,
+      updatedAt: '2026-06-15T12:00:00.000Z',
+      action: 'published',
+    };
+    await store.put('admin-announcement.json', JSON.stringify(legacyCurrent));
+    await store.put(
+      'admin-announcement-history.json',
+      JSON.stringify([malformedLegacy, legacyOlder]),
+    );
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      SORO_RSS_BACKUP: store,
+      MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding(),
+    };
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.83' }),
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      env,
+    );
+    const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
+
+    const before = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        headers: { Cookie: cookie },
+      }),
+      env,
+    );
+    await expect(before.json()).resolves.toMatchObject({
+      revision: 0,
+      announcement: legacyCurrent,
+      history: [malformedLegacy, legacyOlder],
+    });
+
+    const migrated = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        method: 'POST',
+        headers: adminMutationHeaders({ Cookie: cookie }),
+        body: JSON.stringify({
+          enabled: true,
+          message: 'New canonical value',
+          expiresAt: null,
+          expectedRevision: 0,
+          requestId: '123e4567-e89b-42d3-a456-426614174023',
+        }),
+      }),
+      env,
+    );
+    expect(migrated.status).toBe(200);
+    const migratedPayload = (await migrated.json()) as Record<string, unknown>;
+    expect(migratedPayload).toMatchObject({
+      revision: 1,
+      announcement: { message: 'New canonical value' },
+      history: [
+        { message: 'New canonical value', action: 'published' },
+        { id: 'legacy-current', action: 'published' },
+        canonicalLegacyOlder,
+      ],
+    });
+
+    const replay = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        method: 'POST',
+        headers: adminMutationHeaders({ Cookie: cookie }),
+        body: JSON.stringify({
+          enabled: true,
+          message: 'New canonical value',
+          expiresAt: null,
+          expectedRevision: 0,
+          requestId: '123e4567-e89b-42d3-a456-426614174023',
+        }),
+      }),
+      env,
+    );
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({
+      revision: 1,
+      announcement: migratedPayload.announcement,
+      history: migratedPayload.history,
+    });
+
+    const requests = [
+      ['Concurrent first', '123e4567-e89b-42d3-a456-426614174024'],
+      ['Concurrent second', '123e4567-e89b-42d3-a456-426614174025'],
+    ].map(([message, requestId]) =>
+      appWorker.fetch(
+        new Request('https://musixquare.com/api/admin/announcement', {
+          method: 'POST',
+          headers: adminMutationHeaders({ Cookie: cookie }),
+          body: JSON.stringify({
+            enabled: true,
+            message,
+            expiresAt: null,
+            expectedRevision: 1,
+            requestId,
+          }),
+        }),
+        env,
+      ),
+    );
+    const raced = await Promise.all(requests);
+    expect(raced.map((response) => response.status).sort()).toEqual([200, 409]);
+    const conflict = raced.find((response) => response.status === 409);
+    await expect(conflict?.json()).resolves.toMatchObject({
+      error: 'ADMIN_ANNOUNCEMENT_CONFLICT',
+      revision: 2,
+      announcement: { message: expect.stringMatching(/^Concurrent (first|second)$/) },
+      history: [
+        { message: expect.stringMatching(/^Concurrent (first|second)$/) },
+        { message: 'New canonical value' },
+        { id: 'legacy-current' },
+        canonicalLegacyOlder,
+      ],
+    });
+  });
+
+  it('never revives stale legacy KV when the configured announcement control is unavailable', async () => {
+    const store = createKvStore();
+    await store.put(
+      'admin-announcement.json',
+      JSON.stringify({
+        id: 'stale-legacy',
+        message: 'Must not revive',
+        enabled: true,
+        expiresAt: null,
+        updatedAt: '2026-06-17T12:00:00.000Z',
+      }),
+    );
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      SORO_RSS_BACKUP: store,
+      MUSIXQUARE_SERVICE_CONTROL: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({
+          fetch: vi.fn(async (request: Request) => {
+            if (new URL(request.url).pathname === '/internal/service-maintenance/v1/status') {
+              return Response.json({
+                serviceStatus: {
+                  enabled: false,
+                  revision: 0,
+                  updatedAt: null,
+                  activatedAt: null,
+                },
+              });
+            }
+            throw new Error('announcement control offline');
+          }),
+        })),
+      },
+    };
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.84' }),
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      env,
+    );
+    const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
+    const admin = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        headers: { Cookie: cookie },
+      }),
+      env,
+    );
+    expect(admin.status).toBe(503);
+    await expect(admin.json()).resolves.toEqual({
+      error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE',
+    });
+
+    const current = await appWorker.fetch(
+      new Request('https://musixquare.com/api/announcement/current'),
+      env,
+    );
+    await expect(current.json()).resolves.toEqual({ enabled: false });
+  });
+
+  it('rejects a control revision-zero sentinel with a latent expiry', async () => {
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MUSIXQUARE_SERVICE_CONTROL: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({
+          fetch: vi.fn(async (request: Request) => {
+            const pathname = new URL(request.url).pathname;
+            if (pathname === '/internal/service-maintenance/v1/status') {
+              return Response.json({
+                serviceStatus: {
+                  enabled: false,
+                  revision: 0,
+                  updatedAt: null,
+                  activatedAt: null,
+                },
+              });
+            }
+            return Response.json({
+              announcementState: {
+                revision: 0,
+                announcement: {
+                  id: '',
+                  message: '',
+                  enabled: false,
+                  expiresAt: '2026-08-09T00:00:00.000Z',
+                  updatedAt: '',
+                },
+                history: [],
+              },
+            });
+          }),
+        })),
+      },
+    };
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.85' }),
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      env,
+    );
+    const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
+
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        headers: { Cookie: cookie },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE',
+    });
+  });
+
+  it('rejects a control history entry whose action contradicts its canonical content', async () => {
+    const updatedAt = '2026-08-08T00:00:00.000Z';
+    const current = {
+      id: 'canonical-current',
+      message: 'Current notice',
+      enabled: true,
+      expiresAt: null,
+      updatedAt,
+    };
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret',
+      MUSIXQUARE_SERVICE_CONTROL: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({
+          fetch: vi.fn(async (request: Request) => {
+            const pathname = new URL(request.url).pathname;
+            if (pathname === '/internal/service-maintenance/v1/status') {
+              return Response.json({
+                serviceStatus: {
+                  enabled: false,
+                  revision: 0,
+                  updatedAt: null,
+                  activatedAt: null,
+                },
+              });
+            }
+            return Response.json({
+              announcementState: {
+                revision: 2,
+                announcement: current,
+                history: [
+                  { ...current, action: 'published' },
+                  {
+                    id: 'canonical-older',
+                    message: '',
+                    enabled: false,
+                    expiresAt: null,
+                    updatedAt: '2026-08-07T00:00:00.000Z',
+                    action: 'published',
+                  },
+                ],
+              },
+            });
+          }),
+        })),
+      },
+    };
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.86' }),
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      env,
+    );
+    const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
+
+    const admin = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/announcement', {
+        headers: { Cookie: cookie },
+      }),
+      env,
+    );
+    expect(admin.status).toBe(503);
+    await expect(admin.json()).resolves.toEqual({
+      error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE',
+    });
+
+    const publicResponse = await appWorker.fetch(
+      new Request('https://musixquare.com/api/announcement/current'),
+      env,
+    );
+    await expect(publicResponse.json()).resolves.toEqual({ enabled: false });
   });
 
   it('registers PRO rooms and issues claims through the cross-script Durable Object binding', async () => {
@@ -4275,9 +4853,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.19');
-    expect(html).toContain('/admin.js?v=8.3.19');
-    expect(html).toContain('data-admin-asset-version="8.3.19"');
+    expect(html).toContain('/admin.css?v=8.3.20');
+    expect(html).toContain('/admin.js?v=8.3.20');
+    expect(html).toContain('data-admin-asset-version="8.3.20"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
@@ -4296,7 +4874,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.3.19', '/admin.css?v=8.3.19']) {
+    for (const path of ['/admin.js?v=8.3.20', '/admin.css?v=8.3.20']) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
@@ -5433,6 +6011,7 @@ describe('Cloudflare app worker PRO room facade', () => {
     const retainedCanonicalBefore = structuredClone(canonicalRooms.get(retainedRoomCode));
     const statusCalls: string[] = [];
     let detachCalls = 0;
+    let detachFailuresBeforeApply = 0;
     let ackCalls = 0;
     const adminFetch = vi.fn(async (objectName: string, request: Request) => {
       const roomCode = objectName.slice(0, 6);
@@ -5455,6 +6034,10 @@ describe('Cloudflare app worker PRO room facade', () => {
           expectedOwnerAuthorityEpoch: 4,
           roomGeneration,
         });
+        if (detachFailuresBeforeApply > 0) {
+          detachFailuresBeforeApply -= 1;
+          return Response.json({ error: 'PRO_ROOM_ADMIN_UNAVAILABLE' }, { status: 503 });
+        }
         let changed = false;
         if (room?.ownerAuthorityRemoval === null) {
           changed = true;
@@ -5550,8 +6133,33 @@ describe('Cloudflare app worker PRO room facade', () => {
       });
     });
 
-    const registryDb = sqliteD1(registryDatabase);
-    const centralDb = withCentralEntitlementLedger(registryDb, [
+    const auditFailures = new Map<string, number>();
+    const registryDbBase = sqliteD1(registryDatabase);
+    const registryDb = {
+      ...registryDbBase,
+      prepare(sql: string) {
+        const statement = registryDbBase.prepare(sql);
+        if (!/^\s*INSERT INTO mxqr_pro_room_admin_audit/i.test(sql)) return statement;
+        return {
+          bind(...values: CentralSqlValue[]) {
+            const bound = statement.bind(...values);
+            return {
+              async run() {
+                const action = String(values[1] || '');
+                const remaining = auditFailures.get(action) || 0;
+                if (remaining > 0) {
+                  auditFailures.set(action, remaining - 1);
+                  throw new Error(`audit unavailable for ${action}`);
+                }
+                return bound.run();
+              },
+            };
+          },
+        };
+      },
+    };
+    let entitlementPreflightFailures = 0;
+    const centralDbBase = withCentralEntitlementLedger(registryDb, [
       {
         accountId: ownerAccountId,
         roomCode: targetRoomCode,
@@ -5560,6 +6168,29 @@ describe('Cloudflare app worker PRO room facade', () => {
         status: 'active',
       },
     ]);
+    const centralDb = {
+      ...centralDbBase,
+      prepare(sql: string) {
+        const statement = centralDbBase.prepare(sql);
+        if (!/SELECT 1 AS allowed[\s\S]*mxqr_pro_account_entitlements entitlement/i.test(sql)) {
+          return statement;
+        }
+        return {
+          bind(...values: CentralSqlValue[]) {
+            const bound = statement.bind(...values);
+            return {
+              async first() {
+                if (entitlementPreflightFailures > 0) {
+                  entitlementPreflightFailures -= 1;
+                  throw new Error('entitlement preflight unavailable');
+                }
+                return bound.first();
+              },
+            };
+          },
+        };
+      },
+    };
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-pass',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
@@ -5578,18 +6209,19 @@ describe('Cloudflare app worker PRO room facade', () => {
         get: vi.fn(() => ({ fetch: signalingFetch })),
       },
     };
-    const requestBody = JSON.stringify({
-      roomGeneration,
-      retainRoomCode: retainedRoomCode,
-      confirmRoomCode: targetRoomCode,
-    });
-    const detachRequest = (cookie = '') =>
+    const requestBody = (retainRoomCode = retainedRoomCode) =>
+      JSON.stringify({
+        roomGeneration,
+        retainRoomCode,
+        confirmRoomCode: targetRoomCode,
+      });
+    const detachRequest = (cookie = '', retainRoomCode = retainedRoomCode) =>
       new Request(
         `https://musixquare.com/api/admin/pro-rooms/${targetRoomCode}/legacy-owner-detach`,
         {
           method: 'POST',
           headers: adminMutationHeaders(cookie ? { Cookie: cookie } : {}),
-          body: requestBody,
+          body: requestBody(retainRoomCode),
         },
       );
 
@@ -5620,7 +6252,7 @@ describe('Cloudflare app worker PRO room facade', () => {
             'Content-Type': 'application/json',
             Cookie: cookie,
           },
-          body: requestBody,
+          body: requestBody(),
         },
       ),
       env,
@@ -5637,6 +6269,74 @@ describe('Cloudflare app worker PRO room facade', () => {
       error: 'PRO_ROOM_LEGACY_DUPLICATE_OWNER_NOT_CONFIRMED',
     });
     expect(detachCalls).toBe(0);
+    if (retainedCanonical) retainedCanonical.ownerAccountId = ownerAccountId;
+    statusCalls.length = 0;
+
+    // A pre-epoch implementation may already have rows for this room
+    // generation. They must not suppress the current authority operation.
+    registryDatabase
+      .prepare(
+        `INSERT INTO mxqr_pro_room_admin_audit
+          (actor_id, action, result, room_code, room_generation, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'admin_legacy',
+        'legacy_duplicate_owner.detach.intent',
+        `retained:${retainedRoomCode}:${roomGeneration}`,
+        targetRoomCode,
+        roomGeneration,
+        now - 100,
+      );
+    registryDatabase
+      .prepare(
+        `INSERT INTO mxqr_pro_room_admin_audit
+          (actor_id, action, result, room_code, room_generation, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        'admin_legacy',
+        'legacy_duplicate_owner.detach',
+        'changed',
+        targetRoomCode,
+        roomGeneration,
+        now - 99,
+      );
+
+    auditFailures.set('legacy_duplicate_owner.detach.intent', 1);
+    const intentAuditUnavailable = await appWorker.fetch(detachRequest(cookie), env);
+    expect(intentAuditUnavailable.status).toBe(503);
+    await expect(intentAuditUnavailable.json()).resolves.toEqual({
+      error: 'PRO_ROOM_AUDIT_UNAVAILABLE',
+    });
+    expect(detachCalls).toBe(0);
+    statusCalls.length = 0;
+
+    detachFailuresBeforeApply = 1;
+    const uncertainBeforeApply = await appWorker.fetch(detachRequest(cookie), env);
+    expect(uncertainBeforeApply.status).toBe(503);
+    await expect(uncertainBeforeApply.json()).resolves.toEqual({
+      error: 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED',
+    });
+    expect(detachCalls).toBe(1);
+    expect(canonicalRooms.get(targetRoomCode)).toMatchObject({
+      status: 'active',
+      ownerAccountId,
+      ownerAuthorityEpoch: 4,
+      ownerAuthorityRemoval: null,
+    });
+
+    // An intent alone is not proof that detach applied. While target is still
+    // firstDetach, a changed retained owner must block the retry.
+    if (retainedCanonical) retainedCanonical.ownerAccountId = concurrentOwnerAccountId;
+    statusCalls.length = 0;
+    const unsafeFirstDetachRetry = await appWorker.fetch(detachRequest(cookie), env);
+    expect(unsafeFirstDetachRetry.status).toBe(409);
+    await expect(unsafeFirstDetachRetry.json()).resolves.toEqual({
+      error: 'PRO_ROOM_LEGACY_DUPLICATE_OWNER_NOT_CONFIRMED',
+    });
+    expect(new Set(statusCalls)).toEqual(new Set([targetRoomCode, retainedRoomCode]));
+    expect(detachCalls).toBe(1);
     if (retainedCanonical) retainedCanonical.ownerAccountId = ownerAccountId;
     statusCalls.length = 0;
 
@@ -5692,15 +6392,52 @@ describe('Cloudflare app worker PRO room facade', () => {
         .get(ownerAccountId, targetRoomCode, roomGeneration),
     ).toEqual({ linked: 1 });
 
-    // Once the exact target removal exists, reconciliation must not depend on
-    // the retained room still having the same owner. Otherwise an unrelated
-    // transfer of the retained room could strand the target with an unacked
-    // authority-removal fence forever.
+    // Simulate a rolling upgrade from the baseline implementation: its target
+    // DO detach crossed the authority boundary, but no epoch-scoped intent was
+    // durable when the first downstream signaling attempt failed. Pre-epoch
+    // intent/completion rows above deliberately remain and must not be adopted.
+    const removedEpochIntent = registryDatabase
+      .prepare(
+        `DELETE FROM mxqr_pro_room_admin_audit
+          WHERE room_code = ? AND room_generation = ?
+            AND action = 'legacy_duplicate_owner.detach.intent'
+            AND result LIKE 'authority:%:retained:%'`,
+      )
+      .run(targetRoomCode, roomGeneration);
+    expect(Number(removedEpochIntent.changes)).toBe(1);
+
+    entitlementPreflightFailures = 1;
+    const detachedEntitlementUnavailable = await appWorker.fetch(detachRequest(cookie), env);
+    expect(detachedEntitlementUnavailable.status).toBe(503);
+    await expect(detachedEntitlementUnavailable.json()).resolves.toEqual({
+      error: 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED',
+    });
+    expect(detachCalls).toBe(2);
+
+    auditFailures.set('legacy_duplicate_owner.detach', 1);
+    const auditPending = await appWorker.fetch(detachRequest(cookie), env);
+    expect(auditPending.status).toBe(503);
+    await expect(auditPending.json()).resolves.toEqual({
+      error: 'PRO_ROOM_OWNER_DETACH_AUDIT_PENDING',
+    });
+    expect(ackCalls).toBe(0);
+    expect(detachCalls).toBe(3);
+
+    const wrongRetainedReplay = await appWorker.fetch(detachRequest(cookie, '000001'), env);
+    expect(wrongRetainedReplay.status).toBe(409);
+    await expect(wrongRetainedReplay.json()).resolves.toEqual({
+      error: 'PRO_ROOM_LEGACY_OWNER_DETACH_INTENT_MISMATCH',
+    });
+    expect(detachCalls).toBe(3);
+
+    // The durable upgrade-bootstrap intent now proves the retained-owner
+    // precondition. A later legitimate transfer must not strand the already
+    // detached target before its completion audit and ack converge.
     if (retainedCanonical) {
       retainedCanonical.ownerAccountId = concurrentOwnerAccountId;
       retainedCanonical.ownerAuthorityEpoch += 1;
     }
-    const retainedCanonicalBeforeRecovery = structuredClone(retainedCanonical);
+    const retainedCanonicalAfterTransfer = structuredClone(retainedCanonical);
 
     const recovered = await appWorker.fetch(detachRequest(cookie), env);
     expect(recovered.status).toBe(200);
@@ -5748,7 +6485,7 @@ describe('Cloudflare app worker PRO room facade', () => {
         .get(ownerAccountId, targetRoomCode, roomGeneration),
     ).toBeUndefined();
     expect(canonicalRooms.get(targetRoomCode)?.ownerAuthorityRemoval?.projectionAcked).toBe(true);
-    expect(canonicalRooms.get(retainedRoomCode)).toEqual(retainedCanonicalBeforeRecovery);
+    expect(canonicalRooms.get(retainedRoomCode)).toEqual(retainedCanonicalAfterTransfer);
     expect(
       registryDatabase
         .prepare('SELECT * FROM mxqr_pro_room_registry WHERE room_code = ?')
@@ -5823,10 +6560,332 @@ describe('Cloudflare app worker PRO room facade', () => {
         )
         .get(targetRoomCode),
     ).toEqual(targetKeyAfterRecovery);
-    expect(canonicalRooms.get(retainedRoomCode)).toEqual(retainedCanonicalBeforeRecovery);
-    expect(signalingAttempts).toBe(3);
-    expect(detachCalls).toBe(3);
+    expect(canonicalRooms.get(retainedRoomCode)).toEqual(retainedCanonicalAfterTransfer);
+    expect(
+      registryDatabase
+        .prepare(
+          `SELECT action, result FROM mxqr_pro_room_admin_audit
+            WHERE room_code = ? AND room_generation = ?
+            ORDER BY id`,
+        )
+        .all(targetRoomCode, roomGeneration),
+    ).toEqual([
+      {
+        action: 'legacy_duplicate_owner.detach.intent',
+        result: `retained:${retainedRoomCode}:${roomGeneration}`,
+      },
+      { action: 'legacy_duplicate_owner.detach', result: 'changed' },
+      {
+        action: 'legacy_duplicate_owner.detach.intent.bootstrap',
+        result: `authority:4:upgrade-bootstrap:retained:${retainedRoomCode}:${roomGeneration}`,
+      },
+      {
+        action: 'legacy_duplicate_owner.detach',
+        result: `authority:4:upgrade-bootstrap:retained:${retainedRoomCode}:${roomGeneration}:reconciled`,
+      },
+    ]);
+    expect(
+      registryDatabase
+        .prepare(
+          `SELECT actor_id FROM mxqr_pro_room_admin_audit
+            WHERE room_code = ? AND room_generation = ?
+              AND action = 'legacy_duplicate_owner.detach.intent.bootstrap'`,
+        )
+        .get(targetRoomCode, roomGeneration),
+    ).toMatchObject({ actor_id: expect.stringMatching(/^admin_[A-Za-z0-9_-]{32}$/) });
+    expect(signalingAttempts).toBe(4);
+    expect(detachCalls).toBe(5);
     expect(ackCalls).toBe(2);
+  });
+
+  it('atomically supersedes only a stale pre-apply detach intent and freezes it after detach', async () => {
+    const targetRoomCode = '031109';
+    const staleRetainedRoomCode = '020925';
+    const replacementRoomCodes = ['020926', '020927'] as const;
+    const roomGeneration = 0;
+    const ownerAccountId = 'acct_0123456789abcdefghijkl';
+    const otherAccountId = 'acct_abcdefghijkl0123456789';
+    const now = Date.now();
+
+    const database = new sqlite.DatabaseSync(':memory:');
+    centralEntitlementDatabases.add(database);
+    database.exec(`
+      CREATE TABLE mxqr_pro_room_registry (
+        room_code TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        status TEXT NOT NULL,
+        suspension_reason TEXT,
+        activation_state TEXT NOT NULL,
+        room_generation INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO mxqr_pro_room_registry VALUES
+        ('${targetRoomCode}', 'Duplicate target', 'registered', NULL, 'active', 0, ${now}, ${now}),
+        ('${staleRetainedRoomCode}', 'Stale retained', 'registered', NULL, 'active', 0, ${now}, ${now}),
+        ('${replacementRoomCodes[0]}', 'Replacement one', 'registered', NULL, 'active', 0, ${now}, ${now}),
+        ('${replacementRoomCodes[1]}', 'Replacement two', 'registered', NULL, 'active', 0, ${now}, ${now});
+    `);
+    const registryDb = {
+      prepare: (sql: string) => new CentralEntitlementStatement(database.prepare(sql)),
+      async batch(statements: Array<{ run: () => Promise<unknown> }>) {
+        database.exec('BEGIN IMMEDIATE');
+        try {
+          const results = [];
+          for (const statement of statements) results.push(await statement.run());
+          database.exec('COMMIT');
+          return results;
+        } catch (error) {
+          database.exec('ROLLBACK');
+          throw error;
+        }
+      },
+    };
+    const centralDb = withCentralEntitlementLedger(registryDb, [
+      {
+        accountId: ownerAccountId,
+        roomCode: targetRoomCode,
+        roomGeneration,
+        sourceRef: `legacy-backfill:${targetRoomCode}:${roomGeneration}`,
+        status: 'active',
+      },
+    ]);
+
+    type CanonicalRoom = {
+      roomCode: string;
+      roomGeneration: number;
+      provisioned: true;
+      status: 'active' | 'suspended';
+      suspensionReason: string | null;
+      ownerAccountId: string | null;
+      ownerAuthorityEpoch: number;
+      ownerAuthorityRemoval: null | {
+        accountId: string;
+        removalId: string;
+        ownerAuthorityEpoch: number;
+        fencedCoordinatorEpoch: number;
+        projectionAcked: boolean;
+      };
+      ownerTransferReconciliation: null;
+    };
+    const canonicalRooms = new Map<string, CanonicalRoom>();
+    for (const code of [targetRoomCode, staleRetainedRoomCode, ...replacementRoomCodes]) {
+      canonicalRooms.set(code, {
+        roomCode: code,
+        roomGeneration,
+        provisioned: true,
+        status: 'active',
+        suspensionReason: null,
+        ownerAccountId,
+        ownerAuthorityEpoch: code === targetRoomCode ? 4 : 7,
+        ownerAuthorityRemoval: null,
+        ownerTransferReconciliation: null,
+      });
+    }
+
+    let detachCalls = 0;
+    const adminFetch = vi.fn(async (objectName: string, request: Request) => {
+      const roomCode = objectName.slice(0, 6);
+      const room = canonicalRooms.get(roomCode);
+      expect(room).toBeDefined();
+      const pathname = new URL(request.url).pathname;
+      if (pathname === '/internal/admin/status') {
+        return Response.json({
+          ...room,
+          ownerAccountLinked: room?.ownerAccountId !== null,
+        });
+      }
+      expect(roomCode).toBe(targetRoomCode);
+      expect(pathname).toBe('/internal/admin/owner-authority/detach');
+      detachCalls += 1;
+      return Response.json({ error: 'PRO_ROOM_ADMIN_UNAVAILABLE' }, { status: 503 });
+    });
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+      MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'assertion-secret-for-tests-at-least-32-bytes',
+      MUSIXQUARE_ADMIN_DB: centralDb,
+      PRO_ROOM_ADMIN_ROOMS: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn((name: string) => ({
+          fetch: (request: Request) => adminFetch(name, request),
+        })),
+      },
+    };
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.132' }),
+        body: JSON.stringify({ password: 'admin-pass' }),
+      }),
+      env,
+    );
+    expect(login.status).toBe(200);
+    const cookie = (login.headers.get('Set-Cookie') || '').split(';')[0];
+    const detachRequest = (retainRoomCode: string) =>
+      new Request(
+        `https://musixquare.com/api/admin/pro-rooms/${targetRoomCode}/legacy-owner-detach`,
+        {
+          method: 'POST',
+          headers: adminMutationHeaders({ Cookie: cookie }),
+          body: JSON.stringify({
+            roomGeneration,
+            retainRoomCode,
+            confirmRoomCode: targetRoomCode,
+          }),
+        },
+      );
+
+    const initial = await appWorker.fetch(detachRequest(staleRetainedRoomCode), env);
+    expect(initial.status).toBe(503);
+    await expect(initial.json()).resolves.toEqual({
+      error: 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED',
+    });
+    expect(detachCalls).toBe(1);
+
+    const staleRetained = canonicalRooms.get(staleRetainedRoomCode);
+    expect(staleRetained).toBeDefined();
+    if (staleRetained) {
+      staleRetained.ownerAccountId = otherAccountId;
+      staleRetained.ownerAuthorityEpoch += 1;
+    }
+
+    // Both replacements are valid, but the audit-id compare-and-swap permits
+    // exactly one append-only transition from the stale effective intent.
+    const competing = await Promise.all(
+      replacementRoomCodes.map((code) => appWorker.fetch(detachRequest(code), env)),
+    );
+    expect(competing.map((response) => response.status).sort()).toEqual([409, 503]);
+    const competingPayloads = await Promise.all(competing.map((response) => response.json()));
+    expect(competingPayloads).toContainEqual({
+      error: 'PRO_ROOM_LEGACY_OWNER_DETACH_INTENT_MISMATCH',
+    });
+    expect(competingPayloads).toContainEqual({
+      error: 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED',
+    });
+    expect(detachCalls).toBe(2);
+
+    const intentRows = () =>
+      database
+        .prepare(
+          `SELECT id, action, result FROM mxqr_pro_room_admin_audit
+            WHERE room_code = ? AND room_generation = ?
+              AND action IN (?, ?, ?)
+            ORDER BY id`,
+        )
+        .all(
+          targetRoomCode,
+          roomGeneration,
+          'legacy_duplicate_owner.detach.intent',
+          'legacy_duplicate_owner.detach.intent.bootstrap',
+          'legacy_duplicate_owner.detach.intent.supersede',
+        ) as Array<{ id: number; action: string; result: string }>;
+    const afterCompetition = intentRows();
+    expect(afterCompetition).toHaveLength(2);
+    expect(afterCompetition[0]).toMatchObject({
+      action: 'legacy_duplicate_owner.detach.intent',
+      result: `authority:4:retained:${staleRetainedRoomCode}:${roomGeneration}`,
+    });
+    expect(afterCompetition[1]).toMatchObject({
+      action: 'legacy_duplicate_owner.detach.intent.supersede',
+    });
+    expect(afterCompetition[1]?.result).toMatch(
+      new RegExp(
+        `^authority:4:supersede:${afterCompetition[0]?.id}:from:${staleRetainedRoomCode}:0:to:(?:${replacementRoomCodes.join('|')}):0$`,
+      ),
+    );
+    const effectiveRetainedRoomCode = afterCompetition[1]?.result.match(/:to:(0\d{5}):0$/)?.[1];
+    expect(replacementRoomCodes).toContain(effectiveRetainedRoomCode);
+    const competingRetainedRoomCode = replacementRoomCodes.find(
+      (code) => code !== effectiveRetainedRoomCode,
+    );
+    expect(competingRetainedRoomCode).toBeDefined();
+
+    const exactRetry = await appWorker.fetch(detachRequest(effectiveRetainedRoomCode || ''), env);
+    expect(exactRetry.status).toBe(503);
+    expect(detachCalls).toBe(3);
+    expect(intentRows()).toEqual(afterCompetition);
+
+    // A still-valid alternative cannot flip the effective chain back and
+    // create ping-pong transitions.
+    const losingRetry = await appWorker.fetch(detachRequest(competingRetainedRoomCode || ''), env);
+    expect(losingRetry.status).toBe(409);
+    await expect(losingRetry.json()).resolves.toEqual({
+      error: 'PRO_ROOM_LEGACY_OWNER_DETACH_INTENT_MISMATCH',
+    });
+    expect(detachCalls).toBe(3);
+    expect(intentRows()).toEqual(afterCompetition);
+
+    // Once the target is detached, even a newly stale retained room may only
+    // use the exact pre-detach effective intent; supersede is forbidden.
+    const target = canonicalRooms.get(targetRoomCode);
+    expect(target).toBeDefined();
+    if (target) {
+      target.status = 'suspended';
+      target.suspensionReason = 'ownership_transfer_pending';
+      target.ownerAccountId = null;
+      target.ownerAuthorityEpoch = 5;
+      target.ownerAuthorityRemoval = {
+        accountId: ownerAccountId,
+        removalId: 'removal_abcdefghijklmnopqrstuv',
+        ownerAuthorityEpoch: 5,
+        fencedCoordinatorEpoch: 9,
+        projectionAcked: false,
+      };
+    }
+    const detachedMismatch = await appWorker.fetch(
+      detachRequest(competingRetainedRoomCode || ''),
+      env,
+    );
+    expect(detachedMismatch.status).toBe(409);
+    await expect(detachedMismatch.json()).resolves.toEqual({
+      error: 'PRO_ROOM_LEGACY_OWNER_DETACH_INTENT_MISMATCH',
+    });
+    expect(detachCalls).toBe(3);
+    expect(intentRows()).toEqual(afterCompetition);
+
+    // Reset only the test audit roots to model an upgrade from a release that
+    // could leave this same detached DO state without an epoch intent. Two
+    // valid recovery operators may race, but only one bootstrap root wins.
+    const removedIntentChain = database
+      .prepare(
+        `DELETE FROM mxqr_pro_room_admin_audit
+          WHERE room_code = ? AND room_generation = ?
+            AND action IN (?, ?, ?)`,
+      )
+      .run(
+        targetRoomCode,
+        roomGeneration,
+        'legacy_duplicate_owner.detach.intent',
+        'legacy_duplicate_owner.detach.intent.bootstrap',
+        'legacy_duplicate_owner.detach.intent.supersede',
+      );
+    expect(Number(removedIntentChain.changes)).toBe(2);
+    const bootstrapCompetition = await Promise.all(
+      replacementRoomCodes.map((code) => appWorker.fetch(detachRequest(code), env)),
+    );
+    expect(bootstrapCompetition.map((response) => response.status).sort()).toEqual([409, 503]);
+    const bootstrapRows = intentRows();
+    expect(bootstrapRows).toHaveLength(1);
+    expect(bootstrapRows[0]).toMatchObject({
+      action: 'legacy_duplicate_owner.detach.intent.bootstrap',
+    });
+    expect(bootstrapRows[0]?.result).toMatch(
+      new RegExp(
+        `^authority:4:upgrade-bootstrap:retained:(?:${replacementRoomCodes.join('|')}):0$`,
+      ),
+    );
+    expect(detachCalls).toBe(4);
+
+    const bootstrapRetainedRoomCode = bootstrapRows[0]?.result.match(/:retained:(0\d{5}):0$/)?.[1];
+    expect(replacementRoomCodes).toContain(bootstrapRetainedRoomCode);
+    const bootstrapExactRetry = await appWorker.fetch(
+      detachRequest(bootstrapRetainedRoomCode || ''),
+      env,
+    );
+    expect(bootstrapExactRetry.status).toBe(503);
+    expect(detachCalls).toBe(5);
+    expect(intentRows()).toEqual(bootstrapRows);
   });
 
   it('acks each exact owner-removal projection and never replays a stale deletion over a new owner', async () => {

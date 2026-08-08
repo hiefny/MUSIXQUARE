@@ -1,4 +1,4 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Plugin, type UserConfig } from 'vite';
 import { resolve } from 'path';
 
 // Keep DNS rebinding protection enabled for local development. Vite always
@@ -6,6 +6,77 @@ import { resolve } from 'path';
 // one-off trusted tunnel can be added without weakening the global policy by
 // setting __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS to its exact hostname.
 const DEV_ALLOWED_HOSTS = ['localhost', '.localhost', '.musixquare.com'];
+
+const PRODUCTION_API_ORIGIN = 'https://musixquare.com';
+const PRODUCTION_API_PROXY_FLAG = 'MUSIXQUARE_DEV_PROXY_PRODUCTION_API';
+export const PRODUCTION_API_PROXY_PATHS = [
+  '/api/security-config',
+  '/api/capability-token',
+  '/api/capability-challenge',
+  '/api/youtube-search',
+  '/api/youtube-playlist-entry',
+  '/api/youtube-playlist-manifest',
+] as const;
+
+type DevEnvironment = Record<string, string | undefined>;
+
+export function productionApiProxyEnabled(env: DevEnvironment): boolean {
+  return (
+    String(env[PRODUCTION_API_PROXY_FLAG] || '')
+      .trim()
+      .toLowerCase() === 'true'
+  );
+}
+
+function failClosedDevApi(proxyEnabled: boolean): Plugin {
+  const matchesProductionProxy = (pathname: string) =>
+    PRODUCTION_API_PROXY_PATHS.some((candidate) => pathname === candidate);
+  return {
+    name: 'fail-closed-dev-api',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        let pathname = '';
+        try {
+          pathname = new URL(req.url || '/', 'http://localhost').pathname;
+        } catch {
+          next();
+          return;
+        }
+        const isApiPath = pathname === '/api' || pathname.startsWith('/api/');
+        if (!isApiPath || (proxyEnabled && matchesProductionProxy(pathname))) {
+          next();
+          return;
+        }
+
+        const productionProxyDisabled = matchesProductionProxy(pathname);
+        const body = JSON.stringify({
+          error: productionProxyDisabled ? 'LOCAL_API_PROXY_DISABLED' : 'LOCAL_API_NOT_CONFIGURED',
+          message: productionProxyDisabled
+            ? 'Local Vite does not proxy MUSIXQUARE production APIs unless explicitly enabled.'
+            : 'This API route needs an explicit local mock or Worker backend.',
+        });
+        res.statusCode = 503;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end(req.method === 'HEAD' ? undefined : body);
+      });
+    },
+  };
+}
+
+function productionApiProxy() {
+  return Object.fromEntries(
+    PRODUCTION_API_PROXY_PATHS.map((pathname) => [
+      pathname,
+      {
+        target: PRODUCTION_API_ORIGIN,
+        changeOrigin: true,
+        secure: true,
+      },
+    ]),
+  );
+}
 
 // Emits static workshop pages at dist root (instead of dist/.workshop/**/)
 // so the static host can serve them without exposing dotfolder paths.
@@ -147,73 +218,126 @@ const guardInitialAppBundleGraph = (): Plugin => ({
   },
 });
 
-export default defineConfig({
-  root: '.',
-  publicDir: 'public',
-  resolve: {
-    alias: {
-      '@': resolve(__dirname, 'src'),
-    },
-  },
-  plugins: [
-    flattenWorkshopHtml(),
-    devPageAliases(),
-    prioritizeStylesheetsInHtml(),
-    guardInitialAppBundleGraph(),
-  ],
-  build: {
-    outDir: 'dist',
-    target: 'es2022',
-    sourcemap: false,
-    rollupOptions: {
-      input: {
-        main: resolve(__dirname, 'index.html'),
-        landing: resolve(__dirname, '.workshop/landing/landing.html'),
-        privacy: resolve(__dirname, '.workshop/privacy/privacy.html'),
-        terms: resolve(__dirname, '.workshop/terms/terms.html'),
-        faq: resolve(__dirname, '.workshop/faq/faq.html'),
-        developers: resolve(__dirname, '.workshop/developers/developers.html'),
+const EXPECTED_PLAYLIST_DYNAMIC_IMPORTERS = [
+  'src/player/decode.ts',
+  'src/player/playback.ts',
+  'src/player/transport.ts',
+  'src/player/transport.ts',
+  'src/player/transport.ts',
+  'src/storage/preload.ts',
+] as const;
+const EXPECTED_PLAYLIST_STATIC_IMPORTERS = [
+  'src/app.ts',
+  'src/pro-room/runtime.ts',
+  'src/ui/player-controls.ts',
+] as const;
+
+function repositoryModulePath(moduleId: string): string {
+  const normalized = moduleId.trim().replace(/\\/gu, '/');
+  const sourceIndex = normalized.lastIndexOf('/src/');
+  return sourceIndex === -1 ? normalized.replace(/^\.\//u, '') : normalized.slice(sourceIndex + 1);
+}
+
+function hasExactMultiset(actual: string[], expected: readonly string[]): boolean {
+  if (actual.length !== expected.length) return false;
+  const remaining = new Map<string, number>();
+  for (const value of expected) remaining.set(value, (remaining.get(value) || 0) + 1);
+  for (const value of actual) {
+    const count = remaining.get(value) || 0;
+    if (count === 0) return false;
+    if (count === 1) remaining.delete(value);
+    else remaining.set(value, count - 1);
+  }
+  return remaining.size === 0;
+}
+
+export function isExpectedPlaylistImportOverlapWarning(message: string): boolean {
+  const match =
+    /^(?:\[plugin vite:reporter\]\s+)?\(!\)\s+(.+?) is dynamically imported by (.+?) but also statically imported by (.+?), dynamic import will not move module into another chunk\.$/u.exec(
+      message.trim(),
+    );
+  if (!match) return false;
+
+  const [, target, dynamicImporters, staticImporters] = match;
+  return (
+    repositoryModulePath(target) === 'src/player/playlist.ts' &&
+    hasExactMultiset(
+      dynamicImporters.split(', ').map(repositoryModulePath),
+      EXPECTED_PLAYLIST_DYNAMIC_IMPORTERS,
+    ) &&
+    hasExactMultiset(
+      staticImporters.split(', ').map(repositoryModulePath),
+      EXPECTED_PLAYLIST_STATIC_IMPORTERS,
+    )
+  );
+}
+
+export function createViteConfig(env: DevEnvironment = {}): UserConfig {
+  const proxyProductionApi = productionApiProxyEnabled(env);
+  return {
+    root: '.',
+    publicDir: 'public',
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, 'src'),
       },
-      output: {
-        manualChunks: {
-          peerjs: ['peerjs'],
+    },
+    plugins: [
+      flattenWorkshopHtml(),
+      devPageAliases(),
+      failClosedDevApi(proxyProductionApi),
+      prioritizeStylesheetsInHtml(),
+      guardInitialAppBundleGraph(),
+    ],
+    build: {
+      outDir: 'dist',
+      target: 'es2022',
+      sourcemap: false,
+      rollupOptions: {
+        onwarn(warning, warn) {
+          // playlist.ts is already part of the startup graph, but its reviewed
+          // dynamic imports deliberately defer calls across player/preload
+          // cycles. Permit only the exact current importer multiset (including
+          // transport.ts's three distinct call sites); any graph drift fails.
+          if (isExpectedPlaylistImportOverlapWarning(warning.message)) {
+            return;
+          }
+          if (
+            warning.message.includes('is dynamically imported by') &&
+            warning.message.includes('but also statically imported by')
+          ) {
+            throw new Error(`Unreviewed static/dynamic import overlap: ${warning.message}`);
+          }
+          warn(warning);
+        },
+        input: {
+          main: resolve(__dirname, 'index.html'),
+          landing: resolve(__dirname, '.workshop/landing/landing.html'),
+          privacy: resolve(__dirname, '.workshop/privacy/privacy.html'),
+          terms: resolve(__dirname, '.workshop/terms/terms.html'),
+          faq: resolve(__dirname, '.workshop/faq/faq.html'),
+          developers: resolve(__dirname, '.workshop/developers/developers.html'),
+        },
+        output: {
+          manualChunks: {
+            peerjs: ['peerjs'],
+          },
         },
       },
     },
-  },
-  server: {
-    port: 3000,
-    open: true,
-    allowedHosts: DEV_ALLOWED_HOSTS,
-    proxy: {
-      '/api/security-config': {
-        target: 'https://musixquare.com',
-        changeOrigin: true,
-        secure: true,
-      },
-      '/api/capability-token': {
-        target: 'https://musixquare.com',
-        changeOrigin: true,
-        secure: true,
-      },
-      '/api/capability-challenge': {
-        target: 'https://musixquare.com',
-        changeOrigin: true,
-        secure: true,
-      },
-      '/api/youtube-search': {
-        target: 'https://musixquare.com',
-        changeOrigin: true,
-        secure: true,
-      },
-      '/api/youtube-playlist-entry': {
-        target: 'https://musixquare.com',
-        changeOrigin: true,
-        secure: true,
-      },
+    server: {
+      port: 3000,
+      open: true,
+      allowedHosts: DEV_ALLOWED_HOSTS,
+      proxy: proxyProductionApi ? productionApiProxy() : undefined,
     },
-  },
-  worker: {
-    format: 'es',
-  },
+    worker: {
+      format: 'es',
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => {
+  const fileEnvironment = loadEnv(mode, process.cwd(), '');
+  return createViteConfig({ ...fileEnvironment, ...process.env });
 });

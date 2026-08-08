@@ -29,6 +29,7 @@ const ACCOUNT_A = `acct_${'A'.repeat(22)}`;
 const ACCOUNT_B = `acct_${'B'.repeat(22)}`;
 const ACCOUNT_C = `acct_${'C'.repeat(22)}`;
 const PEPPER = 'pro-grant-test-pepper-that-is-at-least-32-bytes';
+const MAX_PRO_GRANT_BODY_BYTES = 32 * 1024;
 
 type SqlValue = string | number | bigint | Uint8Array | null;
 
@@ -126,6 +127,39 @@ async function voucherDigest(slug: string, code: string) {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
+function streamingRequestBody(
+  chunks: Uint8Array[],
+  observer: { pulls: number; cancellations: number } = { pulls: 0, cancellations: 0 },
+) {
+  let index = 0;
+  const stream = new ReadableStream<Uint8Array>(
+    {
+      pull(controller) {
+        observer.pulls += 1;
+        if (index === chunks.length) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(chunks[index++]);
+      },
+      cancel() {
+        observer.cancellations += 1;
+      },
+    },
+    { highWaterMark: 0 },
+  );
+  return { stream, observer };
+}
+
+function adminStreamingRequest(bodyStream: ReadableStream<Uint8Array>, contentType?: string) {
+  return request('/api/admin/pro-grants/campaigns', {
+    method: 'POST',
+    headers: contentType ? { 'content-type': contentType } : undefined,
+    body: bodyStream,
+    duplex: 'half',
+  } as RequestInit & { duplex: 'half' });
+}
+
 function seedEntitlement(
   database: D1['database'],
   input: {
@@ -156,6 +190,190 @@ function seedEntitlement(
       input.now,
     );
 }
+
+describe('PRO grant JSON request limits', () => {
+  let db: D1 | null = null;
+  afterEach(() => {
+    db?.close();
+    db = null;
+  });
+
+  it('accepts an exact-limit streamed JSON object with split UTF-8 bytes', async () => {
+    db = new D1();
+    const base = {
+      slug: 'stream-boundary',
+      title: '한Boundary',
+      startsAt: 1,
+      endsAt: null,
+      perAccountLimit: 1,
+      dryRun: true,
+    };
+    const encoder = new TextEncoder();
+    const baseJson = JSON.stringify(base);
+    const json = `${baseJson}${' '.repeat(
+      MAX_PRO_GRANT_BODY_BYTES - encoder.encode(baseJson).byteLength,
+    )}`;
+    const encoded = encoder.encode(json);
+    expect(encoded.byteLength).toBe(MAX_PRO_GRANT_BODY_BYTES);
+    const koreanByte = encoded.indexOf(0xed);
+    expect(koreanByte).toBeGreaterThan(0);
+    const { stream } = streamingRequestBody([
+      encoded.slice(0, koreanByte + 1),
+      encoded.slice(koreanByte + 1),
+    ]);
+    const streamedRequest = adminStreamingRequest(stream, 'application/json; charset=utf-8');
+    expect(streamedRequest.headers.get('content-length')).toBeNull();
+
+    const response = await handleProGrantAdminRequest(
+      streamedRequest,
+      { MUSIXQUARE_ADMIN_DB: db },
+      new URL(streamedRequest.url),
+      {},
+    );
+
+    expect(response?.status).toBe(200);
+    expect(await body(response!)).toMatchObject({
+      campaign: { slug: 'stream-boundary' },
+      dryRun: true,
+      created: false,
+    });
+  });
+
+  it('cancels a lengthless stream as soon as it exceeds the limit', async () => {
+    db = new D1();
+    const observer = { pulls: 0, cancellations: 0 };
+    const { stream } = streamingRequestBody(
+      [
+        new Uint8Array(MAX_PRO_GRANT_BODY_BYTES).fill(0x20),
+        new Uint8Array([0x20]),
+        new Uint8Array(1024).fill(0x20),
+      ],
+      observer,
+    );
+    const streamedRequest = adminStreamingRequest(stream, 'application/json');
+    expect(streamedRequest.headers.get('content-length')).toBeNull();
+
+    const response = await handleProGrantAdminRequest(
+      streamedRequest,
+      { MUSIXQUARE_ADMIN_DB: db },
+      new URL(streamedRequest.url),
+      {},
+    );
+
+    expect(response?.status).toBe(400);
+    expect(await body(response!)).toEqual({ error: 'INVALID_REQUEST' });
+    expect(observer).toEqual({ pulls: 2, cancellations: 1 });
+  });
+
+  it('maps a request-body reader failure to the existing invalid-request response', async () => {
+    db = new D1();
+    let pullCount = 0;
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pullCount += 1;
+          if (pullCount === 1) {
+            controller.enqueue(new TextEncoder().encode('{"slug":'));
+            return;
+          }
+          controller.error(new Error('stream failed'));
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const streamedRequest = adminStreamingRequest(stream, 'application/json');
+
+    const response = await handleProGrantAdminRequest(
+      streamedRequest,
+      { MUSIXQUARE_ADMIN_DB: db },
+      new URL(streamedRequest.url),
+      {},
+    );
+
+    expect(response?.status).toBe(400);
+    expect(await body(response!)).toEqual({ error: 'INVALID_REQUEST' });
+    expect(pullCount).toBe(2);
+  });
+
+  it('rejects malformed UTF-8 instead of normalizing it into a mutation', async () => {
+    db = new D1();
+    const prefix = new TextEncoder().encode('{"slug":"invalid-utf8","title":"');
+    const suffix = new TextEncoder().encode(
+      '","startsAt":1,"endsAt":null,"perAccountLimit":1,"dryRun":true}',
+    );
+    const bytes = new Uint8Array(prefix.byteLength + 2 + suffix.byteLength);
+    bytes.set(prefix, 0);
+    bytes.set([0xc3, 0x28], prefix.byteLength);
+    bytes.set(suffix, prefix.byteLength + 2);
+    const { stream } = streamingRequestBody([bytes]);
+    const streamedRequest = adminStreamingRequest(stream, 'application/json');
+
+    const response = await handleProGrantAdminRequest(
+      streamedRequest,
+      { MUSIXQUARE_ADMIN_DB: db },
+      new URL(streamedRequest.url),
+      {},
+    );
+
+    expect(response?.status).toBe(400);
+    expect(await body(response!)).toEqual({ error: 'INVALID_REQUEST' });
+  });
+
+  it('keeps the bounded response when reader cancellation never settles', async () => {
+    db = new D1();
+    const streamedRequest = request('/api/admin/pro-grants/campaigns', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    });
+    Object.defineProperty(streamedRequest, 'body', {
+      value: {
+        getReader: () => ({
+          read: async () => ({
+            done: false,
+            value: new Uint8Array(MAX_PRO_GRANT_BODY_BYTES + 1),
+          }),
+          cancel: () => new Promise<void>(() => {}),
+          releaseLock: () => {
+            throw new Error('release failed');
+          },
+        }),
+      },
+    });
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const response = await Promise.race([
+      handleProGrantAdminRequest(
+        streamedRequest,
+        { MUSIXQUARE_ADMIN_DB: db },
+        new URL(streamedRequest.url),
+        {},
+      ),
+      new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('bounded response stalled on cancel')), 100);
+      }),
+    ]).finally(() => clearTimeout(timeoutId));
+
+    expect(response?.status).toBe(400);
+    expect(await body(response!)).toEqual({ error: 'INVALID_REQUEST' });
+  });
+
+  it('preserves JSON_REQUIRED without consuming a non-JSON stream', async () => {
+    db = new D1();
+    const { stream, observer } = streamingRequestBody([new TextEncoder().encode('{}')]);
+    const streamedRequest = adminStreamingRequest(stream);
+
+    const response = await handleProGrantAdminRequest(
+      streamedRequest,
+      { MUSIXQUARE_ADMIN_DB: db },
+      new URL(streamedRequest.url),
+      {},
+    );
+
+    expect(response?.status).toBe(400);
+    expect(await body(response!)).toEqual({ error: 'JSON_REQUIRED' });
+    expect(observer).toEqual({ pulls: 0, cancellations: 0 });
+  });
+});
 
 describe('generic PRO grant redemption', () => {
   let db: D1 | null = null;

@@ -15,7 +15,9 @@ import { copyTextToClipboard, syncOverlayState } from './dom.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { navigateToAppHome } from '../core/navigation.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
+import { retryPeerSignalingConnection } from '../network/peer.ts';
 import { normalizeProRoomPin } from '../pro-room/room-code.ts';
+import { restartProRoomTransportRecovery } from '../pro-room/transport-recovery.ts';
 import { requestAccountNicknameChange } from './account.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { groupConnectedRoomMembers, type ConnectedRoomMember } from '../rooms/member-directory.ts';
@@ -413,11 +415,13 @@ function initSignalingRecoveryDialog(): void {
 }
 
 async function retrySignalingConnection(): Promise<boolean> {
+  // Manual recovery begins on the next microtask. The former dynamic imports
+  // supplied this boundary implicitly; keep it explicit so a stale inherited
+  // `exhausted` render cannot be mistaken for the result of the new attempt.
+  await Promise.resolve();
   if (getRoomContext().kind === 'pro') {
-    const { restartProRoomTransportRecovery } = await import('../pro-room/transport-recovery.ts');
     return restartProRoomTransportRecovery();
   }
-  const { retryPeerSignalingConnection } = await import('../network/peer.ts');
   return retryPeerSignalingConnection();
 }
 

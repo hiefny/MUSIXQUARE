@@ -1,4 +1,4 @@
-const ADMIN_SCRIPT_VERSION = '8.3.19';
+const ADMIN_SCRIPT_VERSION = '8.3.20';
 window.__MXQR_ADMIN_SCRIPT_VERSION__ = ADMIN_SCRIPT_VERSION;
 
 const root = document.querySelector('.admin-shell');
@@ -63,6 +63,9 @@ let currentAdminTab = 'operations';
 let proRoomsLoaded = false;
 let articlesLoaded = false;
 let announcementLoaded = false;
+let currentAnnouncementRevision = null;
+let pendingAnnouncementMutation = null;
+let announcementMutationBusy = false;
 let serviceStatusLoaded = false;
 let currentServiceStatus = null;
 let serviceStatusBusy = false;
@@ -587,6 +590,9 @@ function showLogin(message = '', { invalidateSession = true } = {}) {
   renderProGrantCampaignState(null);
   articlesLoaded = false;
   announcementLoaded = false;
+  currentAnnouncementRevision = null;
+  pendingAnnouncementMutation = null;
+  setAnnouncementMutationBusy(false);
   serviceStatusLoaded = false;
   currentServiceStatus = null;
   serviceStatusRequestId = null;
@@ -1078,6 +1084,18 @@ function adminErrorMessage(error, fallback) {
   if (message === 'PRO_ROOM_ADMIN_UNAVAILABLE') return 'The PRO room service is unavailable.';
   if (message === 'PRO_ROOM_AUDIT_UNAVAILABLE') {
     return 'The action was withheld because the audit log is unavailable.';
+  }
+  if (message === 'PRO_ROOM_LEGACY_OWNER_DETACH_INTENT_MISMATCH') {
+    return 'This repair was started with a different retained room. Retry with the exact same retained room number.';
+  }
+  if (message === 'PRO_ROOM_OWNER_DETACH_AUDIT_PENDING') {
+    return 'The owner repair is awaiting its completion audit. Keep this page open and retry the exact same repair; retrying is safe.';
+  }
+  if (message === 'ADMIN_ANNOUNCEMENT_CONFLICT') {
+    return 'The announcement changed in another session. The latest state has been loaded.';
+  }
+  if (message === 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE') {
+    return 'The announcement control is temporarily unavailable. If this followed a save, keep the page open and retry the same save; retrying is safe.';
   }
   if (message === 'PRO_ROOM_PROVISIONING_INCOMPLETE') {
     return 'Provisioning is incomplete. Retry from the room list.';
@@ -1726,7 +1744,7 @@ async function detachProRoomLegacyOwner() {
       if (visibleProRoomClaimIncarnation === incarnationKey) dismissProRoomClaim();
     }
     setProRoomStatus(
-      `${target.roomCode} owner authority detached. The room is suspended pending ownership transfer; ${retainedRoomCode} remains linked to the account.`,
+      `${target.roomCode} owner authority detached. The room is suspended pending ownership transfer; ${retainedRoomCode} was verified as the retained room when this repair began.`,
     );
     try {
       await loadProRooms();
@@ -1744,6 +1762,7 @@ async function detachProRoomLegacyOwner() {
     if (proRoomLegacyOwnerDetachTarget !== target) return;
     const safeRetryRequired =
       detachError?.message === 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED' ||
+      detachError?.message === 'PRO_ROOM_OWNER_DETACH_AUDIT_PENDING' ||
       detachError?.code === 'ADMIN_MUTATION_OUTCOME_UNKNOWN';
     setProRoomLegacyOwnerDetachBusy(false);
     error.textContent = safeRetryRequired
@@ -3902,7 +3921,22 @@ function renderAnnouncementHistory(payload) {
   );
 }
 
+function setAnnouncementMutationBusy(busy) {
+  announcementMutationBusy = busy;
+  const controls = new Set([
+    announcementMessageEl,
+    announcementEnabledEl,
+    announcementExpiresEl,
+    announcementClearBtn,
+    ...(announcementForm?.querySelectorAll('button, input, textarea') || []),
+  ]);
+  for (const control of controls) {
+    if (control) control.disabled = busy;
+  }
+}
+
 async function loadAnnouncement(options = {}) {
+  if (announcementMutationBusy) return null;
   const load = beginLatestAdminLoad('announcement');
   if (announcementStatusEl) announcementStatusEl.textContent = 'Refreshing...';
   try {
@@ -3910,6 +3944,14 @@ async function loadAnnouncement(options = {}) {
       signal: load.controller.signal,
     });
     throwIfAdminLoadStale(load);
+    if (!Number.isSafeInteger(payload?.revision) || payload.revision < 0) {
+      throw adminRequestError(
+        'ADMIN_RESPONSE_INVALID',
+        'The server returned an invalid announcement revision.',
+      );
+    }
+    currentAnnouncementRevision = payload.revision;
+    pendingAnnouncementMutation = null;
     renderAnnouncement(payload);
     renderAnnouncementHistory(payload);
     announcementLoaded = true;
@@ -3923,22 +3965,73 @@ async function loadAnnouncement(options = {}) {
 }
 
 async function saveAnnouncement({ clear = false } = {}) {
+  if (announcementMutationBusy) return null;
   const message = clear ? '' : String(announcementMessageEl?.value || '').trim();
   const enabled = clear ? false : Boolean(announcementEnabledEl?.checked);
   const expiresValue = clear ? '' : String(announcementExpiresEl?.value || '').trim();
-  if (announcementStatusEl) announcementStatusEl.textContent = clear ? 'Clearing...' : 'Saving...';
-  const payload = await fetchJson('/api/admin/announcement', {
-    method: 'POST',
-    body: JSON.stringify({
-      message,
-      enabled,
-      expiresAt: parseAnnouncementExpiresValue(expiresValue),
-    }),
+  if (!Number.isSafeInteger(currentAnnouncementRevision) || currentAnnouncementRevision < 0) {
+    throw adminRequestError(
+      'ADMIN_ANNOUNCEMENT_STATE_UNAVAILABLE',
+      'Refresh the announcement before saving.',
+    );
+  }
+  const expiresAt = parseAnnouncementExpiresValue(expiresValue);
+  const signature = JSON.stringify({
+    message,
+    enabled,
+    expiresAt,
+    expectedRevision: currentAnnouncementRevision,
   });
-  renderAnnouncement(payload);
-  renderAnnouncementHistory(payload);
-  announcementLoaded = true;
-  updatedAtEl.textContent = `Updated ${formatAdminDateTime(Date.now())}`;
+  if (pendingAnnouncementMutation?.signature !== signature) {
+    pendingAnnouncementMutation = { signature, requestId: createAdminRequestId() };
+  }
+  const mutation = pendingAnnouncementMutation;
+  const expectedRevision = currentAnnouncementRevision;
+  setAnnouncementMutationBusy(true);
+  if (announcementStatusEl) announcementStatusEl.textContent = clear ? 'Clearing...' : 'Saving...';
+  try {
+    const payload = await fetchJson('/api/admin/announcement', {
+      method: 'POST',
+      body: JSON.stringify({
+        message,
+        enabled,
+        expiresAt,
+        expectedRevision,
+        requestId: mutation.requestId,
+      }),
+    });
+    if (!Number.isSafeInteger(payload?.revision) || payload.revision < 1) {
+      throw adminRequestError(
+        'ADMIN_RESPONSE_INVALID',
+        'The server returned an invalid announcement revision.',
+      );
+    }
+    currentAnnouncementRevision = payload.revision;
+    if (pendingAnnouncementMutation === mutation) pendingAnnouncementMutation = null;
+    renderAnnouncement(payload);
+    renderAnnouncementHistory(payload);
+    announcementLoaded = true;
+    updatedAtEl.textContent = `Updated ${formatAdminDateTime(Date.now())}`;
+  } catch (error) {
+    if (
+      error?.message === 'ADMIN_ANNOUNCEMENT_CONFLICT' &&
+      Number.isSafeInteger(error?.payload?.revision) &&
+      error.payload.revision >= currentAnnouncementRevision
+    ) {
+      currentAnnouncementRevision = error.payload.revision;
+      renderAnnouncement(error.payload);
+      renderAnnouncementHistory(error.payload);
+      if (pendingAnnouncementMutation === mutation) pendingAnnouncementMutation = null;
+    } else if (
+      error?.message !== 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' &&
+      error?.code !== 'ADMIN_MUTATION_OUTCOME_UNKNOWN'
+    ) {
+      if (pendingAnnouncementMutation === mutation) pendingAnnouncementMutation = null;
+    }
+    throw error;
+  } finally {
+    setAnnouncementMutationBusy(false);
+  }
 }
 
 async function loadAuthenticatedDashboard({ activateAnalytics = true } = {}) {

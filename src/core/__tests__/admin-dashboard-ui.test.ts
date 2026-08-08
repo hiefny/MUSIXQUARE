@@ -1426,10 +1426,7 @@ describe('admin PRO room operations dashboard', () => {
       if (url.pathname === '/api/admin/pro-rooms/031108/legacy-owner-detach') {
         detachRequests.push(init || {});
         if (detachRequests.length === 1) {
-          return Response.json(
-            { error: 'PRO_ROOM_OWNER_DETACH_RECONCILIATION_REQUIRED' },
-            { status: 503 },
-          );
+          return Response.json({ error: 'PRO_ROOM_OWNER_DETACH_AUDIT_PENDING' }, { status: 503 });
         }
         detached = true;
         return Response.json({

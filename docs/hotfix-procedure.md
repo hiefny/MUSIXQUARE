@@ -160,6 +160,15 @@ deployment without Git provenance remains deliberately unverifiable; after
 such a rollback, the next approved release must use target `all` to establish
 a fresh common baseline.
 
+The `admin-announcement-v1` service-control marker is also a permanent
+forward-only data floor once its App/PRO pair has deployed or the global
+service-control object has recorded announcement revision 1 or later. Do not
+manually restore or intentionally deploy an App or PRO Worker from before that
+marker: the old App reads the legacy KV copy and can revive a stale notice while
+the durable object retains a different canonical revision. Automatic recovery
+skips that unsafe downgrade. For manual recovery, keep both Workers at or above
+the marker and use an `all` target roll-forward/forward-repair release.
+
 If the rollback report records a conflict or exhausted retry, inspect the live
 version before taking manual action. Deployment records and the Actions summary
 are written even when recovery itself fails, after which an explicit final gate

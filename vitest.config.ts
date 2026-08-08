@@ -104,10 +104,13 @@ export default defineConfig({
         'src/core/session-scope.ts',
       ],
       thresholds: {
-        lines: 60,
-        functions: 55,
-        branches: 45,
-        statements: 60,
+        // Node 24 broad baseline (2026-08-08): statements 79.12,
+        // branches 72.72, functions 87.01, lines 82.87. Leave a small
+        // instrumentation margin while making the PR job a real ratchet.
+        lines: 81,
+        functions: 85,
+        branches: 71,
+        statements: 78,
       },
     },
   },

@@ -31,11 +31,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
 
       - name: Typecheck
         run: npm run typecheck
@@ -45,6 +45,9 @@ jobs:
 
       - name: Formatting
         run: npm run format:check
+
+      - name: Dependency security audit
+        run: npm run security:audit
 
       - name: Worker syntax check
         run: npm run check:workers
@@ -72,14 +75,37 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
 
       - name: Unit tests
         run: npm test -- --shard=${{ matrix.shard }}
+
+  broad-coverage:
+    name: Broad unit coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
+
+      - name: Broad unit coverage ratchet
+        run: npm run test:coverage
 
   coverage:
     name: Critical runtime coverage
@@ -95,11 +121,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
 
       - name: Critical runtime coverage
         run: npm run test:coverage:critical
@@ -119,11 +145,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
 
       - name: Build and verify production bundle
         run: npm run build:checked

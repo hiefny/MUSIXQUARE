@@ -7,6 +7,7 @@
  */
 
 import { bus } from '../core/events.ts';
+import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX, BOT_RATE_LIMIT_MAX_RETRY_SECONDS } from '../core/constants.ts';
 import { sendToHost } from '../network/peer.ts';
@@ -29,7 +30,6 @@ import {
   type BotChatResult,
 } from './protocol.ts';
 import { playAnnouncementSound } from '../audio/ui-sounds.ts';
-import { cmdDebug } from './debug-console.ts';
 import { extractBotPrompt } from './bot-syntax.ts';
 import { isAccountAuthenticated } from '../account/state.ts';
 import {
@@ -686,6 +686,18 @@ function cmdBot(_args: string[], rawArgs: string, context?: CommandExecutionCont
   void runBotCommand(rawArgs, context?.botRequestId);
 }
 
+async function cmdDebugLazy(args: string[], _rawArgs: string): Promise<void> {
+  // The diagnostics console is a manual-only surface. Keep its DOM renderer
+  // and snapshot formatters out of the startup graph, while preserving the
+  // synchronous command dispatcher contract for every ordinary command.
+  try {
+    const debugConsole = await import('./debug-console.ts');
+    debugConsole.cmdDebug(args);
+  } catch (error) {
+    log.error('[Chat] Failed to load the debug console', error);
+  }
+}
+
 // ─── Command Registry ───────────────────────────────────────────
 
 // usage/description use i18n keys, resolved at access time via getAvailableCommands()
@@ -792,7 +804,7 @@ const COMMANDS_DEF: Record<
   },
   debug: {
     permission: 'all',
-    execute: cmdDebug,
+    execute: cmdDebugLazy,
     usageKey: 'chat.cmd_u_debug',
     descKey: 'chat.cmd_d_debug',
   },

@@ -35,6 +35,7 @@ import {
 import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
 import { initSyncFlightRecorder } from './diagnostics/sync-flight-recorder.ts';
 import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
+import { schedulePrimaryFontLoad } from './ui/app-font.ts';
 import {
   isSessionResetPending,
   restoreSessionReset,
@@ -616,6 +617,8 @@ async function bootstrap(): Promise<void> {
 }
 
 // Run bootstrap
+schedulePrimaryFontLoad();
+
 function runBootstrap(): void {
   publishBootstrapDataset('bootstrapping');
   void bootstrap().catch((e) => {

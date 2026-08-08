@@ -8,10 +8,12 @@ import {
   attemptedStates,
   changedAppRuntimeDependencies,
   changedRuntimePaths,
+  contractCutoverRequiresForwardRepair,
   npmInvocation,
   preflight,
   productionVersion,
   queryCurrent,
+  recheckPartialReleaseCompatibility,
   releaseGitSha,
   releaseTargetWorkers,
   runtimePathsForWorker,
@@ -62,7 +64,7 @@ afterEach(() => {
 });
 
 describe('release deployment rollback state', () => {
-  it('runs a production-state preflight immediately before every Worker deploy', () => {
+  it('rechecks unselected Workers before the selected Worker preflight and every deploy', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
     for (const target of [
       'remote-share',
@@ -74,7 +76,11 @@ describe('release deployment rollback state', () => {
     ]) {
       expect(workflow).toMatch(
         new RegExp(
-          `preflight ${target}\\s+node scripts/release-deployment-state\\.mjs attempt ${target}` +
+          `if \\[\\[ "\\$RELEASE_TARGET" != 'all' \\]\\]; then` +
+            `\\s+node scripts/release-deployment-state\\.mjs compatibility-recheck ` +
+            `"\\$RELEASE_TARGET" "\\$GITHUB_SHA"\\s+fi` +
+            `\\s+node scripts/release-deployment-state\\.mjs preflight ${target}` +
+            `\\s+node scripts/release-deployment-state\\.mjs attempt ${target}` +
             `\\s+set \\+e\\s+npm run --silent wrangler -- deploy`,
         ),
       );
@@ -306,6 +312,96 @@ describe('release deployment rollback state', () => {
     expect(runtimePathsForWorker('app')).toContain(marker);
   });
 
+  it('requires a full release when the app-to-service-control contract changes', () => {
+    const marker = 'cloudflare/service-control-contract-version.txt';
+    expect(runtimePathsForWorker('pro-room')).toContain(marker);
+    expect(runtimePathsForWorker('app')).toContain(marker);
+
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const stepStart = workflow.indexOf(
+      '- name: Require a full release for service-control contract cutovers',
+    );
+    const stepEnd = workflow.indexOf('\n      - name:', stepStart + 1);
+    const step = workflow.slice(stepStart, stepEnd);
+    expect(stepStart).toBeGreaterThan(-1);
+    expect(step).toContain("contract_marker='cloudflare/service-control-contract-version.txt'");
+    expect(step).toContain("inputs.target }}\" != 'all'");
+
+    const rollbackStepStart = workflow.indexOf(
+      '- name: Restore Worker deployments after a failed release',
+    );
+    const rollbackStepEnd = workflow.indexOf('\n      - name:', rollbackStepStart + 1);
+    const rollbackStep = workflow.slice(rollbackStepStart, rollbackStepEnd);
+    expect(readFileSync(SCRIPT_PATH, 'utf8')).toContain(
+      'cloudflare/service-control-contract-version.txt',
+    );
+    expect(rollbackStep).toContain('service-control-forward-floor "$GITHUB_SHA"');
+    expect(rollbackStep).not.toContain('git diff --quiet "${GITHUB_SHA}^"');
+    expect(rollbackStep).toContain('for target in pro-room app');
+  });
+
+  it('keeps a multi-commit first service-control cutover on the forward-repair floor', () => {
+    const repository = createDirectory();
+    const deploymentDirectory = resolve(repository, 'deployments');
+    mkdirSync(deploymentDirectory, { recursive: true });
+    const git = (args: string[], options: { capture?: boolean } = {}): string =>
+      execFileSync('git', ['-C', repository, ...args], {
+        encoding: 'utf8',
+        stdio: options.capture ? ['ignore', 'pipe', 'inherit'] : 'pipe',
+      });
+    git(['init', '--quiet']);
+    git(['config', 'user.email', 'release-test@musixquare.invalid']);
+    git(['config', 'user.name', 'MUSIXQUARE Release Test']);
+    mkdirSync(resolve(repository, 'cloudflare'), { recursive: true });
+    writeFileSync(resolve(repository, 'README.md'), 'before cutover\n');
+    git(['add', '.']);
+    git(['commit', '--quiet', '-m', 'pre-cutover']);
+    const preCutoverSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+
+    writeFileSync(
+      resolve(repository, 'cloudflare/service-control-contract-version.txt'),
+      'admin-announcement-v1\n',
+    );
+    git(['add', '.']);
+    git(['commit', '--quiet', '-m', 'add service-control cutover']);
+    const cutoverSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+    writeFileSync(resolve(repository, 'README.md'), 'after cutover docs\n');
+    git(['add', '.']);
+    git(['commit', '--quiet', '-m', 'document cutover']);
+    const releaseSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+
+    const statePath = resolve(deploymentDirectory, 'pro-room-state.json');
+    writeFileSync(
+      statePath,
+      JSON.stringify({ attempted: true, beforeMessage: `git:${preCutoverSha}` }),
+    );
+    const changed = (baseSha: string, headSha: string, paths: string[]) =>
+      changedRuntimePaths(baseSha, headSha, paths, { runner: git });
+    expect(
+      contractCutoverRequiresForwardRepair(
+        releaseSha,
+        'cloudflare/service-control-contract-version.txt',
+        ['pro-room', 'app'],
+        deploymentDirectory,
+        { changedRuntimePaths: changed },
+      ),
+    ).toBe(true);
+
+    writeFileSync(
+      statePath,
+      JSON.stringify({ attempted: true, beforeMessage: `git:${cutoverSha}` }),
+    );
+    expect(
+      contractCutoverRequiresForwardRepair(
+        releaseSha,
+        'cloudflare/service-control-contract-version.txt',
+        ['pro-room', 'app'],
+        deploymentDirectory,
+        { changedRuntimePaths: changed },
+      ),
+    ).toBe(false);
+  });
+
   it('treats deleted runtime files as compatibility-relevant changes', () => {
     const repository = createDirectory();
     const git = (args: string[], options: { capture?: boolean } = {}): string =>
@@ -416,6 +512,90 @@ describe('release deployment rollback state', () => {
     expect(queried).not.toContain('app');
     expect(diffed).toEqual(queried);
     expect(report.results).toHaveLength(5);
+  });
+
+  it('rechecks every captured unselected deployment identity before a partial deploy', () => {
+    const directory = createDirectory();
+    const deployedSha = 'a'.repeat(40);
+    const headSha = 'b'.repeat(40);
+    const currentFor = (target: string) => ({
+      deploymentId: `deployment-${target}`,
+      versionId: `version-${target}`,
+      message: `git:${deployedSha}`,
+    });
+    const captured = verifyPartialReleaseCompatibility('app', headSha, directory, {
+      queryCurrent: currentFor,
+      changedRuntimePaths: () => [],
+    });
+    expect(captured.results).toContainEqual(
+      expect.objectContaining({
+        target: 'pro-room',
+        deployedDeploymentId: 'deployment-pro-room',
+        deployedVersionId: 'version-pro-room',
+      }),
+    );
+
+    const queried: string[] = [];
+    const recheck = recheckPartialReleaseCompatibility('app', headSha, directory, {
+      queryCurrent: (target: string) => {
+        queried.push(target);
+        return currentFor(target);
+      },
+    });
+    expect(recheck.status).toBe('compatible');
+    expect(queried).toHaveLength(5);
+    expect(queried).not.toContain('app');
+    expect(recheck.results).toContainEqual(
+      expect.objectContaining({
+        target: 'pro-room',
+        expectedDeploymentId: 'deployment-pro-room',
+        currentDeploymentId: 'deployment-pro-room',
+        status: 'compatible',
+      }),
+    );
+  });
+
+  it('fails closed when an unselected Worker drifts after compatibility capture', () => {
+    const directory = createDirectory();
+    const deployedSha = 'a'.repeat(40);
+    const headSha = 'b'.repeat(40);
+    const currentFor = (target: string) => ({
+      deploymentId: `deployment-${target}`,
+      versionId: `version-${target}`,
+      message: `git:${deployedSha}`,
+    });
+    verifyPartialReleaseCompatibility('app', headSha, directory, {
+      queryCurrent: currentFor,
+      changedRuntimePaths: () => [],
+    });
+
+    expect(() =>
+      recheckPartialReleaseCompatibility('app', headSha, directory, {
+        queryCurrent: (target: string) =>
+          target === 'signaling'
+            ? { ...currentFor(target), deploymentId: 'deployment-signaling-external' }
+            : currentFor(target),
+      }),
+    ).toThrow('signaling production changed after partial-release compatibility was captured');
+
+    const report = JSON.parse(
+      readFileSync(resolve(directory, 'partial-release-compatibility-recheck.json'), 'utf8'),
+    ) as { status: string; results: Array<{ target: string; status: string }> };
+    expect(report.status).toBe('failed');
+    expect(report.results).toContainEqual(
+      expect.objectContaining({ target: 'signaling', status: 'failed' }),
+    );
+  });
+
+  it('keeps full releases independent of a partial compatibility snapshot', () => {
+    const directory = createDirectory();
+    const recheck = recheckPartialReleaseCompatibility('all', 'not-needed', directory, {
+      queryCurrent: () => {
+        throw new Error('must not query');
+      },
+    });
+    expect(recheck.status).toBe('not-required');
+    expect(recheck.results).toEqual([]);
   });
 
   it('keeps app-owned account migration metadata from forcing a PRO deployment', () => {
@@ -1431,7 +1611,7 @@ describe('release deployment rollback state', () => {
     expect(releaseWorkflow).not.toContain('run: npm run format:check');
   });
 
-  it('uses CI critical coverage and front-loads partial-release compatibility before deploy setup', () => {
+  it('uses CI critical coverage and front-loads partial compatibility without a release browser install', () => {
     const ciWorkflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
     const coverage = ciWorkflow.indexOf('run: npm run test:coverage:critical');
@@ -1439,20 +1619,53 @@ describe('release deployment rollback state', () => {
     const generationFloor = workflow.indexOf(
       'Read PRO room generation cutover before dependency rollout',
     );
-    const browserInstall = workflow.indexOf('Install app smoke browser');
     const firstDeploy = workflow.indexOf('Deploy and record remote-share Worker');
     expect(coverage).toBeGreaterThan(-1);
     expect(compatibility).toBeGreaterThan(-1);
     expect(compatibility).toBeLessThan(generationFloor);
-    expect(compatibility).toBeLessThan(browserInstall);
-    expect(browserInstall).toBeLessThan(generationFloor);
     expect(compatibility).toBeLessThan(firstDeploy);
+    expect(workflow).not.toContain('playwright install');
+    expect(workflow).not.toContain('test:e2e');
     const nextStep = workflow.indexOf('\n      - name:', compatibility + 1);
     const step = workflow.slice(compatibility, nextStep);
     expect(step).toContain("if: inputs.target != 'all'");
     expect(step).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
     expect(step).toContain(
       'node scripts/release-deployment-state.mjs compatibility "$RELEASE_TARGET" "${{ github.sha }}"',
+    );
+  });
+
+  it('rechecks captured unselected deployments immediately before every selected Worker attempt', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const deployments = [
+      ['Deploy and record PRO room Worker', 'pro-room'],
+      ['Deploy and record remote-share Worker', 'remote-share'],
+      ['Deploy and record signaling Worker', 'signaling'],
+      ['Deploy and record Developer API facade Worker', 'developer-api-facade'],
+      ['Deploy and record Developer API Worker', 'developer-api'],
+      ['Deploy and record app Worker with immutable dist', 'app'],
+    ] as const;
+    const recheckCommand =
+      'node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"';
+
+    for (const [stepName, target] of deployments) {
+      const start = workflow.indexOf(`- name: ${stepName}`);
+      const end = workflow.indexOf('\n      - name:', start + 1);
+      const step = workflow.slice(start, end);
+      const preflight = step.indexOf(`preflight ${target}`);
+      const recheck = step.indexOf(recheckCommand);
+      const attempt = step.indexOf(`attempt ${target}`);
+      const deploy = step.indexOf('wrangler -- deploy');
+      expect(start, stepName).toBeGreaterThan(-1);
+      expect(step, stepName).toContain(`if [[ "$RELEASE_TARGET" != 'all' ]]`);
+      expect(preflight, stepName).toBeGreaterThan(-1);
+      expect(recheck, stepName).toBeGreaterThan(-1);
+      expect(preflight, stepName).toBeGreaterThan(recheck);
+      expect(attempt, stepName).toBeGreaterThan(preflight);
+      expect(deploy, stepName).toBeGreaterThan(attempt);
+    }
+    expect(workflow.match(/compatibility-recheck "\$RELEASE_TARGET" "\$GITHUB_SHA"/g)).toHaveLength(
+      deployments.length,
     );
   });
 

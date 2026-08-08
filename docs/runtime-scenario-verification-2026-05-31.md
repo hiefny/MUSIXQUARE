@@ -1,22 +1,24 @@
 # Runtime Scenario Verification - 2026-05-31
 
 > **Maintained checklist.** Originally added on 2026-05-31 and revalidated on
-> 2026-07-11. The focused command and all five named E2E files still exist. This
-> subset is a fast signal; it does not replace the full serial E2E suite for a
-> production release.
+> 2026-08-08. Physical-device and real-browser verification is the release
+> confidence principle. Browser E2E remains an optional auxiliary signal: a
+> failure can help locate a regression, but a pass never substitutes for the
+> real-device matrix.
 
 ## Scope
 
-This is a low-risk verification prep pass for runtime-sensitive flows. It does
-not change playback, network, transfer, YouTube, or system-audio behavior.
+This is the maintained verification order for runtime-sensitive flows across
+playback, network, transfer, YouTube, and system audio.
 
-The focused group keeps the highest-risk cross-domain scenarios easy to run and
-inspect alongside the full suite for the current decomposed playback model.
+Unit/static checks establish deterministic code confidence. Real devices then
+verify the browser, audio hardware, lifecycle, and network behavior that a
+headless browser cannot prove.
 
-## Added Fast E2E Group
+## Optional Browser Automation Signal
 
-Use this focused command for the cross-domain runtime scenarios that should run
-before a release-confidence pass:
+The following focused group remains available when browser automation is useful
+and time-bounded:
 
 ```bash
 npm run test:e2e:runtime
@@ -30,8 +32,72 @@ The script builds the E2E bundle first, then runs:
 - `e2e/reconnection.test.ts`
 - `e2e/background-resume.test.ts`
 
-This group intentionally avoids the full serial E2E suite. It is meant as a
-focused signal during development and incident verification.
+It is not a required release gate and must not delay the physical-device pass.
+Do not interpret a green focused or full E2E suite as evidence that Web Audio,
+background/resume, device routing, or real WebRTC network transitions work on
+the target hardware.
+
+## First 48 Hours
+
+### 0-2 hours: establish a safe baseline
+
+1. Install with `corepack npm ci`; do not add production credentials to the checkout.
+2. Start `npm run dev` with the default fail-closed local API boundary. Confirm
+   a production-backed API path returns `503 LOCAL_API_PROXY_DISABLED`, not the
+   SPA HTML and not a production response.
+3. Run the smallest focused unit test for the touched area, then run
+   `npm run typecheck` and `npm run check:workers` when Worker code is involved.
+4. Record the devices, browser versions, audio roles, and network shapes needed
+   for the touched scenarios. Capture a fresh-load memory/debug baseline.
+
+### 2-24 hours: implement and exercise the risky path
+
+1. Keep deterministic regression tests close to each change and run `npm test`,
+   `npm run lint`, and `npm run build:checked` before device work.
+2. Exercise the affected scenario on at least two physical devices when it
+   crosses host/guest, WebRTC, audio routing, or background lifecycle boundaries.
+3. Include the failure/recovery branch: disconnect/reconnect, background/resume,
+   rapid source replacement, or denied authorization as applicable.
+4. Use the memory checkpoints below and retain concise observations. Browser
+   E2E may be used as a quick diagnostic signal, but it is not a prerequisite
+   for continuing the real-device matrix.
+
+### 24-48 hours: repeat, broaden, and decide
+
+1. Repeat every touched row in the manual matrix from a clean build and fresh
+   sessions; include both local-network and remote-network paths when relevant.
+2. Verify cleanup and recovery after leave, hard reload, and one background or
+   network interruption. Compare memory/debug state with the recorded baseline.
+3. Review Worker contract/deployment guards and the rollback boundary without
+   performing an ad hoc production deploy.
+4. Record device/browser/network evidence and any accepted limitation. A release
+   candidate is not ready when a required real-device row is untested, even if
+   optional E2E is green.
+
+### Current service-control cutover addendum
+
+The first release containing the
+[`service-control contract marker`](../cloudflare/service-control-contract-version.txt)
+is a coordinated cutover:
+
+1. Use release target `all`; the service-control owner in the PRO Worker must
+   deploy before its App Worker consumer. Do not use a partial target for this
+   first release.
+2. After the canonical service-control state has been written, do not roll PRO
+   or App back to a pre-marker/legacy App version. Repair forward with another
+   compatible full release. The rollback gate and operator procedure live in
+   [`hotfix-procedure.md`](hotfix-procedure.md).
+3. This checklist documents release order only. Do not perform an ad hoc deploy
+   from a development checkout.
+
+Before considering that cutover healthy, collect these targeted signals:
+
+| Check                                | Required evidence                                                                                                                                                                                                                                                     |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Account completion on a slow network | On a physical mobile browser, complete the flow with its sensitive query present. Verify the query-bearing navigation is not cached, the queryless completion shell is the only offline fallback, and no query value reappears after reload/back navigation.          |
+| Announcement save, clear, and expiry | From the admin UI in a controlled environment, publish an expiring notice, observe expiry, then clear it. Interrupt one post-commit response and retry the unchanged action; the UI must reuse the same request ID and produce one revision/history entry.            |
+| Legacy duplicate-owner detach retry  | Run `npm exec vitest run -- src/core/__tests__/app-worker-cors.test.ts -t "detaches only the exact duplicate legacy owner and safely reconciles a signaling failure"`. The injected partial failure must converge on exact retry without changing the retained owner. |
+| Cold font and offline fallback       | On a physical device with caches cleared, verify readable first paint while fonts load and that a cold font failure does not block service-worker installation. Then verify the intended offline app shell remains usable without the optional font.                  |
 
 ## Memory Snapshot Checkpoints
 
@@ -63,7 +129,8 @@ to its baseline after cleanup rather than treating this total alone as a leak.
 
 ## Manual Runtime Matrix
 
-Run these manually when the focused E2E group is green:
+Run the relevant rows on physical devices regardless of whether optional E2E
+was run:
 
 | Scenario                                                    | Expected signal                                                                                 |
 | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
@@ -81,7 +148,10 @@ Run these manually when the focused E2E group is green:
 - `npm run lint`
 - `npm test`
 - `npm run build:checked`
-- `npm run test:e2e:runtime`
-- Manual matrix completed for any browser/device class touched by the release.
+- Manual matrix completed with recorded evidence for every browser/device class
+  and network boundary touched by the release.
+- Cleanup/recovery behavior returns to the expected state after leave, reload,
+  and the applicable interruption case.
 
-The full `npm run test:e2e` suite remains the broader production-release gate.
+Optional focused or full browser E2E results may accompany this evidence as a
+secondary signal. They are not an exit criterion or a production-release gate.

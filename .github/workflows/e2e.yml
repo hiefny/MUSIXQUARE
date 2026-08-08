@@ -28,11 +28,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
 
       - name: Build E2E bundle
         run: npm run build:e2e
@@ -66,11 +66,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22
+          node-version-file: .node-version
           cache: npm
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
 
       - name: Build E2E bundle
         run: npm run build:e2e

@@ -75,6 +75,45 @@ secrets.
 
 ---
 
+## Local Development
+
+Use the exact Node.js version in [`.node-version`](./.node-version) (`24.13.1`).
+Corepack then selects the pinned `npm@11.8.0` from `package.json`:
+
+```bash
+corepack npm ci
+npm run dev
+```
+
+Open `http://localhost:3000`. No Cloudflare account, Worker binding, or secret
+is required for this browser-only path; localhost uses the PeerJS transport by
+default. Unconfigured `/api/*` routes fail closed with a JSON 503 response
+instead of serving SPA HTML. The six production-backed development routes are
+**not** proxied to `musixquare.com`.
+
+Copy [`.env.example`](./.env.example) to an untracked `.env.local` only when an
+override is needed. Production API proxying requires the explicit
+`MUSIXQUARE_DEV_PROXY_PRODUCTION_API=true` opt-in and can consume real quotas,
+so prefer local mocks and remove the flag after a deliberate integration
+check.
+
+Useful non-E2E checks:
+
+```bash
+npm test
+npm run typecheck
+npm run lint
+npm run check:workers
+npm run build:checked
+```
+
+Worker-specific bindings, the minimal configuration path, and the real-device
+release-confidence workflow are documented in
+[`CONTRIBUTING.md`](./CONTRIBUTING.md). Browser E2E is an optional auxiliary
+signal; it does not replace the physical-device/browser matrix.
+
+---
+
 ## Features
 
 - **6-Digit Code Join**: Guests enter a short code to connect instantly.
@@ -123,6 +162,12 @@ OPFS are documented in [the RAM-only storage ADR](./docs/design/browser-media-st
 Server-only variables are configured as Cloudflare Worker secrets
 (`wrangler secret put ...`) on the Worker that consumes them; do not copy them
 into browser build variables.
+
+The authoritative binding and secret-name inventory stays beside each consumer
+in `cloudflare/wrangler.*.toml`; the Worker-by-Worker map in
+[`CONTRIBUTING.md`](./CONTRIBUTING.md#worker-configuration) links those files to
+their provisioning runbooks. Ordinary browser development needs none of those
+values.
 
 The capability-token signing secret and Cloudflare TURN credentials are
 required for the protected production paths. The YouTube API key is required

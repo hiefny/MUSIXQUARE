@@ -1,32 +1,23 @@
 #!/usr/bin/env node
 
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
+
+import { expectedMainScript, verifyPublicAppGeneration } from './live-app-generation-smoke.mjs';
 
 const APP_ORIGIN = 'https://musixquare.com';
 const NAVIGATION_TIMEOUT_MS = 30_000;
 const SESSION_TIMEOUT_MS = 25_000;
 const GENERATION_TIMEOUT_MS = 90_000;
 const GENERATION_POLL_MS = 1_500;
-const REQUIRED_CONSECUTIVE_GENERATION_READS = 3;
 const DIAGNOSTIC_DIRECTORY = 'release-artifacts/deployments/live-app-session-smoke';
 
 interface LivePage {
   readonly context: BrowserContext;
   readonly page: Page;
   readonly diagnostics: string[];
-}
-
-function extractMainScript(html: string): string | null {
-  return html.match(/\bsrc=["'](\/assets\/main-[^"']+\.js)["']/u)?.[1] ?? null;
-}
-
-async function expectedMainScript(): Promise<string> {
-  const mainScript = extractMainScript(await readFile('dist/index.html', 'utf8'));
-  if (!mainScript) throw new Error('candidate dist does not declare a hashed main script');
-  return mainScript;
 }
 
 function sanitizeDiagnostic(value: string): string {
@@ -57,52 +48,6 @@ function attachDiagnostics(page: Page, role: 'host' | 'guest'): string[] {
     );
   });
   return diagnostics;
-}
-
-async function waitForPublicGeneration(expectedMain: string): Promise<void> {
-  const deadline = Date.now() + GENERATION_TIMEOUT_MS;
-  const observed = new Set<string>();
-  let consecutive = 0;
-
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`${APP_ORIGIN}/?release-generation=${randomUUID()}`, {
-        cache: 'no-store',
-        headers: {
-          'cache-control': 'no-cache',
-          pragma: 'no-cache',
-        },
-      });
-      if (!response.ok) {
-        observed.add(`http-${response.status}`);
-        consecutive = 0;
-      } else {
-        const actualMain = extractMainScript(await response.text());
-        observed.add(actualMain || 'missing-main-script');
-        consecutive = actualMain === expectedMain ? consecutive + 1 : 0;
-        if (consecutive >= REQUIRED_CONSECUTIVE_GENERATION_READS) {
-          console.log(
-            JSON.stringify({
-              productionGenerationConverged: true,
-              expectedMain,
-              consecutiveReads: consecutive,
-            }),
-          );
-          return;
-        }
-      }
-    } catch (error) {
-      observed.add(`fetch-error:${sanitizeDiagnostic(String(error))}`);
-      consecutive = 0;
-    }
-    await new Promise((resolve) => setTimeout(resolve, GENERATION_POLL_MS));
-  }
-
-  throw new Error(
-    `production app generation did not converge to ${expectedMain}; observed=${[...observed].join(
-      ',',
-    )}`,
-  );
 }
 
 async function openLivePage(
@@ -273,7 +218,7 @@ async function main(): Promise<void> {
 
   try {
     const expectedMain = await expectedMainScript();
-    await waitForPublicGeneration(expectedMain);
+    await verifyPublicAppGeneration({ expectedMain });
     browser = await chromium.launch({
       headless: true,
       args: ['--autoplay-policy=no-user-gesture-required'],

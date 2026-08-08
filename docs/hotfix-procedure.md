@@ -112,7 +112,7 @@ will not overwrite the newer deployment.
 Every live-smoke step has a five-minute hard ceiling. The PRO-room, Developer
 API, and remote-share HTTP probes additionally abort each individual request
 after 30 seconds, while retaining their existing edge-propagation retry delays;
-the signaling and browser smokes keep their own shorter protocol/navigation
+the signaling and app-generation smokes keep their own shorter protocol/HTTP
 timeouts. These limits are intentionally far above the tiny synthetic payloads'
 normal latency, but prevent a half-open response from delaying automatic
 recovery for the runner's six-hour default job lifetime.
@@ -147,12 +147,14 @@ If the proof is unavailable or a counterpart changed, use target `all` rather
 than guessing that the contracts remain compatible.
 
 An app-only production release reuses the exact-SHA CI candidate, proves
-partial dependency compatibility before deployment, and runs a fresh
-host/guest application-session smoke after deployment. The emergency-only
-`emergency:deploy:app` command additionally runs the standalone live signaling
-smoke. A signaling protocol change must be deployed and smoked first (normally
-with release target `all`); the preflight fails closed while production still
-serves an incompatible signaling contract.
+partial dependency compatibility before deployment, and runs browser-free
+generation/initial-asset-graph and anonymous-session-boundary HTTP smokes after
+deployment. Host/guest application-session confidence comes from the required
+physical-device matrix; optional Playwright is only an auxiliary diagnostic.
+The emergency-only `emergency:deploy:app` command additionally runs the
+standalone live signaling smoke. A signaling protocol change must be deployed
+and smoked first (normally with release target `all`); the preflight fails
+closed while production still serves an incompatible signaling contract.
 
 Automatic rollback preserves the restored deployment's original Git SHA in
 the new rollback message when that provenance exists. A legacy or manual
@@ -192,7 +194,8 @@ which also verifies signaling and rebuilds `dist`:
 export MXQR_EMERGENCY_DEPLOY_CONFIRM="MUSIXQUARE_EMERGENCY_DEPLOY:app:$(git rev-parse HEAD)"
 npm run emergency:deploy:app
 unset MXQR_EMERGENCY_DEPLOY_CONFIRM
-npm run smoke:live:app-session
+npm run smoke:live:app-generation
+npm run smoke:live:app-public-boundary
 ```
 
 PowerShell uses the same exact confirmation:
@@ -202,7 +205,8 @@ $sha = (git rev-parse HEAD).Trim()
 $env:MXQR_EMERGENCY_DEPLOY_CONFIRM = "MUSIXQUARE_EMERGENCY_DEPLOY:app:$sha"
 npm run emergency:deploy:app
 Remove-Item Env:MXQR_EMERGENCY_DEPLOY_CONFIRM
-npm run smoke:live:app-session
+npm run smoke:live:app-generation
+npm run smoke:live:app-public-boundary
 ```
 
 For another Worker, replace `app` in both the confirmation and npm script with
@@ -227,8 +231,10 @@ and unselected-Worker source compatibility gate used by the approved workflow
 runs locally. If another Worker changed in the pushed commit, use
 `all-workers` instead of publishing a mixed contract.
 
-After the deploy is live, verify the production URL in a fresh browser session
-and confirm the active version with
+These automation checks are intentionally browser-free. After the deploy is
+live, verify the production URL and the touched host/guest flow on physical
+devices in fresh browser sessions; optional Playwright E2E is auxiliary only.
+Confirm the active version with
 `npm run wrangler -- deployments status --config cloudflare/wrangler.app.toml --json`.
 
 The `production` environment uses an account-owned Cloudflare Worker deployment
@@ -258,8 +264,9 @@ remains usable while backends roll forward:
 4. `cloudflare/wrangler.developer-api-facade.toml` (private service binding only);
 5. `cloudflare/wrangler.developer-api.toml`, then its authenticated live smoke
    against the fixed `000001` smoke room;
-6. `cloudflare/wrangler.app.toml` with the verified artifact, then its live smoke
-   and browser QA.
+6. `cloudflare/wrangler.app.toml` with the verified artifact, then browser-free
+   generation/initial-asset-graph and anonymous-session-boundary smokes. Complete the
+   touched host/guest QA separately on physical devices.
 
 The production environment secret `MXQR_DEVELOPER_API_SMOKE_KEY` must contain a
 valid key limited to room `000001`; it is used only by the release smoke and is

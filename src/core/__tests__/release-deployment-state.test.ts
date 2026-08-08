@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
+import ts from 'typescript';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -1440,6 +1441,14 @@ describe('release deployment rollback state', () => {
     expect(workerStep).toContain('rollback_skip_targets="developer-api-facade,developer-api"');
     expect(workerStep).toContain('steps.pro_entitlement_floor.outputs.entitlement_floor');
     expect(workerStep).toContain('rollback_skip_targets="pro-room,app"');
+    const skippedTargetsOutput = workerStep.indexOf(
+      'echo "skipped_targets=${rollback_skip_targets}" >> "$GITHUB_OUTPUT"',
+    );
+    const rollbackCommand = workerStep.indexOf(
+      'node scripts/release-deployment-state.mjs rollback',
+    );
+    expect(skippedTargetsOutput).toBeGreaterThan(-1);
+    expect(rollbackCommand).toBeGreaterThan(skippedTargetsOutput);
   });
 
   it('applies the admin suspension-reason migration idempotently before the matched rollout', () => {
@@ -1626,6 +1635,53 @@ describe('release deployment rollback state', () => {
     expect(compatibility).toBeLessThan(firstDeploy);
     expect(workflow).not.toContain('playwright install');
     expect(workflow).not.toContain('test:e2e');
+    expect(workflow).not.toContain('smoke:live:app-session');
+    expect(workflow).toContain('run: npm run smoke:live:app-generation');
+    const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    expect(packageJson.scripts['smoke:live:app-generation']).toBe(
+      'node scripts/live-app-generation-smoke.mjs',
+    );
+    const appGenerationSmoke = readFileSync(
+      resolve('scripts/live-app-generation-smoke.mjs'),
+      'utf8',
+    );
+    expect(appGenerationSmoke).not.toMatch(/playwright|chromium/iu);
+    const smokeSourceFile = ts.createSourceFile(
+      'live-app-generation-smoke.mjs',
+      appGenerationSmoke,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.JS,
+    );
+    const runtimeImports: string[] = [];
+    let hasDynamicImport = false;
+    const visitImport = (node: ts.Node): void => {
+      if (
+        (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+        node.moduleSpecifier &&
+        ts.isStringLiteral(node.moduleSpecifier)
+      ) {
+        runtimeImports.push(node.moduleSpecifier.text);
+      }
+      if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        hasDynamicImport = true;
+      }
+      ts.forEachChild(node, visitImport);
+    };
+    visitImport(smokeSourceFile);
+    expect(hasDynamicImport).toBe(false);
+    expect(runtimeImports.sort()).toEqual([
+      'jsdom',
+      'node:crypto',
+      'node:fs/promises',
+      'node:path',
+      'node:url',
+      'typescript',
+    ]);
+    expect(packageJson.scripts['smoke:live']).not.toContain('app-session');
+    expect(packageJson.scripts['smoke:live']).not.toContain('test:e2e');
     const nextStep = workflow.indexOf('\n      - name:', compatibility + 1);
     const step = workflow.slice(compatibility, nextStep);
     expect(step).toContain("if: inputs.target != 'all'");
@@ -1788,7 +1844,7 @@ describe('release deployment rollback state', () => {
       'Smoke remote-share Worker',
       'Smoke signaling Worker',
       'Smoke Developer API Worker',
-      'Smoke app session endpoint',
+      'Smoke app generation endpoint',
       'Smoke anonymous app account boundary',
     ]) {
       const stepStart = workflow.indexOf(`- name: ${stepName}`);

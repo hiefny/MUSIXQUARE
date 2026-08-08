@@ -990,10 +990,10 @@ jobs:
           if (( status_exit != 0 )); then exit "$status_exit"; fi
           exit "$record_exit"
 
-      - name: Smoke app session endpoint
+      - name: Smoke app generation endpoint
         if: inputs.target == 'all' || inputs.target == 'app'
         timeout-minutes: 5
-        run: npm run smoke:live:app-session
+        run: npm run smoke:live:app-generation
 
       - name: Smoke anonymous app account boundary
         if: inputs.target == 'all' || inputs.target == 'app'
@@ -1136,9 +1136,9 @@ jobs:
             done
           fi
 
+          echo "skipped_targets=${rollback_skip_targets}" >> "$GITHUB_OUTPUT"
           MXQR_ROLLBACK_SKIP_TARGETS="$rollback_skip_targets" \
             node scripts/release-deployment-state.mjs rollback
-          echo "skipped_targets=${rollback_skip_targets}" >> "$GITHUB_OUTPUT"
 
       - name: Upload deployment records
         if: always()

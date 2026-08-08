@@ -107,7 +107,7 @@ const ADMIN_ANNOUNCEMENT_KEY = 'admin-announcement.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
-const ADMIN_ASSET_VERSION = '8.3.20';
+const ADMIN_ASSET_VERSION = '8.3.21';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -118,6 +118,8 @@ const APP_SHELL_FRESH_CACHE_HEADERS = Object.freeze({
   'Cloudflare-CDN-Cache-Control': 'no-store',
   Pragma: 'no-cache',
 });
+const EVENT_CAMPAIGN_SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
+const EVENT_PAGE_ASSET_PATH = '/events/index.html';
 const SORO_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const SORO_IMAGE_FETCH_TIMEOUT_MS = 5000;
 const SORO_IMAGE_ROUTE_PREFIX = '/soro-images/';
@@ -12063,12 +12065,39 @@ function redirectTarget(pathname) {
     ['/developers', '/developers'],
     ['/history', '/history'],
     ['/designsystem', '/designsystem'],
-    ['/events/asamo/0', '/events/asamo/0'],
   ]);
+  const eventSlug = eventCampaignSlugFromPath(lower);
+  if (eventSlug) {
+    const canonicalEventPath = eventPublicPathFromSlug(eventSlug);
+    if (pathname !== lower || lower.replace(/\/$/, '') !== canonicalEventPath.replace(/\/$/, '')) {
+      return canonicalEventPath;
+    }
+  }
   if (pathname !== lower && canonical.has(lower.replace(/\/$/, ''))) {
     return canonical.get(lower.replace(/\/$/, ''));
   }
   return null;
+}
+
+function eventPublicPathFromSlug(slug) {
+  const edition = /^([a-z0-9]+(?:-[a-z0-9]+)*)-(\d+)$/.exec(slug);
+  return edition ? `/events/${edition[1]}/${edition[2]}/` : `/events/${slug}/`;
+}
+
+function eventCampaignSlugFromPath(pathname) {
+  const path = String(pathname || '').replace(/\/$/, '');
+  const direct = /^\/events\/([^/]+)$/.exec(path);
+  if (direct && EVENT_CAMPAIGN_SLUG_RE.test(direct[1])) return direct[1];
+
+  // Preserve the initially published /events/asamo/0 shape while allowing the
+  // control plane to use the canonical campaign slug `asamo-0`. New campaigns
+  // can use /events/<slug>; this compatibility form deliberately accepts only
+  // a validated namespace + numeric-edition path so arbitrary nested static paths
+  // can never be interpreted as campaign identifiers.
+  const legacy = /^\/events\/([a-z0-9]+(?:-[a-z0-9]+)*)\/(\d+)$/.exec(path);
+  if (!legacy) return null;
+  const slug = `${legacy[1]}-${legacy[2]}`;
+  return EVENT_CAMPAIGN_SLUG_RE.test(slug) ? slug : null;
 }
 
 function routeStaticPath(pathname) {
@@ -12081,18 +12110,18 @@ function routeStaticPath(pathname) {
   if (path === '/developers' || path === '/developers/') return '/developers.html';
   if (path === '/history' || path === '/history/') return '/history/index.html';
   if (path === '/designsystem' || path === '/designsystem/') return '/designsystem/index.html';
-  if (path === '/events/asamo/0' || path === '/events/asamo/0/') {
-    return '/events/asamo/0/index.html';
-  }
+  if (eventCampaignSlugFromPath(path)) return EVENT_PAGE_ASSET_PATH;
   return null;
 }
 
 function cacheHeadersForPath(pathname, assetPathname = pathname) {
-  if (
-    assetPathname === '/admin.js' ||
-    assetPathname === '/admin.css' ||
-    assetPathname.startsWith('/events/')
-  ) {
+  if (pathname.toLowerCase().startsWith('/events/')) {
+    return {
+      ...APP_SHELL_FRESH_CACHE_HEADERS,
+      'X-Robots-Tag': 'noindex, nofollow',
+    };
+  }
+  if (assetPathname === '/admin.js' || assetPathname === '/admin.css') {
     return APP_SHELL_FRESH_CACHE_HEADERS;
   }
   if (assetPathname === '/service-worker.js') return { 'Cache-Control': 'no-cache' };
@@ -12237,7 +12266,8 @@ async function serveStatic(request, env, ctx) {
   if (
     response.status === 404 &&
     (request.method === 'GET' || request.method === 'HEAD') &&
-    (request.headers.get('Accept') || '').includes('text/html')
+    (request.headers.get('Accept') || '').includes('text/html') &&
+    !url.pathname.toLowerCase().startsWith('/events/')
   ) {
     return withSecurityHeaders(
       await fetchAsset(env, request, '/index.html'),

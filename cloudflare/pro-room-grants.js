@@ -27,7 +27,9 @@ const ENTITLEMENT_TRANSFER_SOURCE_SQL =
   "'transfer_source_reserved','transfer_source_active','transfer_source_suspended','transfer_source_orphaned'";
 const ENTITLEMENT_BACKFILL_ACTOR = 'system:entitlement-backfill';
 const ENTITLEMENT_BACKFILL_ACTION = 'entitlement.backfill';
-const CAMPAIGN_STATES = new Set(['draft', 'active', 'paused', 'ended', 'revoked']);
+const ADMIN_CAMPAIGN_STATUS_TARGETS = new Set(['active', 'paused', 'ended']);
+const MUTABLE_VOUCHER_CAMPAIGN_STATES = new Set(['draft', 'scheduled', 'active', 'paused']);
+const SAFE_ADMIN_REASON_RE = /^[a-z][a-z0-9_]{2,63}$/;
 
 function responseJson(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
@@ -180,14 +182,93 @@ function campaignPublicState(row, nowMs) {
   const startsAt = row.starts_at === null ? null : Number(row.starts_at);
   const endsAt = row.ends_at === null ? null : Number(row.ends_at);
   let status = String(row.status || '');
-  if (status === 'active' && Number.isSafeInteger(startsAt) && startsAt > nowMs) status = 'draft';
+  if (status === 'active' && Number.isSafeInteger(startsAt) && startsAt > nowMs) {
+    status = 'scheduled';
+  }
   if (status === 'active' && Number.isSafeInteger(endsAt) && endsAt <= nowMs) status = 'ended';
   return {
     slug: row.slug,
+    title: row.title,
     status,
     startsAt,
     endsAt,
+    perAccountLimit: Number(row.per_account_limit),
   };
+}
+
+function nonNegativeCount(value) {
+  const count = Number(value);
+  return Number.isSafeInteger(count) && count >= 0 ? count : 0;
+}
+
+function campaignVoucherSummary(row) {
+  const total = nonNegativeCount(row?.total_count);
+  const available = nonNegativeCount(row?.available_count);
+  const redeemed = nonNegativeCount(row?.redeemed_count);
+  const revoked = nonNegativeCount(row?.revoked_count);
+  const roomCount = nonNegativeCount(row?.room_count ?? row?.total_count);
+  const firstRoomCode = ROOM_CODE_RE.test(row?.first_room_code || '') ? row.first_room_code : null;
+  const lastRoomCode = ROOM_CODE_RE.test(row?.last_room_code || '') ? row.last_room_code : null;
+  return {
+    counts: { total, available, redeemed, revoked },
+    pool: { roomCount, firstRoomCode, lastRoomCode },
+  };
+}
+
+const CAMPAIGN_SUMMARY_SELECT = `
+  SELECT campaign.campaign_id, campaign.slug, campaign.title, campaign.status,
+         campaign.starts_at, campaign.ends_at, campaign.per_account_limit,
+         campaign.created_at, campaign.updated_at,
+         COUNT(voucher.voucher_id) AS total_count,
+         SUM(CASE WHEN voucher.status = 'available' THEN 1 ELSE 0 END) AS available_count,
+         SUM(CASE WHEN voucher.status = 'redeemed' THEN 1 ELSE 0 END) AS redeemed_count,
+         SUM(CASE WHEN voucher.status = 'revoked' THEN 1 ELSE 0 END) AS revoked_count,
+         COUNT(voucher.voucher_id) AS room_count,
+         MIN(voucher.room_code) AS first_room_code,
+         MAX(voucher.room_code) AS last_room_code
+    FROM ${CAMPAIGN_TABLE} campaign
+    LEFT JOIN ${VOUCHER_TABLE} voucher ON voucher.campaign_id = campaign.campaign_id`;
+
+async function readCampaignSummary(db, campaignId) {
+  return first(
+    db
+      .prepare(
+        `${CAMPAIGN_SUMMARY_SELECT}
+          WHERE campaign.campaign_id = ?1
+          GROUP BY campaign.campaign_id
+          LIMIT 1`,
+      )
+      .bind(campaignId),
+  );
+}
+
+async function readCampaignList(db) {
+  return all(
+    db.prepare(
+      `${CAMPAIGN_SUMMARY_SELECT}
+       GROUP BY campaign.campaign_id
+       ORDER BY campaign.created_at DESC, campaign.slug ASC`,
+    ),
+  );
+}
+
+function campaignAdminState(row, nowMs) {
+  return {
+    campaign: campaignPublicState(row, nowMs),
+    ...campaignVoucherSummary(row),
+  };
+}
+
+function campaignStatusTransitionAllowed(current, requested, endsAt, nowMs) {
+  if (current === requested) {
+    return requested !== 'active' || endsAt === null || endsAt > nowMs;
+  }
+  if (requested === 'active') {
+    return ['draft', 'paused'].includes(current) && (endsAt === null || endsAt > nowMs);
+  }
+  if (requested === 'paused') return current === 'active' && (endsAt === null || endsAt > nowMs);
+  if (requested === 'ended') return ['draft', 'active', 'paused'].includes(current);
+  return false;
 }
 
 async function readCampaign(db, slug) {
@@ -1954,6 +2035,10 @@ async function adminVoucherBatch(request, env, campaign, dependencies) {
       replayed: true,
     });
   }
+  const effectiveCampaign = campaignPublicState(campaign, Date.now());
+  if (!MUTABLE_VOUCHER_CAMPAIGN_STATES.has(effectiveCampaign?.status)) {
+    return responseJson({ error: 'CAMPAIGN_NOT_MUTABLE' }, 409);
+  }
   const prepared = [];
   for (const item of digested) {
     const room = await dependencies.preflightVoucherRoom(item.roomCode);
@@ -2075,20 +2160,35 @@ export async function handleProGrantAdminRequest(request, env, url, dependencies
   const db = env.MUSIXQUARE_ADMIN_DB || env.ADMIN_METRICS_DB;
   if (!db?.prepare || !dependencies) return responseJson({ error: 'PRO_GRANT_UNAVAILABLE' }, 503);
   if (!slug) {
+    if (request.method === 'GET' || request.method === 'HEAD') {
+      try {
+        const rows = await readCampaignList(db);
+        const nowMs = Date.now();
+        return responseJson({ campaigns: rows.map((row) => campaignAdminState(row, nowMs)) });
+      } catch {
+        return responseJson({ error: 'PRO_GRANT_UNAVAILABLE' }, 503);
+      }
+    }
     if (request.method !== 'POST') {
-      return responseJson({ error: 'METHOD_NOT_ALLOWED' }, 405, { allow: 'POST' });
+      return responseJson({ error: 'METHOD_NOT_ALLOWED' }, 405, {
+        allow: 'GET, HEAD, POST',
+      });
     }
     const parsed = await readJson(request);
     if (parsed.error) return responseJson({ error: parsed.error }, 400);
     const { slug: newSlug, title, startsAt, endsAt, perAccountLimit, dryRun } = parsed.value;
     if (
+      Object.keys(parsed.value).some(
+        (key) =>
+          !['slug', 'title', 'startsAt', 'endsAt', 'perAccountLimit', 'dryRun'].includes(key),
+      ) ||
       !PUBLIC_ROUTE_RE.test(`/api/pro-grants/campaigns/${newSlug}/session`) ||
       typeof title !== 'string' ||
       title.trim().length < 1 ||
       title.trim().length > 100 ||
-      !Number.isSafeInteger(startsAt) ||
-      (endsAt !== null && !Number.isSafeInteger(endsAt)) ||
-      (endsAt !== null && endsAt <= startsAt) ||
+      (startsAt !== null && (!Number.isSafeInteger(startsAt) || startsAt < 0)) ||
+      (endsAt !== null && (!Number.isSafeInteger(endsAt) || endsAt < 0)) ||
+      (startsAt !== null && endsAt !== null && endsAt <= startsAt) ||
       !Number.isSafeInteger(perAccountLimit) ||
       perAccountLimit < 1 ||
       perAccountLimit > 10 ||
@@ -2100,7 +2200,7 @@ export async function handleProGrantAdminRequest(request, env, url, dependencies
     if (existing) {
       const matches =
         existing.title === title.trim() &&
-        Number(existing.starts_at) === startsAt &&
+        (existing.starts_at === null ? null : Number(existing.starts_at)) === startsAt &&
         (existing.ends_at === null ? null : Number(existing.ends_at)) === endsAt &&
         Number(existing.per_account_limit) === perAccountLimit;
       return matches
@@ -2121,40 +2221,58 @@ export async function handleProGrantAdminRequest(request, env, url, dependencies
     };
     if (!dryRun) {
       const nowMs = Date.now();
-      await db.batch([
-        db
-          .prepare(
-            `INSERT INTO ${CAMPAIGN_TABLE}
-               (campaign_id, slug, title, status, starts_at, ends_at,
-                per_account_limit, created_at, updated_at)
-             VALUES (?1, ?2, ?3, 'draft', ?4, ?5, ?6, ?7, ?7)`,
-          )
-          .bind(
-            campaign.campaignId,
-            campaign.slug,
-            campaign.title,
-            campaign.startsAt,
-            campaign.endsAt,
-            campaign.perAccountLimit,
-            nowMs,
-          ),
-        db
-          .prepare(
-            `INSERT INTO ${AUDIT_TABLE}
-               (actor_id, action, result, campaign_id, created_at)
-             VALUES ('admin:campaign-create', 'campaign.create', 'created', ?1, ?2)`,
-          )
-          .bind(campaign.campaignId, nowMs),
-      ]);
+      try {
+        await db.batch([
+          db
+            .prepare(
+              `INSERT INTO ${CAMPAIGN_TABLE}
+                 (campaign_id, slug, title, status, starts_at, ends_at,
+                  per_account_limit, created_at, updated_at)
+               VALUES (?1, ?2, ?3, 'draft', ?4, ?5, ?6, ?7, ?7)`,
+            )
+            .bind(
+              campaign.campaignId,
+              campaign.slug,
+              campaign.title,
+              campaign.startsAt,
+              campaign.endsAt,
+              campaign.perAccountLimit,
+              nowMs,
+            ),
+          db
+            .prepare(
+              `INSERT INTO ${AUDIT_TABLE}
+                 (actor_id, action, result, campaign_id, created_at)
+               VALUES ('admin:campaign-create', 'campaign.create', 'created', ?1, ?2)`,
+            )
+            .bind(campaign.campaignId, nowMs),
+        ]);
+      } catch {
+        const raced = await readCampaign(db, newSlug).catch(() => null);
+        const matches =
+          raced?.title === campaign.title &&
+          (raced?.starts_at === null ? null : Number(raced?.starts_at)) === campaign.startsAt &&
+          (raced?.ends_at === null ? null : Number(raced?.ends_at)) === campaign.endsAt &&
+          Number(raced?.per_account_limit) === campaign.perAccountLimit;
+        if (!matches) return responseJson({ error: 'CAMPAIGN_CONFLICT' }, 409);
+        return responseJson({
+          campaign: campaignPublicState(raced, Date.now()),
+          dryRun: false,
+          created: false,
+        });
+      }
     }
+    const campaignRow = {
+      slug: campaign.slug,
+      title: campaign.title,
+      status: 'draft',
+      starts_at: campaign.startsAt,
+      ends_at: campaign.endsAt,
+      per_account_limit: campaign.perAccountLimit,
+    };
     return responseJson(
       {
-        campaign: {
-          slug: campaign.slug,
-          status: 'draft',
-          startsAt: campaign.startsAt,
-          endsAt: campaign.endsAt,
-        },
+        campaign: campaignPublicState(campaignRow, Date.now()),
         dryRun,
         created: !dryRun,
       },
@@ -2170,15 +2288,12 @@ export async function handleProGrantAdminRequest(request, env, url, dependencies
   }
   if (action === 'status') {
     if (request.method === 'GET' || request.method === 'HEAD') {
-      const counts = await all(
-        db
-          .prepare(
-            `SELECT status, COUNT(*) AS count FROM ${VOUCHER_TABLE}
-              WHERE campaign_id = ?1 GROUP BY status ORDER BY status`,
-          )
-          .bind(campaign.campaign_id),
-      );
-      return responseJson({ campaign: campaignPublicState(campaign, Date.now()), counts });
+      try {
+        const summary = await readCampaignSummary(db, campaign.campaign_id);
+        return responseJson(campaignAdminState(summary || campaign, Date.now()));
+      } catch {
+        return responseJson({ error: 'PRO_GRANT_UNAVAILABLE' }, 503);
+      }
     }
     if (request.method === 'POST') {
       const parsed = await readJson(request, 4096);
@@ -2186,147 +2301,234 @@ export async function handleProGrantAdminRequest(request, env, url, dependencies
       if (
         parsed.error ||
         !REQUEST_ID_RE.test(requestId || '') ||
-        !CAMPAIGN_STATES.has(status) ||
+        !ADMIN_CAMPAIGN_STATUS_TARGETS.has(status) ||
         typeof dryRun !== 'boolean' ||
         Object.keys(parsed.value).some((key) => !['requestId', 'status', 'dryRun'].includes(key))
       ) {
         return responseJson({ error: 'INVALID_REQUEST' }, 400);
       }
-      if (!dryRun) {
-        const actorId = `admin:${requestId}`;
-        const result = `status:${status}`;
-        const previous = await first(
+      const actorId = `admin:${requestId}`;
+      const result = `status:${status}`;
+      const previous = await first(
+        db
+          .prepare(
+            `SELECT result FROM ${AUDIT_TABLE}
+              WHERE actor_id = ?1 AND action = 'campaign.status'
+                AND campaign_id = ?2
+              ORDER BY id ASC LIMIT 1`,
+          )
+          .bind(actorId, campaign.campaign_id),
+      );
+      if (previous && previous.result !== result) {
+        return responseJson({ error: 'IDEMPOTENCY_CONFLICT' }, 409);
+      }
+      const nowMs = Date.now();
+      if (
+        !previous &&
+        !campaignStatusTransitionAllowed(
+          campaign.status,
+          status,
+          campaign.ends_at === null ? null : Number(campaign.ends_at),
+          nowMs,
+        )
+      ) {
+        return responseJson(
+          {
+            error: 'CAMPAIGN_STATUS_TRANSITION_INVALID',
+            campaign: campaignPublicState(campaign, nowMs),
+            requestedStatus: status,
+          },
+          409,
+        );
+      }
+      if (!previous && status === 'active' && campaign.status !== 'active') {
+        let summary;
+        try {
+          summary = await readCampaignSummary(db, campaign.campaign_id);
+        } catch {
+          return responseJson({ error: 'PRO_GRANT_UNAVAILABLE' }, 503);
+        }
+        if (campaignVoucherSummary(summary).counts.total < 1) {
+          return responseJson({ error: 'CAMPAIGN_VOUCHERS_REQUIRED' }, 409);
+        }
+      }
+      if (dryRun || previous) {
+        return responseJson({
+          requestId,
+          dryRun,
+          replayed: !!previous,
+          campaign: campaignPublicState(campaign, nowMs),
+          requestedStatus: status,
+        });
+      }
+      if (status === 'active' && campaign.status !== 'active') {
+        let ownersBackfilled = false;
+        try {
+          ownersBackfilled =
+            typeof dependencies.verifyOwnerEntitlementBackfill === 'function' &&
+            (await dependencies.verifyOwnerEntitlementBackfill()) === true;
+        } catch {
+          ownersBackfilled = false;
+        }
+        if (!ownersBackfilled) {
+          return responseJson({ error: 'PRO_GRANT_OWNER_BACKFILL_REQUIRED' }, 503);
+        }
+      }
+      try {
+        await db.batch([
           db
             .prepare(
-              `SELECT result FROM ${AUDIT_TABLE}
-                WHERE actor_id = ?1 AND action = 'campaign.status'
-                  AND campaign_id = ?2
-                ORDER BY id ASC LIMIT 1`,
+              `UPDATE ${CAMPAIGN_TABLE} SET status = ?2, updated_at = ?3
+                WHERE campaign_id = ?1 AND status = ?4
+                  AND NOT EXISTS (
+                    SELECT 1 FROM ${AUDIT_TABLE}
+                     WHERE actor_id = ?5 AND action = 'campaign.status'
+                       AND campaign_id = ?1
+                  )`,
             )
-            .bind(actorId, campaign.campaign_id),
-        );
-        if (previous && previous.result !== result) {
-          return responseJson({ error: 'IDEMPOTENCY_CONFLICT' }, 409);
-        }
-        if (!previous) {
-          if (status === 'active') {
-            let ownersBackfilled = false;
-            try {
-              ownersBackfilled =
-                typeof dependencies.verifyOwnerEntitlementBackfill === 'function' &&
-                (await dependencies.verifyOwnerEntitlementBackfill()) === true;
-            } catch {
-              ownersBackfilled = false;
-            }
-            if (!ownersBackfilled) {
-              return responseJson({ error: 'PRO_GRANT_OWNER_BACKFILL_REQUIRED' }, 503);
-            }
-          }
-          const nowMs = Date.now();
-          await db.batch([
-            db
-              .prepare(
-                `UPDATE ${CAMPAIGN_TABLE} SET status = ?2, updated_at = ?3
-                  WHERE campaign_id = ?1
-                    AND NOT EXISTS (
-                      SELECT 1 FROM ${AUDIT_TABLE}
-                       WHERE actor_id = ?4 AND action = 'campaign.status'
-                         AND campaign_id = ?1
-                    )`,
-              )
-              .bind(campaign.campaign_id, status, nowMs, actorId),
-            db
-              .prepare(
-                `INSERT INTO ${AUDIT_TABLE}
-                   (actor_id, action, result, campaign_id, created_at)
-                 SELECT ?1, 'campaign.status', ?2, ?3, ?4
-                  WHERE NOT EXISTS (
+            .bind(campaign.campaign_id, status, nowMs, campaign.status, actorId),
+          db
+            .prepare(
+              `INSERT INTO ${AUDIT_TABLE}
+                 (actor_id, action, result, campaign_id, created_at)
+               SELECT ?1, 'campaign.status', ?2, ?3, ?4
+                WHERE EXISTS (
+                  SELECT 1 FROM ${CAMPAIGN_TABLE}
+                   WHERE campaign_id = ?3 AND status = ?5
+                )
+                  AND NOT EXISTS (
                     SELECT 1 FROM ${AUDIT_TABLE}
                      WHERE actor_id = ?1 AND action = 'campaign.status'
                        AND campaign_id = ?3
                   )`,
-              )
-              .bind(actorId, result, campaign.campaign_id, nowMs),
-          ]);
-          const committed = await first(
-            db
-              .prepare(
-                `SELECT result FROM ${AUDIT_TABLE}
-                  WHERE actor_id = ?1 AND action = 'campaign.status'
-                    AND campaign_id = ?2
-                  ORDER BY id ASC LIMIT 1`,
-              )
-              .bind(actorId, campaign.campaign_id),
-          );
-          if (committed?.result !== result) {
-            return responseJson({ error: 'IDEMPOTENCY_CONFLICT' }, 409);
-          }
-        }
-        campaign.status = status;
+            )
+            .bind(actorId, result, campaign.campaign_id, nowMs, status),
+        ]);
+      } catch {
+        return responseJson({ error: 'PRO_GRANT_UNAVAILABLE' }, 503);
       }
+      const committed = await first(
+        db
+          .prepare(
+            `SELECT result FROM ${AUDIT_TABLE}
+              WHERE actor_id = ?1 AND action = 'campaign.status'
+                AND campaign_id = ?2
+              ORDER BY id ASC LIMIT 1`,
+          )
+          .bind(actorId, campaign.campaign_id),
+      );
+      if (committed?.result !== result) {
+        return responseJson({ error: 'CAMPAIGN_STATUS_RACE' }, 409);
+      }
+      const updated = await readCampaign(db, slug);
       return responseJson({
         requestId,
-        dryRun,
-        campaign: campaignPublicState(campaign, Date.now()),
-        ...(dryRun ? { requestedStatus: status } : {}),
+        dryRun: false,
+        replayed: false,
+        campaign: campaignPublicState(updated, Date.now()),
       });
     }
-    return responseJson({ error: 'METHOD_NOT_ALLOWED' }, 405);
+    return responseJson({ error: 'METHOD_NOT_ALLOWED' }, 405, { allow: 'GET, HEAD, POST' });
   }
   if (action === 'revoke') {
-    if (request.method !== 'POST') return responseJson({ error: 'METHOD_NOT_ALLOWED' }, 405);
+    if (request.method !== 'POST') {
+      return responseJson({ error: 'METHOD_NOT_ALLOWED' }, 405, { allow: 'POST' });
+    }
     const parsed = await readJson(request, 4096);
     if (
       parsed.error ||
       !REQUEST_ID_RE.test(parsed.value?.requestId || '') ||
-      typeof parsed.value?.reason !== 'string' ||
-      parsed.value.reason.trim().length < 1 ||
-      parsed.value.reason.trim().length > 100
+      !SAFE_ADMIN_REASON_RE.test(parsed.value?.reason || '') ||
+      Object.keys(parsed.value || {}).some((key) => !['requestId', 'reason'].includes(key))
     ) {
       return responseJson({ error: 'INVALID_REQUEST' }, 400);
     }
     const nowMs = Date.now();
     const actorId = `admin:${parsed.value.requestId}`;
-    const results = await db.batch([
+    const result = `revoke-unused:${parsed.value.reason}`;
+    const previous = await first(
       db
         .prepare(
-          `UPDATE ${CAMPAIGN_TABLE} SET status = 'revoked', updated_at = ?2
-            WHERE campaign_id = ?1 AND status <> 'revoked'
-              AND NOT EXISTS (
-                SELECT 1 FROM ${AUDIT_TABLE}
-                 WHERE actor_id = ?3 AND action = 'campaign.revoke'
-                   AND campaign_id = ?1
-              )`,
+          `SELECT result FROM ${AUDIT_TABLE}
+            WHERE actor_id = ?1 AND action = 'campaign.revoke'
+              AND campaign_id = ?2
+            ORDER BY id ASC LIMIT 1`,
         )
-        .bind(campaign.campaign_id, nowMs, actorId),
-      db
-        .prepare(
-          `UPDATE ${VOUCHER_TABLE} SET status = 'revoked', updated_at = ?2
-            WHERE campaign_id = ?1 AND status = 'available'
-              AND NOT EXISTS (
-                SELECT 1 FROM ${AUDIT_TABLE}
-                 WHERE actor_id = ?3 AND action = 'campaign.revoke'
-                   AND campaign_id = ?1
-              )`,
-        )
-        .bind(campaign.campaign_id, nowMs, actorId),
-      db
-        .prepare(
-          `INSERT INTO ${AUDIT_TABLE}
-             (actor_id, action, result, campaign_id, created_at)
-           SELECT ?1, 'campaign.revoke', 'revoked', ?2, ?3
-            WHERE NOT EXISTS (
-              SELECT 1 FROM ${AUDIT_TABLE}
-               WHERE actor_id = ?1 AND action = 'campaign.revoke'
-                 AND campaign_id = ?2
-            )`,
-        )
-        .bind(actorId, campaign.campaign_id, nowMs),
-    ]);
+        .bind(actorId, campaign.campaign_id),
+    );
+    if (previous && previous.result !== result) {
+      return responseJson({ error: 'IDEMPOTENCY_CONFLICT' }, 409);
+    }
+    let replayed = !!previous;
+    let revokedVouchers = 0;
+    if (!previous) {
+      let results;
+      try {
+        results = await db.batch([
+          db
+            .prepare(
+              `UPDATE ${CAMPAIGN_TABLE} SET status = 'ended', updated_at = ?2
+                WHERE campaign_id = ?1 AND status IN ('draft', 'active', 'paused', 'ended')
+                  AND NOT EXISTS (
+                    SELECT 1 FROM ${AUDIT_TABLE}
+                     WHERE actor_id = ?3 AND action = 'campaign.revoke'
+                       AND campaign_id = ?1
+                  )`,
+            )
+            .bind(campaign.campaign_id, nowMs, actorId),
+          db
+            .prepare(
+              `INSERT INTO ${AUDIT_TABLE}
+                 (actor_id, action, result, campaign_id, created_at)
+               SELECT ?1, 'campaign.revoke', ?2, ?3, ?4
+                WHERE EXISTS (
+                  SELECT 1 FROM ${CAMPAIGN_TABLE}
+                   WHERE campaign_id = ?3 AND status IN ('ended', 'revoked')
+                )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM ${AUDIT_TABLE}
+                     WHERE actor_id = ?1 AND action = 'campaign.revoke'
+                       AND campaign_id = ?3
+                  )`,
+            )
+            .bind(actorId, result, campaign.campaign_id, nowMs),
+          db
+            .prepare(
+              `UPDATE ${VOUCHER_TABLE} SET status = 'revoked', updated_at = ?2
+                WHERE campaign_id = ?1 AND status = 'available'
+                  AND EXISTS (
+                    SELECT 1 FROM ${AUDIT_TABLE}
+                     WHERE actor_id = ?3 AND action = 'campaign.revoke'
+                       AND campaign_id = ?1 AND result = ?4
+                  )`,
+            )
+            .bind(campaign.campaign_id, nowMs, actorId, result),
+        ]);
+      } catch {
+        return responseJson({ error: 'PRO_GRANT_UNAVAILABLE' }, 503);
+      }
+      const committed = await first(
+        db
+          .prepare(
+            `SELECT result FROM ${AUDIT_TABLE}
+              WHERE actor_id = ?1 AND action = 'campaign.revoke'
+                AND campaign_id = ?2
+              ORDER BY id ASC LIMIT 1`,
+          )
+          .bind(actorId, campaign.campaign_id),
+      );
+      if (committed?.result !== result) {
+        return responseJson({ error: 'CAMPAIGN_STATUS_TRANSITION_INVALID' }, 409);
+      }
+      replayed = changeCount(results?.[1]) === 0;
+      revokedVouchers = changeCount(results?.[2]);
+    }
+    const summary = await readCampaignSummary(db, campaign.campaign_id);
     return responseJson({
       requestId: parsed.value.requestId,
-      campaign: { ...campaignPublicState(campaign, Date.now()), status: 'revoked' },
-      revokedVouchers: changeCount(results?.[1]),
+      replayed,
+      ...campaignAdminState(summary || campaign, Date.now()),
+      revokedVouchers,
     });
   }
   return responseJson({ error: 'NOT_FOUND' }, 404);

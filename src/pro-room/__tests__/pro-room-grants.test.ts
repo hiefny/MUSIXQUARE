@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { StatementSync } from 'node:sqlite';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   abortProRoomOwnershipTransferEntitlement,
   authorizeProGrantActivation,
@@ -375,6 +375,263 @@ describe('PRO grant JSON request limits', () => {
   });
 });
 
+describe('PRO grant campaign administration', () => {
+  let db: D1 | null = null;
+  afterEach(() => {
+    db?.close();
+    db = null;
+  });
+
+  it('lists every campaign with public metadata and secret-free voucher pool summaries', async () => {
+    db = new D1();
+    const now = Date.now();
+    db.database.exec(`
+      INSERT INTO mxqr_pro_room_registry VALUES
+        ('000100','First','registered',NULL,'unactivated',0,${now},${now}),
+        ('000101','Second','registered',NULL,'unactivated',0,${now},${now}),
+        ('000200','Third','registered',NULL,'unactivated',0,${now},${now});
+      INSERT INTO mxqr_pro_grant_campaigns VALUES
+        ('campaign_${'A'.repeat(22)}','asamo-0','ASAMO event','active',${now - 1},NULL,1,${now},${now}),
+        ('campaign_${'B'.repeat(22)}','community-1','Community event','paused',NULL,NULL,2,${now + 1},${now + 1});
+      INSERT INTO mxqr_pro_grant_voucher_batches VALUES
+        ('campaign_${'A'.repeat(22)}','batch_${'C'.repeat(22)}','${'D'.repeat(43)}','committed',2,${now},${now}),
+        ('campaign_${'B'.repeat(22)}','batch_${'E'.repeat(22)}','${'F'.repeat(43)}','committed',1,${now},${now});
+      INSERT INTO mxqr_pro_grant_vouchers VALUES
+        ('voucher_${'G'.repeat(22)}','campaign_${'A'.repeat(22)}','batch_${'C'.repeat(22)}','${'H'.repeat(43)}','000100',0,'available',NULL,NULL,${now},${now}),
+        ('voucher_${'J'.repeat(22)}','campaign_${'A'.repeat(22)}','batch_${'C'.repeat(22)}','${'K'.repeat(43)}','000101',0,'revoked',NULL,NULL,${now},${now}),
+        ('voucher_${'L'.repeat(22)}','campaign_${'B'.repeat(22)}','batch_${'E'.repeat(22)}','${'M'.repeat(43)}','000200',0,'available',NULL,NULL,${now},${now});
+    `);
+
+    const response = await handleProGrantAdminRequest(
+      request('/api/admin/pro-grants/campaigns'),
+      { MUSIXQUARE_ADMIN_DB: db },
+      new URL('https://musixquare.com/api/admin/pro-grants/campaigns'),
+      {},
+    );
+    const payload = await body(response!);
+
+    expect(response?.status).toBe(200);
+    expect(payload.campaigns).toHaveLength(2);
+    expect(payload.campaigns[0]).toEqual({
+      campaign: {
+        slug: 'community-1',
+        title: 'Community event',
+        status: 'paused',
+        startsAt: null,
+        endsAt: null,
+        perAccountLimit: 2,
+      },
+      counts: { total: 1, available: 1, redeemed: 0, revoked: 0 },
+      pool: { roomCount: 1, firstRoomCode: '000200', lastRoomCode: '000200' },
+    });
+    expect(payload.campaigns[1]).toMatchObject({
+      campaign: { slug: 'asamo-0', title: 'ASAMO event', status: 'active' },
+      counts: { total: 2, available: 1, redeemed: 0, revoked: 1 },
+      pool: { roomCount: 2, firstRoomCode: '000100', lastRoomCode: '000101' },
+    });
+    expect(JSON.stringify(payload)).not.toMatch(/code_digest|voucher_|[D-M]{43}/);
+  });
+
+  it('reports an active campaign before its start time as scheduled, not draft', async () => {
+    db = new D1();
+    const now = Date.now();
+    db.database.exec(`
+      INSERT INTO mxqr_pro_grant_campaigns VALUES
+        ('campaign_${'A'.repeat(22)}','scheduled-0','Scheduled','active',${
+          now + 60_000
+        },NULL,1,${now},${now});
+    `);
+    const response = await handleProGrantAdminRequest(
+      request('/api/admin/pro-grants/campaigns/scheduled-0/status'),
+      { MUSIXQUARE_ADMIN_DB: db },
+      new URL('https://musixquare.com/api/admin/pro-grants/campaigns/scheduled-0/status'),
+      {},
+    );
+
+    expect(response?.status).toBe(200);
+    expect(await body(response!)).toEqual({
+      campaign: {
+        slug: 'scheduled-0',
+        title: 'Scheduled',
+        status: 'scheduled',
+        startsAt: now + 60_000,
+        endsAt: null,
+        perAccountLimit: 1,
+      },
+      counts: { total: 0, available: 0, redeemed: 0, revoked: 0 },
+      pool: { roomCount: 0, firstRoomCode: null, lastRoomCode: null },
+    });
+  });
+
+  it('replays an exact campaign creation with a null start time', async () => {
+    db = new D1();
+    const url = new URL('https://musixquare.com/api/admin/pro-grants/campaigns');
+    const payload = {
+      slug: 'null-start-0',
+      title: 'Null start event',
+      startsAt: null,
+      endsAt: null,
+      perAccountLimit: 1,
+      dryRun: false,
+    };
+    const create = () =>
+      handleProGrantAdminRequest(
+        request(url.pathname, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        }),
+        { MUSIXQUARE_ADMIN_DB: db },
+        url,
+        {},
+      );
+
+    const first = await create();
+    expect(first?.status).toBe(201);
+    expect(await body(first!)).toMatchObject({
+      campaign: { slug: payload.slug, startsAt: null },
+      created: true,
+    });
+
+    const replay = await create();
+    expect(replay?.status).toBe(200);
+    expect(await body(replay!)).toMatchObject({
+      campaign: { slug: payload.slug, startsAt: null },
+      created: false,
+    });
+  });
+
+  it('enforces the explicit draft-active-paused-ended lifecycle and requires inventory', async () => {
+    db = new D1();
+    const now = Date.now();
+    db.database.exec(`
+      INSERT INTO mxqr_pro_grant_campaigns VALUES
+        ('campaign_${'A'.repeat(22)}','launch-0','Launch','draft',NULL,NULL,1,${now},${now});
+    `);
+    const env = { MUSIXQUARE_ADMIN_DB: db };
+    const dependencies = { verifyOwnerEntitlementBackfill: async () => true };
+    const setStatus = (requestId: string, status: string) =>
+      handleProGrantAdminRequest(
+        request('/api/admin/pro-grants/campaigns/launch-0/status', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ requestId, status, dryRun: false }),
+        }),
+        env,
+        new URL('https://musixquare.com/api/admin/pro-grants/campaigns/launch-0/status'),
+        dependencies,
+      );
+
+    const emptyActivation = await setStatus('status_launch_empty', 'active');
+    expect(emptyActivation?.status).toBe(409);
+    expect(await body(emptyActivation!)).toEqual({ error: 'CAMPAIGN_VOUCHERS_REQUIRED' });
+
+    db.database.exec(`
+      INSERT INTO mxqr_pro_room_registry VALUES
+        ('000300','Launch','registered',NULL,'unactivated',0,${now},${now});
+      INSERT INTO mxqr_pro_grant_voucher_batches VALUES
+        ('campaign_${'A'.repeat(22)}','batch_${'B'.repeat(22)}','${'C'.repeat(43)}','committed',1,${now},${now});
+      INSERT INTO mxqr_pro_grant_vouchers VALUES
+        ('voucher_${'D'.repeat(22)}','campaign_${'A'.repeat(22)}','batch_${'B'.repeat(22)}','${'E'.repeat(43)}','000300',0,'available',NULL,NULL,${now},${now});
+    `);
+    expect((await setStatus('status_launch_active', 'active'))?.status).toBe(200);
+    expect((await setStatus('status_launch_paused', 'paused'))?.status).toBe(200);
+    expect((await setStatus('status_launch_resume', 'active'))?.status).toBe(200);
+    expect((await setStatus('status_launch_ended', 'ended'))?.status).toBe(200);
+
+    const reopened = await setStatus('status_launch_reopen', 'active');
+    expect(reopened?.status).toBe(409);
+    expect(await body(reopened!)).toMatchObject({
+      error: 'CAMPAIGN_STATUS_TRANSITION_INVALID',
+      campaign: { slug: 'launch-0', status: 'ended' },
+      requestedStatus: 'active',
+    });
+    const internalState = await setStatus('status_launch_draft', 'draft');
+    expect(internalState?.status).toBe(400);
+    expect(await body(internalState!)).toEqual({ error: 'INVALID_REQUEST' });
+  });
+
+  it('ends a campaign and revokes only unused vouchers idempotently', async () => {
+    db = new D1();
+    const now = Date.now();
+    db.database.exec(`
+      INSERT INTO mxqr_pro_room_registry VALUES
+        ('000400','Unused','registered',NULL,'unactivated',0,${now},${now}),
+        ('000401','Redeemed','registered',NULL,'unactivated',0,${now},${now});
+      INSERT INTO mxqr_pro_grant_campaigns VALUES
+        ('campaign_${'A'.repeat(22)}','closing-0','Closing','active',${now - 1},NULL,1,${now},${now});
+      INSERT INTO mxqr_pro_grant_voucher_batches VALUES
+        ('campaign_${'A'.repeat(22)}','batch_${'B'.repeat(22)}','${'C'.repeat(43)}','committed',2,${now},${now});
+      INSERT INTO mxqr_pro_grant_vouchers VALUES
+        ('voucher_${'D'.repeat(22)}','campaign_${'A'.repeat(22)}','batch_${'B'.repeat(22)}','${'E'.repeat(43)}','000400',0,'available',NULL,NULL,${now},${now}),
+        ('voucher_${'F'.repeat(22)}','campaign_${'A'.repeat(22)}','batch_${'B'.repeat(22)}','${'G'.repeat(43)}','000401',0,'redeemed','${ACCOUNT_A}',${now},${now},${now});
+    `);
+    const env = { MUSIXQUARE_ADMIN_DB: db };
+    const revoke = (reason = 'operator_revoked') =>
+      handleProGrantAdminRequest(
+        request('/api/admin/pro-grants/campaigns/closing-0/revoke', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ requestId: 'revoke_closing_001', reason }),
+        }),
+        env,
+        new URL('https://musixquare.com/api/admin/pro-grants/campaigns/closing-0/revoke'),
+        {},
+      );
+
+    const first = await revoke();
+    expect(first?.status).toBe(200);
+    expect(await body(first!)).toMatchObject({
+      replayed: false,
+      campaign: { slug: 'closing-0', status: 'ended' },
+      counts: { total: 2, available: 0, redeemed: 1, revoked: 1 },
+      pool: { roomCount: 2, firstRoomCode: '000400', lastRoomCode: '000401' },
+      revokedVouchers: 1,
+    });
+    expect(
+      db.database
+        .prepare(
+          `SELECT room_code, status, redeemed_account_id
+             FROM mxqr_pro_grant_vouchers ORDER BY room_code`,
+        )
+        .all(),
+    ).toEqual([
+      { room_code: '000400', status: 'revoked', redeemed_account_id: null },
+      { room_code: '000401', status: 'redeemed', redeemed_account_id: ACCOUNT_A },
+    ]);
+
+    const preflightVoucherRoom = vi.fn();
+    const extraBatch = await handleProGrantAdminRequest(
+      request('/api/admin/pro-grants/campaigns/closing-0/vouchers', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          requestId: `batch_${'Z'.repeat(22)}`,
+          dryRun: false,
+          vouchers: [{ roomCode: '000402', code: '23456789ABCDEFGHJKMN' }],
+        }),
+      }),
+      { ...env, MXQR_PRO_GRANT_VOUCHER_PEPPER: PEPPER },
+      new URL('https://musixquare.com/api/admin/pro-grants/campaigns/closing-0/vouchers'),
+      { preflightVoucherRoom },
+    );
+    expect(extraBatch?.status).toBe(409);
+    expect(await body(extraBatch!)).toEqual({ error: 'CAMPAIGN_NOT_MUTABLE' });
+    expect(preflightVoucherRoom).not.toHaveBeenCalled();
+
+    const replay = await revoke();
+    expect(replay?.status).toBe(200);
+    expect(await body(replay!)).toMatchObject({
+      replayed: true,
+      counts: { available: 0, redeemed: 1, revoked: 1 },
+      revokedVouchers: 0,
+    });
+    const conflict = await revoke('campaign_cancelled');
+    expect(conflict?.status).toBe(409);
+    expect(await body(conflict!)).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
+  });
+});
+
 describe('generic PRO grant redemption', () => {
   let db: D1 | null = null;
   afterEach(() => {
@@ -616,6 +873,12 @@ describe('generic PRO grant redemption', () => {
     );
     const sessionBody = await body(session!);
     expect(session?.status).toBe(200);
+    expect(sessionBody.campaign).toMatchObject({
+      slug: 'asamo-0',
+      title: 'ASAMO',
+      status: 'active',
+      perAccountLimit: 1,
+    });
     expect(sessionBody.redemption).toMatchObject({
       status: 'redeemed',
       roomCode: '000100',
@@ -709,8 +972,14 @@ describe('generic PRO grant redemption', () => {
     db = new D1();
     const now = Date.now();
     db.database.exec(`
+      INSERT INTO mxqr_pro_room_registry VALUES
+        ('000100','Event','registered',NULL,'unactivated',0,${now},${now});
       INSERT INTO mxqr_pro_grant_campaigns VALUES
         ('campaign_${'A'.repeat(22)}','asamo-0','ASAMO','draft',${now - 1},NULL,1,${now},${now});
+      INSERT INTO mxqr_pro_grant_voucher_batches VALUES
+        ('campaign_${'A'.repeat(22)}','batch_${'B'.repeat(22)}','${'C'.repeat(43)}','committed',1,${now},${now});
+      INSERT INTO mxqr_pro_grant_vouchers VALUES
+        ('voucher_${'D'.repeat(22)}','campaign_${'A'.repeat(22)}','batch_${'B'.repeat(22)}','${'E'.repeat(43)}','000100',0,'available',NULL,NULL,${now},${now});
     `);
     const env = { MUSIXQUARE_ADMIN_DB: db };
     const activate = (verifyOwnerEntitlementBackfill: () => Promise<boolean>) =>

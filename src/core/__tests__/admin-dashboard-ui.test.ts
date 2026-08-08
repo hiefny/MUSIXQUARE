@@ -1863,9 +1863,11 @@ describe('admin PRO room operations dashboard', () => {
       'pro-rooms',
     );
 
-    campaignPanel?.querySelector<HTMLButtonElement>('[data-pro-grant-verify]')?.click();
+    const verifyButton = campaignPanel?.querySelector<HTMLButtonElement>('[data-pro-grant-verify]');
+    await vi.waitFor(() => expect(verifyButton?.disabled).toBe(false));
+    verifyButton?.click();
     await vi.waitFor(() => {
-      expect(campaignPanel?.textContent).toContain('50 room(s) need provisioning');
+      expect(campaignPanel?.textContent).toContain('50개 방은 적용 단계에서 새로 준비돼요');
     });
     expect(voucherMutations).toHaveLength(0);
     expect(registeredEventRooms.size).toBe(0);
@@ -1899,6 +1901,608 @@ describe('admin PRO room operations dashboard', () => {
     window.dispatchEvent(new Event('pagehide'));
     campaignPanel?.querySelector<HTMLButtonElement>('[data-pro-grant-copy]')?.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(campaignPanel?.textContent).toContain('Clipboard access is unavailable');
+    expect(campaignPanel?.textContent).toContain('클립보드를 사용할 수 없어요');
+  });
+
+  it('lists campaigns and separates pause, terminal end, and unused-code revocation', async () => {
+    installAdminDom();
+    const proView = document.querySelector<HTMLElement>('[data-admin-view="pro-rooms"]')!;
+    const form = document.querySelector<HTMLFormElement>('[data-pro-room-form]')!;
+    const registerPanel = document.createElement('section');
+    registerPanel.className = 'panel pro-room-register-panel';
+    proView.insertBefore(registerPanel, form);
+    registerPanel.appendChild(form);
+
+    let campaignStatus = 'active';
+    let recoveryStatus = 'draft';
+    let available = 8;
+    const statusMutations: string[] = [];
+    let revokeMutations = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      const method = String(init?.method || 'GET').toUpperCase();
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms' && method === 'GET') {
+        return Response.json({ rooms: [] });
+      }
+      if (url.pathname === '/api/admin/pro-grants/campaigns' && method === 'GET') {
+        return Response.json({
+          campaigns: [
+            {
+              campaign: {
+                slug: 'asamo-0',
+                title: 'MUSIXQUARE 아사모 이벤트',
+                status: campaignStatus,
+                startsAt: Date.now() - 1_000,
+                endsAt: null,
+                perAccountLimit: 1,
+              },
+              counts: { total: 10, available, redeemed: 2, revoked: 0 },
+              pool: {
+                roomCount: 10,
+                firstRoomCode: '000100',
+                lastRoomCode: '000109',
+              },
+            },
+            {
+              campaign: {
+                slug: 'broken-pool',
+                title: '잘못된 범위',
+                status: 'draft',
+                startsAt: Date.now(),
+                endsAt: null,
+                perAccountLimit: 1,
+              },
+              counts: { total: 3, available: 3, redeemed: 0, revoked: 0 },
+              pool: {
+                roomCount: 3,
+                firstRoomCode: '000200',
+                lastRoomCode: '000205',
+              },
+            },
+            {
+              campaign: {
+                slug: 'recover-draft',
+                title: '시작 복구 이벤트',
+                status: recoveryStatus,
+                startsAt: Date.now() - 1_000,
+                endsAt: null,
+                perAccountLimit: 1,
+              },
+              counts: { total: 3, available: 3, redeemed: 0, revoked: 0 },
+              pool: {
+                roomCount: 3,
+                firstRoomCode: '000300',
+                lastRoomCode: '000302',
+              },
+            },
+            {
+              campaign: {
+                slug: 'ended-empty',
+                title: '빈 종료 이벤트',
+                status: 'ended',
+                startsAt: Date.now() - 1_000,
+                endsAt: null,
+                perAccountLimit: 1,
+              },
+              counts: { total: 0, available: 0, redeemed: 0, revoked: 0 },
+              pool: { roomCount: 0, firstRoomCode: null, lastRoomCode: null },
+            },
+          ],
+        });
+      }
+      if (url.pathname === '/api/admin/pro-grants/campaigns/asamo-0/status' && method === 'POST') {
+        const body = JSON.parse(String(init?.body || '{}'));
+        statusMutations.push(body.status);
+        campaignStatus = body.status;
+        return Response.json({ ok: true });
+      }
+      if (
+        url.pathname === '/api/admin/pro-grants/campaigns/recover-draft/status' &&
+        method === 'POST'
+      ) {
+        const body = JSON.parse(String(init?.body || '{}'));
+        statusMutations.push(body.status);
+        recoveryStatus = body.status;
+        return Response.json({ ok: true });
+      }
+      if (url.pathname === '/api/admin/pro-grants/campaigns/asamo-0/revoke' && method === 'POST') {
+        revokeMutations += 1;
+        available = 0;
+        return Response.json({ ok: true });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+    const panel = document.querySelector<HTMLElement>('[data-pro-grant-campaign]')!;
+    await vi.waitFor(() => {
+      expect(panel.textContent).toContain('10개 발급 · 8개 사용 가능 · 2개 사용 · 0개 폐기');
+    });
+    expect(panel.querySelector<HTMLAnchorElement>('[data-pro-grant-event-link] a')?.pathname).toBe(
+      '/events/asamo/0/',
+    );
+
+    panel.querySelector<HTMLButtonElement>('[data-pro-grant-pause]')?.click();
+    await vi.waitFor(() => expect(statusMutations).toEqual(['paused']));
+    await vi.waitFor(() => {
+      expect(panel.querySelector('[data-pro-grant-state]')?.textContent).toBe('일시 중지');
+    });
+
+    panel.querySelector<HTMLButtonElement>('[data-pro-grant-pause]')?.click();
+    await vi.waitFor(() => expect(statusMutations).toEqual(['paused', 'active']));
+    await vi.waitFor(() => {
+      expect(panel.querySelector('[data-pro-grant-state]')?.textContent).toBe('진행 중');
+    });
+
+    confirmSpy.mockReturnValueOnce(false);
+    panel.querySelector<HTMLButtonElement>('[data-pro-grant-end]')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(statusMutations).toEqual(['paused', 'active']);
+
+    panel.querySelector<HTMLButtonElement>('[data-pro-grant-end]')?.click();
+    await vi.waitFor(() => expect(statusMutations).toEqual(['paused', 'active', 'ended']));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('남은 코드는 보존'));
+
+    const revokeButton = panel.querySelector<HTMLButtonElement>('[data-pro-grant-revoke]')!;
+    await vi.waitFor(() => expect(revokeButton.disabled).toBe(false));
+    revokeButton.click();
+    await vi.waitFor(() => expect(revokeMutations).toBe(1));
+    expect(window.confirm).toHaveBeenLastCalledWith(expect.stringContaining('영구 폐기'));
+    const newEventButton = panel.querySelector<HTMLButtonElement>('[data-pro-grant-new]')!;
+    await vi.waitFor(() => expect(newEventButton.disabled).toBe(false));
+
+    panel
+      .querySelector<HTMLButtonElement>('[data-pro-grant-campaign-select="broken-pool"]')
+      ?.click();
+    expect(panel.textContent).toContain('방 범위 정보 없음');
+    expect(panel.querySelector<HTMLButtonElement>('[data-pro-grant-verify]')?.disabled).toBe(true);
+
+    const recoveryButton = panel.querySelector<HTMLButtonElement>(
+      '[data-pro-grant-campaign-select="recover-draft"]',
+    )!;
+    recoveryButton.focus();
+    recoveryButton.click();
+    expect(panel.querySelector<HTMLButtonElement>('[data-pro-grant-pause]')?.textContent).toBe(
+      '이벤트 시작',
+    );
+    expect((document.activeElement as HTMLElement)?.dataset.proGrantCampaignSelect).toBe(
+      'recover-draft',
+    );
+    panel.querySelector<HTMLButtonElement>('[data-pro-grant-pause]')?.click();
+    await vi.waitFor(() =>
+      expect(statusMutations).toEqual(['paused', 'active', 'ended', 'active']),
+    );
+    await vi.waitFor(() => expect(newEventButton.disabled).toBe(false));
+
+    panel
+      .querySelector<HTMLButtonElement>('[data-pro-grant-campaign-select="ended-empty"]')
+      ?.click();
+    expect(panel.querySelector<HTMLButtonElement>('[data-pro-grant-verify]')?.disabled).toBe(true);
+    expect(panel.querySelector<HTMLButtonElement>('[data-pro-grant-create]')?.disabled).toBe(true);
+
+    newEventButton.click();
+    const createForm = panel.querySelector<HTMLFormElement>('[data-pro-grant-create-form]')!;
+    const fill = (name: string, value: string) => {
+      const input = createForm.elements.namedItem(name) as HTMLInputElement;
+      input.value = value;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    fill('title', '겹치는 이벤트');
+    fill('slug', 'overlap-1');
+    fill('roomStartCode', '000105');
+    fill('roomCount', '2');
+    fill('startsAt', '2026-08-10T10:00');
+    createForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    expect(panel.querySelector('[data-pro-grant-status]')?.textContent).toContain(
+      '000105번 방이 MUSIXQUARE 아사모 이벤트와 겹쳐요',
+    );
+    panel.querySelector<HTMLButtonElement>('[data-pro-grant-form-cancel]')?.click();
+    newEventButton.click();
+    expect((createForm.elements.namedItem('title') as HTMLInputElement).value).toBe('');
+    expect((createForm.elements.namedItem('roomCount') as HTMLInputElement).value).toBe('50');
+    expect((createForm.elements.namedItem('startsAt') as HTMLInputElement).value).not.toBe(
+      '2026-08-10T10:00',
+    );
+    expect(adminStyles).toContain('.pro-grant-campaign-layout');
+    expect(adminStyles).toMatch(
+      /@media \(max-width: 560px\)[\s\S]*\.pro-grant-form-grid,[\s\S]*grid-template-columns: 1fr;/,
+    );
+    expect(adminStyles).toMatch(
+      /\.pro-grant-campaign-actions,[\s\S]*display: flex;[\s\S]*flex-wrap: wrap;/,
+    );
+    expect(adminStyles).not.toMatch(
+      /@media \(max-width: 560px\)[\s\S]*\.pro-grant-campaign-actions button,[\s\S]*width: 100%;/,
+    );
+  });
+
+  it('creates a generic campaign through verify, local export, and exact apply', async () => {
+    installAdminDom();
+    const proView = document.querySelector<HTMLElement>('[data-admin-view="pro-rooms"]')!;
+    const roomForm = document.querySelector<HTMLFormElement>('[data-pro-room-form]')!;
+    const registerPanel = document.createElement('section');
+    registerPanel.className = 'panel pro-room-register-panel';
+    proView.insertBefore(registerPanel, roomForm);
+    registerPanel.appendChild(roomForm);
+
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:generic-event-vouchers'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    const registeredRooms = new Map<string, any>();
+    const campaignMutations: Array<any> = [];
+    const voucherMutations: Array<any> = [];
+    let applied = false;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      const method = String(init?.method || 'GET').toUpperCase();
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-grants/campaigns' && method === 'GET') {
+        return Response.json({
+          campaigns: applied
+            ? [
+                {
+                  campaign: {
+                    slug: 'launch-2',
+                    title: '출시 기념 이벤트',
+                    status: 'active',
+                    startsAt: new Date('2026-08-10T10:00').getTime(),
+                    endsAt: null,
+                    perAccountLimit: 1,
+                  },
+                  counts: { total: 3, available: 3, redeemed: 0, revoked: 0 },
+                  pool: {
+                    roomCount: 3,
+                    firstRoomCode: '000200',
+                    lastRoomCode: '000202',
+                  },
+                },
+              ]
+            : [],
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms' && method === 'GET') {
+        return Response.json({ rooms: [...registeredRooms.values()] });
+      }
+      if (url.pathname === '/api/admin/pro-rooms' && method === 'POST') {
+        const body = JSON.parse(String(init?.body || '{}'));
+        const room = {
+          roomCode: body.roomCode,
+          roomGeneration: 0,
+          label: body.label,
+          status: 'registered',
+          activationState: 'unactivated',
+        };
+        registeredRooms.set(room.roomCode, room);
+        return Response.json({ room }, { status: 201 });
+      }
+      if (url.pathname === '/api/admin/pro-grants/campaigns' && method === 'POST') {
+        const body = JSON.parse(String(init?.body || '{}'));
+        campaignMutations.push(body);
+        return Response.json({ campaign: { slug: body.slug }, dryRun: body.dryRun });
+      }
+      if (
+        url.pathname === '/api/admin/pro-grants/campaigns/launch-2/vouchers' &&
+        method === 'POST'
+      ) {
+        const body = JSON.parse(String(init?.body || '{}'));
+        voucherMutations.push(body);
+        return Response.json({
+          requestId: body.requestId,
+          campaign: { slug: 'launch-2' },
+          count: body.vouchers.length,
+          mappings: body.vouchers.map((voucher: any, index: number) => ({
+            voucherId: `voucher_${String(index).padStart(22, 'A')}`,
+            roomCode: voucher.roomCode,
+            roomGeneration: 0,
+            status: 'available',
+          })),
+        });
+      }
+      if (url.pathname === '/api/admin/pro-grants/campaigns/launch-2/status' && method === 'POST') {
+        applied = true;
+        return Response.json({ ok: true });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+    const panel = document.querySelector<HTMLElement>('[data-pro-grant-campaign]')!;
+    await vi.waitFor(() => expect(panel.textContent).toContain('아직 이벤트가 없어요'));
+    panel.querySelector<HTMLButtonElement>('[data-pro-grant-new]')?.click();
+    const createForm = panel.querySelector<HTMLFormElement>('[data-pro-grant-create-form]')!;
+    const setValue = (name: string, value: string) => {
+      const input = createForm.elements.namedItem(name) as HTMLInputElement;
+      input.value = value;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    setValue('title', '출시 기념 이벤트');
+    setValue('slug', 'launch-2');
+    setValue('roomStartCode', '000200');
+    setValue('roomCount', '3');
+    setValue('startsAt', '2026-08-10T10:00');
+    createForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    expect(panel.querySelector<HTMLAnchorElement>('[data-pro-grant-event-link] a')?.pathname).toBe(
+      '/events/launch/2/',
+    );
+
+    const verify = panel.querySelector<HTMLButtonElement>('[data-pro-grant-verify]')!;
+    expect(verify.disabled).toBe(false);
+    verify.click();
+    await vi.waitFor(() => expect(campaignMutations).toHaveLength(1));
+    expect(Object.keys(campaignMutations[0]).sort()).toEqual(
+      ['dryRun', 'endsAt', 'perAccountLimit', 'slug', 'startsAt', 'title'].sort(),
+    );
+    expect(campaignMutations[0]).toMatchObject({
+      slug: 'launch-2',
+      perAccountLimit: 1,
+      dryRun: true,
+    });
+
+    const prepare = panel.querySelector<HTMLButtonElement>('[data-pro-grant-create]')!;
+    await vi.waitFor(() => expect(prepare.disabled).toBe(false));
+    prepare.click();
+    await vi.waitFor(() => expect(URL.createObjectURL).toHaveBeenCalledTimes(1));
+    const unload = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(unload);
+    expect(unload.defaultPrevented).toBe(true);
+
+    const newEventButton = panel.querySelector<HTMLButtonElement>('[data-pro-grant-new]')!;
+    expect(newEventButton.disabled).toBe(true);
+    newEventButton.disabled = false;
+    newEventButton.click();
+    expect(createForm.hidden).toBe(true);
+    expect(panel.querySelector('[data-pro-grant-status]')?.textContent).toContain(
+      '출시 기념 이벤트의 코드 파일이 적용 대기 중이에요',
+    );
+    createForm.hidden = false;
+    setValue('title', '덮어쓰기 시도');
+    setValue('slug', 'blocked-3');
+    setValue('roomStartCode', '000400');
+    setValue('roomCount', '2');
+    createForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    expect(panel.querySelector<HTMLAnchorElement>('[data-pro-grant-event-link] a')?.pathname).toBe(
+      '/events/launch/2/',
+    );
+    createForm.hidden = true;
+
+    panel.querySelector<HTMLButtonElement>('[data-pro-grant-apply]')?.click();
+    await vi.waitFor(() => expect(voucherMutations).toHaveLength(1));
+    expect(registeredRooms.size).toBe(3);
+    expect(voucherMutations[0].vouchers.map((voucher: any) => voucher.roomCode)).toEqual([
+      '000200',
+      '000201',
+      '000202',
+    ]);
+    expect(campaignMutations).toHaveLength(2);
+    expect(Object.keys(campaignMutations[1]).sort()).toEqual(
+      ['dryRun', 'endsAt', 'perAccountLimit', 'slug', 'startsAt', 'title'].sort(),
+    );
+    expect(campaignMutations[1].dryRun).toBe(false);
+    expect(panel.textContent).not.toContain(voucherMutations[0].vouchers[0].code);
+    expect(panel.textContent).toContain('3개 코드가 적용됐어요');
+    const nextEventButton = panel.querySelector<HTMLButtonElement>('[data-pro-grant-new]')!;
+    expect(nextEventButton.disabled).toBe(false);
+    nextEventButton.click();
+    expect(createForm.hidden).toBe(false);
+    expect(panel.querySelector<HTMLElement>('[data-pro-grant-export]')?.hidden).toBe(true);
+  });
+
+  it('imports a strict saved voucher file and resumes a partially created campaign', async () => {
+    installAdminDom();
+    const proView = document.querySelector<HTMLElement>('[data-admin-view="pro-rooms"]')!;
+    const roomForm = document.querySelector<HTMLFormElement>('[data-pro-room-form]')!;
+    const registerPanel = document.createElement('section');
+    registerPanel.className = 'panel pro-room-register-panel';
+    proView.insertBefore(registerPanel, roomForm);
+    registerPanel.appendChild(roomForm);
+
+    const startsAt = 1;
+    let campaignStatus = 'draft';
+    let vouchersCommitted = false;
+    const registeredRooms = new Map<string, any>();
+    const voucherMutations: any[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      const method = String(init?.method || 'GET').toUpperCase();
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-grants/campaigns' && method === 'GET') {
+        return Response.json({
+          campaigns: [
+            {
+              campaign: {
+                slug: 'recovery-4',
+                title: '복구 이벤트',
+                status: campaignStatus,
+                startsAt,
+                endsAt: null,
+                perAccountLimit: 1,
+              },
+              counts: vouchersCommitted
+                ? { total: 2, available: 2, redeemed: 0, revoked: 0 }
+                : { total: 0, available: 0, redeemed: 0, revoked: 0 },
+              pool: vouchersCommitted
+                ? { roomCount: 2, firstRoomCode: '000400', lastRoomCode: '000401' }
+                : { roomCount: 0, firstRoomCode: null, lastRoomCode: null },
+            },
+          ],
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms' && method === 'GET') {
+        return Response.json({ rooms: [...registeredRooms.values()] });
+      }
+      if (url.pathname === '/api/admin/pro-rooms' && method === 'POST') {
+        const requestBody = JSON.parse(String(init?.body || '{}'));
+        const room = {
+          roomCode: requestBody.roomCode,
+          roomGeneration: 0,
+          label: requestBody.label,
+          status: 'registered',
+          activationState: 'unactivated',
+        };
+        registeredRooms.set(room.roomCode, room);
+        return Response.json({ room }, { status: 201 });
+      }
+      if (url.pathname === '/api/admin/pro-grants/campaigns' && method === 'POST') {
+        return Response.json({ campaign: { slug: 'recovery-4' }, created: false });
+      }
+      if (
+        url.pathname === '/api/admin/pro-grants/campaigns/recovery-4/vouchers' &&
+        method === 'POST'
+      ) {
+        const requestBody = JSON.parse(String(init?.body || '{}'));
+        voucherMutations.push(requestBody);
+        vouchersCommitted = true;
+        return Response.json({
+          requestId: requestBody.requestId,
+          campaign: { slug: 'recovery-4' },
+          count: requestBody.vouchers.length,
+          mappings: requestBody.vouchers.map((voucher: any, index: number) => ({
+            voucherId: `voucher_${String(index).padStart(22, 'A')}`,
+            roomCode: voucher.roomCode,
+            roomGeneration: 0,
+            status: 'available',
+          })),
+        });
+      }
+      if (
+        url.pathname === '/api/admin/pro-grants/campaigns/recovery-4/status' &&
+        method === 'POST'
+      ) {
+        campaignStatus = 'active';
+        return Response.json({ ok: true });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+    const panel = document.querySelector<HTMLElement>('[data-pro-grant-campaign]')!;
+    const importInput = panel.querySelector<HTMLInputElement>('[data-pro-grant-import-input]')!;
+    const artifact = {
+      format: 'mxqr-pro-grant-vouchers-v1',
+      warning: 'PLAINTEXT VOUCHER CODES. Store and distribute securely.',
+      exportedAt: '2026-08-09T00:00:00.000Z',
+      requestId: `batch_${'Z'.repeat(22)}`,
+      campaign: {
+        slug: 'recovery-4',
+        title: '복구 이벤트',
+        startsAt,
+        endsAt: null,
+        perAccountLimit: 1,
+      },
+      pool: { firstRoomCode: '000400', lastRoomCode: '000401', roomCount: 2 },
+      roomLabelPrefix: '복구 이벤트',
+      vouchers: [
+        { roomCode: '000400', code: 'MXQ-AAAAA-BBBBB-CCCCC-DDDDD' },
+        { roomCode: '000401', code: 'MXQ-EEEEE-FFFFF-GGGGG-HHHHH' },
+      ],
+    };
+    const setImportFile = (value: unknown) => {
+      const json = JSON.stringify(value);
+      Object.defineProperty(importInput, 'files', {
+        configurable: true,
+        value: [{ size: new TextEncoder().encode(json).byteLength, text: async () => json }],
+      });
+      importInput.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    setImportFile({ ...artifact, applied: true });
+    await vi.waitFor(() => {
+      expect(panel.querySelector('[data-pro-grant-status]')?.textContent).toContain(
+        '지원하지 않거나 손상된 코드 파일이에요',
+      );
+    });
+    expect(panel.querySelector<HTMLButtonElement>('[data-pro-grant-apply]')?.disabled).toBe(true);
+
+    setImportFile({
+      ...artifact,
+      campaign: { ...artifact.campaign, slug: 123 },
+    });
+    await vi.waitFor(() => {
+      expect(panel.querySelector('[data-pro-grant-status]')?.textContent).toContain(
+        '코드 파일의 이벤트 정보가 올바르지 않아요',
+      );
+    });
+    expect(panel.querySelector<HTMLButtonElement>('[data-pro-grant-apply]')?.disabled).toBe(true);
+
+    const { pool: _pool, roomLabelPrefix: _roomLabelPrefix, ...cliCompatibleArtifact } = artifact;
+    setImportFile(cliCompatibleArtifact);
+    await vi.waitFor(() => {
+      expect(panel.querySelector('[data-pro-grant-status]')?.textContent).toContain(
+        '코드 2개를 메모리에 불러왔어요',
+      );
+    });
+    expect(panel.querySelector<HTMLButtonElement>('[data-pro-grant-apply]')?.disabled).toBe(false);
+    expect(panel.textContent).not.toContain(artifact.vouchers[0].code);
+
+    panel.querySelector<HTMLButtonElement>('[data-pro-grant-apply]')?.click();
+    await vi.waitFor(() => expect(voucherMutations).toHaveLength(1));
+    await vi.waitFor(() => expect(campaignStatus).toBe('active'));
+    expect(registeredRooms.size).toBe(2);
+    expect(voucherMutations[0].requestId).toBe(artifact.requestId);
+    expect(panel.textContent).not.toContain(artifact.vouchers[1].code);
+
+    setImportFile({
+      ...artifact,
+      requestId: `batch_${'Y'.repeat(22)}`,
+      campaign: { ...artifact.campaign, slug: 'constructor', title: '예약어 이벤트' },
+    });
+    await vi.waitFor(() => {
+      expect(panel.querySelector('[data-pro-grant-status]')?.textContent).toContain(
+        '예약어 이벤트의 코드 2개를 메모리에 불러왔어요',
+      );
+    });
+    expect(panel.querySelector<HTMLAnchorElement>('[data-pro-grant-event-link] a')?.pathname).toBe(
+      '/events/constructor/',
+    );
   });
 });

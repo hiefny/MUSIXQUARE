@@ -1,9 +1,14 @@
 (function () {
   'use strict';
 
-  var SESSION_ENDPOINT = '/api/pro-grants/campaigns/asamo-0/session';
-  var REDEEM_ENDPOINT = '/api/pro-grants/campaigns/asamo-0/redeem';
-  var SETUP_LINK_ENDPOINT = '/api/pro-grants/campaigns/asamo-0/setup-link';
+  var CAMPAIGN_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
+  var CAMPAIGN_SLUG = campaignSlugFromPathname(window.location.pathname);
+  var CAMPAIGN_API_BASE = CAMPAIGN_SLUG
+    ? '/api/pro-grants/campaigns/' + encodeURIComponent(CAMPAIGN_SLUG)
+    : '';
+  var SESSION_ENDPOINT = CAMPAIGN_API_BASE + '/session';
+  var REDEEM_ENDPOINT = CAMPAIGN_API_BASE + '/redeem';
+  var SETUP_LINK_ENDPOINT = CAMPAIGN_API_BASE + '/setup-link';
   var ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
   var ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
   var REQUEST_TIMEOUT_MS = 15000;
@@ -11,6 +16,9 @@
   var ROOM_CODE_PATTERN = /^0\d{5}$/;
 
   var steps = Array.from(document.querySelectorAll('.step'));
+  var eventPanel = document.querySelector('.event-panel');
+  var eventBrand = document.querySelector('.event-brand');
+  var campaignName = document.getElementById('campaign-name');
   var accountAction = document.getElementById('account-action');
   var accountActionLabel = document.getElementById('account-action-label');
   var loginDescription = document.getElementById('login-description');
@@ -47,6 +55,32 @@
   var toastTimer = 0;
   var authChannel = null;
   var accountClientId = createClientId();
+
+  function campaignSlugFromPathname(pathname) {
+    var path = String(pathname || '').replace(/\/$/, '');
+    var direct = /^\/events\/([^/]+)$/.exec(path);
+    if (direct && CAMPAIGN_SLUG_PATTERN.test(direct[1])) return direct[1];
+    var legacy = /^\/events\/([a-z0-9]+(?:-[a-z0-9]+)*)\/(\d+)$/.exec(path);
+    if (!legacy) return '';
+    var slug = legacy[1] + '-' + legacy[2];
+    return CAMPAIGN_SLUG_PATTERN.test(slug) ? slug : '';
+  }
+
+  function normalizeCampaignTitle(value) {
+    if (typeof value !== 'string') return '';
+    var title = value.trim();
+    if (!title || title.length > 100 || /[\u0000-\u001f\u007f]/.test(title)) return '';
+    return title;
+  }
+
+  function renderCampaignTitle(title) {
+    var normalized = normalizeCampaignTitle(title) || 'MUSIXQUARE PRO 이벤트';
+    var shortTitle = normalized.replace(/^MUSIXQUARE\s+/i, '') || 'PRO 이벤트';
+    document.title = normalized;
+    campaignName.textContent = shortTitle;
+    eventPanel.setAttribute('aria-label', normalized);
+    eventBrand.setAttribute('aria-label', normalized);
+  }
 
   function createClientId() {
     try {
@@ -195,7 +229,15 @@
     }
     var campaignStatus =
       typeof payload.campaign.status === 'string' ? payload.campaign.status.toLowerCase() : '';
-    if (!campaignStatus || typeof payload.account.authenticated !== 'boolean') {
+    if (
+      payload.campaign.slug !== CAMPAIGN_SLUG ||
+      !campaignStatus ||
+      typeof payload.account.authenticated !== 'boolean'
+    ) {
+      throw makeApiError('INVALID_RESPONSE', 502);
+    }
+    var campaignTitle = normalizeCampaignTitle(payload.campaign.title);
+    if (payload.campaign.title !== undefined && !campaignTitle) {
       throw makeApiError('INVALID_RESPONSE', 502);
     }
     var redemption = null;
@@ -222,6 +264,7 @@
     }
     return {
       campaignStatus: campaignStatus,
+      campaignTitle: campaignTitle,
       authenticated: payload.account.authenticated,
       profileComplete: payload.account.profileComplete === true,
       redemption: redemption,
@@ -312,8 +355,10 @@
     var generation = ++sessionGeneration;
     if (!options || options.keepView !== true) setView('loading', false);
     try {
+      if (!CAMPAIGN_SLUG) throw makeApiError('INVALID_CAMPAIGN_PATH', 400);
       var session = normalizeSession(await requestJson(SESSION_ENDPOINT));
       if (generation !== sessionGeneration) return;
+      renderCampaignTitle(session.campaignTitle);
       if (session.authenticated && session.profileComplete && session.redemption) {
         needsProfile = false;
         profilePromptOffered = false;
@@ -432,7 +477,7 @@
     try {
       popup = window.open(
         'about:blank',
-        'mxqr-asamo-google-' + accountClientId,
+        'mxqr-event-google-' + accountClientId,
         'popup=yes,width=520,height=720,resizable=yes,scrollbars=yes',
       );
     } catch (_error) {

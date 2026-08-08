@@ -1,4 +1,4 @@
-const ADMIN_SCRIPT_VERSION = '8.3.20';
+const ADMIN_SCRIPT_VERSION = '8.3.21';
 window.__MXQR_ADMIN_SCRIPT_VERSION__ = ADMIN_SCRIPT_VERSION;
 
 const root = document.querySelector('.admin-shell');
@@ -93,26 +93,60 @@ let proRoomTransferTarget = null;
 let visibleProRoomClaimIncarnation = null;
 let proGrantCampaignLoaded = false;
 let proGrantCampaignState = null;
+let proGrantCampaigns = [];
+let selectedProGrantCampaignSlug = null;
+let proGrantCampaignDraft = null;
+let verifiedProGrantPool = null;
 let proGrantCampaignBusy = false;
 let pendingProGrantVoucherExport = null;
 let proGrantCampaignPanelEl = null;
+let proGrantCampaignListEl = null;
+let proGrantCampaignDetailEl = null;
+let proGrantCampaignTitleEl = null;
+let proGrantCampaignMetaEl = null;
+let proGrantCampaignEventLinkEl = null;
 let proGrantCampaignStateEl = null;
 let proGrantCampaignStatusEl = null;
 let proGrantCampaignCountsEl = null;
+let proGrantCampaignNewBtn = null;
+let proGrantCampaignImportBtn = null;
+let proGrantCampaignImportInput = null;
+let proGrantCampaignFormEl = null;
+let proGrantCampaignFormCancelBtn = null;
 let proGrantCampaignVerifyBtn = null;
 let proGrantCampaignCreateBtn = null;
 let proGrantCampaignApplyBtn = null;
 let proGrantCampaignPauseBtn = null;
+let proGrantCampaignEndBtn = null;
 let proGrantCampaignRevokeBtn = null;
 let proGrantCampaignExportEl = null;
 let proGrantCampaignDownloadBtn = null;
 let proGrantCampaignCopyBtn = null;
+let proGrantCampaignLinkCopyBtn = null;
 const PRO_GRANT_ASAMO_SLUG = 'asamo-0';
 const PRO_GRANT_ASAMO_TITLE = 'MUSIXQUARE 아사모 이벤트';
 const PRO_GRANT_ASAMO_ROOM_CODES = Object.freeze(
   Array.from({ length: 50 }, (_, index) => String(100 + index).padStart(6, '0')),
 );
+const PRO_GRANT_MAX_CAMPAIGN_ROOMS = 100;
+const PRO_GRANT_BUILTIN_CAMPAIGNS = Object.freeze({
+  [PRO_GRANT_ASAMO_SLUG]: Object.freeze({
+    slug: PRO_GRANT_ASAMO_SLUG,
+    title: PRO_GRANT_ASAMO_TITLE,
+    roomCodes: PRO_GRANT_ASAMO_ROOM_CODES,
+    roomLabelPrefix: 'ASAMO 0',
+  }),
+});
+
+function proGrantBuiltinCampaign(slug) {
+  return typeof slug === 'string' && Object.hasOwn(PRO_GRANT_BUILTIN_CAMPAIGNS, slug)
+    ? PRO_GRANT_BUILTIN_CAMPAIGNS[slug]
+    : null;
+}
 const PRO_GRANT_CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const PRO_GRANT_VOUCHER_CODE_RE = /^MXQ(?:-[0-9A-HJKMNP-TV-Z]{5}){4}$/;
+const PRO_GRANT_BATCH_REQUEST_ID_RE = /^batch_[A-Za-z0-9_-]{22}$/;
+const PRO_GRANT_VOUCHER_FILE_MAX_BYTES = 256 * 1024;
 const PRO_GRANT_ROOM_PROVISION_CONCURRENCY = 4;
 const developerApiScopeLabels = Object.freeze({
   'room:read': 'Room',
@@ -179,11 +213,135 @@ function createProGrantVoucherCode() {
   return `MXQ-${encoded.slice(0, 5)}-${encoded.slice(5, 10)}-${encoded.slice(10, 15)}-${encoded.slice(15)}`;
 }
 
-function createAsamoVoucherExport() {
+function campaignRoomCodesFromRange(startCode, roomCount) {
+  const normalizedStart = normalizeProRoomCode(startCode);
+  const normalizedCount = Number(roomCount);
+  if (
+    !normalizedStart ||
+    !Number.isSafeInteger(normalizedCount) ||
+    normalizedCount < 1 ||
+    normalizedCount > PRO_GRANT_MAX_CAMPAIGN_ROOMS
+  ) {
+    throw new Error(`방 번호와 방 개수(최대 ${PRO_GRANT_MAX_CAMPAIGN_ROOMS}개)를 확인해 주세요.`);
+  }
+  const first = Number(normalizedStart);
+  const last = first + normalizedCount - 1;
+  if (last > 99_999) throw new Error('이 범위는 0으로 시작하는 6자리 PRO 방 번호를 벗어나요.');
+  return Object.freeze(
+    Array.from({ length: normalizedCount }, (_, index) => String(first + index).padStart(6, '0')),
+  );
+}
+
+function normalizeCampaignTimestamp(value, fallback = null) {
+  if (value === null || value === undefined || value === '') return fallback;
+  const number = typeof value === 'number' ? value : new Date(value).getTime();
+  return Number.isSafeInteger(number) && number >= 0 ? number : fallback;
+}
+
+function formatCampaignLocalDateTime(value) {
+  const timestamp = normalizeCampaignTimestamp(value);
+  if (timestamp === null) return '';
+  const date = new Date(timestamp);
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(timestamp - offset).toISOString().slice(0, 16);
+}
+
+function parseCampaignLocalDateTime(value, { required = false } = {}) {
+  const normalized = String(value || '').trim();
+  if (!normalized && !required) return null;
+  const timestamp = new Date(normalized).getTime();
+  if (!Number.isSafeInteger(timestamp) || timestamp < 0) {
+    throw new Error(required ? '시작 시간을 입력해 주세요.' : '종료 시간을 확인해 주세요.');
+  }
+  return timestamp;
+}
+
+function proGrantCampaignRoomCodes(entry) {
+  const campaign = entry?.campaign || entry;
+  const explicit = entry?.roomCodes || campaign?.roomCodes;
+  if (Array.isArray(explicit) && explicit.length > 0) {
+    const normalized = explicit.map(normalizeProRoomCode);
+    if (normalized.every(Boolean) && new Set(normalized).size === normalized.length) {
+      return Object.freeze(normalized);
+    }
+  }
+  const builtin = proGrantBuiltinCampaign(campaign?.slug);
+  if (builtin) return builtin.roomCodes;
+  const pool = entry?.pool || campaign?.pool;
+  if (pool && typeof pool === 'object') {
+    const firstRoomCode = normalizeProRoomCode(pool.firstRoomCode);
+    const lastRoomCode = normalizeProRoomCode(pool.lastRoomCode);
+    const roomCount = Number(pool.roomCount);
+    if (
+      firstRoomCode &&
+      lastRoomCode &&
+      Number.isSafeInteger(roomCount) &&
+      roomCount > 0 &&
+      Number(lastRoomCode) - Number(firstRoomCode) + 1 === roomCount
+    ) {
+      try {
+        return campaignRoomCodesFromRange(firstRoomCode, roomCount);
+      } catch {
+        return Object.freeze([]);
+      }
+    }
+    return Object.freeze([]);
+  }
+  const startCode =
+    entry?.roomStartCode ||
+    campaign?.roomStartCode ||
+    entry?.firstRoomCode ||
+    campaign?.firstRoomCode;
+  const roomCount = Number(entry?.roomCount || campaign?.roomCount);
+  try {
+    return campaignRoomCodesFromRange(startCode, roomCount);
+  } catch {
+    return Object.freeze([]);
+  }
+}
+
+function proGrantCampaignConfig(entry = selectedProGrantCampaign()) {
+  if (!entry) return null;
+  const campaign = entry.campaign || entry;
+  const roomCodes = proGrantCampaignRoomCodes(entry);
+  const builtin = proGrantBuiltinCampaign(campaign.slug);
+  return {
+    campaign: {
+      slug: campaign.slug,
+      title: campaign.title,
+      startsAt: normalizeCampaignTimestamp(campaign.startsAt, Date.now()),
+      endsAt: normalizeCampaignTimestamp(campaign.endsAt),
+      perAccountLimit: Number(campaign.perAccountLimit) || 1,
+      ...(roomCodes.length > 0 ? { roomStartCode: roomCodes[0], roomCount: roomCodes.length } : {}),
+    },
+    roomCodes,
+    roomLabelPrefix:
+      entry.roomLabelPrefix || builtin?.roomLabelPrefix || String(campaign.title || campaign.slug),
+    isDraft: entry.isDraft === true,
+  };
+}
+
+function selectedProGrantCampaign() {
+  if (
+    proGrantCampaignDraft?.campaign?.slug &&
+    proGrantCampaignDraft.campaign.slug === selectedProGrantCampaignSlug
+  ) {
+    return proGrantCampaignDraft;
+  }
+  return (
+    proGrantCampaigns.find(
+      (entry) => (entry?.campaign?.slug || entry?.slug) === selectedProGrantCampaignSlug,
+    ) || null
+  );
+}
+
+function createProGrantVoucherExport(config = proGrantCampaignConfig()) {
+  if (!config?.campaign?.slug || config.roomCodes.length === 0) {
+    throw new Error('먼저 이벤트와 방 범위를 확인해 주세요.');
+  }
   const requestId = createProGrantBatchRequestId();
-  const existingStartsAt = Number(proGrantCampaignState?.campaign?.startsAt);
   const seen = new Set();
-  const vouchers = PRO_GRANT_ASAMO_ROOM_CODES.map((roomCode) => {
+  const vouchers = config.roomCodes.map((roomCode) => {
     let code;
     do code = createProGrantVoucherCode();
     while (seen.has(code));
@@ -196,22 +354,222 @@ function createAsamoVoucherExport() {
     exportedAt: new Date().toISOString(),
     requestId,
     campaign: {
-      slug: PRO_GRANT_ASAMO_SLUG,
-      title: PRO_GRANT_ASAMO_TITLE,
-      startsAt:
-        Number.isSafeInteger(existingStartsAt) && existingStartsAt >= 0
-          ? existingStartsAt
-          : Date.now(),
-      endsAt: null,
+      slug: config.campaign.slug,
+      title: config.campaign.title,
+      startsAt: config.campaign.startsAt,
+      endsAt: config.campaign.endsAt,
       perAccountLimit: 1,
     },
+    pool: {
+      firstRoomCode: config.roomCodes[0],
+      lastRoomCode: config.roomCodes.at(-1),
+      roomCount: config.roomCodes.length,
+    },
+    roomLabelPrefix: config.roomLabelPrefix,
     vouchers,
   };
 }
 
 function proGrantVoucherFilename(batch) {
   const suffix = String(batch?.requestId || '').replace(/^batch_/u, '');
-  return `${PRO_GRANT_ASAMO_SLUG}-${suffix || 'vouchers'}.json`;
+  const slug = String(batch?.campaign?.slug || 'pro-event');
+  return `${slug}-${suffix || 'vouchers'}.json`;
+}
+
+function objectHasOnlyKeys(value, allowed) {
+  return (
+    value &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.keys(value).every((key) => allowed.includes(key))
+  );
+}
+
+function parseProGrantVoucherExport(value) {
+  if (
+    !objectHasOnlyKeys(value, [
+      'format',
+      'warning',
+      'exportedAt',
+      'requestId',
+      'campaign',
+      'pool',
+      'roomLabelPrefix',
+      'vouchers',
+    ]) ||
+    value.format !== 'mxqr-pro-grant-vouchers-v1' ||
+    typeof value.warning !== 'string' ||
+    !Number.isFinite(Date.parse(value.exportedAt || '')) ||
+    !PRO_GRANT_BATCH_REQUEST_ID_RE.test(value.requestId || '')
+  ) {
+    throw new Error('지원하지 않거나 손상된 코드 파일이에요.');
+  }
+  const campaign = value.campaign;
+  if (
+    !objectHasOnlyKeys(campaign, ['slug', 'title', 'startsAt', 'endsAt', 'perAccountLimit']) ||
+    typeof campaign.slug !== 'string' ||
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(campaign.slug || '') ||
+    campaign.slug.length > 63 ||
+    typeof campaign.title !== 'string' ||
+    campaign.title.trim() !== campaign.title ||
+    campaign.title.length < 1 ||
+    campaign.title.length > 100 ||
+    !Number.isSafeInteger(campaign.startsAt) ||
+    campaign.startsAt < 0 ||
+    (campaign.endsAt !== null &&
+      (!Number.isSafeInteger(campaign.endsAt) || campaign.endsAt <= campaign.startsAt)) ||
+    campaign.perAccountLimit !== 1
+  ) {
+    throw new Error('코드 파일의 이벤트 정보가 올바르지 않아요.');
+  }
+  if (
+    !Array.isArray(value.vouchers) ||
+    value.vouchers.length < 1 ||
+    value.vouchers.length > PRO_GRANT_MAX_CAMPAIGN_ROOMS
+  ) {
+    throw new Error('코드 파일의 리딤 코드 개수가 올바르지 않아요.');
+  }
+  const seenCodes = new Set();
+  const seenRooms = new Set();
+  const vouchers = value.vouchers.map((voucher) => {
+    if (
+      !objectHasOnlyKeys(voucher, ['roomCode', 'code']) ||
+      !/^0\d{5}$/u.test(voucher.roomCode || '') ||
+      seenRooms.has(voucher.roomCode) ||
+      !PRO_GRANT_VOUCHER_CODE_RE.test(voucher.code || '') ||
+      seenCodes.has(voucher.code)
+    ) {
+      throw new Error('코드 파일의 방 번호 또는 리딤 코드가 올바르지 않아요.');
+    }
+    seenRooms.add(voucher.roomCode);
+    seenCodes.add(voucher.code);
+    return { roomCode: voucher.roomCode, code: voucher.code };
+  });
+  const roomCodes = campaignRoomCodesFromRange(vouchers[0].roomCode, vouchers.length);
+  if (vouchers.some((voucher, index) => voucher.roomCode !== roomCodes[index])) {
+    throw new Error('코드 파일의 방 번호는 오름차순의 연속된 범위여야 해요.');
+  }
+  if (value.pool !== undefined) {
+    const pool = value.pool;
+    if (
+      !objectHasOnlyKeys(pool, ['firstRoomCode', 'lastRoomCode', 'roomCount']) ||
+      pool.firstRoomCode !== roomCodes[0] ||
+      pool.lastRoomCode !== roomCodes.at(-1) ||
+      pool.roomCount !== roomCodes.length
+    ) {
+      throw new Error('코드 파일의 방 범위가 서로 일치하지 않아요.');
+    }
+  }
+  const roomLabelPrefix =
+    value.roomLabelPrefix === undefined ? campaign.title : String(value.roomLabelPrefix);
+  if (
+    !roomLabelPrefix ||
+    roomLabelPrefix.length > 100 ||
+    roomLabelPrefix.trim() !== roomLabelPrefix
+  ) {
+    throw new Error('코드 파일의 방 라벨이 올바르지 않아요.');
+  }
+  return {
+    format: value.format,
+    warning: value.warning,
+    exportedAt: value.exportedAt,
+    requestId: value.requestId,
+    campaign: { ...campaign },
+    pool: {
+      firstRoomCode: roomCodes[0],
+      lastRoomCode: roomCodes.at(-1),
+      roomCount: roomCodes.length,
+    },
+    roomLabelPrefix,
+    vouchers,
+  };
+}
+
+function sameImportedCampaign(existing, imported) {
+  if (!existing) return true;
+  const campaign = existing.campaign || existing;
+  return (
+    campaign.slug === imported.slug &&
+    campaign.title === imported.title &&
+    normalizeCampaignTimestamp(campaign.startsAt) === imported.startsAt &&
+    normalizeCampaignTimestamp(campaign.endsAt) === imported.endsAt &&
+    Number(campaign.perAccountLimit) === imported.perAccountLimit
+  );
+}
+
+async function importProGrantVoucherExport(file) {
+  if (!file || proGrantCampaignBusy) return;
+  setProGrantCampaignBusy(true);
+  try {
+    if (
+      !Number.isSafeInteger(file.size) ||
+      file.size < 1 ||
+      file.size > PRO_GRANT_VOUCHER_FILE_MAX_BYTES
+    ) {
+      throw new Error('코드 파일은 256KB 이하의 JSON 파일이어야 해요.');
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      throw new Error('코드 파일을 읽지 못했어요. 올바른 JSON 파일인지 확인해 주세요.');
+    }
+    const batch = parseProGrantVoucherExport(parsed);
+    if (pendingProGrantVoucherExport && pendingProGrantVoucherExport.applied !== true) {
+      const { applied: _applied, ...pendingBatch } = pendingProGrantVoucherExport;
+      if (
+        pendingBatch.requestId !== batch.requestId ||
+        JSON.stringify(pendingBatch) !== JSON.stringify(batch)
+      ) {
+        throw new Error(
+          `${pendingProGrantVoucherExport.campaign.title}의 코드 파일이 이미 적용 대기 중이에요.`,
+        );
+      }
+    }
+    await loadProGrantCampaignStatus();
+    const existing = proGrantCampaigns.find(
+      (entry) => (entry.campaign || entry).slug === batch.campaign.slug,
+    );
+    const existingCampaign = existing?.campaign || existing;
+    if (existingCampaign && ['ended', 'revoked'].includes(existingCampaign.status)) {
+      throw new Error('이미 종료된 이벤트에는 코드 파일을 불러올 수 없어요.');
+    }
+    if (!sameImportedCampaign(existing, batch.campaign)) {
+      throw new Error('서버에 저장된 이벤트 정보와 코드 파일이 일치하지 않아요.');
+    }
+    const existingRoomCodes = proGrantCampaignRoomCodes(existing);
+    if (
+      existingRoomCodes.length > 0 &&
+      (existingRoomCodes.length !== batch.vouchers.length ||
+        existingRoomCodes.some((roomCode, index) => roomCode !== batch.vouchers[index].roomCode))
+    ) {
+      throw new Error('서버에 저장된 방 범위와 코드 파일이 일치하지 않아요.');
+    }
+    pendingProGrantVoucherExport = batch;
+    proGrantCampaignDraft = {
+      campaign: {
+        ...batch.campaign,
+        status: existingCampaign?.status || 'not-created',
+        roomStartCode: batch.pool.firstRoomCode,
+        roomCount: batch.pool.roomCount,
+      },
+      counts: existing?.counts || {},
+      pool: { ...batch.pool },
+      roomCodes: batch.vouchers.map((voucher) => voucher.roomCode),
+      roomLabelPrefix: batch.roomLabelPrefix,
+      isDraft: true,
+    };
+    selectedProGrantCampaignSlug = batch.campaign.slug;
+    proGrantCampaignState = proGrantCampaignDraft;
+    verifiedProGrantPool = null;
+    closeProGrantCampaignForm();
+    renderProGrantCampaignState(proGrantCampaignDraft);
+    setProGrantCampaignMessage(
+      `${batch.campaign.title}의 코드 ${formatter.format(batch.vouchers.length)}개를 메모리에 불러왔어요. 3단계에서 동일 배치를 안전하게 이어갈 수 있어요.`,
+    );
+  } finally {
+    setProGrantCampaignBusy(false);
+  }
 }
 
 function downloadProGrantVoucherExport(batch = pendingProGrantVoucherExport) {
@@ -236,11 +594,11 @@ async function copyProGrantVoucherExport(batch = pendingProGrantVoucherExport) {
   return true;
 }
 
-function classifyAsamoProGrantRoomInventory(payload) {
+function classifyProGrantRoomInventory(payload, roomCodes) {
   if (!payload || !Array.isArray(payload.rooms)) {
     throw new Error('PRO room inventory response is invalid.');
   }
-  const requested = new Set(PRO_GRANT_ASAMO_ROOM_CODES);
+  const requested = new Set(roomCodes);
   const found = new Map();
   for (const room of payload.rooms) {
     if (!requested.has(room?.roomCode)) continue;
@@ -258,7 +616,7 @@ function classifyAsamoProGrantRoomInventory(payload) {
   const ready = [];
   const needsProvisioning = [];
   const unavailable = [];
-  for (const roomCode of PRO_GRANT_ASAMO_ROOM_CODES) {
+  for (const roomCode of roomCodes) {
     const room = found.get(roomCode);
     if (!room) {
       needsProvisioning.push({ roomCode, reason: 'missing' });
@@ -273,8 +631,8 @@ function classifyAsamoProGrantRoomInventory(payload) {
   return { ready, needsProvisioning, unavailable };
 }
 
-async function loadAsamoProGrantRoomInventory() {
-  return classifyAsamoProGrantRoomInventory(await fetchJson('/api/admin/pro-rooms'));
+async function loadProGrantRoomInventory(roomCodes) {
+  return classifyProGrantRoomInventory(await fetchJson('/api/admin/pro-rooms'), roomCodes);
 }
 
 function validateAsamoProvisionedRoom(payload, roomCode, label) {
@@ -309,13 +667,13 @@ async function mapProGrantRoomPool(items, operation) {
   return results;
 }
 
-async function provisionAsamoProGrantRoomPool() {
-  const before = await loadAsamoProGrantRoomInventory();
+async function provisionProGrantRoomPool(config) {
+  const before = await loadProGrantRoomInventory(config.roomCodes);
   if (before.unavailable.length > 0) {
     return { replayOnly: true, inventory: before, rooms: [] };
   }
-  const rooms = await mapProGrantRoomPool(PRO_GRANT_ASAMO_ROOM_CODES, async (roomCode) => {
-    const label = `ASAMO 0 · ${roomCode}`;
+  const rooms = await mapProGrantRoomPool(config.roomCodes, async (roomCode) => {
+    const label = `${String(config.roomLabelPrefix).slice(0, 55)} · ${roomCode}`;
     return validateAsamoProvisionedRoom(
       await fetchJson('/api/admin/pro-rooms', {
         method: 'POST',
@@ -325,13 +683,13 @@ async function provisionAsamoProGrantRoomPool() {
       label,
     );
   });
-  const after = await loadAsamoProGrantRoomInventory();
+  const after = await loadProGrantRoomInventory(config.roomCodes);
   if (
-    after.ready.length !== PRO_GRANT_ASAMO_ROOM_CODES.length ||
+    after.ready.length !== config.roomCodes.length ||
     after.needsProvisioning.length > 0 ||
     after.unavailable.length > 0
   ) {
-    throw new Error('The ASAMO room pool did not settle into an unactivated state.');
+    throw new Error('이벤트 방 번호가 모두 안전한 미활성 상태로 준비되지 않았어요.');
   }
   return { replayOnly: false, inventory: after, rooms };
 }
@@ -341,45 +699,132 @@ function mountProGrantCampaignPanel() {
   if (!registerPanel || document.querySelector('[data-pro-grant-campaign]')) return;
   const panel = document.createElement('section');
   panel.className = 'panel pro-grant-campaign-panel';
-  panel.dataset.proGrantCampaign = PRO_GRANT_ASAMO_SLUG;
+  panel.dataset.proGrantCampaign = '';
   panel.innerHTML = `
     <div class="panel-head pro-grant-campaign-head">
       <div>
-        <h2>PRO grant campaign</h2>
-        <p>ASAMO · rooms 000100–000149 · one PRO entitlement per account</p>
+        <h2>PRO 이벤트</h2>
+        <p>이벤트를 만들고, 리딤 현황과 공개 상태를 한곳에서 관리해요.</p>
       </div>
-      <span class="pro-grant-campaign-state" data-pro-grant-state>Not loaded</span>
-    </div>
-    <div class="pro-grant-campaign-summary" data-pro-grant-counts>Load status to verify the campaign pool.</div>
-    <div class="pro-grant-campaign-actions">
-      <button class="is-secondary" type="button" data-pro-grant-verify>Verify 50-room pool</button>
-      <button type="button" data-pro-grant-create>Prepare &amp; download vouchers</button>
-      <button type="button" data-pro-grant-apply disabled>Apply exact batch</button>
-      <button class="is-secondary" type="button" data-pro-grant-pause disabled>Pause</button>
-      <button class="is-danger" type="button" data-pro-grant-revoke disabled>Revoke unused</button>
-    </div>
-    <div class="pro-grant-campaign-export" data-pro-grant-export hidden>
-      <p>Plaintext codes exist only in this page's memory and the downloaded file. They are never returned by the server.</p>
-      <div>
-        <button class="is-secondary" type="button" data-pro-grant-download>Download again</button>
-        <button class="is-secondary" type="button" data-pro-grant-copy>Copy room + code list</button>
+      <div class="pro-grant-head-actions">
+        <button class="is-secondary" type="button" data-pro-grant-import>코드 파일 불러오기</button>
+        <button class="is-secondary" type="button" data-pro-grant-new>새 이벤트</button>
+        <input data-pro-grant-import-input type="file" accept="application/json,.json" hidden>
       </div>
+    </div>
+    <form class="pro-grant-campaign-form" data-pro-grant-create-form hidden>
+      <div class="pro-grant-form-heading">
+        <div>
+          <h3>새 이벤트</h3>
+          <p>저장하기 전에 방 범위가 겹치지 않는지 안전하게 검사해요.</p>
+        </div>
+        <button class="is-quiet" type="button" data-pro-grant-form-cancel>닫기</button>
+      </div>
+      <div class="pro-grant-form-grid">
+        <label class="pro-room-field pro-grant-form-wide">
+          <span>이벤트 이름</span>
+          <input name="title" maxlength="80" autocomplete="off" placeholder="MUSIXQUARE 아사모 이벤트" required>
+        </label>
+        <label class="pro-room-field">
+          <span>URL 이름</span>
+          <input name="slug" maxlength="48" inputmode="url" autocomplete="off" placeholder="asamo-1" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required>
+          <small>musixquare.com/events/<b data-pro-grant-slug-preview>event</b>/</small>
+        </label>
+        <label class="pro-room-field">
+          <span>첫 방 번호</span>
+          <input name="roomStartCode" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="000200" pattern="0[0-9]{5}" required>
+        </label>
+        <label class="pro-room-field">
+          <span>방 개수</span>
+          <input name="roomCount" type="number" min="1" max="${PRO_GRANT_MAX_CAMPAIGN_ROOMS}" value="50" required>
+        </label>
+        <label class="pro-room-field">
+          <span>시작</span>
+          <input name="startsAt" type="datetime-local" required>
+        </label>
+        <label class="pro-room-field">
+          <span>자동 종료 (선택)</span>
+          <input name="endsAt" type="datetime-local">
+        </label>
+      </div>
+      <p class="pro-grant-range-preview" data-pro-grant-range-preview>첫 방 번호와 개수를 입력해 주세요.</p>
+      <button type="submit">이벤트 검토하기</button>
+    </form>
+    <div class="pro-grant-campaign-layout">
+      <div class="pro-grant-campaign-list" data-pro-grant-list aria-label="이벤트 목록"></div>
+      <section class="pro-grant-campaign-detail" data-pro-grant-detail>
+        <div class="pro-grant-detail-head">
+          <div>
+            <h3 data-pro-grant-title>이벤트를 선택해 주세요</h3>
+            <p data-pro-grant-meta>목록에서 이벤트를 선택하거나 새로 만들 수 있어요.</p>
+          </div>
+          <span class="pro-grant-campaign-state" data-pro-grant-state>불러오는 중</span>
+        </div>
+        <div class="pro-grant-event-link" data-pro-grant-event-link hidden>
+          <a target="_blank" rel="noopener"></a>
+          <button class="is-secondary" type="button" data-pro-grant-link-copy>주소 복사</button>
+        </div>
+        <div class="pro-grant-campaign-summary" data-pro-grant-counts>이벤트 상태를 불러오고 있어요.</div>
+        <ol class="pro-grant-workflow" aria-label="이벤트 생성 순서">
+          <li><strong>방 번호 확인</strong><span>다른 이벤트 또는 활성 방과 겹치지 않는지 검사해요.</span></li>
+          <li><strong>코드 보관</strong><span>원문 코드 파일을 먼저 안전한 곳에 저장해요.</span></li>
+          <li><strong>이벤트 시작</strong><span>저장한 코드 파일과 동일한 배치만 서버에 한 번 적용해요.</span></li>
+        </ol>
+        <div class="pro-grant-campaign-actions pro-grant-workflow-actions">
+          <button class="is-secondary" type="button" data-pro-grant-verify>1. 방 번호 확인</button>
+          <button type="button" data-pro-grant-create disabled>2. 코드 파일 만들기</button>
+          <button type="button" data-pro-grant-apply disabled>3. 이벤트 시작</button>
+        </div>
+        <div class="pro-grant-campaign-export" data-pro-grant-export hidden>
+          <strong>원문 코드가 이 브라우저 메모리에 있어요.</strong>
+          <p>서버에서는 코드 원문을 다시 보여주지 않아요. 페이지를 닫기 전에 다운로드 파일을 안전하게 보관해 주세요.</p>
+          <div>
+            <button class="is-secondary" type="button" data-pro-grant-download>파일 다시 받기</button>
+            <button class="is-secondary" type="button" data-pro-grant-copy>방 번호 + 코드 복사</button>
+          </div>
+        </div>
+        <div class="pro-grant-lifecycle">
+          <div class="pro-grant-lifecycle-section">
+            <div><strong>공개 제어</strong><p>일시 중지는 나중에 다시 시작할 수 있어요.</p></div>
+            <button class="is-secondary" type="button" data-pro-grant-pause disabled>일시 중지</button>
+          </div>
+          <div class="pro-grant-lifecycle-section is-danger-zone">
+            <div><strong>이벤트 종료</strong><p>종료는 미사용 코드를 보존하고, 폐기는 남은 코드를 영구 무효화해요. 이미 받은 PRO 방은 바뀌지 않아요.</p></div>
+            <div>
+              <button class="is-secondary" type="button" data-pro-grant-end disabled>이벤트 종료</button>
+              <button class="is-danger" type="button" data-pro-grant-revoke disabled>미사용 코드 폐기</button>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
     <p class="pro-room-status" role="status" aria-live="polite" data-pro-grant-status></p>
   `;
   registerPanel.insertAdjacentElement('afterend', panel);
   proGrantCampaignPanelEl = panel;
+  proGrantCampaignListEl = panel.querySelector('[data-pro-grant-list]');
+  proGrantCampaignDetailEl = panel.querySelector('[data-pro-grant-detail]');
+  proGrantCampaignTitleEl = panel.querySelector('[data-pro-grant-title]');
+  proGrantCampaignMetaEl = panel.querySelector('[data-pro-grant-meta]');
+  proGrantCampaignEventLinkEl = panel.querySelector('[data-pro-grant-event-link]');
   proGrantCampaignStateEl = panel.querySelector('[data-pro-grant-state]');
   proGrantCampaignStatusEl = panel.querySelector('[data-pro-grant-status]');
   proGrantCampaignCountsEl = panel.querySelector('[data-pro-grant-counts]');
+  proGrantCampaignNewBtn = panel.querySelector('[data-pro-grant-new]');
+  proGrantCampaignImportBtn = panel.querySelector('[data-pro-grant-import]');
+  proGrantCampaignImportInput = panel.querySelector('[data-pro-grant-import-input]');
+  proGrantCampaignFormEl = panel.querySelector('[data-pro-grant-create-form]');
+  proGrantCampaignFormCancelBtn = panel.querySelector('[data-pro-grant-form-cancel]');
   proGrantCampaignVerifyBtn = panel.querySelector('[data-pro-grant-verify]');
   proGrantCampaignCreateBtn = panel.querySelector('[data-pro-grant-create]');
   proGrantCampaignApplyBtn = panel.querySelector('[data-pro-grant-apply]');
   proGrantCampaignPauseBtn = panel.querySelector('[data-pro-grant-pause]');
+  proGrantCampaignEndBtn = panel.querySelector('[data-pro-grant-end]');
   proGrantCampaignRevokeBtn = panel.querySelector('[data-pro-grant-revoke]');
   proGrantCampaignExportEl = panel.querySelector('[data-pro-grant-export]');
   proGrantCampaignDownloadBtn = panel.querySelector('[data-pro-grant-download]');
   proGrantCampaignCopyBtn = panel.querySelector('[data-pro-grant-copy]');
+  proGrantCampaignLinkCopyBtn = panel.querySelector('[data-pro-grant-link-copy]');
 }
 
 function setStatus(message, isError = false) {
@@ -586,6 +1031,10 @@ function showLogin(message = '', { invalidateSession = true } = {}) {
   proRoomsLoaded = false;
   proGrantCampaignLoaded = false;
   proGrantCampaignState = null;
+  proGrantCampaigns = [];
+  selectedProGrantCampaignSlug = null;
+  proGrantCampaignDraft = null;
+  verifiedProGrantPool = null;
   pendingProGrantVoucherExport = null;
   renderProGrantCampaignState(null);
   articlesLoaded = false;
@@ -3166,19 +3615,134 @@ function setProGrantCampaignMessage(message, isError = false) {
   proGrantCampaignStatusEl.classList.toggle('is-error', isError);
 }
 
+function proGrantCampaignStatusCopy(status) {
+  return (
+    {
+      active: '진행 중',
+      paused: '일시 중지',
+      scheduled: '시작 전',
+      ended: '종료됨',
+      revoked: '미사용 코드 폐기됨',
+      draft: '초안',
+      review: '검토 중',
+      'not-created': '생성 전',
+    }[status] ||
+    status ||
+    '알 수 없음'
+  );
+}
+
+function proGrantCampaignPublicPath(slug) {
+  const normalized = String(slug || '')
+    .trim()
+    .toLowerCase();
+  const numbered = /^([a-z0-9]+(?:-[a-z0-9]+)*)-(\d+)$/u.exec(normalized);
+  if (numbered) return `/events/${encodeURIComponent(numbered[1])}/${numbered[2]}/`;
+  return `/events/${encodeURIComponent(normalized)}/`;
+}
+
+function proGrantCampaignPublicUrl(slug) {
+  return new URL(proGrantCampaignPublicPath(slug), window.location.origin).href;
+}
+
+function proGrantPoolFingerprint(config) {
+  return config ? `${config.campaign.slug}:${config.roomCodes.join(',')}` : '';
+}
+
+function normalizeProGrantCampaignEntries(payload) {
+  if (!Array.isArray(payload?.campaigns)) return null;
+  return payload.campaigns
+    .map((entry) => {
+      const campaign = entry?.campaign || entry;
+      if (!campaign || typeof campaign.slug !== 'string' || typeof campaign.title !== 'string') {
+        return null;
+      }
+      return {
+        ...(entry?.campaign ? entry : {}),
+        campaign,
+        counts: entry?.counts || entry?.voucherCounts || campaign.counts || {},
+        ...(Array.isArray(entry?.roomCodes) ? { roomCodes: entry.roomCodes } : {}),
+      };
+    })
+    .filter(Boolean);
+}
+
+function renderProGrantCampaignList() {
+  if (!proGrantCampaignListEl) return;
+  const draftSlug = proGrantCampaignDraft?.campaign?.slug;
+  const entries = proGrantCampaigns.filter((entry) => (entry.campaign || entry).slug !== draftSlug);
+  if (proGrantCampaignDraft) entries.unshift(proGrantCampaignDraft);
+  if (entries.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'pro-grant-campaign-empty';
+    empty.innerHTML =
+      '<strong>아직 이벤트가 없어요.</strong><span>새 이벤트를 눌러 시작해 보세요.</span>';
+    proGrantCampaignListEl.replaceChildren(empty);
+    return;
+  }
+  const rows = entries.map((entry) => {
+    const campaign = entry.campaign || entry;
+    const counts = normalizedProGrantCounts(entry);
+    const state = entry.isDraft ? 'review' : campaign.status || 'not-created';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'pro-grant-campaign-item';
+    button.dataset.proGrantCampaignSelect = campaign.slug;
+    button.setAttribute('aria-pressed', String(campaign.slug === selectedProGrantCampaignSlug));
+    button.disabled = proGrantCampaignBusy;
+    const title = document.createElement('strong');
+    title.textContent = campaign.title;
+    const meta = document.createElement('span');
+    meta.textContent = `${campaign.slug} · ${formatter.format(counts.redeemed)}/${formatter.format(counts.total)} 사용`;
+    const status = document.createElement('span');
+    status.className = 'pro-grant-campaign-item-state';
+    status.dataset.state = state;
+    status.textContent = proGrantCampaignStatusCopy(state);
+    button.append(title, meta, status);
+    if (
+      pendingProGrantVoucherExport?.campaign?.slug === campaign.slug &&
+      !pendingProGrantVoucherExport.applied
+    ) {
+      const pending = document.createElement('span');
+      pending.className = 'pro-grant-campaign-pending';
+      pending.textContent = '적용 대기 중인 코드 파일';
+      button.append(pending);
+    }
+    button.addEventListener('click', () => {
+      const restoreFocus = document.activeElement === button;
+      selectedProGrantCampaignSlug = campaign.slug;
+      proGrantCampaignState = entry;
+      renderProGrantCampaignState(entry);
+      if (restoreFocus) {
+        proGrantCampaignListEl
+          ?.querySelector(`[data-pro-grant-campaign-select="${campaign.slug}"]`)
+          ?.focus({ preventScroll: true });
+      }
+    });
+    return button;
+  });
+  proGrantCampaignListEl.replaceChildren(...rows);
+}
+
 function setProGrantCampaignBusy(busy) {
   proGrantCampaignBusy = busy;
   proGrantCampaignPanelEl?.toggleAttribute('aria-busy', busy);
   for (const button of [
+    proGrantCampaignNewBtn,
+    proGrantCampaignImportBtn,
     proGrantCampaignVerifyBtn,
     proGrantCampaignCreateBtn,
     proGrantCampaignApplyBtn,
     proGrantCampaignPauseBtn,
+    proGrantCampaignEndBtn,
     proGrantCampaignRevokeBtn,
     proGrantCampaignDownloadBtn,
     proGrantCampaignCopyBtn,
   ]) {
     if (button) button.disabled = busy;
+  }
+  if (proGrantCampaignFormEl) {
+    for (const control of proGrantCampaignFormEl.elements) control.disabled = busy;
   }
   if (!busy) renderProGrantCampaignState(proGrantCampaignState);
 }
@@ -3210,111 +3774,248 @@ function normalizedProGrantCounts(payload) {
 
 function renderProGrantCampaignState(payload) {
   if (!proGrantCampaignPanelEl) return;
-  const campaign = payload?.campaign || null;
-  const state = campaign?.status || 'not-created';
-  const counts = normalizedProGrantCounts(payload);
+  const entry = payload?.campaign || payload?.slug ? payload : selectedProGrantCampaign();
+  const campaign = entry?.campaign || (entry?.slug ? entry : null);
+  const config = campaign ? proGrantCampaignConfig(entry) : null;
+  const state = entry?.isDraft ? 'review' : campaign?.status || 'not-created';
+  const counts = normalizedProGrantCounts(entry);
+  const hasExactPendingBatch = Boolean(
+    pendingProGrantVoucherExport &&
+    campaign?.slug &&
+    pendingProGrantVoucherExport.campaign?.slug === campaign.slug,
+  );
+  const pendingApplied = hasExactPendingBatch && pendingProGrantVoucherExport.applied === true;
+  const hasUnappliedBatch = Boolean(
+    pendingProGrantVoucherExport && pendingProGrantVoucherExport.applied !== true,
+  );
+  const poolVerified =
+    verifiedProGrantPool?.fingerprint &&
+    verifiedProGrantPool.fingerprint === proGrantPoolFingerprint(config);
+  proGrantCampaignPanelEl.dataset.proGrantCampaign = campaign?.slug || '';
+  proGrantCampaignDetailEl?.toggleAttribute('data-empty', !campaign);
+  if (proGrantCampaignTitleEl) {
+    proGrantCampaignTitleEl.textContent = campaign?.title || '이벤트를 선택해 주세요';
+  }
+  if (proGrantCampaignMetaEl) {
+    if (!campaign) {
+      proGrantCampaignMetaEl.textContent = '목록에서 이벤트를 선택하거나 새로 만들 수 있어요.';
+    } else {
+      const rooms = config?.roomCodes || [];
+      const roomRange =
+        rooms.length > 0
+          ? `${rooms[0]}–${rooms.at(-1)} · ${formatter.format(rooms.length)}개 방`
+          : '방 범위 정보 없음';
+      const starts = normalizeCampaignTimestamp(campaign.startsAt);
+      const ends = normalizeCampaignTimestamp(campaign.endsAt);
+      proGrantCampaignMetaEl.textContent = `${campaign.slug} · ${roomRange} · 계정당 1개 · ${
+        starts ? formatAdminDateTime(starts) : '시작 시각 미정'
+      }${ends ? `–${formatAdminDateTime(ends)}` : '–직접 종료'}`;
+    }
+  }
   if (proGrantCampaignStateEl) {
-    proGrantCampaignStateEl.textContent = state === 'not-created' ? 'Not created' : state;
+    proGrantCampaignStateEl.textContent = proGrantCampaignStatusCopy(state);
     proGrantCampaignStateEl.dataset.state = state;
+  }
+  if (proGrantCampaignEventLinkEl) {
+    proGrantCampaignEventLinkEl.hidden = !campaign;
+    const link = proGrantCampaignEventLinkEl.querySelector('a');
+    if (link && campaign) {
+      link.href = proGrantCampaignPublicUrl(campaign.slug);
+      link.textContent = proGrantCampaignPublicPath(campaign.slug);
+    }
   }
   if (proGrantCampaignCountsEl) {
     proGrantCampaignCountsEl.textContent = campaign
-      ? `${formatter.format(counts.total)} total · ${formatter.format(counts.available)} available · ${formatter.format(counts.redeemed)} redeemed · ${formatter.format(counts.revoked)} revoked`
-      : 'No campaign exists. Verify the room pool before creating vouchers.';
+      ? `${formatter.format(counts.total)}개 발급 · ${formatter.format(counts.available)}개 사용 가능 · ${formatter.format(counts.redeemed)}개 사용 · ${formatter.format(counts.revoked)}개 폐기`
+      : '새 이벤트를 만들거나 목록에서 선택해 주세요.';
   }
+  const issuanceClosed =
+    !campaign ||
+    ['ended', 'revoked'].includes(state) ||
+    (!entry?.isDraft && counts.total > 0 && !hasExactPendingBatch);
   if (proGrantCampaignCreateBtn) {
     proGrantCampaignCreateBtn.disabled =
-      proGrantCampaignBusy || (campaign && counts.total > 0 && !pendingProGrantVoucherExport);
-    proGrantCampaignCreateBtn.textContent = pendingProGrantVoucherExport
-      ? 'Download exact batch again'
-      : 'Prepare & download vouchers';
+      proGrantCampaignBusy ||
+      !campaign ||
+      issuanceClosed ||
+      !poolVerified ||
+      (pendingProGrantVoucherExport && !hasExactPendingBatch);
+    proGrantCampaignCreateBtn.textContent = hasExactPendingBatch
+      ? '2. 같은 코드 파일 다시 받기'
+      : '2. 코드 파일 만들기';
   }
   if (proGrantCampaignApplyBtn) {
-    proGrantCampaignApplyBtn.disabled = proGrantCampaignBusy || !pendingProGrantVoucherExport;
+    proGrantCampaignApplyBtn.disabled =
+      proGrantCampaignBusy || !hasExactPendingBatch || pendingApplied;
+    proGrantCampaignApplyBtn.textContent = pendingApplied ? '3. 시작 완료' : '3. 이벤트 시작';
   }
-  if (proGrantCampaignVerifyBtn) proGrantCampaignVerifyBtn.disabled = proGrantCampaignBusy;
+  if (proGrantCampaignVerifyBtn) {
+    proGrantCampaignVerifyBtn.disabled = proGrantCampaignBusy || !campaign || issuanceClosed;
+  }
   if (proGrantCampaignPauseBtn) {
+    const canRecoverIssuedDraft = state === 'draft' && counts.total > 0;
     proGrantCampaignPauseBtn.disabled =
-      proGrantCampaignBusy || !campaign || !['active', 'paused'].includes(state);
-    proGrantCampaignPauseBtn.textContent = state === 'paused' ? 'Resume' : 'Pause';
+      proGrantCampaignBusy ||
+      !campaign ||
+      (!canRecoverIssuedDraft && !['active', 'paused', 'scheduled'].includes(state));
+    proGrantCampaignPauseBtn.textContent = canRecoverIssuedDraft
+      ? '이벤트 시작'
+      : state === 'paused'
+        ? '다시 시작'
+        : '일시 중지';
+  }
+  if (proGrantCampaignEndBtn) {
+    proGrantCampaignEndBtn.disabled =
+      proGrantCampaignBusy ||
+      !campaign ||
+      !['draft', 'active', 'paused', 'scheduled'].includes(state);
   }
   if (proGrantCampaignRevokeBtn) {
     proGrantCampaignRevokeBtn.disabled =
-      proGrantCampaignBusy || !campaign || ['revoked', 'ended'].includes(state);
+      proGrantCampaignBusy || !campaign || counts.available < 1 || state === 'revoked';
   }
-  if (proGrantCampaignExportEl) proGrantCampaignExportEl.hidden = !pendingProGrantVoucherExport;
+  if (proGrantCampaignExportEl) proGrantCampaignExportEl.hidden = !hasExactPendingBatch;
   if (proGrantCampaignDownloadBtn) proGrantCampaignDownloadBtn.disabled = proGrantCampaignBusy;
   if (proGrantCampaignCopyBtn) proGrantCampaignCopyBtn.disabled = proGrantCampaignBusy;
+  if (proGrantCampaignNewBtn) {
+    proGrantCampaignNewBtn.disabled = proGrantCampaignBusy || hasUnappliedBatch;
+  }
+  if (proGrantCampaignImportBtn) {
+    proGrantCampaignImportBtn.disabled = proGrantCampaignBusy || hasUnappliedBatch;
+  }
+  renderProGrantCampaignList();
 }
 
 async function loadProGrantCampaignStatus() {
   if (!proGrantCampaignPanelEl) return null;
   try {
-    const payload = await fetchJson(
-      `/api/admin/pro-grants/campaigns/${PRO_GRANT_ASAMO_SLUG}/status`,
-    );
-    proGrantCampaignState = payload;
-    proGrantCampaignLoaded = true;
-    renderProGrantCampaignState(payload);
-    return payload;
-  } catch (error) {
-    if (error?.status === 404 || error?.message === 'PRO_GRANT_CAMPAIGN_NOT_FOUND') {
-      proGrantCampaignState = { campaign: null, counts: {} };
-      proGrantCampaignLoaded = true;
-      renderProGrantCampaignState(proGrantCampaignState);
-      return proGrantCampaignState;
+    let entries = null;
+    let usedLegacyStatusRoute = false;
+    try {
+      const listPayload = await fetchJson('/api/admin/pro-grants/campaigns');
+      entries = normalizeProGrantCampaignEntries(listPayload);
+    } catch (error) {
+      if (![404, 405].includes(error?.status)) throw error;
     }
+    if (entries === null) {
+      usedLegacyStatusRoute = true;
+      try {
+        const legacy = await fetchJson(
+          `/api/admin/pro-grants/campaigns/${PRO_GRANT_ASAMO_SLUG}/status`,
+        );
+        entries = legacy?.campaign ? [legacy] : [];
+      } catch (error) {
+        if (error?.status === 404 || error?.message === 'PRO_GRANT_CAMPAIGN_NOT_FOUND')
+          entries = [];
+        else throw error;
+      }
+    }
+    if (usedLegacyStatusRoute && entries.length === 0) {
+      entries = [
+        {
+          campaign: {
+            slug: PRO_GRANT_ASAMO_SLUG,
+            title: PRO_GRANT_ASAMO_TITLE,
+            status: 'not-created',
+            startsAt: null,
+            endsAt: null,
+            perAccountLimit: 1,
+          },
+          counts: {},
+          roomCodes: PRO_GRANT_ASAMO_ROOM_CODES,
+          roomLabelPrefix: 'ASAMO 0',
+          isDraft: true,
+        },
+      ];
+    }
+    proGrantCampaigns = entries;
+    if (
+      !selectedProGrantCampaignSlug ||
+      !proGrantCampaigns.some(
+        (entry) => (entry.campaign || entry).slug === selectedProGrantCampaignSlug,
+      )
+    ) {
+      selectedProGrantCampaignSlug =
+        proGrantCampaignDraft?.campaign?.slug ||
+        (proGrantCampaigns[0]?.campaign || proGrantCampaigns[0])?.slug ||
+        null;
+    }
+    proGrantCampaignState = selectedProGrantCampaign();
+    proGrantCampaignLoaded = true;
+    renderProGrantCampaignState(proGrantCampaignState);
+    return proGrantCampaignState;
+  } catch (error) {
+    proGrantCampaignLoaded = false;
     throw error;
   }
 }
 
-function asamoCampaignMutationBody(dryRun, startsAt = Date.now()) {
+function campaignMutationBody(config, dryRun) {
   return {
-    slug: PRO_GRANT_ASAMO_SLUG,
-    title: PRO_GRANT_ASAMO_TITLE,
-    startsAt,
-    endsAt: null,
+    slug: config.campaign.slug,
+    title: config.campaign.title,
+    startsAt: config.campaign.startsAt,
+    endsAt: config.campaign.endsAt,
     perAccountLimit: 1,
     dryRun,
   };
 }
 
+function findProGrantCampaignOverlap(config) {
+  const requested = new Set(config.roomCodes);
+  for (const entry of proGrantCampaigns) {
+    const campaign = entry.campaign || entry;
+    if (campaign.slug === config.campaign.slug) continue;
+    const overlap = proGrantCampaignRoomCodes(entry).find((roomCode) => requested.has(roomCode));
+    if (overlap) return { roomCode: overlap, campaign };
+  }
+  return null;
+}
+
 async function verifyProGrantCampaignPool() {
   if (proGrantCampaignBusy) return;
+  const config = proGrantCampaignConfig();
+  if (!config || config.roomCodes.length === 0) {
+    setProGrantCampaignMessage('이 이벤트의 연속된 방 번호 범위 정보가 올바르지 않아요.', true);
+    return;
+  }
   setProGrantCampaignBusy(true);
-  setProGrantCampaignMessage('Checking 000100–000149 without changing production...');
+  setProGrantCampaignMessage(
+    `${config.roomCodes[0]}–${config.roomCodes.at(-1)} 범위를 변경 없이 검사하고 있어요...`,
+  );
   try {
-    const current = proGrantCampaignLoaded
-      ? proGrantCampaignState
-      : await loadProGrantCampaignStatus();
-    if (!current?.campaign) {
-      const campaign = asamoCampaignMutationBody(
-        true,
-        pendingProGrantVoucherExport?.campaign?.startsAt || Date.now(),
-      );
-      await fetchJson('/api/admin/pro-grants/campaigns', {
-        method: 'POST',
-        body: JSON.stringify(campaign),
-      });
+    await loadProGrantCampaignStatus();
+    const overlap = findProGrantCampaignOverlap(config);
+    if (overlap) {
+      throw new Error(`${overlap.roomCode}번 방이 ${overlap.campaign.title}와 겹쳐요.`);
     }
-    const inventory = await loadAsamoProGrantRoomInventory();
+    await fetchJson('/api/admin/pro-grants/campaigns', {
+      method: 'POST',
+      body: JSON.stringify(campaignMutationBody(config, true)),
+    });
+    const inventory = await loadProGrantRoomInventory(config.roomCodes);
     if (inventory.unavailable.length > 0) {
       const first = inventory.unavailable[0];
       setProGrantCampaignMessage(
-        `${inventory.unavailable.length} room(s) block this batch. ${first.roomCode} is ${first.status}/${first.activationState}.`,
+        `${formatter.format(inventory.unavailable.length)}개 방을 사용할 수 없어요. ${first.roomCode} 상태: ${first.status}/${first.activationState}.`,
         true,
       );
       return;
     }
+    verifiedProGrantPool = {
+      fingerprint: proGrantPoolFingerprint(config),
+      inventory,
+      verifiedAt: Date.now(),
+    };
     setProGrantCampaignMessage(
       inventory.needsProvisioning.length > 0
-        ? `${inventory.needsProvisioning.length} room(s) need provisioning. Apply exact batch will create them only after the voucher file is downloaded.`
-        : 'All 50 rooms are registered, unactivated, and ready.',
+        ? `${formatter.format(inventory.needsProvisioning.length)}개 방은 적용 단계에서 새로 준비돼요. 먼저 코드 파일을 저장해 주세요.`
+        : `전체 ${formatter.format(config.roomCodes.length)}개 방이 미활성 상태로 준비됐어요.`,
     );
-    await loadProGrantCampaignStatus();
   } catch (error) {
+    verifiedProGrantPool = null;
     setProGrantCampaignMessage(
-      adminErrorMessage(error, 'The ASAMO room pool could not be verified.'),
+      adminErrorMessage(error, '이벤트 방 번호를 검증하지 못했어요.'),
       true,
     );
     throw error;
@@ -3330,7 +4031,7 @@ function assertSecretFreeProGrantConfirmation(payload, batch, inventory) {
   const mappings = payload?.mappings;
   if (
     payload?.requestId !== batch.requestId ||
-    payload?.campaign?.slug !== PRO_GRANT_ASAMO_SLUG ||
+    payload?.campaign?.slug !== batch.campaign.slug ||
     payload?.count !== batch.vouchers.length ||
     !Array.isArray(mappings) ||
     mappings.length !== batch.vouchers.length
@@ -3371,16 +4072,27 @@ function assertSecretFreeProGrantConfirmation(payload, batch, inventory) {
 async function applyPendingProGrantVoucherBatch() {
   const batch = pendingProGrantVoucherExport;
   if (!batch || proGrantCampaignBusy) return;
+  const config = {
+    campaign: batch.campaign,
+    roomCodes: batch.vouchers.map((voucher) => voucher.roomCode),
+    roomLabelPrefix: batch.roomLabelPrefix || batch.campaign.title,
+  };
   setProGrantCampaignBusy(true);
-  setProGrantCampaignMessage('Provisioning and verifying the exact 50-room pool...');
+  setProGrantCampaignMessage(
+    '저장한 코드 파일과 같은 방 번호를 다시 확인하고 이벤트를 시작하고 있어요...',
+  );
   try {
-    const provisioning = await provisionAsamoProGrantRoomPool();
+    const overlap = findProGrantCampaignOverlap(config);
+    if (overlap) {
+      throw new Error(`${overlap.roomCode}번 방이 ${overlap.campaign.title}와 겹쳐요.`);
+    }
+    const provisioning = await provisionProGrantRoomPool(config);
     await fetchJson('/api/admin/pro-grants/campaigns', {
       method: 'POST',
-      body: JSON.stringify({ ...batch.campaign, dryRun: false }),
+      body: JSON.stringify(campaignMutationBody(config, false)),
     });
     const confirmation = await fetchJson(
-      `/api/admin/pro-grants/campaigns/${PRO_GRANT_ASAMO_SLUG}/vouchers`,
+      `/api/admin/pro-grants/campaigns/${encodeURIComponent(batch.campaign.slug)}/vouchers`,
       {
         method: 'POST',
         body: JSON.stringify({
@@ -3394,23 +4106,28 @@ async function applyPendingProGrantVoucherBatch() {
     if (provisioning.replayOnly && confirmation.replayed !== true) {
       throw new Error('Unavailable rooms may only be accepted for an exact existing batch replay.');
     }
-    await fetchJson(`/api/admin/pro-grants/campaigns/${PRO_GRANT_ASAMO_SLUG}/status`, {
-      method: 'POST',
-      body: JSON.stringify({
-        requestId: batch.requestId,
-        status: 'active',
-        dryRun: false,
-      }),
-    });
+    await fetchJson(
+      `/api/admin/pro-grants/campaigns/${encodeURIComponent(batch.campaign.slug)}/status`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          requestId: batch.requestId,
+          status: 'active',
+          dryRun: false,
+        }),
+      },
+    );
+    batch.applied = true;
     setProGrantCampaignMessage(
       confirmation.replayed
-        ? 'The existing batch was verified. No replacement codes were created.'
-        : '50 vouchers created. Keep the downloaded plaintext file secure.',
+        ? '기존 배치와 정확히 일치해요. 새 코드는 만들지 않았어요.'
+        : `${formatter.format(batch.vouchers.length)}개 코드가 적용됐어요. 다운로드 파일을 안전하게 보관해 주세요.`,
     );
+    proGrantCampaignDraft = null;
     await loadProGrantCampaignStatus();
   } catch (error) {
     setProGrantCampaignMessage(
-      `${adminErrorMessage(error, 'Voucher creation failed.')} The same in-memory batch is ready to retry.`,
+      `${adminErrorMessage(error, '코드를 적용하지 못했어요.')} 같은 배치를 메모리에 보존했으니 상태를 확인한 뒤 다시 시도할 수 있어요.`,
       true,
     );
     throw error;
@@ -3422,33 +4139,63 @@ async function applyPendingProGrantVoucherBatch() {
 async function createAndDownloadProGrantVouchers() {
   if (proGrantCampaignBusy) return;
   if (pendingProGrantVoucherExport) {
-    downloadProGrantVoucherExport(pendingProGrantVoucherExport);
+    if (pendingProGrantVoucherExport.campaign.slug !== selectedProGrantCampaignSlug) {
+      setProGrantCampaignMessage(
+        `${pendingProGrantVoucherExport.campaign.title}의 미적용 코드 파일이 메모리에 있어요. 먼저 해당 이벤트를 적용하거나 페이지를 나가 폐기해 주세요.`,
+        true,
+      );
+      return;
+    }
+    downloadProGrantVoucherExport();
     setProGrantCampaignMessage(
-      'The exact batch was downloaded again. Apply it only after confirming the file exists.',
+      '같은 코드 파일을 다시 받았어요. 파일을 확인한 뒤 이벤트를 시작해 주세요.',
     );
     return;
   }
-  pendingProGrantVoucherExport = createAsamoVoucherExport();
+  const config = proGrantCampaignConfig();
+  if (!config || verifiedProGrantPool?.fingerprint !== proGrantPoolFingerprint(config)) {
+    setProGrantCampaignMessage('먼저 1단계에서 방 번호를 확인해 주세요.', true);
+    return;
+  }
+  pendingProGrantVoucherExport = createProGrantVoucherExport(config);
   renderProGrantCampaignState(proGrantCampaignState);
   // This phase performs no remote mutation. The operator explicitly applies
   // only after confirming that the recoverable plaintext file was saved.
   downloadProGrantVoucherExport(pendingProGrantVoucherExport);
-  setProGrantCampaignMessage(
-    'Voucher file prepared. Confirm the download, then choose Apply exact batch.',
-  );
+  setProGrantCampaignMessage('코드 파일을 만들었어요. 다운로드를 확인한 뒤 3단계를 눌러 주세요.');
 }
 
 async function setProGrantCampaignOperationalStatus(status) {
-  if (proGrantCampaignBusy || !['active', 'paused'].includes(status)) return;
+  if (proGrantCampaignBusy || !['active', 'paused', 'ended'].includes(status)) return;
+  const campaign = selectedProGrantCampaign()?.campaign || selectedProGrantCampaign();
+  if (!campaign?.slug) return;
+  if (status === 'ended') {
+    const confirmed = window.confirm(
+      `${campaign.title} 이벤트를 종료할까요?\n\n남은 코드는 보존되지만 더 이상 등록할 수 없어요. 종료 후에는 다시 시작할 수 없습니다. 이미 받은 PRO 방은 유지됩니다.`,
+    );
+    if (!confirmed) return;
+  }
   setProGrantCampaignBusy(true);
-  setProGrantCampaignMessage(status === 'paused' ? 'Pausing campaign...' : 'Resuming campaign...');
+  setProGrantCampaignMessage(
+    status === 'paused'
+      ? '이벤트를 일시 중지하고 있어요...'
+      : status === 'ended'
+        ? '이벤트를 종료하고 있어요...'
+        : '이벤트를 다시 시작하고 있어요...',
+  );
   try {
-    await fetchJson(`/api/admin/pro-grants/campaigns/${PRO_GRANT_ASAMO_SLUG}/status`, {
+    await fetchJson(`/api/admin/pro-grants/campaigns/${encodeURIComponent(campaign.slug)}/status`, {
       method: 'POST',
       body: JSON.stringify({ requestId: createProGrantBatchRequestId(), status, dryRun: false }),
     });
     await loadProGrantCampaignStatus();
-    setProGrantCampaignMessage(status === 'paused' ? 'Campaign paused.' : 'Campaign active.');
+    setProGrantCampaignMessage(
+      status === 'paused'
+        ? '이벤트를 일시 중지했어요.'
+        : status === 'ended'
+          ? '이벤트를 종료했어요. 미사용 코드는 보존돼요.'
+          : '이벤트를 다시 시작했어요.',
+    );
   } finally {
     setProGrantCampaignBusy(false);
   }
@@ -3456,14 +4203,18 @@ async function setProGrantCampaignOperationalStatus(status) {
 
 async function revokeProGrantCampaign() {
   if (proGrantCampaignBusy) return;
+  const entry = selectedProGrantCampaign();
+  const campaign = entry?.campaign || entry;
+  if (!campaign?.slug) return;
+  const available = normalizedProGrantCounts(entry).available;
   const confirmed = window.confirm(
-    'Revoke every unused ASAMO voucher? Redeemed PRO rooms and grants remain unchanged.',
+    `${campaign.title}의 미사용 코드 ${formatter.format(available)}개를 영구 폐기할까요?\n\n이 작업은 되돌릴 수 없습니다. 이미 사용된 코드와 지급된 PRO 방은 유지됩니다.`,
   );
   if (!confirmed) return;
   setProGrantCampaignBusy(true);
-  setProGrantCampaignMessage('Revoking unused vouchers...');
+  setProGrantCampaignMessage('미사용 코드를 영구 폐기하고 있어요...');
   try {
-    await fetchJson(`/api/admin/pro-grants/campaigns/${PRO_GRANT_ASAMO_SLUG}/revoke`, {
+    await fetchJson(`/api/admin/pro-grants/campaigns/${encodeURIComponent(campaign.slug)}/revoke`, {
       method: 'POST',
       body: JSON.stringify({
         requestId: createProGrantBatchRequestId(),
@@ -3471,10 +4222,122 @@ async function revokeProGrantCampaign() {
       }),
     });
     await loadProGrantCampaignStatus();
-    setProGrantCampaignMessage('Unused vouchers revoked. Redeemed rooms were not changed.');
+    setProGrantCampaignMessage('미사용 코드를 폐기했어요. 이미 지급된 PRO 방은 바뀌지 않았어요.');
   } finally {
     setProGrantCampaignBusy(false);
   }
+}
+
+function updateProGrantCampaignFormPreview() {
+  if (!proGrantCampaignFormEl) return;
+  const slugInput = proGrantCampaignFormEl.elements.namedItem('slug');
+  const startInput = proGrantCampaignFormEl.elements.namedItem('roomStartCode');
+  const countInput = proGrantCampaignFormEl.elements.namedItem('roomCount');
+  const slug = String(slugInput?.value || '')
+    .trim()
+    .toLowerCase();
+  const slugPreview = proGrantCampaignFormEl.querySelector('[data-pro-grant-slug-preview]');
+  if (slugPreview)
+    slugPreview.textContent = slug ? proGrantCampaignPublicPath(slug).slice(8) : 'event/';
+  const rangePreview = proGrantCampaignFormEl.querySelector('[data-pro-grant-range-preview]');
+  if (!rangePreview) return;
+  try {
+    const roomCodes = campaignRoomCodesFromRange(startInput?.value, Number(countInput?.value));
+    rangePreview.textContent = `${roomCodes[0]}–${roomCodes.at(-1)} · ${formatter.format(roomCodes.length)}개 방 · 계정당 1개`;
+    rangePreview.classList.remove('is-error');
+  } catch (error) {
+    rangePreview.textContent = error.message;
+    rangePreview.classList.add('is-error');
+  }
+}
+
+function openProGrantCampaignForm() {
+  if (!proGrantCampaignFormEl) return;
+  if (pendingProGrantVoucherExport && pendingProGrantVoucherExport.applied !== true) {
+    selectedProGrantCampaignSlug = pendingProGrantVoucherExport.campaign.slug;
+    proGrantCampaignState = selectedProGrantCampaign();
+    renderProGrantCampaignState(proGrantCampaignState);
+    setProGrantCampaignMessage(
+      `${pendingProGrantVoucherExport.campaign.title}의 코드 파일이 적용 대기 중이에요. 먼저 해당 이벤트를 시작하거나 페이지를 나가 폐기해 주세요.`,
+      true,
+    );
+    return;
+  }
+  if (pendingProGrantVoucherExport?.applied === true) {
+    pendingProGrantVoucherExport = null;
+    renderProGrantCampaignState(proGrantCampaignState);
+  }
+  proGrantCampaignFormEl.reset();
+  proGrantCampaignFormEl.hidden = false;
+  const startsAt = proGrantCampaignFormEl.elements.namedItem('startsAt');
+  if (startsAt && !startsAt.value) startsAt.value = formatCampaignLocalDateTime(Date.now());
+  updateProGrantCampaignFormPreview();
+  proGrantCampaignFormEl.querySelector('input[name="title"]')?.focus();
+}
+
+function closeProGrantCampaignForm() {
+  if (!proGrantCampaignFormEl) return;
+  proGrantCampaignFormEl.hidden = true;
+  proGrantCampaignNewBtn?.focus();
+}
+
+function stageProGrantCampaignFromForm() {
+  if (!proGrantCampaignFormEl) return;
+  const form = new FormData(proGrantCampaignFormEl);
+  const title = String(form.get('title') || '').trim();
+  const slug = String(form.get('slug') || '')
+    .trim()
+    .toLowerCase();
+  if (!title || title.length > 80) throw new Error('이벤트 이름을 확인해 주세요.');
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(slug) || slug.length > 48) {
+    throw new Error('URL 이름은 영문 소문자, 숫자, 하이픈만 사용할 수 있어요.');
+  }
+  if (
+    pendingProGrantVoucherExport &&
+    pendingProGrantVoucherExport.applied !== true &&
+    pendingProGrantVoucherExport?.campaign?.slug !== slug
+  ) {
+    throw new Error(
+      `${pendingProGrantVoucherExport.campaign.title}의 코드 파일이 적용 대기 중이에요. 먼저 해당 이벤트를 시작하거나 페이지를 나가 폐기해 주세요.`,
+    );
+  }
+  if (proGrantCampaigns.some((entry) => (entry.campaign || entry).slug === slug)) {
+    throw new Error('이미 같은 URL 이름을 사용하는 이벤트가 있어요.');
+  }
+  const roomCodes = campaignRoomCodesFromRange(
+    form.get('roomStartCode'),
+    Number(form.get('roomCount')),
+  );
+  const startsAt = parseCampaignLocalDateTime(form.get('startsAt'), { required: true });
+  const endsAt = parseCampaignLocalDateTime(form.get('endsAt'));
+  if (endsAt !== null && endsAt <= startsAt) {
+    throw new Error('종료 시간은 시작 시간보다 뒤여야 해요.');
+  }
+  const draft = {
+    campaign: {
+      slug,
+      title,
+      status: 'not-created',
+      startsAt,
+      endsAt,
+      perAccountLimit: 1,
+      roomStartCode: roomCodes[0],
+      roomCount: roomCodes.length,
+    },
+    counts: {},
+    roomCodes,
+    roomLabelPrefix: title,
+    isDraft: true,
+  };
+  const overlap = findProGrantCampaignOverlap(proGrantCampaignConfig(draft));
+  if (overlap) throw new Error(`${overlap.roomCode}번 방이 ${overlap.campaign.title}와 겹쳐요.`);
+  proGrantCampaignDraft = draft;
+  selectedProGrantCampaignSlug = slug;
+  proGrantCampaignState = draft;
+  verifiedProGrantPool = null;
+  closeProGrantCampaignForm();
+  renderProGrantCampaignState(draft);
+  setProGrantCampaignMessage('이벤트 정보를 검토했어요. 이제 1단계에서 방 번호를 확인해 주세요.');
 }
 
 async function loadProRooms(options = {}) {
@@ -4281,6 +5144,36 @@ if (!serviceStatusForm || serviceStatusConfirmBtn?.type !== 'submit') {
 mountProGrantCampaignPanel();
 renderProGrantCampaignState(null);
 
+proGrantCampaignNewBtn?.addEventListener('click', openProGrantCampaignForm);
+proGrantCampaignImportBtn?.addEventListener('click', () => {
+  if (!proGrantCampaignImportInput) return;
+  proGrantCampaignImportInput.value = '';
+  proGrantCampaignImportInput.click();
+});
+proGrantCampaignImportInput?.addEventListener('change', () => {
+  const file = proGrantCampaignImportInput.files?.[0];
+  importProGrantVoucherExport(file)
+    .catch((error) => {
+      setProGrantCampaignMessage(adminErrorMessage(error, '코드 파일을 불러오지 못했어요.'), true);
+    })
+    .finally(() => {
+      proGrantCampaignImportInput.value = '';
+    });
+});
+proGrantCampaignFormCancelBtn?.addEventListener('click', closeProGrantCampaignForm);
+proGrantCampaignFormEl?.addEventListener('input', (event) => {
+  if (['slug', 'roomStartCode', 'roomCount'].includes(event.target?.name)) {
+    updateProGrantCampaignFormPreview();
+  }
+});
+proGrantCampaignFormEl?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  try {
+    stageProGrantCampaignFromForm();
+  } catch (error) {
+    setProGrantCampaignMessage(adminErrorMessage(error, '이벤트 정보를 확인해 주세요.'), true);
+  }
+});
 proGrantCampaignVerifyBtn?.addEventListener('click', () => {
   verifyProGrantCampaignPool().catch(() => {});
 });
@@ -4291,14 +5184,25 @@ proGrantCampaignApplyBtn?.addEventListener('click', () => {
   applyPendingProGrantVoucherBatch().catch(() => {});
 });
 proGrantCampaignPauseBtn?.addEventListener('click', () => {
-  const next = proGrantCampaignState?.campaign?.status === 'paused' ? 'active' : 'paused';
+  const selected = selectedProGrantCampaign();
+  const campaign = selected?.campaign || selected;
+  const counts = normalizedProGrantCounts(selected);
+  const next =
+    campaign?.status === 'paused' || (campaign?.status === 'draft' && counts.total > 0)
+      ? 'active'
+      : 'paused';
   setProGrantCampaignOperationalStatus(next).catch((error) => {
-    setProGrantCampaignMessage(adminErrorMessage(error, 'Campaign update failed.'), true);
+    setProGrantCampaignMessage(adminErrorMessage(error, '이벤트 상태를 바꾸지 못했어요.'), true);
+  });
+});
+proGrantCampaignEndBtn?.addEventListener('click', () => {
+  setProGrantCampaignOperationalStatus('ended').catch((error) => {
+    setProGrantCampaignMessage(adminErrorMessage(error, '이벤트를 종료하지 못했어요.'), true);
   });
 });
 proGrantCampaignRevokeBtn?.addEventListener('click', () => {
   revokeProGrantCampaign().catch((error) => {
-    setProGrantCampaignMessage(adminErrorMessage(error, 'Campaign revoke failed.'), true);
+    setProGrantCampaignMessage(adminErrorMessage(error, '미사용 코드를 폐기하지 못했어요.'), true);
   });
 });
 proGrantCampaignDownloadBtn?.addEventListener('click', () => {
@@ -4308,11 +5212,23 @@ proGrantCampaignCopyBtn?.addEventListener('click', () => {
   copyProGrantVoucherExport()
     .then((copied) =>
       setProGrantCampaignMessage(
-        copied ? 'Room and voucher codes copied.' : 'Clipboard access is unavailable.',
+        copied ? '방 번호와 리딤 코드를 복사했어요.' : '클립보드를 사용할 수 없어요.',
         !copied,
       ),
     )
-    .catch(() => setProGrantCampaignMessage('Copy failed.', true));
+    .catch(() => setProGrantCampaignMessage('복사하지 못했어요.', true));
+});
+proGrantCampaignLinkCopyBtn?.addEventListener('click', () => {
+  const campaign = selectedProGrantCampaign()?.campaign || selectedProGrantCampaign();
+  const value = campaign?.slug ? proGrantCampaignPublicUrl(campaign.slug) : '';
+  if (!value || !navigator.clipboard?.writeText) {
+    setProGrantCampaignMessage('클립보드를 사용할 수 없어요.', true);
+    return;
+  }
+  navigator.clipboard
+    .writeText(value)
+    .then(() => setProGrantCampaignMessage('이벤트 페이지 주소를 복사했어요.'))
+    .catch(() => setProGrantCampaignMessage('주소를 복사하지 못했어요.', true));
 });
 
 proRoomCodeEl?.addEventListener('input', () => {
@@ -4351,7 +5267,12 @@ window.addEventListener('pagehide', () => {
   clearAllProRoomApiSecrets();
   pendingProGrantVoucherExport = null;
 });
-window.addEventListener('beforeunload', () => {
+window.addEventListener('beforeunload', (event) => {
+  if (pendingProGrantVoucherExport) {
+    event.preventDefault();
+    event.returnValue = '';
+    return;
+  }
   clearAnnouncementExpiryTimer();
   clearServiceStatusSettleTimer();
   closeServiceStatusDialog({ restoreFocus: false, force: true });
@@ -4359,7 +5280,6 @@ window.addEventListener('beforeunload', () => {
   closeProRoomLegacyOwnerDetachDialog({ restoreFocus: false });
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();
-  pendingProGrantVoucherExport = null;
 });
 
 announcementForm?.addEventListener('submit', (event) => {

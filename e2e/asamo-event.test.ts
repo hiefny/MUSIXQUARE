@@ -8,6 +8,7 @@ function activeSession(overrides: Record<string, unknown> = {}) {
   return {
     campaign: {
       slug: 'asamo-0',
+      title: 'MUSIXQUARE 아사모 이벤트',
       status: 'active',
       startsAt: null,
       endsAt: null,
@@ -33,12 +34,64 @@ async function openEvent(page: Page): Promise<void> {
 }
 
 test.describe('ASAMO PRO grant event', () => {
+  test('derives a future campaign slug only from its nested pathname', async ({ page }) => {
+    let requested = false;
+    await page.route('**/api/pro-grants/campaigns/apple-community-2/session', (route) => {
+      requested = true;
+      return fulfillJson(
+        route,
+        activeSession({
+          campaign: {
+            slug: 'apple-community-2',
+            title: 'MUSIXQUARE 애플 커뮤니티 이벤트',
+            status: 'active',
+            startsAt: null,
+            endsAt: null,
+          },
+        }),
+      );
+    });
+
+    await page.goto('/events/apple-community/2/');
+
+    await expect(
+      page.getByRole('heading', { name: '이벤트에서 받은 리딤 코드를 입력해 주세요' }),
+    ).toBeVisible();
+    await expect(page.locator('#campaign-name')).toHaveText('애플 커뮤니티 이벤트');
+    await expect(page).toHaveTitle('MUSIXQUARE 애플 커뮤니티 이벤트');
+    expect(requested).toBe(true);
+    expect(new URL(page.url()).search).toBe('');
+    expect(new URL(page.url()).hash).toBe('');
+  });
+
+  test('fails closed when the session campaign does not match the pathname', async ({ page }) => {
+    await page.route(SESSION_URL, (route) =>
+      fulfillJson(
+        route,
+        activeSession({
+          campaign: {
+            slug: 'different-0',
+            title: 'MUSIXQUARE 다른 이벤트',
+            status: 'active',
+            startsAt: null,
+            endsAt: null,
+          },
+        }),
+      ),
+    );
+
+    await openEvent(page);
+    await expect(page.getByRole('heading', { name: '이벤트를 불러오지 못했어요' })).toBeVisible();
+    await expect(page.locator('#campaign-name')).toHaveText('PRO 이벤트');
+    await expect(page.getByLabel('리딤 코드 입력')).toBeHidden();
+  });
+
   test('keeps a plaintext voucher out of the URL when the event script is unavailable', async ({
     page,
   }) => {
     const secret = 'MXQ-7KDP9-V2MQ4-XR8CW-H3N6T';
     let apiCalls = 0;
-    await page.route('**/events/asamo/0/event.js', (route) => route.abort());
+    await page.route('**/events/event.js', (route) => route.abort());
     await page.route('**/api/pro-grants/**', async (route) => {
       apiCalls += 1;
       await route.abort();
@@ -94,8 +147,10 @@ test.describe('ASAMO PRO grant event', () => {
 
     await openEvent(page);
     await expect(
-      page.getByRole('heading', { name: '아사모에서 받은 리딤 코드를 입력해 주세요' }),
+      page.getByRole('heading', { name: '이벤트에서 받은 리딤 코드를 입력해 주세요' }),
     ).toBeVisible();
+    await expect(page.locator('#campaign-name')).toHaveText('아사모 이벤트');
+    await expect(page).toHaveTitle('MUSIXQUARE 아사모 이벤트');
 
     const input = page.getByLabel('리딤 코드 입력');
     await input.fill('mxq-7kdp9-v2mq4-xr8cw-h3n6t');
@@ -157,7 +212,7 @@ test.describe('ASAMO PRO grant event', () => {
 
     await expect(dialog).toBeHidden();
     await expect(
-      page.getByRole('heading', { name: '아사모에서 받은 리딤 코드를 입력해 주세요' }),
+      page.getByRole('heading', { name: '이벤트에서 받은 리딤 코드를 입력해 주세요' }),
     ).toBeVisible();
   });
 

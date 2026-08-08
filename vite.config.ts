@@ -9,6 +9,7 @@ const DEV_ALLOWED_HOSTS = ['localhost', '.localhost', '.musixquare.com'];
 
 const PRODUCTION_API_ORIGIN = 'https://musixquare.com';
 const PRODUCTION_API_PROXY_FLAG = 'MUSIXQUARE_DEV_PROXY_PRODUCTION_API';
+const EVENT_CAMPAIGN_SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 export const PRODUCTION_API_PROXY_PATHS = [
   '/api/security-config',
   '/api/capability-token',
@@ -19,6 +20,16 @@ export const PRODUCTION_API_PROXY_PATHS = [
 ] as const;
 
 type DevEnvironment = Record<string, string | undefined>;
+
+function eventCampaignSlugFromPath(pathname: string): string | null {
+  const path = pathname.replace(/\/$/u, '');
+  const direct = /^\/events\/([^/]+)$/u.exec(path);
+  if (direct && EVENT_CAMPAIGN_SLUG_RE.test(direct[1])) return direct[1];
+  const edition = /^\/events\/([a-z0-9]+(?:-[a-z0-9]+)*)\/(\d+)$/u.exec(path);
+  if (!edition) return null;
+  const slug = `${edition[1]}-${edition[2]}`;
+  return EVENT_CAMPAIGN_SLUG_RE.test(slug) ? slug : null;
+}
 
 export function productionApiProxyEnabled(env: DevEnvironment): boolean {
   return (
@@ -103,48 +114,59 @@ const flattenWorkshopHtml = (): Plugin => ({
   },
 });
 
-// Lets local dev resolve public/canonical pages the same way the prod host does.
+function pageAliasTarget(rawUrl: string): string | null {
+  const queryStart = rawUrl.indexOf('?');
+  const pathname = queryStart === -1 ? rawUrl : rawUrl.slice(0, queryStart);
+  const query = queryStart === -1 ? '' : rawUrl.slice(queryStart);
+  const normalizedPath = (pathname.replace(/\/+$/, '') || '/').toLowerCase();
+
+  let target: string | null = null;
+  if (eventCampaignSlugFromPath(normalizedPath)) {
+    target = '/events/index.html';
+  } else if (
+    normalizedPath === '/about' ||
+    normalizedPath === '/about.html' ||
+    normalizedPath === '/landing'
+  ) {
+    target = '/.workshop/landing/landing.html';
+  } else if (normalizedPath === '/privacy' || normalizedPath === '/privacy.html') {
+    target = '/.workshop/privacy/privacy.html';
+  } else if (normalizedPath === '/terms' || normalizedPath === '/terms.html') {
+    target = '/.workshop/terms/terms.html';
+  } else if (normalizedPath === '/faq' || normalizedPath === '/faq.html') {
+    target = '/.workshop/faq/faq.html';
+  } else if (normalizedPath === '/developers' || normalizedPath === '/developers.html') {
+    target = '/.workshop/developers/developers.html';
+  } else if (
+    normalizedPath === '/history' ||
+    normalizedPath === '/changelog' ||
+    normalizedPath === '/roadmap'
+  ) {
+    target = '/history/index.html';
+  } else if (normalizedPath === '/blog') {
+    target = '/blog/index.html';
+  } else if (normalizedPath === '/designsystem') {
+    target = '/designsystem/index.html';
+  }
+  return target ? target + query : null;
+}
+
+// Lets local development and the E2E preview resolve canonical pages the same
+// way the production Worker does.
 const devPageAliases = (): Plugin => ({
   name: 'dev-page-aliases',
   apply: 'serve',
   configureServer(server) {
     server.middlewares.use((req, _res, next) => {
-      const rawUrl = req.url ?? '';
-      const queryStart = rawUrl.indexOf('?');
-      const pathname = queryStart === -1 ? rawUrl : rawUrl.slice(0, queryStart);
-      const query = queryStart === -1 ? '' : rawUrl.slice(queryStart);
-      const normalizedPath = (pathname.replace(/\/+$/, '') || '/').toLowerCase();
-
-      let target: string | null = null;
-      if (
-        normalizedPath === '/about' ||
-        normalizedPath === '/about.html' ||
-        normalizedPath === '/landing'
-      ) {
-        target = '/.workshop/landing/landing.html';
-      } else if (normalizedPath === '/privacy' || normalizedPath === '/privacy.html') {
-        target = '/.workshop/privacy/privacy.html';
-      } else if (normalizedPath === '/terms' || normalizedPath === '/terms.html') {
-        target = '/.workshop/terms/terms.html';
-      } else if (normalizedPath === '/faq' || normalizedPath === '/faq.html') {
-        target = '/.workshop/faq/faq.html';
-      } else if (normalizedPath === '/developers' || normalizedPath === '/developers.html') {
-        target = '/.workshop/developers/developers.html';
-      } else if (
-        normalizedPath === '/history' ||
-        normalizedPath === '/changelog' ||
-        normalizedPath === '/roadmap'
-      ) {
-        target = '/history/index.html';
-      } else if (normalizedPath === '/blog') {
-        target = '/blog/index.html';
-      } else if (normalizedPath === '/designsystem') {
-        target = '/designsystem/index.html';
-      }
-
-      if (target) {
-        req.url = target + query;
-      }
+      const target = pageAliasTarget(req.url ?? '');
+      if (target) req.url = target;
+      next();
+    });
+  },
+  configurePreviewServer(server) {
+    server.middlewares.use((req, _res, next) => {
+      const target = pageAliasTarget(req.url ?? '');
+      if (target) req.url = target;
       next();
     });
   },

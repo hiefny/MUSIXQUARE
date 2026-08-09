@@ -1485,6 +1485,16 @@ jobs:
           echo '::error::Coherent-production state is indeterminate; automatic recovery was withheld.'
           exit 1
 
+      # Checkout must precede checkpoint extraction. actions/checkout defaults
+      # to clean=true and would delete an artifact downloaded into the workspace
+      # before the independent recovery tooling can read it.
+      - name: Checkout exact failed release
+        if: steps.production_commit_state.outputs.state == 'absent'
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
       - name: Download immutable pre-mutation recovery checkpoint
         id: recovery_checkpoint
         if: steps.production_commit_state.outputs.state == 'absent'
@@ -1510,11 +1520,93 @@ jobs:
         if: always() && steps.production_commit_state.outputs.state == 'absent'
         shell: bash
         run: |
+          download_succeeded=false
           if [[ "${{ steps.recovery_checkpoint.outcome }}" == 'success' ||
                 "${{ steps.recovery_checkpoint_retry.outcome }}" == 'success' ]]; then
+            download_succeeded=true
+          fi
+
+          checkpoint_root='release-artifacts/recovery-checkpoint'
+          deployment_checkpoint="${checkpoint_root}/recovery-checkpoint.json"
+          evidence_complete=true
+          for evidence in \
+            "$deployment_checkpoint" \
+            "${checkpoint_root}/r2-policy-checkpoint.json"; do
+            if [[ ! -f "$evidence" ]]; then evidence_complete=false; fi
+          done
+          if [[ "$RELEASE_TARGET" != 'remote-share' &&
+                ! -f "${checkpoint_root}/worker-floor-checkpoint.json" ]]; then
+            evidence_complete=false
+          fi
+          if [[ -f "$deployment_checkpoint" ]]; then
+            if ! jq -e \
+              --arg target "$RELEASE_TARGET" \
+              --arg release_message "git:${GITHUB_SHA}" '
+              .schemaVersion == 1 and
+              .status == "captured" and
+              .releaseTarget == $target and
+              .releaseMessage == $release_message and
+              (.workers | type == "array") and
+              ([.workers[].target] | length == (unique | length))
+            ' "$deployment_checkpoint" >/dev/null; then
+              evidence_complete=false
+            else
+              case "$RELEASE_TARGET" in
+                all)
+                  expected_workers='app,developer-api,developer-api-facade,pro-room,remote-share,signaling'
+                  ;;
+                developer-api) expected_workers='developer-api,developer-api-facade' ;;
+                pro-room|remote-share|signaling|app) expected_workers="$RELEASE_TARGET" ;;
+                *) expected_workers=''; evidence_complete=false ;;
+              esac
+              actual_workers="$(
+                jq -er '[.workers[].target] | sort | join(",")' "$deployment_checkpoint"
+              )" || evidence_complete=false
+              if [[ "$actual_workers" != "$expected_workers" ]]; then
+                evidence_complete=false
+              fi
+              while IFS= read -r worker; do
+                case "$worker" in
+                  pro-room|remote-share|signaling|developer-api-facade|developer-api|app) ;;
+                  *) evidence_complete=false; continue ;;
+                esac
+                checkpoint_version="$(
+                  jq -er --arg worker "$worker" '
+                    [.workers[] | select(.target == $worker)]
+                    | if length == 1 and (.[0].beforeVersionId | type == "string" and length > 0)
+                      then .[0].beforeVersionId
+                      else error("missing Worker baseline identity")
+                      end
+                  ' "$deployment_checkpoint"
+                )" || {
+                  evidence_complete=false
+                  continue
+                }
+                state_file="${checkpoint_root}/${worker}-state.json"
+                if [[ ! -f "$state_file" ]] ||
+                  ! jq -e \
+                    --arg worker "$worker" \
+                    --arg config "cloudflare/wrangler.${worker}.toml" \
+                    --arg release_message "git:${GITHUB_SHA}" \
+                    --arg checkpoint_version "$checkpoint_version" '
+                      .schemaVersion == 1 and
+                      .target == $worker and
+                      .config == $config and
+                      .attempted == true and
+                      .releaseMessage == $release_message and
+                      .beforeVersionId == $checkpoint_version
+                    ' "$state_file" >/dev/null; then
+                  evidence_complete=false
+                fi
+              done < <(jq -r '.workers[].target' "$deployment_checkpoint")
+            fi
+          fi
+
+          if [[ "$download_succeeded" == 'true' && "$evidence_complete" == 'true' ]]; then
             echo 'available=true' >> "$GITHUB_OUTPUT"
           else
             echo 'available=false' >> "$GITHUB_OUTPUT"
+            echo '::error::The downloaded immutable checkpoint is absent, nested at an unexpected path, or structurally incomplete.'
           fi
 
       - name: Explain unavailable recovery checkpoint
@@ -1530,13 +1622,6 @@ jobs:
             exit 1
           fi
           echo "- The deploy job stopped before the persisted checkpoint authorized any D1, R2, or Worker mutation." >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Checkout exact failed release
-        if: steps.recovery_checkpoint_ready.outputs.available == 'true'
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
 
       - name: Setup Node.js for recovery
         if: steps.recovery_checkpoint_ready.outputs.available == 'true'

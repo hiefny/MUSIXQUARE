@@ -324,6 +324,93 @@ describe('release R2 policy recovery checkpoint', () => {
     ).toMatchObject({ status: 'failed', workerIdentityStable: false });
   });
 
+  it('pairs candidate remote CORS with a retained remote Worker while an untouched App stays baseline', async () => {
+    const root = directory();
+    const environment = { CLOUDFLARE_ACCOUNT_ID: 'account', CLOUDFLARE_API_TOKEN: 'token' };
+    const live = new Map<string, unknown>();
+    await captureR2PolicyCheckpoint('all', root, {
+      fetcher: (input) => {
+        const url = String(input);
+        const baseline = baselinePolicyForUrl(url);
+        live.set(url, baseline);
+        return Promise.resolve(response(baseline));
+      },
+      env: environment,
+    });
+
+    const candidateTargets = new Set(['pro-room', 'remote-share']);
+    for (const target of ALL_WORKERS) {
+      writeFileSync(
+        resolve(root, `${target}-state.json`),
+        JSON.stringify({
+          schemaVersion: 1,
+          target,
+          config: `cloudflare/wrangler.${target}.toml`,
+          attempted: true,
+          beforeVersionId: `${target}-baseline-version`,
+          releaseMessage: CANDIDATE_RELEASE_MESSAGE,
+        }),
+      );
+    }
+    writeFileSync(
+      resolve(root, 'rollback-report.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'forward-repair-required',
+        results: ALL_WORKERS.map((target) => ({
+          target,
+          status: candidateTargets.has(target) ? 'skipped-compatibility-floor' : 'already-restored',
+        })),
+      }),
+    );
+    const queryCurrent = (target: string) => {
+      const boundary = candidateTargets.has(target) ? 'candidate' : 'baseline';
+      return {
+        deploymentId: `${target}-${boundary}-deployment`,
+        versionId: `${target}-${boundary}-version`,
+        message: boundary === 'candidate' ? CANDIDATE_RELEASE_MESSAGE : `git:${'b'.repeat(40)}`,
+      };
+    };
+
+    const fetcher = mutablePolicyFetcher(live);
+    const report = await reconcileR2PoliciesWithWorkerBoundary(root, root, {
+      fetcher,
+      env: environment,
+      workerOptions: { queryCurrent },
+    });
+
+    expect(report).toMatchObject({ status: 'paired-policy-active' });
+    expect(report.workerBoundaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ target: 'app', boundary: 'baseline' }),
+        expect.objectContaining({ target: 'remote-share', boundary: 'candidate' }),
+      ]),
+    );
+    expect(report.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'remote-share-cors',
+          desiredBoundary: 'candidate',
+          status: 'candidate-policy-restored',
+        }),
+      ]),
+    );
+    const remoteCorsUrl = [...live.keys()].find(
+      (url) => url.includes('remote-share') && url.endsWith('/cors'),
+    )!;
+    expect(
+      (live.get(remoteCorsUrl) as { rules: Array<{ allowed: { headers: string[] } }> }).rules[0]
+        .allowed.headers,
+    ).toContain('if-match');
+    await expect(
+      verifyPairedRecoveryBoundary(root, root, {
+        fetcher,
+        env: environment,
+        workerOptions: { queryCurrent },
+      }),
+    ).resolves.toMatchObject({ status: 'verified', workerIdentityStable: true });
+  });
+
   it('restores baseline R2 policy after a partial rollout actually restores its Worker', async () => {
     const root = directory();
     const environment = { CLOUDFLARE_ACCOUNT_ID: 'account', CLOUDFLARE_API_TOKEN: 'token' };

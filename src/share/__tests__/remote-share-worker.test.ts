@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import ts from 'typescript';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker from '../../../cloudflare/app-worker.js';
 import { createAtomicRateControlBinding } from '../../core/__tests__/service-control-rate-limit-fixture.ts';
@@ -445,6 +446,77 @@ interface SessionResponse {
   cleanupToken: string;
 }
 
+type LiveSmokeRequestSession = (
+  token: string,
+  roomId: string,
+  queueItemId: string,
+  sessionId: number,
+  sourceFile: File,
+  requestId: string,
+  actorId: string,
+) => Promise<SessionResponse & { queueItemId: string; sessionId: number }>;
+
+let liveSmokeRequestSession: LiveSmokeRequestSession | undefined;
+
+async function loadLiveSmokeRequestSession(): Promise<LiveSmokeRequestSession> {
+  if (liveSmokeRequestSession) return liveSmokeRequestSession;
+  const entrypoint = 'await main();';
+  if (liveSmokeSource.split(entrypoint).length !== 2) {
+    throw new Error('live remote-share smoke entrypoint is not uniquely instrumentable');
+  }
+  const captureName = '__mxqrLiveSmokeRequestSession';
+  const instrumented = liveSmokeSource.replace(
+    entrypoint,
+    `globalThis[${JSON.stringify(captureName)}] = requestSession;`,
+  );
+  const compiled = ts.transpileModule(instrumented, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  await import(`data:text/javascript;charset=utf-8,${encodeURIComponent(compiled)}`);
+  const captured = (globalThis as typeof globalThis & Record<string, unknown>)[captureName];
+  delete (globalThis as typeof globalThis & Record<string, unknown>)[captureName];
+  if (typeof captured !== 'function') {
+    throw new Error('live remote-share smoke requestSession capture failed');
+  }
+  liveSmokeRequestSession = captured as LiveSmokeRequestSession;
+  return liveSmokeRequestSession;
+}
+
+function liveSmokeSessionResponse(status: number, payload: object): Response {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      'access-control-allow-origin': ORIGIN,
+      'content-type': 'application/json; charset=utf-8',
+    },
+  });
+}
+
+const validLiveSmokeSession: SessionResponse = {
+  uploadUrl: 'https://example.r2.cloudflarestorage.com/upload',
+  uploadHeaders: { 'if-match': '"placeholder-etag"' },
+  uploadUrlExpiresAt: 1_800_000_600_000,
+  completeToken: 'complete.token',
+  objectId: '00000000-0000-4000-8000-000000000001',
+  expiresAt: 1_800_003_600_000,
+  cleanupToken: 'cleanup.token',
+};
+
+function callLiveSmokeRequestSession(requestSession: LiveSmokeRequestSession) {
+  return requestSession(
+    'capability.token',
+    '123456',
+    QUEUE_ITEM_ID,
+    1_800_000_000_000,
+    new File([new Uint8Array([1, 2, 3, 4])], 'smoke.wav', { type: 'audio/wav' }),
+    `rs3_${'r'.repeat(43)}`,
+    `rsa_${'a'.repeat(43)}`,
+  );
+}
+
 interface CompleteResponse {
   downloadToken: string;
   downloadUrl: string;
@@ -505,6 +577,8 @@ async function createCompletedObject() {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('remote-share Worker capability gate', () => {
@@ -538,6 +612,96 @@ describe('remote-share Worker capability gate', () => {
     expect(liveSmokeSource).toContain("new TextDecoder('utf-8', { fatal: true })");
     expect(liveSmokeSource).toContain('function cancelResponseBody(');
     expect(liveSmokeSource).not.toContain('await response.body?.cancel');
+  });
+
+  it('bounds deployment-propagation recovery to exact v3 quota and replay retries', () => {
+    expect(liveSmokeSource).toContain('SESSION_PROPAGATION_TIMEOUT_MS = 30_000');
+    expect(liveSmokeSource).toContain('SESSION_RETRY_INITIAL_MS = 250');
+    expect(liveSmokeSource).toContain('SESSION_RETRY_MAX_MS = 2_000');
+    expect(liveSmokeSource).toContain("'room storage quota unavailable'");
+    expect(liveSmokeSource).toContain("'upload session replay unavailable'");
+    expect(liveSmokeSource).toContain('const requestBody = JSON.stringify({');
+    expect(liveSmokeSource).toContain('body: requestBody');
+    expect(liveSmokeSource).toContain('response.status === 503');
+    expect(liveSmokeSource).toContain('RETRYABLE_SESSION_ERRORS.has(session.error)');
+    expect(liveSmokeSource).toContain('if (!retryable || Date.now() >= deadline)');
+    expect(liveSmokeSource).toContain('retrying exact v3 request');
+    expect(liveSmokeSource).not.toContain('response.status === 409 &&');
+  });
+
+  it('retries a transient quota 503 with the byte-identical v3 request and then succeeds', async () => {
+    const requestSession = await loadLiveSmokeRequestSession();
+    vi.useFakeTimers();
+    vi.setSystemTime(1_800_000_000_000);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const requestBodies: string[] = [];
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(async (_input, init) => {
+        requestBodies.push(String(init?.body));
+        return liveSmokeSessionResponse(503, { error: 'room storage quota unavailable' });
+      })
+      .mockImplementationOnce(async (_input, init) => {
+        requestBodies.push(String(init?.body));
+        return liveSmokeSessionResponse(200, validLiveSmokeSession);
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const outcome = callLiveSmokeRequestSession(requestSession);
+    await vi.advanceTimersByTimeAsync(250);
+
+    await expect(outcome).resolves.toMatchObject(validLiveSmokeSession);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(requestBodies).toHaveLength(2);
+    expect(requestBodies[1]).toBe(requestBodies[0]);
+    expect(JSON.parse(requestBodies[0] || '')).toMatchObject({
+      requestId: `rs3_${'r'.repeat(43)}`,
+      actorId: `rsa_${'a'.repeat(43)}`,
+    });
+  });
+
+  it.each([
+    [401, 'CAPABILITY_REQUIRED'],
+    [409, 'upload session request conflict'],
+    [503, 'rate limit unavailable'],
+  ])('does not retry fatal session HTTP %i (%s)', async (status, error) => {
+    const requestSession = await loadLiveSmokeRequestSession();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(liveSmokeSessionResponse(status, { error }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(callLiveSmokeRequestSession(requestSession)).rejects.toThrow(
+      `remote-share session HTTP ${status}`,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops exact-request quota retries at the 30-second propagation deadline', async () => {
+    const requestSession = await loadLiveSmokeRequestSession();
+    const startedAt = 1_800_000_000_000;
+    vi.useFakeTimers();
+    vi.setSystemTime(startedAt);
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () =>
+      liveSmokeSessionResponse(503, {
+        error: 'upload session replay unavailable',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const outcome = callLiveSmokeRequestSession(requestSession).then(
+      () => ({ error: null }),
+      (error: unknown) => ({ error }),
+    );
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    const result = await outcome;
+
+    expect(result.error).toBeInstanceOf(Error);
+    expect(String(result.error)).toContain('remote-share session HTTP 503');
+    expect(Date.now() - startedAt).toBe(30_000);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+    expect(new Set(fetchMock.mock.calls.map(([, init]) => String(init?.body))).size).toBe(1);
   });
 
   it('bounds R2 CORS propagation retries to preflight 403 responses', () => {

@@ -1026,11 +1026,19 @@ function runRollbackWithRetry(state, rollbackMessage, options = {}) {
   const confirmationOutputPath =
     options.confirmationOutputPath ||
     options.outputPath.replace(/\.json$/u, '-ownership-confirmation.json');
+  let initialCurrent = options.initialCurrent || null;
 
   return retrySync(
     `${state.target} rollback attempt`,
     () => {
-      const current = query(state.target, state.config, options.outputPath, options.queryOptions);
+      // Recovery classifies the first fresh read before applying a compatibility
+      // floor. Reuse that exact observation for the first attempt, then retain
+      // the independent confirmation read immediately before any mutation.
+      // A retry always starts from a new live observation.
+      const current =
+        initialCurrent ||
+        query(state.target, state.config, options.outputPath, options.queryOptions);
+      initialCurrent = null;
       const disposition = rollbackDisposition(state, current);
       if (disposition !== 'rollback') {
         return { status: disposition, current, commandIssued: false };
@@ -1099,7 +1107,20 @@ function attemptedStates(directory) {
       if (state.schemaVersion !== SCHEMA_VERSION || state.target !== target) {
         throw new Error(`Malformed deployment state for ${target}.`);
       }
-      return state.attempted ? { ...state, rollbackOrder: definition.rollbackOrder } : null;
+      if (typeof state.attempted !== 'boolean') {
+        throw new Error(`Malformed deployment-attempt marker for ${target}.`);
+      }
+      if (!state.attempted) return null;
+      if (
+        state.config !== definition.config ||
+        typeof state.beforeVersionId !== 'string' ||
+        !state.beforeVersionId ||
+        typeof state.releaseMessage !== 'string' ||
+        !CANONICAL_RELEASE_MESSAGE_RE.test(state.releaseMessage)
+      ) {
+        throw new Error(`Malformed attempted deployment evidence for ${target}.`);
+      }
+      return { ...state, rollbackOrder: definition.rollbackOrder };
     })
     .filter(Boolean)
     .sort((left, right) => right.rollbackOrder - left.rollbackOrder);
@@ -1327,13 +1348,24 @@ function rollbackSkipTargets(value = process.env.MXQR_ROLLBACK_SKIP_TARGETS) {
 }
 
 function rollbackDisposition(state, current) {
+  if (
+    typeof state?.beforeVersionId !== 'string' ||
+    !state.beforeVersionId ||
+    typeof state?.releaseMessage !== 'string' ||
+    !CANONICAL_RELEASE_MESSAGE_RE.test(state.releaseMessage) ||
+    typeof current?.versionId !== 'string' ||
+    !current.versionId
+  ) {
+    return 'conflict';
+  }
   if (current.versionId === state.beforeVersionId) return 'already-restored';
   const isRecordedDeployment =
     state.ownedByRelease === true &&
     Boolean(state.afterVersionId) &&
     current.versionId === state.afterVersionId &&
     (!state.afterDeploymentId || current.deploymentId === state.afterDeploymentId);
-  const isReleaseMessageMatch = current.message === state.releaseMessage;
+  const isReleaseMessageMatch =
+    typeof current.message === 'string' && current.message === state.releaseMessage;
   return isRecordedDeployment || isReleaseMessageMatch ? 'rollback' : 'conflict';
 }
 
@@ -1373,7 +1405,7 @@ function rollbackDependencyBlock(target, states, results) {
   return null;
 }
 
-function rollback(directory) {
+function rollback(directory, options = {}) {
   const reportPath = resolve(directory, 'rollback-report.json');
   const report = {
     schemaVersion: SCHEMA_VERSION,
@@ -1382,12 +1414,19 @@ function rollback(directory) {
     results: [],
   };
   let failed = false;
+  let forwardBoundary = false;
+  const query = options.queryCurrent || queryCurrent;
+  const rollbackRunner = options.runRollbackWithRetry || runRollbackWithRetry;
+  const verifyVersion = options.verifyProductionVersion || verifyProductionVersion;
 
   let states;
   let skipTargets;
   try {
     states = attemptedStates(directory);
-    skipTargets = rollbackSkipTargets();
+    skipTargets =
+      options.skipTargets instanceof Set
+        ? options.skipTargets
+        : rollbackSkipTargets(options.skipTargets);
   } catch (error) {
     report.status = 'partial-failure';
     report.results.push({
@@ -1397,8 +1436,7 @@ function rollback(directory) {
     });
     report.completedAt = new Date().toISOString();
     writeJson(reportPath, report);
-    process.exitCode = 1;
-    return;
+    return report;
   }
 
   for (const state of states) {
@@ -1411,34 +1449,83 @@ function rollback(directory) {
     };
     report.results.push(result);
 
-    if (skipTargets.has(state.target)) {
-      result.status = 'skipped-compatibility-floor';
-      result.error =
-        'Automatic Worker rollback was skipped to preserve the active schema or generation compatibility floor.';
-      failed = true;
-      continue;
-    }
-
-    const dependencyBlock = rollbackDependencyBlock(state.target, states, report.results);
-    if (dependencyBlock) {
-      result.status = 'skipped-dependent-worker-not-restored';
-      result.error =
-        `Automatic ${state.target} rollback was withheld because ` +
-        `${dependencyBlock.dependency} recovery is ${dependencyBlock.dependencyStatus}; ` +
-        `the newer ${state.target} Worker remains deployed to preserve cross-Worker compatibility.`;
-      failed = true;
-      continue;
-    }
-
     try {
+      // A compatibility floor says that an exact release candidate must not be
+      // rolled back. It does not turn a Worker that was never deployed (or a
+      // failed deploy that left production unchanged) into that candidate.
+      // Resolve the live identity before applying either a floor or a dependent
+      // Worker hold so persisted pre-mutation checkpoints remain idempotent in
+      // the independent recovery job.
+      const current = query(
+        state.target,
+        state.config,
+        paths.rollbackCurrent,
+        options.queryOptions,
+      );
+      result.currentDeploymentId = current.deploymentId || null;
+      result.currentVersionId = current.versionId || null;
+      result.currentMessage = current.message || null;
+      const disposition = rollbackDisposition(state, current);
+      if (disposition === 'conflict') {
+        result.status = 'conflict';
+        result.error =
+          'Current production is neither the captured baseline nor the exact release candidate; automatic rollback was skipped.';
+        failed = true;
+        continue;
+      }
+
+      const dependencyBlock = rollbackDependencyBlock(state.target, states, report.results);
+      if (disposition === 'already-restored') {
+        if (dependencyBlock) {
+          result.status = 'incompatible-baseline-dependent-worker';
+          result.error =
+            `${state.target} is still on its captured baseline while ` +
+            `${dependencyBlock.dependency} recovery is ${dependencyBlock.dependencyStatus}; ` +
+            'automatic recovery cannot prove this cross-Worker protocol boundary.';
+          failed = true;
+          continue;
+        }
+        result.status = 'already-restored';
+        continue;
+      }
+
+      if (skipTargets.has(state.target)) {
+        result.status = 'skipped-compatibility-floor';
+        result.error =
+          'The exact release candidate remains deployed to preserve the active schema or generation compatibility floor.';
+        forwardBoundary = true;
+        continue;
+      }
+
+      if (dependencyBlock) {
+        result.status = 'skipped-dependent-worker-not-restored';
+        result.error =
+          `Automatic ${state.target} rollback was withheld because ` +
+          `${dependencyBlock.dependency} recovery is ${dependencyBlock.dependencyStatus}; ` +
+          `the exact release candidate remains deployed to preserve cross-Worker compatibility.`;
+        forwardBoundary = true;
+        continue;
+      }
+
       const rollbackContext =
         process.env.RELEASE_ROLLBACK_MESSAGE ||
         `rollback:${process.env.GITHUB_SHA || 'unknown'} run:${process.env.GITHUB_RUN_ID || 'local'}`;
       const rollbackMessage = rollbackDeploymentMessage(state, rollbackContext);
-      const rollbackAttempt = runRollbackWithRetry(state, rollbackMessage, {
+      const rollbackAttempt = rollbackRunner(state, rollbackMessage, {
         outputPath: paths.rollbackCurrent,
+        confirmationOutputPath: paths.rollbackCurrent.replace(
+          /\.json$/u,
+          '-ownership-confirmation.json',
+        ),
+        initialCurrent: current,
+        queryCurrent: query,
+        queryOptions: options.queryOptions,
+        runner: options.runner,
+        retry: options.rollbackRetry,
       });
+      result.currentDeploymentId = rollbackAttempt.current.deploymentId || null;
       result.currentVersionId = rollbackAttempt.current.versionId;
+      result.currentMessage = rollbackAttempt.current.message || null;
 
       if (rollbackAttempt.status === 'already-restored') {
         result.status = 'already-restored';
@@ -1453,11 +1540,15 @@ function rollback(directory) {
         continue;
       }
 
-      const restored = verifyProductionVersion(
+      const restored = verifyVersion(
         state.target,
         state.config,
         state.beforeVersionId,
         paths.rollback,
+        {
+          runner: options.runner,
+          retry: options.verifyRetry,
+        },
       );
       result.restoredVersionId = restored.versionId;
       result.status = 'restored';
@@ -1470,10 +1561,11 @@ function rollback(directory) {
 
   report.completedAt = new Date().toISOString();
   if (failed) report.status = 'partial-failure';
+  else if (forwardBoundary) report.status = 'forward-repair-required';
   else if (report.results.length > 0) report.status = 'succeeded';
   writeJson(reportPath, report);
   console.log(`Rollback report: ${reportPath} (${report.status})`);
-  if (failed) process.exitCode = 1;
+  return report;
 }
 
 function summary(directory) {
@@ -1555,8 +1647,10 @@ function main() {
     );
   } else if (mode === 'verify-current') verifyCurrentRelease(directory);
   else if (mode === 'verify-recovery') verifyRecoveryBoundary(directory);
-  else if (mode === 'rollback') rollback(directory);
-  else if (mode === 'summary') summary(directory);
+  else if (mode === 'rollback') {
+    const report = rollback(directory);
+    if (report.status === 'partial-failure') process.exitCode = 1;
+  } else if (mode === 'summary') summary(directory);
   else {
     throw new Error(
       'Usage: node scripts/release-deployment-state.mjs <prepare|preflight|attempt|record|version> <target> [directory] | checkpoint <release-target> [directory] | emergency-code-only <git-sha> [directory] | <compatibility|compatibility-recheck> <release-target> <git-sha> [directory] | <service-control-forward-floor|remote-share-forward-floor> <git-sha> [directory] | <verify-current|verify-recovery|rollback|summary> [directory]',
@@ -1589,6 +1683,7 @@ export {
   retrySync,
   rollbackDisposition,
   rollbackDependencyBlock,
+  rollback,
   rollbackSkipTargets,
   runRollbackWithRetry,
   verifyPartialReleaseCompatibility,

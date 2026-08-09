@@ -94,6 +94,10 @@ export function rollbackDependencyBlock(
   states: Array<Record<string, unknown>>,
   results: Array<Record<string, unknown>>,
 ): Record<string, unknown> | null;
+export function rollback(
+  directory: string,
+  options?: CommandRunnerOptions,
+): Record<string, unknown>;
 export function rollbackSkipTargets(value: string): ReadonlySet<string>;
 export function runRollbackWithRetry(
   state: Record<string, unknown>,

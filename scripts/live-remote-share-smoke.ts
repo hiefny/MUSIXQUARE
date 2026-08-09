@@ -12,8 +12,15 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const JSON_RESPONSE_MAX_BYTES = 256 * 1024;
 const WORKER_PROPAGATION_TIMEOUT_MS = 120_000;
 const WORKER_RETRY_INTERVAL_MS = 1_000;
+const SESSION_PROPAGATION_TIMEOUT_MS = 30_000;
+const SESSION_RETRY_INITIAL_MS = 250;
+const SESSION_RETRY_MAX_MS = 2_000;
 const R2_CORS_PROPAGATION_TIMEOUT_MS = 45_000;
 const R2_CORS_RETRY_INTERVAL_MS = 2_000;
+const RETRYABLE_SESSION_ERRORS = new Set([
+  'room storage quota unavailable',
+  'upload session replay unavailable',
+]);
 
 interface RemoteShareSession {
   uploadUrl: string;
@@ -115,7 +122,10 @@ async function waitForRemoteShareWorkerReady(): Promise<void> {
   }
 }
 
-async function readJson(response: Response, label: string): Promise<Record<string, unknown>> {
+async function readJsonPayload(
+  response: Response,
+  label: string,
+): Promise<{ payload: Record<string, unknown>; text: string }> {
   const declaredLength = Number(response.headers.get('content-length'));
   if (Number.isFinite(declaredLength) && declaredLength > JSON_RESPONSE_MAX_BYTES) {
     cancelResponseBody(response, `${label} response too large`);
@@ -162,14 +172,19 @@ async function readJson(response: Response, label: string): Promise<Record<strin
   } catch {
     throw new Error(`${label} returned invalid UTF-8`);
   }
-  if (!response.ok) {
-    throw new Error(`${label} HTTP ${response.status}: ${text.slice(0, 300)}`);
-  }
   try {
-    return JSON.parse(text) as Record<string, unknown>;
+    return { payload: JSON.parse(text) as Record<string, unknown>, text };
   } catch {
     throw new Error(`${label} returned invalid JSON`);
   }
+}
+
+async function readJson(response: Response, label: string): Promise<Record<string, unknown>> {
+  const { payload, text } = await readJsonPayload(response, label);
+  if (!response.ok) {
+    throw new Error(`${label} HTTP ${response.status}: ${text.slice(0, 300)}`);
+  }
+  return payload;
 }
 
 async function requestCapabilityToken(): Promise<string> {
@@ -247,41 +262,69 @@ async function requestSession(
   requestId: string,
   actorId: string,
 ): Promise<RemoteShareSession> {
-  const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/session`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Origin: APP_ORIGIN,
-      ...(token ? { 'X-MXQR-Capability': token } : {}),
-    },
-    body: JSON.stringify({
-      roomId,
-      sessionId,
-      queueItemId,
-      name: sourceFile.name,
-      mime: sourceFile.type,
-      size: sourceFile.size,
-      requestId,
-      actorId,
-    }),
+  // A Worker version can become current just before its Durable Object and
+  // cross-script bindings have converged at every edge. Reuse the exact v3
+  // proof on a narrowly classified 503 so an outcome-unknown reservation is
+  // recovered through durable replay instead of allocating another upload.
+  const requestBody = JSON.stringify({
+    roomId,
+    sessionId,
+    queueItemId,
+    name: sourceFile.name,
+    mime: sourceFile.type,
+    size: sourceFile.size,
+    requestId,
+    actorId,
   });
-  assertAllowedOrigin(response, 'remote-share session');
-  const session = await readJson(response, 'remote-share session');
-  if (
-    typeof session.uploadUrl !== 'string' ||
-    typeof session.uploadUrlExpiresAt !== 'number' ||
-    typeof session.completeToken !== 'string' ||
-    typeof session.objectId !== 'string' ||
-    typeof session.cleanupToken !== 'string' ||
-    typeof session.expiresAt !== 'number' ||
-    !session.uploadHeaders ||
-    typeof session.uploadHeaders !== 'object' ||
-    Array.isArray(session.uploadHeaders) ||
-    !Object.values(session.uploadHeaders).every((value) => typeof value === 'string')
-  ) {
-    throw new Error('invalid remote-share session response');
+  const deadline = Date.now() + SESSION_PROPAGATION_TIMEOUT_MS;
+  let retryDelayMs = SESSION_RETRY_INITIAL_MS;
+
+  for (;;) {
+    const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/session`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: APP_ORIGIN,
+        ...(token ? { 'X-MXQR-Capability': token } : {}),
+      },
+      body: requestBody,
+    });
+    assertAllowedOrigin(response, 'remote-share session');
+    const { payload: session, text } = await readJsonPayload(response, 'remote-share session');
+    if (!response.ok) {
+      const failure = `remote-share session HTTP ${response.status}: ${text.slice(0, 300)}`;
+      const retryable =
+        response.status === 503 &&
+        typeof session.error === 'string' &&
+        RETRYABLE_SESSION_ERRORS.has(session.error);
+      if (!retryable || Date.now() >= deadline) {
+        throw new Error(failure);
+      }
+      const delayMs = Math.min(retryDelayMs, Math.max(0, deadline - Date.now()));
+      console.warn(
+        `remote-share session transient HTTP 503 (${session.error}); retrying exact v3 request in ${delayMs}ms`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      if (Date.now() >= deadline) throw new Error(failure);
+      retryDelayMs = Math.min(retryDelayMs * 2, SESSION_RETRY_MAX_MS);
+      continue;
+    }
+    if (
+      typeof session.uploadUrl !== 'string' ||
+      typeof session.uploadUrlExpiresAt !== 'number' ||
+      typeof session.completeToken !== 'string' ||
+      typeof session.objectId !== 'string' ||
+      typeof session.cleanupToken !== 'string' ||
+      typeof session.expiresAt !== 'number' ||
+      !session.uploadHeaders ||
+      typeof session.uploadHeaders !== 'object' ||
+      Array.isArray(session.uploadHeaders) ||
+      !Object.values(session.uploadHeaders).every((value) => typeof value === 'string')
+    ) {
+      throw new Error('invalid remote-share session response');
+    }
+    return { ...session, queueItemId, sessionId } as unknown as RemoteShareSession;
   }
-  return { ...session, queueItemId, sessionId } as unknown as RemoteShareSession;
 }
 
 async function assertAnonymousSessionRejected(

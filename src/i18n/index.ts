@@ -393,6 +393,16 @@ function _loadLanguage(code: LanguageCode): Promise<void> {
 
 function _translateLoadedLanguage(resolved: LanguageCode): void {
   if (_resolved !== resolved) return;
+  // A failed lazy chunk renders the complete English dictionary. Keep the
+  // document language aligned with those actual words so assistive
+  // technology does not pronounce English through the requested locale.
+  // `_resolved` intentionally remains unchanged so re-select/online can
+  // retry the missing chunk; a successful retry restores the requested tag.
+  try {
+    document.documentElement.setAttribute('lang', _htmlLangFor(_dicts[resolved] ? resolved : 'en'));
+  } catch {
+    /* ignore */
+  }
   _ensureObserver();
   _translateSubtree(document.body || document.documentElement);
 

@@ -72,7 +72,7 @@ describe('Translation key integrity', () => {
       en: 'Hello!',
       de: 'Hallo!',
       es: '¡Hola!',
-      fr: 'Bonjour !',
+      fr: 'Bonjour !',
       id: 'Halo!',
       italian: 'Ciao!',
       ja: 'こんにちは！',

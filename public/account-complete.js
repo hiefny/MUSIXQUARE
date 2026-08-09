@@ -29,10 +29,10 @@
       '로그인하지 못했어요. 다시 시도해 주세요.',
     ],
     ja: [
-      'ログインが完了しました。このウィンドウを閉じても構いません。',
+      'ログインが完了しました。このウィンドウを閉じても大丈夫です。',
       '閉じる',
       'ja',
-      'ログインをキャンセルしました。',
+      'ログインがキャンセルされました。',
       'ログインできませんでした。もう一度お試しください。',
     ],
     'zh-hans': [
@@ -64,7 +64,7 @@
       'Não foi possível entrar. Tente novamente.',
     ],
     fr: [
-      'Connexion terminée. Vous pouvez fermer cette fenêtre.',
+      'Connexion réussie. Vous pouvez fermer cette fenêtre.',
       'Fermer',
       'fr',
       'La connexion a été annulée.',
@@ -113,7 +113,7 @@
       'Oturum açılamadı. Lütfen tekrar dene.',
     ],
     id: [
-      'Proses masuk selesai. Anda dapat menutup jendela ini.',
+      'Berhasil masuk. Anda dapat menutup jendela ini.',
       'Tutup',
       'id',
       'Proses masuk dibatalkan.',
@@ -127,11 +127,11 @@
       'Không thể đăng nhập. Vui lòng thử lại.',
     ],
     th: [
-      'เข้าสู่ระบบเรียบร้อยแล้ว คุณปิดหน้าต่างนี้ได้',
+      'เข้าสู่ระบบเรียบร้อยแล้ว ปิดหน้าต่างนี้ได้เลย',
       'ปิด',
       'th',
       'ยกเลิกการเข้าสู่ระบบแล้ว',
-      'เข้าสู่ระบบไม่ได้ โปรดลองอีกครั้ง',
+      'เข้าสู่ระบบไม่ได้ ลองอีกครั้ง',
     ],
   };
 
@@ -141,6 +141,8 @@
       .replace(/_/g, '-')
       .toLowerCase();
     if (!normalized || normalized === 'system') return null;
+    if (normalized === 'zh-hans' || normalized.startsWith('zh-hans-')) return 'zh-hans';
+    if (normalized === 'zh-hant' || normalized.startsWith('zh-hant-')) return 'zh-hant';
     if (normalized.startsWith('zh')) {
       return /(?:tw|hk|mo|hant)/.test(normalized) ? 'zh-hant' : 'zh-hans';
     }

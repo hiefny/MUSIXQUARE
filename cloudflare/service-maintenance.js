@@ -27,22 +27,22 @@ let serviceStatusCacheByBinding = new WeakMap();
 let adminAnnouncementCacheByBinding = new WeakMap();
 
 const localizedDescriptions = Object.freeze({
-  de: 'Wir führen gerade eine Serviceprüfung durch. Bitte versuche es gleich noch einmal.',
+  de: 'Wir überprüfen gerade den Dienst. Bitte versuche es gleich noch einmal.',
   en: 'We’re carrying out a service check. Please try again shortly.',
   es: 'Estamos realizando una revisión del servicio. Vuelve a intentarlo en breve.',
   fr: 'Nous effectuons une vérification du service. Réessayez dans quelques instants.',
-  id: 'Kami sedang melakukan pemeriksaan layanan. Silakan coba lagi sebentar lagi.',
-  it: 'Stiamo eseguendo un controllo del servizio. Riprova tra poco.',
+  id: 'Kami sedang memeriksa layanan. Silakan coba lagi sebentar lagi.',
+  it: 'Stiamo controllando il servizio. Riprova tra poco.',
   ja: 'サービスの点検を行っています。しばらくしてからもう一度お試しください。',
   ko: '안전한 서비스 점검을 진행 중이에요. 잠시 후 다시 시도해 주세요.',
-  nl: 'We voeren een servicecontrole uit. Probeer het binnenkort opnieuw.',
-  pl: 'Trwa kontrola usługi. Spróbuj ponownie za chwilę.',
-  'pt-br': 'Estamos realizando uma verificação do serviço. Tente novamente em instantes.',
+  nl: 'We controleren momenteel de service. Probeer het over een ogenblik opnieuw.',
+  pl: 'Sprawdzamy działanie usługi. Spróbuj ponownie za chwilę.',
+  'pt-br': 'Estamos verificando o serviço. Tente novamente em instantes.',
   ru: 'Мы проводим проверку сервиса. Повторите попытку чуть позже.',
-  th: 'เรากำลังตรวจสอบบริการ โปรดลองอีกครั้งในอีกสักครู่',
-  tr: 'Hizmet kontrolü yapıyoruz. Lütfen kısa süre sonra tekrar deneyin.',
-  vi: 'Chúng tôi đang kiểm tra dịch vụ. Vui lòng thử lại sau ít phút.',
-  'zh-hans': '我们正在进行服务检查，请稍后再试。',
+  th: 'กำลังตรวจสอบบริการอยู่ ลองอีกครั้งในอีกสักครู่',
+  tr: 'Hizmeti kontrol ediyoruz. Lütfen kısa süre sonra tekrar dene.',
+  vi: 'Chúng tôi đang kiểm tra dịch vụ. Vui lòng thử lại sau giây lát.',
+  'zh-hans': '我们正在检查服务，请稍后重试。',
   'zh-hant': '我們正在進行服務檢查，請稍後再試。',
 });
 
@@ -726,7 +726,7 @@ function matchedMaintenanceLanguage(request) {
 
   for (const { tag } of weighted) {
     if (tag === '*') return 'en';
-    if (tag === 'pt-br' || tag.startsWith('pt-br-')) return 'pt-br';
+    if (tag === 'pt' || tag.startsWith('pt-')) return 'pt-br';
     if (tag === 'zh-hant' || tag.startsWith('zh-hant-') || /^(zh-(tw|hk|mo))(?:-|$)/.test(tag)) {
       return 'zh-hant';
     }
@@ -768,7 +768,7 @@ function maintenanceHtml(language) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <title>MUSIXQUARE · Service check</title>
+  <title lang="en">MUSIXQUARE · Service check</title>
   <style>
     :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#08090b;color:#f7f7f8;font-family:Inter,Pretendard,system-ui,-apple-system,sans-serif;padding:28px}.card{width:min(620px,100%);padding:clamp(28px,7vw,64px);border:1px solid #25272d;border-radius:28px;background:linear-gradient(145deg,#15171c,#0d0e12);box-shadow:0 28px 90px #0009}.mark{display:flex;align-items:center;gap:10px;margin-bottom:34px;font-size:12px;font-weight:800;letter-spacing:.2em}.dot{width:9px;height:9px;border-radius:50%;background:#ff4d5f;box-shadow:0 0 20px #ff4d5faa}h1{margin:0;font-size:clamp(29px,6vw,48px);line-height:1.08;letter-spacing:-.04em}p{margin:18px 0 0;color:#b8bbc5;font-size:clamp(16px,3.5vw,19px);line-height:1.65}.pulse{margin-top:38px;width:44px;height:3px;border-radius:999px;background:#ff4d5f;animation:pulse 1.4s ease-in-out infinite}@keyframes pulse{50%{opacity:.25;transform:scaleX(.45)}}@media(prefers-reduced-motion:reduce){.pulse{animation:none}}
   </style>
@@ -776,7 +776,7 @@ function maintenanceHtml(language) {
 <body>
   <main class="card">
     <div class="mark"><span class="dot" aria-hidden="true"></span>MUSIXQUARE</div>
-    <h1>Musixquare is temporarily unavailable.</h1>
+    <h1 lang="en">Musixquare is temporarily unavailable.</h1>
     <p>${description}</p>
     <div class="pulse" aria-hidden="true"></div>
   </main>

@@ -945,8 +945,23 @@ describe('shared service-maintenance control', () => {
     expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
     expect(response.headers.get('Content-Language')).toBe('ko');
     expect(body).toContain('<html lang="ko">');
-    expect(body).toContain('Musixquare is temporarily unavailable.');
+    expect(body).toContain('<title lang="en">MUSIXQUARE · Service check</title>');
+    expect(body).toContain('<h1 lang="en">Musixquare is temporarily unavailable.</h1>');
     expect(body).toContain('안전한 서비스 점검을 진행 중이에요. 잠시 후 다시 시도해 주세요.');
+  });
+
+  it('maps every regional Portuguese preference to the supported Brazilian copy', async () => {
+    const response = serviceMaintenanceResponse(
+      new Request('https://musixquare.com/', {
+        headers: { Accept: 'text/html', 'Accept-Language': 'pt-PT' },
+      }),
+      activeState(),
+    );
+    const body = await response.text();
+
+    expect(response.headers.get('Content-Language')).toBe('pt-br');
+    expect(body).toContain('<html lang="pt-br">');
+    expect(body).toContain('Estamos verificando o serviço. Tente novamente em instantes.');
   });
 
   it('falls back to English for English, unsupported, wildcard, and missing language headers', () => {

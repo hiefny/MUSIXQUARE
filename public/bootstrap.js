@@ -249,6 +249,7 @@
       'pt-br': 'pt-BR',
       fr: 'fr',
       de: 'de',
+      nl: 'nl',
       it: 'it',
       pl: 'pl',
       ru: 'ru',

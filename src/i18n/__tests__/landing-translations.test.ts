@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
 
 import { LANGUAGE_OPTIONS } from '../index.ts';
@@ -112,7 +113,7 @@ describe('landing-page translation integrity', () => {
     }
 
     expect(dictionaries.ko['hero.lead']).toBe(
-      '뮤직스퀘어는 여러 개의 폰, 태블릿, 노트북을 하나의 사운드 시스템으로 묶어줘요. 설치 없이 코드 하나만 공유하면 돼요.',
+      'MUSIXQUARE는 여러 개의 폰, 태블릿, 노트북을 하나의 사운드 시스템으로 묶어줘요. 설치 없이 코드 하나만 공유하면 돼요.',
     );
   });
 
@@ -123,17 +124,17 @@ describe('landing-page translation integrity', () => {
       ko: ['실시간 채팅', '60샘플 NTP 방식 동기화'],
       ja: ['リアルタイムチャット', '60サンプルのNTP方式同期'],
       'zh-hans': ['实时聊天', '60 个样本的 NTP 方式同步'],
-      'zh-hant': ['即時聊天', '60 個樣本的 NTP 方式同步'],
+      'zh-hant': ['即時聊天', 'NTP 式同步（60 次取樣）'],
       es: ['Chat en tiempo real', 'Sincronización tipo NTP con 60 muestras'],
       'pt-br': ['Chat em tempo real', 'Sincronização tipo NTP com 60 amostras'],
-      fr: ['Chat en temps réel', 'Synchronisation type NTP avec 60 échantillons'],
-      de: ['Echtzeit-Chat', 'NTP-ähnliche Synchronisierung mit 60 Samples'],
+      fr: ['Chat en temps réel', 'Synchronisation de type NTP sur 60 échantillons'],
+      de: ['Echtzeit-Chat', 'NTP-ähnliche Synchronisierung mit 60 Messungen'],
       nl: ['Realtimechat', 'NTP-achtige synchronisatie met 60 metingen'],
       it: ['Chat in tempo reale', 'Sincronizzazione tipo NTP con 60 campioni'],
       pl: ['Czat w czasie rzeczywistym', 'Synchronizacja typu NTP z 60 próbkami'],
       ru: ['Чат в реальном времени', 'Синхронизация в стиле NTP по 60 замерам'],
       tr: ['Gerçek zamanlı sohbet', '60 örnekli NTP tarzı senkronizasyon'],
-      id: ['Chat real-time', 'Sinkronisasi gaya NTP, 60 sampel'],
+      id: ['Chat waktu nyata', 'Sinkronisasi ala NTP dengan 60 sampel'],
       vi: ['Trò chuyện thời gian thực', 'Đồng bộ kiểu NTP với 60 mẫu'],
       th: ['แชตแบบเรียลไทม์', 'ซิงก์แบบ NTP ด้วย 60 ตัวอย่าง'],
     };
@@ -145,6 +146,20 @@ describe('landing-page translation integrity', () => {
     }
   });
 
+  it('keeps the Indonesian About copy within the supported-browser and sync contracts', async () => {
+    const dictionary = (await loadLandingDictionary()).id;
+
+    expect(dictionary['code.lead']).toContain('browser yang didukung');
+    expect(dictionary['remote.reach_value']).toBe('Browser yang didukung, lintas jaringan');
+    expect(dictionary['remote.pin_text']).toContain('malam ini');
+    expect(dictionary['remote.whisper_msg']).toContain('sematkan');
+    expect(dictionary['remote.peer_name']).toBe('Peserta 1');
+    expect(dictionary['sync.h2']).not.toMatch(/frame/i);
+    expect(dictionary['sync.video_value']).toBe('Pemutaran media tersinkronisasi');
+    expect(dictionary['sync.lead']).toContain('latensi bolak-balik');
+    expect(dictionary['sync.lead']).toContain('jam utama bersama');
+  });
+
   it('provides a localized lifetime room-count sentence in every language', async () => {
     const dictionaries = await loadLandingDictionary();
 
@@ -152,6 +167,9 @@ describe('landing-page translation integrity', () => {
       expect(dictionary['hero.rooms_opened'].match(/\{\{count\}\}/g), language).toHaveLength(1);
     }
     expect(dictionaries.ko['hero.rooms_opened']).toBe('지금까지 {{count}}개의 방이 열렸어요.');
+    expect(dictionaries.pl['hero.rooms_opened']).toBe(
+      'Liczba dotychczas otwartych pokoi: {{count}}.',
+    );
   });
 
   it('keeps the static English About fallback aligned with its dictionary', async () => {
@@ -159,12 +177,51 @@ describe('landing-page translation integrity', () => {
       loadLandingDictionary(),
       readFile('.workshop/landing/landing.html', 'utf8'),
     ]);
-    const normalizedHtml = html.replace(/\s+/g, ' ');
+    const document = new JSDOM(html).window.document;
+    const normalize = (value: string): string => value.replace(/\s+/g, ' ').trim();
+    const fallback: Record<string, string> = {
+      'meta.title': document.title,
+      'meta.description': document.querySelector<HTMLMetaElement>('meta[name="description"]')!
+        .content,
+      'meta.og_title': document.querySelector<HTMLMetaElement>('meta[property="og:title"]')!
+        .content,
+      'meta.og_description': document.querySelector<HTMLMetaElement>(
+        'meta[property="og:description"]',
+      )!.content,
+      'meta.og_image_alt': document.querySelector<HTMLMetaElement>('meta[property="og:image:alt"]')!
+        .content,
+      'meta.tw_title': document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]')!
+        .content,
+      'meta.tw_description': document.querySelector<HTMLMetaElement>(
+        'meta[name="twitter:description"]',
+      )!.content,
+    };
 
-    expect(normalizedHtml).toContain(dictionaries.en['meta.description']);
-    expect(normalizedHtml).toContain(dictionaries.en['hero.lead']);
-    expect(normalizedHtml).toContain(dictionaries.en['remote.chat_value']);
-    expect(normalizedHtml).toContain(dictionaries.en['sync.meta']);
+    for (const element of document.querySelectorAll<HTMLElement>('[data-i18n]')) {
+      fallback[element.dataset.i18n!] = normalize(element.innerHTML);
+    }
+    for (const element of document.querySelectorAll<HTMLElement>('[data-i18n-attr]')) {
+      for (const binding of element.dataset.i18nAttr!.split(',')) {
+        const [attribute, key] = binding.split(':');
+        fallback[key] = element.getAttribute(attribute)!;
+      }
+    }
+
+    const runtimeOnlyOrUnused = new Set([
+      'hero.rooms_opened',
+      'code.toast_success',
+      'code.toast_fail',
+      'footer.history',
+      'footer.designsystem',
+    ]);
+    expect(Object.keys(fallback).sort()).toEqual(
+      Object.keys(dictionaries.en)
+        .filter((key) => !runtimeOnlyOrUnused.has(key))
+        .sort(),
+    );
+    for (const [key, value] of Object.entries(fallback)) {
+      expect(value, key).toBe(normalize(dictionaries.en[key]));
+    }
   });
 
   it('describes system-audio support by computer class, not Windows/Mac hardware labels', async () => {

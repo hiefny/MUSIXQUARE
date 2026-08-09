@@ -244,7 +244,7 @@ const en: Record<I18nKey, string> = {
   'connect.room_owner_role': 'Room owner',
   'connect.administrator_role': 'Administrator',
   'connect.administrator_settings_aria': 'Edit administrator permissions for {{name}}',
-  'connect.administrator_revoke_aria': 'Revoke administrator from {{name}}',
+  'connect.administrator_revoke_aria': 'Revoke administrator permissions from {{name}}',
   'connect.administrator_revoke_title': 'Revoke administrator?',
   'connect.administrator_revoke_message': 'Revoke administrator permissions from {{name}}?',
   'connect.permissions_title': '{{name}}’s permissions',
@@ -533,12 +533,12 @@ const en: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Virtual surround is on',
   'toast.virtual_surround_off': 'Virtual surround is off',
   'toast.virtual_effects_off': 'All virtual effects are off',
-  'toast.host_only': 'Only Host can run this.',
+  'toast.host_only': 'Only the host can run this.',
   'toast.host_only_media': 'Only the host can add media.',
   'toast.media_management_required': 'Media management permission required.',
   'toast.playback_control_required': 'Playback control permission required.',
-  'toast.member_management_required': 'Kick members permission required.',
-  'toast.chat_notice_required': 'Post chat notices permission required.',
+  'toast.member_management_required': 'Permission to kick members is required.',
+  'toast.chat_notice_required': 'Permission to post chat notices is required.',
   'toast.room_owner_required': 'Only the room owner can change this.',
   'toast.system_audio_owner_required': 'Only the room owner can share or stop system audio.',
   'toast.host_only_youtube': 'Only the host can add YouTube links.',
@@ -578,7 +578,7 @@ const en: Record<I18nKey, string> = {
   'toast.yt_host_sync_sent': 'Auto-sync signal sent to participants',
   'toast.yt_manual_sync_prompt':
     'Automatic sync was just attempted.\nIf it still feels delayed, adjust the value now',
-  'toast.playlist_ended': 'Last media has ended',
+  'toast.playlist_ended': 'The last media item has ended',
   'toast.operator_required': 'Only admins can change global settings',
   'toast.connection_closing': 'Connection lost, setting not synced',
   'toast.host_changed_setting': 'Settings were changed',
@@ -623,7 +623,7 @@ const en: Record<I18nKey, string> = {
 
   // ─── Error ───────────────────────────────────────────────────────
   'error.https_required': 'HTTPS required: works only on a secure connection.',
-  'error.browser_update': 'Please update your browser (iOS 15.2+, Chrome 86+)',
+  'error.browser_update': 'Please update your browser to a recent version.',
   'error.load_failed': 'Load Failed: {{msg}}',
   'error.audio_decode_fail': 'Audio decode failed!',
   'error.audio_memory': 'Loading audio into memory...',
@@ -779,7 +779,7 @@ const en: Record<I18nKey, string> = {
   'setup.play_together_desc_html':
     'When the host plays media,<br>all connected devices play in sync.<br>Press the sync button to align.',
   'setup.spatial_audio_desc_html':
-    'Set the role for each device.<br>Play left and right audio separately<br>and feel the deep bass in woofer.',
+    'Set the role for each device.<br>Play left and right audio separately<br>and feel deep bass from the woofer.',
   'setup.advanced_audio_desc_html':
     "Match the host's settings<br>with reverb, EQ, virtual effects,<br>and more across the system.",
   'youtube.enter_link_desc_html': 'Only public videos or playlists can be played.',

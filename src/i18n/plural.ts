@@ -63,7 +63,7 @@ export const PLURAL_MESSAGES = {
     },
     'toast.added_tracks': { one: '{{count}} Titel hinzugefügt' },
     'toast.unsupported_files_excluded': {
-      one: 'Nicht unterstützte Datei übersprungen: {{count}}',
+      one: '{{count}} nicht unterstützte Datei übersprungen',
     },
     'dialog.file_drop.message': { one: '{{count}} Datei hinzufügen?' },
     'dialog.file_drop.unsupported_notice': {
@@ -87,7 +87,7 @@ export const PLURAL_MESSAGES = {
     'toast.unsupported_files_excluded': {
       one: 'Archivo no compatible omitido: {{count}}',
     },
-    'dialog.file_drop.message': { one: '¿Agregar {{count}} archivo?' },
+    'dialog.file_drop.message': { one: '¿Añadir {{count}} archivo?' },
     'dialog.file_drop.unsupported_notice': {
       one: 'No se añadirá {{count}} archivo no compatible.',
     },
@@ -97,7 +97,7 @@ export const PLURAL_MESSAGES = {
     'playlist.delete_selected': { one: 'Supprimer {{count}} piste sélectionnée' },
     'connect.device_list': { one: '{{count}} appareil connecté' },
     'demo.session_body_connected': {
-      one: '{{count}} appareil est connecté actuellement.\nDéfinissez un rôle pour cet appareil.',
+      one: '{{count}} appareil est actuellement connecté.\nDéfinissez un rôle pour cet appareil.',
     },
     'chat.cmd_slowmode_on': { one: 'Mode lent : {{sec}} seconde entre les messages' },
     'chat.cmd_slowmode_wait': { one: 'Attendez {{sec}} seconde avant d’envoyer' },
@@ -107,7 +107,7 @@ export const PLURAL_MESSAGES = {
     },
     'toast.added_tracks': { one: '{{count}} piste ajoutée' },
     'toast.unsupported_files_excluded': {
-      one: 'Fichier non pris en charge ignoré : {{count}}',
+      one: 'Fichier non pris en charge ignoré : {{count}}',
     },
     'dialog.file_drop.message': { one: 'Ajouter {{count}} fichier ?' },
     'dialog.file_drop.unsupported_notice': {
@@ -122,7 +122,7 @@ export const PLURAL_MESSAGES = {
       one: 'Attualmente c’è {{count}} dispositivo connesso.\nAssegna un ruolo a questo dispositivo.',
     },
     'chat.cmd_slowmode_on': {
-      one: 'Slow mode attiva: puoi inviare un messaggio ogni {{sec}} secondo',
+      one: 'Modalità lenta attiva: puoi inviare un messaggio ogni {{sec}} secondo',
     },
     'chat.cmd_slowmode_wait': {
       one: 'Attendi {{sec}} secondo prima di inviare un nuovo messaggio',
@@ -132,7 +132,7 @@ export const PLURAL_MESSAGES = {
       one: '{{name}} ha aggiunto {{count}} traccia, inclusa {{title}}',
     },
     'toast.added_tracks': { one: '{{count}} traccia aggiunta' },
-    'toast.unsupported_files_excluded': { one: 'File non supportato escluso: {{count}}' },
+    'toast.unsupported_files_excluded': { one: '{{count}} file non supportato escluso' },
     'dialog.file_drop.message': { one: 'Aggiungere {{count}} file?' },
     'dialog.file_drop.unsupported_notice': {
       one: '{{count}} file non supportato non verrà aggiunto.',
@@ -146,7 +146,9 @@ export const PLURAL_MESSAGES = {
       one: 'Er is nu {{count}} apparaat verbonden.\nStel voor dit apparaat een rol in.',
     },
     'chat.cmd_slowmode_on': { one: 'Langzame modus: {{sec}} seconde tussen berichten' },
-    'chat.cmd_slowmode_wait': { one: 'Wacht {{sec}} seconde voordat je verstuurt' },
+    'chat.cmd_slowmode_wait': {
+      one: 'Wacht {{sec}} seconde voordat je een bericht verstuurt',
+    },
     'chat.tracks_added': { one: '{{name}} heeft {{count}} track toegevoegd' },
     'chat.tracks_added_named': {
       one: '{{name}} heeft {{count}} track toegevoegd, waaronder {{title}}',
@@ -165,7 +167,7 @@ export const PLURAL_MESSAGES = {
     'playlist.delete_selected': { one: 'Excluir {{count}} faixa selecionada' },
     'connect.device_list': { one: '{{count}} dispositivo conectado' },
     'demo.session_body_connected': {
-      one: '{{count}} dispositivo está conectado agora.\nDefina um papel para este dispositivo.',
+      one: '{{count}} dispositivo está conectado agora.\nDefina uma função para este dispositivo.',
     },
     'chat.cmd_slowmode_on': { one: 'Modo lento: {{sec}} segundo entre mensagens' },
     'chat.cmd_slowmode_wait': { one: 'Aguarde {{sec}} segundo antes de enviar' },
@@ -175,7 +177,7 @@ export const PLURAL_MESSAGES = {
     },
     'toast.added_tracks': { one: '{{count}} faixa adicionada' },
     'toast.unsupported_files_excluded': {
-      one: 'Arquivo não compatível ignorado: {{count}}',
+      one: '{{count}} arquivo não compatível ignorado',
     },
     'dialog.file_drop.message': { one: 'Adicionar {{count}} arquivo?' },
     'dialog.file_drop.unsupported_notice': {
@@ -199,14 +201,14 @@ export const PLURAL_MESSAGES = {
       many: '{{count}} połączonych urządzeń',
     },
     'demo.session_body_connected': {
-      one: 'Połączone jest teraz {{count}} urządzenie.\nPrzypisz rolę do tego urządzenia.',
-      few: 'Połączone są teraz {{count}} urządzenia.\nPrzypisz rolę do każdego urządzenia.',
-      many: 'Połączonych jest teraz {{count}} urządzeń.\nPrzypisz rolę do każdego urządzenia.',
+      one: 'Obecnie połączone jest {{count}} urządzenie.\nPrzypisz rolę do tego urządzenia.',
+      few: 'Obecnie połączone są {{count}} urządzenia.\nPrzypisz rolę do każdego urządzenia.',
+      many: 'Obecnie połączonych jest {{count}} urządzeń.\nPrzypisz rolę do każdego urządzenia.',
     },
     'chat.cmd_slowmode_on': {
-      one: 'Slow mode: wiadomości można wysyłać co {{sec}} sekundę',
-      few: 'Slow mode: wiadomości można wysyłać co {{sec}} sekundy',
-      many: 'Slow mode: wiadomości można wysyłać co {{sec}} sekund',
+      one: 'Tryb spowolniony: wiadomości można wysyłać co {{sec}} sekundę',
+      few: 'Tryb spowolniony: wiadomości można wysyłać co {{sec}} sekundy',
+      many: 'Tryb spowolniony: wiadomości można wysyłać co {{sec}} sekund',
     },
     'chat.cmd_slowmode_wait': {
       one: 'Poczekaj {{sec}} sekundę przed wysłaniem kolejnej wiadomości',
@@ -214,14 +216,14 @@ export const PLURAL_MESSAGES = {
       many: 'Poczekaj {{sec}} sekund przed wysłaniem kolejnej wiadomości',
     },
     'chat.tracks_added': {
-      one: '{{name}} dodał(a) {{count}} materiał',
-      few: '{{name}} dodał(a) {{count}} materiały',
-      many: '{{name}} dodał(a) {{count}} materiałów',
+      one: '{{name}} — dodano {{count}} materiał',
+      few: '{{name}} — dodano {{count}} materiały',
+      many: '{{name}} — dodano {{count}} materiałów',
     },
     'chat.tracks_added_named': {
-      one: '{{name}} dodał(a) {{count}} materiał, w tym {{title}}',
-      few: '{{name}} dodał(a) {{count}} materiały, w tym {{title}}',
-      many: '{{name}} dodał(a) {{count}} materiałów, w tym {{title}}',
+      one: '{{name}} — dodano {{count}} materiał, w tym {{title}}',
+      few: '{{name}} — dodano {{count}} materiały, w tym {{title}}',
+      many: '{{name}} — dodano {{count}} materiałów, w tym {{title}}',
     },
     'toast.added_tracks': {
       one: 'Dodano {{count}} materiał',
@@ -246,9 +248,9 @@ export const PLURAL_MESSAGES = {
   },
   ru: {
     'connect.administrator_list': {
-      one: 'Администратор: {{count}}',
-      few: 'Администраторы: {{count}}',
-      many: 'Администраторы: {{count}}',
+      one: '{{count}} администратор',
+      few: '{{count}} администратора',
+      many: '{{count}} администраторов',
     },
     'playlist.delete_selected': {
       one: 'Удалить {{count}} выбранный материал',
@@ -276,14 +278,14 @@ export const PLURAL_MESSAGES = {
       many: 'Подождите {{sec}} секунд перед отправкой следующего сообщения',
     },
     'chat.tracks_added': {
-      one: '{{name}} добавил(а) {{count}} материал',
-      few: '{{name}} добавил(а) {{count}} материала',
-      many: '{{name}} добавил(а) {{count}} материалов',
+      one: 'Добавлен {{count}} материал ({{name}})',
+      few: 'Добавлено {{count}} материала ({{name}})',
+      many: 'Добавлено {{count}} материалов ({{name}})',
     },
     'chat.tracks_added_named': {
-      one: '{{name}} добавил(а) {{count}} материал, включая {{title}}',
-      few: '{{name}} добавил(а) {{count}} материала, включая {{title}}',
-      many: '{{name}} добавил(а) {{count}} материалов, включая {{title}}',
+      one: 'Добавлен {{count}} материал, включая {{title}} ({{name}})',
+      few: 'Добавлено {{count}} материала, включая {{title}} ({{name}})',
+      many: 'Добавлено {{count}} материалов, включая {{title}} ({{name}})',
     },
     'toast.added_tracks': {
       one: 'Добавлен {{count}} материал',

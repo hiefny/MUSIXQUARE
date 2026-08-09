@@ -1,6 +1,6 @@
 # MUSIXQUARE — Translation Guide
 
-Last reviewed against the locale loader and translation tests on 2026-07-15.
+Last reviewed against the locale loader and translation tests on 2026-08-09.
 
 A reference for translating `src/i18n/<lang>.ts` locale files — whether by AI, a
 contributor, or a native reviewer. Born from a real failure: machine translations
@@ -9,7 +9,7 @@ rendered context-free one-word UI labels with the **wrong sense** of a homonym
 to prevent that. **The glossary in §4 is the most important part — read it.**
 
 > **About the app (give this context to any translator/LLM):** MUSIXQUARE turns
-> several phones/laptops in the same room into one synchronized multi-speaker
+> several phones/laptops, locally or remotely, into one synchronized multi-speaker
 > sound system. Devices take **roles** (Left / Right / Center / Subwoofer), a
 > **host** invites others into a **session/room** via code or QR, and everyone
 > hears the same audio in sync. Most ambiguous words below come from this domain.
@@ -51,8 +51,9 @@ is missing** — so a complete file must define every key.
 3. **Never translate** brand/technical tokens:
    `MUSIXQUARE` · `YouTube` · `Cloudflare` · `QR` · `API` ·
    and units `Hz` `kHz` `dB` `ms` `%` (+ the numbers).
-4. **Ellipsis = three ASCII periods `...`**, never the single `…` (U+2026)
-   character. (Keeps the codebase consistent.)
+4. **Preserve the source ellipsis form.** Both three ASCII periods `...` and the
+   single `…` (U+2026) are intentional in the English reference; do not normalize
+   one to the other as a style-only translation change.
 5. **Escape apostrophes** for a single-quoted JS string (`'it\'s'`) or use the
    language's typographic quote (`'`, `’`, `»`). A raw `'` inside `'...'` breaks
    the build.
@@ -142,7 +143,7 @@ after the last line, and run it.
 
 ```text
 You are localizing the UI of MUSIXQUARE — a web app that turns several phones and
-laptops in the same room into one synchronized multi-speaker sound system. Devices
+laptops, locally or remotely, into one synchronized multi-speaker sound system. Devices
 take roles (Left / Right / Center / Subwoofer); a host invites others into a
 session/room by code or QR; everyone hears the same audio in sync.
 
@@ -154,7 +155,7 @@ Output rules:
 - Preserve \n newlines and leading/trailing spaces.
 - Never translate: MUSIXQUARE, YouTube, Cloudflare, QR, API, GLOBAL, LOCAL,
   or units (Hz, kHz, dB, ms, %).
-- Use ... (three periods) for ellipsis, never the … character.
+- Preserve whether each source ellipsis uses ... (three periods) or … (U+2026).
 - Escape an apostrophe inside the value as \' (or use the language's curly quote).
 - Tone: friendly, casual — a party/music app. Labels short & idiomatic (imperative
   or noun per your language's UI norm, not dictionary infinitives).

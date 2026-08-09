@@ -10,7 +10,7 @@
          code, then apply Android viewport, language, and theme preflight.
          Cloudflare Analytics is loaded by this bootstrap only after a safe
          scrub/handoff. Source: public/bootstrap.js -->
-    <script src="/bootstrap.js?cache=v396"></script>
+    <script src="/bootstrap.js?cache=v397"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -252,7 +252,7 @@
                 <circle cx="22" cy="22" r="18" pathLength="100"></circle>
               </svg>
             </span>
-            <span data-i18n="toast.yt_sync_start">Syncing...</span>
+            <span data-i18n="toast.yt_sync_start">동기화 중...</span>
           </div>
           <button
             class="fullscreen-btn"
@@ -270,7 +270,9 @@
 
         <div class="track-box">
           <div class="track-title-wrapper">
-            <div class="track-title" id="track-title" data-i18n="player.no_media">미디어 없음</div>
+            <div class="track-title" id="track-title" data-i18n="player.no_media">
+              재생 중인 미디어 없음
+            </div>
           </div>
           <div class="track-artist" id="track-artist" data-i18n="player.select_file_hint">
             파일을 선택하거나 플레이리스트를 확인하세요
@@ -501,7 +503,7 @@
       <div class="tab-body" data-custom-scroll>
         <div class="section-group">
           <div class="section-header-row">
-            <span class="section-title" data-i18n="connect.qr_title">QR 코드로 참가</span>
+            <span class="section-title" data-i18n="connect.qr_title">QR 또는 링크로 초대</span>
           </div>
           <div id="qr-container" class="qr-container">
             <p class="qr-placeholder" data-i18n="connect.no_session">세션을 먼저 시작하세요</p>
@@ -1549,7 +1551,7 @@
           <div id="desktop-connect-content">
             <div class="section-group">
               <div class="section-header-row">
-                <span class="section-title" data-i18n="connect.qr_title">QR 코드로 참가</span>
+                <span class="section-title" data-i18n="connect.qr_title">QR 또는 링크로 초대</span>
               </div>
               <div id="desktop-qr-container" class="qr-container">
                 <p class="qr-placeholder" data-i18n="connect.no_session">세션을 먼저 시작하세요</p>
@@ -1819,7 +1821,7 @@
             role="textbox"
             aria-label=""
             data-i18n-aria-label="chat.input_label"
-            data-placeholder="메시지 입력..."
+            data-placeholder="메시지 또는 / 명령어"
             data-i18n-data-placeholder="chat.placeholder"
             autocomplete="off"
             autocorrect="off"

@@ -85,7 +85,7 @@ const ko = {
   'common.system': '시스템',
   'common.unknown': '알 수 없음',
   'common.youtube_video': 'YouTube 영상',
-  'common.peer': '피어',
+  'common.peer': '참여자',
 
   // ─── Navigation ──────────────────────────────────────────────────
   'nav.home': '메인',
@@ -319,7 +319,7 @@ const ko = {
   'demo.session_subtitle': '새 기기를 언제든지 초대할 수 있어요',
   'demo.session_body_connected':
     '현재 {{count}}대의 기기가 연결되어 있어요.\n각 기기별로 역할을 지정해보세요.',
-  'demo.session_body_alone': '현재 혼자만 음악을 재생중이에요.\n새로운 기기를 지금 초대해보세요.',
+  'demo.session_body_alone': '현재 혼자만 음악을 재생 중이에요.\n새로운 기기를 지금 초대해보세요.',
   'demo.effects_step_title': '고급 음향을 만들어보세요.',
   'demo.effects_step_subtitle': '나중에 더 세세한 설정을 할 수 있어요.',
   'demo.finish_step_title': '이제 다 준비됐어요!',
@@ -383,7 +383,7 @@ const ko = {
   'chat.cmd_slowmode_wait': '{{sec}}초 후에 메시지를 보낼 수 있어요',
   'chat.cmd_notice_prefix': '공지',
   'chat.system_sender': '시스템',
-  'chat.bot_unavailable': '봇은 프로 방에서만 사용할 수 있어요',
+  'chat.bot_unavailable': '봇은 PRO 방에서만 사용할 수 있어요',
   'chat.bot_processing': 'BOT이 요청을 처리하고 있어요...',
   'chat.bot_completed': 'BOT 요청을 완료했어요',
   'chat.bot_failed': 'BOT 요청을 처리하지 못했어요',
@@ -602,7 +602,7 @@ const ko = {
   'share.remote.too_large': '파일이 너무 커요 (200MB 이하만 가능)',
   'share.remote.network_error': '네트워크 오류로 원격 공유에 실패했어요',
   'share.remote.rate_limited': '원격 공유 요청이 잠시 많아요.\n잠깐 뒤 다시 시도해주세요',
-  'share.remote.quota_reached': '원격 공유 한도에 도달했어요',
+  'share.remote.quota_reached': '원격 공유 저장 공간 한도에 도달했어요',
   'share.remote.auth_failed': '원격 공유 인증에 실패했어요.\nWorker 설정을 확인해주세요',
   'share.remote.expired': '원격 파일 링크가 만료됐어요.\n다시 공유해주세요',
   'share.remote.unavailable': '원격 공유에 실패했어요.\n잠시 후 다시 시도해주세요.',
@@ -618,7 +618,7 @@ const ko = {
 
   // ─── Error ───────────────────────────────────────────────────────
   'error.https_required': 'HTTPS 필수: 보안 연결에서만 작동해요.',
-  'error.browser_update': '브라우저를 업데이트해 주세요 (iOS 15.2+, Chrome 86+)',
+  'error.browser_update': '브라우저를 최신 버전으로 업데이트해 주세요.',
   'error.load_failed': '로드 실패: {{msg}}',
   'error.audio_decode_fail': '오디오 디코딩 실패!',
   'error.audio_memory': '오디오 메모리 로드 중...',
@@ -763,7 +763,7 @@ const ko = {
   'chat.tracks_added_named': '{{name}} 님이 트랙 {{count}}개를 추가했어요: {{title}} 외',
   'chat.peer_disconnected': '{{name}}님이 퇴장했어요',
   'chat.participant_connection_unstable_recovering':
-    '{{name}} 님의 연결이 불안정해요. 복구를 시도중이에요.',
+    '{{name}} 님의 연결이 불안정해요. 복구를 시도 중이에요.',
   'chat.empty_html': '아직 메시지가 없어요.<br>첫 메시지를 보내 보세요!',
   'chat.msg_truncated': '메시지가 {{max}}자로 잘렸어요',
   'chat.scroll_to_bottom': '맨 아래로 스크롤',

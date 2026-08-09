@@ -33,8 +33,8 @@ const it: Record<I18nKey, string> = {
   'common.decrease': 'Diminuisci',
   'common.done': 'Fatto',
   'common.sync': 'Sincronizza',
-  'common.on': 'On',
-  'common.off': 'Off',
+  'common.on': 'Attivo',
+  'common.off': 'Disattivo',
   'account.login_title': 'Accedi',
   'account.login_cancelled': 'Accesso annullato.',
   'account.login_failed': 'Accesso non riuscito. Riprova.',
@@ -46,7 +46,7 @@ const it: Record<I18nKey, string> = {
   'account.unavailable':
     'L’accesso non è temporaneamente disponibile. Puoi continuare senza account.',
   'account.account_title': 'Account',
-  'account.stats_sessions_label': 'Sessioni a cui hai partecipato',
+  'account.stats_sessions_label': 'Stanze a cui hai partecipato',
   'account.stats_listening_label': 'Tempo di ascolto',
   'account.stats_tracks_label': 'Contenuti riprodotti',
   'account.stats_count_value': '{{count}}',
@@ -65,7 +65,7 @@ const it: Record<I18nKey, string> = {
   'account.nickname_taken': 'Questo nickname è già in uso.',
   'account.nickname_saved': 'Nickname cambiato in {{name}}.',
   'account.action_failed': 'Impossibile aggiornare l’account. Riprova più tardi.',
-  'account.delete_confirm_title': 'Eliminare il tuo account?',
+  'account.delete_confirm_title': 'Vuoi eliminare il tuo account?',
   'account.delete_confirm_message':
     'Il nickname, le sessioni di accesso e i permessi delle stanze collegati all’account verranno eliminati. I contenuti condivisi in una stanza seguono la politica di conservazione di quella stanza.',
   'account.delete_pending':
@@ -85,7 +85,7 @@ const it: Record<I18nKey, string> = {
   'common.system': 'Sistema',
   'common.unknown': 'Sconosciuto',
   'common.youtube_video': 'Video di YouTube',
-  'common.peer': 'Peer',
+  'common.peer': 'Dispositivo',
 
   // ─── Navigation ──────────────────────────────────────────────────
   'nav.home': 'Home',
@@ -102,18 +102,18 @@ const it: Record<I18nKey, string> = {
   'player.visualizer': 'Visualizzatore audio',
   'player.seek': 'Regola posizione di riproduzione',
   'player.volume': 'Regola il volume',
-  'player.toggle_mute': 'Attiva/Disattiva audio',
+  'player.toggle_mute': 'Attiva/disattiva audio',
   'player.fullscreen': 'Schermo intero',
   'player.prev_track': 'Traccia precedente',
   'player.next_track': 'Traccia successiva',
   'player.repeat_mode': 'Cambia modalità di ripetizione',
   'player.shuffle_mode': 'Cambia modalità casuale',
-  'player.play_media': 'Riproduci traccia',
-  'player.play_media_action': 'Riproduci traccia',
-  'player.add_media': 'Aggiungi traccia',
+  'player.play_media': 'Riproduci contenuto',
+  'player.play_media_action': 'Riproduci contenuto',
+  'player.add_media': 'Aggiungi contenuto',
   'player.play_start': 'Aggiungi alla coda',
   'player.select_media': 'Scegli cosa riprodurre',
-  'player.play_together': 'Sincronizza riproduzione',
+  'player.play_together': 'Riproduci in sincronia',
   'player.play_speakers': 'Usa come altoparlante',
   'player.auto_sync_label': 'Auto (ms)',
   'player.manual_sync_label': 'Manuale (ms)',
@@ -158,7 +158,7 @@ const it: Record<I18nKey, string> = {
 
   // ─── Settings ────────────────────────────────────────────────────
   'settings.theme': 'Tema',
-  'settings.ui_sounds': 'Suoni interfaccia',
+  'settings.ui_sounds': 'Suoni dell’interfaccia',
   'settings.sync_settings': 'Sincronizza impostazioni',
   'settings.sync_settings_desc':
     'I dispositivi con questa impostazione attiva sincronizzano volume ed effetti audio.',
@@ -230,7 +230,7 @@ const it: Record<I18nKey, string> = {
   'settings.invite_code': "Codice d'invito",
   'settings.leave_session': 'Esci dalla stanza',
   'connect.rename_reserved': 'Questo soprannome è riservato.',
-  'connect.rename_profanity': 'Soprannome inappropriato rilevato.',
+  'connect.rename_profanity': 'Il nickname contiene termini inappropriati.',
   'settings.devices_title': 'Dispositivi connessi',
   'settings.invite_share': 'Invito e condivisione',
   'settings.subtab.general': 'Generale',
@@ -244,30 +244,30 @@ const it: Record<I18nKey, string> = {
   'connect.administrator_list': '{{count}} amministratori',
   'connect.room_owner_role': 'Proprietario della stanza',
   'connect.administrator_role': 'Amministratore',
-  'connect.administrator_settings_aria': 'Modifica i permessi di {{name}}',
-  'connect.administrator_revoke_aria': 'Revoca i permessi di {{name}}',
-  'connect.administrator_revoke_title': 'Revocare i permessi di amministratore?',
-  'connect.administrator_revoke_message': 'Revocare i permessi di amministratore di {{name}}?',
+  'connect.administrator_settings_aria': 'Modifica i permessi di amministratore di {{name}}',
+  'connect.administrator_revoke_aria': 'Revoca a {{name}} i permessi di amministratore',
+  'connect.administrator_revoke_title': 'Vuoi revocare i permessi di amministratore?',
+  'connect.administrator_revoke_message': 'Vuoi revocare a {{name}} i permessi di amministratore?',
   'connect.permissions_title': 'Permessi di {{name}}',
   'connect.permission_media_add': 'Gestisci contenuti',
   'connect.permission_playback_control': 'Controlla riproduzione',
-  'connect.permission_members_kick': 'Espelli membri',
+  'connect.permission_members_kick': 'Rimuovi partecipanti',
   'connect.permission_chat_notice': 'Pubblica avvisi in chat',
   'connect.permission_inherited': 'Incluso',
-  'connect.kick_member_message': 'Espellere tutti i dispositivi connessi come {{name}}?',
+  'connect.kick_member_message': 'Rimuovere tutti i dispositivi connessi come {{name}}?',
   'connect.device_toggle': 'Mostra/nascondi i dispositivi di {{name}}',
   'connect.device_label': 'Dispositivo {{platform}} ({{code}})',
   'connect.platform_other': 'Altro',
   'connect.current_device': 'Questo dispositivo',
-  'connect.no_session': 'Avvia prima una sessione',
+  'connect.no_session': 'Apri prima una stanza',
   'connect.generating_qr': 'Generazione codice QR...',
-  'connect.kick_title': 'Espelli dispositivo',
-  'connect.kick_message': 'Vuoi espellere {{name}}?',
-  'connect.kick_yes': 'Espelli',
+  'connect.kick_title': 'Rimuovi dispositivo',
+  'connect.kick_message': 'Vuoi rimuovere {{name}} dalla stanza?',
+  'connect.kick_yes': 'Rimuovi',
   'connect.kick_no': 'No',
-  'connect.kicked_title': 'Espulso',
-  'connect.kicked_message': 'Il gestore ti ha espulso dalla stanza.',
-  'connect.copy_invite_link': "Copia link d'invito",
+  'connect.kicked_title': 'Rimosso',
+  'connect.kicked_message': 'L’host ti ha rimosso dalla stanza.',
+  'connect.copy_invite_link': 'Copia il link d’invito',
   'connect.link_copied': "Link d'invito copiato",
   'connect.room_password_title': 'Richiedi password per accedere alla stanza',
   'connect.room_password_set': 'Imposta',
@@ -293,7 +293,7 @@ const it: Record<I18nKey, string> = {
   'connect.signaling_exhausted_pro':
     'Il server della stanza non risponde. I nuovi accessi e gli aggiornamenti in tempo reale sono limitati.',
   'connect.signaling_retry': 'Riprova',
-  'connect.signaling_restart': 'Riavvia la sessione',
+  'connect.signaling_restart': 'Riavvia la stanza',
   'connect.signaling_new_room': 'Avvia una nuova stanza',
 
   // ─── Setup ───────────────────────────────────────────────────────
@@ -301,7 +301,7 @@ const it: Record<I18nKey, string> = {
   'setup.guest_button': 'Entra in una stanza',
   'setup.demo_button': "Prova l'app (Demo)",
   'demo.prompt_title': 'Esplora MUSIXQUARE',
-  'demo.prompt_message': 'Ti diamo il benvenuto! Vuoi fare un breve tour delle funzionalità?',
+  'demo.prompt_message': 'Ciao! Vuoi fare un breve tour delle funzionalità?',
   'demo.prompt_cta': 'Inizia il tour',
   'demo.prompt_later': 'Più tardi',
   'demo.try_later_toast': 'Puoi avviare il tour in qualsiasi momento dalla scheda Aiuto',
@@ -329,16 +329,16 @@ const it: Record<I18nKey, string> = {
     'Al momento la riproduzione è attiva solo su questo dispositivo.\nInvita subito un altro dispositivo.',
   'demo.effects_step_title': 'Crea la tua esperienza audio premium.',
   'demo.effects_step_subtitle':
-    'Potrai personalizzare i dettagli in qualsiasi momento dalle Impostazioni.',
+    'Puoi perfezionare queste impostazioni audio avanzate in qualsiasi momento dalle Impostazioni.',
   'demo.finish_step_title': 'È tutto pronto!',
   'demo.finish_step_subtitle': 'Entra subito e inizia a riprodurre in sincronia!',
   'demo.track_list_label': 'Elenco brani demo',
-  'demo.host_only_exit': 'Solo il gestore della stanza può farlo.',
+  'demo.host_only_exit': 'Solo l’host può farlo.',
   'demo.external_playback_stopped':
     "Il tour demo ha interrotto la riproduzione corrente di YouTube o dell'audio di sistema.",
   'setup.how_to_connect': 'Come connettersi',
   'setup.set_role': 'Imposta il ruolo di questo dispositivo',
-  'setup.what_sound': 'Cosa dovrebbe riprodurre questo dispositivo?',
+  'setup.what_sound': 'Cosa deve riprodurre questo dispositivo?',
   'setup.change_later': 'Potrai modificarlo in qualsiasi momento dalle Impostazioni.',
   'setup.welcome_title': 'Ti diamo il benvenuto',
   'setup.join_session_subtitle': 'Stai per accedere alla stanza {{code}}',
@@ -351,7 +351,7 @@ const it: Record<I18nKey, string> = {
   'setup.enter_host_code_alt': "Inserisci il codice d'invito.",
   'setup.connect_devices': 'Ora connetti altri dispositivi.',
   'setup.enter_code_connect': "Inserisci questo codice d'invito sugli altri dispositivi",
-  'setup.last_step': 'Iniziamo?',
+  'setup.last_step': 'Iniziamo!',
   'setup.joining': 'Accesso in corso...',
   'setup.six_digit_enter': 'Inserisci il numero di 6 cifre',
 
@@ -367,7 +367,7 @@ const it: Record<I18nKey, string> = {
   'help.youtube_no_effects':
     'In modalità YouTube, gli effetti audio avanzati e la gestione dei ruoli non sono disponibili.',
   'help.media_synced_detail':
-    'Le tracce selezionate vengono riprodotte in perfetta sincronia su tutti i dispositivi connessi.',
+    'Il contenuto selezionato viene riprodotto contemporaneamente su tutti i dispositivi connessi.',
   'help.wifi_hotspot':
     "Puoi anche usare l'hotspot per connettere tutti i dispositivi alla stessa rete",
 
@@ -382,16 +382,16 @@ const it: Record<I18nKey, string> = {
 
   // ─── Chat Commands ──────────────────────────────────────────────
   'chat.muted_placeholder': 'Non puoi scrivere in questa chat',
-  'chat.cmd_frozen': 'La chat è stata congelata',
+  'chat.cmd_frozen': 'La chat è stata bloccata',
   'chat.cmd_unfrozen': 'La chat è stata sbloccata',
-  'chat.cmd_frozen_blocked': 'La chat è attualmente congelata',
-  'chat.cmd_muted': '{{name}} non può più scrivere in chat',
+  'chat.cmd_frozen_blocked': 'La chat è attualmente bloccata',
+  'chat.cmd_muted': '{{name}} è stato silenziato in chat',
   'chat.cmd_unmuted': '{{name}} può di nuovo scrivere in chat',
   'chat.cmd_clear': 'La cronologia della chat è stata svuotata',
   'chat.cmd_filter_on': 'Filtro per parole inappropriate attivo',
   'chat.cmd_filter_off': 'Filtro per parole inappropriate disattivato',
-  'chat.cmd_slowmode_on': 'Slow mode attiva: puoi inviare un messaggio ogni {{sec}} secondi',
-  'chat.cmd_slowmode_off': 'Slow mode disattivata',
+  'chat.cmd_slowmode_on': 'Modalità lenta attiva: puoi inviare un messaggio ogni {{sec}} secondi',
+  'chat.cmd_slowmode_off': 'Modalità lenta disattivata',
   'chat.cmd_slowmode_wait': 'Attendi {{sec}} secondi prima di inviare un nuovo messaggio',
   'chat.cmd_notice_prefix': 'Avviso',
   'chat.system_sender': 'SISTEMA',
@@ -409,9 +409,9 @@ const it: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Questo dispositivo non riesce a riprodurre la traccia corrente.',
   'chat.system_audio_started_system_message':
-    "La condivisione dell'audio di sistema è iniziata. Poiché è inevitabile un certo ritardo tra il gestore e gli ospiti, consigliamo al gestore di abbassare al minimo il volume del proprio dispositivo.",
+    "La condivisione dell'audio di sistema è iniziata. Un leggero ritardo tra il dispositivo dell'host e quelli dei partecipanti è normale. Per evitare l'eco, consigliamo all'host di abbassare il volume del proprio dispositivo.",
   'chat.system_audio_stopped_system_message':
-    "La condivisione dell'audio di sistema è terminata. Il gestore può rialzare il volume per riprendere il ruolo di altoparlante.",
+    "La condivisione dell'audio di sistema è terminata. Host, puoi rialzare il volume affinché questo dispositivo torni a funzionare come altoparlante.",
   'chat.remote_upload_limited_system_message':
     'Limite di caricamento raggiunto.\nI partecipanti remoti possono riprovare più tardi.',
   'chat.remote_storage_quota_system_message':
@@ -430,7 +430,7 @@ const it: Record<I18nKey, string> = {
   'chat.cmd_help_target_hint': '* [dispositivo] è un numero univoco (es. #1)',
   'chat.cmd_unknown': 'Comando sconosciuto: /{{cmd}}',
   'chat.cmd_usage': 'Uso: {{usage}}',
-  'chat.cmd_users_title': 'Elenco utenti',
+  'chat.cmd_users_title': 'Partecipanti connessi',
   'chat.cmd_users_me': 'io',
 
   // ─── Command usage & description (i18n) ────────────────────────
@@ -451,40 +451,40 @@ const it: Record<I18nKey, string> = {
   'chat.cmd_u_mute': '/mute [dispositivo]',
   'chat.cmd_u_unmute': '/unmute [dispositivo]',
   'chat.cmd_d_help': 'Elenco dei comandi',
-  'chat.cmd_d_users': "Visualizza l'elenco degli utenti connessi",
+  'chat.cmd_d_users': 'Visualizza i partecipanti connessi',
   'chat.cmd_d_bot': "Chiedi all'IA di gestire la playlist",
   'chat.cmd_d_clear': 'Svuota la cronologia della chat',
   'chat.cmd_d_filter': 'Filtra parole inappropriate',
-  'chat.cmd_d_freeze': 'Congela la chat',
-  'chat.cmd_d_slowmode': 'Imposta slow mode',
+  'chat.cmd_d_freeze': 'Blocca la chat',
+  'chat.cmd_d_slowmode': 'Modalità lenta',
   'chat.cmd_d_w': 'Invia messaggio privato',
   'chat.cmd_d_notice': 'Invia un avviso',
   'chat.cmd_d_nick': 'Cambia nickname',
-  'chat.cmd_d_kick': 'Espelli dispositivo',
+  'chat.cmd_d_kick': 'Rimuovi dispositivo',
   'chat.cmd_d_op': 'Nomina amministratore',
   'chat.cmd_d_deop': 'Revoca amministratore',
-  'chat.cmd_d_mute': 'Impedisci al dispositivo di scrivere',
-  'chat.cmd_d_unmute': 'Consenti al dispositivo di scrivere',
+  'chat.cmd_d_mute': 'Silenzia il dispositivo in chat',
+  'chat.cmd_d_unmute': 'Riattiva il dispositivo in chat',
   'chat.cmd_u_debug': '/debug',
-  'chat.cmd_d_debug': 'Mostra informazioni di debug di sistema',
+  'chat.cmd_d_debug': 'Mostra la diagnostica di sistema',
   'chat.debug_copied':
-    'Informazioni di debug copiate negli appunti.\nSe riscontri bug, inviale allo sviluppatore.',
+    'Informazioni di diagnostica copiate negli appunti.\nSe riscontri un errore, inviale allo sviluppatore.',
   'chat.seek_to': 'Passa a {{time}}',
 
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Inserisci link di YouTube',
-  'youtube.enter_source': 'Cerca o inserisci link di YouTube',
+  'youtube.enter_source': 'Inserisci un link di YouTube o un termine di ricerca',
   'youtube.enter_link_prompt': 'Inserisci un termine di ricerca o un link di YouTube',
-  'youtube.enter_source_placeholder': 'Cerca o inserisci link (https://youtube.com/...)',
+  'youtube.enter_source_placeholder': 'Termine di ricerca o https://youtube.com/',
   'youtube.watch_together': 'Guarda YouTube insieme',
   'youtube.ready': 'YouTube è pronto!\nPremi Riproduci per iniziare.',
   'youtube.thumbnail': 'Anteprima del video di YouTube',
   'youtube.load_fail': "Impossibile caricare l'API di YouTube.\nVerifica la connessione internet!",
   'youtube.video_unavailable': 'Video non disponibile. Passaggio alla traccia successiva...',
-  'youtube.load_timeout': 'Caricamento di YouTube scaduto.\nRiprova.',
+  'youtube.load_timeout': 'Il caricamento di YouTube ha impiegato troppo tempo.\nRiprova.',
   'youtube.invalid_link': 'Link di YouTube non valido',
   'youtube.effects_disabled':
-    'In modalità YouTube insieme,\ngli effetti audio avanzati sono disabilitati.',
+    'Guarda YouTube insieme agli altri.\nGli effetti audio avanzati sono disattivati.',
   'youtube.enter_link_placeholder': 'Inserisci il link di un video o di una playlist',
   'youtube.enter_source_toast': 'Inserisci un termine di ricerca o un link di YouTube',
   'youtube.fetching_info': 'Recupero informazioni video...',
@@ -496,7 +496,7 @@ const it: Record<I18nKey, string> = {
   'youtube.loading_large_playlist': 'Caricamento di una playlist di grandi dimensioni...',
   'youtube.indexing_playlist': 'Analisi della playlist in corso...',
   'youtube.search_button': 'Cerca',
-  'youtube.search_prompt': 'Premi Invio o Cerca per trovare un video',
+  'youtube.search_prompt': 'Premi Invio o “Cerca” per trovare un video',
   'youtube.searching': 'Ricerca su YouTube...',
   'youtube.search_no_results': 'Nessun risultato trovato',
   'youtube.search_failed': 'La ricerca su YouTube non è disponibile',
@@ -510,7 +510,7 @@ const it: Record<I18nKey, string> = {
   'network.cant_join': 'Stanza non trovata.\nVerifica la connessione di rete.',
   'network.session_full': 'La stanza è piena',
   'network.session_full_detail':
-    'Questa stanza ha già raggiunto il massimo di 100 dispositivi connessi, gestore incluso.',
+    'Questa stanza ha già raggiunto il massimo di 100 dispositivi connessi, incluso quello dell’host.',
   'network.op_granted': 'Ti sono stati concessi i permessi di amministratore.',
   'network.op_revoked': 'I permessi di amministratore sono stati revocati.',
 
@@ -518,7 +518,7 @@ const it: Record<I18nKey, string> = {
   'toast.device_connected': '{{name}} è connesso',
   'toast.device_disconnected': '{{name}} si è disconnesso',
   'toast.device_conn_error': 'Errore di connessione con {{name}}',
-  'toast.device_kicked': '{{name}} è stato espulso',
+  'toast.device_kicked': '{{name}} è stato rimosso',
   'toast.remote_decode_device_wait':
     'Un dispositivo non è riuscito a decodificare questa traccia. La riproduzione continua sugli altri.',
   'toast.invite_code': "Codice d'invito: {{code}}",
@@ -532,7 +532,7 @@ const it: Record<I18nKey, string> = {
   'toast.preparing_next_pct': 'Preparazione traccia successiva... {{pct}}%',
   'toast.op_status': 'Permessi di {{label}} {{status}}',
   'toast.file_read_error': 'Errore di lettura del file: {{name}}',
-  'toast.host_ended_connection': 'Il gestore ha chiuso la connessione',
+  'toast.host_ended_connection': 'L’host ha chiuso la connessione',
   'toast.announcement_available': 'Nuovo avviso.\nControlla la chat.',
 
   // ─── Toast (static) ─────────────────────────────────────────────
@@ -546,36 +546,36 @@ const it: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Il surround virtuale è attivo.',
   'toast.virtual_surround_off': 'Il surround virtuale è disattivato.',
   'toast.virtual_effects_off': 'Tutti gli effetti virtuali sono disattivati.',
-  'toast.host_only': 'Solo il gestore della stanza può eseguire questa operazione.',
-  'toast.host_only_media': 'Solo il gestore della stanza può aggiungere tracce.',
+  'toast.host_only': 'Solo l’host può eseguire questa operazione.',
+  'toast.host_only_media': 'Solo l’host può aggiungere contenuti.',
   'toast.media_management_required': 'È richiesta l’autorizzazione per gestire i contenuti.',
   'toast.playback_control_required':
     'È richiesta l’autorizzazione per controllare la riproduzione.',
-  'toast.member_management_required': 'È richiesta l’autorizzazione per espellere i membri.',
+  'toast.member_management_required': 'È richiesta l’autorizzazione per rimuovere i partecipanti.',
   'toast.chat_notice_required': 'È richiesta l’autorizzazione per pubblicare avvisi in chat.',
-  'toast.room_owner_required': 'Solo il proprietario della stanza può modificare questo.',
+  'toast.room_owner_required': 'Solo il proprietario della stanza può modificare questa opzione.',
   'toast.system_audio_owner_required':
     'Solo il proprietario della stanza può condividere o interrompere l’audio di sistema.',
-  'toast.host_only_youtube': 'Solo il gestore della stanza può aggiungere link di YouTube.',
-  'toast.host_only_control': 'Solo il gestore della stanza può controllare la riproduzione.',
-  'toast.host_setting_required': 'Solo il gestore può modificare questa impostazione',
-  'toast.host_only_file': 'Solo il gestore della stanza può aggiungere file.',
+  'toast.host_only_youtube': 'Solo l’host può aggiungere link di YouTube.',
+  'toast.host_only_control': 'Solo l’host può controllare questa funzione',
+  'toast.host_setting_required': 'Solo l’host può modificare questa impostazione',
+  'toast.host_only_file': 'Solo l’host può aggiungere file.',
   'toast.no_tracks': 'Nessuna traccia da riprodurre',
   'toast.no_invite_code': "Codice d'invito non ancora generato",
   'toast.invite_code_settings': "Puoi condividere il link d'invito dalla scheda Connessione.",
-  'toast.click_copy_invite': "Clicca per copiare il codice d'invito",
+  'toast.click_copy_invite': 'Tocca per copiare il codice d’invito',
   'toast.cant_select_file': 'Impossibile selezionare il file',
   'toast.unsupported_files_excluded': 'File non supportati esclusi: {{count}}',
   'toast.no_supported_audio_files': 'Nessun file audio supportato da aggiungere.',
   'dialog.large_room_file.title': 'Condividi file in una stanza grande',
   'dialog.large_room_file.message':
-    'Sulla stessa rete, il trasferimento diretto dei file è stabile fino a 8 dispositivi degli ospiti, escluso quello del gestore. Nelle stanze locali più grandi, i file possono essere distribuiti tramite Cloudflare R2.\n\nVuoi continuare?',
+    'Sulla stessa rete, il trasferimento diretto dei file è stabile fino a 8 dispositivi dei partecipanti, escluso quello dell’host. Nelle stanze locali più grandi, i file possono essere distribuiti tramite Cloudflare R2.\n\nVuoi continuare?',
   'dialog.continue': 'Continua',
   'toast.sync_reset': 'Offset di sincronizzazione azzerato',
   'toast.stop_sent': 'Richiesta di arresto inviata',
   'toast.auto_play_canceled': 'Riproduzione automatica annullata',
   'toast.playing_in_3s': 'La riproduzione inizierà tra 3 secondi...',
-  'toast.hprecision_sync': "Sincronizzazione ad alta precisione: caricamento dell'audio...",
+  'toast.hprecision_sync': 'Sincronizzazione ad alta precisione: preparazione dell’audio...',
   'toast.file_ready': 'Il file è pronto!\nPremi il pulsante Riproduci.',
   'toast.host_sync_not_recommended':
     'Consigliamo di regolare la sincronizzazione direttamente dal dispositivo di un partecipante',
@@ -586,14 +586,15 @@ const it: Record<I18nKey, string> = {
   'toast.sync_not_ready': 'Non ancora pronto.\nRiprova tra qualche istante',
   'toast.sync_no_media':
     'Non ci sono contenuti da sincronizzare.\nPrima seleziona un contenuto da riprodurre',
-  'toast.host_ad': 'Il gestore della stanza sembra guardare una pubblicità',
+  'toast.host_ad': 'L’host sembra guardare una pubblicità',
   'toast.yt_sync_start': 'Sincronizzazione...',
   'toast.yt_sync_done': 'Sincronizzazione completata',
-  'toast.yt_rendezvous_start': 'Sincronizzazione con il gestore...',
+  'toast.yt_rendezvous_start': 'Sincronizzazione con l’host...',
   'toast.yt_rendezvous_done': 'Sincronizzazione completata',
-  'toast.yt_rendezvous_host_paused': 'Il gestore è in pausa: allineata solo la posizione corrente',
+  'toast.yt_rendezvous_host_paused':
+    'La riproduzione dell’host è in pausa: è stata allineata solo la posizione corrente',
   'toast.yt_rendezvous_no_data':
-    'Nessuna informazione di riproduzione dal gestore. Riprova tra poco',
+    'Non sono ancora disponibili dati di riproduzione dall’host. Riprova tra poco',
   'toast.yt_rendezvous_timeout': 'Sincronizzazione non riuscita. Riprova tra qualche istante',
   'toast.yt_host_sync_sent': 'Segnale di sincronizzazione automatica inviato ai partecipanti',
   'toast.yt_manual_sync_prompt':
@@ -602,7 +603,8 @@ const it: Record<I18nKey, string> = {
   'toast.operator_required': 'Solo gli amministratori possono modificare le impostazioni globali',
   'toast.connection_closing': 'Connessione interrotta. Impostazioni non sincronizzate',
   'toast.host_changed_setting': 'Le impostazioni sono state modificate',
-  'toast.session_mismatch': 'Mancata corrispondenza della sessione.\nRiprovo a trasferire il file.',
+  'toast.session_mismatch':
+    'I dati della stanza non corrispondono.\nIl trasferimento del file verrà ritentato.',
   'toast.receiving_pct': 'Ricezione in corso... {{pct}}%',
 
   // ─── Transfer ────────────────────────────────────────────────────
@@ -613,43 +615,44 @@ const it: Record<I18nKey, string> = {
   'transfer.file_requesting': 'Richiesta file in corso...',
   'transfer.file_sending': 'Invio file in corso...',
   'transfer.file_wait': 'In attesa del file...\nAttendi qualche istante',
-  'transfer.preload_done': 'Utilizzo il file precaricato!',
-  'transfer.preload_waiting': 'Attendo il completamento del precaricamento...',
+  'transfer.preload_done': 'File precaricato in uso!',
+  'transfer.preload_waiting': 'In attesa del completamento del precaricamento...',
   // Remote file sharing (R2-backed transfer)
   'share.remote.uploading': 'Caricamento file in corso...',
   'share.remote.upload_ready': 'Condivisione remota pronta',
   'share.remote.waiting': 'In attesa del file remoto...',
   'share.remote.downloading': 'Download del file remoto in corso...',
-  'share.remote.upload_failed': 'Condivisione remota fallita: {{msg}}',
-  'share.remote.download_failed': 'Download del file remoto fallito: {{msg}}',
-  'share.remote.timeout': 'Condivisione remota scaduta',
+  'share.remote.upload_failed': 'Condivisione remota non riuscita: {{msg}}',
+  'share.remote.download_failed': 'Download del file remoto non riuscito: {{msg}}',
+  'share.remote.timeout': 'Tempo scaduto per la condivisione remota',
   'share.remote.too_large': 'Il file supera il limite consentito (max 200 MB)',
   'share.remote.network_error': 'Errore di rete durante la condivisione remota',
   'share.remote.rate_limited':
     'Troppe richieste di condivisione remota.\nRiprova tra qualche istante',
-  'share.remote.quota_reached': 'Limite di condivisione remota raggiunto',
+  'share.remote.quota_reached': 'Limite di archiviazione per la condivisione remota raggiunto',
   'share.remote.auth_failed':
-    'Autenticazione condivisione remota fallita.\nVerifica le impostazioni del Worker.',
+    'Autorizzazione della condivisione remota non riuscita.\nVerifica le impostazioni del Worker.',
   'share.remote.expired': 'Il link del file remoto è scaduto.\nCondividilo di nuovo.',
   'share.remote.unavailable': 'Condivisione remota non disponibile.\nRiprova tra qualche istante.',
   'transfer.preload_fail': 'Riproduzione del file precaricato non riuscita. Ricaricamento...',
   'transfer.download_finishing': 'Completamento del download...',
-  'transfer.preparation_delayed': 'Preparazione in ritardo...\nRichiesta di ripristino al gestore.',
+  'transfer.preparation_delayed':
+    'La preparazione sta richiedendo più tempo...\nRichiesta di ripristino all’host',
   'transfer.receiving_0pct': 'Ricezione in corso... 0%',
   'transfer.check_conn_type': 'Verifica tipo di connessione...',
-  'transfer.preload_pending': 'Attendo il precaricamento di: {{name}}',
+  'transfer.preload_pending': 'In attesa del precaricamento: {{name}}',
   'transfer.waiting_recovery': 'Ripristino in attesa per: {{name}}',
   'transfer.preparing_name': 'Preparazione: {{name}}',
-  'transfer.recovery_failed': 'Ripristino del file fallito.\nRiprova.',
+  'transfer.recovery_failed': 'Ripristino del file non riuscito.\nRiprova.',
 
   // ─── Error ───────────────────────────────────────────────────────
   'error.https_required': 'Richiesto HTTPS: questa funzionalità richiede una connessione sicura.',
-  'error.browser_update': 'Aggiorna il tuo browser (iOS 15.2+, Chrome 86+)',
-  'error.load_failed': 'Caricamento fallito: {{msg}}',
-  'error.audio_decode_fail': 'Decodifica audio fallita!',
+  'error.browser_update': 'Aggiorna il browser a una versione recente.',
+  'error.load_failed': 'Caricamento non riuscito: {{msg}}',
+  'error.audio_decode_fail': 'Decodifica audio non riuscita!',
   'error.audio_memory': "Caricamento dell'audio in memoria...",
   'error.all_tracks_failed': 'Nessuna traccia riproducibile nella playlist.',
-  'error.audio_engine_prepare': 'Impossibile avviare il motore audio',
+  'error.audio_engine_prepare': 'Impossibile preparare il sistema audio',
   'error.session_create_fail': 'Impossibile creare la stanza',
   'error.network_generic': 'Errore di rete rilevato',
   'error.peer_app_version_mismatch':
@@ -657,22 +660,22 @@ const it: Record<I18nKey, string> = {
   'error.app_version_mismatch':
     'Le versioni dell’app non corrispondono. Ricarica la pagina su entrambi i dispositivi e riprova.',
   'error.session_handshake_failed':
-    'Impossibile completare la connessione alla sessione. Ricarica la pagina su entrambi i dispositivi e riprova.',
-  'error.host_unreachable': 'Il gestore sembra aver lasciato la stanza',
-  'error.host_disconnected': 'Connessione con il gestore della stanza interrotta',
-  'error.host_conn_error': 'Errore di connessione con il gestore della stanza',
-  'error.connect_failed': 'Connessione fallita',
-  'error.peer_not_ready': 'La connessione peer non è ancora pronta',
-  'error.network_init_failed': 'Inizializzazione di rete fallita',
-  'error.no_host_id': 'Identificativo del gestore della stanza non trovato',
+    'Impossibile completare la connessione alla stanza. Ricarica la pagina su entrambi i dispositivi e riprova.',
+  'error.host_unreachable': 'L’host sembra aver lasciato la stanza',
+  'error.host_disconnected': 'Connessione con l’host interrotta',
+  'error.host_conn_error': 'Errore di connessione con l’host',
+  'error.connect_failed': 'Connessione non riuscita',
+  'error.peer_not_ready': 'La connessione P2P non è ancora pronta',
+  'error.network_init_failed': 'Inizializzazione della rete non riuscita',
+  'error.no_host_id': 'Identificativo dell’host non trovato',
   'error.peer_unavailable': 'Stanza non trovata.\nVerifica il codice inserito.',
-  'error.host_left': 'Il gestore sembra aver lasciato la stanza',
+  'error.host_left': 'L’host sembra aver lasciato la stanza',
   'error.network_issue': 'Problema di rete rilevato.\nVerifica la connessione internet.',
   'error.signal_server_fail':
     'Impossibile raggiungere il server di segnalazione.\nRiprova tra qualche istante.',
   'error.server_disconnected': 'Disconnesso dal server.',
   'error.session_id_unavailable': 'Identificativo della stanza non disponibile.\nRiprova.',
-  'error.webrtc_failed': 'Connessione WebRTC fallita.\nVerifica le impostazioni del browser.',
+  'error.webrtc_failed': 'Connessione WebRTC non riuscita.\nVerifica le impostazioni del browser.',
   'error.browser_unsupported':
     'Questo browser non supporta le connessioni in tempo reale.\nUsa la versione più recente di Chrome o Safari.',
   'error.ssl_required': 'È richiesta una connessione sicura (HTTPS).',
@@ -688,8 +691,8 @@ const it: Record<I18nKey, string> = {
   'dialog.return_home_msg': 'Vuoi tornare alla schermata iniziale?',
   'dialog.return_home_detail': 'La connessione con la stanza corrente verrà interrotta.',
   'dialog.leaving_session': 'Uscita in corso...',
-  'dialog.refreshing_session': 'Aggiornamento della sessione...',
-  'dialog.background_resume_title': "L'applicazione è passata in background",
+  'dialog.refreshing_session': 'Aggiornamento della stanza...',
+  'dialog.background_resume_title': 'L’applicazione è passata brevemente in background',
   'dialog.background_resume_message':
     "Se noti problemi di sincronizzazione o audio silenzioso, riavvia completamente l'app.",
   'dialog.background_resume_sync_fallback_message':
@@ -709,18 +712,18 @@ const it: Record<I18nKey, string> = {
     'Tempo di connessione scaduto. Inserisci di nuovo la password.',
   'dialog.room_password_placeholder': 'Password di 8 cifre',
   'dialog.session_lost_msg':
-    "L'app è passata in modalità di risparmio energetico o ha perso la connessione, interrompendo il collegamento con gli altri dispositivi. Riavvia per avviare una nuova sessione.",
+    'L’app è passata in modalità di risparmio energetico o ha perso la connessione, interrompendo il collegamento con gli altri dispositivi. Riavvia per aprire una nuova stanza.',
   'dialog.session_lost_btn': 'Riavvia',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
   'pro.activation_title': 'Attiva stanza PRO',
   'pro.activation_message': 'Imposta una nuova password numerica di 8 cifre per questa stanza.',
   'pro.activation_pin_same': 'Scegli una password diversa da quella temporanea.',
-  'pro.claim_retry_title': 'Riprovare con il link PRO?',
+  'pro.claim_retry_title': 'Vuoi riprovare con il link PRO?',
   'pro.claim_retry_message':
-    'La connessione si è interrotta. Il link viene conservato in sicurezza solo in questa schermata, quindi puoi riprovare.',
+    'La connessione si è interrotta. Il link rimane al sicuro in questa schermata, quindi puoi riprovare.',
   'pro.claim_unavailable_title': 'Questo link non può più essere utilizzato',
-  'pro.claim_login_title': 'Prima accedi',
+  'pro.claim_login_title': 'Accedi prima di continuare',
   'pro.claim_login_button': 'Accedi',
   'pro.claim_login_message':
     "Accedi con l'account che sarà proprietario di questa stanza PRO e completa l'impostazione del nickname. Il link resta solo nella memoria di questa scheda.",
@@ -738,16 +741,16 @@ const it: Record<I18nKey, string> = {
     'Questo account ha raggiunto il limite di stanze PRO collegate. Rimuovi un collegamento esistente e richiedi un nuovo link.',
   'pro.claim_failed_title': 'Impossibile completare la richiesta',
   'pro.claim_failed_message':
-    'Per sicurezza, il link non è stato riprovato. Chiedi al gestore della stanza un nuovo link.',
+    'Per sicurezza, la richiesta non è stata ripetuta automaticamente. Chiedi all’amministratore della stanza un nuovo link.',
   'pro.transfer_title': 'Assumi la proprietà della stanza PRO',
   'pro.transfer_message':
     'Imposta una nuova password di 8 cifre. Al termine, l’accesso del precedente proprietario verrà revocato.',
   'pro.new_link_message':
     'Il link è scaduto o è già stato usato. Se serve, chiedi a un amministratore un nuovo link.',
   'pro.not_ready_title': 'Questa stanza PRO non è ancora pronta',
-  'pro.not_ready_message': 'Il proprietario deve prima attivarla.',
+  'pro.not_ready_message': 'Il proprietario della stanza deve prima attivarla.',
   'pro.suspended_title': 'Questa stanza PRO non è disponibile',
-  'pro.suspended_message': 'Chiedi aiuto al proprietario.',
+  'pro.suspended_message': 'Chiedi aiuto al proprietario della stanza.',
   'pro.loading': 'Caricamento stanza PRO...',
   'pro.reconnecting': 'Riconnessione...',
   'pro.resume_tap': 'Tocca per riprendere la riproduzione',
@@ -758,10 +761,11 @@ const it: Record<I18nKey, string> = {
   'pro.pin_change_message':
     'Imposta una nuova password di 8 cifre. Tutti dovranno accedere di nuovo.',
   'pro.pin_changed': 'Password della stanza modificata.',
-  'pro.owner_only': 'Solo il proprietario può farlo.',
+  'pro.owner_only': 'Solo il proprietario della stanza può farlo.',
   'pro.connect_failed': 'Impossibile connettersi alla stanza PRO.',
   'pro.active_tab_title': 'Questa stanza PRO è già aperta in un’altra scheda',
-  'pro.active_tab_message': 'Continuando qui, la scheda esistente verrà disconnessa.',
+  'pro.active_tab_message':
+    'Continuando qui, la connessione nella scheda già aperta verrà interrotta.',
   'pro.use_this_tab': 'Usa questa scheda',
   'pro.upload.batch_progress': 'Caricamento tracce {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Impossibile caricare alcune tracce',
@@ -770,7 +774,7 @@ const it: Record<I18nKey, string> = {
   'pro.upload.cancel_file': 'Annulla il caricamento di {{name}}',
   'pro.upload.confirming_file': 'Completamento del caricamento di {{name}}',
   'pro.downloading': 'Caricamento del file...',
-  'pro.quota_exceeded': 'Questa stanza PRO ha raggiunto il limite di 1 GB.',
+  'pro.quota_exceeded': 'Questa stanza PRO ha raggiunto il limite di archiviazione di 1 GB.',
   'pro.file_too_large': 'Questo file supera il limite di 200 MB per file.',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
@@ -779,11 +783,11 @@ const it: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'La condivisione audio è più stabile sulla stessa rete.<ul class="help-list"><li>Anche i partecipanti remoti possono utilizzare le stesse funzionalità.</li><li>I partecipanti remoti passano attraverso i nodi Cloudflare, quindi la latenza potrebbe aumentare o lo streaming potrebbe interrompersi a seconda della rete.</li><li>L\'uso di VPN o reti aziendali protette potrebbe rendere instabile la connessione.</li></ul>',
   'setup.how_to_connect_html':
-    'Inserisci il <strong>codice a 6 cifre</strong> fornito dal gestore per connetterti.<ul class="help-list"><li><strong>Gestore (Host):</strong> “Crea una stanza” → Controlla il codice</li><li><strong>Ospite (Guest):</strong> “Entra in una stanza” → Inserisci il codice</li><li>Possono connettersi fino a <strong>100 dispositivi, gestore incluso</strong>.</li></ul>',
+    'Inserisci il <strong>codice a 6 cifre</strong> fornito dall’host per connetterti.<ul class="help-list"><li><strong>Host:</strong> “Crea una stanza” → controlla il codice</li><li><strong>Partecipante:</strong> “Entra in una stanza” → inserisci il codice</li><li>Possono connettersi fino a <strong>100 dispositivi, incluso quello dell’host</strong>.</li></ul>',
   'player.play_speakers_html':
     'Ogni partecipante sceglie un <strong>ruolo (canale di uscita)</strong>.<ul class="help-list"><li><strong>Altoparlante centrale:</strong> uscita stereo (predefinita)</li><li><strong>Altoparlante sinistro:</strong> uscita canale L</li><li><strong>Altoparlante destro:</strong> uscita canale R</li><li><strong>Subwoofer:</strong> uscita mix a bassa frequenza</li></ul>Puoi cambiare ruolo in qualsiasi momento dalle <strong>Impostazioni</strong>.',
   'player.play_media_action_html':
-    'Il gestore ha 3 opzioni per la riproduzione.<ul class="help-list"><li><strong>Carica file locale:</strong> scegli brani dal tuo dispositivo. Supporta la sincronizzazione di precisione</li><li><strong>YouTube insieme:</strong> supporta video e playlist. Non supporta la separazione dei canali né gli effetti audio</li><li><strong>Condivisione audio di sistema:</strong> disponibile quando il gestore usa un computer con un browser basato su Chromium (Chrome, Edge, ecc.)</li></ul>',
+    'L’host ha 3 opzioni per la riproduzione.<ul class="help-list"><li><strong>Carica file locale:</strong> scegli brani dal tuo dispositivo. Supporta la sincronizzazione di precisione</li><li><strong>YouTube insieme:</strong> supporta video e playlist. Non supporta la separazione dei canali né gli effetti audio</li><li><strong>Condivisione audio di sistema:</strong> disponibile quando l’host usa un computer con un browser basato su Chromium (Chrome, Edge, ecc.)</li></ul>',
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Ho inserito il codice ma non si connette:</strong> Verifica il codice e riprova tra qualche istante. Le reti aziendali, scolastiche o VPN potrebbero bloccare la connessione.</li><li><strong>Connessione instabile:</strong> Si raccomanda ai partecipanti locali di posizionarsi vicino al router Wi-Fi e ai partecipanti remoti di utilizzare una rete stabile.</li><li><strong>Altri problemi:</strong> Verifica lo stato della rete e riavvia l\'app su tutti i dispositivi. Per altre domande, consulta le <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> o contattaci all\'indirizzo email in fondo alla pagina.</li></ul>',
   'chat.peer_connected': '{{name}} è entrato nella stanza',
@@ -800,11 +804,11 @@ const it: Record<I18nKey, string> = {
   'setup.invite_share_desc_html':
     "Connetti più dispositivi in modalità wireless<br>per creare un enorme sistema audio.<br>Usa un codice d'invito a 6 cifre per connetterti.",
   'setup.play_together_desc_html':
-    'Quando il gestore riproduce una traccia,<br>tutti i dispositivi connessi la riproducono in sincrono.<br>Clicca su "Sincronizza" per allineare l\'audio.',
+    'Quando l’host riproduce un contenuto,<br>tutti i dispositivi connessi lo riproducono in sincronia.<br>Premi “Sincronizza” per allineare l’audio.',
   'setup.spatial_audio_desc_html':
     "Imposta il ruolo per ciascun dispositivo.<br>Riproduci l'audio sinistro e destro separatamente<br>e senti i bassi profondi grazie al subwoofer.",
   'setup.advanced_audio_desc_html':
-    'Sincronizza con le impostazioni del gestore<br>e applica a tutto il sistema riverbero, EQ,<br>effetti virtuali e molto altro.',
+    'Allinea le impostazioni di tutto il sistema<br>a quelle dell’host: riverbero, EQ,<br>effetti virtuali e molto altro.',
   'youtube.enter_link_desc_html': 'È possibile riprodurre solo video o playlist pubblici.',
 
   // ─── System Audio Sharing ─────────────────────────────────────
@@ -815,31 +819,33 @@ const it: Record<I18nKey, string> = {
   'system_audio.owner_preparing': '{{name}} si sta preparando a condividere l’audio di sistema.',
   'system_audio.pro_preparing': 'Preparazione della condivisione dell’audio di sistema.',
   'system_audio.pro_publish_failed': 'Impossibile avviare la condivisione dell’audio di sistema.',
-  'system_audio.coordinator_update_required': 'Aggiorna il dispositivo che gestisce questa stanza.',
+  'system_audio.coordinator_update_required':
+    'Aggiorna il dispositivo che gestisce questa stanza per condividere l’audio di sistema.',
   'system_audio.connection_unstable':
-    'La connessione audio di sistema di {{name}} è instabile.\nTentativo di ripristino.',
+    'La connessione all’audio di sistema di {{name}} è instabile.\nTentativo di riconnessione.',
   'system_audio.capture_denied': "La condivisione dell'audio è stata annullata.",
   'system_audio.no_audio_track': '"Condividi audio" non abilitato.\nRiprova.',
   'system_audio.stop': 'Interrompi condivisione',
   'system_audio.started':
-    "L'audio di sistema potrebbe presentare una leggera latenza.\nConsigliamo al gestore di abbassare al minimo il volume del proprio dispositivo.",
+    'L’audio di sistema potrebbe presentare una leggera latenza.\nAbbassa il volume della sorgente, se possibile.',
   'system_audio.stopped':
     "La condivisione dell'audio di sistema è terminata.\nRipresa della playlist.",
   'system_audio.host_channel_locked':
     "Non è possibile modificare i ruoli durante la condivisione dell'audio di sistema.",
   'system_audio.effects_guest_only':
-    "Condivisione dell'audio di sistema attiva.\nGli effetti audio si applicano solo ai dispositivi degli ospiti.",
+    'Condivisione dell’audio di sistema attiva.\nGli effetti audio si applicano solo ai dispositivi dei partecipanti.',
   'system_audio.desktop_only':
     'Disponibile solo su computer con browser basati su Chromium (Chrome, Edge, ecc.).',
   'system_audio.receive_failed':
-    "Impossibile ricevere l'audio di sistema.\nChiedi al gestore di riavviare la condivisione.",
+    'Impossibile ricevere l’audio di sistema.\nChiedi all’host di riavviare la condivisione.',
   'system_audio.remote_receive_limit':
     "La ricezione dell'audio di sistema si è interrotta dopo 2 ore.\nRientra nella stanza per continuare l'ascolto.",
   'system_audio.device_limit':
     "L'audio di sistema supporta fino a {{count}} dispositivi.\nL'host è incluso.",
   'system_audio.device_limit_stopped':
     "Condivisione dell'audio di sistema interrotta.\nSono connessi più di {{count}} dispositivi.",
-  'system_audio.duration_limit_stopped': 'La condivisione è terminata automaticamente\ndopo 2 ore.',
+  'system_audio.duration_limit_stopped':
+    'La condivisione dell’audio di sistema è terminata automaticamente\ndopo 2 ore.',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Note sul servizio',

@@ -89,6 +89,8 @@ describe('count-sensitive translations', () => {
     expect(t('dialog.file_drop.message', { count: 1 })).toBe('Добавить 1 файл?');
     expect(t('dialog.file_drop.message', { count: 2 })).toBe('Добавить 2 файла?');
     expect(t('dialog.file_drop.message', { count: 5 })).toBe('Добавить 5 файлов?');
+    expect(t('dialog.file_drop.message', { count: 11 })).toBe('Добавить 11 файлов?');
+    expect(t('dialog.file_drop.message', { count: 14 })).toBe('Добавить 14 файлов?');
     expect(t('dialog.file_drop.message', { count: 21 })).toBe('Добавить 21 файл?');
     expect(t('dialog.file_drop.message', { count: 22 })).toBe('Добавить 22 файла?');
     expect(t('dialog.file_drop.message', { count: 25 })).toBe('Добавить 25 файлов?');
@@ -96,6 +98,19 @@ describe('count-sensitive translations', () => {
     expect(t('toast.added_tracks', { count: 1 })).toBe('Добавлен 1 материал');
     expect(t('toast.added_tracks', { count: 2 })).toBe('Добавлено 2 материала');
     expect(t('toast.added_tracks', { count: 5 })).toBe('Добавлено 5 материалов');
+
+    expect(t('connect.administrator_list', { count: 1 })).toBe('1 администратор');
+    expect(t('connect.administrator_list', { count: 2 })).toBe('2 администратора');
+    expect(t('connect.administrator_list', { count: 5 })).toBe('5 администраторов');
+    expect(t('connect.administrator_list', { count: 11 })).toBe('11 администраторов');
+    expect(t('connect.administrator_list', { count: 21 })).toBe('21 администратор');
+
+    expect(t('chat.tracks_added', { name: 'Alex', count: 1 })).toBe('Добавлен 1 материал (Alex)');
+    expect(t('chat.tracks_added', { name: 'Alex', count: 2 })).toBe('Добавлено 2 материала (Alex)');
+    expect(t('chat.tracks_added', { name: 'Alex', count: 11 })).toBe(
+      'Добавлено 11 материалов (Alex)',
+    );
+    expect(t('chat.tracks_added', { name: 'Alex', count: 21 })).toBe('Добавлен 21 материал (Alex)');
   });
 
   it('selects Polish one, few and many forms using Polish cardinal rules', async () => {
@@ -104,9 +119,18 @@ describe('count-sensitive translations', () => {
     expect(t('toast.added_tracks', { count: 1 })).toBe('Dodano 1 materiał');
     expect(t('toast.added_tracks', { count: 2 })).toBe('Dodano 2 materiały');
     expect(t('toast.added_tracks', { count: 5 })).toBe('Dodano 5 materiałów');
+    expect(t('toast.added_tracks', { count: 12 })).toBe('Dodano 12 materiałów');
+    expect(t('toast.added_tracks', { count: 14 })).toBe('Dodano 14 materiałów');
     expect(t('toast.added_tracks', { count: 21 })).toBe('Dodano 21 materiałów');
     expect(t('toast.added_tracks', { count: 22 })).toBe('Dodano 22 materiały');
     expect(t('toast.added_tracks', { count: 25 })).toBe('Dodano 25 materiałów');
+
+    expect(t('chat.tracks_added', { name: 'Alex', count: 1 })).toBe('Alex — dodano 1 materiał');
+    expect(t('chat.tracks_added', { name: 'Alex', count: 2 })).toBe('Alex — dodano 2 materiały');
+    expect(t('chat.tracks_added', { name: 'Alex', count: 12 })).toBe('Alex — dodano 12 materiałów');
+    expect(t('dialog.file_drop.unsupported_notice', { count: 21 })).toBe(
+      '21 nieobsługiwanych plików nie zostanie dodanych.',
+    );
   });
 
   it('keeps invariant Korean counter copy for both singular and plural counts', async () => {
@@ -114,6 +138,97 @@ describe('count-sensitive translations', () => {
 
     expect(t('dialog.file_drop.message', { count: 1 })).toBe('파일 1개를 추가할까요?');
     expect(t('dialog.file_drop.message', { count: 5 })).toBe('파일 5개를 추가할까요?');
+  });
+
+  it('keeps Thai classifiers intact through the other fallback', async () => {
+    const t = await loadTranslator('th-TH');
+
+    const cases = [
+      ['playlist.delete_selected', { count: 2 }, 'ลบ 2 รายการที่เลือก'],
+      ['connect.device_list', { count: 2 }, 'อุปกรณ์เชื่อมต่อ 2 เครื่อง'],
+      ['connect.administrator_list', { count: 2 }, 'ผู้ดูแล 2 คน'],
+      [
+        'demo.session_body_connected',
+        { count: 2 },
+        'ขณะนี้มีอุปกรณ์เชื่อมต่อ 2 เครื่อง\nตั้งค่าบทบาทให้แต่ละอุปกรณ์',
+      ],
+      ['chat.cmd_slowmode_on', { sec: 2 }, 'โหมดช้า: 2 วินาทีระหว่างข้อความ'],
+      ['chat.cmd_slowmode_wait', { sec: 2 }, 'รอ 2 วินาทีก่อนส่ง'],
+      ['chat.tracks_added', { name: 'Alex', count: 2 }, 'Alex เพิ่ม 2 รายการ'],
+      [
+        'chat.tracks_added_named',
+        { name: 'Alex', count: 2, title: 'รายการแรก' },
+        'Alex เพิ่ม 2 รายการ รวมถึง รายการแรก',
+      ],
+      ['toast.added_tracks', { count: 2 }, 'เพิ่ม 2 รายการแล้ว'],
+      ['toast.unsupported_files_excluded', { count: 2 }, 'จะข้ามไฟล์ที่ไม่รองรับ 2 ไฟล์'],
+      ['dialog.file_drop.message', { count: 2 }, 'เพิ่มไฟล์ 2 ไฟล์ไหม?'],
+      ['dialog.file_drop.unsupported_notice', { count: 2 }, 'ไฟล์ที่ไม่รองรับ 2 ไฟล์จะไม่ถูกเพิ่ม'],
+    ] as const;
+
+    for (const [key, params, expected] of cases) expect(t(key, params)).toBe(expected);
+  });
+
+  it('keeps Indonesian nouns invariant after cardinal numbers through the other fallback', async () => {
+    const t = await loadTranslator('id-ID');
+
+    const cases = [
+      ['playlist.delete_selected', { count: 2 }, 'Hapus 2 media terpilih'],
+      ['connect.device_list', { count: 2 }, '2 perangkat tersambung'],
+      ['connect.administrator_list', { count: 2 }, '2 administrator'],
+      [
+        'demo.session_body_connected',
+        { count: 2 },
+        '2 perangkat sedang tersambung.\nAtur peran untuk setiap perangkat.',
+      ],
+      ['chat.cmd_slowmode_on', { sec: 2 }, 'Mode lambat: jeda 2 dtk antarpesan'],
+      ['chat.cmd_slowmode_wait', { sec: 2 }, 'Tunggu 2 dtk sebelum mengirim'],
+      ['chat.tracks_added', { name: 'Alex', count: 2 }, 'Alex menambahkan 2 media'],
+      [
+        'chat.tracks_added_named',
+        { name: 'Alex', count: 2, title: 'Pertama' },
+        'Alex menambahkan 2 media, termasuk Pertama',
+      ],
+      ['toast.added_tracks', { count: 2 }, '2 media ditambahkan'],
+      ['toast.unsupported_files_excluded', { count: 2 }, '2 file yang tidak didukung dilewati.'],
+      ['dialog.file_drop.message', { count: 2 }, 'Tambahkan 2 file?'],
+      [
+        'dialog.file_drop.unsupported_notice',
+        { count: 2 },
+        '2 file yang tidak didukung tidak akan ditambahkan.',
+      ],
+    ] as const;
+
+    for (const [key, params, expected] of cases) expect(t(key, params)).toBe(expected);
+  });
+
+  it('keeps Turkish nouns singular after cardinal numbers through the other fallback', async () => {
+    const t = await loadTranslator('tr-TR');
+
+    const cases = [
+      ['playlist.delete_selected', { count: 2 }, 'Seçilen 2 parçayı sil'],
+      ['connect.device_list', { count: 2 }, '2 bağlı cihaz'],
+      ['connect.administrator_list', { count: 2 }, '2 yönetici'],
+      [
+        'demo.session_body_connected',
+        { count: 2 },
+        'Şu anda 2 cihaz bağlı.\nHer cihaz için bir rol belirle.',
+      ],
+      ['chat.cmd_slowmode_on', { sec: 2 }, 'Yavaş mod: Mesajlar arasında 2 saniye'],
+      ['chat.cmd_slowmode_wait', { sec: 2 }, 'Göndermeden önce 2 saniye bekle'],
+      ['chat.tracks_added', { name: 'Alex', count: 2 }, 'Alex 2 medya öğesi ekledi'],
+      [
+        'chat.tracks_added_named',
+        { name: 'Alex', count: 2, title: 'İlk' },
+        'Alex 2 medya öğesi ekledi; bunlardan biri İlk',
+      ],
+      ['toast.added_tracks', { count: 2 }, '2 medya öğesi eklendi'],
+      ['toast.unsupported_files_excluded', { count: 2 }, 'Desteklenmeyen 2 dosya atlanacak.'],
+      ['dialog.file_drop.message', { count: 2 }, '2 dosya eklensin mi?'],
+      ['dialog.file_drop.unsupported_notice', { count: 2 }, 'Desteklenmeyen 2 dosya eklenmeyecek.'],
+    ] as const;
+
+    for (const [key, params, expected] of cases) expect(t(key, params)).toBe(expected);
   });
 
   it('defines every singular form and every Slavic few/many form', () => {

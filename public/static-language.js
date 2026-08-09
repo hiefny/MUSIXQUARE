@@ -7,6 +7,7 @@
   var APP_STORE_KEY = 'musixquare-lang';
   var MOBILE_PICKER_QUERY = '(max-width: 640px)';
   var pageScrollLock = null;
+  var pickerIdSequence = 0;
 
   var OPTIONS = [
     { code: 'en', htmlLang: 'en', nativeName: 'English', englishName: 'Default', locale: 'en_US' },
@@ -17,14 +18,14 @@
       htmlLang: 'zh-Hans',
       nativeName: '简体中文',
       englishName: 'Chinese (Simplified)',
-      locale: 'zh_Hans_CN',
+      locale: 'zh_CN',
     },
     {
       code: 'zh-hant',
       htmlLang: 'zh-Hant',
       nativeName: '繁體中文',
       englishName: 'Chinese (Traditional)',
-      locale: 'zh_Hant_TW',
+      locale: 'zh_TW',
     },
     { code: 'es', htmlLang: 'es', nativeName: 'Español', englishName: 'Spanish', locale: 'es_ES' },
     {
@@ -41,8 +42,20 @@
     { code: 'pl', htmlLang: 'pl', nativeName: 'Polski', englishName: 'Polish', locale: 'pl_PL' },
     { code: 'ru', htmlLang: 'ru', nativeName: 'Русский', englishName: 'Russian', locale: 'ru_RU' },
     { code: 'tr', htmlLang: 'tr', nativeName: 'Türkçe', englishName: 'Turkish', locale: 'tr_TR' },
-    { code: 'id', htmlLang: 'id', nativeName: 'Bahasa Indonesia', englishName: 'Indonesian', locale: 'id_ID' },
-    { code: 'vi', htmlLang: 'vi', nativeName: 'Tiếng Việt', englishName: 'Vietnamese', locale: 'vi_VN' },
+    {
+      code: 'id',
+      htmlLang: 'id',
+      nativeName: 'Bahasa Indonesia',
+      englishName: 'Indonesian',
+      locale: 'id_ID',
+    },
+    {
+      code: 'vi',
+      htmlLang: 'vi',
+      nativeName: 'Tiếng Việt',
+      englishName: 'Vietnamese',
+      locale: 'vi_VN',
+    },
     { code: 'th', htmlLang: 'th', nativeName: 'ไทย', englishName: 'Thai', locale: 'th_TH' },
   ];
 
@@ -56,6 +69,8 @@
     var raw = String(value).trim().toLowerCase().replace(/_/g, '-');
     if (optionByCode[raw]) return raw;
     if (raw === 'system') return null;
+    if (raw === 'zh-hans' || raw.indexOf('zh-hans-') === 0) return 'zh-hans';
+    if (raw === 'zh-hant' || raw.indexOf('zh-hant-') === 0) return 'zh-hant';
     if (raw.indexOf('zh') === 0) {
       if (
         raw.indexOf('tw') !== -1 ||
@@ -107,7 +122,10 @@
 
     var navs = [];
     try {
-      navs = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language];
+      navs =
+        navigator.languages && navigator.languages.length
+          ? navigator.languages
+          : [navigator.language];
     } catch (e) {
       navs = [];
     }
@@ -241,21 +259,27 @@
   function renderPicker(picker) {
     if (!picker || picker.getAttribute('data-static-lang-ready') === 'true') return;
     picker.setAttribute('data-static-lang-ready', 'true');
+    var pickerId = ++pickerIdSequence;
 
     var trigger = document.createElement('button');
     trigger.type = 'button';
     trigger.className = 'static-lang-trigger';
     trigger.setAttribute('aria-haspopup', 'listbox');
     trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-controls', 'static-lang-menu-' + pickerId);
     trigger.setAttribute('data-static-lang-trigger', '');
     trigger.innerHTML =
       '<span class="static-lang-trigger__icon" aria-hidden="true">Aa</span>' +
-      '<span class="static-lang-trigger__label" data-static-lang-current></span>' +
+      '<span class="static-lang-trigger__label" id="static-lang-current-' +
+      pickerId +
+      '" data-static-lang-current></span>' +
       '<span class="static-lang-trigger__chevron" aria-hidden="true"></span>';
 
     var menu = document.createElement('div');
     menu.className = 'static-lang-menu';
+    menu.id = 'static-lang-menu-' + pickerId;
     menu.setAttribute('role', 'listbox');
+    menu.setAttribute('aria-labelledby', 'static-lang-current-' + pickerId);
     menu.setAttribute('data-static-lang-menu', '');
 
     var backdrop = document.createElement('div');
@@ -271,9 +295,11 @@
       item.setAttribute('role', 'option');
       item.setAttribute('data-lang-set', lang.code);
       item.innerHTML =
-        '<span class="static-lang-option__native">' +
+        '<span class="static-lang-option__native" lang="' +
+        lang.htmlLang +
+        '">' +
         lang.nativeName +
-        '</span><span class="static-lang-option__english">' +
+        '</span><span class="static-lang-option__english" lang="en">' +
         lang.englishName +
         '</span>';
       menu.appendChild(item);
@@ -300,7 +326,40 @@
       update(next);
       closePicker(picker);
       trigger.focus({ preventScroll: true });
-      window.dispatchEvent(new CustomEvent('mxqr:static-language-change', { detail: { lang: next } }));
+      window.dispatchEvent(
+        new CustomEvent('mxqr:static-language-change', { detail: { lang: next } }),
+      );
+    });
+
+    menu.addEventListener('keydown', function (event) {
+      if (
+        event.key !== 'ArrowDown' &&
+        event.key !== 'ArrowUp' &&
+        event.key !== 'Home' &&
+        event.key !== 'End'
+      ) {
+        return;
+      }
+      var options = menu.querySelectorAll('[data-lang-set]');
+      if (!options.length) return;
+      event.preventDefault();
+
+      var activeIndex = -1;
+      for (var i = 0; i < options.length; i++) {
+        if (options[i] === document.activeElement) {
+          activeIndex = i;
+          break;
+        }
+      }
+      var nextIndex = 0;
+      if (event.key === 'Home') nextIndex = 0;
+      else if (event.key === 'End') nextIndex = options.length - 1;
+      else if (event.key === 'ArrowUp') {
+        nextIndex = activeIndex <= 0 ? options.length - 1 : activeIndex - 1;
+      } else {
+        nextIndex = activeIndex < 0 || activeIndex === options.length - 1 ? 0 : activeIndex + 1;
+      }
+      options[nextIndex].focus({ preventScroll: true });
     });
 
     picker.addEventListener('keydown', function (event) {
@@ -325,7 +384,10 @@
     for (var i = 0; i < pickers.length; i++) {
       var picker = pickers[i];
       var current = picker.querySelector('[data-static-lang-current]');
-      if (current) current.textContent = selected.nativeName;
+      if (current) {
+        current.textContent = selected.nativeName;
+        current.setAttribute('lang', selected.htmlLang);
+      }
 
       var options = picker.querySelectorAll('[data-lang-set]');
       for (var j = 0; j < options.length; j++) {
@@ -357,7 +419,8 @@
         if (openPicker && mobileQuery.matches) lockPageScroll();
         else unlockPageScroll();
       };
-      if (mobileQuery.addEventListener) mobileQuery.addEventListener('change', handlePickerModeChange);
+      if (mobileQuery.addEventListener)
+        mobileQuery.addEventListener('change', handlePickerModeChange);
       else if (mobileQuery.addListener) mobileQuery.addListener(handlePickerModeChange);
     } catch (e) {
       /* matchMedia may be unavailable in restricted embedded browsers. */

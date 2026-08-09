@@ -291,6 +291,7 @@ describe('i18n functions', () => {
       expect(t('setup.host_button')).toBe(en['setup.host_button']);
       expect(document.querySelector('button')?.textContent).toBe(en['setup.host_button']);
       expect(getResolvedLanguage()).toBe('ja');
+      expect(document.documentElement.getAttribute('lang')).toBe('en');
 
       // A failed locale must remain absent from the dictionary cache so a
       // later selection retries the chunk instead of pinning the fallback.
@@ -300,6 +301,7 @@ describe('i18n functions', () => {
         expect(t('setup.host_button')).toBe(ja['setup.host_button']);
       });
       expect(document.querySelector('button')?.textContent).toBe(ja['setup.host_button']);
+      expect(document.documentElement.getAttribute('lang')).toBe('ja');
     });
 
     it('does not let a late lazy-locale retry stomp a newer language selection', async () => {

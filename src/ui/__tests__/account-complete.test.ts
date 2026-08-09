@@ -11,21 +11,21 @@ type CompletionDom = JSDOM & { scheduledTimeouts: Array<() => void> };
 const localizedCompletionCopy = [
   ['en', 'en', 'Sign-in complete. You may close this window.', 'Close'],
   ['ko', 'ko', '로그인이 완료됐어요. 이 창을 닫아도 돼요.', '닫기'],
-  ['ja', 'ja', 'ログインが完了しました。このウィンドウを閉じても構いません。', '閉じる'],
+  ['ja', 'ja', 'ログインが完了しました。このウィンドウを閉じても大丈夫です。', '閉じる'],
   ['zh-hans', 'zh-Hans', '登录已完成。现在可以关闭此窗口。', '关闭'],
   ['zh-hant', 'zh-Hant', '登入已完成。現在可以關閉此視窗。', '關閉'],
   ['es', 'es', 'Inicio de sesión completado. Puedes cerrar esta ventana.', 'Cerrar'],
   ['pt-br', 'pt-BR', 'Login concluído. Você pode fechar esta janela.', 'Fechar'],
-  ['fr', 'fr', 'Connexion terminée. Vous pouvez fermer cette fenêtre.', 'Fermer'],
+  ['fr', 'fr', 'Connexion réussie. Vous pouvez fermer cette fenêtre.', 'Fermer'],
   ['de', 'de', 'Anmeldung abgeschlossen. Du kannst dieses Fenster schließen.', 'Schließen'],
   ['nl', 'nl', 'Inloggen voltooid. Je kunt dit venster sluiten.', 'Sluiten'],
   ['it', 'it', 'Accesso completato. Puoi chiudere questa finestra.', 'Chiudi'],
   ['pl', 'pl', 'Logowanie zakończone. Możesz zamknąć to okno.', 'Zamknij'],
   ['ru', 'ru', 'Вход выполнен. Это окно можно закрыть.', 'Закрыть'],
   ['tr', 'tr', 'Oturum açma tamamlandı. Bu pencereyi kapatabilirsin.', 'Kapat'],
-  ['id', 'id', 'Proses masuk selesai. Anda dapat menutup jendela ini.', 'Tutup'],
+  ['id', 'id', 'Berhasil masuk. Anda dapat menutup jendela ini.', 'Tutup'],
   ['vi', 'vi', 'Đăng nhập hoàn tất. Bạn có thể đóng cửa sổ này.', 'Đóng'],
-  ['th', 'th', 'เข้าสู่ระบบเรียบร้อยแล้ว คุณปิดหน้าต่างนี้ได้', 'ปิด'],
+  ['th', 'th', 'เข้าสู่ระบบเรียบร้อยแล้ว ปิดหน้าต่างนี้ได้เลย', 'ปิด'],
 ] as const;
 
 async function renderCompletion(language: string, marker = ''): Promise<CompletionDom> {
@@ -105,6 +105,14 @@ describe('account completion localization', () => {
       '關閉',
     );
     chinese.window.close();
+
+    const explicitSimplified = await renderCompletion('zh-Hans-TW');
+    expect(explicitSimplified.window.document.documentElement.lang).toBe('zh-Hans');
+    explicitSimplified.window.close();
+
+    const explicitTraditional = await renderCompletion('zh-Hant-CN');
+    expect(explicitTraditional.window.document.documentElement.lang).toBe('zh-Hant');
+    explicitTraditional.window.close();
   });
 
   it('localizes cancellation and provider-error completion states', async () => {

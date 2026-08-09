@@ -17,7 +17,7 @@ const ru: Record<I18nKey, string> = {
   'common.later': 'Позже',
   'common.next': 'Далее',
   'common.start': 'Начать',
-  'common.info': 'Инфо',
+  'common.info': 'Информация',
   'common.stay': 'Остаться',
   'common.leave': 'Выйти',
   'common.granted': 'предоставлены',
@@ -27,7 +27,7 @@ const ru: Record<I18nKey, string> = {
   'common.message': 'Сообщение',
   'common.mix': 'Микс',
   'common.wait': 'Минутку...',
-  'common.guest': 'Гость',
+  'common.guest': 'Участник',
   'common.help': 'Помощь',
   'common.increase': 'Увеличить',
   'common.decrease': 'Уменьшить',
@@ -69,8 +69,8 @@ const ru: Record<I18nKey, string> = {
     'Псевдоним, сеансы входа и связанные с аккаунтом права в комнатах будут удалены. Для контента, опубликованного в комнате, действует политика хранения этой комнаты.',
   'account.delete_pending':
     'Аккаунт удаляется. Права PRO безопасно отзываются, а удаление завершится автоматически.',
-  'common.previous': 'Предыдущий',
-  'common.next_desc': 'Следующий',
+  'common.previous': 'Назад',
+  'common.next_desc': 'Далее',
   'common.volume_percent': 'Громкость: {{val}}%',
   'common.muted': 'Без звука',
   'common.original': 'Оригинал',
@@ -80,7 +80,7 @@ const ru: Record<I18nKey, string> = {
   'common.connected': 'Подключено',
   'common.disconnected': 'Отключено',
   'common.revoke': 'Отозвать',
-  'common.grant': 'Назначить',
+  'common.grant': 'Предоставить',
   'common.system': 'Система',
   'common.unknown': 'Неизвестно',
   'common.youtube_video': 'Видео YouTube',
@@ -103,8 +103,8 @@ const ru: Record<I18nKey, string> = {
   'player.volume': 'Регулировка громкости',
   'player.toggle_mute': 'Вкл/Выкл звук',
   'player.fullscreen': 'Переключить полноэкранный режим',
-  'player.prev_track': 'Предыдущий материал',
-  'player.next_track': 'Следующий материал',
+  'player.prev_track': 'Предыдущий трек',
+  'player.next_track': 'Следующий трек',
   'player.repeat_mode': 'Изменить режим повтора',
   'player.shuffle_mode': 'Изменить режим перемешивания',
   'player.play_media': 'Воспроизвести материал',
@@ -114,8 +114,8 @@ const ru: Record<I18nKey, string> = {
   'player.select_media': 'Выберите материал для воспроизведения',
   'player.play_together': 'Синхронное воспроизведение',
   'player.play_speakers': 'Использовать как динамик',
-  'player.auto_sync_label': 'Автосинхронизация (ms)',
-  'player.manual_sync_label': 'Ручная синхронизация (ms)',
+  'player.auto_sync_label': 'Автосинхронизация (мс)',
+  'player.manual_sync_label': 'Ручная синхронизация (мс)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Показать/скрыть плейлист',
@@ -124,7 +124,7 @@ const ru: Record<I18nKey, string> = {
   'playlist.reorder_position': '{{title}}, позиция {{position}} из {{total}}',
   'playlist.repeat_all': 'Повтор всех материалов включён',
   'playlist.repeat_one': 'Повтор текущего материала включён',
-  'playlist.repeat_off': 'Повтор отключен',
+  'playlist.repeat_off': 'Повтор отключён',
   'playlist.shuffle_on': 'Перемешивание включено',
   'playlist.shuffle_off': 'Перемешивание отключено',
   'playlist.empty_hint': 'Медиа пока нет.',
@@ -185,7 +185,7 @@ const ru: Record<I18nKey, string> = {
     'Это устройство выполняет роль правого динамика.\nРазместите его справа.',
   'settings.role_subwoofer_desc':
     'Это устройство выполняет роль сабвуфера.\nРазместите его там, где низкие частоты хорошо распространяются.',
-  'settings.dark': 'Темная',
+  'settings.dark': 'Тёмная',
   'settings.light': 'Светлая',
   'settings.visualizer': 'Визуализатор',
   'settings.viz_circular': 'Круглый',
@@ -209,29 +209,29 @@ const ru: Record<I18nKey, string> = {
   'settings.reverb_lowcut': 'Низкочастотный срез реверберации',
   'settings.reverb_highcut': 'Высокочастотный срез реверберации',
   'settings.decay_time': 'Время затухания',
-  'settings.predelay': 'Предварительная задержка (Pre-delay)',
+  'settings.predelay': 'Предварительная задержка',
   'settings.eq_title': 'Эквалайзер',
   'settings.eq_bright': 'Четкость',
   'settings.eq_warm': 'Теплота',
   'settings.eq_advanced': 'Расширенный',
   'settings.eq_off': 'Выкл.',
-  'settings.lowpass': 'Фильтр низких частот (Low-pass)',
-  'settings.highpass': 'Фильтр высоких частот (High-pass)',
-  'settings.surround_title': 'Виртуальный объемный звук',
+  'settings.lowpass': 'Фильтр низких частот',
+  'settings.highpass': 'Фильтр высоких частот',
+  'settings.surround_title': 'Виртуальный объёмный звук',
   'settings.bass_title': 'Виртуальный бас',
   'settings.exciter_title': 'Виртуальные высокие частоты',
   'settings.subwoofer_adjust': 'Срез сабвуфера',
   'settings.subwoofer_cutoff': 'Частота среза',
   'settings.default_0pct': 'По умолчанию: 0%',
   'settings.default_01s': 'По умолчанию: 0,1 с',
-  'settings.default_20khz': 'По умолчанию: 20,0 kHz',
-  'settings.default_20hz': 'По умолчанию: 20 Hz',
+  'settings.default_20khz': 'По умолчанию: 20,0 кГц',
+  'settings.default_20hz': 'По умолчанию: 20 Гц',
   'settings.default_5s': 'По умолчанию: 5,0 с',
   'settings.invite_code': 'Код приглашения',
   'settings.leave_session': 'Выйти из комнаты',
-  'connect.rename_reserved': 'Этот никнейм зарезервирован.',
-  'connect.rename_profanity': 'Обнаружен недопустимый никнейм.',
-  'settings.devices_title': 'Подключенные устройства',
+  'connect.rename_reserved': 'Этот псевдоним зарезервирован.',
+  'connect.rename_profanity': 'Обнаружен недопустимый псевдоним.',
+  'settings.devices_title': 'Подключённые устройства',
   'settings.invite_share': 'Приглашения и общий доступ',
   'settings.subtab.general': 'Общие',
   'settings.subtab.audio': 'Аудио',
@@ -251,7 +251,7 @@ const ru: Record<I18nKey, string> = {
   'connect.permissions_title': 'Права пользователя {{name}}',
   'connect.permission_media_add': 'Управление медиа',
   'connect.permission_playback_control': 'Управление воспроизведением',
-  'connect.permission_members_kick': 'Удаление участников',
+  'connect.permission_members_kick': 'Исключение участников',
   'connect.permission_chat_notice': 'Объявления в чате',
   'connect.permission_inherited': 'Включено',
   'connect.kick_member_message': 'Отключить все устройства пользователя {{name}}?',
@@ -266,7 +266,7 @@ const ru: Record<I18nKey, string> = {
   'connect.kick_yes': 'Исключить',
   'connect.kick_no': 'Нет',
   'connect.kicked_title': 'Вы исключены',
-  'connect.kicked_message': 'Вы были исключены из комнаты хостом.',
+  'connect.kicked_message': 'Хост исключил вас из комнаты.',
   'connect.copy_invite_link': 'Скопировать ссылку-приглашение',
   'connect.link_copied': 'Ссылка для приглашения скопирована',
   'connect.room_password_title': 'Требовать пароль для входа в комнату',
@@ -292,18 +292,18 @@ const ru: Record<I18nKey, string> = {
   'connect.signaling_exhausted_pro':
     'Сервер комнаты не отвечает. Новые подключения и обновления в реальном времени ограничены.',
   'connect.signaling_retry': 'Повторить',
-  'connect.signaling_restart': 'Перезапустить сеанс',
+  'connect.signaling_restart': 'Перезапустить комнату',
   'connect.signaling_new_room': 'Создать новую комнату',
 
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': 'Создать комнату',
   'setup.guest_button': 'Войти в комнату',
-  'setup.demo_button': 'Попробовать приложение (Демо)',
+  'setup.demo_button': 'Попробовать демо',
   'demo.prompt_title': 'Познакомьтесь с MUSIXQUARE',
   'demo.prompt_message': 'Добро пожаловать! Хотите пройти быстрый тур по нашим функциям?',
   'demo.prompt_cta': 'Начать тур',
   'demo.prompt_later': 'Позже',
-  'demo.try_later_toast': 'Вы можете начать тур в любое время на вкладке «Помощь»',
+  'demo.try_later_toast': 'Вы можете начать тур в любое время на вкладке «Помощь».',
   'demo.track_info': 'Информация о треке',
   'demo.exit': 'Завершить тур',
   'demo.credit': 'Демо-трек',
@@ -311,13 +311,13 @@ const ru: Record<I18nKey, string> = {
   'demo.effects_title': 'Попробовать звуковые эффекты',
   'demo.reverb': 'Реверберация',
   'demo.bass_boost': 'Усиление басов',
-  'demo.treble_boost': 'Усиление высоких',
-  'demo.surround': 'Объемный звук',
+  'demo.treble_boost': 'Усиление высоких частот',
+  'demo.surround': 'Объёмный звук',
   'demo.role_bass_short': 'Басы',
   'demo.role_center_short': 'Центр',
   'demo.step_nav_label': 'Шаги демонстрации',
-  'demo.step_connect': '1. Подключить',
-  'demo.step_role': '2. Установите роль',
+  'demo.step_connect': '1. Подключение',
+  'demo.step_role': '2. Выбор роли',
   'demo.step_effects': '3. Аудиоэффекты',
   'demo.step_finish': '4. Завершить тур',
   'demo.session_title': 'Вы находитесь в комнате {{code}}.',
@@ -325,8 +325,8 @@ const ru: Record<I18nKey, string> = {
   'demo.session_body_connected':
     'Сейчас подключено устройств: {{count}}.\nНазначьте роль каждому устройству.',
   'demo.session_body_alone':
-    'Сейчас вы воспроизводите музыку в одиночку.\nПригласите другие устройства прямо сейчас.',
-  'demo.effects_step_title': 'Создайте собственное премиальное звуковое окружение.',
+    'Сейчас воспроизводит только это устройство.\nПригласите другое устройство.',
+  'demo.effects_step_title': 'Настройте звук по своему вкусу.',
   'demo.effects_step_subtitle': 'Вы можете настроить все детали позже в Настройках.',
   'demo.finish_step_title': 'Всё готово!',
   'demo.finish_step_subtitle': 'Присоединяйтесь и слушайте вместе!',
@@ -349,7 +349,7 @@ const ru: Record<I18nKey, string> = {
   'setup.enter_host_code_alt': 'Введите код приглашения.',
   'setup.connect_devices': 'Теперь подключите другие устройства.',
   'setup.enter_code_connect': 'Введите этот код приглашения на других устройствах',
-  'setup.last_step': 'Начнем?',
+  'setup.last_step': 'Начнём?',
   'setup.joining': 'Вход...',
   'setup.six_digit_enter': 'Введите 6-значное число',
 
@@ -365,8 +365,7 @@ const ru: Record<I18nKey, string> = {
   'help.youtube_no_effects': 'В режиме YouTube настройки ролей и звуковые эффекты недоступны.',
   'help.media_synced_detail':
     'Выбранные медиафайлы одновременно воспроизводятся на всех подключенных устройствах.',
-  'help.wifi_hotspot':
-    'Вы также можете использовать мобильную точку доступа (Hotspot) для подключения всех устройств к одной сети',
+  'help.wifi_hotspot': 'Мобильная точка доступа также может объединить все устройства в одну сеть',
 
   // ─── Chat ────────────────────────────────────────────────────────
   'chat.title': 'Чат',
@@ -379,49 +378,48 @@ const ru: Record<I18nKey, string> = {
 
   // ─── Chat Commands ──────────────────────────────────────────────
   'chat.muted_placeholder': 'Вы не можете отправлять сообщения',
-  'chat.cmd_frozen': 'Чат заморожен',
-  'chat.cmd_unfrozen': 'Заморозка чата отменена',
-  'chat.cmd_frozen_blocked': 'Чат в данный момент заморожен',
-  'chat.cmd_muted': 'Пользователю {{name}} запрещено писать в чат',
+  'chat.cmd_frozen': 'Чат заблокирован',
+  'chat.cmd_unfrozen': 'Чат разблокирован',
+  'chat.cmd_frozen_blocked': 'Чат сейчас заблокирован',
+  'chat.cmd_muted': 'Пользователь {{name}} заглушён в чате',
   'chat.cmd_unmuted': 'Пользователь {{name}} снова может писать в чат',
   'chat.cmd_clear': 'История чата была очищена',
-  'chat.cmd_filter_on': 'Фильтр ненормативной лексики включен',
-  'chat.cmd_filter_off': 'Фильтр ненормативной лексики отключен',
-  'chat.cmd_slowmode_on':
-    'Медленный режим включен: вы можете отправлять сообщения раз в {{sec}} сек.',
-  'chat.cmd_slowmode_off': 'Медленный режим отключен',
+  'chat.cmd_filter_on': 'Фильтр ненормативной лексики включён',
+  'chat.cmd_filter_off': 'Фильтр ненормативной лексики отключён',
+  'chat.cmd_slowmode_on': 'Медленный режим включён: сообщения можно отправлять раз в {{sec}} сек.',
+  'chat.cmd_slowmode_off': 'Медленный режим отключён',
   'chat.cmd_slowmode_wait': 'Подождите {{sec}} сек. перед отправкой следующего сообщения',
   'chat.cmd_notice_prefix': 'Объявление',
   'chat.system_sender': 'СИСТЕМА',
   'chat.bot_unavailable': 'BOT доступен только в PRO-комнатах',
   'chat.bot_processing': 'BOT обрабатывает запрос...',
   'chat.bot_completed': 'Запрос BOT выполнен',
-  'chat.bot_failed': 'BOT не удалось выполнить запрос',
+  'chat.bot_failed': 'BOT не смог выполнить запрос',
   'chat.bot_added_tracks': 'Материалы, добавленные BOT: {{count}}',
   'chat.bot_added_and_playing': 'Материалы, добавленные BOT: {{count}}. Воспроизведение запущено',
   'chat.bot_rate_limited': 'Достигнут лимит запросов BOT. Повторите попытку через {{duration}}',
   'chat.decode_skip_system_message':
-    'Некоторые устройства не смогли декодировать материал. Переход к следующему материалу...',
+    'Материал пропущен: некоторые устройства не поддерживают этот формат.',
   'chat.large_local_track_system_message':
     'Этот материал занимает очень много места и может не воспроизводиться на некоторых устройствах.',
   'chat.device_track_unavailable_system_message':
     'На этом устройстве нельзя воспроизвести текущий материал.',
   'chat.system_audio_started_system_message':
-    'Общий доступ к системному звуку запущен. Возможна небольшая задержка между хостом и гостями. Чтобы избежать эха, рекомендуем снизить громкость устройства хоста.',
+    'Общий доступ к системному звуку запущен. Возможна небольшая задержка между хостом и участниками. Чтобы избежать эха, рекомендуем снизить громкость устройства хоста.',
   'chat.system_audio_stopped_system_message':
-    'Общий доступ к системному звуку завершен. Хост может снова прибавить громкость, чтобы вернуться к роли динамика.',
+    'Общий доступ к системному звуку завершён. Хост может снова прибавить громкость, чтобы это устройство опять работало как динамик.',
   'chat.remote_upload_limited_system_message':
-    'Достигнут лимит загрузки файлов.\nУдаленные гости могут попробовать позже.',
+    'Достигнут лимит загрузки файлов.\nУдалённые участники могут попробовать позже.',
   'chat.remote_storage_quota_system_message':
-    'Достигнут лимит удаленного обмена файлами.\nЛокальный обмен файлами по-прежнему доступен.',
+    'Достигнут лимит удалённого обмена файлами.\nЛокальный обмен файлами по-прежнему доступен.',
   'chat.remote_upload_failed_system_message':
-    'Не удалось загрузить удаленный файл.\nУдаленные гости могут попробовать еще раз через минуту.',
+    'Не удалось загрузить удалённый файл.\nУдалённые участники могут повторить попытку позже.',
   'chat.pinned_close': 'Закрыть объявление',
   'chat.cmd_whisper_from': 'Личное сообщение от {{name}}',
   'chat.cmd_whisper_to': 'Личное сообщение для {{name}}',
   'chat.cmd_target_not_found': 'Устройство не найдено: {{target}}',
   'chat.cmd_no_permission': 'У вас нет прав для использования этой команды',
-  'chat.cmd_nick_changed': 'Никнейм изменен на {{name}}',
+  'chat.cmd_nick_changed': 'Псевдоним изменён на {{name}}',
   'chat.cmd_already_op': '{{name}} уже администратор',
   'chat.cmd_not_op': '{{name}} не является администратором',
   'chat.cmd_help_title': 'Доступные команды',
@@ -442,7 +440,7 @@ const ru: Record<I18nKey, string> = {
   'chat.cmd_u_w': '/w [устройство] [сообщение]',
   'chat.cmd_u_whisper': '/whisper [устройство] [сообщение]',
   'chat.cmd_u_notice': '/notice [сообщение]',
-  'chat.cmd_u_nick': '/nick [новый никнейм]',
+  'chat.cmd_u_nick': '/nick [новый псевдоним]',
   'chat.cmd_u_kick': '/kick [устройство]',
   'chat.cmd_u_op': '/op [устройство]',
   'chat.cmd_u_deop': '/deop [устройство]',
@@ -453,7 +451,7 @@ const ru: Record<I18nKey, string> = {
   'chat.cmd_d_bot': 'Попросить ИИ управлять плейлистом',
   'chat.cmd_d_clear': 'Очищает историю чата',
   'chat.cmd_d_filter': 'Включает/выключает фильтр ненормативной лексики',
-  'chat.cmd_d_freeze': 'Замораживает/размораживает групповой чат',
+  'chat.cmd_d_freeze': 'Заблокировать или разблокировать чат',
   'chat.cmd_d_slowmode': 'Устанавливает интервал между сообщениями',
   'chat.cmd_d_w': 'Отправляет личное сообщение на указанное устройство',
   'chat.cmd_d_notice': 'Отправляет общее объявление для всех',
@@ -461,12 +459,12 @@ const ru: Record<I18nKey, string> = {
   'chat.cmd_d_kick': 'Исключает указанное устройство из комнаты',
   'chat.cmd_d_op': 'Назначает администратором указанное устройство',
   'chat.cmd_d_deop': 'Снимает полномочия администратора с указанного устройства',
-  'chat.cmd_d_mute': 'Блокирует возможность отправки сообщений на указанном устройстве',
-  'chat.cmd_d_unmute': 'Снимает блокировку отправки сообщений на указанном устройстве',
+  'chat.cmd_d_mute': 'Заглушить чат на указанном устройстве',
+  'chat.cmd_d_unmute': 'Снять заглушение чата на указанном устройстве',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Показывает системную информацию об отладке',
   'chat.debug_copied':
-    'Информация об отладке скопирована в буфер обмена.\nЕсли вы обнаружили ошибку, отправьте ее разработчику.',
+    'Информация об отладке скопирована в буфер обмена.\nЕсли вы обнаружили ошибку, отправьте её разработчику.',
   'chat.seek_to': 'Перейти к {{time}}',
 
   // ─── YouTube ─────────────────────────────────────────────────────
@@ -479,7 +477,7 @@ const ru: Record<I18nKey, string> = {
   'youtube.thumbnail': 'Превью-картинка видео на YouTube',
   'youtube.load_fail': 'Не удалось загрузить API YouTube.\nПроверьте подключение к интернету!',
   'youtube.video_unavailable': 'Видео недоступно. Переход к следующему материалу...',
-  'youtube.load_timeout': 'Истекло время ожидания загрузки YouTube.\nПопробуйте еще раз.',
+  'youtube.load_timeout': 'Истекло время ожидания загрузки YouTube.\nПопробуйте ещё раз.',
   'youtube.invalid_link': 'Неверная ссылка на YouTube',
   'youtube.effects_disabled':
     'В режиме совместного просмотра YouTube\nрасширенные звуковые эффекты отключены.',
@@ -515,7 +513,7 @@ const ru: Record<I18nKey, string> = {
   'toast.device_connected': '{{name}} подключился',
   'toast.device_disconnected': '{{name}} отключился',
   'toast.device_conn_error': 'Ошибка подключения к {{name}}',
-  'toast.device_kicked': '{{name}} был исключен из комнаты',
+  'toast.device_kicked': '{{name}} исключён из комнаты',
   'toast.remote_decode_device_wait':
     'Не удалось декодировать материал на одном из устройств. Воспроизведение на остальных продолжается.',
   'toast.invite_code': 'Код приглашения: {{code}}',
@@ -547,7 +545,7 @@ const ru: Record<I18nKey, string> = {
   'toast.host_only_media': 'Только хост комнаты может добавлять материалы.',
   'toast.media_management_required': 'Требуется право на управление медиа.',
   'toast.playback_control_required': 'Требуется право на управление воспроизведением.',
-  'toast.member_management_required': 'Требуется право на удаление участников.',
+  'toast.member_management_required': 'Требуется право на исключение участников.',
   'toast.chat_notice_required': 'Требуется право на публикацию объявлений в чате.',
   'toast.room_owner_required': 'Изменить это может только владелец комнаты.',
   'toast.system_audio_owner_required':
@@ -557,30 +555,29 @@ const ru: Record<I18nKey, string> = {
   'toast.host_setting_required': 'Изменять эту настройку может только хост комнаты',
   'toast.host_only_file': 'Только хост комнаты может добавлять файлы.',
   'toast.no_tracks': 'Нет материалов для воспроизведения',
-  'toast.no_invite_code': 'Код приглашения еще не сгенерирован',
+  'toast.no_invite_code': 'Код приглашения ещё не создан',
   'toast.invite_code_settings':
     'Вы можете поделиться ссылкой для приглашения на вкладке «Подключение».',
   'toast.click_copy_invite': 'Нажмите для копирования кода приглашения',
-  'toast.cant_select_file': 'Не удается выбрать файл',
+  'toast.cant_select_file': 'Не удаётся выбрать файл',
   'toast.unsupported_files_excluded': 'Пропущено неподдерживаемых файлов: {{count}}',
   'toast.no_supported_audio_files': 'Нет поддерживаемых аудиофайлов для добавления.',
   'dialog.large_room_file.title': 'Обмен файлами в большой комнате',
   'dialog.large_room_file.message':
-    'В одной сети прямая передача файлов стабильно работает для 8 гостевых устройств, не считая хоста. В более крупных локальных комнатах файлы могут распределяться через Cloudflare R2.\n\nПродолжить?',
+    'В одной сети прямая передача файлов стабильно работает для 8 устройств участников, не считая хоста. В более крупных локальных комнатах файлы могут распределяться через Cloudflare R2.\n\nПродолжить?',
   'dialog.continue': 'Продолжить',
   'toast.sync_reset': 'Смещение синхронизации сброшено',
   'toast.stop_sent': 'Запрос на остановку воспроизведения отправлен',
   'toast.auto_play_canceled': 'Автовоспроизведение отменено',
-  'toast.playing_in_3s': 'Воспроизведение начнется через 3 секунды...',
+  'toast.playing_in_3s': 'Воспроизведение начнётся через 3 секунды...',
   'toast.hprecision_sync': 'Высокоточная синхронизация: подготовка аудио...',
   'toast.file_ready': 'Файл готов!\nНажмите кнопку «Воспроизвести».',
-  'toast.host_sync_not_recommended':
-    'Рекомендуется настраивать синхронизацию прямо на устройстве гостя',
+  'toast.host_sync_not_recommended': 'Настройте синхронизацию на устройстве участника',
   'toast.host_sync_requested':
-    'Запрошена точная синхронизация.\nНастройте ручную синхронизацию на устройстве гостя.',
+    'Запрошена точная синхронизация.\nНастройте ручную синхронизацию на устройстве участника.',
   'toast.sync_not_in_system_audio':
     'Синхронизация не поддерживается в режиме общего доступа к системному звуку',
-  'toast.sync_not_ready': 'Еще не готово.\nПопробуйте еще раз через минуту',
+  'toast.sync_not_ready': 'Ещё не готово.\nПопробуйте ещё раз через минуту',
   'toast.sync_no_media': 'Нет медиафайла для синхронизации.\nСначала выберите, что воспроизвести',
   'toast.host_ad': 'Хост комнаты, похоже, сейчас смотрит рекламу',
   'toast.yt_sync_start': 'Синхронизация...',
@@ -589,16 +586,16 @@ const ru: Record<I18nKey, string> = {
   'toast.yt_rendezvous_done': 'Синхронизация завершена',
   'toast.yt_rendezvous_host_paused': 'Хост на паузе: выровнена только текущая позиция',
   'toast.yt_rendezvous_no_data':
-    'Нет данных воспроизведения от хоста. Попробуйте еще раз через минуту',
-  'toast.yt_rendezvous_timeout': 'Синхронизация не удалась. Попробуйте еще раз через минуту',
+    'Нет данных воспроизведения от хоста. Попробуйте ещё раз через минуту',
+  'toast.yt_rendezvous_timeout': 'Синхронизация не удалась. Попробуйте ещё раз через минуту',
   'toast.yt_host_sync_sent': 'Отправлен сигнал автоматической синхронизации',
   'toast.yt_manual_sync_prompt':
     'Только что была выполнена автосинхронизация.\nЕсли задержка сохраняется, настройте значение вручную.',
-  'toast.playlist_ended': 'Плейлист завершен',
+  'toast.playlist_ended': 'Последний материал завершился',
   'toast.operator_required': 'Только администраторы могут изменять глобальные настройки',
   'toast.connection_closing': 'Соединение прервано. Настройки не синхронизированы',
   'toast.host_changed_setting': 'Настройки были изменены',
-  'toast.session_mismatch': 'Несоответствие сессии.\nПовторная передача файла...',
+  'toast.session_mismatch': 'Комната не совпадает.\nПередача файла будет повторена.',
   'toast.receiving_pct': 'Получение... {{pct}}%',
 
   // ─── Transfer ────────────────────────────────────────────────────
@@ -613,23 +610,23 @@ const ru: Record<I18nKey, string> = {
   'transfer.preload_waiting': 'Ожидание завершения предзагрузки...',
   // Remote file sharing (R2-backed transfer)
   'share.remote.uploading': 'Загрузка файла...',
-  'share.remote.upload_ready': 'Удаленный общий доступ готов',
+  'share.remote.upload_ready': 'Удалённый обмен файлами готов',
   'share.remote.waiting': 'Ожидание удалённого файла...',
   'share.remote.downloading': 'Скачивание удалённого файла...',
-  'share.remote.upload_failed': 'Удаленный общий доступ не удался: {{msg}}',
-  'share.remote.download_failed': 'Скачивание удаленного файла не удалось: {{msg}}',
-  'share.remote.timeout': 'Истекло время ожидания удаленного общего доступа',
+  'share.remote.upload_failed': 'Не удалось поделиться файлом удалённо: {{msg}}',
+  'share.remote.download_failed': 'Не удалось скачать удалённый файл: {{msg}}',
+  'share.remote.timeout': 'Истекло время ожидания удалённого обмена файлами',
   'share.remote.too_large': 'Файл превышает лимит (макс. 200 МБ)',
-  'share.remote.network_error': 'Ошибка сети при удаленном общем доступе',
+  'share.remote.network_error': 'Ошибка сети при удалённом обмене файлами',
   'share.remote.rate_limited':
-    'Слишком много запросов удаленного общего доступа.\nПопробуйте еще раз через минуту',
-  'share.remote.quota_reached': 'Достигнут лимит удаленного обмена файлами',
+    'Слишком много запросов на удалённый обмен файлами.\nПопробуйте ещё раз через минуту',
+  'share.remote.quota_reached': 'Достигнут лимит хранилища для удалённого обмена файлами',
   'share.remote.auth_failed':
-    'Авторизация удаленного общего доступа не удалась.\nПроверьте настройки Worker',
+    'Не удалось авторизовать удалённый обмен файлами.\nПроверьте настройки Worker',
   'share.remote.expired':
-    'Срок действия ссылки на удаленный файл истек.\nПоделитесь файлом еще раз.',
+    'Срок действия ссылки на удалённый файл истёк.\nПоделитесь файлом ещё раз.',
   'share.remote.unavailable':
-    'Удаленный общий доступ недоступен.\nПопробуйте еще раз через минуту.',
+    'Удалённый обмен файлами недоступен.\nПопробуйте ещё раз через минуту.',
   'transfer.preload_fail': 'Предзагрузка не удалась. Повторная загрузка...',
   'transfer.download_finishing': 'Завершение загрузки...',
   'transfer.preparation_delayed': 'Медленная загрузка...\nЗапрос восстановления отправлен хосту.',
@@ -638,13 +635,13 @@ const ru: Record<I18nKey, string> = {
   'transfer.preload_pending': 'Ожидание предзагрузки: {{name}}',
   'transfer.waiting_recovery': 'Ожидание восстановления: {{name}}',
   'transfer.preparing_name': 'Готовится: {{name}}',
-  'transfer.recovery_failed': 'Восстановление файла не удалось.\nПопробуйте еще раз.',
+  'transfer.recovery_failed': 'Не удалось восстановить файл.\nПопробуйте ещё раз.',
 
   // ─── Error ───────────────────────────────────────────────────────
   'error.https_required': 'Требуется HTTPS: для этой функции необходимо безопасное соединение.',
-  'error.browser_update': 'Пожалуйста, обновите браузер (iOS 15.2+, Chrome 86+)',
+  'error.browser_update': 'Обновите браузер до актуальной версии.',
   'error.load_failed': 'Загрузка не удалась: {{msg}}',
-  'error.audio_decode_fail': 'Декодирование аудио не удалось!',
+  'error.audio_decode_fail': 'Не удалось декодировать аудио!',
   'error.audio_memory': 'Загрузка звука в память...',
   'error.all_tracks_failed': 'В плейлисте нет материалов, доступных для воспроизведения.',
   'error.audio_engine_prepare': 'Не удалось запустить звуковой движок',
@@ -655,28 +652,28 @@ const ru: Record<I18nKey, string> = {
   'error.app_version_mismatch':
     'Версии приложения не совпадают. Обновите страницу на обоих устройствах и повторите попытку.',
   'error.session_handshake_failed':
-    'Не удалось завершить подключение к сеансу. Обновите страницу на обоих устройствах и повторите попытку.',
-  'error.host_unreachable': 'Хост комнаты, похоже, недоступен',
+    'Не удалось завершить подключение к комнате. Обновите страницу на обоих устройствах и повторите попытку.',
+  'error.host_unreachable': 'Похоже, хост вышел из комнаты',
   'error.host_disconnected': 'Соединение с хостом комнаты прервано',
   'error.host_conn_error': 'Ошибка соединения с хостом комнаты',
   'error.connect_failed': 'Соединение не удалось',
-  'error.peer_not_ready': 'P2P-соединение еще не готово',
+  'error.peer_not_ready': 'Соединение между устройствами ещё не готово',
   'error.network_init_failed': 'Инициализация сети не удалась',
   'error.no_host_id': 'Идентификатор хоста комнаты не найден',
-  'error.peer_unavailable': 'Комната не найдена.\nПроверьте введенный код.',
+  'error.peer_unavailable': 'Комната не найдена.\nПроверьте введённый код.',
   'error.host_left': 'Похоже, хост покинул комнату',
   'error.network_issue': 'Проблема с сетью.\nПроверьте подключение к интернету.',
   'error.signal_server_fail':
-    'Невозможно связаться с сигнальным сервером.\nПопробуйте еще раз через минуту.',
-  'error.server_disconnected': 'Отключено от сервера.',
-  'error.session_id_unavailable': 'Идентификатор комнаты недоступен.\nПопробуйте еще раз.',
+    'Не удалось связаться с сервером сигналинга.\nПопробуйте ещё раз через минуту.',
+  'error.server_disconnected': 'Соединение с сервером разорвано.',
+  'error.session_id_unavailable': 'Идентификатор комнаты недоступен.\nПопробуйте ещё раз.',
   'error.webrtc_failed': 'Соединение WebRTC не удалось.\nПроверьте настройки браузера.',
   'error.browser_unsupported':
     'Этот браузер не поддерживает соединения в реальном времени.\nИспользуйте актуальную версию Chrome или Safari.',
   'error.ssl_required': 'Требуется безопасное соединение (HTTPS).',
   'error.room_password_required': 'Для входа в эту комнату требуется пароль.',
   'error.room_password_invalid': 'Неверный пароль.',
-  'error.room_password_auth_timeout': 'Нестабильная сеть.\nПопробуйте ввести пароль еще раз.',
+  'error.room_password_auth_timeout': 'Нестабильная сеть.\nПопробуйте ввести пароль ещё раз.',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'Добавить локальные файлы',
@@ -686,7 +683,7 @@ const ru: Record<I18nKey, string> = {
   'dialog.return_home_msg': 'Вернуться на стартовый экран?',
   'dialog.return_home_detail': 'Соединение с текущей комнатой будет разорвано.',
   'dialog.leaving_session': 'Выход из комнаты...',
-  'dialog.refreshing_session': 'Обновление сеанса...',
+  'dialog.refreshing_session': 'Обновление комнаты...',
   'dialog.background_resume_title': 'Приложение перешло в фоновый режим',
   'dialog.background_resume_message':
     'Если синхронизация сбилась или звук не воспроизводится, полностью закройте приложение и откройте его снова.',
@@ -702,11 +699,11 @@ const ru: Record<I18nKey, string> = {
   'dialog.go_back': 'Назад',
   'dialog.room_password_title': 'Введите пароль комнаты',
   'dialog.room_password_msg': 'Для входа в эту комнату требуется пароль.',
-  'dialog.room_password_retry_msg': 'Неверный пароль. Попробуйте еще раз.',
+  'dialog.room_password_retry_msg': 'Неверный пароль. Попробуйте ещё раз.',
   'dialog.room_password_timeout_msg': 'Истекло время ожидания соединения. Введите пароль снова.',
   'dialog.room_password_placeholder': '8-значный пароль',
   'dialog.session_lost_msg':
-    'Приложение перешло в энергосберегающий режим или потеряло сеть, прервав связь с остальными устройствами. Перезапустите, чтобы начать новую сессию.',
+    'Приложение перешло в спящий режим или потеряло соединение, поэтому остальные устройства уже отключились. Перезапустите приложение, чтобы создать новую комнату.',
   'dialog.session_lost_btn': 'Перезапустить',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
@@ -720,12 +717,12 @@ const ru: Record<I18nKey, string> = {
   'pro.claim_login_title': 'Сначала войдите',
   'pro.claim_login_button': 'Войти',
   'pro.claim_login_message':
-    'Войдите в аккаунт, который станет владельцем этой PRO-комнаты, и завершите настройку никнейма. Ссылка хранится только в памяти этой вкладки.',
+    'Войдите в аккаунт, который станет владельцем этой PRO-комнаты, и завершите настройку псевдонима. Ссылка хранится только в памяти этой вкладки.',
   'pro.claim_popup_blocked_message':
     'Браузер заблокировал окно входа. Разрешите всплывающие окна для MUSIXQUARE и повторите попытку.',
   'pro.claim_existing_account_title': 'Войдите в связанный аккаунт',
   'pro.claim_existing_account_message':
-    'Эта ссылка привязана к аккаунту MUSIXQUARE, в котором уже задан никнейм. Выберите аккаунт Google, указанный для этой ссылки.',
+    'Эта ссылка привязана к аккаунту MUSIXQUARE, в котором уже задан псевдоним. Выберите аккаунт Google, указанный для этой ссылки.',
   'pro.claim_choose_account_button': 'Выбрать другой аккаунт',
   'pro.claim_account_conflict_title': 'Этот аккаунт не может использовать комнату',
   'pro.claim_account_conflict_message':
@@ -754,7 +751,7 @@ const ru: Record<I18nKey, string> = {
   'pro.pin_change_title': 'Изменить пароль комнаты',
   'pro.pin_change_message': 'Задайте новый 8-значный пароль. Всем потребуется войти снова.',
   'pro.pin_changed': 'Пароль комнаты изменён.',
-  'pro.owner_only': 'Это может сделать только владелец.',
+  'pro.owner_only': 'Это может сделать только владелец комнаты.',
   'pro.connect_failed': 'Не удалось подключиться к PRO-комнате.',
   'pro.active_tab_title': 'Эта PRO-комната уже открыта в другой вкладке',
   'pro.active_tab_message': 'Если продолжить здесь, существующая вкладка будет отключена.',
@@ -773,51 +770,51 @@ const ru: Record<I18nKey, string> = {
   'help.install_app_html':
     'Нравится MUSIXQUARE? Вы можете установить его как приложение.<ul class="help-list"><li><strong>iOS:</strong> Поделиться → Добавить на экран «Домой»</li><li><strong>Android:</strong> Меню → Установить приложение</li><li><strong>Windows:</strong> Значок установки в адресной строке</li><li><strong>macOS:</strong> Поделиться → Добавить в Dock</li></ul>',
   'help.local_recommended_html':
-    'Совместное использование аудио наиболее стабильно в одной сети.<ul class="help-list"><li>Удаленные гости также могут использовать те же функции.</li><li>Удаленные гости работают через Cloudflare, поэтому задержка может возрастать или прием может прерываться в зависимости от сети.</li><li>VPN или закрытые корпоративные сети могут сделать соединение нестабильным.</li></ul>',
+    'Совместное использование аудио наиболее стабильно в одной сети.<ul class="help-list"><li>Удалённым участникам доступны те же функции.</li><li>Удалённые участники подключаются через Cloudflare, поэтому задержка может увеличиваться, а приём — прерываться в зависимости от сети.</li><li>VPN или сеть с ограничениями может сделать соединение нестабильным.</li></ul>',
   'setup.how_to_connect_html':
-    'Введите <strong>6-значный код</strong> от хоста для подключения.<ul class="help-list"><li><strong>Хост (Организатор):</strong> «Создать комнату» → Получить код</li><li><strong>Гость (Участник):</strong> «Войти в комнату» → Ввести код</li><li>Можно подключить до <strong>100 устройств, включая хоста</strong>.</li></ul>',
+    'Введите <strong>6-значный код</strong> хоста для подключения.<ul class="help-list"><li><strong>Хост:</strong> «Создать комнату» → посмотреть код</li><li><strong>Участник:</strong> «Войти в комнату» → ввести код</li><li>Можно подключить до <strong>100 устройств, включая хоста</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Каждый гость выбирает <strong>роль (выходной канал)</strong>.<ul class="help-list"><li><strong>Центральный динамик:</strong> стереовыход (по умолчанию)</li><li><strong>Левый динамик:</strong> выход левого канала (L)</li><li><strong>Правый динамик:</strong> выход правого канала (R)</li><li><strong>Сабвуфер:</strong> низкочастотный микс-выход</li></ul>Роли можно изменить в любое время в <strong>Настройках</strong>.',
+    'Каждый участник выбирает <strong>роль (выходной канал)</strong>.<ul class="help-list"><li><strong>Центральный динамик:</strong> стереовыход (по умолчанию)</li><li><strong>Левый динамик:</strong> выход левого канала (L)</li><li><strong>Правый динамик:</strong> выход правого канала (R)</li><li><strong>Сабвуфер:</strong> микс низких частот</li></ul>Роли можно изменить в любое время в <strong>Настройках</strong>.',
   'player.play_media_action_html':
-    'У хоста есть 3 варианта воспроизведения.<ul class="help-list"><li><strong>Локальный файл:</strong> Выберите музыку с вашего устройства. Поддерживается точная синхронизация</li><li><strong>YouTube вместе:</strong> Поддержка видео и плейлистов. Разделение каналов и эффекты недоступны</li><li><strong>Общий системный звук:</strong> Доступно, когда хост использует на компьютере браузер на базе Chromium</li></ul>',
+    'У хоста есть 3 варианта воспроизведения.<ul class="help-list"><li><strong>Локальный файл:</strong> выберите музыку на своём устройстве. Поддерживается точная синхронизация</li><li><strong>Совместный просмотр YouTube:</strong> поддерживаются видео и плейлисты. Разделение каналов и звуковые эффекты недоступны</li><li><strong>Системный звук:</strong> доступен, когда хост использует на компьютере браузер на базе Chromium</li></ul>',
   'help.need_help_html':
-    '<ul class="help-list"><li><strong>Код введен, но подключиться не удается:</strong> Проверьте код и попробуйте еще раз через минуту. Корпоративные, школьные или VPN сети могут блокировать соединение.</li><li><strong>Нестабильное соединение:</strong> Рекомендуется, чтобы локальные гости находились ближе к Wi-Fi роутеру, а удаленные гости использовали стабильный интернет.</li><li><strong>Другие проблемы:</strong> Проверьте состояние сети и перезапустите приложение на всех устройствах. По остальным вопросам обратитесь к разделу <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Часто задаваемых вопросов (FAQ)</a> или свяжитесь с нами по электронной почте внизу страницы.</li></ul>',
-  'chat.peer_connected': '{{name}} вошел в комнату',
-  'chat.tracks_added': '{{name}} добавил(а) {{count}} материалов',
-  'chat.track_added_named': '{{name}} добавил(а) 1 материал: {{title}}',
-  'chat.tracks_added_named': '{{name}} добавил(а) {{count}} материалов, включая {{title}}',
-  'chat.peer_disconnected': '{{name}} вышел из комнаты',
+    '<ul class="help-list"><li><strong>Код введён, но подключиться не удаётся:</strong> проверьте код и повторите попытку чуть позже. Корпоративные, школьные сети и VPN могут ограничивать подключение.</li><li><strong>Нестабильное соединение:</strong> локальным участникам стоит находиться ближе к роутеру, а удалённым — использовать стабильное интернет-соединение.</li><li><strong>Другие проблемы:</strong> проверьте состояние сети и перезапустите приложение на всех устройствах. Ответы на другие вопросы ищите в разделе <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">часто задаваемых вопросов</a> или напишите нам по адресу внизу страницы.</li></ul>',
+  'chat.peer_connected': '{{name}} присоединяется к комнате',
+  'chat.tracks_added': 'Добавлено материалов: {{count}} ({{name}})',
+  'chat.track_added_named': 'Добавлен 1 материал: {{title}} ({{name}})',
+  'chat.tracks_added_named': 'Добавлено материалов: {{count}}, включая {{title}} ({{name}})',
+  'chat.peer_disconnected': '{{name}} покидает комнату',
   'chat.participant_connection_unstable_recovering':
     'Соединение участника {{name}} нестабильно. Пытаемся восстановить.',
   'chat.empty_html': 'Сообщений пока нет.<br>Напишите первое сообщение!',
   'chat.msg_truncated': 'Сообщение сокращено до {{max}} символов',
   'chat.scroll_to_bottom': 'Прокрутить вниз',
-  'setup.brand_tagline_html':
-    'Слушайте вместе, где бы вы ни были.<br>Идеальное звуковое окружение.',
+  'setup.brand_tagline_html': 'Слушайте вместе, где бы вы ни были.<br>Идеальное звучание.',
   'setup.invite_share_desc_html':
     'Подключите несколько устройств по беспроводной сети,<br>чтобы создать мощную аудиосистему.<br>Используйте 6-значный код приглашения для подключения.',
   'setup.play_together_desc_html':
-    'Когда хост воспроизводит материал,<br>все подключенные устройства играют синхронно.<br>Нажмите «Синхронизация» для выравнивания звука.',
+    'Когда хост воспроизводит материал,<br>все подключённые устройства воспроизводят звук синхронно.<br>Нажмите «Синхронизация», чтобы выровнять звук.',
   'setup.spatial_audio_desc_html':
     'Установите роль для каждого устройства.<br>Воспроизводите левый и правый каналы раздельно<br>и ощутите глубокий бас с сабвуфером.',
   'setup.advanced_audio_desc_html':
-    'Синхронизируйтесь с настройками хоста<br>и примените ко всей системе реверберацию, EQ,<br>виртуальные эффекты и многое другое.',
+    'Повторите настройки хоста во всей системе:<br>реверберацию, эквалайзер, виртуальные эффекты<br>и многое другое.',
   'youtube.enter_link_desc_html': 'Можно воспроизводить только публичные видео и плейлисты.',
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'Системный звук',
   'system_audio.sharing': 'Трансляция системного звука',
-  'system_audio.receiving': 'Прием системного звука',
+  'system_audio.receiving': 'Приём системного звука',
   'system_audio.owner_active': '{{name}} транслирует системный звук.',
   'system_audio.owner_preparing': '{{name}} готовится к трансляции системного звука.',
   'system_audio.pro_preparing': 'Подготовка трансляции системного звука.',
   'system_audio.pro_publish_failed': 'Не удалось начать трансляцию системного звука.',
-  'system_audio.coordinator_update_required': 'Обновите устройство, управляющее этой комнатой.',
+  'system_audio.coordinator_update_required':
+    'Обновите устройство, управляющее этой комнатой, чтобы поделиться системным звуком.',
   'system_audio.connection_unstable':
     'Соединение с системным звуком {{name}} нестабильно.\nПытаемся восстановить его.',
   'system_audio.capture_denied': 'Трансляция звука была отменена.',
   'system_audio.no_audio_track':
-    'Опция «Поделиться звуком» не была активирована.\nПопробуйте еще раз.',
+    'Опция «Поделиться звуком» не была активирована.\nПопробуйте ещё раз.',
   'system_audio.stop': 'Остановить трансляцию',
   'system_audio.started':
     'Системный звук может воспроизводиться с небольшой задержкой.\nРекомендуем хосту снизить громкость исходного устройства до минимума.',
@@ -826,13 +823,13 @@ const ru: Record<I18nKey, string> = {
   'system_audio.host_channel_locked':
     'Невозможно изменить роли динамиков во время трансляции системного звука.',
   'system_audio.effects_guest_only':
-    'Трансляция системного звука активна.\nЗвуковые эффекты применяются исключительно к устройствам гостей.',
+    'Трансляция системного звука активна.\nЗвуковые эффекты применяются только к устройствам участников.',
   'system_audio.desktop_only':
     'Доступно только на компьютере в браузере на базе Chromium (Chrome, Edge и др.).',
   'system_audio.receive_failed':
     'Не удалось принять системный звук.\nПопросите хоста перезапустить трансляцию.',
   'system_audio.remote_receive_limit':
-    'Прием системного звука остановлен после 2 часов.\nВойдите в комнату заново, чтобы продолжить прослушивание.',
+    'Приём системного звука остановлен через 2 часа.\nВойдите в комнату заново, чтобы продолжить прослушивание.',
   'system_audio.device_limit':
     'Системный звук доступен максимум для {{count}} устройств.\nХост входит в это число.',
   'system_audio.device_limit_stopped':
@@ -842,7 +839,7 @@ const ru: Record<I18nKey, string> = {
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Информация о сервисе',
   'legal.content_html':
-    '<strong>Политика конфиденциальности</strong><br><span data-legal-standard-storage>В одной сети содержимое сеанса обычно идёт прямо между устройствами. Сервер сигналинга недолго обрабатывает данные для работы комнаты, аутентификации и переподключения; часть данных удалённых или крупных сеансов идёт через Cloudflare. Удалённые файлы до 24 часов хранятся в закрытом хранилище Cloudflare; лишь участникам комнаты разрешено скачивать их ограниченное время. MUSIXQUARE получает доступ к данным, анализирует или хранит их лишь для предоставления сервиса, его работы и защиты.</span><span data-legal-pro-storage>В комнатах PRO Cloudflare хранит необходимое для работы состояние сеанса, участников, плейлиста, воспроизведения и загрузок. Оригиналы файлов плейлиста хранятся в закрытом хранилище Cloudflare; скачать их по URL с коротким сроком действия могут только участники комнаты. Файлы удаляются, когда администратор убирает их из плейлиста или оператор удаляет данные комнаты. MUSIXQUARE получает доступ к данным, анализирует или хранит их лишь для предоставления сервиса, его работы и защиты.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Узнать больше</a><br><br><strong>Предупреждение об авторских правах</strong><br>Контент, распространяемый через MUSIXQUARE, принадлежит его законным правообладателям. Функции совместного использования системного звука и файлов предназначены для личного использования. Пользователи несут ответственность за несанкционированное распространение или публичную передачу контента, защищенного авторским правом. Совместный просмотр YouTube использует официальный способ воспроизведения; учет просмотров и обработка прав осуществляются в соответствии с политикой сервиса и настройками правообладателей. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Узнать больше</a><br><br><strong>Ограничение ответственности</strong><br>MUSIXQUARE предоставляется бесплатно. Некоторые функции зависят от внешних сторонних сервисов (таких как YouTube или Cloudflare), в связи с чем могут возникать временные ограничения в работе в случае изменений или сбоев в этих сервисах. Синхронизация звука в реальном времени и качество удаленного общего доступа во многом зависят от стабильности сети, настроек браузера и производительности конкретного устройства. При отсутствии Wi-Fi-соединения может взиматься плата за мобильный интернет-трафик в соответствии с тарифами вашего оператора. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Узнать больше</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">О нас</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">История</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Дизайн-система</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>Политика конфиденциальности</strong><br><span data-legal-standard-storage>В одной сети содержимое сеанса обычно передаётся напрямую между устройствами. Сервер сигналинга недолго обрабатывает данные для работы комнаты, аутентификации и переподключения; часть данных удалённых или крупных сеансов передаётся через Cloudflare. Удалённые файлы до 24 часов хранятся в закрытом хранилище Cloudflare; только участники комнаты могут скачивать их в течение ограниченного времени. MUSIXQUARE получает доступ к данным, анализирует или хранит их только для предоставления, работы и защиты сервиса.</span><span data-legal-pro-storage>В комнатах PRO Cloudflare хранит необходимое для работы состояние сеанса, участников, плейлиста, воспроизведения и загрузок. Оригиналы файлов плейлиста хранятся в закрытом хранилище Cloudflare; скачать их по URL с коротким сроком действия могут только участники комнаты. Файлы удаляются, когда администратор убирает их из плейлиста или оператор удаляет данные комнаты. MUSIXQUARE получает доступ к данным, анализирует или хранит их только для предоставления, работы и защиты сервиса.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Узнать больше</a><br><br><strong>Предупреждение об авторских правах</strong><br>Материалы, распространяемые через MUSIXQUARE, принадлежат их законным правообладателям. Функции совместного использования системного звука и файлов предназначены для личного использования. Пользователи несут ответственность за несанкционированное распространение или публичную передачу материалов, защищённых авторским правом. Совместный просмотр YouTube использует официальный способ воспроизведения; учёт просмотров и обработка прав осуществляются в соответствии с политикой сервиса и настройками правообладателей. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Узнать больше</a><br><br><strong>Ограничение ответственности</strong><br>MUSIXQUARE предоставляется бесплатно. Некоторые функции зависят от внешних сервисов, таких как YouTube или Cloudflare, поэтому при изменениях или сбоях в этих сервисах могут возникать временные ограничения. Синхронизация звука в реальном времени и качество удалённого общего доступа во многом зависят от стабильности сети, настроек браузера и производительности устройства. При отсутствии Wi-Fi-соединения может взиматься плата за мобильный интернет-трафик в соответствии с тарифами вашего оператора. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Узнать больше</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">О нас</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">История</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Дизайн-система</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 };
 
 export default ru;

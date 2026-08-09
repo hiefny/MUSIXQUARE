@@ -709,8 +709,8 @@ describe('connect i18n refresh', () => {
     expect(grant?.classList).toContain('administrator-state-button');
     expect(grant?.dataset.administratorState).toBe('inactive');
     expect(grant?.querySelector(`path[d="${crownPath}"]`)).not.toBeNull();
-    expect(revoke?.ariaLabel).toBe('Revoke administrator from Admin');
-    expect(revoke?.title).toBe('Revoke administrator from Admin');
+    expect(revoke?.ariaLabel).toBe('Revoke administrator permissions from Admin');
+    expect(revoke?.title).toBe('Revoke administrator permissions from Admin');
     expect(revoke?.classList).not.toContain('administrator-state-button');
     expect(revoke?.dataset.administratorState).toBeUndefined();
     expect(revoke?.querySelector(`path[d="${revokePath}"]`)).not.toBeNull();

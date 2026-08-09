@@ -20,6 +20,41 @@ export class StaleSignalingVersionError extends Error {
   }
 }
 
+export class InitialHostDeploymentConvergenceError extends Error {
+  constructor(statusCode) {
+    super(
+      `initial host WebSocket upgrade returned HTTP ${statusCode} before the expected signaling deployment became ready`,
+    );
+    this.name = 'InitialHostDeploymentConvergenceError';
+    this.statusCode = statusCode;
+  }
+}
+
+export function initialHostHandshakeError(statusCode, expectedVersion, label) {
+  const normalizedStatus = Number.isInteger(statusCode) ? statusCode : 0;
+  if (expectedVersion && normalizedStatus === 500) {
+    return new InitialHostDeploymentConvergenceError(normalizedStatus);
+  }
+  return new Error(
+    `${label} WebSocket upgrade returned HTTP ${normalizedStatus || '<missing>'}`,
+  );
+}
+
+export function settleUnexpectedInitialHostResponse(
+  socket,
+  response,
+  expectedVersion,
+  label,
+) {
+  const error = initialHostHandshakeError(response.statusCode, expectedVersion, label);
+  // Registering an `unexpected-response` listener suppresses ws's default
+  // abortHandshake path. Discard the response and explicitly close the still-
+  // CONNECTING client so a readiness retry never leaks a socket.
+  response.resume();
+  socket.terminate();
+  return error;
+}
+
 export function assertPeerOpenVersion(message, expectedVersion, label, retryIfStale = false) {
   if (!expectedVersion) return;
   const actualVersion =
@@ -38,7 +73,7 @@ function socketUrl(roomId, role, peerId) {
   return url.toString();
 }
 
-function createSocketInbox(url, label) {
+function createSocketInbox(url, label, { expectedInitialHostVersion = '' } = {}) {
   const socket = new WebSocket(url, { origin: APP_ORIGIN });
   const queued = [];
   const waiters = new Set();
@@ -52,6 +87,19 @@ function createSocketInbox(url, label) {
 
   const opened = new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`${label} open timeout`)), MESSAGE_TIMEOUT_MS);
+    if (expectedInitialHostVersion) {
+      socket.once('unexpected-response', (_request, response) => {
+        clearTimeout(timer);
+        reject(
+          settleUnexpectedInitialHostResponse(
+            socket,
+            response,
+            expectedInitialHostVersion,
+            label,
+          ),
+        );
+      });
+    }
     socket.once('open', () => {
       clearTimeout(timer);
       resolve();
@@ -122,7 +170,7 @@ function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-export async function withStaleVersionRetry(
+export async function withSignalingReadinessRetry(
   operation,
   {
     retryDelaysMs = STALE_VERSION_RETRY_DELAYS_MS,
@@ -139,7 +187,12 @@ export async function withStaleVersionRetry(
     try {
       return await operation(attempt);
     } catch (error) {
-      if (!(error instanceof StaleSignalingVersionError)) throw error;
+      if (
+        !(error instanceof StaleSignalingVersionError) &&
+        !(error instanceof InitialHostDeploymentConvergenceError)
+      ) {
+        throw error;
+      }
       const delayMs = retryDelaysMs[attempt - 1];
       if (delayMs === undefined) throw error;
       onRetry?.({ error, attempt, delayMs });
@@ -218,6 +271,7 @@ async function runRoomAttempt(password, expectedVersion) {
   const host = createSocketInbox(
     socketUrl(roomId, 'host', hostPeerId),
     `${password ? 'protected' : 'passwordless'} host`,
+    { expectedInitialHostVersion: expectedVersion },
   );
   const guestSockets = new Set();
   const createGuest = (peerId, label) => {
@@ -435,7 +489,7 @@ async function runRoomAttempt(password, expectedVersion) {
 }
 
 async function runRoom(password, expectedVersion) {
-  return withStaleVersionRetry(() => runRoomAttempt(password, expectedVersion));
+  return withSignalingReadinessRetry(() => runRoomAttempt(password, expectedVersion));
 }
 
 export async function main() {

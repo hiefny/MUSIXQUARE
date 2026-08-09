@@ -4,6 +4,11 @@ import { tmpdir } from 'node:os';
 import { basename, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import {
+  assertDurableObjectMigrationContract,
+  assertDurableObjectMigrationRepositoryHistory,
+} from './check-durable-object-migration-contract.mjs';
+
 const repositoryRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 export const PRODUCTION_WRANGLER_CONFIGS = Object.freeze([
@@ -125,6 +130,8 @@ export function workerBundleDryRunEnvironment(environment = process.env) {
 }
 
 export function runWorkerBundleDryRuns(root = repositoryRoot) {
+  const migrationContract = assertDurableObjectMigrationContract({ root });
+  const migrationHistory = assertDurableObjectMigrationRepositoryHistory({ root });
   const configs = assertProductionWranglerConfigCoverage(root);
   const { version, binary } = readPinnedWranglerToolchain(root);
   if (!existsSync(resolve(root, 'dist'))) {
@@ -135,7 +142,9 @@ export function runWorkerBundleDryRuns(root = repositoryRoot) {
 
   const temporaryRoot = mkdtempSync(resolve(tmpdir(), 'musixquare-worker-bundles-'));
   process.stdout.write(
-    `[worker-bundles] Wrangler ${version}; validating ${configs.length} production configs.\n`,
+    `[worker-bundles] Wrangler ${version}; validating ${configs.length} production configs, ` +
+      `${migrationContract.migrationCount} Durable Object migrations, and ` +
+      `${migrationHistory.visibleRevisionCount} committed manifest revisions.\n`,
   );
   try {
     for (const config of configs) {

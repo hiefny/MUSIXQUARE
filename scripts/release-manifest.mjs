@@ -5,7 +5,6 @@ import { dirname, relative, resolve, sep } from 'node:path';
 import { readReleaseIdentity } from './release-identity.mjs';
 
 const SCHEMA_VERSION = 2;
-const DEFAULT_WRANGLER_VERSION = '4.114.0';
 const REUSABLE_RELEASE_TARGETS = new Set([
   'app',
   'signaling',
@@ -33,6 +32,23 @@ function npmVersion() {
     }).trim();
   }
   return commandVersion('npm');
+}
+
+function installedWranglerVersion() {
+  const packagePath = new URL('../node_modules/wrangler/package.json', import.meta.url);
+  let packageJson;
+  try {
+    packageJson = JSON.parse(readFileSync(packagePath, 'utf8'));
+  } catch (error) {
+    throw new Error('Cannot read the installed Wrangler package metadata. Run npm ci.', {
+      cause: error,
+    });
+  }
+  const version = packageJson?.version;
+  if (typeof version !== 'string' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(version)) {
+    throw new Error('The installed Wrangler package has an invalid version.');
+  }
+  return version;
 }
 
 function toPortablePath(filePath) {
@@ -98,7 +114,7 @@ function createManifest() {
     tools: {
       node: process.version,
       npm: npmVersion(),
-      wrangler: process.env.WRANGLER_VERSION || DEFAULT_WRANGLER_VERSION,
+      wrangler: installedWranglerVersion(),
     },
     files,
   };
@@ -169,9 +185,10 @@ function verifyManifest() {
       `Release manifest validation profile ${manifest.validationProfile} does not match ${process.env.RELEASE_VALIDATION_PROFILE}.`,
     );
   }
-  if (process.env.WRANGLER_VERSION && manifest.tools?.wrangler !== process.env.WRANGLER_VERSION) {
+  const wranglerVersion = installedWranglerVersion();
+  if (manifest.tools?.wrangler !== wranglerVersion) {
     throw new Error(
-      `Release manifest Wrangler ${manifest.tools?.wrangler} does not match ${process.env.WRANGLER_VERSION}.`,
+      `Release manifest Wrangler ${manifest.tools?.wrangler} does not match installed ${wranglerVersion}.`,
     );
   }
 

@@ -5,7 +5,7 @@ how to compare them with the repository without printing secret values. The
 repository inventory was reconciled on 2026-08-09. A date here records the
 checked-in contract, not proof that the live dashboard was inspected that day.
 
-## R2 CORS
+## R2 CORS and lifecycle
 
 Repository inputs:
 
@@ -33,11 +33,22 @@ npm run wrangler -- r2 bucket cors set musixquare-remote-share --file cloudflare
 npm run wrangler -- r2 bucket cors set musixquare-pro-media --file cloudflare/r2-cors.pro-media.json --config cloudflare/wrangler.pro-room.toml
 ```
 
+The same read-only audit queries Cloudflare's lifecycle endpoint, whose expected
+successful envelope is `{ "success": true, "result": { "rules": [...] } }`.
+`musixquare-remote-share` must match
+`r2-lifecycle.remote-share.json` exactly: rule ID, enabled state, `room/` prefix,
+delete transition type, and 86,400-second age are all contract material.
+`musixquare-pro-media` is persistent source storage and must not have an enabled
+date-based delete transition or an age-based delete transition of 86,400 seconds
+or less. This catches a copied temporary-media cleanup rule without pretending
+that the audit manages bucket state.
+
 The checked-in source-to-live mapping is
 `cloudflare/ops-drift.contract.json`. The manually dispatched
 `Operations Drift Audit` GitHub workflow performs **GET-only** comparisons for
-all three R2 policies and the effective `main` branch rules. It never applies a
-CORS policy or edits a GitHub ruleset. The workflow runs only for `main` and
+all three R2 CORS policies, the exact remote-share lifecycle, the PRO short-delete
+guard, and the effective `main` branch rules. It never applies a bucket policy or
+edits a GitHub ruleset. The workflow runs only for `main` and
 injects credentials only into the live comparison step. It prefers the
 production environment's `CLOUDFLARE_DRIFT_AUDIT_TOKEN` with R2 configuration
 read access only. A missing narrow credential fails closed; the audit workflow
@@ -48,8 +59,25 @@ query; the audit script contains no mutating HTTP method.
 
 The workflow retains a JSON report for 90 days and writes a compact table to
 the Actions summary. A missing credential, API error, missing required branch
-rule, or CORS mismatch fails the job. Rows marked `MANUAL` were deliberately
+rule, CORS mismatch, lifecycle mismatch, or forbidden short delete rule fails the
+job. Rows marked `MANUAL` were deliberately
 not queried and must never be interpreted as passing.
+
+## Worker URL observability
+
+All six production Wrangler configs keep sampled custom Worker logs enabled,
+but set `observability.logs.invocation_logs = false` and disable automatic
+traces. This is a fleet-wide credential-minimization boundary: the App OAuth
+callback receives one-use `code` and `state` query values, and cached PRO
+clients may use the signaling `ticket` query only until the documented rollout
+cutoff. Provider heuristics are not treated as reliable redaction. Application
+logs must remain structured and must not include raw request URLs, query
+strings, credentials, cookies, or authorization headers.
+
+Treat any dashboard or TOML drift that re-enables automatic invocation logs or
+traces as a security incident until the affected retention window and sampled
+events have been reviewed. Operational visibility comes from the sampled,
+credential-free custom event schema and the release/health summaries instead.
 
 ## Worker Secret Inventory
 
@@ -88,6 +116,12 @@ also signs the app's session capability. Share only the explicitly named
 App/Worker or PRO/signaling pairs; other provider-issued OAuth, R2, TURN,
 Gemini, and YouTube credentials retain their provider-defined formats.
 
+`MXQR_ADMIN_PASSWORD` is not an HMAC key, but the App Worker still treats it as
+configured only at 16 through 256 UTF-8 bytes. `MXQR_ADMIN_SESSION_SECRET` is a
+separate signing domain and must not be reused for capability, assertion, or
+provider credentials. Both values are compared/used exactly as stored;
+whitespace is secret material, so secret-entry tooling must not add or trim it.
+
 The 2026-07-16 reconciliation removed the unreferenced `TURN_USER` and
 `TURN_PASS` secrets and the inactive Turnstile keys. If the product policy is
 intentionally reversed from `MXQR_TURNSTILE_DISABLED=true`, provision fresh
@@ -112,6 +146,19 @@ Inventory every deployed Worker, not only the three original services:
   private facade service.
 - Developer API facade: private PRO-room and service-control Durable Object
   bindings only.
+
+`cloudflare/durable-object-migrations.manifest.json` is the canonical ordered
+history for every production `wrangler*.toml`, including App and Developer API
+facade configs whose local migration arrays are currently empty. The source
+guard parses each TOML and requires exact equality with the manifest before any
+bundle dry-run. It then walks every visible first-parent manifest revision and
+allows only suffix appends for an existing Worker script; a tag, class list,
+script identity, or prior entry cannot be edited, reordered, truncated, or
+removed. CI, release validation, and this drift workflow all retain full Git
+history so the append-only proof does not silently degrade to the current file.
+Cloudflare's newer declarative `exports` lifecycle is a separate migration and
+must not be mixed into a legacy migration-array Worker without extending this
+contract and reviewing the provider transition.
 
 The tracked admin schema contains `mxqr_metric_buckets`,
 `mxqr_lifetime_metric_totals`,

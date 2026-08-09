@@ -55,7 +55,6 @@ vi.mock('../setup-shared.ts', () => ({
   getHostCodeFlowId: () => mocks.flowId,
   incrementHostCodeFlowId: () => ++mocks.flowId,
   setupEl: (id: string) => document.getElementById(id),
-  stopObAutoSlide: vi.fn(),
   setupShowJoinArea: vi.fn(),
   setupShowAutoJoinArea: vi.fn(),
   setupShowCodeArea: vi.fn(),

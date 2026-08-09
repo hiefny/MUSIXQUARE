@@ -22,6 +22,7 @@ import { hideSetupOverlay } from '../ui/setup-shared.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
 import { updateOverlayOpenClass } from '../ui/dom.ts';
+import { syncExclusivePressedState } from '../core/aria-state.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from '../ui/theme-chrome.ts';
 import type { FileMeta, QueueItemId, ResidentFile, TrackMeta } from '../types/index.ts';
 import {
@@ -163,10 +164,10 @@ function getCurrentVisualizerMode(): 'circular' | 'spectrum' {
 }
 
 function syncVisualizerModeButtons(mode: 'circular' | 'spectrum'): void {
-  document
-    .querySelectorAll('#grid-visualizer .ch-opt')
-    .forEach((el) => el.classList.remove('active'));
-  document.querySelector(`#grid-visualizer .ch-opt[data-viz="${mode}"]`)?.classList.add('active');
+  syncExclusivePressedState(
+    document.querySelectorAll<HTMLElement>('#grid-visualizer .ch-opt[data-viz]'),
+    (element) => element.dataset.viz === mode,
+  );
 }
 
 function setVisualizerMode(mode: 'circular' | 'spectrum'): void {
@@ -971,7 +972,8 @@ function syncDemoStep(step = _demoStep, revealScrollbar = false): void {
   document.querySelectorAll<HTMLElement>('[data-demo-panel]').forEach((panel) => {
     panel.classList.toggle('active', panel.dataset.demoPanel === String(_demoStep));
   });
-  document.querySelectorAll<HTMLElement>('[data-demo-step]').forEach((btn) => {
+  const stepButtons = document.querySelectorAll<HTMLElement>('[data-demo-step]');
+  stepButtons.forEach((btn) => {
     const active = btn.dataset.demoStep === String(_demoStep);
     const wasActive = btn.classList.contains('active');
     const collapseTimer = _demoStepCollapseTimers.get(btn);
@@ -990,10 +992,8 @@ function syncDemoStep(step = _demoStep, revealScrollbar = false): void {
       btn.classList.remove('is-collapsing');
       _demoStepCollapseTimers.delete(btn);
     }
-
-    btn.classList.toggle('active', active);
-    btn.setAttribute('aria-selected', String(active));
   });
+  syncExclusivePressedState(stepButtons, (button) => button.dataset.demoStep === String(_demoStep));
   document.querySelectorAll<HTMLElement>('[data-demo-next]').forEach((btn) => {
     const isFinal = _demoStep >= 4;
     btn.classList.toggle('active', isFinal);

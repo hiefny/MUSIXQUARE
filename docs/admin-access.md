@@ -5,6 +5,13 @@ MUSIXQUARE administrator UI and API. Access is an outer identity gate; the
 existing MUSIXQUARE administrator password and session cookie remain enabled
 as a second, independent authentication layer.
 
+The internal password is considered configured only when its UTF-8 encoding is
+16 through 256 bytes, and its session-signing secret must be an independent
+random value of at least 32 characters. The App Worker signs a domain-separated
+session payload with exactly `v`, `iat`, `exp`, and a 16-byte nonce; the expiry
+must remain exactly 12 hours after issuance. Any malformed configuration or
+session contract fails closed and requires a new sign-in.
+
 ## Application
 
 Create one self-hosted Access application named `MUSIXQUARE Admin` with a
@@ -41,6 +48,11 @@ Create one `Allow` policy with both of the following conditions:
 Both conditions are required. A policy that only requires `One-time PIN` would
 allow any email address that can complete an OTP challenge. Do not remove or
 bypass the app's existing password login after Access is enabled.
+
+The inner login reads `MXQR_ADMIN_PASSWORD` and
+`MXQR_ADMIN_SESSION_SECRET` exactly as stored. Leading or trailing whitespace
+is part of either secret; when rotating them, use a secret-entry method that
+does not silently add a newline or trim/quote the value.
 
 ## Activation Safety
 

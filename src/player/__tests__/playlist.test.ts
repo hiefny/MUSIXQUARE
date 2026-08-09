@@ -480,6 +480,25 @@ describe('setRepeatMode', () => {
     setRepeatMode(2, false);
     expect(getState('playlist.repeatMode')).toBe(2);
   });
+
+  it('keeps visual repeat variants under one pressed-state contract', () => {
+    document.body.innerHTML = '<button id="btn-repeat"></button>';
+    const button = document.getElementById('btn-repeat')!;
+
+    setRepeatMode(1, false);
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(button.classList).toContain('active');
+    expect(button.classList).not.toContain('active-one');
+
+    setRepeatMode(2, false);
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(button.classList).not.toContain('active');
+    expect(button.classList).toContain('active-one');
+
+    setRepeatMode(0, false);
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    expect(button.classList).not.toContain('active-one');
+  });
 });
 
 describe('setShuffle', () => {
@@ -491,6 +510,19 @@ describe('setShuffle', () => {
   it('disables shuffle', () => {
     setShuffle(false, false);
     expect(getState('playlist.isShuffle')).toBe(false);
+  });
+
+  it('mirrors shuffle state to aria-pressed', () => {
+    document.body.innerHTML = '<button id="btn-shuffle"></button>';
+    const button = document.getElementById('btn-shuffle')!;
+
+    setShuffle(true, false);
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+    expect(button.classList).toContain('active');
+
+    setShuffle(false, false);
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    expect(button.classList).not.toContain('active');
   });
 });
 

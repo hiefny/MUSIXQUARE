@@ -142,6 +142,12 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
         removeEventListener: vi.fn(),
       })),
     );
+    delete document.body.dataset.demoBound;
+    document.body.innerHTML = `
+      <button class="active" data-demo-step="1" aria-pressed="true"></button>
+      <button data-demo-step="2" aria-pressed="false"></button>
+      <button data-demo-step="3" aria-pressed="false"></button>
+    `;
     // Simulate the real loadDemoFile side effects the snapshot must defend
     // against: buffer publish + transfer.meta overwrite (decode.ts).
     mocks.loadDemoFile.mockImplementation(async (_file: File, meta: { name?: string }) => {
@@ -164,6 +170,19 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     clearAllManagedTimers();
     vi.unstubAllGlobals();
     vi.useRealTimers();
+  });
+
+  it('keeps demo step styling and pressed state aligned after a step click', () => {
+    const steps = [...document.querySelectorAll<HTMLElement>('[data-demo-step]')];
+
+    steps[1]?.click();
+
+    expect(steps.map((step) => step.classList.contains('active'))).toEqual([false, true, false]);
+    expect(steps.map((step) => step.getAttribute('aria-pressed'))).toEqual([
+      'false',
+      'true',
+      'false',
+    ]);
   });
 
   it('refuses to enter the standard-room demo inside a PRO room', async () => {
@@ -567,6 +586,36 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     await flush(50);
     bus.emit('demo:request-exit');
     await flush(50);
+  });
+
+  it('keeps visualizer button styling and pressed state aligned on entry and recovery', async () => {
+    document.body.className = 'viz-circular';
+    document.body.innerHTML = `
+      <div id="grid-visualizer">
+        <button class="ch-opt active" data-viz="circular" aria-pressed="true"></button>
+        <button class="ch-opt" data-viz="spectrum" aria-pressed="false"></button>
+      </div>
+    `;
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+
+    bus.emit('demo:enter');
+
+    const circular = document.querySelector<HTMLElement>('[data-viz="circular"]');
+    const spectrum = document.querySelector<HTMLElement>('[data-viz="spectrum"]');
+    expect(circular?.classList.contains('active')).toBe(false);
+    expect(circular?.getAttribute('aria-pressed')).toBe('false');
+    expect(spectrum?.classList.contains('active')).toBe(true);
+    expect(spectrum?.getAttribute('aria-pressed')).toBe('true');
+
+    await flush();
+    FakeXHR.pending[0]?.failNetwork();
+    await flush(50);
+
+    expect(circular?.classList.contains('active')).toBe(true);
+    expect(circular?.getAttribute('aria-pressed')).toBe('true');
+    expect(spectrum?.classList.contains('active')).toBe(false);
+    expect(spectrum?.getAttribute('aria-pressed')).toBe('false');
   });
 
   it('maps combined bass and treble boosts to the advanced V-shaped EQ', async () => {

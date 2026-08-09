@@ -10,6 +10,8 @@ let appSource: string;
 let appStylesheet: string;
 let desktopStylesheet: string;
 let settingsSource: string;
+let appRuntimeSource: string;
+let platformSource: string;
 
 beforeAll(() => {
   appSource = readFileSync(resolve('index.html'), 'utf8');
@@ -17,6 +19,8 @@ beforeAll(() => {
   appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
   desktopStylesheet = readFileSync(resolve('css/desktop.css'), 'utf8');
   settingsSource = readFileSync(resolve('src/ui/settings.ts'), 'utf8');
+  appRuntimeSource = readFileSync(resolve('src/app.ts'), 'utf8');
+  platformSource = readFileSync(resolve('src/core/platform.ts'), 'utf8');
 });
 
 describe('app UX markup contract', () => {
@@ -28,19 +32,84 @@ describe('app UX markup contract', () => {
     expect(inviteActions.every((element) => element.getAttribute('type') === 'button')).toBe(true);
   });
 
+  it('gives the read-only host room code an accessible name', () => {
+    const code = appDocument.getElementById('setup-code');
+    const labelId = code?.getAttribute('aria-labelledby');
+
+    expect(labelId).toBe('setup-host-code-label');
+    expect(appDocument.getElementById(labelId ?? '')?.getAttribute('data-i18n')).toBe(
+      'setup.enter_code_connect',
+    );
+  });
+
+  it('keeps the iOS audio primer rooted on trailing-slash invite documents', () => {
+    const primer = appDocument.getElementById('silent-trigger');
+    const source = primer?.getAttribute('src');
+
+    expect(source).toBe('/dummy_audio.mp3');
+    expect(new URL(source ?? '', 'https://musixquare.com/123456/').pathname).toBe(
+      '/dummy_audio.mp3',
+    );
+  });
+
+  it('connects each settings subtab button to a stable panel and exposes selection', () => {
+    const buttons = [
+      ...appDocument.querySelectorAll<HTMLButtonElement>('.subtab-pill[data-subtab]'),
+    ];
+
+    expect(buttons).toHaveLength(4);
+    for (const button of buttons) {
+      const panelId = button.getAttribute('aria-controls');
+      const panel = appDocument.getElementById(panelId ?? '');
+      expect(button.type).toBe('button');
+      expect(panel?.dataset.panel).toBe(button.dataset.subtab);
+      expect(button.getAttribute('aria-pressed')).toBe(
+        button.classList.contains('active') ? 'true' : 'false',
+      );
+    }
+  });
+
+  it('exposes demo step selection without an invalid mixed-action tablist', () => {
+    const navigation = appDocument.querySelector('.demo-step-nav');
+    const steps = [...appDocument.querySelectorAll<HTMLElement>('[data-demo-step]')];
+    const next = appDocument.querySelector('[data-demo-next]');
+
+    expect(navigation?.hasAttribute('role')).toBe(false);
+    expect(navigation?.contains(next)).toBe(true);
+    expect(steps).toHaveLength(3);
+    expect(steps.map((step) => step.getAttribute('aria-pressed'))).toEqual([
+      'true',
+      'false',
+      'false',
+    ]);
+    expect(steps.every((step) => !step.hasAttribute('aria-selected'))).toBe(true);
+  });
+
   it('keeps one playlist add action without duplicating it in the empty state', () => {
     expect(appDocument.querySelectorAll('#btn-add-media')).toHaveLength(1);
     expect(appDocument.querySelector('#playlist-ui .list-empty-state button')).toBeNull();
   });
 
-  it('keeps the intentional contenteditable URL field and mobile zoom lock', () => {
+  it('keeps the intentional contenteditable URL field without blocking browser zoom', () => {
     const youtubeField = appDocument.getElementById('youtube-url-input');
     expect(youtubeField?.tagName).toBe('DIV');
     expect(youtubeField?.getAttribute('contenteditable')).toBe('true');
 
     const viewport = appDocument.querySelector<HTMLMetaElement>('meta[name="viewport"]');
-    expect(viewport?.content).toContain('maximum-scale=1');
-    expect(viewport?.content).toContain('user-scalable=no');
+    expect(viewport?.content).toContain('width=device-width');
+    expect(viewport?.content).not.toContain('maximum-scale');
+    expect(viewport?.content).not.toContain('user-scalable');
+    expect(platformSource).not.toContain("'gesturestart'");
+    expect(platformSource).not.toContain('preventIOSPinchZoom');
+  });
+
+  it('keeps Space as the only unmodified single-key playback shortcut', () => {
+    const shortcutStart = appRuntimeSource.indexOf('function initKeyboardShortcuts');
+    const shortcutEnd = appRuntimeSource.indexOf('\nfunction ', shortcutStart + 1);
+    const shortcutSource = appRuntimeSource.slice(shortcutStart, shortcutEnd);
+
+    expect(shortcutSource).toContain("e.code === 'Space'");
+    expect(shortcutSource).not.toMatch(/e\.key === ['"][pPsScC]['"]/u);
   });
 
   it('places settings sync between the device role and reverb sections', () => {

@@ -25,7 +25,6 @@ import {
   waitForCurrentQueueIndex,
 } from './helpers/queue-state.ts';
 import {
-  isVisible,
   readPlaybackProjection,
   readState,
   waitForPlaybackProjection,

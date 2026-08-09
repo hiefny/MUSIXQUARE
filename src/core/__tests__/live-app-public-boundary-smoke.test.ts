@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   APP_PUBLIC_BOUNDARY_TIMEOUT_MS,
   verifyAnonymousAccountSessionBoundary,
+  verifyProductionCapabilityBoundary,
 } from '../../../scripts/live-app-public-boundary-smoke.mjs';
 
 describe('live app public boundary smoke', () => {
@@ -59,5 +60,39 @@ describe('live app public boundary smoke', () => {
       configured: true,
       anonymousSessionRejected: true,
     });
+  });
+
+  it('requires production capability auth and an anonymous paid-API rejection', async () => {
+    const read = vi.fn(async () => ({
+      configStatus: 200,
+      config: { capabilityRequired: true },
+      paidStatus: 401,
+      paid: { error: 'CAPABILITY_REQUIRED' },
+    }));
+
+    await expect(verifyProductionCapabilityBoundary({ read })).resolves.toEqual({
+      capabilityRequired: true,
+      anonymousPaidApiRejected: true,
+    });
+    expect(read).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {
+      configStatus: 200,
+      config: { capabilityRequired: false },
+      paidStatus: 503,
+      paid: { error: 'TURN_CONFIG_UNAVAILABLE' },
+    },
+    {
+      configStatus: 200,
+      config: { capabilityRequired: true },
+      paidStatus: 200,
+      paid: { turn: true },
+    },
+  ])('fails closed on production capability drift %#', async (result) => {
+    await expect(
+      verifyProductionCapabilityBoundary({ read: async () => result }),
+    ).rejects.toThrow();
   });
 });

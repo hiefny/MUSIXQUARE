@@ -9,9 +9,21 @@ const SERVICE_WORKER_SOURCE = readFileSync(resolve('public/service-worker.js'), 
 const CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
 const HANDOFF_KEY = '__mxqrTakeProRoomFragmentClaims';
 const ANALYTICS_SRC = 'https://static.cloudflareinsights.com/beacon.min.js';
+const CLAIM_ALIAS_CASES = [
+  ['claim_token', 'activation'],
+  ['claim-token', 'activation'],
+  ['pro_claim', 'activation'],
+  ['proclaim', 'activation'],
+  ['pro_recovery', 'recovery'],
+  ['prorecovery', 'recovery'],
+  ['pro_transfer', 'transfer'],
+  ['protransfer', 'transfer'],
+] as const;
 
 interface FakeScript {
   async?: boolean;
+  crossOrigin?: string;
+  integrity?: string;
   src?: string;
   attributes: Record<string, string>;
   setAttribute(name: string, value: string): void;
@@ -22,6 +34,7 @@ function runBootstrap(
   options: {
     hostname?: string;
     paramsFail?: boolean;
+    pathname?: string;
     replaceFails?: boolean;
     search?: string;
     expectedScrubUrl?: string;
@@ -32,7 +45,7 @@ function runBootstrap(
   const location = {
     hash,
     hostname: options.hostname ?? 'musixquare.com',
-    pathname: '/000001',
+    pathname: options.pathname ?? '/000001',
     search: options.search ?? '?lang=ko',
   };
   const history = {
@@ -120,7 +133,7 @@ describe('early PRO claim bootstrap', () => {
     expect(INDEX_SOURCE).not.toContain(`src="${ANALYTICS_SRC}"`);
   });
 
-  it('scrubs before exposing a one-use non-enumerable handoff or starting analytics', () => {
+  it('scrubs before exposing a one-use non-enumerable handoff and keeps room analytics off', () => {
     const harness = runBootstrap(
       `#view=setup&pro-claim=${CLAIM}&pro-recovery=${CLAIM}&pro-transfer=${CLAIM}`,
     );
@@ -147,11 +160,10 @@ describe('early PRO claim bootstrap', () => {
       transferClaim: CLAIM,
       transferPresent: true,
     });
-    expect(harness.events).toEqual(['scrub', 'analytics']);
-    expect(harness.appendedScripts).toHaveLength(1);
-    expect(harness.appendedScripts[0]).toMatchObject({ async: true, src: ANALYTICS_SRC });
+    expect(harness.events).toEqual(['scrub']);
+    expect(harness.appendedScripts).toHaveLength(0);
     expect(take()).toBeNull();
-    expect(harness.appendedScripts).toHaveLength(1);
+    expect(harness.appendedScripts).toHaveLength(0);
   });
 
   it('fails closed when a credential-bearing fragment cannot be scrubbed', () => {
@@ -191,7 +203,8 @@ describe('early PRO claim bootstrap', () => {
       transferClaim: null,
       transferPresent: true,
     });
-    expect(harness.events).toEqual(['scrub', 'analytics']);
+    expect(harness.events).toEqual(['scrub']);
+    expect(harness.appendedScripts).toEqual([]);
   });
 
   it('invalidates a fragment claim when any query credential contaminates the URL', () => {
@@ -230,28 +243,87 @@ describe('early PRO claim bootstrap', () => {
     expect(Object.prototype.hasOwnProperty.call(harness.windowObject, HANDOFF_KEY)).toBe(false);
   });
 
-  it('preserves Cloudflare Analytics for ordinary URLs without installing a handoff', () => {
-    const harness = runBootstrap('#view=setup');
+  it.each(CLAIM_ALIAS_CASES)(
+    'scrubs fragment claim alias %s without accepting its value',
+    (alias, purpose) => {
+      const harness = runBootstrap(`#view=setup&${alias}=${CLAIM}`, {
+        pathname: '/about',
+        search: '',
+        expectedScrubUrl: '/about',
+      });
+      const take = Object.getOwnPropertyDescriptor(harness.windowObject, HANDOFF_KEY)
+        ?.value as () => Record<string, unknown> | null;
+      const handoff = take();
 
-    expect(harness.events).toEqual(['analytics']);
-    expect(harness.appendedScripts).toHaveLength(1);
-    expect(harness.appendedScripts[0]?.attributes['data-cf-beacon']).toContain(
-      '80608f4cdc3849d589d14bdcf48f19f9',
-    );
-    expect(Object.prototype.hasOwnProperty.call(harness.windowObject, HANDOFF_KEY)).toBe(false);
-  });
+      expect(harness.location.hash).toBe('');
+      expect(handoff).toMatchObject({
+        [`${purpose}Claim`]: null,
+        [`${purpose}Present`]: true,
+      });
+      expect(harness.events).toEqual(['scrub']);
+      expect(JSON.stringify(handoff)).not.toContain(CLAIM);
+      expect(take()).toBeNull();
+    },
+  );
 
-  it('preserves Cloudflare Analytics on a production subdomain', () => {
-    const harness = runBootstrap('#view=setup', { hostname: 'listen.musixquare.com' });
+  it.each(CLAIM_ALIAS_CASES)(
+    'scrubs query claim alias %s and never enables analytics for that navigation',
+    (alias, purpose) => {
+      const harness = runBootstrap('#view=setup', {
+        pathname: '/about',
+        search: `?lang=ko&${alias}=${CLAIM}`,
+        expectedScrubUrl: '/about?lang=ko#view=setup',
+      });
+      const take = Object.getOwnPropertyDescriptor(harness.windowObject, HANDOFF_KEY)
+        ?.value as () => Record<string, unknown> | null;
 
-    expect(harness.events).toEqual(['analytics']);
-    expect(harness.appendedScripts).toHaveLength(1);
+      expect(harness.location.search).toBe('?lang=ko');
+      expect(harness.location.hash).toBe('#view=setup');
+      expect(take()).toMatchObject({
+        [`${purpose}Claim`]: null,
+        [`${purpose}Present`]: true,
+      });
+      expect(harness.events).toEqual(['scrub']);
+      expect(harness.appendedScripts).toEqual([]);
+    },
+  );
+
+  it.each(['musixquare.com', 'listen.musixquare.com'])(
+    'keeps the main SPA analytics-free on production host %s',
+    (hostname) => {
+      const harness = runBootstrap('#view=setup', {
+        hostname,
+        pathname: '/about',
+        search: '',
+      });
+
+      expect(harness.events).toEqual([]);
+      expect(harness.appendedScripts).toEqual([]);
+      expect(Object.prototype.hasOwnProperty.call(harness.windowObject, HANDOFF_KEY)).toBe(false);
+    },
+  );
+
+  it.each(['/000001', '/000001/'])(
+    'keeps Cloudflare Analytics disabled on six-digit room path %s',
+    (pathname) => {
+      const harness = runBootstrap('', { pathname, search: '' });
+
+      expect(harness.events).toEqual([]);
+      expect(harness.appendedScripts).toEqual([]);
+    },
+  );
+
+  it.each(['?lang=ko', '?safe=1', '?'])('fails closed for nonempty query %s', (search) => {
+    const harness = runBootstrap('', { pathname: '/about', search });
+
+    expect(harness.events).toEqual([]);
+    expect(harness.appendedScripts).toEqual([]);
   });
 
   it.each(['localhost', '127.0.0.1', '[::1]', '::1', 'preview.example.com', ''])(
     'keeps Cloudflare Analytics disabled outside production on host %s',
     (hostname) => {
-      const harness = runBootstrap('#view=setup', { hostname });
+      const harness = runBootstrap('#view=setup', { hostname, pathname: '/about', search: '' });
 
       expect(harness.events).toEqual([]);
       expect(harness.appendedScripts).toEqual([]);

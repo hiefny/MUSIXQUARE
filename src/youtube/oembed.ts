@@ -18,6 +18,7 @@ import { decodeHtmlEntities } from '../core/html-entities.ts';
 import {
   cancelResponseBody,
   createLinkedAbortScope,
+  raceWithAbortSignal,
   readBoundedJsonResponse,
   type LinkedAbortScope,
 } from '../core/request-lifetime.ts';
@@ -43,14 +44,31 @@ function bindResponseBodyLifetime(response: Response, scope: LinkedAbortScope): 
 
   let finished = false;
   let wrappedBody: ReadableStream<Uint8Array> | null = null;
+  let bodyConsumerResponse: Response | null = null;
   let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  let bodyCancelRequested = false;
   const finish = () => {
     if (finished) return;
     finished = true;
-    scope.signal.removeEventListener('abort', finish);
+    scope.signal.removeEventListener('abort', handleAbort);
     scope.cleanup();
   };
-  scope.signal.addEventListener('abort', finish, { once: true });
+  const cancelUnderlying = (reason?: unknown) => {
+    if (bodyCancelRequested) return;
+    bodyCancelRequested = true;
+    try {
+      const cancellation = reader ? reader.cancel(reason) : response.body!.cancel(reason);
+      void Promise.resolve(cancellation).catch(() => undefined);
+    } catch {
+      // Cleanup is best effort and never extends the bounded outcome.
+    }
+  };
+  const handleAbort = () => {
+    cancelUnderlying(scope.signal.reason);
+    finish();
+  };
+  if (scope.signal.aborted) handleAbort();
+  else scope.signal.addEventListener('abort', handleAbort, { once: true });
 
   const getWrappedBody = (): ReadableStream<Uint8Array> => {
     if (wrappedBody) return wrappedBody;
@@ -58,7 +76,7 @@ function bindResponseBodyLifetime(response: Response, scope: LinkedAbortScope): 
       async pull(controller) {
         try {
           reader ??= response.body!.getReader();
-          const result = await reader.read();
+          const result = await raceWithAbortSignal(reader.read(), scope.signal);
           if (result.done) {
             reader.releaseLock();
             reader = null;
@@ -68,25 +86,30 @@ function bindResponseBodyLifetime(response: Response, scope: LinkedAbortScope): 
           }
           if (result.value) controller.enqueue(result.value);
         } catch (error) {
+          cancelUnderlying(error);
           finish();
           controller.error(error);
         }
       },
-      async cancel(reason) {
-        try {
-          if (reader) await reader.cancel(reason);
-          else await response.body!.cancel(reason);
-        } finally {
-          if (reader) {
+      cancel(reason) {
+        cancelUnderlying(reason);
+        if (reader) {
+          try {
             reader.releaseLock();
-            reader = null;
+          } catch {
+            // A pending native read can retain the lock until abort settles it.
           }
-          scope.abort(reason);
-          finish();
+          reader = null;
         }
+        scope.abort(reason);
+        finish();
       },
     });
     return wrappedBody;
+  };
+  const getBodyConsumerResponse = (): Response => {
+    bodyConsumerResponse ??= new Response(getWrappedBody(), { headers: response.headers });
+    return bodyConsumerResponse;
   };
 
   return new Proxy(response, {
@@ -95,8 +118,20 @@ function bindResponseBodyLifetime(response: Response, scope: LinkedAbortScope): 
       const value = Reflect.get(target, property, target) as unknown;
       if (typeof value !== 'function') return value;
       if (RESPONSE_BODY_METHODS.has(property)) {
-        return (...args: unknown[]) =>
-          Promise.resolve(Reflect.apply(value, target, args)).finally(finish);
+        return (...args: unknown[]) => {
+          let operation: PromiseLike<unknown>;
+          try {
+            const bodyResponse = getBodyConsumerResponse();
+            const bodyMethod = Reflect.get(bodyResponse, property, bodyResponse) as (
+              ...methodArgs: unknown[]
+            ) => unknown;
+            operation = Promise.resolve(Reflect.apply(bodyMethod, bodyResponse, args));
+          } catch (error) {
+            finish();
+            throw error;
+          }
+          return raceWithAbortSignal(operation, scope.signal).finally(finish);
+        };
       }
       return value.bind(target);
     },
@@ -115,9 +150,13 @@ export async function fetchWithTimeout(
   const scope = createLinkedAbortScope(externalSignal, timeoutMs, 'YOUTUBE_REQUEST_TIMEOUT');
   try {
     const requestInit = { ...init, signal: scope.signal };
-    const response = capabilityScope
-      ? await fetchWithCapability(url, capabilityScope, requestInit)
-      : await fetch(url, requestInit);
+    if (scope.signal.aborted) {
+      throw scope.signal.reason ?? new DOMException('Aborted', 'AbortError');
+    }
+    const operation = capabilityScope
+      ? fetchWithCapability(url, capabilityScope, requestInit)
+      : fetch(url, requestInit);
+    const response = await raceWithAbortSignal(operation, scope.signal, cancelResponseBody);
     return bindResponseBodyLifetime(response, scope);
   } catch (error) {
     scope.cleanup();

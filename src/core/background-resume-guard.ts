@@ -25,6 +25,8 @@ interface BackgroundResumeEvent {
 interface BackgroundResumeGuardDeps {
   recover: (event: BackgroundResumeEvent) => void | Promise<void>;
   warn: (event: BackgroundResumeEvent) => void | Promise<void>;
+  /** Session/room ownership can disappear while recovery awaits browser APIs. */
+  shouldHandle?: (event: BackgroundResumeEvent) => boolean;
   getNow?: () => number;
   getVisibilityState?: () => DocumentVisibilityState;
   /** Hidden duration at or above which recover() runs. Default 1s. */
@@ -66,6 +68,7 @@ export function initBackgroundResumeGuard(
 
   const handleResume = async (event: BackgroundResumeEvent): Promise<void> => {
     if (disposed) return;
+    if (deps.shouldHandle && !deps.shouldHandle(event)) return;
     if (inFlight) {
       // Do not drop a second real resume while a warning dialog owns the first
       // flight. One follow-up is sufficient; retain the longest absence so its
@@ -87,14 +90,16 @@ export function initBackgroundResumeGuard(
     });
 
     try {
-      if (shouldRecover) {
+      if (shouldRecover && (!deps.shouldHandle || deps.shouldHandle(event))) {
         try {
           await deps.recover(event);
         } catch (error) {
           deps.log?.warn?.('[BackgroundResume] Recovery attempt failed', error);
         }
       }
-      if (shouldWarn) {
+      // Recovery can await AudioContext/RTC work while the user leaves the
+      // room. Re-check ownership so an obsolete resume never opens a dialog.
+      if (shouldWarn && (!deps.shouldHandle || deps.shouldHandle(event))) {
         try {
           await deps.warn(event);
         } catch (error) {

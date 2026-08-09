@@ -6,7 +6,15 @@ import {
   expectedEmergencyDeployConfirmation,
 } from './guard-emergency-deploy.mjs';
 import { executeNpm, npmInvocation } from './npm-invocation.mjs';
-import { verifyPartialReleaseCompatibility } from './release-deployment-state.mjs';
+import {
+  captureDeploymentCheckpoint,
+  preflight,
+  recordCurrentDeployment,
+  recheckPartialReleaseCompatibility,
+  verifyEmergencyCodeOnly,
+  verifyCurrentRelease,
+  verifyPartialReleaseCompatibility,
+} from './release-deployment-state.mjs';
 
 const WORKER_CONFIGS = Object.freeze({
   'remote-share': 'cloudflare/wrangler.remote-share.toml',
@@ -30,8 +38,12 @@ function deployWorker(worker, message) {
 export function emergencyDeploymentMessage(target, commitSha) {
   // Reuse the authorization contract to validate both the target and the full,
   // lowercase immutable commit before it can enter deployment provenance.
+  // Cloudflare exposes only the first 50 annotation characters in deployment
+  // status. Keep the message at the canonical 44-character git:<SHA> identity
+  // so the post-deploy exact ownership check never depends on truncation. The
+  // emergency target remains in the checkpoint/report path and authorization.
   expectedEmergencyDeployConfirmation(target, commitSha);
-  return `git:${commitSha} emergency-target:${target}`;
+  return `git:${commitSha}`;
 }
 
 export function emergencyDeploymentPlan(target, commitSha) {
@@ -52,7 +64,6 @@ export function emergencyDeploymentPlan(target, commitSha) {
       return [
         npmRun('check:developer-api-workers'),
         deploy('developer-api-facade'),
-        npmRun('developer-api:schema:remote'),
         deploy('developer-api'),
       ];
     case 'signaling':
@@ -67,7 +78,6 @@ export function emergencyDeploymentPlan(target, commitSha) {
         deploy('remote-share'),
         deploy('signaling'),
         deploy('developer-api-facade'),
-        npmRun('developer-api:schema:remote'),
         deploy('developer-api'),
         deploy('app'),
       ];
@@ -111,11 +121,26 @@ function runNpm(args) {
   executeNpm(args);
 }
 
+export function emergencyWorkerForDeploymentCommand(command) {
+  const configIndex = command.indexOf('--config');
+  if (!command.includes('deploy') || configIndex < 0 || configIndex + 1 >= command.length) {
+    return null;
+  }
+  const config = command[configIndex + 1];
+  return Object.entries(WORKER_CONFIGS).find(([, value]) => value === config)?.[0] || null;
+}
+
 export function runEmergencyDeployment({
   target,
   authorize = authorizeEmergencyDeploy,
   runner = runNpm,
   compatibilityCheck = verifyPartialReleaseCompatibility,
+  compatibilityRecheck = recheckPartialReleaseCompatibility,
+  checkpoint = captureDeploymentCheckpoint,
+  codeOnlyCheck = verifyEmergencyCodeOnly,
+  selectedPreflight = preflight,
+  recordDeployment = recordCurrentDeployment,
+  finalVerification = verifyCurrentRelease,
 } = {}) {
   const authorization = authorize(target);
   if (authorization?.target !== target || typeof authorization?.commitSha !== 'string') {
@@ -123,16 +148,27 @@ export function runEmergencyDeployment({
   }
   const message = emergencyDeploymentMessage(target, authorization.commitSha);
   const compatibilityTarget = emergencyCompatibilityTarget(target);
+  const directory = `release-artifacts/emergency-deployments/${authorization.commitSha}-${target}`;
   if (compatibilityTarget) {
-    compatibilityCheck(
-      compatibilityTarget,
-      authorization.commitSha,
-      `release-artifacts/emergency-deployments/${authorization.commitSha}-${target}`,
-    );
+    compatibilityCheck(compatibilityTarget, authorization.commitSha, directory);
   }
+  const checkpointTarget = compatibilityTarget || 'all';
+  checkpoint(checkpointTarget, message, directory);
+  codeOnlyCheck(authorization.commitSha, directory);
   const commands = emergencyDeploymentPlan(target, authorization.commitSha);
   process.stdout.write(`Emergency deployment provenance: ${message}\n`);
-  for (const command of commands) runner(command);
+  for (const command of commands) {
+    const worker = emergencyWorkerForDeploymentCommand(command);
+    if (worker) {
+      if (compatibilityTarget) {
+        compatibilityRecheck(compatibilityTarget, authorization.commitSha, directory);
+      }
+      selectedPreflight(worker, directory);
+    }
+    runner(command);
+    if (worker) recordDeployment(worker, directory);
+  }
+  finalVerification(directory);
   return { target, commitSha: authorization.commitSha, message, commands };
 }
 

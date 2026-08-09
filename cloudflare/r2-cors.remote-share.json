@@ -23,6 +23,7 @@
         "methods": ["PUT"],
         "headers": [
           "content-type",
+          "if-match",
           "x-amz-meta-cleanup-token",
           "x-amz-meta-expires-at",
           "x-amz-meta-format-version",

@@ -2,10 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import appWorker from '../../../cloudflare/app-worker.js';
 import {
+  ABUSE_RATE_CONSUME_PATH,
+  ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
   SERVICE_CONTROL_STATE_PATH,
   SERVICE_CONTROL_STATUS_PATH,
   clearServiceMaintenanceCacheForTests,
 } from '../../../cloudflare/service-maintenance.js';
+import { createAtomicRateControlBinding } from './service-control-rate-limit-fixture.ts';
 
 interface ControlState {
   enabled: boolean;
@@ -15,6 +18,7 @@ interface ControlState {
 }
 
 function createServiceControl(initialEnabled = false) {
+  const rateControl = createAtomicRateControlBinding();
   let state: ControlState = {
     enabled: initialEnabled,
     revision: initialEnabled ? 1 : 0,
@@ -69,11 +73,21 @@ function createServiceControl(initialEnabled = false) {
     requests.set(body.requestId, { enabled: body.enabled, revision: state.revision });
     return Response.json({ ok: true, serviceStatus: state });
   });
-  const stub = { fetch };
   return {
     binding: {
       idFromName: vi.fn((name: string) => name),
-      get: vi.fn(() => stub),
+      get: vi.fn((id: string) => {
+        const rateStub = rateControl.binding.get(id);
+        return {
+          fetch: (request: Request) => {
+            const pathname = new URL(request.url).pathname;
+            return pathname === ABUSE_RATE_CONSUME_PATH ||
+              pathname === ABUSE_RATE_IDEMPOTENT_CONSUME_PATH
+              ? rateStub.fetch(request)
+              : fetch(request);
+          },
+        };
+      }),
     },
     fetch,
     state: () => state,
@@ -94,7 +108,7 @@ async function login(env: Record<string, unknown>) {
     new Request('https://musixquare.com/api/admin/login', {
       method: 'POST',
       headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.199' }),
-      body: JSON.stringify({ password: 'admin-pass' }),
+      body: JSON.stringify({ password: 'admin-password-strong' }),
     }),
     env,
   );
@@ -113,7 +127,7 @@ describe('app maintenance administration', () => {
     vi.setSystemTime(new Date('2026-08-02T12:00:00.000Z'));
     const control = createServiceControl();
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MUSIXQUARE_SERVICE_CONTROL: control.binding,
     };

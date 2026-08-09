@@ -3,13 +3,9 @@
 import { readFile } from 'node:fs/promises';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-  clearManagedTimer: vi.fn(),
-  setManagedTimer: vi.fn(),
-}));
+const mocks = vi.hoisted(() => ({ setManagedTimer: vi.fn() }));
 
 vi.mock('../../core/timers.ts', () => ({
-  clearManagedTimer: mocks.clearManagedTimer,
   setManagedTimer: mocks.setManagedTimer,
 }));
 
@@ -44,40 +40,55 @@ vi.mock('../../i18n/index.ts', () => ({
   t: vi.fn((key: string) => key),
 }));
 
-import { setupRenderActions, setupSetGuestJoinError, startObAutoSlide } from '../setup-shared.ts';
+import {
+  setCurrentObSlide,
+  setupHighlightJoinRole,
+  setupRenderActions,
+  setupSetGuestJoinError,
+  updateObSlider,
+} from '../setup-shared.ts';
 
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe('onboarding carousel motion preference', () => {
-  it('keeps normal automatic advancement when reduced motion is not requested', () => {
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: vi.fn(() => ({ matches: false })),
-    });
+  it('exposes buttons/current state and hides inactive slides from interaction', async () => {
+    const markup = await readFile('index.html', 'utf8');
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    const dots = parsed.querySelectorAll<HTMLButtonElement>('#ob-dots button.ob-dot');
+    const slides = parsed.querySelectorAll<HTMLElement>('#ob-slider-track .ob-slide');
 
-    startObAutoSlide();
-
-    expect(mocks.clearManagedTimer).toHaveBeenCalledWith('obAutoSlideTimer');
-    expect(mocks.setManagedTimer).toHaveBeenCalledWith(
-      'obAutoSlideTimer',
-      expect.any(Function),
-      5000,
-      { interval: true },
-    );
+    expect(dots).toHaveLength(4);
+    expect(dots[0]?.getAttribute('aria-current')).toBe('true');
+    expect(dots[3]?.getAttribute('aria-label')).toBe('4 / 4');
+    expect(slides[0]?.getAttribute('aria-hidden')).toBe('false');
+    expect(slides[0]?.hasAttribute('inert')).toBe(false);
+    expect(slides[1]?.getAttribute('aria-hidden')).toBe('true');
+    expect(slides[1]?.hasAttribute('inert')).toBe(true);
   });
 
-  it('does not start automatic advancement for reduced-motion users', () => {
-    Object.defineProperty(window, 'matchMedia', {
-      configurable: true,
-      value: vi.fn(() => ({ matches: true })),
-    });
+  it('moves current, hidden, and inert state together on manual navigation', () => {
+    document.body.innerHTML = `
+      <div id="ob-slider-track">
+        <section class="ob-slide"></section><section class="ob-slide"></section>
+        <section class="ob-slide"></section><section class="ob-slide"></section>
+      </div>
+      <button class="ob-dot"></button><button class="ob-dot"></button>
+      <button class="ob-dot"></button><button class="ob-dot"></button>
+    `;
 
-    startObAutoSlide();
+    setCurrentObSlide(2);
+    updateObSlider();
 
-    expect(mocks.clearManagedTimer).toHaveBeenCalledWith('obAutoSlideTimer');
-    expect(mocks.setManagedTimer).not.toHaveBeenCalled();
+    const dots = document.querySelectorAll('.ob-dot');
+    const slides = document.querySelectorAll('.ob-slide');
+    expect(dots[2]?.getAttribute('aria-current')).toBe('true');
+    expect(dots[0]?.hasAttribute('aria-current')).toBe(false);
+    expect(slides[2]?.getAttribute('aria-hidden')).toBe('false');
+    expect(slides[2]?.hasAttribute('inert')).toBe(false);
+    expect(slides[0]?.getAttribute('aria-hidden')).toBe('true');
+    expect(slides[0]?.hasAttribute('inert')).toBe(true);
   });
 });
 
@@ -163,6 +174,48 @@ describe('setup greeting reveal', () => {
 });
 
 describe('setup recovery accessibility', () => {
+  it('keeps join-role visual and pressed states synchronized through selection and reset', async () => {
+    const markup = await readFile('index.html', 'utf8');
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    const initialOptions = [
+      ...parsed.querySelectorAll<HTMLButtonElement>('#setup-role-grid [data-join-ch]'),
+    ];
+
+    expect(initialOptions).toHaveLength(4);
+    expect(initialOptions.every((option) => option.getAttribute('aria-pressed') === 'false')).toBe(
+      true,
+    );
+
+    document.body.innerHTML = parsed.getElementById('setup-role-grid')?.outerHTML ?? '';
+    const options = () => [
+      ...document.querySelectorAll<HTMLButtonElement>('#setup-role-grid [data-join-ch]'),
+    ];
+
+    setupHighlightJoinRole(-1);
+    expect(
+      options().map((option) => [option.classList.contains('selected'), option.ariaPressed]),
+    ).toEqual([
+      [true, 'true'],
+      [false, 'false'],
+      [false, 'false'],
+      [false, 'false'],
+    ]);
+
+    setupHighlightJoinRole(2);
+    expect(
+      options().map((option) => [option.classList.contains('selected'), option.ariaPressed]),
+    ).toEqual([
+      [false, 'false'],
+      [false, 'false'],
+      [true, 'true'],
+      [false, 'false'],
+    ]);
+
+    setupHighlightJoinRole(null);
+    expect(options().every((option) => !option.classList.contains('selected'))).toBe(true);
+    expect(options().every((option) => option.getAttribute('aria-pressed') === 'false')).toBe(true);
+  });
+
   it('links an inline failure state to the code field and labels icon-only Back', () => {
     document.body.innerHTML = `
       <input id="setup-join-code" aria-describedby="setup-guest-error">

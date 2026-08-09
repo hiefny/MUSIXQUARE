@@ -121,13 +121,6 @@ export function isStandaloneDisplayMode(): boolean {
 
 // ─── iOS Pinch-Zoom Prevention ─────────────────────────────────────
 
-export function preventIOSPinchZoom(): void {
-  if (!IS_IOS) return;
-  for (const evt of ['gesturestart', 'gesturechange', 'gestureend'] as const) {
-    document.addEventListener(evt, (e) => e.preventDefault(), { passive: false });
-  }
-}
-
 // ─── Viewport Height Management ────────────────────────────────────
 
 /**
@@ -425,8 +418,6 @@ export function initPlatform(): void {
   } catch (e) {
     log.debug('[Platform] is-booting class failed:', e);
   }
-
-  preventIOSPinchZoom();
 
   const run = () => {
     scheduleAppHeightUpdate();

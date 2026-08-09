@@ -89,7 +89,6 @@ vi.mock('../setup-shared.ts', () => ({
   setupSetGuestJoinBusy: vi.fn(),
   setupSetGuestJoinError: vi.fn(),
   setupRenderActions: vi.fn(),
-  startObAutoSlide: vi.fn(),
   updateObSlider: vi.fn(),
   nextObSlide: vi.fn(),
   prevObSlide: vi.fn(),

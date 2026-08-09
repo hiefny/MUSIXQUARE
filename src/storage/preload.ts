@@ -73,6 +73,7 @@ import { isArrayBuffer } from './transfer-shared.ts';
  * shed either workload without disabling LAN preload.
  */
 const PRO_ROOM_FILE_PRELOAD_ENABLED = true;
+const PRELOAD_RECEIVE_LOADER_ID = 'preload-receive';
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
@@ -390,6 +391,8 @@ export function cancelPreloadTransfer(queueItemId?: QueueItemId): void {
 export function resetPreloadReceiveAuthority(): void {
   _preloadGeneration++;
   clearManagedTimer('preloadScheduleTimer');
+  clearManagedTimer('preloadUiWatchdog');
+  showLoader(false, undefined, PRELOAD_RECEIVE_LOADER_ID);
   _awaitedPreloadIdentity = null;
   _activePlayPreloadedQueueItemId = undefined;
   _pendingProRoomPreloadHint = null;
@@ -1322,7 +1325,7 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     // would let PLAY_PRELOADED activate stale bytes for this queue occurrence.
     clearPreloadCacheState();
     _awaitedPreloadIdentity = null;
-    showLoader(false);
+    showLoader(false, undefined, PRELOAD_RECEIVE_LOADER_ID);
     showToast(t('error.load_failed', { msg: message }));
     return;
   }
@@ -1340,7 +1343,11 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     transferState === TRANSFER_STATE.IDLE ||
     !transferState
   ) {
-    showLoader(true, t('toast.preparing_next', { name: data.name as string }));
+    showLoader(
+      true,
+      t('toast.preparing_next', { name: data.name as string }),
+      PRELOAD_RECEIVE_LOADER_ID,
+    );
   }
 
   // Initialize session state
@@ -1415,18 +1422,7 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     'preloadUiWatchdog',
     () => {
       log.warn('[Preload] Watchdog: forcing preload loader reset after 30s');
-      showLoader(false);
-      // If main transfer is still in progress, restore its loader
-      const transferState = getState('transfer.state');
-      if (transferState === TRANSFER_STATE.RECEIVING) {
-        const meta = getState('transfer.meta');
-        const receivedCount = getState('transfer.receivedCount');
-        const total = (meta?.total as number) || 0;
-        if (total > 0) {
-          const pct = Math.round((receivedCount / total) * 100);
-          updateLoader(pct);
-        }
-      }
+      showLoader(false, undefined, PRELOAD_RECEIVE_LOADER_ID);
     },
     30000,
   );
@@ -1514,8 +1510,8 @@ function drainPreloadReorderBuffer(sessionId: number): void {
       if (lastPreloadUiSessionId !== sessionId || lastPreloadUiPercent !== pct) {
         lastPreloadUiSessionId = sessionId;
         lastPreloadUiPercent = pct;
-        showLoader(true, t('toast.preparing_next_pct', { pct }));
-        updateLoader(pct);
+        showLoader(true, t('toast.preparing_next_pct', { pct }), PRELOAD_RECEIVE_LOADER_ID);
+        updateLoader(pct, PRELOAD_RECEIVE_LOADER_ID);
       }
     }
   }
@@ -1527,10 +1523,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
     setManagedTimer(
       'preloadUiWatchdog',
       () => {
-        const transferState = getState('transfer.state');
-        if (transferState === TRANSFER_STATE.READY || transferState === TRANSFER_STATE.IDLE) {
-          showLoader(false);
-        }
+        showLoader(false, undefined, PRELOAD_RECEIVE_LOADER_ID);
       },
       15000,
     );
@@ -1800,7 +1793,7 @@ function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection
   // Hide the preparing-next loader if it was showing for THIS preload.
   const preloadMeta = getState('preload.activeTarget');
   if (preloadMeta?.queueItemId === queueItemId && (preloadMeta.sessionId as number) === sid) {
-    showLoader(false);
+    showLoader(false, undefined, PRELOAD_RECEIVE_LOADER_ID);
   }
 }
 
@@ -2172,7 +2165,7 @@ export function initPreload(): void {
         }
 
         // Hide preload loader (background preload complete)
-        showLoader(false);
+        showLoader(false, undefined, PRELOAD_RECEIVE_LOADER_ID);
 
         // If guest was waiting for this preloaded file, trigger playback.
         // Lifecycle is authoritative for the wait gate; pendingRecoveryTarget

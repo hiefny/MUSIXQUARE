@@ -4,6 +4,7 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker, {
   cleanupExpiredProRoomAdminAuditForTests,
+  fetchAndConsumeWithTimeout,
   readResponseBodyLimitedForTests,
   purgeProRoomAccountAuthorityForTests,
   reconcileOwnerTransferSagasForTests,
@@ -301,6 +302,27 @@ function adminMutationHeaders(extra: Record<string, string> = {}): Record<string
     'X-MXQR-Admin-CSRF': '1',
     ...extra,
   };
+}
+
+async function signedAdminSessionFixture(
+  secret: string,
+  payload: Record<string, unknown>,
+  domain = 'mxqr-admin-session:v1\0',
+): Promise<string> {
+  const payloadPart = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    new TextEncoder().encode(`${domain}${payloadPart}`),
+  );
+  return `${payloadPart}.${Buffer.from(signature).toString('base64url')}`;
 }
 
 async function solveProofOfWork(challenge: string, difficulty: number): Promise<string> {
@@ -1512,6 +1534,71 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
 });
 
 describe('Cloudflare app worker JSON body limits', () => {
+  it('enforces the full upstream deadline for non-cooperative headers and consumers', async () => {
+    vi.useFakeTimers();
+    let headerSignal: AbortSignal | null = null;
+    let resolveHeaders!: (response: Response) => void;
+    const lateBodyCancel = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_resource: RequestInfo | URL, init?: RequestInit) => {
+        headerSignal = init?.signal || null;
+        return new Promise<Response>((resolve) => {
+          resolveHeaders = resolve;
+        });
+      }),
+    );
+
+    const stalledHeaders = fetchAndConsumeWithTimeout(
+      'https://upstream.example/headers',
+      {},
+      250,
+      async () => 'unreachable',
+    );
+    const stalledHeadersRejection = expect(stalledHeaders).rejects.toThrow(
+      'Upstream response timed out',
+    );
+    await vi.advanceTimersByTimeAsync(251);
+    await stalledHeadersRejection;
+    expect((headerSignal as AbortSignal | null)?.aborted).toBe(true);
+
+    resolveHeaders(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          cancel: lateBodyCancel,
+        }),
+      ),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(lateBodyCancel).toHaveBeenCalledOnce();
+
+    const activeBodyCancel = vi.fn();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              cancel: activeBodyCancel,
+            }),
+          ),
+      ),
+    );
+    const stalledConsumer = fetchAndConsumeWithTimeout(
+      'https://upstream.example/body',
+      {},
+      250,
+      () => new Promise<never>(() => undefined),
+    );
+    const stalledConsumerRejection = expect(stalledConsumer).rejects.toThrow(
+      'Upstream response timed out',
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(251);
+    await stalledConsumerRejection;
+    expect(activeBodyCancel).toHaveBeenCalledOnce();
+  });
+
   it('fails closed when configured HMAC signing secrets are too short', async () => {
     const capability = await appWorker.fetch(
       new Request('https://musixquare.com/api/security-config', {
@@ -1523,10 +1610,10 @@ describe('Cloudflare app worker JSON body limits', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.89' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
       {
-        MXQR_ADMIN_PASSWORD: 'admin-pass',
+        MXQR_ADMIN_PASSWORD: 'admin-password-strong',
         MXQR_ADMIN_SESSION_SECRET: 'weak',
       },
     );
@@ -1535,6 +1622,120 @@ describe('Cloudflare app worker JSON body limits', () => {
     expect(await capability.json()).toEqual({ error: 'CAPABILITY_SECRET_INVALID' });
     expect(admin.status).toBe(503);
     expect(await admin.json()).toEqual({ error: 'ADMIN_NOT_CONFIGURED' });
+  });
+
+  it('fails closed when the admin password is outside the UTF-8 byte contract', async () => {
+    for (const [password, ip] of [
+      ['x'.repeat(15), '203.0.113.181'],
+      ['x'.repeat(257), '203.0.113.182'],
+    ]) {
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/api/admin/login', {
+          method: 'POST',
+          headers: adminMutationHeaders({ 'CF-Connecting-IP': ip }),
+          body: JSON.stringify({ password }),
+        }),
+        {
+          MXQR_ADMIN_PASSWORD: password,
+          MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+        },
+      );
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({ error: 'ADMIN_NOT_CONFIGURED' });
+    }
+  });
+
+  it('treats admin password and session-secret whitespace as exact secret material', async () => {
+    const password = '  admin-password-strong  ';
+    const sessionSecret = '  test-admin-session-secret-at-least-32  ';
+    const env = {
+      MXQR_ADMIN_PASSWORD: password,
+      MXQR_ADMIN_SESSION_SECRET: sessionSecret,
+    };
+    const login = (candidate: string, ip: string) =>
+      appWorker.fetch(
+        new Request('https://musixquare.com/api/admin/login', {
+          method: 'POST',
+          headers: adminMutationHeaders({ 'CF-Connecting-IP': ip }),
+          body: JSON.stringify({ password: candidate }),
+        }),
+        env,
+      );
+
+    const normalizedCredential = await login(password.trim(), '203.0.113.183');
+    expect(normalizedCredential.status).toBe(401);
+    await expect(normalizedCredential.json()).resolves.toEqual({ error: 'INVALID_PASSWORD' });
+
+    const exactCredential = await login(password, '203.0.113.184');
+    expect(exactCredential.status).toBe(200);
+    const cookie = (exactCredential.headers.get('set-cookie') || '').split(';')[0];
+    expect(cookie).toContain('__Host-mxqr_admin=');
+
+    const exactSession = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/session', {
+        headers: { Cookie: cookie },
+      }),
+      env,
+    );
+    await expect(exactSession.json()).resolves.toEqual({
+      authenticated: true,
+      configured: true,
+      databaseConfigured: false,
+    });
+
+    const normalizedSecretSession = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/session', {
+        headers: { Cookie: cookie },
+      }),
+      { ...env, MXQR_ADMIN_SESSION_SECRET: sessionSecret.trim() },
+    );
+    await expect(normalizedSecretSession.json()).resolves.toEqual({
+      authenticated: false,
+      configured: true,
+      databaseConfigured: false,
+    });
+  });
+
+  it('domain-separates admin sessions and enforces their exact 12-hour payload', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-09T12:00:00.000Z'));
+    const secret = 'shared-test-signing-secret-at-least-32';
+    const now = Math.floor(Date.now() / 1_000);
+    const validPayload = {
+      v: 1,
+      iat: now,
+      exp: now + 12 * 60 * 60,
+      nonce: 'A'.repeat(22),
+    };
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
+      MXQR_ADMIN_SESSION_SECRET: secret,
+    };
+    const authenticated = async (token: string) => {
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/api/admin/session', {
+          headers: { Cookie: `__Host-mxqr_admin=${token}` },
+        }),
+        env,
+      );
+      return ((await response.json()) as { authenticated: boolean }).authenticated;
+    };
+
+    await expect(
+      authenticated(await signedAdminSessionFixture(secret, validPayload)),
+    ).resolves.toBe(true);
+    await expect(
+      authenticated(await signedAdminSessionFixture(secret, validPayload, '')),
+    ).resolves.toBe(false);
+    for (const payload of [
+      { ...validPayload, extra: true },
+      { ...validPayload, nonce: 'A'.repeat(21) },
+      { ...validPayload, exp: now + 5 * 60 },
+    ]) {
+      await expect(authenticated(await signedAdminSessionFixture(secret, payload))).resolves.toBe(
+        false,
+      );
+    }
   });
 
   it('rejects oversized capability and admin bodies before parsing', async () => {
@@ -1557,10 +1758,10 @@ describe('Cloudflare app worker JSON body limits', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.91' }),
-        body: JSON.stringify({ password: 'admin-pass', padding: 'x'.repeat(8192) }),
+        body: JSON.stringify({ password: 'admin-password-strong', padding: 'x'.repeat(8192) }),
       }),
       {
-        MXQR_ADMIN_PASSWORD: 'admin-pass',
+        MXQR_ADMIN_PASSWORD: 'admin-password-strong',
         MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       },
     );
@@ -1586,11 +1787,15 @@ describe('Cloudflare app worker JSON body limits', () => {
         duplex: 'half',
       } as RequestInit & { duplex: 'half' }),
       {
-        MXQR_ADMIN_PASSWORD: 'admin-pass',
+        MXQR_ADMIN_PASSWORD: 'admin-password-strong',
         MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       },
     );
 
+    for (let attempt = 0; attempt < 20 && vi.getTimerCount() === 0; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
     await vi.advanceTimersByTimeAsync(10_001);
     const response = await pending;
 
@@ -2277,14 +2482,14 @@ describe('Cloudflare app worker admin dashboard', () => {
 
   it('rejects same-site and cross-site admin mutations without the exact JSON CSRF envelope', async () => {
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
     };
     const cases = [
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: { Origin: 'https://pro.musixquare.com', 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
@@ -2293,12 +2498,12 @@ describe('Cloudflare app worker admin dashboard', () => {
           'Content-Type': 'application/json',
           'X-MXQR-Admin-CSRF': '1',
         },
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: { Origin: 'https://musixquare.com', 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
     ];
 
@@ -2309,12 +2514,97 @@ describe('Cloudflare app worker admin dashboard', () => {
     await expect(responses[2].json()).resolves.toEqual({ error: 'ADMIN_CSRF_REJECTED' });
   });
 
+  it('atomically bounds concurrent admin login failures by pseudonymous client identity', async () => {
+    const control = createAtomicRateControlBinding(20);
+    const ip = '203.0.113.201';
+    const adminSessionSecret = 'test-admin-session-secret-at-least-32';
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
+      MXQR_ADMIN_SESSION_SECRET: adminSessionSecret,
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
+    };
+    const login = () =>
+      appWorker.fetch(
+        new Request('https://musixquare.com/api/admin/login', {
+          method: 'POST',
+          headers: adminMutationHeaders({ 'CF-Connecting-IP': ip }),
+          body: JSON.stringify({ password: 'wrong-admin-password' }),
+        }),
+        env,
+      );
+
+    const responses = await Promise.all(Array.from({ length: 20 }, login));
+    const statuses = responses.map((response) => response.status);
+
+    expect(statuses.filter((status) => status === 401)).toHaveLength(10);
+    expect(statuses.filter((status) => status === 429)).toHaveLength(10);
+    expect(control.rateFetchCount()).toBe(20);
+    const rateObjectNames = control
+      .objectNames()
+      .filter((name) => name.startsWith('musixquare-abuse-rate-v1:app-admin-login:'));
+    const rateKey = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(adminSessionSecret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const expectedIdentity = Buffer.from(
+      await crypto.subtle.sign('HMAC', rateKey, new TextEncoder().encode(`admin-login-rate:${ip}`)),
+    ).toString('base64url');
+    expect(rateObjectNames).toEqual([
+      `musixquare-abuse-rate-v1:app-admin-login:${expectedIdentity}`,
+    ]);
+
+    const unauthorized = responses.find((response) => response.status === 401);
+    const limited = responses.find((response) => response.status === 429);
+    await expect(unauthorized?.json()).resolves.toEqual({ error: 'INVALID_PASSWORD' });
+    await expect(limited?.json()).resolves.toEqual({ error: 'Too Many Requests' });
+    expect(Number(limited?.headers.get('Retry-After'))).toBeGreaterThanOrEqual(1);
+  });
+
+  it('fails admin login closed when the atomic rate limiter is unavailable', async () => {
+    const control = {
+      idFromName: vi.fn((name: string) => name),
+      get: vi.fn(() => ({
+        fetch: vi.fn(async (request: Request) => {
+          if (new URL(request.url).pathname === '/internal/service-maintenance/v1/status') {
+            return Response.json({
+              enabled: false,
+              revision: 0,
+              updatedAt: null,
+              activatedAt: null,
+            });
+          }
+          return Response.json({ error: 'RATE_CONTROL_UNAVAILABLE' }, { status: 503 });
+        }),
+      })),
+    };
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.202' }),
+        body: JSON.stringify({ password: 'wrong-admin-password' }),
+      }),
+      {
+        MXQR_ADMIN_PASSWORD: 'admin-password-strong',
+        MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+        MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
+        MUSIXQUARE_SERVICE_CONTROL: control,
+      },
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: 'RATE_LIMIT_UNAVAILABLE' });
+  });
+
   it('sets an HttpOnly admin session cookie and serves current D1-backed metrics', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
     const nowMinute = Math.floor(Date.now() / 60000);
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MUSIXQUARE_ADMIN_DB: createMetricsDb([
         { bucket_minute: nowMinute - 31 * 24 * 60, event: 'guest_joined', count: 99 },
@@ -2343,7 +2633,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.81' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
       env,
     );
@@ -2401,14 +2691,14 @@ describe('Cloudflare app worker admin dashboard', () => {
       ),
     );
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       SORO_RSS_BACKUP: createKvStore(),
       ASSETS: {
         fetch: vi.fn(
           async () =>
             new Response(
-              '<html><head></head><body id="top" class="editorial-page editorial-blog"><div id="soro-blog"></div></body></html>',
+              '<html><head><title>Blog · MUSIXQUARE</title></head><body id="top" class="editorial-page editorial-blog"><div id="soro-blog"></div></body></html>',
               {
                 headers: { 'Content-Type': 'text/html' },
               },
@@ -2421,7 +2711,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.82' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
       env,
     );
@@ -2488,6 +2778,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(blogHtml).not.toContain('Hidden Article');
     expect(hiddenArticle.status).toBe(404);
     expect(visibleArticle.status).toBe(200);
+    expect(visibleArticleHtml).toContain('<title>Visible Article · MUSIXQUARE</title>');
     expect(visibleArticleHtml).toContain(
       '<body id="top" class="editorial-page editorial-blog" data-soro-source="backup" data-soro-view="article">',
     );
@@ -2638,7 +2929,7 @@ describe('Cloudflare app worker admin dashboard', () => {
 
   it('lets admins publish a session announcement for active clients', async () => {
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       SORO_RSS_BACKUP: createKvStore(),
       MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding(),
@@ -2651,7 +2942,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.82' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
       env,
     );
@@ -2809,7 +3100,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
     let crossExpiryBoundary = false;
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       SORO_RSS_BACKUP: createKvStore(),
       MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding((request) => {
@@ -2825,7 +3116,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.84' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
       env,
     );
@@ -2927,7 +3218,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       JSON.stringify([malformedLegacy, legacyOlder]),
     );
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       SORO_RSS_BACKUP: store,
       MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding(),
@@ -2936,7 +3227,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.83' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
       env,
     );
@@ -3049,7 +3340,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       }),
     );
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       SORO_RSS_BACKUP: store,
       MUSIXQUARE_SERVICE_CONTROL: {
@@ -3075,9 +3366,9 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.84' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
-      env,
+      { ...env, MUSIXQUARE_SERVICE_CONTROL: createAtomicRateControlBinding().binding },
     );
     const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
     const admin = await appWorker.fetch(
@@ -3100,7 +3391,7 @@ describe('Cloudflare app worker admin dashboard', () => {
 
   it('rejects a control revision-zero sentinel with a latent expiry', async () => {
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MUSIXQUARE_SERVICE_CONTROL: {
         idFromName: vi.fn((name: string) => name),
@@ -3138,9 +3429,9 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.85' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
-      env,
+      { ...env, MUSIXQUARE_SERVICE_CONTROL: createAtomicRateControlBinding().binding },
     );
     const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
 
@@ -3167,7 +3458,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       updatedAt,
     };
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MUSIXQUARE_SERVICE_CONTROL: {
         idFromName: vi.fn((name: string) => name),
@@ -3209,9 +3500,9 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.86' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
-      env,
+      { ...env, MUSIXQUARE_SERVICE_CONTROL: createAtomicRateControlBinding().binding },
     );
     const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
 
@@ -3446,7 +3737,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       })),
     };
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MUSIXQUARE_ADMIN_DB: withCentralEntitlementLedger(db),
       PRO_ROOM_ADMIN_ROOMS: namespace,
@@ -3474,7 +3765,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.83' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
       env,
     );
@@ -3990,7 +4281,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       })),
     };
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MUSIXQUARE_ADMIN_DB: withCentralEntitlementLedger(registryDb),
       MUSIXQUARE_AUTH_DB: authDb,
@@ -4000,7 +4291,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.108' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
       env,
     );
@@ -4241,7 +4532,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       }),
     };
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MUSIXQUARE_ADMIN_DB: db,
     };
@@ -4260,7 +4551,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.88' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
       env,
     );
@@ -4653,7 +4944,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       );
     });
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MUSIXQUARE_ADMIN_DB: withCentralEntitlementLedger(adminDb, [
         {
@@ -4691,7 +4982,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.95' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
       env,
     );
@@ -4961,7 +5252,7 @@ describe('Cloudflare app worker admin dashboard', () => {
 
   it('keeps /admin unindexed and no-store cached', async () => {
     const response = await appWorker.fetch(new Request('https://musixquare.com/admin'), {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
     });
     const html = await response.text();
@@ -4972,9 +5263,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.23');
-    expect(html).toContain('/admin.js?v=8.3.23');
-    expect(html).toContain('data-admin-asset-version="8.3.23"');
+    expect(html).toContain('/admin.css?v=8.3.24');
+    expect(html).toContain('/admin.js?v=8.3.24');
+    expect(html).toContain('data-admin-asset-version="8.3.24"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
@@ -4993,7 +5284,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.3.23', '/admin.css?v=8.3.23']) {
+    for (const path of ['/admin.js?v=8.3.24', '/admin.css?v=8.3.24']) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
@@ -5379,7 +5670,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
 
     return {
       env: {
-        MXQR_ADMIN_PASSWORD: 'admin-pass',
+        MXQR_ADMIN_PASSWORD: 'admin-password-strong',
         MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
         MXQR_DEVELOPER_API_KEY_PEPPER: 'developer-api-test-pepper-at-least-32',
         MUSIXQUARE_ADMIN_DB: registryDb,
@@ -5431,7 +5722,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.94' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
       env,
     );
@@ -6311,7 +6602,7 @@ describe('Cloudflare app worker PRO room facade', () => {
       },
     };
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'assertion-secret-for-tests-at-least-32-bytes',
       MUSIXQUARE_ADMIN_DB: centralDb,
@@ -6353,7 +6644,7 @@ describe('Cloudflare app worker PRO room facade', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.131' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
       env,
     );
@@ -6820,7 +7111,7 @@ describe('Cloudflare app worker PRO room facade', () => {
       return Response.json({ error: 'PRO_ROOM_ADMIN_UNAVAILABLE' }, { status: 503 });
     });
     const env = {
-      MXQR_ADMIN_PASSWORD: 'admin-pass',
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'assertion-secret-for-tests-at-least-32-bytes',
       MUSIXQUARE_ADMIN_DB: centralDb,
@@ -6835,7 +7126,7 @@ describe('Cloudflare app worker PRO room facade', () => {
       new Request('https://musixquare.com/api/admin/login', {
         method: 'POST',
         headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.132' }),
-        body: JSON.stringify({ password: 'admin-pass' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
       }),
       env,
     );
@@ -8779,6 +9070,201 @@ describe('Cloudflare app worker PRO room facade', () => {
     expect(await headResponse.text()).toBe('');
     expect(headResponse.headers.get('Cache-Control')).toBe('no-store, max-age=0');
     expect(upstreamFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('bounds stalled PRO response headers and bodies and cancels their work', async () => {
+    vi.useFakeTimers();
+    let headerSignal: AbortSignal | null = null;
+    const stalledHeaders = appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/health'),
+      {
+        PRO_ROOM_PUBLIC_API: {
+          fetch: vi.fn((request: Request) => {
+            headerSignal = request.signal;
+            return new Promise<Response>(() => {});
+          }),
+        },
+      },
+    );
+    await vi.advanceTimersByTimeAsync(5_001);
+    const headerResponse = await stalledHeaders;
+    expect(headerResponse.status).toBe(502);
+    await expect(headerResponse.json()).resolves.toEqual({ error: 'PRO_ROOM_API_UNAVAILABLE' });
+    expect((headerSignal as AbortSignal | null)?.aborted).toBe(true);
+
+    const cancel = vi.fn();
+    const stalledBody = appWorker.fetch(new Request('https://musixquare.com/api/pro-room/health'), {
+      PRO_ROOM_PUBLIC_API: {
+        fetch: vi.fn(
+          async () =>
+            new Response(
+              new ReadableStream<Uint8Array>({
+                start(controller) {
+                  controller.enqueue(new TextEncoder().encode('{"ok":'));
+                },
+                cancel,
+              }),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            ),
+        ),
+      },
+    });
+    await vi.advanceTimersByTimeAsync(5_001);
+    const bodyResponse = await stalledBody;
+    expect(bodyResponse.status).toBe(502);
+    await expect(bodyResponse.json()).resolves.toEqual({ error: 'PRO_ROOM_API_UNAVAILABLE' });
+    expect(cancel).toHaveBeenCalledOnce();
+
+    const malformedUtf8 = await appWorker.fetch(
+      new Request('https://musixquare.com/api/pro-room/health'),
+      {
+        PRO_ROOM_PUBLIC_API: {
+          fetch: vi.fn(async () => new Response(new Uint8Array([0xc3, 0x28]))),
+        },
+      },
+    );
+    expect(malformedUtf8.status).toBe(502);
+    await expect(malformedUtf8.json()).resolves.toEqual({ error: 'PRO_ROOM_API_UNAVAILABLE' });
+  });
+
+  it('keeps cached legacy session admission on request lifetime while bounding v1 receipts', async () => {
+    vi.useFakeTimers();
+    const admission = (body: Record<string, unknown>) =>
+      new Request('https://musixquare.com/api/pro-room/v1/rooms/000001/sessions', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': '203.0.113.190',
+        },
+        body: JSON.stringify(body),
+      });
+
+    let resolveLegacy!: (response: Response) => void;
+    let legacySignal: AbortSignal | null = null;
+    const legacyFetch = vi.fn((request: Request) => {
+      legacySignal = request.signal;
+      return new Promise<Response>((resolve) => {
+        resolveLegacy = resolve;
+      });
+    });
+    let legacySettled = false;
+    const legacyPending = appWorker
+      .fetch(admission({ pin: '12345678' }), {
+        PRO_ROOM_PUBLIC_API: { fetch: legacyFetch },
+      })
+      .finally(() => {
+        legacySettled = true;
+      });
+    for (let attempt = 0; attempt < 20 && legacyFetch.mock.calls.length === 0; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(legacyFetch).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(5_001);
+    expect(legacySettled).toBe(false);
+    expect((legacySignal as AbortSignal | null)?.aborted).toBe(false);
+    resolveLegacy(Response.json({ ok: true }));
+    expect((await legacyPending).status).toBe(200);
+
+    let v1Signal: AbortSignal | null = null;
+    const v1Pending = appWorker.fetch(
+      admission({ pin: '12345678', requestId: 'session-create-request-0001' }),
+      {
+        PRO_ROOM_PUBLIC_API: {
+          fetch: vi.fn((request: Request) => {
+            v1Signal = request.signal;
+            return new Promise<Response>(() => undefined);
+          }),
+        },
+      },
+    );
+    await vi.advanceTimersByTimeAsync(5_001);
+    const v1Response = await v1Pending;
+    expect(v1Response.status).toBe(502);
+    await expect(v1Response.json()).resolves.toEqual({ error: 'PRO_ROOM_API_UNAVAILABLE' });
+    expect((v1Signal as AbortSignal | null)?.aborted).toBe(true);
+  });
+
+  it('keeps the session actor stable while optional account assertion recovers', async () => {
+    const accountId = `acct_${'A'.repeat(22)}`;
+    const accountToken = 'S'.repeat(43);
+    let accountSessionReads = 0;
+    const authDb = {
+      prepare: vi.fn((sql: string) => ({
+        bind: vi.fn((..._values: unknown[]) => ({
+          first: vi.fn(async () => {
+            if (/FROM mxqr_account_sessions s/i.test(sql)) {
+              accountSessionReads += 1;
+              if (accountSessionReads === 1) throw new Error('temporary account store outage');
+              return {
+                session_hash: 'session-hash',
+                account_id: accountId,
+                last_seen_at: Date.now(),
+                expires_at: Date.now() + 60_000,
+                nickname: 'Stable actor',
+                profile_complete: 1,
+                status: 'active',
+              };
+            }
+            return null;
+          }),
+          run: vi.fn(async () => ({ meta: { changes: 1 } })),
+          all: vi.fn(async () => ({ results: [] })),
+        })),
+      })),
+    };
+    const adminDb = {
+      prepare: vi.fn(() => ({
+        bind: vi.fn(() => ({
+          first: vi.fn(async () => ({ status: 'registered', room_generation: 0 })),
+          all: vi.fn(async () => ({
+            results: [{ status: 'registered', room_generation: 0 }],
+          })),
+        })),
+      })),
+    };
+    const forwarded: Request[] = [];
+    const env = {
+      GOOGLE_OAUTH_CLIENT_ID: 'test-client.apps.googleusercontent.com',
+      GOOGLE_OAUTH_CLIENT_SECRET: 'client-secret',
+      MXQR_AUTH_SESSION_PEPPER: 'session-pepper-for-tests-at-least-32-bytes',
+      MXQR_AUTH_SUBJECT_PEPPER: 'subject-pepper-for-tests-at-least-32-bytes',
+      MXQR_OAUTH_STATE_SECRET: 'state-secret-for-tests-at-least-32-bytes',
+      MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'assertion-secret-for-tests-at-least-32-bytes',
+      MUSIXQUARE_AUTH_DB: authDb,
+      MUSIXQUARE_ADMIN_DB: adminDb,
+      PRO_ROOM_PUBLIC_API: {
+        fetch: vi.fn(async (request: Request) => {
+          forwarded.push(request);
+          return Response.json({ ok: true });
+        }),
+      },
+    };
+    const admission = (ip: string) =>
+      new Request('https://musixquare.com/api/pro-room/v1/rooms/000001/sessions', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          Cookie: `__Host-mxqr_account=${accountToken}`,
+          'CF-Connecting-IP': ip,
+          'X-MXQR-Pro-Session-Actor': 'spoofed-browser-value',
+        },
+        body: JSON.stringify({ pin: '12345678', requestId: 'session-actor-recovery-0001' }),
+      });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    expect((await appWorker.fetch(admission('203.0.113.1'), env)).status).toBe(200);
+    expect((await appWorker.fetch(admission('203.0.113.2'), env)).status).toBe(200);
+
+    expect(forwarded).toHaveLength(2);
+    const actorHints = forwarded.map((request) => request.headers.get('X-MXQR-Pro-Session-Actor'));
+    expect(actorHints[0]).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    expect(actorHints[1]).toBe(actorHints[0]);
+    expect(actorHints).not.toContain('spoofed-browser-value');
+    expect(forwarded[0]!.headers.get('X-MXQR-Account-Assertion')).toBeNull();
+    expect(forwarded[1]!.headers.get('X-MXQR-Account-Assertion')).not.toBeNull();
+    warn.mockRestore();
   });
 
   it('forwards the public route through the PRO Worker and scopes its cookies to one room', async () => {

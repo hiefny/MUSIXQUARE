@@ -1,6 +1,7 @@
 import { log } from '../../core/log.ts';
-import { MSG } from '../../core/constants.ts';
+import { CHUNK_SIZE, MSG } from '../../core/constants.ts';
 import { clearManagedTimer, delay, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
+import { proSignalingWebSocketProtocols } from '../pro-signaling-websocket.ts';
 import { TinyEmitter } from './emitter.ts';
 import type {
   DeveloperCommandFrame,
@@ -263,8 +264,10 @@ function candidateMatchesRemoteUfrag(
 const DATA_CHANNEL_LABEL = 'musixquare-data';
 const CONTROL_CHANNEL_LABEL = 'musixquare-control';
 const BINARY_CHUNK_SENTINEL = '__mxqrBinaryChunk';
+const BINARY_HEADER_MAX_BYTES = 16 * 1024;
+const DATA_CHANNEL_TEXT_MAX_CODE_UNITS = 16 * 1024 * 1024;
 const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
+const textDecoder = new TextDecoder('utf-8', { fatal: true });
 
 function randomBase64Url(bytes = 18): string {
   const data = new Uint8Array(bytes);
@@ -347,6 +350,9 @@ function encodePayload(data: unknown): string | ArrayBuffer {
     if (chunk) {
       const header = { ...record, chunk: { [BINARY_CHUNK_SENTINEL]: true } };
       const headerBytes = textEncoder.encode(JSON.stringify(header));
+      if (headerBytes.byteLength > BINARY_HEADER_MAX_BYTES || chunk.byteLength > CHUNK_SIZE) {
+        throw new Error('DATA_CHANNEL_BINARY_FRAME_TOO_LARGE');
+      }
       const frame = new Uint8Array(4 + headerBytes.byteLength + chunk.byteLength);
       new DataView(frame.buffer).setUint32(0, headerBytes.byteLength, false);
       frame.set(headerBytes, 4);
@@ -361,8 +367,15 @@ function decodeBinaryPayload(frame: ArrayBuffer): unknown {
   if (frame.byteLength < 4) throw new Error('INVALID_BINARY_FRAME');
   const view = new DataView(frame);
   const headerLength = view.getUint32(0, false);
-  if (headerLength <= 0 || headerLength > frame.byteLength - 4) {
+  if (
+    headerLength <= 0 ||
+    headerLength > BINARY_HEADER_MAX_BYTES ||
+    headerLength > frame.byteLength - 4
+  ) {
     throw new Error('INVALID_BINARY_HEADER');
+  }
+  if (frame.byteLength - 4 - headerLength > CHUNK_SIZE) {
+    throw new Error('INVALID_BINARY_BODY');
   }
   const bytes = new Uint8Array(frame);
   const headerJson = textDecoder.decode(bytes.slice(4, 4 + headerLength));
@@ -376,9 +389,19 @@ function decodeBinaryPayload(frame: ArrayBuffer): unknown {
 }
 
 async function decodePayload(data: unknown): Promise<unknown> {
-  if (typeof data === 'string') return JSON.parse(data);
+  if (typeof data === 'string') {
+    if (data.length > DATA_CHANNEL_TEXT_MAX_CODE_UNITS) {
+      throw new Error('DATA_CHANNEL_TEXT_FRAME_TOO_LARGE');
+    }
+    return JSON.parse(data);
+  }
   if (data instanceof ArrayBuffer) return decodeBinaryPayload(data);
-  if (data instanceof Blob) return decodeBinaryPayload(await data.arrayBuffer());
+  if (data instanceof Blob) {
+    if (data.size > 4 + BINARY_HEADER_MAX_BYTES + CHUNK_SIZE) {
+      throw new Error('DATA_CHANNEL_BINARY_FRAME_TOO_LARGE');
+    }
+    return decodeBinaryPayload(await data.arrayBuffer());
+  }
   return data;
 }
 
@@ -1284,7 +1307,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           : `${standardBase}/api/pro-rooms`;
       base.pathname = `${proBase}/${encodeURIComponent(roomId)}/ws`;
       base.search = '';
-      base.searchParams.set('ticket', proSignaling.ticket);
       return base.toString();
     }
     base.pathname = `${base.pathname.replace(/\/+$/, '')}/${encodeURIComponent(roomId)}/ws`;
@@ -1295,6 +1317,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     base.searchParams.set('role', role);
     base.searchParams.set('peerId', peerId);
     return base.toString();
+  }
+
+  private openSignalingSocket(url: string): WebSocket {
+    const ticket = this.proSignalingAccess?.ticket;
+    return ticket ? new WebSocket(url, proSignalingWebSocketProtocols(ticket)) : new WebSocket(url);
   }
 
   private send(socket: WebSocket | null | undefined, message: OutgoingSignal): void {
@@ -1357,7 +1384,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
     let socket: WebSocket;
     try {
-      socket = new WebSocket(this.buildSocketUrl(this.hostRoomId, 'host', this.id));
+      socket = this.openSignalingSocket(this.buildSocketUrl(this.hostRoomId, 'host', this.id));
     } catch (error) {
       this.emit('error', error);
       return;
@@ -1439,7 +1466,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const { conn, metadata } = record;
     let socket: WebSocket;
     try {
-      socket = new WebSocket(this.buildSocketUrl(roomId, 'guest', this.id));
+      socket = this.openSignalingSocket(this.buildSocketUrl(roomId, 'guest', this.id));
     } catch (error) {
       queueMicrotask(() => conn.emit('error', error));
       return;

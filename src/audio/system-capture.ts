@@ -88,6 +88,18 @@ let _captureStartEpoch = 0;
 let _captureRoomKind: 'standard' | 'pro' | null = null;
 const SYSTEM_AUDIO_SHARE_LIMIT_TIMER = 'system-audio-host-share-limit';
 
+function syncStandardRoleControlState(mode: number): void {
+  try {
+    document.querySelectorAll<HTMLElement>('#grid-standard .ch-opt[data-ch]').forEach((element) => {
+      const selected = Number(element.dataset.ch) === mode;
+      element.classList.toggle('active', selected);
+      element.setAttribute('aria-pressed', String(selected));
+    });
+  } catch {
+    /* presentation recovery must not change the media outcome */
+  }
+}
+
 function captureSystemAudioRoomIdentity(): SystemAudioRoomIdentity {
   const room = getRoomContext();
   return Object.freeze({
@@ -507,14 +519,7 @@ async function performSystemAudioCaptureStart(
   }
 
   // 3.5 UI only: show stereo button as active (actual channelMode unchanged)
-  try {
-    document
-      .querySelectorAll('#grid-standard .ch-opt')
-      .forEach((el) => el.classList.remove('active'));
-    document.querySelector('#grid-standard .ch-opt[data-ch="0"]')?.classList.add('active');
-  } catch {
-    /* noop */
-  }
+  syncStandardRoleControlState(0);
 
   // 4. Audio was initialized before changing the previous playback state.
   const ctx = getAudioContext();
@@ -713,16 +718,7 @@ function stopSystemAudioCapture(opts?: {
 
 export function restorePreSystemAudioPlaybackState(snapshot: PreSystemAudioState): void {
   // Restore channel UI to previous selection.
-  try {
-    document
-      .querySelectorAll('#grid-standard .ch-opt')
-      .forEach((el) => el.classList.remove('active'));
-    document
-      .querySelector(`#grid-standard .ch-opt[data-ch="${snapshot.channelMode}"]`)
-      ?.classList.add('active');
-  } catch {
-    /* noop */
-  }
+  syncStandardRoleControlState(snapshot.channelMode);
 
   setState('player.pausedAt', snapshot.positionSeconds);
   setPlaybackTrackMeta(snapshot.currentTrackMeta ?? null);

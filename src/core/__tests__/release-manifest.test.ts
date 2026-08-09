@@ -17,6 +17,9 @@ type Manifest = {
   commit: string;
   target: string | null;
   validationProfile: string | null;
+  tools: {
+    wrangler: string;
+  };
 };
 
 function createFixture(): { dist: string; manifest: string } {
@@ -102,6 +105,26 @@ describe('release manifest validation profile', () => {
     const payload = JSON.parse(readFileSync(manifest, 'utf8')) as Manifest;
     expect(payload.validationProfile).toBeNull();
     expect(runManifest('verify', dist, manifest).status).toBe(0);
+  });
+
+  it('records the installed Wrangler version instead of an environment label', () => {
+    const { dist, manifest } = createFixture();
+    const createResult = runManifest('create', dist, manifest, undefined, {
+      WRANGLER_VERSION: '0.0.0',
+    });
+    expect(createResult.status, createResult.stderr).toBe(0);
+
+    const payload = JSON.parse(readFileSync(manifest, 'utf8')) as Manifest;
+    const installedWrangler = JSON.parse(
+      readFileSync('node_modules/wrangler/package.json', 'utf8'),
+    ) as { version: string };
+    expect(payload.tools.wrangler).toBe(installedWrangler.version);
+    expect(payload.tools.wrangler).not.toBe('0.0.0');
+
+    const verifyResult = runManifest('verify', dist, manifest, undefined, {
+      WRANGLER_VERSION: '999.0.0',
+    });
+    expect(verifyResult.status, verifyResult.stderr).toBe(0);
   });
 
   it('verifies an exact-SHA candidate reused from a successful CI run', () => {

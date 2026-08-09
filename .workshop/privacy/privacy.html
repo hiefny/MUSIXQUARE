@@ -39,11 +39,7 @@
     <link rel="stylesheet" href="/css/pretendard.css" />
     <link rel="stylesheet" href="/legal-pages.css" />
     <!-- Cloudflare Web Analytics -->
-    <script
-      defer
-      src="https://static.cloudflareinsights.com/beacon.min.js"
-      data-cf-beacon='{"token": "80608f4cdc3849d589d14bdcf48f19f9"}'
-    ></script>
+    <script defer src="/analytics-bootstrap.js"></script>
     <!-- End Cloudflare Web Analytics -->
   </head>
 
@@ -202,7 +198,7 @@
                 service metrics, administrator audit and PRO-room registry records, and Developer
                 API records. Durable Objects hold live ordinary-room and PRO-room state plus
                 service-control, quota, and rate-limit state. R2 holds temporary ordinary-room
-                remote-share objects, persistent PRO-room media, and public Soro blog images.
+                remote-share objects, persistent PRO-room media, and mirrored Soro featured images.
                 Workers KV holds a backup copy of the public Soro RSS feed; it is not used for room
                 messages or media.
               </dd>
@@ -224,13 +220,15 @@
               </dd>
             </div>
             <div>
-              <dt>Operational logs and traces</dt>
+              <dt>Operational logs</dt>
               <dd>
-                Sampled Cloudflare Worker observability is enabled for the public workers. It
-                processes request and execution metadata and diagnostic messages emitted for service
-                health, failures, and security operations. MUSIXQUARE does not configure a separate
-                retention period for these logs and traces in application code; Cloudflare account
-                settings and provider policies govern their retention.
+                Sampled, credential-free custom Cloudflare Worker logs are enabled for service
+                health, failures, abuse prevention, and security operations. Automatic invocation
+                logs that include request URLs and automatic Worker traces are disabled for all six
+                public workers. Application logging does not include raw request URLs, query
+                strings, credentials, cookies, or authorization headers. MUSIXQUARE does not
+                configure a separate retention period for the sampled custom logs in application
+                code; Cloudflare account settings and provider policies govern their retention.
               </dd>
             </div>
             <div>
@@ -244,10 +242,13 @@
             <div>
               <dt>Website analytics</dt>
               <dd>
-                Page paths, referrers, browser, operating system, device type, performance
+                On selected standalone production pages, and only when the URL has no query string
+                or fragment and the referrer exposes neither a query nor a six-digit room route,
+                page paths, referrers, browser, operating system, device type, performance
                 measurements, and approximate region may be processed through Cloudflare Web
-                Analytics. Cloudflare Web Analytics is cookie-free and is designed not to collect
-                visitors' personal data.
+                Analytics. The main MUSIXQUARE single-page app does not load Web Analytics, so room
+                navigation and six-digit room routes are not measured. Cloudflare Web Analytics is
+                cookie-free and is designed not to collect visitors' personal data.
               </dd>
             </div>
           </dl>
@@ -315,14 +316,17 @@
             until the room owner revokes them, the room is deleted, or the account is deleted.
           </p>
           <p>
-            Deleting an account removes the active account profile, cumulative account activity
-            totals, account sessions, and that account's membership and account-linked authority,
-            including a linked owner association, from PRO rooms. If room cleanup is temporarily
-            unavailable, the account is kept and deletion can be retried. Account deletion does not
-            decommission a PRO room or invalidate its separate room-recovery credential, and it does
-            not automatically delete media already shared in that room. The media follows the room's
-            retention rules. Provider-managed point-in-time recovery data may remain for the
-            applicable backup-retention period.
+            Once deletion is accepted, sign-in ends and MUSIXQUARE removes, or schedules removal of,
+            the account profile, cumulative account activity totals, account sessions, and that
+            account's membership and account-linked authority, including a linked owner association,
+            from PRO rooms. If cleanup fails before deletion is accepted, the account remains active
+            and deletion can be retried. If linked-room cleanup cannot finish after deletion is
+            accepted, sign-in remains disabled and MUSIXQUARE retries automatically; the remaining
+            account record and cumulative totals are removed after cleanup finishes. Account
+            deletion does not decommission a PRO room or invalidate its separate room-recovery
+            credential, and it does not automatically delete media already shared in that room. The
+            media follows the room's retention rules. Provider-managed point-in-time recovery data
+            may remain for the applicable backup-retention period.
           </p>
           <p>
             Short-lived rate-limit records used to protect Remote Share, signaling connection opens,
@@ -351,6 +355,13 @@
               rel="noopener noreferrer"
               >Cloudflare Privacy Policy</a
             >.
+          </p>
+          <p>
+            MUSIXQUARE's public blog is sourced from Soro. Featured images are served through
+            MUSIXQUARE, but images embedded in article bodies may load directly from Soro or
+            Supabase-hosted domains. When such an image loads, the image host may receive the
+            visitor's IP address, browser and request metadata, access time, and MUSIXQUARE's origin
+            as referrer, subject to its own policies.
           </p>
           <p>
             YouTube features use YouTube API Services and the YouTube embedded player. Their use is

@@ -59,9 +59,9 @@ beforeEach(() => {
   bus.clear();
   document.body.innerHTML = `
     <div id="grid-standard">
-      <button class="ch-opt active" data-ch="0"></button>
-      <button class="ch-opt" data-ch="-1"></button>
-      <button class="ch-opt" data-ch="1"></button>
+      <button class="ch-opt active" data-ch="0" aria-pressed="true"></button>
+      <button class="ch-opt" data-ch="-1" aria-pressed="false"></button>
+      <button class="ch-opt" data-ch="1" aria-pressed="false"></button>
     </div>
   `;
 });
@@ -85,6 +85,12 @@ describe('restorePreSystemAudioPlaybackState', () => {
     expect(getState('playback.activity')).toBe('paused');
     expect(document.querySelector('.ch-opt[data-ch="-1"]')?.classList.contains('active')).toBe(
       true,
+    );
+    expect(document.querySelector('.ch-opt[data-ch="-1"]')?.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(document.querySelector('.ch-opt[data-ch="0"]')?.getAttribute('aria-pressed')).toBe(
+      'false',
     );
   });
 

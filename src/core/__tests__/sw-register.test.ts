@@ -290,6 +290,35 @@ describe('service-worker cache-retirement client handshake', () => {
     expect(harness.reload).toHaveBeenCalledOnce();
   });
 
+  it('continues update activation when sessionStorage is unavailable', async () => {
+    vi.stubGlobal('sessionStorage', {
+      getItem: vi.fn(() => {
+        throw new DOMException('denied', 'SecurityError');
+      }),
+      setItem: vi.fn(() => {
+        throw new DOMException('denied', 'SecurityError');
+      }),
+      removeItem: vi.fn(() => {
+        throw new DOMException('denied', 'SecurityError');
+      }),
+    });
+    const oldController: FakeWorker = { postMessage: vi.fn() };
+    const newController: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(oldController);
+    moduleMocks.showDialog.mockResolvedValue({ action: 'ok' });
+    await registerWithHarness(harness);
+
+    const update = harness.installUpdate();
+    update.emitInstalled();
+    await vi.waitFor(() =>
+      expect(update.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
+    );
+
+    harness.setController(newController);
+    harness.emit('controllerchange');
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+  });
+
   it('honors Refresh when another tab activates the worker while the dialog is open', async () => {
     const oldController: FakeWorker = { postMessage: vi.fn() };
     const newController: FakeWorker = { postMessage: vi.fn() };

@@ -305,11 +305,14 @@ describe('custom-scrollbar transition reveal', () => {
     bus.emit('ui:scrollbar-reveal', scoped.container.parentElement!);
 
     expect(scoped.track().style.opacity).toBe('1');
+    expect(scoped.track().style.pointerEvents).toBe('auto');
     expect(background.track().style.opacity).toBe('0');
+    expect(background.track().style.pointerEvents).toBe('none');
     vi.advanceTimersByTime(1199);
     expect(scoped.track().style.opacity).toBe('1');
     vi.advanceTimersByTime(1);
     expect(scoped.track().style.opacity).toBe('0');
+    expect(scoped.track().style.pointerEvents).toBe('none');
   });
 
   it('does not reveal a non-overflowing or zero-height parked instance', () => {

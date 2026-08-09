@@ -172,9 +172,17 @@ class FakeAuthDb {
       const requestedAccountId = normalized.includes('where account_id = ?1')
         ? String(values[0])
         : null;
-      const limit = requestedAccountId ? 1 : Number(values[0]) || 4;
+      const startedAtCutoff =
+        requestedAccountId === null && normalized.includes('where started_at <= ?1')
+          ? Number(values[0])
+          : Number.POSITIVE_INFINITY;
+      const limit = requestedAccountId ? 1 : Number(values[1] ?? values[0]) || 4;
       return [...this.accountDeletions.entries()]
-        .filter(([accountId]) => requestedAccountId === null || accountId === requestedAccountId)
+        .filter(
+          ([accountId, startedAt]) =>
+            (requestedAccountId === null || accountId === requestedAccountId) &&
+            startedAt <= startedAtCutoff,
+        )
         .sort(
           ([leftAccountId, leftStartedAt], [rightAccountId, rightStartedAt]) =>
             leftStartedAt - rightStartedAt || leftAccountId.localeCompare(rightAccountId),
@@ -2389,7 +2397,7 @@ describe('account session mutations', () => {
 
     failExactEdgeDelete = false;
     await expect(
-      cleanupPendingAccountDeletions(env, { purgeProRoomAccountAuthority: purge }),
+      cleanupPendingAccountDeletions(env, { purgeProRoomAccountAuthority: purge }, { accountId }),
     ).resolves.toMatchObject({
       purgedEdges: 1,
       failedEdges: 0,
@@ -2431,6 +2439,55 @@ describe('account session mutations', () => {
     expect(response?.status).toBe(503);
     expect(db.accounts.has(accountId)).toBe(true);
     expect(db.sessions.size).toBe(1);
+    expect(db.accountDeletions.has(accountId)).toBe(false);
+  });
+
+  it('keeps the minute sweep off a fresh foreground fence and adopts it only after takeover age', async () => {
+    vi.useFakeTimers();
+    const now = 1_900_000_000_000;
+    vi.setSystemTime(now);
+    const db = new FakeAuthDb();
+    const env = authEnv(db);
+    await completeLogin(env);
+    const accountId = [...db.accounts.keys()][0]!;
+    db.proRoomLinks.set(`${accountId}:000001:7`, {
+      account_id: accountId,
+      room_code: '000001',
+      room_generation: 7,
+      first_linked_at: 1,
+      last_seen_at: 1,
+    });
+    db.accountDeletions.set(accountId, now);
+    vi.unstubAllGlobals();
+
+    let purgeCalls = 0;
+    const integrations = {
+      purgeProRoomAccountAuthority: async () => {
+        purgeCalls += 1;
+        return true;
+      },
+    };
+    await expect(cleanupPendingAccountDeletions(env, integrations)).resolves.toMatchObject({
+      processedAccounts: 0,
+      completedAccounts: 0,
+      pendingAccounts: 0,
+    });
+    expect(purgeCalls).toBe(0);
+    expect(db.accounts.get(accountId)?.status).toBe('active');
+    expect(db.sessions.size).toBe(1);
+    expect(db.accountDeletions.has(accountId)).toBe(true);
+
+    db.accountDeletions.set(accountId, now - 10 * 60 * 1000);
+    await expect(cleanupPendingAccountDeletions(env, integrations)).resolves.toMatchObject({
+      processedAccounts: 1,
+      purgedEdges: 1,
+      failedEdges: 0,
+      completedAccounts: 1,
+      pendingAccounts: 0,
+    });
+    expect(purgeCalls).toBe(1);
+    expect(db.accounts.has(accountId)).toBe(false);
+    expect(db.sessions.size).toBe(0);
     expect(db.accountDeletions.has(accountId)).toBe(false);
   });
 
@@ -2546,9 +2603,13 @@ describe('account session mutations', () => {
     expect([...db.proRoomLinks.values()].map((row) => row.room_code)).toEqual([failedRoom]);
 
     await expect(
-      cleanupPendingAccountDeletions(env, {
-        purgeProRoomAccountAuthority: async () => true,
-      }),
+      cleanupPendingAccountDeletions(
+        env,
+        {
+          purgeProRoomAccountAuthority: async () => true,
+        },
+        { accountId },
+      ),
     ).resolves.toMatchObject({
       purgedEdges: 1,
       failedEdges: 0,

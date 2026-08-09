@@ -220,6 +220,36 @@ describe('i18n functions', () => {
       expect(getLanguageMode()).toBe('system');
       expect(getResolvedLanguage()).toBe('ja');
     });
+
+    it('keeps the language mode buttons visually and semantically aligned', async () => {
+      localStorage.setItem('musixquare-lang', 'en');
+      document.body.innerHTML = `
+        <div id="grid-lang">
+          <button class="ch-opt" data-lang-action="select" aria-pressed="false"></button>
+          <button class="ch-opt" data-lang-action="system" aria-pressed="false"></button>
+        </div>
+      `;
+      Object.defineProperty(navigator, 'languages', {
+        value: ['en-US'],
+        configurable: true,
+      });
+      const { setLanguageMode, initI18n } = await import('../index.ts');
+      await initI18n();
+
+      const select = document.querySelector<HTMLElement>('[data-lang-action="select"]');
+      const system = document.querySelector<HTMLElement>('[data-lang-action="system"]');
+      expect(select?.classList.contains('active')).toBe(true);
+      expect(select?.getAttribute('aria-pressed')).toBe('true');
+      expect(system?.classList.contains('active')).toBe(false);
+      expect(system?.getAttribute('aria-pressed')).toBe('false');
+
+      setLanguageMode('system');
+
+      expect(select?.classList.contains('active')).toBe(false);
+      expect(select?.getAttribute('aria-pressed')).toBe('false');
+      expect(system?.classList.contains('active')).toBe(true);
+      expect(system?.getAttribute('aria-pressed')).toBe('true');
+    });
   });
 
   describe('initI18n()', () => {

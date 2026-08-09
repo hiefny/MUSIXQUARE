@@ -11,6 +11,7 @@ import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
+import { deactivateNoSleep } from '../core/wake-lock.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { MAX_GUEST_SLOTS, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
 import { clearAllManagedTimers, clearManagedTimer, setManagedTimer } from '../core/timers.ts';
@@ -795,6 +796,7 @@ const PENDING_SETUP_TIMER_KEYS = [
  */
 export function cancelPendingSessionSetup(): void {
   if (getState('setup.sessionStarted')) return;
+  deactivateNoSleep();
   resetLocalSystemAudioSfuCapabilities();
   resetGuestSystemAudioShareRoute();
   if (getState('room.context').kind === 'pro' || isProRoomCode(getState('network.lastJoinCode'))) {
@@ -886,6 +888,7 @@ export function cancelPendingSessionSetup(): void {
  * Leave the current session and clean up all network state.
  */
 export function leaveSession(options: { preserveAccountLoginReturn?: boolean } = {}): void {
+  deactivateNoSleep();
   // A user-confirmed leave must not let an abandoned OAuth route pull a later
   // PWA launch back into this room. Confirmed pagehide is different: it is the
   // boundary used by same-tab OAuth navigation and explicitly opts out below.

@@ -106,11 +106,15 @@ export function initTabs(): void {
   });
 
   navItems.forEach((el) => {
-    el.addEventListener('click', () => {
-      try {
-        el.blur();
-      } catch {
-        /* ignore */
+    el.addEventListener('click', (event) => {
+      // Pointer activation should not leave a persistent focus ring, while
+      // keyboard/assistive-tech click activation must retain focus on the tab.
+      if (event.detail > 0) {
+        try {
+          el.blur();
+        } catch {
+          /* ignore */
+        }
       }
       if (el.classList.contains('active')) {
         const tabBody = document.querySelector(`#tab-${el.dataset.tab} .tab-body`);

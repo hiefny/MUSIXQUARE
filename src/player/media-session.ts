@@ -48,7 +48,11 @@ function mediaSessionStateFromActivity(activity: PlaybackActivityValue): MediaSe
 // ─── Metadata Update ───────────────────────────────────────────────
 
 export function updateMediaSessionMetadata(item: Partial<PlaylistItem> | null): void {
-  if (!('mediaSession' in navigator) || !item) return;
+  if (!('mediaSession' in navigator)) return;
+  if (!item) {
+    navigator.mediaSession.metadata = null;
+    return;
+  }
 
   let title = getTrackDisplayTitle(item, 'Unknown Track');
   const artist = item.type === 'youtube' ? 'YouTube' : 'MUSIXQUARE';
@@ -76,7 +80,7 @@ export function updateMediaSessionMetadata(item: Partial<PlaylistItem> | null): 
       artwork = [{ src: thumb, sizes: '480x360', type: 'image/jpeg' }];
     }
   } else {
-    artwork = [{ src: 'favicon.svg', sizes: '512x512', type: 'image/svg+xml' }];
+    artwork = [{ src: '/favicon.svg', sizes: '512x512', type: 'image/svg+xml' }];
   }
 
   navigator.mediaSession.metadata = new MediaMetadata({

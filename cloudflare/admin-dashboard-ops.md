@@ -144,8 +144,22 @@ npm run wrangler -- secret put MXQR_ADMIN_PASSWORD --config cloudflare/wrangler.
 npm run wrangler -- secret put MXQR_ADMIN_SESSION_SECRET --config cloudflare/wrangler.app.toml
 ```
 
-`MXQR_ADMIN_SESSION_SECRET` must be a randomly generated string of at least 32
-characters. It signs the HttpOnly admin session cookie.
+`MXQR_ADMIN_PASSWORD` must be a randomly generated value whose UTF-8 encoding is
+between 16 and 256 bytes. A missing, shorter, or longer value leaves the admin
+login fail-closed as `ADMIN_NOT_CONFIGURED`; do not use a human phrase merely to
+satisfy the byte floor. `MXQR_ADMIN_SESSION_SECRET` must be a separate randomly
+generated string of at least 32 characters. It signs the domain-separated,
+exactly 12-hour HttpOnly admin session cookie.
+
+Both values are consumed exactly as stored: leading and trailing whitespace is
+part of the password or signing secret. When entering them through a shell or
+secret prompt, avoid accidental spaces/newlines and never add quotes unless the
+secret-management command explicitly documents that quoting syntax.
+
+The domain-separated session format intentionally rejects cookies issued by
+older App Worker revisions. After a release that changes this contract, verify
+that the existing cookie is rejected and sign in again through Cloudflare
+Access plus the MUSIXQUARE password.
 
 After the schema and D1 bindings are committed, push the reviewed commit to
 `main` and run the `Production Release` workflow with target `all`. The workflow

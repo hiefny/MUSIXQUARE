@@ -87,8 +87,15 @@ canonical state and reducer, then calls the signaling object to fan out a
 bounded server event. The WebSocket upgrade uses a short-lived, one-use ticket
 bound to the current participant, server-issued presence incarnation, presence
 revision, control incarnation, and monotonically increasing per-session ticket
-sequence. Its socket attachment, rather than a client-supplied identity field,
-authenticates every later realtime frame.
+sequence. New clients offer that bearer as the second
+`Sec-WebSocket-Protocol` token after the stable `mxqr.pro-signaling.v1` marker;
+the server selects and returns only the stable marker. This keeps the bearer
+out of the request URL and prevents it from being echoed in the upgrade
+response. Cached pre-cutover clients may use the exact `?ticket=` fallback only
+until 2026-09-09 UTC. Automatic Worker invocation URL logs and traces remain
+disabled throughout that bounded grace period. Its socket attachment, rather
+than a client-supplied identity field, authenticates every later realtime
+frame.
 
 Playback commands and READY reports use HTTP because their typed response,
 idempotency receipt, and conflict snapshot are part of the mutation contract.

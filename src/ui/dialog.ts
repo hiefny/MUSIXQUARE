@@ -74,6 +74,14 @@ function drainDialogQueue(): void {
   _openDialog(next.opts, next.resolve);
 }
 
+function setDialogInputInvalid(invalid: boolean): void {
+  if (!_dialogInput) return;
+  _dialogInput.setAttribute('aria-invalid', String(invalid));
+  _dialogInput
+    .querySelectorAll<HTMLElement>('input, [role="textbox"]')
+    .forEach((input) => input.setAttribute('aria-invalid', String(invalid)));
+}
+
 export function closeDialog(action = 'close'): void {
   const overlay = document.getElementById('dialog-overlay');
   if (overlay) {
@@ -178,7 +186,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       const group = document.createElement('div');
       group.className = 'dialog-input-split';
       group.setAttribute('role', 'group');
-      if (inputCfg.placeholder) group.setAttribute('aria-label', inputCfg.placeholder);
+      group.setAttribute('aria-label', inputCfg.placeholder || title);
 
       const inputs: HTMLInputElement[] = [];
       const separator = inputCfg.separator ?? '-';
@@ -256,6 +264,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       input.contentEditable = 'true';
       input.className = 'dialog-input';
       input.setAttribute('role', 'textbox');
+      input.setAttribute('aria-label', inputCfg.placeholder || title);
       if (inputCfg.placeholder) input.setAttribute('data-placeholder', inputCfg.placeholder);
       if (inputCfg.inputMode) input.setAttribute('inputmode', inputCfg.inputMode);
       if (inputCfg.pattern) input.setAttribute('pattern', inputCfg.pattern);
@@ -288,10 +297,18 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     }
 
     const hint = document.createElement('div');
+    hint.id = 'dialog-input-hint';
     hint.className = 'dialog-hint';
+    hint.setAttribute('aria-live', 'polite');
+    hint.setAttribute('aria-atomic', 'true');
     hint.textContent = inputCfg.hint || '';
     applyUserTextFontFallback(hint, hint.textContent);
     msgEl.appendChild(hint);
+    _dialogInput?.setAttribute('aria-describedby', hint.id);
+    _dialogInput
+      ?.querySelectorAll<HTMLElement>('input, [role="textbox"]')
+      .forEach((input) => input.setAttribute('aria-describedby', hint.id));
+    setDialogInputInvalid(false);
     _dialogHint = hint;
     _dialogHintDefault = inputCfg.hint || '';
     _dialogValidator = inputCfg.validator || null;
@@ -355,6 +372,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
           _dialogHint.classList.add('error');
         }
         _dialogInput.classList.add('invalid');
+        setDialogInputInvalid(true);
         _dialogInput.classList.remove('shake');
         // Force reflow to restart animation
         void _dialogInput.offsetWidth;
@@ -386,6 +404,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       _dialogHint.classList.remove('error');
     }
     _dialogInput?.classList.remove('invalid');
+    setDialogInputInvalid(false);
   };
 
   // Clear error on input change

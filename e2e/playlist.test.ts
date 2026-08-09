@@ -21,7 +21,7 @@ import {
   setCurrentQueueItemByIndex,
   waitForCurrentQueueIndex,
 } from './helpers/queue-state.ts';
-import { isVisible, navigateToTab, waitForPlaylistCount } from './helpers/wait.ts';
+import { navigateToTab, waitForPlaylistCount } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 

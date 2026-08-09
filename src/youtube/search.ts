@@ -27,12 +27,15 @@ import {
 } from './constants.ts';
 import { fetchWithTimeout, normalizeExternalTitle } from './oembed.ts';
 import { applyUserTextFontFallback } from '../ui/user-text-font.ts';
+import { cancelResponseBody, readBoundedJsonResponse } from '../core/request-lifetime.ts';
 
 const YOUTUBE_SEARCH_ENDPOINT = '/api/youtube-search';
 const YOUTUBE_PLAYLIST_ENTRY_ENDPOINT = '/api/youtube-playlist-entry';
 const YOUTUBE_PLAYLIST_MANIFEST_ENDPOINT = '/api/youtube-playlist-manifest';
 const YOUTUBE_SEARCH_TIMEOUT_MS = 8000;
 const YOUTUBE_PLAYLIST_MANIFEST_TIMEOUT_MS = 60_000;
+const YOUTUBE_CONTROL_RESPONSE_MAX_BYTES = 256 * 1024;
+const YOUTUBE_OEMBED_RESPONSE_MAX_BYTES = 64 * 1024;
 const YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS = 5_000;
 const YOUTUBE_PLAYLIST_PREVIEW_BUDGET_MS = 8_000;
 const YOUTUBE_PLAYLIST_PREVIEW_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -227,7 +230,10 @@ export async function fetchYouTubeSearchResults(
   if (!response.ok) {
     let payload: YouTubeSearchErrorPayload = {};
     try {
-      payload = (await response.json()) as YouTubeSearchErrorPayload;
+      payload = (await readBoundedJsonResponse(
+        response,
+        YOUTUBE_CONTROL_RESPONSE_MAX_BYTES,
+      )) as YouTubeSearchErrorPayload;
     } catch {
       /* ignore malformed error bodies */
     }
@@ -236,7 +242,9 @@ export async function fetchYouTubeSearchResults(
     throw new Error(`YouTube search HTTP ${response.status} (${reason})${detail}`);
   }
 
-  const results = normalizeSearchResults(await response.json());
+  const results = normalizeSearchResults(
+    await readBoundedJsonResponse(response, YOUTUBE_CONTROL_RESPONSE_MAX_BYTES),
+  );
   searchCacheSet(normalizedQuery, results);
   return results;
 }
@@ -260,7 +268,10 @@ export async function resolveYouTubePlaylistEntry(
   if (!response.ok) {
     let payload: YouTubeSearchErrorPayload = {};
     try {
-      payload = (await response.json()) as YouTubeSearchErrorPayload;
+      payload = (await readBoundedJsonResponse(
+        response,
+        YOUTUBE_CONTROL_RESPONSE_MAX_BYTES,
+      )) as YouTubeSearchErrorPayload;
     } catch {
       /* malformed error bodies are reported using the HTTP status */
     }
@@ -268,7 +279,10 @@ export async function resolveYouTubePlaylistEntry(
     throw new Error(`YouTube playlist resolution HTTP ${response.status} (${reason})`);
   }
 
-  const value: unknown = await response.json();
+  const value: unknown = await readBoundedJsonResponse(
+    response,
+    YOUTUBE_CONTROL_RESPONSE_MAX_BYTES,
+  );
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Invalid YouTube playlist resolution response');
   }
@@ -309,12 +323,18 @@ export async function resolveYouTubePlaylistManifest(
     'youtube-search',
   );
   if (!response.ok) {
-    const payload = (await response.json().catch(() => ({}))) as YouTubeSearchErrorPayload;
+    const payload = (await readBoundedJsonResponse(
+      response,
+      YOUTUBE_CONTROL_RESPONSE_MAX_BYTES,
+    ).catch(() => ({}))) as YouTubeSearchErrorPayload;
     const reason = payload.error || payload.reason || response.statusText || 'unknown';
     throw new Error(`YouTube playlist manifest HTTP ${response.status} (${reason})`);
   }
 
-  const value: unknown = await response.json();
+  const value: unknown = await readBoundedJsonResponse(
+    response,
+    YOUTUBE_CONTROL_RESPONSE_MAX_BYTES,
+  );
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Invalid YouTube playlist manifest response');
   }
@@ -767,15 +787,21 @@ export function fetchYouTubePreview(url: string): void {
         const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
         const response = await fetchWithTimeout(oembedUrl, OEMBED_FETCH_TIMEOUT_MS, abort.signal);
         if (!isCurrentPreview()) return;
-        if (!response.ok) throw new Error('Video not found');
-        const data = await response.json();
+        if (!response.ok) {
+          await cancelResponseBody(response);
+          throw new Error('Video not found');
+        }
+        const data = (await readBoundedJsonResponse(
+          response,
+          YOUTUBE_OEMBED_RESPONSE_MAX_BYTES,
+        )) as Record<string, unknown>;
         if (!isCurrentPreview()) return;
 
         const thumb = document.getElementById('youtube-preview-thumb') as HTMLImageElement | null;
         const title = document.getElementById('youtube-preview-title');
         const chan = document.getElementById('youtube-preview-channel');
         if (thumb) {
-          if (data.thumbnail_url) {
+          if (typeof data.thumbnail_url === 'string' && data.thumbnail_url) {
             // Always keep the thumb visible. If the actual fetch fails
             // (CSP, referrer policy, regional ytimg block, SW cache
             // mismatch on iOS WebView, etc.) the .yt-preview-thumb CSS
@@ -924,8 +950,14 @@ export async function fetchPlaylistSubTitles(
           abort.signal,
         );
         if (abort.signal.aborted) return;
-        if (!response.ok) continue;
-        const json = await response.json();
+        if (!response.ok) {
+          await cancelResponseBody(response);
+          continue;
+        }
+        const json = (await readBoundedJsonResponse(
+          response,
+          YOUTUBE_OEMBED_RESPONSE_MAX_BYTES,
+        )) as Record<string, unknown>;
 
         if (abort.signal.aborted) return;
 

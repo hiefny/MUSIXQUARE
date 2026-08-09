@@ -50,7 +50,6 @@ import {
   setupSetGuestJoinBusy,
   setupSetGuestJoinError,
   setupRenderActions,
-  startObAutoSlide,
   updateObSlider,
   nextObSlide,
   prevObSlide,
@@ -288,11 +287,6 @@ function initSetupOverlay(): void {
   updateObSlider();
   showHostGuestSelection();
 
-  const showAndStart = () => {
-    showSetupOverlay();
-    startObAutoSlide();
-  };
-
   if (!getSetupOverlayEverShown()) {
     try {
       document.documentElement.classList.add('setup-boot-block');
@@ -304,7 +298,7 @@ function initSetupOverlay(): void {
   // Apply entrance animation classes to main UI elements
   _applyEntranceClasses();
 
-  showAndStart();
+  showSetupOverlay();
   armSetupGreeting(signal);
   scheduleStandardRoomPrerequisiteWarmup();
 
@@ -333,7 +327,6 @@ function initSetupOverlay(): void {
         if (isNaN(idx)) return;
         setCurrentObSlide(idx);
         updateObSlider();
-        startObAutoSlide();
       },
       { signal },
     );

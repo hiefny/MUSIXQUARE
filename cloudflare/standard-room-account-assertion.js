@@ -1,7 +1,7 @@
 import { normalizeAccountNickname } from './account-nickname.js';
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+const decoder = new TextDecoder('utf-8', { fatal: true });
 
 export const STANDARD_ROOM_ACCOUNT_ASSERTION_AUDIENCE = 'standard-room';
 export const STANDARD_ROOM_ACCOUNT_DELETION_ASSERTION_AUDIENCE = 'standard-room-delete';

@@ -411,6 +411,15 @@ export function applyPlaylistQueueModeState(
 
 // ─── Repeat / Shuffle ──────────────────────────────────────────────
 
+function setPlaylistPressedState(
+  element: Element,
+  pressed: boolean,
+  visuallyActive = pressed,
+): void {
+  element.classList.toggle('active', visuallyActive);
+  element.setAttribute('aria-pressed', String(pressed));
+}
+
 export function toggleRepeat(): void {
   if (!hasRoomCapability('queue.mutate')) {
     showRoomCapabilityRequired('queue.mutate');
@@ -428,15 +437,27 @@ export function toggleRepeat(): void {
   }
 }
 
+function syncRepeatControl(mode: number): void {
+  const btn = document.getElementById('btn-repeat');
+  if (!btn) return;
+  setPlaylistPressedState(btn, mode !== 0, mode === 1);
+  btn.classList.toggle('active-one', mode === 2);
+  btn.setAttribute(
+    'aria-label',
+    t(
+      mode === 1
+        ? 'playlist.repeat_all'
+        : mode === 2
+          ? 'playlist.repeat_one'
+          : 'playlist.repeat_off',
+    ),
+  );
+}
+
 export function setRepeatMode(mode: number, notify = true): void {
   const prevMode = getState('playlist.repeatMode') || 0;
   setState('playlist.repeatMode', mode);
-  const btn = document.getElementById('btn-repeat');
-  if (btn) {
-    btn.classList.remove('active', 'active-one');
-    if (mode === 1) btn.classList.add('active');
-    else if (mode === 2) btn.classList.add('active-one');
-  }
+  syncRepeatControl(mode);
 
   if (notify) {
     if (mode === 1) showToast(t('playlist.repeat_all'));
@@ -456,6 +477,13 @@ export function setRepeatMode(mode: number, notify = true): void {
       schedulePreload();
     }
   }
+}
+
+function syncShuffleControl(enabled: boolean): void {
+  const btn = document.getElementById('btn-shuffle');
+  if (!btn) return;
+  setPlaylistPressedState(btn, enabled);
+  btn.setAttribute('aria-label', t(enabled ? 'playlist.shuffle_on' : 'playlist.shuffle_off'));
 }
 
 export function toggleShuffle(): void {
@@ -482,8 +510,7 @@ export function setShuffle(
 ): void {
   const prevEnabled = getState('playlist.isShuffle');
   setState('playlist.isShuffle', enabled);
-  const btn = document.getElementById('btn-shuffle');
-  if (btn) btn.classList.toggle('active', enabled);
+  syncShuffleControl(enabled);
   if (notify) showToast(enabled ? t('playlist.shuffle_on') : t('playlist.shuffle_off'));
 
   // Re-seed the Fisher-Yates permutation whenever shuffle turns ON so that
@@ -2528,6 +2555,13 @@ async function commitAuthoritativePlayback(
 }
 
 export function initPlaylist(): void {
+  syncRepeatControl(getState('playlist.repeatMode') || 0);
+  syncShuffleControl(!!getState('playlist.isShuffle'));
+  bus.on('i18n:changed', () => {
+    syncRepeatControl(getState('playlist.repeatMode') || 0);
+    syncShuffleControl(!!getState('playlist.isShuffle'));
+  });
+
   registerProPlaybackMediaEndpoint({
     prepare: prepareAuthoritativePlayback,
     commit: commitAuthoritativePlayback,

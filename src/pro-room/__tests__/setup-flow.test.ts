@@ -40,7 +40,7 @@ vi.mock('../runtime.ts', () => ({
   transferProRoomOwner: mocks.transferOwner,
 }));
 
-import { enterProRoomFromSetup } from '../setup-flow.ts';
+import { clearPendingSessionRequestIdsForTests, enterProRoomFromSetup } from '../setup-flow.ts';
 
 const ROOM_CODE = '000001';
 const CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
@@ -64,11 +64,13 @@ beforeEach(() => {
   mocks.loginPopup.mockResolvedValue('authenticated');
   sessionStorage.clear();
   localStorage.clear();
+  clearPendingSessionRequestIdsForTests();
 });
 
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('PRO room setup flow', () => {
@@ -131,6 +133,7 @@ describe('PRO room setup flow', () => {
       {
         code: ROOM_CODE,
         pin: '20020924',
+        requestId: expect.stringMatching(/^mxqr-pro-[a-f0-9]{48}$/u),
       },
       expect.any(AbortSignal),
     );
@@ -315,6 +318,88 @@ describe('PRO room setup flow', () => {
       expect.objectContaining({ pin: '22222222' }),
       expect.any(AbortSignal),
     );
+    expect(mocks.join.mock.calls[0]?.[0].requestId).not.toBe(
+      mocks.join.mock.calls[1]?.[0].requestId,
+    );
+  });
+
+  it('reuses the tab-scoped admission id after an uncertain response and clears it on success', async () => {
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+    mocks.showDialog.mockResolvedValue({ action: 'ok', inputValue: '12345678' });
+    mocks.join
+      .mockRejectedValueOnce(new ProRoomApiError('PRO_ROOM_API_UNAVAILABLE', 502))
+      .mockResolvedValueOnce({});
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).rejects.toMatchObject({
+      code: 'PRO_ROOM_API_UNAVAILABLE',
+      status: 502,
+    });
+    const retainedRequestId = mocks.join.mock.calls[0]?.[0].requestId;
+    expect(retainedRequestId).toMatch(/^mxqr-pro-[a-f0-9]{48}$/u);
+    expect(sessionStorage.getItem(`mxqr-pro-session-request:${ROOM_CODE}`)).toBe(retainedRequestId);
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+    expect(mocks.join.mock.calls[1]?.[0].requestId).toBe(retainedRequestId);
+    expect(sessionStorage.getItem(`mxqr-pro-session-request:${ROOM_CODE}`)).toBeNull();
+  });
+
+  it('clears an outcome-unknown admission id when its cookie session resumes', async () => {
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.resume.mockRejectedValueOnce(new ProRoomApiError('SESSION_REQUIRED', 401));
+    mocks.showDialog.mockResolvedValue({ action: 'ok', inputValue: '12345678' });
+    mocks.join.mockRejectedValueOnce(new ProRoomApiError('PRO_ROOM_API_UNAVAILABLE', 502));
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).rejects.toMatchObject({ status: 502 });
+    const retainedRequestId = sessionStorage.getItem(`mxqr-pro-session-request:${ROOM_CODE}`);
+    expect(retainedRequestId).toMatch(/^mxqr-pro-[a-f0-9]{48}$/u);
+
+    mocks.resume.mockResolvedValueOnce({});
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+
+    expect(mocks.join).toHaveBeenCalledOnce();
+    expect(sessionStorage.getItem(`mxqr-pro-session-request:${ROOM_CODE}`)).toBeNull();
+  });
+
+  it('keeps the same pending admission id when sessionStorage is denied', async () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('denied', 'SecurityError');
+    });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('denied', 'SecurityError');
+    });
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new DOMException('denied', 'SecurityError');
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+    mocks.showDialog.mockResolvedValue({ action: 'ok', inputValue: '12345678' });
+    mocks.join
+      .mockRejectedValueOnce(new ProRoomApiError('PRO_ROOM_API_UNAVAILABLE', 502))
+      .mockResolvedValueOnce({});
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).rejects.toMatchObject({ status: 502 });
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+    expect(mocks.join.mock.calls[1]?.[0].requestId).toBe(mocks.join.mock.calls[0]?.[0].requestId);
+  });
+
+  it('rotates the pending admission id after a definitive replay fence', async () => {
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+    mocks.showDialog.mockResolvedValue({ action: 'ok', inputValue: '12345678' });
+    mocks.join
+      .mockRejectedValueOnce(new ProRoomApiError('SESSION_REPLAY_UNAVAILABLE', 409))
+      .mockResolvedValueOnce({});
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).rejects.toMatchObject({
+      code: 'SESSION_REPLAY_UNAVAILABLE',
+      status: 409,
+    });
+    const fencedRequestId = mocks.join.mock.calls[0]?.[0].requestId;
+    expect(sessionStorage.getItem(`mxqr-pro-session-request:${ROOM_CODE}`)).toBeNull();
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+    expect(mocks.join.mock.calls[1]?.[0].requestId).not.toBe(fencedRequestId);
   });
 
   it('activates a claimed room with its derived temporary PIN and chosen owner PIN', async () => {

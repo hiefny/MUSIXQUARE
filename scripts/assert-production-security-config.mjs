@@ -15,6 +15,7 @@ const dangerousFlags = [
   'ALLOW_UNGUARDED_PAID_APIS',
   'MXQR_ALLOW_UNGUARDED_REMOTE_SHARE',
   'ALLOW_UNGUARDED_REMOTE_SHARE',
+  'MXQR_ALLOW_STATELESS_REMOTE_SHARE_SESSION',
 ];
 
 // Static env-style files we always check.

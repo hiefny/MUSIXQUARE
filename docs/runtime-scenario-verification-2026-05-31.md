@@ -87,7 +87,7 @@ characters; provider-issued API keys retain their provider-defined formats.
 ### Current service-control cutover addendum
 
 The first release containing the exact
-`admin-announcement-v1+abuse-rate-v1`
+`admin-announcement-v1+abuse-rate-v2+session-idempotency-v1`
 [`service-control contract marker`](../cloudflare/service-control-contract-version.txt)
 is a coordinated cutover:
 
@@ -106,6 +106,16 @@ is a coordinated cutover:
 4. This checklist documents release order only. Do not perform an ad hoc deploy
    from a development checkout.
 
+The `session-idempotency-v1` suffix coordinates the App/browser request body
+and PRO Durable Object receipt contract. New clients send an opaque
+`requestId`; PRO durably replays the same deterministic session credential for
+the same actor and exact body after an uncertain App timeout. PRO continues to
+accept the legacy exact `{ pin }` body during the cached-client rollout, but it
+does not collapse those requests by IP or User-Agent because doing so would
+merge distinct devices behind one NAT. Deploy PRO before App through target
+`all`, then repair forward rather than partially rolling either side behind the
+marker.
+
 Before considering that cutover healthy, collect these targeted signals:
 
 | Check                                | Required evidence                                                                                                                                                                                                                                                                                     |
@@ -113,6 +123,8 @@ Before considering that cutover healthy, collect these targeted signals:
 | Account completion on a slow network | On a physical mobile browser, complete the flow with its sensitive query present. Verify the query-bearing navigation is not cached, the queryless completion shell is the only offline fallback, and no query value reappears after reload/back navigation.                                          |
 | Announcement save, clear, and expiry | From the admin UI in a controlled environment, publish an expiring notice, observe expiry, then clear it. Interrupt one post-commit response and retry the unchanged action; the UI must reuse the same request ID and produce one revision/history entry.                                            |
 | Atomic abuse-rate serialization      | Run `npm exec vitest run -- src/core/__tests__/app-worker-cors.test.ts src/share/__tests__/remote-share-worker.test.ts src/network/transport/__tests__/cloudflare-signaling-worker.test.ts -t "barrier-concurrent"`. Every same-budget concurrent burst must admit no more than the configured limit. |
+| URL credential privacy               | In browser network tools, verify a new PRO socket has no `ticket` query, offers the stable `mxqr.pro-signaling.v1` marker plus the bearer protocol token, and receives only the stable marker. Verify six-digit room paths and every query-bearing page start no Web Analytics beacon.                |
+| Platform observability               | Confirm all six production Wrangler configs keep sampled custom logs enabled while `invocation_logs = false` and automatic traces disabled. Inspect a controlled OAuth callback and PRO join and verify no credential-bearing full URL appears in the custom log schema.                              |
 | Legacy duplicate-owner detach retry  | Run `npm exec vitest run -- src/core/__tests__/app-worker-cors.test.ts -t "detaches only the exact duplicate legacy owner and safely reconciles a signaling failure"`. The injected partial failure must converge on exact retry without changing the retained owner.                                 |
 | Cold font and offline fallback       | On a physical device with caches cleared, verify readable first paint while fonts load and that a cold font failure does not block service-worker installation. Then verify the intended offline app shell remains usable without the optional font.                                                  |
 

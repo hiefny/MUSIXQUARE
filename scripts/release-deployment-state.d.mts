@@ -13,6 +13,12 @@ export interface CommandRunnerOptions {
 }
 
 export function attemptedStates(directory: string): ReleaseState[];
+export function captureDeploymentCheckpoint(
+  releaseTarget: string,
+  releaseMessage: string,
+  directory: string,
+  options?: CommandRunnerOptions,
+): Record<string, unknown>;
 export function changedRuntimePaths(
   baseSha: string,
   headSha: string,
@@ -32,6 +38,7 @@ export function changedAppRuntimeDependencies(
   options?: CommandRunnerOptions,
 ): string[];
 export function deploymentMessage(deployment: unknown): string | null;
+export const EMERGENCY_EXTERNAL_STATE_PATHS: readonly string[];
 export function npmInvocation(
   platform?: string,
   options?: {
@@ -52,6 +59,11 @@ export function queryCurrent(
   outputPath: string,
   options?: CommandRunnerOptions,
 ): DeploymentVersion;
+export function recordCurrentDeployment(
+  target: string,
+  directory: string,
+  options?: CommandRunnerOptions,
+): Record<string, unknown>;
 export function recheckPartialReleaseCompatibility(
   target: string,
   headSha: string,
@@ -94,7 +106,16 @@ export function verifyPartialReleaseCompatibility(
   directory: string,
   options?: CommandRunnerOptions,
 ): Record<string, unknown>;
+export function verifyEmergencyCodeOnly(
+  headSha: string,
+  directory: string,
+  options?: CommandRunnerOptions,
+): Record<string, unknown>;
 export function verifyCurrentRelease(
+  directory: string,
+  options?: CommandRunnerOptions,
+): Record<string, unknown>;
+export function verifyRecoveryBoundary(
   directory: string,
   options?: CommandRunnerOptions,
 ): Record<string, unknown>;

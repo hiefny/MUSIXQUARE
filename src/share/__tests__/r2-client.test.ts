@@ -45,16 +45,67 @@ class FakeXmlHttpRequest {
 
 const endpoint = 'https://share.example.test';
 const productionEndpoint = 'https://share.musixquare.com';
+const uploadHost = 'r2.example.test';
 const endpointStorageKey = 'musixquare-remote-share-endpoint';
+const sessionActorStorageKey = 'musixquare-remote-share-session-actor-v3';
 const roomId = '123456';
 const objectId = '00000000-0000-4000-8000-000000000001';
 const queueItemId = '10000000-0000-4000-8000-000000000001';
 const downloadUrl = `${endpoint}/download/${roomId}/${objectId}`;
 const downloadToken = `${'p'.repeat(40)}.${'s'.repeat(43)}`;
+const completeToken = `${'q'.repeat(40)}.${'r'.repeat(43)}`;
+
+function presignedUpload(
+  uploadHeaders: Record<string, string>,
+  options: { host?: string; object?: string; room?: string; expiresSeconds?: number } = {},
+): { uploadUrl: string; uploadUrlExpiresAt: number } {
+  const signingTime = Math.floor(Date.now() / 1000) * 1000;
+  const amzDate = new Date(signingTime).toISOString().replace(/[-:]|\.000/g, '');
+  const expiresSeconds = options.expiresSeconds ?? 600;
+  const signedHeaders = [...Object.keys(uploadHeaders), 'content-length', 'host'].sort().join(';');
+  const params = new URLSearchParams({
+    'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+    'X-Amz-Content-Sha256': 'UNSIGNED-PAYLOAD',
+    'X-Amz-Credential': `R2TESTACCESSKEY123456789/${amzDate.slice(0, 8)}/auto/s3/aws4_request`,
+    'X-Amz-Date': amzDate,
+    'X-Amz-Expires': String(expiresSeconds),
+    'X-Amz-Signature': 'a'.repeat(64),
+    'X-Amz-SignedHeaders': signedHeaders,
+  });
+  return {
+    uploadUrl:
+      `https://${options.host ?? uploadHost}/musixquare-remote-share/room/` +
+      `${options.room ?? roomId}/${options.object ?? objectId}?${params}`,
+    uploadUrlExpiresAt: signingTime + expiresSeconds * 1000,
+  };
+}
+
+function canonicalUploadHeaders(
+  expiresAt: number,
+  cleanupToken: string,
+  overrides: Record<string, string> = {},
+): Record<string, string> {
+  return {
+    'content-type': 'application/octet-stream',
+    'if-match': '"placeholder-etag"',
+    'x-amz-meta-cleanup-token': cleanupToken,
+    'x-amz-meta-expires-at': String(expiresAt),
+    'x-amz-meta-format-version': 'whole-object-v1',
+    'x-amz-meta-mime': 'audio%2Fmpeg',
+    'x-amz-meta-name': 'song.mp3',
+    'x-amz-meta-object-id': objectId,
+    'x-amz-meta-room-id': roomId,
+    'x-amz-meta-stored-size': '4',
+    ...overrides,
+  };
+}
 
 function securityConfig(overrides: Record<string, unknown> = {}): Response {
   return Response.json({
     capabilityRequired: false,
+    workerContractVersion: 3,
+    sessionReplayRequired: true,
+    sessionReplayEnabled: true,
     wholeObjectVersion: 1,
     downloadAuthorizationVersion: 1,
     ...overrides,
@@ -69,14 +120,21 @@ beforeEach(() => {
     configurable: true,
     value: endpoint,
   });
+  Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_UPLOAD_HOST__', {
+    configurable: true,
+    value: uploadHost,
+  });
   localStorage.removeItem(endpointStorageKey);
+  sessionStorage.removeItem(sessionActorStorageKey);
 });
 
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   Reflect.deleteProperty(window, '__MUSIXQUARE_REMOTE_SHARE_ENDPOINT__');
+  Reflect.deleteProperty(window, '__MUSIXQUARE_REMOTE_SHARE_UPLOAD_HOST__');
   localStorage.removeItem(endpointStorageKey);
+  sessionStorage.removeItem(sessionActorStorageKey);
 });
 
 describe('remote-share endpoint policy', () => {
@@ -155,6 +213,30 @@ describe('R2 authenticated whole-object download', () => {
     await expect(pending).resolves.toBe(xhr.response);
   });
 
+  it('settles a valid download even when its progress observer throws', async () => {
+    const { downloadWholeObject } = await import('../r2-client.ts');
+    const onProgress = vi.fn(() => {
+      throw new Error('observer failed');
+    });
+    const pending = downloadWholeObject(
+      roomId,
+      objectId,
+      4,
+      downloadToken,
+      downloadUrl,
+      onProgress,
+    );
+    const xhr = FakeXmlHttpRequest.instances.at(-1)!;
+    xhr.responseURL = downloadUrl;
+    xhr.response = new ArrayBuffer(4);
+
+    expect(() =>
+      xhr.onload?.call(xhr as unknown as XMLHttpRequest, new ProgressEvent('load')),
+    ).not.toThrow();
+    await expect(pending).resolves.toBe(xhr.response);
+    expect(onProgress).toHaveBeenCalledWith(1);
+  });
+
   it('rejects invalid authority, redirects, and descriptor length mismatches', async () => {
     const { downloadWholeObject } = await import('../r2-client.ts');
     await expect(downloadWholeObject(roomId, objectId, 4, 'invalid')).rejects.toThrow(
@@ -196,27 +278,18 @@ describe('R2 canonical whole-object upload', () => {
     let completeBody: Record<string, unknown> | null = null;
     const expiresAt = Date.now() + 86_400_000;
     const cleanupToken = `${'c'.repeat(40)}.${'t'.repeat(43)}`;
-    const expectedUploadHeaders = {
-      'content-type': 'application/octet-stream',
-      'x-amz-meta-cleanup-token': cleanupToken,
-      'x-amz-meta-expires-at': String(expiresAt),
-      'x-amz-meta-format-version': 'whole-object-v1',
-      'x-amz-meta-mime': 'audio%2Fmpeg',
-      'x-amz-meta-name': 'song.mp3',
-      'x-amz-meta-object-id': objectId,
-      'x-amz-meta-room-id': roomId,
-      'x-amz-meta-stored-size': '4',
-    };
+    const expectedUploadHeaders = canonicalUploadHeaders(expiresAt, cleanupToken);
+    const upload = presignedUpload(expectedUploadHeaders);
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === `${endpoint}/security-config`) return securityConfig();
       if (url === `${endpoint}/session`) {
         sessionBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
         return Response.json({
-          uploadUrl: 'https://r2.example.test/signed-put',
+          uploadUrl: upload.uploadUrl,
           uploadHeaders: expectedUploadHeaders,
-          uploadUrlExpiresAt: Date.now() + 60_000,
-          completeToken: 'complete-token',
+          uploadUrlExpiresAt: upload.uploadUrlExpiresAt,
+          completeToken,
           objectId,
           expiresAt,
           cleanupToken,
@@ -250,6 +323,7 @@ describe('R2 canonical whole-object upload', () => {
     await vi.waitFor(() => expect(FakeXmlHttpRequest.instances).toHaveLength(1));
     const xhr = FakeXmlHttpRequest.instances[0]!;
     expect(xhr.method).toBe('PUT');
+    expect(xhr.url).toBe(upload.uploadUrl);
     expect(xhr.sentBody).toBe(source);
     expect(xhr.requestHeaders).toEqual(expectedUploadHeaders);
     xhr.onload?.call(xhr as unknown as XMLHttpRequest, new ProgressEvent('load'));
@@ -262,14 +336,64 @@ describe('R2 canonical whole-object upload', () => {
       name: 'song.mp3',
       mime: 'audio/mpeg',
       size: 4,
+      requestId: expect.stringMatching(/^rs3_[A-Za-z0-9_-]{43}$/),
+      actorId: expect.stringMatching(/^rsa_[A-Za-z0-9_-]{43}$/),
     });
-    expect(completeBody).toEqual({ roomId, objectId, completeToken: 'complete-token' });
+    expect(completeBody).toEqual({ roomId, objectId, completeToken });
   });
 
   it('fails closed when the Worker does not advertise the sole contract', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => securityConfig({ wholeObjectVersion: 0 })),
+    );
+    const { uploadWholeObject } = await import('../r2-client.ts');
+
+    await expect(
+      uploadWholeObject(new Blob(['data']), {
+        roomId,
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        size: 4,
+        sessionId: 7,
+        queueItemId,
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_PROTOCOL_UNAVAILABLE');
+    expect(FakeXmlHttpRequest.instances).toHaveLength(0);
+  });
+
+  it('fails closed when worker v3 does not advertise durable session replay', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => securityConfig({ sessionReplayEnabled: false })),
+    );
+    const { uploadWholeObject } = await import('../r2-client.ts');
+
+    await expect(
+      uploadWholeObject(new Blob(['data']), {
+        roomId,
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        size: 4,
+        sessionId: 7,
+        queueItemId,
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_PROTOCOL_UNAVAILABLE');
+    expect(FakeXmlHttpRequest.instances).toHaveLength(0);
+  });
+
+  it('fails closed on malformed UTF-8 in the security contract', async () => {
+    const prefix = new TextEncoder().encode(
+      '{"capabilityRequired":false,"workerContractVersion":3,"sessionReplayRequired":true,"sessionReplayEnabled":true,"wholeObjectVersion":1,"downloadAuthorizationVersion":1,"x":"',
+    );
+    const suffix = new TextEncoder().encode('"}');
+    const bytes = new Uint8Array(prefix.byteLength + 2 + suffix.byteLength);
+    bytes.set(prefix, 0);
+    bytes.set([0xc3, 0x28], prefix.byteLength);
+    bytes.set(suffix, prefix.byteLength + 2);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(bytes)),
     );
     const { uploadWholeObject } = await import('../r2-client.ts');
 
@@ -299,6 +423,192 @@ describe('R2 canonical whole-object upload', () => {
           objectId,
           expiresAt: Date.now() + 60_000,
           cleanupToken: '00000000-0000-4000-8000-000000000009',
+        });
+      }),
+    );
+    const { uploadWholeObject } = await import('../r2-client.ts');
+
+    await expect(
+      uploadWholeObject(new Blob(['data']), {
+        roomId,
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        size: 4,
+        sessionId: 7,
+        queueItemId,
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_BAD_SESSION_RESPONSE');
+    expect(FakeXmlHttpRequest.instances).toHaveLength(0);
+  });
+
+  it.each([
+    ['an arbitrary destination', (url: string) => url.replace(uploadHost, 'evil.example')],
+    ['embedded userinfo', (url: string) => url.replace('https://', 'https://user@')],
+    ['an explicit default port', (url: string) => url.replace(uploadHost, `${uploadHost}:443`)],
+    [
+      'a normalized dot path',
+      (url: string) =>
+        url.replace('/musixquare-remote-share/room/', '/musixquare-remote-share/./room/'),
+    ],
+    [
+      'a non-canonical object path',
+      (url: string) => url.replace(`/room/${roomId}/${objectId}`, `/room/${roomId}/other`),
+    ],
+    ['an unknown query field', (url: string) => `${url}&redirect=1`],
+    ['a URL fragment', (url: string) => `${url}#signed`],
+  ])('rejects %s before creating a byte-carrying XHR', async (_label, mutateUrl) => {
+    const expiresAt = Date.now() + 86_400_000;
+    const cleanupToken = `${'c'.repeat(40)}.${'t'.repeat(43)}`;
+    const uploadHeaders = canonicalUploadHeaders(expiresAt, cleanupToken);
+    const upload = presignedUpload(uploadHeaders);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === `${endpoint}/security-config`) return securityConfig();
+        return Response.json({
+          uploadUrl: mutateUrl(upload.uploadUrl),
+          uploadHeaders,
+          uploadUrlExpiresAt: upload.uploadUrlExpiresAt,
+          completeToken,
+          objectId,
+          expiresAt,
+          cleanupToken,
+        });
+      }),
+    );
+    const { uploadWholeObject } = await import('../r2-client.ts');
+
+    await expect(
+      uploadWholeObject(new Blob(['data']), {
+        roomId,
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        size: 4,
+        sessionId: 7,
+        queueItemId,
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_BAD_SESSION_RESPONSE');
+    expect(FakeXmlHttpRequest.instances).toHaveLength(0);
+  });
+
+  it.each([
+    [
+      'an unknown header',
+      (headers: Record<string, string>) => ({ ...headers, 'x-unknown-upload-header': '1' }),
+    ],
+    [
+      'an oversized header',
+      (headers: Record<string, string>) => ({
+        ...headers,
+        'x-amz-meta-name': 'x'.repeat(2049),
+      }),
+    ],
+  ])('rejects %s before sending local bytes', async (_label, mutateHeaders) => {
+    const expiresAt = Date.now() + 86_400_000;
+    const cleanupToken = `${'c'.repeat(40)}.${'t'.repeat(43)}`;
+    const uploadHeaders = mutateHeaders(canonicalUploadHeaders(expiresAt, cleanupToken));
+    const upload = presignedUpload(uploadHeaders);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === `${endpoint}/security-config`) return securityConfig();
+        return Response.json({
+          uploadUrl: upload.uploadUrl,
+          uploadHeaders,
+          uploadUrlExpiresAt: upload.uploadUrlExpiresAt,
+          completeToken,
+          objectId,
+          expiresAt,
+          cleanupToken,
+        });
+      }),
+    );
+    const { uploadWholeObject } = await import('../r2-client.ts');
+
+    await expect(
+      uploadWholeObject(new Blob(['data']), {
+        roomId,
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        size: 4,
+        sessionId: 7,
+        queueItemId,
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_BAD_SESSION_RESPONSE');
+    expect(FakeXmlHttpRequest.instances).toHaveLength(0);
+  });
+
+  it('defaults localhost to the canonical account host shared with PRO', async () => {
+    Reflect.deleteProperty(window, '__MUSIXQUARE_REMOTE_SHARE_UPLOAD_HOST__');
+    const { PRO_ROOM_R2_HOST } = await import('../../pro-room/api.ts');
+    expect(PRO_ROOM_R2_HOST).toBe('01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com');
+    const expiresAt = Date.now() + 86_400_000;
+    const cleanupToken = `${'c'.repeat(40)}.${'t'.repeat(43)}`;
+    const uploadHeaders = canonicalUploadHeaders(expiresAt, cleanupToken);
+    const upload = presignedUpload(uploadHeaders, { host: PRO_ROOM_R2_HOST });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === `${endpoint}/security-config`) return securityConfig();
+        if (url === `${endpoint}/session`) {
+          return Response.json({
+            uploadUrl: upload.uploadUrl,
+            uploadHeaders,
+            uploadUrlExpiresAt: upload.uploadUrlExpiresAt,
+            completeToken,
+            objectId,
+            expiresAt,
+            cleanupToken,
+          });
+        }
+        if (url.includes(`/object/${roomId}/${objectId}`))
+          return new Response(null, { status: 204 });
+        throw new Error(`Unexpected URL: ${url}`);
+      }),
+    );
+    const { uploadWholeObject } = await import('../r2-client.ts');
+    const pending = uploadWholeObject(new Blob(['data']), {
+      roomId,
+      name: 'song.mp3',
+      mime: 'audio/mpeg',
+      size: 4,
+      sessionId: 7,
+      queueItemId,
+    });
+    await vi.waitFor(() => expect(FakeXmlHttpRequest.instances).toHaveLength(1));
+    const xhr = FakeXmlHttpRequest.instances[0]!;
+    expect(new URL(xhr.url).hostname).toBe(PRO_ROOM_R2_HOST);
+    xhr.status = 500;
+    xhr.onload?.call(xhr as unknown as XMLHttpRequest, new ProgressEvent('load'));
+    await expect(pending).rejects.toThrow('REMOTE_SHARE_DIRECT_UPLOAD_HTTP_500');
+  });
+
+  it('ignores the mutable development host seam on production app hosts', async () => {
+    vi.stubGlobal('location', {
+      hostname: 'musixquare.com',
+      origin: 'https://musixquare.com',
+    });
+    Object.defineProperty(window, '__MUSIXQUARE_REMOTE_SHARE_UPLOAD_HOST__', {
+      configurable: true,
+      value: 'evil.example',
+    });
+    const expiresAt = Date.now() + 86_400_000;
+    const cleanupToken = `${'c'.repeat(40)}.${'t'.repeat(43)}`;
+    const uploadHeaders = canonicalUploadHeaders(expiresAt, cleanupToken);
+    const upload = presignedUpload(uploadHeaders, { host: 'evil.example' });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === `${productionEndpoint}/security-config`) return securityConfig();
+        return Response.json({
+          uploadUrl: upload.uploadUrl,
+          uploadHeaders,
+          uploadUrlExpiresAt: upload.uploadUrlExpiresAt,
+          completeToken,
+          objectId,
+          expiresAt,
+          cleanupToken,
         });
       }),
     );

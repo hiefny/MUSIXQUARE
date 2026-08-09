@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "configs": [
+    {
+      "config": "cloudflare/wrangler.app.toml",
+      "scriptName": "musixquare-app",
+      "migrations": []
+    },
+    {
+      "config": "cloudflare/wrangler.developer-api-facade.toml",
+      "scriptName": "musixquare-developer-api-facade",
+      "migrations": []
+    },
+    {
+      "config": "cloudflare/wrangler.developer-api.toml",
+      "scriptName": "musixquare-developer-api",
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["DeveloperApiRateLimiter"]
+        }
+      ]
+    },
+    {
+      "config": "cloudflare/wrangler.pro-room.toml",
+      "scriptName": "musixquare-pro-room",
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["MusixquareProRoom"]
+        },
+        {
+          "tag": "v2",
+          "new_sqlite_classes": ["MusixquareServiceControl"]
+        }
+      ]
+    },
+    {
+      "config": "cloudflare/wrangler.remote-share.toml",
+      "scriptName": "musixquare-remote-share",
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["RemoteShareRateLimiter"]
+        },
+        {
+          "tag": "v2",
+          "deleted_classes": ["RemoteShareRateLimiter"]
+        },
+        {
+          "tag": "v3",
+          "new_sqlite_classes": ["RemoteShareQuota"]
+        }
+      ]
+    },
+    {
+      "config": "cloudflare/wrangler.signaling.toml",
+      "scriptName": "musixquare-signaling",
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["MusixquareRoom"]
+        }
+      ]
+    }
+  ]
+}

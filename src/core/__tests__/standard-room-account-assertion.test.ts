@@ -12,6 +12,27 @@ import {
 const assertionSecret = 'standard-room-assertion-secret-at-least-32-bytes';
 const accountId = 'acct_0123456789abcdefghijkl';
 
+function base64Url(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64url');
+}
+
+async function signRawAssertionPayload(bytes: Uint8Array): Promise<string> {
+  const payloadPart = base64Url(bytes);
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(assertionSecret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    new TextEncoder().encode(`standard-room-assertion:v1\u0000${payloadPart}`),
+  );
+  return `${payloadPart}.${base64Url(new Uint8Array(signature))}`;
+}
+
 describe('standard-room account assertions', () => {
   it('projects a short-lived room/peer/role-bound pseudonym without the global account ID', async () => {
     const nowSeconds = 1_784_524_800;
@@ -161,6 +182,43 @@ describe('standard-room account assertions', () => {
 
     await expect(
       verifyStandardRoomAccountDeletionAssertion(token, assertionSecret, {
+        roomCode: '123456',
+        peerId: 'guest-device-a',
+        role: 'guest',
+        nowSeconds,
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('rejects a correctly signed assertion whose JSON contains malformed UTF-8', async () => {
+    const nowSeconds = 1_784_524_800;
+    const accountSubject = await deriveStandardRoomAccountSubject(
+      accountId,
+      '123456',
+      assertionSecret,
+    );
+    const encoded = new TextEncoder().encode(
+      JSON.stringify({
+        v: 1,
+        aud: 'standard-room',
+        roomCode: '123456',
+        accountSubject,
+        nickname: 'XX',
+        peerId: 'guest-device-a',
+        role: 'guest',
+        iat: nowSeconds,
+        exp: nowSeconds + 60,
+      }),
+    );
+    const marker = new TextEncoder().encode('"nickname":"XX"');
+    const markerIndex = Buffer.from(encoded).indexOf(Buffer.from(marker));
+    expect(markerIndex).toBeGreaterThanOrEqual(0);
+    encoded[markerIndex + marker.byteLength - 3] = 0xc3;
+    encoded[markerIndex + marker.byteLength - 2] = 0x28;
+    const token = await signRawAssertionPayload(encoded);
+
+    await expect(
+      verifyStandardRoomAccountAssertion(token, assertionSecret, {
         roomCode: '123456',
         peerId: 'guest-device-a',
         role: 'guest',

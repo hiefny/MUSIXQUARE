@@ -2,6 +2,15 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const wakeLockMocks = vi.hoisted(() => ({
+  deactivateNoSleep: vi.fn(),
+}));
+
+vi.mock('../../core/wake-lock.ts', () => ({
+  deactivateNoSleep: wakeLockMocks.deactivateNoSleep,
+}));
+
 import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
@@ -29,6 +38,7 @@ beforeEach(() => {
   bus.clear();
   sessionStorage.clear();
   localStorage.clear();
+  wakeLockMocks.deactivateNoSleep.mockClear();
 });
 
 afterEach(() => {
@@ -140,6 +150,12 @@ describe('isRemoteGuest', () => {
 });
 
 describe('leaveSession', () => {
+  it('deactivates keep-awake at the common session cleanup boundary', () => {
+    leaveSession();
+
+    expect(wakeLockMocks.deactivateNoSleep).toHaveBeenCalledOnce();
+  });
+
   it('clears an abandoned login return on explicit leave but preserves it for pagehide', () => {
     rememberAccountLoginReturn('/000001', '000001');
     leaveSession({ preserveAccountLoginReturn: true });
@@ -224,6 +240,7 @@ describe('cancelPendingSessionSetup', () => {
 
     cancelPendingSessionSetup();
 
+    expect(wakeLockMocks.deactivateNoSleep).toHaveBeenCalledOnce();
     expect(destroy).toHaveBeenCalledOnce();
     expect(getPeer()).toBeNull();
     expect(getState('network.myId')).toBeNull();
@@ -240,6 +257,7 @@ describe('cancelPendingSessionSetup', () => {
 
     cancelPendingSessionSetup();
 
+    expect(wakeLockMocks.deactivateNoSleep).not.toHaveBeenCalled();
     expect(destroy).not.toHaveBeenCalled();
     expect(getPeer()).not.toBeNull();
     expect(getState('network.myId')).toBe('active-host');

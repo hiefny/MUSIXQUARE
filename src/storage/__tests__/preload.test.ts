@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { MSG, PLAYBACK_STATE, CHUNK_SIZE } from '../../core/constants.ts';
+import { MSG, PLAYBACK_STATE, CHUNK_SIZE, TRANSFER_STATE } from '../../core/constants.ts';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
@@ -21,6 +21,7 @@ import {
   resetFileDeliveryPolicies,
 } from '../../share/file-delivery-policy.ts';
 import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
+import { showLoader } from '../../ui/toast.ts';
 
 const storageMocks = vi.hoisted(() => ({
   readStoredFile: vi.fn(),
@@ -101,6 +102,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  showLoader(false);
+  showLoader(false, undefined, 'preload-receive');
   clearAllManagedTimers();
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -596,6 +599,58 @@ describe('preload MIME preservation', () => {
 
     await vi.advanceTimersByTimeAsync(5_000);
     expect(recover).toHaveBeenCalledOnce();
+  });
+
+  it('cannot hide a newer foreground loader when the preload watchdog expires', async () => {
+    vi.useFakeTimers();
+    initPreload();
+    document.body.innerHTML = `
+      <header id="main-header">
+        <span id="header-loading-text"></span>
+        <span id="header-progress-bg"></span>
+      </header>
+    `;
+    const hostConn = {
+      open: true,
+      peer: 'host-overlapping-loader',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'local');
+    setState('playlist.items', [makeFileTrack('next.mp3', Q0)]);
+
+    await handleData(
+      {
+        type: MSG.PRELOAD_START,
+        sessionId: 32,
+        queueItemId: Q0,
+        name: 'next.mp3',
+        mime: 'audio/mpeg',
+        total: 2,
+        size: CHUNK_SIZE + 1,
+      },
+      hostConn,
+    );
+    await handleData(
+      {
+        type: MSG.PRELOAD_CHUNK,
+        sessionId: 32,
+        queueItemId: Q0,
+        chunkIndex: 0,
+        chunk: new Uint8Array([1]),
+      },
+      hostConn,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    showLoader(true, 'Current file transfer');
+    setState('transfer.state', TRANSFER_STATE.RECEIVING);
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(document.getElementById('main-header')?.classList.contains('loading')).toBe(true);
+    expect(document.querySelector('.header-loading-text-content')?.textContent).toBe(
+      'Current file transfer',
+    );
   });
 });
 

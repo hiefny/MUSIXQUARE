@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
+  ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
   SERVICE_CONTROL_READ_TIMEOUT_MS,
   SERVICE_CONTROL_STATE_PATH,
   SERVICE_CONTROL_STATUS_PATH,
@@ -106,6 +107,37 @@ describe('shared service-maintenance control', () => {
     expect(getByName).toHaveBeenCalledWith(
       'musixquare-abuse-rate-v1:app-turn-capability:_base64url',
     );
+  });
+
+  it('routes an opaque operation id through the idempotent v2 consume contract', async () => {
+    const { env, fetch } = serviceControlEnv(() =>
+      Response.json({
+        allowed: true,
+        limit: 4,
+        remaining: 3,
+        resetAtMs: 1_800_000_060_000,
+        retryAfterSeconds: 0,
+      }),
+    );
+    const operationId = `rs_${'A'.repeat(43)}`;
+
+    await expect(
+      consumeAbuseRateLimit(env, {
+        scope: 'remote-share-upload',
+        identity: 'session-ip:test',
+        limit: 4,
+        windowMs: 60_000,
+        operationId,
+      }),
+    ).resolves.toMatchObject({ status: 'ok', allowed: true, remaining: 3 });
+    const request = fetch.mock.calls[0]?.[0] as Request;
+    expect(new URL(request.url).pathname).toBe(ABUSE_RATE_IDEMPOTENT_CONSUME_PATH);
+    await expect(request.json()).resolves.toEqual({
+      limit: 4,
+      windowMs: 60_000,
+      cost: 1,
+      operationId,
+    });
   });
 
   it('keeps an intentionally unbound local environment operational but observable', async () => {

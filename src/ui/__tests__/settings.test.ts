@@ -257,6 +257,8 @@ describe('setTheme', () => {
     setTheme('dark');
     expect(document.getElementById('theme-dark')!.classList.contains('active')).toBe(true);
     expect(document.getElementById('theme-light')!.classList.contains('active')).toBe(false);
+    expect(document.getElementById('theme-dark')!.getAttribute('aria-pressed')).toBe('true');
+    expect(document.getElementById('theme-light')!.getAttribute('aria-pressed')).toBe('false');
   });
 
   it('resolves system to light when matchMedia prefers-color-scheme is light', () => {
@@ -324,6 +326,8 @@ describe('selectStandardChannelButton', () => {
     selectStandardChannelButton(-1);
     const stereo = document.querySelector('.ch-opt[data-ch="0"]')!;
     expect(stereo.classList.contains('active')).toBe(false);
+    expect(stereo.getAttribute('aria-pressed')).toBe('false');
+    expect(document.querySelector('[data-ch="-1"]')?.getAttribute('aria-pressed')).toBe('true');
   });
 
   it.each([
@@ -639,6 +643,9 @@ describe('initSettings language controls', () => {
         ?.getAttribute('aria-pressed'),
     ).toBe('false');
     expect(document.getElementById('btn-language-select')?.classList.contains('active')).toBe(true);
+    expect(document.getElementById('btn-language-select')?.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
     expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
       true,
     );
@@ -652,6 +659,12 @@ describe('initSettings language controls', () => {
 
     expect(localStorage.getItem('musixquare-lang')).toBe('system');
     expect(document.getElementById('btn-language-system')?.classList.contains('active')).toBe(true);
+    expect(document.getElementById('btn-language-system')?.getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    expect(document.getElementById('btn-language-select')?.getAttribute('aria-pressed')).toBe(
+      'false',
+    );
   });
 
   it('keeps the language dialog open when the backdrop is clicked', () => {
@@ -722,8 +735,8 @@ describe('settings subtab scrollbar affordance', () => {
       'beforeend',
       `
         <section id="tab-settings">
-          <button class="subtab-pill active" data-subtab="general">General</button>
-          <button class="subtab-pill" data-subtab="audio">Audio</button>
+          <button class="subtab-pill active" data-subtab="general" aria-pressed="true">General</button>
+          <button class="subtab-pill" data-subtab="audio" aria-pressed="false">Audio</button>
           <div class="settings-subtab-panel active" data-panel="general"></div>
           <div class="settings-subtab-panel" data-panel="audio"></div>
         </section>
@@ -733,9 +746,15 @@ describe('settings subtab scrollbar affordance', () => {
     const reveal = vi.fn();
     bus.on('ui:scrollbar-reveal', reveal);
 
-    document.querySelector<HTMLButtonElement>('[data-subtab="audio"]')?.click();
+    const general = document.querySelector<HTMLButtonElement>('[data-subtab="general"]');
+    const audio = document.querySelector<HTMLButtonElement>('[data-subtab="audio"]');
+    audio?.click();
 
     const settingsPanel = document.getElementById('tab-settings');
+    expect(general?.classList.contains('active')).toBe(false);
+    expect(general?.getAttribute('aria-pressed')).toBe('false');
+    expect(audio?.classList.contains('active')).toBe(true);
+    expect(audio?.getAttribute('aria-pressed')).toBe('true');
     expect(settingsPanel?.querySelector('[data-panel="audio"]')?.classList.contains('active')).toBe(
       true,
     );
@@ -817,11 +836,14 @@ describe('initSettings effect slider fill sync', () => {
     document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="arena"]')?.click();
 
     expect(showToast).not.toHaveBeenCalledWith('Only the room owner can change this.');
-    expect(
-      document
-        .querySelector('#grid-reverb .ch-opt[data-rvb-type="arena"]')
-        ?.classList.contains('active'),
-    ).toBe(true);
+    const arena = document.querySelector<HTMLElement>(
+      '#grid-reverb .ch-opt[data-rvb-type="arena"]',
+    );
+    const off = document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="off"]');
+    expect(arena?.classList.contains('active')).toBe(true);
+    expect(arena?.getAttribute('aria-pressed')).toBe('true');
+    expect(off?.classList.contains('active')).toBe(false);
+    expect(off?.getAttribute('aria-pressed')).toBe('false');
     expect(document.getElementById('grid-reverb')?.classList.contains('host-ctrl-locked')).toBe(
       false,
     );
@@ -885,6 +907,12 @@ describe('initSettings effect slider fill sync', () => {
     expect(
       document.querySelector('#grid-eq .ch-opt[data-eq-type="warm"]')?.classList.contains('active'),
     ).toBe(true);
+    expect(
+      document.querySelector('#grid-eq .ch-opt[data-eq-type="warm"]')?.getAttribute('aria-pressed'),
+    ).toBe('true');
+    expect(
+      document.querySelector('#grid-eq .ch-opt[data-eq-type="off"]')?.getAttribute('aria-pressed'),
+    ).toBe('false');
     expect(document.getElementById('eq-sliders-area')?.classList.contains('collapsed')).toBe(true);
   });
 

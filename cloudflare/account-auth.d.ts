@@ -32,6 +32,12 @@ export function resolveAccountSession(
   request: Request,
   env: unknown,
 ): Promise<ResolvedAccountSession | null>;
+export function fetchTextWithTimeout(
+  url: string | URL,
+  init: RequestInit,
+  maxBytes: number,
+  timeoutMs?: number,
+): Promise<{ response: Response; text: string }>;
 export function handleAccountAuthRequest(
   request: Request,
   env: unknown,

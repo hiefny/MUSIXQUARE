@@ -41,6 +41,7 @@ import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audi
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { hasLocaleFont, preloadLocaleFontGlyphs } from '../i18n/locale-fonts.ts';
 import { isSettingsSyncEnabled, setSettingsSyncEnabled } from '../audio/effects.ts';
+import { setPressedState, syncExclusivePressedState } from '../core/aria-state.ts';
 
 // ─── Host-Ctrl Lock (Guest cannot change host-controlled settings) ──
 
@@ -173,8 +174,10 @@ export function setTheme(mode: string, save = true): void {
     mode = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
 
-  document.querySelectorAll('#grid-theme .ch-opt').forEach((el) => el.classList.remove('active'));
-  document.querySelector(`#grid-theme .ch-opt[data-theme="${mode}"]`)?.classList.add('active');
+  syncExclusivePressedState(
+    document.querySelectorAll<HTMLElement>('#grid-theme .ch-opt[data-theme]'),
+    (element) => element.dataset.theme === mode,
+  );
 
   document.documentElement.setAttribute('data-theme', mode);
 
@@ -229,10 +232,10 @@ function syncStandardRoleDescription(mode = selectedStandardRoleMode): void {
 }
 
 export function selectStandardChannelButton(mode: number): void {
-  const all = document.querySelectorAll('#grid-standard .ch-opt[data-ch]');
-  all.forEach((e) => e.classList.remove('active'));
-  const el = document.querySelector(`#grid-standard .ch-opt[data-ch="${mode}"]`);
-  if (el) el.classList.add('active');
+  syncExclusivePressedState(
+    document.querySelectorAll<HTMLElement>('#grid-standard .ch-opt[data-ch]'),
+    (element) => Number(element.dataset.ch) === mode,
+  );
   syncRoleDiagrams(mode);
   syncStandardRoleDescription(mode);
 
@@ -375,8 +378,15 @@ const REVERB_PRESETS = Object.fromEntries(
   ]),
 ) as Record<string, ReverbUiPreset>;
 
+function selectReverbChip(type: string | null): void {
+  syncExclusivePressedState(
+    document.querySelectorAll<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type]'),
+    (element) => element.dataset.rvbType === type,
+  );
+}
+
 function clearReverbChipActive(): void {
-  document.querySelectorAll('#grid-reverb .ch-opt').forEach((el) => el.classList.remove('active'));
+  selectReverbChip(null);
 }
 
 /**
@@ -450,15 +460,13 @@ function syncReverbSlidersToPreset(type: string): void {
     formatReverbValDisp('predelay', REVERB_DEFAULTS.predelay);
     formatReverbValDisp('lowcut', REVERB_DEFAULTS.lowcut);
     formatReverbValDisp('highcut', REVERB_DEFAULTS.highcut);
-    document.querySelector('#grid-reverb .ch-opt[data-rvb-type="off"]')?.classList.add('active');
+    selectReverbChip('off');
     setReverbSlidersVisible(false);
     return;
   }
 
   if (type === 'advanced') {
-    document
-      .querySelector('#grid-reverb .ch-opt[data-rvb-type="advanced"]')
-      ?.classList.add('active');
+    selectReverbChip('advanced');
     setReverbSlidersVisible(true);
     return;
   }
@@ -478,7 +486,7 @@ function syncReverbSlidersToPreset(type: string): void {
   formatReverbValDisp('lowcut', preset.lowcut);
   formatReverbValDisp('highcut', preset.highcut);
 
-  document.querySelector(`#grid-reverb .ch-opt[data-rvb-type="${type}"]`)?.classList.add('active');
+  selectReverbChip(type);
   setReverbSlidersVisible(false);
 }
 
@@ -489,7 +497,7 @@ function resetEQ(): void {
     _setDisp(`eq-val-${i}`, '0');
   }
   clearEqChipActive();
-  document.querySelector('#grid-eq .ch-opt[data-eq-type="off"]')?.classList.add('active');
+  selectEqChip('off');
   setEqSlidersVisible(false);
 }
 
@@ -500,8 +508,15 @@ const EQ_PRESETS: Record<string, number[]> = {
   warm: [5, 3, 0, -2, -3],
 };
 
+function selectEqChip(type: string | null): void {
+  syncExclusivePressedState(
+    document.querySelectorAll<HTMLElement>('#grid-eq .ch-opt[data-eq-type]'),
+    (element) => element.dataset.eqType === type,
+  );
+}
+
 function clearEqChipActive(): void {
-  document.querySelectorAll('#grid-eq .ch-opt').forEach((el) => el.classList.remove('active'));
+  selectEqChip(null);
 }
 
 function setEqSlidersVisible(visible: boolean): void {
@@ -518,7 +533,7 @@ function syncEqSlidersToPreset(type: string): void {
   clearEqChipActive();
 
   if (type === 'off') {
-    document.querySelector('#grid-eq .ch-opt[data-eq-type="off"]')?.classList.add('active');
+    selectEqChip('off');
     for (let i = 0; i < 5; i++) {
       setRangeValueById(`eq-slider-${i}`, 0);
       _setDisp(`eq-val-${i}`, '0');
@@ -528,7 +543,7 @@ function syncEqSlidersToPreset(type: string): void {
   }
 
   if (type === 'advanced') {
-    document.querySelector('#grid-eq .ch-opt[data-eq-type="advanced"]')?.classList.add('active');
+    selectEqChip('advanced');
     setEqSlidersVisible(true);
     return;
   }
@@ -542,7 +557,7 @@ function syncEqSlidersToPreset(type: string): void {
     _setDisp(`eq-val-${i}`, v > 0 ? `+${v}` : String(v));
   }
 
-  document.querySelector(`#grid-eq .ch-opt[data-eq-type="${type}"]`)?.classList.add('active');
+  selectEqChip(type);
   setEqSlidersVisible(false);
 }
 
@@ -572,7 +587,7 @@ function detectEqPreset(): string {
 function syncEqPresetFromCurrentSliders(): void {
   const detected = detectEqPreset();
   clearEqChipActive();
-  document.querySelector(`#grid-eq .ch-opt[data-eq-type="${detected}"]`)?.classList.add('active');
+  selectEqChip(detected);
   setEqSlidersVisible(detected === 'advanced');
 }
 
@@ -609,10 +624,10 @@ function disableAllVirtualEffects(): void {
 }
 
 function setVisualizerMode(mode: 'circular' | 'spectrum'): void {
-  document
-    .querySelectorAll('#grid-visualizer .ch-opt')
-    .forEach((el) => el.classList.remove('active'));
-  document.querySelector(`#grid-visualizer .ch-opt[data-viz="${mode}"]`)?.classList.add('active');
+  syncExclusivePressedState(
+    document.querySelectorAll<HTMLElement>('#grid-visualizer .ch-opt[data-viz]'),
+    (element) => element.dataset.viz === mode,
+  );
   try {
     localStorage.setItem('musixquare-viz-mode', mode);
   } catch {
@@ -679,15 +694,15 @@ function refreshLanguageControls(): void {
   const mode = getLanguageMode();
   const resolved = getResolvedLanguage();
 
-  document.querySelectorAll('#grid-lang .ch-opt').forEach((el) => el.classList.remove('active'));
-  document
-    .getElementById(mode === 'system' ? 'btn-language-system' : 'btn-language-select')
-    ?.classList.add('active');
+  const activeModeId = mode === 'system' ? 'btn-language-system' : 'btn-language-select';
+  syncExclusivePressedState(
+    document.querySelectorAll<HTMLElement>('#grid-lang .ch-opt[data-lang-action]'),
+    (element) => element.id === activeModeId,
+  );
 
   document.querySelectorAll<HTMLElement>('.language-option[data-lang]').forEach((option) => {
     const active = option.dataset.lang === resolved;
-    option.classList.toggle('active', active);
-    option.setAttribute('aria-pressed', active ? 'true' : 'false');
+    setPressedState(option, active);
   });
 }
 
@@ -1136,10 +1151,7 @@ export function initSettings(): void {
 
     // Sync preset chip: detect if current values match a named preset
     const detected = detectReverbPreset();
-    clearReverbChipActive();
-    document
-      .querySelector(`#grid-reverb .ch-opt[data-rvb-type="${detected}"]`)
-      ?.classList.add('active');
+    selectReverbChip(detected);
     setReverbSlidersVisible(detected === 'advanced');
   });
 
@@ -1234,9 +1246,10 @@ function initSettingsSubtabs(): void {
 }
 
 function switchSettingsSubtab(id: string): void {
-  document
-    .querySelectorAll<HTMLElement>('.subtab-pill')
-    .forEach((p) => p.classList.toggle('active', p.dataset.subtab === id));
+  syncExclusivePressedState(
+    document.querySelectorAll<HTMLElement>('.subtab-pill[data-subtab]'),
+    (element) => element.dataset.subtab === id,
+  );
   document
     .querySelectorAll<HTMLElement>('.settings-subtab-panel')
     .forEach((p) => p.classList.toggle('active', p.dataset.panel === id));

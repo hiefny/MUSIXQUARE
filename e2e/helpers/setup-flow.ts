@@ -2,7 +2,6 @@
  * Host and guest setup-flow helpers for E2E tests.
  */
 import type { Page } from '@playwright/test';
-import { expect } from '@playwright/test';
 import { BootstrapReadinessError, waitForBootstrapReady } from './bootstrap.ts';
 
 const HOST_CODE_ATTEMPTS = 2;

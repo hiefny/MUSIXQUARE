@@ -12,7 +12,7 @@
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { setManagedTimer } from '../core/timers.ts';
 import { isCompactLandscape } from '../core/platform.ts';
 import { animateTransition, updateOverlayOpenClass } from './dom.ts';
 import { showToast } from './toast.ts';
@@ -23,6 +23,7 @@ import {
 } from './player-controls.ts';
 import { activateNoSleep } from '../core/wake-lock.ts';
 import { selectStandardChannelButton } from './settings.ts';
+import { setCurrentState } from '../core/aria-state.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 const TOTAL_OB_SLIDES = 4;
@@ -216,7 +217,6 @@ export function hideSetupOverlay(): void {
   const overlay = setupEl('setup-overlay');
   if (overlay) overlay.classList.remove('active');
   updateOverlayOpenClass();
-  stopObAutoSlide();
   try {
     document.documentElement.classList.remove('setup-boot-block');
   } catch {
@@ -335,11 +335,11 @@ export function setupSetGuestJoinError(message: string | null, inviteLink = fals
 
 export function setupHighlightJoinRole(mode: number | null): void {
   const opts = document.querySelectorAll<HTMLElement>('#setup-role-grid .ch-opt[data-join-ch]');
-  opts.forEach((o) => o.classList.remove('selected'));
-  if (mode !== null && mode !== undefined) {
-    const el = document.querySelector(`#setup-role-grid .ch-opt[data-join-ch="${mode}"]`);
-    if (el) el.classList.add('selected');
-  }
+  opts.forEach((option) => {
+    const selected = mode !== null && Number(option.dataset.joinCh) === mode;
+    option.classList.toggle('selected', selected);
+    option.setAttribute('aria-pressed', String(selected));
+  });
 
   const speakers = document.querySelectorAll<HTMLElement>('.setup-graphic-svg .graphic-speaker');
   speakers.forEach((el) => {
@@ -393,27 +393,6 @@ export function setupRenderActions(
 
 // ─── Onboarding Slider ──────────────────────────────────────────
 
-export function startObAutoSlide(): void {
-  stopObAutoSlide();
-  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-  setManagedTimer(
-    'obAutoSlideTimer',
-    () => {
-      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-        stopObAutoSlide();
-        return;
-      }
-      nextObSlide(true);
-    },
-    5000,
-    { interval: true },
-  );
-}
-
-export function stopObAutoSlide(): void {
-  clearManagedTimer('obAutoSlideTimer');
-}
-
 export function updateObSlider(): void {
   const track = setupEl('ob-slider-track');
   const dots = document.querySelectorAll('.ob-dot');
@@ -421,28 +400,30 @@ export function updateObSlider(): void {
 
   (track as HTMLElement).style.transform = `translateX(-${_currentObSlide * 100}%)`;
   dots.forEach((dot, idx) => {
-    dot.classList.toggle('active', idx === _currentObSlide);
+    setCurrentState(dot, idx === _currentObSlide);
   });
 
   // Fade in/out slide content
   const slides = track.querySelectorAll('.ob-slide');
   slides.forEach((slide, idx) => {
-    slide.classList.toggle('active', idx === _currentObSlide);
+    const current = idx === _currentObSlide;
+    slide.classList.toggle('active', current);
+    slide.setAttribute('aria-hidden', String(!current));
+    if (slide instanceof HTMLElement) slide.inert = !current;
+    slide.toggleAttribute('inert', !current);
   });
 }
 
-export function nextObSlide(isAuto = false): void {
+export function nextObSlide(_isAuto = false): void {
   if (_currentObSlide < TOTAL_OB_SLIDES - 1) _currentObSlide++;
   else _currentObSlide = 0;
   updateObSlider();
-  if (isAuto !== true) startObAutoSlide();
 }
 
 export function prevObSlide(): void {
   if (_currentObSlide > 0) _currentObSlide--;
   else _currentObSlide = TOTAL_OB_SLIDES - 1;
   updateObSlider();
-  startObAutoSlide();
 }
 
 // ─── Role Selection Helpers ──────────────────────────────────────

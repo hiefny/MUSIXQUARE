@@ -8,7 +8,7 @@
 
 // Bump this whenever a stable-path app-shell asset changes so existing clients
 // migrate to a fresh cache.
-const CACHE_VERSION = 'v397';
+const CACHE_VERSION = 'v401';
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 const BOOTSTRAP_CACHE_KEY = `./bootstrap.js?cache=${CACHE_VERSION}`;
@@ -34,8 +34,13 @@ const SENSITIVE_NAVIGATION_QUERY_PARAMETER =
 // Only list assets that keep stable paths after Vite build. index.html is the
 // canonical navigation shell; caching './' as well would store the same body
 // twice under different keys.
-// Other Vite-hashed assets are cached on their first runtime request and then
-// served cache-first by content hash.
+// Vite injects the canonical app entry's static JS/CSS closure at build time.
+// Keeping this manifest deterministic makes a first successful install usable
+// offline, rather than depending on each hashed asset having been requested.
+const BUILD_ENTRY_ASSETS = [
+  /* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */
+];
+
 const APP_SHELL = [
   './index.html',
   './account-complete.html',
@@ -43,10 +48,12 @@ const APP_SHELL = [
   './account-complete.css',
   BOOTSTRAP_CACHE_KEY,
   './fouc-cleanup.js',
+  './wordmark-anim.js',
   './dummy_audio.mp3',
   './icons/icon-512.png',
   './favicon.ico',
   './favicon.svg',
+  ...BUILD_ENTRY_ASSETS,
 ];
 
 self.addEventListener('install', (event) => {
@@ -238,10 +245,15 @@ self.addEventListener('activate', (event) => {
 
 function isCacheableRequest(request) {
   if (request.method !== 'GET') return false;
-  // Range responses are not safe Cache.put candidates across Safari and
-  // embedded WebViews.
-  if (request.headers && request.headers.has('range')) return false;
   const url = new URL(request.url);
+
+  // Range responses are not safe Cache.put candidates across Safari and
+  // embedded WebViews. The one exception is the canonical, install-owned
+  // 2.4 KiB iOS primer, whose full body is already in APP_SHELL and is served
+  // by the dedicated range path below.
+  if (request.headers && request.headers.has('range') && !isCanonicalAudioPrimerUrl(url)) {
+    return false;
+  }
 
   // Leave cross-origin assets to their own HTTP caches. Returning opaque
   // responses through this worker has broken media previews on Safari and
@@ -257,7 +269,7 @@ function isCacheableRequest(request) {
 
   // Keep the tiny iOS AudioContext primer available offline despite the media
   // extension exclusion below.
-  if (path.endsWith('dummy_audio.mp3')) return true;
+  if (isCanonicalAudioPrimerUrl(url)) return true;
 
   const ext = path.split('.').pop().toLowerCase();
   // Exclude common audio/video containers to prevent storage bloat.
@@ -281,6 +293,107 @@ function isCacheableRequest(request) {
     return false;
 
   return true;
+}
+
+function isCanonicalAudioPrimerUrl(url) {
+  return (
+    url.origin === self.location.origin && url.pathname === '/dummy_audio.mp3' && url.search === ''
+  );
+}
+
+function isAudioPrimerRangeRequest(request) {
+  return (
+    request.method === 'GET' &&
+    request.headers &&
+    request.headers.has('range') &&
+    isCanonicalAudioPrimerUrl(new URL(request.url))
+  );
+}
+
+function primerRangeHeaders(sourceHeaders, contentLength) {
+  const headers = new Headers();
+  sourceHeaders.forEach((value, name) => {
+    const normalized = name.toLowerCase();
+    if (
+      normalized === 'content-encoding' ||
+      normalized === 'transfer-encoding' ||
+      normalized === 'content-length' ||
+      normalized === 'content-range'
+    ) {
+      return;
+    }
+    headers.set(name, value);
+  });
+  headers.set('Accept-Ranges', 'bytes');
+  headers.set('Content-Length', String(contentLength));
+  return headers;
+}
+
+function parseSingleByteRange(value, totalLength) {
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(String(value || '').trim());
+  if (!match || (!match[1] && !match[2]) || totalLength <= 0) return null;
+
+  if (!match[1]) {
+    const suffixLength = Number(match[2]);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return null;
+    return {
+      start: Math.max(0, totalLength - suffixLength),
+      end: totalLength - 1,
+    };
+  }
+
+  const start = Number(match[1]);
+  const requestedEnd = match[2] ? Number(match[2]) : totalLength - 1;
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(requestedEnd) ||
+    start < 0 ||
+    start >= totalLength ||
+    requestedEnd < start
+  ) {
+    return null;
+  }
+  return { start, end: Math.min(requestedEnd, totalLength - 1) };
+}
+
+async function serveAudioPrimerRange(request) {
+  let cached;
+  try {
+    cached = await caches.match('./dummy_audio.mp3', { cacheName: STATIC_CACHE });
+  } catch (_) {
+    cached = null;
+  }
+
+  if (!cached || cached.status !== 200) {
+    try {
+      return await fetch(request);
+    } catch (_) {
+      return new Response('Offline', { status: 503, statusText: 'Offline' });
+    }
+  }
+
+  let fullBody;
+  try {
+    fullBody = await cached.arrayBuffer();
+  } catch (_) {
+    try {
+      return await fetch(request);
+    } catch (_) {
+      return new Response('Offline', { status: 503, statusText: 'Offline' });
+    }
+  }
+
+  const range = parseSingleByteRange(request.headers.get('range'), fullBody.byteLength);
+  if (!range) {
+    const headers = primerRangeHeaders(cached.headers, 0);
+    headers.set('Content-Range', `bytes */${fullBody.byteLength}`);
+    return new Response(null, { status: 416, statusText: 'Range Not Satisfiable', headers });
+  }
+
+  const body = fullBody.slice(range.start, range.end + 1);
+  const headers = primerRangeHeaders(cached.headers, body.byteLength);
+  headers.set('Content-Range', `bytes ${range.start}-${range.end}/${fullBody.byteLength}`);
+  return new Response(body, { status: 206, statusText: 'Partial Content', headers });
 }
 
 function isRoomNavigation(request) {
@@ -383,6 +496,11 @@ async function matchActiveNavigationShell(request) {
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (!isCacheableRequest(request)) return;
+
+  if (isAudioPrimerRangeRequest(request)) {
+    event.respondWith(serveAudioPrimerRange(request));
+    return;
+  }
 
   // Navigation (HTML): network-first, fallback to cached index
   if (request.mode === 'navigate' || (request.headers.get('accept') || '').includes('text/html')) {

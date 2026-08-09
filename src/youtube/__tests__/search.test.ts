@@ -19,12 +19,59 @@ import {
   resolveYouTubePlaylistManifest,
   searchYouTubeFromInput,
 } from '../search.ts';
-import { fetchOEmbedTitle } from '../oembed.ts';
+import { fetchOEmbedTitle, fetchWithTimeout } from '../oembed.ts';
 
 afterEach(() => {
   clearPreviewDebounce();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe('YouTube request lifetime', () => {
+  it('settles at the deadline when fetch never returns response headers', async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | null = null;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+        requestSignal = init?.signal ?? null;
+        return new Promise<Response>(() => undefined);
+      }),
+    );
+
+    const pending = fetchWithTimeout('https://www.youtube.com/oembed', 1_000);
+    const rejection = expect(pending).rejects.toMatchObject({
+      name: 'TimeoutError',
+      message: 'YOUTUBE_REQUEST_TIMEOUT',
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await rejection;
+    expect((requestSignal as AbortSignal | null)?.aborted).toBe(true);
+  });
+
+  it('settles and cancels when response headers arrive but its body never progresses', async () => {
+    vi.useFakeTimers();
+    const cancel = vi.fn(() => new Promise<void>(() => undefined));
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        pull: () => new Promise<void>(() => undefined),
+        cancel,
+      }),
+    );
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(response));
+
+    const boundedResponse = await fetchWithTimeout('https://www.youtube.com/oembed', 1_000);
+    const body = boundedResponse.text();
+    const rejection = expect(body).rejects.toMatchObject({
+      name: 'TimeoutError',
+      message: 'YOUTUBE_REQUEST_TIMEOUT',
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await rejection;
+    expect(cancel).toHaveBeenCalledOnce();
+  });
 });
 
 describe('extractYouTubeVideoId', () => {
@@ -362,6 +409,25 @@ describe('YouTube playlist manifest resolution', () => {
     await expect(resolveYouTubePlaylistManifest('PL_MANIFEST_01')).rejects.toThrow(
       'Invalid YouTube playlist manifest response',
     );
+  });
+
+  it('rejects an oversized manifest without waiting for body cancellation', async () => {
+    const cancel = vi.fn(() => new Promise<void>(() => undefined));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).includes('/api/security-config')
+          ? Response.json({ capabilityRequired: false })
+          : (new Response(new ReadableStream<Uint8Array>({ cancel }), {
+              headers: { 'content-length': String(256 * 1024 + 1) },
+            }) as Response),
+      ),
+    );
+
+    await expect(resolveYouTubePlaylistManifest('PL_MANIFEST_01')).rejects.toThrow(
+      'CONTROL_RESPONSE_TOO_LARGE',
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 });
 

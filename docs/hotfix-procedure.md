@@ -35,7 +35,7 @@ production candidate for that exact commit. Run the `Production Release`
 workflow from the Actions tab and select only the Worker scope changed by the
 hotfix. Every target reuses that exact-SHA CI candidate without a second
 validation pass or environment self-approval, then runs its live smokes with
-conflict-aware rollback.
+an immutable recovery checkpoint and fail-closed forward-repair reporting.
 
 Leave `Apply the current Developer API D1 baseline` disabled for an ordinary
 Worker release. Enable it only when the approved commit intentionally changes
@@ -67,11 +67,27 @@ allocation/history row, decrement a generation, or authorize by room code alone
 to make an older Worker run.
 If a full release fails, recovery first returns the global cutover marker to
 `disabled`; it preserves `ever_enabled` and the first
-`floor_release_sha`. If that fence cannot be proven, or if the permanent floor
-or any generation above zero exists, it withholds rollback of every
-generation-sensitive Worker. A later successful full release can restore a
-marker left disabled by a failed release, but only after the same floor, smoke,
-and deployment-ownership checks pass.
+`floor_release_sha`. If that fence cannot be proven, it withholds rollback of
+every generation-sensitive Worker. Otherwise, the pre-mutation checkpoint binds
+each selected Worker's Cloudflare deployment/version and `beforeMessage` Git SHA
+to the captured floor. An already-established floor does not by itself block a
+routine rollback: a baseline proven to descend from `floor_release_sha` may be
+restored. A baseline that predates the floor, has unknown/divergent provenance,
+or was captured before this release established the exact candidate floor is
+retained on that candidate for forward repair. The entitlement floor follows a
+stricter first-cutover boundary: a checkpoint that was already complete permits
+its verified baseline, but a checkpoint captured as incomplete keeps the
+affected App/PRO Worker on the exact candidate even if the first recovery read
+is still false. The candidate App can complete that durable backfill between a
+read and rollback, and there is no distributed writer fence for that interval;
+the first entitlement cutover therefore prevents a mixed contract before it
+preserves availability. If the candidate was never deployed, automatic recovery
+stays red for forward repair instead of guessing that the older baseline is
+safe. Recovery freshly rereads cutover status, release authority, and both
+floors after the paired Worker/R2 verification, and fails if that evidence
+changed or a candidate-required Worker is not still on that release. A later
+successful full release can restore a marker left disabled by a failed release,
+but only after the same floor, smoke, and deployment-ownership checks pass.
 
 The complete serial Playwright suite is intentionally not a production deploy
 gate or a scheduled job. Start it manually from the `Full E2E` workflow when a
@@ -92,22 +108,29 @@ unreviewed playback-state writer while ordinary unit tests still pass.
 Immediately before each Worker deploy, the workflow verifies that both the
 production deployment ID and its 100% version still match the state captured
 during preparation. If a manual or external deploy changed either value, the
-release stops before overwriting it. If a later deploy or smoke fails, Workers
-already attempted by this run are restored in reverse order. Current-state
-queries, rollback commands, and rollback verification use bounded backoff for
-transient Cloudflare errors and propagation delay. A newer deployment not owned
-by the release is never overwritten. Every rollback retry rechecks ownership;
-if a prior command succeeded despite a lost response, seeing the previous
-version already restored ends the retry without issuing a duplicate command.
-Retry attempts remain in the Actions log, and the final rollback/conflict report
-is retained in the deployment artifact and Actions summary.
+release stops before overwriting it. Before the first D1, R2, or Worker
+mutation, the workflow captures every selected Worker's exact deployment ID,
+100% version, and message together with the affected live R2 policies, then
+uploads that checkpoint. The production environment concurrency lease makes
+the approved GitHub release workflow the only writer while a run is active;
+dashboard, local, and other out-of-band deploys are prohibited during that
+window. If a later deploy or smoke fails, recovery reads the current deployment
+ID, 100% version, and message twice. Cloudflare does not expose an atomic
+conditional rollback operation, so the second exact ownership read is the
+last precondition before Wrangler rollback and an exact version read-back. Any
+observed external deployment is reported as a conflict and left untouched. For
+R2, the same single-writer lease applies: recovery restores the captured baseline
+only when two fresh reads still match the exact candidate policy, then requires
+an exact baseline read-back; any different live policy is left untouched and
+becomes a forward-repair floor. The checkpoint, ownership reads, R2 recovery
+report, and final report remain attached to the run.
 
 After every selected live smoke succeeds, the workflow queries all Workers
 attempted by the run one final time. Their deployment ID, 100% version, and
 release message must still match the recorded release. This closes the window
 where a local or external deployment could replace an earlier Worker after its
-individual smoke; a mismatch fails the release and the conflict-aware recovery
-will not overwrite the newer deployment.
+individual smoke; a mismatch fails the release and recovery will not overwrite
+the newer deployment.
 
 Standalone live-smoke steps have a five-minute hard ceiling, except for the
 PRO-room probe, which has eight minutes for edge propagation. The combined PRO
@@ -115,9 +138,29 @@ media CORS apply/read-back/smoke step has ten minutes. Developer API and
 remote-share HTTP requests abort after 30 seconds; PRO-room, app-generation,
 app-public, and signaling protocol requests use their own shorter limits. These
 limits are intentionally far above the tiny synthetic payloads' normal latency,
-but prevent a half-open response from delaying automatic recovery. The complete
-deploy job has a four-hour ceiling; individual step limits leave substantially
-more time than normal operation requires for the conflict-aware recovery path.
+but prevent a half-open response from indefinitely delaying failure detection.
+The complete deploy job has a four-hour ceiling. A separate 90-minute
+`always()` recovery job consumes the persisted pre-mutation checkpoint, so a
+deploy-job timeout cannot remove the paired R2/Worker ownership assessment and
+forward-repair artifact.
+After final Worker ownership and, for `all`, generation readiness are verified,
+the deploy job records a coherent-production output and artifact marker. A
+later artifact-upload or summary failure must not undo that healthy production
+commit. The independent job retries both marker and checkpoint downloads; it
+also checks the run-scoped artifact inventory. An indeterminate marker or an
+unavailable checkpoint after mutation authorization leaves production
+untouched and fails for operator review instead of guessing the release phase.
+After recovery decisions finish, a non-optional final gate freshly reads every
+checkpointed R2 policy and Worker again. Each Worker must be either the exact
+captured baseline requested by a successful rollback or the exact failed-release
+candidate deliberately retained by a recorded compatibility/dependency floor;
+mixed or unowned identities fail the recovery job. Every checkpointed R2 policy
+must then freshly match the exact boundary required by those recovered Workers:
+the captured baseline when its selected consumers were restored, or the exact
+candidate when any selected consumer was deliberately retained on the failed
+release. Any other live policy is external drift and remains a red manual
+forward-repair boundary. A late policy or Worker change therefore cannot turn
+an earlier successful read-back into a green recovery report.
 The separate Worker boundary contract keeps bounded JSON request bodies on
 10-second read deadlines and newly hardened downstream service/provider reads
 on route-specific 5-15-second budgets. The existing playlist-manifest path keeps
@@ -132,11 +175,12 @@ requires a reviewed roll-forward or provider restore. The historical paired
 effects-scope SQL remains recorded in the D1 manifest only as immutable audit
 history; it is not invoked by current recovery automation.
 
-The app and signaling rollback floor is first-frame host authentication. Every
-signaling version eligible for routine rollback must accept the `host-auth`
-first frame; never restore a query-only signaling version below that floor.
-Because both sides of the supported rollback boundary use the same first-frame
-contract, signaling recovery no longer depends on app recovery succeeding.
+The app and signaling rollback floor includes first-frame standard-room host
+authentication and the exact PRO WebSocket subprotocol ticket negotiation.
+Rollback restores the App first and restores signaling only after that App
+baseline is verified. If a durable or R2 compatibility floor keeps the current
+App, recovery also keeps the current signaling Worker; otherwise a retained
+subprotocol client could be paired with an older query-ticket Worker.
 Signaling still delegates PRO chat and authority decisions to the PRO room
 Worker. If signaling cannot be verified as restored, recovery keeps the current
 PRO Worker instead of creating a known broken new-signaling/old-PRO pairing.
@@ -164,13 +208,12 @@ standalone live signaling smoke. A signaling protocol change must be deployed
 and smoked first (normally with release target `all`); the preflight fails
 closed while production still serves an incompatible signaling contract.
 
-Automatic rollback preserves the restored deployment's original Git SHA in
-the new rollback message when that provenance exists. A legacy or manual
-deployment without Git provenance remains deliberately unverifiable; after
-such a rollback, the next approved release must use target `all` to establish
-a fresh common baseline.
+Recovery preserves the previous deployment's original Git SHA in the checkpoint
+when that provenance exists. A legacy or manual deployment without Git
+provenance remains deliberately unverifiable; use target `all` for the next
+approved forward-repair release to establish a fresh common baseline.
 
-The combined `admin-announcement-v1+abuse-rate-v1` service-control marker
+The combined `admin-announcement-v1+abuse-rate-v2+session-idempotency-v1` service-control marker
 requires an `all` rollout in this order: PRO, remote-share, signaling, Developer
 API facade/API, then App. The PRO-owned object must exist before every consumer.
 Its announcement component is also a permanent forward-only data floor once the
@@ -178,16 +221,14 @@ App/PRO pair has deployed or the global service-control object has recorded
 announcement revision 1 or later. Do not
 manually restore or intentionally deploy an App or PRO Worker from before that
 marker: the old App reads the legacy KV copy and can revive a stale notice while
-the durable object retains a different canonical revision. Automatic recovery
-skips that unsafe downgrade. For manual recovery, keep both Workers at or above
+the durable object retains a different canonical revision. Recovery marks that
+downgrade as a forward-only floor. Keep both Workers at or above
 the marker and use an `all` target roll-forward/forward-repair release.
 
-If the rollback report records a conflict or exhausted retry, inspect the live
-version before taking manual action. Deployment records and the Actions summary
-are written even when recovery itself fails, after which an explicit final gate
-keeps the release failed. A failure that occurs only after the recovery step,
-while uploading artifacts or writing the Actions summary, does not roll back an
-otherwise healthy release.
+If the recovery report records a conflict or unreadable floor, inspect the live version before taking manual
+action and prefer a new exact-SHA `all` release. Deployment records and the
+Actions summary are written even when the in-job recovery path fails; the
+independent job retains the pre-mutation checkpoint and its own report.
 
 Cloudflare's separate Git-triggered app deployment is intentionally disabled;
 do not enable it while the GitHub release workflow is authoritative. Keeping
@@ -232,15 +273,25 @@ cannot authorize an old release and every emergency deployment remains
 traceable to GitHub. A network or remote-authentication failure fails closed. The
 environment variable is authorization for exactly that command invocation; do
 not put it in a profile, `.env` file, CI secret, or shell startup script.
-The orchestrator derives `git:<full-HEAD-SHA> emergency-target:<target>` itself
+The orchestrator derives the exact `git:<full-HEAD-SHA>` deployment annotation itself
 and passes that immutable message to every Wrangler Worker deployment,
 including both Developer API Workers and every Worker in `all-workers`.
 Operator-supplied trailing arguments are rejected rather than forwarded to
 Wrangler, so do not add `-- --message` or any other command-line option.
 Before any partial emergency deployment, the same live deployment provenance
 and unselected-Worker source compatibility gate used by the approved workflow
-runs locally. If another Worker changed in the pushed commit, use
-`all-workers` instead of publishing a mixed contract.
+runs locally. The orchestrator also captures each selected Worker's exact live
+identity and repeats both the unselected compatibility check and selected
+preflight immediately before every deploy command. Emergency deployment is
+recorded after each command and all selected Workers must still match those
+exact deployment identities in one final verification. Emergency deployment is
+strictly code-only: if the live Worker SHA-to-candidate diff contains a tracked
+D1 migration/schema, R2 CORS/lifecycle policy, contract marker, or Wrangler
+configuration change, it stops and requires the approved Production Release
+workflow. `developer-api-stack` and `all-workers` therefore do not apply D1
+schema changes. If another Worker changed in the pushed commit, use
+`all-workers` only when the code-only fence still passes; otherwise use the
+approved `all` release.
 
 These automation checks are intentionally browser-free. After the deploy is
 live, verify the production URL and the touched host/guest flow on physical
@@ -260,7 +311,10 @@ the D1 token before any Worker deploy when a D1 change is requested, so a
 missing or under-scoped credential stops without rolling production forward and
 back. Keep base-schema changes additive and backward-compatible because Worker
 rollback does not reverse a successfully committed D1 schema import; tracked
-destructive changes need their own explicit migration and rollback pair.
+destructive changes need their own reviewed manifest entry and explicit recovery
+decision. Add rollback SQL only when the change is honestly reversible;
+otherwise declare the migration forward-only with its matched Worker floor,
+roll-forward, or provider-restore runbook.
 
 ### Worker scope and order
 
@@ -374,7 +428,11 @@ Do not add a forced reload mechanism casually. There is no current production br
 
 If a deployment is bad:
 
-1. In the Cloudflare dashboard, roll back to the previous known-good Worker deployment if immediate rollback is needed.
+1. Inspect the failed release's recovery checkpoint and current live deployment.
+   Do not use an old version when a D1, Durable Object, service-control, or R2
+   forward floor is active. Cloudflare Worker rollback has no atomic ownership
+   precondition, so coordinate a manual change and recheck that no newer deploy
+   appeared before applying it.
 2. In git, prefer a revert commit:
 
 ```bash
@@ -392,7 +450,8 @@ git push origin main
 
 Avoid `git reset --hard` plus force push on `main` unless there is no reasonable alternative.
 
-For a CLI rollback, deploy the saved known-good version at 100%:
+For an explicitly reviewed CLI rollback with no active forward floor, deploy the
+saved known-good version at 100%:
 
 ```bash
 npm run wrangler -- versions deploy <known-good-version-id>@100% --config <worker-config> --yes --message "Rollback: <reason>"

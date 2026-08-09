@@ -113,7 +113,7 @@ const ADMIN_ANNOUNCEMENT_KEY = 'admin-announcement.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
-const ADMIN_ASSET_VERSION = '8.3.23';
+const ADMIN_ASSET_VERSION = '8.3.24';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -133,6 +133,10 @@ const SORO_IMAGE_R2_PREFIX = 'featured/';
 const SORO_IMAGE_CACHE = 'public, max-age=31536000, immutable';
 const ADMIN_SESSION_COOKIE = '__Host-mxqr_admin';
 const ADMIN_SESSION_TTL_SECONDS = 12 * 60 * 60;
+const ADMIN_PASSWORD_MIN_BYTES = 16;
+const ADMIN_PASSWORD_MAX_BYTES = 256;
+const ADMIN_SESSION_NONCE_RE = /^[A-Za-z0-9_-]{22}$/;
+const ADMIN_SESSION_SIGNATURE_DOMAIN = 'mxqr-admin-session:v1\0';
 const ADMIN_PRO_ROOM_PATH_RE = /^\/api\/admin\/pro-rooms(?:\/(0\d{5})\/activation-claim)?$/;
 const ADMIN_PRO_ROOM_OWNER_RECOVERY_PATH_RE =
   /^\/api\/admin\/pro-rooms\/(0\d{5})\/owner-recovery-claim$/;
@@ -203,12 +207,17 @@ const PRO_ROOM_FACADE_PREFIX = '/api/pro-room';
 const PRO_ROOM_FACADE_HEALTH_PATH = `${PRO_ROOM_FACADE_PREFIX}/health`;
 const PRO_ROOM_FACADE_PATH_RE = /^\/api\/pro-room(\/v1\/rooms\/(0\d{5})(?:\/|$).*)$/;
 const PRO_ROOM_UPSTREAM_ORIGIN = 'https://pro-room.internal';
+const PRO_ROOM_SESSION_ACTOR_HEADER = 'X-MXQR-Pro-Session-Actor';
+const PRO_ROOM_SESSION_CREATE_REQUEST_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
 // Buffer every public PRO mutation at the stateless facade before invoking
 // the room Durable Object. Otherwise a client that opens a chunked request and
 // never finishes it can leave the downstream body parser waiting while it owns
 // the room's serialized mutation queue.
 const PRO_ROOM_FACADE_BODY_MAX_BYTES = 4 * 1024 * 1024;
 const PRO_ROOM_FACADE_BODY_TIMEOUT_MS = 10_000;
+const PRO_ROOM_SERVICE_RESPONSE_TIMEOUT_MS = 5_000;
+const PRO_ROOM_SERVICE_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
+const PRO_ROOM_SERVICE_CONTROL_RESPONSE_MAX_BYTES = 64 * 1024;
 const INITIAL_ADMIN_PRO_ROOMS = Object.freeze([
   Object.freeze({ roomCode: '000000', label: 'MUSIXQUARE Developer' }),
 ]);
@@ -292,6 +301,38 @@ function forwardedProRoomCookies(rawCookie, roomCode) {
     }
   }
   return forwarded.join('; ');
+}
+
+function parseProRoomSessionCreateBody(bodyBytes) {
+  if (!(bodyBytes instanceof Uint8Array)) return null;
+  try {
+    const body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bodyBytes));
+    return body !== null && typeof body === 'object' && !Array.isArray(body) ? body : null;
+  } catch {
+    return null;
+  }
+}
+
+async function proRoomSessionActorHint(env, roomCode, body) {
+  if (
+    !body ||
+    Object.keys(body).length !== 2 ||
+    typeof body.pin !== 'string' ||
+    !PRO_ROOM_SESSION_CREATE_REQUEST_ID_RE.test(body.requestId || '')
+  ) {
+    return '';
+  }
+  const assertionSecret = String(env.MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET || '');
+  const secret =
+    assertionSecret.length >= HMAC_SECRET_MIN_LENGTH ? assertionSecret : getCapabilitySecret(env);
+  if (!secret) return '';
+  // requestId is the sole browser value guaranteed not to change across an
+  // outcome-unknown retry: the first committed response may create a session
+  // cookie before its body reaches the client. Scope the opaque actor to this
+  // room/DO so that adding that cookie cannot fork one logical admission.
+  // PIN remains outside this identity and inside the PRO receipt fingerprint,
+  // preserving same-requestId/different-PIN conflict detection.
+  return hmacSha256(secret, `pro-room-session-actor:v2\u0000${roomCode}\u0000${body.requestId}`);
 }
 
 function splitSetCookieHeader(headers) {
@@ -481,28 +522,41 @@ async function handleProRoomFacade(request, env, url) {
       return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 503, { 'Cache-Control': 'no-store' });
     }
     const headers = new Headers({ Accept: 'application/json' });
-    let response;
+    let upstream;
     try {
-      response = await env.PRO_ROOM_PUBLIC_API.fetch(
+      upstream = await fetchServiceBindingResponse(
+        (boundedRequest) => env.PRO_ROOM_PUBLIC_API.fetch(boundedRequest),
         new Request(new URL('/health', PRO_ROOM_UPSTREAM_ORIGIN), {
           method: 'GET',
           headers,
           redirect: 'manual',
         }),
+        PRO_ROOM_SERVICE_CONTROL_RESPONSE_MAX_BYTES,
       );
     } catch {
       return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
     }
+    if (!upstream || !isValidUtf8(upstream.bytes)) {
+      return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
+    }
+    const response = upstream.response;
     return withSecurityHeaders(
-      new Response(request.method === 'HEAD' ? null : response.body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Cache-Control': 'no-store, max-age=0',
-          'X-Robots-Tag': 'noindex, nofollow',
+      new Response(
+        request.method === 'HEAD' ||
+          [101, 204, 205, 304].includes(response.status) ||
+          upstream.bytes.byteLength === 0
+          ? null
+          : upstream.bytes,
+        {
+          status: response.status,
+          statusText: response.statusText,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'no-store, max-age=0',
+            'X-Robots-Tag': 'noindex, nofollow',
+          },
         },
-      }),
+      ),
     );
   }
 
@@ -534,6 +588,11 @@ async function handleProRoomFacade(request, env, url) {
   }
 
   const [, upstreamPath, roomCode] = route;
+  const sessionCreatePath =
+    request.method === 'POST' && upstreamPath === `/v1/rooms/${roomCode}/sessions`;
+  const sessionCreateBody = sessionCreatePath
+    ? parseProRoomSessionCreateBody(bufferedMutationBody)
+    : null;
   const headers = new Headers(request.headers);
   // Preserve a browser-supplied Origin so the PRO Worker remains the single
   // CSRF/CORS authority. Same-origin GET/HEAD requests commonly omit it, so
@@ -545,6 +604,13 @@ async function handleProRoomFacade(request, env, url) {
   headers.delete('X-MXQR-Pro-Room-Code');
   headers.delete('X-MXQR-Pro-Room-Generation');
   headers.delete('X-MXQR-Pro-IP-Hash');
+  // This header is service-internal. Always discard a browser value, then
+  // derive the stable request-scoped actor before replacing any Cookie header.
+  headers.delete(PRO_ROOM_SESSION_ACTOR_HEADER);
+  if (sessionCreatePath) {
+    const actorHint = await proRoomSessionActorHint(env, roomCode, sessionCreateBody);
+    if (actorHint) headers.set(PRO_ROOM_SESSION_ACTOR_HEADER, actorHint);
+  }
   // A browser can name this header but can never supply its value. Account
   // identity is resolved from the App Worker's host-only session cookie and
   // replaced with a short-lived room/audience-bound service assertion.
@@ -702,12 +768,45 @@ async function handleProRoomFacade(request, env, url) {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     if (bufferedMutationBody !== null) upstreamInit.body = bufferedMutationBody;
   }
-  let response;
+  const legacySessionCreate = (() => {
+    if (!sessionCreatePath || !sessionCreateBody) return false;
+    return (
+      Object.keys(sessionCreateBody).length === 1 && /^\d{8}$/.test(sessionCreateBody.pin || '')
+    );
+  })();
+  if (legacySessionCreate) {
+    // Cached pre-v1 clients cannot safely synthesize an exactly-once key: an
+    // IP/PIN/User-Agent surrogate would merge independent devices behind one
+    // NAT. Preserve their former platform/request lifetime until the cached
+    // client rollout drains, while every requestId-bearing admission below is
+    // protected by the short App deadline and the PRO durable receipt.
+    try {
+      const response = await env.PRO_ROOM_PUBLIC_API.fetch(
+        new Request(upstreamUrl, { ...upstreamInit, signal: request.signal }),
+      );
+      return withFacadeProRoomCookies(response, roomCode);
+    } catch {
+      return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
+    }
+  }
+  let upstream;
   try {
-    response = await env.PRO_ROOM_PUBLIC_API.fetch(new Request(upstreamUrl, upstreamInit));
+    upstream = await fetchServiceBindingResponse(
+      (boundedRequest) => env.PRO_ROOM_PUBLIC_API.fetch(boundedRequest),
+      new Request(upstreamUrl, upstreamInit),
+      PRO_ROOM_SERVICE_RESPONSE_MAX_BYTES,
+    );
   } catch {
     return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
   }
+  if (!upstream || !isValidUtf8(upstream.bytes)) {
+    return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
+  }
+  const response = bufferedServiceResponse(
+    upstream.response,
+    upstream.bytes,
+    request.method === 'HEAD',
+  );
   if (
     response.ok &&
     upstreamPath === `/v1/rooms/${roomCode}/activation` &&
@@ -983,6 +1082,7 @@ async function checkPaidRateLimit(
   limit = 60,
   windowSec = 60,
   identityOverride = '',
+  options = {},
 ) {
   // Direct unit/local runtimes intentionally omit every production binding.
   // Production Workers expose Cache API, so a missing atomic binding there is
@@ -1000,9 +1100,11 @@ async function checkPaidRateLimit(
 
   const identity = identityOverride || getClientIp(request);
   const secret = getCapabilitySecret(env);
-  const digest = secret
-    ? await hmacSha256(secret, `paid-rate:${identity}`)
-    : bytesToBase64Url(await sha256Bytes(`paid-rate:${identity}`));
+  const digest = options.identityIsPseudonymous
+    ? identity
+    : secret
+      ? await hmacSha256(secret, `paid-rate:${identity}`)
+      : bytesToBase64Url(await sha256Bytes(`paid-rate:${identity}`));
   return consumeAbuseRateLimit(env, {
     scope: `app-${endpoint}`,
     identity: digest,
@@ -1169,7 +1271,7 @@ function base64UrlToString(value) {
   const binary = atob(padded);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return new TextDecoder().decode(bytes);
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 }
 
 function constantTimeEqual(a, b) {
@@ -1401,15 +1503,31 @@ async function verifyRealtimeSessionCapability(token, sessionId, appId, appSecre
 }
 
 function getAdminPassword(env) {
-  return String(env.MXQR_ADMIN_PASSWORD || env.ADMIN_PASSWORD || '').trim();
+  // Secrets are opaque bytes-as-text. Leading/trailing whitespace is part of
+  // the configured credential and must never be normalized into a different
+  // password accepted by the login endpoint.
+  return String(env.MXQR_ADMIN_PASSWORD || env.ADMIN_PASSWORD || '');
 }
 
 function getAdminSessionSecret(env) {
-  return String(env.MXQR_ADMIN_SESSION_SECRET || env.ADMIN_SESSION_SECRET || '').trim();
+  return String(env.MXQR_ADMIN_SESSION_SECRET || env.ADMIN_SESSION_SECRET || '');
+}
+
+async function adminLoginRateIdentity(request, env) {
+  return hmacSha256(getAdminSessionSecret(env), `admin-login-rate:${getClientIp(request)}`);
+}
+
+function validAdminPassword(password) {
+  if (typeof password !== 'string' || password.length === 0) return false;
+  const byteLength = new TextEncoder().encode(password).byteLength;
+  return byteLength >= ADMIN_PASSWORD_MIN_BYTES && byteLength <= ADMIN_PASSWORD_MAX_BYTES;
 }
 
 function isAdminConfigured(env) {
-  return !!(getAdminPassword(env) && getAdminSessionSecret(env).length >= HMAC_SECRET_MIN_LENGTH);
+  return (
+    validAdminPassword(getAdminPassword(env)) &&
+    getAdminSessionSecret(env).length >= HMAC_SECRET_MIN_LENGTH
+  );
 }
 
 function getAdminDb(env) {
@@ -1417,9 +1535,9 @@ function getAdminDb(env) {
 }
 
 async function verifyAdminPassword(password, env) {
-  if (typeof password !== 'string' || !password) return false;
+  if (!validAdminPassword(password)) return false;
   const storedPassword = getAdminPassword(env);
-  return !!storedPassword && constantTimeEqual(password, storedPassword);
+  return validAdminPassword(storedPassword) && constantTimeEqual(password, storedPassword);
 }
 
 function readCookies(request) {
@@ -1455,7 +1573,10 @@ async function createAdminSessionToken(env) {
     nonce: bytesToBase64Url(random),
   };
   const payloadPart = stringToBase64Url(JSON.stringify(payload));
-  const signature = await hmacSha256(getAdminSessionSecret(env), payloadPart);
+  const signature = await hmacSha256(
+    getAdminSessionSecret(env),
+    `${ADMIN_SESSION_SIGNATURE_DOMAIN}${payloadPart}`,
+  );
   return `${payloadPart}.${signature}`;
 }
 
@@ -1464,7 +1585,10 @@ async function verifyAdminSession(request, env) {
   const token = readCookies(request).get(ADMIN_SESSION_COOKIE) || '';
   const parts = token.split('.');
   if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
-  const expectedSignature = await hmacSha256(getAdminSessionSecret(env), parts[0]);
+  const expectedSignature = await hmacSha256(
+    getAdminSessionSecret(env),
+    `${ADMIN_SESSION_SIGNATURE_DOMAIN}${parts[0]}`,
+  );
   if (!constantTimeEqual(expectedSignature, parts[1])) return false;
 
   let payload;
@@ -1475,12 +1599,21 @@ async function verifyAdminSession(request, env) {
   }
 
   const now = Math.floor(Date.now() / 1000);
+  const keys =
+    payload && typeof payload === 'object' && !Array.isArray(payload) ? Object.keys(payload) : [];
   return (
+    keys.length === 4 &&
+    keys.includes('v') &&
+    keys.includes('iat') &&
+    keys.includes('exp') &&
+    keys.includes('nonce') &&
     payload?.v === 1 &&
-    typeof payload.iat === 'number' &&
-    typeof payload.exp === 'number' &&
+    Number.isSafeInteger(payload.iat) &&
+    Number.isSafeInteger(payload.exp) &&
     payload.iat <= now + 60 &&
-    payload.exp > now
+    payload.exp > now &&
+    payload.exp - payload.iat === ADMIN_SESSION_TTL_SECONDS &&
+    ADMIN_SESSION_NONCE_RE.test(payload.nonce || '')
   );
 }
 
@@ -1511,9 +1644,17 @@ async function handleAdminLogin(request, env) {
   if (methodError) return methodError;
   if (request.method === 'OPTIONS') return withSecurityHeaders(new Response(null, { status: 204 }));
   if (!isAdminConfigured(env)) return json({ error: 'ADMIN_NOT_CONFIGURED' }, 503);
-  if (!(await checkRateLimit(request, 'admin-login', 10, 60))) {
-    return rateLimitResponse({});
-  }
+  const rate = await checkPaidRateLimit(
+    request,
+    env,
+    'admin-login',
+    10,
+    60,
+    await adminLoginRateIdentity(request, env),
+    { identityIsPseudonymous: true },
+  );
+  if (rate.status !== 'ok') return rateLimitUnavailableResponse({});
+  if (!rate.allowed) return rateLimitResponse({}, rate.retryAfterSeconds);
 
   const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
   if (parsedBody.error) return jsonBodyError(parsedBody);
@@ -3393,9 +3534,10 @@ async function callProRoomAdminObject(
   const stub = namespace.get(namespace.idFromName(proRoomObjectName(roomCode, roomGeneration)));
   const wireBody =
     body && typeof body === 'object' && !Array.isArray(body) ? { ...body, roomGeneration } : body;
-  let response;
+  let result;
   try {
-    response = await stub.fetch(
+    result = await fetchServiceBindingResponse(
+      (boundedRequest) => stub.fetch(boundedRequest),
       new Request(`https://pro-room.internal${pathname}`, {
         method,
         headers: {
@@ -3405,15 +3547,13 @@ async function callProRoomAdminObject(
         },
         ...(wireBody === undefined ? {} : { body: JSON.stringify(wireBody) }),
       }),
+      PRO_ROOM_SERVICE_CONTROL_RESPONSE_MAX_BYTES,
     );
   } catch {
     return { response: null, payload: null };
   }
-  const payload = await response
-    .clone()
-    .json()
-    .catch(() => null);
-  return { response, payload };
+  if (!result) return { response: null, payload: null };
+  return { response: result.response, payload: parseServiceJsonBytes(result.bytes) };
 }
 
 async function inspectProGrantRoom(env, roomCode, roomGeneration) {
@@ -3573,10 +3713,11 @@ async function fenceProRoomSignalingForOwnerAccountDeletion(
   ) {
     return false;
   }
-  let response;
+  let result;
   try {
     const stub = namespace.get(namespace.idFromName(proRoomObjectName(roomCode, roomGeneration)));
-    response = await stub.fetch(
+    result = await fetchServiceBindingResponse(
+      (boundedRequest) => stub.fetch(boundedRequest),
       new Request('https://signaling.internal/internal/admin/v1/owner-account-deleted', {
         method: 'POST',
         headers: {
@@ -3592,12 +3733,15 @@ async function fenceProRoomSignalingForOwnerAccountDeletion(
           fencedCoordinatorEpoch,
         }),
       }),
+      PRO_ROOM_SERVICE_CONTROL_RESPONSE_MAX_BYTES,
     );
   } catch {
     return false;
   }
+  if (!result) return false;
+  const response = result.response;
   if (!response.ok) return false;
-  const payload = await response.json().catch(() => null);
+  const payload = parseServiceJsonBytes(result.bytes);
   const commonValid =
     payload?.ok === true &&
     proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) &&
@@ -5826,24 +5970,28 @@ async function handleProRoomOwnershipTransferSaga({
     `/v1/rooms/${roomCode}/owner-transfer/prepare`,
     PRO_ROOM_UPSTREAM_ORIGIN,
   );
-  let prepareResponse;
+  let prepareResult;
   try {
-    prepareResponse = await env.PRO_ROOM_PUBLIC_API.fetch(
+    prepareResult = await fetchServiceBindingResponse(
+      (boundedRequest) => env.PRO_ROOM_PUBLIC_API.fetch(boundedRequest),
       new Request(prepareUrl, {
         method: 'POST',
         headers,
         redirect: 'manual',
         body,
       }),
+      PRO_ROOM_SERVICE_CONTROL_RESPONSE_MAX_BYTES,
     );
   } catch {
     const auditError = await failAudit('service_unavailable');
     return auditError || json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502);
   }
-  const preparePayload = await prepareResponse
-    .clone()
-    .json()
-    .catch(() => null);
+  if (!prepareResult) {
+    const auditError = await failAudit('service_unavailable');
+    return auditError || json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502);
+  }
+  const prepareResponse = bufferedServiceResponse(prepareResult.response, prepareResult.bytes);
+  const preparePayload = parseServiceJsonBytes(prepareResult.bytes);
   if (!prepareResponse.ok) {
     const auditError = await failAudit(
       ownerTransferPrepareAuditResult(prepareResponse, preparePayload),
@@ -10717,18 +10865,107 @@ async function readResponseBodyLimited(response, maxBytes, signal) {
   return body;
 }
 
-async function fetchAndConsumeWithTimeout(resource, options, timeoutMs, consume) {
+export async function fetchAndConsumeWithTimeout(resource, options, timeoutMs, consume) {
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(new Error('Response body read timed out')),
-    timeoutMs,
-  );
+  const timeoutError = new Error('Upstream response timed out');
+  let timeoutId = null;
+  let timedOut = false;
+  let activeResponse = null;
+  const operation = Promise.resolve()
+    .then(() => fetch(resource, { ...options, signal: controller.signal }))
+    .then(async (response) => {
+      activeResponse = response;
+      if (timedOut) {
+        cancelResponseBody(response, timeoutError);
+        throw timeoutError;
+      }
+      try {
+        return await consume(response, controller.signal);
+      } finally {
+        if (!timedOut) activeResponse = null;
+      }
+    });
+  const timeout = new Promise((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort(timeoutError);
+      cancelResponseBody(activeResponse, timeoutError);
+      reject(timeoutError);
+    }, timeoutMs);
+  });
   try {
-    const response = await fetch(resource, { ...options, signal: controller.signal });
-    return await consume(response, controller.signal);
+    // Abort is cooperative. The race is the actual wall-clock bound for a
+    // fetch implementation that ignores AbortSignal while resolving headers
+    // or for a consumer that stalls after headers. Promise.race also observes
+    // any late rejection, while the operation branch cancels a late body.
+    return await Promise.race([operation, timeout]);
   } finally {
-    clearTimeout(timeout);
+    if (timeoutId !== null) clearTimeout(timeoutId);
   }
+}
+
+async function fetchServiceBindingResponse(
+  fetcher,
+  request,
+  maxBytes,
+  timeoutMs = PRO_ROOM_SERVICE_RESPONSE_TIMEOUT_MS,
+) {
+  const controller = new AbortController();
+  let timeoutId = null;
+  let timedOut = false;
+  const operation = Promise.resolve()
+    .then(() => fetcher(new Request(request, { signal: controller.signal })))
+    .then(async (response) => {
+      if (timedOut) {
+        cancelResponseBody(response, 'SERVICE_RESPONSE_TIMEOUT');
+        return null;
+      }
+      const bytes = await readResponseBodyLimited(response, maxBytes, controller.signal);
+      return timedOut ? null : { response, bytes };
+    })
+    // A service binding may reject only after the timeout race has completed.
+    // Normalize that late settlement so cleanup never becomes an unhandled task.
+    .catch(() => null);
+  const timeout = new Promise((resolve) => {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort(new Error('SERVICE_RESPONSE_TIMEOUT'));
+      resolve(null);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  }
+}
+
+function parseServiceJsonBytes(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) return null;
+  try {
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    return null;
+  }
+}
+
+function isValidUtf8(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) return true;
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function bufferedServiceResponse(response, bytes, omitBody = false) {
+  const statusDisallowsBody = [101, 204, 205, 304].includes(response.status);
+  return new Response(omitBody || statusDisallowsBody || bytes.byteLength === 0 ? null : bytes, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
 }
 
 async function fetchJsonWithTimeout(

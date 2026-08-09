@@ -70,6 +70,50 @@ export function createLinkedAbortScope(
   };
 }
 
+/**
+ * Settle at an AbortSignal boundary even when the underlying promise ignores
+ * that signal. Both branches stay observed after the race, and an optional
+ * late-value disposer can release a response that arrives after cancellation
+ * without making cleanup part of the caller's critical path.
+ */
+export function raceWithAbortSignal<T>(
+  operation: PromiseLike<T>,
+  signal: AbortSignal,
+  disposeLateValue?: (value: T) => void | PromiseLike<void>,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => signal.removeEventListener('abort', onAbort);
+    const finish = (callback: () => void) => {
+      if (settled) return false;
+      settled = true;
+      cleanup();
+      callback();
+      return true;
+    };
+    const onAbort = () => finish(() => reject(responseAbortReason(signal)));
+    const disposeLate = (value: T) => {
+      if (!disposeLateValue) return;
+      try {
+        void Promise.resolve(disposeLateValue(value)).catch(() => undefined);
+      } catch {
+        // Late cleanup is best effort and never replaces the abort outcome.
+      }
+    };
+
+    if (!signal.aborted) signal.addEventListener('abort', onAbort, { once: true });
+    void Promise.resolve(operation).then(
+      (value) => {
+        if (!finish(() => resolve(value))) disposeLate(value);
+      },
+      (error) => {
+        finish(() => reject(error));
+      },
+    );
+    if (signal.aborted) onAbort();
+  });
+}
+
 export async function withRequestDeadline<T>(
   operation: (signal: AbortSignal) => Promise<T>,
   options: {
@@ -80,7 +124,10 @@ export async function withRequestDeadline<T>(
 ): Promise<T> {
   const scope = createLinkedAbortScope(options.signal, options.timeoutMs, options.timeoutReason);
   try {
-    return await operation(scope.signal);
+    if (scope.signal.aborted) throw responseAbortReason(scope.signal);
+
+    const pending = operation(scope.signal);
+    return await raceWithAbortSignal(pending, scope.signal);
   } finally {
     scope.cleanup();
   }
@@ -125,16 +172,28 @@ export function createIdleWatchdog(
  * resolves when headers arrive, so returning early without cancelling the
  * body can otherwise leave the connection and its server-side work alive.
  */
-export async function cancelResponseBody(response: Response): Promise<void> {
+export function cancelResponseBody(response: Response): Promise<void> {
   try {
-    await response.body?.cancel();
+    void response.body?.cancel().catch(() => undefined);
   } catch {
     // Cancellation is cleanup only; preserve the caller's primary outcome.
   }
+  return Promise.resolve();
 }
 
 function responseAbortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException('Aborted', 'AbortError');
+}
+
+function cancelReaderBestEffort(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  reason?: unknown,
+): void {
+  try {
+    void Promise.resolve(reader.cancel(reason)).catch(() => undefined);
+  } catch {
+    // Cancellation is cleanup only; never replace the primary outcome.
+  }
 }
 
 async function readResponseChunk(
@@ -151,8 +210,8 @@ async function readResponseChunk(
       if (settled) return;
       settled = true;
       cleanup();
-      void reader.cancel(signal.reason).catch(() => undefined);
       reject(responseAbortReason(signal));
+      cancelReaderBestEffort(reader, signal.reason);
     };
 
     signal.addEventListener('abort', onAbort, { once: true });
@@ -198,7 +257,7 @@ export async function readBoundedResponseText(
 
   if (!response.body) return '';
   const reader = response.body.getReader();
-  const decoder = new TextDecoder();
+  const decoder = new TextDecoder('utf-8', { fatal: true });
   let text = '';
   let totalBytes = 0;
 
@@ -209,13 +268,16 @@ export async function readBoundedResponseText(
       if (!value || value.byteLength === 0) continue;
       totalBytes += value.byteLength;
       if (totalBytes > maxBytes) {
-        void reader.cancel().catch(() => undefined);
+        cancelReaderBestEffort(reader, 'CONTROL_RESPONSE_TOO_LARGE');
         throw new ControlResponseTooLargeError();
       }
       text += decoder.decode(value, { stream: true });
     }
     text += decoder.decode();
     return text;
+  } catch (error) {
+    cancelReaderBestEffort(reader, error);
+    throw error;
   } finally {
     try {
       reader.releaseLock();

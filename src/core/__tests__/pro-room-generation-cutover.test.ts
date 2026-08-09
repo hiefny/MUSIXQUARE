@@ -139,11 +139,17 @@ describe('PRO room generation release fence', () => {
     expect(workflow).not.toContain("room_code IN ('000002', '000003')");
     expect(
       workflow.indexOf('Disable PRO room generation cutover before failed-release rollback'),
-    ).toBeLessThan(workflow.indexOf('Restore Worker deployments after a failed release'));
-    expect(workflow).toContain(
+    ).toBeLessThan(workflow.indexOf('Restore release-owned Workers after a failed release'));
+    expect(workflow).not.toContain(
       'steps.pro_room_generation_cutover_disable.outputs.generation_floor',
     );
+    expect(workflow).toContain('steps.worker_floor_assessment.outputs.forward_targets');
+    expect(workflow).toContain('verify release-artifacts/recovery-checkpoint "$floor_file"');
     expect(workflow).toContain(
+      'for target in pro-room signaling developer-api-facade developer-api app; do',
+    );
+    expect(workflow).toContain('append_skip_target "$target"');
+    expect(workflow).not.toContain(
       'rollback_skip_targets="pro-room,signaling,developer-api-facade,developer-api,app"',
     );
   });

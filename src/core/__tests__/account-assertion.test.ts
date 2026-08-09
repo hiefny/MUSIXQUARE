@@ -8,6 +8,23 @@ import {
 
 const secret = '0123456789abcdef0123456789abcdef';
 
+function base64Url(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64url');
+}
+
+async function signRawPayload(bytes: Uint8Array): Promise<string> {
+  const payloadPart = base64Url(bytes);
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payloadPart));
+  return `${payloadPart}.${base64Url(new Uint8Array(signature))}`;
+}
+
 describe('account room assertions', () => {
   it('round-trips only a bounded room-scoped account identity', async () => {
     const issuedAt = 1_784_524_800;
@@ -159,6 +176,37 @@ describe('account room assertions', () => {
         },
         'short',
       ),
+    ).resolves.toBeNull();
+  });
+
+  it('rejects a correctly signed payload whose JSON contains malformed UTF-8', async () => {
+    const nowSeconds = 1_784_524_800;
+    const encoded = new TextEncoder().encode(
+      JSON.stringify({
+        v: 1,
+        aud: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
+        roomCode: '000001',
+        roomGeneration: 0,
+        accountId: 'acct_0123456789abcdefghijkl',
+        nickname: 'XX',
+        iat: nowSeconds,
+        exp: nowSeconds + 60,
+      }),
+    );
+    const marker = new TextEncoder().encode('"nickname":"XX"');
+    const markerIndex = Buffer.from(encoded).indexOf(Buffer.from(marker));
+    expect(markerIndex).toBeGreaterThanOrEqual(0);
+    encoded[markerIndex + marker.byteLength - 3] = 0xc3;
+    encoded[markerIndex + marker.byteLength - 2] = 0x28;
+    const token = await signRawPayload(encoded);
+
+    await expect(
+      verifyAccountAssertion(token, secret, {
+        audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
+        roomCode: '000001',
+        roomGeneration: 0,
+        nowSeconds,
+      }),
     ).resolves.toBeNull();
   });
 });

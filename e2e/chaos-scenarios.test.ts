@@ -22,8 +22,7 @@ import { test, expect } from '@playwright/test';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
-import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
+import { uploadFixture } from './helpers/file-upload.ts';
 import {
   readCurrentQueueIndex,
   readCurrentQueueItemId,

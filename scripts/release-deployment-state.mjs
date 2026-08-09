@@ -59,6 +59,33 @@ const APP_D1_PATHS = Object.freeze(
   trackedD1Paths(['musixquare-admin-metrics', 'musixquare-auth', 'musixquare-developer-api']),
 );
 
+// Emergency deployment is deliberately code-only. These files represent
+// durable or account-level state that the local emergency path cannot apply,
+// roll back, or prove atomically. If any selected Worker's deployed Git SHA is
+// behind a change to one of these paths, the approved release workflow is the
+// only safe deployment path.
+const EMERGENCY_EXTERNAL_STATE_PATHS = Object.freeze([
+  ...new Set([
+    ...APP_D1_PATHS,
+    ...PRO_ROOM_D1_PATHS,
+    ...DEVELOPER_API_D1_PATHS,
+    'cloudflare/d1-migrations.manifest.json',
+    'cloudflare/r2-cors.remote-share.json',
+    'cloudflare/r2-lifecycle.remote-share.json',
+    'cloudflare/r2-cors.pro-media.json',
+    'cloudflare/remote-share-contract-version.txt',
+    'cloudflare/service-control-contract-version.txt',
+    ...Object.values({
+      remoteShare: 'cloudflare/wrangler.remote-share.toml',
+      proRoom: 'cloudflare/wrangler.pro-room.toml',
+      signaling: 'cloudflare/wrangler.signaling.toml',
+      developerApiFacade: 'cloudflare/wrangler.developer-api-facade.toml',
+      developerApi: 'cloudflare/wrangler.developer-api.toml',
+      app: 'cloudflare/wrangler.app.toml',
+    }),
+  ]),
+]);
+
 const TARGETS = {
   'pro-room': {
     config: 'cloudflare/wrangler.pro-room.toml',
@@ -233,10 +260,44 @@ function contractCutoverRequiresForwardRepair(
   if (!/^[0-9a-f]{40}$/i.test(headSha || '')) {
     throw new Error('A full 40-character release Git SHA is required for cutover-floor checks.');
   }
+  const normalizedHeadSha = headSha.toLowerCase();
   const diffRuntimePaths = options.changedRuntimePaths || changedRuntimePaths;
+  const query = options.queryCurrent || queryCurrent;
+  const immutableCheckpointPath = resolve(directory, 'recovery-checkpoint.json');
+  let checkpointTargets = null;
+  if (options.requireCheckpointInventory === true && !existsSync(immutableCheckpointPath)) {
+    return true;
+  }
+  if (existsSync(immutableCheckpointPath)) {
+    try {
+      const checkpoint = readJson(immutableCheckpointPath);
+      const selectedTargets = releaseTargetWorkers(checkpoint.releaseTarget);
+      const reportedTargets = new Set(
+        Array.isArray(checkpoint.workers)
+          ? checkpoint.workers.map((worker) => worker?.target).filter(Boolean)
+          : [],
+      );
+      if (
+        checkpoint.schemaVersion !== SCHEMA_VERSION ||
+        checkpoint.status !== 'captured' ||
+        !Array.isArray(checkpoint.workers) ||
+        checkpoint.workers.length !== selectedTargets.size ||
+        reportedTargets.size !== selectedTargets.size ||
+        [...selectedTargets].some((target) => !reportedTargets.has(target))
+      ) {
+        return true;
+      }
+      checkpointTargets = selectedTargets;
+    } catch {
+      return true;
+    }
+  }
   for (const target of targets) {
     const statePath = pathsFor(target, directory).state;
-    if (!existsSync(statePath)) continue;
+    if (!existsSync(statePath)) {
+      if (checkpointTargets?.has(target)) return true;
+      continue;
+    }
     let state;
     try {
       state = readJson(statePath);
@@ -249,7 +310,39 @@ function contractCutoverRequiresForwardRepair(
     const beforeGitSha = releaseGitSha(state.beforeMessage);
     if (!beforeGitSha) return true;
     try {
-      if (diffRuntimePaths(beforeGitSha, headSha, [markerPath], options).length > 0) return true;
+      if (diffRuntimePaths(beforeGitSha, normalizedHeadSha, [markerPath], options).length === 0) {
+        continue;
+      }
+    } catch {
+      return true;
+    }
+
+    // An immutable recovery checkpoint deliberately includes every selected
+    // Worker as attempted so a failure before the first deploy can still prove
+    // its captured baseline. That flag alone does not prove the marker-changing
+    // candidate ever became live. Resolve the exact Cloudflare version before
+    // withholding rollback: a still-live captured baseline is safe, while a
+    // candidate, external drift, or unreadable identity fails closed.
+    if (
+      state.schemaVersion !== SCHEMA_VERSION ||
+      state.target !== target ||
+      typeof state.config !== 'string' ||
+      !state.config ||
+      typeof state.beforeVersionId !== 'string' ||
+      !state.beforeVersionId ||
+      releaseGitSha(state.releaseMessage) !== normalizedHeadSha
+    ) {
+      return true;
+    }
+    try {
+      const current = query(
+        target,
+        state.config,
+        resolve(directory, `${target}-cutover-floor-current.json`),
+        options.queryOptions,
+      );
+      if (current.versionId === state.beforeVersionId) continue;
+      return true;
     } catch {
       return true;
     }
@@ -381,6 +474,7 @@ function pathsFor(target, directory) {
     after: resolve(base, `${target}.json`),
     state: resolve(base, `${target}-state.json`),
     finalCurrent: resolve(base, `${target}-final-current.json`),
+    recoveryFinalCurrent: resolve(base, `${target}-recovery-final-current.json`),
     rollbackCurrent: resolve(base, `${target}-rollback-current.json`),
     rollback: resolve(base, `${target}-rollback.json`),
   };
@@ -444,6 +538,124 @@ function prepare(target, directory) {
   console.log(`Prepared rollback state for ${target}.`);
 }
 
+function deploymentState(target, releaseMessage, before, { attempted = false } = {}) {
+  const definition = targetDefinition(target);
+  const gitSha = releaseGitSha(releaseMessage);
+  if (!gitSha || gitSha !== gitSha.toLowerCase()) {
+    throw new Error('Deployment checkpoint message must contain git:<40-char-lowercase-sha>.');
+  }
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    target,
+    config: definition.config,
+    releaseMessage,
+    beforeDeploymentId: before.deploymentId || null,
+    beforeVersionId: before.versionId,
+    beforeMessage: before.message,
+    attempted,
+    ...(attempted ? { attemptedAt: new Date().toISOString() } : {}),
+    afterDeploymentId: null,
+    afterVersionId: null,
+    changed: false,
+  };
+}
+
+function captureDeploymentCheckpoint(releaseTarget, releaseMessage, directory, options = {}) {
+  const query = options.queryCurrent || queryCurrent;
+  const selectedWorkers = [...releaseTargetWorkers(releaseTarget)];
+  const report = {
+    schemaVersion: SCHEMA_VERSION,
+    releaseTarget,
+    releaseMessage,
+    startedAt: new Date().toISOString(),
+    status: 'pending',
+    workers: [],
+  };
+
+  for (const target of selectedWorkers) {
+    const definition = targetDefinition(target);
+    const paths = pathsFor(target, directory);
+    const before = query(target, definition.config, paths.before, options.queryOptions);
+    const state = deploymentState(target, releaseMessage, before, { attempted: true });
+    writeJson(paths.state, state);
+    report.workers.push({
+      target,
+      beforeDeploymentId: state.beforeDeploymentId,
+      beforeVersionId: state.beforeVersionId,
+      beforeMessage: state.beforeMessage,
+    });
+  }
+
+  report.status = 'captured';
+  report.completedAt = new Date().toISOString();
+  writeJson(resolve(directory, 'recovery-checkpoint.json'), report);
+  console.log(`Captured immutable recovery checkpoint for ${releaseTarget}.`);
+  return report;
+}
+
+function verifyEmergencyCodeOnly(headSha, directory, options = {}) {
+  if (!/^[0-9a-f]{40}$/u.test(headSha || '')) {
+    throw new Error('Emergency code-only verification requires a full lowercase Git SHA.');
+  }
+  const diffRuntimePaths = options.changedRuntimePaths || changedRuntimePaths;
+  const states = attemptedStates(directory);
+  if (states.length === 0) {
+    throw new Error('Emergency code-only verification requires a captured Worker checkpoint.');
+  }
+  const report = {
+    schemaVersion: SCHEMA_VERSION,
+    releaseGitSha: headSha,
+    startedAt: new Date().toISOString(),
+    status: 'compatible',
+    results: [],
+  };
+  let failed = false;
+
+  for (const state of states) {
+    const result = {
+      target: state.target,
+      deployedGitSha: null,
+      changedPaths: [],
+      status: 'pending',
+    };
+    report.results.push(result);
+    try {
+      const deployedGitSha = releaseGitSha(state.beforeMessage);
+      if (!deployedGitSha) {
+        throw new Error(`${state.target} live deployment has no verifiable Git provenance.`);
+      }
+      result.deployedGitSha = deployedGitSha;
+      result.changedPaths = diffRuntimePaths(
+        deployedGitSha,
+        headSha,
+        EMERGENCY_EXTERNAL_STATE_PATHS,
+        options,
+      );
+      if (result.changedPaths.length > 0) {
+        throw new Error(
+          `${state.target} requires external-state changes: ${result.changedPaths.join(', ')}.`,
+        );
+      }
+      result.status = 'compatible';
+    } catch (error) {
+      result.status = 'failed';
+      result.error = error instanceof Error ? error.message : String(error);
+      failed = true;
+    }
+  }
+
+  report.status = failed ? 'failed' : 'compatible';
+  report.completedAt = new Date().toISOString();
+  writeJson(resolve(directory, 'emergency-code-only.json'), report);
+  if (failed) {
+    throw new Error(
+      'Emergency deployment is code-only and cannot cross D1, R2, contract-marker, or Worker-configuration changes. Use the approved Production Release workflow.',
+    );
+  }
+  console.log('Emergency code-only external-state verification passed.');
+  return report;
+}
+
 function updateState(target, directory, update) {
   const paths = pathsFor(target, directory);
   const state = readJson(paths.state);
@@ -485,6 +697,23 @@ function record(target, directory) {
   if (!ownedByRelease) {
     throw new Error(`${target} production deployment is not owned by this release.`);
   }
+  return state;
+}
+
+function recordCurrentDeployment(target, directory, options = {}) {
+  const definition = targetDefinition(target);
+  const paths = pathsFor(target, directory);
+  const current = (options.queryCurrent || queryCurrent)(
+    target,
+    definition.config,
+    paths.after,
+    options.queryOptions,
+  );
+  if (!current?.deployment) {
+    throw new Error(`${target} current deployment query did not return its source payload.`);
+  }
+  writeJson(paths.after, current.deployment);
+  return record(target, directory);
 }
 
 function recordedVersion(target, directory) {
@@ -794,6 +1023,9 @@ function runRollbackWithRetry(state, rollbackMessage, options = {}) {
   if (!options.outputPath) {
     throw new Error(`A current-deployment output path is required to roll back ${state.target}.`);
   }
+  const confirmationOutputPath =
+    options.confirmationOutputPath ||
+    options.outputPath.replace(/\.json$/u, '-ownership-confirmation.json');
 
   return retrySync(
     `${state.target} rollback attempt`,
@@ -802,6 +1034,29 @@ function runRollbackWithRetry(state, rollbackMessage, options = {}) {
       const disposition = rollbackDisposition(state, current);
       if (disposition !== 'rollback') {
         return { status: disposition, current, commandIssued: false };
+      }
+
+      // Cloudflare's rollback command has no compare-and-swap precondition.
+      // The supported production lease makes this workflow the only writer
+      // and forbids dashboard/out-of-band deploys while it is active. Re-read
+      // the complete identity immediately before the command and stop without
+      // mutation if either observation detects drift.
+      const confirmed = query(
+        state.target,
+        state.config,
+        confirmationOutputPath,
+        options.queryOptions,
+      );
+      const confirmedDisposition = rollbackDisposition(state, confirmed);
+      if (confirmedDisposition !== 'rollback') {
+        return { status: confirmedDisposition, current: confirmed, commandIssued: false };
+      }
+      if (
+        current.deploymentId !== confirmed.deploymentId ||
+        current.versionId !== confirmed.versionId ||
+        current.message !== confirmed.message
+      ) {
+        return { status: 'conflict', current: confirmed, commandIssued: false };
       }
 
       runner([
@@ -813,7 +1068,7 @@ function runRollbackWithRetry(state, rollbackMessage, options = {}) {
         rollbackMessage,
         '--yes',
       ]);
-      return { status: 'command-issued', current, commandIssued: true };
+      return { status: 'command-issued', current: confirmed, commandIssued: true };
     },
     { ...ROLLBACK_RETRY, ...options.retry },
   );
@@ -938,6 +1193,127 @@ function verifyCurrentRelease(directory, options = {}) {
   return report;
 }
 
+function verifyRecoveryBoundary(directory, options = {}) {
+  const reportPath = resolve(directory, 'recovery-final-verification.json');
+  const report = {
+    schemaVersion: SCHEMA_VERSION,
+    startedAt: new Date().toISOString(),
+    status: 'pending',
+    results: [],
+  };
+  let failed = false;
+  const query = options.queryCurrent || queryCurrent;
+
+  let states = [];
+  let rollbackReport;
+  try {
+    states = attemptedStates(directory);
+    rollbackReport = readJson(resolve(directory, 'rollback-report.json'));
+    if (
+      rollbackReport?.schemaVersion !== SCHEMA_VERSION ||
+      !Array.isArray(rollbackReport.results)
+    ) {
+      throw new Error('The rollback report is missing or malformed.');
+    }
+    if (states.length === 0) {
+      throw new Error('No attempted Worker deployment state was found for recovery verification.');
+    }
+  } catch (error) {
+    report.results.push({
+      target: 'release-state',
+      status: 'failed',
+      error: error instanceof Error ? error.message : String(error),
+    });
+    report.completedAt = new Date().toISOString();
+    report.status = 'failed';
+    writeJson(reportPath, report);
+    throw new Error('Final recovery boundary verification could not read its immutable evidence.', {
+      cause: error,
+    });
+  }
+
+  for (const state of states) {
+    const matchingResults = rollbackReport.results.filter(
+      (candidate) => candidate?.target === state.target,
+    );
+    const rollbackResult = matchingResults[0];
+    const result = {
+      target: state.target,
+      rollbackStatus: rollbackResult?.status || null,
+      expectedBaselineVersionId: state.beforeVersionId || null,
+      expectedCandidateMessage: state.releaseMessage || null,
+      status: 'pending',
+    };
+    report.results.push(result);
+
+    if (matchingResults.length !== 1) {
+      result.status = 'failed';
+      result.error = 'Recovery requires exactly one rollback result for every attempted Worker.';
+      failed = true;
+      continue;
+    }
+
+    const expectsBaseline = ['restored', 'already-restored'].includes(rollbackResult.status);
+    const expectsCandidate = [
+      'skipped-compatibility-floor',
+      'skipped-dependent-worker-not-restored',
+    ].includes(rollbackResult.status);
+    if (!expectsBaseline && !expectsCandidate) {
+      result.status = 'failed';
+      result.error = `Rollback result ${rollbackResult.status || 'unknown'} does not prove a coherent recovery boundary.`;
+      failed = true;
+      continue;
+    }
+
+    try {
+      const current = query(
+        state.target,
+        state.config,
+        pathsFor(state.target, directory).recoveryFinalCurrent,
+        options.queryOptions,
+      );
+      result.currentDeploymentId = current.deploymentId || null;
+      result.currentVersionId = current.versionId || null;
+      result.currentMessage = current.message || null;
+
+      const matchesBaseline = current.versionId === state.beforeVersionId;
+      const matchesRecordedCandidate =
+        state.ownedByRelease === true &&
+        Boolean(state.afterVersionId) &&
+        current.versionId === state.afterVersionId &&
+        (!state.afterDeploymentId || current.deploymentId === state.afterDeploymentId);
+      const matchesCandidate =
+        matchesRecordedCandidate ||
+        (Boolean(state.releaseMessage) && current.message === state.releaseMessage);
+      if ((expectsBaseline && !matchesBaseline) || (expectsCandidate && !matchesCandidate)) {
+        result.status = 'conflict';
+        result.error = expectsBaseline
+          ? 'Current production no longer matches the captured baseline restored by recovery.'
+          : 'Current production no longer matches the exact failed-release candidate retained for forward repair.';
+        failed = true;
+        continue;
+      }
+
+      result.status = expectsBaseline ? 'verified-baseline' : 'verified-forward-boundary';
+    } catch (error) {
+      result.status = 'failed';
+      result.error = error instanceof Error ? error.message : String(error);
+      failed = true;
+    }
+  }
+
+  report.completedAt = new Date().toISOString();
+  report.status = failed ? 'failed' : 'verified';
+  writeJson(reportPath, report);
+  console.log(`Final recovery boundary verification: ${reportPath} (${report.status})`);
+  if (failed) {
+    throw new Error(
+      'Final recovery boundary verification failed; production is not a proven baseline or forward-repair candidate.',
+    );
+  }
+  return report;
+}
+
 function rollbackSkipTargets(value = process.env.MXQR_ROLLBACK_SKIP_TARGETS) {
   if (!value?.trim()) return new Set();
   const targets = new Set(
@@ -962,6 +1338,23 @@ function rollbackDisposition(state, current) {
 }
 
 function rollbackDependencyBlock(target, states, results) {
+  // The current browser and signaling Worker negotiate PRO bearer tickets as
+  // an exact WebSocket subprotocol pair. Rollback runs App first; if that
+  // rollback is withheld by a durable/R2 compatibility floor or otherwise
+  // cannot be verified, restoring an older query-ticket signaling Worker would
+  // strand every PRO client served by the retained App. Keep signaling current
+  // until App is known to be on its captured baseline.
+  if (target === 'signaling' && states.some((state) => state.target === 'app')) {
+    const appResult = results.find((result) => result.target === 'app');
+    if (appResult && ['restored', 'already-restored'].includes(appResult.status)) {
+      return null;
+    }
+    return {
+      dependency: 'app',
+      dependencyStatus: appResult?.status || 'not-processed',
+    };
+  }
+
   // Signaling authorization is server-owned by the PRO room Durable Object.
   // A release that rolled signaling forward must restore signaling before it
   // can safely restore PRO. Otherwise a newer signaling Worker would call an
@@ -1111,11 +1504,16 @@ function main() {
   const directory = resolve(
     mode === 'compatibility' || mode === 'compatibility-recheck'
       ? directoryArgument || DEFAULT_DIRECTORY
-      : mode === 'service-control-forward-floor'
+      : mode === 'service-control-forward-floor' || mode === 'remote-share-forward-floor'
         ? valueArgument || DEFAULT_DIRECTORY
-        : mode === 'verify-current' || mode === 'rollback' || mode === 'summary'
-          ? targetArgument || DEFAULT_DIRECTORY
-          : valueArgument || DEFAULT_DIRECTORY,
+        : mode === 'checkpoint' || mode === 'emergency-code-only'
+          ? valueArgument || DEFAULT_DIRECTORY
+          : mode === 'verify-current' ||
+              mode === 'verify-recovery' ||
+              mode === 'rollback' ||
+              mode === 'summary'
+            ? targetArgument || DEFAULT_DIRECTORY
+            : valueArgument || DEFAULT_DIRECTORY,
   );
 
   if (mode === 'prepare') prepare(targetArgument, directory);
@@ -1123,7 +1521,11 @@ function main() {
   else if (mode === 'attempt') markAttempt(targetArgument, directory);
   else if (mode === 'record') record(targetArgument, directory);
   else if (mode === 'version') recordedVersion(targetArgument, directory);
-  else if (mode === 'compatibility') {
+  else if (mode === 'checkpoint') {
+    captureDeploymentCheckpoint(targetArgument, process.env.RELEASE_MESSAGE, directory);
+  } else if (mode === 'emergency-code-only') {
+    verifyEmergencyCodeOnly(targetArgument, directory);
+  } else if (mode === 'compatibility') {
     verifyPartialReleaseCompatibility(targetArgument, valueArgument, directory);
   } else if (mode === 'compatibility-recheck') {
     recheckPartialReleaseCompatibility(targetArgument, valueArgument, directory);
@@ -1134,16 +1536,30 @@ function main() {
         'cloudflare/service-control-contract-version.txt',
         ['pro-room', 'app'],
         directory,
+        { requireCheckpointInventory: Boolean(valueArgument) },
+      )
+        ? 'true'
+        : 'false',
+    );
+  } else if (mode === 'remote-share-forward-floor') {
+    process.stdout.write(
+      contractCutoverRequiresForwardRepair(
+        targetArgument,
+        'cloudflare/remote-share-contract-version.txt',
+        ['remote-share', 'app'],
+        directory,
+        { requireCheckpointInventory: Boolean(valueArgument) },
       )
         ? 'true'
         : 'false',
     );
   } else if (mode === 'verify-current') verifyCurrentRelease(directory);
+  else if (mode === 'verify-recovery') verifyRecoveryBoundary(directory);
   else if (mode === 'rollback') rollback(directory);
   else if (mode === 'summary') summary(directory);
   else {
     throw new Error(
-      'Usage: node scripts/release-deployment-state.mjs <prepare|preflight|attempt|record|version> <target> [directory] | <compatibility|compatibility-recheck> <release-target> <git-sha> [directory] | service-control-forward-floor <git-sha> [directory] | <verify-current|rollback|summary> [directory]',
+      'Usage: node scripts/release-deployment-state.mjs <prepare|preflight|attempt|record|version> <target> [directory] | checkpoint <release-target> [directory] | emergency-code-only <git-sha> [directory] | <compatibility|compatibility-recheck> <release-target> <git-sha> [directory] | <service-control-forward-floor|remote-share-forward-floor> <git-sha> [directory] | <verify-current|verify-recovery|rollback|summary> [directory]',
     );
   }
 }
@@ -1154,14 +1570,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
 
 export {
   attemptedStates,
+  captureDeploymentCheckpoint,
   contractCutoverRequiresForwardRepair,
   changedRuntimePaths,
   changedAppRuntimeDependencies,
   deploymentMessage,
+  EMERGENCY_EXTERNAL_STATE_PATHS,
   npmInvocation,
   preflight,
   productionVersion,
   queryCurrent,
+  recordCurrentDeployment,
   recheckPartialReleaseCompatibility,
   releaseGitSha,
   releaseTargetWorkers,
@@ -1173,6 +1592,8 @@ export {
   rollbackSkipTargets,
   runRollbackWithRetry,
   verifyPartialReleaseCompatibility,
+  verifyEmergencyCodeOnly,
   verifyCurrentRelease,
+  verifyRecoveryBoundary,
   verifyProductionVersion,
 };

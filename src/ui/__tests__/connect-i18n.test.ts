@@ -2835,6 +2835,25 @@ describe('connect host-owned room password controls', () => {
     expect(document.querySelector<HTMLElement>('.room-password-section')?.hidden).toBe(false);
   });
 
+  it('fails closed when secure room password generation is unavailable', () => {
+    setState('network.appRole', 'host');
+    const random = vi.spyOn(crypto, 'getRandomValues').mockImplementation(() => {
+      throw new Error('secure random unavailable');
+    });
+    initConnect();
+
+    document.getElementById('room-password-toggle')?.click();
+
+    expect(getState('network.roomPasswordRequired')).toBe(false);
+    expect(getState('network.roomPassword')).toBe('');
+    expect(showToast).toHaveBeenCalledOnce();
+    expect(log.warn).toHaveBeenCalledWith(
+      '[Connect] Secure room password generation unavailable',
+      expect.any(Error),
+    );
+    random.mockRestore();
+  });
+
   it('shows masked PIN editing to a PRO owner', () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', makeConnection('coordinator'));

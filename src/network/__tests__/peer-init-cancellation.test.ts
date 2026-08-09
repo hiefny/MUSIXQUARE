@@ -122,14 +122,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   setState('network.appRole', 'host');
   setState('setup.sessionStarted', false);
-  mocks.fetchWithCapability.mockResolvedValue({
-    ok: true,
-    status: 200,
-    json: vi.fn().mockResolvedValue({
+  mocks.fetchWithCapability.mockResolvedValue(
+    Response.json({
       provider: 'test',
       iceServers: [{ urls: 'turn:turn.example.test:3478' }],
     }),
-  });
+  );
 });
 
 afterEach(() => {

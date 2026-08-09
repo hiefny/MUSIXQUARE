@@ -26,7 +26,6 @@ import {
   setupSetAutoJoinCode,
   setOnInviteLinkRoleSelected,
   setupEl,
-  stopObAutoSlide,
   setupShowCodeArea,
   setupShowAutoJoinArea,
   setupShowJoinArea,
@@ -115,7 +114,6 @@ export function startGuestFlow(): void {
   const sliderArea = setupEl('ob-slider-area');
   if (sliderArea) {
     sliderArea.style.display = 'none';
-    stopObAutoSlide();
   }
 
   setState('network.myDeviceLabel', t('common.guest'));

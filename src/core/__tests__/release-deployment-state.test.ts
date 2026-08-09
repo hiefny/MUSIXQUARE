@@ -3,12 +3,14 @@ import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import ts from 'typescript';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   attemptedStates,
+  captureDeploymentCheckpoint,
   changedAppRuntimeDependencies,
   changedRuntimePaths,
+  EMERGENCY_EXTERNAL_STATE_PATHS,
   contractCutoverRequiresForwardRepair,
   npmInvocation,
   preflight,
@@ -25,7 +27,9 @@ import {
   rollbackDeploymentMessage,
   rollbackSkipTargets,
   verifyPartialReleaseCompatibility,
+  verifyEmergencyCodeOnly,
   verifyCurrentRelease,
+  verifyRecoveryBoundary,
   verifyProductionVersion,
 } from '../../../scripts/release-deployment-state.mjs';
 import { emergencyDeploymentPlan } from '../../../scripts/emergency-deploy.mjs';
@@ -67,6 +71,7 @@ afterEach(() => {
 describe('release deployment rollback state', () => {
   it('rechecks unselected Workers before the selected Worker preflight and every deploy', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const workflowLines = workflow.split(/\r?\n/u);
     for (const target of [
       'remote-share',
       'signaling',
@@ -80,10 +85,20 @@ describe('release deployment rollback state', () => {
           `if \\[\\[ "\\$RELEASE_TARGET" != 'all' \\]\\]; then` +
             `\\s+node scripts/release-deployment-state\\.mjs compatibility-recheck ` +
             `"\\$RELEASE_TARGET" "\\$GITHUB_SHA"\\s+fi` +
-            `\\s+node scripts/release-deployment-state\\.mjs preflight ${target}` +
+            `\\s+node scripts/release-deployment-state\\.mjs[^\\r\\n]*` +
+            `\\s+preflight ${target} release-artifacts/recovery-checkpoint` +
             `\\s+node scripts/release-deployment-state\\.mjs attempt ${target}` +
             `\\s+set \\+e\\s+npm run --silent wrangler -- deploy`,
         ),
+      );
+      const preflightLine = workflowLines.findIndex(
+        (line) => line.trim() === `preflight ${target} release-artifacts/recovery-checkpoint`,
+      );
+      expect(preflightLine, `${target} preflight command`).toBeGreaterThan(0);
+      // Bash needs exactly one trailing backslash to continue the command.
+      // Two backslashes pass a literal "\\" mode and terminate the line.
+      expect(workflowLines[preflightLine - 1]?.trim()).toBe(
+        'node scripts/release-deployment-state.mjs \\',
       );
     }
   });
@@ -329,7 +344,7 @@ describe('release deployment rollback state', () => {
     expect(step).toContain("inputs.target }}\" != 'all'");
 
     const rollbackStepStart = workflow.indexOf(
-      '- name: Restore Worker deployments after a failed release',
+      '- name: Restore release-owned Workers after a failed release',
     );
     const rollbackStepEnd = workflow.indexOf('\n      - name:', rollbackStepStart + 1);
     const rollbackStep = workflow.slice(rollbackStepStart, rollbackStepEnd);
@@ -374,7 +389,15 @@ describe('release deployment rollback state', () => {
     const statePath = resolve(deploymentDirectory, 'pro-room-state.json');
     writeFileSync(
       statePath,
-      JSON.stringify({ attempted: true, beforeMessage: `git:${preCutoverSha}` }),
+      JSON.stringify({
+        schemaVersion: 1,
+        target: 'pro-room',
+        config: 'cloudflare/wrangler.pro-room.toml',
+        attempted: true,
+        beforeVersionId: 'pro-room-before',
+        beforeMessage: `git:${preCutoverSha}`,
+        releaseMessage: `git:${releaseSha}`,
+      }),
     );
     const changed = (baseSha: string, headSha: string, paths: string[]) =>
       changedRuntimePaths(baseSha, headSha, paths, { runner: git });
@@ -384,13 +407,28 @@ describe('release deployment rollback state', () => {
         'cloudflare/service-control-contract-version.txt',
         ['pro-room', 'app'],
         deploymentDirectory,
-        { changedRuntimePaths: changed },
+        {
+          changedRuntimePaths: changed,
+          queryCurrent: () => ({
+            deploymentId: 'pro-room-candidate-deployment',
+            versionId: 'pro-room-candidate-version',
+            message: `git:${releaseSha}`,
+          }),
+        },
       ),
     ).toBe(true);
 
     writeFileSync(
       statePath,
-      JSON.stringify({ attempted: true, beforeMessage: `git:${cutoverSha}` }),
+      JSON.stringify({
+        schemaVersion: 1,
+        target: 'pro-room',
+        config: 'cloudflare/wrangler.pro-room.toml',
+        attempted: true,
+        beforeVersionId: 'pro-room-before',
+        beforeMessage: `git:${cutoverSha}`,
+        releaseMessage: `git:${releaseSha}`,
+      }),
     );
     expect(
       contractCutoverRequiresForwardRepair(
@@ -402,6 +440,116 @@ describe('release deployment rollback state', () => {
       ),
     ).toBe(false);
   });
+
+  it.each([
+    ['service-control', 'cloudflare/service-control-contract-version.txt', ['pro-room', 'app']],
+    ['remote-share', 'cloudflare/remote-share-contract-version.txt', ['remote-share', 'app']],
+  ] as const)(
+    'does not invent a %s candidate boundary before the first Worker deploy',
+    (_label, markerPath, targets) => {
+      const checkpoint = createDirectory();
+      const beforeSha = 'b'.repeat(40);
+      const releaseSha = 'c'.repeat(40);
+      for (const target of targets) {
+        writeFileSync(
+          resolve(checkpoint, `${target}-state.json`),
+          JSON.stringify({
+            schemaVersion: 1,
+            target,
+            config: `cloudflare/wrangler.${target}.toml`,
+            attempted: true,
+            beforeVersionId: `${target}-before`,
+            beforeMessage: `git:${beforeSha}`,
+            releaseMessage: `git:${releaseSha}`,
+          }),
+        );
+      }
+      const changedRuntimePaths = () => [markerPath];
+      const baselineQuery = (target: string) => ({
+        deploymentId: `${target}-before-deployment`,
+        versionId: `${target}-before`,
+        message: `git:${beforeSha}`,
+      });
+
+      expect(
+        contractCutoverRequiresForwardRepair(releaseSha, markerPath, [...targets], checkpoint, {
+          changedRuntimePaths,
+          queryCurrent: baselineQuery,
+        }),
+      ).toBe(false);
+
+      expect(
+        contractCutoverRequiresForwardRepair(releaseSha, markerPath, [...targets], checkpoint, {
+          changedRuntimePaths,
+          queryCurrent: (target: string) =>
+            target === targets[0]
+              ? {
+                  deploymentId: `${target}-candidate-deployment`,
+                  versionId: `${target}-candidate-version`,
+                  message: `git:${releaseSha}`,
+                }
+              : baselineQuery(target),
+        }),
+      ).toBe(true);
+
+      expect(
+        contractCutoverRequiresForwardRepair(releaseSha, markerPath, [...targets], checkpoint, {
+          changedRuntimePaths,
+          queryCurrent: () => {
+            throw new Error('Cloudflare identity unavailable');
+          },
+        }),
+      ).toBe(true);
+
+      expect(
+        contractCutoverRequiresForwardRepair(releaseSha, markerPath, [...targets], checkpoint, {
+          changedRuntimePaths,
+          queryCurrent: baselineQuery,
+          requireCheckpointInventory: true,
+        }),
+      ).toBe(true);
+
+      const truncatedCheckpoint = createDirectory();
+      writeFileSync(
+        resolve(truncatedCheckpoint, 'recovery-checkpoint.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          releaseTarget: 'all',
+          status: 'captured',
+          workers: [
+            'pro-room',
+            'remote-share',
+            'signaling',
+            'developer-api-facade',
+            'developer-api',
+            'app',
+          ].map((target) => ({ target })),
+        }),
+      );
+      const retainedTarget = targets[1];
+      writeFileSync(
+        resolve(truncatedCheckpoint, `${retainedTarget}-state.json`),
+        JSON.stringify({
+          schemaVersion: 1,
+          target: retainedTarget,
+          config: `cloudflare/wrangler.${retainedTarget}.toml`,
+          attempted: true,
+          beforeVersionId: `${retainedTarget}-before`,
+          beforeMessage: `git:${beforeSha}`,
+          releaseMessage: `git:${releaseSha}`,
+        }),
+      );
+      expect(
+        contractCutoverRequiresForwardRepair(
+          releaseSha,
+          markerPath,
+          [...targets],
+          truncatedCheckpoint,
+          { changedRuntimePaths, queryCurrent: baselineQuery },
+        ),
+      ).toBe(true);
+    },
+  );
 
   it('treats deleted runtime files as compatibility-relevant changes', () => {
     const repository = createDirectory();
@@ -934,6 +1082,67 @@ describe('release deployment rollback state', () => {
     expect(state.preflightCheckedAt).toEqual(expect.any(String));
   });
 
+  it('captures every selected Worker baseline before any production mutation', () => {
+    const directory = createDirectory();
+    const queried: string[] = [];
+    const report = captureDeploymentCheckpoint(
+      'developer-api',
+      CANONICAL_RELEASE_MESSAGE,
+      directory,
+      {
+        queryCurrent: (target: string) => {
+          queried.push(target);
+          return {
+            deployment: deployment(`${target}-before`),
+            deploymentId: `deployment-${target}-before`,
+            versionId: `${target}-before`,
+            message: `git:${'b'.repeat(40)}`,
+          };
+        },
+      },
+    );
+
+    expect(queried).toEqual(['developer-api-facade', 'developer-api']);
+    expect(report).toMatchObject({ releaseTarget: 'developer-api', status: 'captured' });
+    for (const target of queried) {
+      expect(
+        JSON.parse(readFileSync(resolve(directory, `${target}-state.json`), 'utf8')),
+      ).toMatchObject({
+        target,
+        attempted: true,
+        beforeVersionId: `${target}-before`,
+        releaseMessage: CANONICAL_RELEASE_MESSAGE,
+      });
+    }
+  });
+
+  it('fails emergency code-only deployment on tracked external-state drift', () => {
+    const directory = createDirectory();
+    writeFileSync(
+      resolve(directory, 'app-state.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        target: 'app',
+        attempted: true,
+        beforeMessage: `git:${'b'.repeat(40)}`,
+      }),
+    );
+    const changed = vi.fn(() => ['cloudflare/r2-cors.remote-share.json']);
+
+    expect(() =>
+      verifyEmergencyCodeOnly('c'.repeat(40), directory, { changedRuntimePaths: changed }),
+    ).toThrow('Emergency deployment is code-only');
+    expect(changed).toHaveBeenCalledWith(
+      'b'.repeat(40),
+      'c'.repeat(40),
+      EMERGENCY_EXTERNAL_STATE_PATHS,
+      expect.any(Object),
+    );
+    expect(
+      JSON.parse(readFileSync(resolve(directory, 'emergency-code-only.json'), 'utf8')),
+    ).toMatchObject({ status: 'failed' });
+  });
+
   it('rejects a noncanonical ownership message before any deploy attempt', () => {
     const directory = createDirectory();
     writeFileSync(resolve(directory, 'app-before.json'), JSON.stringify(deployment('before')));
@@ -1009,10 +1218,10 @@ describe('release deployment rollback state', () => {
     expect(delays).toEqual([10, 15]);
   });
 
-  it('rechecks ownership after a lost rollback response and avoids a duplicate command', () => {
+  it('issues rollback only after two exact identity reads under the release writer lease', () => {
     const directory = createDirectory();
     let queries = 0;
-    let commands = 0;
+    const runner = vi.fn();
     const state = {
       target: 'app',
       beforeVersionId: 'before',
@@ -1028,15 +1237,12 @@ describe('release deployment rollback state', () => {
       queryCurrent: () => {
         queries += 1;
         return {
-          versionId: queries === 1 ? 'after' : 'before',
-          deploymentId: queries === 1 ? 'deployment-after' : 'deployment-before',
-          message: queries === 1 ? 'release-message' : 'rollback-message',
+          versionId: 'after',
+          deploymentId: 'deployment-after',
+          message: 'release-message',
         };
       },
-      runner: () => {
-        commands += 1;
-        throw new Error('response lost after Cloudflare accepted rollback');
-      },
+      runner,
       retry: {
         maxAttempts: 3,
         baseDelayMs: 5,
@@ -1046,15 +1252,24 @@ describe('release deployment rollback state', () => {
       },
     });
 
-    expect(result.status).toBe('already-restored');
+    expect(result.status).toBe('command-issued');
     expect(queries).toBe(2);
-    expect(commands).toBe(1);
+    expect(result.commandIssued).toBe(true);
+    expect(runner).toHaveBeenCalledWith([
+      'rollback',
+      'before',
+      '--config',
+      'wrangler.toml',
+      '--message',
+      'rollback-message',
+      '--yes',
+    ]);
   });
 
   it('does not issue another rollback when an external deploy appears between attempts', () => {
     const directory = createDirectory();
     let queries = 0;
-    let commands = 0;
+    const runner = vi.fn();
     const state = {
       target: 'signaling',
       beforeVersionId: 'before',
@@ -1075,10 +1290,7 @@ describe('release deployment rollback state', () => {
           message: queries === 1 ? 'release-message' : 'manual-deploy',
         };
       },
-      runner: () => {
-        commands += 1;
-        throw new Error('temporary Cloudflare 502');
-      },
+      runner,
       retry: {
         maxAttempts: 3,
         baseDelayMs: 5,
@@ -1090,16 +1302,15 @@ describe('release deployment rollback state', () => {
 
     expect(result.status).toBe('conflict');
     expect(queries).toBe(2);
-    expect(commands).toBe(1);
+    expect(result.commandIssued).toBe(false);
+    expect(runner).not.toHaveBeenCalled();
   });
 
-  it('bounds transient rollback current-query and command retries', () => {
+  it('does not issue rollback when the first ownership read already sees external drift', () => {
     const directory = createDirectory();
-    const delays: number[] = [];
-    let queries = 0;
-    let commands = 0;
+    const runner = vi.fn();
     const state = {
-      target: 'remote-share',
+      target: 'app',
       beforeVersionId: 'before',
       afterVersionId: 'after',
       afterDeploymentId: 'deployment-after',
@@ -1110,33 +1321,24 @@ describe('release deployment rollback state', () => {
 
     const result = runRollbackWithRetry(state, 'rollback-message', {
       outputPath: resolve(directory, 'rollback-current.json'),
-      queryCurrent: () => {
-        queries += 1;
-        if (queries === 1) throw new Error('temporary current-query 503');
-        return {
-          versionId: 'after',
-          deploymentId: 'deployment-after',
-          message: 'release-message',
-        };
-      },
-      runner: () => {
-        commands += 1;
-        if (commands === 1) throw new Error('temporary rollback 502');
-        return '';
-      },
+      queryCurrent: () => ({
+        versionId: 'external',
+        deploymentId: 'deployment-external',
+        message: 'manual-deploy',
+      }),
+      runner,
       retry: {
-        maxAttempts: 3,
+        maxAttempts: 1,
         baseDelayMs: 5,
         maxDelayMs: 10,
-        sleep: (delayMs: number) => delays.push(delayMs),
+        sleep: () => undefined,
         onRetry: () => undefined,
       },
     });
 
-    expect(result.status).toBe('command-issued');
-    expect(queries).toBe(3);
-    expect(commands).toBe(2);
-    expect(delays).toEqual([5, 10]);
+    expect(result.status).toBe('conflict');
+    expect(result.commandIssued).toBe(false);
+    expect(runner).not.toHaveBeenCalled();
   });
 
   it('tolerates delayed rollback visibility', () => {
@@ -1257,16 +1459,24 @@ describe('release deployment rollback state', () => {
     ]);
   });
 
-  it('restores first-frame signaling independently of the app rollback result', () => {
+  it('restores signaling only after the App baseline is known to be restored', () => {
     const states = [{ target: 'app' }, { target: 'signaling' }];
 
-    expect(rollbackDependencyBlock('signaling', states, [])).toBeNull();
+    expect(rollbackDependencyBlock('signaling', states, [])).toEqual({
+      dependency: 'app',
+      dependencyStatus: 'not-processed',
+    });
     expect(
       rollbackDependencyBlock('signaling', states, [{ target: 'app', status: 'conflict' }]),
-    ).toBeNull();
+    ).toEqual({ dependency: 'app', dependencyStatus: 'conflict' });
     expect(
       rollbackDependencyBlock('signaling', states, [{ target: 'app', status: 'failed' }]),
-    ).toBeNull();
+    ).toEqual({ dependency: 'app', dependencyStatus: 'failed' });
+    expect(
+      rollbackDependencyBlock('signaling', states, [
+        { target: 'app', status: 'skipped-compatibility-floor' },
+      ]),
+    ).toEqual({ dependency: 'app', dependencyStatus: 'skipped-compatibility-floor' });
     expect(
       rollbackDependencyBlock('signaling', states, [{ target: 'app', status: 'already-restored' }]),
     ).toBeNull();
@@ -1415,14 +1625,14 @@ describe('release deployment rollback state', () => {
     const generationFence = workflow.indexOf(
       'Disable PRO room generation cutover before failed-release rollback',
     );
-    const entitlementFloor = workflow.indexOf(
-      'Read PRO entitlement compatibility floor before failed-release rollback',
+    const workerFloorAssessment = workflow.indexOf(
+      'Assess captured Worker compatibility floors before failed-release rollback',
     );
-    const workerRollback = workflow.indexOf('Restore Worker deployments after a failed release');
+    const workerRollback = workflow.indexOf('Restore release-owned Workers after a failed release');
     expect(finalVerification).toBeGreaterThan(lastSmoke);
     expect(generationFence).toBeGreaterThan(finalVerification);
-    expect(entitlementFloor).toBeGreaterThan(generationFence);
-    expect(workerRollback).toBeGreaterThan(entitlementFloor);
+    expect(workerFloorAssessment).toBeGreaterThan(generationFence);
+    expect(workerRollback).toBeGreaterThan(workerFloorAssessment);
     expect(workflow).toContain("steps.final_verification.outcome || 'not-run'");
 
     const generationFenceStep = workflow.slice(generationFence, workerRollback);
@@ -1434,19 +1644,26 @@ describe('release deployment rollback state', () => {
     expect(generationFenceStep).not.toContain('secrets.CLOUDFLARE_API_TOKEN');
     expect(generationFenceStep).toContain('system:entitlement-backfill');
     expect(generationFenceStep).toContain('entitlement.backfill');
-    expect(generationFenceStep).toContain('entitlement_floor=true');
+    expect(generationFenceStep).toContain('release-worker-floor-state.mjs');
+    expect(generationFenceStep).toContain('entitlement_floor');
     expect(workerStep).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
     expect(workerStep).not.toContain('secrets.CLOUDFLARE_D1_API_TOKEN');
     expect(workerStep).toContain('inputs.apply_developer_api_d1');
-    expect(workerStep).toContain('rollback_skip_targets="developer-api-facade,developer-api"');
-    expect(workerStep).toContain('steps.pro_entitlement_floor.outputs.entitlement_floor');
-    expect(workerStep).toContain('rollback_skip_targets="pro-room,app"');
+    expect(workerStep).toContain('for target in developer-api-facade developer-api');
+    expect(workerStep).toContain('steps.worker_floor_assessment.outputs.forward_targets');
+    expect(workerStep).toContain('for target in pro-room app');
+    expect(workerStep).toContain(
+      'for target in pro-room signaling developer-api-facade developer-api app',
+    );
+    const r2ForwardRepairUnion = workerStep.indexOf('for target in ${r2_forward_targets//,/ }; do');
+    expect(r2ForwardRepairUnion).toBeGreaterThan(-1);
+    expect(workerStep.slice(r2ForwardRepairUnion)).not.toMatch(
+      /rollback_skip_targets="(?:pro-room|developer-api)/u,
+    );
     const skippedTargetsOutput = workerStep.indexOf(
       'echo "skipped_targets=${rollback_skip_targets}" >> "$GITHUB_OUTPUT"',
     );
-    const rollbackCommand = workerStep.indexOf(
-      'node scripts/release-deployment-state.mjs rollback',
-    );
+    const rollbackCommand = workerStep.indexOf('rollback release-artifacts/recovery-checkpoint');
     expect(skippedTargetsOutput).toBeGreaterThan(-1);
     expect(rollbackCommand).toBeGreaterThan(skippedTargetsOutput);
   });
@@ -1884,7 +2101,7 @@ describe('release deployment rollback state', () => {
       'Deploy and record signaling Worker',
       'Deploy and record Developer API Worker',
       'Deploy and record app Worker with immutable dist',
-      'Restore Worker deployments after a failed release',
+      'Restore release-owned Workers after a failed release',
     ]) {
       const stepStart = workflow.indexOf(`- name: ${stepName}`);
       const nextStep = workflow.indexOf('\n      - name:', stepStart + 1);
@@ -1915,6 +2132,217 @@ describe('release deployment rollback state', () => {
     expect(proRoomSmoke.match(/\bfetchWithTimeout\(/g)?.length, proRoomSmokePath).toBeGreaterThan(
       1,
     );
+  });
+
+  it('persists a pre-mutation checkpoint and reserves an independent recovery job', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const capture = workflow.indexOf('Capture immutable Worker and R2 recovery checkpoint');
+    const persist = workflow.indexOf('Persist pre-mutation recovery checkpoint');
+    const authorize = workflow.indexOf('Authorize production mutations from persisted checkpoint');
+    const firstD1Mutation = workflow.indexOf('Fence room-code reuse during dependency rollout');
+    const firstR2Mutation = workflow.indexOf('Apply remote-share R2 CORS policy');
+    const firstWorkerMutation = workflow.indexOf('Deploy and record PRO room Worker');
+    const finalVerification = workflow.indexOf(
+      'Verify release still owns current production deployments',
+    );
+    const readiness = workflow.indexOf('Restore PRO room generation readiness');
+    const productionCommit = workflow.indexOf('Mark coherent production candidate committed');
+    const sameJobRecovery = workflow.indexOf(
+      'Assess R2 recovery constraints before Worker rollback',
+    );
+    const sameJobWorkerRollback = workflow.indexOf(
+      'Restore release-owned Workers after a failed release',
+    );
+    const sameJobR2Reconciliation = workflow.indexOf(
+      'Reconcile R2 policy with the exact recovered Worker boundary',
+    );
+    const sameJobPairedVerification = workflow.indexOf(
+      'Freshly verify the paired R2 and Worker recovery boundary',
+    );
+    const recoveryJob = workflow.indexOf('\n  recovery:');
+
+    expect(capture).toBeGreaterThan(-1);
+    expect(persist).toBeGreaterThan(capture);
+    expect(authorize).toBeGreaterThan(persist);
+    for (const mutation of [firstD1Mutation, firstR2Mutation, firstWorkerMutation]) {
+      expect(mutation).toBeGreaterThan(authorize);
+    }
+    expect(workflow.slice(capture, persist)).toContain('checkpoint "$RELEASE_TARGET"');
+    expect(workflow.slice(capture, persist)).toContain('snapshot "$RELEASE_TARGET"');
+    for (const [preflight, mutation] of [
+      ['preflight remote-share-cors', 'r2 bucket cors set musixquare-remote-share'],
+      ['preflight remote-share-lifecycle', 'r2 bucket lifecycle set musixquare-remote-share'],
+      ['preflight pro-media-cors', 'r2 bucket cors set musixquare-pro-media'],
+    ]) {
+      expect(workflow.indexOf(preflight)).toBeGreaterThan(persist);
+      expect(workflow.indexOf(preflight)).toBeLessThan(workflow.indexOf(mutation));
+    }
+    expect(productionCommit).toBeGreaterThan(finalVerification);
+    expect(productionCommit).toBeGreaterThan(readiness);
+    expect(productionCommit).toBeLessThan(sameJobRecovery);
+    expect(workflow.slice(productionCommit, sameJobRecovery)).toContain(
+      'echo \'committed=true\' >> "$GITHUB_OUTPUT"',
+    );
+    for (const stepName of [
+      'Assess R2 recovery constraints before Worker rollback',
+      'Disable PRO room generation cutover before failed-release rollback',
+      'Assess captured Worker compatibility floors before failed-release rollback',
+      'Restore release-owned Workers after a failed release',
+    ]) {
+      const start = workflow.indexOf(`- name: ${stepName}`);
+      const end = workflow.indexOf('\n      - name:', start + 1);
+      expect(workflow.slice(start, end)).toContain(
+        "steps.production_commit.outputs.committed != 'true'",
+      );
+    }
+    expect(sameJobR2Reconciliation).toBeGreaterThan(sameJobWorkerRollback);
+    expect(sameJobPairedVerification).toBeGreaterThan(sameJobR2Reconciliation);
+    expect(workflow.slice(sameJobR2Reconciliation, sameJobPairedVerification)).toContain(
+      'release-artifacts/recovery-checkpoint',
+    );
+    expect(workflow.slice(sameJobR2Reconciliation, sameJobPairedVerification)).not.toContain(
+      'release-artifacts/deployments',
+    );
+    expect(workflow.slice(sameJobPairedVerification, recoveryJob)).toContain(
+      'verify-paired-recovery',
+    );
+    const finalFailure = workflow.indexOf('Fail release when automatic recovery is incomplete');
+    const finalFailureEnd = workflow.indexOf('\n  recovery:', finalFailure);
+    const finalFailureStep = workflow.slice(finalFailure, finalFailureEnd);
+    expect(finalFailureStep).toContain("steps.r2_policy_reconciliation.outcome == 'failure'");
+    expect(finalFailureStep).toContain("steps.paired_recovery_verification.outcome == 'failure'");
+    expect(recoveryJob).toBeGreaterThan(firstWorkerMutation);
+    const recovery = workflow.slice(recoveryJob);
+    expect(recovery).toContain('needs: [validate, deploy]');
+    expect(recovery).toContain("needs.deploy.outputs.production_committed != 'true'");
+    expect(recovery).toContain('timeout-minutes: 90');
+    expect(recovery).toContain('Recover persisted coherent-production marker');
+    expect(recovery).toContain('Retry coherent-production marker download');
+    expect(recovery).toContain('Classify coherent-production marker');
+    expect(recovery).toContain("production_commit_state.outputs.state == 'committed'");
+    expect(recovery).toContain("production_commit_state.outputs.state == 'indeterminate'");
+    expect(recovery).toContain('/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100');
+    expect(recovery).toContain('Download immutable pre-mutation recovery checkpoint');
+    expect(recovery).toContain('Retry immutable recovery checkpoint download');
+    expect(recovery).toContain('needs.deploy.outputs.mutation_authorized');
+    expect(recovery).toContain("recovery_checkpoint_ready.outputs.available == 'true'");
+    expect(recovery).toContain('assess release-artifacts/recovery-checkpoint');
+    expect(recovery).toContain('rollback release-artifacts/recovery-checkpoint');
+    expect(recovery).toContain('Reconcile persisted R2 policy with recovered Workers');
+    expect(recovery).toContain('Verify final paired R2 and Worker recovery boundary');
+    expect(recovery).toContain('verify-paired-recovery');
+    expect(recovery).toContain('service_control_forward_floor="$(');
+    expect(recovery).toContain('remote_share_forward_floor="$(');
+    expect(recovery).not.toContain(
+      'if [[ "$(node scripts/release-deployment-state.mjs service-control-forward-floor',
+    );
+    expect(recovery).not.toContain(
+      'if [[ "$(node scripts/release-deployment-state.mjs remote-share-forward-floor',
+    );
+    expect(
+      recovery.indexOf('Reconcile persisted R2 policy with recovered Workers'),
+    ).toBeGreaterThan(
+      recovery.indexOf('Restore release-owned Workers or record a forward-repair boundary'),
+    );
+  });
+
+  it('renders independent recovery Markdown without Bash command substitution', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const recoverySummaryStart = workflow.indexOf('- name: Failed-release recovery summary');
+    const recoverySummary = workflow.slice(recoverySummaryStart);
+    const markdownLines = recoverySummary
+      .split(/\r?\n/u)
+      .filter((line) => line.includes('`${{ steps.fallback_'));
+
+    expect(recoverySummaryStart).toBeGreaterThan(-1);
+    expect(markdownLines).toHaveLength(7);
+    for (const line of markdownLines) {
+      expect(line).toMatch(/^\s+printf '%s\\n' '- .*`' >> "\$GITHUB_STEP_SUMMARY"$/u);
+      expect(line).not.toMatch(/^\s+echo\s+"[^"\n]*`\$\{\{/u);
+    }
+  });
+
+  it('freshly proves either the restored baseline or an exact retained release candidate', () => {
+    const directory = createDirectory();
+    for (const [target, beforeVersionId, releaseMessage] of [
+      ['app', 'app-before', CANONICAL_RELEASE_MESSAGE],
+      ['signaling', 'signaling-before', CANONICAL_RELEASE_MESSAGE],
+    ]) {
+      writeFileSync(
+        resolve(directory, `${target}-state.json`),
+        JSON.stringify({
+          schemaVersion: 1,
+          target,
+          config: `cloudflare/wrangler.${target}.toml`,
+          attempted: true,
+          beforeVersionId,
+          releaseMessage,
+        }),
+      );
+    }
+    writeFileSync(
+      resolve(directory, 'rollback-report.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'partial-failure',
+        results: [
+          { target: 'app', status: 'skipped-compatibility-floor' },
+          { target: 'signaling', status: 'skipped-dependent-worker-not-restored' },
+        ],
+      }),
+    );
+
+    expect(
+      verifyRecoveryBoundary(directory, {
+        queryCurrent: (target: string) => ({
+          deploymentId: `${target}-candidate-deployment`,
+          versionId: `${target}-candidate-version`,
+          message: CANONICAL_RELEASE_MESSAGE,
+        }),
+      }),
+    ).toMatchObject({
+      status: 'verified',
+      results: [
+        { target: 'app', status: 'verified-forward-boundary' },
+        { target: 'signaling', status: 'verified-forward-boundary' },
+      ],
+    });
+  });
+
+  it('fails recovery verification on a mixed or unowned live Worker boundary', () => {
+    const directory = createDirectory();
+    writeFileSync(
+      resolve(directory, 'app-state.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        target: 'app',
+        config: 'cloudflare/wrangler.app.toml',
+        attempted: true,
+        beforeVersionId: 'app-before',
+        releaseMessage: CANONICAL_RELEASE_MESSAGE,
+      }),
+    );
+    writeFileSync(
+      resolve(directory, 'rollback-report.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        status: 'succeeded',
+        results: [{ target: 'app', status: 'restored' }],
+      }),
+    );
+
+    expect(() =>
+      verifyRecoveryBoundary(directory, {
+        queryCurrent: () => ({
+          deploymentId: 'unknown-deployment',
+          versionId: 'unknown-version',
+          message: `git:${'b'.repeat(40)}`,
+        }),
+      }),
+    ).toThrow('production is not a proven baseline or forward-repair candidate');
+    expect(
+      JSON.parse(readFileSync(resolve(directory, 'recovery-final-verification.json'), 'utf8')),
+    ).toMatchObject({ status: 'failed', results: [{ target: 'app', status: 'conflict' }] });
   });
 
   it('fails closed on unknown rollback skip targets', () => {

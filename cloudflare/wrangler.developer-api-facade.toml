@@ -6,11 +6,16 @@ preview_urls = false
 
 [observability]
 enabled = true
+
+# Keep automatic request-URL events disabled across the public Worker fleet;
+# sampled application logs use explicit credential-free fields.
+[observability.logs]
+enabled = true
 head_sampling_rate = 0.1
+invocation_logs = false
 
 [observability.traces]
-enabled = true
-head_sampling_rate = 0.01
+enabled = false
 
 # This Worker intentionally has no public route, D1, R2, secrets, or
 # signaling binding. Only the public Developer API Worker may call it through

@@ -12,6 +12,12 @@ export function readResponseBodyLimitedForTests(
   response: Response,
   maxBytes: number,
 ): Promise<Uint8Array>;
+export function fetchAndConsumeWithTimeout<T>(
+  resource: RequestInfo | URL,
+  options: RequestInit,
+  timeoutMs: number,
+  consume: (response: Response, signal: AbortSignal) => T | Promise<T>,
+): Promise<T>;
 export function reconcileStaleAdminProRoomActivationsForTests(
   env: Record<string, unknown>,
   db: unknown,

@@ -5856,6 +5856,8 @@
   }
 
   .ob-dot {
+    border: 0;
+    padding: 0;
     width: 8px;
     height: 8px;
     border-radius: 50%;

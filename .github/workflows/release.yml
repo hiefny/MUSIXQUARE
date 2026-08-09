@@ -29,9 +29,6 @@ concurrency:
   group: musixquare-production-release
   cancel-in-progress: false
 
-env:
-  WRANGLER_VERSION: 4.114.0
-
 jobs:
   validate:
     name: Validate release candidate
@@ -128,6 +125,9 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 240
+    outputs:
+      mutation_authorized: ${{ steps.mutation_authorization.outputs.authorized }}
+      production_committed: ${{ steps.production_commit.outputs.committed }}
     environment:
       name: production
       url: https://musixquare.com
@@ -231,6 +231,52 @@ jobs:
 
       - name: Prepare deployment records
         run: mkdir -p release-artifacts/deployments
+
+      - name: Capture immutable Worker and R2 recovery checkpoint
+        timeout-minutes: 10
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          mkdir -p release-artifacts/recovery-checkpoint
+          node scripts/release-deployment-state.mjs \
+            checkpoint "$RELEASE_TARGET" \
+            release-artifacts/recovery-checkpoint
+          node scripts/release-r2-policy-state.mjs \
+            snapshot "$RELEASE_TARGET" \
+            release-artifacts/recovery-checkpoint
+
+      - name: Capture immutable Worker compatibility floors
+        timeout-minutes: 10
+        if: inputs.target != 'remote-share'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::The production environment secret CLOUDFLARE_D1_API_TOKEN is not configured."
+            exit 1
+          fi
+          floor_file='release-artifacts/recovery-checkpoint/worker-floor-before-live.json'
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor, CASE WHEN EXISTS (SELECT 1 FROM mxqr_pro_grant_audit WHERE actor_id = 'system:entitlement-backfill' AND action = 'entitlement.backfill' AND result = 'complete') THEN 1 ELSE 0 END AS entitlement_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
+            | node scripts/capture-wrangler-d1-json.mjs "$floor_file"
+          node scripts/release-worker-floor-state.mjs \
+            snapshot "$RELEASE_TARGET" "$floor_file" \
+            release-artifacts/recovery-checkpoint
+
+      - name: Persist pre-mutation recovery checkpoint
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-recovery-checkpoint-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/recovery-checkpoint/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Authorize production mutations from persisted checkpoint
+        id: mutation_authorization
+        run: echo 'authorized=true' >> "$GITHUB_OUTPUT"
 
       - name: Read PRO room generation cutover before dependency rollout
         timeout-minutes: 10
@@ -621,6 +667,8 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
+          node scripts/release-r2-policy-state.mjs \
+            preflight remote-share-cors release-artifacts/recovery-checkpoint
           npm run --silent wrangler -- r2 bucket cors set musixquare-remote-share \
             --file cloudflare/r2-cors.remote-share.json \
             --config cloudflare/wrangler.remote-share.toml \
@@ -656,6 +704,8 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
+          node scripts/release-r2-policy-state.mjs \
+            preflight remote-share-lifecycle release-artifacts/recovery-checkpoint
           npm run --silent wrangler -- r2 bucket lifecycle set musixquare-remote-share \
             --file cloudflare/r2-lifecycle.remote-share.json \
             --config cloudflare/wrangler.remote-share.toml \
@@ -678,6 +728,8 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
+          node scripts/release-r2-policy-state.mjs \
+            preflight pro-media-cors release-artifacts/recovery-checkpoint
           npm run --silent wrangler -- r2 bucket cors set musixquare-pro-media \
             --file cloudflare/r2-cors.pro-media.json \
             --config cloudflare/wrangler.pro-room.toml \
@@ -715,7 +767,8 @@ jobs:
           if [[ "$RELEASE_TARGET" != 'all' ]]; then
             node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
           fi
-          node scripts/release-deployment-state.mjs preflight pro-room
+          node scripts/release-deployment-state.mjs \
+            preflight pro-room release-artifacts/recovery-checkpoint
           node scripts/release-deployment-state.mjs attempt pro-room
           set +e
           npm run --silent wrangler -- deploy \
@@ -769,7 +822,8 @@ jobs:
           if [[ "$RELEASE_TARGET" != 'all' ]]; then
             node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
           fi
-          node scripts/release-deployment-state.mjs preflight remote-share
+          node scripts/release-deployment-state.mjs \
+            preflight remote-share release-artifacts/recovery-checkpoint
           node scripts/release-deployment-state.mjs attempt remote-share
           set +e
           npm run --silent wrangler -- deploy \
@@ -818,7 +872,8 @@ jobs:
           if [[ "$RELEASE_TARGET" != 'all' ]]; then
             node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
           fi
-          node scripts/release-deployment-state.mjs preflight signaling
+          node scripts/release-deployment-state.mjs \
+            preflight signaling release-artifacts/recovery-checkpoint
           node scripts/release-deployment-state.mjs attempt signaling
           set +e
           npm run --silent wrangler -- deploy \
@@ -870,7 +925,8 @@ jobs:
           if [[ "$RELEASE_TARGET" != 'all' ]]; then
             node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
           fi
-          node scripts/release-deployment-state.mjs preflight developer-api-facade
+          node scripts/release-deployment-state.mjs \
+            preflight developer-api-facade release-artifacts/recovery-checkpoint
           node scripts/release-deployment-state.mjs attempt developer-api-facade
           set +e
           npm run --silent wrangler -- deploy \
@@ -916,7 +972,8 @@ jobs:
           if [[ "$RELEASE_TARGET" != 'all' ]]; then
             node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
           fi
-          node scripts/release-deployment-state.mjs preflight developer-api
+          node scripts/release-deployment-state.mjs \
+            preflight developer-api release-artifacts/recovery-checkpoint
           node scripts/release-deployment-state.mjs attempt developer-api
           set +e
           npm run --silent wrangler -- deploy \
@@ -970,7 +1027,8 @@ jobs:
           if [[ "$RELEASE_TARGET" != 'all' ]]; then
             node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
           fi
-          node scripts/release-deployment-state.mjs preflight app
+          node scripts/release-deployment-state.mjs \
+            preflight app release-artifacts/recovery-checkpoint
           node scripts/release-deployment-state.mjs attempt app
           set +e
           npm run --silent wrangler -- deploy \
@@ -1031,10 +1089,51 @@ jobs:
             ready \
             "${{ github.sha }}"
 
+      - name: Mark coherent production candidate committed
+        id: production_commit
+        if: success()
+        shell: bash
+        run: |
+          echo 'committed=true' >> "$GITHUB_OUTPUT"
+          printf '{"schemaVersion":1,"commit":"%s","target":"%s"}\n' \
+            "$GITHUB_SHA" "$RELEASE_TARGET" \
+            > release-artifacts/recovery-checkpoint/production-committed.json
+
+      - name: Persist coherent production commit marker
+        if: steps.production_commit.outputs.committed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-commit-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/recovery-checkpoint/production-committed.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Assess R2 recovery constraints before Worker rollback
+        timeout-minutes: 5
+        id: r2_policy_assessment
+        if: >-
+          (failure() || cancelled()) &&
+          steps.production_commit.outputs.committed != 'true'
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          node scripts/release-r2-policy-state.mjs \
+            assess release-artifacts/recovery-checkpoint
+          forward_targets="$(
+            node scripts/release-r2-policy-state.mjs \
+              targets release-artifacts/recovery-checkpoint
+          )"
+          echo "forward_targets=${forward_targets}" >> "$GITHUB_OUTPUT"
+
       - name: Disable PRO room generation cutover before failed-release rollback
         timeout-minutes: 10
         id: pro_room_generation_cutover_disable
-        if: (failure() || cancelled()) && inputs.target == 'all'
+        if: >-
+          (failure() || cancelled()) &&
+          steps.production_commit.outputs.committed != 'true' &&
+          inputs.target == 'all'
         continue-on-error: true
         shell: bash
         env:
@@ -1053,67 +1152,108 @@ jobs:
             release-artifacts/deployments/pro-room-generation-cutover-disabled.json \
             >> "$GITHUB_OUTPUT"
 
-      - name: Read PRO entitlement compatibility floor before failed-release rollback
+      - name: Assess captured Worker compatibility floors before failed-release rollback
         timeout-minutes: 10
-        id: pro_entitlement_floor
-        if: failure() || cancelled()
+        id: worker_floor_assessment
+        if: >-
+          (failure() || cancelled()) &&
+          steps.production_commit.outputs.committed != 'true' &&
+          inputs.target != 'remote-share'
         continue-on-error: true
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
         run: |
           mkdir -p release-artifacts/deployments
-          floor_file='release-artifacts/deployments/pro-entitlement-floor.json'
+          floor_file='release-artifacts/recovery-checkpoint/worker-floor-current-live.json'
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
-            --command "SELECT CASE WHEN EXISTS (SELECT 1 FROM mxqr_pro_grant_audit WHERE actor_id = 'system:entitlement-backfill' AND action = 'entitlement.backfill' AND result = 'complete') THEN 1 ELSE 0 END AS entitlement_floor" \
+            --command "SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor, CASE WHEN EXISTS (SELECT 1 FROM mxqr_pro_grant_audit WHERE actor_id = 'system:entitlement-backfill' AND action = 'entitlement.backfill' AND result = 'complete') THEN 1 ELSE 0 END AS entitlement_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
             | node scripts/capture-wrangler-d1-json.mjs "$floor_file"
-          entitlement_floor="$(jq -er '.[0].results[0].entitlement_floor | tonumber' "$floor_file")"
-          if [[ "$entitlement_floor" == '1' ]]; then
-            echo 'entitlement_floor=true' >> "$GITHUB_OUTPUT"
-          elif [[ "$entitlement_floor" == '0' ]]; then
-            echo 'entitlement_floor=false' >> "$GITHUB_OUTPUT"
-          else
-            echo '::error::Unexpected PRO entitlement compatibility-floor value.'
-            exit 1
-          fi
+          node scripts/release-worker-floor-state.mjs \
+            assess release-artifacts/recovery-checkpoint "$floor_file" \
+            release-artifacts/recovery-checkpoint
+          forward_targets="$(node scripts/release-worker-floor-state.mjs targets release-artifacts/recovery-checkpoint)"
+          echo "forward_targets=${forward_targets}" >> "$GITHUB_OUTPUT"
 
-      - name: Restore Worker deployments after a failed release
+      - name: Restore release-owned Workers after a failed release
         timeout-minutes: 20
         id: worker_rollback
-        if: failure() || cancelled()
+        if: >-
+          (failure() || cancelled()) &&
+          steps.production_commit.outputs.committed != 'true'
         continue-on-error: true
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           rollback_skip_targets=""
-          if [[ "${{ steps.pro_room_generation_cutover_disable.outcome }}" == "failure" ||
-                "${{ steps.pro_room_generation_cutover_disable.outcome }}" == "cancelled" ||
-                "${{ steps.pro_room_generation_cutover_disable.outputs.generation_floor }}" == "true" ]]; then
-            # If the global reuse fence cannot be proven disabled, never restore
-            # a generation-sensitive dependency. Once the permanent floor
-            # exists, keep the current stack and repair forward. Independent
-            # remote-share recovery remains safe.
-            rollback_skip_targets="pro-room,signaling,developer-api-facade,developer-api,app"
+          append_skip_target() {
+            local target="$1"
+            if [[ ",$rollback_skip_targets," == *",$target,"* ]]; then
+              return
+            fi
+            if [[ -n "$rollback_skip_targets" ]]; then
+              rollback_skip_targets="${rollback_skip_targets},${target}"
+            else
+              rollback_skip_targets="$target"
+            fi
+          }
+
+          if [[ "${{ steps.r2_policy_assessment.outcome }}" != "success" ]]; then
+            # The snapshot exists before every external mutation. If its live
+            # assessment is unreadable, fail closed to forward repair for each
+            # selected R2 consumer instead of guessing that an old Worker is
+            # compatible with the current account-level policy.
+            case "$RELEASE_TARGET" in
+              all) r2_forward_targets='remote-share,pro-room,app' ;;
+              remote-share) r2_forward_targets='remote-share' ;;
+              pro-room) r2_forward_targets='pro-room' ;;
+              *) r2_forward_targets='' ;;
+            esac
           else
-            if [[ "${{ steps.pro_entitlement_floor.outcome }}" == "failure" ||
-                  "${{ steps.pro_entitlement_floor.outcome }}" == "cancelled" ||
-                  "${{ steps.pro_entitlement_floor.outputs.entitlement_floor }}" == "true" ]]; then
-              # Once canonical-owner backfill has completed, older App and PRO
-              # Workers can no longer enforce the central one-account policy.
-              # An unreadable floor is treated the same way and repaired forward.
-              rollback_skip_targets="pro-room,app"
+            r2_forward_targets="${{ steps.r2_policy_assessment.outputs.forward_targets }}"
+          fi
+          for target in ${r2_forward_targets//,/ }; do
+            append_skip_target "$target"
+          done
+
+          if [[ "${{ steps.pro_room_generation_cutover_disable.outcome }}" == "failure" ||
+                "${{ steps.pro_room_generation_cutover_disable.outcome }}" == "cancelled" ]]; then
+            # If the global reuse fence cannot be proven disabled, never restore
+            # a generation-sensitive dependency. Independent remote-share
+            # recovery remains safe.
+            for target in pro-room signaling developer-api-facade developer-api app; do
+              append_skip_target "$target"
+            done
+          fi
+
+          if [[ "$RELEASE_TARGET" != 'remote-share' ]]; then
+            if [[ "${{ steps.worker_floor_assessment.outcome }}" == 'success' ]]; then
+              worker_floor_targets="${{ steps.worker_floor_assessment.outputs.forward_targets }}"
+            else
+              # Missing or unreadable pre-mutation provenance fails closed only
+              # for the selected Workers governed by these durable floors.
+              case "$RELEASE_TARGET" in
+                all) worker_floor_targets='pro-room,signaling,developer-api-facade,developer-api,app' ;;
+                pro-room) worker_floor_targets='pro-room' ;;
+                signaling) worker_floor_targets='signaling' ;;
+                developer-api) worker_floor_targets='developer-api-facade,developer-api' ;;
+                app) worker_floor_targets='app' ;;
+                *) worker_floor_targets='' ;;
+              esac
             fi
-            if [[ "${{ inputs.apply_developer_api_d1 }}" == "true" ]]; then
-              # The current baseline has no generic down migration. Keep both
-              # Developer API Workers on the matched forward schema floor.
-              if [[ -n "$rollback_skip_targets" ]]; then
-                rollback_skip_targets="${rollback_skip_targets},developer-api-facade,developer-api"
-              else
-                rollback_skip_targets="developer-api-facade,developer-api"
-              fi
-            fi
+            for target in ${worker_floor_targets//,/ }; do
+              append_skip_target "$target"
+            done
+          fi
+
+          if [[ "${{ inputs.apply_developer_api_d1 }}" == "true" ]]; then
+            # The current baseline has no generic down migration. Keep both
+            # Developer API Workers on the matched forward schema floor.
+            for target in developer-api-facade developer-api; do
+              append_skip_target "$target"
+            done
           fi
 
           # The first service-control announcement cutover creates durable DO
@@ -1123,59 +1263,519 @@ jobs:
           # Missing legacy provenance also fails closed to forward repair.
           service_control_forward_floor="$(
             node scripts/release-deployment-state.mjs \
-              service-control-forward-floor "$GITHUB_SHA"
+              service-control-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
           )"
           if [[ "$service_control_forward_floor" == 'true' ]]; then
             for target in pro-room app; do
-              if [[ ",$rollback_skip_targets," != *",$target,"* ]]; then
-                if [[ -n "$rollback_skip_targets" ]]; then
-                  rollback_skip_targets="${rollback_skip_targets},${target}"
-                else
-                  rollback_skip_targets="$target"
-                fi
-              fi
+              append_skip_target "$target"
+            done
+          fi
+
+          remote_share_forward_floor="$(
+            node scripts/release-deployment-state.mjs \
+              remote-share-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
+          )"
+          if [[ "$remote_share_forward_floor" == 'true' ]]; then
+            for target in remote-share app; do
+              append_skip_target "$target"
             done
           fi
 
           echo "skipped_targets=${rollback_skip_targets}" >> "$GITHUB_OUTPUT"
           MXQR_ROLLBACK_SKIP_TARGETS="$rollback_skip_targets" \
-            node scripts/release-deployment-state.mjs rollback
+            node scripts/release-deployment-state.mjs \
+              rollback release-artifacts/recovery-checkpoint
+
+      - name: Reconcile R2 policy with the exact recovered Worker boundary
+        timeout-minutes: 10
+        id: r2_policy_reconciliation
+        if: >-
+          (failure() || cancelled()) &&
+          steps.production_commit.outputs.committed != 'true'
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          node scripts/release-r2-policy-state.mjs \
+            reconcile \
+            release-artifacts/recovery-checkpoint \
+            release-artifacts/recovery-checkpoint
+
+      - name: Freshly verify the paired R2 and Worker recovery boundary
+        timeout-minutes: 10
+        id: paired_recovery_verification
+        if: >-
+          (failure() || cancelled()) &&
+          steps.production_commit.outputs.committed != 'true'
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          node scripts/release-r2-policy-state.mjs \
+            verify-paired-recovery \
+            release-artifacts/recovery-checkpoint \
+            release-artifacts/recovery-checkpoint
+
+      - name: Freshly verify Worker compatibility floors
+        timeout-minutes: 10
+        id: worker_floor_verification
+        if: >-
+          (failure() || cancelled()) &&
+          steps.production_commit.outputs.committed != 'true' &&
+          inputs.target != 'remote-share'
+        continue-on-error: true
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          floor_file='release-artifacts/recovery-checkpoint/worker-floor-final-live.json'
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor, CASE WHEN EXISTS (SELECT 1 FROM mxqr_pro_grant_audit WHERE actor_id = 'system:entitlement-backfill' AND action = 'entitlement.backfill' AND result = 'complete') THEN 1 ELSE 0 END AS entitlement_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
+            | node scripts/capture-wrangler-d1-json.mjs "$floor_file"
+          node scripts/release-worker-floor-state.mjs \
+            verify release-artifacts/recovery-checkpoint "$floor_file" \
+            release-artifacts/recovery-checkpoint
 
       - name: Upload deployment records
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-deployments-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: release-artifacts/deployments/
+          path: |
+            release-artifacts/deployments/
+            release-artifacts/recovery-checkpoint/
           if-no-files-found: warn
           retention-days: 90
 
       - name: Release summary
         if: always()
         run: |
+          wrangler_version="$(node -p "require('./node_modules/wrangler/package.json').version")"
           echo "### MUSIXQUARE production release" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Target: \`${{ inputs.target }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Wrangler: \`${WRANGLER_VERSION}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Wrangler: \`${wrangler_version}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Validation: \`${RELEASE_VALIDATION_PROFILE}\` (full E2E runs on manual dispatch)." >> "$GITHUB_STEP_SUMMARY"
           echo "- Candidate source: run \`${RELEASE_SOURCE_RUN_ID}\`, attempt \`${RELEASE_SOURCE_RUN_ATTEMPT}\`." >> "$GITHUB_STEP_SUMMARY"
           echo "- Developer API D1 changes requested: \`${{ inputs.apply_developer_api_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- PRO generation readiness restore: \`${{ steps.pro_room_generation_cutover.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Recovery PRO generation fence: \`${{ steps.pro_room_generation_cutover_disable.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Recovery PRO entitlement floor read: \`${{ steps.pro_entitlement_floor.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Recovery Worker floor assessment: \`${{ steps.worker_floor_assessment.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Final Worker floor verification: \`${{ steps.worker_floor_verification.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Final production ownership verification: \`${{ steps.final_verification.outcome || 'not-run' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Recovery Worker outcome: \`${{ steps.worker_rollback.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Recovery paired R2 reconciliation: \`${{ steps.r2_policy_reconciliation.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Fresh paired recovery verification: \`${{ steps.paired_recovery_verification.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Recovery compatibility floor: \`${{ steps.worker_rollback.outputs.skipped_targets || 'none' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Cloudflare deployment records are attached to this run." >> "$GITHUB_STEP_SUMMARY"
-          node scripts/release-deployment-state.mjs summary
+          node scripts/release-deployment-state.mjs \
+            summary release-artifacts/recovery-checkpoint
 
       - name: Fail release when automatic recovery is incomplete
         if: >-
           always() &&
-          (steps.pro_room_generation_cutover_disable.outcome == 'failure' ||
+          (steps.r2_policy_assessment.outcome == 'failure' ||
+           steps.r2_policy_assessment.outcome == 'cancelled' ||
+           steps.pro_room_generation_cutover_disable.outcome == 'failure' ||
            steps.pro_room_generation_cutover_disable.outcome == 'cancelled' ||
+           steps.worker_floor_assessment.outcome == 'failure' ||
+           steps.worker_floor_assessment.outcome == 'cancelled' ||
            steps.worker_rollback.outcome == 'failure' ||
-           steps.worker_rollback.outcome == 'cancelled')
+           steps.worker_rollback.outcome == 'cancelled' ||
+           steps.r2_policy_reconciliation.outcome == 'failure' ||
+           steps.r2_policy_reconciliation.outcome == 'cancelled' ||
+           steps.worker_floor_verification.outcome == 'failure' ||
+           steps.worker_floor_verification.outcome == 'cancelled' ||
+           steps.paired_recovery_verification.outcome == 'failure' ||
+           steps.paired_recovery_verification.outcome == 'cancelled')
         run: |
           echo "::error::Automatic release recovery was incomplete. Inspect the rollback report before any manual action."
+          exit 1
+
+  recovery:
+    name: Preserve failed-release recovery boundary
+    needs: [validate, deploy]
+    if: >-
+      always() &&
+      needs.validate.result == 'success' &&
+      needs.deploy.result != 'success' &&
+      needs.deploy.outputs.production_committed != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment:
+      name: production
+      url: https://musixquare.com
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      RELEASE_MESSAGE: git:${{ github.sha }}
+      RELEASE_ROLLBACK_MESSAGE: rollback:${{ github.run_id }}:${{ github.run_attempt }}
+      RELEASE_TARGET: ${{ inputs.target }}
+
+    steps:
+      - name: Recover persisted coherent-production marker
+        id: production_commit_marker
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: production-commit-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/production-commit
+
+      - name: Retry coherent-production marker download
+        id: production_commit_marker_retry
+        if: steps.production_commit_marker.outcome != 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: production-commit-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/production-commit
+
+      - name: Classify coherent-production marker
+        id: production_commit_state
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "${{ steps.production_commit_marker.outcome }}" == 'success' ||
+                "${{ steps.production_commit_marker_retry.outcome }}" == 'success' ]]; then
+            echo 'state=committed' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          artifact_name="production-commit-${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          set +e
+          artifact_list="$(
+            gh api \
+              -H 'Accept: application/vnd.github+json' \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100"
+          )"
+          api_status=$?
+          set -e
+          if (( api_status != 0 )); then
+            echo 'state=indeterminate' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          artifact_count="$(
+            jq -er --arg name "$artifact_name" \
+              '[.artifacts[] | select(.name == $name and .expired == false)] | length' \
+              <<< "$artifact_list"
+          )"
+          if [[ "$artifact_count" == '1' ]]; then
+            echo 'state=committed' >> "$GITHUB_OUTPUT"
+          elif [[ "$artifact_count" == '0' ]]; then
+            echo 'state=absent' >> "$GITHUB_OUTPUT"
+          else
+            echo 'state=indeterminate' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Preserve committed production after post-deploy failure
+        if: steps.production_commit_state.outputs.state == 'committed'
+        run: |
+          echo "### MUSIXQUARE failed-release recovery" >> "$GITHUB_STEP_SUMMARY"
+          echo "- The coherent production commit marker exists. The failure occurred after final ownership and readiness verification, so recovery left production unchanged." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Stop on indeterminate coherent-production state
+        if: steps.production_commit_state.outputs.state == 'indeterminate'
+        run: |
+          echo "### MUSIXQUARE failed-release recovery" >> "$GITHUB_STEP_SUMMARY"
+          echo "- The coherent-production marker could not be classified after two downloads and an artifact inventory read. Recovery left production unchanged for manual verification." >> "$GITHUB_STEP_SUMMARY"
+          echo '::error::Coherent-production state is indeterminate; automatic recovery was withheld.'
+          exit 1
+
+      - name: Download immutable pre-mutation recovery checkpoint
+        id: recovery_checkpoint
+        if: steps.production_commit_state.outputs.state == 'absent'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: production-recovery-checkpoint-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/recovery-checkpoint
+
+      - name: Retry immutable recovery checkpoint download
+        id: recovery_checkpoint_retry
+        if: >-
+          steps.production_commit_state.outputs.state == 'absent' &&
+          steps.recovery_checkpoint.outcome != 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: production-recovery-checkpoint-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/recovery-checkpoint
+
+      - name: Classify immutable recovery checkpoint availability
+        id: recovery_checkpoint_ready
+        if: always() && steps.production_commit_state.outputs.state == 'absent'
+        shell: bash
+        run: |
+          if [[ "${{ steps.recovery_checkpoint.outcome }}" == 'success' ||
+                "${{ steps.recovery_checkpoint_retry.outcome }}" == 'success' ]]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'available=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Explain unavailable recovery checkpoint
+        if: >-
+          always() &&
+          steps.production_commit_state.outputs.state == 'absent' &&
+          steps.recovery_checkpoint_ready.outputs.available != 'true'
+        run: |
+          echo "### MUSIXQUARE failed-release recovery" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${{ needs.deploy.outputs.mutation_authorized }}" == 'true' ]]; then
+            echo "- The deploy job authorized production mutation, but both immutable-checkpoint download attempts failed. Recovery stopped without guessing; retrieve the persisted artifact and repair forward." >> "$GITHUB_STEP_SUMMARY"
+            echo '::error::Recovery checkpoint retrieval failed after production mutation was authorized.'
+            exit 1
+          fi
+          echo "- The deploy job stopped before the persisted checkpoint authorized any D1, R2, or Worker mutation." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Checkout exact failed release
+        if: steps.recovery_checkpoint_ready.outputs.available == 'true'
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Setup Node.js for recovery
+        if: steps.recovery_checkpoint_ready.outputs.available == 'true'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install recovery tooling with pinned npm
+        if: steps.recovery_checkpoint_ready.outputs.available == 'true'
+        run: corepack npm ci
+
+      - name: Assess persisted R2 recovery constraints
+        id: fallback_r2_policy_assessment
+        if: steps.recovery_checkpoint_ready.outputs.available == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          node scripts/release-r2-policy-state.mjs \
+            assess release-artifacts/recovery-checkpoint
+          forward_targets="$(
+            node scripts/release-r2-policy-state.mjs \
+              targets release-artifacts/recovery-checkpoint
+          )"
+          echo "forward_targets=${forward_targets}" >> "$GITHUB_OUTPUT"
+
+      - name: Reassert disabled PRO generation fence
+        id: fallback_generation_fence
+        if: steps.recovery_checkpoint_ready.outputs.available == 'true' && inputs.target == 'all'
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "UPDATE mxqr_pro_room_generation_cutover SET status = 'disabled', release_sha = NULL, updated_at = unixepoch() * 1000 WHERE contract_version = 1; SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
+            | node scripts/capture-wrangler-d1-json.mjs \
+                release-artifacts/recovery-checkpoint/pro-room-generation-cutover-disabled.json
+          node scripts/pro-room-generation-cutover.mjs verify-cutover \
+            release-artifacts/recovery-checkpoint/pro-room-generation-cutover-disabled.json \
+            disabled
+          node scripts/pro-room-generation-cutover.mjs cutover-outputs \
+            release-artifacts/recovery-checkpoint/pro-room-generation-cutover-disabled.json \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Assess persisted Worker compatibility floors
+        id: fallback_worker_floor_assessment
+        if: steps.recovery_checkpoint_ready.outputs.available == 'true' && inputs.target != 'remote-share'
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        shell: bash
+        run: |
+          floor_file='release-artifacts/recovery-checkpoint/worker-floor-current-live.json'
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor, CASE WHEN EXISTS (SELECT 1 FROM mxqr_pro_grant_audit WHERE actor_id = 'system:entitlement-backfill' AND action = 'entitlement.backfill' AND result = 'complete') THEN 1 ELSE 0 END AS entitlement_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
+            | node scripts/capture-wrangler-d1-json.mjs "$floor_file"
+          node scripts/release-worker-floor-state.mjs \
+            assess release-artifacts/recovery-checkpoint "$floor_file" \
+            release-artifacts/recovery-checkpoint
+          forward_targets="$(node scripts/release-worker-floor-state.mjs targets release-artifacts/recovery-checkpoint)"
+          echo "forward_targets=${forward_targets}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore release-owned Workers or record a forward-repair boundary
+        id: fallback_worker_recovery
+        if: steps.recovery_checkpoint_ready.outputs.available == 'true'
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          skip_targets=""
+          append_skip_target() {
+            local target="$1"
+            if [[ ",$skip_targets," == *",$target,"* ]]; then return; fi
+            if [[ -n "$skip_targets" ]]; then
+              skip_targets="${skip_targets},${target}"
+            else
+              skip_targets="$target"
+            fi
+          }
+
+          if [[ "${{ steps.fallback_r2_policy_assessment.outcome }}" == 'success' ]]; then
+            r2_targets="${{ steps.fallback_r2_policy_assessment.outputs.forward_targets }}"
+          else
+            case "$RELEASE_TARGET" in
+              all) r2_targets='remote-share,pro-room,app' ;;
+              remote-share) r2_targets='remote-share' ;;
+              pro-room) r2_targets='pro-room' ;;
+              *) r2_targets='' ;;
+            esac
+          fi
+          for target in ${r2_targets//,/ }; do append_skip_target "$target"; done
+
+          if [[ "${{ steps.fallback_generation_fence.outcome }}" == 'failure' ||
+                "${{ steps.fallback_generation_fence.outcome }}" == 'cancelled' ]]; then
+            for target in pro-room signaling developer-api-facade developer-api app; do
+              append_skip_target "$target"
+            done
+          fi
+
+          if [[ "$RELEASE_TARGET" != 'remote-share' ]]; then
+            if [[ "${{ steps.fallback_worker_floor_assessment.outcome }}" == 'success' ]]; then
+              worker_floor_targets="${{ steps.fallback_worker_floor_assessment.outputs.forward_targets }}"
+            else
+              case "$RELEASE_TARGET" in
+                all) worker_floor_targets='pro-room,signaling,developer-api-facade,developer-api,app' ;;
+                pro-room) worker_floor_targets='pro-room' ;;
+                signaling) worker_floor_targets='signaling' ;;
+                developer-api) worker_floor_targets='developer-api-facade,developer-api' ;;
+                app) worker_floor_targets='app' ;;
+                *) worker_floor_targets='' ;;
+              esac
+            fi
+            for target in ${worker_floor_targets//,/ }; do
+              append_skip_target "$target"
+            done
+          fi
+          if [[ "${{ inputs.apply_developer_api_d1 }}" == 'true' ]]; then
+            append_skip_target developer-api-facade
+            append_skip_target developer-api
+          fi
+          service_control_forward_floor="$(
+            node scripts/release-deployment-state.mjs \
+              service-control-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
+          )"
+          if [[ "$service_control_forward_floor" == 'true' ]]; then
+            append_skip_target pro-room
+            append_skip_target app
+          fi
+          remote_share_forward_floor="$(
+            node scripts/release-deployment-state.mjs \
+              remote-share-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
+          )"
+          if [[ "$remote_share_forward_floor" == 'true' ]]; then
+            append_skip_target remote-share
+            append_skip_target app
+          fi
+
+          echo "skipped_targets=${skip_targets}" >> "$GITHUB_OUTPUT"
+          MXQR_ROLLBACK_SKIP_TARGETS="$skip_targets" \
+            node scripts/release-deployment-state.mjs \
+              rollback release-artifacts/recovery-checkpoint
+
+      - name: Reconcile persisted R2 policy with recovered Workers
+        id: fallback_r2_policy_reconciliation
+        if: steps.recovery_checkpoint_ready.outputs.available == 'true' && always()
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          node scripts/release-r2-policy-state.mjs \
+            reconcile \
+            release-artifacts/recovery-checkpoint \
+            release-artifacts/recovery-checkpoint
+
+      - name: Verify final paired R2 and Worker recovery boundary
+        id: fallback_final_verification
+        if: steps.recovery_checkpoint_ready.outputs.available == 'true' && always()
+        timeout-minutes: 10
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        shell: bash
+        run: |
+          node scripts/release-r2-policy-state.mjs \
+            verify-paired-recovery \
+            release-artifacts/recovery-checkpoint \
+            release-artifacts/recovery-checkpoint
+
+      - name: Freshly verify persisted Worker compatibility floors
+        id: fallback_worker_floor_verification
+        if: >-
+          steps.recovery_checkpoint_ready.outputs.available == 'true' &&
+          inputs.target != 'remote-share' &&
+          always()
+        timeout-minutes: 10
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        shell: bash
+        run: |
+          floor_file='release-artifacts/recovery-checkpoint/worker-floor-final-live.json'
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor, CASE WHEN EXISTS (SELECT 1 FROM mxqr_pro_grant_audit WHERE actor_id = 'system:entitlement-backfill' AND action = 'entitlement.backfill' AND result = 'complete') THEN 1 ELSE 0 END AS entitlement_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
+            | node scripts/capture-wrangler-d1-json.mjs "$floor_file"
+          node scripts/release-worker-floor-state.mjs \
+            verify release-artifacts/recovery-checkpoint "$floor_file" \
+            release-artifacts/recovery-checkpoint
+
+      - name: Upload independent recovery report
+        if: steps.recovery_checkpoint_ready.outputs.available == 'true' && always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-recovery-report-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/recovery-checkpoint/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Failed-release recovery summary
+        if: steps.recovery_checkpoint_ready.outputs.available == 'true' && always()
+        run: |
+          echo "### MUSIXQUARE independent failed-release recovery" >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' '- R2 recovery assessment: `${{ steps.fallback_r2_policy_assessment.outcome }}`' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' '- PRO generation fence: `${{ steps.fallback_generation_fence.outcome || 'not-requested' }}`' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' '- Worker floor assessment: `${{ steps.fallback_worker_floor_assessment.outcome }}`' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' '- Worker ownership/forward-repair report: `${{ steps.fallback_worker_recovery.outcome }}`' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' '- Paired R2 policy reconciliation: `${{ steps.fallback_r2_policy_reconciliation.outcome }}`' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' '- Fresh paired R2/Worker recovery verification: `${{ steps.fallback_final_verification.outcome }}`' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' '- Forward-repair targets: `${{ steps.fallback_worker_recovery.outputs.skipped_targets || 'see rollback report' }}`' >> "$GITHUB_STEP_SUMMARY"
+          node scripts/release-deployment-state.mjs \
+            summary release-artifacts/recovery-checkpoint
+
+      - name: Fail independent recovery when automatic recovery is incomplete
+        if: >-
+          steps.recovery_checkpoint_ready.outputs.available == 'true' &&
+          always() &&
+          (steps.fallback_r2_policy_assessment.outcome == 'failure' ||
+           steps.fallback_r2_policy_assessment.outcome == 'cancelled' ||
+           steps.fallback_generation_fence.outcome == 'failure' ||
+           steps.fallback_generation_fence.outcome == 'cancelled' ||
+           steps.fallback_worker_floor_assessment.outcome == 'failure' ||
+           steps.fallback_worker_floor_assessment.outcome == 'cancelled' ||
+           steps.fallback_worker_recovery.outcome == 'failure' ||
+           steps.fallback_worker_recovery.outcome == 'cancelled' ||
+           steps.fallback_r2_policy_reconciliation.outcome == 'failure' ||
+           steps.fallback_r2_policy_reconciliation.outcome == 'cancelled' ||
+           steps.fallback_final_verification.outcome == 'failure' ||
+           steps.fallback_final_verification.outcome == 'cancelled' ||
+           steps.fallback_worker_floor_verification.outcome == 'failure' ||
+           steps.fallback_worker_floor_verification.outcome == 'cancelled')
+        run: |
+          echo '::error::Independent automatic recovery was incomplete. Inspect the persisted recovery report before any manual action.'
           exit 1

@@ -37,11 +37,7 @@
     <link rel="stylesheet" href="/legal-pages.css" />
     <script defer src="/policy-accordion.js"></script>
     <!-- Cloudflare Web Analytics -->
-    <script
-      defer
-      src="https://static.cloudflareinsights.com/beacon.min.js"
-      data-cf-beacon='{"token": "80608f4cdc3849d589d14bdcf48f19f9"}'
-    ></script>
+    <script defer src="/analytics-bootstrap.js"></script>
     <!-- End Cloudflare Web Analytics -->
   </head>
 
@@ -142,8 +138,10 @@
                 active account profile, sign-in sessions, and account-linked room permissions. It
                 does not decommission a PRO room, invalidate its separate room-recovery credential,
                 or delete media already shared there; that media continues to follow the room's
-                retention policy. If a linked room is temporarily unavailable, deletion is not
-                finalized and you can try again.
+                retention policy. If cleanup fails before deletion is accepted, the account remains
+                active and you can try again. If deletion has already been accepted, sign-in ends
+                and MUSIXQUARE automatically retries any remaining linked-room cleanup until final
+                removal; you do not need to submit another deletion request.
               </dd>
             </div>
           </dl>
@@ -362,6 +360,16 @@
               <dd>
                 Check the room code, make sure the host is still keeping the session open, and check
                 browser mute or iOS silent mode. If the issue continues, restart the browser.
+              </dd>
+            </div>
+            <div>
+              <dt>Why can a blog article contact Soro or Supabase?</dt>
+              <dd>
+                MUSIXQUARE serves mirrored Soro featured images itself, but an image embedded in an
+                article body may load directly from a Soro or Supabase-hosted domain. That image
+                host may receive ordinary request data such as your IP address, browser and request
+                metadata, access time, and MUSIXQUARE's origin as referrer. See the
+                <a href="/privacy">Privacy Policy</a> for details.
               </dd>
             </div>
             <div>

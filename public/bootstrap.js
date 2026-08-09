@@ -24,33 +24,6 @@
   var ACTIVATION_KEY = 'pro-claim';
   var RECOVERY_KEY = 'pro-recovery';
   var TRANSFER_KEY = 'pro-transfer';
-  var ANALYTICS_SRC = 'https://static.cloudflareinsights.com/beacon.min.js';
-  var ANALYTICS_TOKEN = '80608f4cdc3849d589d14bdcf48f19f9';
-  var analyticsStarted = false;
-
-  function isProductionAnalyticsHost() {
-    try {
-      var hostname = String(window.location.hostname || '')
-        .trim()
-        .toLowerCase();
-      return hostname === 'musixquare.com' || hostname.endsWith('.musixquare.com');
-    } catch (e) {
-      return false;
-    }
-  }
-
-  function startAnalytics() {
-    // Analytics is an explicit production-only capability. Opaque URLs,
-    // loopback servers, and preview hosts all remain silent by default.
-    if (analyticsStarted || !isProductionAnalyticsHost()) return;
-    analyticsStarted = true;
-
-    var script = document.createElement('script');
-    script.async = true;
-    script.src = ANALYTICS_SRC;
-    script.setAttribute('data-cf-beacon', JSON.stringify({ token: ANALYTICS_TOKEN }));
-    document.head.appendChild(script);
-  }
 
   var rawHash = window.location.hash || '';
   var fragment = rawHash.charAt(0) === '#' ? rawHash.slice(1) : rawHash;
@@ -65,15 +38,15 @@
   } catch (e) {
     // URLSearchParams is universal in supported browsers. If parsing is
     // unavailable, do not guess whether an encoded query/hash key is a
-    // credential: keep analytics disabled instead of risking disclosure.
+    // credential or expose an unsafe handoff.
     return;
   }
 
   function claimPurpose(key) {
     var normalized = String(key || '').toLowerCase();
-    if (normalized === ACTIVATION_KEY) return 'activation';
-    if (normalized === RECOVERY_KEY) return 'recovery';
-    if (normalized === TRANSFER_KEY) return 'transfer';
+    if (/^(?:claim(?:[-_]?token)?|pro[-_]?claim)$/.test(normalized)) return 'activation';
+    if (/^pro[-_]?recovery$/.test(normalized)) return 'recovery';
+    if (/^pro[-_]?transfer$/.test(normalized)) return 'transfer';
     return '';
   }
 
@@ -111,15 +84,14 @@
   var hasCredential = hasFragmentCredential || hasQueryCredential;
 
   if (!hasCredential) {
-    startAnalytics();
     return;
   }
 
   // Query credentials are never accepted, even if their token shape is valid.
   // Remove their keys while retaining unrelated query parameters. Fragment
   // credentials retain the existing stronger rule of removing the whole
-  // fragment. If History API replacement fails, install neither a handoff nor
-  // analytics while any sensitive URL material remains visible.
+  // fragment. If History API replacement fails, do not install a handoff while
+  // any sensitive URL material remains visible.
   var cleanQuery = queryParams.toString();
   var cleanUrl = window.location.pathname + (cleanQuery ? '?' + cleanQuery : '');
   if (!hasFragmentCredential) cleanUrl += rawHash;
@@ -132,7 +104,7 @@
 
   // Confirm that History API replacement actually removed every query claim
   // key. Constrained shells can expose a no-op implementation without
-  // throwing; analytics must remain disabled in that case.
+  // throwing; the credential handoff must remain disabled in that case.
   if (hasQueryCredential) {
     try {
       var remainingQuery = new URLSearchParams((window.location.search || '').replace(/^\?/, ''));
@@ -190,8 +162,7 @@
   }
 
   // No credential is stored in DOM, Web Storage, cookies, a query parameter,
-  // or an enumerable global. The closure is consumed at module evaluation;
-  // analytics starts only after its credential variables have been cleared.
+  // or an enumerable global. The closure is consumed at module evaluation.
   try {
     Object.defineProperty(window, HANDOFF_KEY, {
       configurable: false,
@@ -210,13 +181,12 @@
           transferPresent: transferPresent,
         });
         clearClaimMemory();
-        startAnalytics();
         return handoff;
       },
     });
   } catch (e) {
     // A conflicting/tampered bridge must not gain access to the credential.
-    // Continue first-paint bootstrap, but keep analytics disabled for this URL.
+    // Continue first-paint bootstrap without exposing the credential.
     clearClaimMemory();
   }
 })();

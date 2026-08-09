@@ -7,7 +7,6 @@
  */
 
 import {
-  INITIAL_PRO_ROOM_GENERATION,
   isProRoomGeneration,
   proRoomGenerationHeaderValue,
   proRoomObjectName,

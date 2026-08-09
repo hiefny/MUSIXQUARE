@@ -8,6 +8,7 @@
     "scripts/live-remote-share-smoke.ts",
     "vite.config.ts",
     "vitest.config.ts",
-    "vitest.critical.config.ts"
+    "vitest.critical.config.ts",
+    "vitest.workers.config.ts"
   ]
 }

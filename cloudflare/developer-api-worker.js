@@ -8,7 +8,6 @@
  */
 
 import {
-  INITIAL_PRO_ROOM_GENERATION,
   isProRoomGeneration,
   proRoomGenerationHeaderValue,
   proRoomObjectName,
@@ -35,7 +34,6 @@ const MEDIA_UPLOAD_REQUEST_MAX_BYTES = 16 * 1024;
 const MUTATION_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
 const COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
-const QUEUE_ITEM_ID_RE = /^[A-Za-z0-9_-]{16,128}$/;
 const QUEUE_ITEM_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ASSET_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
@@ -498,7 +496,11 @@ async function fetchJsonLimited(fetcher, maxBytes, timeoutMs = DEPENDENCY_RESPON
   }
 }
 
-async function readRequestJsonLimited(request, maxBytes) {
+async function readRequestJsonLimited(
+  request,
+  maxBytes,
+  timeoutMs = PUBLIC_REQUEST_BODY_TIMEOUT_MS,
+) {
   if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type') || '')) {
     return null;
   }
@@ -517,7 +519,7 @@ async function readRequestJsonLimited(request, maxBytes) {
   const timeout = setTimeout(() => {
     stop({ kind: 'timeout' });
     cancelBodyReader(reader, 'REQUEST_BODY_TIMEOUT');
-  }, PUBLIC_REQUEST_BODY_TIMEOUT_MS);
+  }, timeoutMs);
   const abort = () => {
     stop({ kind: 'aborted' });
     cancelBodyReader(reader, request.signal.reason);
@@ -2334,45 +2336,11 @@ async function readRateRequest(request) {
   ) {
     return null;
   }
-  const declared = request.headers.get('content-length');
-  if (
-    declared !== null &&
-    (!/^\d+$/.test(declared.trim()) || Number(declared) > RATE_REQUEST_MAX_BYTES)
-  ) {
-    return null;
-  }
-  const reader = request.body.getReader();
-  const chunks = [];
-  let length = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      length += value.byteLength;
-      if (length > RATE_REQUEST_MAX_BYTES) {
-        await reader.cancel().catch(() => {});
-        return null;
-      }
-      chunks.push(value);
-    }
-  } catch {
-    return null;
-  } finally {
-    reader.releaseLock();
-  }
-  if (length === 0) return null;
-  const bytes = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  try {
-    return JSON.parse(decoder.decode(bytes));
-  } catch {
-    return null;
-  }
+  return readRequestJsonLimited(
+    request,
+    RATE_REQUEST_MAX_BYTES,
+    DEPENDENCY_RESPONSE_TIMEOUT_MS,
+  );
 }
 
 function rateBucketsForRequest(value) {

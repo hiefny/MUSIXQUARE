@@ -2744,6 +2744,40 @@ class FakeStorage {
 }
 
 describe('Developer API atomic room limiter', () => {
+  it('bounds and cancels a stalled private rate body before releasing the mutation queue', async () => {
+    vi.useFakeTimers();
+    const limiter = new DeveloperApiRateLimiter({ storage: new FakeStorage() } as never);
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"operation":"ingress-read"'));
+      },
+      cancel,
+    });
+    const stalled = limiter.fetch(
+      new Request('https://developer-api-rate.internal/check', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+    );
+    const following = limiter.fetch(
+      new Request('https://developer-api-rate.internal/check', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ operation: 'ingress-read' }),
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(5_001);
+
+    expect((await stalled).status).toBe(400);
+    expect(cancel).toHaveBeenCalledOnce();
+    const next = await following;
+    expect(next.status).toBe(200);
+    await expect(next.json()).resolves.toMatchObject({ allowed: true });
+  });
+
   it('does not partially charge the room bucket when the key bucket is blocked', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-17T00:00:00.000Z'));

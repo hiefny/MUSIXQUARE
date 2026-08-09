@@ -83,13 +83,6 @@ async function isChatInputDisabled(page: import('@playwright/test').Page): Promi
   });
 }
 
-async function getChatInputPlaceholder(page: import('@playwright/test').Page): Promise<string> {
-  return page.evaluate(() => {
-    const input = document.getElementById('chat-input') as HTMLElement | null;
-    return input?.getAttribute('data-placeholder') ?? '';
-  });
-}
-
 // ─── Tests ───────────────────────────────────────────────────────
 
 test.describe('Chat Commands', () => {

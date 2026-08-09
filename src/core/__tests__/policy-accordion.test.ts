@@ -202,7 +202,13 @@ describe('policy-page accordions', () => {
       'localStorage',
       'sessionStorage',
       'CacheStorage',
-      'Sampled Cloudflare Worker observability',
+      'Sampled, credential-free custom Cloudflare Worker logs',
+      'Automatic invocation logs that include request URLs',
+      'automatic Worker traces are disabled for all six public workers',
+      'selected standalone production pages',
+      'no query string or fragment',
+      'referrer exposes neither a query nor a six-digit room route',
+      'main MUSIXQUARE single-page app does not load Web Analytics',
       'up to 400 days',
       'signaling connection opens',
       'paid-provider API access',
@@ -255,6 +261,10 @@ describe('policy-page accordions', () => {
       facadeConfig,
     ]) {
       expect(config).toMatch(/\[observability\]\s+enabled = true/u);
+      expect(config).toMatch(
+        /\[observability\.logs\]\s+enabled = true\s+head_sampling_rate = 0\.1\s+invocation_logs = false/u,
+      );
+      expect(config).toMatch(/\[observability\.traces\]\s+enabled = false/u);
     }
   });
 

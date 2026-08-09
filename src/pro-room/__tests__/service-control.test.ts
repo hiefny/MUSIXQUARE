@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.js';
 import {
+  ABUSE_RATE_CONSUME_PATH,
+  ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
 } from '../../../cloudflare/service-maintenance.js';
@@ -12,9 +14,10 @@ class ServiceControlStorage {
     return structuredClone(this.data.get(key));
   }
 
-  async put(entries: Record<string, unknown>): Promise<void> {
-    for (const [key, value] of Object.entries(entries)) {
-      this.data.set(key, structuredClone(value));
+  async put(keyOrEntries: string | Record<string, unknown>, value?: unknown): Promise<void> {
+    const entries = typeof keyOrEntries === 'string' ? { [keyOrEntries]: value } : keyOrEntries;
+    for (const [key, entry] of Object.entries(entries)) {
+      this.data.set(key, structuredClone(entry));
     }
   }
 }
@@ -58,11 +61,97 @@ function announcementRequest(
   });
 }
 
+function rateRequest(path: string, operationId?: string): Request {
+  return new Request(`https://service-control.internal${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      limit: 1,
+      windowMs: 60_000,
+      cost: 1,
+      ...(operationId === undefined ? {} : { operationId }),
+    }),
+  });
+}
+
 async function payload(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('MusixquareServiceControl', () => {
+  it('counts one successful v2 operation once while preserving the exact v1 body', async () => {
+    const { control, storage } = setup();
+    const operationId = `rs_${'A'.repeat(43)}`;
+
+    const first = await control.fetch(rateRequest(ABUSE_RATE_IDEMPOTENT_CONSUME_PATH, operationId));
+    const rehydrated = setup(storage).control;
+    const replay = await rehydrated.fetch(
+      rateRequest(ABUSE_RATE_IDEMPOTENT_CONSUME_PATH, operationId),
+    );
+    const limited = await rehydrated.fetch(
+      rateRequest(ABUSE_RATE_IDEMPOTENT_CONSUME_PATH, `rs_${'B'.repeat(43)}`),
+    );
+    const v1WithV2Body = await rehydrated.fetch(rateRequest(ABUSE_RATE_CONSUME_PATH, operationId));
+    const legacyV1 = await rehydrated.fetch(rateRequest(ABUSE_RATE_CONSUME_PATH));
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(200);
+    expect(limited.status).toBe(200);
+    await expect(payload(first)).resolves.toMatchObject({ allowed: true, remaining: 0 });
+    await expect(payload(replay)).resolves.toMatchObject({ allowed: true, remaining: 0 });
+    await expect(payload(limited)).resolves.toMatchObject({ allowed: false, remaining: 0 });
+    expect(v1WithV2Body.status).toBe(400);
+    await expect(payload(v1WithV2Body)).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    expect(legacyV1.status).toBe(200);
+    await expect(payload(legacyV1)).resolves.toMatchObject({ allowed: false, remaining: 0 });
+  });
+
+  it('bounds and cancels a stalled private JSON body without blocking the next mutation', async () => {
+    vi.useFakeTimers();
+    const { control } = setup();
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"limit":10'));
+      },
+      cancel,
+    });
+    const pending = control.fetch(
+      new Request('https://service-control.internal/internal/abuse-rate/v1/consume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+    );
+    await vi.advanceTimersByTimeAsync(2_001);
+
+    const timedOut = await pending;
+    expect(timedOut.status).toBe(408);
+    await expect(payload(timedOut)).resolves.toEqual({ error: 'REQUEST_TIMEOUT' });
+    expect(cancel).toHaveBeenCalledOnce();
+
+    const next = await control.fetch(stateRequest(true, 0, '123e4567-e89b-42d3-a456-426614174090'));
+    expect(next.status).toBe(200);
+  });
+
+  it('rejects malformed UTF-8 in a bounded private JSON body', async () => {
+    const { control } = setup();
+    const response = await control.fetch(
+      new Request('https://service-control.internal/internal/abuse-rate/v1/consume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: new Uint8Array([0x7b, 0x22, 0xc3, 0x28, 0x22, 0x3a, 0x31, 0x7d]),
+      }),
+    );
+    expect(response.status).toBe(400);
+    await expect(payload(response)).resolves.toEqual({ error: 'INVALID_JSON' });
+  });
+
   it('starts operational and persists one strongly ordered maintenance transition', async () => {
     const { control, storage } = setup();
     const initial = await control.fetch(

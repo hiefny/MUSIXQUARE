@@ -24,7 +24,6 @@ import {
   getHostCodeFlowId,
   incrementHostCodeFlowId,
   setupEl,
-  stopObAutoSlide,
   setupShowJoinArea,
   setupShowAutoJoinArea,
   setupShowCodeArea,
@@ -82,7 +81,6 @@ export function startHostFlow(): void {
   const sliderArea = setupEl('ob-slider-area');
   if (sliderArea) {
     sliderArea.style.display = 'none';
-    stopObAutoSlide();
   }
 
   void proceedToHostCode(DEFAULT_SETUP_ROLE);

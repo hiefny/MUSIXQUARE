@@ -4,6 +4,7 @@ export const SERVICE_CONTROL_STATE_PATH = '/internal/service-maintenance/v1/stat
 export const ADMIN_ANNOUNCEMENT_STATUS_PATH = '/internal/admin-announcement/v1/status';
 export const ADMIN_ANNOUNCEMENT_STATE_PATH = '/internal/admin-announcement/v1/state';
 export const ABUSE_RATE_CONSUME_PATH = '/internal/abuse-rate/v1/consume';
+export const ABUSE_RATE_IDEMPOTENT_CONSUME_PATH = '/internal/abuse-rate/v2/consume';
 
 const SERVICE_CONTROL_CACHE_TTL_MS = 1_000;
 const ADMIN_ANNOUNCEMENT_CACHE_TTL_MS = 30_000;
@@ -21,6 +22,8 @@ export const SERVICE_CONTROL_READ_TIMEOUT_MS = 2_000;
 const SERVICE_CONTROL_EDGE_PROPAGATION_MS = 2_000;
 const SERVICE_CONTROL_ORIGIN = 'https://service-control.internal';
 const ABUSE_RATE_OBJECT_PREFIX = 'musixquare-abuse-rate-v1';
+const ABUSE_RATE_OPERATION_ID_RE = /^[A-Za-z0-9._:-]{8,64}$/;
+const ABUSE_RATE_OPERATION_HISTORY_LIMIT = 1024;
 const SERVICE_MAINTENANCE_RETRY_AFTER_SECONDS = 60;
 
 let serviceStatusCacheByBinding = new WeakMap();
@@ -253,6 +256,7 @@ export async function consumeAbuseRateLimit(env, input) {
   const limit = input?.limit;
   const windowMs = input?.windowMs;
   const cost = input?.cost ?? 1;
+  const operationId = input?.operationId === undefined ? null : input.operationId;
   if (
     !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(scope) ||
     !/^[A-Za-z0-9._:-]{1,256}$/.test(identity) ||
@@ -264,7 +268,11 @@ export async function consumeAbuseRateLimit(env, input) {
     windowMs > 24 * 60 * 60 * 1_000 ||
     !Number.isSafeInteger(cost) ||
     cost < 1 ||
-    cost > limit
+    cost > limit ||
+    (operationId !== null &&
+      (typeof operationId !== 'string' ||
+        !ABUSE_RATE_OPERATION_ID_RE.test(operationId) ||
+        limit > ABUSE_RATE_OPERATION_HISTORY_LIMIT))
   ) {
     return { status: 'unavailable' };
   }
@@ -277,11 +285,21 @@ export async function consumeAbuseRateLimit(env, input) {
     if (!stub || typeof stub.fetch !== 'function') return { status: 'unavailable' };
     const outcome = await fetchServiceControlResponse(
       stub,
-      new Request(`${SERVICE_CONTROL_ORIGIN}${ABUSE_RATE_CONSUME_PATH}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ limit, windowMs, cost }),
-      }),
+      new Request(
+        `${SERVICE_CONTROL_ORIGIN}${
+          operationId === null ? ABUSE_RATE_CONSUME_PATH : ABUSE_RATE_IDEMPOTENT_CONSUME_PATH
+        }`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            limit,
+            windowMs,
+            cost,
+            ...(operationId === null ? {} : { operationId }),
+          }),
+        },
+      ),
     );
     if (outcome.kind !== 'response' || !outcome.response.ok) return { status: 'unavailable' };
     const value = outcome.payload;

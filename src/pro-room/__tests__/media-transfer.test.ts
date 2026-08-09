@@ -455,6 +455,67 @@ describe('PRO room signed R2 download orchestration', () => {
     await rejection;
   });
 
+  it('settles caller cancellation even when the signed GET ignores its abort signal', async () => {
+    const harness = apiHarness();
+    harness.getMediaDownload.mockResolvedValue({
+      asset: source(),
+      url: presignedUrl(),
+      expiresAtMs: 1_900_000_000_000,
+    });
+    let linkedSignal: AbortSignal | null = null;
+    const fetchMock = vi.fn<typeof fetch>((_input, init) => {
+      linkedSignal = init?.signal ?? null;
+      return new Promise<Response>(() => undefined);
+    });
+    const transfer = new ProRoomMediaTransfer({ api: harness.api, fetch: fetchMock });
+    const controller = new AbortController();
+
+    const pending = transfer.download({
+      code: ROOM_CODE,
+      name: 'a.flac',
+      source: source(),
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    controller.abort(new Error('caller stopped'));
+
+    await expect(pending).rejects.toMatchObject({ code: 'PRO_ROOM_MEDIA_ABORTED' });
+    expect((linkedSignal as AbortSignal | null)?.aborted).toBe(true);
+  });
+
+  it('bounds stalled response headers and releases a late response without awaiting cancellation', async () => {
+    vi.useFakeTimers();
+    const harness = apiHarness();
+    harness.getMediaDownload.mockResolvedValue({
+      asset: source(),
+      url: presignedUrl(),
+      expiresAtMs: 1_900_000_000_000,
+    });
+    let resolveFetch!: (response: Response) => void;
+    const fetchMock = vi.fn<typeof fetch>(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    const transfer = new ProRoomMediaTransfer({ api: harness.api, fetch: fetchMock });
+
+    const pending = transfer.download({ code: ROOM_CODE, name: 'a.flac', source: source() });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const rejection = expect(pending).rejects.toMatchObject({
+      code: 'PRO_ROOM_MEDIA_DOWNLOAD_NETWORK',
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    await rejection;
+
+    const cancel = vi.fn(() => new Promise<void>(() => undefined));
+    resolveFetch({ body: { cancel } } as unknown as Response);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it('does not treat zero-byte stream chunks as download progress', async () => {
     vi.useFakeTimers();
     const harness = apiHarness();
@@ -532,6 +593,41 @@ describe('PRO room signed R2 download orchestration', () => {
           ? 'PRO_ROOM_MEDIA_DOWNLOAD_LENGTH_MISSING'
           : 'PRO_ROOM_MEDIA_DOWNLOAD_SIZE_MISMATCH',
     });
+    expect(transfer.cache.size).toBe(0);
+  });
+
+  it('does not let non-cooperative stream cleanup pin a size mismatch', async () => {
+    const harness = apiHarness();
+    harness.getMediaDownload.mockResolvedValue({
+      asset: source(),
+      url: presignedUrl(),
+      expiresAtMs: 1_900_000_000_000,
+    });
+    const cancel = vi.fn(() => new Promise<void>(() => undefined));
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(5));
+        },
+        cancel,
+      }),
+      {
+        status: 200,
+        headers: {
+          'content-type': 'application/octet-stream',
+          'content-length': '4',
+        },
+      },
+    );
+    const transfer = new ProRoomMediaTransfer({
+      api: harness.api,
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(response),
+    });
+
+    await expect(
+      transfer.download({ code: ROOM_CODE, name: 'a.flac', source: source() }),
+    ).rejects.toMatchObject({ code: 'PRO_ROOM_MEDIA_DOWNLOAD_SIZE_MISMATCH' });
+    expect(cancel).toHaveBeenCalledTimes(1);
     expect(transfer.cache.size).toBe(0);
   });
 

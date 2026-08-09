@@ -294,6 +294,33 @@ afterEach(() => {
 });
 
 describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
+  it('keeps the visual and announced role selection aligned during sharing and restore', async () => {
+    document.body.innerHTML = `
+      <div id="grid-standard">
+        <button class="ch-opt" data-ch="0" aria-pressed="false"></button>
+        <button class="ch-opt active" data-ch="-1" aria-pressed="true"></button>
+      </div>
+    `;
+    setState('audio.channelMode', -1);
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    const center = document.querySelector<HTMLElement>('.ch-opt[data-ch="0"]');
+    const left = document.querySelector<HTMLElement>('.ch-opt[data-ch="-1"]');
+    expect(center?.classList.contains('active')).toBe(true);
+    expect(center?.getAttribute('aria-pressed')).toBe('true');
+    expect(left?.classList.contains('active')).toBe(false);
+    expect(left?.getAttribute('aria-pressed')).toBe('false');
+
+    bus.emit('system-audio:stop');
+
+    expect(center?.classList.contains('active')).toBe(false);
+    expect(center?.getAttribute('aria-pressed')).toBe('false');
+    expect(left?.classList.contains('active')).toBe(true);
+    expect(left?.getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('force-stop releases ownership WITHOUT restoring the pre-share snapshot', async () => {
     const restoreSpy = await startShareWithPriorYouTube();
 

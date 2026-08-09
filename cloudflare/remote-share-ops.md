@@ -48,9 +48,9 @@ One remote whole-file upload attempt roughly means:
   A racing excess object is deleted before publication.
 - `DELETE /object/...`: validates a room/object/expiry-bound cleanup HMAC before
   R2 HEAD/delete, so unauthenticated requests cannot create Class B work. The
-  exact-byte reservation remains charged until its fixed expiry because
-  deleting an object does not revoke an already-issued, still-valid presigned
-  PUT URL.
+  exact-byte reservation remains conservatively charged until its fixed expiry
+  as defense-in-depth, even though deleting the placeholder/object makes the
+  canonical `If-Match` PUT condition fail.
 - `GET /download/...`: one Worker request and one R2 read per remote guest.
 
 ## Current Guardrails
@@ -59,8 +59,11 @@ One remote whole-file upload attempt roughly means:
   production. With Turnstile disabled, the app Worker issues it only after a
   signed proof-of-work challenge; Origin and Host headers are not proof.
 - The service-control limiter uses an HMAC-pseudonymized principal and a
-  serialized SQLite transaction, so barrier-concurrent allocations cannot all
-  pass the same remaining slot.
+  serialized SQLite transaction. Its v2 consume contract also records the
+  server-HMAC upload operation ID for each successful window entry (bounded by
+  the configured limit), so concurrent delivery of one logical session consumes
+  the counter once while distinct allocations cannot all pass the same
+  remaining slot.
 - Purpose-separated signed upload-completion, download, and cleanup tokens.
 - Direct-to-R2 presigned PUT upload path.
 - Whole-object TTL: `OBJECT_TTL_SECONDS`, currently 1 hour.
@@ -68,18 +71,28 @@ One remote whole-file upload attempt roughly means:
   `100000`-`999999` range. `RemoteShareQuota` serializes reservation,
   completion, release, and expiry accounting, so concurrent sessions cannot
   both consume the same remaining capacity.
-- Session setup reserves the exact stored size before returning a presigned
-  URL. Presign or token construction failure rolls that reservation back.
+- Session setup creates a zero-byte R2 placeholder, reserves the exact declared
+  size, and signs `If-Match` to that placeholder's exact ETag before returning a
+  presigned URL. This makes the direct PUT one-shot: a successful upload changes
+  the ETag, while cleanup or expiry removes the placeholder, so a replayed or
+  late-finishing PUT cannot recreate the object. The Durable Object stores only
+  canonical reservation metadata, including the placeholder ETag and one
+  immutable `uploadAuthorityExpiresAt`; replay reissues credentials for the
+  same object only inside that original upload window and never stores a
+  presigned URL or completion bearer. Placeholder, presign, or token
+  construction failure attempts to roll the new reservation back. If both the
+  reserve outcome and compensating release are unavailable, the zero-byte
+  placeholder and receipt stay paired so an exact v3 retry can recover safely.
   Completion revalidates the R2 object and atomically marks the reservation
   completed. Any R2, Durable Object, state, bounded scan, or cleanup failure
   denies the operation rather than publishing an unaccounted object.
-- Authenticated cleanup and natural expiry retain conservative exact-key
-  tombstones through a one-hour quiet interval as defense-in-depth against late
-  PUT completion. The interval is not a provider-backed proof that every PUT
-  has finished: every later quota admission still scans the room prefix,
-  deletes expired objects that appeared after tombstone retirement, and fails
-  closed if that reconciliation cannot complete. The bucket lifecycle rule is
-  the final cleanup backstop.
+- Authenticated cleanup and natural expiry retain exact-key tombstones through a
+  one-hour quiet interval as cleanup defense-in-depth. Quota correctness does
+  not depend on that interval or on a scan winning a race with an in-flight
+  upload: the signed placeholder `If-Match` condition is the write fence. Every
+  later quota admission still scans the room prefix, deletes expired objects,
+  and fails closed if reconciliation cannot complete. The bucket lifecycle rule
+  is the final cleanup backstop.
 - An abandoned or malicious session can hold its declared bytes until object
   expiry even when no PUT becomes visible. Capability, IP throttling, WAF, and
   account-wide R2 alerts remain necessary abuse and cost controls.
@@ -91,9 +104,16 @@ One remote whole-file upload attempt roughly means:
 - Upload allocation limits:
   - `IP_UPLOADS_PER_WINDOW`: default 60 sessions per IP per hour.
   - `ROOM_UPLOADS_PER_WINDOW`: default 0, which disables room-wide limiting.
-- `ROOM_STORAGE_QUOTA_BYTES`: production is `1073741824` (1 GiB). Setting it to
-  `0` disables new atomic admission. Existing reservations still settle while
-  the Durable Object binding remains present.
+  - Enabled limits must remain at or below 1024 so the v2 idempotency set stays
+    inside its fixed Durable Object storage bound; invalid drift fails closed.
+- `ROOM_STORAGE_QUOTA_BYTES`: production is `1073741824` (1 GiB). Worker
+  contract v3 requires both this positive limit and the `REMOTE_SHARE_QUOTA`
+  binding, and reports the result as `sessionReplayRequired` /
+  `sessionReplayEnabled` on `/security-config`. Production `POST /session`
+  fails closed if either drifts off. Only isolated local tests may opt out with
+  `MXQR_ALLOW_STATELESS_REMOTE_SHARE_SESSION=true`. Existing issued
+  reservations can still settle while the Durable Object binding remains
+  present.
 - Missing, malformed, and `0xxxxx` room IDs are rejected before a presigned URL
   is issued. The complete `0xxxxx` namespace is reserved for PRO rooms, whose
   persistent media uses a separate bucket and control plane.
@@ -119,7 +139,8 @@ control rather than a normal-cost optimization.
 
 References: [Workers limits](https://developers.cloudflare.com/workers/platform/limits/),
 [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/),
-[R2 pricing](https://developers.cloudflare.com/r2/pricing/), and
+[R2 pricing](https://developers.cloudflare.com/r2/pricing/),
+[R2 S3 conditional operations](https://developers.cloudflare.com/r2/api/s3/api/), and
 [WAF rate-limiting availability](https://developers.cloudflare.com/waf/rate-limiting-rules/).
 
 ## Required WAF Rate Limit
@@ -149,7 +170,10 @@ the threshold only with production 429 evidence.
   capability secret is shared with the App Worker.
 - `wrangler.remote-share.toml` retains Cloudflare's required append-only Durable
   Object migration entries. They are immutable infrastructure schema tags; do
-  not reuse deleted class names or edit old tags.
+  not reuse deleted class names or edit old tags. The canonical copy is
+  `durable-object-migrations.manifest.json`; worker bundle validation requires
+  exact TOML equality and verifies the manifest's complete first-parent history
+  is append-only before Wrangler runs.
 - Cloudflare cannot roll a Worker version back across a Durable Object class
   lifecycle migration. The release bridge establishes the required lifecycle
   before atomic quota is enabled; later releases do not repeat it.
@@ -161,7 +185,22 @@ the threshold only with production 429 evidence.
   app/Worker cutover marker. Change it in the same commit as an incompatible
   contract change; the release workflow then rejects every target except
   `all`, so the first production rollout cannot publish only one side.
+- Worker contract v3 adds an actor-secret-derived `actorId` plus `rs3_`
+  `requestId`, and binds both into the atomic room-quota replay receipt for
+  `POST /session`. Cached seven-field v2 (`rs_`) and legacy six-field bodies
+  remain accepted during rollout, but their public metadata-derived identities
+  are never replay-authoritative and each call gets a fresh reservation. New
+  clients require the v3 readiness marker and enabled durable replay. Exact v3
+  replay bypasses a newly exhausted allocation rate window, survives capability
+  token/IP rotation, returns the same object/cleanup authority, and may mint a
+  fresh conditional PUT URL and completion token only until the immutable
+  initial PUT deadline.
+- The GET-only operations drift audit compares the complete live remote-share
+  lifecycle API result with `r2-lifecycle.remote-share.json`, not merely the
+  human-readable Wrangler listing. It also rejects any enabled PRO-media delete
+  rule at 86,400 seconds or less (and every date-based delete rule), preventing
+  the temporary `room/` lifecycle from being copied onto persistent PRO media.
 - The shared service-control contract marker is currently
-  `admin-announcement-v1+abuse-rate-v1`. A change to that marker also requires
+  `admin-announcement-v1+abuse-rate-v2+session-idempotency-v1`. A change to that marker also requires
   target `all`, with the PRO Worker deployed before remote-share and every other
   service-control consumer.

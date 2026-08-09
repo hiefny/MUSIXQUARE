@@ -92,7 +92,6 @@ vi.mock('../setup-shared.ts', () => ({
   setupSetAutoJoinCode: vi.fn(),
   setOnInviteLinkRoleSelected: vi.fn(),
   setupEl: (id: string) => document.getElementById(id),
-  stopObAutoSlide: vi.fn(),
   setupShowCodeArea: vi.fn(),
   setupShowAutoJoinArea: vi.fn(),
   setupShowJoinArea: vi.fn(),

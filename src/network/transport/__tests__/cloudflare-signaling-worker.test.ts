@@ -54,6 +54,8 @@ type ProTicketPayload = {
 
 const originalResponse = globalThis.Response;
 const NEGOTIATION_ID = 'negotiation_test_000001';
+const PRO_SIGNALING_WEBSOCKET_PROTOCOL = 'mxqr.pro-signaling.v1';
+const PRO_SIGNALING_TICKET_PROTOCOL_PREFIX = 'mxqr.ticket.';
 const originalWebSocketPair = (globalThis as typeof globalThis & { WebSocketPair?: unknown })
   .WebSocketPair;
 let workerModule: WorkerModule;
@@ -307,9 +309,15 @@ async function proWsRequest(
   const ticket = await proTicket(overrides);
   const roomCode = overrides.roomCode ?? '000001';
   const url = new URL(`https://signal.example.test/api/pro-rooms/${roomCode}/ws`);
-  url.searchParams.set('ticket', ticket);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
-  return requestLike(url.toString(), { Upgrade: 'websocket' });
+  return requestLike(url.toString(), {
+    Upgrade: 'websocket',
+    'Sec-WebSocket-Protocol': proProtocolHeader(ticket),
+  });
+}
+
+function proProtocolHeader(ticket: string): string {
+  return `${PRO_SIGNALING_WEBSOCKET_PROTOCOL}, ${PRO_SIGNALING_TICKET_PROTOCOL_PREFIX}${ticket}`;
 }
 
 async function joinProMember(
@@ -952,9 +960,10 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const { env, idFromName, roomFetch } = workerEnv();
     env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
     const response = await workerModule.default.fetch(
-      requestLike('https://signal.example.test/api/pro-rooms/000002/ws?ticket=not-a-ticket', {
+      requestLike('https://signal.example.test/api/pro-rooms/000002/ws', {
         Origin: 'https://musixquare.com',
         Upgrade: 'websocket',
+        'Sec-WebSocket-Protocol': proProtocolHeader('not-a-ticket'),
       }),
       env,
     );
@@ -975,12 +984,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(FakeWebSocketPair.pairs).toHaveLength(0);
   });
 
-  it('routes a valid signed PRO ticket without trusting unsigned role query fields', async () => {
+  it('rejects URL query fields even when the PRO subprotocol ticket is valid', async () => {
     const { env, idFromName, roomFetch } = workerEnv();
     env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
     const ticket = await proTicket({ role: 'member', participantId: 'signed-member' });
     const url = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
-    url.searchParams.set('ticket', ticket);
     url.searchParams.set('role', 'host');
     url.searchParams.set('peerId', 'unsigned-attacker-id');
 
@@ -988,13 +996,116 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       requestLike(url.toString(), {
         Origin: 'https://musixquare.com',
         Upgrade: 'websocket',
+        'Sec-WebSocket-Protocol': proProtocolHeader(ticket),
       }),
       env,
     );
 
+    expect(response.status).toBe(401);
+    expect(idFromName).not.toHaveBeenCalled();
+    expect(roomFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'missing stable marker',
+      (ticket: string) => `${PRO_SIGNALING_TICKET_PROTOCOL_PREFIX}${ticket}`,
+    ],
+    [
+      'reversed order',
+      (ticket: string) =>
+        `${PRO_SIGNALING_TICKET_PROTOCOL_PREFIX}${ticket}, ${PRO_SIGNALING_WEBSOCKET_PROTOCOL}`,
+    ],
+    ['extra protocol', (ticket: string) => `${proProtocolHeader(ticket)}, unrelated.protocol`],
+    [
+      'duplicate stable marker',
+      (ticket: string) => `${PRO_SIGNALING_WEBSOCKET_PROTOCOL}, ${proProtocolHeader(ticket)}`,
+    ],
+  ] as const)('rejects a PRO WebSocket with %s', async (_label, protocolHeader) => {
+    const { env, idFromName, roomFetch } = workerEnv();
+    env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    const ticket = await proTicket({ participantId: 'strict-protocol-member' });
+    const response = await workerModule.default.fetch(
+      requestLike('https://signal.example.test/api/pro-rooms/000001/ws', {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+        'Sec-WebSocket-Protocol': protocolHeader(ticket),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(401);
+    expect(idFromName).not.toHaveBeenCalled();
+    expect(roomFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects an untrusted PRO WebSocket origin before Durable Object lookup', async () => {
+    const { env, idFromName, roomFetch } = workerEnv();
+    env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    const ticket = await proTicket({ participantId: 'origin-probe-member' });
+    const response = await workerModule.default.fetch(
+      requestLike('https://signal.example.test/api/pro-rooms/000001/ws', {
+        Origin: 'https://evil.example',
+        Upgrade: 'websocket',
+        'Sec-WebSocket-Protocol': proProtocolHeader(ticket),
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+    expect(idFromName).not.toHaveBeenCalled();
+    expect(roomFetch).not.toHaveBeenCalled();
+  });
+
+  it('bounds the legacy URL-ticket rollout grace and rejects it at the cutoff', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-10T00:00:00.000Z'));
+    const routed = workerEnv();
+    routed.env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    const legacyTicket = await proTicket({ participantId: 'cached-client-member' });
+    const legacyUrl = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
+    legacyUrl.searchParams.set('ticket', legacyTicket);
+    const beforeCutoff = await workerModule.default.fetch(
+      requestLike(legacyUrl.toString(), {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+      }),
+      routed.env,
+    );
+    expect(beforeCutoff.status).toBe(101);
+    expect(routed.roomFetch).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(new Date('2026-09-09T00:00:00.000Z'));
+    const afterTicket = await proTicket({ participantId: 'expired-grace-member' });
+    const afterUrl = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
+    afterUrl.searchParams.set('ticket', afterTicket);
+    const afterCutoff = await workerModule.default.fetch(
+      requestLike(afterUrl.toString(), {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+      }),
+      routed.env,
+    );
+    expect(afterCutoff.status).toBe(401);
+    expect(routed.roomFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('selects only the stable PRO protocol and never echoes the bearer ticket', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const ticket = await proTicket({ participantId: 'selected-protocol-member' });
+    const response = await room.fetch(
+      requestLike('https://signal.example.test/api/pro-rooms/000001/ws', {
+        Upgrade: 'websocket',
+        'Sec-WebSocket-Protocol': proProtocolHeader(ticket),
+      }),
+    );
+
     expect(response.status).toBe(101);
-    expect(idFromName).toHaveBeenCalledWith('000001:generation:0');
-    expect(roomFetch).toHaveBeenCalledTimes(1);
+    expect(response.headers).toEqual({
+      'Sec-WebSocket-Protocol': PRO_SIGNALING_WEBSOCKET_PROTOCOL,
+    });
+    expect(JSON.stringify(response.headers)).not.toContain(ticket);
   });
 
   it('applies the atomic outer limiter to a valid PRO ticket before room routing', async () => {
@@ -1003,14 +1114,13 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
     env.MUSIXQUARE_SERVICE_CONTROL = control.binding;
     const ticket = await proTicket({ participantId: 'rate-limited-pro-member' });
-    const url = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
-    url.searchParams.set('ticket', ticket);
 
     const response = await workerModule.default.fetch(
-      requestLike(url.toString(), {
+      requestLike('https://signal.example.test/api/pro-rooms/000001/ws', {
         Origin: 'https://musixquare.com',
         Upgrade: 'websocket',
         'CF-Connecting-IP': '203.0.113.122',
+        'Sec-WebSocket-Protocol': proProtocolHeader(ticket),
       }),
       env,
     );
@@ -1028,13 +1138,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       roomGeneration: 17,
       participantId: 'generation-seventeen-member',
     });
-    const url = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
-    url.searchParams.set('ticket', ticket);
 
     const response = await workerModule.default.fetch(
-      requestLike(url.toString(), {
+      requestLike('https://signal.example.test/api/pro-rooms/000001/ws', {
         Origin: 'https://musixquare.com',
         Upgrade: 'websocket',
+        'Sec-WebSocket-Protocol': proProtocolHeader(ticket),
       }),
       env,
     );
@@ -1060,13 +1169,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const { env, idFromName, roomFetch } = workerEnv();
     env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
     const ticket = await proTicket({ roomCode: '000002', participantId: 'dynamic-member' });
-    const url = new URL('https://signal.example.test/api/pro-rooms/000002/ws');
-    url.searchParams.set('ticket', ticket);
 
     const response = await workerModule.default.fetch(
-      requestLike(url.toString(), {
+      requestLike('https://signal.example.test/api/pro-rooms/000002/ws', {
         Origin: 'https://musixquare.com',
         Upgrade: 'websocket',
+        'Sec-WebSocket-Protocol': proProtocolHeader(ticket),
       }),
       env,
     );
@@ -1098,13 +1206,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const { env, idFromName, roomFetch } = workerEnv();
     env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
     const ticket = await makeTicket();
-    const url = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
-    url.searchParams.set('ticket', ticket);
 
     const response = await workerModule.default.fetch(
-      requestLike(url.toString(), {
+      requestLike('https://signal.example.test/api/pro-rooms/000001/ws', {
         Origin: 'https://musixquare.com',
         Upgrade: 'websocket',
+        'Sec-WebSocket-Protocol': proProtocolHeader(ticket),
       }),
       env,
     );
@@ -1125,12 +1232,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       },
       'wrong-signing-secret',
     );
-    const url = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
-    url.searchParams.set('ticket', ticket);
 
     const response = await room.fetch(
-      requestLike(url.toString(), {
+      requestLike('https://signal.example.test/api/pro-rooms/000001/ws', {
         Upgrade: 'websocket',
+        'Sec-WebSocket-Protocol': proProtocolHeader(ticket),
       }),
     );
 
@@ -1139,7 +1245,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(FakeWebSocketPair.pairs).toHaveLength(0);
   });
 
-  it('admits every signed PRO participant as an equal member and ignores the legacy ticket role', async () => {
+  it('admits every signed PRO participant as an equal member and ignores the signed legacy role', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, {
       PRO_SIGNALING_SECRET,
@@ -1154,10 +1260,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     );
     const coordinator = lastServer();
     await room.fetch(
-      await proWsRequest(
-        { role: 'member', participantId: 'signed-member', jti: 'member-ticket-0000001' },
-        { role: 'host', peerId: 'unsigned-attacker-id' },
-      ),
+      await proWsRequest({
+        role: 'member',
+        participantId: 'signed-member',
+        jti: 'member-ticket-0000001',
+      }),
     );
     const member = lastServer();
 
@@ -2233,20 +2340,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         expect(milliseconds).toBe(1_000);
         return timeoutController.signal;
       });
-    const timeoutAuthority = proAuthorityNamespace(
-      (request) =>
-        new Promise<Response>((_resolve, reject) => {
-          if (request.signal.aborted) {
-            reject(request.signal.reason || new Error('authority timeout'));
-            return;
-          }
-          request.signal.addEventListener(
-            'abort',
-            () => reject(request.signal.reason || new Error('authority timeout')),
-            { once: true },
-          );
-        }),
-    );
+    let timeoutRequest: Request | null = null;
+    const timeoutAuthority = proAuthorityNamespace((request) => {
+      timeoutRequest = request;
+      return new Promise<Response>(() => {});
+    });
     const timeoutState = new FakeDurableObjectState();
     const timeoutRoom = new workerModule.MusixquareRoom(timeoutState, {
       PRO_SIGNALING_SECRET,
@@ -2277,8 +2375,116 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     timeoutController.abort(new DOMException('authority timeout', 'TimeoutError'));
     await pending;
     timeoutSignal.mockRestore();
+    expect((timeoutRequest as Request | null)?.signal.aborted).toBe(true);
     expect(timeoutRecipient.sent).toHaveLength(timeoutRecipientCount);
     expect(timeoutSender.closed).toBe(false);
+  });
+
+  it('bounds and cancels a stalled PRO authority response body', async () => {
+    const timeoutController = new AbortController();
+    const timeoutSignal = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockImplementation((milliseconds: number) => {
+        expect(milliseconds).toBe(1_000);
+        return timeoutController.signal;
+      });
+    const cancel = vi.fn();
+    const authority = proAuthorityNamespace(
+      async () =>
+        new originalResponse(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"allowed":true'));
+            },
+            cancel,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    const room = new workerModule.MusixquareRoom(new FakeDurableObjectState(), {
+      PRO_SIGNALING_SECRET,
+      PRO_ROOM_AUTHORITY_ROOMS: authority.binding,
+    });
+    const sender = await joinProMember(room, {
+      participantId: 'body-timeout-notice-sender',
+      presenceIncarnationId: 'body-timeout-notice-incarnation',
+      jti: 'body-timeout-notice-ticket1',
+    });
+    const recipient = await joinProMember(room, {
+      participantId: 'body-timeout-notice-target',
+      presenceIncarnationId: 'body-timeout-notice-target1',
+      jti: 'body-timeout-target-ticket1',
+    });
+    const recipientCount = recipient.sent.length;
+    const pending = room.webSocketMessage(
+      sender,
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId: 'body-timeout-notice-event1',
+        channel: 'chat',
+        payload: { kind: 'notice', text: 'must time out closed' },
+      }),
+    );
+    await vi.waitFor(() => expect(authority.roomFetch).toHaveBeenCalledOnce());
+    timeoutController.abort(new DOMException('authority body timeout', 'TimeoutError'));
+    await pending;
+    timeoutSignal.mockRestore();
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(recipient.sent).toHaveLength(recipientCount);
+    expect(sender.closed).toBe(false);
+  });
+
+  it.each([
+    {
+      label: 'oversized',
+      bytes: new Uint8Array(4 * 1024 + 1),
+      eventId: 'oversized-authority-response1',
+    },
+    {
+      label: 'malformed UTF-8',
+      bytes: new Uint8Array([0x7b, 0x22, 0xc3, 0x28, 0x22, 0x3a, 0x31, 0x7d]),
+      eventId: 'utf8-authority-response-event1',
+    },
+  ])('rejects a $label PRO authority response', async ({ bytes, eventId }) => {
+    const authority = proAuthorityNamespace(
+      async () =>
+        new originalResponse(bytes, {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    const room = new workerModule.MusixquareRoom(new FakeDurableObjectState(), {
+      PRO_SIGNALING_SECRET,
+      PRO_ROOM_AUTHORITY_ROOMS: authority.binding,
+    });
+    const sender = await joinProMember(room, {
+      participantId: `${eventId}-sender`.slice(0, 80),
+      presenceIncarnationId: `${eventId}-sender-presence`.slice(0, 80),
+      jti: `${eventId}-sender-ticket`.slice(0, 80),
+    });
+    const recipient = await joinProMember(room, {
+      participantId: `${eventId}-target`.slice(0, 80),
+      presenceIncarnationId: `${eventId}-target-presence`.slice(0, 80),
+      jti: `${eventId}-target-ticket`.slice(0, 80),
+    });
+    const recipientCount = recipient.sent.length;
+
+    await room.webSocketMessage(
+      sender,
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId,
+        channel: 'chat',
+        payload: { kind: 'notice', text: 'must fail closed' },
+      }),
+    );
+
+    expect(authority.roomFetch).toHaveBeenCalledOnce();
+    expect(recipient.sent).toHaveLength(recipientCount);
+    expect(sender.closed).toBe(false);
   });
 
   it('keeps PRO clock replies point-to-point and whispers target-only', async () => {
@@ -3327,6 +3533,42 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     await expect(room.fetch(request)).rejects.toThrow('transient storage failure');
     expect(owner.closeEvents).toEqual([{ code: 1008, reason: 'PRO_OWNER_ACCOUNT_DELETED' }]);
+  });
+
+  it('bounds and cancels a stalled private signaling JSON body', async () => {
+    const timeoutController = new AbortController();
+    const timeoutSignal = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockImplementation(() => timeoutController.signal);
+    const room = new workerModule.MusixquareRoom(new FakeDurableObjectState(), {
+      PRO_SIGNALING_SECRET,
+    });
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"roomCode":"000001"'));
+      },
+      cancel,
+    });
+    const pending = room.fetch(
+      new Request('https://signaling.internal/internal/admin/v1/decommission', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': '000001',
+          'x-mxqr-pro-room-generation': '0',
+        },
+        body,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+    );
+    timeoutController.abort(new DOMException('private body timeout', 'TimeoutError'));
+
+    const response = await pending;
+    timeoutSignal.mockRestore();
+    expect(response.status).toBe(400);
+    expect(JSON.parse(String(response.body))).toEqual({ error: 'INVALID_REQUEST' });
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it('decommissions every PRO socket, leaves only a tombstone, and rejects old tickets idempotently', async () => {
@@ -4672,6 +4914,110 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     });
   });
 
+  it('clears an expired identity before relaying the next guest frame', async () => {
+    vi.useFakeTimers();
+    const startedAt = new Date('2026-08-09T00:00:00.000Z').getTime();
+    vi.setSystemTime(startedAt);
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    const host = await authenticateHost(room, 'host-1', 'room-secret-one');
+    const guest = await joinGuest(room, 'lease-bound-guest', {
+      reconnectSecret: 'q'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'lease-bound-guest',
+        role: 'guest',
+      }),
+    });
+    expect(guest.deserializeAttachment()).toHaveProperty('identityExpiresAt', startedAt + 60_000);
+    expect(state.storage.alarmTime).toBe(startedAt + 60_000);
+
+    host.sent.length = 0;
+    vi.setSystemTime(startedAt + 60_000);
+    await room.webSocketMessage(
+      guest,
+      JSON.stringify({
+        type: 'signal-offer',
+        to: 'host',
+        negotiationId: NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'expired-identity-offer' },
+        metadata: { label: 'data' },
+      }),
+    );
+
+    expect(guest.deserializeAttachment()).not.toHaveProperty('memberId');
+    expect(sent(guest)).toContainEqual({
+      type: 'account-identity',
+      memberIdentity: null,
+      clearReason: 'expired',
+    });
+    expect(sent(host)).toContainEqual({
+      type: 'account-member-updated',
+      peerId: 'lease-bound-guest',
+      memberIdentity: null,
+      clearReason: 'expired',
+    });
+    expect(sent(host).at(-1)).toEqual({
+      type: 'signal-offer',
+      from: 'lease-bound-guest',
+      negotiationId: NEGOTIATION_ID,
+      sdp: { type: 'offer', sdp: 'expired-identity-offer' },
+      metadata: { label: 'data' },
+    });
+  });
+
+  it('re-arms a missing identity alarm on wake and clears an already-expired attachment', async () => {
+    vi.useFakeTimers();
+    const startedAt = new Date('2026-08-09T00:00:00.000Z').getTime();
+    vi.setSystemTime(startedAt);
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    const host = await authenticateHost(room, 'host-1', 'room-secret-one');
+    const guest = await joinGuest(room, 'rehydrated-identity-guest', {
+      reconnectSecret: 'w'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'rehydrated-identity-guest',
+        role: 'guest',
+      }),
+    });
+    const identityExpiresAt = startedAt + 60_000;
+    expect(state.storage.alarmTime).toBe(identityExpiresAt);
+
+    state.storage.alarmTime = null;
+    vi.setSystemTime(startedAt + 10_000);
+    new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    await state.flushWaitUntil();
+    expect(state.storage.alarmTime).toBe(identityExpiresAt);
+
+    host.sent.length = 0;
+    guest.sent.length = 0;
+    state.storage.alarmTime = null;
+    vi.setSystemTime(identityExpiresAt);
+    new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    await state.flushWaitUntil();
+
+    expect(guest.deserializeAttachment()).not.toHaveProperty('memberId');
+    expect(sent(guest)).toContainEqual({
+      type: 'account-identity',
+      memberIdentity: null,
+      clearReason: 'expired',
+    });
+    expect(sent(host)).toContainEqual({
+      type: 'account-member-updated',
+      peerId: 'rehydrated-identity-guest',
+      memberIdentity: null,
+      clearReason: 'expired',
+    });
+    expect(state.storage.alarmTime).toBeNull();
+  });
+
   it('deletes only the caller-bound account identity and clears every live device for it', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, {
@@ -5710,6 +6056,28 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       reconnectSecret: OTHER_RECONNECT_SECRET,
     });
     expect(reclaimed.closed).toBe(false);
+  });
+
+  it('alarms an idle disconnected guest binding out of durable storage after five minutes', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-09T00:00:00.000Z'));
+    const { room, state } = await createHostRoom();
+    const guest = await joinGuest(room, 'idle-binding-guest');
+    const disconnectedAt = Date.now();
+
+    guest.close();
+    await room.webSocketClose(guest);
+
+    expect(state.storage.alarmTime).toBe(disconnectedAt + 5 * 60_000 + 1);
+    expect(await state.storage.get('guestReconnectBindings')).toMatchObject({
+      entries: [{ peerId: 'idle-binding-guest', updatedAt: disconnectedAt }],
+    });
+
+    vi.advanceTimersByTime(5 * 60_000 + 1);
+    await room.alarm();
+
+    expect(await state.storage.get('guestReconnectBindings')).toEqual({ v: 1, entries: [] });
+    expect(state.storage.alarmTime).toBeNull();
   });
 
   it('fails closed at identity capacity, then admits new guests after inactive bindings expire', async () => {

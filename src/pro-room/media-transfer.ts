@@ -14,7 +14,12 @@ import {
 } from './contracts.ts';
 import { createProRoomIdempotencyKey } from './idempotency.ts';
 import { ProRoomAssetCache } from './media-cache.ts';
-import { createIdleWatchdog, createLinkedAbortScope } from '../core/request-lifetime.ts';
+import {
+  cancelResponseBody,
+  createIdleWatchdog,
+  createLinkedAbortScope,
+  raceWithAbortSignal,
+} from '../core/request-lifetime.ts';
 
 export type ProRoomMediaProgress = (fraction: number) => void;
 
@@ -91,6 +96,14 @@ const PRO_ROOM_MEDIA_IDLE_TIMEOUT_MS = 60_000;
 
 function throwIfAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_ABORTED');
+}
+
+function cancelReaderBestEffort<T>(reader: ReadableStreamDefaultReader<T>, reason?: unknown): void {
+  try {
+    void Promise.resolve(reader.cancel(reason)).catch(() => undefined);
+  } catch {
+    // Cleanup must not replace the transfer's authoritative error code.
+  }
 }
 
 function readWithAbort<T>(
@@ -363,14 +376,6 @@ function parseExpectedContentLength(response: Response, expectedBytes: number): 
   }
 }
 
-async function cancelResponseBody(response: Response): Promise<void> {
-  try {
-    await response.body?.cancel();
-  } catch {
-    // The original validation/HTTP failure remains authoritative.
-  }
-}
-
 async function readExactBody(
   response: Response,
   expectedBytes: number,
@@ -396,7 +401,7 @@ async function readExactBody(
         offset + value.byteLength > expectedBytes ||
         offset + value.byteLength > PRO_ROOM_MAX_ASSET_BYTES
       ) {
-        await reader.cancel();
+        cancelReaderBestEffort(reader, 'PRO_ROOM_MEDIA_DOWNLOAD_SIZE_MISMATCH');
         throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_DOWNLOAD_SIZE_MISMATCH');
       }
       bytes.set(value, offset);
@@ -406,7 +411,7 @@ async function readExactBody(
     }
   } catch (error) {
     if (signal?.aborted) {
-      void reader.cancel().catch(() => undefined);
+      cancelReaderBestEffort(reader, signal.reason);
       throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_ABORTED', { cause: error });
     }
     if (error instanceof ProRoomMediaTransferError) throw error;
@@ -548,7 +553,7 @@ export class ProRoomMediaTransfer {
       transferScope.abort(new Error('PRO_ROOM_MEDIA_DOWNLOAD_IDLE_TIMEOUT'));
     }, PRO_ROOM_MEDIA_IDLE_TIMEOUT_MS);
     try {
-      const response = await this.#fetch(url, {
+      const requestInit: RequestInit = {
         method: 'GET',
         headers: { Accept: 'application/octet-stream' },
         credentials: 'omit',
@@ -557,7 +562,12 @@ export class ProRoomMediaTransfer {
         referrerPolicy: 'no-referrer',
         mode: 'cors',
         signal: transferScope.signal,
-      });
+      };
+      const response = await raceWithAbortSignal(
+        this.#fetch(url, requestInit),
+        transferScope.signal,
+        cancelResponseBody,
+      );
       idleWatchdog.touch();
       if (response.redirected || (response.url !== '' && !sameUrl(response.url, url))) {
         await cancelResponseBody(response);

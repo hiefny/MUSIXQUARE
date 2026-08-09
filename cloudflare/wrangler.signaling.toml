@@ -9,11 +9,16 @@ binding = "CF_VERSION_METADATA"
 
 [observability]
 enabled = true
+
+# Cached clients may use a bearer query only during the bounded rollout grace.
+# Never emit provider-generated request URLs; custom logs stay query-free.
+[observability.logs]
+enabled = true
 head_sampling_rate = 0.1
+invocation_logs = false
 
 [observability.traces]
-enabled = true
-head_sampling_rate = 0.01
+enabled = false
 
 # Required at deploy time and intentionally never committed. Both values must
 # be random and at least 32 characters, and must match their named counterpart:

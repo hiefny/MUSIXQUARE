@@ -1,1 +1,1 @@
-canonical-whole-object-v1
+canonical-whole-object-actor-replay-v3

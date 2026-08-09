@@ -44,6 +44,7 @@ import {
   type ProRoomRepeatMode,
 } from './queue-mode.ts';
 import { BOT_RATE_LIMIT_MAX_RETRY_SECONDS } from '../core/constants.ts';
+import { createProRoomIdempotencyKey } from './idempotency.ts';
 import {
   DEFAULT_CONTROL_REQUEST_TIMEOUT_MS,
   withRequestDeadline,
@@ -270,6 +271,8 @@ export interface ActivateProRoomInput {
 export interface CreateProRoomSessionInput {
   code: string;
   pin: string;
+  /** Reuse this value after an uncertain transport result to replay one admission. */
+  requestId?: string;
 }
 
 export interface RecoverProRoomOwnerInput {
@@ -523,6 +526,17 @@ function abortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException('Aborted', 'AbortError');
 }
 
+function cancelReaderBestEffort(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  reason?: unknown,
+): void {
+  try {
+    void Promise.resolve(reader.cancel(reason)).catch(() => undefined);
+  } catch {
+    // Cancellation is cleanup only; preserve the protocol result.
+  }
+}
+
 function cancelUnreadResponseBody(response: Response): void {
   try {
     void response.body?.cancel().catch(() => undefined);
@@ -545,8 +559,8 @@ function readBodyChunk(
       if (settled) return;
       settled = true;
       finish();
-      void reader.cancel(signal.reason).catch(() => undefined);
       reject(abortReason(signal));
+      cancelReaderBestEffort(reader, signal.reason);
     };
     signal.addEventListener('abort', onAbort, { once: true });
     void reader.read().then(
@@ -591,7 +605,7 @@ async function readBoundedText(
       if (!value) continue;
       total += value.byteLength;
       if (total > maxBytes) {
-        await reader.cancel();
+        cancelReaderBestEffort(reader, 'PRO_ROOM_RESPONSE_TOO_LARGE');
         throw new BodyLimitError();
       }
       chunks.push(value);
@@ -1378,9 +1392,10 @@ export class ProRoomApiClient {
 
   createSession(input: CreateProRoomSessionInput, signal?: AbortSignal): Promise<ProRoomSnapshot> {
     const path = roomPath(input.code);
+    const requestId = validateIdempotencyKey(input.requestId ?? createProRoomIdempotencyKey());
     return this.#request(`${path}/sessions`, {
       method: 'POST',
-      body: { pin: validatePin(input.pin) },
+      body: { pin: validatePin(input.pin), requestId },
       signal,
       parser: (value) => parseSessionEnvelope(value, input.code),
     }).then((snapshot) => this.#bindPresenceIdentity(input.code, snapshot));

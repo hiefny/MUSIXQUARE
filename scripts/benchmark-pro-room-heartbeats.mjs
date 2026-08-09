@@ -6,7 +6,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const WORKER_PATH = path.join(ROOT, 'cloudflare', 'pro-room-worker.js');
 const BASELINE_COMMIT = '8cedc0815456984a61929891a820ef85978bb5ae';
 const ROOM_CODE = '000000';
 const BASE_URL = `https://pro.musixquare.com/v1/rooms/${ROOM_CODE}`;

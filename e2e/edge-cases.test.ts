@@ -148,8 +148,6 @@ test.describe('Edge Cases', () => {
     await pair.hostPage.click('#play-btn');
     await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO', 5_000).catch(() => {});
 
-    const stateBefore = (await readPlaybackProjection(pair.hostPage)) as string;
-
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 

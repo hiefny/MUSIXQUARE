@@ -125,24 +125,39 @@ describe('standard-room prerequisite cache', () => {
 
   it('bounds a hung shared request and lets the next setup retry', async () => {
     vi.useFakeTimers();
+    let stalledSignal: AbortSignal | null = null;
     mocks.fetchWithCapability.mockImplementationOnce(
-      (_input: RequestInfo | URL, _scope: string, init?: RequestInit) =>
-        new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
-            once: true,
-          });
-        }),
+      (_input: RequestInfo | URL, _scope: string, init?: RequestInit) => {
+        stalledSignal = init?.signal ?? null;
+        return new Promise<Response>(() => undefined);
+      },
     );
 
     const hung = getStandardRoomTurnCredentials();
     await vi.advanceTimersByTimeAsync(__standardRoomPrerequisitesForTests.turnRequestTimeoutMs);
     await expect(hung).resolves.toBeNull();
+    expect(stalledSignal).not.toBeNull();
+    expect((stalledSignal as AbortSignal | null)?.aborted).toBe(true);
 
     mocks.fetchWithCapability.mockResolvedValueOnce(turnResponse());
     await expect(getStandardRoomTurnCredentials()).resolves.toMatchObject({
       provider: 'cloudflare',
     });
     expect(mocks.fetchWithCapability).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects oversized TURN control responses without waiting for cancellation', async () => {
+    const cancel = vi.fn(() => new Promise<void>(() => undefined));
+    mocks.fetchWithCapability.mockImplementation(
+      async () =>
+        new Response(new ReadableStream<Uint8Array>({ cancel }), {
+          headers: { 'content-length': String(64 * 1024 + 1) },
+        }),
+    );
+
+    await expect(getStandardRoomTurnCredentials()).resolves.toBeNull();
+    expect(mocks.fetchWithCapability).toHaveBeenCalledTimes(2);
+    expect(cancel).toHaveBeenCalledTimes(2);
   });
 
   it('preconnects signaling but skips TURN when capability cannot warm silently', async () => {

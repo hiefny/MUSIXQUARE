@@ -128,12 +128,11 @@ function updateLayout(state: ScrollbarState): void {
     state.visibleHeight = 0;
     state.thumbHeight = 0;
     track.style.opacity = '0';
-    track.style.height = '0px';
     track.style.pointerEvents = 'none';
+    track.style.height = '0px';
     thumb.style.display = 'none';
     return;
   }
-  track.style.removeProperty('pointer-events');
   thumb.style.display = '';
 
   const containerRect = container.getBoundingClientRect();
@@ -263,19 +262,25 @@ export function initCustomScrollbar(container: HTMLElement): void {
   };
 
   thumb.style.top = '0px';
-  track.style.opacity = '0';
   track.style.transition = 'opacity 0.3s ease';
+
+  function setTrackVisible(visible: boolean): void {
+    track.style.opacity = visible ? '1' : '0';
+    track.style.pointerEvents = visible ? 'auto' : 'none';
+  }
+
+  setTrackVisible(false);
 
   function showTrack(): void {
     if (!hasVisibleOverflow(container)) {
       clearTimeout(state.fadeTimer);
-      track.style.opacity = '0';
+      setTrackVisible(false);
       return;
     }
-    track.style.opacity = '1';
+    setTrackVisible(true);
     clearTimeout(state.fadeTimer);
     state.fadeTimer = window.setTimeout(() => {
-      if (!state.isDragging) track.style.opacity = '0';
+      if (!state.isDragging) setTrackVisible(false);
     }, FADE_DELAY);
   }
 
@@ -330,7 +335,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     thumb.classList.add('dragging');
     document.body.style.userSelect = 'none';
     clearTimeout(state.fadeTimer);
-    track.style.opacity = '1';
+    setTrackVisible(true);
   });
 
   // Touch support for thumb drag.
@@ -342,7 +347,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     e.stopPropagation();
     state.isDragging = true;
     clearTimeout(state.fadeTimer);
-    track.style.opacity = '1';
+    setTrackVisible(true);
     state.dragStartY = e.touches[0].clientY;
     state.dragStartScroll = container.scrollTop;
     state.dragRenderedScale = getBodyRenderedScale();

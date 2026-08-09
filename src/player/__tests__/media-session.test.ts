@@ -113,7 +113,10 @@ describe('updateMediaSessionMetadata', () => {
     expect(navigator.mediaSession.metadata!.artwork[0].src).toBe('https://example.com/thumb.jpg');
   });
 
-  it('does nothing for null item', () => {
+  it('clears previously published metadata for a null item', () => {
+    updateMediaSessionMetadata({ name: 'Previous Song', type: 'audio' } as never);
+    expect(navigator.mediaSession.metadata).not.toBeNull();
+
     updateMediaSessionMetadata(null);
     expect(navigator.mediaSession.metadata).toBeNull();
   });
@@ -125,7 +128,9 @@ describe('updateMediaSessionMetadata', () => {
 
   it('uses favicon for non-YouTube artwork', () => {
     updateMediaSessionMetadata({ name: 'Song', type: 'audio' } as never);
-    expect(navigator.mediaSession.metadata!.artwork[0].src).toBe('favicon.svg');
+    const artwork = navigator.mediaSession.metadata!.artwork[0].src;
+    expect(artwork).toBe('/favicon.svg');
+    expect(new URL(artwork, 'https://musixquare.com/123456/').pathname).toBe('/favicon.svg');
   });
 });
 

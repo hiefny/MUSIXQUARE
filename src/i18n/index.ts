@@ -7,6 +7,7 @@
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
+import { syncExclusivePressedState } from '../core/aria-state.ts';
 import ko from './ko.ts';
 import en from './en.ts';
 import {
@@ -434,12 +435,11 @@ async function _applyLanguage(resolved: LanguageCode): Promise<void> {
 
 function _updateSelector(mode: LanguageMode): void {
   try {
-    document.querySelectorAll('#grid-lang .ch-opt').forEach((el) => el.classList.remove('active'));
     const action = mode === 'system' ? 'system' : 'select';
-    document
-      .querySelector(`#grid-lang .ch-opt[data-lang-action="${action}"]`)
-      ?.classList.add('active');
-    document.querySelector(`#grid-lang .ch-opt[data-lang="${mode}"]`)?.classList.add('active');
+    syncExclusivePressedState(
+      document.querySelectorAll<HTMLElement>('#grid-lang .ch-opt'),
+      (element) => element.dataset.langAction === action || element.dataset.lang === mode,
+    );
   } catch {
     /* ignore */
   }

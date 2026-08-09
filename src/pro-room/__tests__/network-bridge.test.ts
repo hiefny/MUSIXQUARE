@@ -17,6 +17,9 @@ import {
 
 type SocketListener = (event: { data?: unknown }) => void;
 
+const PRO_SIGNALING_WEBSOCKET_PROTOCOL = 'mxqr.pro-signaling.v1';
+const PRO_SIGNALING_TICKET_PROTOCOL_PREFIX = 'mxqr.ticket.';
+
 class FakeWebSocket {
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
@@ -31,7 +34,13 @@ class FakeWebSocket {
   closeCount = 0;
   private readonly listeners = new Map<string, Set<SocketListener>>();
 
-  constructor(readonly url: string) {
+  readonly protocols: string[];
+
+  constructor(
+    readonly url: string,
+    protocols: string | string[] = [],
+  ) {
+    this.protocols = typeof protocols === 'string' ? [protocols] : [...protocols];
     FakeWebSocket.instances.push(this);
   }
 
@@ -158,7 +167,7 @@ function snapshot(): ProRoomSnapshot {
 
 function access(): ProRoomSignalingAccess {
   return {
-    ticket: `v1.${'a'.repeat(32)}.${'B'.repeat(43)}` as ProRoomSignalingAccess['ticket'],
+    ticket: `${'a'.repeat(32)}.${'B'.repeat(43)}` as ProRoomSignalingAccess['ticket'],
     expiresAtMs: 10_000,
     role: 'member',
     coordinatorEpoch: 2,
@@ -237,7 +246,11 @@ describe('coordinator-free PRO server channel', () => {
 
     expect(url.origin).toBe('wss://signal.example.test');
     expect(url.pathname).toBe('/api/pro-rooms/000001/ws');
-    expect(url.searchParams.get('ticket')).toBe(access().ticket);
+    expect(url.search).toBe('');
+    expect(socket.protocols).toEqual([
+      PRO_SIGNALING_WEBSOCKET_PROTOCOL,
+      `${PRO_SIGNALING_TICKET_PROTOCOL_PREFIX}${access().ticket}`,
+    ]);
     expect(rtcConstructor).not.toHaveBeenCalled();
     expect(getState('network.hostConn')).toBeNull();
     expect(getState('network.connectedPeers')).toEqual([]);
@@ -268,7 +281,7 @@ describe('coordinator-free PRO server channel', () => {
     };
     const replacementAccess: ProRoomSignalingAccess = {
       ...access(),
-      ticket: `v1.${'c'.repeat(32)}.${'D'.repeat(43)}` as ProRoomSignalingAccess['ticket'],
+      ticket: `${'c'.repeat(32)}.${'D'.repeat(43)}` as ProRoomSignalingAccess['ticket'],
       ticketSequence: 2,
     };
 
@@ -340,7 +353,7 @@ describe('coordinator-free PRO server channel', () => {
 
     const replacementAccess: ProRoomSignalingAccess = {
       ...access(),
-      ticket: `v1.${'c'.repeat(32)}.${'D'.repeat(43)}` as ProRoomSignalingAccess['ticket'],
+      ticket: `${'c'.repeat(32)}.${'D'.repeat(43)}` as ProRoomSignalingAccess['ticket'],
       ticketSequence: 2,
     };
     const replacing = bridge.reconfigure(snapshot(), replacementAccess);

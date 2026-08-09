@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MSG } from '../../../core/constants.ts';
+import { CHUNK_SIZE, MSG } from '../../../core/constants.ts';
 import { clearAllManagedTimers } from '../../../core/timers.ts';
 import { CloudflareDataConnection, CloudflareSignalingPeer } from '../cloudflare-signaling.ts';
 import type { TransportDataConnection, TransportMediaConnection } from '../types.ts';
@@ -15,6 +15,8 @@ const originalRTCPeerConnection = globalThis.RTCPeerConnection;
 const originalMediaStream = globalThis.MediaStream;
 const NEGOTIATION_ID = 'negotiation_test_000001';
 const NEXT_NEGOTIATION_ID = 'negotiation_test_000002';
+const PRO_SIGNALING_WEBSOCKET_PROTOCOL = 'mxqr.pro-signaling.v1';
+const PRO_SIGNALING_TICKET_PROTOCOL_PREFIX = 'mxqr.ticket.';
 
 type FakeSocketListener = (event: { data?: unknown; reason?: string }) => void;
 type FakeChannelListener = (event: { data?: unknown; error?: unknown }) => void;
@@ -31,7 +33,13 @@ class FakeWebSocket {
   sent: string[] = [];
   private listeners = new Map<string, Set<FakeSocketListener>>();
 
-  constructor(readonly url: string) {
+  readonly protocols: string[];
+
+  constructor(
+    readonly url: string,
+    protocols: string | string[] = [],
+  ) {
+    this.protocols = typeof protocols === 'string' ? [protocols] : [...protocols];
     FakeWebSocket.instances.push(this);
   }
 
@@ -359,7 +367,7 @@ function clientProTicket(
     .replace(/\+/g, '-')
     .replace(/\//g, '_')
     .replace(/=+$/g, '');
-  return `${payload}.test-signature`;
+  return `${payload}.${'s'.repeat(43)}`;
 }
 
 function privateMaps(peer: CloudflareSignalingPeer): {
@@ -763,8 +771,11 @@ describe('Cloudflare PRO signaling client contract', () => {
     const socket = FakeWebSocket.instances[0];
     const url = new URL(socket.url);
     expect(url.pathname).toBe('/api/pro-rooms/000001/ws');
-    expect([...url.searchParams.keys()]).toEqual(['ticket']);
-    expect(url.searchParams.get('ticket')).toBe(ticket);
+    expect(url.search).toBe('');
+    expect(socket.protocols).toEqual([
+      PRO_SIGNALING_WEBSOCKET_PROTOCOL,
+      `${PRO_SIGNALING_TICKET_PROTOCOL_PREFIX}${ticket}`,
+    ]);
 
     socket.dispatch(
       'message',
@@ -1074,7 +1085,11 @@ describe('Cloudflare PRO signaling client contract', () => {
     peer.reconnect();
 
     const reconnected = FakeWebSocket.instances[1];
-    expect(new URL(reconnected.url).searchParams.get('ticket')).toBe(refreshedTicket);
+    expect(new URL(reconnected.url).search).toBe('');
+    expect(reconnected.protocols).toEqual([
+      PRO_SIGNALING_WEBSOCKET_PROTOCOL,
+      `${PRO_SIGNALING_TICKET_PROTOCOL_PREFIX}${refreshedTicket}`,
+    ]);
     peer.destroy();
   });
 
@@ -1132,7 +1147,11 @@ describe('Cloudflare PRO signaling client contract', () => {
     expect(peer.setProSignalingAccess({ ...access, ticket: mismatchedTicket })).toBe(false);
     initialSocket.close();
     peer.reconnect();
-    expect(new URL(FakeWebSocket.instances[1].url).searchParams.get('ticket')).toBe(initialTicket);
+    expect(new URL(FakeWebSocket.instances[1].url).search).toBe('');
+    expect(FakeWebSocket.instances[1].protocols).toEqual([
+      PRO_SIGNALING_WEBSOCKET_PROTOCOL,
+      `${PRO_SIGNALING_TICKET_PROTOCOL_PREFIX}${initialTicket}`,
+    ]);
     peer.destroy();
   });
 
@@ -1151,6 +1170,7 @@ describe('Cloudflare PRO signaling client contract', () => {
       }),
     ).toBe(false);
     expect(new URL(FakeWebSocket.instances[0].url).pathname).toBe('/api/rooms/123456/ws');
+    expect(FakeWebSocket.instances[0].protocols).toEqual([]);
     peer.destroy();
   });
 
@@ -1176,7 +1196,11 @@ describe('Cloudflare PRO signaling client contract', () => {
     const socket = FakeWebSocket.instances[0];
     const url = new URL(socket.url);
     expect(url.pathname).toBe('/api/pro-rooms/000001/ws');
-    expect([...url.searchParams.keys()]).toEqual(['ticket']);
+    expect(url.search).toBe('');
+    expect(socket.protocols).toEqual([
+      PRO_SIGNALING_WEBSOCKET_PROTOCOL,
+      `${PRO_SIGNALING_TICKET_PROTOCOL_PREFIX}${ticket}`,
+    ]);
     socket.dispatch('open');
     expect(sentOfType(socket, 'guest-auth')).toHaveLength(0);
     expect(() => peer.connect('000000')).toThrowError('PRO_SIGNALING_ROOM_MISMATCH');
@@ -1744,6 +1768,62 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     expect(JSON.parse(bulk.sent[2] as string)).toMatchObject({
       type: MSG.OPERATOR_FILE_UPLOAD_FINISH,
     });
+  });
+
+  it('rejects malformed UTF-8 in peer-controlled binary headers', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const onData = vi.fn();
+    const onError = vi.fn();
+    conn.on('data', onData);
+    conn.on('error', onError);
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+
+    const prefix = new TextEncoder().encode(
+      '{"type":"file-chunk","chunk":{"__mxqrBinaryChunk":true},"name":"',
+    );
+    const suffix = new TextEncoder().encode('"}');
+    const header = new Uint8Array(prefix.byteLength + 2 + suffix.byteLength);
+    header.set(prefix, 0);
+    header.set([0xc3, 0x28], prefix.byteLength);
+    header.set(suffix, prefix.byteLength + 2);
+    const frame = new Uint8Array(4 + header.byteLength + 1);
+    new DataView(frame.buffer).setUint32(0, header.byteLength, false);
+    frame.set(header, 4);
+    frame[frame.byteLength - 1] = 1;
+
+    bulk.dispatch('message', frame.buffer);
+    await flushAsync();
+
+    expect(onData).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(TypeError);
+  });
+
+  it('rejects oversized peer binary frames before they reach protocol handlers', async () => {
+    const conn = new CloudflareDataConnection('guest-1');
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const onData = vi.fn();
+    const onError = vi.fn();
+    conn.on('data', onData);
+    conn.on('error', onError);
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+
+    const header = new TextEncoder().encode(
+      '{"type":"file-chunk","chunk":{"__mxqrBinaryChunk":true}}',
+    );
+    const frame = new Uint8Array(4 + header.byteLength + CHUNK_SIZE + 1);
+    new DataView(frame.buffer).setUint32(0, header.byteLength, false);
+    frame.set(header, 4);
+
+    bulk.dispatch('message', frame.buffer);
+    await flushAsync();
+
+    expect(onData).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError.mock.calls[0]?.[0]).toMatchObject({ message: 'INVALID_BINARY_BODY' });
   });
 
   it('never falls back to the bulk channel for control frames', async () => {

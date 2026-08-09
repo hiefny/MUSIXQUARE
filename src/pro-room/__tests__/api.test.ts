@@ -304,6 +304,28 @@ describe('PRO room endpoint boundary', () => {
     await vi.waitFor(() => expect(cancelled).toBe(true));
   });
 
+  it('does not let a non-cooperative stream cancel pin an oversized bootstrap response', async () => {
+    const cancel = vi.fn(() => new Promise<void>(() => undefined));
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array(9_000));
+          },
+          cancel,
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
+    );
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    await expect(client.getBootstrap(ROOM_CODE)).rejects.toMatchObject({
+      code: 'RESPONSE_TOO_LARGE',
+      status: 200,
+    });
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
   it('cancels an unread non-JSON error response before rejecting it', async () => {
     let cancelled = false;
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
@@ -507,14 +529,37 @@ describe('PRO room cookie session API', () => {
     );
     const client = new ProRoomApiClient({ fetch: fetchMock });
 
-    await expect(client.createSession({ code: ROOM_CODE, pin: '12345678' })).resolves.toEqual(
-      activeSnapshot(),
-    );
+    await expect(
+      client.createSession({ code: ROOM_CODE, pin: '12345678', requestId: IDEMPOTENCY_KEY }),
+    ).resolves.toEqual(activeSnapshot());
 
     const { url, init } = requestParts(fetchMock);
     expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/sessions`);
-    expect(JSON.parse(String(init.body))).toEqual({ pin: '12345678' });
+    expect(JSON.parse(String(init.body))).toEqual({
+      pin: '12345678',
+      requestId: IDEMPOTENCY_KEY,
+    });
     expect(String(init.body)).not.toContain('token');
+  });
+
+  it('generates a bounded session request id and rejects an invalid explicit one locally', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse({
+        snapshot: activeSnapshot(),
+        session: { expiresAtMs: 1_900_000_000_000 },
+      }),
+    );
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    await client.createSession({ code: ROOM_CODE, pin: '12345678' });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
+      pin: '12345678',
+      requestId: expect.stringMatching(/^mxqr-pro-[a-f0-9]{48}$/u),
+    });
+    expect(() =>
+      client.createSession({ code: ROOM_CODE, pin: '12345678', requestId: 'short' }),
+    ).toThrow(expect.objectContaining({ code: 'INVALID_IDEMPOTENCY_KEY' }));
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 
   it('parses snapshot-returning methods and strict ok-only mutations', async () => {

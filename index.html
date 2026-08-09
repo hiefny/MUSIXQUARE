@@ -2,15 +2,12 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
-    />
-    <!-- Sync bootstrap: scrub one-time PRO credentials before any third-party
-         code, then apply Android viewport, language, and theme preflight.
-         Cloudflare Analytics is loaded by this bootstrap only after a safe
-         scrub/handoff. Source: public/bootstrap.js -->
-    <script src="/bootstrap.js?cache=v397"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- Sync bootstrap: scrub one-time PRO credentials before app code, then
+         apply Android viewport, language, and theme preflight. The main SPA
+         deliberately does not load third-party analytics. Source:
+         public/bootstrap.js -->
+    <script src="/bootstrap.js?cache=v401"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -439,6 +436,7 @@
           <button
             class="tab-action-btn"
             id="btn-repeat"
+            aria-pressed="false"
             aria-label=""
             data-i18n-aria-label="player.repeat_mode"
           >
@@ -449,6 +447,7 @@
           <button
             class="tab-action-btn"
             id="btn-shuffle"
+            aria-pressed="false"
             aria-label=""
             data-i18n-aria-label="player.shuffle_mode"
           >
@@ -711,25 +710,57 @@
 
       <div class="settings-subtab-nav">
         <button
+          type="button"
+          id="settings-subtab-general"
           class="subtab-pill active"
           data-subtab="general"
+          aria-controls="settings-subtab-panel-general"
+          aria-pressed="true"
           data-i18n="settings.subtab.general"
         >
           일반
         </button>
-        <button class="subtab-pill" data-subtab="audio" data-i18n="settings.subtab.audio">
+        <button
+          type="button"
+          id="settings-subtab-audio"
+          class="subtab-pill"
+          data-subtab="audio"
+          aria-controls="settings-subtab-panel-audio"
+          aria-pressed="false"
+          data-i18n="settings.subtab.audio"
+        >
           오디오
         </button>
-        <button class="subtab-pill" data-subtab="connect" data-i18n="settings.subtab.connect">
+        <button
+          type="button"
+          id="settings-subtab-connect"
+          class="subtab-pill"
+          data-subtab="connect"
+          aria-controls="settings-subtab-panel-connect"
+          aria-pressed="false"
+          data-i18n="settings.subtab.connect"
+        >
           연결
         </button>
-        <button class="subtab-pill" data-subtab="help" data-i18n="settings.subtab.help">
+        <button
+          type="button"
+          id="settings-subtab-help"
+          class="subtab-pill"
+          data-subtab="help"
+          aria-controls="settings-subtab-panel-help"
+          aria-pressed="false"
+          data-i18n="settings.subtab.help"
+        >
           도움말
         </button>
       </div>
 
       <div class="tab-body" data-custom-scroll>
-        <div class="settings-subtab-panel active" data-panel="general">
+        <div
+          class="settings-subtab-panel active"
+          id="settings-subtab-panel-general"
+          data-panel="general"
+        >
           <div class="section-group">
             <div class="section-header-row">
               <span
@@ -755,6 +786,7 @@
                 class="ch-opt"
                 id="btn-language-select"
                 data-lang-action="select"
+                aria-pressed="false"
                 data-i18n-aria-label="settings.language_select_aria"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -781,6 +813,7 @@
                 class="ch-opt"
                 id="btn-language-system"
                 data-lang-action="system"
+                aria-pressed="false"
                 data-i18n-aria-label="settings.language_system_aria"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -827,7 +860,7 @@
               aria-labelledby="settings-theme-title"
               aria-describedby="settings-theme-description"
             >
-              <button type="button" class="ch-opt" data-theme="light">
+              <button type="button" class="ch-opt" data-theme="light" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path
                     d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58a.996.996 0 00-1.41 0 .996.996 0 000 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37a.996.996 0 00-1.41 0 .996.996 0 000 1.41l1.06 1.06c.39.39 1.03.39 1.41 0a.996.996 0 000-1.41l-1.06-1.06zm1.06-10.96a.996.996 0 000-1.41.996.996 0 00-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06zM7.05 18.36a.996.996 0 000-1.41.996.996 0 00-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06z"
@@ -835,7 +868,7 @@
                 </svg>
                 <span data-i18n="settings.light">라이트</span>
               </button>
-              <button type="button" class="ch-opt" data-theme="dark">
+              <button type="button" class="ch-opt" data-theme="dark" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path
                     d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 01-4.4 2.26 5.403 5.403 0 01-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"
@@ -918,7 +951,7 @@
               aria-labelledby="settings-visualizer-title"
               aria-describedby="settings-visualizer-description"
             >
-              <button type="button" class="ch-opt active" data-viz="circular">
+              <button type="button" class="ch-opt active" data-viz="circular" aria-pressed="true">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <circle
                     cx="12"
@@ -932,7 +965,7 @@
                 </svg>
                 <span data-i18n="settings.viz_circular">원형</span>
               </button>
-              <button type="button" class="ch-opt" data-viz="spectrum">
+              <button type="button" class="ch-opt" data-viz="spectrum" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <polyline
                     points="2,20 5,16 8,18 11,10 14,14 17,6 20,12 22,8"
@@ -949,7 +982,7 @@
           </div>
         </div>
 
-        <div class="settings-subtab-panel" data-panel="audio">
+        <div class="settings-subtab-panel" id="settings-subtab-panel-audio" data-panel="audio">
           <!-- YouTube mode notice (shown only while PLAYING_YOUTUBE) -->
           <div
             class="youtube-settings-note"
@@ -1050,17 +1083,17 @@
                 aria-labelledby="settings-role-title"
                 aria-describedby="settings-role-description"
               >
-                <button type="button" class="ch-opt" data-ch="-1">
+                <button type="button" class="ch-opt" data-ch="-1" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" /></svg
                   ><span data-i18n="role.left"></span>
                 </button>
-                <button type="button" class="ch-opt" data-ch="1">
+                <button type="button" class="ch-opt" data-ch="1" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" /></svg
                   ><span data-i18n="role.right"></span>
                 </button>
-                <button type="button" class="ch-opt" data-ch="2">
+                <button type="button" class="ch-opt" data-ch="2" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"
@@ -1068,7 +1101,7 @@
                     <circle cx="12" cy="12" r="3" /></svg
                   ><span data-i18n="role.subwoofer"></span>
                 </button>
-                <button type="button" class="ch-opt" data-ch="0">
+                <button type="button" class="ch-opt" data-ch="0" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"
@@ -1177,28 +1210,28 @@
                 aria-labelledby="settings-reverb-title"
                 aria-describedby="settings-reverb-description"
               >
-                <button type="button" class="ch-opt" data-rvb-type="studio">
+                <button type="button" class="ch-opt" data-rvb-type="studio" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M7.76 16.24C6.67 15.16 6 13.66 6 12s.67-3.16 1.76-4.24l1.42 1.42C8.45 9.9 8 10.9 8 12c0 1.1.45 2.1 1.17 2.83l-1.41 1.41zm8.48 0C17.33 15.16 18 13.66 18 12s-.67-3.16-1.76-4.24l-1.42 1.42C15.55 9.9 16 10.9 16 12c0 1.1-.45 2.1-1.17 2.83l1.41 1.41zM12 10c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2z"
                     /></svg
                   ><span data-i18n="settings.rvb_studio">스튜디오</span>
                 </button>
-                <button type="button" class="ch-opt" data-rvb-type="arena">
+                <button type="button" class="ch-opt" data-rvb-type="arena" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M7.76 16.24C6.67 15.16 6 13.66 6 12s.67-3.16 1.76-4.24l1.42 1.42C8.45 9.9 8 10.9 8 12c0 1.1.45 2.1 1.17 2.83l-1.41 1.41zm8.48 0C17.33 15.16 18 13.66 18 12s-.67-3.16-1.76-4.24l-1.42 1.42C15.55 9.9 16 10.9 16 12c0 1.1-.45 2.1-1.17 2.83l1.41 1.41zM12 10c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2zm8 2c0 2.21-.9 4.21-2.35 5.65l1.42 1.42C20.88 17.26 22 14.76 22 12s-1.12-5.26-2.93-7.07l-1.42 1.42A7.94 7.94 0 0 1 20 12zM6.35 6.35L4.93 4.93C3.12 6.74 2 9.24 2 12s1.12 5.26 2.93 7.07l1.42-1.42C4.9 16.21 4 14.21 4 12s.9-4.21 2.35-5.65z"
                     /></svg
                   ><span data-i18n="settings.rvb_arena">공연장</span>
                 </button>
-                <button type="button" class="ch-opt" data-rvb-type="advanced">
+                <button type="button" class="ch-opt" data-rvb-type="advanced" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"
                     /></svg
                   ><span data-i18n="settings.rvb_advanced">고급</span>
                 </button>
-                <button type="button" class="ch-opt active" data-rvb-type="off">
+                <button type="button" class="ch-opt active" data-rvb-type="off" aria-pressed="true">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
@@ -1344,28 +1377,28 @@
                 aria-labelledby="settings-eq-title"
                 aria-describedby="settings-eq-description"
               >
-                <button type="button" class="ch-opt" data-eq-type="bright">
+                <button type="button" class="ch-opt" data-eq-type="bright" aria-pressed="false">
                   <svg viewBox="0 -960 960 960" aria-hidden="true">
                     <path
                       d="M160-420v300h160v-300H160ZM400-580v460h160v-460H400ZM640-740v620h160v-620H640Z"
                     /></svg
                   ><span data-i18n="settings.eq_bright">선명함</span>
                 </button>
-                <button type="button" class="ch-opt" data-eq-type="warm">
+                <button type="button" class="ch-opt" data-eq-type="warm" aria-pressed="false">
                   <svg viewBox="0 -960 960 960" aria-hidden="true">
                     <path
                       d="M160-740v620h160v-620H160ZM400-580v460h160v-460H400ZM640-420v300h160v-300H640Z"
                     /></svg
                   ><span data-i18n="settings.eq_warm">따뜻함</span>
                 </button>
-                <button type="button" class="ch-opt" data-eq-type="advanced">
+                <button type="button" class="ch-opt" data-eq-type="advanced" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"
                     /></svg
                   ><span data-i18n="settings.eq_advanced">고급</span>
                 </button>
-                <button type="button" class="ch-opt active" data-eq-type="off">
+                <button type="button" class="ch-opt active" data-eq-type="off" aria-pressed="true">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
@@ -1547,7 +1580,7 @@
         </div>
 
         <!-- Desktop mirror of the mobile connection panel. -->
-        <div class="settings-subtab-panel" data-panel="connect">
+        <div class="settings-subtab-panel" id="settings-subtab-panel-connect" data-panel="connect">
           <div id="desktop-connect-content">
             <div class="section-group">
               <div class="section-header-row">
@@ -1630,7 +1663,7 @@
           </div>
         </div>
 
-        <div class="settings-subtab-panel" data-panel="help">
+        <div class="settings-subtab-panel" id="settings-subtab-panel-help" data-panel="help">
           <div class="desktop-help-section">
             <div class="help-block">
               <div class="help-title">
@@ -1818,7 +1851,11 @@
             id="chat-input"
             contenteditable="true"
             tabindex="0"
-            role="textbox"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-haspopup="listbox"
+            aria-expanded="false"
+            aria-controls="chat-command-suggestions"
             aria-label=""
             data-i18n-aria-label="chat.input_label"
             data-placeholder="메시지 또는 / 명령어"
@@ -1924,7 +1961,7 @@
       </button>
     </nav>
 
-    <audio id="silent-trigger" src="dummy_audio.mp3" preload="auto" playsinline></audio>
+    <audio id="silent-trigger" src="/dummy_audio.mp3" preload="auto" playsinline></audio>
 
     <div id="setup-overlay" class="onboarding-overlay">
       <div class="onboarding-card setup-card full-screen">
@@ -2379,7 +2416,7 @@
               <div class="ob-slider-viewport" id="ob-slider-viewport">
                 <div class="ob-slider-track" id="ob-slider-track">
                   <!-- Slide 1: Invite -->
-                  <div class="ob-slide">
+                  <div class="ob-slide active" aria-hidden="false">
                     <div class="ob-icon-circle">
                       <svg viewBox="0 0 24 24">
                         <path
@@ -2391,7 +2428,7 @@
                     <div class="ob-desc" data-i18n-html="setup.invite_share_desc_html"></div>
                   </div>
                   <!-- Slide 2: Sync -->
-                  <div class="ob-slide">
+                  <div class="ob-slide" aria-hidden="true" inert>
                     <div class="ob-icon-circle">
                       <svg viewBox="0 0 24 24">
                         <path
@@ -2403,7 +2440,7 @@
                     <div class="ob-desc" data-i18n-html="setup.play_together_desc_html"></div>
                   </div>
                   <!-- Slide 3: Surround -->
-                  <div class="ob-slide">
+                  <div class="ob-slide" aria-hidden="true" inert>
                     <div class="ob-icon-circle">
                       <svg viewBox="0 0 24 24">
                         <path
@@ -2416,7 +2453,7 @@
                     <div class="ob-desc" data-i18n-html="setup.spatial_audio_desc_html"></div>
                   </div>
                   <!-- Slide 4: Advanced Audio -->
-                  <div class="ob-slide">
+                  <div class="ob-slide" aria-hidden="true" inert>
                     <div class="ob-icon-circle">
                       <svg viewBox="0 0 24 24">
                         <path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z" />
@@ -2447,10 +2484,16 @@
                   </svg>
                 </button>
                 <div class="ob-dots" id="ob-dots">
-                  <div class="ob-dot active" data-idx="0"></div>
-                  <div class="ob-dot" data-idx="1"></div>
-                  <div class="ob-dot" data-idx="2"></div>
-                  <div class="ob-dot" data-idx="3"></div>
+                  <button
+                    type="button"
+                    class="ob-dot active"
+                    data-idx="0"
+                    aria-label="1 / 4"
+                    aria-current="true"
+                  ></button>
+                  <button type="button" class="ob-dot" data-idx="1" aria-label="2 / 4"></button>
+                  <button type="button" class="ob-dot" data-idx="2" aria-label="3 / 4"></button>
+                  <button type="button" class="ob-dot" data-idx="3" aria-label="4 / 4"></button>
                 </div>
                 <button
                   class="ob-nav-arrow ob-nav-next"
@@ -2564,13 +2607,18 @@
             </div>
 
             <div class="setup-code-area-bottom">
-              <div class="setup-code-label" data-i18n="setup.enter_code_connect"></div>
+              <div
+                class="setup-code-label"
+                id="setup-host-code-label"
+                data-i18n="setup.enter_code_connect"
+              ></div>
               <input
                 type="text"
                 class="setup-join-input code-input-active"
                 id="setup-code"
                 value="------"
                 readonly
+                aria-labelledby="setup-host-code-label"
               />
               <p
                 id="setup-host-error"
@@ -2783,19 +2831,19 @@
               </svg>
             </div>
             <div class="channel-grid setup-card-tight" id="setup-role-grid">
-              <button type="button" class="ch-opt" data-join-ch="-1">
+              <button type="button" class="ch-opt" data-join-ch="-1" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
                 </svg>
                 <span data-i18n="role.left"></span>
               </button>
-              <button type="button" class="ch-opt" data-join-ch="1">
+              <button type="button" class="ch-opt" data-join-ch="1" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
                 </svg>
                 <span data-i18n="role.right"></span>
               </button>
-              <button type="button" class="ch-opt" data-join-ch="2">
+              <button type="button" class="ch-opt" data-join-ch="2" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path
                     d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"
@@ -2804,7 +2852,7 @@
                 </svg>
                 <span data-i18n="role.subwoofer"></span>
               </button>
-              <button type="button" class="ch-opt" data-join-ch="0">
+              <button type="button" class="ch-opt" data-join-ch="0" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path
                     d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"
@@ -3229,19 +3277,14 @@
               <div class="demo-track-artist">© Brett Taylor</div>
             </div>
           </div>
-          <div
-            class="demo-step-nav"
-            role="tablist"
-            aria-label=""
-            data-i18n-aria-label="demo.step_nav_label"
-          >
-            <button type="button" class="active" data-demo-step="1" aria-selected="true">
+          <div class="demo-step-nav" aria-label="" data-i18n-aria-label="demo.step_nav_label">
+            <button type="button" class="active" data-demo-step="1" aria-pressed="true">
               <span data-i18n="demo.step_connect"></span>
             </button>
-            <button type="button" data-demo-step="2" aria-selected="false">
+            <button type="button" data-demo-step="2" aria-pressed="false">
               <span data-i18n="demo.step_role"></span>
             </button>
-            <button type="button" data-demo-step="3" aria-selected="false">
+            <button type="button" data-demo-step="3" aria-pressed="false">
               <span data-i18n="demo.step_effects"></span>
             </button>
             <button

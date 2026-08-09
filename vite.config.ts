@@ -1,5 +1,7 @@
 import { defineConfig, loadEnv, type Plugin, type UserConfig } from 'vite';
+import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'path';
+import { collectRenderedWorkerAssets } from './scripts/service-worker-app-shell-guard-lib.mjs';
 
 // Keep DNS rebinding protection enabled for local development. Vite always
 // accepts IP literals, so LAN/device testing through --host still works. A
@@ -240,6 +242,109 @@ const guardInitialAppBundleGraph = (): Plugin => ({
   },
 });
 
+const BUILD_ENTRY_ASSETS_MARKER = '/* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */';
+
+function serviceWorkerAssetPath(fileName: string): string {
+  return `./${fileName.replace(/^\/+/, '')}`;
+}
+
+interface StaticBuildChunk {
+  type: 'chunk';
+  fileName: string;
+  isEntry: boolean;
+  imports: string[];
+  referencedFiles?: string[];
+  code?: string;
+  modules: Record<string, unknown>;
+  viteMetadata?: { importedCss?: Set<string> };
+}
+
+/** Collect the complete JS/CSS closure required to execute the canonical app entry. */
+export function collectStaticAppEntryAssets(bundle: Record<string, unknown>): string[] {
+  const chunks = new Map(
+    Object.values(bundle)
+      .filter((output): output is StaticBuildChunk => {
+        return Boolean(
+          output && typeof output === 'object' && (output as { type?: string }).type === 'chunk',
+        );
+      })
+      .map((chunk) => [chunk.fileName, chunk]),
+  );
+  const appEntry = [...chunks.values()].find(
+    (chunk) =>
+      chunk.isEntry &&
+      Object.keys(chunk.modules).some((id) => id.replace(/\\/gu, '/').endsWith('/src/app.ts')),
+  );
+  if (!appEntry) return [];
+
+  const assets = new Set<string>();
+  const visited = new Set<string>();
+  const pending = [appEntry.fileName];
+  while (pending.length > 0) {
+    const fileName = pending.pop();
+    if (!fileName || visited.has(fileName)) continue;
+    visited.add(fileName);
+    const chunk = chunks.get(fileName);
+    if (!chunk) continue;
+    assets.add(serviceWorkerAssetPath(chunk.fileName));
+    for (const css of chunk.viteMetadata?.importedCss ?? []) {
+      assets.add(serviceWorkerAssetPath(css));
+    }
+    // Vite emits `new Worker(new URL(..., import.meta.url))` as a referenced
+    // Rollup file rather than a static JS import. It is nevertheless created
+    // during app bootstrap, before service-worker registration, so it belongs
+    // to the deterministic cold-offline closure of the entry chunk.
+    for (const referencedFile of chunk.referencedFiles ?? []) {
+      if (typeof referencedFile === 'string' && bundle[referencedFile]) {
+        assets.add(serviceWorkerAssetPath(referencedFile));
+      }
+    }
+    for (const renderedWorkerPath of collectRenderedWorkerAssets(chunk.code || '')) {
+      const fileName = renderedWorkerPath.replace(/^\/+/, '');
+      const output = Object.values(bundle).find(
+        (candidate) =>
+          candidate &&
+          typeof candidate === 'object' &&
+          (candidate as { fileName?: unknown }).fileName === fileName,
+      );
+      if (output) assets.add(serviceWorkerAssetPath(fileName));
+    }
+    pending.push(...chunk.imports);
+  }
+  return [...assets].sort();
+}
+
+export function injectBuildEntryAssets(serviceWorker: string, assets: readonly string[]): string {
+  const markerCount = serviceWorker.split(BUILD_ENTRY_ASSETS_MARKER).length - 1;
+  if (markerCount !== 1) {
+    throw new Error(`Expected one service-worker build manifest marker, found ${markerCount}.`);
+  }
+  if (assets.length === 0) throw new Error('Canonical app entry manifest is empty.');
+  const manifest = assets.map((asset) => JSON.stringify(asset)).join(',\n  ');
+  return serviceWorker.replace(BUILD_ENTRY_ASSETS_MARKER, manifest);
+}
+
+const injectServiceWorkerBuildManifest = (): Plugin => {
+  let assets: string[] = [];
+  let outDir = '';
+  return {
+    name: 'inject-service-worker-build-manifest',
+    apply: 'build',
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir);
+    },
+    generateBundle(_options, bundle) {
+      assets = collectStaticAppEntryAssets(bundle as unknown as Record<string, unknown>);
+      if (assets.length === 0) this.error('Could not collect the MUSIXQUARE app entry manifest.');
+    },
+    async closeBundle() {
+      const serviceWorkerPath = resolve(outDir, 'service-worker.js');
+      const serviceWorker = await readFile(serviceWorkerPath, 'utf8');
+      await writeFile(serviceWorkerPath, injectBuildEntryAssets(serviceWorker, assets), 'utf8');
+    },
+  };
+};
+
 const EXPECTED_PLAYLIST_DYNAMIC_IMPORTERS = [
   'src/player/playlist-loader.ts',
   'src/storage/preload.ts',
@@ -306,6 +411,7 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
       failClosedDevApi(proxyProductionApi),
       prioritizeStylesheetsInHtml(),
       guardInitialAppBundleGraph(),
+      injectServiceWorkerBuildManifest(),
     ],
     build: {
       outDir: 'dist',

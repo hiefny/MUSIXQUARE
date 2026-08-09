@@ -23,16 +23,40 @@ const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
 
 let _swReloading = false;
 
+function readSessionMarker(key: string): string | null {
+  try {
+    return globalThis.sessionStorage?.getItem(key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionMarker(key: string, value: string): void {
+  try {
+    globalThis.sessionStorage?.setItem(key, value);
+  } catch {
+    // Storage can be denied in private/embedded contexts; updates must proceed.
+  }
+}
+
+function removeSessionMarker(key: string): void {
+  try {
+    globalThis.sessionStorage?.removeItem(key);
+  } catch {
+    // Best-effort marker cleanup only.
+  }
+}
+
 function reloadForServiceWorkerUpdate(): void {
   if (_swReloading) return;
   _swReloading = true;
   const confirmedAt = Date.now();
-  sessionStorage.setItem(SW_UPDATE_KEY, String(confirmedAt));
+  writeSessionMarker(SW_UPDATE_KEY, String(confirmedAt));
   // Every caller reaches this seam only after controllerchange (or after
   // proving that navigator.serviceWorker.controller already changed). A new
   // document can therefore distinguish this aligned reload from the legacy
   // v267 flow, which reloaded before activation completed.
-  sessionStorage.setItem(SW_CONTROLLER_CONFIRMED_KEY, String(confirmedAt));
+  writeSessionMarker(SW_CONTROLLER_CONFIRMED_KEY, String(confirmedAt));
   scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
 }
 
@@ -49,8 +73,8 @@ function isReloadNavigation(): boolean {
 
 function isUnconfirmedRecentUpdateReload(): boolean {
   if (!isReloadNavigation()) return false;
-  const updatedAt = Number(sessionStorage.getItem(SW_UPDATE_KEY) || '0');
-  const controllerConfirmedAt = Number(sessionStorage.getItem(SW_CONTROLLER_CONFIRMED_KEY) || '0');
+  const updatedAt = Number(readSessionMarker(SW_UPDATE_KEY) || '0');
+  const controllerConfirmedAt = Number(readSessionMarker(SW_CONTROLLER_CONFIRMED_KEY) || '0');
   const age = Date.now() - updatedAt;
   return updatedAt > 0 && age >= 0 && age < SW_COOLDOWN_MS && controllerConfirmedAt < updatedAt;
 }
@@ -188,7 +212,7 @@ export function registerServiceWorker(): void {
         handledWaitingWorker = worker;
         updateFoundInThisDocument = true;
 
-        const lastUpdate = Number(sessionStorage.getItem(SW_UPDATE_KEY) || '0');
+        const lastUpdate = Number(readSessionMarker(SW_UPDATE_KEY) || '0');
         const inCooldown = Date.now() - lastUpdate < SW_COOLDOWN_MS;
         if (inCooldown) {
           log.debug('[SW] Update found during cooldown — silently activating');
@@ -214,8 +238,8 @@ export function registerServiceWorker(): void {
           if (_swReloading) return;
           activationState = 'awaiting-local-controller';
           const requestedAt = Date.now();
-          sessionStorage.setItem(SW_UPDATE_KEY, String(requestedAt));
-          sessionStorage.removeItem(SW_CONTROLLER_CONFIRMED_KEY);
+          writeSessionMarker(SW_UPDATE_KEY, String(requestedAt));
+          removeSessionMarker(SW_CONTROLLER_CONFIRMED_KEY);
 
           if (
             controllerChangedWhilePrompting ||

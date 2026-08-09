@@ -3,7 +3,7 @@
  *
  * Required bindings:
  * - REMOTE_SHARE_BUCKET: R2 bucket
- * - REMOTE_SHARE_QUOTA: per-room Durable Object namespace when quota is enabled
+ * - REMOTE_SHARE_QUOTA: per-room Durable Object namespace for durable session replay
  * - MUSIXQUARE_SERVICE_CONTROL: shared Durable Object namespace for maintenance
  *   state and atomic abuse-rate counters
  * - REMOTE_SHARE_SIGNING_SECRET: HMAC secret for upload session tokens
@@ -18,7 +18,8 @@
  * - RATE_LIMIT_WINDOW_SECONDS: default 3600
  * - IP_UPLOADS_PER_WINDOW: default 60
  * - ROOM_UPLOADS_PER_WINDOW: default 0 (disabled)
- * - ROOM_STORAGE_QUOTA_BYTES: default 0 (disabled). Production uses 1 GiB.
+ * - ROOM_STORAGE_QUOTA_BYTES: default 0. Production uses 1 GiB and requires
+ *     the durable session-replay path.
  * - ALLOWED_ORIGINS: comma-separated origins
  * - MXQR_CAPABILITY_SECRET: required for /session in production. When unset
  *     /session returns 503 CAPABILITY_NOT_CONFIGURED unless the dangerous
@@ -28,6 +29,8 @@
  * Dangerous bypass flags (asserted by scripts/assert-production-security-config.mjs):
  * - MXQR_ALLOW_UNGUARDED_REMOTE_SHARE: permit /session without capability when
  *     no secret is configured. Local/emergency only.
+ * - MXQR_ALLOW_STATELESS_REMOTE_SHARE_SESSION: permit /session without the
+ *     quota/replay Durable Object. Local tests only; never set in production.
  */
 
 import {
@@ -52,22 +55,28 @@ const CAPABILITY_SCOPE = 'remote-share';
 const CAPABILITY_TOKEN_TTL_DEFAULT = 600;
 const SESSION_JSON_BODY_MAX_BYTES = 8 * 1024;
 const COMPLETE_JSON_BODY_MAX_BYTES = 8 * 1024;
-const QUOTA_JSON_BODY_MAX_BYTES = 4 * 1024;
+const QUOTA_JSON_BODY_MAX_BYTES = 16 * 1024;
 const JSON_BODY_TIMEOUT_MS = 10_000;
 const QUOTA_RESPONSE_TIMEOUT_MS = 5_000;
 const HMAC_SECRET_MIN_LENGTH = 32;
 const QUOTA_STATE_KEY = 'quota-state';
 const QUOTA_STATE_VERSION = 2;
+const SESSION_PROOF_STATE_KEY = 'session-proof-state';
+const SESSION_PROOF_STATE_VERSION = 1;
+const SESSION_PROOF_OBJECT_PREFIX = 'session-proof-v3:';
 const QUOTA_STATE_MAX_ENTRIES = ROOM_STORAGE_SCAN_MAX_OBJECTS;
 const QUOTA_STATE_MAX_SERIALIZED_BYTES = 1_500_000;
 const QUOTA_ALARM_RETRY_MS = 60 * 1000;
 const EXPIRY_TOMBSTONE_SWEEP_MS = 60 * 1000;
 const EXPIRY_TOMBSTONE_QUIET_MS = 60 * 60 * 1000;
 const WHOLE_OBJECT_VERSION = 1;
+const WORKER_CONTRACT_VERSION = 3;
 const DOWNLOAD_AUTHORIZATION_VERSION = 1;
 // Storage/token format name. The peer descriptor deliberately calls the same
 // downloaded bytes `whole-v1`; the distinct names identify the storage and wire layers.
 const WHOLE_OBJECT_STORAGE_FORMAT = 'whole-object-v1';
+const UPLOAD_PLACEHOLDER_FORMAT = 'whole-object-upload-placeholder-v1';
+const UPLOAD_HTTP_ETAG_RE = /^"[\x21\x23-\x7e]{1,128}"$/;
 const DOWNLOAD_TOKEN_KIND = 'download';
 const DOWNLOAD_TOKEN_AUDIENCE = 'musixquare-remote-share';
 const DOWNLOAD_TOKEN_METHOD = 'GET';
@@ -124,6 +133,16 @@ const COMPLETE_TOKEN_KEYS = Object.freeze([
 // The complete 0xxxxx namespace belongs to persistent PRO rooms and must never
 // share this temporary whole-object bucket or its per-room quota keys.
 const STANDARD_ROOM_CODE_RE = /^[1-9]\d{5}$/;
+// `rs_` is the cached v2 client shape. v3 uses an actor-secret-derived nonce
+// with a distinguishable prefix so a mixed-version rollout can be audited.
+// Neither v3 value is stored directly: the Worker folds the pair together
+// under its signing secret before any durable replay lookup. The capability
+// still gates access, but rotating that short-lived token must not break an
+// outcome-unknown retry by the same private v3 browser actor.
+const V2_CLIENT_SESSION_REQUEST_ID_RE = /^rs_[A-Za-z0-9_-]{43}$/;
+const V3_CLIENT_SESSION_REQUEST_ID_RE = /^rs3_[A-Za-z0-9_-]{43}$/;
+const V3_CLIENT_SESSION_ACTOR_ID_RE = /^rsa_[A-Za-z0-9_-]{43}$/;
+const SESSION_RECEIPT_KEY_RE = /^rs_[A-Za-z0-9_-]{43}$/;
 const DEFAULT_ALLOWED_ORIGINS = new Set([
   'https://musixquare.com',
   'https://www.musixquare.com',
@@ -134,6 +153,7 @@ const DEFAULT_ALLOWED_ORIGINS = new Set([
   'http://localhost:4173',
   'http://127.0.0.1:4173',
 ]);
+const inFlightUploadSessionRateLimits = new Map();
 
 const DEFAULT_ALLOWED_ORIGIN_PATTERNS = [
   /^https:\/\/(?:[^/]+\.)?tossmini\.com$/i,
@@ -405,6 +425,13 @@ function allowUnguardedRemoteShare(env) {
   return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
+function allowStatelessRemoteShareSession(env) {
+  const raw = String(env.MXQR_ALLOW_STATELESS_REMOTE_SHARE_SESSION ?? 'false')
+    .trim()
+    .toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
 function getR2S3Config(env) {
   const accountId = String(env.R2_ACCOUNT_ID || '').trim();
   const accessKeyId = String(env.R2_ACCESS_KEY_ID || '').trim();
@@ -437,7 +464,7 @@ function base64UrlDecode(value) {
 }
 
 function base64UrlToString(value) {
-  return new TextDecoder().decode(base64UrlDecode(value));
+  return new TextDecoder('utf-8', { fatal: true }).decode(base64UrlDecode(value));
 }
 
 async function importSigningKey(secret) {
@@ -496,6 +523,31 @@ async function rateLimitIpKey(secret, request) {
   return `session-ip:${digest}`;
 }
 
+async function uploadSessionRequestKey(secret, authorityScope, clientRequestId) {
+  if (!clientRequestId) return null;
+  return `rs_${await hmacSha256(
+    secret,
+    `upload-session-request:v3\u0000${authorityScope}\u0000${clientRequestId}`,
+  )}`;
+}
+
+async function uploadSessionOperationId(secret, authorityScope, clientRequestId, metadata) {
+  const canonical = JSON.stringify([
+    authorityScope,
+    // A six-field cached client has no replay nonce. Give every request a
+    // fresh operation identity so public metadata can never recover another
+    // caller's upload, completion, or cleanup authority.
+    clientRequestId || `legacy:${crypto.randomUUID()}`,
+    metadata.roomId,
+    metadata.sessionId,
+    metadata.queueItemId,
+    metadata.name,
+    metadata.mime,
+    metadata.storedSize,
+  ]);
+  return `rs_${await hmacSha256(secret, `upload-session:v3\u0000${canonical}`)}`;
+}
+
 function readCapabilityToken(request) {
   const headerToken =
     request.headers.get('x-mxqr-capability') || request.headers.get('X-MXQR-Capability') || '';
@@ -507,44 +559,67 @@ function readCapabilityToken(request) {
 
 async function verifyCapabilityToken(token, request, env) {
   const secret = getCapabilitySecret(env);
-  if (!secret || !token) return false;
+  if (!secret || !token) return '';
   const parts = token.split('.');
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return '';
 
   const expectedSignature = await hmacSha256(secret, parts[0]);
-  if (!constantTimeEqual(expectedSignature, parts[1])) return false;
+  if (!constantTimeEqual(expectedSignature, parts[1])) return '';
 
   let payload;
   try {
     payload = JSON.parse(base64UrlToString(parts[0]));
   } catch {
-    return false;
+    return '';
   }
 
   const now = Math.floor(Date.now() / 1000);
-  if (payload?.v !== 1) return false;
-  if (!Array.isArray(payload.scopes) || !payload.scopes.includes(CAPABILITY_SCOPE)) return false;
-  if (typeof payload.iat !== 'number' || payload.iat > now + 60) return false;
-  if (typeof payload.exp !== 'number' || payload.exp <= now) return false;
+  if (payload?.v !== 1) return '';
+  if (!Array.isArray(payload.scopes) || !payload.scopes.includes(CAPABILITY_SCOPE)) return '';
+  if (typeof payload.iat !== 'number' || payload.iat > now + 60) return '';
+  if (typeof payload.exp !== 'number' || payload.exp <= now) return '';
 
   const expectedIp = await capabilityIpHash(secret, request);
-  return constantTimeEqual(String(payload.ip || ''), expectedIp);
+  if (!constantTimeEqual(String(payload.ip || ''), expectedIp)) return '';
+  // The capability is already a bearer authority. Persist only a keyed,
+  // domain-separated pseudonym so a different token (including one minted for
+  // the same NAT/IP) can never retrieve this token's upload authorities.
+  return hmacSha256(secret, `remote-share-session-actor:v1\u0000${token}`);
 }
 
-async function requireSessionCapability(request, env) {
+async function authorizeSessionCapability(request, env, signingSecret) {
   if (hasInvalidCapabilitySecret(env)) {
-    return json(request, env, { error: 'CAPABILITY_SECRET_INVALID' }, 503);
+    return {
+      response: json(request, env, { error: 'CAPABILITY_SECRET_INVALID' }, 503),
+      authorityScope: '',
+    };
   }
   if (!isCapabilityRequired(env)) {
     // Parity with app-worker.guardSensitiveRequest: a missing capability
     // secret is a production-config error, not a license to bypass. Run-mode
     // override is the only escape so operators don't silently ship an
     // unguarded /session endpoint.
-    if (allowUnguardedRemoteShare(env)) return null;
-    return json(request, env, { error: 'CAPABILITY_NOT_CONFIGURED' }, 503);
+    if (allowUnguardedRemoteShare(env)) {
+      return {
+        response: null,
+        authorityScope: await hmacSha256(
+          signingSecret,
+          `remote-share-unguarded-session-actor:v1\u0000${getClientIp(request)}`,
+        ),
+      };
+    }
+    return {
+      response: json(request, env, { error: 'CAPABILITY_NOT_CONFIGURED' }, 503),
+      authorityScope: '',
+    };
   }
-  if (await verifyCapabilityToken(readCapabilityToken(request), request, env)) return null;
-  return json(request, env, { error: 'CAPABILITY_REQUIRED' }, 401);
+  const authorityScope = await verifyCapabilityToken(readCapabilityToken(request), request, env);
+  return authorityScope
+    ? { response: null, authorityScope }
+    : {
+        response: json(request, env, { error: 'CAPABILITY_REQUIRED' }, 401),
+        authorityScope: '',
+      };
 }
 
 function handleSecurityConfig(request, env) {
@@ -555,7 +630,9 @@ function handleSecurityConfig(request, env) {
     capabilityRequired: isCapabilityRequired(env),
     scope: CAPABILITY_SCOPE,
     ttl: CAPABILITY_TOKEN_TTL_DEFAULT,
-    workerContractVersion: 1,
+    workerContractVersion: WORKER_CONTRACT_VERSION,
+    sessionReplayRequired: !allowStatelessRemoteShareSession(env),
+    sessionReplayEnabled: roomStorageSessionReplayEnabled(env),
     wholeObjectVersion: WHOLE_OBJECT_VERSION,
     downloadAuthorizationVersion: DOWNLOAD_AUTHORIZATION_VERSION,
   });
@@ -676,7 +753,9 @@ async function verifySignedToken(token, secret) {
     );
     if (!valid) return null;
 
-    return JSON.parse(new TextDecoder().decode(base64UrlDecode(encodedPayload)));
+    return JSON.parse(
+      new TextDecoder('utf-8', { fatal: true }).decode(base64UrlDecode(encodedPayload)),
+    );
   } catch {
     return null;
   }
@@ -784,13 +863,14 @@ function readMetadata(object, ...keys) {
   return undefined;
 }
 
-async function consumeLimit(env, key, limit, ttlSeconds) {
+async function consumeLimit(env, key, limit, ttlSeconds, operationId) {
   if (env.MUSIXQUARE_SERVICE_CONTROL) {
     const result = await consumeAbuseRateLimit(env, {
       scope: 'remote-share-upload',
       identity: key,
       limit,
       windowMs: ttlSeconds * 1_000,
+      operationId,
     });
     if (result.status !== 'ok') return 'unavailable';
     return result.allowed ? 'allowed' : 'limited';
@@ -807,6 +887,17 @@ function roomStorageQuotaBytes(env) {
 
 function roomStorageQuotaEnabled(env) {
   return roomStorageQuotaBytes(env) > 0;
+}
+
+function hasRoomStorageQuotaBinding(env) {
+  return (
+    typeof env.REMOTE_SHARE_QUOTA?.idFromName === 'function' &&
+    typeof env.REMOTE_SHARE_QUOTA?.get === 'function'
+  );
+}
+
+function roomStorageSessionReplayEnabled(env) {
+  return roomStorageQuotaEnabled(env) && hasRoomStorageQuotaBinding(env);
 }
 
 async function deleteBucketKeysInChunks(bucket, keys) {
@@ -885,6 +976,55 @@ async function roomHasStorageCapacity(env, roomId, additionalBytes) {
   return storedBytes + additionalBytes <= quotaBytes;
 }
 
+function uploadHttpEtag(object) {
+  const httpEtag = String(object?.httpEtag || '');
+  if (UPLOAD_HTTP_ETAG_RE.test(httpEtag)) return httpEtag;
+  const etag = String(object?.etag || '');
+  const quoted = `"${etag}"`;
+  return UPLOAD_HTTP_ETAG_RE.test(quoted) ? quoted : '';
+}
+
+async function createUploadPlaceholder(env, reservation) {
+  const bucket = env.REMOTE_SHARE_BUCKET;
+  if (!bucket || typeof bucket.put !== 'function') {
+    throw new Error('room storage quota bucket cannot create upload placeholder');
+  }
+  const object = await bucket.put(reservation.objectKey, new Uint8Array(), {
+    customMetadata: {
+      cleanupToken: reservation.cleanupToken,
+      expiresAt: String(reservation.expiresAt),
+      formatVersion: UPLOAD_PLACEHOLDER_FORMAT,
+      objectId: reservation.objectId,
+      roomId: reservation.roomId,
+      storedSize: String(reservation.storedSize),
+    },
+    // A UUID collision or unexpected object is never safe to overwrite before
+    // the room quota Durable Object has serialized this reservation.
+    onlyIf: { etagDoesNotMatch: '*' },
+  });
+  const etag = uploadHttpEtag(object);
+  if (!etag) {
+    try {
+      await bucket.delete(reservation.objectKey);
+    } catch {
+      // Preserve the primary fail-closed placeholder error.
+    }
+    throw new Error('upload placeholder ETag unavailable');
+  }
+  return etag;
+}
+
+async function deleteUnissuedUploadPlaceholder(env, key) {
+  try {
+    await env.REMOTE_SHARE_BUCKET?.delete(key);
+  } catch (error) {
+    // No presigned authority was returned for this candidate. A failed cleanup
+    // is still conservative because the zero-byte placeholder remains visible
+    // to reconciliation and cannot consume the declared-byte quota by itself.
+    console.warn('remote share unissued upload placeholder cleanup failed', error);
+  }
+}
+
 function roomStorageQuotaExceeded(request, env) {
   return json(
     request,
@@ -919,8 +1059,11 @@ function roomQuotaStub(env, roomId) {
   return quotaStub(env, roomId);
 }
 
-async function callRoomQuota(env, roomId, operation, body) {
-  const stub = roomQuotaStub(env, roomId);
+function sessionProofStub(env, clientRequestId) {
+  return quotaStub(env, `${SESSION_PROOF_OBJECT_PREFIX}${clientRequestId}`);
+}
+
+async function callQuotaStub(stub, operation, body) {
   let activeReader = null;
   let timedOut = false;
   let timeoutId = null;
@@ -930,7 +1073,7 @@ async function callRoomQuota(env, roomId, operation, body) {
         new Request(`https://remote-share-quota.internal/${operation}`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ roomId, ...body }),
+          body: JSON.stringify(body),
         }),
       ),
     )
@@ -965,16 +1108,63 @@ async function callRoomQuota(env, roomId, operation, body) {
     if (timeoutId !== null) clearTimeout(timeoutId);
   }
   if (!result || !result.payload) {
-    throw new Error('invalid room storage quota response');
+    throw Object.assign(new Error('invalid room storage quota response'), {
+      quotaOutcomeAmbiguous: true,
+    });
   }
   return { payload: result.payload, status: result.response.status };
 }
 
+async function callRoomQuota(env, roomId, operation, body) {
+  return callQuotaStub(roomQuotaStub(env, roomId), operation, { roomId, ...body });
+}
+
+async function claimUploadSessionProof(env, clientRequestId, operationId, expiresAt) {
+  const result = await callQuotaStub(sessionProofStub(env, clientRequestId), 'proof-claim', {
+    clientRequestId,
+    operationId,
+    expiresAt,
+  });
+  if (result.status === 200 && result.payload?.claimed === true) {
+    return { replayed: result.payload.replayed === true };
+  }
+  if (result.status === 409 && result.payload?.error === 'SESSION_REQUEST_CONFLICT') {
+    return { conflict: true };
+  }
+  throw new Error('upload session proof fence unavailable');
+}
+
 async function reserveRoomStorage(env, reservation) {
   const result = await callRoomQuota(env, reservation.roomId, 'reserve', reservation);
-  if (result.status === 200 && result.payload?.reserved === true) return true;
+  if (result.status === 200 && result.payload?.reserved === true) {
+    return {
+      replayed: result.payload.replayed === true,
+      reservation:
+        result.payload.reservation && typeof result.payload.reservation === 'object'
+          ? result.payload.reservation
+          : reservation,
+    };
+  }
   if (result.status === 409 && result.payload?.code === 'ROOM_STORAGE_QUOTA_EXCEEDED') {
-    return false;
+    return null;
+  }
+  if (result.status === 409 && result.payload?.error === 'SESSION_REQUEST_CONFLICT') {
+    return { conflict: true };
+  }
+  throw new Error('room storage quota unavailable');
+}
+
+async function lookupRoomStorageSession(env, roomId, operationId, clientRequestId) {
+  const result = await callRoomQuota(env, roomId, 'lookup', {
+    operationId,
+    clientRequestId,
+  });
+  if (result.status === 200 && result.payload?.found === true) {
+    return { status: 'found', reservation: result.payload.reservation };
+  }
+  if (result.status === 404) return { status: 'missing' };
+  if (result.status === 409 && result.payload?.error === 'SESSION_REQUEST_CONFLICT') {
+    return { status: 'conflict' };
   }
   throw new Error('room storage quota unavailable');
 }
@@ -1003,11 +1193,15 @@ async function releaseRoomStorageReservation(env, roomId, objectId, cleanupToken
 
 async function releaseRoomStorageReservationBestEffort(env, roomId, objectId, cleanupToken) {
   try {
-    await releaseRoomStorageReservation(env, roomId, objectId, cleanupToken);
+    return {
+      confirmed: true,
+      released: await releaseRoomStorageReservation(env, roomId, objectId, cleanupToken),
+    };
   } catch (error) {
     // A failed release leaves a conservative reservation until expiry. It can
     // temporarily deny capacity, but can never admit an over-quota upload.
     console.warn('remote share room storage reservation release failed', error);
+    return { confirmed: false, released: false };
   }
 }
 
@@ -1017,21 +1211,22 @@ function rateLimited(request, env, message, retryAfterSeconds) {
   });
 }
 
-async function consumeUploadSessionRateLimits(request, env, secret, roomId) {
-  const rateWindowSeconds = parseLimit(
-    env.RATE_LIMIT_WINDOW_SECONDS,
-    DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
-  );
-  const ipUploadLimit = parseLimit(env.IP_UPLOADS_PER_WINDOW, DEFAULT_IP_UPLOADS_PER_WINDOW);
-  const roomUploadLimit = parseOptionalLimit(
-    env.ROOM_UPLOADS_PER_WINDOW,
-    DEFAULT_ROOM_UPLOADS_PER_WINDOW,
-  );
+async function consumeUploadSessionRateLimitsUncoalesced(
+  request,
+  env,
+  roomId,
+  operationId,
+  ipKey,
+  rateWindowSeconds,
+  ipUploadLimit,
+  roomUploadLimit,
+) {
   const ipRate = await consumeLimit(
     env,
-    await rateLimitIpKey(secret, request),
+    ipKey,
     ipUploadLimit,
     rateWindowSeconds,
+    operationId,
   );
   if (ipRate === 'unavailable') {
     return json(request, env, { error: 'rate limit unavailable' }, 503);
@@ -1045,6 +1240,7 @@ async function consumeUploadSessionRateLimits(request, env, secret, roomId) {
       `session-room:${roomId}`,
       roomUploadLimit,
       rateWindowSeconds,
+      operationId,
     );
     if (roomRate === 'unavailable') {
       return json(request, env, { error: 'rate limit unavailable' }, 503);
@@ -1056,18 +1252,156 @@ async function consumeUploadSessionRateLimits(request, env, secret, roomId) {
   return null;
 }
 
+async function consumeUploadSessionRateLimits(request, env, secret, roomId, operationId) {
+  const rateWindowSeconds = parseLimit(
+    env.RATE_LIMIT_WINDOW_SECONDS,
+    DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
+  );
+  const ipUploadLimit = parseLimit(env.IP_UPLOADS_PER_WINDOW, DEFAULT_IP_UPLOADS_PER_WINDOW);
+  const roomUploadLimit = parseOptionalLimit(
+    env.ROOM_UPLOADS_PER_WINDOW,
+    DEFAULT_ROOM_UPLOADS_PER_WINDOW,
+  );
+  const ipKey = await rateLimitIpKey(secret, request);
+  const coalesceKey = JSON.stringify([
+    operationId,
+    ipKey,
+    roomId,
+    rateWindowSeconds,
+    ipUploadLimit,
+    roomUploadLimit,
+  ]);
+  let pending = inFlightUploadSessionRateLimits.get(coalesceKey);
+  if (!pending) {
+    pending = consumeUploadSessionRateLimitsUncoalesced(
+      request,
+      env,
+      roomId,
+      operationId,
+      ipKey,
+      rateWindowSeconds,
+      ipUploadLimit,
+      roomUploadLimit,
+    );
+    if (inFlightUploadSessionRateLimits.size < 1024) {
+      inFlightUploadSessionRateLimits.set(coalesceKey, pending);
+      const cleanup = () => {
+        if (inFlightUploadSessionRateLimits.get(coalesceKey) === pending) {
+          inFlightUploadSessionRateLimits.delete(coalesceKey);
+        }
+      };
+      void pending.then(cleanup, cleanup);
+    }
+  }
+  const result = await pending;
+  return result ? result.clone() : null;
+}
+
+function normalizeSessionReservation(value, expected) {
+  const reservation = parseQuotaReservation({ ...value, roomId: expected.roomId });
+  if (
+    !reservation ||
+    !validSessionReceiptFields(reservation) ||
+    reservation.roomId !== expected.roomId ||
+    reservation.operationId !== expected.operationId ||
+    reservation.clientRequestId !== expected.clientRequestId ||
+    reservation.storedSize !== expected.storedSize ||
+    reservation.sessionId !== expected.sessionId ||
+    reservation.queueItemId !== expected.queueItemId ||
+    reservation.name !== expected.name ||
+    reservation.mime !== expected.mime
+  ) {
+    return null;
+  }
+  return reservation;
+}
+
+async function issueUploadSession(reservation, env, secret, quotaEnabled) {
+  const now = Date.now();
+  const signingSecond = Math.floor(now / 1000) * 1000;
+  const authorityDeadline = Math.min(
+    reservation.uploadAuthorityExpiresAt,
+    reservation.expiresAt,
+  );
+  if (now >= authorityDeadline) return null;
+  const uploadTtlSeconds = Math.floor((authorityDeadline - signingSecond) / 1000);
+  if (uploadTtlSeconds <= 0) return null;
+  const uploadHeaders = {
+    'content-type': 'application/octet-stream',
+    ...(quotaEnabled ? { 'if-match': reservation.uploadEtag } : {}),
+    'x-amz-meta-cleanup-token': reservation.cleanupToken,
+    'x-amz-meta-expires-at': String(reservation.expiresAt),
+    'x-amz-meta-format-version': WHOLE_OBJECT_STORAGE_FORMAT,
+    'x-amz-meta-mime': reservation.mime,
+    'x-amz-meta-name': reservation.name,
+    'x-amz-meta-object-id': reservation.objectId,
+    'x-amz-meta-room-id': reservation.roomId,
+    'x-amz-meta-stored-size': String(reservation.storedSize),
+  };
+  const uploadUrl = await createR2PresignedPutUrl({
+    env,
+    objectKey: reservation.objectKey,
+    headers: {
+      ...uploadHeaders,
+      'content-length': String(reservation.storedSize),
+    },
+    expiresInSeconds: uploadTtlSeconds,
+    now: new Date(now),
+  });
+  if (!uploadUrl) throw new Error('r2 s3 config missing');
+  const completeToken = await createSignedToken(
+    {
+      v: WHOLE_OBJECT_VERSION,
+      ...(quotaEnabled ? { quotaReservationVersion: 1 } : {}),
+      kind: 'complete',
+      storageFormat: WHOLE_OBJECT_STORAGE_FORMAT,
+      roomId: reservation.roomId,
+      objectId: reservation.objectId,
+      objectKey: reservation.objectKey,
+      sessionId: reservation.sessionId,
+      queueItemId: reservation.queueItemId,
+      storedSize: reservation.storedSize,
+      expiresAt: reservation.expiresAt,
+      cleanupToken: reservation.cleanupToken,
+      iat: now,
+      exp: reservation.expiresAt,
+      nonce: crypto.randomUUID(),
+    },
+    secret,
+  );
+  return {
+    uploadUrl,
+    uploadHeaders,
+    uploadUrlExpiresAt: authorityDeadline,
+    completeToken,
+    objectId: reservation.objectId,
+    expiresAt: reservation.expiresAt,
+    cleanupToken: reservation.cleanupToken,
+  };
+}
+
 async function handleSession(request, env) {
   const secret = getSigningSecret(env);
   if (!secret) return json(request, env, { error: 'signing secret missing' }, 500);
 
-  const capabilityError = await requireSessionCapability(request, env);
-  if (capabilityError) return capabilityError;
+  const capability = await authorizeSessionCapability(request, env, secret);
+  if (capability.response) return capability.response;
+  const authorityScope = capability.authorityScope;
 
   const parsedBody = await readJsonBodyLimited(request, SESSION_JSON_BODY_MAX_BYTES);
   if (parsedBody.error) return jsonBodyError(request, env, parsedBody);
   const body = parsedBody.value;
 
-  if (!hasExactOwnKeys(body, ['roomId', 'sessionId', 'queueItemId', 'name', 'mime', 'size'])) {
+  const legacyKeys = ['roomId', 'sessionId', 'queueItemId', 'name', 'mime', 'size'];
+  const legacyBody = hasExactOwnKeys(body, legacyKeys);
+  const v2Body =
+    hasExactOwnKeys(body, [...legacyKeys, 'requestId']) &&
+    V2_CLIENT_SESSION_REQUEST_ID_RE.test(body?.requestId || '');
+  const v3Body =
+    hasExactOwnKeys(body, [...legacyKeys, 'requestId', 'actorId']) &&
+    V3_CLIENT_SESSION_REQUEST_ID_RE.test(body?.requestId || '') &&
+    V3_CLIENT_SESSION_ACTOR_ID_RE.test(body?.actorId || '');
+  if (!legacyBody && !v2Body && !v3Body) {
     return json(request, env, { error: 'invalid upload session request' }, 400);
   }
 
@@ -1075,6 +1409,8 @@ async function handleSession(request, env) {
   const sessionId = Number(body?.sessionId);
   const queueItemId = safeQueueItemId(body?.queueItemId);
   const storedSize = Number(body?.size);
+  const clientRequestId = body?.requestId === undefined ? null : String(body.requestId || '');
+  const clientActorId = v3Body ? String(body.actorId) : null;
   if (
     !roomId ||
     !Number.isSafeInteger(sessionId) ||
@@ -1082,19 +1418,128 @@ async function handleSession(request, env) {
     !queueItemId ||
     !Number.isSafeInteger(storedSize) ||
     storedSize <= 0 ||
-    storedSize > REMOTE_SHARE_MAX_BYTES
+    storedSize > REMOTE_SHARE_MAX_BYTES ||
+    (clientRequestId !== null && !v2Body && !v3Body)
   ) {
     return json(request, env, { error: 'invalid upload session request' }, 400);
   }
 
-  const rateLimitError = await consumeUploadSessionRateLimits(request, env, secret, roomId);
+  const name = metadataString(body?.name, 'track');
+  const mime = metadataString(body?.mime, 'application/octet-stream');
+  // Only the actor-secret-derived v3 nonce is replay-authoritative. Cached v2
+  // request IDs are deterministic from public queue metadata; treating them as
+  // durable lookup keys would keep the cross-peer authority leak alive during
+  // the mixed-version rollout. v2 and six-field clients remain accepted, but
+  // every call receives an independent reservation.
+  const replayClientRequestId = v3Body ? clientRequestId : null;
+  const replayAuthorityScope = v3Body
+    ? await hmacSha256(secret, `remote-share-client-actor:v3\u0000${clientActorId}`)
+    : authorityScope;
+  const receiptRequestId = await uploadSessionRequestKey(
+    secret,
+    replayAuthorityScope,
+    replayClientRequestId,
+  );
+  const operationId = await uploadSessionOperationId(
+    secret,
+    replayAuthorityScope,
+    replayClientRequestId,
+    {
+      roomId,
+      sessionId,
+      queueItemId,
+      name,
+      mime,
+      storedSize,
+    },
+  );
+
+  if (!getR2S3Config(env)) return json(request, env, { error: 'r2 s3 config missing' }, 500);
+  const quotaEnabled = roomStorageSessionReplayEnabled(env);
+  if (roomStorageQuotaEnabled(env) && !quotaEnabled) {
+    return json(request, env, { error: 'room storage quota unavailable' }, 503);
+  }
+  if (!allowStatelessRemoteShareSession(env) && !quotaEnabled) {
+    return json(request, env, { error: 'upload session replay unavailable' }, 503);
+  }
+  const now = Date.now();
+  const objectTtlSeconds = parseLimit(env.OBJECT_TTL_SECONDS, DEFAULT_TTL_SECONDS);
+  const expiresAt = Math.floor(now + objectTtlSeconds * 1000);
+  const uploadTtlSeconds = parseLimit(
+    env.UPLOAD_TOKEN_TTL_SECONDS,
+    DEFAULT_UPLOAD_TOKEN_TTL_SECONDS,
+  );
+  const uploadAuthorityExpiresAt =
+    Math.floor(Math.min(now + uploadTtlSeconds * 1000, expiresAt) / 1000) * 1000;
+  const expectedReservation = {
+    roomId,
+    operationId,
+    storedSize,
+    sessionId,
+    queueItemId,
+    name,
+    mime,
+    clientRequestId: receiptRequestId,
+  };
+  // The private v3 receipt is stable across an exact retry and across altered
+  // metadata for the same proof. Consume the atomic limiter before touching
+  // either proof or room Durable Objects so denied requests cannot create an
+  // unbounded set of proof objects. Legacy requests retain their fresh
+  // canonical operation identity.
+  const rateLimitError = await consumeUploadSessionRateLimits(
+    request,
+    env,
+    secret,
+    roomId,
+    receiptRequestId || operationId,
+  );
   if (rateLimitError) return rateLimitError;
 
-  const ttlSeconds = parseLimit(env.UPLOAD_TOKEN_TTL_SECONDS, DEFAULT_UPLOAD_TOKEN_TTL_SECONDS);
-  const now = Date.now();
-  const uploadUrlExpiresAt = now + ttlSeconds * 1000;
-  const objectTtlSeconds = parseLimit(env.OBJECT_TTL_SECONDS, DEFAULT_TTL_SECONDS);
-  const expiresAt = now + objectTtlSeconds * 1000;
+  if (quotaEnabled && receiptRequestId) {
+    try {
+      const proof = await claimUploadSessionProof(
+        env,
+        receiptRequestId,
+        operationId,
+        expiresAt,
+      );
+      if (proof.conflict) {
+        return json(request, env, { error: 'upload session request conflict' }, 409);
+      }
+    } catch (error) {
+      console.warn('remote share upload session proof fence unavailable', error);
+      return json(request, env, { error: 'room storage quota unavailable' }, 503);
+    }
+    let lookup;
+    try {
+      lookup = await lookupRoomStorageSession(env, roomId, operationId, receiptRequestId);
+    } catch (error) {
+      console.warn('remote share room storage quota unavailable', error);
+      return json(request, env, { error: 'room storage quota unavailable' }, 503);
+    }
+    if (lookup.status === 'conflict') {
+      return json(request, env, { error: 'upload session request conflict' }, 409);
+    }
+    if (lookup.status === 'found') {
+      const replayedReservation = normalizeSessionReservation(
+        lookup.reservation,
+        expectedReservation,
+      );
+      if (!replayedReservation) {
+        return json(request, env, { error: 'room storage quota unavailable' }, 503);
+      }
+      const replayedSession = await issueUploadSession(
+        replayedReservation,
+        env,
+        secret,
+        true,
+      );
+      return replayedSession
+        ? json(request, env, replayedSession)
+        : json(request, env, { error: 'upload session replay expired' }, 409);
+    }
+  }
+
   const objectId = crypto.randomUUID();
   const objectKeyValue = objectKey(roomId, objectId);
   const cleanupToken = await createCleanupToken(
@@ -1112,93 +1557,132 @@ async function handleSession(request, env) {
     },
     secret,
   );
-  const name = metadataString(body?.name, 'track');
-  const mime = metadataString(body?.mime, 'application/octet-stream');
-  const quotaEnabled = roomStorageQuotaEnabled(env);
+  let candidateReservation = {
+    roomId,
+    objectId,
+    objectKey: objectKeyValue,
+    sessionId,
+    queueItemId,
+    storedSize,
+    expiresAt,
+    uploadAuthorityExpiresAt,
+    cleanupToken,
+    operationId,
+    clientRequestId: receiptRequestId,
+    name,
+    mime,
+  };
   let quotaReserved = false;
+  let placeholderCreated = false;
 
   try {
+    let authoritativeReservation = candidateReservation;
     if (quotaEnabled) {
-      let reserved;
       try {
-        reserved = await reserveRoomStorage(env, {
-          cleanupToken,
-          storedSize,
-          expiresAt,
-          objectId,
-          objectKey: objectKeyValue,
-          roomId,
-        });
+        candidateReservation = {
+          ...candidateReservation,
+          uploadEtag: await createUploadPlaceholder(env, candidateReservation),
+        };
+        placeholderCreated = true;
       } catch (error) {
-        console.warn('remote share room storage quota unavailable', error);
-        await releaseRoomStorageReservationBestEffort(env, roomId, objectId, cleanupToken);
+        console.warn('remote share upload placeholder unavailable', error);
         return json(request, env, { error: 'room storage quota unavailable' }, 503);
       }
-      if (!reserved) return roomStorageQuotaExceeded(request, env);
-      quotaReserved = true;
-    }
-
-    const uploadHeaders = {
-      'content-type': 'application/octet-stream',
-      'x-amz-meta-cleanup-token': cleanupToken,
-      'x-amz-meta-expires-at': String(expiresAt),
-      'x-amz-meta-format-version': WHOLE_OBJECT_STORAGE_FORMAT,
-      'x-amz-meta-mime': mime,
-      'x-amz-meta-name': name,
-      'x-amz-meta-object-id': objectId,
-      'x-amz-meta-room-id': roomId,
-      'x-amz-meta-stored-size': String(storedSize),
-    };
-    const uploadUrl = await createR2PresignedPutUrl({
-      env,
-      objectKey: objectKeyValue,
-      headers: {
-        ...uploadHeaders,
-        'content-length': String(storedSize),
-      },
-      expiresInSeconds: ttlSeconds,
-      now: new Date(now),
-    });
-    if (!uploadUrl) {
-      if (quotaReserved) {
-        await releaseRoomStorageReservationBestEffort(env, roomId, objectId, cleanupToken);
-        quotaReserved = false;
+      let reserved;
+      try {
+        reserved = await reserveRoomStorage(env, candidateReservation);
+      } catch (error) {
+        console.warn('remote share room storage quota unavailable', error);
+        const release = await releaseRoomStorageReservationBestEffort(
+          env,
+          roomId,
+          objectId,
+          cleanupToken,
+        );
+        const reserveOutcomeAmbiguous = error?.quotaOutcomeAmbiguous === true;
+        if (release.released || (release.confirmed && !reserveOutcomeAmbiguous)) {
+          await deleteUnissuedUploadPlaceholder(env, objectKeyValue);
+          placeholderCreated = false;
+        }
+        // If reserve committed but its response and the compensating release
+        // were both lost, retain the zero-byte placeholder. An exact v3 retry
+        // can then recover a usable If-Match authority from the durable receipt.
+        return json(request, env, { error: 'room storage quota unavailable' }, 503);
       }
-      return json(request, env, { error: 'r2 s3 config missing' }, 500);
+      if (!reserved) {
+        await deleteUnissuedUploadPlaceholder(env, objectKeyValue);
+        placeholderCreated = false;
+        return roomStorageQuotaExceeded(request, env);
+      }
+      if (reserved.conflict) {
+        await deleteUnissuedUploadPlaceholder(env, objectKeyValue);
+        placeholderCreated = false;
+        return json(request, env, { error: 'upload session request conflict' }, 409);
+      }
+      quotaReserved = !reserved.replayed;
+      authoritativeReservation = normalizeSessionReservation(
+        reserved.reservation,
+        expectedReservation,
+      );
+      if (!authoritativeReservation) {
+        throw new Error('invalid upload session reservation receipt');
+      }
+      if (!reserved.replayed && authoritativeReservation.objectId !== objectId) {
+        throw new Error('room storage quota selected an invalid upload placeholder');
+      }
+      if (reserved.replayed) {
+        // Concurrent identical requests can both create a candidate before the
+        // Durable Object selects one canonical receipt. The losing placeholder
+        // has never had a URL issued and is safe to remove immediately.
+        await deleteUnissuedUploadPlaceholder(env, objectKeyValue);
+        placeholderCreated = false;
+      }
     }
-
-    const completePayload = {
-      v: WHOLE_OBJECT_VERSION,
-      ...(quotaEnabled ? { quotaReservationVersion: 1 } : {}),
-      kind: 'complete',
-      storageFormat: WHOLE_OBJECT_STORAGE_FORMAT,
-      roomId,
-      objectId,
-      objectKey: objectKeyValue,
-      sessionId,
-      queueItemId,
-      storedSize,
-      expiresAt,
-      cleanupToken,
-      iat: now,
-      exp: expiresAt,
-      nonce: crypto.randomUUID(),
-    };
-    const completeToken = await createSignedToken(completePayload, secret);
-    const response = json(request, env, {
-      uploadUrl,
-      uploadHeaders,
-      uploadUrlExpiresAt,
-      completeToken,
-      objectId,
-      expiresAt,
-      cleanupToken,
-    });
+    const session = await issueUploadSession(
+      authoritativeReservation,
+      env,
+      secret,
+      quotaEnabled,
+    );
+    if (!session) {
+      if (quotaReserved) {
+        const release = await releaseRoomStorageReservationBestEffort(
+          env,
+          roomId,
+          objectId,
+          cleanupToken,
+        );
+        if (release.released) {
+          quotaReserved = false;
+          if (placeholderCreated) {
+            await deleteUnissuedUploadPlaceholder(env, objectKeyValue);
+            placeholderCreated = false;
+          }
+        }
+      }
+      return json(request, env, { error: 'upload session replay expired' }, 409);
+    }
+    const response = json(request, env, session);
     quotaReserved = false;
     return response;
   } catch (error) {
     if (quotaReserved) {
-      await releaseRoomStorageReservationBestEffort(env, roomId, objectId, cleanupToken);
+      const release = await releaseRoomStorageReservationBestEffort(
+        env,
+        roomId,
+        objectId,
+        cleanupToken,
+      );
+      if (release.released) {
+        quotaReserved = false;
+        if (placeholderCreated) {
+          await deleteUnissuedUploadPlaceholder(env, objectKeyValue);
+          placeholderCreated = false;
+        }
+      }
+    } else if (placeholderCreated) {
+      await deleteUnissuedUploadPlaceholder(env, objectKeyValue);
+      placeholderCreated = false;
     }
     throw error;
   }
@@ -1206,10 +1690,9 @@ async function handleSession(request, env) {
 
 async function deleteObjectAndRetainReservation(env, _roomId, _objectId, key, _cleanupToken) {
   await env.REMOTE_SHARE_BUCKET.delete(key);
-  // Once a presigned PUT URL has been returned, deleting its current object
-  // does not revoke that write authority. Keep the exact-byte reservation
-  // until fixed expiry so a late or replayed PUT cannot arrive after another
-  // session consumed the same capacity.
+  // The canonical PUT is fenced by If-Match and cannot recreate a deleted key.
+  // Keep the exact-byte reservation until fixed expiry anyway as conservative
+  // defense-in-depth against provider/config drift and unexpected objects.
 }
 
 async function handleComplete(request, env) {
@@ -1569,6 +2052,17 @@ function quotaJson(body, status = 200) {
   });
 }
 
+function validSessionProofState(value) {
+  return (
+    hasExactOwnKeys(value, ['v', 'clientRequestId', 'operationId', 'expiresAt']) &&
+    value.v === SESSION_PROOF_STATE_VERSION &&
+    SESSION_RECEIPT_KEY_RE.test(value.clientRequestId || '') &&
+    SESSION_RECEIPT_KEY_RE.test(value.operationId || '') &&
+    Number.isSafeInteger(value.expiresAt) &&
+    value.expiresAt > 0
+  );
+}
+
 function emptyQuotaState(roomId) {
   return {
     v: QUOTA_STATE_VERSION,
@@ -1588,15 +2082,49 @@ function quotaStateWithinSerializedLimit(state) {
 }
 
 function reservationRetentionDeadline(reservation) {
-  // A presigned PUT is validated when the request starts, not when its body
-  // finishes arriving. There is no provider-backed completion bound that
-  // permits quota to be released at "URL TTL + skew". Keep the exact-byte
-  // reservation through the immutable object expiry instead. After expiry the
-  // record becomes a non-charging tombstone which repeatedly sweeps its exact
-  // incarnation key. The same fence applies to natural expiry: an upload
-  // started before its URL expired can finish after the media lifetime. This
-  // is cleanup defense-in-depth, not a claimed PUT completion bound.
+  // R2 evaluates the signed If-Match condition when the object is committed,
+  // so quota correctness does not depend on a transfer-duration bound. Keep
+  // the exact-byte reservation through immutable object expiry anyway. The
+  // subsequent non-charging tombstone repeatedly sweeps the exact key as
+  // cleanup defense-in-depth against provider/config drift.
   return reservation.tombstoneNextSweepAt ?? reservation.expiresAt;
+}
+
+function hasSessionReceiptFields(value) {
+  return (
+    value?.operationId !== undefined ||
+    value?.clientRequestId !== undefined ||
+    value?.sessionId !== undefined ||
+    value?.queueItemId !== undefined ||
+    value?.name !== undefined ||
+    value?.mime !== undefined ||
+    value?.uploadEtag !== undefined ||
+    value?.uploadAuthorityExpiresAt !== undefined
+  );
+}
+
+function validSessionReceiptFields(value) {
+  return (
+    hasSessionReceiptFields(value) &&
+    SESSION_RECEIPT_KEY_RE.test(value?.operationId || '') &&
+    (value?.clientRequestId === null ||
+      SESSION_RECEIPT_KEY_RE.test(value?.clientRequestId || '')) &&
+    Number.isSafeInteger(value?.sessionId) &&
+    value.sessionId > 0 &&
+    Boolean(safeQueueItemId(value?.queueItemId)) &&
+    typeof value?.name === 'string' &&
+    value.name.length > 0 &&
+    value.name.length <= 512 &&
+    !/[\r\n]/.test(value.name) &&
+    typeof value?.mime === 'string' &&
+    value.mime.length > 0 &&
+    value.mime.length <= 512 &&
+    !/[\r\n]/.test(value.mime) &&
+    UPLOAD_HTTP_ETAG_RE.test(value?.uploadEtag || '') &&
+    Number.isSafeInteger(value?.uploadAuthorityExpiresAt) &&
+    value.uploadAuthorityExpiresAt > 0 &&
+    value.uploadAuthorityExpiresAt <= value.expiresAt
+  );
 }
 
 function validQuotaReservation(objectId, value, roomId) {
@@ -1629,6 +2157,12 @@ function validQuotaReservation(objectId, value, roomId) {
 
 function normalizeQuotaReservation(objectId, value, roomId) {
   if (!validQuotaReservation(objectId, value, roomId)) return null;
+  const hasReceipt = hasSessionReceiptFields(value);
+  const receiptValid = hasReceipt && validSessionReceiptFields(value);
+  const receiptInvalid =
+    value?.receiptInvalid === true ||
+    (value?.receiptInvalid !== undefined && value.receiptInvalid !== true) ||
+    (hasReceipt && !receiptValid);
   return {
     cleanupToken: value.cleanupToken,
     storedSize: value.storedSize,
@@ -1636,6 +2170,19 @@ function normalizeQuotaReservation(objectId, value, roomId) {
     objectId,
     objectKey: value.objectKey,
     status: value.status,
+    ...(receiptValid
+      ? {
+          operationId: value.operationId,
+          clientRequestId: value.clientRequestId,
+          sessionId: value.sessionId,
+          queueItemId: value.queueItemId,
+          name: value.name,
+          mime: value.mime,
+          uploadEtag: value.uploadEtag,
+          uploadAuthorityExpiresAt: value.uploadAuthorityExpiresAt,
+        }
+      : {}),
+    ...(receiptInvalid ? { receiptInvalid: true } : {}),
     ...(value.tombstoneQuietSince === undefined
       ? {}
       : { tombstoneQuietSince: value.tombstoneQuietSince }),
@@ -1646,7 +2193,11 @@ function normalizeQuotaReservation(objectId, value, roomId) {
 }
 
 function parseQuotaReservation(body) {
-  if (body?.tombstoneQuietSince !== undefined || body?.tombstoneNextSweepAt !== undefined) {
+  if (
+    body?.tombstoneQuietSince !== undefined ||
+    body?.tombstoneNextSweepAt !== undefined ||
+    body?.receiptInvalid !== undefined
+  ) {
     return null;
   }
   const roomId = standardRoomId(body?.roomId);
@@ -1668,7 +2219,7 @@ function parseQuotaReservation(body) {
   ) {
     return null;
   }
-  return {
+  const reservation = {
     cleanupToken,
     storedSize,
     expiresAt,
@@ -1676,6 +2227,19 @@ function parseQuotaReservation(body) {
     objectKey: key,
     roomId,
   };
+  if (!hasSessionReceiptFields(body)) return reservation;
+  const withReceipt = {
+    ...reservation,
+    operationId: body.operationId,
+    clientRequestId: body.clientRequestId ?? null,
+    sessionId: body.sessionId,
+    queueItemId: body.queueItemId,
+    name: body.name,
+    mime: body.mime,
+    uploadEtag: body.uploadEtag,
+    uploadAuthorityExpiresAt: body.uploadAuthorityExpiresAt,
+  };
+  return validSessionReceiptFields(withReceipt) ? withReceipt : null;
 }
 
 function reservationsMatch(left, right) {
@@ -1714,6 +2278,60 @@ export class RemoteShareQuota {
         return quotaJson({ error: 'QUOTA_UNAVAILABLE' }, 503);
       }
     });
+  }
+
+  async handleSessionProofClaim(body) {
+    const now = Date.now();
+    if (
+      !hasExactOwnKeys(body, ['clientRequestId', 'operationId', 'expiresAt']) ||
+      !SESSION_RECEIPT_KEY_RE.test(body?.clientRequestId || '') ||
+      !SESSION_RECEIPT_KEY_RE.test(body?.operationId || '') ||
+      !Number.isSafeInteger(body?.expiresAt) ||
+      body.expiresAt <= now
+    ) {
+      return quotaJson({ error: 'INVALID_REQUEST' }, 400);
+    }
+
+    const stored = await this.storage.get(SESSION_PROOF_STATE_KEY);
+    if (stored !== undefined && stored !== null && !validSessionProofState(stored)) {
+      throw new Error('invalid upload session proof state');
+    }
+    if (validSessionProofState(stored) && stored.expiresAt > now) {
+      if (stored.clientRequestId !== body.clientRequestId) {
+        throw new Error('upload session proof object mismatch');
+      }
+      if (stored.operationId !== body.operationId) {
+        await this.storage.setAlarm(stored.expiresAt);
+        return quotaJson({ error: 'SESSION_REQUEST_CONFLICT' }, 409);
+      }
+      const expiresAt = Math.max(stored.expiresAt, body.expiresAt);
+      if (expiresAt !== stored.expiresAt) {
+        await this.storage.put(SESSION_PROOF_STATE_KEY, { ...stored, expiresAt });
+      }
+      await this.storage.setAlarm(expiresAt);
+      return quotaJson({ claimed: true, replayed: true });
+    }
+
+    const state = {
+      v: SESSION_PROOF_STATE_VERSION,
+      clientRequestId: body.clientRequestId,
+      operationId: body.operationId,
+      expiresAt: body.expiresAt,
+    };
+    await this.storage.put(SESSION_PROOF_STATE_KEY, state);
+    try {
+      await this.storage.setAlarm(state.expiresAt);
+    } catch (error) {
+      // A brand-new proof has no older alarm to recover it. Remove the write so
+      // a failed first claim cannot strand an immortal conflict fence.
+      try {
+        await this.storage.delete(SESSION_PROOF_STATE_KEY);
+      } catch {
+        // Preserve the alarm failure; cleanup remains best-effort.
+      }
+      throw error;
+    }
+    return quotaJson({ claimed: true, replayed: false });
   }
 
   async readState(roomId) {
@@ -1806,11 +2424,34 @@ export class RemoteShareQuota {
       }
       const tombstoneNextSweepAt = now + EXPIRY_TOMBSTONE_SWEEP_MS;
       if (
+        hasSessionReceiptFields(reservation) ||
+        reservation.receiptInvalid === true ||
         reservation.tombstoneQuietSince !== quietSince ||
         reservation.tombstoneNextSweepAt !== tombstoneNextSweepAt
       ) {
+        const {
+          operationId,
+          clientRequestId,
+          sessionId,
+          queueItemId,
+          name,
+          mime,
+          uploadEtag,
+          uploadAuthorityExpiresAt,
+          receiptInvalid,
+          ...retainedReservation
+        } = reservation;
+        void operationId;
+        void clientRequestId;
+        void sessionId;
+        void queueItemId;
+        void name;
+        void mime;
+        void uploadEtag;
+        void uploadAuthorityExpiresAt;
+        void receiptInvalid;
         state.reservations[objectId] = {
-          ...reservation,
+          ...retainedReservation,
           tombstoneQuietSince: quietSince,
           tombstoneNextSweepAt,
         };
@@ -1837,10 +2478,13 @@ export class RemoteShareQuota {
     const parsedBody = await readJsonBodyLimited(request, QUOTA_JSON_BODY_MAX_BYTES);
     if (parsedBody.error) return quotaJson({ error: 'INVALID_REQUEST' }, 400);
     const body = parsedBody.value;
+    if (url.pathname === '/proof-claim') return this.handleSessionProofClaim(body);
+
     const roomId = standardRoomId(body?.roomId);
     if (!roomId) return quotaJson({ error: 'INVALID_REQUEST' }, 400);
 
     if (url.pathname === '/release') return this.handleRelease(roomId, body);
+    if (url.pathname === '/lookup') return this.handleLookup(roomId, body);
     if (url.pathname !== '/reserve' && url.pathname !== '/complete') {
       return quotaJson({ error: 'NOT_FOUND' }, 404);
     }
@@ -1853,6 +2497,43 @@ export class RemoteShareQuota {
       : this.handleComplete(reservation);
   }
 
+  async handleLookup(roomId, body) {
+    const operationId = String(body?.operationId || '');
+    const clientRequestId = body?.clientRequestId === null ? null : String(body?.clientRequestId || '');
+    if (
+      !hasExactOwnKeys(body, ['roomId', 'operationId', 'clientRequestId']) ||
+      !SESSION_RECEIPT_KEY_RE.test(operationId) ||
+      (clientRequestId !== null && !SESSION_RECEIPT_KEY_RE.test(clientRequestId))
+    ) {
+      return quotaJson({ error: 'INVALID_REQUEST' }, 400);
+    }
+    const now = Date.now();
+    const state = await this.readState(roomId);
+    if (
+      Object.values(state.reservations).some(
+        (candidate) => candidate.expiresAt > now && candidate.receiptInvalid === true,
+      )
+    ) {
+      return quotaJson({ error: 'QUOTA_UNAVAILABLE' }, 503);
+    }
+    const replay = Object.values(state.reservations).find(
+      (candidate) => candidate.expiresAt > now && candidate.operationId === operationId,
+    );
+    if (replay) {
+      return quotaJson({ found: true, reservation: replay });
+    }
+    if (
+      clientRequestId &&
+      Object.values(state.reservations).some(
+        (candidate) =>
+          candidate.expiresAt > now && candidate.clientRequestId === clientRequestId,
+      )
+    ) {
+      return quotaJson({ error: 'SESSION_REQUEST_CONFLICT' }, 409);
+    }
+    return quotaJson({ found: false }, 404);
+  }
+
   async handleReserve(reservation) {
     const quotaBytes = roomStorageQuotaBytes(this.env);
     if (quotaBytes <= 0) return quotaJson({ error: 'QUOTA_UNAVAILABLE' }, 503);
@@ -1861,6 +2542,32 @@ export class RemoteShareQuota {
 
     const state = await this.readState(reservation.roomId);
     const { changed, snapshot } = await this.reconcile(state, now);
+    if (
+      Object.values(state.reservations).some(
+        (candidate) => candidate.expiresAt > now && candidate.receiptInvalid === true,
+      )
+    ) {
+      await this.maintainState(state, changed);
+      return quotaJson({ error: 'QUOTA_UNAVAILABLE' }, 503);
+    }
+    if (SESSION_RECEIPT_KEY_RE.test(reservation.operationId || '')) {
+      const replay = Object.values(state.reservations).find(
+        (candidate) => candidate.operationId === reservation.operationId,
+      );
+      if (replay) {
+        await this.maintainState(state, changed);
+        return quotaJson({ reserved: true, replayed: true, reservation: replay });
+      }
+      if (
+        reservation.clientRequestId &&
+        Object.values(state.reservations).some(
+          (candidate) => candidate.clientRequestId === reservation.clientRequestId,
+        )
+      ) {
+        await this.maintainState(state, changed);
+        return quotaJson({ error: 'SESSION_REQUEST_CONFLICT' }, 409);
+      }
+    }
     const existing = state.reservations[reservation.objectId];
     if (existing) {
       if (!reservationsMatch(existing, reservation)) {
@@ -1868,7 +2575,11 @@ export class RemoteShareQuota {
         return quotaJson({ error: 'RESERVATION_CONFLICT' }, 409);
       }
       await this.maintainState(state, changed);
-      return quotaJson({ reserved: true });
+      return quotaJson({
+        reserved: true,
+        replayed: true,
+        ...(hasSessionReceiptFields(existing) ? { reservation: existing } : {}),
+      });
     }
 
     if (Object.keys(state.reservations).length >= QUOTA_STATE_MAX_ENTRIES) {
@@ -1897,7 +2608,11 @@ export class RemoteShareQuota {
       return quotaJson({ error: 'QUOTA_UNAVAILABLE' }, 503);
     }
     await this.persistState(state);
-    return quotaJson({ reserved: true });
+    return quotaJson({
+      reserved: true,
+      replayed: false,
+      ...(hasSessionReceiptFields(reservation) ? { reservation } : {}),
+    });
   }
 
   async handleComplete(reservation) {
@@ -1967,7 +2682,25 @@ export class RemoteShareQuota {
           }
           return;
         }
-        const stored = await this.storage.get(QUOTA_STATE_KEY);
+        const [proofStored, stored] = await Promise.all([
+          this.storage.get(SESSION_PROOF_STATE_KEY),
+          this.storage.get(QUOTA_STATE_KEY),
+        ]);
+        if (proofStored !== undefined && proofStored !== null) {
+          if (stored !== undefined && stored !== null) {
+            throw new Error('mixed upload session proof and room quota state');
+          }
+          if (!validSessionProofState(proofStored)) {
+            throw new Error('invalid upload session proof state');
+          }
+          if (proofStored.expiresAt <= Date.now()) {
+            await this.storage.delete(SESSION_PROOF_STATE_KEY);
+            if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
+          } else if (typeof this.storage.setAlarm === 'function') {
+            await this.storage.setAlarm(proofStored.expiresAt);
+          }
+          return;
+        }
         if (stored === undefined || stored === null) {
           if (typeof this.storage.deleteAll === 'function') await this.storage.deleteAll();
           if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
@@ -2022,18 +2755,18 @@ export default {
         return handleSecurityConfig(request, env);
       }
       if (request.method === 'POST' && path === '/session') {
-        return handleSession(request, env);
+        return await handleSession(request, env);
       }
       if (request.method === 'POST' && path === '/complete') {
-        return handleComplete(request, env);
+        return await handleComplete(request, env);
       }
       const download = path.match(/^\/download\/([^/]+)\/([^/]+)$/);
       if (request.method === 'GET' && download) {
-        return handleDownload(request, env, download[1], download[2]);
+        return await handleDownload(request, env, download[1], download[2]);
       }
       const object = path.match(/^\/object\/([^/]+)\/([^/]+)$/);
       if (request.method === 'DELETE' && object) {
-        return handleDelete(request, env, object[1], object[2]);
+        return await handleDelete(request, env, object[1], object[2]);
       }
       return json(request, env, { error: 'not found' }, 404);
     } catch (error) {

@@ -26,6 +26,7 @@ async function flushPromises(): Promise<void> {
 interface InitOptions {
   recoverThresholdMs?: number;
   warnThresholdMs?: number;
+  shouldHandle?: (event: { hiddenMs: number }) => boolean;
 }
 
 type ResumeCallback = (event: { hiddenMs: number }) => void | Promise<void>;
@@ -109,6 +110,35 @@ describe('initBackgroundResumeGuard', () => {
 
     expect(recover).toHaveBeenCalledWith({ hiddenMs: DEFAULT_WARN_THRESHOLD_MS });
     expect(warn).toHaveBeenCalledWith({ hiddenMs: DEFAULT_WARN_THRESHOLD_MS });
+  });
+
+  it('skips recovery and warning when the session is no longer active', async () => {
+    init({ shouldHandle: () => false });
+    await visibilityCycle(DEFAULT_WARN_THRESHOLD_MS);
+
+    expect(recover).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('rechecks session ownership after asynchronous recovery before warning', async () => {
+    let active = true;
+    let finishRecovery!: () => void;
+    recover.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishRecovery = resolve;
+        }),
+    );
+    init({ shouldHandle: () => active });
+
+    await visibilityCycle(DEFAULT_WARN_THRESHOLD_MS);
+    expect(recover).toHaveBeenCalledOnce();
+
+    active = false;
+    finishRecovery();
+    await flushPromises();
+
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('skips both when hidden time is below the recover threshold', async () => {

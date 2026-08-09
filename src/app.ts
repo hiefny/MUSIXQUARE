@@ -32,7 +32,9 @@ import {
   markIntentionalNav,
   isIntentionalNav,
 } from './core/page-lifecycle.ts';
+import { createBackButtonGuardController } from './core/back-button-guard.ts';
 import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
+import { runBackgroundResumeRecovery } from './core/background-resume-recovery.ts';
 import { initSyncFlightRecorder } from './diagnostics/sync-flight-recorder.ts';
 import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
 import { schedulePrimaryFontLoad } from './ui/app-font.ts';
@@ -46,11 +48,7 @@ import {
 import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
 import { applySettings, applySettingsAsync, initEffectsHandlers } from './audio/effects.ts';
 import { setChannelMode } from './audio/channel.ts';
-import {
-  isPlaybackModeYouTube,
-  isPlaybackPlayingFile,
-  isPlaybackPlayingYouTube,
-} from './player/ownership.ts';
+import { isPlaybackModeYouTube, isPlaybackPlayingFile } from './player/ownership.ts';
 
 // ── Network ──
 import { initProtocol } from './network/protocol.ts';
@@ -172,17 +170,9 @@ function initKeyboardShortcuts(): void {
     // Don't intercept modifier key combos (Ctrl+S, Cmd+P, etc.)
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
-    const isPlaying = isPlaybackPlayingFile() || isPlaybackPlayingYouTube();
-
     if (e.key === ' ' || e.code === 'Space') {
       e.preventDefault();
       bus.emit('player:toggle-play');
-    } else if (e.key === 'p' || e.key === 'P') {
-      if (!isPlaying) bus.emit('player:toggle-play');
-    } else if (e.key === 's' || e.key === 'S') {
-      if (isPlaying) bus.emit('player:toggle-play');
-    } else if (e.key === 'c' || e.key === 'C') {
-      bus.emit('ui:toggle-chat-drawer');
     }
   });
 
@@ -242,46 +232,50 @@ async function resumeAudioForBackgroundRecovery(): Promise<void> {
 async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
   log.warn(`[App] Background resume (${Math.round(hiddenMs / 1000)}s) — attempting recovery`);
 
-  // Reconcile suspended RTC state before awaiting audio recovery. Mobile
-  // WebKit can dispatch the queued connection-state event immediately after
-  // visibilitychange, so this explicit hook owns the elapsed hidden time.
-  const peerRecovery = recoverPeerAfterBackground(hiddenMs);
+  await runBackgroundResumeRecovery(hiddenMs, {
+    // Reconcile suspended RTC state before awaiting audio recovery. Mobile
+    // WebKit can dispatch the queued connection-state event immediately after
+    // visibilitychange, so this explicit hook owns the elapsed hidden time.
+    recoverPeer: recoverPeerAfterBackground,
+    reacquireWakeLock: reacquireWakeLockIfActive,
+    recoverAudio: resumeAudioForBackgroundRecovery,
+    onAudioRecoveryError: (error) => {
+      log.warn('[App] Background audio recovery failed; continuing room recovery', error);
+    },
+    shouldRecoverRoom: (peerRecovery) => {
+      // PRO reconciliation belongs exclusively to the server-authority
+      // runtime. Its endpoints intentionally have no hostConn, so falling
+      // through would broadcast a stale legacy-host snapshot.
+      if (getRoomContext().kind === 'pro') return false;
 
-  reacquireWakeLockIfActive();
-  await resumeAudioForBackgroundRecovery();
+      // A foreground probe owns a possibly stale guest connection. A confirmed
+      // survivor resumes on its heartbeat; a stale connection follows the
+      // normal HOST_DISCONNECTED path.
+      return peerRecovery.status === 'not-applicable';
+    },
+    recoverRoom: () => {
+      const hostConn = getState('network.hostConn');
 
-  // PRO reconciliation belongs exclusively to the server-authority runtime.
-  // Its endpoints intentionally have no hostConn, so falling through would
-  // misclassify every member as a legacy host and broadcast a stale snapshot.
-  if (getRoomContext().kind === 'pro') return;
+      if (isPlaybackModeYouTube()) {
+        if (hostConn?.open) {
+          guestRendezvousSync({ silent: true });
+        } else {
+          // Mobile WebKit suspends interval timers while hidden. Publish a
+          // fresh host snapshot instead of waiting for the next heartbeat.
+          bus.emit('youtube:broadcast-sync');
+        }
+        return;
+      }
 
-  // While the short foreground probe owns a possibly stale guest connection,
-  // do not enqueue sync work through the old hostConn. A confirmed survivor
-  // resumes on its next heartbeat; a stale connection closes within the
-  // bounded probe and follows the normal HOST_DISCONNECTED path.
-  if (peerRecovery.status !== 'not-applicable') return;
-
-  const hostConn = getState('network.hostConn');
-
-  if (isPlaybackModeYouTube()) {
-    if (hostConn?.open) {
-      guestRendezvousSync({ silent: true });
-    } else {
-      // Mobile WebKit suspends interval timers while hidden. Publish a fresh
-      // host snapshot immediately on return instead of making guests wait for
-      // the next 3s heartbeat (their cached snapshot expires after 10s).
-      bus.emit('youtube:broadcast-sync');
-    }
-    return;
-  }
-
-  if (isPlaybackPlayingFile()) {
-    if (hostConn?.open) {
-      bus.emit('sync:force-resync');
-    } else {
-      bus.emit('playback:refresh-current-position');
-    }
-  }
+      if (isPlaybackPlayingFile()) {
+        if (hostConn?.open) {
+          bus.emit('sync:force-resync');
+        } else {
+          bus.emit('playback:refresh-current-position');
+        }
+      }
+    },
+  });
 }
 
 async function warnLongBackgroundResume(): Promise<void> {
@@ -291,6 +285,14 @@ async function warnLongBackgroundResume(): Promise<void> {
     buttonText: t('dialog.got_it'),
     defaultFocus: 'primary',
   });
+}
+
+function hasActiveBackgroundResumeSession(): boolean {
+  return (
+    getState('setup.sessionStarted') &&
+    getState('network.appRole') !== 'idle' &&
+    getState('network.sessionCode').trim().length > 0
+  );
 }
 
 // Global error handlers
@@ -331,82 +333,54 @@ window.addEventListener('unhandledrejection', (e) => {
 // Complements (does not replace) `beforeunload`: tab close, refresh, and
 // direct URL changes still route through the beforeunload confirmation.
 function initBackButtonGuard(): void {
-  let _confirmInFlight = false;
-  let _guardActive = false;
-
-  const seedGuard = () => {
-    try {
-      history.pushState({ mxqrGuard: true }, '', location.href);
-      _guardActive = true;
-    } catch (e) {
-      log.warn('[App] Back-button guard seed failed:', e);
-    }
-  };
-
-  // Arm the guard the moment we enter a session. Re-arming later (e.g.
-  // role flips host↔guest mid-session) is a no-op because the guard is
-  // already active.
-  bus.on('state:network.appRole', () => {
-    const role = getState('network.appRole');
-    if (role !== 'idle' && !_guardActive) {
-      seedGuard();
-    }
-  });
-
-  window.addEventListener('popstate', () => {
-    // Any popstate consumes a stack entry — our guard included.
-    _guardActive = false;
-
-    const role = getState('network.appRole');
-    if (role === 'idle') return; // landing / not in a session
-    if (_confirmInFlight) return;
-
-    // Re-seed so the NEXT back press re-fires popstate rather than
-    // escaping to the real previous page while the dialog is open.
-    seedGuard();
-
-    _confirmInFlight = true;
-    void (async () => {
-      try {
-        const result = await showDialog({
-          // Browser history may lead to the landing page, another site, or a
-          // blank tab, so the copy describes the action without naming a
-          // destination.
-          title: t('dialog.return_home_title'),
-          message: t('dialog.return_home_detail'),
-          buttonText: t('common.leave'),
-          secondaryText: t('common.stay'),
-          defaultFocus: 'secondary',
-        });
-        if (result.action === 'ok') {
-          scheduleSessionReset(t('dialog.leaving_session'), () => {
-            try {
-              leaveSession();
-            } catch (e) {
-              log.warn('[App] leaveSession failed:', e);
-            }
-
-            // Pop both the guard and session entries. Direct-entry users have
-            // no usable history target, so they fall back to a hard replace.
-            const beforeUrl = location.href;
-            try {
-              history.go(-2);
-            } catch {
-              /* noop */
-            }
-            // Native timer by design: leaveSession() clears managed timers.
-            window.setTimeout(() => {
-              if (location.href === beforeUrl) window.location.replace('/');
-            }, 150);
-          });
+  const controller = createBackButtonGuardController({
+    isSessionActive: () =>
+      getState('setup.sessionStarted') && getState('network.appRole') !== 'idle',
+    pushGuard: () => history.pushState({ mxqrGuard: true }, '', location.href),
+    requestLeaveConfirmation: async () => {
+      const result = await showDialog({
+        // Browser history may lead to the landing page, another site, or a
+        // blank tab, so the copy describes the action without naming a
+        // destination.
+        title: t('dialog.return_home_title'),
+        message: t('dialog.return_home_detail'),
+        buttonText: t('common.leave'),
+        secondaryText: t('common.stay'),
+        defaultFocus: 'secondary',
+      });
+      return result.action === 'ok';
+    },
+    onLeaveConfirmed: () => {
+      scheduleSessionReset(t('dialog.leaving_session'), () => {
+        try {
+          leaveSession();
+        } catch (e) {
+          log.warn('[App] leaveSession failed:', e);
         }
-      } catch (e) {
-        log.warn('[App] Back-button dialog failed:', e);
-      } finally {
-        _confirmInFlight = false;
-      }
-    })();
+
+        // Pop both the guard and session entries. Direct-entry users have
+        // no usable history target, so they fall back to a hard replace.
+        const beforeUrl = location.href;
+        try {
+          history.go(-2);
+        } catch {
+          /* noop */
+        }
+        // Native timer by design: leaveSession() clears managed timers.
+        window.setTimeout(() => {
+          if (location.href === beforeUrl) window.location.replace('/');
+        }, 150);
+      });
+    },
+    onSeedError: (error) => log.warn('[App] Back-button guard seed failed:', error),
+    onConfirmationError: (error) => log.warn('[App] Back-button dialog failed:', error),
   });
+
+  // Arm only after setup actually succeeds. Provisional host/guest roles are
+  // soft-cancellable and must not leave a duplicate landing history entry.
+  bus.on('state:network.appRole', controller.handleSessionStateChange);
+  bus.on('state:setup.sessionStarted', controller.handleSessionStateChange);
+  window.addEventListener('popstate', controller.handlePopState);
 }
 
 // ── Bootstrap ──
@@ -571,6 +545,7 @@ async function bootstrap(): Promise<void> {
     initBackgroundResumeGuard({
       recover: ({ hiddenMs }) => recoverLongBackgroundResume(hiddenMs),
       warn: () => warnLongBackgroundResume(),
+      shouldHandle: () => hasActiveBackgroundResumeSession(),
       log,
     }),
   );

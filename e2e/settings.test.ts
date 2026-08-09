@@ -13,7 +13,7 @@ import {
   cleanupContexts,
   type HostGuestPair,
 } from './helpers/context-factory.ts';
-import { connectHostAndGuest, setupHostAndStart } from './helpers/setup-flow.ts';
+import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import {
   clickAndWaitActive,

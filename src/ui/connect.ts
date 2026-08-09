@@ -549,14 +549,25 @@ function _guardRoomPasswordCtrl(): boolean {
   return _guardHostSettingCtrl();
 }
 
-function _generateRoomPassword(): string {
+function _generateRoomPassword(): string | null {
   try {
     const values = new Uint32Array(1);
     crypto.getRandomValues(values);
     return String(values[0]! % 100_000_000).padStart(8, '0');
-  } catch {
-    return String(Math.floor(Math.random() * 100_000_000)).padStart(8, '0');
+  } catch (error) {
+    log.warn('[Connect] Secure room password generation unavailable', error);
+    return null;
   }
+}
+
+function _applyFreshRoomPassword(): boolean {
+  const password = _generateRoomPassword();
+  if (!password) {
+    showToast(t('error.network_generic'));
+    return false;
+  }
+  _applyRoomPassword(password);
+  return true;
 }
 
 function _applyRoomPassword(password: string | null): void {
@@ -701,8 +712,7 @@ function initRoomPasswordControls(): void {
         return;
       }
 
-      _applyRoomPassword(_generateRoomPassword());
-      showToast(t('connect.room_password_enabled'));
+      if (_applyFreshRoomPassword()) showToast(t('connect.room_password_enabled'));
     });
   });
 
@@ -715,7 +725,7 @@ function initRoomPasswordControls(): void {
         return;
       }
       if (_guardRoomPasswordCtrl()) return;
-      _applyRoomPassword(_generateRoomPassword());
+      _applyFreshRoomPassword();
     });
   });
 

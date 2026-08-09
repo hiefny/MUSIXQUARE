@@ -285,7 +285,7 @@ describe('Chat Module', () => {
         <button id="btn-chat-scroll-down"></button>
         <button id="btn-chat-send"></button>
         <button id="btn-chat-close"></button>
-        <div id="chat-input"></div>
+        <div class="chat-input-wrapper"><div id="chat-input" contenteditable="true"></div></div>
         <div id="chat-pinned-notice"></div>
       `;
     }
@@ -345,6 +345,36 @@ describe('Chat Module', () => {
       document.getElementById('btn-chat-scroll-down')?.click();
 
       expect(scrollTo).toHaveBeenCalledWith({ top: 1_000, behavior: 'auto' });
+    });
+
+    it('exposes command suggestions as an active-descendant combobox', async () => {
+      renderChatShell();
+      const { initChat } = await import('../chat.ts');
+      initChat();
+      const input = document.getElementById('chat-input')!;
+
+      input.textContent = '/';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+
+      const list = document.getElementById('chat-command-suggestions')!;
+      const options = list.querySelectorAll<HTMLElement>('[role="option"]');
+      expect(input.getAttribute('role')).toBe('combobox');
+      expect(input.getAttribute('aria-autocomplete')).toBe('list');
+      expect(input.getAttribute('aria-controls')).toBe(list.id);
+      expect(input.getAttribute('aria-expanded')).toBe('true');
+      expect(list.getAttribute('role')).toBe('listbox');
+      expect(options.length).toBeGreaterThan(1);
+      expect(options[0]?.getAttribute('aria-selected')).toBe('true');
+      expect(input.getAttribute('aria-activedescendant')).toBe(options[0]?.id);
+
+      input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowDown' }));
+      expect(options[0]?.getAttribute('aria-selected')).toBe('false');
+      expect(options[1]?.getAttribute('aria-selected')).toBe('true');
+      expect(input.getAttribute('aria-activedescendant')).toBe(options[1]?.id);
+
+      input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
+      expect(input.getAttribute('aria-expanded')).toBe('false');
+      expect(input.hasAttribute('aria-activedescendant')).toBe(false);
     });
 
     it('clears unread badge when chat is cleared remotely', async () => {

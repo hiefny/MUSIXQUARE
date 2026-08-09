@@ -2,11 +2,7 @@ import {
   createStandardRoomAccountAssertion,
   createStandardRoomAccountDeletionAssertion,
 } from './standard-room-account-assertion.js';
-import {
-  accountNicknameKey,
-  normalizeAccountNickname,
-  normalizeNewAccountNickname,
-} from './account-nickname.js';
+import { accountNicknameKey, normalizeNewAccountNickname } from './account-nickname.js';
 import { isProRoomGeneration } from './pro-room-generation.js';
 
 const AUTH_ROUTE_PREFIX = '/api/auth/';
@@ -34,9 +30,9 @@ const ACCOUNT_DELETED_SESSION_TTL_SECONDS = 10 * 60;
 // browsers, while bounding D1 growth and logout/delete fan-out per account.
 const ACCOUNT_SESSION_MAX_PER_ACCOUNT = 128;
 // Keep deletion fan-out bounded at the write boundary so a polluted reverse
-// index can never make deletion permanently impossible. Small deletions finish
-// inline; larger jobs revoke login immediately and drain exact incarnation
-// edges from the scheduled App Worker continuation.
+// index can never make deletion permanently impossible. Every admitted edge is
+// attempted inline; after authority and sessions are durably revoked, any
+// incomplete exact-incarnation cleanup continues from the scheduled App Worker.
 const ACCOUNT_PRO_ROOM_LINK_MAX_PER_ACCOUNT = 1000;
 const ACCOUNT_DELETE_JOB_EDGE_LIMIT = 128;
 const ACCOUNT_DELETE_JOB_MAX_ACCOUNTS = 2;
@@ -200,7 +196,7 @@ function base64UrlToBytes(value, maxBytes = 32 * 1024) {
     const bytes = new Uint8Array(binary.length);
     for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
     return bytes;
-  } catch (error) {
+  } catch {
     return null;
   }
 }
@@ -443,7 +439,10 @@ async function readBodyBytesLimited(
 ) {
   if (contentLength !== null) {
     const normalized = contentLength.trim();
-    if (!/^\d+$/.test(normalized) || Number(normalized) > maxBytes) return null;
+    if (!/^\d+$/.test(normalized) || Number(normalized) > maxBytes) {
+      cancelBodyStream(stream, 'BODY_TOO_LARGE');
+      return null;
+    }
   }
   if (!stream) return new Uint8Array(0);
   const reader = stream.getReader();
@@ -542,18 +541,73 @@ async function readResponseTextLimited(response, maxBytes, signal) {
     maxBytes,
     { signal },
   );
-  if (!bytes) throw new Error('RESPONSE_TOO_LARGE');
+  if (!bytes) {
+    cancelBodyStream(response.body, signal?.reason || 'RESPONSE_TOO_LARGE');
+    if (signal?.aborted) {
+      throw signal.reason instanceof Error ? signal.reason : new Error('Google response timed out');
+    }
+    throw new Error('RESPONSE_TOO_LARGE');
+  }
   return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 }
 
-async function fetchTextWithTimeout(url, init, maxBytes, timeoutMs = GOOGLE_FETCH_TIMEOUT_MS) {
+function cancelResponseBody(response, reason) {
+  cancelBodyStream(response?.body, reason);
+}
+
+function racePromiseWithSignal(operation, signal, disposeLateValue) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => signal.removeEventListener('abort', onAbort);
+    const finish = (callback) => {
+      if (settled) return false;
+      settled = true;
+      cleanup();
+      callback();
+      return true;
+    };
+    const onAbort = () =>
+      finish(() =>
+        reject(
+          signal.reason instanceof Error ? signal.reason : new Error('Google response timed out'),
+        ),
+      );
+
+    if (!signal.aborted) signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(operation).then(
+      (value) => {
+        if (finish(() => resolve(value)) || typeof disposeLateValue !== 'function') return;
+        try {
+          Promise.resolve(disposeLateValue(value)).catch(() => {});
+        } catch {
+          // Late cleanup is best-effort and never extends the timeout result.
+        }
+      },
+      (error) => {
+        finish(() => reject(error));
+      },
+    );
+    if (signal.aborted) onAbort();
+  });
+}
+
+export async function fetchTextWithTimeout(
+  url,
+  init,
+  maxBytes,
+  timeoutMs = GOOGLE_FETCH_TIMEOUT_MS,
+) {
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort(new Error('Google response timed out')),
     timeoutMs,
   );
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal });
+    const response = await racePromiseWithSignal(
+      fetch(url, { ...init, signal: controller.signal }),
+      controller.signal,
+      (lateResponse) => cancelResponseBody(lateResponse, controller.signal.reason),
+    );
     const text = await readResponseTextLimited(response, maxBytes, controller.signal);
     return { response, text };
   } finally {
@@ -1927,9 +1981,10 @@ export async function cleanupPendingAccountDeletions(env, integrations = {}, opt
         db,
         `SELECT account_id, started_at
            FROM ${ACCOUNT_DELETION_TABLE}
+          WHERE started_at <= ?1
           ORDER BY started_at ASC, account_id ASC
-          LIMIT ?1`,
-        [ACCOUNT_DELETE_JOB_MAX_ACCOUNTS],
+          LIMIT ?2`,
+        [Date.now() - ACCOUNT_DELETION_FENCE_TTL_MS, ACCOUNT_DELETE_JOB_MAX_ACCOUNTS],
       );
   const result = {
     configured: true,

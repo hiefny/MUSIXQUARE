@@ -58,8 +58,9 @@ describe('service worker cache policy', () => {
   let skipWaiting: ReturnType<typeof vi.fn>;
   let windowClients: Array<{ id: string; postMessage: ReturnType<typeof vi.fn> }>;
 
-  it('precaches the stable FOUC recovery script with the navigation shell', () => {
+  it('precaches both stable first-paint scripts with the navigation shell', () => {
     expect(APP_SHELL_SOURCE).toContain("'./fouc-cleanup.js'");
+    expect(APP_SHELL_SOURCE).toContain("'./wordmark-anim.js'");
   });
 
   it('precaches the queryless account-completion document and its stable assets', () => {
@@ -70,6 +71,11 @@ describe('service worker cache policy', () => {
 
   it('does not spend the first service-worker install on the optional 2 MiB app font', () => {
     expect(APP_SHELL_SOURCE).not.toContain('PretendardVariable.woff2');
+  });
+
+  it('spreads the build-injected app entry closure into the install shell', () => {
+    expect(SERVICE_WORKER_SOURCE).toContain('const BUILD_ENTRY_ASSETS = [');
+    expect(APP_SHELL_SOURCE).toContain('...BUILD_ENTRY_ASSETS');
   });
 
   beforeEach(async () => {
@@ -122,6 +128,7 @@ describe('service worker cache policy', () => {
       URL,
       Request,
       Response,
+      Headers,
       console,
     });
     fetchListener = listeners.get('fetch') as FetchListener;
@@ -345,6 +352,133 @@ describe('service worker cache policy', () => {
 
     expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${ACTIVE_CACHE_VERSION}`);
     expect(cachePut).toHaveBeenCalledOnce();
+  });
+
+  it('serves the precached wordmark timing script during a cold-offline launch', async () => {
+    fetchMock.mockRejectedValue(new Error('offline'));
+    cacheMatch.mockImplementation(async (request: Request, options?: { cacheName?: string }) => {
+      return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+        request.url.endsWith('/wordmark-anim.js')
+        ? new Response('cached wordmark timing', { status: 200 })
+        : undefined;
+    });
+
+    const response = await dispatch(new Request('https://musixquare.com/wordmark-anim.js'));
+
+    expect(await response.text()).toBe('cached wordmark timing');
+    expect(cacheMatch).toHaveBeenCalledWith(expect.any(Request), {
+      cacheName: `musixquare-static-${ACTIVE_CACHE_VERSION}`,
+    });
+  });
+
+  it('serves an offline byte range from the canonical precached audio primer', async () => {
+    fetchMock.mockRejectedValue(new Error('offline'));
+    cacheMatch.mockImplementation(
+      async (request: Request | string, options?: { cacheName?: string }) =>
+        options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+        String(request).endsWith('dummy_audio.mp3')
+          ? new Response(Uint8Array.from([0, 1, 2, 3, 4]), {
+              status: 200,
+              headers: {
+                'Content-Type': 'audio/mpeg',
+                'Content-Encoding': 'gzip',
+                'Transfer-Encoding': 'chunked',
+              },
+            })
+          : undefined,
+    );
+
+    const response = await dispatch(
+      new Request('https://musixquare.com/dummy_audio.mp3', {
+        headers: { Range: 'bytes=1-3' },
+      }),
+    );
+
+    expect(response.status).toBe(206);
+    expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([1, 2, 3]);
+    expect(response.headers.get('Content-Type')).toBe('audio/mpeg');
+    expect(response.headers.get('Content-Range')).toBe('bytes 1-3/5');
+    expect(response.headers.get('Accept-Ranges')).toBe('bytes');
+    expect(response.headers.get('Content-Length')).toBe('3');
+    expect(response.headers.has('Content-Encoding')).toBe(false);
+    expect(response.headers.has('Transfer-Encoding')).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('serves suffix audio-primer ranges and clamps them to the cached body', async () => {
+    cacheMatch.mockResolvedValue(
+      new Response(Uint8Array.from([0, 1, 2, 3, 4]), {
+        status: 200,
+        headers: { 'Content-Type': 'audio/mpeg' },
+      }),
+    );
+
+    const response = await dispatch(
+      new Request('https://musixquare.com/dummy_audio.mp3', {
+        headers: { Range: 'bytes=-2' },
+      }),
+    );
+
+    expect(response.status).toBe(206);
+    expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([3, 4]);
+    expect(response.headers.get('Content-Range')).toBe('bytes 3-4/5');
+    expect(response.headers.get('Content-Length')).toBe('2');
+  });
+
+  it.each(['bytes=5-', 'bytes=3-1', 'bytes=-0', 'bytes=0-1,3-4', 'items=0-1'])(
+    'returns 416 for an invalid or unsatisfiable audio-primer range: %s',
+    async (range) => {
+      cacheMatch.mockResolvedValue(
+        new Response(Uint8Array.from([0, 1, 2, 3, 4]), {
+          status: 200,
+          headers: { 'Content-Type': 'audio/mpeg' },
+        }),
+      );
+
+      const response = await dispatch(
+        new Request('https://musixquare.com/dummy_audio.mp3', {
+          headers: { Range: range },
+        }),
+      );
+
+      expect(response.status).toBe(416);
+      expect(response.headers.get('Content-Range')).toBe('bytes */5');
+      expect(response.headers.get('Accept-Ranges')).toBe('bytes');
+      expect(response.headers.get('Content-Length')).toBe('0');
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps non-primer and HEAD range requests outside the service-worker media pipeline', () => {
+    expectIgnored(
+      new Request('https://musixquare.com/uploads/track.mp3', {
+        headers: { Range: 'bytes=0-' },
+      }),
+    );
+    expectIgnored(
+      new Request('https://musixquare.com/dummy_audio.mp3', {
+        method: 'HEAD',
+        headers: { Range: 'bytes=0-' },
+      }),
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(cacheMatch).not.toHaveBeenCalled();
+  });
+
+  it('keeps the canonical full audio-primer request on the normal stable-asset path', async () => {
+    cacheMatch.mockImplementation(async (request: Request, options?: { cacheName?: string }) =>
+      options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+      request.url.endsWith('/dummy_audio.mp3')
+        ? new Response('full primer', { status: 200 })
+        : undefined,
+    );
+    fetchMock.mockRejectedValue(new Error('offline'));
+
+    const response = await dispatch(new Request('https://musixquare.com/dummy_audio.mp3'));
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('full primer');
   });
 
   it('registers static revalidation work before the fetch listener returns', async () => {

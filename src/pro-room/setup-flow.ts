@@ -14,6 +14,8 @@ import {
 } from '../account/session.ts';
 
 const PRO_ROOM_ENTRY_OPERATION_TIMEOUT_MS = 20_000;
+const PENDING_SESSION_REQUEST_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
+const pendingSessionRequestIds = new Map<string, string>();
 // A reload starts its keepalive presence-close request before the replacement
 // document enters, but the two requests can still reach the server out of
 // order. Give that close a short grace window and retry without takeover once
@@ -43,6 +45,58 @@ const CLAIM_ACCOUNT_CAPACITY_ERROR_CODES = new Set([
   'ACCOUNT_MEMBER_CAPACITY_EXCEEDED',
   'ACCOUNT_PRO_ROOM_LIMIT_REACHED',
 ]);
+
+function pendingSessionRequestStorageKey(code: string): string {
+  return `mxqr-pro-session-request:${code}`;
+}
+
+function getOrCreatePendingSessionRequestId(code: string): string {
+  const memoryValue = pendingSessionRequestIds.get(code);
+  if (memoryValue) return memoryValue;
+  const storageKey = pendingSessionRequestStorageKey(code);
+  try {
+    const stored = sessionStorage.getItem(storageKey) || '';
+    if (PENDING_SESSION_REQUEST_ID_RE.test(stored)) {
+      pendingSessionRequestIds.set(code, stored);
+      return stored;
+    }
+    if (stored) sessionStorage.removeItem(storageKey);
+  } catch {
+    // Restricted WebViews may deny sessionStorage; memory remains authoritative.
+  }
+  const created = createProRoomIdempotencyKey();
+  pendingSessionRequestIds.set(code, created);
+  try {
+    sessionStorage.setItem(storageKey, created);
+  } catch {
+    // The module-scoped value still protects explicit retries in this tab.
+  }
+  return created;
+}
+
+function clearPendingSessionRequestId(code: string): void {
+  pendingSessionRequestIds.delete(code);
+  try {
+    sessionStorage.removeItem(pendingSessionRequestStorageKey(code));
+  } catch {
+    // Storage is best-effort; memory was already cleared.
+  }
+}
+
+function isDefinitiveSessionAdmissionError(error: unknown): boolean {
+  return (
+    error instanceof ProRoomApiError &&
+    error.status >= 400 &&
+    error.status < 500 &&
+    // This deadline is raised locally while the App/DO operation can still
+    // commit after the browser stops waiting, so it remains outcome-unknown.
+    error.code !== 'PRO_ROOM_ENTRY_TIMEOUT'
+  );
+}
+
+export function clearPendingSessionRequestIdsForTests(): void {
+  pendingSessionRequestIds.clear();
+}
 
 /**
  * Bound only one network-facing entry operation. Each prompt gets a fresh
@@ -379,6 +433,16 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
     : { ok: true as const, value: await import('./runtime.ts') };
   if (!runtimeResult.ok) return false;
   const runtime = runtimeResult.value;
+  const resumeExistingSession = async (options: { takeover?: boolean } = {}) => {
+    const result = await runEntryOperation((signal) =>
+      runtime.resumeProRoom(code, { ...options, signal }),
+    );
+    // A successful cookie-backed resume proves that no earlier PIN admission
+    // remains outcome-unknown. Retaining its request id would let a later,
+    // unrelated PIN entry replay stale admission state after the cookie expires.
+    clearPendingSessionRequestId(code);
+    return result;
+  };
   // Consume this one-time route hint before any network turn. Only a marker
   // retained by this exact browsing context may silently reclaim its
   // pre-OAuth presence; a durable PWA-relaunch hint keeps the normal active-tab
@@ -427,6 +491,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
         ),
       existingOwnerLoginPolicy,
     );
+    if (transfer.ok) clearPendingSessionRequestId(code);
     return transfer.ok;
   }
 
@@ -443,7 +508,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
     const recovery = await runClaimProtectedOperation(async () => {
       if (recoveryMayHaveCommitted) {
         try {
-          return await runEntryOperation((signal) => runtime.resumeProRoom(code, { signal }));
+          return await resumeExistingSession();
         } catch (error) {
           if (!isMissingCookieSession(error)) throw error;
           recoveryMayHaveCommitted = false;
@@ -468,6 +533,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
         throw error;
       }
     }, existingOwnerLoginPolicy);
+    if (recovery.ok) clearPendingSessionRequestId(code);
     return recovery.ok;
   }
 
@@ -507,7 +573,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
         );
         if (freshBootstrap.status === 'pin_required') {
           try {
-            return await runEntryOperation((signal) => runtime.resumeProRoom(code, { signal }));
+            return await resumeExistingSession();
           } catch (error) {
             if (isMissingCookieSession(error)) {
               throw new ProRoomApiError('ACTIVATION_UNAVAILABLE', 409);
@@ -530,6 +596,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
         ),
       );
     });
+    if (activation.ok) clearPendingSessionRequestId(code);
     return activation.ok;
   }
 
@@ -537,7 +604,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
   // the 8-digit PIN again; only an authentication miss falls through.
   let resumeError: unknown;
   try {
-    await runEntryOperation((signal) => runtime.resumeProRoom(code, { signal }));
+    await resumeExistingSession();
     return true;
   } catch (error) {
     resumeError = error;
@@ -545,7 +612,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
 
   if (isActiveInAnotherTab(resumeError)) {
     if (returningFromSameTabLogin) {
-      await runEntryOperation((signal) => runtime.resumeProRoom(code, { takeover: true, signal }));
+      await resumeExistingSession({ takeover: true });
       announceProRoomTabTakeover(code);
       return true;
     }
@@ -554,7 +621,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
     // Retry once without takeover so a real sibling tab remains protected.
     await waitForActiveTabRelease();
     try {
-      await runEntryOperation((signal) => runtime.resumeProRoom(code, { signal }));
+      await resumeExistingSession();
       return true;
     } catch (error) {
       resumeError = error;
@@ -571,7 +638,7 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
       defaultFocus: 'secondary',
     });
     if (result.action !== 'ok') return false;
-    await runEntryOperation((signal) => runtime.resumeProRoom(code, { takeover: true, signal }));
+    await resumeExistingSession({ takeover: true });
     // The server is the source of truth. Broadcast only after it commits the
     // new incarnation so the previous tab can stop immediately instead of
     // waiting for its next signaling/heartbeat failure.
@@ -581,28 +648,48 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
   if (!isMissingCookieSession(resumeError)) throw resumeError;
 
   let retry = false;
+  // Keep one logical admission ID across an uncertain App/DO response. The
+  // value is not a credential and sessionStorage is deliberately tab-scoped;
+  // it survives a reload without letting another tab silently inherit the
+  // pending admission. A definitive PIN result or successful cookie response
+  // clears it below.
   while (true) {
     const pin = await promptPin({
       title: t('pro.pin_title'),
       message: t(retry ? 'pro.pin_retry_message' : 'pro.pin_message'),
       autocomplete: 'current-password',
     });
-    if (!pin) return false;
+    if (!pin) {
+      clearPendingSessionRequestId(code);
+      return false;
+    }
+    const requestId = getOrCreatePendingSessionRequestId(code);
     try {
       await runEntryOperation((signal) =>
         runtime.joinProRoom(
           {
             code,
             pin,
+            requestId,
           },
           signal,
         ),
       );
+      clearPendingSessionRequestId(code);
       return true;
     } catch (error) {
       if (error instanceof ProRoomApiError && error.code === 'PIN_INVALID') {
+        clearPendingSessionRequestId(code);
         retry = true;
         continue;
+      }
+      // A canonical 4xx proves that this logical admission did not produce a
+      // usable cookie. Do not poison later attempts with a requestId that will
+      // deterministically replay the same conflict/fence. Transport failures,
+      // local deadlines, invalid success responses, and 5xx responses retain
+      // the ID because their mutation outcome is unknown.
+      if (isDefinitiveSessionAdmissionError(error)) {
+        clearPendingSessionRequestId(code);
       }
       throw error;
     }

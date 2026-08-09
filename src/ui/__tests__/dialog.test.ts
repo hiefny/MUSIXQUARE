@@ -243,6 +243,40 @@ describe('Dialog System', () => {
       expect(validator).toHaveBeenCalledWith(' Minsu ');
       await expect(promise).resolves.toEqual({ action: 'ok', inputValue: ' Minsu ' });
     });
+
+    it('labels editable input and announces validation state through its hint', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const promise = showDialog({
+        title: 'Nickname',
+        inputField: {
+          placeholder: 'Display name',
+          hint: 'Use a recognizable name',
+          validator: () => 'Name is unavailable',
+        },
+      });
+      vi.advanceTimersByTime(10);
+
+      const input = document.querySelector<HTMLElement>('.dialog-input')!;
+      const hint = document.getElementById('dialog-input-hint')!;
+      expect(input.getAttribute('aria-label')).toBe('Display name');
+      expect(input.getAttribute('aria-describedby')).toBe(hint.id);
+      expect(input.getAttribute('aria-invalid')).toBe('false');
+      expect(hint.getAttribute('aria-live')).toBe('polite');
+      expect(hint.getAttribute('aria-atomic')).toBe('true');
+
+      input.textContent = 'Taken';
+      document.getElementById('btn-dialog-ok')?.click();
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      expect(hint.textContent).toBe('Name is unavailable');
+
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      expect(input.getAttribute('aria-invalid')).toBe('false');
+      expect(hint.textContent).toBe('Use a recognizable name');
+
+      closeDialog();
+      vi.advanceTimersByTime(10);
+      await promise;
+    });
   });
 
   describe('closeDialog()', () => {

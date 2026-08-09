@@ -10,6 +10,17 @@ import {
   sanitizeAccountLoginReturnPath,
 } from '../login-return.ts';
 
+const CLAIM_PARAMETER_ALIASES = [
+  'claim_token',
+  'claim-token',
+  'pro_claim',
+  'proclaim',
+  'pro_recovery',
+  'prorecovery',
+  'pro_transfer',
+  'protransfer',
+] as const;
+
 function runAsInstalledPwa(): void {
   vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
 }
@@ -94,6 +105,28 @@ describe('account login return continuity', () => {
     expect(durableRaw).not.toContain('oauth-secret');
     expect(durableRaw).not.toContain('claim-secret');
   });
+
+  it.each(CLAIM_PARAMETER_ALIASES)(
+    'scrubs %s from query and fragment state before sessionStorage is written',
+    (alias) => {
+      const raw = `/000001?panel=connect&${alias}=query-secret#view=setup&${alias}=fragment-secret`;
+
+      expect(sanitizeAccountLoginReturnPath(raw)).toBe('/000001?panel=connect');
+      rememberAccountLoginReturn(raw, '000001', { allowSilentTakeover: true });
+
+      const sessionRaw = sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY);
+      const durableRaw = localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY);
+      expect(sessionRaw).not.toContain(alias);
+      expect(sessionRaw).not.toContain('query-secret');
+      expect(sessionRaw).not.toContain('fragment-secret');
+      expect(JSON.parse(sessionRaw || '{}')).toMatchObject({
+        returnTo: '/000001?panel=connect',
+      });
+      expect(durableRaw).not.toContain(alias);
+      expect(durableRaw).not.toContain('query-secret');
+      expect(durableRaw).not.toContain('fragment-secret');
+    },
+  );
 
   it('preserves a provider cancellation marker while restoring the intended PRO route', () => {
     rememberAccountLoginReturn('/000001?panel=connect#account', '000001', {

@@ -2,7 +2,7 @@ import { normalizeAccountNickname } from './account-nickname.js';
 import { isProRoomGeneration } from './pro-room-generation.js';
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+const decoder = new TextDecoder('utf-8', { fatal: true });
 
 export const ACCOUNT_ASSERTION_HEADER = 'X-MXQR-Account-Assertion';
 export const ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM = 'pro-room';

@@ -14,7 +14,7 @@ import {
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { isVisible, readState, waitForDeviceCount, waitForPlaylistCount } from './helpers/wait.ts';
+import { readState, waitForDeviceCount, waitForPlaylistCount } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
 

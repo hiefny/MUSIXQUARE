@@ -16,7 +16,6 @@ import {
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { uploadFixture } from './helpers/file-upload.ts';
 import {
   clickAndWaitActive,
   navigateToSubtab,

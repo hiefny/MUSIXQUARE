@@ -2,10 +2,17 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   PRODUCTION_API_PROXY_PATHS,
+  collectStaticAppEntryAssets,
   createViteConfig,
+  injectBuildEntryAssets,
   isExpectedPlaylistImportOverlapWarning,
   productionApiProxyEnabled,
 } from '../../../vite.config.ts';
+import {
+  collectActiveStartupAssets,
+  collectRenderedWorkerAssets,
+  parseServiceWorkerAppShell,
+} from '../../../scripts/service-worker-app-shell-guard-lib.mjs';
 
 type DevMiddleware = (
   request: { method?: string; url?: string },
@@ -170,5 +177,127 @@ describe('Vite dynamic/static overlap policy', () => {
   it('rejects a missing reviewed importer occurrence', () => {
     const changedWarning = reviewedWarning.replace('C:/repo/src/player/playlist-loader.ts, ', '');
     expect(isExpectedPlaylistImportOverlapWarning(changedWarning)).toBe(false);
+  });
+});
+
+describe('service-worker build entry manifest', () => {
+  it('collects the canonical entry JS/CSS and emitted Worker/file closure', () => {
+    const bundle = {
+      'assets/app.js': {
+        type: 'chunk',
+        fileName: 'assets/app.js',
+        isEntry: true,
+        imports: ['assets/vendor.js'],
+        referencedFiles: ['assets/static-runtime.bin'],
+        code: 'new Worker(new URL("/assets/sync.worker.js", import.meta.url), { type: "module" });',
+        modules: { 'C:/repo/src/app.ts': {} },
+        viteMetadata: { importedCss: new Set(['assets/app.css']) },
+      },
+      'assets/vendor.js': {
+        type: 'chunk',
+        fileName: 'assets/vendor.js',
+        isEntry: false,
+        imports: [],
+        modules: { 'C:/repo/src/vendor.ts': {} },
+        viteMetadata: { importedCss: new Set(['assets/vendor.css']) },
+      },
+      'assets/lazy.js': {
+        type: 'chunk',
+        fileName: 'assets/lazy.js',
+        isEntry: false,
+        imports: [],
+        modules: { 'C:/repo/src/lazy.ts': {} },
+      },
+      'assets/sync.worker.js': {
+        type: 'asset',
+        fileName: 'assets/sync.worker.js',
+        source: 'self.onmessage = () => undefined;',
+      },
+      'assets/static-runtime.bin': {
+        type: 'asset',
+        fileName: 'assets/static-runtime.bin',
+        source: 'runtime',
+      },
+    };
+
+    expect(collectStaticAppEntryAssets(bundle)).toEqual([
+      './assets/app.css',
+      './assets/app.js',
+      './assets/static-runtime.bin',
+      './assets/sync.worker.js',
+      './assets/vendor.css',
+      './assets/vendor.js',
+    ]);
+  });
+
+  it('discovers only same-origin rendered Worker URL module expressions', () => {
+    const source = `
+      const primary = new Worker(new URL('/assets/sync.worker-hash.js', import.meta.url), { type: 'module' });
+      const shared = new SharedWorker(new URL('./assets/shared.worker.js', import.meta.url));
+      new Worker('/assets/string-worker.js');
+      new Worker(new URL('https://cdn.example/foreign-worker.js', import.meta.url));
+      const inert = "new Worker(new URL('/assets/not-code.js', import.meta.url))";
+    `;
+
+    expect(collectRenderedWorkerAssets(source)).toEqual([
+      '/assets/shared.worker.js',
+      '/assets/sync.worker-hash.js',
+    ]);
+  });
+
+  it('injects exactly one non-empty manifest and rejects missing contracts', () => {
+    const source = `const BUILD_ENTRY_ASSETS = [\n  /* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */\n];`;
+    const injected = injectBuildEntryAssets(source, ['./assets/app.js', './assets/app.css']);
+
+    expect(injected).toContain('"./assets/app.js"');
+    expect(injected).toContain('"./assets/app.css"');
+    expect(injected).not.toContain('__MUSIXQUARE_BUILD_ENTRY_ASSETS__');
+    expect(() => injectBuildEntryAssets(source, [])).toThrow('manifest is empty');
+    expect(() => injectBuildEntryAssets('const BUILD_ENTRY_ASSETS = [];', ['./app.js'])).toThrow(
+      'Expected one',
+    );
+  });
+
+  it('finds module and classic startup scripts while excluding inert or non-cacheable sources', () => {
+    const html = `<!doctype html><html><head>
+      <script src="/assets/app.js" crossorigin type="module"></script>
+      <link href="/assets/app.css" media="screen" rel="preload stylesheet">
+      <script src="/classic.js"></script>
+      <script defer src="/deferred.js"></script>
+      <script src="/typed-classic.js" type="text/javascript; charset=utf-8"></script>
+      <script src="/data-block.js" type="application/json"></script>
+      <script src="https://cdn.example/external.js"></script>
+      <script src="data:text/javascript,void 0"></script>
+      <script src="blob:https://musixquare.invalid/not-cacheable"></script>
+      <script>window.inlineStartup = true;</script>
+      <template><script src="/template.js" type="module"></script></template>
+      <noscript><link href="/noscript.css" rel="stylesheet"></noscript>
+      <svg><script href="/foreign.js" type="module"></script></svg>
+    </head></html>`;
+
+    expect(collectActiveStartupAssets(html)).toEqual([
+      '/assets/app.js',
+      '/assets/app.css',
+      '/classic.js',
+      '/deferred.js',
+      '/typed-classic.js',
+    ]);
+  });
+
+  it('resolves the symbolic bootstrap cache key with the built cache epoch', () => {
+    const worker = `
+      const CACHE_VERSION = 'v401';
+      const BOOTSTRAP_CACHE_KEY = \`./bootstrap.js?cache=\${CACHE_VERSION}\`;
+      const BUILD_ENTRY_ASSETS = ['./assets/app.js'];
+      const APP_SHELL = ['./index.html', BOOTSTRAP_CACHE_KEY, ...BUILD_ENTRY_ASSETS];
+    `;
+
+    expect(parseServiceWorkerAppShell(worker)).toEqual({
+      entries: ['./index.html', './bootstrap.js?cache=v401', './assets/app.js'],
+      buildEntries: ['./assets/app.js'],
+    });
+    expect(() =>
+      parseServiceWorkerAppShell(worker.replace('?cache=${CACHE_VERSION}', '?v=${CACHE_VERSION}')),
+    ).toThrow('Could not resolve BOOTSTRAP_CACHE_KEY');
   });
 });

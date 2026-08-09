@@ -210,15 +210,4 @@ describe('Platform Detection', () => {
       expect(isStandaloneDisplayMode()).toBe(true);
     });
   });
-
-  describe('preventIOSPinchZoom', () => {
-    it('is exported as a function', async () => {
-      Object.defineProperty(navigator, 'userAgent', {
-        value: 'Mozilla/5.0 (Windows NT 10.0)',
-        configurable: true,
-      });
-      const { preventIOSPinchZoom } = await import('../platform.ts');
-      expect(typeof preventIOSPinchZoom).toBe('function');
-    });
-  });
 });

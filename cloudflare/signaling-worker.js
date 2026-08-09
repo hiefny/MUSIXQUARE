@@ -7,7 +7,6 @@ import {
   INITIAL_PRO_ROOM_GENERATION,
   isProRoomGeneration,
   proRoomGenerationHeaderValue,
-  proRoomMediaPrefix,
   proRoomObjectName,
 } from './pro-room-generation.js';
 import { isSafeVisibleDisplayName } from './display-name-policy.js';
@@ -58,6 +57,12 @@ const PRO_DECOMMISSIONED_KEY = 'proRoomDecommissioned';
 const PRO_OWNER_ACCOUNT_DELETION_FENCE_KEY = 'proOwnerAccountDeletionFence';
 const PRO_SIGNALING_TICKET_KIND = 'pro-signaling';
 const PRO_SIGNALING_TICKET_VERSION = 1;
+const PRO_SIGNALING_WEBSOCKET_PROTOCOL = 'mxqr.pro-signaling.v1';
+const PRO_SIGNALING_TICKET_PROTOCOL_PREFIX = 'mxqr.ticket.';
+// Cached pre-cutover clients may still place their one-use ticket in the URL.
+// Keep that compatibility path bounded; platform invocation URL logs and
+// traces stay disabled for the entire grace window in Wrangler.
+const PRO_SIGNALING_LEGACY_QUERY_ACCEPT_UNTIL_MS = Date.UTC(2026, 8, 9);
 const PRO_ROOM_GENERATION_HEADER = 'x-mxqr-pro-room-generation';
 const PRO_SIGNALING_TICKET_MAX_SECONDS = 5 * 60;
 const PRO_SIGNALING_CLOCK_SKEW_SECONDS = 30;
@@ -65,6 +70,7 @@ const PRO_REALTIME_BODY_MAX_BYTES = 8 * 1024;
 const PRO_SERVER_EVENT_MAX_BYTES = 3 * 1024;
 const PRO_REALTIME_TEXT_MAX_LENGTH = 500;
 const PRO_AUTHORITY_CHECK_TIMEOUT_MS = 1_000;
+const PRO_AUTHORITY_RESPONSE_MAX_BYTES = 4 * 1024;
 const PRO_CHAT_SLOWMODE_MAX_SECONDS = 60;
 // BOT requests are rendered as remote typing bubbles before their client-side
 // execution finishes. Retain only a short, bounded server-observed proof so a
@@ -88,6 +94,7 @@ const PRO_SERVER_EVENT_TYPES = new Set([
   'system-audio-invalidated',
 ]);
 const INTERNAL_ADMIN_BODY_MAX_BYTES = 1024;
+const INTERNAL_JSON_BODY_TIMEOUT_MS = 2_000;
 const ADMIN_REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const OWNER_AUTHORITY_REMOVAL_ID_RE = /^removal_[A-Za-z0-9_-]{22}$/;
 const MAX_PRO_TICKET_USES = 1024;
@@ -345,6 +352,40 @@ async function verifyProSignalingTicket(ticket, expectedRoomId, env, now = Date.
   }
 }
 
+function readProSignalingCredential(request, url, nowMs = Date.now()) {
+  const protocolHeader = request.headers.get('Sec-WebSocket-Protocol');
+  if (protocolHeader !== null) {
+    if (url.search || protocolHeader.length > 8192) return null;
+    const protocols = protocolHeader.split(',').map((value) => value.trim());
+    if (
+      protocols.length !== 2 ||
+      protocols[0] !== PRO_SIGNALING_WEBSOCKET_PROTOCOL ||
+      !protocols[1].startsWith(PRO_SIGNALING_TICKET_PROTOCOL_PREFIX)
+    ) {
+      return null;
+    }
+    const ticket = protocols[1].slice(PRO_SIGNALING_TICKET_PROTOCOL_PREFIX.length);
+    if (!ticket || ticket.length > 4096) return null;
+    return {
+      ticket,
+      responseProtocol: PRO_SIGNALING_WEBSOCKET_PROTOCOL,
+      transport: 'subprotocol',
+    };
+  }
+
+  if (nowMs >= PRO_SIGNALING_LEGACY_QUERY_ACCEPT_UNTIL_MS) return null;
+  const ticketValues = url.searchParams.getAll('ticket');
+  if (
+    ticketValues.length !== 1 ||
+    !ticketValues[0] ||
+    ticketValues[0].length > 4096 ||
+    [...url.searchParams.keys()].some((key) => key !== 'ticket')
+  ) {
+    return null;
+  }
+  return { ticket: ticketValues[0], responseProtocol: null, transport: 'legacy-query' };
+}
+
 async function hashGuestReconnectSecret(secret) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
   return bytesToBase64Url(new Uint8Array(digest));
@@ -407,13 +448,171 @@ async function readBoundedJson(request, maxBytes) {
   const contentType = request.headers.get('content-type') || '';
   if (!/^application\/json(?:\s*;|$)/i.test(contentType)) return null;
   const declared = request.headers.get('content-length');
-  if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > maxBytes)) return null;
+  if (declared !== null && (!/^\d+$/.test(declared.trim()) || Number(declared) > maxBytes)) {
+    return null;
+  }
+  if (!request.body) return null;
+  const reader = request.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  let stop;
+  const stopped = new Promise((resolve) => {
+    stop = resolve;
+  });
+  const cancel = (reason) => {
+    try {
+      Promise.resolve(reader.cancel(reason)).catch(() => {});
+    } catch {
+      // Cancellation is best-effort and must never delay the bounded result.
+    }
+  };
+  const timeoutSignal = AbortSignal.timeout(INTERNAL_JSON_BODY_TIMEOUT_MS);
+  const stopSignal =
+    typeof AbortSignal.any === 'function'
+      ? AbortSignal.any([request.signal, timeoutSignal])
+      : timeoutSignal;
+  const abort = () => {
+    stop({ kind: 'aborted' });
+    cancel(stopSignal.reason);
+  };
+  if (stopSignal.aborted) abort();
+  else stopSignal.onabort = abort;
   try {
-    const text = await request.text();
-    if (!text || utf8ByteLength(text) > maxBytes) return null;
-    return JSON.parse(text);
+    while (true) {
+      const outcome = await Promise.race([
+        reader.read().then(
+          (value) => ({ kind: 'read', value }),
+          () => ({ kind: 'invalid' }),
+        ),
+        stopped,
+      ]);
+      if (outcome.kind !== 'read') return null;
+      const { done, value } = outcome.value;
+      if (done) break;
+      if (!value) continue;
+      const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+      totalBytes += bytes.byteLength;
+      if (totalBytes > maxBytes) {
+        cancel('INTERNAL_REQUEST_BODY_TOO_LARGE');
+        return null;
+      }
+      chunks.push(bytes);
+    }
   } catch {
     return null;
+  } finally {
+    stopSignal.onabort = null;
+    try {
+      reader.releaseLock();
+    } catch {
+      // A non-cooperative stream may retain the timed-out pending read.
+    }
+  }
+  if (totalBytes === 0) return null;
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    return null;
+  }
+}
+
+function cancelBodyStream(bodyOrReader, reason) {
+  const body = bodyOrReader?.body || bodyOrReader;
+  if (!body || typeof body.cancel !== 'function') return;
+  try {
+    Promise.resolve(body.cancel(reason)).catch(() => {});
+  } catch {
+    // Cancellation is best-effort and must never delay the fail-closed result.
+  }
+}
+
+async function readBoundedJsonResponse(response, maxBytes, registerReader) {
+  const declared = response.headers.get('content-length');
+  if (
+    declared !== null &&
+    (!/^\d+$/.test(declared.trim()) || Number(declared) > maxBytes)
+  ) {
+    cancelBodyStream(response, 'AUTHORITY_RESPONSE_TOO_LARGE');
+    return null;
+  }
+  if (!response.body) return null;
+  const reader = response.body.getReader();
+  registerReader(reader);
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+      totalBytes += bytes.byteLength;
+      if (totalBytes > maxBytes) {
+        cancelBodyStream(reader, 'AUTHORITY_RESPONSE_TOO_LARGE');
+        return null;
+      }
+      chunks.push(bytes);
+    }
+  } catch {
+    return null;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // A non-cooperative body may retain the timed-out pending read.
+    }
+  }
+  if (totalBytes === 0) return null;
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    return null;
+  }
+}
+
+async function fetchBoundedJsonWithSignal(fetcher, request, signal, maxBytes) {
+  let activeReader = null;
+  let timedOut = signal.aborted;
+  let abort = null;
+  const operation = Promise.resolve()
+    .then(() => fetcher(request))
+    .then(async (response) => {
+      if (timedOut) {
+        cancelBodyStream(response, signal.reason);
+        return null;
+      }
+      const value = await readBoundedJsonResponse(response, maxBytes, (reader) => {
+        activeReader = reader;
+      });
+      return timedOut ? null : { response, value };
+    })
+    // Normalize a dependency rejection even when it settles after the signal.
+    .catch(() => null);
+  const timeout = new Promise((resolve) => {
+    abort = () => {
+      timedOut = true;
+      cancelBodyStream(activeReader, signal.reason);
+      resolve(null);
+    };
+    if (signal.aborted) abort();
+    else signal.onabort = abort;
+  });
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (signal.onabort === abort) signal.onabort = null;
   }
 }
 
@@ -442,10 +641,6 @@ function normalizeProTicketUses(value) {
     entries.push({ jti: entry.jti, exp: entry.exp });
   }
   return { v: 1, roomGeneration, entries };
-}
-
-function defaultProParticipantHighWater(roomGeneration = INITIAL_PRO_ROOM_GENERATION) {
-  return { v: 1, roomGeneration, entries: [] };
 }
 
 function normalizeProParticipantHighWater(value) {
@@ -1227,7 +1422,9 @@ function standardRoomMemberIdentityFromAttachment(attachment) {
     !/^member_[A-Za-z0-9_-]{22}$/.test(attachment.memberId) ||
     !Number.isSafeInteger(attachment.memberDisplayNumber) ||
     typeof attachment.memberNickname !== 'string' ||
-    !attachment.memberNickname
+    !attachment.memberNickname ||
+    !Number.isSafeInteger(attachment.identityExpiresAt) ||
+    Date.now() >= attachment.identityExpiresAt
   ) {
     return null;
   }
@@ -1736,6 +1933,7 @@ export class MusixquareRoom {
     }
 
     let authorityRequest;
+    let authoritySignal;
     try {
       const room = namespace.get(
         namespace.idFromName(proRoomObjectName(attachment.roomId, attachment.roomGeneration)),
@@ -1748,6 +1946,7 @@ export class MusixquareRoom {
         this.recordMetric('pro_realtime_authority_unavailable');
         return false;
       }
+      authoritySignal = AbortSignal.timeout(PRO_AUTHORITY_CHECK_TIMEOUT_MS);
       authorityRequest = new Request('https://pro-room.internal/internal/authority/check', {
         method: 'POST',
         headers: {
@@ -1762,17 +1961,28 @@ export class MusixquareRoom {
           permission,
           ...details,
         }),
-        signal: AbortSignal.timeout(PRO_AUTHORITY_CHECK_TIMEOUT_MS),
+        signal: authoritySignal,
       });
-      const response = await room.fetch(authorityRequest);
+      const result = await fetchBoundedJsonWithSignal(
+        (boundedRequest) => room.fetch(boundedRequest),
+        authorityRequest,
+        authoritySignal,
+        PRO_AUTHORITY_RESPONSE_MAX_BYTES,
+      );
+      if (!result) {
+        this.recordMetric(
+          authoritySignal.aborted
+            ? 'pro_realtime_authority_timeout'
+            : 'pro_realtime_authority_failed',
+        );
+        return false;
+      }
+      const { response, value: payload } = result;
       if (response.status !== 200) {
         this.recordMetric('pro_realtime_authority_denied');
         return false;
       }
-      let payload;
-      try {
-        payload = await response.json();
-      } catch {
+      if (!payload) {
         this.recordMetric('pro_realtime_authority_invalid_response');
         return false;
       }
@@ -1788,7 +1998,7 @@ export class MusixquareRoom {
       return allowed;
     } catch {
       this.recordMetric(
-        authorityRequest?.signal?.aborted
+        authoritySignal?.aborted
           ? 'pro_realtime_authority_timeout'
           : 'pro_realtime_authority_failed',
       );
@@ -1799,19 +2009,44 @@ export class MusixquareRoom {
   rehydrateSockets() {
     const sockets =
       typeof this.state.getWebSockets === 'function' ? this.state.getWebSockets() : [];
+    const expiredIdentitySockets = [];
     for (const ws of sockets) {
-      this.indexSocket(ws);
+      if (this.indexSocket(ws)) expiredIdentitySockets.push(ws);
+    }
+    // Index every socket before broadcasting expiry so a guest rehydrated
+    // ahead of the host cannot lose the authoritative anonymous projection.
+    for (const ws of expiredIdentitySockets) {
+      const attachment = readAttachment(ws);
+      if (attachment) this.notifyStandardRoomIdentity(ws, attachment, 'expired');
+    }
+    if (sockets.length > 0) {
+      // A prior alarm write and its immediate durable retry can both fail
+      // before the isolate hibernates. Recompute from attachments and durable
+      // metadata on every wake so that failure cannot extend an identity
+      // lease or retain a silent pending-auth slot indefinitely.
+      this.scheduleMaintenanceAlarm();
     }
   }
 
   indexSocket(ws) {
     const serialized = deserializeAttachment(ws);
-    const attachment = normalizeAttachment(serialized);
+    let attachment = normalizeAttachment(serialized);
     if (!attachment) {
       if (isRecord(serialized) && serialized.roomKind === 'pro') {
         closeSocket(ws, 1012, 'PRO_ROOM_PROTOCOL_UPGRADED');
       }
-      return;
+      return false;
+    }
+    let identityExpired = false;
+    if (
+      attachment.roomKind !== 'pro' &&
+      attachment.auth === 'ok' &&
+      Number.isSafeInteger(attachment.identityExpiresAt) &&
+      Date.now() >= attachment.identityExpiresAt
+    ) {
+      attachment = withoutStandardRoomIdentity(attachment);
+      serializeSocketAttachment(ws, attachment);
+      identityExpired = true;
     }
     if (attachment.roomKind === 'pro') {
       const previous = this.proMembers.get(attachment.participantId);
@@ -1822,48 +2057,48 @@ export class MusixquareRoom {
           (previousAttachment?.ticketSequence || 0) >= attachment.ticketSequence
         ) {
           closeSocket(ws, 1012, 'PRO_MEMBER_REPLACED');
-          return;
+          return false;
         }
         closeSocket(previous, 1012, 'PRO_MEMBER_REPLACED');
       }
       if (!previous && this.proMembers.size >= MAX_PRO_ROOM_MEMBERS) {
         closeWithError(ws, 'room-full', 'ROOM_MEMBER_LIMIT_REACHED', 1008);
-        return;
+        return false;
       }
       this.proMembers.set(attachment.participantId, ws);
-      return;
+      return false;
     }
     if (attachment.role === 'host') {
       if (attachment.auth === 'pending') {
         if (this.pendingHosts.size >= MAX_PENDING_HOST_SOCKETS) {
           closeWithError(ws, 'room-full', 'HOST_PENDING_LIMIT_REACHED', 1008);
-          return;
+          return false;
         }
         if (Date.now() > attachment.authDeadline) {
           closeSocket(ws, 1011, 'host auth timeout (hibernation)');
-          return;
+          return false;
         }
         this.pendingHosts.add(ws);
-        return;
+        return false;
       }
       this.host = ws;
       this.hostPeerId = attachment.peerId;
-      return;
+      return identityExpired;
     }
     const admitted = this.admittedGuestIds();
     if (!admitted.has(attachment.peerId) && admitted.size >= MAX_ROOM_GUESTS) {
       closeWithError(ws, 'room-full', 'ROOM_GUEST_LIMIT_REACHED', 1008);
-      return;
+      return false;
     }
     if (attachment.auth === 'ok') {
       this.guests.set(attachment.peerId, ws);
-      return;
+      return identityExpired;
     }
     if (attachment.auth === 'pending') {
       if (this.pendingGuests.size >= MAX_PENDING_GUEST_SOCKETS) {
         closeWithError(ws, 'room-full', 'ROOM_PENDING_LIMIT_REACHED', 1008);
         this.recordMetric('guest_pending_capacity');
-        return;
+        return false;
       }
       // If the DO slept past the pending guest's authDeadline, don't leak
       // the slot — close immediately on hibernation wake so a real guest
@@ -1874,10 +2109,11 @@ export class MusixquareRoom {
         } catch {
           /* ignore */
         }
-        return;
+        return false;
       }
       this.pendingGuests.add(ws);
     }
+    return false;
   }
 
   async loadProRoomMeta() {
@@ -2763,17 +2999,25 @@ export class MusixquareRoom {
     for (const socket of [this.host, ...this.guests.values()].filter(Boolean)) {
       const attachment = readAttachment(socket);
       if (!Number.isSafeInteger(attachment?.identityExpiresAt)) continue;
-      const identityExpiryAt = attachment.identityExpiresAt + 1000;
+      const identityExpiryAt = attachment.identityExpiresAt;
       if (earliest === null || identityExpiryAt < earliest) earliest = identityExpiryAt;
     }
     for (const proof of this.proBotRequestProofs?.entries || []) {
       const proofExpiryAt = proof.expiresAtMs + 1;
       if (earliest === null || proofExpiryAt < earliest) earliest = proofExpiryAt;
     }
+    const activeGuestIds = new Set(this.guests.keys());
+    for (const binding of this.guestBindings?.entries || []) {
+      if (activeGuestIds.has(binding.peerId)) continue;
+      const bindingExpiryAt = binding.updatedAt + GUEST_BINDING_RECONNECT_TTL_MS + 1;
+      if (earliest === null || bindingExpiryAt < earliest) earliest = bindingExpiryAt;
+    }
     return earliest;
   }
 
   async syncMaintenanceAlarm() {
+    await this.loadRoomMeta();
+    await this.loadGuestBindings();
     const proMeta = await this.loadProRoomMeta();
     if (proMeta) {
       await this.loadProBotRequestProofs(proMeta.roomId, proMeta.coordinatorEpoch);
@@ -2885,10 +3129,13 @@ export class MusixquareRoom {
       if (!isProNamespaceRoomCode(proRoomId)) {
         return json({ error: 'PRO_ROOM_NOT_CONFIGURED' }, 404);
       }
-      // The signed ticket must never be included in application logs. It is
-      // intentionally read once here and represented only by its JTI afterward.
+      // New clients carry the signed ticket in a non-selected WebSocket
+      // subprotocol token so platform URL telemetry cannot capture it. The
+      // bounded query fallback exists only for cached pre-cutover clients.
+      const credential = readProSignalingCredential(request, url);
+      if (!credential) return json({ error: 'INVALID_PRO_SIGNALING_TICKET' }, 401);
       const ticket = await verifyProSignalingTicket(
-        url.searchParams.get('ticket') || '',
+        credential.ticket,
         proRoomId,
         this.env,
       );
@@ -2933,7 +3180,13 @@ export class MusixquareRoom {
         const pair = new WebSocketPair();
         const [client, server] = Object.values(pair);
         await this.acceptProSocket(server, ticket);
-        return new Response(null, { status: 101, webSocket: client });
+        return new Response(null, {
+          status: 101,
+          webSocket: client,
+          ...(credential.responseProtocol
+            ? { headers: { 'Sec-WebSocket-Protocol': credential.responseProtocol } }
+            : {}),
+        });
       });
     }
 
@@ -3766,13 +4019,18 @@ export class MusixquareRoom {
         if (
           attachment?.auth === 'ok' &&
           Number.isSafeInteger(attachment.identityExpiresAt) &&
-          now > attachment.identityExpiresAt
+          now >= attachment.identityExpiresAt
         ) {
           await this.applyStandardRoomIdentity(sock, attachment, null, 'expired');
         }
       }
       // The same alarm also expires host metadata after reconnect grace.
       await this.clearExpiredHostRelease();
+      const bindings = await this.loadGuestBindings();
+      const prunedBindings = this.pruneGuestBindings(bindings, now);
+      if (prunedBindings.entries.length !== bindings.entries.length) {
+        await this.saveGuestBindings(prunedBindings);
+      }
     });
     await this.enqueueProChatMutation(async () => {
       const meta = await this.loadProRoomMeta();
@@ -3960,11 +4218,21 @@ export class MusixquareRoom {
       closeWithError(ws, 'service-maintenance', 'SERVICE_MAINTENANCE', 1012);
       return;
     }
-    const attachment = readAttachment(ws);
+    let attachment = readAttachment(ws);
     if (!attachment) return;
 
     if (attachment.roomKind === 'pro') {
       return this.handleProRealtimeMessage(ws, raw, attachment);
+    }
+
+    if (
+      attachment.auth === 'ok' &&
+      Number.isSafeInteger(attachment.identityExpiresAt) &&
+      Date.now() >= attachment.identityExpiresAt
+    ) {
+      await this.applyStandardRoomIdentity(ws, attachment, null, 'expired');
+      attachment = readAttachment(ws);
+      if (!attachment) return;
     }
 
     const isPendingHost = attachment.role === 'host' && attachment.auth === 'pending';
@@ -4618,6 +4886,7 @@ export class MusixquareRoom {
       this.guests.delete(peerId);
       if (this.host) {
         send(this.host, { type: 'peer-left', peerId });
+        await this.scheduleMaintenanceAlarm();
         return;
       }
     }
@@ -4672,7 +4941,7 @@ export default {
         ok: true,
         service: 'musixquare-signaling',
         websocket: '/api/rooms/:roomId/ws',
-        proWebsocket: '/api/pro-rooms/:roomId/ws?ticket=...',
+        proWebsocket: '/api/pro-rooms/:roomId/ws + Sec-WebSocket-Protocol',
       });
     }
 
@@ -4690,9 +4959,10 @@ export default {
       if (!isProNamespaceRoomCode(roomId)) {
         return json({ error: 'PRO_ROOM_NOT_CONFIGURED' }, 404);
       }
-      // Do not log `request.url` in this branch: it contains the bearer ticket.
+      const credential = readProSignalingCredential(request, url);
+      if (!credential) return json({ error: 'INVALID_PRO_SIGNALING_TICKET' }, 401);
       const ticket = await verifyProSignalingTicket(
-        url.searchParams.get('ticket') || '',
+        credential.ticket,
         roomId,
         env,
       );

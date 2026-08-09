@@ -7,6 +7,7 @@ import {
   ACCOUNT_ASSERTION_HEADER,
   createAccountAssertion,
 } from '../../../cloudflare/account-assertion.js';
+import appWorker from '../../../cloudflare/app-worker.js';
 import {
   MusixquareProRoom,
   issueProRoomActivationClaim,
@@ -2314,6 +2315,7 @@ const presenceByCookie = new Map<
   string,
   { participantId: string; presenceIncarnationId: string }
 >();
+let sessionRequestSequence = 0;
 
 type StoredRoom = {
   revision: number;
@@ -2573,7 +2575,19 @@ function jsonRequest(
 ): Request {
   const headers = new Headers({ 'content-type': 'application/json' });
   if (idempotencyKey) headers.set('idempotency-key', idempotencyKey);
-  return request(path, { method, headers, body: JSON.stringify(body) }, cookie);
+  const wireBody =
+    path === '/sessions' &&
+    body !== null &&
+    typeof body === 'object' &&
+    !Array.isArray(body) &&
+    Object.keys(body).length === 1 &&
+    typeof (body as { pin?: unknown }).pin === 'string'
+      ? {
+          ...(body as Record<string, unknown>),
+          requestId: `test-session-request-${String(++sessionRequestSequence).padStart(8, '0')}`,
+        }
+      : body;
+  return request(path, { method, headers, body: JSON.stringify(wireBody) }, cookie);
 }
 
 async function withAccountAssertion(
@@ -2677,7 +2691,24 @@ function jsonRequestForRoom(
 ): Request {
   const headers = new Headers({ 'content-type': 'application/json' });
   if (idempotencyKey) headers.set('idempotency-key', idempotencyKey);
-  return requestForRoom(roomCode, path, { method, headers, body: JSON.stringify(body) }, cookie);
+  const wireBody =
+    path === '/sessions' &&
+    body !== null &&
+    typeof body === 'object' &&
+    !Array.isArray(body) &&
+    Object.keys(body).length === 1 &&
+    typeof (body as { pin?: unknown }).pin === 'string'
+      ? {
+          ...(body as Record<string, unknown>),
+          requestId: `test-session-request-${String(++sessionRequestSequence).padStart(8, '0')}`,
+        }
+      : body;
+  return requestForRoom(
+    roomCode,
+    path,
+    { method, headers, body: JSON.stringify(wireBody) },
+    cookie,
+  );
 }
 
 async function responseJson(response: Response): Promise<Record<string, any>> {
@@ -6898,6 +6929,43 @@ describe('PRO room private Developer API projections', () => {
     expect(internal.room.playback).toMatchObject({ state: 'paused', positionSeconds: 12 });
   });
 
+  it('bounds and cancels a realtime response body that never closes', async () => {
+    vi.useFakeTimers();
+    const cancel = vi.fn();
+    const stalledDispatch = vi.fn(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"broadcast":true'));
+            },
+            cancel,
+          }),
+          { status: 200 },
+        ),
+    );
+    const { worker, internal } = await preparedDeveloperCommandRoom(stalledDispatch);
+    const pending = createInternalDeveloperCommand(
+      worker,
+      'ApiKeyId12345678',
+      'developer-command-body-timeout',
+      { type: 'seek', positionSeconds: 18 },
+    );
+    for (let attempt = 0; attempt < 100 && stalledDispatch.mock.calls.length === 0; attempt += 1) {
+      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
+    }
+    expect(stalledDispatch).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(901);
+
+    const response = await pending;
+    expect(response.status).toBe(202);
+    const body = await responseJson(response);
+    expect(body).toMatchObject({ status: 'applied', resultCode: 'applied' });
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(internal.room.playback).toMatchObject({ state: 'paused', positionSeconds: 18 });
+  });
+
   it('rejects every obsolete browser ACK after server-side command completion', async () => {
     const { worker, ownerCookie, internal } = await preparedDeveloperCommandRoom();
     const created = await responseJson(
@@ -7189,6 +7257,31 @@ describe('persistent PRO room bootstrap and activation', () => {
       error: 'PRO_ROOM_DECOMMISSION_NOT_CONFIGURED',
     });
     expect(internal.room.status).toBe('active');
+  });
+
+  it('bounds an uncooperative signaling decommission call and aborts its request', async () => {
+    vi.useFakeTimers();
+    const context = await activatedRoom();
+    let dependencySignal: AbortSignal | null = null;
+    const internal = context.worker as unknown as {
+      env: Record<string, any>;
+      decommissionSignaling(requestId: string): Promise<boolean>;
+    };
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({
+        fetch: vi.fn((request: Request) => {
+          dependencySignal = request.signal;
+          return new Promise<Response>(() => {});
+        }),
+      })),
+    };
+
+    const pending = internal.decommissionSignaling('018f977e-5df5-4c8f-bb80-55d847ddec90');
+    await vi.advanceTimersByTimeAsync(2_001);
+
+    await expect(pending).resolves.toBe(false);
+    expect((dependencySignal as AbortSignal | null)?.aborted).toBe(true);
   });
 
   it('keeps an in-progress decommission retryable when its account store binding disappears', async () => {
@@ -8619,6 +8712,316 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ),
     ).toBe(true);
     expect(parseProRoomSnapshot(current.snapshot)).not.toBeNull();
+  });
+
+  it('keeps one facade admission when a committed response body is lost before its cookie retry', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const requestId = `mxqr-pro-${'a'.repeat(48)}`;
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const proEnvironment = {
+      ...environment(context.bucket),
+      PRO_ROOM_RATE_LIMIT_SECRET: 'rate-limit-secret-for-tests-at-least-32-bytes',
+      PRO_ROOMS: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({ fetch: (request: Request) => context.worker.fetch(request) })),
+      },
+    };
+    const actorHints: Array<string | null> = [];
+    let firstEnvelope: Record<string, any> | null = null;
+    let firstUpstreamCookie = '';
+    const publicFetch = vi.fn(async (request: Request) => {
+      actorHints.push(request.headers.get('x-mxqr-pro-session-actor'));
+      const response = await proRoomWorker.fetch(request, proEnvironment as never);
+      if (actorHints.length !== 1) return response;
+
+      firstUpstreamCookie = cookieFrom(response);
+      firstEnvelope = await response.clone().json();
+      // Model an outcome-unknown service response: its headers (including the
+      // newly committed cookie) exist, but the body cannot be decoded by the
+      // App facade. The retry below deliberately includes that cookie.
+      return new Response(new Uint8Array([0xc3, 0x28]), {
+        status: response.status,
+        headers: response.headers,
+      });
+    });
+    const appEnvironment = {
+      MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: ACCOUNT_ASSERTION_SECRET,
+      PRO_ROOM_PUBLIC_API: { fetch: publicFetch },
+    };
+    const admission = (pin: string, cookie = '', spoofedActor = 'browser-spoof') => {
+      const headers = new Headers({
+        Origin: 'https://musixquare.com',
+        'Content-Type': 'application/json',
+        'CF-Connecting-IP': '203.0.113.71',
+        'X-MXQR-Pro-Session-Actor': spoofedActor,
+      });
+      if (cookie) headers.set('Cookie', cookie);
+      return new Request(`https://musixquare.com/api/pro-room/v1/rooms/${ROOM_CODE}/sessions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ pin, requestId }),
+      });
+    };
+
+    const lost = await appWorker.fetch(admission('12345678'), appEnvironment);
+    expect(lost.status).toBe(502);
+    const lostPayload = await responseJson(lost);
+    expect(lostPayload).toEqual({ error: 'PRO_ROOM_API_UNAVAILABLE' });
+    expect(lost.headers.get('set-cookie')).toBeNull();
+    expect(firstEnvelope).not.toBeNull();
+    expect(firstUpstreamCookie).toMatch(
+      new RegExp(`^__Host-mxqr_pro_session_${ROOM_CODE}=v1\\.[A-Za-z0-9_-]{43}\\.`),
+    );
+    const sessionsAfterFirst = Object.keys(internal.room.sessions).length;
+    const participantsAfterFirst = Object.keys(internal.room.presence.participants).length;
+    const facadeCookie = firstUpstreamCookie.replace(
+      `__Host-mxqr_pro_session_${ROOM_CODE}=`,
+      `__Secure-mxqr_pro_session_${ROOM_CODE}=`,
+    );
+
+    const replayResponse = await appWorker.fetch(
+      admission('12345678', facadeCookie, 'different-browser-spoof'),
+      appEnvironment,
+    );
+    expect(replayResponse.status).toBe(200);
+    const replay = await responseJson(replayResponse);
+    expect(cookieFrom(replayResponse)).toBe(facadeCookie);
+    expect(replay.snapshot.viewer.participantId).toBe(firstEnvelope!.snapshot.viewer.participantId);
+    expect(Object.keys(internal.room.sessions)).toHaveLength(sessionsAfterFirst);
+    expect(Object.keys(internal.room.presence.participants)).toHaveLength(participantsAfterFirst);
+
+    const conflict = await appWorker.fetch(
+      admission('87654321', facadeCookie, 'third-browser-spoof'),
+      appEnvironment,
+    );
+    expect(conflict.status).toBe(409);
+    const conflictPayload = await responseJson(conflict);
+    expect(conflictPayload).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
+    expect(Object.keys(internal.room.sessions)).toHaveLength(sessionsAfterFirst);
+    expect(Object.keys(internal.room.presence.participants)).toHaveLength(participantsAfterFirst);
+
+    expect(actorHints).toHaveLength(3);
+    expect(actorHints[0]).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    expect(actorHints[0]).not.toBe(requestId);
+    expect(actorHints[1]).toBe(actorHints[0]);
+    expect(actorHints[2]).toBe(actorHints[0]);
+    expect(actorHints).not.toContain('browser-spoof');
+    expect(actorHints).not.toContain('different-browser-spoof');
+    expect(actorHints).not.toContain('third-browser-spoof');
+    expect(publicFetch.mock.calls[0]![0].headers.get('cookie')).toBeNull();
+    expect(publicFetch.mock.calls[1]![0].headers.get('cookie')).toBe(firstUpstreamCookie);
+    for (const [request] of publicFetch.mock.calls) expect(request.url).not.toContain(requestId);
+    expect(
+      JSON.stringify({
+        lost: { payload: lostPayload, headers: [...lost.headers] },
+        replay: { payload: replay, headers: [...replayResponse.headers] },
+        conflict: { payload: conflictPayload, headers: [...conflict.headers] },
+      }),
+    ).not.toContain(requestId);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(requestId);
+    warn.mockRestore();
+  });
+
+  it('durably replays one session credential for the same actor and exact request body', async () => {
+    const context = await activatedRoom();
+    const requestId = 'session-create-replay-request-0001';
+    const admission = (pin: string, actor = 'session-actor-a') => {
+      const incoming = jsonRequest('/sessions', 'POST', { pin, requestId });
+      incoming.headers.set('x-mxqr-pro-ip-hash', actor);
+      return incoming;
+    };
+
+    const firstResponse = await context.worker.fetch(admission('12345678'));
+    expect(firstResponse.status).toBe(200);
+    const first = await responseJson(firstResponse);
+    const firstCookie = cookieFrom(firstResponse);
+    const sessionsAfterFirst = Object.keys(
+      (context.worker as unknown as { room: Record<string, any> }).room.sessions,
+    ).length;
+    expect(
+      JSON.stringify((context.worker as unknown as { room: Record<string, any> }).room.idempotency),
+    ).not.toContain('12345678');
+
+    const resident = (context.worker as unknown as { room: Record<string, any> }).room;
+    delete resident.presence.participants[first.snapshot.viewer.participantId];
+    const presenceRecovery = await context.worker.fetch(admission('12345678'));
+    expect(presenceRecovery.status).toBe(200);
+    expect(cookieFrom(presenceRecovery)).toBe(firstCookie);
+    expect(resident.presence.participants[first.snapshot.viewer.participantId]).toBeDefined();
+
+    // Recreate the isolate so replay proves the receipt and deterministic
+    // credential were committed together, rather than retained in memory.
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const replayResponse = await restarted.fetch(admission('12345678'));
+    expect(replayResponse.status).toBe(200);
+    const replay = await responseJson(replayResponse);
+    expect(cookieFrom(replayResponse)).toBe(firstCookie);
+    expect(replay.snapshot.viewer.participantId).toBe(first.snapshot.viewer.participantId);
+    expect(
+      Object.keys((restarted as unknown as { room: Record<string, any> }).room.sessions),
+    ).toHaveLength(sessionsAfterFirst);
+
+    const conflicting = await restarted.fetch(admission('87654321'));
+    expect(conflicting.status).toBe(409);
+    await expect(conflicting.json()).resolves.toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
+    expect(
+      Object.keys((restarted as unknown as { room: Record<string, any> }).room.sessions),
+    ).toHaveLength(sessionsAfterFirst);
+
+    const otherActorResponse = await restarted.fetch(admission('12345678', 'session-actor-b'));
+    expect(otherActorResponse.status).toBe(200);
+    expect(cookieFrom(otherActorResponse)).not.toBe(firstCookie);
+    expect(
+      Object.keys((restarted as unknown as { room: Record<string, any> }).room.sessions),
+    ).toHaveLength(sessionsAfterFirst + 1);
+  });
+
+  it('durably converges an in-memory session receipt before replaying its credential', async () => {
+    const context = await activatedRoom();
+    const requestId = 'session-create-storage-recovery-0001';
+    const admission = () => {
+      const incoming = jsonRequest('/sessions', 'POST', { pin: '12345678', requestId });
+      incoming.headers.set('x-mxqr-pro-ip-hash', 'session-storage-recovery-actor');
+      return incoming;
+    };
+    const internal = context.worker as unknown as {
+      handleCreateSession(request: Request): Promise<Response>;
+      room: Record<string, any>;
+    };
+    const originalPut = context.state.storage.put.bind(context.state.storage);
+    let failCoreOnce = true;
+    context.state.storage.put = async (key, value) => {
+      if (failCoreOnce && key === 'pro-room:v2:core') {
+        failCoreOnce = false;
+        throw new Error('simulated session receipt commit failure');
+      }
+      return originalPut(key, value);
+    };
+
+    // Invoke the handler seam directly to model a storage implementation that
+    // surfaces the failed commit before the outer request rollback restores
+    // its isolate cache. The exact retry must not trust memory alone.
+    await expect(internal.handleCreateSession(admission())).rejects.toMatchObject({
+      name: 'RoomStateStorageCommitError',
+    });
+    expect(
+      Object.values(internal.room.idempotency).some(
+        (record: any) => record?.kind === 'session-create',
+      ),
+    ).toBe(true);
+
+    context.state.storage.put = originalPut;
+    const recovered = await context.worker.fetch(admission());
+    expect(recovered.status).toBe(200);
+    const recoveredCookie = cookieFrom(recovered);
+    const recoveredEnvelope = await responseJson(recovered);
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const durableReplay = await restarted.fetch(admission());
+    expect(durableReplay.status).toBe(200);
+    expect(cookieFrom(durableReplay)).toBe(recoveredCookie);
+    expect((await responseJson(durableReplay)).snapshot.viewer.participantId).toBe(
+      recoveredEnvelope.snapshot.viewer.participantId,
+    );
+  });
+
+  it('keeps one admission when optional account assertion appears on the retry', async () => {
+    const context = await activatedRoom();
+    const requestId = 'session-create-account-recovery-0001';
+    const actorHint = 'Z'.repeat(43);
+    const anonymousRequest = jsonRequest('/sessions', 'POST', { pin: '12345678', requestId });
+    anonymousRequest.headers.set('x-mxqr-pro-session-actor', actorHint);
+    anonymousRequest.headers.set('x-mxqr-pro-ip-hash', 'network-before-account-recovery');
+
+    const firstResponse = await context.worker.fetch(anonymousRequest);
+    expect(firstResponse.status).toBe(200);
+    const firstCookie = cookieFrom(firstResponse);
+    const first = await responseJson(firstResponse);
+
+    const assertedRequest = await withAccountAssertion(
+      jsonRequest('/sessions', 'POST', { pin: '12345678', requestId }),
+      'acct_0123456789abcdefghijkl',
+      'Recovered account',
+    );
+    assertedRequest.headers.set('x-mxqr-pro-session-actor', actorHint);
+    assertedRequest.headers.set('x-mxqr-pro-ip-hash', 'network-after-account-recovery');
+    const replayResponse = await context.worker.fetch(assertedRequest);
+    const replay = await responseJson(replayResponse);
+
+    expect(replayResponse.status).toBe(200);
+    expect(cookieFrom(replayResponse)).toBe(firstCookie);
+    expect(replay.snapshot.viewer.participantId).toBe(first.snapshot.viewer.participantId);
+    expect(
+      Object.keys((context.worker as unknown as { room: Record<string, any> }).room.sessions),
+    ).toHaveLength(2); // activation owner + exactly one joining device
+  });
+
+  it('expires compact session receipts and recovers the same live admission', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-08-09T00:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const context = await activatedRoom();
+
+    const legacy = await context.worker.fetch(
+      request('/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ pin: '12345678' }),
+      }),
+    );
+    expect(legacy.status).toBe(200);
+
+    const requestId = 'session-create-receipt-expiry-0001';
+    const admission = () => jsonRequest('/sessions', 'POST', { pin: '12345678', requestId });
+    const admitted = await context.worker.fetch(admission());
+    expect(admitted.status).toBe(200);
+    const admittedCookie = cookieFrom(admitted);
+    const admittedEnvelope = await responseJson(admitted);
+    const internal = context.worker as unknown as { room: Record<string, any> };
+    const sessionCount = Object.keys(internal.room.sessions).length;
+    const participantCount = Object.keys(internal.room.presence.participants).length;
+    const admittedParticipantId = admittedEnvelope.snapshot.viewer.participantId;
+    const receiptKey = Object.keys(internal.room.idempotency).find(
+      (key) =>
+        key.endsWith(`:${requestId}`) && internal.room.idempotency[key]?.kind === 'session-create',
+    );
+    expect(receiptKey).toBeTruthy();
+    expect(internal.room.idempotency[receiptKey!].expiresAtMs).toBe(startedAtMs + 10 * 60 * 1000);
+
+    // Keep every presence fresh so receipt expiry is isolated from the much
+    // shorter presence TTL. The retry must not overwrite the still-live
+    // deterministic session with a second participant identity.
+    for (const participant of Object.values(internal.room.presence.participants) as Record<
+      string,
+      any
+    >[]) {
+      participant.lastSeenAtMs = startedAtMs + 10 * 60 * 1000;
+    }
+    vi.setSystemTime(startedAtMs + 10 * 60 * 1000 + 1);
+    await context.worker.alarm();
+    expect(internal.room.idempotency[receiptKey!]).toBeUndefined();
+
+    const recovered = await context.worker.fetch(admission());
+    expect(recovered.status).toBe(200);
+    expect(cookieFrom(recovered)).toBe(admittedCookie);
+    expect((await responseJson(recovered)).snapshot.viewer.participantId).toBe(
+      admittedParticipantId,
+    );
+    expect(Object.keys(internal.room.sessions)).toHaveLength(sessionCount);
+    expect(Object.keys(internal.room.presence.participants)).toHaveLength(participantCount);
+    expect(internal.room.presence.participants[admittedParticipantId]).toBeDefined();
+    expect(internal.room.idempotency[receiptKey!]).toMatchObject({
+      kind: 'session-create',
+      participantId: admittedParticipantId,
+      expiresAtMs: startedAtMs + 20 * 60 * 1000 + 1,
+    });
   });
 
   it('keeps one room member identity across several devices of the same account', async () => {
@@ -14578,6 +14981,87 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(internal.alarmMaintenanceDirty).toBe(false);
     expect(internal.alarmMaintenanceRetryAttempt).toBe(0);
     expect(state.storage.alarm).not.toBeNull();
+  });
+
+  it('alarms and durably prunes idle idempotency and rate-limit ledgers at their deadlines', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-08-09T00:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
+    const state = new FakeState();
+    const worker = new MusixquareProRoom(state as never, environment() as never);
+    const internal = worker as unknown as {
+      room: {
+        idempotency: Record<string, unknown>;
+        developerMutationIdempotency: Record<string, unknown>;
+        rateLimits: Record<string, { count: number; resetAtMs: number }>;
+        botRateLimits: Record<string, { count: number; resetAtMs: number }>;
+      };
+      scheduledAlarmMs: number | null | undefined;
+      ensureReady(request: Request): Promise<boolean>;
+      storeIdempotency(
+        scope: string,
+        key: string,
+        fingerprint: string,
+        body: Record<string, unknown>,
+      ): void;
+      persist(): Promise<void>;
+      scheduleAlarm(): Promise<void>;
+      alarm(): Promise<void>;
+    };
+    expect(
+      await internal.ensureReady(
+        new Request(`https://pro-room.internal/v1/rooms/${ROOM_CODE}/bootstrap`, {
+          headers: {
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
+          },
+        }),
+      ),
+    ).toBe(true);
+
+    internal.storeIdempotency('member:idle-probe', 'browser-receipt', 'browser-fingerprint', {
+      ok: true,
+    });
+    internal.storeIdempotency(
+      'developer:idle-probe',
+      'developer-receipt',
+      'developer-fingerprint',
+      { ok: true },
+    );
+    const rateResetAtMs = startedAtMs + 60 * 60 * 1000;
+    const receiptExpiresAtMs = startedAtMs + 24 * 60 * 60 * 1000;
+    internal.room.rateLimits['member-hour:idle-probe'] = { count: 1, resetAtMs: rateResetAtMs };
+    internal.room.botRateLimits['bot-hour:idle-probe'] = { count: 1, resetAtMs: rateResetAtMs };
+    await internal.persist();
+    internal.scheduledAlarmMs = null;
+    state.storage.alarm = null;
+
+    await internal.scheduleAlarm();
+    expect(state.storage.alarm).toBe(rateResetAtMs);
+
+    vi.setSystemTime(rateResetAtMs + 1);
+    state.storage.alarm = null;
+    await internal.alarm();
+    expect(internal.room.rateLimits).toEqual({});
+    expect(internal.room.botRateLimits).toEqual({});
+    expect(Object.keys(internal.room.idempotency)).toHaveLength(1);
+    expect(Object.keys(internal.room.developerMutationIdempotency)).toHaveLength(1);
+    expect(state.storage.alarm).toBe(receiptExpiresAtMs);
+    expect(storedCanonicalRoom(state)).toMatchObject({
+      rateLimits: {},
+      botRateLimits: {},
+    });
+
+    vi.setSystemTime(receiptExpiresAtMs + 1);
+    state.storage.alarm = null;
+    await internal.alarm();
+    expect(internal.room.idempotency).toEqual({});
+    expect(internal.room.developerMutationIdempotency).toEqual({});
+    expect(state.storage.alarm).toBeNull();
+    expect(storedCanonicalRoom(state)).toMatchObject({
+      idempotency: {},
+      developerMutationIdempotency: {},
+    });
   });
 
   it('keeps failed deferred durability retryable by the next heartbeat and alarm', async () => {

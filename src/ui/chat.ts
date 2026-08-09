@@ -1363,9 +1363,17 @@ export function initChat(): void {
         .forEach((element) => element.remove());
     }
     const suggest = document.createElement('div');
+    suggest.id = 'chat-command-suggestions';
     suggest.className = 'chat-cmd-suggest';
+    suggest.setAttribute('role', 'listbox');
     suggest.style.display = 'none';
     if (wrapper) wrapper.appendChild(suggest);
+
+    chatInput.setAttribute('role', 'combobox');
+    chatInput.setAttribute('aria-autocomplete', 'list');
+    chatInput.setAttribute('aria-haspopup', 'listbox');
+    chatInput.setAttribute('aria-controls', suggest.id);
+    chatInput.setAttribute('aria-expanded', 'false');
 
     // Ghost text overlay for argument hints
     const ghost = document.createElement('div');
@@ -1427,18 +1435,38 @@ export function initChat(): void {
     let _suggestIdx = 0;
     let _suggestItems: { name: string; usage: string; description: string }[] = [];
 
+    function syncSuggestSelection(scroll = false): void {
+      const options = Array.from(suggest.querySelectorAll<HTMLElement>('.chat-cmd-item'));
+      options.forEach((element, index) => {
+        const active = index === _suggestIdx;
+        element.classList.toggle('active', active);
+        element.setAttribute('aria-selected', String(active));
+      });
+
+      const activeOption = options[_suggestIdx];
+      if (activeOption) {
+        chatInput!.setAttribute('aria-activedescendant', activeOption.id);
+        if (scroll) activeOption.scrollIntoView?.({ block: 'nearest', behavior: 'instant' });
+      } else {
+        chatInput!.removeAttribute('aria-activedescendant');
+      }
+    }
+
     function showSuggest(items: { name: string; usage: string; description: string }[]): void {
       _suggestItems = items;
       _suggestIdx = 0;
       if (!items.length) {
-        suggest.style.display = 'none';
+        hideSuggest();
         return;
       }
       suggest.replaceChildren(
         ...items.map((it, i) => {
           const item = document.createElement('div');
-          item.className = `chat-cmd-item${i === 0 ? ' active' : ''}`;
+          item.id = `chat-command-option-${i}`;
+          item.className = 'chat-cmd-item';
           item.dataset.idx = String(i);
+          item.setAttribute('role', 'option');
+          item.setAttribute('aria-selected', 'false');
 
           const usage = document.createElement('span');
           usage.className = 'chat-cmd-usage';
@@ -1453,11 +1481,15 @@ export function initChat(): void {
         }),
       );
       suggest.style.display = '';
+      chatInput!.setAttribute('aria-expanded', 'true');
+      syncSuggestSelection();
     }
 
     function hideSuggest(): void {
       suggest.style.display = 'none';
       _suggestItems = [];
+      chatInput!.setAttribute('aria-expanded', 'false');
+      chatInput!.removeAttribute('aria-activedescendant');
     }
 
     function applySuggest(): void {
@@ -1572,19 +1604,13 @@ export function initChat(): void {
           if (e.key === 'ArrowDown') {
             e.preventDefault();
             _suggestIdx = (_suggestIdx + 1) % _suggestItems.length;
-            suggest.querySelectorAll('.chat-cmd-item').forEach((el, i) => {
-              el.classList.toggle('active', i === _suggestIdx);
-              if (i === _suggestIdx) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
-            });
+            syncSuggestSelection(true);
             return;
           }
           if (e.key === 'ArrowUp') {
             e.preventDefault();
             _suggestIdx = (_suggestIdx - 1 + _suggestItems.length) % _suggestItems.length;
-            suggest.querySelectorAll('.chat-cmd-item').forEach((el, i) => {
-              el.classList.toggle('active', i === _suggestIdx);
-              if (i === _suggestIdx) el.scrollIntoView({ block: 'nearest', behavior: 'instant' });
-            });
+            syncSuggestSelection(true);
             return;
           }
           if (e.key === 'Escape') {
@@ -1673,11 +1699,6 @@ export function initChat(): void {
   _busScope.on('chat:message-rendered', (sender: string, text: string, isMine: boolean) => {
     updateChatPreview(sender, text);
     if (!isMine) incrementUnread();
-  });
-
-  // Bus event for toggling drawer from other modules
-  _busScope.on('ui:toggle-chat-drawer', () => {
-    toggleChatDrawer();
   });
 
   // Close chat drawer (used by YouTube load-from-chat)

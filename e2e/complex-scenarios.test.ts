@@ -16,7 +16,7 @@
  * - State consistency after complex flows
  */
 import { test, expect } from '@playwright/test';
-import type { Browser, BrowserContext, Page } from '@playwright/test';
+import type { BrowserContext } from '@playwright/test';
 import {
   createHostGuestContexts,
   cleanupContexts,
@@ -25,7 +25,7 @@ import {
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
-import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
+import { uploadFixture } from './helpers/file-upload.ts';
 import { readCurrentQueueIndex, waitForCurrentQueueIndex } from './helpers/queue-state.ts';
 import {
   clickPlayButton,
@@ -752,7 +752,7 @@ test.describe('Guest Disconnect During Transfer', () => {
     let newGuestContext: BrowserContext | null = null;
 
     try {
-      const code = await connectHostAndGuest(pair.hostPage, pair.guestPage);
+      await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
       await uploadFixture(pair.hostPage, 'test01');
       await waitForPlaylistCount(pair.hostPage, 1);

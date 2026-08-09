@@ -4,6 +4,11 @@ import {
   warmCapabilitySilently,
 } from '../core/capability.ts';
 import { log } from '../core/log.ts';
+import {
+  cancelResponseBody,
+  raceWithAbortSignal,
+  readBoundedJsonResponse,
+} from '../core/request-lifetime.ts';
 import { getState } from '../core/state.ts';
 import { localFirstApiEndpoints } from './api-endpoints.ts';
 import { getRuntimeTransportConfig } from './transport/config.ts';
@@ -29,6 +34,7 @@ const TURN_ENDPOINTS = localFirstApiEndpoints('/api/get-turn-config');
 const TURN_REFRESH_SKEW_MS = 60_000;
 const FALLBACK_TURN_CACHE_MS = 5 * 60_000;
 const TURN_REQUEST_TIMEOUT_MS = 8_000;
+const TURN_RESPONSE_MAX_BYTES = 64 * 1024;
 const PRECONNECT_MARKER = 'data-mxqr-standard-signaling-preconnect';
 const SETUP_INTENT_SELECTOR =
   '#btn-setup-host, #btn-setup-guest, #btn-setup-confirm, #setup-join-code';
@@ -142,15 +148,26 @@ async function requestTurnCredentials(): Promise<StandardRoomTurnCredentials | n
   try {
     for (const source of TURN_ENDPOINTS) {
       try {
-        const response = await fetchWithCapability(source, 'turn', {
+        if (controller.signal.aborted) throw createAbortError(controller.signal);
+        const operation = fetchWithCapability(source, 'turn', {
           signal: controller.signal,
         });
+        const response = await raceWithAbortSignal(
+          operation,
+          controller.signal,
+          cancelResponseBody,
+        );
         if (!response.ok) {
+          await cancelResponseBody(response);
           log.warn(`[Network] TURN fetch failed: ${source} → HTTP ${response.status}`);
           continue;
         }
 
-        const payload = (await response.json()) as TurnConfigResponse;
+        const payload = (await readBoundedJsonResponse(
+          response,
+          TURN_RESPONSE_MAX_BYTES,
+          controller.signal,
+        )) as TurnConfigResponse;
         const iceServers = normalizeRemoteIceServers(payload.iceServers);
         if (!iceServers.some(hasTurnServer)) {
           log.warn(`[Network] TURN fetch returned no usable ICE servers: ${source}`);

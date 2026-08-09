@@ -249,6 +249,11 @@ matched provider data/code checkpoint.
   monotonic ticket sequence. They are consumed once, and the signaling Durable
   Object persists bounded participant and presence high-water marks so an older
   delayed ticket cannot replace a newer socket or re-enter after removal.
+  Browsers offer the ticket in a non-selected WebSocket subprotocol token and
+  the server selects only `mxqr.pro-signaling.v1`; new clients never put the
+  bearer in a URL. The exact legacy `?ticket=` fallback expires on 2026-09-09
+  UTC, and automatic Worker invocation URL logs and traces stay disabled during
+  the entire grace window.
 - Every successful browser entry owns a server-issued, RAM-only presence
   incarnation. Snapshot, heartbeat, signaling, PIN, playlist, playback, and
   media requests must present that tab-local participant/incarnation pair as
@@ -610,7 +615,8 @@ Also verify:
   is removed by its daily repair sweep, and cannot be observed by the new
   generation;
 - signaling reserves all `0xxxxx` codes from ordinary rooms and accepts the PRO
-  path only with a valid PRO Worker-issued signed ticket;
+  path only with a valid PRO Worker-issued signed ticket offered after the
+  stable `mxqr.pro-signaling.v1` WebSocket subprotocol marker;
 - the R2 bucket name is `musixquare-pro-media` in Wrangler, CORS, and the
   presigner configuration;
 - production CORS includes `https://musixquare.com` and
@@ -662,7 +668,7 @@ workflow owns the dependency order above, immutable app artifact, live smokes,
 and conflict-aware rollback.
 
 The current service-control marker is
-`admin-announcement-v1+abuse-rate-v1`. Any marker change requires target `all`;
+`admin-announcement-v1+abuse-rate-v2+session-idempotency-v1`. Any marker change requires target `all`;
 do not publish a consumer before the PRO-owned object. Remote-share's old KV
 allocation counter is retired and must not be restored as a fallback for a
 missing service-control binding.
@@ -830,7 +836,7 @@ without deleting data. Do not rotate the subject pepper or reintroduce projectio
 flags as a routine rollback; use PRO maintenance and forward repair when the
 least-privilege contract cannot be preserved.
 
-The `admin-announcement-v1+abuse-rate-v1` service-control marker is an additional
+The `admin-announcement-v1+abuse-rate-v2+session-idempotency-v1` service-control marker is an additional
 forward-only floor once its App/PRO pair has deployed or canonical state has
 been written. Never restore App or PRO below that marker. Use target `all` to
 repair forward when the release workflow reports that compatibility floor; do

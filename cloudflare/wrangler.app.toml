@@ -6,11 +6,16 @@ preview_urls = false
 
 [observability]
 enabled = true
+
+# Public routing includes OAuth code/state callbacks. Keep provider-generated
+# request-URL events disabled; sampled application logs are credential-free.
+[observability.logs]
+enabled = true
 head_sampling_rate = 0.1
+invocation_logs = false
 
 [observability.traces]
-enabled = true
-head_sampling_rate = 0.01
+enabled = false
 
 [[routes]]
 pattern = "musixquare.com"

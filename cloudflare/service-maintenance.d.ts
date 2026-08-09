@@ -14,6 +14,7 @@ export const SERVICE_CONTROL_STATE_PATH: string;
 export const ADMIN_ANNOUNCEMENT_STATUS_PATH: string;
 export const ADMIN_ANNOUNCEMENT_STATE_PATH: string;
 export const ABUSE_RATE_CONSUME_PATH: string;
+export const ABUSE_RATE_IDEMPOTENT_CONSUME_PATH: string;
 export const SERVICE_CONTROL_READ_TIMEOUT_MS: number;
 
 export interface AdminAnnouncementControlResult {
@@ -52,7 +53,14 @@ export function updateAdminAnnouncementControl(
 ): Promise<AdminAnnouncementControlResult>;
 export function consumeAbuseRateLimit(
   env: Record<string, unknown>,
-  input: { scope: string; identity: string; limit: number; windowMs: number; cost?: number },
+  input: {
+    scope: string;
+    identity: string;
+    limit: number;
+    windowMs: number;
+    cost?: number;
+    operationId?: string;
+  },
 ): Promise<
   | {
       status: 'ok';

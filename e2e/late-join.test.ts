@@ -383,8 +383,6 @@ test.describe('Late-Join: Guest joins after settings changed', () => {
       );
     }
 
-    const hostRepeat = await readState(host.hostPage, 'settings.repeatMode');
-
     // Guest joins
     const { guestContext, guestPage } = await joinAsGuest(browser, host.sessionCode);
 

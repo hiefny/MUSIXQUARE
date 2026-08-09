@@ -14,7 +14,7 @@ import {
 } from '../core/capability.ts';
 import { REMOTE_SHARE_MAX_BYTES } from '../core/constants.ts';
 import type { QueueItemId } from '../types/index.ts';
-import { withRequestDeadline } from '../core/request-lifetime.ts';
+import { cancelResponseBody, withRequestDeadline } from '../core/request-lifetime.ts';
 import { resolveRemoteShareEndpointPolicy } from './remote-share-endpoint.ts';
 
 export interface RemoteUploadResponse {
@@ -55,23 +55,33 @@ function createDisplayProgressReporter(callback?: ProgressHandler): ProgressHand
     const percent = normalized >= 1 ? 100 : Math.floor(normalized * 100);
     if (percent === previousPercent) return;
     previousPercent = percent;
-    callback?.(percent / 100);
+    try {
+      callback?.(percent / 100);
+    } catch {
+      // Presentation observers cannot decide the authoritative transfer outcome.
+    }
   };
 }
 
 declare global {
   interface Window {
     __MUSIXQUARE_REMOTE_SHARE_ENDPOINT__?: unknown;
+    __MUSIXQUARE_REMOTE_SHARE_UPLOAD_HOST__?: unknown;
   }
 }
 
 interface RemoteShareSecurityConfig {
   capabilityRequired: boolean;
+  workerContractVersion: number;
+  sessionReplayRequired: boolean;
+  sessionReplayEnabled: boolean;
   wholeObjectVersion: number;
   downloadAuthorizationVersion: number;
 }
 
 const ENDPOINT_STORAGE_KEY = 'musixquare-remote-share-endpoint';
+const SESSION_ACTOR_STORAGE_KEY = 'musixquare-remote-share-session-actor-v3';
+const SESSION_ACTOR_SECRET_RE = /^[A-Za-z0-9_-]{43}$/u;
 // Large files may legitimately take far longer than five minutes on mobile.
 // Abort only when no bytes move for this window; steady slow transfers remain
 // valid regardless of total wall-clock duration.
@@ -79,6 +89,40 @@ const REMOTE_SHARE_XHR_STALL_TIMEOUT_MS = 90_000;
 const REMOTE_SHARE_SECURITY_CONFIG_CACHE_MS = 5 * 60_000;
 const REMOTE_SHARE_CONTROL_REQUEST_TIMEOUT_MS = 15_000;
 const REMOTE_SHARE_CONTROL_RESPONSE_MAX_BYTES = 64 * 1024;
+const REMOTE_SHARE_R2_PRODUCTION_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';
+const REMOTE_SHARE_R2_BUCKET = 'musixquare-remote-share';
+const REMOTE_SHARE_UPLOAD_URL_MAX_LENGTH = 8192;
+const REMOTE_SHARE_UPLOAD_TTL_MAX_SECONDS = 10 * 60;
+const REMOTE_SHARE_UPLOAD_HEADER_VALUE_MAX_BYTES = 2048;
+const REMOTE_SHARE_UPLOAD_HEADERS_MAX_BYTES = 16 * 1024;
+const REMOTE_SHARE_SIGNED_TOKEN_MAX_LENGTH = 8192;
+const REMOTE_SHARE_UPLOAD_HEADER_NAMES = Object.freeze([
+  'content-type',
+  'if-match',
+  'x-amz-meta-cleanup-token',
+  'x-amz-meta-expires-at',
+  'x-amz-meta-format-version',
+  'x-amz-meta-mime',
+  'x-amz-meta-name',
+  'x-amz-meta-object-id',
+  'x-amz-meta-room-id',
+  'x-amz-meta-stored-size',
+]);
+const REMOTE_SHARE_SIGNED_HEADER_NAMES = Object.freeze(
+  [...REMOTE_SHARE_UPLOAD_HEADER_NAMES, 'content-length', 'host'].sort(),
+);
+const REMOTE_SHARE_UPLOAD_QUERY_NAMES = Object.freeze([
+  'X-Amz-Algorithm',
+  'X-Amz-Content-Sha256',
+  'X-Amz-Credential',
+  'X-Amz-Date',
+  'X-Amz-Expires',
+  'X-Amz-Signature',
+  'X-Amz-SignedHeaders',
+]);
+const REMOTE_SHARE_UPLOAD_ETAG_RE = /^"[\x21\x23-\x7e]{1,128}"$/u;
+const REMOTE_SHARE_UPLOAD_SIGNATURE_RE = /^[a-f0-9]{64}$/u;
+const REMOTE_SHARE_UPLOAD_ACCESS_KEY_RE = /^[A-Za-z0-9]{16,128}$/u;
 const REMOTE_OBJECT_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DOWNLOAD_TOKEN_MAX_LENGTH = 2048;
@@ -90,9 +134,21 @@ let remoteShareSecurityConfigCache: {
   expiresAt: number;
   value: RemoteShareSecurityConfig;
 } | null = null;
+let fallbackSessionActorSecret: string | null = null;
 
 function abortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException('Aborted', 'AbortError');
+}
+
+function cancelReaderBestEffort(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  reason?: unknown,
+): void {
+  try {
+    void Promise.resolve(reader.cancel(reason)).catch(() => undefined);
+  } catch {
+    // Cleanup must not replace the bounded protocol outcome.
+  }
 }
 
 function readBodyChunk(
@@ -109,8 +165,8 @@ function readBodyChunk(
       if (settled) return;
       settled = true;
       finish();
-      void reader.cancel(signal.reason).catch(() => undefined);
       reject(abortReason(signal));
+      cancelReaderBestEffort(reader, signal.reason);
     };
     signal.addEventListener('abort', onAbort, { once: true });
     void reader.read().then(
@@ -139,7 +195,7 @@ async function readBoundedJson(
   if (declared !== null) {
     const length = Number(declared);
     if (!Number.isSafeInteger(length) || length < 0 || length > maxBytes) {
-      void response.body?.cancel().catch(() => undefined);
+      void cancelResponseBody(response);
       throw new Error('REMOTE_SHARE_CONTROL_RESPONSE_TOO_LARGE');
     }
   }
@@ -154,7 +210,7 @@ async function readBoundedJson(
       if (!value) continue;
       total += value.byteLength;
       if (total > maxBytes) {
-        void reader.cancel().catch(() => undefined);
+        cancelReaderBestEffort(reader, 'REMOTE_SHARE_CONTROL_RESPONSE_TOO_LARGE');
         throw new Error('REMOTE_SHARE_CONTROL_RESPONSE_TOO_LARGE');
       }
       chunks.push(value);
@@ -175,7 +231,7 @@ async function readBoundedJson(
   }
   if (bytes.byteLength === 0) return null;
   try {
-    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) as unknown;
   } catch (error) {
     throw new Error('REMOTE_SHARE_CONTROL_RESPONSE_INVALID', { cause: error });
   }
@@ -198,6 +254,175 @@ function getRemoteShareEndpoint(): string | null {
     stored,
     allowRuntimeOverrides,
   });
+}
+
+function isProductionAppHostname(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized === 'musixquare.com' || normalized.endsWith('.musixquare.com');
+}
+
+function explicitDevelopmentUploadHost(): string | null {
+  // Vite folds this gate out of a production build. Even if an attacker can
+  // create the mutable global at runtime, production never consults it.
+  const allowOverride =
+    import.meta.env.DEV || import.meta.env.MODE === 'test' || import.meta.env.MODE === 'e2e';
+  if (!allowOverride) return null;
+  const candidate = window.__MUSIXQUARE_REMOTE_SHARE_UPLOAD_HOST__;
+  if (typeof candidate !== 'string') return null;
+  const normalized = candidate.trim().toLowerCase();
+  if (!normalized || normalized.includes('/') || normalized.includes(':')) return null;
+  try {
+    const url = new URL(`https://${normalized}`);
+    return url.hostname === normalized && url.port === '' && url.pathname === '/'
+      ? normalized
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function expectedRemoteShareUploadHost(): string | null {
+  if (isProductionAppHostname(location.hostname)) return REMOTE_SHARE_R2_PRODUCTION_HOST;
+  return explicitDevelopmentUploadHost() ?? REMOTE_SHARE_R2_PRODUCTION_HOST;
+}
+
+function encodedRemoteShareMetadata(value: string, fallback: string): string {
+  const raw = String(value || fallback)
+    .replace(/[\r\n]/g, ' ')
+    .trim();
+  return encodeURIComponent(raw).slice(0, 512) || fallback;
+}
+
+function parseAmzDate(value: string): number | null {
+  const match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/u.exec(value);
+  if (!match) return null;
+  const parts = match.slice(1).map(Number);
+  const timestamp = Date.UTC(parts[0], parts[1] - 1, parts[2], parts[3], parts[4], parts[5]);
+  if (!Number.isSafeInteger(timestamp)) return null;
+  const canonical = new Date(timestamp).toISOString().replace(/[-:]|\.000/g, '');
+  return canonical === value ? timestamp : null;
+}
+
+function isExactStringRecord(
+  value: unknown,
+  expectedKeys: readonly string[],
+): value is Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  return (
+    keys.length === expectedKeys.length &&
+    keys.every((key) => expectedKeys.includes(key)) &&
+    keys.every((key) => typeof (value as Record<string, unknown>)[key] === 'string')
+  );
+}
+
+function validateRemoteShareUploadHeaders(
+  value: unknown,
+  body: Partial<RemoteUploadSessionResponse>,
+  meta: RemoteUploadMeta,
+): Record<string, string> | null {
+  if (!isExactStringRecord(value, REMOTE_SHARE_UPLOAD_HEADER_NAMES)) return null;
+  let totalBytes = 0;
+  for (const [name, headerValue] of Object.entries(value)) {
+    const valueBytes = new TextEncoder().encode(headerValue).byteLength;
+    totalBytes += new TextEncoder().encode(`${name}:${headerValue}\n`).byteLength;
+    if (
+      valueBytes > REMOTE_SHARE_UPLOAD_HEADER_VALUE_MAX_BYTES ||
+      totalBytes > REMOTE_SHARE_UPLOAD_HEADERS_MAX_BYTES ||
+      /[\r\n]/u.test(headerValue)
+    ) {
+      return null;
+    }
+  }
+  if (
+    value['content-type'] !== 'application/octet-stream' ||
+    !REMOTE_SHARE_UPLOAD_ETAG_RE.test(value['if-match']) ||
+    value['x-amz-meta-cleanup-token'] !== body.cleanupToken ||
+    value['x-amz-meta-expires-at'] !== String(body.expiresAt) ||
+    value['x-amz-meta-format-version'] !== 'whole-object-v1' ||
+    value['x-amz-meta-mime'] !==
+      encodedRemoteShareMetadata(meta.mime, 'application/octet-stream') ||
+    value['x-amz-meta-name'] !== encodedRemoteShareMetadata(meta.name, 'track') ||
+    value['x-amz-meta-object-id'] !== body.objectId ||
+    value['x-amz-meta-room-id'] !== meta.roomId ||
+    value['x-amz-meta-stored-size'] !== String(meta.size)
+  ) {
+    return null;
+  }
+  return value;
+}
+
+function validateRemoteShareUploadUrl(
+  value: string,
+  body: Partial<RemoteUploadSessionResponse>,
+  meta: RemoteUploadMeta,
+  headers: Record<string, string>,
+): string | null {
+  if (value.length === 0 || value.length > REMOTE_SHARE_UPLOAD_URL_MAX_LENGTH) return null;
+  const expectedHost = expectedRemoteShareUploadHost();
+  if (!expectedHost) return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  const expectedPath = `/${REMOTE_SHARE_R2_BUCKET}/room/${meta.roomId}/${body.objectId}`;
+  if (
+    !value.startsWith(`https://${expectedHost}${expectedPath}?`) ||
+    url.protocol !== 'https:' ||
+    url.hostname !== expectedHost ||
+    url.port !== '' ||
+    url.username !== '' ||
+    url.password !== '' ||
+    url.hash !== '' ||
+    url.pathname !== expectedPath
+  ) {
+    return null;
+  }
+
+  const entries = [...url.searchParams.entries()];
+  if (
+    entries.length !== REMOTE_SHARE_UPLOAD_QUERY_NAMES.length ||
+    new Set(entries.map(([name]) => name)).size !== REMOTE_SHARE_UPLOAD_QUERY_NAMES.length ||
+    entries.some(([name]) => !REMOTE_SHARE_UPLOAD_QUERY_NAMES.includes(name))
+  ) {
+    return null;
+  }
+  const algorithm = url.searchParams.get('X-Amz-Algorithm');
+  const contentSha = url.searchParams.get('X-Amz-Content-Sha256');
+  const credential = url.searchParams.get('X-Amz-Credential') || '';
+  const amzDate = url.searchParams.get('X-Amz-Date') || '';
+  const expiresValue = url.searchParams.get('X-Amz-Expires') || '';
+  const signature = url.searchParams.get('X-Amz-Signature') || '';
+  const signedHeaders = url.searchParams.get('X-Amz-SignedHeaders');
+  const credentialParts = credential.split('/');
+  const amzTimestamp = parseAmzDate(amzDate);
+  const expiresSeconds = Number(expiresValue);
+  if (
+    algorithm !== 'AWS4-HMAC-SHA256' ||
+    contentSha !== 'UNSIGNED-PAYLOAD' ||
+    credentialParts.length !== 5 ||
+    !REMOTE_SHARE_UPLOAD_ACCESS_KEY_RE.test(credentialParts[0] || '') ||
+    credentialParts[1] !== amzDate.slice(0, 8) ||
+    credentialParts[2] !== 'auto' ||
+    credentialParts[3] !== 's3' ||
+    credentialParts[4] !== 'aws4_request' ||
+    amzTimestamp === null ||
+    !/^[1-9]\d{0,5}$/u.test(expiresValue) ||
+    !Number.isSafeInteger(expiresSeconds) ||
+    expiresSeconds > REMOTE_SHARE_UPLOAD_TTL_MAX_SECONDS ||
+    body.uploadUrlExpiresAt !== amzTimestamp + expiresSeconds * 1000 ||
+    body.uploadUrlExpiresAt > Number(body.expiresAt) ||
+    !REMOTE_SHARE_UPLOAD_SIGNATURE_RE.test(signature) ||
+    signedHeaders !== REMOTE_SHARE_SIGNED_HEADER_NAMES.join(';') ||
+    headers['x-amz-meta-object-id'] !== body.objectId
+  ) {
+    return null;
+  }
+  // Preserve the exact signed serialization. URL parsing above proves the
+  // semantic contract, but reserialization must not become part of SigV4.
+  return value;
 }
 
 export function isRemoteShareConfigured(): boolean {
@@ -313,7 +538,7 @@ async function getRemoteShareSecurityConfig(
         if (!response.ok) {
           // This endpoint has no error-body contract. Release a streaming or
           // attacker-sized body before falling back to the conservative config.
-          await response.body?.cancel().catch(() => undefined);
+          await cancelResponseBody(response);
           throw new Error(`REMOTE_SHARE_SECURITY_CONFIG_HTTP_${response.status}`);
         }
         return (await readBoundedJson(response, 8 * 1024, requestSignal)) as Record<
@@ -329,6 +554,10 @@ async function getRemoteShareSecurityConfig(
     );
     const value = {
       capabilityRequired: payload.capabilityRequired === true,
+      workerContractVersion:
+        payload.workerContractVersion === 3 ? payload.workerContractVersion : 0,
+      sessionReplayRequired: payload.sessionReplayRequired === true,
+      sessionReplayEnabled: payload.sessionReplayEnabled === true,
       wholeObjectVersion: payload.wholeObjectVersion === 1 ? payload.wholeObjectVersion : 0,
       downloadAuthorizationVersion:
         payload.downloadAuthorizationVersion === 1 ? payload.downloadAuthorizationVersion : 0,
@@ -343,6 +572,9 @@ async function getRemoteShareSecurityConfig(
     if (signal?.aborted) throw error;
     return {
       capabilityRequired: false,
+      workerContractVersion: 0,
+      sessionReplayRequired: false,
+      sessionReplayEnabled: false,
       wholeObjectVersion: 0,
       downloadAuthorizationVersion: 0,
     };
@@ -354,7 +586,13 @@ async function supportsWholeObjectTransfer(signal?: AbortSignal): Promise<boolea
   const endpoint = getRemoteShareEndpoint();
   if (!endpoint) return false;
   const config = await getRemoteShareSecurityConfig(endpoint, signal);
-  return config.wholeObjectVersion === 1 && config.downloadAuthorizationVersion === 1;
+  return (
+    config.workerContractVersion === 3 &&
+    config.sessionReplayRequired &&
+    config.sessionReplayEnabled &&
+    config.wholeObjectVersion === 1 &&
+    config.downloadAuthorizationVersion === 1
+  );
 }
 
 /** Invalidate cached security configuration after a 401 so the retry probes
@@ -378,12 +616,70 @@ async function getRemoteShareSessionHeaders(
   );
 }
 
+function randomSessionActorSecret(): string {
+  const bytes = new Uint8Array(32);
+  crypto.getRandomValues(bytes);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function sessionActorSecret(): string {
+  try {
+    const stored = sessionStorage.getItem(SESSION_ACTOR_STORAGE_KEY) || '';
+    if (SESSION_ACTOR_SECRET_RE.test(stored)) return stored;
+    const created = randomSessionActorSecret();
+    sessionStorage.setItem(SESSION_ACTOR_STORAGE_KEY, created);
+    return created;
+  } catch {
+    fallbackSessionActorSecret ??= randomSessionActorSecret();
+    return fallbackSessionActorSecret;
+  }
+}
+
+async function signSessionActorValue(secret: string, value: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const digest = new Uint8Array(
+    await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value)),
+  );
+  let binary = '';
+  for (const byte of digest) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function uploadSessionIdentity(
+  meta: RemoteUploadMeta,
+): Promise<{ actorId: string; requestId: string }> {
+  const actorSecret = sessionActorSecret();
+  const canonical = JSON.stringify([
+    'remote-share-upload-session-v3',
+    meta.roomId,
+    meta.sessionId,
+    meta.queueItemId,
+    meta.name,
+    meta.mime || 'application/octet-stream',
+    meta.size,
+  ]);
+  const [actorId, requestId] = await Promise.all([
+    signSessionActorValue(actorSecret, 'remote-share-session-actor-id:v3'),
+    signSessionActorValue(actorSecret, canonical),
+  ]);
+  return { actorId: `rsa_${actorId}`, requestId: `rs3_${requestId}` };
+}
+
 async function requestUploadSession(
   endpoint: string,
   meta: RemoteUploadMeta,
   signal?: AbortSignal,
 ): Promise<RemoteUploadSessionResponse> {
   try {
+    const { actorId, requestId } = await uploadSessionIdentity(meta);
     const requestBody = JSON.stringify({
       roomId: meta.roomId,
       sessionId: meta.sessionId,
@@ -391,6 +687,8 @@ async function requestUploadSession(
       name: meta.name,
       mime: meta.mime || 'application/octet-stream',
       size: meta.size,
+      requestId,
+      actorId,
     });
     const capabilityTarget = new URL('/api/capability-token', location.origin);
     const requestOnce = (capabilityHeaders: Record<string, string>) =>
@@ -439,29 +737,40 @@ async function requestUploadSession(
       throw new Error(`REMOTE_SHARE_SESSION_HTTP_${response.status}`);
     }
 
+    const nowMs = Date.now();
+    const uploadHeaders = validateRemoteShareUploadHeaders(body?.uploadHeaders, body || {}, meta);
+    const uploadUrl =
+      typeof body?.uploadUrl === 'string' && uploadHeaders
+        ? validateRemoteShareUploadUrl(body.uploadUrl, body, meta, uploadHeaders)
+        : null;
     if (
       typeof body?.uploadUrl !== 'string' ||
       typeof body.completeToken !== 'string' ||
+      body.completeToken.length < 32 ||
+      body.completeToken.length > REMOTE_SHARE_SIGNED_TOKEN_MAX_LENGTH ||
+      !DOWNLOAD_TOKEN_RE.test(body.completeToken) ||
       typeof body.objectId !== 'string' ||
       !REMOTE_OBJECT_ID_RE.test(body.objectId) ||
-      typeof body.expiresAt !== 'number' ||
-      typeof body.uploadUrlExpiresAt !== 'number' ||
+      !Number.isSafeInteger(body.expiresAt) ||
+      Number(body.expiresAt) <= nowMs ||
+      !Number.isSafeInteger(body.uploadUrlExpiresAt) ||
+      Number(body.uploadUrlExpiresAt) <= nowMs ||
       typeof body.cleanupToken !== 'string' ||
       body.cleanupToken.length < 32 ||
       body.cleanupToken.length > CLEANUP_TOKEN_MAX_LENGTH ||
       !CLEANUP_TOKEN_RE.test(body.cleanupToken) ||
-      !body.uploadHeaders ||
-      typeof body.uploadHeaders !== 'object'
+      !uploadHeaders ||
+      !uploadUrl
     ) {
       throw new Error('REMOTE_SHARE_BAD_SESSION_RESPONSE');
     }
     return {
-      uploadUrl: body.uploadUrl,
-      uploadHeaders: body.uploadHeaders as Record<string, string>,
-      uploadUrlExpiresAt: body.uploadUrlExpiresAt,
+      uploadUrl,
+      uploadHeaders,
+      uploadUrlExpiresAt: body.uploadUrlExpiresAt as number,
       completeToken: body.completeToken,
       objectId: body.objectId,
-      expiresAt: body.expiresAt,
+      expiresAt: body.expiresAt as number,
       cleanupToken: body.cleanupToken,
     };
   } catch (error) {
@@ -565,7 +874,7 @@ async function cleanupUploadSession(
         );
         // Best-effort cleanup has no response payload contract. Cancel the
         // bounded body instead of materializing an attacker-sized error page.
-        await response.body?.cancel();
+        await cancelResponseBody(response);
       },
       {
         timeoutMs: REMOTE_SHARE_CONTROL_REQUEST_TIMEOUT_MS,

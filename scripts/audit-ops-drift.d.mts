@@ -4,6 +4,10 @@ export const DEFAULT_OPS_DRIFT_REPORT_PATH: string;
 export interface OpsDriftContract {
   schemaVersion: number;
   r2Cors: Array<{ bucket: string; source: string }>;
+  r2Lifecycle: {
+    exactPolicies: Array<{ bucket: string; source: string }>;
+    forbiddenShortDeletePolicies: Array<{ bucket: string; maxAgeSeconds: number }>;
+  };
   github: {
     repository: string;
     branch: string;
@@ -29,7 +33,9 @@ export type OpsDriftFetcher = (url: string, init?: RequestInit) => Promise<Respo
 export function loadOpsDriftContract(root?: string): OpsDriftContract;
 export function assertOpsDriftContract(options?: { root?: string; contract?: OpsDriftContract }): {
   schemaVersion: number;
-  r2PolicyCount: number;
+  r2CorsPolicyCount: number;
+  r2ExactLifecyclePolicyCount: number;
+  r2ShortLifecycleGuardCount: number;
   githubRuleCount: number;
   manualCheckCount: number;
 };
@@ -42,6 +48,31 @@ export function normalizeCorsPolicy(
   exposeHeaders: string[];
   maxAgeSeconds: number;
 }>;
+export interface NormalizedLifecycleCondition {
+  type: 'Age' | 'Date';
+  maxAge?: number;
+  date?: string;
+}
+export interface NormalizedLifecycleRule {
+  id: string;
+  enabled: boolean;
+  conditions: { prefix: string };
+  abortMultipartUploadsTransition: { condition: NormalizedLifecycleCondition } | null;
+  deleteObjectsTransition: { condition: NormalizedLifecycleCondition } | null;
+  storageClassTransitions: Array<{
+    condition: NormalizedLifecycleCondition;
+    storageClass: 'InfrequentAccess';
+  }>;
+}
+export function normalizeLifecyclePolicy(
+  value: unknown,
+  label?: string,
+  options?: { exactKeys?: boolean },
+): NormalizedLifecycleRule[];
+export function shortDeleteLifecycleRules(
+  policy: NormalizedLifecycleRule[],
+  maxAgeSeconds: number,
+): string[];
 export function runOpsDriftAudit(options?: {
   root?: string;
   contract?: OpsDriftContract;

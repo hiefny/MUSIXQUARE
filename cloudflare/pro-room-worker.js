@@ -36,6 +36,7 @@ import {
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
   ABUSE_RATE_CONSUME_PATH,
+  ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
   SERVICE_CONTROL_STATE_PATH,
   SERVICE_CONTROL_STATUS_PATH,
   gateServiceMaintenance,
@@ -64,6 +65,8 @@ const SERVICE_CONTROL_REQUEST_HISTORY_LIMIT = 64;
 const SERVICE_CONTROL_REQUEST_ID_RE = /^[A-Za-z0-9_-]{8,128}$/;
 const ABUSE_RATE_STATE_KEY = 'abuse-rate-state-v1';
 const ABUSE_RATE_REQUEST_MAX_BYTES = 1024;
+const ABUSE_RATE_OPERATION_ID_RE = /^[A-Za-z0-9._:-]{8,64}$/;
+const ABUSE_RATE_OPERATION_HISTORY_LIMIT = 1024;
 const ADMIN_ANNOUNCEMENT_STATE_KEY = 'admin-announcement-state';
 const ADMIN_ANNOUNCEMENT_REQUESTS_KEY = 'admin-announcement-requests';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
@@ -91,6 +94,8 @@ const OWNER_TRANSFER_REQUEST_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
 const OWNER_AUTHORITY_REMOVAL_ID_RE = /^removal_[A-Za-z0-9_-]{22}$/;
 const OPAQUE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
+const PRO_ROOM_SESSION_ACTOR_HEADER = 'x-mxqr-pro-session-actor';
+const PRO_ROOM_SESSION_ACTOR_RE = /^[A-Za-z0-9_-]{43}$/;
 const ADMIN_REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
 const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
@@ -209,6 +214,7 @@ const PLAYLIST_ITEM_MAX_BYTES = 128 * 1024;
 // browser client's JSON ceiling.
 const REQUEST_MAX_BYTES = 4 * 1024 * 1024;
 const PUBLIC_MUTATION_BODY_TIMEOUT_MS = 10_000;
+const INTERNAL_REQUEST_BODY_TIMEOUT_MS = 2_000;
 const SMALL_REQUEST_MAX_BYTES = 16 * 1024;
 const UNLOAD_CLOSE_REQUEST_MAX_BYTES = 4 * 1024;
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -262,6 +268,11 @@ const SYSTEM_AUDIO_LIVE_TTL_MS = 2 * 60 * 60 * 1000;
 const SYSTEM_AUDIO_TRACK_NAME_MAX_LENGTH = 160;
 const SYSTEM_AUDIO_TRACK_MID_MAX_LENGTH = 64;
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+// Session admission sits behind the App facade's bounded response window. A
+// room mutation can therefore commit after the browser receives a gateway
+// timeout. Retain a compact receipt long enough for an explicit retry while
+// avoiding permanent pressure on the room-wide 256-item browser ledger.
+const SESSION_CREATE_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
 // Playback controls are high-frequency, short-retry mutations. The browser
 // retries one command for at most a few seconds, so retaining every full
 // command response for 24 hours can saturate the shared 256-item browser
@@ -311,16 +322,11 @@ const DEVELOPER_NEXT_CONTROL_VERSION = 3;
 const DEVELOPER_QUEUE_TITLE_CONTROL_VERSION = 4;
 const DEVELOPER_CONTROL_MAX_VERSION = DEVELOPER_QUEUE_TITLE_CONTROL_VERSION;
 const DEVELOPER_COMMAND_TTL_MS = 30 * 1000;
-const DEVELOPER_COMMAND_RETRY_MS = 5 * 1000;
 const DEVELOPER_COMMAND_MAX_ATTEMPTS = 3;
 const DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS = 900;
+const INTERNAL_SERVICE_RESPONSE_TIMEOUT_MS = 2_000;
+const INTERNAL_SERVICE_RESPONSE_MAX_BYTES = 16 * 1024;
 const DEVELOPER_COMMAND_RETENTION_MS = 10 * 60 * 1000;
-// A command is persisted before its first cross-Worker WebSocket dispatch.
-// Keep explicit serialized headroom in that first record, then consume it as
-// dispatch/terminal fields are added. This makes a successful send incapable
-// of being followed by a capacity rollback that erases the command ledger.
-const DEVELOPER_COMMAND_DISPATCH_RESERVE_BYTES = 192;
-const DEVELOPER_COMMAND_TERMINAL_RESERVE_BYTES = 256;
 const DEVELOPER_COMMAND_RESULT_CODES = new Set([
   'applied',
   'already_applied',
@@ -425,7 +431,7 @@ const SECURITY_HEADERS = {
 };
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+const decoder = new TextDecoder('utf-8', { fatal: true });
 
 function configuredNumber(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
   const parsed = Number(value);
@@ -1151,38 +1157,26 @@ async function readJsonBody(request, maxBytes, allowSimpleText = false, allowEmp
       ? { empty: true }
       : { error: 'INVALID_REQUEST' };
   }
-  const reader = request.body.getReader();
-  const chunks = [];
-  let length = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      length += value.byteLength;
-      if (length > maxBytes) {
-        await reader.cancel().catch(() => {});
-        return { error: 'REQUEST_TOO_LARGE', status: 413 };
-      }
-      chunks.push(value);
-    }
-  } catch {
-    return { error: 'INVALID_REQUEST' };
-  } finally {
-    reader.releaseLock();
+  const bounded = await readBodyBytesLimited(request, maxBytes, INTERNAL_REQUEST_BODY_TIMEOUT_MS);
+  if (bounded.error === 'too-large') return { error: 'REQUEST_TOO_LARGE', status: 413 };
+  if (bounded.error === 'timeout' || bounded.error === 'aborted') {
+    return { error: 'REQUEST_TIMEOUT', status: 408 };
   }
-  if (length === 0 && allowEmpty && (declaredLength === null || declaredLength === 0)) {
+  if (bounded.error || !(bounded.body instanceof Uint8Array)) {
+    return { error: 'INVALID_REQUEST' };
+  }
+  if (
+    bounded.body.byteLength === 0 &&
+    allowEmpty &&
+    (declaredLength === null || declaredLength === 0)
+  ) {
     return { empty: true };
   }
   if (!acceptedContentType) return { error: 'INVALID_REQUEST' };
-  const bytes = new Uint8Array(length);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
   try {
-    return { value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) };
+    return {
+      value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bounded.body)),
+    };
   } catch {
     return { error: 'INVALID_REQUEST' };
   }
@@ -1206,11 +1200,11 @@ async function readBodyBytesLimited(request, maxBytes, timeoutMs) {
   });
   const timeout = setTimeout(() => {
     stop({ kind: 'timeout' });
-    void reader.cancel('PRO_ROOM_REQUEST_BODY_TIMEOUT').catch(() => {});
+    cancelReadableBody(reader, 'PRO_ROOM_REQUEST_BODY_TIMEOUT');
   }, timeoutMs);
   const abort = () => {
     stop({ kind: 'aborted' });
-    void reader.cancel(request.signal.reason).catch(() => {});
+    cancelReadableBody(reader, request.signal.reason);
   };
   if (request.signal.aborted) abort();
   else request.signal.addEventListener('abort', abort, { once: true });
@@ -1232,7 +1226,7 @@ async function readBodyBytesLimited(request, maxBytes, timeoutMs) {
           : new Uint8Array(outcome.value.value);
       totalBytes += bytes.byteLength;
       if (totalBytes > maxBytes) {
-        await reader.cancel('PRO_ROOM_REQUEST_BODY_TOO_LARGE').catch(() => {});
+        cancelReadableBody(reader, 'PRO_ROOM_REQUEST_BODY_TOO_LARGE');
         return { error: 'too-large' };
       }
       chunks.push(bytes);
@@ -1254,6 +1248,24 @@ async function readBodyBytesLimited(request, maxBytes, timeoutMs) {
     offset += chunk.byteLength;
   }
   return { body };
+}
+
+async function readPrivateJsonBody(request, maxBytes) {
+  const bounded = await readBodyBytesLimited(request, maxBytes, INTERNAL_REQUEST_BODY_TIMEOUT_MS);
+  if (bounded.error === 'too-large') return { error: 'REQUEST_TOO_LARGE', status: 413 };
+  if (bounded.error === 'timeout' || bounded.error === 'aborted') {
+    return { error: 'REQUEST_TIMEOUT', status: 408 };
+  }
+  if (bounded.error || !(bounded.body instanceof Uint8Array) || bounded.body.byteLength === 0) {
+    return { error: 'INVALID_JSON', status: 400 };
+  }
+  try {
+    return {
+      value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bounded.body)),
+    };
+  } catch {
+    return { error: 'INVALID_JSON', status: 400 };
+  }
 }
 
 function cookieValue(request, name) {
@@ -2286,20 +2298,124 @@ function publicDeveloperCommand(record) {
   };
 }
 
-async function fetchWithDeadline(fetcher, request, timeoutMs) {
+function cancelReadableBody(bodyOrReader, reason) {
+  const body = bodyOrReader?.body || bodyOrReader;
+  if (!body || typeof body.cancel !== 'function') return;
+  try {
+    Promise.resolve(body.cancel(reason)).catch(() => {});
+  } catch {
+    // Cancellation is best-effort and must never extend the bounded outcome.
+  }
+}
+
+async function readResponseBytesLimited(response, maxBytes, signal) {
+  const declared = response.headers.get('content-length');
+  if (declared !== null && (!/^\d+$/.test(declared.trim()) || Number(declared) > maxBytes)) {
+    cancelReadableBody(response, 'INTERNAL_RESPONSE_TOO_LARGE');
+    throw new Error('INTERNAL_RESPONSE_TOO_LARGE');
+  }
+  if (!response.body) return new Uint8Array();
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  let stop;
+  const stopped = new Promise((resolve) => {
+    stop = resolve;
+  });
+  const abortReason = () =>
+    signal.reason instanceof Error ? signal.reason : new Error('INTERNAL_RESPONSE_TIMEOUT');
+  const abort = () => {
+    stop({ kind: 'aborted' });
+    cancelReadableBody(reader, abortReason());
+  };
+  if (signal.aborted) abort();
+  else signal.addEventListener('abort', abort, { once: true });
+
+  try {
+    while (true) {
+      const outcome = await Promise.race([
+        reader.read().then(
+          (value) => ({ kind: 'read', value }),
+          () => ({ kind: 'invalid' }),
+        ),
+        stopped,
+      ]);
+      if (outcome.kind === 'aborted') throw abortReason();
+      if (outcome.kind !== 'read') throw new Error('INTERNAL_RESPONSE_INVALID');
+      const { done, value } = outcome.value;
+      if (done) break;
+      if (!value) continue;
+      const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
+      totalBytes += bytes.byteLength;
+      if (totalBytes > maxBytes) {
+        cancelReadableBody(reader, 'INTERNAL_RESPONSE_TOO_LARGE');
+        throw new Error('INTERNAL_RESPONSE_TOO_LARGE');
+      }
+      chunks.push(bytes);
+    }
+  } finally {
+    signal.removeEventListener('abort', abort);
+    try {
+      reader.releaseLock();
+    } catch {
+      // A non-cooperative stream may retain the timed-out pending read.
+    }
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+async function fetchWithDeadline(
+  fetcher,
+  request,
+  timeoutMs,
+  maxBytes = INTERNAL_SERVICE_RESPONSE_MAX_BYTES,
+) {
   const controller = new AbortController();
-  let timeoutId;
-  const timeout = new Promise((_, reject) => {
+  let timeoutId = null;
+  let timedOut = false;
+  const operation = Promise.resolve()
+    .then(() => fetcher(new Request(request, { signal: controller.signal })))
+    .then(async (response) => {
+      if (timedOut) {
+        cancelReadableBody(response, 'INTERNAL_RESPONSE_TIMEOUT');
+        return null;
+      }
+      const bytes = await readResponseBytesLimited(response, maxBytes, controller.signal);
+      return timedOut ? null : { response, bytes };
+    })
+    // Normalize both an early dependency failure and a rejection that arrives
+    // after the timeout so neither can surface as an unhandled rejection.
+    .catch(() => null);
+  const timeout = new Promise((resolve) => {
     timeoutId = setTimeout(() => {
-      controller.abort();
-      reject(new Error('DEVELOPER_COMMAND_DISPATCH_TIMEOUT'));
+      timedOut = true;
+      controller.abort(new Error('INTERNAL_RESPONSE_TIMEOUT'));
+      resolve(null);
     }, timeoutMs);
   });
   try {
-    const boundedRequest = new Request(request, { signal: controller.signal });
-    return await Promise.race([fetcher(boundedRequest), timeout]);
+    const result = await Promise.race([operation, timeout]);
+    if (!result) throw new Error('INTERNAL_RESPONSE_UNAVAILABLE');
+    return result;
   } finally {
-    clearTimeout(timeoutId);
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  }
+}
+
+function parseInternalJsonResponse(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) return null;
+  try {
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    return null;
   }
 }
 
@@ -3249,9 +3365,26 @@ function adminAnnouncementResponse(state, status = 200, extra = {}) {
 }
 
 function normalizeAbuseRateState(value) {
+  const isV1 = hasExactKeys(value, [
+    'v',
+    'limit',
+    'windowMs',
+    'windowStartMs',
+    'resetAtMs',
+    'count',
+  ]);
+  const isV2 = hasExactKeys(value, [
+    'v',
+    'limit',
+    'windowMs',
+    'windowStartMs',
+    'resetAtMs',
+    'count',
+    'operationIds',
+  ]);
   if (
-    !hasExactKeys(value, ['v', 'limit', 'windowMs', 'windowStartMs', 'resetAtMs', 'count']) ||
-    value.v !== 1 ||
+    (!isV1 && !isV2) ||
+    (isV1 ? value.v !== 1 : value.v !== 2) ||
     !Number.isSafeInteger(value.limit) ||
     value.limit < 1 ||
     value.limit > 1_000_000 ||
@@ -3265,17 +3398,27 @@ function normalizeAbuseRateState(value) {
     value.resetAtMs !== value.windowStartMs + value.windowMs ||
     !Number.isSafeInteger(value.count) ||
     value.count < 0 ||
-    value.count > value.limit
+    value.count > value.limit ||
+    (isV2 &&
+      (!Array.isArray(value.operationIds) ||
+        value.operationIds.length > Math.min(value.limit, ABUSE_RATE_OPERATION_HISTORY_LIMIT) ||
+        value.operationIds.length > value.count ||
+        new Set(value.operationIds).size !== value.operationIds.length ||
+        value.operationIds.some(
+          (operationId) =>
+            typeof operationId !== 'string' || !ABUSE_RATE_OPERATION_ID_RE.test(operationId),
+        )))
   ) {
     return null;
   }
   return {
-    v: 1,
+    v: 2,
     limit: value.limit,
     windowMs: value.windowMs,
     windowStartMs: value.windowStartMs,
     resetAtMs: value.resetAtMs,
     count: value.count,
+    operationIds: isV2 ? [...value.operationIds] : [],
   };
 }
 
@@ -3361,7 +3504,7 @@ export class MusixquareServiceControl {
     );
   }
 
-  async handleAbuseRateConsume(request) {
+  async handleAbuseRateConsume(request, idempotent) {
     if (this.abuseRateStateInvalid) {
       return serviceControlJson({ error: 'ABUSE_RATE_STATE_INVALID' }, 503);
     }
@@ -3375,18 +3518,14 @@ export class MusixquareServiceControl {
     ) {
       return serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413);
     }
-    let body;
-    try {
-      const text = await request.text();
-      if (new TextEncoder().encode(text).byteLength > ABUSE_RATE_REQUEST_MAX_BYTES) {
-        return serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413);
-      }
-      body = JSON.parse(text);
-    } catch {
-      return serviceControlJson({ error: 'INVALID_JSON' }, 400);
-    }
+    const parsed = await readPrivateJsonBody(request, ABUSE_RATE_REQUEST_MAX_BYTES);
+    if (parsed.error) return serviceControlJson({ error: parsed.error }, parsed.status);
+    const body = parsed.value;
+    const expectedKeys = idempotent
+      ? ['limit', 'windowMs', 'cost', 'operationId']
+      : ['limit', 'windowMs', 'cost'];
     if (
-      !hasExactKeys(body, ['limit', 'windowMs', 'cost']) ||
+      !hasExactKeys(body, expectedKeys) ||
       !Number.isSafeInteger(body.limit) ||
       body.limit < 1 ||
       body.limit > 1_000_000 ||
@@ -3395,7 +3534,11 @@ export class MusixquareServiceControl {
       body.windowMs > 24 * 60 * 60 * 1_000 ||
       !Number.isSafeInteger(body.cost) ||
       body.cost < 1 ||
-      body.cost > body.limit
+      body.cost > body.limit ||
+      (idempotent &&
+        (typeof body.operationId !== 'string' ||
+          !ABUSE_RATE_OPERATION_ID_RE.test(body.operationId) ||
+          body.limit > ABUSE_RATE_OPERATION_HISTORY_LIMIT))
     ) {
       return serviceControlJson({ error: 'INVALID_REQUEST' }, 400);
     }
@@ -3412,16 +3555,19 @@ export class MusixquareServiceControl {
           ? this.abuseRateState
           : null;
       const count = current?.count || 0;
-      const allowed = count + body.cost <= body.limit;
-      const nextCount = allowed ? count + body.cost : count;
-      if (allowed) {
+      const operationIds = current?.operationIds || [];
+      const replayed = idempotent && operationIds.includes(body.operationId);
+      const allowed = replayed || count + body.cost <= body.limit;
+      const nextCount = allowed && !replayed ? count + body.cost : count;
+      if (allowed && !replayed) {
         const next = {
-          v: 1,
+          v: 2,
           limit: body.limit,
           windowMs: body.windowMs,
           windowStartMs,
           resetAtMs,
           count: nextCount,
+          operationIds: idempotent ? [...operationIds, body.operationId] : operationIds,
         };
         await this.storage.put(ABUSE_RATE_STATE_KEY, next);
         this.abuseRateState = next;
@@ -3449,16 +3595,9 @@ export class MusixquareServiceControl {
     if (Number.isFinite(contentLength) && contentLength > ADMIN_ANNOUNCEMENT_CONTROL_MAX_BYTES) {
       return serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413);
     }
-    let body;
-    try {
-      const text = await request.text();
-      if (new TextEncoder().encode(text).byteLength > ADMIN_ANNOUNCEMENT_CONTROL_MAX_BYTES) {
-        return serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413);
-      }
-      body = JSON.parse(text);
-    } catch {
-      return serviceControlJson({ error: 'INVALID_JSON' }, 400);
-    }
+    const parsed = await readPrivateJsonBody(request, ADMIN_ANNOUNCEMENT_CONTROL_MAX_BYTES);
+    if (parsed.error) return serviceControlJson({ error: parsed.error }, parsed.status);
+    const body = parsed.value;
     const keys = body && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : [];
     const message = typeof body?.message === 'string' ? body.message.trim() : null;
     const expiresAt =
@@ -3574,8 +3713,15 @@ export class MusixquareServiceControl {
     if (this.ready) await this.ready;
     const url = new URL(request.url);
     if (url.search || url.hash) return serviceControlJson({ error: 'NOT_FOUND' }, 404);
-    if (request.method === 'POST' && url.pathname === ABUSE_RATE_CONSUME_PATH) {
-      return this.handleAbuseRateConsume(request);
+    if (
+      request.method === 'POST' &&
+      (url.pathname === ABUSE_RATE_CONSUME_PATH ||
+        url.pathname === ABUSE_RATE_IDEMPOTENT_CONSUME_PATH)
+    ) {
+      return this.handleAbuseRateConsume(
+        request,
+        url.pathname === ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
+      );
     }
     if (request.method === 'GET' && url.pathname === ADMIN_ANNOUNCEMENT_STATUS_PATH) {
       if (this.announcementStateInvalid) {
@@ -3601,16 +3747,9 @@ export class MusixquareServiceControl {
     if (Number.isFinite(contentLength) && contentLength > 4096) {
       return serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413);
     }
-    let body;
-    try {
-      const text = await request.text();
-      if (new TextEncoder().encode(text).byteLength > 4096) {
-        return serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413);
-      }
-      body = JSON.parse(text);
-    } catch {
-      return serviceControlJson({ error: 'INVALID_JSON' }, 400);
-    }
+    const parsed = await readPrivateJsonBody(request, 4096);
+    if (parsed.error) return serviceControlJson({ error: parsed.error }, parsed.status);
+    const body = parsed.value;
     if (
       !body ||
       typeof body !== 'object' ||
@@ -5007,6 +5146,18 @@ export class MusixquareProRoom {
     }
     for (const record of Object.values(this.room.developerCommandIdempotency || {})) {
       candidates.push(record.expiresAtMs);
+    }
+    for (const [storageKey, record] of Object.entries(this.room.idempotency || {})) {
+      candidates.push(this.idempotencyExpiresAt(storageKey, record));
+    }
+    for (const record of Object.values(this.room.developerMutationIdempotency || {})) {
+      candidates.push(record.expiresAtMs);
+    }
+    for (const record of Object.values(this.room.rateLimits || {})) {
+      candidates.push(record.resetAtMs);
+    }
+    for (const record of Object.values(this.room.botRateLimits || {})) {
+      candidates.push(record.resetAtMs);
     }
     if (this.room.pendingPresenceBroadcast) {
       const retryAtMs = this.room.pendingPresenceBroadcast.retryAtMs;
@@ -8574,7 +8725,14 @@ export class MusixquareProRoom {
     });
   }
 
-  async createSessionRecord(role, displayName, nowMs, memberId = null, accountMember = null) {
+  async createSessionRecord(
+    role,
+    displayName,
+    nowMs,
+    memberId = null,
+    accountMember = null,
+    credentialContext = null,
+  ) {
     const secret = String(this.env.PRO_ROOM_SESSION_SECRET || '');
     if (secret.length < 32) return null;
     const sessions = Object.entries(this.room.sessions);
@@ -8616,7 +8774,9 @@ export class MusixquareProRoom {
         Math.max(this.room.nextMemberDisplayNumber || 1, highestAssignedNumber + 1),
       );
     }
-    const token = await createOpaqueCredential(secret);
+    const token = credentialContext
+      ? await createDeterministicOpaqueCredential(secret, credentialContext)
+      : await createOpaqueCredential(secret);
     const tokenHash = await sha256Base64Url(token);
     const session = {
       roomGeneration: this.room.roomGeneration,
@@ -9452,7 +9612,7 @@ export class MusixquareProRoom {
       const stub = namespace.get(
         namespace.idFromName(proRoomObjectName(this.room.roomCode, this.room.roomGeneration)),
       );
-      const response = await fetchWithDeadline(
+      const { response, bytes } = await fetchWithDeadline(
         (boundedRequest) => stub.fetch(boundedRequest),
         new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
           method: 'POST',
@@ -9471,7 +9631,7 @@ export class MusixquareProRoom {
         }),
         DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS,
       );
-      return response.status === 200;
+      return response.status === 200 && parseInternalJsonResponse(bytes) !== null;
     } catch {
       return false;
     }
@@ -9617,7 +9777,7 @@ export class MusixquareProRoom {
       const stub = namespace.get(
         namespace.idFromName(proRoomObjectName(this.room.roomCode, this.room.roomGeneration)),
       );
-      const response = await fetchWithDeadline(
+      const { response, bytes } = await fetchWithDeadline(
         (boundedRequest) => stub.fetch(boundedRequest),
         new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
           method: 'POST',
@@ -9637,7 +9797,7 @@ export class MusixquareProRoom {
         DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS,
       );
       if (response.status !== 200) return false;
-      const body = await response.json().catch(() => null);
+      const body = parseInternalJsonResponse(bytes);
       return !!(
         hasExactKeys(body, ['broadcast', 'eligible', 'sent']) &&
         body.broadcast === true &&
@@ -10403,7 +10563,8 @@ export class MusixquareProRoom {
       const stub = namespace.get(
         namespace.idFromName(proRoomObjectName(this.room.roomCode, this.room.roomGeneration)),
       );
-      const response = await stub.fetch(
+      const { response, bytes } = await fetchWithDeadline(
+        (boundedRequest) => stub.fetch(boundedRequest),
         new Request('https://signaling.internal/internal/admin/v1/decommission', {
           method: 'POST',
           headers: {
@@ -10417,11 +10578,9 @@ export class MusixquareProRoom {
             requestId,
           }),
         }),
+        INTERNAL_SERVICE_RESPONSE_TIMEOUT_MS,
       );
-      const payload = await response
-        .clone()
-        .json()
-        .catch(() => null);
+      const payload = parseInternalJsonResponse(bytes);
       return (
         response.ok &&
         payload?.ok === true &&
@@ -10492,7 +10651,8 @@ export class MusixquareProRoom {
     try {
       const limiterName = `room:${proRoomObjectName(this.room.roomCode, this.room.roomGeneration)}`;
       const stub = namespace.get(namespace.idFromName(limiterName));
-      const response = await stub.fetch(
+      const { response, bytes } = await fetchWithDeadline(
+        (boundedRequest) => stub.fetch(boundedRequest),
         new Request('https://developer-api.internal/internal/admin/v1/decommission', {
           method: 'POST',
           headers: {
@@ -10506,11 +10666,9 @@ export class MusixquareProRoom {
             requestId,
           }),
         }),
+        INTERNAL_SERVICE_RESPONSE_TIMEOUT_MS,
       );
-      const payload = await response
-        .clone()
-        .json()
-        .catch(() => null);
+      const payload = parseInternalJsonResponse(bytes);
       return (
         response.ok &&
         payload?.ok === true &&
@@ -11777,27 +11935,206 @@ export class MusixquareProRoom {
   async handleCreateSession(request) {
     if (this.room.status === 'unactivated') return errorResponse('ACTIVATION_REQUIRED', 409);
     if (this.room.status === 'suspended') return errorResponse('ROOM_SUSPENDED', 423);
-    const rateError = this.readRateLimit(request, 'pin-failure', 10);
-    if (rateError) return rateError;
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
     const body = parsed.value;
-    if (!hasExactKeys(body, ['pin']) || !PIN_RE.test(body.pin)) {
+    const legacyBody = hasExactKeys(body, ['pin']);
+    const idempotentBody = hasExactKeys(body, ['pin', 'requestId']);
+    if (
+      (!legacyBody && !idempotentBody) ||
+      !PIN_RE.test(body.pin) ||
+      (idempotentBody && !IDEMPOTENCY_KEY_RE.test(body.requestId || ''))
+    ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const pepper = String(this.env.PRO_ROOM_PIN_PEPPER || '');
-    if (pepper.length < 32 || String(this.env.PRO_ROOM_SESSION_SECRET || '').length < 32) {
+    const sessionSecret = String(this.env.PRO_ROOM_SESSION_SECRET || '');
+    if (pepper.length < 32 || sessionSecret.length < 32) {
       return errorResponse('SERVICE_NOT_CONFIGURED', 503);
-    }
-    if (!(await verifyPin(body.pin, this.room.pin, pepper))) {
-      this.recordRateLimitHit(request, 'pin-failure', 60 * 60 * 1000);
-      await this.persist();
-      return errorResponse('PIN_INVALID', 401);
     }
     const nowMs = Date.now();
     const asserted = await this.accountAssertion(request);
     if (asserted.response) return asserted.response;
     const ownerCredential = await this.hasOwnerCredential(request);
+    let scope = null;
+    let fingerprint = null;
+    let credentialContext = null;
+    let idempotencyRecords = null;
+    if (idempotentBody) {
+      const actorHint = request.headers.get(PRO_ROOM_SESSION_ACTOR_HEADER) || '';
+      // The App facade derives this stable, authority-free actor from the
+      // room-scoped 192-bit client requestId before optional account lookup.
+      // A newly issued session cookie or recovered account assertion must
+      // never change idempotency scope after an outcome-unknown response.
+      const actorIdentity = PRO_ROOM_SESSION_ACTOR_RE.test(actorHint)
+        ? `facade:${actorHint}`
+        : `network:${request.headers.get('x-mxqr-pro-ip-hash') || 'internal-test'}`;
+      const actorHash = await sha256Base64Url(actorIdentity);
+      scope = `session-create:${actorHash}`;
+      fingerprint = await hmacBase64Url(
+        sessionSecret,
+        `session-create-fingerprint:v1\u0000${scope}\u0000${JSON.stringify({
+          pin: body.pin,
+          requestId: body.requestId,
+        })}`,
+      );
+      credentialContext = [
+        'session-create:v1',
+        this.room.roomCode,
+        String(this.room.roomGeneration),
+        scope,
+        body.requestId,
+        fingerprint,
+      ].join('\u0000');
+      const deterministicToken = await createDeterministicOpaqueCredential(
+        sessionSecret,
+        credentialContext,
+      );
+      const deterministicTokenHash = await sha256Base64Url(deterministicToken);
+      const existingReceipt = this.idempotencyRecord(scope, body.requestId);
+      if (existingReceipt) {
+        if (!constantTimeEqual(existingReceipt.fingerprint || '', fingerprint)) {
+          return errorResponse('IDEMPOTENCY_CONFLICT', 409);
+        }
+        if (
+          existingReceipt.kind !== 'session-create' ||
+          existingReceipt.status !== 200 ||
+          !SHA256_RE.test(existingReceipt.tokenHash || '') ||
+          !OPAQUE_ID_RE.test(existingReceipt.participantId || '')
+        ) {
+          return errorResponse('ROOM_STATE_INVALID', 503);
+        }
+        const replaySession = this.room.sessions[existingReceipt.tokenHash];
+        if (
+          !constantTimeEqual(deterministicTokenHash, existingReceipt.tokenHash) ||
+          !replaySession ||
+          replaySession.participantId !== existingReceipt.participantId ||
+          replaySession.expiresAtMs <= nowMs ||
+          replaySession.authEpoch !== this.room.authEpoch ||
+          replaySession.roomGeneration !== this.room.roomGeneration
+        ) {
+          // The receipt remains an exactly-once fence until its short TTL ends.
+          // Never turn an explicitly closed or capacity-evicted session into a
+          // second admission under the same logical request.
+          return errorResponse('SESSION_REPLAY_UNAVAILABLE', 409);
+        }
+        if (!this.room.presence.participants[replaySession.participantId]) {
+          if (
+            this.joinPresence(
+              replaySession,
+              deterministicTokenHash,
+              nowMs,
+              devicePlatformFromRequest(request),
+            ) === null
+          ) {
+            return errorResponse('ROOM_FULL', 409);
+          }
+        }
+        // A prior storage failure can leave a receipt/session visible in this
+        // isolate even though the durable transaction did not commit (for
+        // example, a compatibility storage implementation without the outer
+        // rollback seam). Converge durability before returning any replayed
+        // credential, even when its presence was already resident in memory.
+        await this.persist();
+        const remainingTtlSeconds = Math.max(
+          1,
+          Math.ceil((replaySession.expiresAtMs - nowMs) / 1000),
+        );
+        return jsonResponse(
+          {
+            snapshot: publicSnapshot(this.room, replaySession),
+            session: { expiresAtMs: replaySession.expiresAtMs },
+          },
+          200,
+          {
+            'set-cookie': sessionCookie(
+              this.room.roomCode,
+              deterministicToken,
+              remainingTtlSeconds,
+            ),
+            ...(replaySession.accountId ? { 'x-mxqr-account-linked': '1' } : {}),
+          },
+        );
+      }
+
+      // The compact receipt intentionally expires before the session. An
+      // outcome-unknown retry can therefore arrive after its receipt was
+      // pruned while the deterministic credential is still authoritative.
+      // Reuse that exact live session and recreate the receipt; overwriting
+      // the same tokenHash with a new participant would orphan the prior
+      // presence and turn one logical admission into two identities.
+      const recoveredSession = this.room.sessions[deterministicTokenHash];
+      if (recoveredSession) {
+        if (
+          !OPAQUE_ID_RE.test(recoveredSession.participantId || '') ||
+          recoveredSession.expiresAtMs <= nowMs ||
+          recoveredSession.authEpoch !== this.room.authEpoch ||
+          recoveredSession.roomGeneration !== this.room.roomGeneration
+        ) {
+          return errorResponse('ROOM_STATE_INVALID', 503);
+        }
+        if (!this.room.presence.participants[recoveredSession.participantId]) {
+          if (
+            this.joinPresence(
+              recoveredSession,
+              deterministicTokenHash,
+              nowMs,
+              devicePlatformFromRequest(request),
+            ) === null
+          ) {
+            return errorResponse('ROOM_FULL', 409);
+          }
+        }
+        const recoveredRecords = this.reserveIdempotencySlot(scope, body.requestId, nowMs);
+        recoveredRecords[`${scope}:${body.requestId}`] = {
+          kind: 'session-create',
+          fingerprint,
+          status: 200,
+          tokenHash: deterministicTokenHash,
+          participantId: recoveredSession.participantId,
+          expiresAtMs: Math.min(
+            recoveredSession.expiresAtMs,
+            nowMs + SESSION_CREATE_IDEMPOTENCY_TTL_MS,
+          ),
+        };
+        await this.persist();
+        const remainingTtlSeconds = Math.max(
+          1,
+          Math.ceil((recoveredSession.expiresAtMs - nowMs) / 1000),
+        );
+        return jsonResponse(
+          {
+            snapshot: publicSnapshot(this.room, recoveredSession),
+            session: { expiresAtMs: recoveredSession.expiresAtMs },
+          },
+          200,
+          {
+            'set-cookie': sessionCookie(
+              this.room.roomCode,
+              deterministicToken,
+              remainingTtlSeconds,
+            ),
+            ...(recoveredSession.accountId ? { 'x-mxqr-account-linked': '1' } : {}),
+          },
+        );
+      }
+    }
+    // The one-field legacy body remains accepted during the cached-client
+    // rollout. It cannot be safely collapsed by IP/PIN/User-Agent without
+    // merging distinct devices behind the same NAT, so only v1 clients that
+    // supply an opaque requestId receive exactly-once replay semantics.
+    const rateError = this.readRateLimit(request, 'pin-failure', 10);
+    if (rateError) return rateError;
+    if (!(await verifyPin(body.pin, this.room.pin, pepper))) {
+      this.recordRateLimitHit(request, 'pin-failure', 60 * 60 * 1000);
+      await this.persist();
+      return errorResponse('PIN_INVALID', 401);
+    }
+    if (idempotentBody && scope) {
+      // Capacity is reserved before account/session state is touched, so a
+      // full receipt ledger fails closed without a partially admitted identity.
+      idempotencyRecords = this.reserveIdempotencySlot(scope, body.requestId, nowMs);
+    }
     const role =
       (ownerCredential && this.room.ownerAccountId === null) ||
       (asserted.account && this.room.ownerAccountId === asserted.account.accountId)
@@ -11818,6 +12155,7 @@ export class MusixquareProRoom {
       nowMs,
       accountMember?.memberId || (role === 'owner' ? this.room.ownerMemberId : null),
       accountMember,
+      credentialContext,
     );
     if (!created) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
     if (
@@ -11830,6 +12168,19 @@ export class MusixquareProRoom {
     ) {
       this.removeSessionRecord(created.tokenHash);
       return errorResponse('ROOM_FULL', 409);
+    }
+    if (idempotencyRecords && scope && fingerprint) {
+      idempotencyRecords[`${scope}:${body.requestId}`] = {
+        kind: 'session-create',
+        fingerprint,
+        status: 200,
+        tokenHash: created.tokenHash,
+        participantId: created.session.participantId,
+        expiresAtMs: Math.min(
+          created.session.expiresAtMs,
+          nowMs + SESSION_CREATE_IDEMPOTENCY_TTL_MS,
+        ),
+      };
     }
     await this.persist();
     return jsonResponse(

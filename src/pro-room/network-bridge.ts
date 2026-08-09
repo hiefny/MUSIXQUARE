@@ -1,5 +1,6 @@
 import { log } from '../core/log.ts';
 import { batchSetState, getState } from '../core/state.ts';
+import { proSignalingWebSocketProtocols } from '../network/pro-signaling-websocket.ts';
 import { getRuntimeTransportConfig } from '../network/transport/config.ts';
 import type { ProRoomSignalingAccess } from './api.ts';
 import type { ProRoomPlaybackPrepareEvent } from './api.ts';
@@ -106,7 +107,7 @@ function randomEventId(): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function signalingSocketUrl(roomCode: string, ticket: string): string {
+function signalingSocketUrl(roomCode: string): string {
   const configured = getRuntimeTransportConfig().signalingUrl;
   if (!configured) throw new Error('PRO_SIGNALING_URL_MISSING');
   const url = new URL(configured);
@@ -120,7 +121,6 @@ function signalingSocketUrl(roomCode: string, ticket: string): string {
       : `${standardBase}/api/pro-rooms`;
   url.pathname = `${proBase}/${encodeURIComponent(roomCode)}/ws`;
   url.search = '';
-  url.searchParams.set('ticket', ticket);
   return url.toString();
 }
 
@@ -432,8 +432,8 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
     this.#clockCalibrated = false;
     this.#clockReadyCalibratedAtMs = 0;
 
-    const url = signalingSocketUrl(snapshot.roomCode, access.ticket);
-    const socket = new WebSocket(url);
+    const url = signalingSocketUrl(snapshot.roomCode);
+    const socket = new WebSocket(url, proSignalingWebSocketProtocols(access.ticket));
     this.#socket = socket;
 
     const currentLabel = (getState('network.myDeviceLabel') || '').trim();

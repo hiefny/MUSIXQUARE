@@ -125,4 +125,25 @@ describe('initTabs', () => {
 
     expect(document.activeElement).toBe(document.getElementById('tab-settings'));
   });
+
+  it('retains tab focus for keyboard or assistive-tech click activation', () => {
+    initTabs();
+    const settings = document.querySelector<HTMLButtonElement>('[data-tab="settings"]')!;
+    settings.focus();
+
+    settings.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+
+    expect(document.activeElement).toBe(settings);
+    expect(settings.getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('clears persistent focus after pointer activation', () => {
+    initTabs();
+    const settings = document.querySelector<HTMLButtonElement>('[data-tab="settings"]')!;
+    settings.focus();
+
+    settings.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+
+    expect(document.activeElement).not.toBe(settings);
+  });
 });

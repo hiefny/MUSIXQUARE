@@ -221,25 +221,25 @@ room's durable generation tombstone remains the authorization fence. Terminal
 room history therefore cannot consume an account's live cleanup budget or
 inflate a future account deletion forever.
 
-Deletion with at most 32 linked incarnations remains synchronous. If any such
-incarnation cannot be purged, deletion returns
-`503 ACCOUNT_DELETE_CLEANUP_UNAVAILABLE` and keeps the account and remaining
-reverse index so the user can retry safely; incarnations already purged remain
-safe to purge again.
+After deletion preflight succeeds, the request atomically disables the account,
+copies at most 128 session digests into the ten-minute deletion-only tombstone
+table, and revokes all live sessions. It then attempts every linked room
+incarnation, bounded by the 1,000-edge write limit, inline in batches. If every
+purge and finalization step succeeds, the account row is removed and the request
+returns `200 { ok:true }`.
 
-For larger fan-out, the delete request atomically disables the account, copies
-at most 128 session digests into the ten-minute deletion-only tombstone table,
-revokes all live sessions, and returns `202 { ok:true, pending:true }`. The App
-Worker immediately starts an exact-generation cleanup continuation and a
-one-minute cron resumes durable jobs after interruption. Each confirmed,
-idempotent room purge deletes only its matching reverse edge. The account row is
-removed after no edge remains; a failed edge stays queued while the account
-remains disabled and cannot log in, attach, or create new authority.
-The aggregate statistics row follows the same boundary: it may remain while a
-disabled account's durable PRO cleanup is pending, but it cannot be read or
-updated after sessions are revoked and is removed by the final account-row
-cascade. Statistics are never copied into the ten-minute deletion-only session
-tombstone.
+A cleanup failure before the disable/session-revocation transaction returns
+`503 ACCOUNT_DELETE_CLEANUP_UNAVAILABLE`, leaves the account active, and can be
+retried by the user. A failure after that transaction returns
+`202 { ok:true, pending:true }`; the account remains disabled and cannot log in,
+attach, or create new authority while an immediate continuation and the
+one-minute cron retry the exact remaining edges. Each confirmed, idempotent room
+purge deletes only its matching reverse edge. The account row is removed after
+no edge remains. The aggregate statistics row follows the same boundary: it may
+remain while a disabled account's durable PRO cleanup is pending, but it cannot
+be read or updated after sessions are revoked and is removed by the final
+account-row cascade. Statistics are never copied into the ten-minute
+deletion-only session tombstone.
 
 The reverse index is atomically capped at 1,000 distinct incarnations per
 account; an existing edge may still refresh at that limit, but a new

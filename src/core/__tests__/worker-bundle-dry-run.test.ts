@@ -84,6 +84,7 @@ describe('production Worker bundle dry-run contract', () => {
     };
     const ci = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
     const release = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const bundleGuard = readFileSync(resolve('scripts/check-worker-bundles.mjs'), 'utf8');
 
     expect(packageJson.scripts['check:worker-bundles']).toBe(
       'node scripts/check-worker-bundles.mjs',
@@ -97,5 +98,7 @@ describe('production Worker bundle dry-run contract', () => {
     expect(release.indexOf('npm run check:worker-bundles')).toBeLessThan(
       release.indexOf('npm run --silent wrangler -- whoami'),
     );
+    expect(bundleGuard).toContain('assertDurableObjectMigrationContract({ root })');
+    expect(bundleGuard).toContain('assertDurableObjectMigrationRepositoryHistory({ root })');
   });
 });

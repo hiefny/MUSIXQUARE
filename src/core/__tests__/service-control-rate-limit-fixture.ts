@@ -1,5 +1,8 @@
 import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.js';
-import { ABUSE_RATE_CONSUME_PATH } from '../../../cloudflare/service-maintenance.js';
+import {
+  ABUSE_RATE_CONSUME_PATH,
+  ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
+} from '../../../cloudflare/service-maintenance.js';
 
 class RateControlStorage {
   private readonly values = new Map<string, unknown>();
@@ -38,6 +41,7 @@ export function createAtomicRateControlBinding(barrierCalls = 0): {
   };
   rateFetchCount(): number;
   objectNames(): string[];
+  releaseRateBarrier(): void;
 } {
   const instances = new Map<string, RateControlObject>();
   let rateFetches = 0;
@@ -70,7 +74,10 @@ export function createAtomicRateControlBinding(barrierCalls = 0): {
       get(id: string) {
         return {
           fetch: async (request: Request): Promise<Response> => {
-            if (new URL(request.url).pathname === ABUSE_RATE_CONSUME_PATH) {
+            if (
+              new URL(request.url).pathname === ABUSE_RATE_CONSUME_PATH ||
+              new URL(request.url).pathname === ABUSE_RATE_IDEMPOTENT_CONSUME_PATH
+            ) {
               rateFetches += 1;
               if (rateFetches === barrierCalls) releaseBarrier?.();
               await barrier;
@@ -82,5 +89,6 @@ export function createAtomicRateControlBinding(barrierCalls = 0): {
     },
     rateFetchCount: () => rateFetches,
     objectNames: () => [...instances.keys()],
+    releaseRateBarrier: () => releaseBarrier?.(),
   };
 }

@@ -64,7 +64,6 @@ function attachConsoleCapture(page: Page, label: string): void {
     const type = msg.type();
     if (type === 'error' || type === 'warning') {
       // Surface browser diagnostics without turning warnings into assertions.
-      // eslint-disable-next-line no-console
       console.log(`[${label}] ${type}:`, msg.text());
     }
   });

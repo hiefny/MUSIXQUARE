@@ -1763,6 +1763,7 @@ describe('Cloudflare app worker JSON body limits', () => {
       {
         MXQR_ADMIN_PASSWORD: 'admin-password-strong',
         MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+        MUSIXQUARE_SERVICE_CONTROL: createAtomicRateControlBinding().binding,
       },
     );
 
@@ -1774,6 +1775,37 @@ describe('Cloudflare app worker JSON body limits', () => {
 
   it('returns a bounded response when a public JSON request body stalls', async () => {
     vi.useFakeTimers();
+    const control = createAtomicRateControlBinding();
+    let resolveAtomicRateLimit!: () => void;
+    const atomicRateLimitCompleted = new Promise<void>((resolve) => {
+      resolveAtomicRateLimit = resolve;
+    });
+    const serviceControl = {
+      idFromName: (name: string) => control.binding.idFromName(name),
+      get: (id: string) => {
+        const stub = control.binding.get(id);
+        return {
+          fetch: async (request: Request) => {
+            const response = await stub.fetch(request);
+            if (control.rateFetchCount() === 1) resolveAtomicRateLimit();
+            return response;
+          },
+        };
+      },
+    };
+
+    let resolveBodyTimeout!: () => void;
+    const bodyTimeoutArmed = new Promise<void>((resolve) => {
+      resolveBodyTimeout = resolve;
+    });
+    const fakeSetTimeout = globalThis.setTimeout;
+    const timeoutSpy = vi
+      .spyOn(globalThis, 'setTimeout')
+      .mockImplementation((handler, timeout, ...args) => {
+        const timer = fakeSetTimeout(handler, timeout, ...args);
+        if (timeout === 10_000) resolveBodyTimeout();
+        return timer;
+      });
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(new TextEncoder().encode('{"password":"admin'));
@@ -1789,13 +1821,22 @@ describe('Cloudflare app worker JSON body limits', () => {
       {
         MXQR_ADMIN_PASSWORD: 'admin-password-strong',
         MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+        MUSIXQUARE_SERVICE_CONTROL: serviceControl,
       },
     );
 
-    for (let attempt = 0; attempt < 20 && vi.getTimerCount() === 0; attempt += 1) {
-      await vi.advanceTimersByTimeAsync(0);
+    try {
+      // Admin login first derives its pseudonymous HMAC identity, then awaits
+      // the production-shaped atomic limiter. Observe both that boundary and
+      // the exact body-deadline registration instead of guessing how many
+      // instrumented microtasks the chain will need.
+      await atomicRateLimitCompleted;
+      await bodyTimeoutArmed;
+    } finally {
+      timeoutSpy.mockRestore();
     }
-    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    expect(control.rateFetchCount()).toBe(1);
+    expect(vi.getTimerCount()).toBe(1);
     await vi.advanceTimersByTimeAsync(10_001);
     const response = await pending;
 
